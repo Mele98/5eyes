@@ -55,28 +55,35 @@ ENGINE_FILE = REPO_ROOT / "5eyes-backend" / "services" / "portfolio_engine.py"
 # gewesen, eigene Begruendungs-Kommentare so lange zu kuerzen, bis es knapp
 # passt -- das haette das Gate umspielt statt respektiert.
 #
-# 2026-10-11 bewusst von 7'320 auf 7'340 angehoben. Begruendung: zwei
-# Nachweis-Befunde derselben Art, beide mit der Fachlogik in eigenen
-# Submodulen und nur einer Deklaration in der Kern-Datei.
-#   * CMA-CORRELATION-JURISDICTION-PROVENANCE-001 -- die Bucket-Korrelations-
-#     Herkunft (Logik in services/cma_correlation_provenance.py).
-#   * DRAWDOWN-TIME-GRID-001 / REPORTING-BASIS-DURABILITY-001 -- die Methode
-#     hinter mc_max_drawdown_bps (Logik in services/drawdown_refinement.py)
-#     und die Persistierung des Reporting-Basis-Blocks.
-# Was in der Kern-Datei wuchs, sind Eintraege INNERHALB der beiden
-# Modell-Basis-Dict-Literale plus deren Begruendung. Diese Dicts SIND der
-# Nachweis-Block; sie in ein Submodul zu verschieben wuerde den
-# Zusammenhang zwischen Kennzahl und ausgewiesener Methodik aufreissen,
-# ohne eine Zeile Fachlogik zu verlagern -- das waere eine Verschlechterung
-# zugunsten einer Zahl. Der Puffer war nach dem Korrelations-Commit bei
-# 7'318/7'320 praktisch null; 7'340 gibt wieder Luft fuer Begruendungstexte,
-# ohne das Ziel (kein unkontrolliertes Wachstum) aufzuweichen.
-#
-# ACHTUNG fuer die naechste Anhebung: das ist die dritte in zwei Tagen. Wer
-# hier wieder ansteht, soll die Extraktion eines Cluster-Submoduls
-# ausdruecklich pruefen und das Ergebnis dieser Pruefung hier notieren,
+# 2026-10-11 zwischenzeitlich auf 7'340 angehoben (Nachweis-Eintraege fuer
+# CMA-CORRELATION-JURISDICTION-PROVENANCE-001 und DRAWDOWN-TIME-GRID-001 /
+# REPORTING-BASIS-DURABILITY-001) -- mit dem Vermerk, dass die naechste
+# Anhebung die Extraktion eines Cluster-Submoduls ausdruecklich pruefen soll
 # statt die Zahl ein viertes Mal zu erhoehen.
-MAX_LINES = 7_340
+#
+# 2026-10-11, direkt danach: dieser Fall trat bei
+# OPTIMIZER-OBJECTIVE-VARIANTS-001 ein. Die Pruefung ist ERFOLGT und das
+# Ergebnis war eindeutig -- `_build_allocation_model_basis()` (288 Zeilen) ist
+# nach services/portfolio_engine_model_basis.py extrahiert worden, statt das
+# Budget wieder anzuheben. Die Extraktion war sauber: die Funktion nimmt alles
+# ueber explizite Parameter, gibt ein dict zurueck und ruft ausserhalb nur die
+# fuenf _simulation_*-Praeferenz-Leser des MC-Clusters und die drei
+# Nachweis-Funktionen auf; keine Zirkularitaet. In portfolio_engine.py steht
+# nur noch ein Re-Export, damit bestehende Aufrufstellen und Tests
+# unveraendert bleiben.
+#
+# Damit faellt die Datei von 7'347 auf 7'059 Zeilen. Das Budget wird
+# ENTSPRECHEND MITGESENKT (7'340 -> 7'100): ein Budget von 7'340 bei 7'059
+# Zeilen waere kein Ratschen-Gate mehr, sondern 280 Zeilen Freibrief. Wer
+# Platz schafft, zieht die Ratsche nach -- sonst ist die Extraktion nur eine
+# Verschiebung des Problems in die Zukunft.
+#
+# Hinweis fuer das naechste Mal: der Modell-Basis-Block war der groesste
+# zusammenhaengende Nicht-Orchestrator-Teil. Weitere Kandidaten mit
+# vergleichbarem Profil (explizite Parameter, dict-Rueckgabe, wenige
+# Fremdaufrufe) muessen erst identifiziert werden -- eine Anhebung ohne
+# vorherige Suche ist weiterhin die falsche Antwort.
+MAX_LINES = 7_100
 
 
 def count_lines(path: Path) -> int:

@@ -58,22 +58,63 @@ def test_no_ns_params_uses_fixed_bond_returns():
     assert bonds_return == 225.0
 
 
-def test_ns_params_override_fixed_bond_returns():
-    """CMA mit NS-Params → bonds_return = curve.yield_at(5)."""
+def test_ns_params_do_not_override_fixed_bond_returns():
+    """NS-BOND-SLEEVE-COLLAPSE-001: die Kurve setzt KEIN Niveau mehr.
+
+    Dieser Test hiess einmal ``test_ns_params_override_fixed_bond_returns``
+    und verlangte ``bonds_return == curve.yield_at(5)``. Er pinnte damit den
+    Befund als Vertrag: die NS-Kurve ist eine Swap-/Staatskurve ohne
+    Kreditaufschlag, die CMA-Bond-Returns sind Basis-plus-Spread. Das
+    Ersetzen vernichtete den Aufschlag -- hier konkret 225 bps (= avg(200,
+    250)) zu 366 bps hochgezogen, im Produktions-Default mit der CHF-Swap-
+    Kalibrierung umgekehrt 228 bps auf 50 bps heruntergezogen -- und
+    kollabierte zusaetzlich alle Bond-Sleeves auf denselben Wert.
+
+    Neuer Vertrag: die Kurve traegt nur die Termstruktur bei, und die ist
+    ohne Laufzeitpraeferenz exakt null. Der Bond-Return bleibt deshalb der
+    CMA-Wert.
+    """
     from services.optimizer.scenario_engine import scenario_inputs_from_cma
     from services.rates.nelson_siegel import NelsonSiegelCurve
 
-    cma = _CMANelsonSiegel()
-    inputs = scenario_inputs_from_cma(cma)
-
-    # Erwarteter Wert: gleicher wie wenn ich direkt rechne
-    curve = NelsonSiegelCurve(beta0_bps=400, beta1_bps=-150, beta2_bps=50, lambda_=0.6)
-    expected_yield_5y = curve.yield_at(5.0)
-
+    inputs = scenario_inputs_from_cma(_CMANelsonSiegel())
     bonds_return = inputs.mu_bps[1]
-    # Bucket-CMA-Metriken sind persistierbare Integer-bps; der gemeinsame
-    # Reporting/Optimizer-Pfad rundet das NS-Ergebnis genau einmal.
-    assert bonds_return == round(expected_yield_5y)
+
+    # _avg_or_zero([200, 250]) = 225 -- unveraendert gegenueber dem Lauf ohne NS.
+    assert bonds_return == 225.0
+
+    # Gegenprobe: der Kurvenwert ist ein voellig anderer Betrag. Genau diese
+    # Differenz wurde vorher als Bond-Return ausgewiesen.
+    curve = NelsonSiegelCurve(beta0_bps=400, beta1_bps=-150, beta2_bps=50, lambda_=0.6)
+    assert round(curve.yield_at(5.0)) != 225, (
+        "Fixture-Kurve muss sich vom CMA-Wert unterscheiden, sonst prueft "
+        "dieser Test nichts"
+    )
+
+
+def test_ns_tilt_applies_when_a_maturity_is_given():
+    """Die Kurve wirkt additiv, sobald eine Laufzeit abseits der Referenz gilt.
+
+    Gegenstueck zum Test darueber: ohne Laufzeit null Wirkung, mit Laufzeit
+    genau die Termstruktur-Differenz -- und zwar auf den CMA-Wert addiert,
+    nicht an seine Stelle gesetzt.
+    """
+    from services.optimizer.scenario_engine import _compute_bonds_duration_tilt_bps
+    from services.portfolio_engine_cma import _apply_cma_market_adjustments
+
+    cma = _CMANelsonSiegel()
+    tilt = _compute_bonds_duration_tilt_bps(cma, maturity_years=10.0)
+    assert tilt is not None and tilt != 0.0
+
+    adjusted = _apply_cma_market_adjustments(
+        {
+            "equities": 700, "bonds": 225, "real_estate": 330,
+            "alternatives": 300, "liquidity": 80,
+        },
+        cma,
+        bonds_maturity_years=10.0,
+    )
+    assert adjusted["bonds"] == int(round(225 + tilt))
 
 
 def test_ns_params_value_realistic_5y_yield():
@@ -139,18 +180,25 @@ def test_complete_ns_with_non_finite_raw_value_fails_closed(
         scenario_inputs_from_cma(cma)
 
 
-def test_other_buckets_unchanged_by_ns():
-    """Equities, RE, Alternatives, Liquidity bleiben unveraendert."""
+def test_no_bucket_is_changed_by_an_active_ns_curve_without_a_maturity():
+    """Eine aktive Kurve ohne Laufzeitpraeferenz aendert KEINEN Bucket.
+
+    Vorher verlangte dieser Test ausdruecklich, dass sich Bonds aendern
+    (``mu_bps[1] != mu_bps[1]``) -- das war die Erwartung aus dem
+    Overwrite-Zeitalter. Jetzt gilt: ohne Laufzeit ist der Termstruktur-Tilt
+    null, also bleibt auch der Obligationen-Bucket gleich.
+
+    Die Risikopraemien-Felder (real_estate/alternatives) sind in dieser
+    Fixture nicht gesetzt; waeren sie es, wuerden sie ihre Buckets weiter
+    ueberschreiben -- ein eigener, hier nicht beruehrter Befund.
+    """
     from services.optimizer.scenario_engine import scenario_inputs_from_cma
 
     inputs_no_ns = scenario_inputs_from_cma(_CMAFixedBonds())
     inputs_with_ns = scenario_inputs_from_cma(_CMANelsonSiegel())
 
     # Indices: equities=0, bonds=1, real_estate=2, alternatives=3, liquidity=4
-    for i in (0, 2, 3, 4):
-        assert inputs_no_ns.mu_bps[i] == inputs_with_ns.mu_bps[i]
-    # bonds (1) ist anders
-    assert inputs_no_ns.mu_bps[1] != inputs_with_ns.mu_bps[1]
+    np.testing.assert_array_equal(inputs_no_ns.mu_bps, inputs_with_ns.mu_bps)
 
 
 def test_vols_unchanged_by_ns_phase2():

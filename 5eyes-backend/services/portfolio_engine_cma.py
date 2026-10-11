@@ -256,7 +256,12 @@ def _sub_asset_class_metrics(
     return int(fallback_returns[bucket]), int(fallback_vols[bucket])
 
 
-def _apply_cma_market_adjustments(returns: dict[str, int], cma: CapitalMarketAssumption) -> dict[str, int]:
+def _apply_cma_market_adjustments(
+    returns: dict[str, int],
+    cma: CapitalMarketAssumption,
+    *,
+    bonds_maturity_years: float | None = None,
+) -> dict[str, int]:
     """Sprint U-P2 Fix C6: NS/KGV/Risikoprämien-Adjustments aus scenario_engine
     auch im Haupt-MC-Pfad anwenden.
 
@@ -270,7 +275,7 @@ def _apply_cma_market_adjustments(returns: dict[str, int], cma: CapitalMarketAss
     """
     try:
         from services.optimizer.scenario_engine import (
-            _compute_bonds_return_from_nelson_siegel,
+            _compute_bonds_duration_tilt_bps,
             _compute_equity_kgv_adjustment,
             _compute_return_from_risk_premium,
         )
@@ -279,10 +284,32 @@ def _apply_cma_market_adjustments(returns: dict[str, int], cma: CapitalMarketAss
 
     adjusted = dict(returns)
 
-    # Bonds: Nelson-Siegel Yield-Curve (5J-Maturity-Default) ersetzt fixen Wert
-    ns_bonds = _compute_bonds_return_from_nelson_siegel(cma)
-    if ns_bonds is not None:
-        adjusted["bonds"] = int(round(ns_bonds))
+    # Bonds: Nelson-Siegel wirkt ADDITIV als Termstruktur-Tilt, nicht als
+    # Ersatz des Niveaus.
+    #
+    # NS-BOND-SLEEVE-COLLAPSE-001: vorher stand hier
+    #     adjusted["bonds"] = int(round(ns_bonds))
+    # mit ns_bonds = Kurvenwert bei 5 Jahren. Die Kurve ist eine Swap-/
+    # Staatskurve ohne Kreditaufschlag (hinterlegte CHF-Kalibrierung: 50 bps
+    # bei 5J), die CMA-Bond-Returns sind Basis-plus-Spread (CHF IG 180,
+    # Global Hedged 220, High Yield 420 bps). Die Zuweisung vernichtete also
+    # den gesamten Kreditaufschlag -- ein gewichteter Obligationen-Return von
+    # 228 bps wurde zu 50 bps -- und kollabierte CHF IG, Global Hedged, High
+    # Yield und Emerging auf denselben Wert, obwohl
+    # `_weighted_bucket_metrics()` sie direkt davor korrekt differenziert
+    # hatte. Bemerkenswert war die Asymmetrie zu Aktien, die schon immer
+    # ADDITIV angepasst wurden (`adjusted["equities"] + kgv_adj`) und ihre
+    # Sub-Allokations-Differenzierung dadurch behielten.
+    #
+    # Jetzt tragen beide Buckets dieselbe Logik: die Kurve liefert nur die
+    # Differenz zweier Laufzeitpunkte. Kreditaufschlag und Sleeve-Rangfolge
+    # bleiben vollstaendig erhalten, und bei Referenzlaufzeit ist der Tilt
+    # exakt 0 (siehe services/rates/bond_duration.py).
+    bonds_tilt = _compute_bonds_duration_tilt_bps(
+        cma, maturity_years=bonds_maturity_years
+    )
+    if bonds_tilt:
+        adjusted["bonds"] = int(round(adjusted["bonds"] + bonds_tilt))
 
     # Equity: KGV-Mean-Reversion-Adjustment additiv (10J-Horizont-Default)
     kgv_adj = _compute_equity_kgv_adjustment(cma)

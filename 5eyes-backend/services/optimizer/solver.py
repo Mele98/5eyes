@@ -59,6 +59,11 @@ from .goal_liabilities import (
     goals_to_liabilities,
 )
 from .objective import chance_constraint_penalty, combined_objective_two_phase
+from .objective_variants import (
+    OBJECTIVE_MAX_DRAWDOWN,
+    refined_drawdown_check_for_winner,
+    resolve_objective_mode,
+)
 from .scenario_cache import (
     build_scenario_paths_cached,
     build_scenario_paths_with_weights_cached,
@@ -426,14 +431,33 @@ def _simulate_context_wealth(context: OptimizerContext, w: np.ndarray) -> np.nda
     )
 
 
-def _annualized_twr_bps_per_path(
+def _portfolio_return_factors(
     context: OptimizerContext,
     w: np.ndarray,
 ) -> np.ndarray:
-    """Cashflow-neutral annualized portfolio return for every scenario path."""
-    portfolio_factors = np.einsum(
+    """Cashflow-neutrale Jahres-Wachstumsfaktoren des Portfolios, (pfade, jahre).
+
+    Einzige Ableitung dieser Groesse. Sowohl die annualisierte Rendite als
+    auch die Risikomass-Varianten der Zielfunktion (siehe
+    objective_variants.py) haengen daran; zwei getrennte einsum-Ableitungen
+    waeren genau die Divergenzklasse, die die MC-Paritaetsbefunde ausgeloest
+    hat (ein Kanal rechnet etwas anderes als der andere, ohne dass es
+    auffaellt).
+    """
+    return np.einsum(
         "phb,b->ph", context.return_paths, np.asarray(w, dtype=np.float64)
     )
+
+
+def _annualized_twr_bps_per_path(
+    context: OptimizerContext,
+    w: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
+) -> np.ndarray:
+    """Cashflow-neutral annualized portfolio return for every scenario path."""
+    if portfolio_factors is None:
+        portfolio_factors = _portfolio_return_factors(context, w)
     safe_factors = np.maximum(portfolio_factors, 1e-12)
     annualized = np.exp(np.mean(np.log(safe_factors), axis=1)) - 1.0
     return annualized * 10000.0
@@ -776,7 +800,10 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
     wealth = _simulate_context_wealth(context, w)
-    annualized_twr = _annualized_twr_bps_per_path(context, w)
+    portfolio_factors = _portfolio_return_factors(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(
+        context, w, portfolio_factors=portfolio_factors
+    )
     objective = float(combined_objective_two_phase(
         context.liabilities,
         wealth,
@@ -784,6 +811,10 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         horizon_years=context.horizon_years,
         weights=context.scenario_weights,
         annualized_return_bps_per_path=annualized_twr,
+        # OPTIMIZER-OBJECTIVE-VARIANTS-001: die Risikomass-Varianten rechnen
+        # auf den cashflow-neutralen Faktoren, nicht auf `wealth` -- sonst
+        # wuerde geplanter Verzehr als Marktrisiko bewertet.
+        portfolio_return_factors=portfolio_factors,
     ))
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
     # Soft-Preference Target Intent must actually influence the optimization,
@@ -810,13 +841,21 @@ def evaluate_weights(
     w = _weights_bps_to_array(weights_bps)
     # Sprint U-P2 Fix C9: tax-aware Evaluation
     wealth = _simulate_context_wealth(context, w)
-    annualized_twr = _annualized_twr_bps_per_path(context, w)
+    portfolio_factors = _portfolio_return_factors(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(
+        context, w, portfolio_factors=portfolio_factors
+    )
     objective = combined_objective_two_phase(
         context.liabilities,
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         horizon_years=context.horizon_years,
         weights=context.scenario_weights,
+        # OPTIMIZER-OBJECTIVE-VARIANTS-001: siehe _objective_from_array --
+        # beide Pfade muessen denselben Primaerterm sehen, sonst weicht
+        # `evaluate_weights(...).objective_value` von dem ab, was der Solver
+        # tatsaechlich optimiert hat.
+        portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
     )
     # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as
@@ -1824,6 +1863,35 @@ def run_solver(
     else:
         reasoning.append(
             "Importance Sampling INAKTIV (Standard-MC, uniformer Sample-Mean)."
+        )
+    # OPTIMIZER-OBJECTIVE-VARIANTS-001: der Modus `max_drawdown` optimiert auf
+    # dem JAHRESGITTER -- die Bruecken-Verfeinerung aus DRAWDOWN-TIME-GRID-001
+    # in jeder SLSQP-Iteration waere unbezahlbar. Das Jahresgitter
+    # unterschaetzt den Drawdown volatilitaetsabhaengig und bevorzugt als
+    # Zielfunktion damit leicht riskantere Allokationen.
+    #
+    # Fuer den GEWINNER wird das genaue Mass nachgerechnet und die
+    # Proxy-Verzerrung in den Audit-Trail geschrieben -- dieselbe Trennung von
+    # "worauf optimiert wurde" und "was ausgewiesen wird" wie beim
+    # unabhaengigen Validierungs-Cube direkt oben. Ohne diesen Aufruf waere
+    # die Nachrechnung eine ungenutzte Funktion und die Verzerrung
+    # unausgewiesen.
+    if resolve_objective_mode() == OBJECTIVE_MAX_DRAWDOWN:
+        drawdown_proxy = refined_drawdown_check_for_winner(
+            _portfolio_return_factors(context, rounded_w),
+            seed=int(context.seed),
+            weights=context.scenario_weights,
+        )
+        reasoning.append(
+            "Zielfunktion max_drawdown: optimiert auf dem Jahresgitter "
+            f"({drawdown_proxy['annual_grid_mean_drawdown'] * 100:.2f}% "
+            "mittlerer Max-Drawdown). Nachrechnung des Gewinners auf dem "
+            f"verfeinerten Zeitgitter ({drawdown_proxy['sub_steps_per_year']} "
+            "Teilschritte/Jahr, "
+            f"{drawdown_proxy['model_version']}): "
+            f"{drawdown_proxy['refined_mean_drawdown'] * 100:.2f}%, "
+            "Unterschaetzung des Optimierungs-Proxy "
+            f"{drawdown_proxy['understatement'] * 100:.2f} Prozentpunkte."
         )
     robustification_payload: dict[str, object] | None = None
     if accepted_feasible_non_success:

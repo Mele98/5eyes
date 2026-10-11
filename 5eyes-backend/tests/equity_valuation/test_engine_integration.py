@@ -163,7 +163,13 @@ def test_kgv_with_ns_bonds_both_active():
         equity_kgv_alpha_x100 = 15
 
     inputs = scenario_inputs_from_cma(_CMACombined())
-    # Bonds Return ist NS-basiert (anders als 225)
-    assert inputs.mu_bps[1] != 225.0
-    # Equity ist KGV-MR-adjusted (anders als 650)
+    # NS-BOND-SLEEVE-COLLAPSE-001: vorher verlangte dieser Test
+    # `inputs.mu_bps[1] != 225.0`, also dass die NS-Kurve den
+    # Obligationen-Return ERSETZT. Die Kurve traegt jetzt nur die
+    # Termstruktur bei, und ohne Laufzeitpraeferenz ist die null -- der
+    # CMA-Wert bleibt also stehen. Wichtig an diesem Test ist, dass die
+    # KGV-Anpassung davon unberuehrt bleibt: zwei gleichzeitig aktive
+    # Modelle duerfen sich nicht gegenseitig verschlucken.
+    assert inputs.mu_bps[1] == 225.0
+    # Equity ist KGV-MR-adjusted (anders als 650) -- unveraendert.
     assert inputs.mu_bps[0] != 650.0
