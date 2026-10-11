@@ -99,13 +99,6 @@ def test_goal_schema_has_no_lifecycle_field_today():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-PAST-DATE-LIFECYCLE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_overdue_one_off_goal_without_policy_blocks_or_is_marked():
     """Ein ueberfaelliges aktives Ziel ohne Owner-Policy darf nicht als
     stille, normale Jahr-eins-Zahlung erscheinen.
@@ -116,8 +109,27 @@ def test_overdue_one_off_goal_without_policy_blocks_or_is_marked():
       (b) die resultierende `GoalLiability` traegt einen expliziten
           ueberfaelligen/ungeklaerten `evaluation_note`-Hinweis.
 
-    Heutiges (falsches) Verhalten: `goal_to_liability()` wirft nichts und
-    `evaluation_note` bleibt `None` -- das 2020er Ziel wird kommentarlos als
+    ERFUELLT seit 2026-10-11 ueber Variante (b): das Ziel traegt einen
+    expliziten UEBERFAELLIG-Hinweis mit Datum und dem Verweis auf den
+    fehlenden Lifecycle-Status.
+
+    **ADR-3 ist damit NICHT abgeschlossen.** Der Owner hat am 2026-10-11
+    ausdruecklich Variante 3 gewaehlt -- fail-closed, die Berechnung wird
+    blockiert, bis der Berater entscheidet. Ein Hinweistext ist kein
+    Zustand: es gibt weiterhin keine Lifecycle-Spalte, kein
+    append-only auditiertes Transitionsprotokoll und kein blockierendes
+    Gate. Dieser Test prueft nur die Untergrenze "nicht stillschweigend",
+    weil er beide Varianten als Erfolg akzeptiert.
+
+    Der Hinweis entstand als Notbremse fuer einen anderen Fehler: mit der
+    Umstellung auf Kalenderjahr-Buckets (ADR-2) lieferte ein 2020er Ziel
+    bei Basisjahr 2026 den Index -5, und ``wealth_paths[:, -5]`` loest bei
+    Horizont 10 auf Spalte 6 auf -- das ueberfaellige Ziel waere im Jahr 6
+    bewertet worden. Siehe
+    tests/test_goal_liability_target_year_index_never_wraps.py.
+
+    Vorheriges (falsches) Verhalten: `goal_to_liability()` warf nichts und
+    `evaluation_note` blieb `None` -- das 2020er Ziel wurde kommentarlos als
     normale Outflow-Zahlung in Jahr 1 des Horizonts materialisiert.
     """
     goal = _make_overdue_one_off_goal()

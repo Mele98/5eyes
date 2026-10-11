@@ -457,8 +457,25 @@ def _build_einmalige_ausgabe(
     amount = max(0, int(goal.target_amount_rappen or 0))
     base_year = date.today().year
     target_date = _parse_iso(goal.target_date)
+    overdue_since: date | None = None
     if target_date is not None:
         target_year = _calendar_bucket_index(target_date, base_year)
+        if target_year < 1:
+            # Zieldatum liegt VOR dem laufenden Kalenderjahr. Der rohe
+            # Bucket-Index waere negativ, und ein negativer Index ist hier
+            # gefaehrlich: Konsumenten lesen damit ``wealth_paths[:,
+            # target_year_index]``, und numpy zaehlt negativ VON HINTEN --
+            # ein 2020er Ziel bei Horizont 10 landete so still auf Spalte 6
+            # und waere im Jahr 6 "bewertet" worden.
+            #
+            # Kodiert wird deshalb die etablierte Ausserhalb-Konvention
+            # (target_year_index > horizon_years), die Konsumenten schon
+            # pruefen; die RICHTUNG (vergangen, nicht zukuenftig) steht im
+            # Hinweis. Die saubere Loesung ist ADR-3 (Goal-Lifecycle,
+            # fail-closed bei ueberfaellig) -- bis dahin darf der Fall
+            # jedenfalls nicht still auf ein falsches Jahr zeigen.
+            overdue_since = target_date
+            target_year = int(horizon_years) + 1
     else:
         # Kein Zieldatum: dieselbe Legacy-Lesart wie beim wiederkehrenden
         # Pfad -- horizon_years als "in so vielen Jahren faellig".
@@ -470,7 +487,15 @@ def _build_einmalige_ausgabe(
     if 1 <= target_year <= horizon_years:
         path[target_year - 1] = amount
     note = None
-    if target_year > horizon_years:
+    if overdue_since is not None:
+        note = (
+            f"Zahlungszeitpunkt {overdue_since.isoformat()} ist UEBERFAELLIG "
+            f"(vor dem laufenden Kalenderjahr {base_year}); keine "
+            "In-Horizon-Liability. Lifecycle-Status (erfuellt / storniert / "
+            "ueberfaellig) ist nicht erfasst -- Ziel vor der Beratung "
+            "bestaetigen."
+        )
+    elif target_year > horizon_years:
         note = (
             "Zahlungszeitpunkt liegt ausserhalb des Optimizer-Horizonts "
             f"(Horizont: {horizon_years} Jahre); keine In-Horizon-Liability."
