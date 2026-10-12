@@ -2148,6 +2148,10 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "hardness": str(getattr(meta, "hardness", "") or ""),
                 "probability_bps": None,
                 "status": "data_pending",
+                # Formgleichheit mit dem Pfad unten: driften die beiden
+                # Rueckgabeformen auseinander, laeuft ein Konsument genau im
+                # Datenlueckenfall in einen KeyError.
+                "outside_simulation_horizon": False,
             })
         return {
             "goals": goals,
@@ -2181,6 +2185,16 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             "hardness": str(r.get("hardness", "") or ""),
             "probability_bps": int(round(probability * 10000)),
             "status": str(r.get("status", "") or ""),
+            # GOAL-OUTSIDE-HORIZON-001 (2026-10-12): mitgefuehrt, damit ein
+            # Konsument die 0 % NICHT als Messung liest. Der Optimizer meldet
+            # fuer ein Ziel, dessen Zahlungsplan komplett hinter dem Horizont
+            # liegt, 0 statt der frueheren -- erfundenen -- 100 %; das ist
+            # Parity zum MC-Kanal, aber eine Konvention mit Offenlegung, kein
+            # Messergebnis. Ohne dieses Feld waere "nicht bewertet" von
+            # "bewertet und aussichtslos" nicht unterscheidbar.
+            "outside_simulation_horizon": bool(
+                r.get("outside_simulation_horizon") or False
+            ),
         })
     # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
     # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.

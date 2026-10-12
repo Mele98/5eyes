@@ -126,6 +126,12 @@ RELIABILITY_UNCERTAIN_FINITE_SAMPLE = "uncertain_finite_sample"
 RELIABILITY_UNVALIDATED_SINGLE_CUBE = "unvalidated_single_cube"
 RELIABILITY_ROBUST = "robust"
 RELIABILITY_BELOW_TAU = "below_tau"
+# GOAL-OUTSIDE-HORIZON-001 (2026-10-12): der Zahlungsplan des Ziels liegt
+# KOMPLETT hinter dem Simulationshorizont. Das ist kein Messergebnis,
+# sondern das Fehlen einer Messung -- und deshalb weder `below_tau` (eine
+# gemessene Absage) noch `robust`. Eigener Wert, damit die Aussage nicht in
+# einen der beiden gemessenen Zustaende einsortiert wird.
+RELIABILITY_OUTSIDE_HORIZON = "outside_simulation_horizon"
 
 
 def reliability_verdict(
@@ -135,6 +141,7 @@ def reliability_verdict(
     tau: float,
     ess_sufficient: bool,
     validation_seed: int | None,
+    outside_horizon: bool = False,
 ) -> str:
     """Belastbarkeits-Verdikt zu einer Zielerreichungs-Aussage.
 
@@ -146,7 +153,14 @@ def reliability_verdict(
     ein ``validation_seed`` einer unabhaengigen Validierungsstichprobe
     vorliegt -- so bleibt das Fehlen dieser Evidenz sichtbar statt
     stillschweigend als "gruen" durchzugehen.
+
+    ``outside_horizon`` gewinnt vor allem anderen: liegt der Zahlungsplan
+    hinter dem Horizont, gibt es keine Stichprobe, ueber deren Belastbarkeit
+    man urteilen koennte. Jedes andere Verdikt waere eine Aussage ueber eine
+    Messung, die nicht stattgefunden hat.
     """
+    if outside_horizon:
+        return RELIABILITY_OUTSIDE_HORIZON
     if not ess_sufficient:
         return RELIABILITY_UNRELIABLE_LOW_ESS
     if lower_bound >= tau:

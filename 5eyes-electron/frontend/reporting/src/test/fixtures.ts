@@ -294,6 +294,7 @@ export function makeGoals(): GoalBasedInvestingData {
         hardness: 'Primaer',
         probability_bps: 7800,
         status: 'erreichbar',
+        outside_simulation_horizon: false,
       },
       {
         goal_id: 'g2',
@@ -304,6 +305,7 @@ export function makeGoals(): GoalBasedInvestingData {
         hardness: 'Opportunistisch',
         probability_bps: 5500,
         status: 'knapp',
+        outside_simulation_horizon: false,
       },
     ],
     goal_achievement_score_bps: 7250,

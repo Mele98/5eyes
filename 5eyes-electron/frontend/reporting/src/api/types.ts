@@ -32,6 +32,19 @@ export type GoalStatus =
   | 'erreichbar'
   | 'knapp'
   | 'nicht_erreichbar'
+  /**
+   * Zu wenig unabhängige Evidenz für eine Zertifizierung
+   * (OPTIMIZER-POST-SELECTION-CERTIFICATION-001). Das Backend liefert diesen
+   * Wert seit 2026-10-10; im Typ fehlte er — Drift, hier mitkorrigiert.
+   */
+  | 'unreliable'
+  /**
+   * GOAL-OUTSIDE-HORIZON-001: der Zahlungsplan des Ziels liegt komplett
+   * hinter dem Simulationshorizont, es wurde also nicht bewertet. Vorher
+   * meldete der Optimizer für genau diesen Zustand `erreichbar` mit 100 %.
+   * Weder grün noch rot darstellen — es ist keine Bewertung.
+   */
+  | 'ausserhalb_horizont'
   | 'data_pending'
   | '';
 
@@ -367,6 +380,13 @@ export interface GoalEntry {
   /** Wahrscheinlichkeit in bps (8500 = 85%) */
   probability_bps: number | null;
   status: GoalStatus;
+  /**
+   * GOAL-OUTSIDE-HORIZON-001: true, wenn der Zahlungsplan komplett hinter dem
+   * Simulationshorizont liegt. Dann ist `probability_bps` eine Konvention
+   * (0) mit Offenlegung, KEINE Messung — ohne dieses Flag wäre "nicht
+   * bewertet" von "bewertet und aussichtslos" nicht unterscheidbar.
+   */
+  outside_simulation_horizon: boolean;
 }
 
 export interface MonteCarloPaths {

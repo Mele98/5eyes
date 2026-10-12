@@ -90,6 +90,14 @@ _STATUS_DISPLAY: dict[str, tuple[str, str]] = {
     # Eintrag landete das rohe englische Token "unreliable" im
     # kundensichtbaren PDF (der .get()-Fallback zeigt den Status-String).
     "unreliable":       ("nicht beurteilbar", "#475569"),  # neutral-grau
+    # GOAL-OUTSIDE-HORIZON-001 (2026-10-12): der Zahlungsplan des Ziels liegt
+    # KOMPLETT hinter dem Simulationshorizont. Vorher meldete der Optimizer
+    # fuer genau diesen Zustand "erreichbar" mit 100 % -- gemessen an einer
+    # Pensionsausgabe von CHF 5 Mio PRO JAHR ab 2046 bei 20-Jahres-Horizont.
+    # Wie bei "unreliable" ist das keine Aussage ueber die Erreichbarkeit,
+    # sondern das Eingestaendnis, dass sie in diesem Horizont nicht gemessen
+    # wurde -- deshalb neutral-grau und ausserhalb der Ampel.
+    "ausserhalb_horizont": ("ausserhalb Horizont", "#475569"),
 }
 
 # Ziel-Typ-Anzeige (technische Goal-Type-Werte -> Berater-Sprache).
@@ -150,6 +158,10 @@ _AMPEL_STATUS_COLORS: dict[str, str] = {
     # Ampel-Semantik -- neutral-grau statt einer Farbe, die eine Bewertung
     # suggeriert, die es nicht gibt.
     "unreliable":       "#64748b",  # neutral-grau (tailwind slate-500)
+    # GOAL-OUTSIDE-HORIZON-001: aus demselben Grund neutral-grau. Ein gruener
+    # oder roter Balken wuerde eine Bewertung suggerieren, die in diesem
+    # Horizont nicht stattgefunden hat.
+    "ausserhalb_horizont": "#64748b",
 }
 _AMPEL_BG_COLOR = "#e2e8f0"  # neutral hellgrau (tailwind slate-200)
 _AMPEL_BORDER_COLOR = "#cbd5e1"  # slate-300
