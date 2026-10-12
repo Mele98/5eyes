@@ -404,6 +404,191 @@ def parse_correlation_matrix_json(
     return validate_correlation_matrix(parsed, dimension=dimension)
 
 
+#: ADR-6a (Owner-Entscheid 2026-10-11, bestaetigt): zulaessige
+#: Baseline-Inflation in bps pro Jahr. KEIN neu erfundener Wert, sondern
+#: identisch zum bereits etablierten Praezedenzfall
+#: ``schemas/wealth.py::PlanningAssumption.inflation_assumption_bps``
+#: (``Field(..., ge=-1000, le=3000)``), der exakt dasselbe wirtschaftliche
+#: Konzept fuer Planungsannahmen schon einschraenkt.
+#:
+#: Stress-Inflationsszenarien ausserhalb dieser Domaene gehoeren in einen
+#: separaten, typisierten Stress-Vertrag -- niemals in die Current-CMA-
+#: Baseline.
+INFLATION_PATH_MIN_BPS = -1000
+INFLATION_PATH_MAX_BPS = 3000
+
+#: Vierstellige Kalenderjahre. Ein zweistelliges oder fuenfstelliges Jahr ist
+#: ein Eingabefehler, keine Abkuerzung, die wir erraten.
+_INFLATION_PATH_MIN_YEAR = 1900
+_INFLATION_PATH_MAX_YEAR = 2200
+
+
+def parse_inflation_path_json(
+    raw_payload: str | None,
+) -> dict[int, int] | None:
+    """Parse den CMA-Inflationspfad fail-closed (ADR-6a).
+
+    Rueckgabe: ``{Jahr: bps}`` mit kanonischen vierstelligen Integer-Jahren,
+    oder ``None`` wenn gar kein Payload vorliegt (rueckwaerts-kompatibel,
+    wie bei allen Parsern dieses Moduls).
+
+    Befund, den das schliesst (CMA-INFLATION-PATH-DOMAIN-001). Alle Faelle
+    direkt gegen ``_inflation_path_series()`` gemessen, Abfrage 2026-2029:
+
+        `{broken` (syntaktisch ungueltig)   -> still 70 bps
+        `"x"` / `42` / `[100,200]`          -> AttributeError -> HTTP 500
+        `None` / `{}`                       -> still 70 bps
+        `{"2026": true}`                    -> 1 bps (``int(True)``)
+        `{"2026": -20000}`                  -> -20000 bps, kein Bereich
+        `{"2099":100,"2100":900}`           -> 900 ueberall
+
+    Es waren ZWEI Fehlermodi, nicht einer: syntaktisch kaputtes JSON
+    erfand stillschweigend 70 bps, gueltiges JSON vom falschen Typ liess
+    die Berechnung unkontrolliert abstuerzen (ohne brauchbare Meldung fuer
+    den Berater). Die Spec schreibt den stillen Fallback dem Input
+    ``"not-json"`` zu -- der stuerzt tatsaechlich ab, weil
+    ``json.loads('"not-json"')`` GUELTIG ist und einen String liefert.
+
+    Wirtschaftlich am schwersten war der letzte Fall: eine Reihe von
+    -20000 bps (-200 %/Jahr) dreht die Verbindlichkeit eines realen
+    Ausgabenziels ins NEGATIVE, und der Wealth-Pfad bucht sie als Zufluss
+    -- ein echter Ausgabenbedarf wird als kostenloses, zu 100 % erreichbares
+    Nicht-Ereignis gemeldet.
+
+    Die Klammerung gehoert deshalb an die EINGABE und nicht als
+    nachgelagerter ``max(0, ...)``-Flicken an jeden Konsumenten: ein
+    Preisniveau kann nicht negativ werden.
+    """
+    if raw_payload is None or raw_payload == "":
+        return None
+
+    parsed = _load_json_payload(raw_payload, field_name="inflation_path_json")
+    if not isinstance(parsed, Mapping):
+        raise CMAValidationError(
+            "inflation_path_json muss ein JSON-Objekt {Jahr: bps} sein, "
+            f"nicht {type(parsed).__name__}."
+        )
+
+    normalized: dict[int, int] = {}
+    for raw_year, raw_value in parsed.items():
+        location = f"inflation_path_json[{raw_year!r}]"
+
+        if isinstance(raw_year, bool):
+            raise CMAValidationError(f"{location}: Jahr muss eine Zahl sein.")
+        try:
+            year = int(str(raw_year).strip())
+        except (TypeError, ValueError) as exc:
+            raise CMAValidationError(
+                f"{location}: Jahr muss ein vierstelliges Kalenderjahr sein."
+            ) from exc
+        if not _INFLATION_PATH_MIN_YEAR <= year <= _INFLATION_PATH_MAX_YEAR:
+            raise CMAValidationError(
+                f"{location}: Jahr {year} liegt ausserhalb "
+                f"[{_INFLATION_PATH_MIN_YEAR}, {_INFLATION_PATH_MAX_YEAR}]."
+            )
+        if year in normalized:
+            # {"2026": 100, "2026 ": 200} -- welcher gilt? Nicht raten.
+            raise CMAValidationError(
+                f"{location}: Jahr {year} ist mehrfach belegt."
+            )
+
+        # _integral_bps lehnt bool explizit ab -- dasselbe Muster wie
+        # _reject_boolean_market_inputs in schemas/allocation.py.
+        value = _integral_bps(raw_value, location=location)
+        if not INFLATION_PATH_MIN_BPS <= value <= INFLATION_PATH_MAX_BPS:
+            raise CMAValidationError(
+                f"{location}: {value} bps liegt ausserhalb der zulaessigen "
+                f"Baseline-Domaene [{INFLATION_PATH_MIN_BPS}, "
+                f"{INFLATION_PATH_MAX_BPS}] bps (-10 % bis +30 % pro Jahr). "
+                "Stress-Szenarien gehoeren in einen separaten, typisierten "
+                "Stress-Vertrag, nicht in die Current-CMA-Baseline."
+            )
+        normalized[year] = value
+
+    return normalized
+
+
+def inflation_path_series(
+    path: Mapping[int, int] | None,
+    *,
+    years: int,
+    start_year: int,
+    baseline_bps: int,
+) -> list[int]:
+    """Jahres-Serie aus einem geparsten Inflationspfad (ADR-6c).
+
+    ADR-6c (bestaetigt): **keine Rueckwaertsauffuellung aus irgendeinem
+    anderen Jahr als dem fruehesten real vorhandenen.**
+
+    Der abgeloeste Code schrieb::
+
+        fallback = normalized[max(normalized)] if normalized else 70
+
+    und aktualisierte ``fallback`` in der Schleife nur fuer VORHANDENE
+    Jahre. Alle Jahre VOR dem ersten Datenpunkt bekamen deshalb den
+    MAXIMAL-Wert. Gemessen: ``{"2099":100,"2100":900}``, angefragt
+    2026-2029, ergab durchgaengig 900 bps -- 9 % Inflation statt 1 %. Ueber
+    einen 30-Jahres-Horizont ist das ein Faktor 13 auf jeden realen
+    Ausgabenwert.
+
+    Jetzt gilt:
+      * Jahr vorhanden            -> dieser Wert, und er traegt vorwaerts
+      * Jahr VOR dem fruehesten   -> der FRUEHESTE vorhandene Wert
+      * ueberhaupt keine Daten    -> ``baseline_bps`` (dokumentierter
+                                     Default des Aufrufers, keine im
+                                     Parser versteckte Konstante)
+
+    Vorwaertstragen bleibt: "ab 2030 gilt 120 bps" soll nicht in Jahr 2031
+    auf den Default zurueckfallen. Das ist Fortschreibung des LETZTEN
+    bekannten Werts, nicht Raten aus einem spaeteren.
+
+    **ADR-6c ist an dieser Stelle intern widerspruechlich**, und die
+    Umsetzung musste sich entscheiden:
+
+      (1) "Keine Rueckwaertsauffuellung aus irgendeinem anderen Jahr als
+           dem FRUEHESTEN real vorhandenen."
+      (2) "Fehlt die Abdeckung vor dem ersten echten Datenpunkt, wird das
+           explizit als 'keine Abdeckung' behandelt (Fehler oder
+           dokumentierter Baseline-Default von 0 bps), NIEMALS aus einem
+           spaeteren Jahr geraten."
+
+    Satz (1) erlaubt Auffuellung aus dem fruehesten Jahr, Satz (2) liest
+    sich wie ein Verbot -- denn relativ zur Luecke IST das fruehest
+    vorhandene Jahr ein spaeteres.
+
+    Gewaehlt ist (1), und zwar aus zwei Gruenden. Erstens war der behobene
+    Fehler, einen BELIEBIGEN spaeteren Wert zu nehmen (2100 fuer 2026, 73
+    Jahre entfernt); der fruehest vorhandene Wert ist dagegen die
+    NAECHSTGELEGENE echte Beobachtung. Zweitens ist er wirtschaftlich
+    informativer: liegt 2030 bei 100 bps, ist 100 bps fuer 2029 eine
+    bessere Annahme als eine globale Konstante von 70. Satz (2) auf den
+    Buchstaben zu nehmen wuerde Information verwerfen, die wir haben.
+
+    Satz (2) nennt als Alternative ausdruecklich "Fehler" -- also eine
+    Schema-Ablehnung von Pfaden, die das eigene ``valid_from`` nicht
+    abdecken. Das ist bewusst NICHT gewaehlt: es wuerde eine Teilerfassung
+    waehrend des Datenaufbaus blockieren, ohne ein Modellproblem zu
+    beheben.
+    """
+    span = max(0, int(years))
+    if not path:
+        return [int(baseline_bps)] * span
+
+    earliest = min(path)
+    current = int(path[earliest])
+    series: list[int] = []
+    for offset in range(span):
+        year = int(start_year) + offset
+        if year in path:
+            current = int(path[year])
+        elif year < earliest:
+            # Nachstgelegene echte Beobachtung, niemals ein beliebiger
+            # spaeterer Wert -- das war der behobene Max-Jahr-Fehler.
+            current = int(path[earliest])
+        series.append(current)
+    return series
+
+
 def correlation_factor(
     matrix: Sequence[Sequence[Any]],
 ) -> np.ndarray:

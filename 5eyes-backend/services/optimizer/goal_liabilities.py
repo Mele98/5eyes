@@ -44,6 +44,10 @@ from typing import Sequence
 
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
+from services.cma_validation import (
+    INFLATION_PATH_MAX_BPS,
+    INFLATION_PATH_MIN_BPS,
+)
 from services.goal_lifecycle import (
     is_economically_null,
     resolve_lifecycle_state,
@@ -308,6 +312,48 @@ def _norm_goal_type(goal_type: str | None) -> str:
 # ============================================================================
 # Inflation
 # ============================================================================
+
+
+def _assert_inflation_domain(inflation_series_bps: list[int] | None) -> None:
+    """Eine Inflationsreihe darf das Vorzeichen einer Ausgabe nicht drehen.
+
+    CMA-INFLATION-PATH-DOMAIN-001 / ADR-6a, zweite Grenze. Die erste liegt
+    am Eingang (``cma_validation.parse_inflation_path_json``) und haelt
+    kaputte CMA-Daten draussen. Diese hier haelt einen kaputten ARGUMENT-
+    Wert draussen -- ein anderer Angriffsweg, deshalb eine eigene Pruefung.
+
+    Das ist KEIN nachgelagerter ``max(0, ...)``-Flicken: geklemmt wird
+    nichts, es wird abgelehnt. Ein Faktor ``1 + bps/10000 <= 0`` bedeutet
+    ein Preisniveau von null oder negativ, und damit wird aus einer
+    Ausgabe ein Zufluss:
+
+        bps = -20000  ->  Faktor 1 + (-2.0) = -1.0
+        Ausgabe von 10'000 Rappen -> -10'000 Rappen
+        Der Wealth-Pfad bucht das als MITTELZUFLUSS, und
+        objective._positive_due_wealth_indices() sieht die Zahlung gar
+        nicht mehr als faellig -- das Ziel gilt als kostenlos und zu
+        100 % erreichbar.
+
+    Der Wertebereich ist derselbe wie am Eingang, aus demselben
+    Praezedenzfall (``schemas/wealth.py::inflation_assumption_bps``).
+    """
+    if not inflation_series_bps:
+        return
+    for index, raw in enumerate(inflation_series_bps):
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            raise ValueError(
+                f"inflation_series_bps[{index}] muss eine Ganzzahl in bps "
+                f"sein, nicht {type(raw).__name__}."
+            )
+        if not INFLATION_PATH_MIN_BPS <= raw <= INFLATION_PATH_MAX_BPS:
+            raise ValueError(
+                f"inflation_series_bps[{index}] = {raw} bps liegt ausserhalb "
+                f"der zulaessigen Baseline-Domaene "
+                f"[{INFLATION_PATH_MIN_BPS}, {INFLATION_PATH_MAX_BPS}] bps "
+                "(-10 % bis +30 % pro Jahr). Ein Faktor <= 0 wuerde das "
+                "Vorzeichen einer Ausgabe umdrehen und sie als Zufluss "
+                "buchen."
+            )
 
 
 def _cumulative_inflation_factor(years_to_compound: int, inflation_series_bps: list[int] | None) -> float:
@@ -819,6 +865,7 @@ def goal_to_liability(
     """
     goal_type = _norm_goal_type(goal.goal_type)
     horizon_years = max(1, int(horizon_years))
+    _assert_inflation_domain(inflation_series_bps)
 
     if _is_state_funded_pension(goal):
         built = _build_state_funded_pension(goal, horizon_years=horizon_years)

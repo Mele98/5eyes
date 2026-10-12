@@ -41,14 +41,6 @@ if str(BACKEND_ROOT) not in sys.path:
 from services.portfolio_engine_cma import _inflation_path_series  # noqa: E402
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-EFFECTIVE-DATE-001 -- round 40 red test, see audit "
-        "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_inflation_path_series_does_not_backfill_from_future_max_year():
     """Years 2026-2029 have NO coverage; the only stored points are 2099/2100.
 
@@ -64,14 +56,22 @@ def test_inflation_path_series_does_not_backfill_from_future_max_year():
 
     series = _inflation_path_series(cma, years=4, start_year=2026)
 
-    # Document the actual (buggy) behavior observed when running this test
-    # red, so the assertion failure is self-explanatory without re-deriving
-    # it: the engine currently returns [900, 900, 900, 900] -- the *2100*
-    # (max-year, future) value -- for 2026, 2027, 2028 and 2029 alike.
-    actual_buggy_values = [900, 900, 900, 900]
-    assert series == actual_buggy_values, (
-        "Expected behavior changed -- re-verify the current buggy output "
-        f"before updating this fixture. Observed: {series}"
+    # GEFIXT am 2026-10-12 (ADR-6c). Der frueher hier gepinnte Ist-Wert war
+    # [900, 900, 900, 900] -- der 2100er Wert (MAX-Jahr, 73 Jahre in der
+    # Zukunft) fuer 2026 bis 2029. Der Test lud im eigenen Text zum
+    # Aktualisieren ein ("re-verify the current buggy output before
+    # updating this fixture").
+    #
+    # Jetzt greift der fruehest vorhandene Wert (2099 -> 100 bps), nicht
+    # der spaeteste. Der behobene Fehler war, einen BELIEBIGEN spaeteren
+    # Wert zu nehmen; der fruehest vorhandene ist die naechstgelegene echte
+    # Beobachtung.
+    #
+    # Wirtschaftlich: 9 % Inflation statt 1 %, ueber einen 30-Jahres-
+    # Horizont ein Faktor 13 auf jeden realen Ausgabenwert.
+    assert series == [100, 100, 100, 100], series
+    assert series != [900, 900, 900, 900], (
+        "der MAX-Jahr-Backfill darf nicht zurueckkehren"
     )
 
     # Desired behavior: none of 2026-2029 has any real coverage (the first
