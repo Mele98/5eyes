@@ -490,10 +490,19 @@ def test_advisory_log_snapshot_must_bind_full_replayable_run_evidence(cc_session
 # INDUCEMENT-EVIDENCE-001 -- a retrocession the advisor keeps is labelled
 # "Verzicht dokumentiert" (waiver on record) unconditionally, even when it
 # was never disclosed to the client and has no waiver_document_id.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-12): the root cause was one layer
+# above the emitting branch -- build_cost_disclosure()'s projection dropped
+# `disclosed_to_client` and `waiver_document_id`, so calculate_cost_disclosure()
+# structurally could not know whether a waiver existed, and asserted it anyway.
+# Both fields are now threaded through and _has_documented_waiver() gates the
+# claim. Without evidence the item stays visible (FIDLEG Art. 26) but under
+# key "retrocession_retained_unwaived" with requires_resolution=True and no
+# waiver claim. The Soll-assertion below is unchanged. xfail removed:
+# strict=True would otherwise report an unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="INDUCEMENT-EVIDENCE-001 -- CERT-COST-CONFLICT-001")
 def test_undisclosed_unwaived_retained_inducement_must_not_claim_waiver_on_record(cc_session_factory):
     sf = cc_session_factory
     advisor_id, client_id, mandate_id = _seed_mandate(sf, suffix="inducement")
