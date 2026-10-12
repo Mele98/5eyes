@@ -78,14 +78,6 @@ from services.optimizer.objective import chance_constraint_penalty, goal_probabi
 from services.optimizer.scenario_engine import simulate_wealth_paths
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-INFLATION-PATH-DOMAIN-001 -- round 40 red test, see audit "
-        "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_deeply_negative_real_inflation_must_not_flip_expense_liability_negative():
     goal = SimpleNamespace(
         id="g1",
@@ -111,65 +103,48 @@ def test_deeply_negative_real_inflation_must_not_flip_expense_liability_negative
     )
 
     horizon_years = 5
-    liab = goal_to_liability(
-        goal, horizon_years=horizon_years, inflation_series_bps=[-20000, -20000],
-    )
 
-    # --- Drive the REAL production wealth-path simulation end-to-end -----
-    # Zero growth, zero cashflow, zero initial wealth: any change in wealth
-    # across t=0 -> t=1 must come purely from the goal's liability.
-    n_paths = 3
-    return_paths = np.ones((n_paths, horizon_years, 5), dtype=np.float64)
-    weights = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
-    cashflow_series_rappen = [0] * horizon_years
+    # GEFIXT am 2026-10-12 (ADR-6a), fail-closed an ZWEI Grenzen:
+    #
+    # 1. Am Eingang: cma_validation.parse_inflation_path_json() laesst eine
+    #    Reihe von -20000 bps nicht in die CMA. Das ist die Strecke, die in
+    #    Produktion zaehlt -- unten als eigener Test.
+    # 2. Hier: goal_to_liability() prueft eine uebergebene Reihe selbst.
+    #    Ein kaputter ARGUMENT-Wert ist ein anderer Weg als kaputte DATEN,
+    #    deshalb eine eigene Pruefung.
+    #
+    # Der Test erwartete vorher einen RUECKGABEWERT mit nicht-negativer
+    # Verbindlichkeit. Abzulehnen ist die staerkere Antwort: es entsteht
+    # ueberhaupt keine Verbindlichkeit, also auch keine falsche. Der
+    # downstream-Pfad (simulate_wealth_paths / goal_probability_per_path),
+    # den dieser Test vorher durchlief, wird nie mehr erreicht.
+    #
+    # Was ohne die Pruefung passierte: Faktor 1 + (-2.0) = -1.0, aus einer
+    # Ausgabe von 10'000 Rappen wurden -10'000. Der Wealth-Pfad buchte das
+    # als Mittelzufluss, und objective._positive_due_wealth_indices() sah
+    # die Zahlung gar nicht mehr als faellig -- ein echter Ausgabenbedarf
+    # galt als kostenlos und zu 100 % erreichbar.
+    with pytest.raises(ValueError, match="Baseline-Domaene"):
+        goal_to_liability(
+            goal, horizon_years=horizon_years,
+            inflation_series_bps=[-20000, -20000],
+        )
 
-    wealth_paths = simulate_wealth_paths(
-        initial_wealth_rappen=0,
-        weights=weights,
-        return_paths=return_paths,
-        cashflow_series_rappen=cashflow_series_rappen,
-        liability_path_rappen=liab.liability_path_rappen,
-    )
 
-    per_path = goal_probability_per_path(wealth_paths, liab, initial_value_rappen=0)
-    penalty, achievability = chance_constraint_penalty(
-        wealth_paths, [liab], initial_value_rappen=0,
-    )
-    row = achievability[0]
+def test_out_of_domain_inflation_cannot_reach_the_engine_through_the_cma():
+    """Die Produktionsstrecke: ueber die CMA kommt die Reihe nie an.
 
-    # --- Observed (buggy) values, kept here for debugging visibility ----
-    # liab.target_amount_rappen            == -10000
-    # liab.liability_path_rappen           == [-10000, 0, 0, 0, 0]
-    # wealth_paths[:, 1]                    == 10000 (wealth INCREASED by
-    #                                          paying a CHF 100 expense)
-    # per_path                              == [1, 1, 1]
-    # row["probability"] / row["status"]    == 1.0 / "erreichbar"
-    # penalty                               == 0.0
+    goal_to_liability() bekommt seine Inflationsreihe im Produktionspfad aus
+    services/portfolio_engine_cma.py::_inflation_path_series(), und die
+    liest die CMA jetzt durch den gemeinsamen Parser. Diese Grenze ist die
+    wichtigere -- sie verhindert, dass der Wert ueberhaupt gespeichert oder
+    gelesen wird.
+    """
+    from types import SimpleNamespace
 
-    negative_liability = liab.target_amount_rappen < 0 or any(
-        v < 0 for v in liab.liability_path_rappen
-    )
-    wealth_increased_from_paying_expense = bool(
-        np.any(wealth_paths[:, 1] > wealth_paths[:, 0])
-    )
-    false_positive_achievable = (
-        row["probability"] >= 1.0
-        and row["status"] == "erreichbar"
-        and penalty == 0.0
-    )
+    from services.cma_validation import CMAValidationError
+    from services.portfolio_engine_cma import _inflation_path_series
 
-    assert not negative_liability, (
-        "An expense goal's liability must never be negative; got "
-        f"target_amount_rappen={liab.target_amount_rappen}, "
-        f"liability_path_rappen={liab.liability_path_rappen}"
-    )
-    assert not wealth_increased_from_paying_expense, (
-        "Paying a real expense must never increase simulated wealth; got "
-        f"wealth_paths[:, 0]={wealth_paths[:, 0].tolist()} -> "
-        f"wealth_paths[:, 1]={wealth_paths[:, 1].tolist()}"
-    )
-    assert not false_positive_achievable, (
-        "An unfunded real expense goal must not be reported as costlessly "
-        f"achievable; got probability={row['probability']}, "
-        f"status={row['status']!r}, penalty={penalty}"
-    )
+    cma = SimpleNamespace(inflation_path_json='{"2026": -20000}')
+    with pytest.raises(CMAValidationError, match="Baseline-Domaene"):
+        _inflation_path_series(cma, 5, 2026)

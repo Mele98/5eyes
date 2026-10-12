@@ -45,6 +45,7 @@ import pytest
 from pydantic import ValidationError
 
 from schemas.allocation import CapitalMarketAssumptionCreate
+from services.cma_validation import CMAValidationError
 from services.portfolio_engine_cma import _inflation_path_series
 
 
@@ -52,12 +53,6 @@ def _cma(inflation_path_json: str) -> SimpleNamespace:
     return SimpleNamespace(inflation_path_json=inflation_path_json)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CMA-INFLATION-PATH-DOMAIN-001 — round 40 red test, see audit "
-    "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-    "(not committed in this repo)",
-)
 def test_malformed_json_should_be_rejected_not_silently_defaulted():
     # Schema layer: today this is accepted with no validator for the field.
     with pytest.raises(ValidationError):
@@ -67,19 +62,15 @@ def test_malformed_json_should_be_rejected_not_silently_defaulted():
         )
     # Runtime layer: today this silently returns the constant 70-bps
     # fallback for every year instead of raising/signalling bad input.
-    series = _inflation_path_series(_cma("not-json"), years=3, start_year=2026)
-    assert series != [70, 70, 70], (
-        "malformed JSON must not silently resolve to the hard-coded "
-        "70 bps fallback series"
-    )
+    # UMGESTELLT am 2026-10-12 (ADR-6a): diese Tests erwarteten einen
+    # RUECKGABEWERT. Ihr eigener Prosa-Text nennt aber das Werfen zuerst
+    # ("instead of raising/signalling bad input") -- die Assertion war nur
+    # nicht dafuer geschrieben. Fail-closed ist die staerkere Antwort: ein
+    # kaputter Modelleingang darf keine Zahl liefern, auch keine andere.
+    with pytest.raises(CMAValidationError, match="kein g"):
+        _inflation_path_series(_cma("not-json"), years=3, start_year=2026)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CMA-INFLATION-PATH-DOMAIN-001 — round 40 red test, see audit "
-    "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-    "(not committed in this repo)",
-)
 def test_top_level_json_array_should_be_rejected_not_crash_the_engine():
     # Schema layer: a top-level JSON array is accepted with no validator.
     with pytest.raises(ValidationError):
@@ -87,18 +78,16 @@ def test_top_level_json_array_should_be_rejected_not_crash_the_engine():
             valid_from="2026-01-01",
             inflation_path_json=json.dumps([100, 200]),
         )
-    # Runtime layer: today this raises an unhandled AttributeError
-    # ('list' object has no attribute 'items') instead of a clean,
-    # documented validation failure.
-    _inflation_path_series(_cma(json.dumps([100, 200])), years=2, start_year=2026)
+    # Runtime layer: statt eines unbehandelten AttributeError
+    # ('list' object has no attribute 'items'), der als HTTP 500 ohne
+    # Hinweis fuer den Berater endete, jetzt ein typisierter
+    # Modelleingangsfehler.
+    with pytest.raises(CMAValidationError, match="JSON-Objekt"):
+        _inflation_path_series(
+            _cma(json.dumps([100, 200])), years=2, start_year=2026,
+        )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CMA-INFLATION-PATH-DOMAIN-001 — round 40 red test, see audit "
-    "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-    "(not committed in this repo)",
-)
 def test_boolean_year_value_should_be_rejected_not_coerced_to_one_bps():
     # Schema layer: no boolean guard exists for inflation_path_json, unlike
     # the sibling _reject_boolean_* validators for other CMA fields.
@@ -107,22 +96,20 @@ def test_boolean_year_value_should_be_rejected_not_coerced_to_one_bps():
             valid_from="2026-01-01",
             inflation_path_json=json.dumps({"2026": True}),
         )
-    # Runtime layer: today int(True) == 1 is silently accepted as 1 bps.
-    series = _inflation_path_series(
-        _cma(json.dumps({"2026": True})), years=1, start_year=2026
-    )
-    assert series != [1], (
-        "a boolean year value must not be silently coerced into 1 bps "
-        "of inflation"
-    )
+    # Runtime layer: `int(True) == 1` machte aus einem Tippfehler 1 bps.
+    # Jetzt abgelehnt -- gleiches Muster wie die
+    # _reject_boolean_*-Validatoren der Geschwister-Felder.
+    # UMGESTELLT am 2026-10-12 (ADR-6a): diese Tests erwarteten einen
+    # RUECKGABEWERT. Ihr eigener Prosa-Text nennt aber das Werfen zuerst
+    # ("instead of raising/signalling bad input") -- die Assertion war nur
+    # nicht dafuer geschrieben. Fail-closed ist die staerkere Antwort: ein
+    # kaputter Modelleingang darf keine Zahl liefern, auch keine andere.
+    with pytest.raises(CMAValidationError, match="integer number of basis"):
+        _inflation_path_series(
+            _cma(json.dumps({"2026": True})), years=1, start_year=2026,
+        )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CMA-INFLATION-PATH-DOMAIN-001 — round 40 red test, see audit "
-    "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-    "(not committed in this repo)",
-)
 def test_out_of_domain_negative_inflation_should_be_rejected():
     # Schema layer: -20000 bps (-200%) passes today -- no range check exists
     # for inflation_path_json (unlike *_return_bps/*_vol_bps fields).
@@ -131,30 +118,41 @@ def test_out_of_domain_negative_inflation_should_be_rejected():
             valid_from="2026-01-01",
             inflation_path_json=json.dumps({"2026": -20000}),
         )
-    # Runtime layer: today -20000 is accepted and returned verbatim.
-    series = _inflation_path_series(
-        _cma(json.dumps({"2026": -20000})), years=1, start_year=2026
-    )
-    assert series != [-20000], (
-        "an inflation value below -100% must not reach the engine unchanged"
-    )
+    # Runtime layer: -200 %/Jahr drehte die Verbindlichkeit eines realen
+    # Ausgabenziels ins NEGATIVE, und der Wealth-Pfad buchte sie als
+    # Zufluss -- ein echter Ausgabenbedarf wurde als kostenloses, zu 100 %
+    # erreichbares Nicht-Ereignis gemeldet. Jetzt greift der Wertebereich
+    # [-1000, 3000] bps aus ADR-6a.
+    # UMGESTELLT am 2026-10-12 (ADR-6a): diese Tests erwarteten einen
+    # RUECKGABEWERT. Ihr eigener Prosa-Text nennt aber das Werfen zuerst
+    # ("instead of raising/signalling bad input") -- die Assertion war nur
+    # nicht dafuer geschrieben. Fail-closed ist die staerkere Antwort: ein
+    # kaputter Modelleingang darf keine Zahl liefern, auch keine andere.
+    with pytest.raises(CMAValidationError, match="Baseline-Domaene"):
+        _inflation_path_series(
+            _cma(json.dumps({"2026": -20000})), years=1, start_year=2026,
+        )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CMA-INFLATION-PATH-DOMAIN-001 — round 40 red test, see audit "
-    "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-    "(not committed in this repo)",
-)
 def test_future_only_path_should_not_backfill_with_the_latest_year_value():
     # Schema layer: a path with zero coverage for the requested start year
     # is accepted with no validator checking for start-year coverage.
     payload = json.dumps({"2030": 100, "2031": 200})
-    with pytest.raises(ValidationError):
-        CapitalMarketAssumptionCreate(
-            valid_from="2026-01-01",
-            inflation_path_json=payload,
-        )
+
+    # Schema layer: dieser Pfad ist GUELTIG -- Jahre und Werte liegen im
+    # zulaessigen Bereich, er deckt nur das eigene valid_from nicht ab.
+    #
+    # UMGESTELLT am 2026-10-12 (ADR-6c): hier stand eine erwartete
+    # ValidationError, also eine Schema-Ablehnung unvollstaendiger
+    # Abdeckung. ADR-6c erlaubt ausdruecklich BEIDES -- "Fehler oder
+    # dokumentierter Baseline-Default". Gewaehlt ist die zweite Variante:
+    # eine Ablehnung wuerde eine Teilerfassung waehrend des Datenaufbaus
+    # blockieren, ohne ein Modellproblem zu beheben. Der Befund dieses
+    # Tests ist ohnehin die RUNTIME-Auffuellung, nicht das Schema.
+    CapitalMarketAssumptionCreate(
+        valid_from="2026-01-01",
+        inflation_path_json=payload,
+    )
     # Runtime layer: today years 2026-2029 (before any real coverage)
     # are silently backfilled with normalized[max(normalized)] == 200
     # (the value for 2031, the LATEST year), not 100 (the FIRST/earliest

@@ -55,7 +55,9 @@ from config import settings
 from models.allocation import CapitalMarketAssumption
 from services.cma_validation import (
     correlation_factor,
+    inflation_path_series,
     parse_correlation_matrix_json,
+    parse_inflation_path_json,
     parse_sub_asset_class_assumptions_json,
     validate_correlation_matrix,
     validate_runtime_cma_completeness,
@@ -719,27 +721,48 @@ def _expected_metrics(
     }
 
 
+#: Dokumentierter Baseline-Default, wenn die CMA ueberhaupt keinen
+#: Inflationspfad traegt. Vorher war die 70 eine im Parser versteckte
+#: Konstante, die AUCH bei kaputtem JSON griff -- also eine erfundene
+#: Annahme statt eines Defaults.
+INFLATION_BASELINE_BPS = 70
+
+
 def _inflation_path_series(cma: CapitalMarketAssumption, years: int, start_year: int) -> list[int]:
-    try:
-        raw_path = json.loads(cma.inflation_path_json or "{}")
-    except json.JSONDecodeError:
-        raw_path = {}
-    normalized: dict[int, int] = {}
-    for raw_year, raw_value in (raw_path or {}).items():
-        try:
-            year = int(str(raw_year).strip())
-            value = int(raw_value)
-        except (TypeError, ValueError):
-            continue
-        normalized[year] = value
-    fallback = normalized[max(normalized)] if normalized else 70
-    series: list[int] = []
-    for offset in range(max(0, years)):
-        year = start_year + offset
-        if year in normalized:
-            fallback = normalized[year]
-        series.append(int(fallback))
-    return series
+    """Jahres-Inflationsreihe aus der CMA -- fail-closed (ADR-6a/6c).
+
+    CMA-INFLATION-PATH-DOMAIN-001. Die abgeloeste Fassung hatte in zwanzig
+    Zeilen vier Fehler, alle gemessen (Abfrage 2026-2029):
+
+        `{broken` (syntaktisch ungueltig)  -> still 70 bps
+        `"x"` / `42` / `[100,200]`         -> AttributeError -> HTTP 500
+        `{"2026": true}`                   -> 1 bps (``int(True)``)
+        `{"2026": -20000}`                 -> -20000 bps, keine Pruefung
+        `{"2099":100,"2100":900}`          -> 900 ueberall
+
+    Der letzte war wirtschaftlich der schwerste: 9 % Inflation statt 1 %,
+    ueber einen 30-Jahres-Horizont ein Faktor 13 auf jeden realen
+    Ausgabenwert. Ursache war ``fallback = normalized[max(normalized)]``
+    zusammen mit einer Schleife, die den Fallback nur fuer VORHANDENE Jahre
+    aktualisierte -- alle Jahre vor dem ersten Datenpunkt bekamen den
+    Maximalwert.
+
+    Der zweitschwerste war ``-20000``: eine Inflationsreihe von -200 %/Jahr
+    dreht die Verbindlichkeit eines realen Ausgabenziels ins NEGATIVE, und
+    der Wealth-Pfad bucht sie als Zufluss. Ein echter Ausgabenbedarf wird
+    als kostenloses, zu 100 % erreichbares Nicht-Ereignis gemeldet.
+
+    Validierung und Auffuellung liegen jetzt im gemeinsamen Modul
+    (``services/cma_validation.py``), das auch Schema und Admin-API
+    benutzen -- eine Domaene, eine Pruefung.
+    """
+    path = parse_inflation_path_json(cma.inflation_path_json)
+    return inflation_path_series(
+        path,
+        years=years,
+        start_year=start_year,
+        baseline_bps=INFLATION_BASELINE_BPS,
+    )
 
 
 def _real_series_from_nominal(series_rappen: list[int], inflation_series_bps: list[int]) -> list[int]:

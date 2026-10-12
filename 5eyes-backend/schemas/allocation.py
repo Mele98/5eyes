@@ -5,6 +5,7 @@ from typing import Literal, Optional
 from schemas.common import BaseResponse
 from services.cma_validation import (
     parse_correlation_matrix_json,
+    parse_inflation_path_json,
     parse_sub_asset_class_assumptions_json,
     validate_equity_kgv_parameters,
     validate_nelson_siegel_parameters,
@@ -721,6 +722,12 @@ class CapitalMarketAssumptionCreate(BaseModel):
         # any present malformed/non-finite/non-PSD model input fails before DB
         # persistence. Runtime engines call the exact same parser.
         parse_correlation_matrix_json(self.correlation_matrix_json)
+        # ADR-6a (CMA-INFLATION-PATH-DOMAIN-001): inflation_path_json war das
+        # EINZIGE optionale CMA-JSON-Feld ohne gemeinsamen Parser -- als
+        # freier String durchgereicht, mit Wertebereich und Jahresform
+        # ungeprueft. Eine Reihe von -20000 bps (-200 %/Jahr) drehte damit
+        # die Verbindlichkeit eines realen Ausgabenziels ins Negative.
+        parse_inflation_path_json(self.inflation_path_json)
         parse_sub_asset_class_assumptions_json(
             self.sub_asset_class_assumptions_json,
             require_complete=False,
