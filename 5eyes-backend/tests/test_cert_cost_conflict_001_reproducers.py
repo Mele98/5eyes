@@ -350,7 +350,17 @@ def test_certified_final_run_cost_totals_must_not_drift_with_later_live_ter_corr
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-BASIS-001 -- CERT-COST-CONFLICT-001")
+# GEFIXT am 2026-10-12: der Lookup war an NICHTS gebunden -- nicht an das
+# Mandat, nicht an deleted_at. Gemessen lieferte eine fremde Allokation die
+# Vermoegensbasis 999'900'000 Rappen (CHF 9'999'000 aus Mandat B), waehrend
+# Mandat A CHF 100'000 haelt: die Vermoegenszahl eines anderen Kunden floss
+# in dieses Kundendokument, und die Kostenquote wurde um Faktor 100 zu
+# niedrig ausgewiesen.
+#
+# Fail-closed statt Ersatz: nennt der Lauf eine Allokation, die nicht zu
+# diesem Mandat gehoert, ist die Basis dieses Ausweises unbestimmt. Auf die
+# aktuelle Allokation zurueckzufallen waere dieselbe stille Substitution,
+# nur innerhalb des Mandats.
 def test_run_bound_to_foreign_mandates_allocation_must_block_not_adopt_its_basis(cc_session_factory):
     sf = cc_session_factory
     # Mandate B owns a TargetAllocation with a distinctive wealth basis.
