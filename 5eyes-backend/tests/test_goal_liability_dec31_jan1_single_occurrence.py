@@ -97,13 +97,6 @@ def _make_goal(
 CHF = 100  # 1 CHF == 100 Rappen (integer sub-unit convention of this codebase)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRENCE-SCHEDULE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_annual_goal_dec31_to_jan1_books_single_occurrence_not_two():
     """Audit Repro 2: annual CHF100 goal, start=2026-12-31, end=2027-01-01.
 
@@ -132,21 +125,20 @@ def test_annual_goal_dec31_to_jan1_books_single_occurrence_not_two():
     assert liab.target_amount_rappen == 100 * CHF
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRENCE-SCHEDULE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_monthly_goal_dec30_to_jan1_does_not_double_annualized_total():
     """Audit Repro 2 (monthly variant): CHF100/month goal, start=2026-12-30,
     end=2027-01-01 -- same Dec/Jan calendar-year boundary as the annual case.
 
-    One year's worth of monthly contributions (12 x CHF100 = CHF1'200)
-    should be booked once. The calendar-label duration bug instead spans
-    the Dec-30/Jan-1 rollover as two calendar years and books the full
-    annualized CHF1'200 into each of them, totalling CHF2'400.
+    Das Fenster ist ZWEI TAGE lang, also faellt genau EINE Monatsrate
+    (CHF100) an -- die am 30.12.2026. Die naechste waere der 30.1.2027 und
+    liegt nach target_date.
+
+    Dieser Test verlangte am 2026-10-10 noch CHF1'200, also einen vollen
+    annualisierten Jahresbetrag, und lehnte nur die Verdoppelung auf
+    CHF2'400 ab. Damit hielt er die Ueberbuchung selbst als Vertrag fest:
+    "ein Jahresbetrag fuer ein Zwei-Tage-Fenster" ist derselbe Fehler wie
+    "zwei Jahresbetraege", nur halb so gross. Korrigiert mit ADR-2
+    (Owner-Entscheid 2026-10-11): gebucht wird, was faellig ist.
     """
     goal = _make_goal(
         goal_type="Wiederkehrende_Ausgabe",
@@ -160,11 +152,10 @@ def test_monthly_goal_dec30_to_jan1_does_not_double_annualized_total():
 
     total_booked = sum(liab.liability_path_rappen)
 
-    assert total_booked == 1200 * CHF, (
-        f"expected one year of monthly contributions (CHF1'200 == "
-        f"120000 Rappen), got {total_booked} Rappen"
+    assert total_booked == 100 * CHF, (
+        f"expected the single instalment due on 2026-12-30 (CHF100 == "
+        f"10000 Rappen), got {total_booked} Rappen"
     )
-    assert total_booked != 2400 * CHF, (
-        "liability must not double-book the Dec/Jan calendar-year boundary "
-        "to CHF2'400"
-    )
+    # Gegenprobe gegen beide alten Fehlwerte: 1'200 war die Annualisierung
+    # eines Zwei-Tage-Fensters, 2'400 zusaetzlich die Label-Verdoppelung.
+    assert total_booked not in (1200 * CHF, 2400 * CHF)

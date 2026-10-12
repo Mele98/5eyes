@@ -96,7 +96,11 @@ import random
 from datetime import date
 from typing import TYPE_CHECKING
 
-from services.calendar_horizon import calendar_years_until, recurring_outflow_window
+from services.calendar_horizon import calendar_years_until
+from services.cashflow_timeline import (
+    recurring_occurrence_series,
+    required_calendar_buckets,
+)
 from services.drawdown_refinement import (
     DRAWDOWN_REFINEMENT_MODEL_VERSION,
     refine_max_drawdowns,
@@ -114,6 +118,54 @@ if TYPE_CHECKING:
     from services.portfolio_engine import PortfolioSummary
 
 
+def dated_goal_calendar_buckets(goal) -> int:
+    """Benoetigte KALENDERJAHR-Buckets dieses Ziels.
+
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): in derselben
+    Einheit gezaehlt, in der die Buckets indiziert sind. Vorher stand
+    hier ``calendar_years_until()``, ein Jahrestag-Mass -- ein Ziel am
+    exakten 12-Jahres-Jahrestag verlangte 12 Buckets, lag aber im
+    Kalenderjahr-Bucket 13 und fiel damit aus dem simulierten Fenster
+    (Liability 0 statt Zielbetrag). ``life_horizon`` unten rechnete
+    schon immer ``life_year - today.year + 1``, also bereits in
+    Kalenderjahren.
+
+    Fuer wiederkehrende Stroeme zaehlt die LETZTE FAELLIGKEIT, nicht das
+    Kalenderjahr des Enddatums: aus ``end_date.year`` abgeleitet waere
+    der Horizont ein Jahr zu lang, sobald Monat/Tag des Enddatums vor
+    dem Anker-Tag liegen. Ein zu langer Horizont gibt dem Optimizer ein
+    zusaetzliches Wachstumsjahr und verschiebt die Allokation Richtung
+    Risiko.
+    """
+    base_year = date.today().year
+    candidates = [int(getattr(goal, "horizon_years", 0) or 0)]
+
+    if _is_recurring_outflow_goal(goal):
+        # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
+        from services.portfolio_engine import _parse_iso_date
+
+        candidates.append(required_calendar_buckets(
+            amount_per_occurrence_rappen=int(goal.target_amount_rappen or 0),
+            frequency=goal.frequency,
+            start_date=_parse_iso_date(goal.start_date),
+            end_date=_parse_iso_date(goal.target_date),
+            is_ongoing=bool(int(goal.is_ongoing or 0)),
+            base_year=base_year,
+        ))
+        return max(candidates)
+
+    for field in ("start_date", "target_date"):
+        raw_date = str(getattr(goal, field, "") or "").strip()[:10]
+        if not raw_date:
+            continue
+        try:
+            goal_date = date.fromisoformat(raw_date)
+        except ValueError:
+            continue
+        candidates.append(max(1, int(goal_date.year) - base_year + 1))
+    return max(candidates)
+
+
 def _simulation_horizon_years(
     simulation_prefs: dict | None,
     goals: list[Goal],
@@ -129,23 +181,13 @@ def _simulation_horizon_years(
     except (TypeError, ValueError):
         requested = DEFAULT_SIMULATION_HORIZON_YEARS
         has_explicit_override = False
-    def _dated_goal_horizon(goal) -> int:
-        candidates = [int(getattr(goal, "horizon_years", 0) or 0)]
-        for field in ("start_date", "target_date"):
-            raw_date = str(getattr(goal, field, "") or "").strip()[:10]
-            if not raw_date:
-                continue
-            try:
-                goal_date = date.fromisoformat(raw_date)
-            except ValueError:
-                continue
-            candidates.append(max(1, calendar_years_until(goal_date)))
-        return max(candidates)
 
     # A dated liability must never be truncated merely because horizon_years
     # was left NULL. This is especially important for pension/recurring goals,
     # where target_date is the final due year rather than optional metadata.
-    goal_horizon = max((_dated_goal_horizon(goal) for goal in goals), default=0)
+    goal_horizon = max(
+        (dated_goal_calendar_buckets(goal) for goal in goals), default=0
+    )
 
     # Ein expliziter Berater-Horizont hat Vorrang vor der automatischen
     # Lebenserwartung. Zielhorizonte werden dennoch nicht abgeschnitten.
@@ -881,21 +923,45 @@ def _is_recurring_outflow_goal(goal: Goal) -> bool:
     return _norm_text(goal.goal_type).strip() in _RECURRING_GOAL_TYPES
 
 
-def _shared_recurring_window(goal: Goal, horizon_years: int) -> tuple[int, int]:
-    """Das kanonische Outflow-Fenster, identisch zum Solver.
+def _shared_recurring_series(
+    goal: Goal, start_year: int, horizon_years: int
+) -> list[int]:
+    """Der kanonische Occurrence-Pfad, identisch zum Solver.
 
-    GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): siehe
-    services/calendar_horizon.py::recurring_outflow_window.
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (Owner-Entscheid 2026-10-11):
+    dieselbe Funktion, die services/optimizer/goal_liabilities.py aufruft.
+    Vorher rechnete diese Seite ``annualisierter Betrag x Anzahl beruehrter
+    Kalenderjahr-Labels`` (``_full_goal_duration_years`` /
+    ``_goal_duration_years``) -- dieselbe Ueberbuchung von Teiljahren wie
+    beim Solver, nur unabhaengig implementiert.
+
+    Index ``i`` ist das Kalenderjahr ``start_year + i``, konsistent zur
+    Cashflow-Serie. Nominal: die Inflationsbehandlung des MC-Pfades steckt
+    in ``_annualize_goal_amount``/``scaled_values`` und wird hier nicht
+    verdoppelt.
+
+    Die Wahrscheinlichkeitsgewichtung wird IM Enumerator angewandt, damit
+    Solver und Reporting identisch runden (Codex-Review 2026-10-11): vorher
+    rundete der Solver pro Bucket und das Reporting die Gesamtsumme mit
+    ``int()``, was bei zwei Raten zu 101 Rappen und 50 % zu 100 gegen 101
+    Rappen fuehrte. Aufrufer duerfen den Faktor deshalb NICHT erneut
+    anwenden.
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _parse_iso_date
 
-    return recurring_outflow_window(
+    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
+    from services.portfolio_engine import _goal_probability_factor
+
+    return recurring_occurrence_series(
+        amount_per_occurrence_rappen=int(goal.target_amount_rappen or 0),
+        frequency=goal.frequency,
         start_date=_parse_iso_date(goal.start_date),
-        target_date=_parse_iso_date(goal.target_date),
+        end_date=_parse_iso_date(goal.target_date),
         is_ongoing=bool(int(goal.is_ongoing or 0)),
-        fallback_horizon_years=goal.horizon_years,
+        base_year=int(start_year),
         horizon_years=int(horizon_years),
+        probability_factor=_goal_probability_factor(goal),
     )
 
 
@@ -904,49 +970,72 @@ def _year_index_for_goal(goal: Goal, start_year: int, horizon_years: int) -> int
     from services.portfolio_engine import _goal_projection_years
 
     if _is_recurring_outflow_goal(goal):
-        # GOAL-RECURRENCE-SCHEDULE-001: der Auswertungsindex muss das LETZTE
-        # Outflow-Jahr des gemeinsamen Fensters sein -- dort muss der
-        # kumulierte Strom (target = annual * duration, siehe
-        # _monte_carlo_goal_summary) finanziert sein. Vorher kam der Index
-        # aus _goal_projection_years(), das fuer diese Zieltypen auf
-        # target_date ankert (invertierte Anker-Prioritaet) und mit
-        # Tageszaehlung statt Jahrestagen rundet -- dadurch belastete der
-        # Reporting-Pfad andere Kalenderjahre als der Solver.
-        first_year, duration = _shared_recurring_window(goal, horizon_years)
-        if duration > 0:
-            return max(1, min(first_year + duration - 1, int(horizon_years)))
-        # duration == 0 (Start jenseits des Horizonts): der Index ist fuer
-        # das Ergebnis irrelevant, _monte_carlo_goal_summary behandelt
-        # duration <= 0 separat. Geklammerter Startindex als stabiler Wert.
-        return max(1, min(first_year, int(horizon_years)))
+        # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2: der Auswertungsindex ist das
+        # LETZTE Kalenderjahr-Bucket mit einer tatsaechlichen Faelligkeit --
+        # dort muss der kumulierte Strom finanziert sein. Vorher war es das
+        # letzte beruehrte Kalenderjahr-LABEL, also auch dann ein Jahr
+        # spaeter, wenn in jenem Jahr gar keine Zahlung mehr anfiel.
+        series = _shared_recurring_series(goal, start_year, horizon_years)
+        paid = [i for i, value in enumerate(series) if value > 0]
+        if paid:
+            return max(1, min(paid[-1] + 1, int(horizon_years)))
+        # Keine Faelligkeit im Horizont: der Index ist fuer das Ergebnis
+        # irrelevant, _monte_carlo_goal_summary behandelt das separat.
+        return max(1, min(int(horizon_years), int(horizon_years)))
 
     years = _goal_projection_years(goal)
     return max(1, min(int(years or 1), int(horizon_years)))
 
 
-def _full_goal_duration_years(goal: Goal) -> int:
+def _recurring_outflow_total_rappen(
+    goal: Goal, start_year: int, horizon_years: int
+) -> int:
+    """In-Horizon-Gesamtbetrag eines wiederkehrenden Ziels, occurrence-exakt.
+
+    Ersetzt ``annualisierter Betrag x Dauer in Jahren``. Die beiden alten
+    Helfer ``_full_goal_duration_years`` und der wiederkehrende Zweig von
+    ``_goal_duration_years`` sind damit ersatzlos entfallen (ADR-2c).
+    """
+    return sum(_shared_recurring_series(goal, start_year, horizon_years))
+
+
+def _recurring_outflow_full_total_rappen(
+    goal: Goal, start_year: int, horizon_years: int
+) -> int:
+    """Gesamtbetrag OHNE Horizont-Begrenzung, fuer die Abschneide-Offenlegung.
+
+    Bei laufenden Zielen (``is_ongoing`` ohne Enddatum) ist der Strom
+    unbegrenzt; dort gibt es nichts abzuschneiden, was sich als Anteil
+    ausweisen liesse, und die Funktion liefert den In-Horizon-Betrag.
+    """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _parse_iso_date
 
-    start_date = _parse_iso_date(goal.start_date)
     target_date = _parse_iso_date(goal.target_date)
-    if start_date and target_date and target_date >= start_date:
-        return max(1, target_date.year - start_date.year + 1)
-    return 1
+    if target_date is None:
+        return _recurring_outflow_total_rappen(goal, start_year, horizon_years)
+    full_years = max(
+        int(horizon_years), int(target_date.year) - int(start_year) + 1
+    )
+    return sum(_shared_recurring_series(goal, start_year, full_years))
 
 
 def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int:
-    """GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): fuer wiederkehrende Ziele
-    kommt die Dauer jetzt aus derselben Herleitung wie beim Solver, statt
-    aus einer eigenen Kalenderjahr-Overlap-Rechnung. Fuer alle anderen
-    Zieltypen bleibt das bisherige Verhalten unveraendert.
+    """Dauer in Jahren -- nur noch fuer NICHT-wiederkehrende Zieltypen.
+
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2: fuer wiederkehrende Ziele gibt es
+    keine Jahres-Dauer mehr, weil zwei "Jahre" unter Occurrence-Semantik
+    verschieden viel Geld sind; dort tritt
+    ``_recurring_outflow_total_rappen`` an ihre Stelle.
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _parse_iso_date
 
     if _is_recurring_outflow_goal(goal):
-        _first_year, duration = _shared_recurring_window(goal, horizon_years)
-        return duration
+        raise AssertionError(
+            "_goal_duration_years ist fuer wiederkehrende Ziele nicht mehr "
+            "zulaessig -- _recurring_outflow_total_rappen benutzen (ADR-2c)."
+        )
 
     start_date = _parse_iso_date(goal.start_date)
     target_date = _parse_iso_date(goal.target_date)
@@ -1068,9 +1157,17 @@ def _monte_carlo_goal_summary(
         # braucht proportional weniger Deckung, konsistent zur Reserve-Logik.
         target = target * _goal_probability_factor(goal)
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            full_duration = _full_goal_duration_years(goal)
-            duration = _goal_duration_years(goal, start_year, horizon_years)
-            if duration <= 0:
+            # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2: der zu finanzierende
+            # Betrag ist die Summe der tatsaechlichen Faelligkeiten im
+            # Horizont, nicht annualisierter Betrag x Jahres-Labels.
+            # ``target`` traegt an dieser Stelle schon den
+            # Wahrscheinlichkeitsfaktor (siehe oben), deshalb wird er hier
+            # auf die occurrence-exakte Summe angewandt statt auf das
+            # Produkt mit einer Jahreszahl.
+            in_horizon_total = _recurring_outflow_total_rappen(
+                goal, start_year, horizon_years
+            )
+            if in_horizon_total <= 0:
                 target = max(1, int(target))
                 success_rate_pct = 0
                 funded_ratio_p50 = 0.0
@@ -1078,8 +1175,12 @@ def _monte_carlo_goal_summary(
                 outside_simulation_horizon = True
                 evaluation_note = f"Ziel liegt ausserhalb des aktuellen Simulationshorizonts (Horizont: {horizon_years} Jahre)."
             else:
-                target *= duration
-                target = max(1, int(target))
+                # KEINE zweite Gewichtung: in_horizon_total kommt aus dem
+                # gemeinsamen Enumerator und traegt probability_pct bereits
+                # pro Bucket gerundet. Vorher wurde der Faktor hier erneut
+                # auf die Summe angewandt und mit int() abgeschnitten --
+                # daher die Divergenz 100 vs. 101 Rappen zum Solver.
+                target = max(1, in_horizon_total)
                 success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
                 funded_ratio_p50 = round(p50 / target, 4)
                 funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
@@ -1088,8 +1189,18 @@ def _monte_carlo_goal_summary(
                     funded_ratio_pct=funded_ratio_pct,
                     hardness_key=hardness_key,
                 )
-                if duration < full_duration:
-                    evaluation_note = f"Bewertet fuer {duration} von {full_duration} Jahren (Simulationshorizont: {horizon_years} Jahre)."
+                # Abschneide-Offenlegung als Betrags-Anteil, nicht als
+                # Jahreszahl: unter Occurrence-Semantik sind zwei "Jahre"
+                # verschieden viel Geld, wenn eines ein Teiljahr ist.
+                full_total = _recurring_outflow_full_total_rappen(
+                    goal, start_year, horizon_years
+                )
+                if full_total > in_horizon_total:
+                    share = 100.0 * in_horizon_total / full_total
+                    evaluation_note = (
+                        f"Bewertet werden {share:.0f} % des Zahlungsstroms "
+                        f"(Simulationshorizont: {horizon_years} Jahre)."
+                    )
         else:
             target = max(1, int(target))
             success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))

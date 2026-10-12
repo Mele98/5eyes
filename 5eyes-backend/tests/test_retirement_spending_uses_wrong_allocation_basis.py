@@ -154,12 +154,6 @@ def _client_with_user(session_factory, user):
     return TestClient(app)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RETIREMENT-ALLOCATION-BASIS-001 — round 46 red test, see audit "
-           "2026-10-04-house-matrix-policy-constraint-and-retirement-basis-"
-           "integrity-audit.md (not committed in this repo)",
-)
 def test_max_pension_spending_must_use_real_target_allocation_not_raw_baseline(
     session_factory, cleanup_overrides,
 ):

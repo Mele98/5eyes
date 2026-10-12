@@ -22,6 +22,7 @@ from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
+from services.calendar_horizon import calendar_years_until
 from services.wealth_position_semantics import (
     WealthPositionSemanticsError,
     is_direct_real_estate_position,
@@ -190,13 +191,32 @@ def _parse_goal_date(value) -> date | None:
         raise HTTPException(status_code=422, detail="Ungültiges Datumsformat im Ziel")
 
 
-def _goal_horizon_from_date(target: date | None) -> int | None:
+def _goal_horizon_from_date(
+    target: date | None, *, as_of: date | None = None
+) -> int | None:
+    """Anzahl Jahres-Buckets bis zum Zieldatum, kanonische Konvention.
+
+    ADR-1a (Owner-Entscheid 2026-10-11): hier stand die Tage-Ceiling-Formel
+    ``max(1, (delta_days + 364) // 365)``. Die zaehlt jedes ueberschrittene
+    Schaltjahr mit und liefert deshalb an exakten Jahrestagen einen Horizont,
+    der ein Jahr zu lang ist.
+
+    Gemessen ueber 4 Stichtage x 30 Jahre runde Jahrestage: **97 % falsch,
+    immer +1 Jahr**. Ueber zufaellige Zieldaten sind es nur 1.1 % -- aber
+    Berater tippen keine Zufallsdaten ein, sondern "Ziel in N Jahren", und
+    genau das ergibt einen exakten Jahrestag. Die niedrige Zufallsquote hat
+    die praktische Wirkung verdeckt.
+
+    ``calendar_years_until`` ist die kanonische Konvention: ein exakter
+    N-Jahres-Jahrestag ergibt N, der Folgetag N+1 (Kalenderanniversar wie bei
+    AHV/BVG-Altersgrenzen, nicht ein Tage-Mittelwert).
+
+    ``as_of`` ist vorbereitet fuer ADR-1b (expliziter, persistierter
+    Bewertungsstichtag); ohne Angabe gilt wie bisher der heutige Tag.
+    """
     if not target:
         return None
-    delta_days = (target - date.today()).days
-    if delta_days <= 0:
-        return 1
-    return max(1, int((delta_days + 364) // 365))
+    return max(1, calendar_years_until(target, as_of=as_of))
 
 
 def _goal_type_key(value) -> str:
@@ -1484,10 +1504,15 @@ def calculate_max_pension_spending(
     from services.portfolio_engine import (
         ensure_runtime_reference_data, _load_allocation_inputs,
         _baseline_target_bands, _house_matrix_or_default, _risk_score_bucket,
+        _current_target_allocation_or_none,
         _build_sub_allocations, _enrich_sub_allocations_with_risk,
         _building_block_risky_map, _expected_metrics, _normalize_preferences,
         _current_planning_inflation_bps, _goal_inflation_series_bps,
         require_strategy_ready_assessment,
+    )
+    from services.portfolio_engine_house_matrix import (
+        allocation_basis_note,
+        approved_or_baseline_targets,
     )
     from services.jurisdiction.resolve import resolve_mandate_jurisdiction
     from services.return_moments import arithmetic_moments_to_log_parameters
@@ -1516,7 +1541,17 @@ def calculate_max_pension_spending(
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     prefs = _normalize_preferences(None)
-    targets, _, _ = _baseline_target_bands(house_matrix, policy)
+    # RETIREMENT-ALLOCATION-BASIS-001: hier stand
+    #     targets, _, _ = _baseline_target_bands(house_matrix, policy)
+    # also die ROHE Hausmatrix-Bandbreite des Risiko-Buckets. Die tatsaechlich
+    # genehmigte Soll-Allokation des Mandats wurde nie geladen -- die
+    # ausgewiesene maximale Rentenentnahme gehoerte damit zu einer Allokation,
+    # die so nie beschlossen wurde. Die rohen Werte waren zusaetzlich nicht in
+    # ihre eigenen Bandbreiten projiziert (AB-MODEL-001).
+    current_allocation = _current_target_allocation_or_none(db, mandate.id)
+    targets, allocation_basis_id = approved_or_baseline_targets(
+        current_allocation, house_matrix, policy
+    )
     risky_map = _building_block_risky_map(
         db,
         policy.id,
@@ -1578,6 +1613,10 @@ def calculate_max_pension_spending(
         monthly_chf_rappen_out = annual_chf_rappen_out // 12
 
     reasoning = [
+        # RETIREMENT-ALLOCATION-BASIS-001: auf welcher Allokation die Zahl
+        # steht, gehoert in die Begruendung -- die Entnahmezahl ist ohne
+        # diese Angabe nicht nachvollziehbar.
+        allocation_basis_note(allocation_basis_id),
         f"Beratungsvermögen heute: CHF {advisory_wealth_rappen / 100:,.0f}",
         f"Modell-Medianrendite (CMA-momententreu): {nominal_geometric_return * 100:.2f}% p.a. nominal",
         f"Erwartete Inflation: {inflation * 100:.2f}% p.a.",

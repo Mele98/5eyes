@@ -12,6 +12,196 @@
 - Quelle Teil 5 (ADR-12): `2026-10-04-equity-valuation-kgv-calibration-horizon-and-publication-integrity-audit.md` (Kontrollrunde 47 per Audit-eigener Nummerierung), 2 rote Tests in PR #527
 - Branch-Vorschlag: `docs/goal-engine-time-lifecycle-validation-adr`
 
+## Entscheidungsprotokoll
+
+**2026-10-11 — Owner-Entscheid (Emanuele Konzelmann), erfasst von Claude (CTO/CIO-Rolle).**
+
+| Entscheidung | Wahl |
+|---|---|
+| 3b Overdue-Policy | **Variante 3** — fail-closed: Berechnung blockiert, bis der Berater klärt |
+| 9a Funding-Semantik | **Variante 1** — priorisiertes Goal Funding |
+| 8a Policy-Identitätsmodell | **Variante 1** — content-addressed, jede Bearbeitung erzeugt eine neue unveränderliche ID |
+| 4a Konfidenzniveau | **95 %** einseitig (bereits umgesetzt, PR #576) |
+| 4b Unsicherheitszone | **v1** — Status anzeigen und stoppen, kein Alpha-Spending |
+| 4c Validierungs-Pfadzahl | **20'000** |
+| Alle übrigen ADR-Empfehlungen | als Block bestätigt |
+| **12a rho-Kalibrierung** | **OFFEN — an das Investment Committee verwiesen.** Keine Empfehlung in der Spec, und jede von der Entwicklung wäre eine erfundene Marktannahme. |
+
+**Folge für ADR-12:** 12b (Horizont-Semantik) und 12c (Provenienz-Datenmodell) sind
+bestätigt und unabhängig vom Kalibrierungswert umsetzbar. ADR-12 ist erst
+abgeschlossen, wenn das IC 12a entschieden hat; bis dahin bleibt
+`SUBRISK-GLOBAL-RHO-MODEL-001` offen.
+
+**Vorbehalt zur Umsetzung:** die Block-Bestätigung der übrigen Empfehlungen ist
+keine Zusicherung, dass jede davon technisch hält. ADR-7c wurde gegen den Code
+geprüft und war **falsch** — die empfohlene Umbenennung hätte eine Tabelle mit
+durchgängig Rang 0, Erreichungsgrad 0.0 und Fehlbetrag 0 ins Kundendokument
+geschrieben, weil die beiden JSON-Nutzlasten verschiedene Formen haben (nur
+`label` überlappt, `shortfall_rappen` fehlt in der Quelle). Korrigiert in
+PR #580 als `GOAL-ANALYSIS-PDF-DEAD-SOURCE-001`. Jede weitere Empfehlung wird
+vor der Umsetzung gegen den Code geprüft; Abweichungen werden gemeldet, nicht
+stillschweigend umgesetzt.
+
+### Nachtrag ADR-2 (Umsetzung 2026-10-11): ein Widerspruch in der Spec, vom Code entschieden
+
+ADR-2 enthält **zwei unvereinbare Bucket-Definitionen**, und die Umsetzung musste
+sich für eine entscheiden:
+
+1. Die Formalisierung schreibt `bucket(d) = ⌊calendar_years_until(d, as_of)⌋`,
+   also **Jahrestag**-Buckets.
+2. Der nächste Satz behauptet, `contribution_for_year()` berechne genau das
+   bereits — diese Funktion bucketet aber nach **Kalenderjahr**
+   (`date(year,1,1)` … `date(year,12,31)`).
+
+Entschieden hat der Code, nicht die Entwicklung: **drei** weitere Serien liegen
+auf derselben Array-Achse `t` wie der Liability-Pfad und werden im
+Wealth-Rekursionsschritt mit ihm verrechnet
+(`wealth[:, t+1] = … + cashflow[t] − liability[t]`):
+
+| Serie | Bedeutung von Index `t` |
+|---|---|
+| `net_cashflow_series` | Kalenderjahr `cashflow_totals["year"] + t` |
+| Inflationspfad | `_inflation_path_series(cma, years, cashflow_totals["year"])` |
+| Steuern | `TaxContext.calendar_year = base_calendar_year + t` |
+| `liability_path_rappen` (vorher) | Jahrestag-Bucket `calendar_years_until(anchor)` |
+
+Eine Vereinheitlichung war damit erzwungen. Die Gegenrichtung (Cashflow-Achse auf
+Jahrestage umbauen) schliesst ADR-2b ausdrücklich aus, und ADR-2c verlangt den
+Aufruf des Kalenderjahr-Enumerators. **Kalenderjahr-Buckets gewinnen**; der
+Formelteil von ADR-2 beschrieb das abgelöste Verhalten, nicht das Ziel.
+
+**Zweiter, nicht in der Spec enthaltener Befund.** Aus derselben Messung fiel ein
+eigenständiger Fehler: weil der Startindex ein Jahrestag-Bucket war, lag der
+Outflow in **5 von 8** geprüften Startdaten **ein Jahr zu früh** auf der Achse.
+Eine Pensionsausgabe ab 2031-07-01 wurde gegen die Cashflows des Kalenderjahres
+2030 verrechnet. Der Audit nennt nur die Betragsüberzeichnung; die Fehlplatzierung
+ist neu und wurde mit demselben Fix behoben.
+
+**Gemessene Betragswirkung** (monatlich CHF 1'000, Fenster nicht auf
+Jahresgrenzen):
+
+| Frequenz | Fenster | korrekt | Label-Logik | Abweichung |
+|---|---|---|---|---|
+| monatlich | 2026-06-15 → 2028-03-15 | 22 Zahlungen | 36 | **+64 %** |
+| quartalsweise | 2026-11-01 → 2029-02-01 | 10 Zahlungen | 16 | **+60 %** |
+| monatlich | 2026-01-01 → 2026-12-31 | 12 | 12 | 0 % |
+| jährlich | 2026-07-01 → 2030-07-01 | 5 | 5 | 0 % |
+
+Nur Fenster auf Kalenderjahr-Grenzen waren unauffällig — der Grund, warum es
+lange unentdeckt blieb. Die Richtung ist nicht harmlos konservativ: eine um 64 %
+überbuchte Verbindlichkeit lässt den Kunden mehr zurücklegen oder mehr Risiko
+nehmen als nötig.
+
+**Ersatzlos entfernt** (ADR-2c): `goal_liabilities._outflow_duration_years`,
+`goal_liabilities._annualize_amount_rappen`,
+`calendar_horizon.recurring_outflow_window`,
+`portfolio_engine_mc_simulation._full_goal_duration_years` und der
+wiederkehrende Zweig von `_goal_duration_years`. „Dauer in Jahren" existiert für
+wiederkehrende Ziele nicht mehr als Begriff, weil ein Teiljahr ein Bucket ist,
+aber nicht ein Jahresbetrag; Abschneide-Offenlegungen weisen deshalb einen
+**Betrags-Anteil** aus statt einer Jahreszahl.
+
+**Korrektur meiner eigenen Abgrenzung (2026-10-11, nach den Golden-Snapshots).**
+Ich hatte `target_year_index` für Wealth-Ziele als „bewusst nicht mitgemacht,
+ADR-1-Gebiet" abgelegt. Das war falsch, und die CH-Golden-Snapshots haben es
+aufgedeckt — bei 7455 grünen Tests. Gemessen:
+
+```
+Vermögensziel, Zieldatum 2036-10-08, Stichtag 2026-10-11
+  target_year_index = 10  ->  wealth_paths-Spalte 10  =  Ende Kalenderjahr 2035
+  ABWEICHUNG: ein Jahr ZU FRÜH bewertet
+```
+
+Vor der Umstellung traf Spalte 10 genau zehn Jahrestage, also das Zieldatum. Die
+Bucket-Bedeutung auf Kalenderjahre zu ändern und den Wealth-Index auf der
+Jahrestag-Skala zu lassen, zerreisst diese Entsprechung. Das ist keine
+Konventionsfrage, sondern eine Regression. **Behoben:** `_resolve_target_year_index`
+liefert jetzt den Kalenderjahr-Bucket; das Ziel wird am Ende von 2036 bewertet.
+
+**Zweiter Fund derselben Messung:** der Simulationshorizont war systematisch ein
+Jahr zu lang, weil er aus `end_date.year` statt aus der letzten tatsächlichen
+Fälligkeit kam:
+
+```
+Serie 2031-10-10 .. 2056-10-03, jährlich
+  letzte Fälligkeit 2055-10-10  ->  30 Buckets reichen
+  end_date.year = 2056          ->  31 Buckets gerechnet
+```
+
+Betroffen ist jedes Mandat, dessen Enddatum vor dem Anker-Tag liegt, also etwa
+die Hälfte. Ein zusätzliches Simulationsjahr ist nicht neutral: es gibt dem
+Optimizer mehr Wachstumszeit und verschiebt die Allokation Richtung Risiko.
+**Behoben** über `cashflow_timeline.required_calendar_buckets()`.
+
+### Dritte Fundstelle derselben Kategorie-Verwechslung
+
+Die Spec führt **Horizont-Länge** und **Bucket-Index** durchgehend als eine
+Grösse. Sie sind zwei, und beide sind richtig:
+
+| Frage | Antwort | Wer braucht sie |
+|---|---|---|
+| „Wie viele Jahre bis zum Ziel?" | `calendar_years_until` (ADR-1a) | Kunde, UI, PDF |
+| „In welchem Bucket liegt das Ziel?" | Kalenderjahr-Bucket (ADR-2) | Engine |
+
+Sie unterscheiden sich um 0 oder 1, weil Buckets am 1. Januar beginnen, der
+Stichtag aber unterjährig liegt — zwölf verstrichene Jahre erstrecken sich über
+dreizehn Kalenderjahre. `test_calendar_horizon_leap_anniversary_matrix.py`
+verlangte Parität aller **vier** Resolver und vermischte damit beides; es prüft
+jetzt Parität der drei kundenseitigen (die ADR-1a-Kernaussage, unverändert
+gültig) und die ±1-Beziehung zum Bucket.
+
+### Nebenwirkung, die zwei Test-Fixtures betraf
+
+Weil die Bucket-Auflösung die Wanduhr jetzt in `goal_liabilities` liest, griffen
+zwei „heute"-Pins nicht mehr (`test_calendar_horizon_leap_anniversary_matrix`,
+`test_calendar_horizon_replay_bytewise_stable_across_days`). Ein Reproducer wurde
+dadurch **grün, ohne dass der Befund behoben war** — der Pin war wirkungslos, also
+sahen beide Durchläufe dasselbe echte Heute. Beide Fixtures sind nachgezogen.
+
+Dass jedes neue Modul in jedem Pin nachgetragen werden muss, ist ein eigenes
+Argument für **ADR-1b**: solange der Stichtag nicht als Parameter durchgereicht
+wird, ist er an jeder Lesestelle ein verstecktes globales Eingangsdatum.
+
+**Teilweise behoben, nicht geschlossen:** die Replay-Instabilität ist von
+*täglich* auf *einmal im Jahr* geschrumpft (Kalenderjahr-Buckets springen nur
+zum Jahreswechsel). Gemessen: Stichtag 31.12. → Bucket 2, Stichtag 1.1. →
+Bucket 1, bei identischem Datensatz. Der Rest-Reproducer bleibt rot und zeigt
+auf ADR-1b.
+
+**Lifecycle-Grenzfall sichtbar gemacht:** ein Strom, dessen Fenster vollständig
+vor dem laufenden Kalenderjahr endet, hat jetzt keine In-Horizon-Verbindlichkeit
+mehr (vorher belebte `max(1, …)` ihn als neue Zahlungspflicht wieder, Audit
+Repro 3). Damit er nicht stillschweigend auf 0 verschwindet, trägt er eine
+explizite `evaluation_note`, die auf den fehlenden Lifecycle-Status (ADR-3)
+hinweist.
+
+**Neun Reproducer-Dateien umgestellt.** Davon hielten **vier** den Defekt als
+Vertrag fest, drei davon ausdrücklich als „positive control (already correct
+today)":
+
+- `test_same_year_window_books_exactly_one_bucket` verlangte den vollen
+  Jahresbetrag für das Fenster 1.3.–1.9. (sieben Monatsraten, nicht zwölf).
+- `test_month_end_anchor_within_same_calendar_year_label_is_correct` dasselbe für
+  31.1.–30.11. (elf Raten).
+- `test_positive_control_matching_window_does_not_overshoot_target_date` verglich
+  Kalenderjahr-Bucket gegen Jahrestag-Index — die Vermischung, die der Fix
+  beseitigt.
+- `test_monthly_goal_dec30_to_jan1_does_not_double_annualized_total` lehnte die
+  2×-Verdoppelung korrekt ab, verlangte aber die 12×-Überbuchung: ein voller
+  Jahresbetrag für ein **Zwei-Tage**-Fenster.
+
+Zwei weitere Testfehler, die ohne Nachrechnen als Regression durchgegangen wären:
+`test_exact_two_year_span_landing_on_jan1_books_two_buckets_not_three` widersprach
+dem bestätigten ADR-2a (inklusiver Endpunkt — die Rate am 1.1.2029 ist fällig,
+es sind echte drei Buckets), und das Property-Test-Orakel in
+`test_goal_liability_bucket_sum_equals_occurrence_sum` **driftete** selbst: es
+zählte `current = _add_months(current, step)` kumulativ, wodurch ein in den
+Februar geklemmter 29. dauerhaft auf dem 28. blieb und an der inklusiven
+Endgrenze eine Rate zu viel durchliess — exakt der Fehler, den der
+Produktions-Enumerator in seinem eigenen Kommentar als vermieden beschreibt.
+
+---
+
 ## Ziel
 
 **Nachtrag 2026-10-04/05:** Dieses Dokument wurde um ADR-9 bis ADR-12 erweitert, nachdem zwei vollständige, nie committete Audit-Runden (Kontrollrunde 36/37, Goal-Funding/Sensitivity) sowie zwei brandneue Runden (Sensitivity-Common-Baseline, Equity-Valuation/KGV) im Ares-Worktree gefunden und mit derselben Sorgfalt verifiziert wurden. Die ursprüngliche Acht-Finde-Analyse unten (ADR-1 bis ADR-8) bleibt unverändert gültig; ADR-9 bis ADR-12 folgen demselben Format und Anspruch.
@@ -74,7 +264,7 @@ Vier verschiedene Formeln sind heute aktiv:
 
 **Begründung:** Es ist bereits die einzige der vier Formeln, die als Positivkontrolle im Audit bestätigt korrekt ist; die anderen drei haben nachweislich unterschiedliche, inkompatible Bias-Richtungen. Es gibt keine fachliche Rechtfertigung, mehr als eine Konvention zu pflegen.
 
-☐ Bestätigt ☐ Abgelehnt — falls abgelehnt, bitte alternative Formel benennen.
+☑ Bestätigt ☐ Abgelehnt — falls abgelehnt, bitte alternative Formel benennen.
 
 ### OWNER-DECISION 1b — Bindung des Stichtags
 
@@ -82,13 +272,13 @@ Vier verschiedene Formeln sind heute aktiv:
 
 **Begründung:** Audit-Trail-Integrität (vgl. bereits etabliertes Projekt-Prinzip, siehe `project_5eyes_ceo_cfo_cio_audit_2026_08_07`-Memory: der Audit-Log-Unveränderlichkeits-Trigger-Bugfix wurde als kritisch eingestuft — dieselbe Logik gilt für Berechnungs-Stichtage: ein Replay darf nicht leise ein anderes wirtschaftliches Ergebnis liefern als beim ersten Lauf).
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 1c — Snapshot-Hash-Bindung
 
 **Empfehlung:** `_compute_input_snapshot_hash()` nimmt `valuation_date` (und die Resolver-/Bucket-Konventions-Version aus 1a) als Pflicht-Input auf. Eine Änderung des Stichtags muss den Hash sichtbar ändern.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -107,23 +297,25 @@ amount_due[bucket(j)] = Σ { amount : t_k ∈ Jahr j }   mit bucket(d) = ⌊cale
 
 Dies ist exakt, was `contribution_for_year()` bereits berechnet. Der Fix besteht NICHT darin, eine neue Formel zu erfinden, sondern `goal_liabilities.py` auf den bestehenden, bereits korrekten Enumerator umzustellen.
 
+> **UMGESETZT am 2026-10-11** (PR #580). Zur Bucket-Definition, die dieser Absatz anders beschreibt als die Formel darüber, siehe den Nachtrag im Entscheidungsprotokoll oben.
+
 ### OWNER-DECISION 2a — Endpunkt-Inklusivität
 
 **Empfehlung:** Inklusiv (`t_k ≤ t_end`, nicht `<`). Dies ist bereits die etablierte Projekt-Konvention für `valid_until` bei Cashflows (siehe `feedback_conservative_values`/`project_5eyes_cashflow_konventionen`-Memory: "valid_until INKLUSIV"). Keine neue Entscheidung nötig — nur Bestätigung, dass dieselbe Konvention für Goals gilt.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 2b — Granularität der Engine-Buckets
 
 **Empfehlung:** Jahres-Buckets bleiben die Simulationsauflösung (keine Umstellung auf monatliche Pfad-Schritte) — das beträfe die gesamte stochastische Kern-Architektur und ist bewusst nicht Teil dieses Fixes. Innerhalb eines Jahres-Buckets wird aber die ANZAHL und SUMME der Occurrences exakt (nicht approximiert) berechnet. Unterjährige Platzierungs-Präzision (wann GENAU im Jahr das Geld fehlt) bleibt der separate `WITHDRAWAL-TIMING-001`-P2-Vertrag.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 2c — Konsolidierung
 
 **Empfehlung:** `goal_liabilities.py` ruft `cashflow_timeline`s Enumerator direkt auf (oder beide nutzen einen gemeinsam extrahierten Kern), statt eine zweite, parallele Implementierung zu pflegen. `portfolio_engine_mc_simulation.py`s eigene Duplikat-Logik (Audit: "wiederholt die falsche Summenlogik unabhängig vom Optimizer") wird ersatzlos entfernt und ersetzt durch denselben Aufruf.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -137,7 +329,7 @@ Die Goal-Domain kennt nur `is_active` (Boolean) und `deleted_at` (Soft-Delete). 
 
 **Empfehlung:** Mindestens `planned` | `due` | `overdue` | `fulfilled` | `cancelled` | `historical_unknown` (letzterer nur für Legacy-Migration, nie für neue Goals). Transitionen append-only auditiert (Actor, Zeitstempel, Grund) — konsistent mit dem bereits etablierten Audit-Log-Unveränderlichkeits-Prinzip dieses Projekts.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 3b — Overdue-Policy (die wichtigste Einzelentscheidung dieses Dokuments)
 
@@ -153,13 +345,13 @@ Drei Optionen, wie ein überfälliges Ziel (Zieldatum vergangen, keine Lifecycle
 
 **Kosten der Empfehlung:** zusätzliche UX-Reibung (Berater muss aktiv klären, bevor eine Berechnung für ein Mandat mit überfälligen Zielen läuft). Das ist der richtige Trade-off für Finanzberatungssoftware.
 
-☐ Variante 3 (fail-closed, empfohlen) ☐ Variante 1 ☐ Variante 2 ☐ Andere: ___________
+☑ Variante 3 (fail-closed, empfohlen) ☐ Variante 1 ☐ Variante 2 ☐ Andere: ___________
 
 ### OWNER-DECISION 3c — Nachweis für `fulfilled`/`cancelled`
 
 **Empfehlung:** Pflichtfeld Begründungstext + Zeitstempel + Actor, append-only. Kein Ziel darf ohne diesen Nachweis in einen Terminal-Zustand wechseln.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -181,7 +373,7 @@ Drei Optionen, wie ein überfälliges Ziel (Zieldatum vergangen, keine Lifecycle
 
 **Empfehlung:** α = 0.05 (einseitiges 95%-Lower-Bound). Dies ist eine Risikoappetit-Entscheidung der Firma (kein reiner Mathematik-Fakt) — 95% ist der in Finanz-/Aktuariatspraxis übliche Standardwert, sofern keine andere interne Risikopolitik existiert.
 
-☐ 95% (empfohlen) ☐ 90% ☐ 99% ☐ Anderer Wert: ______
+☑ 95% (empfohlen) ☐ 90% ☐ 99% ☐ Anderer Wert: ______
 
 ### OWNER-DECISION 4b — Umgang mit der Unsicherheitszone
 
@@ -189,19 +381,19 @@ Wenn der Lower Bound zwischen `TAU_UNREACHABLE` (0.50) und `tau` liegt:
 
 **Empfehlung (v1):** Status `statistisch_unsicher` anzeigen und stoppen — keine sequenzielle Pfad-Erweiterung. Eine feste Validierungs-Pfadzahl (empfohlen: 20'000–50'000, siehe 4c) macht "unsicher" in der Praxis selten. Sequenzielle Erweiterung mit korrektem Alpha-Spending (O'Brien-Fleming/Pocock) ist mathematisch möglich, aber deutlich komplexer und fehleranfälliger — als v2-Option vormerken, falls "unsicher" operativ zu oft auftritt.
 
-☐ v1 (fix, kein Alpha-Spending, empfohlen) ☐ v2 (sequenziell mit Alpha-Spending) direkt umsetzen
+☑ v1 (fix, kein Alpha-Spending, empfohlen) ☐ v2 (sequenziell mit Alpha-Spending) direkt umsetzen
 
 ### OWNER-DECISION 4c — Validierungs-Pfadzahl
 
 **Empfehlung:** 20'000 Pfade. Begründung: Wilson-Intervall-Halbbreite bei `p=0.8`, `n=20'000`, `α=0.05` beträgt ≈ 0,0057 (< 1 Prozentpunkt) — deutlich enger als die Distanz zwischen `tau` und `TAU_UNREACHABLE` (0.80 vs. 0.50), sodass die Unsicherheitszone in der Praxis nur bei wirklich grenzwertigen Fällen greift. Rechenkosten: einmalig pro finalem Kandidaten (nicht pro Trainings-Iteration), vertretbar.
 
-☐ 20'000 (empfohlen) ☐ Andere Zahl: ______
+☑ 20'000 (empfohlen) ☐ Andere Zahl: ______
 
 ### OWNER-DECISION 4d — Persistenz
 
 **Empfehlung:** `OptimizerRun` erhält zusätzlich `validation_seed`, `validation_n_paths`, `validation_cube_hash`, `validation_lower_bound_x10000`, `validation_alpha_x10000`, `reliability_verdict`. Ein fehlender oder manipulierter Validierungs-Anker blockiert Reload/Publikation (fail-closed, konsistent mit ADR-3b).
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### Einordnung zu `OPTIMIZER-IS-ESS-001` (bereits offen, keine neue Entscheidung)
 
@@ -239,19 +431,19 @@ Separat: `services/jurisdiction/resolve.py::resolve_cma_for_jurisdiction()` filt
 
 **Empfehlung:** `parse_inflation_path()` analog zu den bestehenden Parsern, verbindlich für Schema, Admin-API, Runtime und Legacy-Revalidierung. Jahre als kanonische vierstellige Integer, Werte als endliche Integer-bps, `bool` explizit verboten (gleiches Muster wie die bereits existierenden `_reject_boolean_market_inputs`/`_reject_boolean_advanced_model_parameters`-Validatoren in `schemas/allocation.py`). Wertebereich: **`[-1000, 3000]` bps** (-10 % bis +30 % pro Jahr) — kein willkürlich neuer Wert, sondern identisch zum bereits etablierten Präzedenzfall `schemas/wealth.py:829` (`inflation_assumption_bps: Optional[int] = Field(..., ge=-1000, le=3000)`), der exakt dasselbe ökonomische Konzept für Planning-Assumptions bereits einschränkt. Stress-Inflationsszenarien ausserhalb dieser Baseline-Domain gehören in einen separaten, typisierten Stress-Vertrag, niemals in die Current-CMA-Baseline.
 
-☐ Bestätigt (Bereich `[-1000, 3000]` bps) ☐ Anderer Bereich: ______
+☑ Bestätigt (Bereich `[-1000, 3000]` bps) ☐ Anderer Bereich: ______
 
 ### OWNER-DECISION 6b — Gültigkeitssemantik
 
 **Empfehlung:** Dies ist dieselbe Grundfrage wie ADR-1, nur auf die CMA statt auf Goals angewendet — und sollte deshalb symmetrisch gelöst werden: `resolve_cma_for_jurisdiction()` erhält ein PFLICHT-`as_of`-Argument (dasselbe gebundene `valuation_date` aus ADR-1b, nicht erneut `date.today()`), die Query ergänzt `valid_from <= as_of AND (valid_until IS NULL OR valid_until >= as_of)`. Von den beiden im Audit vorgeschlagenen Varianten ("Aktiv-now-Vertrag" vs. "Effective-Resolver") wird **"Effective-Resolver"** empfohlen: mehrere versionierte Zeilen (geplant, aktuell, historisch) dürfen koexistieren, der Resolver wählt pro `as_of` die inhaltlich passende — das ist konsistent mit dem bereits bestehenden `version`-Spalten-Muster der CMA-Tabelle und erfordert keine zusätzliche Draft/Scheduled-Zustandsmaschine.
 
-☐ Bestätigt (Effective-Resolver mit Pflicht-`as_of`) ☐ Aktiv-now-Vertrag stattdessen
+☑ Bestätigt (Effective-Resolver mit Pflicht-`as_of`) ☐ Aktiv-now-Vertrag stattdessen
 
 ### OWNER-DECISION 6c — Jahresabdeckung
 
 **Empfehlung:** Keine Rückwärtsauffüllung aus irgendeinem anderen Jahr als dem frühesten real vorhandenen. Fehlt die Abdeckung vor dem ersten echten Datenpunkt, wird das explizit als "keine Abdeckung" behandelt (Fehler oder dokumentierter Baseline-Default von 0 bps), niemals aus einem späteren Jahr geraten — das eliminiert den Max-Jahr-Bug als Spezialfall einer allgemeineren, korrekten Regel, nicht durch eine gezielte Ausnahme.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -265,13 +457,13 @@ Geringer Entscheidungsbedarf — primär Implementierungs-Konsistenz, keine neue
 
 **Empfehlung:** `goalForm.ts` entfernt die `wealth ?`-Gate für `value_mode`; der Wert wird für JEDEN Zieltyp aus `input.value_mode` übernommen (Default weiterhin `nominal`, wenn nicht gesetzt). Keine neue Fachentscheidung — das Backend-Vertrag existiert bereits, das Frontend muss ihn nur nicht mehr verschweigen.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 7b — Konsolidierung der Inflations-Anwendung
 
 **Empfehlung:** Reserve, deterministische Zielanalyse und allgemeine Reporting-MC rufen dieselbe (bereits korrekte) Inflations-Helper-Funktion auf, die der Optimizer heute schon für reale Ausgabenziele nutzt (`_is_real_value_mode()` + `_inflate_at_year()` in `goal_liabilities.py`), statt den Rohbetrag unabhängig zu verwenden. Keine neue Formel nötig — dieselbe Konsolidierungslogik wie ADR-2c (gemeinsamer Scheduler-Kern), hier für die Inflations-Anwendung.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 7c — `goal_analysis_json`-Korrektur
 
@@ -279,7 +471,7 @@ Geringer Entscheidungsbedarf — primär Implementierungs-Konsistenz, keine neue
 
 **Empfehlung:** `pdf_reports.py` liest `goal_achievability_json` statt des nicht existierenden Feldnamens — mutmaßlich ein Tippfehler, keine fehlende Funktionalität. Eine neue, separate Spalte nur anlegen, falls `goal_achievability_json` inhaltlich tatsächlich etwas anderes abdecken soll (bei einer kurzen Durchsicht der beiden Konzepte nicht ersichtlich).
 
-☐ Bestätigt (Tippfehler-Korrektur auf `goal_achievability_json`) ☐ Separate neue Spalte nötig, weil: ______
+☐ Bestätigt (Tippfehler-Korrektur auf `goal_achievability_json`) ☑ Separate neue Spalte nötig, weil: **die beiden JSON-Nutzlasten haben verschiedene Formen** — persistiert wird {goal_id, label, target_kind, probability, tau, status, hardness, lower_confidence_bound, effective_sample_size, validation_seed, reliability_verdict}, der PDF-Leser erwartete {rank, label, achievement_score, target_text, shortfall_rappen}. Nur `label` überlappt, `shortfall_rappen` existiert in der Quelle nicht. Das Umbenennen hätte durchgängig Rang 0, Erreichungsgrad 0.0 und Fehlbetrag 0 ins Kundendokument geschrieben. Der tote Lesezugriff ist entfernt (PR #580, GOAL-ANALYSIS-PDF-DEAD-SOURCE-001); welche Daten die Zielanalyse im PDF ausweisen soll, ist eine offene Produktfrage und braucht zusätzlich persistierte Felder.
 
 ---
 
@@ -300,19 +492,19 @@ Zwei konsistente Varianten:
 
 **Empfehlung: Variante 1 (content-addressed).** Begründung: einfacher (ein ID-Raum statt zwei synchron zu haltenden Feldern), folgt demselben mathematischen Grundsatz wie ADR-1 (Stichtag-Bindung) und ADR-4 (persistierte Validierungs-Evidenz) — "eine Referenz auf historische Evidenz muss unveränderlich sein, sonst ist sie keine Evidenz". **Wichtig:** `test_put_policy_preserves_id_for_fk_integrity` muss dabei bewusst UMGESCHRIEBEN (nicht nur ignoriert) werden, da seine Prämisse genau das Verhalten ist, das abgeschafft wird — explizit hier vermerkt, damit das beim Umsetzen nicht übersehen wird.
 
-☐ Variante 1 (content-addressed, empfohlen) ☐ Variante 2 (getrennter Zeiger + Versionsfeld)
+☑ Variante 1 (content-addressed, empfohlen) ☐ Variante 2 (getrennter Zeiger + Versionsfeld)
 
 ### OWNER-DECISION 8b — Vollständige Versions-Snapshots
 
 **Empfehlung:** Unabhängig von 8a: jede neue unveränderliche Version (Archiv heute, neue ID unter Variante 1) muss ihre eigenen `HouseMatrix`- UND `BuildingBlock`-Zeilen erhalten, nicht nur die Policy-Skalarfelder. Durch zwei unabhängige rote Tests bestätigt (PR #523) — kein Interpretationsspielraum, beide Zeilentypen gehören zum Aggregat.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 8c — Aktivierungs-Vollständigkeit (Readiness-Gate)
 
 **Empfehlung:** Create/Clone/Activate validieren ATOMAR, bevor die bisherige Current-Policy deaktiviert wird: (a) mindestens eine House-Matrix-Zeile pro vom Engine erwarteten Score-Bereich (verifiziert: `services/portfolio_engine_house_matrix.py::_house_matrix_or_default()` wirft sonst `"HouseMatrix unvollstaendig fuer Score {bucket}"` beim nächsten echten Strategielauf für JEDES Mandat), (b) Building-Block-Zeilen für jeden vom Engine benötigten Jurisdiktions-/Universums-Scope, (c) CMA-Kompatibilität unter dem ADR-6b-Resolver. Bei jedem Fehlschlag bleibt die bisherige Current-Policy aktiv, die Anfrage wird abgelehnt (fail-closed — dieselbe Begründungslogik wie ADR-3b: eine "aktuelle" Policy, mit der kein echter Strategielauf funktioniert, darf nie existieren).
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -337,19 +529,19 @@ Das Audit selbst benennt zwei konsistente, sich gegenseitig ausschliessende Vari
 
 **Empfehlung: Variante 1 (priorisiertes Funding).** Begründung: Die bereits bestehende Produktdokumentation (`docs/planning/2026-05-23-stochastic-goal-engine-spec.md:216-241/288-306/607-609`, `docs/engine-spec.md:421`, `docs/methodology/5eyes-engine-whitepaper.md:85-91`) behauptet bereits HEUTE explizit, dass opportunistische Ziele nicht erzwungen werden und das Hauptziel nicht vom Nebenziel dominiert werden darf. Variante 1 ist damit keine neue Produktentscheidung, sondern die Korrektur einer Implementierung, die ihrer eigenen bereits dokumentierten Spezifikation widerspricht. Variante 2 wäre zulässig, erfordert aber eine bewusste, nach aussen kommunizierte Rücknahme dieser bestehenden Zusage.
 
-☐ Variante 1 (priorisiertes Funding, empfohlen) ☐ Variante 2 (unbedingter gemeinsamer Plan, erfordert Kommunikationsänderung)
+☑ Variante 1 (priorisiertes Funding, empfohlen) ☐ Variante 2 (unbedingter gemeinsamer Plan, erfordert Kommunikationsänderung)
 
 ### OWNER-DECISION 9b — Gleichrang- und Teilfinanzierungsregel
 
 **Empfehlung:** Bei identischem kanonischem Rang: proportionale Aufteilung des verfügbaren Restvermögens nach Zielbetrag (einfachste, deterministische, ohne weitere Owner-Eingabe berechenbare Regel). Teilfinanzierung wird als expliziter Zustand (`amount_funded < amount_due`, `funded_fraction` persistiert) dargestellt, niemals stillschweigend auf "erreichbar" oder "nicht erreichbar" binär verdichtet.
 
-☐ Bestätigt (proportionale Gleichrang-Aufteilung, explizite Teilfinanzierung) ☐ Andere Regel: ______
+☑ Bestätigt (proportionale Gleichrang-Aufteilung, explizite Teilfinanzierung) ☐ Andere Regel: ______
 
 ### OWNER-DECISION 9c — Evaluation-Scope-Discriminator
 
 **Empfehlung:** Jedes Goal-Resultat erhält ein Pflichtfeld `evaluation_scope` mit mindestens den Werten `priority_funded` (Erfolg kommt aus dem Funding-Ledger gemäss 9a), `joint_plan` (nur falls 9a Variante 2 gewählt wird) oder `legacy_aggregate_unknown` (für nicht replaybare Altdaten, Publikations-Quarantäne). Ein `probability`-Wert ohne diesen Scope wird als nicht publikationsfähig behandelt (fail-closed, konsistent mit ADR-3b/ADR-8c). Die Konfliktklassifikation gruppiert gemeinsame Failure-Events (gleiches Jahr, gleiche Ursache) und zählt nicht mehr allein die Anzahl roter Zeilen.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -363,19 +555,19 @@ Drei Verträge widersprechen sich, alle direkt gegen `develop` verifiziert: Back
 
 **Empfehlung:** `rank` ist die kanonische Priorität (nicht nur eine UI-Sortierhilfe). Begründung: `_weight_bps()` leitet bereits heute ein rechenwirksames Optimizer-Gewicht aus `rank` ab (10000/5000/2500/1250/625 bps für Rang 1-5) — ein rein kosmetisches Feld würde niemals in eine Objective-Berechnung einfliessen. Diese Empfehlung ist damit die Bestätigung des bereits impliziten Status quo, nicht eine neue Entscheidung; sie wird hier nur explizit festgeschrieben, weil der Backend-Kommentar an einer Stelle (`routers/wealth.py`) `rank` fälschlich als "nur UI-Sortierhilfe" bezeichnet.
 
-☐ Bestätigt (rank = kanonische Priorität) ☐ Abgelehnt, rank ist tatsächlich nur Sortierung
+☑ Bestätigt (rank = kanonische Priorität) ☐ Abgelehnt, rank ist tatsächlich nur Sortierung
 
 ### OWNER-DECISION 10b — Getrennte Controls in Classic UI
 
 **Empfehlung:** Classic UI erhält, analog zum bereits korrekten React `GoalWizard`, zwei getrennte Controls für `rank` und `hardness`. Edit-Initialisierung liest jedes Feld ausschliesslich aus seinem eigenen persistierten Wert. Ein No-op-Edit muss bytegleich dieselben rechenwirksamen Felder (inkl. `weight_bps` und Goal-Hash) zurückschreiben. Reine Implementierungsfrage, kein Fachentscheid nötig, sobald 10a bestätigt ist.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 10c — Hauptziel-Auswahl und Reorder
 
 **Empfehlung:** Das "Hauptziel" ist in JEDEM Kanal (Classic, React, API, PDF) ausschliesslich das aktive Ziel mit kanonischem Rang 1 — niemals eine Härte-vor-Rang-Sortierung. Härte wird separat angezeigt, überschreibt aber nie die Identität des Hauptziels. Drag-and-drop-Reorder wird durch eine atomare Backend-Operation ersetzt, die die vollständige Goal-Permutation validiert und lückenlose, eindeutige Ränge schreibt; bei Requestfehler rollt die UI sichtbar auf die zuletzt persistierte Reihenfolge zurück.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -395,25 +587,25 @@ Vier zusammenwirkende, unabhängig verifizierte Fehler entlang desselben Endpunk
 
 **Empfehlung:** Die Response wird typisiert nach Zielart (`kind = amount | wealth | return_rate | growth_utility`), mit einem expliziten `comparison.state = available | unavailable | invalid`. Nur `state=available` darf eine Richtungsaussage ("besser/schlechter erreichbar") tragen; ein nicht-konvergierter, nicht-feasible oder unsynchronisierter Fallback-Kandidat liefert ausschliesslich `unavailable`, nie eine Zahl mit Vorzeichen. Dies ist die direkte, bereits im Audit vollständig spezifizierte Lösung für Fehler 1 und 2 zusammen — beide Fehler teilen dieselbe Grundursache (fehlender typisierter, statusgebundener Vertrag).
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 11b — Verlustfreie Objective-Darstellung
 
 **Empfehlung:** Eine kanonische, verlustfreie Dezimal-/Scientific-String-Repräsentation ersetzt den historischen `*_milli`-Integer als Quelle der Wahrheit für jede Delta-Berechnung. Das alte `*_milli`-Feld bleibt nur als klar gekennzeichnetes Legacy-Anzeigefeld erhalten, niemals als Berechnungsgrundlage für neue Vergleiche. Begründung: ein neuer Fixed-Point-Integer mit anderer Skala hätte exakt dasselbe Kollaps-Problem bei einer anderen Grenze — nur eine verlustfreie Darstellung (oder eine nach Materialitätsschwelle explizit dokumentierte Präzision) eliminiert die Fehlerklasse grundsätzlich, statt sie nur zu verschieben.
 
-☐ Bestätigt (verlustfreie Dezimaldarstellung) ☐ Anderer Fixed-Point-Vertrag mit expliziter Präzisionsgrenze: ______
+☑ Bestätigt (verlustfreie Dezimaldarstellung) ☐ Anderer Fixed-Point-Vertrag mit expliziter Präzisionsgrenze: ______
 
 ### OWNER-DECISION 11c — Validierter Goal-Weighting-Vertrag
 
 **Empfehlung:** `OPTIMIZER_GOAL_WEIGHTING` wird ein zentral validiertes Setting (Enum `equal | hardness`, kein `os.environ`-Direktzugriff in `objective.py` mehr). Ein unbekannter Wert stoppt den Startup bzw. den Run fail-closed (konsistent mit dem bereits etablierten Fail-Closed-Prinzip dieses Dokuments, siehe ADR-3b/ADR-8c/ADR-9c). Der validierte Modus wird Teil eines versionierten `ObjectiveContract`, der in `optimization_model_basis`, `allocation_context_hash` und beide Sensitivity-Hashes eingeht — ein Moduswechsel muss jeden dieser Hashes sichtbar ändern, selbst wenn er zufällig dieselben numerischen Gewichte ergibt.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ### OWNER-DECISION 11d — Seed- und Baseline-Architektur
 
 **Empfehlung:** Der Seed wird ausschliesslich aus stabilen Baseline-Inputs abgeleitet (CMA-Basis, Goal-Snapshot, Score, Objective-Contract-Version, Szenario-Generator-Version, Pfadzahl) — Counterfactual-Werte (`target_delta_pct`, `horizon_delta_years`) dürfen NICHT Teil des Seeds sein. Mehrere angeforderte Slider-Stufen werden als ein serverseitiger Batch-Analysis-Vertrag (`GoalSensitivityAnalysis` mit `analysis_id`, gemeinsamem `scenario_artifact`, mehreren `counterfactuals[]`) behandelt statt als fünf unabhängige Requests. Horizont-Stufen verwenden weiterhin exakte Präfixe desselben maximalen Szenariowürfels (bestehender, korrekter Mechanismus — Positivkontrolle, muss erhalten bleiben).
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 
@@ -437,13 +629,13 @@ Drei unabhängige P1, alle direkt gegen `develop` verifiziert (Commit `23b5bfc`)
 
 **Empfehlung:** Der konkrete Run-/Simulationshorizont (nicht ein separat zu pflegender "strategischer CMA-Horizont"). Begründung: konsistent mit ADR-1 (derselbe Stichtag/Horizont-Grundsatz: genau eine kanonische Quelle, nicht mehrere parallele Horizont-Konzepte) und erfordert kein zusätzliches, separat zu pflegendes Datenfeld auf der CMA. Bei Zielen mit unterschiedlichem Horizont innerhalb eines Mandats (Mehrziel-Fall) ist zusätzlich zu entscheiden, ob ein gemeinsamer Portfolio-Horizont oder zielbezogene Return-Annahmen gelten — diese Detailfrage wird erst nach 12a und 12b relevant und sollte zusammen mit der ADR-9-Funding-Policy entschieden werden, da beide dieselbe "gemeinsam vs. zielbezogen"-Grundfrage teilen.
 
-☐ Bestätigt (konkreter Run-Horizont) ☐ Zielbezogener Horizont ☐ Expliziter strategischer CMA-Horizont (separates Feld)
+☑ Bestätigt (konkreter Run-Horizont) ☐ Zielbezogener Horizont ☐ Expliziter strategischer CMA-Horizont (separates Feld)
 
 ### OWNER-DECISION 12c — Provenienz-Datenmodell
 
 **Empfehlung:** Rohkomponenten werden strukturiert persistiert (Risk-Free-Basis, `kgv_current`/`kgv_fair`/`alpha`, Formel-/Kalibrierungsversion), der effektive Return wird genau einmal pro Run materialisiert. Falls ein bereits adjustierter Return importiert wird (wie heute in der Nicht-CH-Pipeline), muss ein maschinenlesbares `return_includes_kgv=true`-Flag inklusive der eingebetteten Komponenten die erneute Anwendung verhindern UND die Methodology-Offenlegung korrekt speisen — exakt das vom Audit vorgeschlagene `EquityValuationEvidence`-Schema. Dies ist eine reine Datenmodell-/Implementierungsfrage, kein Fachentscheid, sobald 12a geklärt ist.
 
-☐ Bestätigt ☐ Abgelehnt
+☑ Bestätigt ☐ Abgelehnt
 
 ---
 

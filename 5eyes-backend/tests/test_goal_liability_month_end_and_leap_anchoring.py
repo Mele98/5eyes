@@ -32,6 +32,7 @@ validation-audit.md, Finding GOAL-RECURRENCE-SCHEDULE-001.
 from __future__ import annotations
 
 import sys
+from datetime import date as _date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -50,10 +51,25 @@ configure_mappers()
 
 from services.calendar_horizon import add_calendar_years
 from services.optimizer.goal_liabilities import (
-    _outflow_duration_years,
     _resolve_target_year_index,
     goal_to_liability,
 )
+
+
+# GEFIXT am 2026-10-11 (ADR-2c): _outflow_duration_years ist entfernt. Die
+# Tests pruefen jetzt den Liability-PFAD selbst statt den Zwischenwert eines
+# Helfers -- das ist ohnehin die Aussage, auf die es ankommt, denn die
+# Jahres-"Dauer" war nie das Produktverhalten, sondern nur der Weg dorthin.
+
+
+def _bucket_of(calendar_year: int) -> int:
+    """0-based Bucket-Index eines Kalenderjahres auf der Engine-Achse.
+
+    Bucket 0 ist das LAUFENDE Kalenderjahr (ADR-2). Diese Datei benutzt
+    feste Kalenderdaten, deshalb wird der Index abgeleitet und nicht
+    hartcodiert -- sonst wuerde sie beim Jahreswechsel still falsch werden.
+    """
+    return int(calendar_year) - _date.today().year
 
 
 def _make_goal(
@@ -107,23 +123,31 @@ ANNUALIZED_RAPPEN = MONTHLY_AMOUNT_RAPPEN * 12  # CHF 12'000.00 / Jahr
 # ============================================================================
 
 
-def test_month_end_anchor_within_same_calendar_year_label_is_correct():
-    """Start+Ziel im selben Kalenderjahr-Label: full_years=1 ist hier korrekt,
-    weil start.year == target.year die naive Differenz nicht verzerrt.
-    Dient als Kontrastfolie zu den xfail-Faellen unten (derselbe Code-Pfad,
-    aber hier zufaellig richtig)."""
+def test_month_end_anchor_within_same_calendar_year_books_eleven_instalments():
+    """Start 31.1.2026, Ziel 30.11.2026 -- elf Monatsraten, nicht zwoelf.
+
+    Dieser Test war als Positivkontrolle deklariert ("full_years=1 ist hier
+    korrekt, weil start.year == target.year die naive Differenz nicht
+    verzerrt") und verlangte den vollen Jahresbetrag. Das war aber genau
+    derselbe Ueberbuchungsfehler wie in den Rot-Faellen, nur im
+    Ein-Bucket-Fall: ein Fenster von Ende Januar bis Ende November ist kein
+    Jahr. Die Label-Differenz ist hier zufaellig 1 -- der gebuchte BETRAG
+    war trotzdem um eine Rate zu hoch.
+
+    Faelligkeiten (Anker 31., in kurzen Monaten geklemmt): 31.1., 28.2.,
+    31.3., 30.4., 31.5., 30.6., 31.7., 31.8., 30.9., 31.10., 30.11. = 11.
+    """
     goal = _make_goal(
         target_amount_rappen=MONTHLY_AMOUNT_RAPPEN,
         start_date="2026-01-31",
         target_date="2026-11-30",
     )
-    duration = _outflow_duration_years(goal, target_year_index=1, horizon_years=5)
-    assert duration == 1
 
     liab = goal_to_liability(goal, horizon_years=5)
-    assert liab.target_amount_rappen == ANNUALIZED_RAPPEN
-    assert liab.liability_path_rappen[0] == ANNUALIZED_RAPPEN
-    assert liab.liability_path_rappen[1] == 0
+    bucket = _bucket_of(2026)
+    assert liab.target_amount_rappen == 11 * MONTHLY_AMOUNT_RAPPEN
+    assert liab.liability_path_rappen[bucket] == 11 * MONTHLY_AMOUNT_RAPPEN
+    assert liab.liability_path_rappen[bucket + 1] == 0
 
 
 # ============================================================================
@@ -132,11 +156,6 @@ def test_month_end_anchor_within_same_calendar_year_label_is_correct():
 # ============================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-RECURRENCE-SCHEDULE-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
 @pytest.mark.parametrize(
     "start_day,target_date",
     [
@@ -166,19 +185,16 @@ def test_month_end_anchor_matrix_one_day_short_of_anniversary_is_not_double_coun
         target_date=target_date,
     )
 
-    duration = _outflow_duration_years(goal, target_year_index=1, horizon_years=10)
-    assert duration == 1, (
-        f"Monatsende-Anker {start_date}->{target_date}: Kalenderspanne ist "
-        f"< 1 Jahr, muss also genau 1 Jahres-Bucket ergeben, nicht {duration}."
-    )
-
     liab = goal_to_liability(goal, horizon_years=10)
+    bucket = _bucket_of(2026)
     assert liab.target_amount_rappen == ANNUALIZED_RAPPEN, (
         "Outflow darf nicht verdoppelt werden, nur weil target_date ein "
         "Kalenderjahr-Label weiter liegt als start_date."
     )
-    assert liab.liability_path_rappen[0] == ANNUALIZED_RAPPEN
-    assert liab.liability_path_rappen[1] == 0
+    # Alle zwoelf Raten fallen ins Kalenderjahr 2026; der Jahrestag in 2027
+    # ist einen Tag nach target_date, dort ist also nichts mehr faellig.
+    assert liab.liability_path_rappen[bucket] == ANNUALIZED_RAPPEN
+    assert liab.liability_path_rappen[bucket + 1] == 0
 
 
 # ============================================================================
@@ -193,32 +209,36 @@ def test_leap_day_anniversary_resolves_to_feb_28_in_non_leap_year():
     assert anniversary == __import__("datetime").date(2029, 2, 28)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-RECURRENCE-SCHEDULE-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
 def test_leap_day_feb29_anchor_one_day_short_of_anniversary_is_not_double_counted():
     """Start am 29.2.2028 (Schaltjahr), Ziel am 27.2.2029 -- einen Tag vor
     dem (Nicht-Schaltjahr-)Jahrestag 28.2.2029. Tatsaechliche Spanne < 1
     Jahr -> 1 Jahres-Bucket korrekt. Die naive Jahreszahl-Differenz liefert
     2029 - 2028 + 1 = 2 -- derselbe Bug wie beim 31.1.-Anker, hier aber am
     Schaltjahr-Spezialfall reproduziert, den add_calendar_years fuer die
-    Jahrestags-BERECHNUNG korrekt behandelt, waehrend
-    _outflow_duration_years diese Berechnung gar nicht nutzt."""
+    Jahrestags-BERECHNUNG korrekt behandelt, waehrend die geloeschte
+    Label-Differenz diese Berechnung gar nicht nutzte.
+
+    Die Verteilung zeigt zugleich den zweiten Teil von ADR-2: der Strom
+    laeuft ueber eine Kalenderjahr-Grenze, also liegen die zwoelf Raten in
+    ZWEI Buckets (11 in 2028, eine am 29.1.2029) -- insgesamt aber genau
+    ein Jahresbetrag. Der 29.2.2029 existiert nicht, wird auf den 28.2.
+    geklemmt und liegt damit nach target_date (27.2.), faellt also weg.
+    """
     goal = _make_goal(
         target_amount_rappen=MONTHLY_AMOUNT_RAPPEN,
         start_date="2028-02-29",
         target_date="2029-02-27",
     )
 
-    duration = _outflow_duration_years(goal, target_year_index=1, horizon_years=10)
-    assert duration == 1
-
     liab = goal_to_liability(goal, horizon_years=10)
+    first = _bucket_of(2028)
     assert liab.target_amount_rappen == ANNUALIZED_RAPPEN
-    assert liab.liability_path_rappen[0] == ANNUALIZED_RAPPEN
-    assert liab.liability_path_rappen[1] == 0
+    assert liab.liability_path_rappen[first] == 11 * MONTHLY_AMOUNT_RAPPEN
+    assert liab.liability_path_rappen[first + 1] == 1 * MONTHLY_AMOUNT_RAPPEN
+    assert liab.liability_path_rappen[first + 2] == 0
+    # Vor Rentenbeginn ist nichts faellig -- vorher hob ``max(1, ...)`` den
+    # Startindex auf Bucket 1 und belastete damit das laufende Jahr.
+    assert liab.liability_path_rappen[: first] == [0] * first
 
 
 # ============================================================================
@@ -228,11 +248,6 @@ def test_leap_day_feb29_anchor_one_day_short_of_anniversary_is_not_double_counte
 # ============================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-RECURRENCE-SCHEDULE-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
 def test_multi_year_month_end_anchor_day_stays_fixed_but_label_diff_overcounts_by_one_year():
     """Start 31.1.2026, Ziel 30.1.2031 (5 Jahre minus 1 Tag). Der Anker-Tag
     (31.) driftet nicht -- jeder Jahrestag bleibt der 31.1. Trotzdem
@@ -247,14 +262,12 @@ def test_multi_year_month_end_anchor_day_stays_fixed_but_label_diff_overcounts_b
         target_date="2031-01-30",
     )
 
-    duration = _outflow_duration_years(goal, target_year_index=1, horizon_years=10)
-    assert duration == 5
-
     liab = goal_to_liability(goal, horizon_years=10)
+    first = _bucket_of(2026)
     assert liab.target_amount_rappen == 5 * ANNUALIZED_RAPPEN
     for i in range(5):
-        assert liab.liability_path_rappen[i] == ANNUALIZED_RAPPEN
-    assert liab.liability_path_rappen[5] == 0
+        assert liab.liability_path_rappen[first + i] == ANNUALIZED_RAPPEN
+    assert liab.liability_path_rappen[first + 5] == 0
 
 
 # ============================================================================

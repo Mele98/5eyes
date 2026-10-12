@@ -39,9 +39,35 @@ expense, and the goal must not be reported as costlessly achievable.
 
 Audit: 2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md
 (not committed in this repo; round 40 red test).
+
+NACHGESCHAERFT am 2026-10-11 (ADR-2). Dieser Reproducer wurde durch die
+Umstellung auf Kalenderjahr-Buckets gruen -- aber aus dem FALSCHEN Grund,
+und der Befund ist NICHT behoben:
+
+Das Ziel hatte kein target_date und landete damit in Bucket 1. Seit ADR-2
+zaehlt die Inflation ab dem laufenden Kalenderjahr mit Faktor 1.0 (die
+B1-Konvention: User-Eingaben sind heutige Rappen), der Exponent in Bucket 1
+ist also 0 und der negative Faktor kommt gar nicht zum Tragen. Gemessen mit
+derselben Reihe [-20000, -20000]:
+
+    kein Datum (Bucket 1):        [10000, 0, 0, 0, 0]      -> positiv
+    Ziel im Folgejahr (Bucket 2): [0, -10000, 0, 0, 0]     -> NEGATIV
+    Ziel in 3 Jahren (Bucket 4):  [0, 0, 0, -10000, 0]     -> NEGATIV
+
+Das Ziel traegt deshalb jetzt ein target_date im Folgejahr, womit der
+Vorzeichenwechsel weiterhin reproduziert wird. Ein gruener Reproducer haette
+hier eine geschlossene Luecke signalisiert, die offen ist.
+
+Der echte Fix ist ADR-6a (Owner-Entscheid 2026-10-11, bestaetigt): ein
+gemeinsamer ``parse_inflation_path()`` mit Wertebereich [-1000, 3000] bps,
+analog zum bereits etablierten ``schemas/wealth.py::inflation_assumption_bps``.
+Eine Reihe von -20000 bps darf die Engine nie erreichen. Ein Preisniveau
+kann nicht negativ werden; die Klammerung gehoert an die Eingabe, nicht als
+nachgelagerter max(0, ...)-Flicken an jeden Konsumenten.
 """
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 
 import numpy as np
@@ -69,7 +95,10 @@ def test_deeply_negative_real_inflation_must_not_flip_expense_liability_negative
         target_wealth_rappen=None,
         target_return_bps=None,
         horizon_years=None,
-        target_date=None,
+        # ADR-2: ein Ziel OHNE Datum liegt in Bucket 1, wo der
+        # Inflations-Exponent 0 ist und der negative Faktor nicht greift.
+        # Das Zieldatum im Folgejahr haelt den Befund reproduzierbar.
+        target_date=date(date.today().year + 1, 6, 1).isoformat(),
         start_date=None,
         is_ongoing=0,
         frequency=None,

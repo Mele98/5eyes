@@ -86,14 +86,6 @@ def _make_cma(**overrides):
     return SimpleNamespace(**defaults)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-TAIL-MISSINGNESS-SEMANTICS-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-05-cma-correlation-tail-moment-and-runtime-"
-        "parity-integrity-audit.md"
-    ),
-)
 def test_never_estimated_vs_explicitly_gaussian_skew_are_indistinguishable():
     """RED: 'never estimated' and 'explicitly approved as Gaussian' must stay
     distinguishable somewhere in the runtime representation -- they currently

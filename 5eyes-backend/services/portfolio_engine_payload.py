@@ -30,7 +30,7 @@ einziger zusammenhaengender Block, sondern liegt in der aktuellen Datei
       Abhaengigkeit von `_goal_projection_years` (Zielliste dieses Schritts)
       und wird zusaetzlich bereits HEUTE von `services/
       portfolio_engine_mc_simulation.py` (`_year_index_for_goal`,
-      `_full_goal_duration_years`, `_goal_duration_years`) per Lazy-Import
+      `_recurring_outflow_total_rappen`, `_goal_duration_years`) per Lazy-Import
       aus `services.portfolio_engine` zurueckgeholt. Da sie nur von
       Payload-Bau-Funktionen direkt aufgerufen wird (kein anderer Cluster
       RUFT sie auf, andere Cluster importieren sie nur zurueck), wandert sie
@@ -55,7 +55,7 @@ Namen, die `services/portfolio_engine_reserve.py` per Lazy-Import aus
 Beim Draften dieses Schritts wurden per Grep ZUSAETZLICH VIER weitere Namen
 gefunden, die `services/portfolio_engine_mc_simulation.py`
 (`_monte_carlo_goal_summary`, `_year_index_for_goal`,
-`_full_goal_duration_years`, `_goal_duration_years`) per Lazy-Import aus
+`_recurring_outflow_total_rappen`, `_goal_duration_years`) per Lazy-Import aus
 `services.portfolio_engine` zurueckholt und die JETZT in dieses Modul
 verschoben werden:
 
@@ -117,6 +117,7 @@ from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAl
 from models.mandates import Mandate
 from models.review import Product, ProductUniverseEntry
 from models.wealth import Goal
+from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import future_value_with_cashflow_series, normalize_frequency
 
 
@@ -362,10 +363,11 @@ def _goal_projection_years(goal: Goal) -> int:
         start_date if _norm_text(goal.goal_type) in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else None
     )
     if anchor:
-        delta_days = (anchor - date.today()).days
-        if delta_days <= 0:
-            return 1
-        return max(1, int((delta_days + 364) // 365))
+        # ADR-1a (Owner-Entscheid 2026-10-11): dieselbe Tage-Ceiling-Formel wie
+        # im Wealth-Router, mit derselben Verzerrung -- an exakten Jahrestagen
+        # ein Jahr zu lang (gemessen 97 % der runden Jahrestage). Beide rufen
+        # jetzt die kanonische Kalenderanniversar-Funktion.
+        return max(1, calendar_years_until(anchor))
     return max(1, int(goal.horizon_years or 1))
 
 

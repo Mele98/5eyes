@@ -98,12 +98,30 @@ def _add_months(anchor: date, months: int) -> date:
 def _canonical_occurrence_sum(
     *, start_date: date, end_date: date, step_months: int, amount_rappen: int
 ) -> int:
-    """Sum of occurrence amounts, stepping from start_date, inclusive end."""
+    """Sum of occurrence amounts, stepping from start_date, inclusive end.
+
+    KORRIGIERT am 2026-10-11 (ADR-2): dieses Orakel rechnete vorher
+    ``current = _add_months(current, step)`` kumulativ und DRIFTETE damit.
+    ``_add_months`` klemmt den Tag in kurzen Monaten (29. -> 28. im
+    Februar); wird vom geklemmten Datum weitergezaehlt, bleibt die
+    Klemmung dauerhaft erhalten, und an der inklusiven Endgrenze passt
+    genau eine Occurrence zu viel ins Fenster.
+
+    Das ist exakt der Fehler, den der Produktions-Enumerator
+    (cashflow_timeline.contribution_for_year) ausdruecklich vermeidet und
+    in seinem eigenen Kommentar beschreibt: Occurrences werden INDEX-basiert
+    vom unveraenderten Anker berechnet, damit jede Faelligkeit neu vom
+    Original-Tag klemmt. Das Orakel macht es jetzt genauso -- sonst pruefte
+    es die Produktion gegen eine schlechtere Implementierung.
+    """
     total = 0
-    current = start_date
-    while current <= end_date:
+    k = 0
+    while True:
+        occurrence = _add_months(start_date, k * step_months)
+        if occurrence > end_date:
+            break
         total += amount_rappen
-        current = _add_months(current, step_months)
+        k += 1
     return total
 
 
@@ -187,13 +205,6 @@ def _generate_cases() -> list[dict]:
 # ============================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRENCE-SCHEDULE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_goal_liability_bucket_sum_equals_occurrence_sum() -> None:
     """Bucket-sum (production) must equal occurrence-sum (canonical oracle).
 
@@ -224,12 +235,20 @@ def test_goal_liability_bucket_sum_equals_occurrence_sum() -> None:
 
         step_months = _FREQUENCY_STEP_MONTHS[case["frequency"]]
         if case["is_ongoing"]:
-            # No explicit end date: the only cap production applies is the
-            # simulation horizon itself, expressed as whole valuation-date
-            # anniversaries (consistent with calendar_years_until's own
-            # anchor). This is a shared calendar-arithmetic helper, not a
-            # re-use of the buggy bucketing logic under test.
-            enumeration_end = add_calendar_years(today, HORIZON_YEARS)
+            # Kein Enddatum: die einzige Begrenzung ist der Simulations-
+            # horizont. ADR-2 (Owner-Entscheid 2026-10-11): der Horizont
+            # besteht aus HORIZON_YEARS KALENDERJAHR-Buckets ab dem
+            # laufenden Jahr, endet also am 31.12. des letzten Buckets --
+            # dieselbe Achse wie net_cashflow_series, der Inflationspfad
+            # und die Steuerjahre.
+            #
+            # Vorher stand hier add_calendar_years(today, HORIZON_YEARS),
+            # also der JAHRESTAG-Horizont, mit dem ausdruecklichen
+            # Kommentar "consistent with calendar_years_until's own
+            # anchor". Genau diese Konvention ersetzt ADR-2; das Orakel
+            # haette die Produktion sonst gegen die abgeloeste Achse
+            # geprueft und um ~9 Monate zu lange enumeriert.
+            enumeration_end = date(today.year + HORIZON_YEARS - 1, 12, 31)
         else:
             enumeration_end = case["target_date"]
 

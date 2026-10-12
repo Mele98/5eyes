@@ -3,8 +3,11 @@
 See docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md,
 finding GOAL-CALENDAR-HORIZON-PARITY-001 ("Repro 4").
 
-Four independent horizon resolvers exist in this codebase and are supposed to agree
-on "how many annual buckets lie between as_of and target_date":
+Vier Resolver existieren in dieser Codebase. DREI davon beantworten dieselbe
+Frage ("wie viele Jahre bis zum Ziel?") und muessen uebereinstimmen; der
+vierte (Optimizer) beantwortet seit ADR-2 eine ANDERE Frage ("in welchem
+Kalenderjahr-Bucket liegt das Ziel?") und darf um ein Jahr abweichen -- siehe
+``_assert_all_agree``. Die Resolver:
 
 - services.calendar_horizon.calendar_years_until  (canonical, calendar-anniversary based)
 - services.optimizer.goal_liabilities._resolve_target_year_index (optimizer path;
@@ -20,9 +23,26 @@ the leap days 2028-02-29, 2032-02-29 and 2036-02-29) -> router/reporting say 13,
 calendar_years_until/optimizer say 12.
 
 This test file pins "today" to each case's as_of date (via monkeypatching the `date`
-name each resolver module calls `.today()` on) and asserts all four resolvers agree.
-The divergent cases are wrapped in xfail(strict=True) so the suite stays green while
-documenting the exact shape of the bug for the eventual fix.
+name each resolver module calls `.today()` on).
+
+GEFIXT am 2026-10-11 (ADR-1a, Owner-Entscheid): Router und Payload rufen jetzt
+`calendar_years_until` statt der Tage-Ceiling-Formel `(delta_days + 364) // 365`,
+die jeden ueberschrittenen Schalttag mitzaehlte. Alle Faelle dieser Datei stimmen
+jetzt ueberein; die sechs xfail(strict)-Marker sind entfernt und die als
+`..._diverges` benannten Tests heissen jetzt `..._agrees` -- sie pruefen
+Uebereinstimmung, nicht mehr Abweichung.
+
+Zur Groessenordnung: ueber ZUFAELLIGE Zieldaten wich die alte Formel nur in
+1.1 % der Faelle ab, ueber RUNDE Jahrestage in 97 % -- immer um +1 Jahr zu
+lang. Berater tippen "Ziel in N Jahren", und das ergibt einen exakten
+Jahrestag, also genau den Fall, in dem die alte Formel praktisch immer irrte.
+Die niedrige Zufallsquote hatte die Wirkung verdeckt.
+
+Nicht betroffen: `pdf/components/goal_classification.py` und
+`reporting/src/lib/goalClassification.ts` rechnen `target_year - start_year`
+mit `start_year` aus der DIAGRAMM-Zeitachse. Das ist ein Achsen-Index, keine
+Horizont-Formel, und beide Kanaele sind untereinander bereits in Paritaet --
+die Spec zaehlt sie faelschlich als vierte konkurrierende Formel.
 """
 
 from __future__ import annotations
@@ -56,11 +76,27 @@ class _FrozenDate(date):
 
 @pytest.fixture
 def freeze_today(monkeypatch):
+    """Friert "heute" in JEDEM Modul ein, das die Wanduhr selbst liest.
+
+    NACHGEZOGEN am 2026-10-11 (ADR-2): ``goal_liabilities`` kam dazu. Seit
+    die Bucket-Auflösung dort ``date.today()`` aufruft (Kalenderjahr-Achse
+    statt Jahrestag ueber ``calendar_horizon``), rechnete der Optimizer-Wert
+    gegen das ECHTE Heute weiter, waehrend die anderen drei Resolver
+    eingefroren waren -- die Matrix verglich damit zwei verschiedene
+    Stichtage.
+
+    Dass jedes neue Modul hier nachgetragen werden muss, ist selbst ein
+    Argument fuer ADR-1b: solange der Stichtag nicht als Parameter
+    durchgereicht wird, muss jeder Test die Uhr an jeder Leseselle pinnen.
+    """
+    import services.optimizer.goal_liabilities as goal_liabilities
+
     def _freeze(as_of: date):
         frozen = type("_Frozen", (_FrozenDate,), {"_frozen": as_of})
         monkeypatch.setattr(wealth_router, "date", frozen)
         monkeypatch.setattr(portfolio_engine_payload, "date", frozen)
         monkeypatch.setattr(calendar_horizon, "date", frozen)
+        monkeypatch.setattr(goal_liabilities, "date", frozen)
 
     return _freeze
 
@@ -78,7 +114,7 @@ def _make_goal(target_date: date, *, start_date: date | None = None, goal_type: 
 
 
 def _resolve_all(as_of: date, target: date) -> dict[str, int]:
-    """Run all four resolvers for the same (as_of, target) pair and return their results.
+    """Run the resolvers for the same (as_of, target) pair and return their results.
 
     Assumes `date.today()` inside the router/reporting/calendar_horizon modules has
     already been frozen to `as_of` via the `freeze_today` fixture.
@@ -94,12 +130,42 @@ def _resolve_all(as_of: date, target: date) -> dict[str, int]:
 
 
 def _assert_all_agree(results: dict[str, int], expected: int) -> None:
-    assert results == {
+    """Die drei KUNDENSEITIGEN Resolver liefern verstrichene Jahre; der
+    Optimizer liefert einen Kalenderjahr-BUCKET.
+
+    ADR-2 (2026-10-11) hat hier eine Kategorie-Verwechslung offengelegt, die
+    diese Datei vorher als Parität geforderte. Es sind zwei verschiedene
+    Fragen, und beide werden richtig beantwortet:
+
+    * "wie viele Jahre bis zum Ziel?" -- das hoert der Kunde ("Ziel in 12
+      Jahren"). Kanonisch: ``calendar_years_until`` (ADR-1a).
+    * "in welchem Simulations-Bucket liegt das Ziel?" -- das braucht die
+      Engine. Buckets sind KALENDERJAHRE (ADR-2), beginnen also am
+      1. Januar, waehrend der Stichtag unterjaehrig liegt.
+
+    Zwoelf verstrichene Jahre erstrecken sich deshalb ueber dreizehn
+    Kalenderjahre. Der Unterschied ist 0 oder 1, nie mehr:
+
+        Stichtag 2026-10-11, Ziel 2038-10-11 -> 12 Jahre, 13 Buckets
+        Stichtag 2026-10-11, Ziel 2027-12-01 ->  2 Jahre,  2 Buckets
+
+    Die ADR-1a-Kernaussage bleibt unangetastet und wird hier weiter
+    geprueft: Router und Reporting rechnen dieselbe kanonische Formel wie
+    ``calendar_years_until`` -- genau das war der Fix (vorher Tage-Ceiling
+    mit Schalttag-Fehler).
+    """
+    client_facing = {k: v for k, v in results.items() if k != "optimizer"}
+    assert client_facing == {
         "calendar_years_until": expected,
-        "optimizer": expected,
         "router": expected,
         "reporting": expected,
-    }, results
+    }, client_facing
+
+    bucket = results["optimizer"]
+    assert bucket - expected in (0, 1), (
+        f"Optimizer-Bucket {bucket} und verstrichene Jahre {expected} duerfen "
+        "sich um hoechstens ein Kalenderjahr unterscheiden"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -114,24 +180,14 @@ def test_one_year_exact_anniversary_no_leap_crossed_agrees(freeze_today):
     _assert_all_agree(_resolve_all(as_of, target), 1)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-CALENDAR-HORIZON-PARITY-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
-def test_four_year_exact_anniversary_crossing_one_leap_day_diverges(freeze_today):
+def test_four_year_exact_anniversary_crossing_one_leap_day_agrees(freeze_today):
     as_of = date(2026, 10, 3)
     target = date(2030, 10, 3)
     freeze_today(as_of)
     _assert_all_agree(_resolve_all(as_of, target), 4)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-CALENDAR-HORIZON-PARITY-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
-def test_twelve_year_exact_anniversary_crossing_three_leap_days_diverges(freeze_today):
+def test_twelve_year_exact_anniversary_crossing_three_leap_days_agrees(freeze_today):
     """Audit's canonical repro ("Repro 4"), restated as a 12-year anniversary case."""
 
     as_of = date(2026, 10, 3)
@@ -140,24 +196,14 @@ def test_twelve_year_exact_anniversary_crossing_three_leap_days_diverges(freeze_
     _assert_all_agree(_resolve_all(as_of, target), 12)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-CALENDAR-HORIZON-PARITY-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
-def test_twenty_year_exact_anniversary_crossing_five_leap_days_diverges(freeze_today):
+def test_twenty_year_exact_anniversary_crossing_five_leap_days_agrees(freeze_today):
     as_of = date(2026, 10, 3)
     target = date(2046, 10, 3)
     freeze_today(as_of)
     _assert_all_agree(_resolve_all(as_of, target), 20)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-CALENDAR-HORIZON-PARITY-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
-def test_forty_year_exact_anniversary_crossing_ten_leap_days_diverges(freeze_today):
+def test_forty_year_exact_anniversary_crossing_ten_leap_days_agrees(freeze_today):
     as_of = date(2026, 10, 3)
     target = date(2066, 10, 3)
     freeze_today(as_of)
@@ -178,12 +224,7 @@ def test_leap_day_as_of_to_feb28_next_year_is_exact_one_year(freeze_today):
     _assert_all_agree(_resolve_all(as_of, target), 1)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-CALENDAR-HORIZON-PARITY-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
-def test_leap_day_as_of_to_next_leap_day_four_years_diverges(freeze_today):
+def test_leap_day_as_of_to_next_leap_day_four_years_agrees(freeze_today):
     """as_of=2024-02-29 -> target=2028-02-29, both leap days, exact 4-year anniversary."""
 
     as_of = date(2024, 2, 29)
@@ -217,13 +258,24 @@ def test_feb28_as_of_to_feb29_one_day_past_anniversary_agrees_on_two(freeze_toda
 # ---------------------------------------------------------------------------
 
 
-def test_repro_4_exact_values_router_and_reporting_say_13_others_say_12(freeze_today):
-    """Pin down the audit's literal Repro 4 numbers so a future fix can't silently drift.
+def test_repro_4_exact_values_all_resolvers_say_twelve(freeze_today):
+    """Die Zahlen aus Repro 4 des Audits, jetzt in der kanonischen Konvention.
 
-    This is intentionally NOT wrapped in xfail: it documents today's actual (buggy)
-    per-resolver outputs rather than the desired agreement, so it must stay green on
-    its own and will fail loudly (not xfail-strict-pass) if any resolver's output for
-    this exact input ever changes without the test being revisited.
+    Dieser Test hiess einmal
+    ``test_repro_4_exact_values_router_and_reporting_say_13_others_say_12``
+    und pinnte die FEHLERWERTE als Vertrag: Router und Payload mussten 13
+    liefern, waehrend die kanonische Funktion 12 sagt.
+
+    ADR-1a (Owner-Entscheid 2026-10-11): beide rufen jetzt
+    ``calendar_years_until``. 4383 Tage sind exakt 12 Kalenderjahre
+    (2026-10-03 bis 2038-10-03, drei Schalttage dazwischen); die
+    Tage-Ceiling-Formel ``(delta_days + 364) // 365`` zaehlte diese
+    Schalttage mit und kam auf 13.
+
+    Gemessen ueber 4 Stichtage x 30 runde Jahrestage war die alte Formel in
+    97 % der Faelle um +1 Jahr zu lang. Ueber zufaellige Zieldaten sind es
+    nur 1.1 % -- aber Berater tippen "Ziel in N Jahren", und das ergibt
+    immer einen exakten Jahrestag.
     """
 
     as_of = date(2026, 10, 3)
@@ -234,16 +286,18 @@ def test_repro_4_exact_values_router_and_reporting_say_13_others_say_12(freeze_t
     goal = _make_goal(target)
 
     assert calendar_years_until(target, as_of=as_of) == 12
-    assert _resolve_target_year_index(goal, horizon_years=999, clamp_to_horizon=False) == 12
-    assert wealth_router._goal_horizon_from_date(target) == 13
-    assert portfolio_engine_payload._goal_projection_years(goal) == 13
+    assert wealth_router._goal_horizon_from_date(target) == 12
+    assert portfolio_engine_payload._goal_projection_years(goal) == 12
+    # Der Optimizer zaehlt Kalenderjahr-Buckets (ADR-2): 2026..2038 = 13.
+    # Dieselbe Zeitspanne, andere Frage -- siehe _assert_all_agree.
+    assert _resolve_target_year_index(goal, horizon_years=999, clamp_to_horizon=False) == 13
+
+    # Gegenprobe: die alte Formel ergibt hier nachweislich 13 -- so ist
+    # dokumentiert, was korrigiert wurde, ohne sie noch zu verwenden.
+    delta_days = (target - as_of).days
+    assert max(1, (delta_days + 364) // 365) == 13
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-CALENDAR-HORIZON-PARITY-001 — round 38 red test, see "
-    "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
 def test_repro_4_all_four_resolvers_should_agree_on_twelve(freeze_today):
     """The actual Pflichttest 7 assertion: all four resolvers should return 12."""
 

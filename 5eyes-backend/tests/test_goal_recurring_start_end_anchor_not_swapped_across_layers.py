@@ -44,11 +44,14 @@ from models import (  # noqa: E402,F401
 )
 configure_mappers()
 
+from services.calendar_horizon import calendar_years_until  # noqa: E402
 from services.optimizer.goal_liabilities import goal_to_liability  # noqa: E402
 from services.portfolio_engine_payload import _goal_projection_years  # noqa: E402
 
 
-def _make_recurring_goal(*, start_date: date, target_date: date) -> SimpleNamespace:
+def _make_recurring_goal(
+    *, start_date: date | None, target_date: date | None
+) -> SimpleNamespace:
     """Mock-Goal as SimpleNamespace -- same pattern as
     tests/test_optimizer_goal_liabilities.py::_make_goal. ``_goal_projection_years``
     additionally needs ``goal_type`` resolvable via ``_norm_text`` (plain
@@ -62,8 +65,8 @@ def _make_recurring_goal(*, start_date: date, target_date: date) -> SimpleNamesp
         target_wealth_rappen=None,
         target_return_bps=None,
         horizon_years=None,
-        target_date=target_date.isoformat(),
-        start_date=start_date.isoformat(),
+        target_date=target_date.isoformat() if target_date else None,
+        start_date=start_date.isoformat() if start_date else None,
         is_ongoing=0,
         frequency="jaehrlich",
         hardness="Primaer",
@@ -108,10 +111,27 @@ def test_optimizer_and_reserve_mc_resolve_the_same_anchor_year_for_recurring_goa
 
 
 def test_single_point_in_time_goal_has_no_anchor_ambiguity():
-    """Positive control: when start_date and target_date coincide (a goal
-    whose window has zero duration), both anchor choices necessarily agree
-    -- this isolates the bug to genuine multi-year windows, not to the
-    anchor-selection mechanism being universally broken.
+    """Positivkontrolle: fallen start_date und target_date zusammen, kann die
+    ANKER-WAHL nicht mehr ins Gewicht fallen -- beide Konsumenten leiten ihr
+    Ergebnis zwangslaeufig aus demselben Datum ab. Damit ist der Befund auf
+    echte Mehrjahres-Fenster eingegrenzt und nicht auf einen generell
+    kaputten Anker-Mechanismus.
+
+    UMGESTELLT am 2026-10-11 (ADR-2): dieser Test verglich vorher die beiden
+    Rueckgabewerte direkt auf Gleichheit. Das geht nicht mehr, weil sie
+    seither verschiedene GROESSEN sind, und zwar beide richtig:
+
+    * ``target_year_index`` ist ein KALENDERJAHR-Bucket (ADR-2) -- dieselbe
+      Achse, auf der Cashflow-, Inflations- und Steuerserie liegen und auf
+      der der Liability-Pfad vom Vermoegen abgezogen wird.
+    * ``_goal_projection_years`` ist ein JAHRESTAG-Horizont (ADR-1a) --
+      "wie viele Jahresschritte bis zum Ziel".
+
+    Bucket-Ursprung und Horizont-Formel sind zwei verschiedene Achsen; die
+    Spec fuehrt sie als eine. Der Test prueft deshalb jetzt, dass jeder
+    Konsument sein Ergebnis aus DEMSELBEN Datum herleitet -- das ist die
+    Aussage "keine Anker-Ambiguitaet" -- statt zwei verschieden skalierte
+    Zahlen gleichzusetzen.
     """
     today = date.today()
     same_date = today + timedelta(days=365 * 3)
@@ -121,4 +141,19 @@ def test_single_point_in_time_goal_has_no_anchor_ambiguity():
     optimizer_anchor_years = goal_to_liability(goal, horizon_years=20).target_year_index
     reserve_mc_anchor_years = _goal_projection_years(goal)
 
-    assert optimizer_anchor_years == reserve_mc_anchor_years
+    # Optimizer: Kalenderjahr-Bucket von same_date (1-based).
+    assert optimizer_anchor_years == same_date.year - today.year + 1
+    # Reserve/MC: Jahrestag-Horizont bis same_date.
+    assert reserve_mc_anchor_years == calendar_years_until(same_date)
+
+    # Beide aus demselben Datum -- die Anker-Wahl (start_date vs. target_date)
+    # ist hier wirkungslos, denn es gibt nur ein Datum. Gegenprobe: dasselbe
+    # Ziel nur mit start_date bzw. nur mit target_date liefert jeweils
+    # unveraenderte Werte.
+    only_start = _make_recurring_goal(start_date=same_date, target_date=None)
+    only_target = _make_recurring_goal(start_date=None, target_date=same_date)
+    assert (
+        goal_to_liability(only_start, horizon_years=20).target_year_index
+        == optimizer_anchor_years
+    )
+    assert _goal_projection_years(only_target) == reserve_mc_anchor_years

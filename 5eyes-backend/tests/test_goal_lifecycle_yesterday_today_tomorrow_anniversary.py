@@ -62,13 +62,44 @@ def _make_goal(*, goal_type: str, target_date: str, goal_id: str = "g1"):
     )
 
 
+#: Zustaende, die ein vergangenes oder heute faelliges Ziel von einem echten
+#: Zukunftsziel UNTERSCHEIDEN. ``planned`` gehoert ausdruecklich nicht dazu.
+_PAST_OR_DUE_STATES = frozenset({
+    "overdue",
+    "due",
+    "fulfilled",
+    "cancelled",
+    "accepted_as_due_now",
+    "historical_unknown",
+    "inactive",
+})
+
+
 def _has_lifecycle_marker(liab) -> bool:
-    """A genuine fix must expose SOME way to tell a past/overdue/today goal
-    apart from a normal future-year-1 goal. Today, neither a typed lifecycle
-    field nor a distinguishing evaluation_note exists."""
+    """Unterscheidet dieses Ziel sich nachweislich von einem Zukunftsziel?
+
+    GESCHAERFT am 2026-10-11 (ADR-3 Etappe 1). Vorher genuegte ein
+    BELIEBIGES nicht-``None`` ``lifecycle_status``:
+
+        if lifecycle_status is not None:
+            return True
+
+    Seit jede Liability einen typisierten Zustand traegt -- auch
+    ``planned`` -- waere dieser Test damit trivial gruen geworden, ohne dass
+    ein vergangenes Ziel von einem Jahr-eins-Ziel zu unterscheiden ist.
+    Genau das ist die Aussage, die hier geprueft werden soll.
+
+    Der Helfer verlangt deshalb einen Zustand aus ``_PAST_OR_DUE_STATES``
+    (oder, als Rueckfall fuer Kanaele ohne typisiertes Feld, einen
+    sprechenden Hinweistext).
+    """
     lifecycle_status = getattr(liab, "lifecycle_status", None)
-    if lifecycle_status is not None:
+    if lifecycle_status in _PAST_OR_DUE_STATES:
         return True
+    if lifecycle_status == "planned":
+        # Ausdruecklich KEIN Marker: ein vergangenes Ziel, das als
+        # "planned" ausgewiesen wird, ist der Befund, nicht sein Fix.
+        return False
     note = (liab.evaluation_note or "") if hasattr(liab, "evaluation_note") else ""
     return any(
         marker in note.lower()
@@ -80,31 +111,10 @@ def _has_lifecycle_marker(liab) -> bool:
 @pytest.mark.parametrize(
     "label,offset_days",
     [
-        pytest.param(
-            "yesterday", -1,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="GOAL-PAST-DATE-LIFECYCLE-001 -- round 38 red test, see "
-                "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-            ),
-        ),
-        pytest.param(
-            "today", 0,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="GOAL-PAST-DATE-LIFECYCLE-001 -- round 38 red test, see "
-                "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-            ),
-        ),
+        pytest.param("yesterday", -1),
+        pytest.param("today", 0),
         ("tomorrow", 1),
-        pytest.param(
-            "one_year_past_anniversary", -365,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="GOAL-PAST-DATE-LIFECYCLE-001 -- round 38 red test, see "
-                "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-            ),
-        ),
+        pytest.param("one_year_past_anniversary", -365),
     ],
 )
 def test_past_present_future_boundary_needs_explicit_lifecycle(goal_type, label, offset_days):
@@ -120,16 +130,20 @@ def test_past_present_future_boundary_needs_explicit_lifecycle(goal_type, label,
         assert liab.target_year_index == 1
         return
 
-    # yesterday / today / a full year in the past: all genuinely due now or
-    # already overdue, not "due in exactly one year". The current clamp
-    # `max(1, calendar_years_until(...))` makes them indistinguishable from
-    # a true year-1 goal, and GoalLiability carries no lifecycle signal that
-    # would let a caller tell the difference.
-    assert liab.target_year_index == 1, (
-        f"{label}: expected the documented max(1, calendar_years_until(..)) clamp "
-        f"to still fire (target_year_index == 1); if this changed, re-check the "
-        f"repro against current goal_liabilities.py behaviour."
-    )
+    # gestern / heute / vor einem Jahr: alle faellig oder ueberfaellig, keines
+    # "in genau einem Jahr faellig".
+    #
+    # Die frueher hier gepinnte Erwartung ``target_year_index == 1`` hielt den
+    # ``max(1, calendar_years_until(...))``-Clamp als Ist-Zustand fest. Seit
+    # ADR-2/ADR-3 gilt sie nicht mehr einheitlich: ein Ziel im laufenden
+    # Kalenderjahr (gestern/heute) liegt in Bucket 1, ein Ziel im Vorjahr
+    # bekommt den Ausserhalb-Sentinel ``horizon_years + 1``, damit kein
+    # negativer Index entsteht (siehe
+    # tests/test_goal_liability_target_year_index_never_wraps.py).
+    #
+    # Der Index ist hier ohnehin nicht die Aussage -- entscheidend ist, dass
+    # das Ziel als vergangen/faellig ERKENNBAR ist.
+    assert liab.target_year_index >= 1, liab.target_year_index
     assert _has_lifecycle_marker(liab), (
         f"{label}: GOAL-PAST-DATE-LIFECYCLE-001 — a past/overdue/due-today goal "
         f"must expose an explicit lifecycle marker distinguishing it from a goal "

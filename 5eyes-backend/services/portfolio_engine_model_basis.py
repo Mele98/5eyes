@@ -33,6 +33,7 @@ from models.allocation import CapitalMarketAssumption, TargetAllocation
 from models.mandates import Mandate
 from services.cma_correlation_provenance import bucket_correlation_provenance
 from services.drawdown_refinement import drawdown_time_grid_basis
+from services.optimizer.scenario_engine import tail_moment_provenance
 from services.portfolio_engine_cma import _sub_class_intra_correlation_x100
 from services.portfolio_engine_mc_simulation import (
     _simulation_crisis_strength,
@@ -147,6 +148,7 @@ def _build_allocation_model_basis(
     # DE-Mandat; das stand bisher nirgends. Beide Kanaele fuehren denselben
     # Block, weil beide dieselbe CMA-Spalte lesen.
     bucket_correlation = bucket_correlation_provenance(cma)
+    tail_moments = tail_moment_provenance(cma)
 
     optimization_basis = {
             "basis_id": optimization_basis_id,
@@ -224,6 +226,10 @@ def _build_allocation_model_basis(
             # Begruendung siehe _sub_class_intra_correlation_x100().
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "bucket_correlation": bucket_correlation,
+            # CMA-TAIL-MISSINGNESS-SEMANTICS-001: fuer welche Buckets nie
+            # ein Tail-Moment geschaetzt wurde. Beide Kanaele lesen
+            # dieselben Felder mit demselben NULL-oder-0-Ausdruck.
+            "tail_moment_provenance": tail_moments,
             "foundation_model_version": "external_foundation_v2",
             "external_property_goal_basis": (
                 "inflation_zero_real_plus_exact_liability_and_pledged_transfer_v2"
@@ -298,6 +304,10 @@ def _build_allocation_model_basis(
             # Entscheidungskanal -- gemeinsame Momentquelle beider Kanaele.
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "bucket_correlation": bucket_correlation,
+            # CMA-TAIL-MISSINGNESS-SEMANTICS-001: fuer welche Buckets nie
+            # ein Tail-Moment geschaetzt wurde. Beide Kanaele lesen
+            # dieselben Felder mit demselben NULL-oder-0-Ausdruck.
+            "tail_moment_provenance": tail_moments,
             # DRAWDOWN-TIME-GRID-001: Methode hinter mc_max_drawdown_bps.
             "max_drawdown_time_grid": drawdown_time_grid_basis(),
             "foundation_model_version": "external_foundation_v2",

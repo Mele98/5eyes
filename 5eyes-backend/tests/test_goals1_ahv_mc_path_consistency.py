@@ -83,24 +83,28 @@ def test_ahv_goal_no_longer_auto_covered_in_mc_path():
     summary = _summary_for(_ahv_pension_goal())
     assert summary["success_rate_pct"] == 0
     assert summary["score"] == 0
-    # GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): die gepinnten Absolutwerte
-    # haben sich geaendert, weil die Outflow-Dauer jetzt aus derselben
-    # Herleitung kommt wie beim Solver (4 -> 5 Jahre).
+    # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (Owner-Entscheid 2026-10-11):
+    # die gepinnten Absolutwerte haben sich erneut geaendert, jetzt auf
+    # 4 Rentenjahre.
     #
-    # Das Goal ist eine ab 2027-01-01 laufende, ongoing Pensionsausgabe bei
-    # 5-Jahres-Simulationshorizont ab 2026. Im Horizont werden damit 5
-    # Jahresrenten faellig (erster Outflow faellt auf Jahresindex 1), nicht
-    # 4. Die alte Reporting-Formel lieferte zudem das inkohaerente Paar
-    # (Auswertungsindex 1, Dauer 4) -- "belaste 4 Rentenjahre, pruefe das
-    # Vermoegen aber nach 1 Jahr". Jetzt: (Index 5, Dauer 5), also der
-    # kumulierte Strom bewertet am Ende des Stroms, identisch zum Solver.
+    # Das Goal ist eine ab 2027-01-01 laufende Pensionsausgabe bei
+    # 5-Jahres-Simulationshorizont ab 2026. Die Buckets sind seit ADR-2
+    # KALENDERJAHRE (2026, 2027, 2028, 2029, 2030) -- dieselbe Achse, auf
+    # der die Cashflow-Serie, der Inflationspfad und die Steuerjahre schon
+    # lagen. Im Bucket 2026 ist nichts faellig, weil die Rente erst 2027
+    # beginnt; es werden also 4 Jahresrenten belastet, nicht 5.
+    #
+    # Die Zwischenstufe vom 2026-10-10 kam auf 5, weil ``max(1, ...)`` den
+    # Jahrestag-Startindex auf Bucket 1 hob und damit eine Rente ins
+    # laufende Jahr buchte, in dem sie noch nicht laeuft. Der Shortfall
+    # sinkt entsprechend um genau eine Jahresrente (2'400'000 Rappen).
     #
     # Die Kernaussage von PENSION-AHV-001 bleibt unberuehrt: das AHV-Label
     # verschafft dem Ziel keine automatische Deckung (success/score = 0),
     # und test_ahv_goal_mc_summary_matches_non_pillar_control() prueft
     # weiterhin Feld-fuer-Feld Gleichheit zur Kontrollgruppe.
-    assert summary["funded_ratio_p50"] == 0.0088
-    assert summary["pessimistic_shortfall_rappen"] == 11_942_500
+    assert summary["funded_ratio_p50"] == 0.0109
+    assert summary["pessimistic_shortfall_rappen"] == 9_542_500
 
 
 def test_ahv_goal_mc_summary_matches_non_pillar_control():
@@ -133,13 +137,20 @@ def test_conditional_ahv_goal_is_not_silently_100_percent():
     # Formel-Wert) -- der MC-Pfad bewertet jetzt den tatsaechlichen
     # (schwachen) Portfolio-Pfad gegen das (wahrscheinlichkeitsgewichtete)
     # Ziel, konsistent zur Kontrollgruppe.
-    # GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): Dauer 4 -> 5 Jahre, siehe
-    # die ausfuehrliche Begruendung in
+    # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): 4 Rentenjahre im
+    # Kalenderjahr-Horizont, siehe die ausfuehrliche Begruendung in
     # test_ahv_goal_no_longer_auto_covered_in_mc_path(). Die hier gepruefte
-    # Eigenschaft (Wahrscheinlichkeitsgewichtung wirkt, ~2x der
-    # unbedingte Wert bei probability_pct=50) bleibt unveraendert.
-    assert summary["funded_ratio_p50"] == 0.0175
-    assert summary["pessimistic_shortfall_rappen"] == 5_942_500
+    # Eigenschaft bleibt unveraendert und wird jetzt auch explizit
+    # gemessen: 0.0219 / 0.0109 = 2.009, also ~2x der unbedingte Wert bei
+    # probability_pct=50.
+    assert summary["funded_ratio_p50"] == 0.0219
+    assert summary["pessimistic_shortfall_rappen"] == 4_742_500
+    unconditional = _summary_for(_ahv_pension_goal())["funded_ratio_p50"]
+    assert 1.95 <= summary["funded_ratio_p50"] / unconditional <= 2.05, (
+        "Wahrscheinlichkeitsgewichtung muss den Deckungsgrad bei 50 % "
+        "verdoppeln; gemessen: "
+        f"{summary['funded_ratio_p50'] / unconditional:.3f}x"
+    )
     # Kontrollgruppe (kein pension_pillar) bei gleicher Wahrscheinlichkeit
     # muss identisch sein.
     control = _ahv_pension_goal(probability_pct=50)

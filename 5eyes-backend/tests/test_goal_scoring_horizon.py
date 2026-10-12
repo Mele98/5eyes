@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from services.portfolio_engine import _goal_duration_years, _monte_carlo_goal_summary
+from services.portfolio_engine import (
+    _monte_carlo_goal_summary,
+    _recurring_outflow_total_rappen,
+)
 
 
 def _make_goal(**overrides):
@@ -27,12 +30,25 @@ def _make_policy():
     return SimpleNamespace(allow_other_assets_for_goals=0)
 
 
-def test_goal_duration_years_clips_dated_recurring_goal_to_simulation_horizon():
+def test_recurring_outflow_total_clips_dated_stream_to_simulation_horizon():
+    """Der In-Horizon-Betrag eines datierten Stroms, occurrence-exakt.
+
+    ADR-2c (2026-10-11): ``_goal_duration_years`` ist fuer wiederkehrende
+    Ziele entfernt -- "Dauer in Jahren" ist unter Occurrence-Semantik keine
+    brauchbare Groesse, weil ein Teiljahr ein Bucket ist, aber nicht ein
+    Jahresbetrag. An ihre Stelle tritt der Betrag.
+
+    Das Ziel laeuft 2028-01-01 bis 2048-12-31 (CHF 3'000/Monat) bei einem
+    Horizont von 10 Kalenderjahren ab 2026. Faellig im Horizont sind die
+    Jahre 2028..2035, also ACHT volle Jahre a 12 Raten = 96 Raten. Die
+    abgeloeste Rechnung sagte 9 Jahre: sie setzte den ersten Outflow auf
+    Bucket 1 (= 2026, zwei Jahre vor Rentenbeginn) und zaehlte von dort.
+    """
     goal = _make_goal()
 
-    duration = _goal_duration_years(goal, start_year=2026, horizon_years=10)
+    total = _recurring_outflow_total_rappen(goal, start_year=2026, horizon_years=10)
 
-    assert duration == 9
+    assert total == 96 * 300_000
 
 
 def test_monte_carlo_goal_summary_marks_partial_recurring_evaluation():
@@ -50,9 +66,17 @@ def test_monte_carlo_goal_summary_marks_partial_recurring_evaluation():
     )
 
     assert summary["success_rate_pct"] == 100
-    assert summary["funded_ratio_p50"] == 1.2346
+    # ADR-2: 8 bewertete Jahre (2028..2035) statt 9, und der zu finanzierende
+    # Betrag ist die Summe der Faelligkeiten statt Jahresbetrag x Jahreszahl.
+    # 40'000'000 / (96 x 300'000) = 1.3889.
+    assert summary["funded_ratio_p50"] == 1.3889
     assert summary["score"] == 100
-    assert summary["evaluation_note"] == "Bewertet fuer 9 von 21 Jahren (Simulationshorizont: 10 Jahre)."
+    # Die Offenlegung weist einen Betrags-ANTEIL aus, keine Jahreszahl:
+    # 8 von 21 Kalenderjahren des Stroms = 38 %.
+    assert summary["evaluation_note"] == (
+        "Bewertet werden 38 % des Zahlungsstroms "
+        "(Simulationshorizont: 10 Jahre)."
+    )
 
 
 def test_monte_carlo_goal_summary_marks_recurring_goal_outside_horizon():

@@ -96,10 +96,6 @@ def _zero_return_paths(*, horizon_years: int, n_paths: int) -> np.ndarray:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GOAL-RECURRENCE-SCHEDULE-001 — round 38 red test, see docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md",
-)
 def test_chf150_repro_matches_canonical_p_equals_one():
     """Audit Repro 2 (GOAL-RECURRENCE-SCHEDULE-001), end-to-end through the
     real production entry points: goal_to_liability -> simulate_wealth_paths

@@ -504,12 +504,22 @@ def test_sensitivity_open_ended_pension_negative_shift_preserves_stream_duration
         for liability in modified["liabilities"]
         if liability["goal_id"] == gid
     )
+    # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): die Buckets sind
+    # Kalenderjahre. Die Pension beginnt im Oktober von today+5J, der
+    # Baseline-Horizont deckt today.year .. today.year+9 -- belastet sind
+    # also die Kalenderjahre today+5 .. today+9, das sind FUENF. Vorher
+    # waren es sechs, weil der Startindex ein Jahrestag-Bucket war und
+    # damit ein Jahr zu frueh lag.
+    #
+    # Die Aussage dieses Tests ist die GLEICHHEIT der beiden Zahlen (der
+    # verschobene Strom gewinnt und verliert kein Zahlungsjahr), nicht ihr
+    # Absolutwert.
     assert sum(
         value > 0 for value in baseline_liability["liability_path_rappen"]
-    ) == 6
+    ) == 5
     assert sum(
         value > 0 for value in modified_liability["liability_path_rappen"]
-    ) == 6
+    ) == 5
     assert modified["cashflow_series_rappen"] == baseline[
         "cashflow_series_rappen"
     ][: modified["horizon_years"]]
@@ -555,8 +565,14 @@ def test_sensitivity_open_ended_negative_shift_respects_unaffected_goal_floor(
 
     assert len(calls) == 2
     baseline, modified = calls
-    assert baseline["horizon_years"] == 10
-    assert modified["horizon_years"] == 10
+    # ADR-2 (2026-10-11): der Horizont wird in KALENDERJAHREN gezaehlt, der
+    # Einheit der Buckets. Das unabhaengige Vermoegensziel liegt im
+    # Kalenderjahr today.year+10, braucht also die Buckets
+    # today.year .. today.year+10 = ELF. Mit zehn faellt es aus dem Fenster
+    # und seine Verbindlichkeit verschwindet lautlos -- genau der Drop-out,
+    # den tests/test_calendar_horizon_contract.py festnagelt.
+    assert baseline["horizon_years"] == 11
+    assert modified["horizon_years"] == 11
     baseline_pension = _captured_goal(baseline, gid)
     modified_pension = _captured_goal(modified, gid)
     assert date.fromisoformat(modified_pension["start_date"]).year == (
@@ -575,6 +591,21 @@ def test_sensitivity_open_ended_negative_shift_respects_unaffected_goal_floor(
         for liability in modified["liabilities"]
         if liability["goal_id"] == gid
     )
+    # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): die Buckets sind
+    # Kalenderjahre. Die Pension beginnt im Oktober von today+5J, der
+    # Baseline-Horizont deckt today.year .. today.year+9 -- belastet sind
+    # also die Kalenderjahre today+5 .. today+9, das sind FUENF. Vorher
+    # waren es sechs, weil der Startindex ein Jahrestag-Bucket war und
+    # damit ein Jahr zu frueh lag.
+    #
+    # Die Aussage dieses Tests ist die GLEICHHEIT der beiden Zahlen (der
+    # verschobene Strom gewinnt und verliert kein Zahlungsjahr), nicht ihr
+    # Absolutwert.
+    # Hier pinnt das unabhaengige Vermoegensziel den Lauf auf 11 Buckets
+    # (today.year .. today.year+10), die laufende Pension beginnt im
+    # Kalenderjahr today.year+5 und belegt damit SECHS Buckets -- im
+    # Schwestertest oben ist die Pension isoliert, der Horizont nur 10
+    # Buckets lang und die Zahl entsprechend fuenf.
     assert sum(
         value > 0 for value in baseline_liability["liability_path_rappen"]
     ) == 6
@@ -736,9 +767,13 @@ def test_sensitivity_return_goal_changes_return_target_and_solver_horizon(
         return_goal.target_amount_rappen = None
         return_goal.target_wealth_rappen = None
         return_goal.target_return_bps = 500
-        # Match the existing 30-year pension floor so +3 genuinely extends
-        # the shared solver horizon instead of remaining below that floor.
-        return_goal.horizon_years = 30
+        # Der gemeinsame Boden kommt von der Pensionsausgabe des Fixtures.
+        # Seit ADR-2 (2026-10-11) wird er in KALENDERJAHREN gezaehlt: das
+        # Pensions-Zieldatum liegt im Kalenderjahr today.year+30, verlangt
+        # also Bucket 31. Das Renditeziel muss diesen Boden treffen, sonst
+        # bleibt es darunter und +3 verlaengert den gemeinsamen Horizont
+        # nicht sichtbar -- die Aussage dieses Tests.
+        return_goal.horizon_years = 31
         s.commit()
         return_goal_id = return_goal.id
 
@@ -755,15 +790,15 @@ def test_sensitivity_return_goal_changes_return_target_and_solver_horizon(
             horizon_delta_years=3,
         )
         assert persisted_goal.target_return_bps == 500
-        assert persisted_goal.horizon_years == 30
+        assert persisted_goal.horizon_years == 31
 
     assert len(calls) == 2
     baseline_goal = _captured_goal(calls[0], return_goal_id)
     modified_goal = _captured_goal(calls[1], return_goal_id)
     assert baseline_goal["target_return_bps"] == 500
     assert modified_goal["target_return_bps"] == 600
-    assert baseline_goal["horizon_years"] == 30
-    assert modified_goal["horizon_years"] == 33
+    assert baseline_goal["horizon_years"] == 31
+    assert modified_goal["horizon_years"] == 34
     assert calls[1]["horizon_years"] == calls[0]["horizon_years"] + 3
 
     assert out["target_return_bps_baseline"] == 500
