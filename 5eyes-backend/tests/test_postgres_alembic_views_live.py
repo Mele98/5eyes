@@ -194,33 +194,41 @@ def test_wealth_summary_aggregates_correctly_on_postgres(migrated_postgres_schem
     engine = create_engine(migrated_postgres_schema["url"], future=True)
     now = "2026-10-12T00:00:00Z"
     try:
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    "INSERT INTO clients (id, client_number, first_name, last_name,"
-                    " created_at, updated_at)"
-                    " VALUES (:id, :num, :first, :last, :now, :now)"
-                ),
-                {"id": "pg-c1", "num": "PG-1", "first": "Thierry", "last": "Goessi", "now": now},
-            )
+        # Ueber das ORM geseedet, NICHT per rohem SQL. `wealth_positions` hat
+        # neunzehn nicht-nullbare Spalten, von denen die meisten einen
+        # Python-seitigen Default tragen (`currency`, die fuenf alloc_*_bps,
+        # `is_active`, ...) -- rohes SQL umgeht die alle und laeuft in
+        # NotNullViolation. Genau daran scheiterte dieser Test im CI
+        # (`country_of_residence`, das als `default="CH"` definiert ist).
+        # Die Spaltenliste hier zu pflegen waere bruechig; das ORM kennt sie.
+        from models.clients import Client  # noqa: PLC0415
+        from models.users import User  # noqa: PLC0415
+        from models.wealth import WealthPosition  # noqa: PLC0415
+        from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
+
+        session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+        with session_factory() as session:
+            session.add(User(
+                id="pg-adv1", username="pg-advisor", password_hash="x",
+                full_name="Beraterin Mock", created_at=now, updated_at=now,
+            ))
+            session.add(Client(
+                id="pg-c1", client_number="PG-1", first_name="Thierry",
+                last_name="Goessi", advisor_id="pg-adv1",
+                created_at=now, updated_at=now,
+            ))
             for position_id, assignment, value in (
                 ("pg-w1", "Beratungsvermögen", 450_000_00),
                 ("pg-w2", "Beratungsvermögen", 80_000_00),
                 ("pg-w3", "Verbindlichkeit", 600_000_00),
             ):
-                conn.execute(
-                    text(
-                        "INSERT INTO wealth_positions (id, client_id, label, position_type,"
-                        " assignment, current_value_rappen, is_active, created_at, updated_at)"
-                        " VALUES (:id, :client, :label, :ptype, :assignment, :value, 1,"
-                        " :now, :now)"
-                    ),
-                    {
-                        "id": position_id, "client": "pg-c1", "label": position_id,
-                        "ptype": "Depot", "assignment": assignment, "value": value,
-                        "now": now,
-                    },
-                )
+                session.add(WealthPosition(
+                    id=position_id, client_id="pg-c1", label=position_id,
+                    position_type="Depot", assignment=assignment,
+                    current_value_rappen=value,
+                    created_at=now, updated_at=now,
+                ))
+            session.commit()
 
         with engine.connect() as conn:
             rows = conn.execute(
