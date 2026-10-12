@@ -84,7 +84,7 @@ def test_schema_keys_are_stable():
     result = _build_conflict_disclosures(db, _stub_mandate())
     assert set(result.keys()) == {
         "entries", "counts", "has_unacknowledged", "has_undisclosed",
-        "data_unavailable", "fidleg_basis",
+        "data_unavailable", "evidence_status", "fidleg_basis",
     }
     assert set(result["counts"].keys()) == {"total", "by_type"}
 
@@ -233,6 +233,149 @@ def test_mixed_some_unacked_triggers_flag():
     ])
     result = _build_conflict_disclosures(db, _stub_mandate())
     assert result["has_unacknowledged"] is True
+
+
+# ---------------------------------------------------------------------------
+# CONFLICT-STATE-001, zweite Runde: `resolved` aus NACHWEISEN, nicht aus Flags
+# ---------------------------------------------------------------------------
+# Codex-Review zu PR #585 (2026-10-12), zu Recht: die erste Fassung baute
+# `resolved` aus zwei nackten Booleans. Dass `test_resolved_entry_sets_
+# neither_flag` dabei gruen blieb, lag nur daran, dass `_row()` zufaellig
+# schon Zeitstempel UND `document_id` traegt -- die Belegkette wurde also nie
+# geprueft. Die Tests hier pruefen sie einzeln.
+
+
+@pytest.mark.parametrize(
+    "overrides, expected_state, expected_reason",
+    [
+        (
+            {"disclosed_at": None},
+            "evidence_incomplete",
+            "conflict_disclosure_timestamp_missing",
+        ),
+        (
+            {"disclosed_at": "   "},
+            "evidence_incomplete",
+            "conflict_disclosure_timestamp_missing",
+        ),
+        (
+            {"disclosed_at": "0"},
+            "evidence_incomplete",
+            "conflict_disclosure_timestamp_missing",
+        ),
+        (
+            {"client_acknowledged_at": None},
+            "evidence_incomplete",
+            "conflict_acknowledgement_timestamp_missing",
+        ),
+        (
+            {"document_id": None},
+            "evidence_incomplete",
+            "conflict_disclosure_document_missing",
+        ),
+        (
+            {"document_id": ""},
+            "evidence_incomplete",
+            "conflict_disclosure_document_missing",
+        ),
+    ],
+)
+def test_set_flags_without_evidence_are_not_resolved(
+    overrides, expected_state, expected_reason
+):
+    """Beide Haken gesetzt, aber eine Luecke in der Belegkette.
+
+    Das ist ein EIGENER Zustand, weil die naechste Handlung eine andere ist
+    als bei "offenlegen" oder "Bestaetigung einholen": hier ist nachzutragen,
+    wann es geschah und womit es belegt ist. FIDLEG Art. 9 verlangt vom
+    Berater genau diesen Nachweis.
+    """
+    db = _stub_db_with([
+        _row(disclosed_to_client=1, client_acknowledged=1, **overrides),
+    ])
+    result = _build_conflict_disclosures(db, _stub_mandate())
+    entry = result["entries"][0]
+    assert entry["resolution_state"] == expected_state
+    assert expected_reason in entry["missing_evidence"]
+    assert result["has_unacknowledged"] is True
+    assert result["evidence_status"] == "action_required"
+
+
+def test_full_evidence_chain_is_resolved_and_clear():
+    """Gegenprobe: der vollstaendig belegte Fall MUSS `resolved` bleiben.
+
+    Ohne diese Zeile waere ein Resolver, der nie `resolved` liefert, von den
+    Tests oben nicht zu unterscheiden -- und die Nachweispflicht waere zu
+    einer Dauerwarnung verkommen, die niemand mehr liest.
+    """
+    db = _stub_db_with([
+        _row(
+            disclosed_to_client=1, client_acknowledged=1,
+            disclosed_at="2026-05-01T10:00:00Z",
+            client_acknowledged_at="2026-05-02T10:00:00Z",
+            document_id="doc-signed-001",
+        ),
+    ])
+    result = _build_conflict_disclosures(db, _stub_mandate())
+    assert result["entries"][0]["resolution_state"] == "resolved"
+    assert result["entries"][0]["missing_evidence"] == []
+    assert result["has_unacknowledged"] is False
+    assert result["evidence_status"] == "clear"
+
+
+def test_every_evidence_field_is_load_bearing():
+    """Jedes Nachweisfeld muss EINZELN das Ergebnis drehen.
+
+    Sonst liesse sich eines der drei entfernen, ohne dass ein Test rot wird --
+    dieselbe Luecke, die Codex an der ersten Fassung gefunden hat.
+    """
+    full = {
+        "disclosed_to_client": 1, "client_acknowledged": 1,
+        "disclosed_at": "2026-05-01T10:00:00Z",
+        "client_acknowledged_at": "2026-05-02T10:00:00Z",
+        "document_id": "doc-signed-001",
+    }
+    baseline = _build_conflict_disclosures(
+        _stub_db_with([_row(**full)]), _stub_mandate()
+    )
+    assert baseline["entries"][0]["resolution_state"] == "resolved"
+
+    for field in ("disclosed_at", "client_acknowledged_at", "document_id"):
+        weakened = dict(full)
+        weakened[field] = None
+        result = _build_conflict_disclosures(
+            _stub_db_with([_row(**weakened)]), _stub_mandate()
+        )
+        assert result["entries"][0]["resolution_state"] != "resolved", (
+            f"Nachweisfeld '{field}' ist nicht tragend"
+        )
+
+
+def test_contradiction_dominates_action_required():
+    """`indeterminate` schlaegt `action_required`.
+
+    Ein widerspruechlicher Datensatz wird nicht dadurch handlungsreif, dass
+    daneben eine klar offene Zeile steht -- was zu tun ist, bleibt unklar.
+    """
+    db = _stub_db_with([
+        _row(id="d1", disclosed_to_client=1, client_acknowledged=0),
+        _row(id="d2", disclosed_to_client=0, client_acknowledged=1),
+    ])
+    result = _build_conflict_disclosures(db, _stub_mandate())
+    assert result["evidence_status"] == "indeterminate"
+
+
+def test_empty_mandate_is_clear_not_action_required():
+    """Kein Konflikt heisst wirklich "nichts zu tun"."""
+    result = _build_conflict_disclosures(_stub_db_with([]), _stub_mandate())
+    assert result["evidence_status"] == "clear"
+
+
+def test_unreadable_data_is_indeterminate_not_clear():
+    db = MagicMock()
+    db.query.side_effect = RuntimeError("table does not exist")
+    result = _build_conflict_disclosures(db, _stub_mandate())
+    assert result["evidence_status"] == "indeterminate"
 
 
 def test_missing_conflict_type_defaults_to_unknown():

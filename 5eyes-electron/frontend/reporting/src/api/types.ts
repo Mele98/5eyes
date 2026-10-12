@@ -563,8 +563,16 @@ export interface ConflictDisclosureEntry {
   resolution_state:
     | 'resolved'
     | 'disclosed_unacknowledged'
+    | 'evidence_incomplete'
     | 'undisclosed'
     | 'acknowledged_without_disclosure';
+  /**
+   * Stabile Begruendungscodes fuer die FEHLENDEN Nachweise. Leer genau dann,
+   * wenn `resolution_state === 'resolved'`. `resolved` folgt nicht aus zwei
+   * gesetzten Haken, sondern aus Offenlegungszeitpunkt,
+   * Bestaetigungszeitpunkt und abgelegtem Dokument (FIDLEG Art. 9).
+   */
+  missing_evidence: string[];
 }
 
 export interface ConflictDisclosuresData {
@@ -587,6 +595,17 @@ export interface ConflictDisclosuresData {
    * unterscheiden von "keine Konflikte vorhanden".
    */
   data_unavailable: boolean;
+  /**
+   * Aggregat-Tri-State: EIN Feld, auf das ein Finalisierungs-Gate oder eine
+   * Publikation schauen kann, statt die Booleans selbst zu verknuepfen.
+   *
+   * - `clear`: alles offengelegt, bestaetigt und belegt
+   * - `action_required`: ein Berater muss etwas tun
+   * - `indeterminate`: Datenstand widerspruechlich oder nicht lesbar
+   *
+   * `indeterminate` dominiert `action_required`.
+   */
+  evidence_status: 'clear' | 'action_required' | 'indeterminate';
   fidleg_basis: string;
 }
 
