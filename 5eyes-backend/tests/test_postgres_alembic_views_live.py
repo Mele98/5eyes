@@ -91,11 +91,40 @@ def migrated_postgres_schema():
     scoped_url = f"{POSTGRES_URL}{separator}options=-csearch_path%3D{schema}"
 
     cfg = AlembicConfig(str(BACKEND_ROOT / "alembic.ini"))
-    cfg.set_main_option("sqlalchemy.url", scoped_url)
+    # Alembics Config ist ein ConfigParser mit BasicInterpolation: ein
+    # literales `%` muss als `%%` geschrieben werden. Ohne das Verdoppeln
+    # scheitert schon `set_main_option()` mit
+    #   ValueError: invalid interpolation syntax in '...%3D...' at position 88
+    # (im CI genau so passiert). `create_engine()` bekommt die Roh-URL --
+    # SQLAlchemy interpoliert nicht.
+    cfg.set_main_option("sqlalchemy.url", scoped_url.replace("%", "%%"))
     cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
 
     try:
         command.upgrade(cfg, "head")
+
+        # Der search_path MUSS gegriffen haben. Sonst waeren die Migrationen
+        # in `public` gelandet und jeder Test unten haette ein fremdes
+        # Schema geprueft -- gruen aus dem falschen Grund, und beim
+        # Aufraeumen waere `public` zurueckgeblieben.
+        check_engine = create_engine(scoped_url, future=True)
+        try:
+            with check_engine.connect() as conn:
+                landed = conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.tables"
+                        " WHERE table_schema = :schema AND table_name = 'alembic_version'"
+                    ),
+                    {"schema": schema},
+                ).scalar()
+        finally:
+            check_engine.dispose()
+        assert landed == 1, (
+            f"Die Migrationen sind NICHT im Testschema {schema} gelandet -- "
+            "der search_path aus der Verbindungs-URL hat nicht gegriffen. "
+            "Jede Pruefung unten waere damit wertlos."
+        )
+
         yield {"schema": schema, "url": scoped_url, "config": cfg}
     finally:
         with admin_engine.begin() as conn:
