@@ -9,6 +9,22 @@ Regel:
 - reimbursed_to_client=False -> positiver Cost-Item (Transparenz), NICHT
   im Total enthalten (bereits Teil der andernorts ausgewiesenen Kosten,
   kein separater Zusatzposten -- sonst Doppelzählung).
+
+PRAEZISIERUNG 2026-10-12 (INDUCEMENT-EVIDENCE-001): die Regel oben war
+unvollstaendig, und aus genau dieser Luecke folgte der Defekt. `reimbursed`
+allein entscheidet nur, OB der Betrag ins Total geht -- nicht, was ueber den
+Rechtsgrund behauptet werden darf. Der einbehaltene Fall spaltet sich:
+
+- einbehalten MIT Nachweis (offengelegt + Verzichts-Dokument abgelegt)
+  -> key "retrocession_disclosed", "Verzicht dokumentiert".
+- einbehalten OHNE Nachweis
+  -> key "retrocession_retained_unwaived", requires_resolution=True, KEIN
+     Verzicht-Claim. Der Posten bleibt sichtbar (FIDLEG Art. 26); nach
+     BGE 132 III 460 steht der Betrag dem Kunden zu, bis ein gueltiger
+     Verzicht belegt ist.
+
+Beide bleiben ausserhalb des Totals -- aber aus verschiedenen Gruenden, und
+nur der erste darf einen Verzicht behaupten.
 """
 from __future__ import annotations
 
@@ -47,7 +63,40 @@ def test_reimbursed_retrocession_reduces_total_and_is_disclosed():
     assert with_retro["totals"]["annual_rappen"] == baseline["totals"]["annual_rappen"] - 50_000
 
 
-def test_retained_retrocession_disclosed_but_not_double_counted():
+def test_retained_retrocession_with_documented_waiver_is_disclosed_not_double_counted():
+    """Einbehalten MIT Nachweis: der Verzicht-Claim ist hier zulaessig.
+
+    INDUCEMENT-EVIDENCE-001: dieser Test hiess bis 2026-10-12
+    `test_retained_retrocession_disclosed_but_not_double_counted` und setzte
+    KEINE Nachweisfelder -- er pinnte damit den Verzicht-Claim fuer einen
+    Fall ohne jeden Nachweis als Kontrakt. Er blieb nach dem Fix gruen, weil
+    `_retro_items` nach Kategorie statt nach Key filtert und das neue
+    Warn-Wort ebenfalls "einbehalten" enthaelt: der Test lief unbemerkt auf
+    dem anderen Pfad. Deshalb jetzt zwei Tests, beide mit Key-Assertion.
+    """
+    baseline = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+    )
+    with_retro = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+        inducements=[{"amount_rappen": 50_000, "frequency": "jährlich",
+                      "reimbursed_to_client": False, "provider": "Fonds AG",
+                      "disclosed_to_client": True,
+                      "waiver_document_id": "doc-waiver-1"}],
+    )
+    items = _retro_items(with_retro)
+    assert len(items) == 1
+    assert items[0]["key"] == "retrocession_disclosed"
+    assert items[0]["amount_rappen"] == 50_000
+    assert items[0]["included_in_total"] is False
+    assert items[0]["requires_resolution"] is False
+    # Total bleibt UNVERAENDERT -- kein zusaetzlicher Kostenpunkt (Doppelzaehl-Schutz).
+    assert with_retro["totals"]["annual_rappen"] == baseline["totals"]["annual_rappen"]
+    assert any("dokumentiertem Kundenverzicht" in w for w in with_retro["warnings"])
+
+
+def test_retained_retrocession_without_waiver_evidence_claims_no_waiver():
+    """Einbehalten OHNE Nachweis: sichtbar, gekennzeichnet, kein Verzicht-Claim."""
     baseline = calculate_cost_disclosure(
         advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
     )
@@ -58,11 +107,16 @@ def test_retained_retrocession_disclosed_but_not_double_counted():
     )
     items = _retro_items(with_retro)
     assert len(items) == 1
+    assert items[0]["key"] == "retrocession_retained_unwaived"
+    assert items[0]["requires_resolution"] is True
+    # Sichtbar (FIDLEG Art. 26), aber weder verrechnet noch als Verzicht erklaert.
     assert items[0]["amount_rappen"] == 50_000
     assert items[0]["included_in_total"] is False
-    # Total bleibt UNVERAENDERT -- kein zusaetzlicher Kostenpunkt (Doppelzaehl-Schutz).
     assert with_retro["totals"]["annual_rappen"] == baseline["totals"]["annual_rappen"]
-    assert any("einbehalten" in w for w in with_retro["warnings"])
+    assert not any("Verzicht dokumentiert" in i["source"] for i in items)
+    assert "Verzicht NICHT belegt" in items[0]["source"]
+    assert any("BGE 132 III 460" in w for w in with_retro["warnings"])
+    assert any("kein Verzichts-Dokument abgelegt" in w for w in with_retro["warnings"])
 
 
 def test_no_inducements_leaves_output_unchanged():

@@ -30,6 +30,41 @@ DEFAULT_TRANSACTION_COST_BPS = 15
 # Entscheid, siehe Audit-Dokument).
 _INDUCEMENT_SANITY_CEILING_RAPPEN = 1_000_000_000  # CHF 10'000'000.00 je Position
 
+
+def _has_documented_waiver(inducement: Mapping[str, Any]) -> bool:
+    """Belegt diese Retrozession einen gueltigen Kundenverzicht?
+
+    INDUCEMENT-EVIDENCE-001. BGE 132 III 460 / Art. 400 OR: eine Retrozession
+    gehoert dem Kunden, AUSSER er hat vorgaengig und in Kenntnis der
+    Groessenordnung gueltig verzichtet. Der Kostenausweis darf einen solchen
+    Verzicht nur dann behaupten, wenn er auch belegt ist.
+
+    Geprueft wird genau das, was das Etikett BEHAUPTET -- nicht mehr:
+
+        "ist offengelegt"            -> `disclosed_to_client`
+        "dokumentierter Verzicht"    -> `waiver_document_id`
+
+    `client_acknowledged` wird hier ABSICHTLICH nicht mitgefordert. Das Feld
+    protokolliert die Kenntnisnahme der KONFLIKT-Offenlegung, nicht den
+    Verzicht; das unterschriebene Verzichts-Dokument ist der staerkere und
+    der hier einschlaegige Nachweis. Beides zu verlangen hiesse, eine
+    Bedingung zu erfinden, die das Etikett nicht aufstellt -- und ein
+    korrekt abgelegtes Verzichts-Dokument an einem nicht gesetzten Haken
+    scheitern zu lassen. Der Zustand von `client_acknowledged` wird ueber
+    die Konflikt-Offenlegung berichtet (CONFLICT-STATE-001), nicht hier.
+
+    GRENZE, ausdruecklich: `waiver_document_id` ist eine freie Spalte ohne
+    Fremdschluessel auf eine Dokumententabelle (siehe models/review.py).
+    Geprueft wird deshalb die VORHANDENHEIT einer Referenz, nicht die
+    Existenz des Dokuments. Das schliesst die Luecke "Verzicht behauptet,
+    nie offengelegt, nichts abgelegt"; es schliesst nicht "ID zeigt auf ein
+    Dokument, das es nicht gibt". Letzteres braucht den Fremdschluessel und
+    ist mit dieser Aenderung NICHT behoben.
+    """
+    if not bool(inducement.get("disclosed_to_client")):
+        return False
+    return bool(str(inducement.get("waiver_document_id") or "").strip())
+
 _ANNUAL_RATE_KEYS = (
     (
         ("default_advisory_fee_bps", "advisory_fee_bps"),
@@ -188,12 +223,19 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
         )
         .all()
     )
+    # INDUCEMENT-EVIDENCE-001: die Nachweisfelder MUESSEN mitgereicht werden.
+    # Vorher endete die Projektion bei `reimbursed_to_client`, womit
+    # `calculate_cost_disclosure()` strukturell nicht wissen konnte, ob ein
+    # Verzicht belegt ist -- und ihn trotzdem behauptete. Die Ursache lag also
+    # nicht im ausgebenden Zweig allein, sondern hier an der Datengrenze.
     inducements = [
         {
             "amount_rappen": int(row.inducement_amount_rappen or 0),
             "frequency": row.inducement_frequency,
             "reimbursed_to_client": bool(row.reimbursed_to_client),
             "provider": row.inducement_provider,
+            "disclosed_to_client": bool(row.disclosed_to_client),
+            "waiver_document_id": row.waiver_document_id,
         }
         for row in disclosure_rows
     ]
@@ -418,6 +460,9 @@ def calculate_cost_disclosure(
                 "source": "Interessenkonflikt-Offenlegung (Retrozession, zurückerstattet)",
                 "is_estimate": False,
                 "included_in_total": is_annual and amount_plausible,
+                # Eine tatsaechlich zurueckerstattete Retrozession braucht
+                # keinen Verzicht -- der Herausgabeanspruch ist erfuellt.
+                "requires_resolution": False,
             })
             if not amount_plausible:
                 warnings.append(
@@ -437,7 +482,7 @@ def calculate_cost_disclosure(
                     f"Eine zurückerstattete Vergütung von Dritten ({provider}) mit "
                     "nicht-jährlicher Frequenz ist offengelegt, aber nicht im Total verrechnet."
                 )
-        else:
+        elif _has_documented_waiver(inducement):
             items.append({
                 "key": "retrocession_disclosed",
                 "label": f"Vergütung von Dritten, einbehalten ({provider})",
@@ -450,11 +495,63 @@ def calculate_cost_disclosure(
                 "source": "Interessenkonflikt-Offenlegung (Retrozession, Verzicht dokumentiert)",
                 "is_estimate": False,
                 "included_in_total": False,
+                "requires_resolution": False,
             })
             warnings.append(
                 f"Vergütung von Dritten ({provider}) ist offengelegt, wird gemäss "
                 "dokumentiertem Kundenverzicht aber vom Berater einbehalten und ist "
                 "bereits Teil der ausgewiesenen Kosten -- nicht zusätzlich im Total."
+            )
+        else:
+            # INDUCEMENT-EVIDENCE-001: Hier stand bisher ein bedingungsloses
+            # `else`, das "Verzicht dokumentiert" auch dann ins FIDLEG-Dokument
+            # schrieb, wenn nie offengelegt und nichts abgelegt wurde -- die
+            # Aussage war nicht bloss unbelegt, sondern das GEGENTEIL der
+            # Datenlage, und zwar genau in der Konstellation, die
+            # BGE 132 III 460 ohne gueltigen Verzicht unzulaessig macht.
+            #
+            # Der Posten verschwindet NICHT: FIDLEG Art. 26 verlangt die
+            # Offenlegung der Verguetung, und ein stilles Weglassen waere fuer
+            # den Kunden schlechter als eine ehrliche Kennzeichnung. Geaendert
+            # wird, was behauptet wird.
+            missing = []
+            if not bool(inducement.get("disclosed_to_client")):
+                missing.append("keine Offenlegung an den Kunden erfasst")
+            if not str(inducement.get("waiver_document_id") or "").strip():
+                missing.append("kein Verzichts-Dokument abgelegt")
+            missing_text = "; ".join(missing)
+            items.append({
+                "key": "retrocession_retained_unwaived",
+                "label": f"Vergütung von Dritten, einbehalten -- Verzicht NICHT belegt ({provider})",
+                "category": "Vergütungen von Dritten",
+                "frequency": frequency_display,
+                "rate_bps": None,
+                "amount_rappen": amount,
+                "basis_rappen": advisory_wealth,
+                "basis_label": advisory_basis_label,
+                "source": (
+                    "Interessenkonflikt-Offenlegung (Retrozession einbehalten, "
+                    "Verzicht NICHT belegt -- Klärung erforderlich)"
+                ),
+                "is_estimate": False,
+                # Der Betrag bleibt ausserhalb des Totals, aber aus einem
+                # anderen Grund als beim belegten Verzicht: er steckt bereits
+                # in den Produktkosten. Ihn als Minusposten zu fuehren wuerde
+                # eine Rueckerstattung behaupten, die nicht stattgefunden hat;
+                # ihn zu addieren waere Doppelzaehlung. Beides waere eine
+                # Zahl, die es nicht gibt -- deshalb ausgewiesen und
+                # gekennzeichnet, nicht verrechnet.
+                "included_in_total": False,
+                "requires_resolution": True,
+            })
+            warnings.append(
+                f"Vergütung von Dritten ({provider}) wird vom Berater einbehalten, "
+                f"ohne dass ein Kundenverzicht belegt ist ({missing_text}). "
+                "Nach BGE 132 III 460 / Art. 400 OR steht sie damit dem Kunden zu; "
+                "der Betrag ist offengelegt, aber NICHT im Total verrechnet (er ist "
+                "bereits Teil der Produktkosten) und es wird kein Verzicht behauptet. "
+                "Zu klären: Verzicht offenlegen und dokumentieren ODER Betrag "
+                "zurückerstatten."
             )
 
     one_time_amount = sum(

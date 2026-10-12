@@ -228,11 +228,24 @@ def test_monolith_null_rate_bps_renders_as_zero_percent_not_absent():
             "provider": "Fondsanbieter X",
         }],
     )
-    retro_item = next(
-        item for item in disclosure["cost_items"] if item["key"] == "retrocession_disclosed"
+    # 2026-10-12 (INDUCEMENT-EVIDENCE-001): selected by CATEGORY, not by key.
+    # The fixture above sets no waiver evidence, so the item is now keyed
+    # "retrocession_retained_unwaived" rather than "retrocession_disclosed" --
+    # which broke the old `next(...)` with StopIteration. This test is about
+    # the monolith rendering rate_bps=null, and both retrocession keys carry
+    # rate_bps=None, so the rate-less third-party item is the honest selector
+    # and survives further key changes.
+    retro_candidates = [
+        item for item in disclosure["cost_items"]
+        if item["category"] == "Vergütungen von Dritten"
+    ]
+    assert len(retro_candidates) == 1, (
+        "Sanity: expected exactly one third-party-compensation item from the "
+        f"fixture above, got {[i['key'] for i in retro_candidates]}"
     )
+    retro_item = retro_candidates[0]
     assert retro_item["rate_bps"] is None, (
-        "Sanity: real retrocession_disclosed item no longer has rate_bps=None "
+        "Sanity: real retrocession item no longer has rate_bps=None "
         "-- update the fixture above before trusting the assertion below"
     )
 

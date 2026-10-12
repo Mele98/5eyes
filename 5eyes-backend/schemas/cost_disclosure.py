@@ -31,6 +31,18 @@ class CostItem(BaseModel):
     source: str
     is_estimate: bool = False
     included_in_total: bool = True
+    requires_resolution: bool = Field(
+        False,
+        description=(
+            "True, wenn der Posten einen rechtlich UNGEKLAERTEN Zustand "
+            "ausweist, der eine Beraterhandlung verlangt (aktuell: eine "
+            "einbehaltene Retrozession ohne dokumentierten Kundenverzicht, "
+            "BGE 132 III 460). Das Feld steht hier, weil Pydantic unbekannte "
+            "Felder beim Serialisieren still verwirft -- ohne diese Zeile "
+            "waere das Kennzeichen im Service gesetzt und im API-Payload "
+            "unsichtbar."
+        ),
+    )
 
 
 class CostTotals(BaseModel):
