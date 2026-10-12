@@ -155,11 +155,43 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
     target_allocation = None
     target_allocation_id = getattr(latest_run, "target_allocation_id", None)
     if target_allocation_id:
+        # COST-BASIS-001 (CERT-COST-CONFLICT-001): dieser Lookup war an NICHTS
+        # gebunden -- nicht an das Mandat, nicht an deleted_at. Gemessen mit
+        # einem Lauf von Mandat A, der auf die Allokation von Mandat B zeigt:
+        #
+        #     advisory_wealth_rappen = 999'900'000  (= CHF 9'999'000 aus B)
+        #     waehrend Mandat A CHF 100'000 haelt
+        #
+        # Zwei Folgen gleichzeitig: die Vermoegenszahl eines ANDEREN Kunden
+        # floss in dieses Kundendokument, und die Kostenquote wurde gegen
+        # CHF 10 Mio statt CHF 100'000 gerechnet -- um Faktor 100 zu niedrig,
+        # in einem FIDLEG-pflichtigen Ausweis (Art. 8/9 FIDLEG).
         target_allocation = (
             db.query(TargetAllocation)
-            .filter(TargetAllocation.id == target_allocation_id)
+            .filter(
+                TargetAllocation.id == target_allocation_id,
+                TargetAllocation.mandate_id == mandate.id,
+                TargetAllocation.deleted_at.is_(None),
+            )
             .first()
         )
+        if target_allocation is None:
+            # Der Lauf NENNT eine Allokation, aber sie gehoert nicht zu
+            # diesem Mandat (oder ist geloescht/weg). Hier NICHT auf die
+            # aktuelle Allokation zurueckfallen: der Lauf hat seine Basis
+            # eingefroren, und wenn die nicht auffindbar ist, ist die Basis
+            # dieses Ausweises unbekannt. Eine andere einzusetzen waere
+            # dieselbe stille Substitution, nur innerhalb des Mandats.
+            #
+            # Fail-closed, Hausmuster wie an den uebrigen Unvollstaendigkeits-
+            # Stellen dieser Funktion.
+            return _pending_payload(
+                "Der Empfehlungslauf verweist auf eine Zielallokation, die "
+                "nicht zu diesem Mandat gehoert oder nicht mehr existiert. "
+                "Die Vermoegensbasis des Kostenausweises ist damit "
+                "unbestimmt -- Strategie neu berechnen.",
+                currency=currency,
+            )
     if target_allocation is None:
         target_allocation = (
             db.query(TargetAllocation)
