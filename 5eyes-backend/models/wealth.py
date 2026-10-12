@@ -178,7 +178,60 @@ class Goal(Base):
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
 
+    # GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3 (Owner-Entscheid 2026-10-11):
+    # persistierter Lifecycle-ENTSCHEID. NULL = der Berater hat (noch) nicht
+    # entschieden; der Zeit-Zustand (planned/due/overdue) wird dann aus
+    # target_date gegen den Bewertungsstichtag ABGELEITET
+    # (services/goal_lifecycle.py).
+    #
+    # Nur Entscheidungen werden gespeichert, weil nur sie einen Actor und
+    # einen Grund haben -- die beiden Pflichtfelder von ADR-3a/3c.
+    # `planned -> due -> overdue` passiert durch Zeitablauf, hat also
+    # keinen Actor; ein gespeichertes `planned` wuerde still veralten und
+    # braeuchte einen Nachtjob.
+    #
+    # Zulaessige Werte: services.goal_lifecycle.DECIDED_STATES
+    # (fulfilled | cancelled | accepted_as_due_now | historical_unknown).
+    lifecycle_decision = Column(String)
+
     mandate = relationship("Mandate", back_populates="goals")
+
+
+class GoalLifecycleTransition(Base):
+    """Append-only Protokoll jeder Lifecycle-Entscheidung (ADR-3a/3c).
+
+    ADR-3c verlangt Begruendungstext, Zeitstempel und Actor fuer jeden
+    Uebergang in einen Terminal-Zustand. `audit_log` ist die
+    manipulationssichere Spur (hash-verkettet ueber sequence +
+    previous_hash), hat aber kein Begruendungsfeld -- deshalb diese eigene
+    Tabelle fuer den Grund, UND zusaetzlich ein audit_log-Eintrag pro
+    Transition.
+
+    Append-only: kein `updated_at`, kein `deleted_at`. Ein Eintrag wird
+    nie veraendert und nie geloescht; eine Korrektur ist ein neuer Eintrag.
+
+    Mandanten-Trennung wie bei der Eltern-Tabelle `goals`: ueber
+    `mandate_id`/`client_id`, NICHT ueber `tenant_id`. `goals` traegt keine
+    `tenant_id`, und `services/postgres_rls.py::tenant_scoped_table_names()`
+    sammelt genau die Tabellen MIT dieser Spalte fuer die RLS-Policies. Fuer
+    eine Kind-Tabelle von `goals` ein abweichendes Scoping-Modell
+    einzufuehren waere die ueberraschende Wahl.
+    """
+
+    __tablename__ = "goal_lifecycle_transitions"
+
+    id = Column(String, primary_key=True)
+    goal_id = Column(String, ForeignKey("goals.id"), nullable=False)
+    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
+    client_id = Column(String, nullable=False)
+    # NULL bei der ersten Transition eines Ziels (vorher war nichts
+    # entschieden, der Zustand war abgeleitet).
+    from_state = Column(String)
+    to_state = Column(String, nullable=False)
+    # ADR-3c: Pflichtfeld. Kein Terminal-Zustand ohne Begruendung.
+    reason = Column(String, nullable=False)
+    actor_user_id = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
 
 
 class PlanningAssumption(Base):

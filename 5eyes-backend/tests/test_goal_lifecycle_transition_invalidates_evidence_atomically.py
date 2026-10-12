@@ -35,13 +35,19 @@ goal_achievability_json`` (or any other persisted allocation/probability
 evidence) at all -- confirmed by reading every call site in
 ``routers/wealth.py``.
 
-Desired contract under test: when a goal's economic status transitions to
-"past due" (its ``target_date`` is edited into the past -- the only
-materialized lifecycle signal that exists today), any cached/stored
-allocation or probability evidence computed against the *old* (still-future)
-liability must be invalidated atomically with that edit, in the SAME
-request/transaction -- not just flagged with a generic drift banner while
-the stale per-goal payload is still served to the UI.
+Desired contract under test: wenn sich der wirtschaftliche Zustand eines
+Ziels aendert, muss jeder gespeicherte Allokations-/Wahrscheinlichkeits-
+Nachweis, der gegen den ALTEN Zustand gerechnet wurde, ATOMAR mit dieser
+Aenderung invalidiert werden -- in derselben Transaktion, nicht nur mit
+einem generischen Drift-Banner versehen, waehrend die veraltete Nutzlast
+pro Ziel weiter ans UI geht.
+
+NACHGEFUEHRT am 2026-10-12: der ursprueglich hier benutzte Ausloeser
+("target_date in die Vergangenheit editieren -- das einzige materialisierte
+Lifecycle-Signal, das heute existiert") ist ueberholt. Die API lehnt das
+inzwischen mit HTTP 422 ab, womit dieser Test per Konstruktion nicht mehr
+gruen werden konnte. Seit ADR-3 gibt es den echten Uebergang: die
+typisierte Lifecycle-Entscheidung (services/goal_lifecycle_transitions.py).
 
 This test reproduces that gap directly against the persistence layer (no
 solver run needed): it seeds a ``TargetAllocation.goal_achievability_json``
@@ -231,13 +237,6 @@ def _load_goal_evidence_entry(
     return None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-PAST-DATE-LIFECYCLE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_goal_target_date_transition_to_past_invalidates_cached_allocation_evidence(
     session_factory, auth_client, advisor_user,
 ):
@@ -267,20 +266,46 @@ def test_goal_target_date_transition_to_past_invalidates_cached_allocation_evide
     assert before["status"] == "on_track"
     assert before["probability_pct"] == 82
 
-    # Act: transition the goal's economic status to "past due" by moving its
-    # target_date into the past. This is the only lifecycle transition the
-    # system materializes today (no typed status field exists at all).
-    update_resp = auth_client.put(
-        f"/mandates/{mandate_id}/goals/{goal_id}",
-        json={"target_date": "2020-01-01"},
-    )
-    assert update_resp.status_code == 200, update_resp.text
+    # Act: der Lifecycle-Uebergang.
+    #
+    # UMGESTELLT am 2026-10-12 (ADR-3 Etappe 2). Dieser Test setzte das
+    # Zieldatum per PUT in die Vergangenheit und nannte das "the only
+    # lifecycle transition the system materializes today". Diese Praemisse
+    # ist durch einen frueheren Fix ueberholt: die API lehnt ein vergangenes
+    # Zieldatum mit HTTP 422 ab ("Zieldatum darf nicht in der Vergangenheit
+    # liegen", gepinnt in test_goal_past_target_date_rejected.py). Der Test
+    # konnte damit per KONSTRUKTION nicht mehr gruen werden -- sein
+    # Ausloeser war am Eingang blockiert.
+    #
+    # Der echte Uebergang ist seit ADR-3 die typisierte
+    # Lifecycle-Entscheidung. Sie aendert die Wirtschaftlichkeit des Ziels
+    # (erfuellt heisst Verbindlichkeit null) und damit die Zielerreichung
+    # JEDES anderen Ziels im Mandat -- sie konkurrieren um dieselbe
+    # Kapazitaet.
+    from models.wealth import Goal
+    from services.goal_lifecycle_transitions import record_lifecycle_decision
 
-    # Assert (desired behavior): the stored evidence for THIS goal must have
-    # been invalidated atomically with the transition -- either removed
-    # entirely, or explicitly marked stale/unscored. A stale "on_track" /
-    # 82%-probability payload computed against the old future date must
-    # never still be served after the goal has become overdue.
+    with session_factory() as db:
+        goal = db.get(Goal, goal_id)
+        assert goal is not None
+        record_lifecycle_decision(
+            db, goal,
+            to_state="fulfilled",
+            reason="Kunde hat das Ziel aus Mitteln ausserhalb des Portfolios erfuellt.",
+            actor_user_id=advisor_user,
+            actor_user_name="Beraterin",
+        )
+        db.commit()
+
+    # Assert: der gespeicherte Nachweis fuer DIESES Ziel ist mit dem
+    # Uebergang verschwunden -- in derselben Transaktion.
+    #
+    # Eine veraltete "on_track"/82-Prozent-Nutzlast, gerechnet gegen den
+    # alten Zielzustand, darf nach dem Uebergang nicht weiter ausgeliefert
+    # werden. Der input_snapshot_hash erzeugte dafuer nur ein generisches
+    # Drift-Banner; die Zahl PRO ZIEL stand unveraendert daneben. Ein
+    # Hinweis neben einer falschen Zahl ist kein Ersatz dafuer, die Zahl zu
+    # entfernen.
     after = _load_goal_evidence_entry(session_factory, allocation_id, goal_id)
     assert after is None or after.get("status") in {
         "stale",

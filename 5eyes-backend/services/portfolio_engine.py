@@ -38,7 +38,11 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
-from services.goal_semantics import GoalInputError, validate_goal_model_input
+from services.goal_semantics import (
+    GoalInputError,
+    validate_active_goal_inputs as _validate_active_goal_inputs,
+    validate_goal_model_input,
+)
 from services.cashflow_timeline import (
     SUPPORTED_FREQUENCIES,
     future_value_with_cashflow_series,
@@ -896,70 +900,11 @@ def _validate_active_cashflow_inputs(cashflows: list) -> None:
             )
 
 
-_SUPPORTED_GOAL_TYPE_KEYS = frozenset(
-    {
-        "kapitalerhalt",
-        "vermoegensziel",
-        "einmalige_ausgabe",
-        "wiederkehrende_ausgabe",
-        "pensionsausgabe",
-        "renditeziel",
-        "maximierung",
-    }
-)
-
-
-def _goal_type_key_for_runtime(value) -> str:
-    return _norm_text(value).strip().lower().replace(" ", "_")
-
-
-def _validate_active_goal_inputs(goals: list) -> None:
-    """Validate goal rows before liability construction can soften them."""
-    for goal in goals or []:
-        label = str(getattr(goal, "label", "") or "Ziel").strip()
-        goal_type = _goal_type_key_for_runtime(getattr(goal, "goal_type", None))
-        if goal_type not in _SUPPORTED_GOAL_TYPE_KEYS:
-            raise ValueError(
-                f"Ziel '{label}': unbekannter Zieltyp "
-                f"{getattr(goal, 'goal_type', None)!r}."
-            )
-        ongoing = getattr(goal, "is_ongoing", None)
-        if isinstance(ongoing, bool) or not isinstance(ongoing, int) or ongoing not in (0, 1):
-            raise ValueError(
-                f"Ziel '{label}': is_ongoing muss exakt 0 oder 1 sein."
-            )
-        start = _parse_strict_model_date(
-            getattr(goal, "start_date", None),
-            label=f"Ziel '{label}' Startdatum",
-        )
-        target = _parse_strict_model_date(
-            getattr(goal, "target_date", None),
-            label=f"Ziel '{label}' Zieldatum",
-        )
-        if start and target and target < start:
-            raise ValueError(
-                f"Ziel '{label}': Zieldatum darf nicht vor dem Startdatum liegen."
-            )
-        if goal_type in {"wiederkehrende_ausgabe", "pensionsausgabe"}:
-            frequency = normalize_frequency(getattr(goal, "frequency", None))
-            if frequency not in SUPPORTED_FREQUENCIES or frequency == "einmalig":
-                raise ValueError(
-                    f"Ziel '{label}': unbekannte oder unzulaessige Frequenz "
-                    f"{getattr(goal, 'frequency', None)!r}."
-                )
-        probability = getattr(goal, "probability_pct", None)
-        if probability is not None and (
-            isinstance(probability, bool)
-            or not isinstance(probability, int)
-            or not 0 <= probability <= 100
-        ):
-            raise ValueError(
-                f"Ziel '{label}': probability_pct muss ganzzahlig zwischen 0 und 100 liegen."
-            )
-        try:
-            validate_goal_model_input(goal)
-        except GoalInputError as exc:
-            raise ValueError(str(exc)) from exc
+# ADR-014-Extraktion (2026-10-12): _SUPPORTED_GOAL_TYPE_KEYS,
+# _goal_type_key_for_runtime und _validate_active_goal_inputs liegen jetzt in
+# services/goal_semantics.py, wo validate_goal_model_input() schon wohnt --
+# dieselbe Domaene, und es macht Platz fuer das ADR-3-Gate. Der Aufrufname
+# bleibt erhalten (Import unten), die beiden Aufrufstellen sind unveraendert.
 
 
 def _build_external_foundation_projection(

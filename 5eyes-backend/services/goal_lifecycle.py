@@ -221,3 +221,53 @@ def requires_advisor_resolution(state: str) -> bool:
     """Blockiert dieser Zustand die Berechnung (ADR-3b Variante 3)?"""
     return state in REQUIRES_RESOLUTION_STATES
 
+def assert_no_unresolved_overdue_goals(goals, *, as_of: date | None = None) -> None:
+    """Fail-closed Gate: ueberfaellige Ziele blockieren die Berechnung.
+
+    ADR-3b, **Variante 3** (Owner-Entscheid 2026-10-11). Von den drei
+    vorgelegten Optionen ist das die gewaehlte; Variante 1 (sofortiger
+    t0-Bedarf) und Variante 2 (neu verhandeltes Datum) sind die beiden
+    einzigen zulaessigen Aufloesungen, und beide muessen vom Berater
+    AUSDRUECKLICH gesetzt werden.
+
+    Warum blockieren und nicht weiterrechnen: die abgeloeste Stille machte
+    aus einer 2020-2022 abgelaufenen Verpflichtung drei NEUE Jahre
+    2026-2028. Das ist keine konservative Schaetzung, sondern eine
+    erfundene Tatsache. Eine Eignungspruefung auf dieser Grundlage
+    exponiert den Berater (Sorgfaltspflicht, Art. 398 OR) und die Firma
+    gegenueber einem Kunden, der sich auf eine falsche Liquiditaetsplanung
+    verlaesst. Das Projekt hat dieses Prinzip mehrfach selbst angewandt
+    (Fail-open -> fail-closed, Backend-Complete-State-Guard mit HTTP 422);
+    Variante 3 setzt denselben Haus-Standard fort.
+
+    Die Kosten sind echt und bewusst in Kauf genommen: der Berater muss
+    klaeren, bevor fuer dieses Mandat ueberhaupt gerechnet wird.
+
+    Wirft ``GoalLifecycleError`` mit allen betroffenen Zielen auf einmal --
+    nicht beim ersten Treffer abbrechen, sonst arbeitet sich der Berater
+    durch eine Fehlermeldung pro Ziel.
+    """
+    blocked: list[str] = []
+    for goal in goals or []:
+        state = resolve_lifecycle_state(goal, as_of=as_of)
+        if not requires_advisor_resolution(state):
+            continue
+        label = str(getattr(goal, "label", "") or "Ziel").strip() or "Ziel"
+        anchor = _lifecycle_anchor(goal)
+        blocked.append(
+            f"'{label}' (faellig {anchor.isoformat() if anchor else 'unbekannt'})"
+        )
+
+    if not blocked:
+        return
+
+    raise GoalLifecycleError(
+        "Berechnung blockiert: "
+        + str(len(blocked))
+        + (" ueberfaelliges Ziel" if len(blocked) == 1 else " ueberfaellige Ziele")
+        + " ohne dokumentierte Entscheidung -- "
+        + ", ".join(blocked)
+        + ". Bitte pro Ziel entscheiden: Betrag als sofortigen Bedarf "
+        "uebernehmen, neues Faelligkeitsdatum vereinbaren, oder das Ziel "
+        "als erfuellt bzw. storniert abschliessen."
+    )

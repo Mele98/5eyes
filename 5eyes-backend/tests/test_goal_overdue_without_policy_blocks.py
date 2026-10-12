@@ -74,14 +74,22 @@ def _make_overdue_one_off_goal() -> SimpleNamespace:
     )
 
 
-def test_goal_schema_has_no_lifecycle_field_today():
-    """Dokumentiert die Schema-Luecke: kein Status, kein Outstanding-Betrag.
+def test_goal_schema_carries_exactly_the_lifecycle_decision_column():
+    """Das Goal-Schema traegt GENAU ein Lifecycle-Feld: die Entscheidung.
 
-    Dieser Teil ist bewusst NICHT xfail -- er beweist nur den heutigen
-    (korrekt leeren) Zustand des Schemas und muss gruen bleiben, bis ein
-    Lifecycle-Feld eingefuehrt wird. Faellt er irgendwann fehl (weil ein
-    Lifecycle-Feld ergaenzt wurde), ist das ein Signal, den xfail-Test
-    unten zu reaktivieren/anzupassen.
+    Dieser Test hiess ``test_goal_schema_has_no_lifecycle_field_today`` und
+    hielt die Schema-Luecke fest ("kein Status, kein Outstanding-Betrag").
+    Er sagte in seinem eigenen Docstring, dass sein Fallen das Signal ist --
+    genau das ist am 2026-10-12 mit ADR-3 Etappe 2 eingetreten.
+
+    Umgeschrieben statt geloescht, und zwar auf die ENGERE Aussage: es darf
+    nur die ENTSCHEIDUNG persistiert sein, nicht der Zustand.
+
+    `planned -> due -> overdue` passiert durch Zeitablauf, hat also keinen
+    Actor und keinen Grund -- die beiden Pflichtfelder von ADR-3a/3c. Ein
+    gespeichertes `lifecycle_status` oder `lifecycle_state` waere eine
+    Dublette, die still veraltet und einen Nachtjob braeuchte. Taucht so ein
+    Feld hier auf, ist die Trennung aufgeweicht worden.
     """
     from models.wealth import Goal
 
@@ -91,12 +99,42 @@ def test_goal_schema_has_no_lifecycle_field_today():
         for name in column_names
         if "status" in name or "lifecycle" in name or "outstanding" in name
     }
-    assert lifecycle_like == set(), (
-        "Erwartet: kein Lifecycle-/Status-/Outstanding-Feld im Goal-Schema "
-        f"(Stand Runde 38). Gefunden: {lifecycle_like}. Falls dies nun existiert, "
-        "wurde GOAL-PAST-DATE-LIFECYCLE-001 vermutlich teilweise addressiert -- "
-        "bitte den xfail-Test in dieser Datei pruefen/aktualisieren."
+    assert lifecycle_like == {"lifecycle_decision"}, (
+        "Erwartet genau {'lifecycle_decision'} -- nur die Beraterentscheidung "
+        f"wird persistiert. Gefunden: {lifecycle_like}. Ein zusaetzliches "
+        "lifecycle_status/-state-Feld waere eine Dublette zum abgeleiteten "
+        "Zeit-Zustand (services/goal_lifecycle.py) und koennte veralten."
     )
+
+
+def test_lifecycle_transition_table_is_append_only_by_schema():
+    """ADR-3a/3c: das Protokoll traegt Actor, Zeitstempel und Grund -- und
+    hat bewusst KEIN updated_at und KEIN deleted_at.
+
+    Ein veraenderbarer oder loeschbarer Eintrag waere als Nachweis
+    wertlos. Eine Korrektur ist ein neuer Eintrag, nicht eine Aenderung des
+    alten.
+    """
+    from models.wealth import GoalLifecycleTransition
+
+    columns = {c.name: c for c in GoalLifecycleTransition.__table__.columns}
+
+    for required in ("actor_user_id", "reason", "created_at", "to_state"):
+        assert required in columns, required
+        assert columns[required].nullable is False, (
+            f"{required} muss NOT NULL sein -- ADR-3c macht den Nachweis zur "
+            "Pflicht, nicht zur Option."
+        )
+
+    # from_state darf NULL sein: die erste Transition eines Ziels hat keinen
+    # persistierten Vorzustand (der war abgeleitet).
+    assert columns["from_state"].nullable is True
+
+    for forbidden in ("updated_at", "deleted_at"):
+        assert forbidden not in columns, (
+            f"{forbidden} darf es nicht geben -- das Protokoll ist "
+            "append-only. Eine Korrektur ist ein neuer Eintrag."
+        )
 
 
 def test_overdue_one_off_goal_without_policy_blocks_or_is_marked():
