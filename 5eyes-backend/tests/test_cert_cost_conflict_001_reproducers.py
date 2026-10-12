@@ -389,10 +389,18 @@ def test_run_bound_to_foreign_mandates_allocation_must_block_not_adopt_its_basis
 # ---------------------------------------------------------------------------
 # COST-DOMAIN-001 -- a malformed fee rate is clamped to 0 via _safe_int
 # instead of being typed-rejected.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-12): `_require_rate_bps()` replaces
+# `max(0, _safe_int(...))` at every fee-rate entry point. It raises
+# CostDisclosureDomainError (a ValueError subclass) carrying a stable
+# `reason_code`, following the check order of the existing
+# `cma_validation._integral_bps` precedent. Deliberately no upper bound:
+# there is no precedent for a fee-rate ceiling in this repo, and an absurdly
+# HIGH rate is visible in the document whereas the silent zero was not.
+# xfail removed: strict=True would otherwise report an unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-DOMAIN-001 -- CERT-COST-CONFLICT-001")
 def test_malformed_fee_rate_must_be_typed_rejected_not_normalized_to_zero():
     # Soll: a non-parseable fee rate must raise/be rejected with a stable
     # reason code. Today _first_present_rate -> _safe_int() silently turns
@@ -410,21 +418,64 @@ def test_malformed_fee_rate_must_be_typed_rejected_not_normalized_to_zero():
 # ---------------------------------------------------------------------------
 # COST-COMPLETENESS-001 -- is_complete only checks key-presence + 100% TER
 # coverage, so a malformed-but-present fee value can still yield complete=True.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-12), and the assertion had to MOVE
+# to a different boundary. This reproducer and COST-DOMAIN-001 above
+# originally called the SAME function with the SAME input
+# (`{"default_advisory_fee_bps": "not-a-rate"}`) and demanded opposite
+# things: one a raise, the other a returned payload with is_complete=False.
+# Both could never be green at once -- a genuine contradiction inside the
+# cluster, not an implementation gap.
+#
+# Resolution, which keeps both Soll statements intact:
+#
+#   pure function  `calculate_cost_disclosure()`  -> raises (COST-DOMAIN-001).
+#                  A malformed rate is a broken ARGUMENT; no number may come
+#                  back, not even a different one.
+#   data boundary  `build_cost_disclosure()`      -> _pending_payload, which
+#                  carries is_complete=False and names the reason. Letting
+#                  the exception reach the endpoint would tear down the
+#                  FIDLEG document with HTTP 500 over one legacy value --
+#                  the advisor would see an error page instead of the cause.
+#
+# So the Soll below is unchanged in substance ("an invalid configured fee
+# value must never let is_complete=True"); it is now asserted where a
+# payload actually exists. The pure-function half is covered above.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-COMPLETENESS-001 -- CERT-COST-CONFLICT-001")
-def test_is_complete_must_not_be_true_when_a_configured_fee_value_is_invalid():
-    payload = calculate_cost_disclosure(
+def test_is_complete_must_not_be_true_when_a_configured_fee_value_is_invalid(cc_session_factory):
+    sf = cc_session_factory
+    advisor_id, client_id, mandate_id = _seed_mandate(sf, suffix="completeness")
+    _make_product(sf, "prd-completeness", ter_bps=50)
+    _make_policy(sf, "pol-completeness", advisor_id)
+    _make_allocation(
+        sf, "ta-completeness", mandate_id, "pol-completeness", advisor_id,
         advisory_wealth_rappen=1_000_000_00,
-        # 100% TER coverage on the only position.
-        positions=[{"amount_rappen": 1_000_000_00, "weight_bps": 10000, "ter_bps": 50}],
-        fee_model={"default_advisory_fee_bps": "not-a-rate"},
-        source_run_id="run-completeness-1",
-        currency="CHF",
     )
+    run_id = "run-completeness-1"
+    _make_run(
+        sf, run_id, mandate_id, client_id,
+        target_allocation_id="ta-completeness", policy_id="pol-completeness",
+        created_by=advisor_id, result_status="Final", created_at=_now(),
+        # Der kaputte Wert, wie er in einem Altlauf persistiert sein kann.
+        fee_assumptions={"default_advisory_fee_bps": "not-a-rate"},
+    )
+    # 100 % TER-Deckung auf der einzigen Position -- die zweite Bedingung von
+    # `is_complete` ist also erfuellt. Nur der Gebuehrenwert ist kaputt.
+    _make_position(sf, run_id, "prd-completeness", weight_bps=10000, amount_rappen=1_000_000_00)
+
+    with sf() as db:
+        mandate = db.query(Mandate).filter(Mandate.id == mandate_id).first()
+        payload = build_cost_disclosure(db, mandate)
+
     # Soll: an invalid configured fee value must never let is_complete=True.
     assert payload["is_complete"] is False
+    # Und es darf auch keine Kostenzahl ausgewiesen werden, die auf der
+    # stillen Null beruht -- sonst waere is_complete=False nur Kosmetik.
+    assert payload["data_pending"] is True
+    assert payload["cost_items"] == []
+    assert any("unverwertbar" in w for w in payload["warnings"]), payload["warnings"]
 
 
 # ---------------------------------------------------------------------------

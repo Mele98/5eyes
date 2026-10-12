@@ -7,12 +7,105 @@ silently treated as zero.
 from __future__ import annotations
 
 import json
+import math
+from numbers import Real
 from typing import Any, Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
 
 DEFAULT_TRANSACTION_COST_BPS = 15
+
+
+class CostDisclosureDomainError(ValueError):
+    """Ein Modelleingang des Kostenausweises ist nicht verwertbar.
+
+    COST-DOMAIN-001 (CERT-COST-CONFLICT-001). Erbt von `ValueError`, damit
+    bestehende Aufrufer, die breit auf Wertfehler pruefen, unveraendert
+    funktionieren; `reason_code` und `location` machen die Ablehnung
+    maschinenlesbar und stabil zitierbar.
+    """
+
+    def __init__(self, message: str, *, reason_code: str, location: str) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.location = location
+
+
+# Stabile Begruendungscodes -- bewusst Konstanten, damit ein Aufrufer sie
+# vergleichen kann, ohne auf Meldungstexte zu matchen.
+REASON_RATE_NOT_A_NUMBER = "fee_rate_not_a_number"
+REASON_RATE_NOT_INTEGRAL = "fee_rate_not_integral"
+REASON_RATE_NEGATIVE = "fee_rate_negative"
+
+
+def _require_rate_bps(value: Any, *, location: str) -> int:
+    """Typisierte Annahme eines Gebuehrensatzes in Basispunkten.
+
+    COST-DOMAIN-001. Vorher lief jeder Satz durch
+    `max(0, _safe_int(value))` -- zwei Stillschweige-Mechanismen
+    uebereinander:
+
+        "not-a-rate" -> _safe_int faengt den ValueError      -> 0
+        -75          -> max(0, ...) verschluckt das Vorzeichen -> 0
+
+    Beide ergaben einen Posten mit 0 bps, der als "konfiguriert" galt: das
+    FIDLEG-Dokument wies eine KOSTENLOSE Dienstleistung aus, wo tatsaechlich
+    ein unverwertbarer Wert hinterlegt war. Eine Null ist hier nicht die
+    konservative Annahme, sondern die guenstigste -- und damit die falsche
+    Richtung fuer einen Pflichtausweis.
+
+    Gleiches Muster und gleiche Reihenfolge der Pruefungen wie
+    `services/cma_validation.py::_integral_bps` (bool zuerst, dann
+    Zahl/endlich, dann Ganzzahligkeit) -- kein neu erfundener Kontrakt.
+
+    KEINE Obergrenze, bewusst: fuer Gebuehrensaetze existiert in diesem
+    Repo kein Praezedenzfall (anders als `_INDUCEMENT_SANITY_CEILING_RAPPEN`
+    fuer Betraege, der aus einem Audit stammt). Einen Plausibilitaetsdeckel
+    zu erfinden, koennte legitime Konfigurationen ablehnen; ein absurd
+    HOHER Satz ist im Dokument ausserdem sichtbar, waehrend die stille Null
+    es nicht war. Der behobene Fehler ist das Verschweigen, nicht die
+    Groesse.
+    """
+    if isinstance(value, bool):
+        # `True` als Satz hiesse 1 bps -- Unsinn, und ein typischer
+        # JSON-Unfall. Gleiche Ablehnung wie _integral_bps.
+        raise CostDisclosureDomainError(
+            f"{location} muss eine ganze Zahl in Basispunkten sein (bool erhalten).",
+            reason_code=REASON_RATE_NOT_A_NUMBER,
+            location=location,
+        )
+    if not isinstance(value, Real):
+        raise CostDisclosureDomainError(
+            f"{location} muss eine Zahl sein, erhalten: {value!r}.",
+            reason_code=REASON_RATE_NOT_A_NUMBER,
+            location=location,
+        )
+    number = float(value)
+    if not math.isfinite(number):
+        raise CostDisclosureDomainError(
+            f"{location} muss endlich (finite) sein.",
+            reason_code=REASON_RATE_NOT_A_NUMBER,
+            location=location,
+        )
+    if not number.is_integer():
+        raise CostDisclosureDomainError(
+            f"{location} muss eine GANZE Zahl in Basispunkten sein, erhalten: {value!r}.",
+            reason_code=REASON_RATE_NOT_INTEGRAL,
+            location=location,
+        )
+    rate = int(number)
+    if rate < 0:
+        # Ein negativer Gebuehrensatz ist keine Gebuehr. Eine Verguetung AN
+        # den Kunden hat ihren eigenen Kanal (Retrozessions-Rueckerstattung,
+        # negativer Posten) -- sie durch ein Minuszeichen im Gebuehrenmodell
+        # auszudruecken wuerde sie am Offenlegungsweg vorbeifuehren.
+        raise CostDisclosureDomainError(
+            f"{location} darf nicht negativ sein, erhalten: {rate}.",
+            reason_code=REASON_RATE_NEGATIVE,
+            location=location,
+        )
+    return rate
 
 # TEN-COMP-003 Teil 2 (Codex-Audit 2026-08-27, Folgeaudit): Teil 1 (schemas/review.py
 # Field(ge=0)) blockierte nur einen direkt negativen inducement_amount_rappen. Der
@@ -197,20 +290,44 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
         }
         for row in disclosure_rows
     ]
-    return calculate_cost_disclosure(
-        advisory_wealth_rappen=advisory_wealth,
-        positions=positions,
-        fee_model=fee_model,
-        transaction_cost_bps=_first_int(
-            fee_model,
-            ("transaction_cost_bps", "estimated_transaction_cost_bps"),
-            default=DEFAULT_TRANSACTION_COST_BPS,
-        ),
-        inducements=inducements,
-        source_run_id=str(latest_run.id),
-        as_of=str(getattr(latest_run, "created_at", "") or ""),
-        currency=currency,
-    )
+    # COST-DOMAIN-001 / COST-COMPLETENESS-001: zwei Grenzen, bewusst
+    # verschieden.
+    #
+    # `calculate_cost_disclosure()` ist eine reine Funktion; ein
+    # unverwertbarer Satz ist dort ein kaputtes ARGUMENT und wird abgelehnt
+    # (gleiche Trennung wie bei der Inflationsdomaene in ADR-6: der Parser
+    # haelt kaputte DATEN draussen, die Argumentpruefung einen kaputten
+    # ARGUMENT-Wert).
+    #
+    # HIER lesen wir dagegen PERSISTIERTE Daten eines Altlaufs. Eine
+    # Exception bis zum Endpunkt durchzulassen hiesse, dass ein einziger
+    # kaputter Wert in `fee_assumptions_json` das FIDLEG-Pflichtdokument mit
+    # HTTP 500 abreisst -- der Berater saehe eine Fehlerseite statt des
+    # Grundes. Deshalb fail-closed mit Begruendung, Hausmuster
+    # `_pending_payload` (is_complete bleibt False) statt Absturz.
+    try:
+        return calculate_cost_disclosure(
+            advisory_wealth_rappen=advisory_wealth,
+            positions=positions,
+            fee_model=fee_model,
+            transaction_cost_bps=_first_int(
+                fee_model,
+                ("transaction_cost_bps", "estimated_transaction_cost_bps"),
+                default=DEFAULT_TRANSACTION_COST_BPS,
+            ),
+            inducements=inducements,
+            source_run_id=str(latest_run.id),
+            as_of=str(getattr(latest_run, "created_at", "") or ""),
+            currency=currency,
+        )
+    except CostDisclosureDomainError as exc:
+        return _pending_payload(
+            f"Das Gebührenmodell der Empfehlung enthält einen unverwertbaren "
+            f"Wert ({exc.location}: {exc.reason_code}). Der Kostenausweis "
+            "wird nicht mit einer angenommenen Null berechnet -- Gebühren "
+            "im Gebührenmodell korrigieren und Strategie neu berechnen.",
+            currency=currency,
+        )
 
 
 def calculate_cost_disclosure(
@@ -353,7 +470,13 @@ def calculate_cost_disclosure(
             "die bekannten Produktkosten."
         )
 
-    transaction_rate = max(0, _safe_int(transaction_cost_bps))
+    # COST-DOMAIN-001: auch der direkt uebergebene Transaktionskostensatz.
+    # Er kommt bei `build_cost_disclosure()` aus dem Gebuehrenmodell, kann
+    # aber von jedem Aufrufer gesetzt werden -- dieselbe Pruefung an der
+    # Argumentgrenze.
+    transaction_rate = _require_rate_bps(
+        transaction_cost_bps, location="transaction_cost_bps"
+    )
     if invested_amount > 0 and transaction_rate > 0:
         items.append(_rate_item(
             key="initial_transaction_costs",
@@ -539,7 +662,13 @@ def _first_present_rate(
     for key in keys:
         if key not in fee_model or fee_model.get(key) is None:
             continue
-        return key, max(0, _safe_int(fee_model.get(key)))
+        # COST-DOMAIN-001: typisiert statt geklemmt. Ein ABWESENDER Schluessel
+        # bleibt ein eigener, bereits behandelter Fall (service_fee_known =
+        # False mit Warnung) -- nur ein VORHANDENER, aber unverwertbarer Wert
+        # wird abgelehnt.
+        return key, _require_rate_bps(
+            fee_model.get(key), location=f"fee_model[{key!r}]"
+        )
     return None, 0
 
 
@@ -551,7 +680,12 @@ def _first_int(
 ) -> int:
     for key in keys:
         if key in fee_model and fee_model.get(key) is not None:
-            return max(0, _safe_int(fee_model.get(key)))
+            # COST-DOMAIN-001: gleiche Begruendung wie _first_present_rate.
+            # Der `default` greift nur bei ABWESENHEIT, nie als Ersatz fuer
+            # einen kaputten Wert.
+            return _require_rate_bps(
+                fee_model.get(key), location=f"fee_model[{key!r}]"
+            )
     return default
 
 
