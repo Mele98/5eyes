@@ -8,6 +8,9 @@ from typing import Any, Mapping
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency
 
 
+from services.goal_lifecycle import assert_no_unresolved_overdue_goals
+
+
 class GoalInputError(ValueError):
     """A persisted or submitted goal cannot be interpreted unambiguously."""
 
@@ -275,3 +278,90 @@ def validate_goal_model_input(goal: Any) -> None:
         raise GoalInputError(
             f"{prefix}: pension_pillar ist nur fuer Pensionsausgabe erlaubt."
         )
+
+
+# ===========================================================================
+# Runtime-Validierung aktiver Ziel-Zeilen
+# ===========================================================================
+# ADR-014-Extraktion (2026-10-12) aus services/portfolio_engine.py. Gehoert
+# hierher: dieselbe Domaene wie validate_goal_model_input(), das von hier
+# unten aufgerufen wird.
+#
+# Fehlertyp ist GoalInputError (erbt von ValueError), damit das Modul EINEN
+# Typ wirft. Die Aufrufer in portfolio_engine fangen ValueError -- das bleibt
+# gueltig.
+
+SUPPORTED_GOAL_TYPE_KEYS = frozenset(
+    {
+        "kapitalerhalt",
+        "vermoegensziel",
+        "einmalige_ausgabe",
+        "wiederkehrende_ausgabe",
+        "pensionsausgabe",
+        "renditeziel",
+        "maximierung",
+    }
+)
+
+
+def validate_active_goal_inputs(goals: list) -> None:
+    """Validate goal rows before liability construction can soften them."""
+    for goal in goals or []:
+        label = str(getattr(goal, "label", "") or "Ziel").strip()
+        goal_type = _fold(getattr(goal, "goal_type", None))
+        if goal_type not in SUPPORTED_GOAL_TYPE_KEYS:
+            raise GoalInputError(
+                f"Ziel '{label}': unbekannter Zieltyp "
+                f"{getattr(goal, 'goal_type', None)!r}."
+            )
+        ongoing = getattr(goal, "is_ongoing", None)
+        if isinstance(ongoing, bool) or not isinstance(ongoing, int) or ongoing not in (0, 1):
+            raise GoalInputError(
+                f"Ziel '{label}': is_ongoing muss exakt 0 oder 1 sein."
+            )
+        start = _parse_date(
+            _get(goal, "start_date"), field=f"Ziel '{label}' Startdatum",
+        )
+        target = _parse_date(
+            _get(goal, "target_date"), field=f"Ziel '{label}' Zieldatum",
+        )
+        if start and target and target < start:
+            raise GoalInputError(
+                f"Ziel '{label}': Zieldatum darf nicht vor dem Startdatum liegen."
+            )
+        if goal_type in {"wiederkehrende_ausgabe", "pensionsausgabe"}:
+            frequency = normalize_frequency(getattr(goal, "frequency", None))
+            if frequency not in SUPPORTED_FREQUENCIES or frequency == "einmalig":
+                raise GoalInputError(
+                    f"Ziel '{label}': unbekannte oder unzulaessige Frequenz "
+                    f"{getattr(goal, 'frequency', None)!r}."
+                )
+        probability = getattr(goal, "probability_pct", None)
+        if probability is not None and (
+            isinstance(probability, bool)
+            or not isinstance(probability, int)
+            or not 0 <= probability <= 100
+        ):
+            raise GoalInputError(
+                f"Ziel '{label}': probability_pct muss ganzzahlig zwischen 0 und 100 liegen."
+            )
+        validate_goal_model_input(goal)
+
+    # GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3b, Owner-Entscheid 2026-10-11:
+    # **Variante 3** (fail-closed). Ein ueberfaelliges Ziel ohne
+    # dokumentierte Entscheidung blockiert die Berechnung fuer dieses
+    # Mandat, bis der Berater klaert.
+    #
+    # Warum hier: das ist der Haken, der schon bisher ungueltige
+    # Ziel-Eingaben abgelehnt hat, und er laeuft an BEIDEN Stellen, an
+    # denen die Engine Ziele laedt. Ein ueberfaelliges Ziel ist genau
+    # das -- eine Eingabe, auf der nicht gerechnet werden darf.
+    #
+    # Warum nach der Einzelvalidierung: ein Ziel mit kaputtem Datum soll
+    # den praeziseren Fehler bekommen ("ungueltiges ISO-Datum"), nicht
+    # den Lifecycle-Block.
+    #
+    # Die Pruefung laeuft ueber ALLE uebergebenen Ziele und meldet sie
+    # gesammelt -- sonst arbeitet sich der Berater durch eine
+    # Fehlermeldung pro Ziel.
+    assert_no_unresolved_overdue_goals(goals)

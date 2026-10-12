@@ -22,6 +22,9 @@ from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
+from services.goal_lifecycle_transitions import (
+    invalidate_goal_achievability_evidence,
+)
 from services.calendar_horizon import calendar_years_until
 from services.wealth_position_semantics import (
     WealthPositionSemanticsError,
@@ -459,6 +462,27 @@ def _invalidate_achievement_scores_for_mandate(
         {Goal.achievement_score: None},
         synchronize_session=False,
     )
+
+    # GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3 (2026-10-12): die PERSISTIERTE
+    # Allokations-Evidenz wird mit invalidiert -- in DIESER Transaktion.
+    #
+    # Vorher wurde ausschliesslich `Goal.achievement_score` genullt.
+    # `TargetAllocation.goal_achievability_json` blieb stehen und wurde dem
+    # UI weiter ausgeliefert, obwohl es gegen den ALTEN Zielzustand
+    # gerechnet war. Der `input_snapshot_hash` enthaelt das Zieldatum und
+    # erzeugte dadurch ein generisches Drift-Banner -- aber die veraltete
+    # Zahl PRO ZIEL stand unveraendert daneben. Ein Hinweis neben einer
+    # falschen Zahl ist kein Ersatz dafuer, die Zahl zu entfernen.
+    #
+    # Nur `is_current = 1`: aeltere Versionen sind der Audit-Trail und
+    # duerfen nicht angefasst werden. Ihre Evidenz war zum Zeitpunkt ihres
+    # Laufs korrekt, und genau das soll sie bezeugen.
+    #
+    # Dasselbe Prinzip wie oben (siehe Docstring): NULL setzen statt eine
+    # veraltete Zahl zeigen. Die Allokation selbst bleibt unangetastet
+    # (Strategietreue, ADR-003).
+    invalidate_goal_achievability_evidence(db, mandate_id)
+
     return int(updated or 0)
 
 

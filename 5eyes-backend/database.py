@@ -491,6 +491,11 @@ def ensure_runtime_columns() -> None:
             ('success_probability_min_x100', 'INTEGER'),
             # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe models/wealth.py::Goal.is_included.
             ('is_included', 'INTEGER', 1),
+            # GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3 (2026-10-12): persistierter
+            # Lifecycle-Entscheid. NULL = nicht entschieden -> der Zeit-Zustand
+            # wird abgeleitet (services/goal_lifecycle.py). Alt-DBs bekommen die
+            # Spalte hier, frische Installationen aus dem Bootstrap-DDL.
+            ('lifecycle_decision', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),

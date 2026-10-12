@@ -674,6 +674,13 @@ CREATE TABLE IF NOT EXISTS goals (
     -- CASHFLOW-GOAL-INCLUDE-TOGGLE-001 (2026-10-08): siehe models/wealth.py
     -- Goal.is_included fuer Semantik (getrennt von is_active).
     is_included         INTEGER NOT NULL DEFAULT 1 CHECK(is_included IN (0,1)),
+    -- GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3 (2026-10-12): persistierter
+    -- Lifecycle-ENTSCHEID. NULL = nicht entschieden; der Zeit-Zustand
+    -- (planned/due/overdue) wird dann aus target_date abgeleitet. Nur
+    -- Entscheidungen werden gespeichert, weil nur sie Actor und Grund
+    -- haben -- siehe services/goal_lifecycle.py.
+    lifecycle_decision  TEXT CHECK(lifecycle_decision IN
+        ('fulfilled','cancelled','accepted_as_due_now','historical_unknown')),
     achievement_score   INTEGER CHECK(achievement_score BETWEEN 0 AND 100),
     last_scored_at      TEXT,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -718,6 +725,35 @@ CREATE INDEX IF NOT EXISTS idx_goals_linked_position ON goals(linked_position_id
 -- ============================================================
 -- 12. PLANUNGSANNAHMEN
 -- ============================================================
+
+-- ===========================================================================
+-- GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3 (2026-10-12): append-only Protokoll
+-- jeder Lifecycle-Entscheidung. ADR-3c verlangt Begruendung, Zeitstempel und
+-- Actor fuer jeden Uebergang in einen Terminal-Zustand.
+--
+-- Append-only per Schema: KEIN updated_at, KEIN deleted_at. Ein Eintrag wird
+-- nie veraendert und nie geloescht; eine Korrektur ist ein neuer Eintrag --
+-- genau deshalb ist das Protokoll als Nachweis brauchbar.
+--
+-- Mandanten-Trennung wie bei der Eltern-Tabelle goals: ueber
+-- mandate_id/client_id, nicht ueber tenant_id.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS goal_lifecycle_transitions (
+    id                  TEXT PRIMARY KEY,
+    goal_id             TEXT NOT NULL,
+    mandate_id          TEXT NOT NULL,
+    client_id           TEXT NOT NULL,
+    from_state          TEXT,
+    to_state            TEXT NOT NULL,
+    reason              TEXT NOT NULL,
+    actor_user_id       TEXT NOT NULL,
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    FOREIGN KEY (goal_id) REFERENCES goals(id) ON UPDATE CASCADE,
+    FOREIGN KEY (mandate_id) REFERENCES mandates(id) ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_goal_lifecycle_transitions_goal_id
+    ON goal_lifecycle_transitions(goal_id);
 
 CREATE TABLE IF NOT EXISTS planning_assumptions (
     id                      TEXT PRIMARY KEY,
