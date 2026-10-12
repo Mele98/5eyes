@@ -445,6 +445,8 @@ export function makeConflictDisclosures(): ConflictDisclosuresData {
       by_type: {},
     },
     has_unacknowledged: false,
+    has_undisclosed: false,
+    data_unavailable: false,
     fidleg_basis: 'Art. 9 / Art. 26 FIDLEG',
   };
 }

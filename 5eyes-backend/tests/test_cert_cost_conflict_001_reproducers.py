@@ -528,10 +528,21 @@ def test_undisclosed_unwaived_retained_inducement_must_not_claim_waiver_on_recor
 # CONFLICT-STATE-001 -- a conflict that was never disclosed to the client at
 # all is reported as acknowledged (has_unacknowledged=False), the opposite
 # of fail-closed.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-12): the rule is inverted -- only a
+# fully resolved conflict (disclosed AND acknowledged) counts as resolved, so
+# every other state, the never-disclosed one included, now sets the flag.
+# Each entry additionally carries a typed `resolution_state`, because "go
+# disclose it" and "go collect the acknowledgement" are different next steps
+# and a single boolean cannot say which; `client_acknowledged=1` with
+# `disclosed_to_client=0` is reported as the data contradiction it is.
+# Found alongside and also fixed: the except-branch answered
+# has_unacknowledged=False on a read error -- a read error is not an
+# all-clear. xfail removed: strict=True would otherwise report an
+# unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="CONFLICT-STATE-001 -- CERT-COST-CONFLICT-001")
 def test_never_disclosed_conflict_must_be_flagged_unresolved_not_acknowledged(cc_session_factory):
     sf = cc_session_factory
     advisor_id, client_id, mandate_id = _seed_mandate(sf, suffix="conflict-state")

@@ -3061,6 +3061,26 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
     organisatorische Massnahmen zur Vermeidung. Diese Sektion
     aggregiert die ConflictOfInterestDisclosure-Eintraege fuer den
     Berater-Report.
+
+    CONFLICT-STATE-001 (CERT-COST-CONFLICT-001, 2026-10-12)
+    -------------------------------------------------------
+    `has_unacknowledged` war als `disclosed_to_client and not
+    client_acknowledged` berechnet. Damit blieb der SCHLIMMSTE Fall -- ein
+    Konflikt, der dem Kunden nie offengelegt wurde -- auf `False`: der
+    Report meldete "nichts offen" fuer eine Pflichtverletzung, waehrend er
+    bei der blossen fehlenden Kenntnisnahme Alarm gab. Die Logik behandelte
+    "nie offengelegt" als erledigt.
+
+    Neue Regel: nur der VOLLSTAENDIG erledigte Fall (offengelegt UND
+    bestaetigt) gilt als erledigt. Jeder andere Zustand ist offen.
+
+    Zusaetzlich traegt jeder Eintrag einen typisierten `resolution_state`.
+    Ein einziges Boolean waere handlungsunfaehig: "offenlegen" und
+    "Bestaetigung einholen" sind verschiedene naechste Schritte, und der
+    Fall `client_acknowledged=1` bei `disclosed_to_client=0` ist ueberhaupt
+    kein Zustand, sondern ein WIDERSPRUCH in den Daten -- der Kunde kann
+    nicht bestaetigt haben, was ihm nie offengelegt wurde. Gleiches Muster
+    wie die typisierten Zustaende in services/goal_lifecycle.py (ADR-3).
     """
     try:
         from models.review import ConflictOfInterestDisclosure
@@ -3074,23 +3094,43 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             .all()
         )
     except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch
+        # ZUSATZ zur Spec-Zeile (2026-10-12), beim Fix daneben gefunden:
+        # dieser Zweig meldete `has_unacknowledged=False`, also "nichts
+        # offen" -- obwohl wir an dieser Stelle GAR NICHTS wissen. Ein
+        # Lesefehler ist keine Entwarnung. Fail-closed, und `data_unavailable`
+        # unterscheidet "nicht lesbar" von "keine Konflikte vorhanden"
+        # (gleiches Muster wie `data_pending` im Kostenausweis).
         return {
             "entries": [],
             "counts": {"total": 0, "by_type": {}},
-            "has_unacknowledged": False,
+            "has_unacknowledged": True,
+            "has_undisclosed": True,
+            "data_unavailable": True,
             "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
         }
 
     entries = []
     counts_by_type: dict[str, int] = {}
     has_unacknowledged = False
+    has_undisclosed = False
     for row in rows:
         ctype = str(getattr(row, "conflict_type", "") or "unknown")
         counts_by_type[ctype] = counts_by_type.get(ctype, 0) + 1
         ack = bool(_safe_int(getattr(row, "client_acknowledged", 0)))
         disclosed = bool(_safe_int(getattr(row, "disclosed_to_client", 0)))
-        if disclosed and not ack:
+        if disclosed and ack:
+            resolution_state = "resolved"
+        elif disclosed:
+            resolution_state = "disclosed_unacknowledged"
+        elif ack:
+            # Bestaetigt, aber nie offengelegt -- in sich widerspruechlich.
+            resolution_state = "acknowledged_without_disclosure"
+        else:
+            resolution_state = "undisclosed"
+        if resolution_state != "resolved":
             has_unacknowledged = True
+        if not disclosed:
+            has_undisclosed = True
         entries.append({
             "id": getattr(row, "id", None),
             "conflict_type": ctype,
@@ -3104,12 +3144,15 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             "client_acknowledged_at": getattr(row, "client_acknowledged_at", None),
             "mitigation_action": getattr(row, "mitigation_action", None),
             "document_id": getattr(row, "document_id", None),
+            "resolution_state": resolution_state,
         })
 
     return {
         "entries": entries,
         "counts": {"total": len(entries), "by_type": counts_by_type},
         "has_unacknowledged": has_unacknowledged,
+        "has_undisclosed": has_undisclosed,
+        "data_unavailable": False,
         "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
     }
 

@@ -71,6 +71,11 @@ def test_empty_mandate_returns_empty_schema():
     assert result["counts"]["total"] == 0
     assert result["counts"]["by_type"] == {}
     assert result["has_unacknowledged"] is False
+    assert result["has_undisclosed"] is False
+    # Kein Konflikt vorhanden heisst wirklich "nichts offen" -- das ist der
+    # einzige Fall, in dem die Flags ohne Nachweis False sein duerfen, und
+    # er unterscheidet sich von "Daten nicht lesbar" (data_unavailable).
+    assert result["data_unavailable"] is False
     assert result["fidleg_basis"] == "Art. 9 / Art. 26 FIDLEG"
 
 
@@ -78,7 +83,8 @@ def test_schema_keys_are_stable():
     db = _stub_db_with([])
     result = _build_conflict_disclosures(db, _stub_mandate())
     assert set(result.keys()) == {
-        "entries", "counts", "has_unacknowledged", "fidleg_basis",
+        "entries", "counts", "has_unacknowledged", "has_undisclosed",
+        "data_unavailable", "fidleg_basis",
     }
     assert set(result["counts"].keys()) == {"total", "by_type"}
 
@@ -89,6 +95,26 @@ def test_db_error_returns_degraded_schema():
     result = _build_conflict_disclosures(db, _stub_mandate())
     assert result["entries"] == []
     assert result["counts"]["total"] == 0
+    # CONFLICT-STATE-001 Zusatz (2026-10-12): dieser Zweig meldete vorher
+    # `has_unacknowledged=False`, also "nichts offen" -- obwohl hier GAR
+    # NICHTS bekannt ist. Ein Lesefehler ist keine Entwarnung.
+    assert result["has_unacknowledged"] is True
+    assert result["has_undisclosed"] is True
+    assert result["data_unavailable"] is True
+
+
+def test_degraded_and_normal_payloads_have_identical_keys():
+    """Beide Rueckgabepfade muessen dieselbe Form haben.
+
+    Driften sie auseinander, laeuft ein Konsument im Degradationsfall in
+    einen KeyError -- genau in dem Moment, in dem er die Flags am
+    dringendsten braucht.
+    """
+    normal = _build_conflict_disclosures(_stub_db_with([]), _stub_mandate())
+    broken_db = MagicMock()
+    broken_db.query.side_effect = RuntimeError("table does not exist")
+    degraded = _build_conflict_disclosures(broken_db, _stub_mandate())
+    assert set(normal.keys()) == set(degraded.keys())
 
 
 def test_single_disclosure_full_payload():
@@ -133,12 +159,70 @@ def test_disclosed_and_acked_clears_flag():
     assert result["has_unacknowledged"] is False
 
 
-def test_not_disclosed_does_not_trigger_unacknowledged():
+def test_never_disclosed_triggers_unacknowledged_and_undisclosed():
+    """CONFLICT-STATE-001 (2026-10-12): dieser Test hiess bis heute
+    `test_not_disclosed_does_not_trigger_unacknowledged` und verlangte
+    `False` -- er hielt damit den Defekt als gewolltes Verhalten fest.
+
+    Der schlimmste Fall (dem Kunden nie offengelegt) blieb dadurch
+    unauffaellig, waehrend die blosse fehlende Kenntnisnahme Alarm gab. Die
+    Assertion ist umgedreht, nicht geloescht: der Zustand, den sie prueft,
+    ist derselbe, nur das Soll war falsch.
+    """
     db = _stub_db_with([
         _row(disclosed_to_client=0, client_acknowledged=0),
     ])
     result = _build_conflict_disclosures(db, _stub_mandate())
+    assert result["has_unacknowledged"] is True
+    assert result["has_undisclosed"] is True
+    assert result["entries"][0]["resolution_state"] == "undisclosed"
+
+
+def test_acknowledged_without_disclosure_is_flagged_as_contradiction():
+    """`client_acknowledged=1` bei `disclosed_to_client=0` ist kein Zustand.
+
+    Der Kunde kann nicht bestaetigt haben, was ihm nie offengelegt wurde.
+    Ohne diesen Test koennte eine Implementierung, die nur
+    `client_acknowledged` prueft, den Fall als erledigt durchwinken.
+    """
+    db = _stub_db_with([
+        _row(disclosed_to_client=0, client_acknowledged=1),
+    ])
+    result = _build_conflict_disclosures(db, _stub_mandate())
+    assert result["has_unacknowledged"] is True
+    assert result["has_undisclosed"] is True
+    assert result["entries"][0]["resolution_state"] == "acknowledged_without_disclosure"
+
+
+def test_resolved_entry_sets_neither_flag():
+    """Gegenprobe: der vollstaendige Fall darf NICHT gemeldet werden.
+
+    Ohne diese Zeile waere eine Implementierung, die `has_unacknowledged`
+    konstant auf True setzt, von den Tests oben nicht zu unterscheiden.
+    """
+    db = _stub_db_with([
+        _row(disclosed_to_client=1, client_acknowledged=1),
+    ])
+    result = _build_conflict_disclosures(db, _stub_mandate())
     assert result["has_unacknowledged"] is False
+    assert result["has_undisclosed"] is False
+    assert result["entries"][0]["resolution_state"] == "resolved"
+    assert result["data_unavailable"] is False
+
+
+def test_disclosed_unacknowledged_is_not_reported_as_undisclosed():
+    """Die beiden Flags muessen verschiedene Dinge messen.
+
+    Waeren sie identisch verdrahtet, bliebe die handlungsrelevante
+    Unterscheidung ("offenlegen" vs. "Bestaetigung einholen") verloren.
+    """
+    db = _stub_db_with([
+        _row(disclosed_to_client=1, client_acknowledged=0),
+    ])
+    result = _build_conflict_disclosures(db, _stub_mandate())
+    assert result["has_unacknowledged"] is True
+    assert result["has_undisclosed"] is False
+    assert result["entries"][0]["resolution_state"] == "disclosed_unacknowledged"
 
 
 def test_mixed_some_unacked_triggers_flag():

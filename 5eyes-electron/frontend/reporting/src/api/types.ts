@@ -554,6 +554,17 @@ export interface ConflictDisclosureEntry {
   client_acknowledged_at: string | null;
   mitigation_action: string | null;
   document_id: string | null;
+  /**
+   * CONFLICT-STATE-001 (2026-10-12): typisierter Erledigungszustand.
+   * `acknowledged_without_disclosure` ist ein Datenwiderspruch, kein
+   * Zustand -- der Kunde kann nicht bestaetigt haben, was ihm nie
+   * offengelegt wurde.
+   */
+  resolution_state:
+    | 'resolved'
+    | 'disclosed_unacknowledged'
+    | 'undisclosed'
+    | 'acknowledged_without_disclosure';
 }
 
 export interface ConflictDisclosuresData {
@@ -562,7 +573,20 @@ export interface ConflictDisclosuresData {
     total: number;
     by_type: Record<string, number>;
   };
+  /**
+   * CONFLICT-STATE-001: true, solange IRGENDEIN Konflikt nicht vollstaendig
+   * offengelegt UND bestaetigt ist. Vorher blieb der schlimmste Fall -- nie
+   * offengelegt -- faelschlich false.
+   */
   has_unacknowledged: boolean;
+  /** true, wenn mindestens ein Konflikt dem Kunden nie offengelegt wurde. */
+  has_undisclosed: boolean;
+  /**
+   * true, wenn die Konfliktdaten nicht gelesen werden konnten. Dann sind
+   * die Flags oben fail-closed gesetzt und `entries` ist leer -- zu
+   * unterscheiden von "keine Konflikte vorhanden".
+   */
+  data_unavailable: boolean;
   fidleg_basis: string;
 }
 
