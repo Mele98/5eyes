@@ -335,3 +335,112 @@ def test_alembic_head_emits_postgres_ddl_for_market_data_runtime_tables():
         "insert or ignore",
     ):
         assert sqlite_only_token not in ddl
+
+
+# ---------------------------------------------------------------------------
+# Reporting-Views: VOLLSTAENDIGKEIT beider Schema-Quellen
+# ---------------------------------------------------------------------------
+# Befund 2026-10-12 (E2E-Durchlauf Mock-Mandant "Thierry Goessi"): die drei
+# Views standen AUSSCHLIESSLICH in `5eyes_schema_v4.0_FINAL.sql`. Views sind
+# nicht Teil des ORM-Metadata, und Alembic enthielt keine einzige
+# `CREATE VIEW`. SQLite bekommt sie ueber den Bootstrap, Postgres laeuft nur
+# ueber `alembic upgrade head` -- dort fehlten sie, waehrend drei Endpunkte
+# sie per rohem SQL ohne Rueckfall lesen (HTTP 500 auf den gehosteten Tiers).
+
+
+def _bootstrap_view_names() -> set[str]:
+    """Die View-Namen aus der SQLite-Bootstrap-Datei.
+
+    Aus der Datei GELESEN, nicht hier abgeschrieben: eine abgeschriebene
+    Liste wuerde genau dann nicht mehr stimmen, wenn jemand eine vierte View
+    hinzufuegt -- also im einzigen Fall, in dem dieser Guard etwas tun soll.
+    """
+    import re
+
+    content = (BACKEND_ROOT / "5eyes_schema_v4.0_FINAL.sql").read_text(encoding="utf-8")
+    return set(
+        re.findall(
+            r"CREATE\s+VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)",
+            content,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def test_bootstrap_sql_still_defines_the_expected_views():
+    """Sanity-Anker fuer die beiden Guards darunter.
+
+    Faellt die Extraktion auf eine leere Menge (z.B. weil die Datei
+    umbenannt oder die Syntax geaendert wurde), wuerden die Guards
+    TRIVIAL gruen -- sie wuerden "alle null Views sind migriert" bestaetigen.
+    """
+    names = _bootstrap_view_names()
+    assert names == {
+        "v_client_wealth_summary",
+        "v_client_cashflow_surplus",
+        "v_active_triggers",
+    }, names
+
+
+def test_alembic_head_creates_every_bootstrap_view(tmp_path):
+    db_file = tmp_path / "reporting_views_contract.db"
+    db_url = f"sqlite:///{db_file}"
+    command.upgrade(_alembic_config(db_url), "head")
+
+    engine = create_engine(db_url)
+    try:
+        existing = set(inspect(engine).get_view_names())
+    finally:
+        engine.dispose()
+
+    missing = _bootstrap_view_names() - existing
+    assert not missing, (
+        "Diese Views gibt es im SQLite-Bootstrap, aber nicht auf dem "
+        f"Alembic-Pfad: {sorted(missing)}. Auf Postgres laeuft "
+        "AUSSCHLIESSLICH Alembic -- jede dort fehlende View ist ein HTTP 500 "
+        "in jedem Endpunkt, der sie liest."
+    )
+
+
+def test_alembic_head_emits_postgres_compatible_view_ddl():
+    """Die Postgres-Form muss stimmen, nicht nur "irgendeine View".
+
+    Zwei Dinge, die eine blosse Kopie der SQLite-Definition falsch machen
+    wuerde:
+
+    1. `CREATE VIEW IF NOT EXISTS` ist SQLite-Syntax; Postgres kennt
+       `CREATE OR REPLACE VIEW`.
+    2. Beide Summen-Views gruppieren in der SQL-Datei nur nach `c.id`,
+       selektieren aber `c.first_name`/`c.last_name`. SQLite erlaubt das,
+       Postgres wirft "column must appear in the GROUP BY clause".
+    """
+    output = StringIO()
+    command.upgrade(
+        _alembic_config(
+            "postgresql://migration-test:unused@localhost/unused",
+            output_buffer=output,
+        ),
+        "head",
+        sql=True,
+    )
+    ddl = output.getvalue()
+
+    for name in _bootstrap_view_names():
+        assert f"CREATE OR REPLACE VIEW {name}" in ddl, (
+            f"{name} wird fuer Postgres nicht (oder mit SQLite-Syntax) erzeugt"
+        )
+    assert "IF NOT EXISTS" not in ddl.split("CREATE OR REPLACE VIEW")[-1], (
+        "SQLite-Sonderform in der Postgres-DDL"
+    )
+
+    # Die vollstaendigen GROUP-BY-Listen, ohne die Postgres die View ablehnt.
+    # Ueber Vorkommen GEZAEHLT, weil die kuerzere Klausel ein PRAEFIX der
+    # laengeren ist -- ein blosses `in` wuerde die Cashflow-View auch dann
+    # bestaetigen, wenn nur die Vermoegens-View korrekt gruppiert.
+    four_columns = "GROUP BY c.id, c.first_name, c.last_name, c.client_classification"
+    three_columns = "GROUP BY c.id, c.first_name, c.last_name"
+    assert ddl.count(four_columns) == 1, "Vermoegens-View gruppiert nicht vollstaendig"
+    assert ddl.count(three_columns) == 2, (
+        "Cashflow-View gruppiert nicht vollstaendig (erwartet: die eigene "
+        "Dreier-Klausel plus das Praefix der Vierer-Klausel)"
+    )

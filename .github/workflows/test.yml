@@ -254,7 +254,17 @@ jobs:
         # des Guards war damit in der Praxis nie durchgesetzt. Dieselbe
         # Postgres-Instanz/dieselben Rechte wie die beiden bereits laufenden
         # Testdateien (eigene, isolierte Schema pro Testlauf).
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py -q
+        # ALEMBIC-NEVER-EXECUTED-ON-POSTGRES-001 (E2E-Durchlauf 2026-10-12):
+        # test_postgres_alembic_views_live.py ist neu. Die Migrationen wurden
+        # bis dahin in KEINEM CI-Job gegen echtes Postgres AUSGEFUEHRT --
+        # test_postgres_bootstrap_migrations.py faehrt sie gegen SQLite und
+        # erzeugt die Postgres-DDL nur offline als Text, und die
+        # RLS-Testdateien bauen ihr Schema mit create_all bzw. per Hand. Eine
+        # Anweisung, die SQLite akzeptiert und Postgres ablehnt, kam damit
+        # durch die gesamte Suite; genau so blieben die drei fehlenden
+        # Reporting-Views unbemerkt. Laeuft auf derselben Postgres-Instanz,
+        # eigenes Schema pro Lauf.
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
