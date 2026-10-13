@@ -181,6 +181,28 @@ class ObjectiveModeError(ValueError):
     """Unzulaessiger oder unbenutzbarer Objective-Modus (nie ein Fallback)."""
 
 
+class ObjectiveDomainError(ValueError):
+    """Eingangswerte, mit denen kein Schaetzer rechnen darf.
+
+    OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001. Traegt einen STABILEN
+    ``reason_code``, damit die Ablehnung maschinell unterscheidbar bleibt und
+    nicht nur als Freitext in einem Log landet.
+
+    Bewusst von ``ValueError`` abgeleitet und NICHT von
+    ``SolverTechnicalError``: die Fallback-Allowlist der Produktionsgrenze
+    (``portfolio_engine_optimizer_integration.py``, ``except
+    (SolverTechnicalError, FloatingPointError, LinAlgError)``) schliesst
+    ungueltige Domaeneneingaben ausdruecklich aus. Ein Domaenenfehler darf
+    also nicht in den House-Matrix-Fallback kippen, sondern muss den Lauf
+    scheitern lassen -- eine stillschweigend "regulaere" Empfehlung aus
+    ungueltigen Eingaben waere das schlechtere Ergebnis.
+    """
+
+    def __init__(self, reason_code: str, message: str) -> None:
+        super().__init__(f"{reason_code}: {message}")
+        self.reason_code = reason_code
+
+
 def resolve_objective_mode() -> str:
     """Aktiver Objective-Modus, zentral fail-closed validiert.
 
@@ -229,14 +251,52 @@ def objective_basis(mode: str | None = None) -> dict[str, object]:
 def _normalized_weights(
     weights: np.ndarray | None, n_paths: int
 ) -> np.ndarray | None:
+    """Likelihood-Ratio-Gewichte normalisieren -- fail-closed.
+
+    OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: hier wurden vorher nur die
+    FORM und eine positive SUMME geprueft. Damit passierten:
+
+    * einzelne negative Gewichte -- gemessen ``values=[0,1]``,
+      ``weights=[-1,2]`` -> ``weighted_mean = 2.0``, ein gewichteter
+      Mittelwert AUSSERHALB des Wertebereichs, und ``weighted_std = 0.0``,
+      weil die negative Varianzsumme in ``weighted_std`` still auf 0 geklemmt
+      wird;
+    * ``nan`` und ``inf`` -- ``nan <= 0.0`` und ``inf <= 0.0`` sind beide
+      False, die Summenpruefung laesst sie also durch, und das Ergebnis wird
+      ``nan``.
+
+    Ein Likelihood-Ratio ist eine Dichteverhaeltnis: nichtnegativ und finit,
+    mit mindestens einer positiven Masse. Alles andere ist kein gueltiges
+    Sample, sondern ein Defekt weiter oben -- und darf nicht als
+    Optimierungsergebnis weiterlaufen.
+    """
     if weights is None:
         return None
     array = np.asarray(weights, dtype=np.float64).reshape(-1)
     if array.shape[0] != n_paths:
         raise ValueError(f"weights.shape[0]={array.shape[0]} != n_paths={n_paths}")
+    if not np.all(np.isfinite(array)):
+        n_bad = int(np.count_nonzero(~np.isfinite(array)))
+        raise ObjectiveDomainError(
+            "objective_weights_not_finite",
+            f"{n_bad} von {array.shape[0]} Likelihood-Gewichten sind nicht "
+            "endlich (nan/inf).",
+        )
+    if np.any(array < 0.0):
+        n_bad = int(np.count_nonzero(array < 0.0))
+        raise ObjectiveDomainError(
+            "objective_weights_negative",
+            f"{n_bad} von {array.shape[0]} Likelihood-Gewichten sind negativ; "
+            "ein Dichteverhaeltnis ist nichtnegativ.",
+        )
     total = float(np.sum(array))
+    # Nach den beiden Pruefungen oben ist `total` endlich und >= 0; <= 0
+    # bedeutet jetzt genau "keine positive Masse".
     if total <= 0.0:
-        raise ValueError("Sum-of-weights must be > 0")
+        raise ObjectiveDomainError(
+            "objective_weights_no_positive_mass",
+            "Die Summe der Likelihood-Gewichte ist 0; kein Pfad traegt Masse.",
+        )
     return array / total
 
 
@@ -305,9 +365,56 @@ def _annualized_returns_from_factors(factors: np.ndarray) -> np.ndarray:
     Geometrisch (Mittel der Log-Faktoren), gleiche Konvention wie
     ``solver._annualized_twr_bps_per_path`` -- die Kennzahl darf nicht davon
     abhaengen, welche Stelle sie berechnet.
+
+    Erwartet bereits gepruefte Faktoren (``_require_valid_growth_factors``).
+    Das vormalige ``np.maximum(..., 1e-12)`` ist entfernt: es war keine
+    Absicherung, sondern eine stille Umdeutung ungueltiger Eingaben, und
+    ``nan`` kam ohnehin durch. Beide Aufrufer pruefen jetzt vorher.
     """
-    safe = np.maximum(np.asarray(factors, dtype=np.float64), 1e-12)
-    return np.exp(np.mean(np.log(safe), axis=1)) - 1.0
+    values = np.asarray(factors, dtype=np.float64)
+    return np.exp(np.mean(np.log(values), axis=1)) - 1.0
+
+
+def _require_valid_growth_factors(factors: np.ndarray) -> None:
+    """Wachstumsfaktoren muessen endlich und strikt positiv sein.
+
+    OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: die Helfer unten klemmten
+    jeden nicht-positiven Faktor still auf ``1e-12``
+    (``np.maximum(factors, 1e-12)``). Das ist keine Absicherung, sondern eine
+    stille Umdeutung: ein Faktor 0 oder -0.3 wird damit zu "Totalverlust in
+    diesem Jahr" und laeuft als regulaeres Schaetzergebnis weiter. Gemessen
+    (Codex-Review, nachgerechnet): ein Null-Faktor ergab
+    ``max_return``-Objective 0.4999995, ein negativer ergab
+    ``max_drawdown`` 0.4999999999995 -- plausibel aussehende Zahlen aus
+    ungueltigen Eingaben.
+
+    ``nan`` passierte sogar unbemerkt: ``np.maximum(nan, 1e-12)`` ist ``nan``,
+    und ``log(nan)`` ebenfalls -- die Variante lieferte dann ``nan`` als
+    Objective.
+
+    Ein Wachstumsfaktor ist ein multiplikativer Vermoegensfaktor eines
+    Jahres. Null oder negativ bedeutet "Vermoegen weg oder vorzeichen-
+    gewechselt" und kann aus der lognormalen Scenario-Engine nicht entstehen;
+    tritt es auf, ist weiter oben etwas kaputt. Der regulaere Pfad erzeugt
+    unter validierten Parametern immer positive Faktoren -- diese Pruefung
+    kostet dort nur den Vergleich und aendert kein Ergebnis.
+    """
+    if not np.all(np.isfinite(factors)):
+        n_bad = int(np.count_nonzero(~np.isfinite(factors)))
+        raise ObjectiveDomainError(
+            "objective_factors_not_finite",
+            f"{n_bad} von {factors.size} Renditefaktoren sind nicht endlich "
+            "(nan/inf).",
+        )
+    if np.any(factors <= 0.0):
+        n_bad = int(np.count_nonzero(factors <= 0.0))
+        worst = float(np.min(factors))
+        raise ObjectiveDomainError(
+            "objective_factors_not_positive",
+            f"{n_bad} von {factors.size} Renditefaktoren sind nicht strikt "
+            f"positiv (kleinster: {worst!r}); ein Jahres-Wachstumsfaktor ist "
+            "strikt positiv.",
+        )
 
 
 def _one_period_return_dispersion(
@@ -371,9 +478,11 @@ def _annual_grid_max_drawdowns(factors: np.ndarray) -> np.ndarray:
     """Max-Drawdown pro Pfad als Anteil, auf dem cashflow-neutralen Index.
 
     Jahresgitter -- siehe Modul-Docstring, Abschnitt "Max-Drawdown".
+
+    Erwartet bereits gepruefte Faktoren (``_require_valid_growth_factors``);
+    das vormalige stille Klemmen auf ``1e-12`` ist entfernt, siehe dort.
     """
-    safe = np.maximum(np.asarray(factors, dtype=np.float64), 1e-12)
-    index = np.cumprod(safe, axis=1)
+    index = np.cumprod(np.asarray(factors, dtype=np.float64), axis=1)
     ones = np.ones((index.shape[0], 1), dtype=np.float64)
     full = np.concatenate([ones, index], axis=1)
     peak = np.maximum.accumulate(full, axis=1)
@@ -416,6 +525,7 @@ def primary_objective(
             "portfolio_return_factors muss die Form (pfade, jahre) mit "
             f"mindestens einem Pfad und Jahr haben, bekommen: {factors.shape}."
         )
+    _require_valid_growth_factors(factors)
 
     if resolved == OBJECTIVE_MAX_DRAWDOWN:
         return weighted_mean(_annual_grid_max_drawdowns(factors), weights)
@@ -460,8 +570,13 @@ def refined_drawdown_check_for_winner(
     from services.drawdown_refinement import refine_max_drawdowns
 
     factors = np.asarray(portfolio_return_factors, dtype=np.float64)
-    safe = np.maximum(factors, 1e-12)
-    index = np.cumprod(safe, axis=1)
+    # OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: eigener Eingang, eigene
+    # Pruefung. Hier wurde ebenfalls still auf 1e-12 geklemmt -- in der
+    # Funktion, die die Proxy-Verzerrung des GEWINNERS in den Audit-Trail
+    # schreibt. Ein geklemmter Faktor haette dort eine erfundene
+    # Unterschaetzung ausgewiesen.
+    _require_valid_growth_factors(factors)
+    index = np.cumprod(factors, axis=1)
     ones = np.ones((index.shape[0], 1), dtype=np.float64)
     annual_paths = np.concatenate([ones, index], axis=1)
 

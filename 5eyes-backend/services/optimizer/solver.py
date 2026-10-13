@@ -23,6 +23,7 @@ Fallback-Strategie (OWNER-DECISION OD-5):
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from collections.abc import Mapping
 from copy import deepcopy
@@ -66,6 +67,7 @@ from .objective_contract import (
 )
 from .objective_variants import (
     OBJECTIVE_MAX_DRAWDOWN,
+    ObjectiveDomainError,
     refined_drawdown_check_for_winner,
 )
 from .scenario_cache import (
@@ -1887,6 +1889,27 @@ def run_solver(
     post_round_objective = _objective_from_array(
         context, rounded_w
     )
+    # OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: ein nicht endlicher
+    # Zielfunktionswert darf nicht als `converged` klassifiziert, nicht
+    # publiziert und nicht persistiert werden. Vorher wurde er genau das: der
+    # Status steht oben schon, und `objective_value=post_round_objective`
+    # ging ungeprueft in das Ergebnis. Bei `-inf` schrieben zwei der drei
+    # Milli-Konverter daraus sogar eine konkrete Zahl
+    # (-9'000'000'000'000'000'000, der negative Cap) -- ein nicht
+    # existierender Wert wurde zu einem scheinbar gemessenen.
+    #
+    # Nach der Domaenenpruefung der Faktoren und Gewichte kann das hier nur
+    # noch ein Defekt weiter innen sein. Deshalb ein Domaenenfehler und kein
+    # `SolverTechnicalError`: er liegt ausserhalb der Fallback-Allowlist und
+    # laesst den Lauf scheitern, statt still eine House-Matrix-Empfehlung
+    # auszugeben, die wie ein regulaeres Ergebnis aussieht.
+    if not math.isfinite(float(post_round_objective)):
+        raise ObjectiveDomainError(
+            "objective_value_not_finite",
+            "Der Zielfunktionswert nach dem Rounding ist nicht endlich "
+            f"({post_round_objective!r}); ein solcher Lauf ist nicht "
+            "bewertbar und darf nicht als konvergiert gelten.",
+        )
     final_wealth = _simulate_context_wealth(context, rounded_w)
     _penalty, train_achievability = chance_constraint_penalty(
         final_wealth,
