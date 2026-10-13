@@ -32,6 +32,19 @@ export type GoalStatus =
   | 'erreichbar'
   | 'knapp'
   | 'nicht_erreichbar'
+  /**
+   * Zu wenig unabhängige Evidenz für eine Zertifizierung
+   * (OPTIMIZER-POST-SELECTION-CERTIFICATION-001). Das Backend liefert diesen
+   * Wert seit 2026-10-10; im Typ fehlte er — Drift, hier mitkorrigiert.
+   */
+  | 'unreliable'
+  /**
+   * GOAL-OUTSIDE-HORIZON-001: der Zahlungsplan des Ziels liegt komplett
+   * hinter dem Simulationshorizont, es wurde also nicht bewertet. Vorher
+   * meldete der Optimizer für genau diesen Zustand `erreichbar` mit 100 %.
+   * Weder grün noch rot darstellen — es ist keine Bewertung.
+   */
+  | 'ausserhalb_horizont'
   | 'data_pending'
   | '';
 
@@ -367,6 +380,13 @@ export interface GoalEntry {
   /** Wahrscheinlichkeit in bps (8500 = 85%) */
   probability_bps: number | null;
   status: GoalStatus;
+  /**
+   * GOAL-OUTSIDE-HORIZON-001: true, wenn der Zahlungsplan komplett hinter dem
+   * Simulationshorizont liegt. Dann ist `probability_bps` eine Konvention
+   * (0) mit Offenlegung, KEINE Messung — ohne dieses Flag wäre "nicht
+   * bewertet" von "bewertet und aussichtslos" nicht unterscheidbar.
+   */
+  outside_simulation_horizon: boolean;
 }
 
 export interface MonteCarloPaths {
@@ -554,6 +574,25 @@ export interface ConflictDisclosureEntry {
   client_acknowledged_at: string | null;
   mitigation_action: string | null;
   document_id: string | null;
+  /**
+   * CONFLICT-STATE-001 (2026-10-12): typisierter Erledigungszustand.
+   * `acknowledged_without_disclosure` ist ein Datenwiderspruch, kein
+   * Zustand -- der Kunde kann nicht bestaetigt haben, was ihm nie
+   * offengelegt wurde.
+   */
+  resolution_state:
+    | 'resolved'
+    | 'disclosed_unacknowledged'
+    | 'evidence_incomplete'
+    | 'undisclosed'
+    | 'acknowledged_without_disclosure';
+  /**
+   * Stabile Begruendungscodes fuer die FEHLENDEN Nachweise. Leer genau dann,
+   * wenn `resolution_state === 'resolved'`. `resolved` folgt nicht aus zwei
+   * gesetzten Haken, sondern aus Offenlegungszeitpunkt,
+   * Bestaetigungszeitpunkt und abgelegtem Dokument (FIDLEG Art. 9).
+   */
+  missing_evidence: string[];
 }
 
 export interface ConflictDisclosuresData {
@@ -562,7 +601,31 @@ export interface ConflictDisclosuresData {
     total: number;
     by_type: Record<string, number>;
   };
+  /**
+   * CONFLICT-STATE-001: true, solange IRGENDEIN Konflikt nicht vollstaendig
+   * offengelegt UND bestaetigt ist. Vorher blieb der schlimmste Fall -- nie
+   * offengelegt -- faelschlich false.
+   */
   has_unacknowledged: boolean;
+  /** true, wenn mindestens ein Konflikt dem Kunden nie offengelegt wurde. */
+  has_undisclosed: boolean;
+  /**
+   * true, wenn die Konfliktdaten nicht gelesen werden konnten. Dann sind
+   * die Flags oben fail-closed gesetzt und `entries` ist leer -- zu
+   * unterscheiden von "keine Konflikte vorhanden".
+   */
+  data_unavailable: boolean;
+  /**
+   * Aggregat-Tri-State: EIN Feld, auf das ein Finalisierungs-Gate oder eine
+   * Publikation schauen kann, statt die Booleans selbst zu verknuepfen.
+   *
+   * - `clear`: alles offengelegt, bestaetigt und belegt
+   * - `action_required`: ein Berater muss etwas tun
+   * - `indeterminate`: Datenstand widerspruechlich oder nicht lesbar
+   *
+   * `indeterminate` dominiert `action_required`.
+   */
+  evidence_status: 'clear' | 'action_required' | 'indeterminate';
   fidleg_basis: string;
 }
 

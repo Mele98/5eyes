@@ -17,6 +17,7 @@ from database import get_db
 from models.clients import Client
 
 logger = logging.getLogger(__name__)
+from core.http_filenames import content_disposition
 from models.mandates import Mandate
 from models.users import User
 from routers.auth import _extract_client_ip
@@ -896,12 +897,16 @@ def get_anlagestrategie_pdf(
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"anlagestrategie_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -924,12 +929,16 @@ def get_assetallocation_pdf(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_asset_allocation(ctx, data)
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"assetallocation_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -1079,12 +1088,16 @@ def get_risikoprofil_pdf(
         content_hash=content_hash_for(risk_data),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"risikoprofil_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -1251,12 +1264,16 @@ def get_portfolio_pdf(
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"portfolio_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -1352,12 +1369,16 @@ def get_vertrag_pdf(
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_vertrag_data(mandate, document_id, db)
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"vertrag_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -1437,14 +1458,18 @@ def get_contract_signoff_pdf(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_contract_signoff(ctx, data)
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = (
         f"beratungsentscheid_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -1596,12 +1621,16 @@ def get_protokoll_pdf(
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"protokoll_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -1897,12 +1926,16 @@ def get_depotcheck_pdf(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"depotcheck_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -2033,12 +2066,16 @@ def get_backtest_pdf(
         benchmark_fee_bps=benchmark_fee_bps,
     )
     pdf_bytes = ReportLabRenderer().render_backtest(ctx, data)
-    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
+    # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
+    # waere der filename*-Parameter wirkungslos und der exakte Name
+    # fuer den Berater verloren (RFC 6266).
+    safe_name = str(ctx.mandate_name or "mandat")[:40]
     filename = f"backtest_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 
@@ -2079,14 +2116,12 @@ def get_advisory_report_pdf(
                 ),
             },
         )
-    safe_mandate = "".join(
-        c if c.isalnum() else "_" for c in str(mandate.mandate_number or "mandate")
-    )[:40]
+    safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"advisory-report-{safe_mandate}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="attachment")},
     )
 
 
@@ -2175,15 +2210,13 @@ def get_cost_disclosure_pdf(
             content_hash=content_hash, current_user=current_user,
             ip_address=_extract_client_ip(request),
         )
-    safe_mandate = "".join(
-        c if c.isalnum() else "_" for c in str(mandate.mandate_number or "mandate")
-    )[:40]
+    safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"kostenausweis-{safe_mandate}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{filename}"',
+            "Content-Disposition": content_disposition(filename),
             # COST-ARTIFACT-EVIDENCE-001: nachweisbare Artefakt-Identitaet
             # -- welches konkrete Dokument (Version + Byte-Hash) der Kunde
             # tatsaechlich sah.

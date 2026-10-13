@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from config import settings
 from database import get_db, new_uuid
 from models.users import User
+from core.http_filenames import content_disposition
 from models.mandates import Mandate
 from models.review import (
     ReviewTrigger, AdvisoryLog, ContractDocument,
@@ -1285,12 +1286,12 @@ def get_document_pdf(
     doc = _get_document_or_404(mandate_id, doc_id, db)
     if not doc.pdf_base64:
         raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
-    safe_title = "".join(c if c.isalnum() else "_" for c in doc.title)[:40]
+    safe_title = str(doc.title or "dokument")[:40]
     filename = f"{safe_title}_v{doc.version}.pdf"
     return Response(
         content=base64.b64decode(doc.pdf_base64),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )
 
 

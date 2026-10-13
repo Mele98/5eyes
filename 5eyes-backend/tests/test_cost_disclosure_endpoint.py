@@ -299,8 +299,64 @@ def test_endpoint_returns_200_when_mandate_has_disclosed_retrocession(
     resp = auth_client.get(f"/mandates/{mandate_id}/cost-disclosure/ex-ante")
     assert resp.status_code == 200, resp.text
     keys = {item["key"]: item for item in resp.json()["cost_items"]}
-    assert "retrocession_disclosed" in keys
-    assert keys["retrocession_disclosed"]["rate_bps"] is None
+    # INDUCEMENT-EVIDENCE-001 (2026-10-12): diese Fixture ist offengelegt,
+    # hat aber KEIN waiver_document_id -- sie durchlaeuft deshalb jetzt den
+    # unbelegten Zweig. Das ist der wertvollere Pfad fuer diesen Test: er
+    # fuehrt das NEUE Feld `requires_resolution` ueber dieselbe
+    # response_model-Grenze, an der schon `rate_bps=None` HTTP 500 erzeugte --
+    # und Pydantic verwirft ein im Schema fehlendes Feld nicht lautstark,
+    # sondern STILL. Die Assertion unten faengt beide Fehlerarten.
+    assert "retrocession_retained_unwaived" in keys, (
+        f"Unbelegte Retrozession fehlt im Payload: {sorted(keys)}"
+    )
+    assert keys["retrocession_retained_unwaived"]["rate_bps"] is None
+    assert keys["retrocession_retained_unwaived"]["requires_resolution"] is True
+    assert "retrocession_disclosed" not in keys
+
+
+def test_endpoint_exposes_documented_waiver_without_resolution_flag(
+    auth_client, advisor_user, session_factory
+):
+    """Gegenprobe zum Test oben: MIT abgelegtem Verzichts-Dokument.
+
+    INDUCEMENT-EVIDENCE-001. Ohne diese Gegenprobe wuerde ein Fix, der
+    IMMER `retrocession_retained_unwaived` ausgibt, unbemerkt gruen bleiben --
+    der Test oben allein kann die Bedingung nicht von einer Konstante
+    unterscheiden.
+    """
+    mandate_id = _seed_mandate(session_factory, advisor_user)
+    _seed_recommendation_with_ter(
+        session_factory, advisor_user, mandate_id,
+        target_amount_rappen=1_000_000_00,
+        ter_bps=50,
+        fee_assumptions={"default_advisory_fee_bps": 25},
+    )
+    with session_factory() as db:
+        db.add(ConflictOfInterestDisclosure(
+            id="coi-cd-waived",
+            mandate_id=mandate_id,
+            conflict_type="Retrozession",
+            description="Vertriebsentschaedigung Fondsanbieter",
+            inducement_provider="Fund Provider AG",
+            inducement_amount_rappen=50_000_00,
+            inducement_frequency="jährlich",
+            disclosed_to_client=1,
+            disclosed_at=_now(),
+            disclosed_by=advisor_user.id,
+            client_acknowledged=0,
+            reimbursed_to_client=0,
+            waiver_document_id="doc-waiver-signed",
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        db.commit()
+
+    resp = auth_client.get(f"/mandates/{mandate_id}/cost-disclosure/ex-ante")
+    assert resp.status_code == 200, resp.text
+    keys = {item["key"]: item for item in resp.json()["cost_items"]}
+    assert "retrocession_disclosed" in keys, f"Belegter Verzicht fehlt: {sorted(keys)}"
+    assert keys["retrocession_disclosed"]["requires_resolution"] is False
+    assert "retrocession_retained_unwaived" not in keys
 
 
 def test_endpoint_pending_reflects_mandate_base_currency(auth_client, advisor_user, session_factory):
