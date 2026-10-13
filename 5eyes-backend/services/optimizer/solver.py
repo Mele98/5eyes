@@ -59,10 +59,14 @@ from .goal_liabilities import (
     goals_to_liabilities,
 )
 from .objective import chance_constraint_penalty, combined_objective_two_phase
+from .objective_contract import (
+    ObjectiveContractV1,
+    objective_contract_of,
+    resolve_objective_contract,
+)
 from .objective_variants import (
     OBJECTIVE_MAX_DRAWDOWN,
     refined_drawdown_check_for_winner,
-    resolve_objective_mode,
 )
 from .scenario_cache import (
     build_scenario_paths_cached,
@@ -342,6 +346,21 @@ class OptimizerContext:
     preferred_target_bps: dict[str, int] | None = None
     preference_penalty_lambda: float = SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT
     soft_preference_policy_version: str = SOFT_PREFERENCE_POLICY_VERSION
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (2026-10-13): die Mathematik
+    # dieses Laufs, EINMAL beim Context-Bau aus der Umgebung aufgeloest und
+    # danach unveraenderlich. Vorher las `combined_objective_two_phase()` den
+    # Primaermodus bei jeder Auswertung neu (gemessen: 205 Mal pro Lauf) und
+    # `_effective_hardness_weight()` den Goal-Weighting-Modus pro Ziel pro
+    # Auswertung -- ein Umgebungswechsel mitten im Lauf liess SLSQP Kandidaten
+    # nach UNTERSCHIEDLICHEN Groessen vergleichen, ohne dass es auffiel.
+    #
+    # Default None nur, um das positionale Layout fuer manuell gebaute
+    # Contexts zu erhalten (siehe Kommentar bei scenario_mu_bps). Konsumenten
+    # lesen den Vertrag ausschliesslich ueber `objective_contract_of()`, das
+    # bei None fail-closed abbricht statt still auf die Umgebung
+    # zurueckzufallen -- ein Lauf ohne eingefrorene Mathematik hat keinen
+    # Nachweis darueber, was er gerechnet hat.
+    objective_contract: "ObjectiveContractV1 | None" = None
 
 
 @dataclass(frozen=True)
@@ -518,6 +537,11 @@ def build_optimizer_context(
     # Intent -- see OptimizerContext.preferred_target_bps.
     preferred_target_bps: Mapping[str, int] | None = None,
     preference_penalty_lambda: float | None = None,
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: vorgegebener Lauf-Vertrag.
+    # None = hier aufloesen (der Normalfall, genau eine Umgebungslesung pro
+    # Lauf). Gesetzt = ein Aufrufer, der mehrere Laeufe unter DERSELBEN
+    # Mathematik vergleichen muss, hat ihn schon aufgeloest.
+    objective_contract: ObjectiveContractV1 | None = None,
 ) -> OptimizerContext:
     """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
 
@@ -787,6 +811,17 @@ def build_optimizer_context(
             if preference_penalty_lambda is not None
             else SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT
         ),
+        # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: DIE eine Aufloesung der
+        # Umgebung fuer diesen Lauf. Ab hier liest kein Konsument mehr
+        # `OPTIMIZER_OBJECTIVE` oder `OPTIMIZER_GOAL_WEIGHTING`; der Live-Read
+        # bleibt damit wirksam (eine Konfigurationsaenderung greift beim
+        # naechsten Lauf, ohne Prozessneustart), aber INNERHALB eines Laufs
+        # ist die Mathematik per Konstruktion konstant.
+        objective_contract=(
+            objective_contract
+            if objective_contract is not None
+            else resolve_objective_contract()
+        ),
     )
 
 
@@ -799,6 +834,7 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
+    contract = objective_contract_of(context)
     wealth = _simulate_context_wealth(context, w)
     portfolio_factors = _portfolio_return_factors(context, w)
     annualized_twr = _annualized_twr_bps_per_path(
@@ -811,6 +847,12 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         horizon_years=context.horizon_years,
         weights=context.scenario_weights,
         annualized_return_bps_per_path=annualized_twr,
+        # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: beide Modi aus dem
+        # eingefrorenen Vertrag, nicht aus der Umgebung. Das ist der Kern des
+        # Fixes: diese Funktion ist der SLSQP-Closure und laeuft hunderte Male
+        # pro Lauf -- hier entstand die Mischung zweier Zielfunktionen.
+        objective_mode=contract.objective_mode,
+        goal_weighting_mode=contract.goal_weighting_mode,
         # OPTIMIZER-OBJECTIVE-VARIANTS-001: die Risikomass-Varianten rechnen
         # auf den cashflow-neutralen Faktoren, nicht auf `wealth` -- sonst
         # wuerde geplanter Verzehr als Marktrisiko bewertet.
@@ -838,6 +880,7 @@ def evaluate_weights(
     - feasible / constraint_violations: gegen bounds + scipy_constraints
     - terminal_wealth_p10/p50/p90: Endvermoegen-Quantile in Rappen
     """
+    contract = objective_contract_of(context)
     w = _weights_bps_to_array(weights_bps)
     # Sprint U-P2 Fix C9: tax-aware Evaluation
     wealth = _simulate_context_wealth(context, w)
@@ -855,6 +898,14 @@ def evaluate_weights(
         # beide Pfade muessen denselben Primaerterm sehen, sonst weicht
         # `evaluate_weights(...).objective_value` von dem ab, was der Solver
         # tatsaechlich optimiert hat.
+        #
+        # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: "denselben Primaerterm
+        # sehen" war vorher nur dadurch erfuellt, dass beide Pfade dieselbe
+        # Umgebung lasen -- bei einer Aenderung zwischen Optimierung und
+        # Nachbewertung also gerade NICHT. Jetzt beide aus demselben
+        # eingefrorenen Vertrag.
+        objective_mode=contract.objective_mode,
+        goal_weighting_mode=contract.goal_weighting_mode,
         portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
     )
@@ -1460,6 +1511,13 @@ def run_solver(
     # this to retain the exact context for validation/audited fallback and to
     # prevent any downstream rebuild with lost inputs.
     optimizer_context: OptimizerContext | None = None,
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: ein bereits aufgeloester
+    # Lauf-Vertrag. Noetig fuer Aufrufer, die MEHRERE Laeufe vergleichen
+    # muessen (die Goal-Sensitivity faehrt Baseline und Modified): loest jeder
+    # Lauf seinen Vertrag selbst auf, kann das Delta zwei verschiedene
+    # Mathematiken vergleichen. None heisst "eigenen aufloesen" -- der
+    # Normalfall fuer einen einzelnen Lauf.
+    objective_contract: ObjectiveContractV1 | None = None,
 ) -> OptimizerResult:
     """Mulvey-Light SLSQP Optimizer.
 
@@ -1508,6 +1566,7 @@ def run_solver(
             effective_bounds_bps=effective_bounds_bps,
             preferred_target_bps=preferred_target_bps,
             preference_penalty_lambda=preference_penalty_lambda,
+            objective_contract=objective_contract,
         )
     elif not isinstance(context, OptimizerContext):
         raise OptimizerInputError(
@@ -1876,7 +1935,12 @@ def run_solver(
     # unabhaengigen Validierungs-Cube direkt oben. Ohne diesen Aufruf waere
     # die Nachrechnung eine ungenutzte Funktion und die Verzerrung
     # unausgewiesen.
-    if resolve_objective_mode() == OBJECTIVE_MAX_DRAWDOWN:
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: der Modus kommt aus dem
+    # eingefrorenen Vertrag des Laufs. Vorher wurde hier -- NACH der Selektion
+    # -- die Umgebung erneut gelesen: ein Wechsel mittendrin konnte die
+    # Nachrechnung fuer einen Lauf ausloesen, der gar nicht auf max_drawdown
+    # optimiert hatte, oder sie fuer einen unterdruecken, der es tat.
+    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
         drawdown_proxy = refined_drawdown_check_for_winner(
             _portfolio_return_factors(context, rounded_w),
             seed=int(context.seed),

@@ -144,6 +144,14 @@ def test_objective_mode_is_part_of_the_sensitivity_hash() -> None:
     ausgewiesene "Sensitivitaet" eines Ziels teilweise der Effekt einer
     geaenderten Zielfunktion. Geprueft am Quelltext der Hash-Nutzlast, weil
     der Hash selbst nur als Hex-String sichtbar wird.
+
+    OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: die zweite Assertion verlangte
+    die SCHREIBWEISE ``sensitivity_objective_mode = resolve_objective_mode()``
+    und damit genau den Live-Read, der inzwischen der Befund ist. Sie prueft
+    jetzt die AUSSAGE: der Wert, der in den Hash geht, stammt aus dem
+    eingefrorenen Lauf-Vertrag -- derselbe, den beide Solver-Laeufe benutzen.
+    Nur so beschreibt der Hash die Mathematik, die tatsaechlich gelaufen ist,
+    und nicht die, die beim Hashen gerade in der Umgebung stand.
     """
     engine_source = (
         BACKEND_ROOT / "services" / "portfolio_engine.py"
@@ -151,4 +159,18 @@ def test_objective_mode_is_part_of_the_sensitivity_hash() -> None:
     assert '"objective_mode": sensitivity_objective_mode' in engine_source, (
         "objective_mode fehlt in der _model_input_hash-Nutzlast"
     )
-    assert "sensitivity_objective_mode = resolve_objective_mode()" in engine_source
+    assert (
+        "sensitivity_objective_mode = sensitivity_objective_contract.objective_mode"
+        in engine_source
+    ), (
+        "Der gehashte Modus stammt nicht aus dem eingefrorenen Lauf-Vertrag"
+    )
+    # Und der Vertrag wird GENAU EINMAL aufgeloest und an beide Laeufe
+    # durchgereicht -- sonst koennte das Delta zwei Mathematiken vergleichen.
+    assert (
+        "sensitivity_objective_contract = resolve_objective_contract()"
+        in engine_source
+    )
+    assert "objective_contract=sensitivity_objective_contract" in engine_source, (
+        "Der aufgeloeste Vertrag wird nicht an die Solver-Laeufe uebergeben"
+    )
