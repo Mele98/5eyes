@@ -3053,6 +3053,102 @@ def _build_disclaimer() -> dict[str, Any]:
 # Sprint U-68 (2026-06-02): FIDLEG Art. 9/26 Interessenkonflikte.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# CONFLICT-STATE-001: Konflikt-Erledigung aus NACHWEISEN, nicht aus Flags
+# ---------------------------------------------------------------------------
+# Codex-Review vom 2026-10-12 zu PR #585, zu Recht: die erste Fassung dieses
+# Fixes baute `resolved` aus zwei nackten Booleans -- ohne
+# Offenlegungszeitpunkt, ohne Bestaetigungszeitpunkt, ohne Dokument. Das war
+# eine Inkonsistenz in meiner eigenen Arbeit: im selben Durchgang habe ich bei
+# der Retrozession argumentiert, dass ein gesetztes Flag kein Nachweis ist
+# (`cost_disclosure._has_documented_waiver`), hier aber genau darauf vertraut.
+#
+# `resolution_state == "resolved"` behauptet: dem Kunden offengelegt UND von
+# ihm bestaetigt. Die Zeitstempel belegen WANN, das Dokument belegt, dass es
+# ueberhaupt BEWEISBAR ist -- und FIDLEG Art. 9 verlangt vom Berater genau
+# diesen Nachweis. Ohne sie ruht die Aussage auf selbst gesetzten Haken.
+#
+# AUSDRUECKLICHE FOLGE: solange es keinen produktiven Aufloesungsworkflow gibt
+# (disclose/acknowledge/mitigate setzen heute niemand diese Felder), ist KEIN
+# Konflikt `resolved`. Das ist die wahrheitsgemaesse Lage, nicht ein
+# Nebeneffekt.
+#
+# REIHENFOLGE-FALLE, bewusst notiert: ein Finalisierungs-Gate
+# (COST-FINALIZATION-001) darf NICHT vor diesen Endpunkten verdrahtet werden.
+# Sonst blockiert jedes Mandat mit einer einzigen Konfliktzeile die
+# Finalisierung, ohne dass ein Berater sie aufloesen KANN -- fail-closed waere
+# dann nicht sicher, sondern funktionsunfaehig.
+
+CONFLICT_REASON_NOT_DISCLOSED = "conflict_not_disclosed"
+CONFLICT_REASON_DISCLOSURE_TIMESTAMP_MISSING = "conflict_disclosure_timestamp_missing"
+CONFLICT_REASON_NOT_ACKNOWLEDGED = "conflict_not_acknowledged"
+CONFLICT_REASON_ACK_TIMESTAMP_MISSING = "conflict_acknowledgement_timestamp_missing"
+CONFLICT_REASON_DOCUMENT_MISSING = "conflict_disclosure_document_missing"
+CONFLICT_REASON_ACK_WITHOUT_DISCLOSURE = "conflict_acknowledged_without_disclosure"
+
+# Zustaende, die KEINE Beraterhandlung sind, sondern einen unklaren bzw.
+# widerspruechlichen Datenstand -- sie gehen in den Aggregat-Tri-State
+# `indeterminate`, nicht in `action_required`.
+_CONFLICT_INDETERMINATE_STATES = frozenset({"acknowledged_without_disclosure"})
+
+
+def _has_timestamp(value: Any) -> bool:
+    """Traegt das Feld einen plausiblen Zeitstempel?
+
+    Geprueft wird ein ISO-Datumspraefix (YYYY-MM-DD), nicht die volle
+    Formatvielfalt: ein leerer String, ein Platzhalter oder ein "0" sind kein
+    Nachweis, und genau die sollen hier scheitern. Eine strengere Parsung
+    wuerde legitime Varianten (mit/ohne Zeitanteil, mit/ohne Zone) ablehnen,
+    ohne einen Fehler zu verhindern.
+    """
+    text_value = str(value or "").strip()
+    if len(text_value) < 10:
+        return False
+    head = text_value[:10]
+    if head[4] != "-" or head[7] != "-":
+        return False
+    return head.replace("-", "").isdigit()
+
+
+def _conflict_resolution_state(
+    row: Any, *, disclosed: bool, acknowledged: bool
+) -> tuple[str, list[str]]:
+    """Typisierter Erledigungszustand EINES Konflikts plus fehlende Nachweise."""
+    missing: list[str] = []
+
+    if acknowledged and not disclosed:
+        # Der Kunde kann nicht bestaetigt haben, was ihm nie offengelegt
+        # wurde. Kein Zustand, sondern ein Widerspruch in den Daten.
+        return "acknowledged_without_disclosure", [
+            CONFLICT_REASON_ACK_WITHOUT_DISCLOSURE,
+            CONFLICT_REASON_NOT_DISCLOSED,
+        ]
+
+    if not disclosed:
+        return "undisclosed", [CONFLICT_REASON_NOT_DISCLOSED]
+
+    if not _has_timestamp(getattr(row, "disclosed_at", None)):
+        missing.append(CONFLICT_REASON_DISCLOSURE_TIMESTAMP_MISSING)
+    if not str(getattr(row, "document_id", "") or "").strip():
+        missing.append(CONFLICT_REASON_DOCUMENT_MISSING)
+
+    if not acknowledged:
+        missing.append(CONFLICT_REASON_NOT_ACKNOWLEDGED)
+        return "disclosed_unacknowledged", missing
+
+    if not _has_timestamp(getattr(row, "client_acknowledged_at", None)):
+        missing.append(CONFLICT_REASON_ACK_TIMESTAMP_MISSING)
+
+    if missing:
+        # Beide Haken gesetzt, aber die Belegkette ist lueckenhaft. Eigener
+        # Zustand, weil die naechste Handlung eine ANDERE ist als bei
+        # "offenlegen" oder "Bestaetigung einholen": hier ist nachzutragen,
+        # wann es geschah und womit es belegt ist.
+        return "evidence_incomplete", missing
+
+    return "resolved", []
+
+
 def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]:
     """Aggregiert aktive Interessenkonflikt-Offenlegungen pro Mandat.
 
@@ -3061,6 +3157,26 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
     organisatorische Massnahmen zur Vermeidung. Diese Sektion
     aggregiert die ConflictOfInterestDisclosure-Eintraege fuer den
     Berater-Report.
+
+    CONFLICT-STATE-001 (CERT-COST-CONFLICT-001, 2026-10-12)
+    -------------------------------------------------------
+    `has_unacknowledged` war als `disclosed_to_client and not
+    client_acknowledged` berechnet. Damit blieb der SCHLIMMSTE Fall -- ein
+    Konflikt, der dem Kunden nie offengelegt wurde -- auf `False`: der
+    Report meldete "nichts offen" fuer eine Pflichtverletzung, waehrend er
+    bei der blossen fehlenden Kenntnisnahme Alarm gab. Die Logik behandelte
+    "nie offengelegt" als erledigt.
+
+    Neue Regel: nur der VOLLSTAENDIG erledigte Fall (offengelegt UND
+    bestaetigt) gilt als erledigt. Jeder andere Zustand ist offen.
+
+    Zusaetzlich traegt jeder Eintrag einen typisierten `resolution_state`.
+    Ein einziges Boolean waere handlungsunfaehig: "offenlegen" und
+    "Bestaetigung einholen" sind verschiedene naechste Schritte, und der
+    Fall `client_acknowledged=1` bei `disclosed_to_client=0` ist ueberhaupt
+    kein Zustand, sondern ein WIDERSPRUCH in den Daten -- der Kunde kann
+    nicht bestaetigt haben, was ihm nie offengelegt wurde. Gleiches Muster
+    wie die typisierten Zustaende in services/goal_lifecycle.py (ADR-3).
     """
     try:
         from models.review import ConflictOfInterestDisclosure
@@ -3074,23 +3190,43 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             .all()
         )
     except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch
+        # ZUSATZ zur Spec-Zeile (2026-10-12), beim Fix daneben gefunden:
+        # dieser Zweig meldete `has_unacknowledged=False`, also "nichts
+        # offen" -- obwohl wir an dieser Stelle GAR NICHTS wissen. Ein
+        # Lesefehler ist keine Entwarnung. Fail-closed, und `data_unavailable`
+        # unterscheidet "nicht lesbar" von "keine Konflikte vorhanden"
+        # (gleiches Muster wie `data_pending` im Kostenausweis).
         return {
             "entries": [],
             "counts": {"total": 0, "by_type": {}},
-            "has_unacknowledged": False,
+            "has_unacknowledged": True,
+            "has_undisclosed": True,
+            "data_unavailable": True,
+            # Nicht lesbar ist weder erledigt noch handlungsbereit: wir
+            # wissen nicht, was zu tun waere.
+            "evidence_status": "indeterminate",
             "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
         }
 
     entries = []
     counts_by_type: dict[str, int] = {}
     has_unacknowledged = False
+    has_undisclosed = False
+    has_indeterminate = False
     for row in rows:
         ctype = str(getattr(row, "conflict_type", "") or "unknown")
         counts_by_type[ctype] = counts_by_type.get(ctype, 0) + 1
         ack = bool(_safe_int(getattr(row, "client_acknowledged", 0)))
         disclosed = bool(_safe_int(getattr(row, "disclosed_to_client", 0)))
-        if disclosed and not ack:
+        resolution_state, missing_evidence = _conflict_resolution_state(
+            row, disclosed=disclosed, acknowledged=ack
+        )
+        if resolution_state != "resolved":
             has_unacknowledged = True
+        if not disclosed:
+            has_undisclosed = True
+        if resolution_state in _CONFLICT_INDETERMINATE_STATES:
+            has_indeterminate = True
         entries.append({
             "id": getattr(row, "id", None),
             "conflict_type": ctype,
@@ -3104,12 +3240,37 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             "client_acknowledged_at": getattr(row, "client_acknowledged_at", None),
             "mitigation_action": getattr(row, "mitigation_action", None),
             "document_id": getattr(row, "document_id", None),
+            "resolution_state": resolution_state,
+            "missing_evidence": missing_evidence,
         })
+
+    # Aggregat-Tri-State: EIN Feld, auf das ein Gate oder eine Publikation
+    # schauen kann, statt drei Booleans selbst zu verknuepfen (und dabei eine
+    # Kombination zu vergessen).
+    #
+    #   clear            -- alles offengelegt, bestaetigt und belegt
+    #   action_required  -- ein Berater muss etwas TUN (offenlegen,
+    #                       Bestaetigung einholen, Beleg nachtragen)
+    #   indeterminate    -- der Datenstand ist widerspruechlich oder nicht
+    #                       lesbar; was zu tun ist, ist selbst unklar
+    #
+    # `indeterminate` dominiert `action_required`, weil ein widerspruechlicher
+    # Satz Zeilen nicht dadurch handlungsreif wird, dass daneben eine klare
+    # offene Zeile steht.
+    if has_indeterminate:
+        evidence_status = "indeterminate"
+    elif has_unacknowledged:
+        evidence_status = "action_required"
+    else:
+        evidence_status = "clear"
 
     return {
         "entries": entries,
         "counts": {"total": len(entries), "by_type": counts_by_type},
         "has_unacknowledged": has_unacknowledged,
+        "has_undisclosed": has_undisclosed,
+        "data_unavailable": False,
+        "evidence_status": evidence_status,
         "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
     }
 

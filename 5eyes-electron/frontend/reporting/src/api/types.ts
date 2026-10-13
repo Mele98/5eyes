@@ -554,6 +554,25 @@ export interface ConflictDisclosureEntry {
   client_acknowledged_at: string | null;
   mitigation_action: string | null;
   document_id: string | null;
+  /**
+   * CONFLICT-STATE-001 (2026-10-12): typisierter Erledigungszustand.
+   * `acknowledged_without_disclosure` ist ein Datenwiderspruch, kein
+   * Zustand -- der Kunde kann nicht bestaetigt haben, was ihm nie
+   * offengelegt wurde.
+   */
+  resolution_state:
+    | 'resolved'
+    | 'disclosed_unacknowledged'
+    | 'evidence_incomplete'
+    | 'undisclosed'
+    | 'acknowledged_without_disclosure';
+  /**
+   * Stabile Begruendungscodes fuer die FEHLENDEN Nachweise. Leer genau dann,
+   * wenn `resolution_state === 'resolved'`. `resolved` folgt nicht aus zwei
+   * gesetzten Haken, sondern aus Offenlegungszeitpunkt,
+   * Bestaetigungszeitpunkt und abgelegtem Dokument (FIDLEG Art. 9).
+   */
+  missing_evidence: string[];
 }
 
 export interface ConflictDisclosuresData {
@@ -562,7 +581,31 @@ export interface ConflictDisclosuresData {
     total: number;
     by_type: Record<string, number>;
   };
+  /**
+   * CONFLICT-STATE-001: true, solange IRGENDEIN Konflikt nicht vollstaendig
+   * offengelegt UND bestaetigt ist. Vorher blieb der schlimmste Fall -- nie
+   * offengelegt -- faelschlich false.
+   */
   has_unacknowledged: boolean;
+  /** true, wenn mindestens ein Konflikt dem Kunden nie offengelegt wurde. */
+  has_undisclosed: boolean;
+  /**
+   * true, wenn die Konfliktdaten nicht gelesen werden konnten. Dann sind
+   * die Flags oben fail-closed gesetzt und `entries` ist leer -- zu
+   * unterscheiden von "keine Konflikte vorhanden".
+   */
+  data_unavailable: boolean;
+  /**
+   * Aggregat-Tri-State: EIN Feld, auf das ein Finalisierungs-Gate oder eine
+   * Publikation schauen kann, statt die Booleans selbst zu verknuepfen.
+   *
+   * - `clear`: alles offengelegt, bestaetigt und belegt
+   * - `action_required`: ein Berater muss etwas tun
+   * - `indeterminate`: Datenstand widerspruechlich oder nicht lesbar
+   *
+   * `indeterminate` dominiert `action_required`.
+   */
+  evidence_status: 'clear' | 'action_required' | 'indeterminate';
   fidleg_basis: string;
 }
 
