@@ -319,44 +319,79 @@ def test_newer_draft_must_not_displace_certified_final_run_as_cost_source(cc_ses
 # COST-CONTEXT-001b -- a certified run's cost evidence drifts when the
 # underlying Product.ter_bps is corrected later: build_cost_disclosure()
 # re-reads live TER on every call instead of freezing it at certification.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-13): `finalize_recommendation()`
+# now freezes the full cost disclosure onto
+# `RecommendationRun.cost_disclosure_snapshot_json` (payload + SHA-256), and
+# `build_cost_disclosure()` returns that snapshot instead of recomputing.
+# The hash is re-derived on read; a snapshot whose content does not match it
+# is refused rather than served.
+#
+# The test BODY had to move to the production path, and that is the point
+# rather than a convenience. The original seeded `result_status="Final"`
+# straight into the database -- a state no production path produces, because
+# certification only happens through `finalize_recommendation()`. Satisfying
+# it literally would have required freezing lazily on first read, i.e.
+# labelling TODAY's live numbers as the evidence of a certification that
+# happened earlier. That is a fabricated provenance, and worse than the
+# drift it would hide.
+#
+# So the run is now seeded as a Draft and certified through the real
+# endpoint. The Soll is unchanged in substance -- a certified run's totals
+# must not move when a live input is corrected afterwards -- and it is now
+# tested end to end instead of against a hand-made state.
+#
+# Runs finalised BEFORE this change carry no snapshot. They are computed
+# live and say so (`evidence_frozen=False` plus a warning); they are NOT
+# retro-frozen, for the same reason.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-CONTEXT-001 -- CERT-COST-CONFLICT-001 (live drift)")
-def test_certified_final_run_cost_totals_must_not_drift_with_later_live_ter_correction(cc_session_factory):
-    sf = cc_session_factory
-    advisor_id, client_id, mandate_id = _seed_mandate(sf, suffix="ctx-b")
-    _make_product(sf, "prd-ctx-b", ter_bps=50)
-    _make_policy(sf, "pol-ctx-b", advisor_id)
-    _make_allocation(
-        sf, "ta-ctx-b", mandate_id, "pol-ctx-b", advisor_id,
-        advisory_wealth_rappen=1_000_000_00,
-    )
-    run_id = "run-ctx-b-final"
-    _make_run(
-        sf, run_id, mandate_id, client_id,
-        target_allocation_id="ta-ctx-b", policy_id="pol-ctx-b",
-        created_by=advisor_id, result_status="Final", created_at=_now(),
-        fee_assumptions={"default_advisory_fee_bps": 25},
-    )
-    _make_position(sf, run_id, "prd-ctx-b", weight_bps=10000, amount_rappen=1_000_000_00)
+def test_certified_final_run_cost_totals_must_not_drift_with_later_live_ter_correction(session_factory):
+    advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(session_factory, suffix="ctx-b")
+    alloc_id = _current_allocation_id(session_factory, mid, advisor_id)
+    policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
+    run_id = _make_finalize_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma)
+    _add_full_position(session_factory, run_id)
 
-    with sf() as db:
-        mandate = db.query(Mandate).filter(Mandate.id == mandate_id).first()
+    with session_factory() as db:
+        product_id = (
+            db.query(RecommendationPosition)
+            .filter(RecommendationPosition.run_id == run_id)
+            .first()
+            .product_id
+        )
+
+    # Zertifizierung ueber die PRODUKTIONSSTRECKE -- dort wird eingefroren.
+    with session_factory() as db:
+        mandate = db.query(Mandate).filter(Mandate.id == mid).first()
+        advisor = db.query(User).filter(User.id == advisor_id).first()
+        finalize_recommendation(
+            mandate_id=mid, run_id=run_id, request=_FakeRequest(),
+            db=db, current_user=advisor,
+        )
+
+    with session_factory() as db:
+        mandate = db.query(Mandate).filter(Mandate.id == mid).first()
         before = build_cost_disclosure(db, mandate)
+    assert before["evidence_frozen"] is True, (
+        "Die Finalisierung hat keinen Nachweis eingefroren -- ohne ihn kann "
+        f"der Test unten nichts beweisen: {before.get('warnings')}"
+    )
 
-    # A later TER correction on the SAME product, with NO new run created.
-    with sf() as db:
-        db.query(Product).filter(Product.id == "prd-ctx-b").update({"ter_bps": 500})
+    # Eine spaetere TER-Korrektur am SELBEN Produkt, ohne neuen Lauf.
+    with session_factory() as db:
+        db.query(Product).filter(Product.id == product_id).update({"ter_bps": 5000})
         db.commit()
 
-    with sf() as db:
-        mandate = db.query(Mandate).filter(Mandate.id == mandate_id).first()
+    with session_factory() as db:
+        mandate = db.query(Mandate).filter(Mandate.id == mid).first()
         after = build_cost_disclosure(db, mandate)
 
     # Soll: a certified Final run's cost disclosure is an immutable snapshot
     # -- a later correction to a live input must not change its totals.
     assert after["totals"] == before["totals"]
+    assert after["content_hash"] == before["content_hash"]
 
 
 # ---------------------------------------------------------------------------
@@ -508,10 +543,23 @@ def test_is_complete_must_not_be_true_when_a_configured_fee_value_is_invalid(cc_
 # neither the chosen recommendation_run_id nor a replayable snapshot (items,
 # status, warnings, hash); it stores six reduced sum fields from the
 # mandate-wide (not run-bound) builder.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-13): `_build_cost_disclosure_
+# snapshot()` now takes the log entry's own `recommendation_run_id`,
+# resolves that run bound to the mandate (same hardening as COST-BASIS-001 --
+# a foreign mandate's run must not become this log's evidence), and stores
+# the full payload: items, totals, warnings, completeness, the run id and
+# its status, plus a SHA-256 over the record. Where the run carries the
+# snapshot frozen at certification (COST-CONTEXT-001b), THAT is the source,
+# so the log holds the numbers the client actually received rather than a
+# recomputation. Without a named run it falls back to the mandate-wide
+# builder as before and leaves the binding explicitly empty instead of
+# claiming a run. Still fail-soft: no numbers means no snapshot, and the
+# `cost_disclosure_given` flag stays valid. xfail removed: strict=True would
+# otherwise report an unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-EVIDENCE-001 -- CERT-COST-CONFLICT-001")
 def test_advisory_log_snapshot_must_bind_full_replayable_run_evidence(cc_session_factory):
     sf = cc_session_factory
     advisor_id, client_id, mandate_id = _seed_mandate(sf, suffix="evidence")

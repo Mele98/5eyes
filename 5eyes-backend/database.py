@@ -576,6 +576,10 @@ def ensure_runtime_columns() -> None:
         # (gleicher Spaltentyp/-Stil, gleiche Klasse).
         'recommendation_runs': [
             ('provisional_data_warning', 'TEXT'),
+            # COST-CONTEXT-001b / COST-EVIDENCE-001 (2026-10-13): der bei der
+            # Finalisierung eingefrorene Kostenausweis, siehe
+            # models/review.py::RecommendationRun.
+            ('cost_disclosure_snapshot_json', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/

@@ -73,6 +73,27 @@ class CostDisclosureResponse(BaseModel):
             "zu unterscheiden (COST-CONTEXT-001a)."
         ),
     )
+    evidence_frozen: bool = Field(
+        False,
+        description=(
+            "True, wenn dieser Ausweis der bei der FINALISIERUNG eingefrorene "
+            "Nachweis des Laufs ist und damit reproduzierbar. False heisst "
+            "live gerechnet -- fuer Entwuerfe erwartet, bei einem "
+            "freigegebenen Lauf ein Hinweis in `warnings` "
+            "(COST-CONTEXT-001b)."
+        ),
+    )
+    content_hash: Optional[str] = Field(
+        None,
+        description=(
+            "SHA-256 ueber den kanonisierten Payload, nur bei "
+            "`evidence_frozen=True`. Beim Lesen nachgerechnet; stimmt er "
+            "nicht, wird der Snapshot verworfen statt ausgeliefert."
+        ),
+    )
+    frozen_at: Optional[str] = Field(
+        None, description="Zeitpunkt des Einfrierens (ISO), nur bei `evidence_frozen=True`."
+    )
     fidleg_basis: str
     advisory_wealth_rappen: int = 0
     invested_amount_rappen: int = 0

@@ -110,31 +110,114 @@ def build_hash_payload(entry: AdvisoryLog) -> dict:
     }
 
 
-def _build_cost_disclosure_snapshot(db: Session, mandate) -> str | None:
-    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): kompakter Snapshot der
-    Kostenzahlen zum Zeitpunkt der Beratung -- cost_disclosure_given war
-    bisher ein reines Selbst-Attest-Flag ohne Nachweis, WELCHE Zahlen
-    tatsaechlich gezeigt wurden. Fail-soft: schlaegt die Berechnung fehl
-    (z.B. keine Empfehlung vorhanden), wird kein Snapshot gespeichert --
-    das Flag selbst bleibt trotzdem gueltig (Berater hat das Gespraech
-    dokumentiert, auch wenn die Engine gerade keine Zahlen liefern konnte)."""
+ADVISORY_LOG_COST_SNAPSHOT_SCHEMA_VERSION = 2
+
+
+def _build_cost_disclosure_snapshot(
+    db: Session, mandate, *, recommendation_run_id: str | None = None,
+) -> str | None:
+    """Nachweis der Kostenzahlen, die in dieser Beratung gezeigt wurden.
+
+    Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): `cost_disclosure_given` war ein
+    reines Selbst-Attest-Flag ohne Nachweis, WELCHE Zahlen gezeigt wurden.
+
+    COST-EVIDENCE-001 (CERT-COST-CONFLICT-001, 2026-10-13): die erste
+    Fassung dieses Nachweises war zu duenn und an den falschen Lauf
+    gebunden. Zwei Maengel, beide behoben:
+
+    1. Sie rief `build_cost_disclosure(db, mandate)` -- den MANDATSWEITEN
+       Bauer -- und ignorierte die `recommendation_run_id` des
+       Protokolleintrags. Der Eintrag dokumentiert aber ein Gespraech ueber
+       EINEN bestimmten Lauf; der Nachweis muss an denselben haengen. Vorher
+       konnte das Protokoll die Zahlen eines anderen Laufs festhalten als
+       den, auf den es sich beruft.
+    2. Sie speicherte sechs reduzierte Summenfelder. Ohne Posten,
+       Warnungen und Hash ist das kein nachrechenbarer Nachweis: man sieht
+       eine Zahl, aber nicht, woraus sie entstand.
+
+    Jetzt: der vollstaendige Payload, gebunden an die Lauf-ID und ihren
+    Status, mit Inhalts-Hash. Liegt der bei der Finalisierung eingefrorene
+    Nachweis des Laufs vor (COST-CONTEXT-001b), ist ER die Quelle -- also
+    genau die Zahlen, die der Kunde erhalten hat, und nicht eine
+    Neuberechnung von heute.
+
+    Fail-soft bleibt: schlaegt die Berechnung fehl (keine Empfehlung,
+    kaputtes Gebuehrenmodell), wird kein Snapshot gespeichert und das Flag
+    bleibt gueltig -- der Berater hat das Gespraech dokumentiert, auch wenn
+    die Engine gerade keine Zahlen liefern konnte. Den Protokolleintrag
+    daran scheitern zu lassen waere eine Blockade, die dieser Befund nicht
+    verlangt.
+    """
     if mandate is None:
         return None
     try:
-        from services.cost_disclosure import build_cost_disclosure
-        payload = build_cost_disclosure(db, mandate)
-    except Exception:
+        from services.cost_disclosure import (
+            build_cost_disclosure,
+            build_cost_disclosure_for_run,
+            cost_disclosure_content_hash,
+            load_frozen_cost_disclosure,
+        )
+
+        run = None
+        if recommendation_run_id:
+            from models.review import RecommendationRun
+            run = (
+                db.query(RecommendationRun)
+                .filter(
+                    RecommendationRun.id == recommendation_run_id,
+                    # An das Mandat gebunden: ein Lauf eines ANDEREN Mandats
+                    # darf nicht zum Nachweis dieses Protokolls werden
+                    # (gleiche Haertung wie COST-BASIS-001).
+                    RecommendationRun.mandate_id == getattr(mandate, "id", None),
+                )
+                .first()
+            )
+
+        if run is not None:
+            frozen, _reason = load_frozen_cost_disclosure(run)
+            payload = frozen if frozen is not None else build_cost_disclosure_for_run(
+                db, mandate, run,
+            )
+            bound_run_id = str(getattr(run, "id", "") or "")
+            bound_status = str(getattr(run, "result_status", "") or "")
+        else:
+            # Kein (oder kein zugehoeriger) Lauf genannt: wie bisher der
+            # mandatsweite Bauer. Die Bindung bleibt dann ausdruecklich
+            # leer, statt einen Lauf zu behaupten.
+            payload = build_cost_disclosure(db, mandate)
+            bound_run_id = str(payload.get("source_run_id") or "") or None
+            bound_status = str(payload.get("source_run_status") or "") or None
+    except Exception:  # noqa: BLE001 -- siehe Docstring: fail-soft
         return None
+
     totals = payload.get("totals") or {}
     snapshot = {
+        "schema_version": ADVISORY_LOG_COST_SNAPSHOT_SCHEMA_VERSION,
         "generated_at": _now_iso(),
+        "recommendation_run_id": bound_run_id,
+        "status": bound_status,
         "currency": payload.get("currency"),
         "advisory_wealth_rappen": payload.get("advisory_wealth_rappen"),
+        "invested_amount_rappen": payload.get("invested_amount_rappen"),
         "one_time_rappen": totals.get("one_time_rappen"),
         "annual_rappen": totals.get("annual_rappen"),
         "first_year_rappen": totals.get("first_year_rappen"),
+        "totals": totals,
+        "cost_items": payload.get("cost_items") or [],
+        "warnings": payload.get("warnings") or [],
+        "is_complete": payload.get("is_complete"),
+        "data_pending": payload.get("data_pending"),
+        # Ob der Nachweis aus dem eingefrorenen Snapshot des Laufs stammt --
+        # ohne das Feld waere "die Zahlen des Kunden" von "heute neu
+        # gerechnet" nicht zu unterscheiden.
+        "evidence_frozen": bool(payload.get("evidence_frozen")),
+        "source_content_hash": payload.get("content_hash"),
     }
-    return json.dumps(snapshot, ensure_ascii=False)
+    # Hash ueber den Nachweis selbst, nach demselben Verfahren wie im
+    # Kostenausweis. `generated_at` ist Teil des Inhalts: zwei Protokolle
+    # ueber dieselben Zahlen sind zwei verschiedene Nachweise.
+    snapshot["content_hash"] = cost_disclosure_content_hash(snapshot)
+    return json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
 
 
 def create_advisory_log(
@@ -156,7 +239,13 @@ def create_advisory_log(
     entry_datetime = payload.entry_datetime
     entry_date = payload.entry_date or entry_datetime[:10]
     cost_disclosure_snapshot_json = (
-        _build_cost_disclosure_snapshot(db, mandate)
+        _build_cost_disclosure_snapshot(
+            db, mandate,
+            # COST-EVIDENCE-001: an den Lauf binden, auf den sich DIESER
+            # Eintrag beruft -- nicht an den, den der mandatsweite Bauer
+            # gerade waehlen wuerde.
+            recommendation_run_id=getattr(payload, "recommendation_run_id", None),
+        )
         if payload.cost_disclosure_given
         else None
     )

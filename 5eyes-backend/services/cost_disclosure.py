@@ -6,6 +6,8 @@ silently treated as zero.
 """
 from __future__ import annotations
 
+import datetime
+import hashlib
 import json
 import math
 from numbers import Real
@@ -225,11 +227,7 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
     assumptions used when the portfolio was generated. The current policy is a
     fallback only when the run does not contain a fee snapshot.
     """
-    from models.allocation import OptimizerPolicy, TargetAllocation
-    from models.review import (
-        ConflictOfInterestDisclosure, Product, ProductUniverseEntry,
-        RecommendationPosition, RecommendationRun,
-    )
+    from models.review import RecommendationRun
 
     currency = str(getattr(mandate, "base_currency", None) or "CHF").upper().strip() or "CHF"
 
@@ -286,7 +284,84 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
             currency=currency,
         )
 
-    latest_run = best_run
+    # COST-CONTEXT-001b: ein FINALISIERTER Lauf traegt seinen Nachweis mit
+    # sich. Ihn zurueckzugeben statt neu zu rechnen ist der ganze Punkt --
+    # live gerechnet aenderte eine spaetere TER-Korrektur die Totale eines
+    # bereits ausgehaendigten Dokuments.
+    frozen, snapshot_reason = load_frozen_cost_disclosure(best_run)
+    if frozen is not None:
+        return frozen
+    if snapshot_reason is not None:
+        # Snapshot vorhanden, aber unbrauchbar (kaputtes JSON oder Hash
+        # passt nicht zum Inhalt). Hier NICHT live weiterrechnen: der Lauf
+        # behauptet einen Nachweis, und ihn stillschweigend durch frische
+        # Zahlen zu ersetzen waere genau die Substitution, die dieser
+        # Nachweis verhindern soll.
+        return _pending_payload(
+            "Der eingefrorene Kostenausweis dieses Empfehlungslaufs ist "
+            f"nicht verwertbar ({snapshot_reason}). Die dem Kunden "
+            "ausgehändigten Zahlen lassen sich damit nicht belegen -- "
+            "Strategie neu berechnen und finalisieren.",
+            currency=currency,
+        )
+
+    live = build_cost_disclosure_for_run(db, mandate, best_run, currency=currency)
+    if not live.get("data_pending"):
+        # Offenlegen, nicht behaupten: ohne Snapshot ist dieser Ausweis eine
+        # Momentaufnahme. Fuer Entwuerfe ist das richtig und erwartet; bei
+        # einem Final bedeutet es, dass der Lauf vor Einfuehrung der Spalte
+        # finalisiert wurde.
+        live["evidence_frozen"] = False
+        live["content_hash"] = None
+        live["frozen_at"] = None
+        if str(live.get("source_run_status") or "") == "Final":
+            live.setdefault("warnings", []).append(
+                "Dieser freigegebene Empfehlungslauf hat keinen eingefrorenen "
+                "Kostenausweis (finalisiert vor Einführung des Nachweises). "
+                "Die Zahlen sind live berechnet und können von den damals "
+                "ausgewiesenen abweichen -- für einen belegbaren Ausweis die "
+                "Strategie neu berechnen und finalisieren."
+            )
+    return live
+
+
+def build_cost_disclosure_for_run(
+    db: Session,
+    mandate: Any,
+    run: Any,
+    *,
+    currency: str | None = None,
+) -> dict[str, Any]:
+    """Kostenausweis fuer EINEN bestimmten Empfehlungslauf.
+
+    Herausgeloest aus `build_cost_disclosure()` (2026-10-13), damit ein
+    Aufrufer den Lauf VORGEBEN kann statt ihn waehlen zu lassen. Zwei
+    Stellen brauchen das:
+
+      * das Einfrieren bei der Finalisierung (COST-CONTEXT-001b) -- dort
+        steht der Lauf fest, und eine erneute Auswahl koennte einen
+        anderen treffen;
+      * der Beratungsprotokoll-Nachweis (COST-EVIDENCE-001), der an
+        seinem EIGENEN `recommendation_run_id` haengt und bisher den
+        mandatsweiten Bauer aufrief.
+
+    Die Funktion waehlt nichts aus und liest keinen Snapshot -- sie
+    rechnet. Das Einfrieren und das Zurueckgeben eines eingefrorenen
+    Nachweises liegen in `build_cost_disclosure()`.
+    """
+    # Lazy Imports wie zuvor im Kopf von build_cost_disclosure() -- die
+    # Begruendung (Zirkular-Import-Haertung) gilt unveraendert, nur die
+    # Funktion hat sich geaendert.
+    from models.allocation import OptimizerPolicy, TargetAllocation
+    from models.review import (
+        ConflictOfInterestDisclosure, Product, ProductUniverseEntry,
+        RecommendationPosition,
+    )
+
+    currency = str(
+        currency or getattr(mandate, "base_currency", None) or "CHF"
+    ).upper().strip() or "CHF"
+    latest_run = run
 
     fee_model = _parse_fee_model(getattr(latest_run, "fee_assumptions_json", None))
     if not fee_model:
@@ -806,6 +881,14 @@ def calculate_cost_disclosure(
         # ohne dieses Feld ist er von einem freigegebenen nicht zu
         # unterscheiden.
         "source_run_status": source_run_status,
+        # COST-CONTEXT-001b: Defaults. `build_cost_disclosure()` setzt sie
+        # je nachdem, ob ein eingefrorener Nachweis vorliegt. Sie stehen
+        # HIER, damit jede Payload-Form dieselben Schluessel hat -- ein
+        # Konsument soll nicht raten muessen, ob das Feld fehlt oder False
+        # ist.
+        "evidence_frozen": False,
+        "content_hash": None,
+        "frozen_at": None,
         "fidleg_basis": "Art. 8/9 FIDLEG; Art. 8/14 FIDLEV",
         "advisory_wealth_rappen": advisory_wealth,
         "invested_amount_rappen": invested_amount,
@@ -924,6 +1007,9 @@ def _pending_payload(note: str, *, currency: str = "CHF") -> dict[str, Any]:
         "as_of": None,
         "source_run_id": None,
         "source_run_status": None,
+        "evidence_frozen": False,
+        "content_hash": None,
+        "frozen_at": None,
         "fidleg_basis": "Art. 8/9 FIDLEG; Art. 8/14 FIDLEV",
         "advisory_wealth_rappen": 0,
         "invested_amount_rappen": 0,
@@ -941,3 +1027,110 @@ def _pending_payload(note: str, *, currency: str = "CHF") -> dict[str, Any]:
         "has_estimates": False,
         "warnings": [note],
     }
+
+
+# ---------------------------------------------------------------------------
+# COST-CONTEXT-001b / COST-EVIDENCE-001: eingefrorener Nachweis
+# ---------------------------------------------------------------------------
+# `build_cost_disclosure()` rechnete bei jedem Aufruf neu und las dabei live
+# `Product.ter_bps`. Gemessen: eine spaetere TER-Korrektur von 50 auf 500 bps
+# -- ohne jeden neuen Lauf -- aenderte die Totale eines bereits FINALISIERTEN
+# Laufs rueckwirkend. Ein nach FIDLEG Art. 8/9 ausgehaendigtes Dokument war
+# damit nicht reproduzierbar: wer es spaeter nachrechnet, bekommt andere
+# Zahlen als der Kunde gesehen hat.
+
+def _utc_now_iso() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+COST_SNAPSHOT_SCHEMA_VERSION = 1
+
+# Begruendungscodes fuer einen unbrauchbaren Snapshot -- maschinenlesbar,
+# damit ein Aufrufer nicht auf Meldungstexte matchen muss.
+REASON_SNAPSHOT_MALFORMED = "cost_snapshot_malformed"
+REASON_SNAPSHOT_HASH_MISMATCH = "cost_snapshot_hash_mismatch"
+
+
+def cost_disclosure_content_hash(payload: Mapping[str, Any]) -> str:
+    """SHA-256 ueber den kanonisierten Kostenausweis-Payload.
+
+    Gleiches Verfahren und gleiche Kanonisierung wie
+    `services/document_archive.py::content_hash_for()` (`json.dumps` mit
+    `sort_keys=True, default=str`, dann sha256). Jene Funktion nimmt eine
+    Dataclass; hier ist der Payload ein Dict, deshalb eine eigene -- aber
+    bewusst NICHT ein eigenes Verfahren.
+    """
+    canonical = json.dumps(dict(payload), sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def freeze_cost_disclosure_for_run(db: Session, mandate: Any, run: Any) -> str | None:
+    """Den Kostenausweis dieses Laufs berechnen und als Nachweis einfrieren.
+
+    Rueckgabe ist der JSON-String fuer
+    `RecommendationRun.cost_disclosure_snapshot_json`, oder None, wenn kein
+    verwertbarer Ausweis entsteht.
+
+    Bewusst `build_cost_disclosure_for_run()` und nicht
+    `build_cost_disclosure()`: der Lauf steht hier FEST. Die Auswahl erneut
+    laufen zu lassen koennte einen anderen treffen -- und genau das
+    Einfrieren des falschen Laufs waere der Fehler, den dieser Nachweis
+    verhindern soll.
+
+    Fail-soft, mit Absicht: liefert die Berechnung keinen Ausweis (etwa weil
+    Positionen fehlen) oder wirft sie, wird NICHTS eingefroren und die
+    Finalisierung laeuft weiter. Ein fehlender Snapshot ist ein offengelegter
+    Zustand (`evidence_frozen=False`) -- die Finalisierung daran scheitern zu
+    lassen waere eine Blockade, die dieser Befund nicht verlangt.
+    """
+    try:
+        payload = build_cost_disclosure_for_run(db, mandate, run)
+    except Exception:  # noqa: BLE001 -- siehe Docstring: fail-soft
+        return None
+    if payload.get("data_pending"):
+        return None
+    envelope = {
+        "schema_version": COST_SNAPSHOT_SCHEMA_VERSION,
+        "frozen_at": _utc_now_iso(),
+        "recommendation_run_id": str(getattr(run, "id", "") or ""),
+        "content_hash": cost_disclosure_content_hash(payload),
+        "payload": payload,
+    }
+    return json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+
+
+def load_frozen_cost_disclosure(run: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """Den eingefrorenen Nachweis lesen und seine Integritaet pruefen.
+
+    Rueckgabe `(payload, reason_code)`:
+
+        (payload, None)  -- gueltiger Nachweis
+        (None, None)     -- kein Snapshot vorhanden (Entwurf, oder Altlauf
+                            aus der Zeit vor der Spalte)
+        (None, code)     -- Snapshot vorhanden, aber unbrauchbar
+
+    Der Hash wird NACHGERECHNET, nicht bloss mitgelesen. Ein Nachweis, dessen
+    Inhalt nicht zu seinem Hash passt, ist kein Nachweis -- ihn trotzdem
+    auszuliefern waere schlimmer als ihn zu verwerfen, weil das Dokument dann
+    eine Reproduzierbarkeit behauptet, die es nicht hat.
+    """
+    raw = getattr(run, "cost_disclosure_snapshot_json", None)
+    if not raw:
+        return None, None
+    try:
+        envelope = json.loads(raw)
+    except (TypeError, ValueError):
+        return None, REASON_SNAPSHOT_MALFORMED
+    if not isinstance(envelope, dict):
+        return None, REASON_SNAPSHOT_MALFORMED
+    payload = envelope.get("payload")
+    stored_hash = envelope.get("content_hash")
+    if not isinstance(payload, dict) or not isinstance(stored_hash, str):
+        return None, REASON_SNAPSHOT_MALFORMED
+    if cost_disclosure_content_hash(payload) != stored_hash:
+        return None, REASON_SNAPSHOT_HASH_MISMATCH
+    frozen = dict(payload)
+    frozen["evidence_frozen"] = True
+    frozen["content_hash"] = stored_hash
+    frozen["frozen_at"] = envelope.get("frozen_at")
+    return frozen, None
