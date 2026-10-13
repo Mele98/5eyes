@@ -11,6 +11,7 @@ import math
 from numbers import Real
 from typing import Any, Iterable, Mapping
 
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 
@@ -234,44 +235,58 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
 
     # COST-CONTEXT-001a: nach RANGFOLGE, nicht nach Datum (siehe
     # _COST_SOURCE_STATUS_PRIORITY).
-    latest_run = None
-    for candidate_status in _COST_SOURCE_STATUS_PRIORITY:
-        latest_run = (
-            db.query(RecommendationRun)
-            .filter(
-                RecommendationRun.mandate_id == mandate.id,
-                RecommendationRun.result_status == candidate_status,
-            )
-            .order_by(RecommendationRun.created_at.desc())
-            .first()
-        )
-        if latest_run is not None:
-            break
+    #
+    # Die Rangfolge steht im ORDER BY, nicht in einer Python-Schleife ueber
+    # die Status. Eine Schleife haette pro Status eine eigene Abfrage
+    # gebraucht -- der N+1-Guard `test_specific_tables_are_queried_at_most_
+    # twice` hat genau das gefangen (RECOMMENDATION_RUNS 5 statt <=3). So
+    # bleibt es EINE Abfrage, also so viele wie vor dieser Aenderung.
+    # Der Rang steht im ORDER BY und es wird NICHT nach Status gefiltert:
+    # damit beantwortet EINE Abfrage beide Fragen -- welcher Lauf traegt den
+    # Ausweis, und (falls keiner) ob ueberhaupt Laeufe existieren. Eine
+    # Schleife ueber die Status oder eine zweite Diagnose-Abfrage haette den
+    # Abfragezaehler erhoeht; der N+1-Guard `test_specific_tables_are_
+    # queried_at_most_twice` hat genau das gefangen (RECOMMENDATION_RUNS 5
+    # bzw. 4 statt <=3). So bleibt es bei einer Abfrage, also so vielen wie
+    # vor dieser Aenderung.
+    status_rank = case(
+        *(
+            (RecommendationRun.result_status == status, rank)
+            for rank, status in enumerate(_COST_SOURCE_STATUS_PRIORITY)
+        ),
+        else_=len(_COST_SOURCE_STATUS_PRIORITY),
+    )
+    best_run = (
+        db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id == mandate.id)
+        .order_by(status_rank, RecommendationRun.created_at.desc())
+        .first()
+    )
 
-    if latest_run is None:
-        # Unterscheiden: gar kein Lauf, oder nur Laeufe, die keine Grundlage
-        # sein duerfen. Beides als "noch keine Empfehlung" zu melden waere
-        # irrefuehrend -- im zweiten Fall GIBT es Laeufe, sie taugen nur nicht.
-        other_status = (
-            db.query(RecommendationRun.result_status)
-            .filter(RecommendationRun.mandate_id == mandate.id)
-            .order_by(RecommendationRun.created_at.desc())
-            .first()
-        )
-        if other_status is not None:
-            return _pending_payload(
-                "Für dieses Mandat liegt kein freigegebener oder in Arbeit "
-                f"befindlicher Empfehlungslauf vor (letzter Status: "
-                f"{str(other_status[0])}). Ein abgelehnter oder ersetzter Lauf "
-                "ist keine Grundlage für den Kostenausweis -- Strategie neu "
-                "berechnen und finalisieren.",
-                currency=currency,
-            )
+    if best_run is None:
         return _pending_payload(
             "Noch keine Portfolioempfehlung vorhanden; ein konkreter "
             "Ex-ante-Kostenausweis kann noch nicht berechnet werden.",
             currency=currency,
         )
+
+    best_status = str(getattr(best_run, "result_status", "") or "")
+    if best_status not in _COST_SOURCE_STATUS_PRIORITY:
+        # Der bestplatzierte Lauf traegt keinen Rang -- also gibt es weder
+        # einen freigegebenen noch einen in Arbeit. Das von "gar kein Lauf"
+        # zu unterscheiden ist wichtig: hier GIBT es Laeufe, sie taugen nur
+        # nicht als Grundlage, und der Berater muss wissen welcher Zustand
+        # ihn blockiert.
+        return _pending_payload(
+            "Für dieses Mandat liegt kein freigegebener oder in Arbeit "
+            f"befindlicher Empfehlungslauf vor (letzter Status: "
+            f"{best_status or 'unbekannt'}). Ein abgelehnter oder ersetzter "
+            "Lauf ist keine Grundlage für den Kostenausweis -- Strategie neu "
+            "berechnen und finalisieren.",
+            currency=currency,
+        )
+
+    latest_run = best_run
 
     fee_model = _parse_fee_model(getattr(latest_run, "fee_assumptions_json", None))
     if not fee_model:
