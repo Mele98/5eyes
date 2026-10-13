@@ -444,3 +444,103 @@ def test_alembic_head_emits_postgres_compatible_view_ddl():
         "Cashflow-View gruppiert nicht vollstaendig (erwartet: die eigene "
         "Dreier-Klausel plus das Praefix der Vierer-Klausel)"
     )
+
+
+# ---------------------------------------------------------------------------
+# ORM gegen Alembic-Kopf: VOLLSTAENDIGKEIT der Postgres-Strecke
+# ---------------------------------------------------------------------------
+# Gefunden 2026-10-12 beim Gruenziehen von test_postgres_alembic_views_live.py:
+# ein ORM-Insert auf `users` scheiterte auf echtem PostgreSQL mit
+# `UndefinedColumn: column "calendar_feed_token_hash" ... does not exist`.
+# Systematisch nachgemessen fehlten SIEBEN ORM-Spalten in VIER Kerntabellen
+# (clients, contract_documents, mandates, users) nach `alembic upgrade head`.
+#
+# Warum es auf SQLite nie auffiel: dort laeuft nach dem Bootstrap zusaetzlich
+# `create_all()` und danach `_run_sqlite_legacy_schema_maintenance()` mit
+# `ensure_column(...)`, wo diese Spalten stehen. Postgres bekommt
+# AUSSCHLIESSLICH Alembic. SQLAlchemy generiert in jedem ORM-Statement die
+# volle Spaltenliste -- eine dort fehlende Spalte ist deshalb nicht eine
+# fehlende Nebenangabe, sondern ein Fehler bei praktisch jeder Anfrage auf
+# die betroffene Tabelle.
+#
+# Dieser Guard prueft die KLASSE, nicht die sieben Spalten: jede kuenftige
+# ORM-Spalte ohne Migration faellt hier auf.
+
+
+def _alembic_head_schema(tmp_path) -> dict[str, set[str]]:
+    """Tabellen und Spalten, die `alembic upgrade head` tatsaechlich anlegt."""
+    db_url = f"sqlite:///{tmp_path / 'orm_parity_contract.db'}"
+    command.upgrade(_alembic_config(db_url), "head")
+    engine = create_engine(db_url)
+    try:
+        db_inspector = inspect(engine)
+        return {
+            table_name: {
+                column["name"] for column in db_inspector.get_columns(table_name)
+            }
+            for table_name in db_inspector.get_table_names()
+        }
+    finally:
+        engine.dispose()
+
+
+def _orm_metadata():
+    """Das vollstaendige ORM-Metadata, inklusive der lazy importierten Modelle.
+
+    `database.init_db()` importiert `models.tenant` und `models.jurisdiction`
+    ausdruecklich VOR `create_all`, damit deren Tabellen entstehen -- derselbe
+    Import ist hier noetig, sonst prueft der Guard ein unvollstaendiges
+    Metadata und wird dadurch zu mild.
+    """
+    import models.jurisdiction  # noqa: F401,PLC0415
+    import models.tenant  # noqa: F401,PLC0415
+    from database import Base  # noqa: PLC0415
+
+    return Base.metadata
+
+
+def test_orm_metadata_is_reasonably_populated():
+    """Sanity-Anker: sonst wird der Guard unten TRIVIAL gruen.
+
+    Waeren die Modelle nicht importiert, waere `Base.metadata` fast leer und
+    der Vergleich wuerde "alle null Tabellen sind migriert" bestaetigen.
+    """
+    metadata = _orm_metadata()
+    assert len(metadata.tables) >= 60, (
+        f"Nur {len(metadata.tables)} ORM-Tabellen sichtbar -- die Modelle sind "
+        "offenbar nicht vollstaendig importiert; der Paritaets-Guard unten "
+        "waere dadurch wertlos."
+    )
+
+
+def test_alembic_head_creates_every_orm_table(tmp_path):
+    migrated = _alembic_head_schema(tmp_path)
+    missing = sorted(set(_orm_metadata().tables) - set(migrated))
+    assert not missing, (
+        "Diese ORM-Tabellen entstehen auf dem Alembic-Pfad NICHT: "
+        f"{missing}. Auf Postgres laeuft ausschliesslich Alembic."
+    )
+
+
+def test_alembic_head_creates_every_orm_column(tmp_path):
+    migrated = _alembic_head_schema(tmp_path)
+    metadata = _orm_metadata()
+
+    gaps: dict[str, list[str]] = {}
+    for table_name, table in metadata.tables.items():
+        if table_name not in migrated:
+            continue  # eigener Test oben
+        orm_columns = {column.name for column in table.columns}
+        missing = sorted(orm_columns - migrated[table_name])
+        if missing:
+            gaps[table_name] = missing
+
+    assert not gaps, (
+        "Diese ORM-Spalten entstehen auf dem Alembic-Pfad NICHT:\n"
+        + "\n".join(f"  {table}: {cols}" for table, cols in sorted(gaps.items()))
+        + "\n\nSQLAlchemy generiert in JEDEM ORM-Statement die volle "
+        "Spaltenliste -- auf Postgres scheitert damit praktisch jede Anfrage "
+        "auf die betroffene Tabelle mit UndefinedColumn. Fuer jede neue "
+        "ORM-Spalte gehoert eine Alembic-Revision dazu; `ensure_column(...)` "
+        "in database.py deckt nur den SQLite-Pfad."
+    )
