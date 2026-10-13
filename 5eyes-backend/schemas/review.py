@@ -628,6 +628,65 @@ class ConflictDisclosureCreate(BaseModel):
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
+# CONFLICT-RESOLUTION-001 (2026-10-13): Eingaben der drei
+# Aufloesungs-Endpunkte. Vorher gab es nur GET und CREATE, und CREATE
+# erzwang `disclosed_to_client=0, client_acknowledged=0` -- der Zustand war
+# damit produktiv UEBERHAUPT NICHT aufloesbar (Codex-Review zu PR #585).
+
+
+class ConflictDiscloseRequest(BaseModel):
+    """Die Offenlegung an den Kunden protokollieren."""
+    document_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Das abgelegte Offenlegungsdokument. Optional, weil es beim "
+            "Protokollieren noch fehlen kann -- der Konflikt bleibt dann "
+            "`evidence_incomplete` statt `resolved`, statt die Offenlegung "
+            "ganz zu verweigern."
+        ),
+    )
+    disclosed_at: Optional[str] = Field(
+        default=None,
+        description=(
+            "Zeitpunkt der tatsaechlichen Offenlegung (ISO). Ohne Angabe die "
+            "Serverzeit. Darf nicht in der Zukunft liegen und nicht vor der "
+            "Erfassung des Konflikts -- ein Gespraech von gestern nachzutragen "
+            "ist legitim, ein Datum zu erfinden nicht."
+        ),
+    )
+
+
+class ConflictAcknowledgeRequest(BaseModel):
+    """Die Kenntnisnahme des Kunden protokollieren."""
+    acknowledged_at: Optional[str] = Field(
+        default=None,
+        description="Zeitpunkt der Kenntnisnahme (ISO). Ohne Angabe die Serverzeit.",
+    )
+
+
+class ConflictAttachDocumentRequest(BaseModel):
+    """Das Offenlegungsdokument nachtraeglich ablegen."""
+    document_id: str = Field(
+        ..., min_length=1,
+        description=(
+            "Referenz auf das abgelegte Offenlegungsdokument. Ein bereits "
+            "abgelegtes wird nicht ersetzt -- die Referenz ist Teil des "
+            "Nachweises."
+        ),
+    )
+
+
+class ConflictMitigateRequest(BaseModel):
+    """Die getroffene Massnahme protokollieren (FIDLEG Art. 25/26)."""
+    mitigation_action: str = Field(
+        ..., min_length=3,
+        description=(
+            "Was konkret getan wurde. Mindestlaenge, damit kein leerer "
+            "Platzhalter als Massnahme durchgeht."
+        ),
+    )
+
+
 class ConflictDisclosureResponse(BaseResponse):
     id: str
     mandate_id: str
@@ -635,15 +694,24 @@ class ConflictDisclosureResponse(BaseResponse):
     description: str
     inducement_provider: Optional[str]
     inducement_amount_rappen: Optional[int]
+    # 2026-10-13: vorhandene Modellfelder, die die Response bisher verschwieg.
+    # Ohne sie konnte ein Client den Nachweiszustand nicht beurteilen.
+    inducement_frequency: Optional[str] = None
     disclosed_to_client: int
     disclosed_at: Optional[str]
     client_acknowledged: int
+    client_acknowledged_at: Optional[str] = None
     mitigation_action: Optional[str]
+    document_id: Optional[str] = None
     reimbursed_to_client: int = 0
     waiver_document_id: Optional[str] = None
     disclosed_by: str
     created_at: str
     updated_at: str
+    # CONFLICT-STATE-001: derselbe Resolver wie im Advisory-Report, damit der
+    # Berater nach jedem Aufruf SIEHT, was noch fehlt, statt es zu raten.
+    resolution_state: Optional[str] = None
+    missing_evidence: list[str] = Field(default_factory=list)
 
 
 # 2026-09-05 (Codex-Audit PROD-DOMAIN-001): Diversifikations-Tiefe-Felder

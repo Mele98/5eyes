@@ -30,6 +30,8 @@ from schemas.review import (
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
+    ConflictDiscloseRequest, ConflictAcknowledgeRequest,
+    ConflictMitigateRequest, ConflictAttachDocumentRequest,
     ProductCreate, ProductUpdate, ProductResponse,
     ProductBulkImportRequest, ProductImportResponse, ProductImportResultItem,
     ProductMarketOverrideRequest, ProductMarketOverrideResponse,
@@ -192,6 +194,50 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Empfehlung basiert nicht auf der aktuellen Soll-Allokation.")
     elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
         errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
+    # COST-FINALIZATION-001 (CERT-COST-CONFLICT-001, 2026-10-13): die
+    # Validierung prueft Risikoprofil, Soll-Allokation und Policy -- aber
+    # nie den Nachweiszustand der Interessenkonflikte. Ein Mandat mit einer
+    # nie offengelegten Retrozession liess sich damit zertifizieren, und das
+    # FIDLEG-Dokument ging mit genau dem Konflikt an den Kunden, dessen
+    # Offenlegung Art. 25/26 verlangt.
+    #
+    # Das Gate steht ABSICHTLICH erst jetzt im Code: vor den
+    # Aufloesungs-Endpunkten (/disclose, /acknowledge, /mitigate,
+    # /attach-document) haette es jedes Mandat mit einer einzigen
+    # Konfliktzeile blockiert, OHNE dass ein Berater sie aufloesen koennte.
+    # Fail-closed waere dann nicht sicher gewesen, sondern funktionsunfaehig.
+    #
+    # Der Zustand kommt aus demselben Resolver wie der Advisory-Report
+    # (CONFLICT-STATE-001), damit Gate und Bericht nicht auseinanderlaufen.
+    from services.advisory_report import _build_conflict_disclosures
+
+    conflicts = _build_conflict_disclosures(db, mandate)
+    evidence_status = str(conflicts.get("evidence_status") or "")
+    if evidence_status == "indeterminate":
+        # Widerspruechlich oder nicht lesbar -- hier ist nicht einmal klar,
+        # WAS zu tun ist. Eine Zertifizierung auf unklarer Grundlage ist
+        # schlechter als keine.
+        errors.append(
+            "Der Nachweiszustand der Interessenkonflikte ist unklar "
+            "(widersprüchliche Daten oder nicht lesbar). Eine Freigabe auf "
+            "dieser Grundlage ist nicht möglich."
+        )
+    elif evidence_status == "action_required":
+        open_entries = [
+            entry for entry in (conflicts.get("entries") or [])
+            if str(entry.get("resolution_state") or "") != "resolved"
+        ]
+        details = "; ".join(
+            f"{entry.get('conflict_type') or 'Konflikt'}: "
+            f"{', '.join(entry.get('missing_evidence') or []) or 'offen'}"
+            for entry in open_entries[:5]
+        )
+        errors.append(
+            "Interessenkonflikte sind nicht abschliessend offengelegt und "
+            f"belegt ({len(open_entries)} offen). {details}. Offenlegung, "
+            "Kenntnisnahme und Dokument über die Konflikt-Endpunkte erfassen."
+        )
+
     policy = db.query(OptimizerPolicy).filter(
         OptimizerPolicy.id == run.policy_id,
     ).first() if run.policy_id else None
@@ -1446,6 +1492,274 @@ def create_conflict(
     db.commit()
     db.refresh(conflict)
     return conflict
+
+
+# ── Interessenkonflikte: Aufloesung ───────────────────────────────────────────
+# CONFLICT-RESOLUTION-001 (2026-10-13). Vorher gab es nur GET und CREATE, und
+# CREATE erzwang `disclosed_to_client=0, client_acknowledged=0`. Es existierte
+# KEIN Weg, diese Flags je zu aendern -- der Zustand war produktiv ueberhaupt
+# nicht aufloesbar (Codex-Review zu PR #585, Punkt 3). Ein
+# Finalisierungs-Gate auf dem Konfliktzustand (COST-FINALIZATION-001) haette
+# damit jedes Mandat mit einer einzigen Konfliktzeile unaufloesbar blockiert:
+# fail-closed waere nicht sicher gewesen, sondern funktionsunfaehig.
+#
+# KEINE eigene Transitionstabelle wie bei den Goal-Lifecycle-Entscheidungen
+# (ADR-3). Dort traegt jede Entscheidung eine BEGRUENDUNG und einen
+# typisierten Von/Nach-Zustand, die das generische Audit-Log nicht ausdruecken
+# kann. Eine Offenlegung ist dagegen eine Handlung, keine Abwaegung -- und
+# `audit_log` ist bereits ein append-only Ereignisspeicher mit Hash-Kette
+# (SEC-003) und Unveraenderlichkeits-Trigger. Eine zweite Tabelle waere
+# Duplikation.
+
+
+def _get_conflict_or_404(
+    mandate_id: str, conflict_id: str, db: Session, current_user: User,
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    conflict = db.query(ConflictOfInterestDisclosure).filter(
+        ConflictOfInterestDisclosure.id == conflict_id,
+        # An das Mandat gebunden: ein Konflikt eines ANDEREN Mandats darf
+        # ueber diesen Pfad nicht erreichbar sein.
+        ConflictOfInterestDisclosure.mandate_id == mandate_id,
+        ConflictOfInterestDisclosure.deleted_at.is_(None),
+    ).first()
+    if conflict is None:
+        raise HTTPException(status_code=404, detail="Interessenkonflikt nicht gefunden.")
+    return mandate, conflict
+
+
+def _validated_event_timestamp(
+    raw, *, conflict, field_label: str,
+) -> str:
+    """Ein nachgetragener Zeitpunkt, in plausible Grenzen gezwungen.
+
+    Ohne Angabe die Serverzeit. Mit Angabe sind zwei Dinge ausgeschlossen:
+    ein Zeitpunkt in der ZUKUNFT, und einer VOR der Erfassung des Konflikts.
+    Ein Gespraech von gestern nachzutragen ist legitim und der Normalfall;
+    ein Datum zu erfinden, das vor der Existenz des Konflikts liegt, oder
+    eines in der Zukunft, ist kein Nachtrag mehr.
+    """
+    now = _now()
+    if not raw:
+        return now
+    candidate = str(raw).strip()
+    if len(candidate) < 10:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field_label} ist kein gueltiger Zeitpunkt: {candidate!r}",
+        )
+    if candidate > now:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field_label} darf nicht in der Zukunft liegen.",
+        )
+    created_at = str(getattr(conflict, "created_at", "") or "")
+    if created_at and candidate < created_at:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{field_label} liegt vor der Erfassung des Konflikts "
+                f"({created_at}) -- bitte den tatsaechlichen Zeitpunkt erfassen."
+            ),
+        )
+    return candidate
+
+
+def _conflict_response(conflict) -> dict:
+    """Die Konfliktzeile samt abgeleitetem Nachweiszustand.
+
+    Derselbe Resolver wie im Advisory-Report (CONFLICT-STATE-001), damit der
+    Berater nach jedem Aufruf SIEHT, was noch fehlt, statt es zu raten -- und
+    damit beide Kanaele nicht auseinanderlaufen koennen.
+    """
+    from services.advisory_report import _conflict_resolution_state
+
+    state, missing = _conflict_resolution_state(
+        conflict,
+        disclosed=bool(int(getattr(conflict, "disclosed_to_client", 0) or 0)),
+        acknowledged=bool(int(getattr(conflict, "client_acknowledged", 0) or 0)),
+    )
+    payload = {
+        column.name: getattr(conflict, column.name, None)
+        for column in ConflictOfInterestDisclosure.__table__.columns
+    }
+    payload["resolution_state"] = state
+    payload["missing_evidence"] = missing
+    return payload
+
+
+@router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/disclose",
+             response_model=ConflictDisclosureResponse)
+def disclose_conflict(
+    mandate_id: str,
+    conflict_id: str,
+    body: ConflictDiscloseRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Die Offenlegung an den Kunden protokollieren (FIDLEG Art. 25/26)."""
+    mandate, conflict = _get_conflict_or_404(mandate_id, conflict_id, db, current_user)
+    if int(getattr(conflict, "disclosed_to_client", 0) or 0):
+        # NICHT ueberschreiben. Der urspruengliche Zeitpunkt IST der
+        # Nachweis; ihn durch einen neuen zu ersetzen wuerde ihn vernichten.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dieser Interessenkonflikt ist bereits als offengelegt erfasst "
+                f"({getattr(conflict, 'disclosed_at', None)}). Der "
+                "urspruengliche Zeitpunkt wird nicht ueberschrieben."
+            ),
+        )
+    disclosed_at = _validated_event_timestamp(
+        body.disclosed_at, conflict=conflict, field_label="disclosed_at",
+    )
+    conflict.disclosed_to_client = 1
+    conflict.disclosed_at = disclosed_at
+    # `disclosed_by` wurde beim Anlegen auf den Ersteller gesetzt, obwohl
+    # nichts offengelegt war -- jetzt traegt es, was der Name sagt.
+    conflict.disclosed_by = current_user.id
+    if body.document_id:
+        conflict.document_id = body.document_id
+    conflict.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="conflict_of_interest_disclosures", record_id=conflict.id,
+        action="UPDATE", field_name="disclosed_to_client",
+        old_value="0", new_value="1",
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(conflict)
+    return _conflict_response(conflict)
+
+
+@router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge",
+             response_model=ConflictDisclosureResponse)
+def acknowledge_conflict(
+    mandate_id: str,
+    conflict_id: str,
+    body: ConflictAcknowledgeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Die Kenntnisnahme des Kunden protokollieren."""
+    mandate, conflict = _get_conflict_or_404(mandate_id, conflict_id, db, current_user)
+    if not int(getattr(conflict, "disclosed_to_client", 0) or 0):
+        # Der Kunde kann nicht bestaetigen, was ihm nie offengelegt wurde.
+        # Genau dieser Widerspruch wird im Report als
+        # `acknowledged_without_disclosure` gemeldet (CONFLICT-STATE-001) --
+        # hier wird er von vornherein verhindert, statt ihn erzeugbar zu
+        # lassen und nachtraeglich zu beklagen.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Der Konflikt ist noch nicht als offengelegt erfasst. Eine "
+                "Kenntnisnahme ohne vorangehende Offenlegung ist kein "
+                "gueltiger Zustand -- zuerst /disclose."
+            ),
+        )
+    if int(getattr(conflict, "client_acknowledged", 0) or 0):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Die Kenntnisnahme ist bereits erfasst "
+                f"({getattr(conflict, 'client_acknowledged_at', None)}). Der "
+                "urspruengliche Zeitpunkt wird nicht ueberschrieben."
+            ),
+        )
+    acknowledged_at = _validated_event_timestamp(
+        body.acknowledged_at, conflict=conflict, field_label="acknowledged_at",
+    )
+    conflict.client_acknowledged = 1
+    conflict.client_acknowledged_at = acknowledged_at
+    conflict.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="conflict_of_interest_disclosures", record_id=conflict.id,
+        action="UPDATE", field_name="client_acknowledged",
+        old_value="0", new_value="1",
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(conflict)
+    return _conflict_response(conflict)
+
+
+@router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/mitigate",
+             response_model=ConflictDisclosureResponse)
+def mitigate_conflict(
+    mandate_id: str,
+    conflict_id: str,
+    body: ConflictMitigateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Die getroffene organisatorische Massnahme protokollieren.
+
+    Anders als Offenlegung und Kenntnisnahme ist das KEIN einmaliger
+    Zustandsuebergang: eine Massnahme kann praezisiert oder ersetzt werden.
+    Der alte Wert bleibt deshalb im Audit-Log, nicht in der Zeile.
+    """
+    mandate, conflict = _get_conflict_or_404(mandate_id, conflict_id, db, current_user)
+    previous = getattr(conflict, "mitigation_action", None)
+    conflict.mitigation_action = body.mitigation_action.strip()
+    conflict.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="conflict_of_interest_disclosures", record_id=conflict.id,
+        action="UPDATE", field_name="mitigation_action",
+        old_value=previous, new_value=conflict.mitigation_action,
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(conflict)
+    return _conflict_response(conflict)
+
+
+@router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/attach-document",
+             response_model=ConflictDisclosureResponse)
+def attach_conflict_document(
+    mandate_id: str,
+    conflict_id: str,
+    body: ConflictAttachDocumentRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Das Offenlegungsdokument nachtraeglich ablegen.
+
+    Noetig, weil `/disclose` einmalig ist: wer die Offenlegung protokolliert,
+    bevor das Dokument abgelegt war, bliebe sonst dauerhaft bei
+    `evidence_incomplete` -- und mit einem Finalisierungs-Gate darauf waere
+    das Mandat unaufloesbar blockiert. Genau die Falle, die dieser ganze
+    Endpunkt-Satz vermeiden soll, nur eine Ebene tiefer.
+
+    Ein BEREITS abgelegtes Dokument wird NICHT ersetzt: die Referenz ist Teil
+    des Nachweises, und sie stillschweigend umzuhaengen wuerde ihn
+    entwerten. Ein Austausch braucht eine eigene, bewusste Entscheidung --
+    die es heute nicht gibt und die hier nicht nebenbei erfunden wird.
+    """
+    mandate, conflict = _get_conflict_or_404(mandate_id, conflict_id, db, current_user)
+    existing = str(getattr(conflict, "document_id", "") or "").strip()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Es ist bereits ein Dokument abgelegt ({existing}). Eine "
+                "bestehende Nachweis-Referenz wird nicht ersetzt."
+            ),
+        )
+    conflict.document_id = body.document_id.strip()
+    conflict.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="conflict_of_interest_disclosures", record_id=conflict.id,
+        action="UPDATE", field_name="document_id",
+        old_value=None, new_value=conflict.document_id,
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(conflict)
+    return _conflict_response(conflict)
 
 
 # ── Products ───────────────────────────────────────────────────────────────────
