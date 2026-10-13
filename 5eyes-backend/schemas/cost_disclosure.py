@@ -64,6 +64,15 @@ class CostDisclosureResponse(BaseModel):
     currency: str = "CHF"
     as_of: Optional[str] = None
     source_run_id: Optional[str] = None
+    source_run_status: Optional[str] = Field(
+        None,
+        description=(
+            "Status des Empfehlungslaufs, auf dem dieser Ausweis beruht "
+            "('Final' = freigegeben, 'Draft' = vorlaeufig). Ohne dieses Feld "
+            "ist ein Ausweis auf Entwurfsbasis von einem freigegebenen nicht "
+            "zu unterscheiden (COST-CONTEXT-001a)."
+        ),
+    )
     fidleg_basis: str
     advisory_wealth_rappen: int = 0
     invested_amount_rappen: int = 0
