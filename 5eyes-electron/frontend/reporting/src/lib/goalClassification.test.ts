@@ -20,6 +20,8 @@ function makeGoal(overrides: Partial<GoalEntry> = {}): GoalEntry {
     hardness: overrides.hardness ?? 'Primaer',
     probability_bps: overrides.probability_bps ?? null,
     status: overrides.status ?? '',
+    outside_simulation_horizon:
+      overrides.outside_simulation_horizon ?? false,
   };
 }
 

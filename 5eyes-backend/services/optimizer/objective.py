@@ -210,6 +210,59 @@ def _positive_due_wealth_indices(
     return np.asarray(indices, dtype=np.intp)
 
 
+def scheduled_outside_wealth_horizon(
+    liability: GoalLiability,
+    *,
+    n_wealth_columns: int,
+) -> bool:
+    """Liegt der Zahlungsplan dieses Ziels KOMPLETT jenseits des Horizonts?
+
+    GOAL-OUTSIDE-HORIZON-001. `_positive_due_wealth_indices()` liefert eine
+    leere Liste fuer ZWEI voellig verschiedene Zustaende:
+
+        (a) das Ziel hat gar keine positive Verbindlichkeit
+            -- dann ist "erreicht" korrekt: es ist nichts zu finanzieren;
+        (b) das Ziel hat Faelligkeiten, aber ALLE liegen hinter dem
+            Horizont -- dann wurde es NICHT geprueft, sondern nur nicht
+            angesehen.
+
+    Die Aufrufer unterschieden das nicht und behandelten (b) wie (a):
+    `_goal_probability_core()` gibt bei leeren Indizes `np.ones(...)` zurueck,
+    also "auf jedem Pfad erreicht". Gemessen an einem Mock-Mandanten mit
+    CHF 530'000 Beratungsvermoegen und einer Pensionsausgabe von
+    CHF 5'000'000 PRO JAHR ab 2046 (Risikoprofil-Horizont 20 Jahre, also
+    Buckets 2026-2045):
+
+        liability_path_rappen = 20 Einträge, davon 0 positiv
+        due_indices           = 0
+        probability            = 1.0  ->  10000 bps, Status "erreichbar"
+
+    Ein einmaliges Ziel von CHF 50 Mio im Horizont bekam im selben Lauf
+    korrekt 0 bps. Nur der Strom jenseits des Horizonts -- das haerteste
+    Ziel, Rang 1, in einer Ruhestandsplanung -- meldete erfundene Gewissheit.
+
+    Die Unterscheidung wird NICHT aus dem Geldpfad zurueckgerechnet, sondern
+    aus dem strukturellen Fahrplan gelesen: `target_year_index` traegt den
+    Bucket der ersten echten Faelligkeit, und `_build_recurring_outflow()`
+    klemmt ihn bei leerem Horizont bewusst NICHT (siehe dort:
+    "``target_year_index > horizon_years`` ist das etablierte Signal 'liegt
+    ausserhalb des Horizonts', auf das Konsumenten pruefen"). Dieser
+    Aufrufer war der Konsument, der nicht geprueft hat.
+
+    Aus dem Geldpfad zu schliessen waere ausserdem falsch: eine Reihe kann
+    auch dann komplett null sein, wenn der Fahrplan IM Horizont liegt (ein
+    bedingtes Ziel mit `probability_pct=0`, oder Betraege, die pro Bucket auf
+    null runden) -- derselbe Zahlenwert, ein anderer Zustand.
+
+    `n_wealth_columns` ist `horizon_years + 1`: Bucket t wird in Spalte t+1
+    beobachtet, Spalte 0 ist das Startvermoegen.
+    """
+    horizon_years = int(n_wealth_columns) - 1
+    if horizon_years < 1:
+        return False
+    return int(getattr(liability, "target_year_index", 0) or 0) > horizon_years
+
+
 def shortfall_squared_per_path(
     liability: GoalLiability,
     wealth_paths: np.ndarray,
@@ -554,7 +607,30 @@ def chance_constraint_penalty(
         lower_bound = wilson_lower_bound(probability, n_effective)
         ess_sufficient = ess_is_sufficient(n_effective, n_paths)
 
-        if ess_sufficient and lower_bound >= tau:
+        # GOAL-OUTSIDE-HORIZON-001: VOR der Statuskette und vor dem Verdikt.
+        # `_goal_probability_core()` liefert fuer ein Ziel ohne Faelligkeit im
+        # Horizont `np.ones(...)`, also probability = 1.0 -- und eine spaetere
+        # Korrektur haette das Verdikt schon mit dieser erfundenen Eins
+        # berechnet.
+        outside_horizon = goal.target_kind in (
+            "cashflow_in_year", "outflow_stream",
+        ) and scheduled_outside_wealth_horizon(
+            goal, n_wealth_columns=wealth_paths.shape[1]
+        )
+        if outside_horizon:
+            # Die Zahl folgt dem MC-Kanal, der denselben Zustand schon so
+            # meldet (`portfolio_engine_mc_simulation.py`:
+            # `success_rate_pct = 0` plus `outside_simulation_horizon = True`
+            # plus Notiz). Genau der WIDERSPRUCH zwischen den beiden Kanaelen
+            # war der Befund: derselbe Zustand, hier 100 %, dort 0 %. Parity
+            # ist der Gewinn, nicht die Zahl -- 0 ist eine durch die
+            # Offenlegung getragene Konvention, keine Messung. Der eigene
+            # Status verhindert, dass ein Konsument daraus "nicht erreichbar"
+            # liest.
+            probability = 0.0
+            lower_bound = 0.0
+            status = "ausserhalb_horizont"
+        elif ess_sufficient and lower_bound >= tau:
             status = "erreichbar"
         elif not ess_sufficient and probability >= TAU_UNREACHABLE:
             # Zu wenig unabhaengige Evidenz (z.B. degenerierte IS-Gewichtung),
@@ -580,10 +656,20 @@ def chance_constraint_penalty(
             tau=tau,
             ess_sufficient=ess_sufficient,
             validation_seed=validation_seed,
+            outside_horizon=outside_horizon,
         )
 
         hardness = _hardness_key(getattr(goal, "hardness_key", None))
         applies_penalty = hardness in _PRIMARY_HARDNESS_KEYS and goal.target_kind != "maximize"
+        if outside_horizon:
+            # KEINE Strafe: der Solver darf nicht gegen etwas optimieren, das
+            # die Simulation nicht beobachtet. Eine Strafe wuerde die
+            # Allokation fuer alle UEBRIGEN Ziele verzerren, um einen
+            # Fehlbetrag zu bekaempfen, der innerhalb des Horizonts gar nicht
+            # auftritt. Der Befund war die falsche AUSSAGE, nicht eine
+            # fehlende Strafe -- deshalb wird hier offengelegt, nicht
+            # bestraft.
+            applies_penalty = False
         if applies_penalty:
             # Strafe an der unteren Grenze, nicht am Punktschaetzer (siehe
             # Docstring). Bei kollabierendem ESS geht die Grenze gegen 0 und
@@ -603,6 +689,9 @@ def chance_constraint_penalty(
             "effective_sample_size": n_effective,
             "validation_seed": validation_seed,
             "reliability_verdict": verdict,
+            # Gleicher Feldname wie im MC-Kanal, damit ein Konsument beide
+            # Strecken gleich lesen kann.
+            "outside_simulation_horizon": outside_horizon,
         })
     return float(penalty), achievability
 
