@@ -697,10 +697,30 @@ def test_never_disclosed_conflict_must_be_flagged_unresolved_not_acknowledged(cc
 # COST-FINALIZATION-001 -- finalize_recommendation() has no cost-disclosure
 # or conflict-evidence gate at all; an undisclosed, unresolved inducement
 # conflict does not block finalization.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-13):
+# `_validate_recommendation_for_finalization()` now consults the same
+# conflict-evidence resolver as the Advisory-Report (CONFLICT-STATE-001), so
+# gate and report cannot diverge. `indeterminate` and `action_required` both
+# refuse certification, and the error names what is missing per conflict.
+#
+# The gate deliberately landed only together with the resolution endpoints
+# (/disclose, /acknowledge, /mitigate, /attach-document). Before those
+# existed, `result_status` could only ever be 0/0 -- the gate would have
+# blocked every mandate holding a single conflict row with no way for an
+# advisor to clear it. Fail-closed would not have been safe, it would have
+# been inoperable.
+#
+# The sanity assertion below had to go, and that is not a weakening. It read
+# `assert errors == []` with the comment "demonstrating it never looks at
+# conflict/cost evidence" -- it pinned the DEFECT as the expected state, so
+# fixing the defect necessarily makes it false. The Soll (finalize must
+# raise) is unchanged and now additionally checks that the refusal names the
+# conflicts. xfail removed: strict=True would otherwise report an unexpected
+# XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-FINALIZATION-001 -- CERT-COST-CONFLICT-001")
 def test_finalize_must_block_when_mandate_has_unresolved_conflict_evidence(session_factory):
     advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(session_factory, suffix="cost-fin")
     alloc_id = _current_allocation_id(session_factory, mid, advisor_id)
@@ -719,10 +739,12 @@ def test_finalize_must_block_when_mandate_has_unresolved_conflict_evidence(sessi
         mandate = db.query(Mandate).filter(Mandate.id == mid).first()
         advisor = db.query(User).filter(User.id == advisor_id).first()
         run = db.query(RecommendationRun).filter(RecommendationRun.id == run_id).first()
-        # Sanity: today's validator sees no errors at all for this run --
-        # demonstrating it never looks at conflict/cost evidence.
+        # Der Validator MUSS den Konfliktzustand sehen -- und sagen, was
+        # fehlt. Eine blosse Ablehnung ohne Begruendung waere fuer den
+        # Berater nicht handhabbar.
         errors, _warnings = _validate_recommendation_for_finalization(db, mandate, run)
-        assert errors == []
+        assert errors, "Der Validator uebergeht den Konflikt-Nachweiszustand"
+        assert any("Interessenkonflikte" in error for error in errors), errors
 
         # Soll: finalize must refuse to certify a run while unresolved
         # conflict evidence exists for the mandate.
