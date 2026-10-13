@@ -2762,6 +2762,22 @@ def finalize_recommendation(
     ).update({"result_status": "Superseded"})
     run.result_status = "Final"
     run.updated_at = _now()
+    # COST-CONTEXT-001b / COST-EVIDENCE-001 (2026-10-13): die Finalisierung
+    # IST der Zertifizierungszeitpunkt -- hier wird der Kostenausweis
+    # eingefroren. Vorher rechnete `build_cost_disclosure()` bei jedem
+    # Aufruf neu und las dabei live `Product.ter_bps`; eine spaetere
+    # TER-Korrektur aenderte damit die Totale eines bereits ausgehaendigten
+    # FIDLEG-Dokuments rueckwirkend.
+    #
+    # NACH dem Setzen auf 'Final', damit der Snapshot den Status traegt, den
+    # er zertifiziert. Fail-soft: liefert die Berechnung keinen Ausweis,
+    # bleibt die Spalte NULL und der Leser legt das offen
+    # (`evidence_frozen=False`) -- die Finalisierung daran scheitern zu
+    # lassen waere eine Blockade, die dieser Befund nicht verlangt.
+    from services.cost_disclosure import freeze_cost_disclosure_for_run
+    run.cost_disclosure_snapshot_json = freeze_cost_disclosure_for_run(
+        db, mandate, run
+    )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
         field_name="result_status",

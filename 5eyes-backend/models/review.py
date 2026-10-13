@@ -425,6 +425,18 @@ class RecommendationRun(Base):
     # Befuellung ist NICHT Teil dieses Arbeitspakets (spaeteres WP).
     provisional_data_warning = Column(String)
     other_assets_included = Column(Integer, nullable=False, default=0)
+    # COST-CONTEXT-001b / COST-EVIDENCE-001 (2026-10-13): der bei der
+    # FINALISIERUNG eingefrorene Kostenausweis dieses Laufs, als voller
+    # Payload samt Inhalts-Hash. Vorher rechnete `build_cost_disclosure()`
+    # bei jedem Aufruf neu und las dabei live `Product.ter_bps` -- eine
+    # spaetere TER-Korrektur aenderte damit die Totale eines bereits
+    # zertifizierten Laufs rueckwirkend. Ein FIDLEG-Dokument muss
+    # reproduzierbar sein; was der Kunde erhalten hat, steht hier.
+    #
+    # NULL bedeutet "nicht eingefroren" -- fuer Entwuerfe der Normalfall,
+    # fuer Altlaeufe aus der Zeit vor dieser Spalte ebenfalls. Der Leser
+    # legt das offen statt es zu verschweigen (`evidence_frozen`).
+    cost_disclosure_snapshot_json = Column(String)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
