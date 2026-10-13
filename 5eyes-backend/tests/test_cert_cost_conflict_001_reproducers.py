@@ -260,10 +260,25 @@ def _advisory_log_payload(**overrides) -> AdvisoryLogCreate:
 # COST-CONTEXT-001a -- a newer Draft run displaces a certified Final run as
 # the cost-disclosure source. build_cost_disclosure() picks purely by
 # created_at.desc() with no result_status/explicit-run filter.
+#
+# FIXED (CERT-COST-CONFLICT-001, 2026-10-13): the query now selects by a
+# STATUS PRIORITY ('Final' before 'Draft'), not by date. A Draft remains a
+# legitimate source while advice is being prepared -- the advisor wants to
+# see costs before finalising -- but it can no longer displace a certified
+# Final. Found alongside and also closed: 'Rejected' and 'Superseded' are
+# valid `result_status` values (CHECK in 5eyes_schema_v4.0_FINAL.sql) and
+# could likewise become the client's cost basis; they are now no source at
+# all, and a mandate holding only such runs gets a `_pending_payload` naming
+# the reason. The payload additionally carries `source_run_status`, so a
+# draft-based disclosure is visibly provisional. xfail removed: strict=True
+# would otherwise report an unexpected XPASS.
+#
+# NOT closed by this: COST-CONTEXT-001b (live drift of a certified run's
+# evidence) stays xfail below -- that needs a persisted run-bound snapshot,
+# the same contract as COST-EVIDENCE-001.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-CONTEXT-001 -- CERT-COST-CONFLICT-001 (run selection)")
 def test_newer_draft_must_not_displace_certified_final_run_as_cost_source(cc_session_factory):
     sf = cc_session_factory
     advisor_id, client_id, mandate_id = _seed_mandate(sf, suffix="ctx-a")

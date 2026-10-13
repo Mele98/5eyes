@@ -187,6 +187,35 @@ _ONE_TIME_RATE_KEYS = (
     ),
 )
 
+# COST-CONTEXT-001a (CERT-COST-CONFLICT-001): Rangfolge der Kostenquelle.
+#
+# Vorher waehlte `build_cost_disclosure()` rein nach `created_at.desc()`, ohne
+# jeden Status-Filter. Folgen, gemessen am Reproducer:
+#
+#   Ein spaeterer DRAFT (Gebuehrenmodell 999 bps) verdraengte den
+#   zertifizierten FINAL-Lauf (25 bps) als Grundlage des FIDLEG-Dokuments --
+#   das Dokument zeigte Kosten eines Entwurfs, den niemand freigegeben hat.
+#
+# Dazu zwei Zustaende, die der Reproducer nicht nennt, aber dieselbe Abfrage
+# treffen: `result_status` erlaubt auch 'Rejected' und 'Superseded' (CHECK in
+# 5eyes_schema_v4.0_FINAL.sql). Ein ABGELEHNTER Lauf konnte damit die
+# Kostengrundlage des Kunden sein, und ein durch einen neueren Final
+# ERSETZTER ebenso.
+#
+# Rangfolge statt Datum:
+#   'Final' -- der zertifizierte Lauf. Es gibt hoechstens einen; jeder
+#              weitere Final setzt die uebrigen auf 'Superseded'
+#              (routers/review.py::finalize_recommendation).
+#   'Draft' -- waehrend der Vorbereitung legitim: der Berater will die
+#              Kosten sehen, bevor er finalisiert. Darf einen Final aber
+#              NICHT verdraengen, deshalb zweiter Rang.
+#
+# 'Rejected' und 'Superseded' sind BEWUSST keine Quelle. Beides stillschweigend
+# zu verwenden waere die falsche Richtung: ein abgelehnter Entwurf ist keine
+# Empfehlung, und ein ersetzter Lauf ist nicht der aktuelle Stand. Existieren
+# nur solche, antwortet die Funktion `_pending_payload` mit Begruendung.
+_COST_SOURCE_STATUS_PRIORITY = ("Final", "Draft")
+
 
 def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
     """Build a stable ex-ante cost payload for one mandate.
@@ -201,15 +230,43 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
         RecommendationPosition, RecommendationRun,
     )
 
-    latest_run = (
-        db.query(RecommendationRun)
-        .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
-        .first()
-    )
     currency = str(getattr(mandate, "base_currency", None) or "CHF").upper().strip() or "CHF"
 
+    # COST-CONTEXT-001a: nach RANGFOLGE, nicht nach Datum (siehe
+    # _COST_SOURCE_STATUS_PRIORITY).
+    latest_run = None
+    for candidate_status in _COST_SOURCE_STATUS_PRIORITY:
+        latest_run = (
+            db.query(RecommendationRun)
+            .filter(
+                RecommendationRun.mandate_id == mandate.id,
+                RecommendationRun.result_status == candidate_status,
+            )
+            .order_by(RecommendationRun.created_at.desc())
+            .first()
+        )
+        if latest_run is not None:
+            break
+
     if latest_run is None:
+        # Unterscheiden: gar kein Lauf, oder nur Laeufe, die keine Grundlage
+        # sein duerfen. Beides als "noch keine Empfehlung" zu melden waere
+        # irrefuehrend -- im zweiten Fall GIBT es Laeufe, sie taugen nur nicht.
+        other_status = (
+            db.query(RecommendationRun.result_status)
+            .filter(RecommendationRun.mandate_id == mandate.id)
+            .order_by(RecommendationRun.created_at.desc())
+            .first()
+        )
+        if other_status is not None:
+            return _pending_payload(
+                "Für dieses Mandat liegt kein freigegebener oder in Arbeit "
+                f"befindlicher Empfehlungslauf vor (letzter Status: "
+                f"{str(other_status[0])}). Ein abgelehnter oder ersetzter Lauf "
+                "ist keine Grundlage für den Kostenausweis -- Strategie neu "
+                "berechnen und finalisieren.",
+                currency=currency,
+            )
         return _pending_payload(
             "Noch keine Portfolioempfehlung vorhanden; ein konkreter "
             "Ex-ante-Kostenausweis kann noch nicht berechnet werden.",
@@ -391,6 +448,7 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
             ),
             inducements=inducements,
             source_run_id=str(latest_run.id),
+        source_run_status=str(getattr(latest_run, "result_status", "") or ""),
             as_of=str(getattr(latest_run, "created_at", "") or ""),
             currency=currency,
         )
@@ -412,6 +470,7 @@ def calculate_cost_disclosure(
     transaction_cost_bps: int = DEFAULT_TRANSACTION_COST_BPS,
     inducements: Iterable[Mapping[str, Any]] | None = None,
     source_run_id: str | None = None,
+    source_run_status: str | None = None,
     as_of: str | None = None,
     currency: str = "CHF",
 ) -> dict[str, Any]:
@@ -726,6 +785,12 @@ def calculate_cost_disclosure(
         "currency": currency,
         "as_of": as_of,
         "source_run_id": source_run_id,
+        # COST-CONTEXT-001a: welchen STATUS der Quelllauf hatte. Ein
+        # Kostenausweis auf Entwurfsbasis ist legitim (der Berater will
+        # die Kosten vor der Freigabe sehen), aber er ist vorlaeufig --
+        # ohne dieses Feld ist er von einem freigegebenen nicht zu
+        # unterscheiden.
+        "source_run_status": source_run_status,
         "fidleg_basis": "Art. 8/9 FIDLEG; Art. 8/14 FIDLEV",
         "advisory_wealth_rappen": advisory_wealth,
         "invested_amount_rappen": invested_amount,
@@ -843,6 +908,7 @@ def _pending_payload(note: str, *, currency: str = "CHF") -> dict[str, Any]:
         "currency": str(currency or "CHF").upper().strip() or "CHF",
         "as_of": None,
         "source_run_id": None,
+        "source_run_status": None,
         "fidleg_basis": "Art. 8/9 FIDLEG; Art. 8/14 FIDLEV",
         "advisory_wealth_rappen": 0,
         "invested_amount_rappen": 0,
