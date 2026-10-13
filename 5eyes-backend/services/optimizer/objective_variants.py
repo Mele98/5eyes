@@ -60,26 +60,40 @@ IST eine Frage an das Vermoegen inklusive Cashflows.
 Was ``min_volatility`` genau misst
 ----------------------------------
 
-Gemessen wird die Streuung der **annualisierten** Portfoliorendite ueber die
-Szenarien, nicht die Jahr-zu-Jahr-Volatilitaet. Ein Kunde, der "so wenig
-Schwankung wie moeglich" sagt, meint eher letzteres -- die Unruhe des Verlaufs,
-nicht die Unsicherheit des Endergebnisses.
+Gemessen wird die Streuung der **Einperioden**-Portfoliorendite ueber Pfade
+und Jahre -- die Jahr-zu-Jahr-Volatilitaet, also die Unruhe des Verlaufs. Das
+ist, was ein Kunde mit "so wenig Schwankung wie moeglich" meint, und dieselbe
+Groesse, die ``sqrt(w' Sigma w)`` analytisch liefert. Nachgemessen gegen
+vorgegebene Sigmas von 12 % bis 40 %: Abweichung hoechstens 0.0002.
 
-Beide Lesarten fuehren hier zur **gleichen Rangfolge** der Allokationen, und
-zwar aus einem Modellgrund: im Entscheidungsmodell des Solvers sind die
-Jahresrenditen iid (in jedem Jahr dieselben Log-Parameter, unabhaengige
-Ziehungen, konstante Gewichte). Dann gilt
-``sigma_annualisiert ~ sigma_1J / sqrt(T)`` -- eine streng monotone
-Transformation, die die Ordnung erhaelt. Die Variante waehlt also dieselbe
-Allokation, die auch eine Minimierung der Einperioden-Varianz ``a' Sigma a``
-waehlen wuerde.
+Korrektur 2026-10-14 (OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001)
+.............................................................
 
-Das ist eine Modellannahme und keine Selbstverstaendlichkeit. Sobald die
-Jahresrenditen nicht mehr iid sind -- eine Zinsstruktur statt eines konstanten
-mu pro Bucket, zeitvariable Volatilitaet, pfadabhaengiges Rebalancing im
-Entscheidungsmodell --, koennen die beiden Masse auseinanderlaufen und die
-Variante muss auf die gemeinte Groesse umgestellt werden. Dann ist diese
-Aequivalenz der Satz, den man zuerst wieder nachrechnet.
+Hier stand bis dahin die Streuung der **annualisierten Endrendite**, mit der
+Begruendung, beide Lesarten fuehrten wegen ``sigma_ann ~ sigma_1J / sqrt(T)``
+zur gleichen Rangfolge. Dieser Satz ist falsch -- er gilt fuer LOG-Renditen,
+nicht fuer die arithmetische Streuung des annualisierten Faktors.
+
+Bei lognormalen Jahresfaktoren ist ``R_ann = exp(X/T)`` mit
+``X ~ N(T*l, T*s^2)``, also ``R_ann`` lognormal mit ``(l, s^2/T)`` und
+
+    sd(R_ann) = exp(l + s^2/(2T)) * sqrt(exp(s^2/T) - 1)
+
+Der Vorfaktor ``exp(l + ...)`` waechst mit dem Log-Mean. Das Mass war damit
+MEAN-ABHAENGIG und ordnete teilweise nach Rendite statt nach Risiko.
+Gegenbeispiel mit der echten Produktfunktion (12 Jahre, 200'000 Pfade, Seed
+20261011, lognormale Faktoren wie in der Scenario-Engine):
+
+    A: Mean +5.5 %, Einperioden-Std 0.39983, log-Var 0.1342 -> altes Mass 0.105348
+    B: Mean -5.0 %, Einperioden-Std 0.40032, log-Var 0.1636 -> altes Mass 0.103446
+
+A schwankt weniger und hat die kleinere Log-Varianz, wurde aber SCHLECHTER
+bewertet. Die Rangumkehr tritt innerhalb der iid-Annahme auf, unter der die
+Aequivalenz behauptet wurde -- sie war nicht erst durch Zinsstruktur oder
+zeitvariable Volatilitaet verletzt, sondern von Anfang an.
+
+Die Annualisierung bleibt fuer ``cvar_return`` und ``max_return`` richtig:
+dort ist die Verteilung des ERGEBNISSES die Frage, nicht die Unruhe des Wegs.
 
 Max-Drawdown: bewusst auf dem Jahresgitter
 ------------------------------------------
@@ -138,8 +152,13 @@ OBJECTIVE_DESCRIPTIONS: dict[str, str] = {
         "cashflow-neutralen Portfolioindex."
     ),
     OBJECTIVE_MIN_VOLATILITY: (
-        "Minimiert die Streuung der annualisierten Portfoliorendite ueber "
-        "die Szenarien."
+        # OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001: hiess "Streuung der
+        # annualisierten Portfoliorendite". Dieser Text geht in den
+        # Nachweis-Block (objective_basis) und damit in Modellbasis, API und
+        # PDF -- eine falsche Beschreibung dort ist kein Schoenheitsfehler,
+        # sondern ein falscher Nachweis darueber, wonach optimiert wurde.
+        "Minimiert die Jahr-zu-Jahr-Schwankung der Portfoliorendite "
+        "(Einperioden-Volatilitaet) ueber die Szenarien."
     ),
     OBJECTIVE_MAX_RETURN: (
         "Maximiert die erwartete annualisierte Portfoliorendite innerhalb "
@@ -291,6 +310,63 @@ def _annualized_returns_from_factors(factors: np.ndarray) -> np.ndarray:
     return np.exp(np.mean(np.log(safe), axis=1)) - 1.0
 
 
+def _one_period_return_dispersion(
+    factors: np.ndarray, weights: np.ndarray | None,
+) -> float:
+    """Streuung der EINPERIODEN-Renditen, ueber Pfade UND Jahre.
+
+    OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001: das ist "die Unruhe des Verlaufs"
+    -- die Groesse, die der Modul-Docstring selbst als die benennt, die ein
+    Kunde mit "so wenig Schwankung wie moeglich" meint, und die
+    ``sqrt(w' Sigma w)`` analytisch liefert.
+
+    Bei iid-Jahren ist der gepoolte Stichproben-Std der Jahresrenditen deren
+    direkter Schaetzer. Nachgemessen gegen vorgegebene Einperioden-Sigmas von
+    12 % bis 40 %: Abweichung hoechstens 0.0002 bei 200'000 Pfaden und 12
+    Jahren.
+
+    Vorher wurde hier die Streuung der ANNUALISIERTEN Endrendite gemessen.
+    Die ist bei lognormalen Faktoren MEAN-ABHAENGIG: mit
+    ``R_ann = exp(X/T)``, ``X ~ N(T*l, T*s^2)`` ist ``R_ann`` lognormal mit
+    ``(l, s^2/T)``, also
+
+        sd(R_ann) = exp(l + s^2/(2T)) * sqrt(exp(s^2/T) - 1)
+
+    Der Faktor ``exp(l + ...)`` waechst mit dem Log-Mean -- ein Portfolio mit
+    hoeherer erwarteter Rendite bekommt allein dadurch mehr "Volatilitaet"
+    zugeschrieben. Gemessen mit der echten Produktfunktion (12 Jahre,
+    200'000 Pfade, Seed 20261011):
+
+        A: Mean +5.5 %, Einperioden-Std 0.39983  ->  altes Mass 0.105348
+        B: Mean -5.0 %, Einperioden-Std 0.40032  ->  altes Mass 0.103446
+
+    A schwankt WENIGER und wurde schlechter bewertet; B hatte sogar die
+    hoehere Log-Varianz (0.1636 vs. 0.1342) und gewann, nur weil sein
+    Erwartungswert niedriger war. Der Modus ordnete damit teilweise nach
+    Rendite statt nach Risiko -- und das innerhalb der iid-Annahme, unter der
+    der Docstring Ranggleichheit mit ``a' Sigma a`` behauptete.
+
+    ``weights`` sind Likelihood-Ratios aus Importance Sampling und gelten pro
+    PFAD. Jede Jahresbeobachtung eines Pfades traegt daher dasselbe Gewicht;
+    deshalb ``np.repeat`` ueber die Jahre und nicht ``np.tile``, dessen
+    Reihenfolge nicht zur zeilenweisen Flachlegung passen wuerde.
+    """
+    one_period_returns = np.asarray(factors, dtype=np.float64) - 1.0
+    flat = one_period_returns.reshape(-1)
+    if weights is None:
+        return float(np.std(flat))
+    path_weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+    n_paths, n_years = one_period_returns.shape
+    if path_weights.shape[0] != n_paths:
+        # Eigene Pruefung mit eigener Meldung: `weighted_std` saehe nur die
+        # flachgelegte Laenge (pfade*jahre) und wuerde eine irrefuehrende
+        # Zahl nennen.
+        raise ValueError(
+            f"weights.shape[0]={path_weights.shape[0]} != n_paths={n_paths}"
+        )
+    return weighted_std(flat, np.repeat(path_weights, n_years))
+
+
 def _annual_grid_max_drawdowns(factors: np.ndarray) -> np.ndarray:
     """Max-Drawdown pro Pfad als Anteil, auf dem cashflow-neutralen Index.
 
@@ -343,6 +419,12 @@ def primary_objective(
 
     if resolved == OBJECTIVE_MAX_DRAWDOWN:
         return weighted_mean(_annual_grid_max_drawdowns(factors), weights)
+    if resolved == OBJECTIVE_MIN_VOLATILITY:
+        # OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001: Einperioden-Streuung, siehe
+        # _one_period_return_dispersion. Bewusst VOR der Annualisierung, damit
+        # diese Variante sie nicht mehr berechnet -- sie braucht sie nicht,
+        # und in jeder SLSQP-Iteration waere das verworfene Arbeit.
+        return _one_period_return_dispersion(factors, weights)
 
     annualized = _annualized_returns_from_factors(factors)
     if resolved == OBJECTIVE_CVAR_RETURN:
@@ -352,8 +434,6 @@ def primary_objective(
         # 0 abgeschnitten, sonst waere die Zielfunktion dort flach und der
         # Solver bekaeme kein Gefaelle mehr.
         return -weighted_lower_tail_mean(annualized, weights)
-    if resolved == OBJECTIVE_MIN_VOLATILITY:
-        return weighted_std(annualized, weights)
     if resolved == OBJECTIVE_MAX_RETURN:
         return -weighted_mean(annualized, weights)
 
