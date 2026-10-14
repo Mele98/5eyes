@@ -3020,50 +3020,6 @@ def _assert_allocation_has_basis(
         )
 
 
-
-def _identical_previous_allocation(
-    previous,
-    *,
-    allocation_context_hash: str,
-    input_snapshot_hash: str,
-    policy_id,
-    cma_id,
-    assessment,
-    targets: dict,
-    minimums: dict,
-    maximums: dict,
-) -> bool:
-    """REGENERATE-IDEMPOTENT-001: ist die neue Allokation exakt die bisherige?"""
-    if previous is None:
-        return False
-    if int(getattr(previous, "context_artifacts_required", 0) or 0) != 1:
-        return False
-    if str(getattr(previous, "allocation_context_hash", "") or "") != str(allocation_context_hash):
-        return False
-    if str(getattr(previous, "input_snapshot_hash", "") or "") != str(input_snapshot_hash):
-        return False
-    if (
-        str(getattr(previous, "policy_id", "") or "") != str(policy_id)
-        or str(getattr(previous, "capital_market_assumptions_id", "") or "") != str(cma_id)
-        or str(getattr(previous, "based_on_assessment_id", "") or "") != str(getattr(assessment, "id", ""))
-    ):
-        return False
-    for bucket in BUCKET_FIELDS:
-        if (
-            int(getattr(previous, f"target_{bucket}_bps") or 0) != int(targets[bucket])
-            or int(getattr(previous, f"band_{bucket}_min_bps") or 0) != int(minimums[bucket])
-            or int(getattr(previous, f"band_{bucket}_max_bps") or 0) != int(maximums[bucket])
-        ):
-            return False
-    # Ein Override nach der Generierung (gleiche Assessment-id, in place)
-    # darf nie eine alte Allokation wiederbeleben.
-    if int(getattr(assessment, "is_overridden", 0) or 0):
-        override_at = str(getattr(assessment, "override_at", "") or "")
-        created_at = str(getattr(previous, "created_at", "") or "")
-        if not override_at or not created_at or override_at > created_at:
-            return False
-    return True
-
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
@@ -4138,25 +4094,11 @@ def generate_target_allocation(
         ).encode("utf-8")
     ).hexdigest()
 
-    # REGENERATE-IDEMPOTENT-001 (Assetallocation-Audit 2026-10-14): die
-    # Generierung ist deterministisch -- unveraenderte Eingaben ergeben exakt
-    # dieselbe Allokation (gleicher allocation_context_hash). Frueher entstand
-    # trotzdem eine neue Version, die aktuelle wurde demotiert und eine bereits
-    # zertifizierte Final-Empfehlung verwaiste (409 "basiert nicht auf der
-    # aktuellen Soll-Allokation", unsichtbar im Kundenportal). Jetzt bleibt die
-    # bestehende Allokation aktuell, wenn Hash, Input-Snapshot, Anker und alle
-    # Quoten/Baender identisch sind und das Risikoprofil seither nicht per
-    # Override geaendert wurde.
+    # REGENERATE-IDEMPOTENT-001: identische Neuberechnung behaelt die aktuelle Allokation (siehe Helfer).
     reuse_previous_allocation = _identical_previous_allocation(
-        previous_current,
-        allocation_context_hash=allocation_context_hash,
-        input_snapshot_hash=str(input_snapshot_hash),
-        policy_id=policy.id,
-        cma_id=cma.id,
-        assessment=assessment,
-        targets=targets,
-        minimums=minimums,
-        maximums=maximums,
+        previous_current, allocation_context_hash=allocation_context_hash,
+        input_snapshot_hash=str(input_snapshot_hash), policy_id=policy.id, cma_id=cma.id,
+        assessment=assessment, targets=targets, minimums=minimums, maximums=maximums,
     )
     if reuse_previous_allocation:
         previous_current.is_current = 1
@@ -4240,14 +4182,8 @@ def generate_target_allocation(
     # stochastic-Modus, in dem der Solver tatsaechlich die TA produziert hat).
     # Im shadow_stochastic-Modus bleibt optimization_run_id NULL, weil die
     # TA House-Matrix-basiert ist.
-    if (
-        persisted_run is not None
-        and persisted_run.role == "active"
-        and not reuse_previous_allocation
-    ):
-        # Eine wiederverwendete (ggf. bereits zertifizierte) Allokation bleibt
-        # unveraendert mit ihrem urspruenglichen Solver-Lauf verknuepft; der
-        # neue, identische Lauf ist trotzdem im Audit-Trail persistiert.
+    # REGENERATE-IDEMPOTENT-001: wiederverwendete Allokation behaelt ihren urspruenglichen Solver-Lauf.
+    if persisted_run is not None and persisted_run.role == "active" and not reuse_previous_allocation:
         db.flush()  # ensure persisted_run.id ist gesetzt
         target_allocation.optimization_run_id = persisted_run.id
 
@@ -4346,6 +4282,7 @@ def generate_target_allocation(
 
 
 from services.portfolio_engine_allocation_integrity import (  # noqa: F401,E402
+    _identical_previous_allocation,
     _verified_persisted_allocation_context,
 )
 
