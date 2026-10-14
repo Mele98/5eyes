@@ -32,6 +32,106 @@ import json
 from models.allocation import TargetAllocation
 
 
+# MANUAL-SAVE-DEADEND-001 (2026-10-14): Vertrag des manuellen Speicherpfads
+# (POST /mandates/{id}/target-allocation, React-AllocationEditor). Ein
+# manueller Datensatz ist ein vollwertiger Allocation-Anker: dieselbe
+# Hash-Form, dieselben Artefakte und derselbe Verifier wie Generate -- nur
+# Methode/Status/Engine-Version sagen ehrlich, dass der Berater die Quoten
+# gesetzt hat und kein Solver.
+STOCHASTIC_ENGINE_VERSIONS = frozenset({"stochastic_core_v1", "stochastic_core_v2"})
+MANUAL_OVERRIDE_ENGINE_VERSION = "manual_override_v1"
+MANUAL_OVERRIDE_METHOD = "manual_override"
+MANUAL_OVERRIDE_STATUS = "manual"
+
+
+def allocation_context_hash_for(
+    *,
+    engine_version: str,
+    policy_id,
+    cma_id,
+    assessment_id,
+    input_snapshot_hash,
+    preferences_json: str | None,
+    targets: dict[str, int],
+    sub_allocations: list[dict],
+    effective_constraints: dict,
+    optimization_seed,
+) -> str:
+    """Kanonischer allocation_context_hash -- EINE Form fuer Generate, den
+    manuellen Speicherpfad und den Verifier.
+
+    Vorher baute jeder Schreibpfad sein eigenes Hash-Dict; der manuelle Pfad
+    liess preferences_json/optimization_seed weg und konnte deshalb vom
+    Verifier nie bestaetigt werden.
+    """
+    from services.portfolio_engine import BUCKET_FIELDS
+
+    payload = {
+        "engine_version": str(engine_version),
+        "policy_id": str(policy_id),
+        "cma_id": str(cma_id),
+        "assessment_id": str(assessment_id),
+        "input_snapshot_hash": str(input_snapshot_hash),
+        "preferences_json": preferences_json,
+        "targets_bps": {
+            bucket: int(targets[bucket]) for bucket in BUCKET_FIELDS
+        },
+        "sub_allocations": sub_allocations,
+        "effective_constraints": effective_constraints,
+        "optimization_seed": optimization_seed,
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _verify_manual_override_contract(
+    stored_constraints: dict,
+    *,
+    expected_method: str,
+    expected_status: str,
+    verified_total_risky_bps: int,
+) -> None:
+    """Zusatzpruefungen fuer ``engine_version == manual_override_v1``.
+
+    Methode und Status muessen manuell sein (die Gleichheit von Spalte und
+    Constraints prueft der Aufrufer bereits), die Begruendung muss vorliegen,
+    und die verifizierte Risky Fraction darf das gehashte Risikobudget nicht
+    ueberschreiten: der Schreibpfad lehnt genau das ab, ein solcher
+    Datensatz kann also nur manipuliert sein.
+    """
+    if (
+        expected_method != MANUAL_OVERRIDE_METHOD
+        or expected_status != MANUAL_OVERRIDE_STATUS
+    ):
+        raise ValueError(
+            "Manuelle Allocation-Engine-Version widerspricht der "
+            "Optimierungsmethode/-status der TargetAllocation."
+        )
+    manual_block = stored_constraints.get("manual_override")
+    if not isinstance(manual_block, dict) or not str(
+        manual_block.get("reason") or ""
+    ).strip():
+        raise ValueError(
+            "Manuelle Soll-Allokation ohne dokumentierte Begruendung."
+        )
+    budget = stored_constraints.get("risk_budget_bps")
+    if isinstance(budget, bool) or not isinstance(budget, int):
+        raise ValueError(
+            "Manuelle Soll-Allokation ohne gueltiges Risikobudget."
+        )
+    if int(verified_total_risky_bps) > int(budget):
+        raise ValueError(
+            "Manuelle Soll-Allokation ueberschreitet das gehashte "
+            "Risikobudget."
+        )
+
+
 def _verified_persisted_allocation_context(
     allocation: TargetAllocation,
     *,
@@ -139,6 +239,20 @@ def _verified_persisted_allocation_context(
     expected_status = str(
         getattr(allocation, "optimization_status", None) or "house_matrix"
     )
+    if (
+        str(stored_constraints.get("engine_version") or "")
+        == MANUAL_OVERRIDE_ENGINE_VERSION
+        and getattr(allocation, "optimization_method", None) is None
+    ):
+        # Manuelle Datensaetze aus der Zeit vor MANUAL-SAVE-DEADEND-001
+        # (2026-10-09..14) hatten nie Methode/Status-Spalten und sind nicht
+        # nachtraeglich verifizierbar -- klare Handlungsanweisung statt des
+        # generischen Spalten-Widerspruchs.
+        raise ValueError(
+            "Diese manuell gespeicherte Soll-Allokation stammt aus einem "
+            "aelteren, nicht verifizierbaren Format. Bitte die Strategie neu "
+            "berechnen oder die Allokation im Editor erneut speichern."
+        )
     if str(stored_constraints.get("active_method")) != expected_method:
         raise ValueError(
             "Persistierte aktive Optimierungsmethode widerspricht der "
@@ -208,36 +322,38 @@ def _verified_persisted_allocation_context(
     stored_engine_version = str(
         stored_constraints.get("engine_version") or ""
     )
-    if stored_engine_version not in {
-        "stochastic_core_v1",
-        "stochastic_core_v2",
-    }:
+    if stored_engine_version in STOCHASTIC_ENGINE_VERSIONS:
+        # Eine Engine-Allokation darf sich nie als manuelle Uebersteuerung
+        # ausgeben (die Gegenrichtung prueft der manuelle Vertrag).
+        if expected_method == MANUAL_OVERRIDE_METHOD:
+            raise ValueError(
+                "Persistierte Engine-Version widerspricht der manuellen "
+                "Optimierungsmethode."
+            )
+    elif stored_engine_version == MANUAL_OVERRIDE_ENGINE_VERSION:
+        _verify_manual_override_contract(
+            stored_constraints,
+            expected_method=expected_method,
+            expected_status=expected_status,
+            verified_total_risky_bps=int(verified_total_risky_bps),
+        )
+    else:
         raise ValueError(
             "Persistierte Allocation-Engine-Version ist unbekannt oder fehlt."
         )
 
-    persisted_context_payload = {
-        "engine_version": stored_engine_version,
-        "policy_id": str(allocation.policy_id),
-        "cma_id": str(allocation.capital_market_assumptions_id),
-        "assessment_id": str(allocation.based_on_assessment_id),
-        "input_snapshot_hash": str(allocation.input_snapshot_hash),
-        "preferences_json": allocation.preferences_json,
-        "targets_bps": {
-            bucket: int(targets[bucket]) for bucket in BUCKET_FIELDS
-        },
-        "sub_allocations": stored_sub_allocations,
-        "effective_constraints": stored_constraints,
-        "optimization_seed": getattr(allocation, "optimization_seed", None),
-    }
-    recomputed_context_hash = hashlib.sha256(
-        json.dumps(
-            persisted_context_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    recomputed_context_hash = allocation_context_hash_for(
+        engine_version=stored_engine_version,
+        policy_id=allocation.policy_id,
+        cma_id=allocation.capital_market_assumptions_id,
+        assessment_id=allocation.based_on_assessment_id,
+        input_snapshot_hash=allocation.input_snapshot_hash,
+        preferences_json=allocation.preferences_json,
+        targets=targets,
+        sub_allocations=stored_sub_allocations,
+        effective_constraints=stored_constraints,
+        optimization_seed=getattr(allocation, "optimization_seed", None),
+    )
     if recomputed_context_hash != str(stored_context_hash):
         raise ValueError(
             "Allocation-Context-Hash stimmt nicht mit den persistierten "

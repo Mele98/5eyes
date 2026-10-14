@@ -1140,6 +1140,8 @@ export interface TargetAllocationCreatePayload {
   risky_fraction_bps?: number | null;
   based_on_assessment_id?: string | null;
   policy_id: string;
+  /** Pflicht beim manuellen Speichern (MANUAL-SAVE-DEADEND-001, FIDLEG Art. 13). */
+  override_reason?: string | null;
 }
 
 /** Response-Kernfelder (TargetAllocationResponse hat zusätzliche Audit-Felder). */
@@ -1152,6 +1154,8 @@ export interface TargetAllocationRecord extends TargetAllocationCreatePayload {
   set_at: string;
   created_at: string;
   updated_at: string;
+  /** Nur in der Antwort des manuellen Speicherns: Bandbreiten ausserhalb der Hausmatrix. */
+  manual_override_warnings?: string[];
 }
 
 /** Minimal getypte Teilmenge von TargetAllocationGenerateResponse. */

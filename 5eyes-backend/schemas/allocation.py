@@ -282,6 +282,12 @@ class TargetAllocationCreate(BaseModel):
     # dieser Endpunkt war nie an das Phase-0-Gate (enforce_data_classification)
     # angeschlossen.
     data_classification: Literal["synthetic", "real"] = "synthetic"
+    # MANUAL-SAVE-DEADEND-001 (2026-10-14): Pflicht-Begruendung jeder
+    # manuellen Uebersteuerung (FIDLEG Art. 13). Optional im Schema, damit
+    # der Router eine deutsche 422-Meldung mit der Qualitaetspruefung
+    # (services.override_reason_quality) liefern kann statt eines generischen
+    # "field required".
+    override_reason: Optional[str] = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
     def validate_alloc(self):
@@ -363,6 +369,10 @@ class TargetAllocationResponse(BaseResponse):
     # mit converged Solver). NULL bei house_matrix oder shadow_stochastic.
     optimization_run_id: Optional[str] = None
     shadow_optimization_json: Optional[str] = None
+    # MANUAL-SAVE-DEADEND-001: nur in der Antwort des manuellen Speicherns
+    # gesetzt -- Bandbreiten ausserhalb der Hausmatrix-Zeile (persistiert in
+    # effective_constraints_json/optimizer_reasoning_json).
+    manual_override_warnings: list[str] = Field(default_factory=list)
     policy_id: str
     set_by: str
     set_at: str

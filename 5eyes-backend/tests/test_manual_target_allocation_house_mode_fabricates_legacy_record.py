@@ -258,54 +258,88 @@ def test_manual_house_mode_save_fabricates_legacy_looking_allocation(
             s, policy_row.id, getattr(mandate, "investment_universe", None), jurisdiction,
         )
 
-    # --- Schritt 2: Berater aendert NUR die Ziel-Quoten (viel mehr Aktien,
-    # kaum noch Obligationen/Immobilien/Alternative/Liquiditaet) und speichert
-    # ueber den manuellen Editor-Endpunkt. Das UI haette vorher dieselbe
-    # risky_fraction_bps wie die generierte Allocation angezeigt (stale
-    # Vorbefuellung) -- genau dieser unveraenderte Wert wird mitgeschickt.
-    new_targets_bps = {
+    # --- Schritt 2: Berater erhoeht die Aktienquote massiv (95 %) und
+    # speichert ueber den manuellen Editor-Endpunkt, mit der stale
+    # UI-Vorbefuellung von risky_fraction_bps.
+    #
+    # MANUAL-SAVE-DEADEND-001 (2026-10-14): frueher wurde dieser Datensatz
+    # gespeichert und erst nachtraeglich vom Mandate-Lock als
+    # Risikobudget-Verletzung erkannt (c). Jetzt lehnt bereits das Speichern
+    # ab -- konsistent zum Finalisierungs-Gate -- und die generierte
+    # Allokation bleibt aktuell.
+    over_budget_targets_bps = {
         "equities": 9500,
         "bonds": 500,
         "real_estate": 0,
         "alternatives": 0,
         "liquidity": 0,
     }
-    assert sum(new_targets_bps.values()) == 10000
-
-    true_risky_fraction_bps_for_new_targets = compute_portfolio_risky_fraction_bps(
-        new_targets_bps, building_block_rows,
+    true_risky_fraction_bps_for_over_budget = compute_portfolio_risky_fraction_bps(
+        over_budget_targets_bps, building_block_rows,
     )
-    # Eigener, frisch verifizierter Repro-Wert (keine Audit-Zahl kopiert):
-    # mit den oben gesetzten Ziel-Quoten (95% Aktien) MUSS die wahre Risky-
-    # Fraction klar ueber dem "Ausgewogen"-Risikobudget liegen, sonst waere
-    # der Testfall kein echter Budget-Verstoss.
-    assert true_risky_fraction_bps_for_new_targets > risk_budget_bps_at_generation, (
-        f"Repro-Annahme verletzt: wahre Risky-Fraction fuer die neuen Ziel-"
-        f"Quoten ({true_risky_fraction_bps_for_new_targets} bps) liegt nicht "
-        f"ueber dem Risikobudget ({risk_budget_bps_at_generation} bps) -- "
-        f"Testdaten muessten aggressiver gewaehlt werden."
-    )
-    assert true_risky_fraction_bps_for_new_targets != prior_risky_fraction_bps, (
-        "Repro-Annahme verletzt: die wahre neue Risky-Fraction ist identisch "
-        "mit dem alten (stale) Wert -- kann einen Stale-Copy-Bug nicht zeigen."
+    assert true_risky_fraction_bps_for_over_budget > risk_budget_bps_at_generation, (
+        "Repro-Annahme verletzt: 95 % Aktien liegen nicht ueber dem "
+        "Ausgewogen-Risikobudget."
     )
 
-    manual_payload = {
-        "policy_id": policy_id,
-        "target_equities_bps": new_targets_bps["equities"],
-        "target_bonds_bps": new_targets_bps["bonds"],
-        "target_real_estate_bps": new_targets_bps["real_estate"],
-        "target_alternatives_bps": new_targets_bps["alternatives"],
-        "target_liquidity_bps": new_targets_bps["liquidity"],
-        "band_equities_min_bps": 0, "band_equities_max_bps": 10000,
-        "band_bonds_min_bps": 0, "band_bonds_max_bps": 10000,
-        "band_real_estate_min_bps": 0, "band_real_estate_max_bps": 10000,
-        "band_alternatives_min_bps": 0, "band_alternatives_max_bps": 10000,
-        "band_liquidity_min_bps": 0, "band_liquidity_max_bps": 10000,
-        # UI-Vorbefuellung: unveraendert aus der zuvor generierten Allocation.
-        "risky_fraction_bps": prior_risky_fraction_bps,
-    }
-    manual_resp = auth_client.post(f"/mandates/{mid}/target-allocation", json=manual_payload)
+    def _manual_payload(targets_bps: dict) -> dict:
+        return {
+            "policy_id": policy_id,
+            "target_equities_bps": targets_bps["equities"],
+            "target_bonds_bps": targets_bps["bonds"],
+            "target_real_estate_bps": targets_bps["real_estate"],
+            "target_alternatives_bps": targets_bps["alternatives"],
+            "target_liquidity_bps": targets_bps["liquidity"],
+            "band_equities_min_bps": 0, "band_equities_max_bps": 10000,
+            "band_bonds_min_bps": 0, "band_bonds_max_bps": 10000,
+            "band_real_estate_min_bps": 0, "band_real_estate_max_bps": 10000,
+            "band_alternatives_min_bps": 0, "band_alternatives_max_bps": 10000,
+            "band_liquidity_min_bps": 0, "band_liquidity_max_bps": 10000,
+            # UI-Vorbefuellung: unveraendert aus der zuvor generierten Allocation.
+            "risky_fraction_bps": prior_risky_fraction_bps,
+            "override_reason": (
+                "Kunde wuenscht nach Beratungsgespraech eine angepasste "
+                "Gewichtung der Anlageklassen."
+            ),
+        }
+
+    rejected = auth_client.post(
+        f"/mandates/{mid}/target-allocation",
+        json=_manual_payload(over_budget_targets_bps),
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert "Risikobudget" in rejected.json()["detail"]
+    with session_factory() as s:
+        current = s.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mid,
+            TargetAllocation.is_current == 1,
+        ).one()
+        assert current.id == generated_ta_id, (
+            "Ein abgelehntes manuelles Speichern darf die generierte "
+            "Allokation nicht demoten."
+        )
+        # (c) kein Risikobudget-Lock, weil nichts Budget-widriges persistiert wurde.
+        audit = audit_mandate_editability(s, mandate)
+        assert REASON_RISK_BUDGET_VIOLATED not in audit["lock_reasons"]
+
+    # --- Schritt 3: budget-konforme Aenderung (5 Prozentpunkte Aktien ->
+    # Obligationen) mit derselben stale risky_fraction_bps-Vorbefuellung.
+    with session_factory() as s:
+        generated = s.query(TargetAllocation).filter(
+            TargetAllocation.id == generated_ta_id
+        ).one()
+        new_targets_bps = {
+            bucket: int(getattr(generated, f"target_{bucket}_bps"))
+            for bucket in ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+        }
+    assert new_targets_bps["equities"] >= 500
+    new_targets_bps["equities"] -= 500
+    new_targets_bps["bonds"] += 500
+
+    manual_resp = auth_client.post(
+        f"/mandates/{mid}/target-allocation",
+        json=_manual_payload(new_targets_bps),
+    )
     assert manual_resp.status_code == 201, manual_resp.text
     manual_ta_id = manual_resp.json()["id"]
 
@@ -314,39 +348,30 @@ def test_manual_house_mode_save_fabricates_legacy_looking_allocation(
         assert manual_ta is not None
         assert manual_ta.is_current == 1
 
-        # (a) Vollstaendige Kontext-Artefakte gefordert (CMA-Referenz,
-        # Risk-Evidence, Input-Hash) -- NICHT eine leere Legacy-Zeile.
-        assert manual_ta.context_artifacts_required == 1, (
-            "Manuell gespeicherte Allocation im house_matrix-Modus hat "
-            "context_artifacts_required=0 -- sieht wie ein Alt-Datensatz "
-            "aus, obwohl sie heute frisch erzeugt wurde (TA-LEGACY-"
-            "FABRICATION-001a)."
-        )
+        # (a) Vollstaendige Kontext-Artefakte (CMA-Referenz, Risk-Evidence,
+        # Input-Hash) -- NICHT eine leere Legacy-Zeile.
+        assert manual_ta.context_artifacts_required == 1
         assert manual_ta.allocation_context_hash is not None
         assert manual_ta.capital_market_assumptions_id is not None
         assert manual_ta.sub_allocations_json is not None
         assert manual_ta.input_snapshot_hash is not None
 
-        # (b) risky_fraction_bps muss fuer die NEUEN Ziel-Quoten neu
-        # berechnet sein, nicht 1:1 aus der vorherigen Allocation kopiert.
-        assert manual_ta.risky_fraction_bps == true_risky_fraction_bps_for_new_targets, (
-            f"risky_fraction_bps ({manual_ta.risky_fraction_bps} bps) wurde "
-            f"nicht fuer die neuen Ziel-Quoten neu berechnet -- erwartet "
-            f"{true_risky_fraction_bps_for_new_targets} bps. Stattdessen "
-            f"wurde der alte Wert ({prior_risky_fraction_bps} bps) 1:1 "
-            f"uebernommen (TA-LEGACY-FABRICATION-001b)."
+        # (b) risky_fraction_bps wird serverseitig aus den NEUEN Ziel-Quoten
+        # berechnet -- wie Generate ueber die Sub-Allokationszeilen -- und
+        # nicht 1:1 aus der Client-Vorbefuellung uebernommen. Der Verifier
+        # rechnet genau diese Zahl aus den gehashten Zeilen nach.
+        bucket_keys = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+        sub_allocations, constraints = pe._verified_persisted_allocation_context(
+            manual_ta,
+            targets={b: int(getattr(manual_ta, f"target_{b}_bps")) for b in bucket_keys},
+            minimums={b: int(getattr(manual_ta, f"band_{b}_min_bps")) for b in bucket_keys},
+            maximums={b: int(getattr(manual_ta, f"band_{b}_max_bps")) for b in bucket_keys},
         )
-
-        # (c) Mandate-Lock muss die resultierende Risikobudget-Verletzung
-        # erkennen (die neuen Ziel-Quoten liegen klar ueber dem Budget).
-        audit = audit_mandate_editability(s, mandate)
-        assert REASON_RISK_BUDGET_VIOLATED in audit["lock_reasons"], (
-            f"Mandate-Lock erkennt die Risikobudget-Verletzung nicht "
-            f"(lock_reasons={audit['lock_reasons']!r}) -- die neuen Ziel-"
-            f"Quoten verletzen das Budget real "
-            f"({true_risky_fraction_bps_for_new_targets} bps > "
-            f"{risk_budget_bps_at_generation} bps), aber "
-            f"risky_fraction_bps_at_generation/risk_budget_bps_at_generation "
-            f"wurden vom manuellen Save-Pfad nie gesetzt "
-            f"(TA-LEGACY-FABRICATION-001c)."
+        assert sub_allocations
+        assert manual_ta.risky_fraction_bps == manual_ta.risky_fraction_bps_at_generation
+        assert manual_ta.risky_fraction_bps != prior_risky_fraction_bps, (
+            "risky_fraction_bps wurde nicht fuer die neuen Ziel-Quoten neu "
+            "berechnet (TA-LEGACY-FABRICATION-001b)."
         )
+        assert manual_ta.risky_fraction_bps <= manual_ta.risk_budget_bps_at_generation
+        assert constraints["risk_budget_bps"] == risk_budget_bps_at_generation
