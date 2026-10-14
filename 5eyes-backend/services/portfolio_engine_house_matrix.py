@@ -1845,16 +1845,16 @@ def _apply_goal_and_reserve_tilts(
     inflow_projection_series_rappen: list[int] | None = None,
 ) -> tuple[int, int]:
     from services.portfolio_engine import (
-        _SAA_LIQUIDITY_HARD_CAP_BPS,
         _bps,
         _compute_reserve_for_inputs,
         _goal_projection_years,
         _norm_text,
+        _saa_liquidity_ceiling_bps,
     )
 
     # C7: Reserve-Berechnung wird zentral in _compute_reserve_for_inputs gehandelt
     # (StrategyContext-Konsolidierung), Goal-Tilts auf Bandbreiten passieren hier.
-    saa_liq_ceiling_bps: int = min(int(maximums["liquidity"]), _SAA_LIQUIDITY_HARD_CAP_BPS)
+    saa_liq_ceiling_bps: int = _saa_liquidity_ceiling_bps(maximums["liquidity"])
     reserve_needed_rappen, external_reserve_rappen = _compute_reserve_for_inputs(
         goals=goals,
         limits_prefs=limits_prefs,

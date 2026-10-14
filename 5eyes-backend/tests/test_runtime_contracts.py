@@ -2719,19 +2719,24 @@ def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(sessi
     assert result["target_allocation"].mandate_id == mandate_id
     assert result["reserve_needed_rappen"] >= 15000000
     liquidity_bucket = next(bucket for bucket in result["buckets"] if bucket["asset_class"] == "Liquiditaet")
-    # The 3% SAA reserve is CHF-denominated on the original advisory base.
-    # After the external reserve is removed, the same CHF 18k is correctly
-    # normalized to 390 bps of the smaller investable base.
+    # The SAA reserve is CHF-denominated on the original advisory base and
+    # capped by the SAME ceiling the external carve-out used:
+    # c = min(House liquidity max 200, 300) = 200 bps -> 2 % of 600k = 12k
+    # internal, 138k external. The 12k are normalized on the smaller
+    # investable base 462k: ceil(12'000 * 10'000 / 462'000) = 260 bps.
+    # (RESERVE-CEILING-001: this oracle used to pin 390 bps = 3 % of A,
+    # which reserved R + 1 % of A on top of the external carve-out.)
     persisted_constraints = json.loads(
         result["target_allocation"].effective_constraints_json
     )
-    assert persisted_constraints["reserve_floor_bps"] == 390
-    assert liquidity_bucket["target_weight_bps"] >= 390
+    assert result["external_reserve_rappen"] == 138_000_00
+    assert persisted_constraints["reserve_floor_bps"] == 260
+    assert liquidity_bucket["target_weight_bps"] >= 260
     assert round(
         result["investable_advisory_wealth_rappen"]
         * liquidity_bucket["target_weight_bps"]
         / 10000
-    ) >= 18_000_00
+    ) >= 12_000_00
     assert result["external_reserve_rappen"] > 0
     assert any(
         "Liquiditaetsbedarf" in reason
