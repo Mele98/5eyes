@@ -381,6 +381,41 @@ def _raise_if_band_envelope_infeasible(
         )
 
 
+def _disclose_global_cap_clamp(
+    bucket: str,
+    requested_max_bps: int,
+    cap_bps: int,
+    reasoning: list[str],
+    warnings: list,
+) -> None:
+    """BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-2): Klemmung auf die globale
+    Modell-Obergrenze offenlegen.
+
+    Die Klemmung war lautlos -- ein Berater-Maximum/-Ziel von 30 % Alternative
+    endete ohne Hinweis bei 10 %. Der Aufrufer ruft dies nur, wenn das Modell
+    die aktive Allokation stellt; im Shadow-Modus betrifft die Klemmung nur
+    den Vergleichskandidaten. Ohne Klemmung (``requested_max_bps <= cap_bps``)
+    passiert nichts.
+    """
+    from services.allocation_messages import WARN_GLOBAL_CAP_CLAMP, format_message
+    from services.portfolio_engine import BUCKET_LABELS
+
+    if requested_max_bps <= cap_bps:
+        return
+    bucket_label = BUCKET_LABELS.get(bucket, bucket)
+    reasoning.append(
+        f"{bucket_label}: Die vorgegebene Obergrenze von "
+        f"{requested_max_bps / 100:.2f} % wurde auf die globale "
+        f"Modell-Obergrenze von {cap_bps / 100:.2f} % begrenzt."
+    )
+    warnings.append(format_message(
+        WARN_GLOBAL_CAP_CLAMP,
+        bucket_label=bucket_label,
+        requested_max=f"{requested_max_bps / 100:.2f}",
+        cap=f"{cap_bps / 100:.2f}",
+    ))
+
+
 def advisor_band_house_deviations(
     bands: dict | None,
     house_minimums: dict[str, int],
