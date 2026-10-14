@@ -2857,7 +2857,13 @@ def _strategy_drift_warnings(
     """
     msgs: list[str] = []
     # Assessment-Drift
-    if allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
+    from services.risk_assessment_semantics import (
+        assessment_overridden_after_allocation,
+    )
+    if (
+        (allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id)
+        or assessment_overridden_after_allocation(allocation, assessment)
+    ):
         msgs.append(
             "Hinweis: Diese Soll-Allokation basiert auf einem frueheren Risikoprofil. "
             "Bitte Strategie neu berechnen, bevor sie umgesetzt wird."
@@ -2969,10 +2975,13 @@ def _target_allocation_context_warnings(allocation, assessment, cma):
     msgs: list[str] = []
     a_id = getattr(assessment, "id", None)
     c_id = getattr(cma, "id", None)
+    from services.risk_assessment_semantics import (
+        assessment_overridden_after_allocation,
+    )
     if (
         getattr(allocation, "based_on_assessment_id", None)
         and allocation.based_on_assessment_id != a_id
-    ):
+    ) or assessment_overridden_after_allocation(allocation, assessment):
         msgs.append(
             "Hinweis: Aktuelle Soll-Allokation basiert auf einem frueheren "
             "Risikoprofil. Bitte Strategie neu berechnen."
@@ -5418,6 +5427,16 @@ def build_target_payload_from_allocation(
             "Die Soll-Allokation basiert nicht auf dem aktuellen "
             "Risikoprofil; bitte Strategie neu berechnen."
         )
+    # RISK-OVERRIDE-STALENESS-001: ein Override aendert das Profil in place
+    # (gleiche id) -- die id-Pruefung oben sieht ihn nicht.
+    from services.risk_assessment_semantics import (
+        assessment_overridden_after_allocation,
+    )
+    if modern_context and assessment_overridden_after_allocation(allocation, assessment):
+        raise ValueError(
+            "Das Risikoprofil wurde nach Erstellung dieser Soll-Allokation "
+            "per Override geaendert; bitte Strategie neu berechnen."
+        )
     # Identitaets-/Anker-Pruefung (oben) muss vor der Inhalts-Validierung
     # laufen: ein falsch zugeordnetes Assessment-Objekt soll als "falsches
     # Risikoprofil" erkannt werden, nicht an einer zufaellig fehlenden
@@ -6577,6 +6596,14 @@ def generate_recommendation_run(
             raise ValueError(
                 "Die Soll-Allokation basiert auf einem anderen Risikoprofil; "
                 "bitte Strategie neu berechnen."
+            )
+        from services.risk_assessment_semantics import (
+            assessment_overridden_after_allocation,
+        )
+        if assessment_overridden_after_allocation(allocation, assessment):
+            raise ValueError(
+                "Das Risikoprofil wurde nach Erstellung der Soll-Allokation "
+                "per Override geaendert; bitte Strategie neu berechnen."
             )
         target_payload = build_target_payload_from_allocation(
             db=db,

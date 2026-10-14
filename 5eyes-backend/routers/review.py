@@ -79,6 +79,9 @@ from services.review_calendar_feed import (
     resolve_user_by_calendar_feed_token,
     revoke_calendar_feed_token,
 )
+from services.risk_assessment_semantics import (
+    assessment_overridden_after_allocation as _assessment_overridden_after_allocation,
+)
 
 router = APIRouter(tags=["Review & Dokumente"])
 products_router = APIRouter(prefix="/products", tags=["Produkte"])
@@ -194,6 +197,13 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Empfehlung basiert nicht auf der aktuellen Soll-Allokation.")
     elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
         errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
+    elif assessment and _assessment_overridden_after_allocation(allocation, assessment):
+        # RISK-OVERRIDE-STALENESS-001: Override in place (gleiche id) nach der
+        # Generierung -- die Allokation gehoert zum alten Profil.
+        errors.append(
+            "Das Risikoprofil wurde nach Erstellung der Soll-Allokation per "
+            "Override geaendert; bitte Strategie neu berechnen."
+        )
     # RISK-BUDGET-FINALIZATION-001 (Audit 2026-10-04, Kontrollrunde 46):
     # `services/mandate_lock_audit.py` berechnet seit laengerem einen harten
     # Lock-Reason `risk_budget_violated`, sobald die Risky-Fraktion einer
