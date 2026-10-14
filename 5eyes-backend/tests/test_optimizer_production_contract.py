@@ -1138,12 +1138,20 @@ def test_basis_without_stochastic_context_does_not_claim_stochastic_decision(
 def test_model_basis_does_not_claim_ineffective_tax_regime():
     from services.tax.regimes.de import DETaxRegime
 
+    from services.optimizer.objective_contract import ObjectiveContractV1
+
     context = SimpleNamespace(
         n_paths=48,
         horizon_years=10,
         scenario_weights=None,
         tax_regime=DETaxRegime(),
         dividend_yield_bps_per_bucket=None,
+        # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: echte Solver-Contexts
+        # tragen den eingefrorenen Lauf-Vertrag; die Modellbasis liest die
+        # Modi daraus statt live aus der Umgebung.
+        objective_contract=ObjectiveContractV1(
+            objective_mode="goal_shortfall", goal_weighting_mode="equal",
+        ),
     )
     basis = pe._build_allocation_model_basis(
         optimizer_mode="stochastic",

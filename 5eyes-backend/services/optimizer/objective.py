@@ -93,13 +93,32 @@ def _goal_weighting_mode() -> str:
     return resolve_goal_weighting_mode()
 
 
-def _effective_hardness_weight(hardness_key: str | None) -> float:
+def _effective_hardness_weight(
+    hardness_key: str | None, goal_weighting_mode: str | None = None,
+) -> float:
     """Gibt den Haertegrad-Multiplikator nur im opt-in-Modus zurueck, sonst 1.0.
 
     So mittelt der Optimizer per Default alle Ziele gleich (Methodik-konform),
     ohne die Haertegrad-Logik zu verlieren.
+
+    OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: ``goal_weighting_mode`` ist der
+    aus dem unveraenderlichen Lauf-Vertrag durchgereichte Modus. Ohne ihn las
+    diese Funktion die Umgebung PRO ZIEL PRO AUSWERTUNG -- bei einem
+    Umgebungswechsel mitten im Lauf wurden einzelne Ziele innerhalb derselben
+    Summe verschieden gewichtet.
+
+    ``None`` bleibt erlaubt und loest wie bisher live auf: ausserhalb des
+    Solvers rufen Konsumenten die Objective-Funktionen ohne Lauf-Kontext auf
+    (Reports, Analysen), und fuer die ist der aktuelle Modus die richtige
+    Antwort. Der Solver reicht den Vertrag IMMER durch; nur dort ist
+    "derselbe Wert fuer den ganzen Lauf" eine Korrektheitsbedingung.
     """
-    if _goal_weighting_mode() == "hardness":
+    mode = (
+        goal_weighting_mode
+        if goal_weighting_mode is not None
+        else _goal_weighting_mode()
+    )
+    if mode == "hardness":
         return HARDNESS_WEIGHT.get(_hardness_key(hardness_key), 1.0)
     return 1.0
 
@@ -704,6 +723,7 @@ def shortfall_objective(
     horizon_years: int,
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
+    goal_weighting_mode: str | None = None,
 ) -> float:
     """Primaere Objective L(w): gewichteter dimensionsloser MSE-Shortfall.
 
@@ -752,7 +772,7 @@ def shortfall_objective(
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
     for liab in liabilities:
-        h_weight = _effective_hardness_weight(liab.hardness_key)
+        h_weight = _effective_hardness_weight(liab.hardness_key, goal_weighting_mode)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
         per_path = shortfall_squared_per_path(
             liab, wealth_paths,
@@ -843,11 +863,19 @@ def shortfall_contributions(
     initial_wealth_rappen: float,
     horizon_years: int,
     annualized_return_bps_per_path: np.ndarray | None = None,
+    goal_weighting_mode: str | None = None,
 ) -> list[GoalShortfallContribution]:
     """Pro Goal: Mean-Shortfall² und gewichteter Beitrag zum Objective.
 
     Sortiert absteigend nach weighted_objective_contribution: das groesste
     Risiko zuerst. Wenn n_paths == 0, leere Liste.
+
+    OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: ``goal_weighting_mode`` kommt vom
+    Aufrufer aus dem eingefrorenen Lauf-Vertrag. Diese Funktion erzeugt die
+    Goal-Driver-Zeilen ("welches Ziel treibt den Shortfall") -- laest sie den
+    Modus selbst aus der Umgebung, koennen die Treiber nach einer ANDEREN
+    Gewichtung ausgewiesen sein als die, mit der der Solver optimiert hat.
+    Die Erklaerung widerspraeche dann der Entscheidung, die sie erklaert.
     """
     rows: list[GoalShortfallContribution] = []
     if wealth_paths.size == 0:
@@ -867,7 +895,7 @@ def shortfall_contributions(
             normalization_scale_rappen=context_scale_rappen,
         )
         mean_sq = float(np.sum(per_path) * inv_n)
-        h_weight = _effective_hardness_weight(liab.hardness_key)
+        h_weight = _effective_hardness_weight(liab.hardness_key, goal_weighting_mode)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
         rows.append(GoalShortfallContribution(
             goal_id=str(liab.goal_id),
@@ -894,6 +922,7 @@ def combined_objective_two_phase(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     objective_mode: str | None = None,
+    goal_weighting_mode: str | None = None,
     portfolio_return_factors: np.ndarray | None = None,
 ) -> float:
     """Kombination Primary + tiny Volatility-Term.
@@ -912,6 +941,14 @@ def combined_objective_two_phase(
     PRIMAERTERM aus (siehe services/optimizer/objective_variants.py). Die
     Chance-Penalty bleibt in jeder Variante aktiv und unveraendert -- sie ist
     die Ziel-Untergrenze, nicht Teil des wechselbaren Teils.
+
+    OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: ``objective_mode`` UND
+    ``goal_weighting_mode`` kommen beim Solver-Aufruf aus dem
+    unveraenderlichen Lauf-Vertrag (``OptimizerContext.objective_contract``).
+    Vorher wurde ``objective_mode`` bei jedem Aufruf dieser Funktion live aus
+    der Umgebung aufgeloest -- gemessen 205 Mal pro Lauf. Beide bleiben
+    optional, weil Nicht-Solver-Konsumenten ohne Lauf-Kontext aufrufen; nur
+    innerhalb eines Laufs ist Konstanz eine Korrektheitsbedingung.
 
     Im Default-Modus ``goal_shortfall`` ist das Ergebnis bit-identisch zum
     Verhalten vor der Variantenfaehigkeit: derselbe L(w)-Aufruf, derselbe
@@ -939,6 +976,7 @@ def combined_objective_two_phase(
             horizon_years=horizon_years,
             weights=weights,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
+            goal_weighting_mode=goal_weighting_mode,
         )
         if is_goal_shortfall
         else 0.0

@@ -101,6 +101,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from database import Base
+from services.optimizer.objective_contract import ObjectiveContractV1
+from services.optimizer.objective_variants import OBJECTIVE_GOAL_SHORTFALL
 from models import (  # noqa: F401
     allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
@@ -167,6 +169,15 @@ def test_model_basis_optimization_dict_identical_despite_rho_change():
         tax_regime=None,
         dividend_yield_bps_per_bucket=None,
         scenario_weights=None,
+        # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: ein echter Solver-Context
+        # traegt den eingefrorenen Lauf-Vertrag, und die Modellbasis liest die
+        # Modi jetzt daraus statt aus der Umgebung. Dieser Stub steht fuer
+        # einen echten Context, also traegt er ihn auch -- sonst pruefte der
+        # Test eine Konstellation, die es in Produktion nicht gibt.
+        objective_contract=ObjectiveContractV1(
+            objective_mode=OBJECTIVE_GOAL_SHORTFALL,
+            goal_weighting_mode="equal",
+        ),
     )
     optimizer_result = SimpleNamespace(
         context=context, method="stochastic", seed=123, n_paths=500,

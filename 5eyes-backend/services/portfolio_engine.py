@@ -5258,10 +5258,21 @@ def evaluate_goal_sensitivity(
     # even with every other input held constant, since the solver call
     # below optimizes genuinely different objective mathematics under
     # "equal" vs. "hardness".
-    from services.optimizer.objective import resolve_goal_weighting_mode
-    from services.optimizer.objective_variants import resolve_objective_mode
-    sensitivity_goal_weighting_mode = resolve_goal_weighting_mode()
-    sensitivity_objective_mode = resolve_objective_mode()
+    #
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: beide Modi werden jetzt GENAU
+    # EINMAL als unveraenderlicher Vertrag aufgeloest und an BEIDE Solver-
+    # Laeufe unten durchgereicht. Vorher las diese Stelle die Modi fuer den
+    # Hash, und Baseline- und Modified-Lauf loesten danach jeder seinen
+    # eigenen Modus auf: aenderte sich die Umgebung zwischendurch, verglich
+    # `delta_objective_pct` zwei verschiedene Mathematiken -- und der Hash
+    # nannte eine dritte Moeglichkeit. Ein Delta ueber zwei verschiedene
+    # Zielfunktionen ist keine Sensitivitaet, sondern ein Artefakt.
+    from services.optimizer.objective_contract import resolve_objective_contract
+    sensitivity_objective_contract = resolve_objective_contract()
+    sensitivity_goal_weighting_mode = (
+        sensitivity_objective_contract.goal_weighting_mode
+    )
+    sensitivity_objective_mode = sensitivity_objective_contract.objective_mode
 
     cma_snapshot = {
         column.name: _canonical_scalar(getattr(cma, column.name))
@@ -5405,6 +5416,11 @@ def evaluate_goal_sensitivity(
             max_risky_fraction_bps=sensitivity_risk_budget_bps,
             sub_allocations=sensitivity_sub_allocations,
             effective_bounds_bps=sensitivity_effective_bounds,
+            # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: BEIDE Laeufe unter
+            # demselben Vertrag -- dieselbe Begruendung wie `pinned_seed` und
+            # der gemeinsame Szenarioraum eine Zeile darueber. Ein Delta ist
+            # nur zwischen zwei Laeufen derselben Mathematik definiert.
+            objective_contract=sensitivity_objective_contract,
             **sensitivity_mortality_kwargs,
             **sensitivity_tax_kwargs,
         )

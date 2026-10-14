@@ -1239,6 +1239,7 @@ def _build_optimizer_explainability(
             constraint_slacks as _constraint_slacks,
         )
         from services.optimizer.objective import shortfall_contributions
+        from services.optimizer.objective_contract import objective_contract_of
         from services.optimizer.solver import (
             _annualized_twr_bps_per_path,
             _simulate_context_wealth,
@@ -1318,6 +1319,11 @@ def _build_optimizer_explainability(
             annualized_return_bps_per_path=_annualized_twr_bps_per_path(
                 context, active_w
             ),
+            # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: die Goal-Driver muessen
+            # nach DERSELBEN Gewichtung ausgewiesen werden, mit der der Solver
+            # optimiert hat -- sonst erklaert die Treiberliste eine andere
+            # Rechnung als die, die zur Allokation gefuehrt hat.
+            goal_weighting_mode=objective_contract_of(context).goal_weighting_mode,
         )
         for rank, row in enumerate(contribution_rows, start=1):
             contribution_decimal, contribution_binary64_hex = (

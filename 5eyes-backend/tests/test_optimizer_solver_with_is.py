@@ -13,6 +13,8 @@ import numpy as np
 import pytest
 
 from services.optimizer.goal_liabilities import GoalLiability
+from services.optimizer.objective_contract import ObjectiveContractV1
+from services.optimizer.objective_variants import OBJECTIVE_GOAL_SHORTFALL
 from services.optimizer.solver import OptimizerContext, _objective_from_array, _weights_bps_to_array
 
 
@@ -60,6 +62,16 @@ def _make_minimal_context(*, scenario_weights=None) -> OptimizerContext:
         score_x10=70,
         risky_fraction_per_bucket=None,
         scenario_weights=scenario_weights,
+        # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: ein Context traegt seit dem
+        # Fix die Mathematik des Laufs; `_objective_from_array` liest sie
+        # daraus statt aus der Umgebung und bricht ohne Vertrag fail-closed ab.
+        # Hier explizit der Default-Vertrag, damit diese IS-Tests genau das
+        # pruefen, was sie pruefen wollen (Likelihood-Gewichte), und nicht
+        # zusaetzlich von der Umgebung abhaengen.
+        objective_contract=ObjectiveContractV1(
+            objective_mode=OBJECTIVE_GOAL_SHORTFALL,
+            goal_weighting_mode="equal",
+        ),
     )
 
 

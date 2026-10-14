@@ -250,11 +250,28 @@ def _build_allocation_model_basis(
     # FRESH basis only -- a replayed/stored basis (handled below) must stay
     # verbatim and must never be silently upgraded with the CURRENT
     # environment's mode.
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: wenn ein Solver-Context
+    # existiert, kommen BEIDE Modi aus dessen eingefrorenem Vertrag -- nicht
+    # aus der Umgebung. Vorher las diese Stelle live nach, waehrend der Solver
+    # seine eigenen (moeglicherweise anderen) Werte benutzt hatte: der
+    # Nachweis nannte dann einen Modus, der die Allokation nicht erzeugt
+    # hatte. Ohne Context lief kein Solver (House-Matrix-Pfad); dann gibt es
+    # keinen Lauf, mit dem der Nachweis kongruent sein muesste, und der
+    # aktuelle Modus bleibt die ehrliche Antwort.
     from services.optimizer.objective import (
         HARDNESS_WEIGHT,
         resolve_goal_weighting_mode,
     )
-    goal_weighting_mode = resolve_goal_weighting_mode()
+    run_contract = None
+    if context is not None:
+        from services.optimizer.objective_contract import objective_contract_of
+
+        run_contract = objective_contract_of(context)
+    goal_weighting_mode = (
+        run_contract.goal_weighting_mode
+        if run_contract is not None
+        else resolve_goal_weighting_mode()
+    )
     optimization_basis["goal_weighting_mode"] = goal_weighting_mode
     optimization_basis["goal_weighting_hardness_multipliers"] = (
         dict(HARDNESS_WEIGHT) if goal_weighting_mode == "hardness" else None
@@ -266,7 +283,9 @@ def _build_allocation_model_basis(
     # FRISCHE Basis, nie in eine zurueckgespielte.
     from services.optimizer.objective_variants import objective_basis
 
-    optimization_basis["objective"] = objective_basis()
+    optimization_basis["objective"] = objective_basis(
+        run_contract.objective_mode if run_contract is not None else None
+    )
     if stored_optimization_basis is not None:
         if not isinstance(stored_optimization_basis, dict):
             raise ValueError(
