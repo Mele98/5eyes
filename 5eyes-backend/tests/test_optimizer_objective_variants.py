@@ -494,23 +494,19 @@ def test_cvar_tail_fraction_is_a_tail_not_the_whole_distribution() -> None:
 # ── 8. Semantik von min_volatility ──────────────────────────────────────────
 
 
-def test_min_volatility_ranks_like_the_one_period_volatility() -> None:
-    """Die Streuung der annualisierten Rendite ordnet wie die Einperioden-Vola.
+def test_min_volatility_measures_the_one_period_volatility() -> None:
+    """``min_volatility`` MISST die Einperioden-Volatilitaet, nicht nur ihre Ordnung.
 
-    ``min_volatility`` misst die Streuung der ANNUALISIERTEN Rendite ueber die
-    Szenarien, nicht die Jahr-zu-Jahr-Volatilitaet. Ein Kunde, der "so wenig
-    Schwankung wie moeglich" sagt, meint eher letzteres.
+    OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001: dieser Test verlangte vorher
+    ``value < one_period_vol`` fuer jeden Fall -- also ausdruecklich den
+    ``1/sqrt(T)``-Abfall des ALTEN Masses (Streuung der annualisierten
+    Endrendite). Damit hielt er die defekte Semantik als erwarteten Zustand
+    fest und waere durch den Fix notwendig falsch geworden.
 
-    Im Entscheidungsmodell des Solvers sind die Jahresrenditen iid, und dann
-    ist sigma_annualisiert eine streng monotone Transformation von sigma_1J --
-    die Rangfolge der Allokationen ist also dieselbe, die eine Minimierung von
-    ``a' Sigma a`` liefern wuerde.
-
-    Dieser Test haelt die Aequivalenz empirisch fest, statt sie nur im
-    Docstring zu behaupten: ueber mehrere Einperioden-Volatilitaeten muss das
-    Mass streng monoton steigen. Laeuft das Modell irgendwann von der
-    iid-Annahme weg, faellt dieser Test und zeigt genau den Satz, der neu
-    nachgerechnet werden muss.
+    Jetzt die staerkere Aussage: die Kennzahl ist die Einperioden-Vola, also
+    muss sie den vorgegebenen Wert TREFFEN, nicht nur monoton in ihm sein.
+    Monotonie allein waere auch von ``sigma/sqrt(T)`` erfuellt und wuerde den
+    Befund nicht ausschliessen.
     """
     measured = []
     for one_period_vol in (0.03, 0.06, 0.10, 0.16, 0.24):
@@ -529,12 +525,164 @@ def test_min_volatility_ranks_like_the_one_period_volatility() -> None:
 
     values = [value for _vol, value in measured]
     assert values == sorted(values), (
-        "Das Mass ist nicht monoton in der Einperioden-Volatilitaet, die "
-        f"Rangfolgen laufen auseinander: {measured}"
+        "Das Mass ist nicht monoton in der Einperioden-Volatilitaet: "
+        f"{measured}"
     )
-    # Und der sqrt(T)-Abfall ist tatsaechlich da: bei 12 Jahren ist die
-    # Streuung der annualisierten Rendite deutlich kleiner als die
-    # Einperioden-Volatilitaet. Das ist der Grund, warum die beiden Masse
-    # NICHT zahlenmaessig gleich sind, obwohl sie gleich ordnen.
     for one_period_vol, value in measured:
-        assert value < one_period_vol
+        # 4000 Pfade x 12 Jahre = 48'000 Beobachtungen; 2 % relative Toleranz
+        # ist dafuer reichlich und faengt trotzdem jede Skalenverwechslung
+        # (der alte Wert lag um Faktor ~sqrt(12) daneben).
+        assert abs(value - one_period_vol) < 0.02 * one_period_vol, (
+            f"Einperioden-Vola {one_period_vol} wurde als {value} gemessen -- "
+            "das ist nicht dieselbe Groesse."
+        )
+
+
+def test_min_volatility_does_not_rank_by_expected_return() -> None:
+    """Gegenbeispiel: hoeherer Erwartungswert darf nicht als mehr Risiko gelten.
+
+    Das ist der Reproducer des Befundes. Zwei Portfolios mit LOGNORMALEN
+    Jahresfaktoren wie in der Scenario-Engine, gleicher Horizont, konstante
+    Gewichte -- also genau die iid-Annahme, unter der der Modul-Docstring
+    Ranggleichheit mit ``a' Sigma a`` behauptete:
+
+        A: arith. Mean +5.5 %, Ziel-Sigma 40.00 %
+        B: arith. Mean -5.0 %, Ziel-Sigma 40.05 %
+
+    A schwankt weniger. Mit dem alten Mass (Streuung der annualisierten
+    Endrendite) gewann B -- gemessen 0.103446 gegen 0.105348 -- weil
+    ``sd(R_ann) = exp(l + s^2/(2T)) * sqrt(exp(s^2/T) - 1)`` mit dem Log-Mean
+    waechst. B hatte sogar die HOEHERE Log-Varianz (0.1636 vs. 0.1342) und
+    wurde trotzdem bevorzugt.
+
+    Der vorhandene Monotonietest konnte das konstruktiv nicht sehen: er haelt
+    den Mean fest und zieht normale statt lognormale Faktoren.
+    """
+    T = 12
+    n_paths = 60_000
+
+    def lognormal_factors(simple_mean: float, simple_sigma: float, rng) -> np.ndarray:
+        """Faktoren mit vorgegebenem ARITHMETISCHEM Mean und Sigma.
+
+        Momentenanpassung, damit "Ziel-Sigma" wirklich die Einperioden-Vola
+        ist und nicht eine Log-Groesse -- sonst wuerde der Test seine eigene
+        Voraussetzung verfehlen.
+        """
+        m = 1.0 + simple_mean
+        log_var = np.log(1.0 + (simple_sigma * simple_sigma) / (m * m))
+        log_mean = np.log(m) - 0.5 * log_var
+        return rng.lognormal(log_mean, np.sqrt(log_var), size=(n_paths, T))
+
+    rng = np.random.default_rng(20261011)
+    factors_low_vol_high_mean = lognormal_factors(0.055, 0.4000, rng)
+    factors_high_vol_low_mean = lognormal_factors(-0.050, 0.4005, rng)
+
+    sampled_vol_a = float(np.std(factors_low_vol_high_mean - 1.0))
+    sampled_vol_b = float(np.std(factors_high_vol_low_mean - 1.0))
+    # Voraussetzung des Gegenbeispiels: A schwankt wirklich weniger. Ohne
+    # diese Zeile koennte der Test aus dem falschen Grund gruen sein.
+    assert sampled_vol_a < sampled_vol_b, (sampled_vol_a, sampled_vol_b)
+
+    objective_a = primary_objective(
+        OBJECTIVE_MIN_VOLATILITY,
+        goal_shortfall_value=0.0,
+        portfolio_return_factors=factors_low_vol_high_mean,
+    )
+    objective_b = primary_objective(
+        OBJECTIVE_MIN_VOLATILITY,
+        goal_shortfall_value=0.0,
+        portfolio_return_factors=factors_high_vol_low_mean,
+    )
+
+    assert objective_a < objective_b, (
+        "min_volatility bevorzugt das Portfolio mit der HOEHEREN "
+        f"Einperioden-Volatilitaet (A={objective_a}, B={objective_b}; "
+        f"Vola A={sampled_vol_a}, B={sampled_vol_b}) -- es ordnet nach "
+        "Erwartungswert statt nach Risiko."
+    )
+
+
+def test_min_volatility_is_indifferent_to_the_mean_at_equal_risk() -> None:
+    """Gleiches Risiko, verschiedener Mean -> praktisch gleiche Kennzahl.
+
+    Die Kehrseite des Gegenbeispiels: ein Risikomass darf den Erwartungswert
+    nicht sehen.
+
+    WICHTIG, nachgemessen: dieser Test DISKRIMINIERT NICHT gegen das alte
+    Mass -- mit der Streuung der annualisierten Endrendite bleibt er gruen.
+    Bei gleichem ARITHMETISCHEM Sigma heben sich dort zwei Effekte fast auf
+    (hoeherer Log-Mean, dafuer kleinere Log-Varianz), die Spanne lag bei
+    ~0.0005. Der Defekt zeigt sich erst, wenn sich Mean UND Sigma
+    unterscheiden -- das pinnt
+    ``test_min_volatility_does_not_rank_by_expected_return``.
+
+    Dieser Test bleibt trotzdem: er haelt den Vertrag fest, dass die
+    Kennzahl mean-frei ist, und wuerde einen kuenftigen "Fix" fangen, der
+    Rendite in das Risikomass mischt. Er wird aber ausdruecklich NICHT als
+    Beleg fuer die Schliessung des Befundes gezaehlt.
+    """
+    T = 12
+    n_paths = 60_000
+    sigma = 0.25
+
+    def lognormal_factors(simple_mean: float, rng) -> np.ndarray:
+        m = 1.0 + simple_mean
+        log_var = np.log(1.0 + (sigma * sigma) / (m * m))
+        log_mean = np.log(m) - 0.5 * log_var
+        return rng.lognormal(log_mean, np.sqrt(log_var), size=(n_paths, T))
+
+    rng = np.random.default_rng(4711)
+    values = [
+        primary_objective(
+            OBJECTIVE_MIN_VOLATILITY,
+            goal_shortfall_value=0.0,
+            portfolio_return_factors=lognormal_factors(mean, rng),
+        )
+        for mean in (-0.02, 0.03, 0.08)
+    ]
+
+    spread = max(values) - min(values)
+    assert spread < 0.01 * sigma, (
+        "Die Kennzahl unterscheidet bei identischem Risiko nach dem "
+        f"Erwartungswert (Werte {values}, Spanne {spread}) -- sie ordnet "
+        "damit teilweise nach Rendite."
+    )
+
+
+def test_min_volatility_weights_apply_per_path() -> None:
+    """Likelihood-Ratios gelten pro Pfad, auch nach dem Flachlegen.
+
+    Die Kennzahl poolt jetzt ueber Pfade UND Jahre; die IS-Gewichte haben
+    aber nur eine Laenge pro Pfad. Werden sie falsch ausgerollt, gewichtet
+    das Mass stillschweigend die falschen Beobachtungen -- ein Fehler, der
+    keine Exception wirft und die Zahl nur leise verschiebt.
+    """
+    rng = np.random.default_rng(99)
+    factors = 1.0 + rng.normal(0.04, 0.15, size=(500, 8))
+
+    unweighted = primary_objective(
+        OBJECTIVE_MIN_VOLATILITY,
+        goal_shortfall_value=0.0,
+        portfolio_return_factors=factors,
+    )
+    uniform_weighted = primary_objective(
+        OBJECTIVE_MIN_VOLATILITY,
+        goal_shortfall_value=0.0,
+        portfolio_return_factors=factors,
+        weights=np.ones(500, dtype=np.float64),
+    )
+    assert abs(unweighted - uniform_weighted) < 1e-9, (
+        "Uniforme Gewichte muessen dasselbe Ergebnis liefern wie keine "
+        f"Gewichte: {unweighted} vs. {uniform_weighted}"
+    )
+
+    # Falsche Laenge -> Fehler, kein stilles Weiterrechnen. Die Meldung muss
+    # die PFADZAHL nennen, nicht die flachgelegte Laenge (pfade*jahre), sonst
+    # schickt sie den Leser in die falsche Richtung.
+    with pytest.raises(ValueError, match="n_paths=500"):
+        primary_objective(
+            OBJECTIVE_MIN_VOLATILITY,
+            goal_shortfall_value=0.0,
+            portfolio_return_factors=factors,
+            weights=np.ones(8, dtype=np.float64),
+        )
