@@ -51,6 +51,7 @@ from services.optimizer.objective_variants import (
     OBJECTIVE_MAX_DRAWDOWN,
     OBJECTIVE_MAX_RETURN,
     OBJECTIVE_MIN_VOLATILITY,
+    ObjectiveDomainError,
     ObjectiveModeError,
     objective_basis,
     primary_objective,
@@ -421,9 +422,25 @@ def test_cvar_degenerates_to_the_minimum_with_few_paths() -> None:
 
 
 def test_weighted_estimators_reject_degenerate_weights() -> None:
+    """Nullsumme und falsche Laenge werden abgelehnt.
+
+    OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: der Nullsummen-Fall matchte
+    vorher auf den Freitext "Sum-of-weights". Ein Fehlertext ist kein
+    Vertrag -- jede Umformulierung haette den Test gebrochen, ohne dass sich
+    das Verhalten aendert. Geprueft wird jetzt der STABILE Reason-Code.
+
+    Die Laengenpruefung bleibt ein nackter ValueError: sie ist ein
+    Aufrufvertrag (Array falscher Form), kein Domaenenbefund ueber die
+    WERTE, und bekommt deshalb bewusst keinen Reason-Code.
+
+    Die weiteren Domaenenfaelle -- negative, nan- und inf-Gewichte, die
+    vorher ALLE durchliefen -- stehen in
+    tests/test_objective_domain_fail_closed.py.
+    """
     values = np.asarray([0.1, 0.2, 0.3])
-    with pytest.raises(ValueError, match="Sum-of-weights"):
+    with pytest.raises(ObjectiveDomainError) as exc:
         weighted_mean(values, np.zeros(3))
+    assert exc.value.reason_code == "objective_weights_no_positive_mass"
     with pytest.raises(ValueError, match="!= n_paths"):
         weighted_mean(values, np.ones(5))
 
