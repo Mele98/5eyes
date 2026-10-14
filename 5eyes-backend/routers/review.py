@@ -194,6 +194,88 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Empfehlung basiert nicht auf der aktuellen Soll-Allokation.")
     elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
         errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
+    # RISK-BUDGET-FINALIZATION-001 (Audit 2026-10-04, Kontrollrunde 46):
+    # `services/mandate_lock_audit.py` berechnet seit laengerem einen harten
+    # Lock-Reason `risk_budget_violated`, sobald die Risky-Fraktion einer
+    # Allokation ihr Risikobudget uebersteigt -- und diese Validierung las ihn
+    # nie. Eine Empfehlung, deren verankerte Soll-Allokation das Budget des
+    # Kunden krass verletzt (Audit-Groessenordnung: 5627 gegen 100 bps), wurde
+    # klaglos "Final". Das ist derselbe Befund wie COST-FINALIZATION-001 eine
+    # Ebene weiter: die Engine ERKENNT den Zustand, das Zertifizierungs-Gate
+    # fragt ihn nicht ab.
+    #
+    # Geprueft wird die ALLOKATION DIESES RUNS, nicht der mandatsweite Lock.
+    # Der Lock liest die jeweils aktuelle TargetAllocation; das ist fuer eine
+    # Mandatsmaske richtig, fuer die Zertifizierung eines konkreten Runs aber
+    # der falsche Bezug -- er koennte einen Run an einer fremden, neueren
+    # Allokation scheitern lassen oder umgekehrt durchlassen. Die typisierten
+    # Spalten der verankerten Allokation sind der praezise Bezug.
+    #
+    # Heilmittel vorhanden (sonst waere das Gate nicht sicher, sondern
+    # funktionsunfaehig): die Verletzung entsteht, wenn das Budget mit den
+    # gewaehlten Bausteinen und Pflicht-Bandbreiten strukturell nicht
+    # erreichbar ist. Genau das sagt die Engine dem Berater bereits im
+    # Reasoning-Trail ("bitte Risikoprofil oder Bausteine im
+    # Beratungsgespraech pruefen"); nach einer Anpassung und Neugenerierung
+    # liegt die Allokation im Budget. Eine Empfehlung, die das Risikobudget
+    # verletzt, DARF nicht zertifizierbar sein -- #AA-1 gibt dem Berater eine
+    # Strategie zum Ansehen, nicht eine zum Freigeben.
+    if allocation is not None:
+        realized_risky_bps = getattr(
+            allocation, "risky_fraction_bps_at_generation", None
+        )
+        allocation_risk_budget_bps = getattr(
+            allocation, "risk_budget_bps_at_generation", None
+        )
+        if allocation_risk_budget_bps is None:
+            # BEWUSST keine eigene Meldung: ein fehlendes typisiertes Budget
+            # ist bereits fail-closed abgedeckt.
+            # `_verified_persisted_allocation_context()` (aufgerufen ueber
+            # build_target_payload_from_allocation weiter unten) wirft dafuer
+            # "Persistiertes Risikobudget widerspricht der typisierten
+            # TargetAllocation-Spalte" -- nachgemessen, der Fall kommt nie
+            # bis zu einer Freigabe. Hier zusaetzlich zu warnen wuerde
+            # denselben Sachverhalt zweimal melden, einmal als Warnung und
+            # einmal als Fehler, und den Berater zwei Ursachen suchen
+            # lassen, wo es eine gibt.
+            pass
+        elif realized_risky_bps is None:
+            # Dieser Fall ist NICHT anderweitig abgedeckt: die
+            # Integritaetspruefung oben validiert das Budget gegen die
+            # typisierte Spalte, den IST-Risikoanteil aber nicht. Ohne ihn
+            # ist die Budget-Treue nicht BELEGBAR. Sie als erfuellt zu
+            # behandeln waere eine Behauptung ohne Nachweis; deshalb
+            # sichtbar machen statt stillschweigend durchzuwinken.
+            warnings.append(
+                "Die Risikobudget-Treue der verankerten Soll-Allokation ist "
+                "nicht belegbar: der Ist-Risikoanteil fehlt in der "
+                "Allokation. Vor der Freigabe neu generieren, damit der "
+                "Nachweis vorliegt."
+            )
+        else:
+            try:
+                realized_int = int(realized_risky_bps)
+                budget_int = int(allocation_risk_budget_bps)
+            except (TypeError, ValueError):
+                warnings.append(
+                    "Ist-Risikoanteil oder Risikobudget der verankerten "
+                    "Soll-Allokation sind nicht als Zahl lesbar; die "
+                    "Budget-Treue ist nicht belegbar."
+                )
+            else:
+                if realized_int > budget_int:
+                    # Zahlen in die Meldung: der Berater muss sehen, WIE weit
+                    # er darueber liegt, um zu entscheiden, ob das
+                    # Risikoprofil oder die Bausteine die richtige
+                    # Stellschraube sind.
+                    errors.append(
+                        "Die verankerte Soll-Allokation verletzt das "
+                        "Risikobudget des Risikoprofils: Ist-Risikoanteil "
+                        f"{realized_int / 100:.2f} % gegen Budget "
+                        f"{budget_int / 100:.2f} %. Risikoprofil oder "
+                        "Bausteine anpassen und die Allokation neu "
+                        "generieren."
+                    )
     # COST-FINALIZATION-001 (CERT-COST-CONFLICT-001, 2026-10-13): die
     # Validierung prueft Risikoprofil, Soll-Allokation und Policy -- aber
     # nie den Nachweiszustand der Interessenkonflikte. Ein Mandat mit einer
