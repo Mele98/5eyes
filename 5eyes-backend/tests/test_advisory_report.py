@@ -701,6 +701,39 @@ def _make_rec_run_with_position(
     return run, prod
 
 
+def _bind_run_to_current_ta(s, run: RecommendationRun, *, mandate_id: str, advisor_id: str) -> TargetAllocation:
+    """PDF-RUN-RESOLVER-001: der Berater-/PDF-Pfad des Reports zeigt nur noch
+    einen Run, der an die AKTUELLE TargetAllocation gebunden ist (dieselbe
+    Regel wie das Portfolio-PDF). Tests, die Positionen sehen wollen, binden
+    ihren Run deshalb explizit -- an die vorhandene aktuelle TA oder an eine
+    neue, die die (singleton) OptimizerPolicy des Runs wiederverwendet."""
+    ta = (
+        s.query(TargetAllocation)
+        .filter(TargetAllocation.mandate_id == mandate_id, TargetAllocation.is_current == 1)
+        .first()
+    )
+    if ta is None:
+        ta = TargetAllocation(
+            id=str(uuid.uuid4()), mandate_id=mandate_id,
+            version=1, is_current=1,
+            target_equities_bps=5500, target_bonds_bps=2500,
+            target_real_estate_bps=1000, target_alternatives_bps=500,
+            target_liquidity_bps=500,
+            band_equities_min_bps=5000, band_equities_max_bps=6000,
+            band_bonds_min_bps=2000, band_bonds_max_bps=3000,
+            band_real_estate_min_bps=500, band_real_estate_max_bps=1500,
+            band_alternatives_min_bps=0, band_alternatives_max_bps=1000,
+            band_liquidity_min_bps=0, band_liquidity_max_bps=1000,
+            policy_id=run.policy_id, set_by=advisor_id, set_at=_NOW,
+            created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(ta)
+        s.flush()
+    run.target_allocation_id = ta.id
+    s.flush()
+    return ta
+
+
 # ---------------------------------------------------------------------------
 # Sektion 5: Positionen (SOLL aus RecommendationRun)
 # ---------------------------------------------------------------------------
@@ -726,13 +759,14 @@ def test_positionen_aggregates_recommendation_positions_with_shares(session_fact
     """RecommendationPositions werden korrekt nach Bucket gruppiert + Anteils-bps."""
     with session_factory() as s:
         mandate, client, advisor = _seed_minimal_mandate(s)
-        _make_rec_run_with_position(
+        run, _p = _make_rec_run_with_position(
             s, mandate_id=mandate.id, client_id=client.id,
             advisor_id=advisor.id,
             target_amount_rappen=600_000_00,
             asset_class="Aktien", product_name="Aktien-ETF Global",
             isin="CH9999990001", currency="USD", ter_bps=18,
         )
+        _bind_run_to_current_ta(s, run, mandate_id=mandate.id, advisor_id=advisor.id)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     pos = report["positionen"]
@@ -760,10 +794,11 @@ def test_client_facing_hides_draft_run(session_factory):
     MIT client_facing=True (Kundenportal) gilt er als nicht vorhanden."""
     with session_factory() as s:
         mandate, client, advisor = _seed_minimal_mandate(s)
-        _make_rec_run_with_position(
+        run, _p = _make_rec_run_with_position(
             s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
             target_amount_rappen=100_000_00,
         )  # result_status="Draft" per Default in _make_rec_run_with_position
+        _bind_run_to_current_ta(s, run, mandate_id=mandate.id, advisor_id=advisor.id)
         s.commit()
         advisor_view = compute_advisory_report(s, mandate, advisor=advisor)
         client_view = compute_advisory_report(s, mandate, advisor=advisor, client_facing=True)
@@ -826,8 +861,9 @@ def test_client_facing_hides_final_run_bound_to_stale_ta(session_factory):
         s.commit()
         advisor_view = compute_advisory_report(s, mandate, advisor=advisor)
         client_view = compute_advisory_report(s, mandate, advisor=advisor, client_facing=True)
-    # Berater-Pfad unveraendert: zeigt weiterhin den neuesten Run.
-    assert advisor_view["positionen"]["has_recommendation_run"] is True
+    # PDF-RUN-RESOLVER-001: auch der Berater-/PDF-Pfad zeigt keinen Run einer
+    # ueberholten Allokation mehr (vorher: neuester Run, egal welche TA).
+    assert advisor_view["positionen"]["has_recommendation_run"] is False
     # Kundenportal: der einzige Run ist final, aber an eine ueberholte TA
     # gebunden -- gilt fuer den Kunden als "keine Empfehlung vorhanden".
     assert client_view["positionen"]["has_recommendation_run"] is False
@@ -1051,12 +1087,13 @@ def test_ist_basiert_auf_soll_flag_when_current_amounts_missing(session_factory)
     Datenstand als SOLL-basiert in allen Drift-Sektionen."""
     with session_factory() as s:
         mandate, client, advisor = _seed_minimal_mandate(s)
-        _make_rec_run_with_position(
+        run, _p = _make_rec_run_with_position(
             s, mandate_id=mandate.id, client_id=client.id,
             advisor_id=advisor.id,
             target_amount_rappen=1_000_000_00,
             current_amount_rappen=None,
         )
+        _bind_run_to_current_ta(s, run, mandate_id=mandate.id, advisor_id=advisor.id)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     assert report["asset_allocation"]["ist_basiert_auf_soll"] is True
@@ -1157,6 +1194,7 @@ def test_branchen_only_aggregates_equity_positions(session_factory):
             sector_exposure_json=json.dumps({"Financials": 10000}),
             run=run,
         )
+        _bind_run_to_current_ta(s, run, mandate_id=mandate.id, advisor_id=advisor.id)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
 
@@ -2403,6 +2441,7 @@ def test_ar3_unmapped_asset_class_goes_to_sonstige_group(session_factory):
             target_amount_rappen=50_000_00, asset_class="Krypto-Sondervermögen",
             product_name="Mystery-Fund", isin="CH0000000012", run=run,
         )
+        _bind_run_to_current_ta(s, run, mandate_id=mandate.id, advisor_id=advisor.id)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     groups = {g["key"]: g for g in report["positionen"]["groups"]}

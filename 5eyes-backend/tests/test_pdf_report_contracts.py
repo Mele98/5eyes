@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 PDF_REPORTS_PATH = Path(__file__).resolve().parents[1] / "routers" / "pdf_reports.py"
+RESOLVER_PATH = Path(__file__).resolve().parents[1] / "services" / "recommendation_run_resolver.py"
 REVIEW_ROUTER_PATH = Path(__file__).resolve().parents[1] / "routers" / "review.py"
 FRONTEND_PATH = Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "5eyes_v2.html"
 
@@ -15,8 +16,11 @@ def test_pdf_reports_query_recommendation_positions_by_run_id():
 
 def test_portfolio_pdf_blocks_stale_recommendation_runs():
     source = PDF_REPORTS_PATH.read_text(encoding="utf-8")
+    resolver = RESOLVER_PATH.read_text(encoding="utf-8")
 
-    assert "RecommendationRun.target_allocation_id == current_allocation_id" in source
+    # PDF-RUN-RESOLVER-001: die TA-Bindung lebt im gemeinsamen Resolver.
+    assert "resolve_current_recommendation_run(" in source
+    assert "RecommendationRun.target_allocation_id == str(target_allocation_id)" in resolver
     assert "passt nicht zur aktuellen" in source
     assert "Portfolio/Empfehlung neu generieren" in source
 

@@ -36,8 +36,8 @@ from services.pdf.styles import (
 BUCKET_ORDER = ("liquidity", "bonds", "equities", "real_estate", "alternatives")
 
 FALLBACK_TEXT = (
-    "Noch kein Produktrezept im aktuellen App-Zustand geladen. Sobald das "
-    "Portfolio generiert wurde, erscheint hier die Produktliste mit ISIN, "
+    "Keine aktuelle Produktempfehlung fuer die gueltige Asset Allocation. "
+    "Sobald das Portfolio fuer diese Allokation generiert wurde, erscheint hier die Produktliste mit ISIN, "
     "Zielgewicht, Zielwert, Währung und TER."
 )
 
