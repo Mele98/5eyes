@@ -16715,6 +16715,9 @@ async function createNewMandate() {
     if (isNetworkDown(ce)) {
       // Backend nicht erreichbar — Demo-Eintrag mit sichtbarem Label
       currentClientId = 'demo-' + ts;
+      // PREF-LEAK-NEW-CLIENT-001: sonst zeigt der neue Kunde weiter auf das
+      // Mandat des zuvor geoeffneten Kunden (Praeferenzen, Strategie-Calls).
+      currentMandateId = null;
       addToSidebar(currentClientId, '⚠️ Demo');
       showNewClientScreen(firstName, lastName, mType, {dob:dob, canton:canton, household:household});
       cm('m-nc');
@@ -16768,6 +16771,9 @@ async function createNewMandate() {
   } catch(me) {
     if (isNetworkDown(me)) {
       // Client wurde angelegt, Mandat nicht — ehrlich kommunizieren
+      // PREF-LEAK-NEW-CLIENT-001: kein Mandat heisst KEIN Mandat -- nicht
+      // das des zuvor geoeffneten Kunden.
+      currentMandateId = null;
       addToSidebar(currentClientId, '⚠️ kein Mandat');
       showNewClientScreen(firstName, lastName, mType, {dob:dob, canton:canton, household:household});
       cm('m-nc');
@@ -16827,6 +16833,13 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   renderEngineRuntimePanels(null);
   renderPortfolioSections([]);
   renderHouseholdGridFromCurrentPersona();
+  // PREF-LEAK-NEW-CLIENT-001 (Assetallocation-Audit 2026-10-14):
+  // collectAllocationPreferencesFromUI() liest das LIVE-DOM. Ohne Resync
+  // standen dort noch ESG-Policy, Ausschluesse, Limits und Mindestreserve
+  // des zuvor geoeffneten Kunden -- und die erste Strategieberechnung des
+  // neuen Mandats schickte sie mit (live gemessen: esg best_in_class,
+  // Tabak exclude, minReserve 250'000 statt none/neutral/leer).
+  syncAllocationPreferences();
 
   document.querySelectorAll('.kpir .kv').forEach(function(el){el.textContent='CHF \u2014';});
   document.querySelectorAll('.kpir .ks').forEach(function(el){el.textContent='\u2014';});
