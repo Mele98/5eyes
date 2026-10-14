@@ -3726,9 +3726,10 @@ function _wireSollIstHover(){
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
             <div>
               <label style="font-size:9px;color:var(--n4)">Horizont</label>
-              <select class="fsel" id="aa-sim-horizon" style="font-size:10px">
+              <select class="fsel" id="aa-sim-horizon" style="font-size:10px" title="Auto: Horizont bis Lebenserwartung bzw. letzter Cashflow (Mandatseinstellung/BFS-Sterbetafel). Ein Jahreswert ist ein expliziter Berater-Override.">
+                <option value="" selected>Auto (Lebenserwartung/letzter Cashflow)</option>
                 <option value="7">7 Jahre</option>
-                <option value="10" selected>10 Jahre</option>
+                <option value="10">10 Jahre</option>
                 <option value="12">12 Jahre</option>
                 <option value="15">15 Jahre</option>
                 <option value="20">20 Jahre</option>
@@ -15844,18 +15845,42 @@ function applyGoalDerivedRiskHorizon(force){
   }
   prefillRiskCapacityFromCashflows();
 }
-function applyMandateHorizonToSimulationFields(){
-  var range=currentMandateHorizonRange();
+// SIM-HORIZON-ALWAYS-EXPLICIT-001 (2026-10-14): die fruehere Mandats-Sync-Funktion
+// (applyMandateHorizonToSimulationFields) ist entfernt. Sie schrieb beim Oeffnen
+// des Parameter-Modals bzw. nach dem Stammdaten-Speichern den Anlagehorizont
+// (i.d.R. bis Pensionierung) als EXPLIZITEN Wert in #aa-sim-horizon -- das Backend
+// wertet jeden gesendeten Wert als Berater-Override, womit Lebenserwartung
+// (Mandat/BFS) und letzter Cashflow nie erreicht wurden. Der Simulationshorizont
+// steht jetzt auf "Auto", bis der Berater ihn selbst waehlt.
+function readSimulationHorizonOverride(){
+  // null = Auto (kein Override senden). Eine explizite Wahl wird wie bisher nie
+  // kuerzer als die (flache) Lebenserwartung gesendet, damit die SOLL/IST-
+  // Vergleichs-X-Achse bis ans Lebensende reicht (2026-06-15, Bug: Achse ~2036).
+  var raw=String(getInputValue('aa-sim-horizon')||'').trim();
+  if(!raw)return null;
+  var _i=parseInt(raw,10);
+  if(!isFinite(_i)||_i<1)return null;
+  var _l=_lifeExpectancyHorizonYears();
+  return String(Math.min(120,(_l&&_l>_i)?_l:_i));
+}
+function setSimulationHorizonSelectValue(value){
+  // Fehlender/leerer Wert -> Auto (auch beim Mandantenwechsel; vorher erbte der
+  // Select den expliziten Wert des vorherigen Kunden). Ein gespeicherter Wert
+  // ausserhalb der Optionsliste (z.B. 37) wird als Option ergaenzt, statt den
+  // Select leer erscheinen zu lassen.
   var field=document.getElementById('aa-sim-horizon');
-  if(!field||!range||!range.years)return;
-  var years=Math.max(7,Math.min(50,Math.round(range.years)));
-  if(!Array.prototype.some.call(field.options,function(option){return String(option.value||'')===String(years);})){
+  if(!field)return;
+  var raw=value==null?'':String(value).trim();
+  var years=parseInt(raw,10);
+  if(!raw||!isFinite(years)||years<1){field.value='';return;}
+  var normalized=String(years);
+  if(!Array.prototype.some.call(field.options,function(option){return String(option.value||'')===normalized;})){
     var dynamic=document.createElement('option');
-    dynamic.value=String(years);
-    dynamic.textContent=String(years)+' Jahre';
+    dynamic.value=normalized;
+    dynamic.textContent=normalized+' Jahre';
     field.appendChild(dynamic);
   }
-  field.value=String(years);
+  field.value=normalized;
 }
 
 function mapSurplusPoints(monthlyIncomeChf, monthlyObligationsChf){
@@ -18202,7 +18227,7 @@ function buildDefaultAllocationPreferences(){
     limits:{singlePosition:'',singleIssuer:'',minReserve:'',maxIlliquid:''},
     geo:{chFocus:false,noEm:false,hedgingRequired:false,chfOnly:false,noUsd:false},
     bands:{},
-    simulation:{horizonYears:'10',stressMultiplier:'1.0',rebalanceMode:'bands',monteCarloRuns:'750'},
+    simulation:{stressMultiplier:'1.0',rebalanceMode:'bands',monteCarloRuns:'750'},
     assetClasses:{
       equitiesGeo:'Schweiz Fokus',
       equitiesLargeCap:true,
@@ -18437,7 +18462,6 @@ function mountAllocationCardIntoSlot(cardId, slotId){
 function openAllocationParametersModal(){
   ensureAllocationRuntimePanels();
   ensureAllocationControlModalsMounted();
-  applyMandateHorizonToSimulationFields();
   om('m-aa-params');
 }
 
@@ -18758,7 +18782,7 @@ function renderAllocationPreferenceSummary(prefs){
     'Immobilien: '+(prefs.assetClasses.realestateMarket||'Schweiz'),
     'Alternative: '+(altPrefs.length?altPrefs.join(' + '):'keine Schwerpunkte'),
     'Liquidität: '+(prefs.assetClasses.liquidityInstrument||'Geldmarktfonds'),
-    'Simulation: '+String((prefs.simulation&&prefs.simulation.horizonYears)||'10')+' J / '
+    'Simulation: '+((prefs.simulation&&prefs.simulation.horizonYears)?String(prefs.simulation.horizonYears)+' J':'Auto (Lebenserwartung)')+' / '
       +(prefs.simulation&&prefs.simulation.rebalanceMode==='calendar'?'jaehrlich':(prefs.simulation&&prefs.simulation.rebalanceMode==='none'?'ohne Rebalancing':'bei Bandbruch'))
       +' / Stress '+String((prefs.simulation&&prefs.simulation.stressMultiplier)||'1.0')+'x'
       +' / MC '+String((prefs.simulation&&prefs.simulation.monteCarloRuns)||'750')
@@ -18826,10 +18850,6 @@ function collectAllocationPreferencesFromUI(){
       noUsd:getCheckboxValue('aa-geo-no-usd'),
     },
     simulation:{
-      // 2026-06-15: Sim-Horizont mind. bis Lebenserwartung (Geburt+83/85), damit
-      // die SOLL/IST-Vergleichs-X-Achse bis ans Lebensende reicht (Bug: Achse
-      // endete bei ~2036). Manueller Wert gewinnt nur, wenn er länger ist.
-      horizonYears:(function(){var _i=parseInt(getInputValue('aa-sim-horizon'),10);var _l=_lifeExpectancyHorizonYears();var _b=(isFinite(_i)&&_i>0)?_i:10;return String((_l&&_l>_b)?_l:_b);})(),
       stressMultiplier:getInputValue('aa-sim-stress')||'1.0',
       rebalanceMode:getInputValue('aa-sim-rebalance')||'bands',
       monteCarloRuns:getInputValue('aa-sim-mc-runs')||'750',
@@ -18863,6 +18883,11 @@ function collectAllocationPreferencesFromUI(){
   prefs.product=live.product;
   prefs.limits=live.limits;
   prefs.geo=live.geo;
+  // SIM-HORIZON-ALWAYS-EXPLICIT-001: horizonYears NUR bei expliziter Berater-
+  // Wahl senden. Fehlt der Key, leitet das Backend den Horizont aus Mandats-
+  // Lebenserwartung / BFS-Sterbetafel / letztem datierten Ziel ab.
+  var simHorizonOverride=readSimulationHorizonOverride();
+  if(simHorizonOverride!=null)live.simulation.horizonYears=simHorizonOverride;
   prefs.simulation=live.simulation;
   prefs.assetClasses=live.assetClasses;
   var modal=document.getElementById('m-eq');
@@ -18895,7 +18920,7 @@ function applyAllocationPreferencesToUI(prefs){
   setCheckboxValue('aa-geo-hedging-required',prefs.geo&&prefs.geo.hedgingRequired);
   setCheckboxValue('aa-geo-chf-only',prefs.geo&&prefs.geo.chfOnly);
   setCheckboxValue('aa-geo-no-usd',prefs.geo&&prefs.geo.noUsd);
-  setSelectValue('aa-sim-horizon',prefs.simulation&&prefs.simulation.horizonYears);
+  setSimulationHorizonSelectValue(prefs.simulation&&prefs.simulation.horizonYears);
   setSelectValue('aa-sim-stress',prefs.simulation&&prefs.simulation.stressMultiplier);
   setSelectValue('aa-sim-rebalance',prefs.simulation&&prefs.simulation.rebalanceMode);
   setSelectValue('aa-sim-mc-runs',prefs.simulation&&prefs.simulation.monteCarloRuns);
@@ -26594,7 +26619,6 @@ async function saveClientData(){
       }
       renderHouseholdGridFromCurrentPersona();
       applyGoalDerivedRiskHorizon(true);
-      applyMandateHorizonToSimulationFields();
       markStrategyDirty('Anlagehorizont angepasst: Strategie neu berechnen.', true);
       var sideEl=document.querySelector('.client.active[data-cid="'+cid+'"]');
       if(sideEl){
@@ -26628,7 +26652,6 @@ async function saveClientData(){
     }
     renderHouseholdGridFromCurrentPersona();
     applyGoalDerivedRiskHorizon(true);
-    applyMandateHorizonToSimulationFields();
     markStrategyDirty('Anlagehorizont angepasst: Strategie neu berechnen.', true);
     showModalFeedback('es-error',btn,'✓ Demo-Modus aktualisiert',false);
     setTimeout(function(){cm('m-es');},1200);
