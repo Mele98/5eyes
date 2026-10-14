@@ -60,12 +60,35 @@ def _total_financial_target_weights(target_weights_bps: dict) -> dict[str, int]:
     return normalized
 
 
+def _largest_remainder_bps(amounts: dict, base_rappen: int) -> dict[str, int]:
+    """MATH-DISP-1: Gewichte in bps, deren Summe exakt 10'000 ergibt.
+
+    Voraussetzung: base_rappen > 0 und sum(amounts) == base_rappen. Jedes
+    Gewicht liegt < 1 bp neben dem exakten Anteil (Largest-Remainder).
+    Gleichstand beim Rest: groesserer Betrag zuerst, dann Bucket-Reihenfolge.
+    """
+    keys = list(amounts)
+    floors: dict[str, int] = {}
+    remainders: dict[str, int] = {}
+    for key in keys:
+        floors[key], remainders[key] = divmod(int(amounts[key]) * 10_000, base_rappen)
+    missing = 10_000 - sum(floors.values())
+    order = sorted(
+        keys,
+        key=lambda k: (-remainders[k], -int(amounts[k]), keys.index(k)),
+    )
+    for key in order[:missing]:
+        floors[key] += 1
+    return floors
+
+
 def _build_total_wealth_allocation(
     total_summary: PortfolioSummary,
     total_liabilities_rappen: int,
     total_wealth_rappen: int,
     target_weights_bps: dict,
     direct_property_rappen: int | None = None,
+    other_liabilities_rappen: int = 0,
 ) -> dict:
     """Gesamtvermögens-Allokation mit der Immobilie als fixem Fundament (Sockel).
 
@@ -76,6 +99,30 @@ def _build_total_wealth_allocation(
     Immobilienfonds/REITs bleiben dagegen Teil des investierbaren Finanzmixes
     und erhalten die normale SAA-Immobilienquote.
 
+    Verbindlichkeiten (TOTAL-WEALTH-LIABILITY-001):
+    - `total_liabilities_rappen` = NUR Hypotheken (GESAMTVERMOEGEN-FOUNDATION-
+      LIABILITY-SCOPE-001). Sie werden zuerst mit der Direktimmobilie
+      verrechnet; `foundation_rappen` = Immobilie netto Hypothek (unverändert).
+    - `other_liabilities_rappen` = alle übrigen Schulden (Privatkredit etc.).
+      Sie sind in `total_wealth_rappen` (SOLL-Basis) bereits abgezogen und
+      müssen deshalb auch im IST abgezogen werden — über dieselbe Kaskade wie
+      ein Hypotheken-Überhang: Liquidität -> Obligationen -> Alternative ->
+      Aktien -> kotierte Immobilien -> erst ganz zuletzt das Fundament. Das
+      Fundament wird also nie VOR den Finanz-Buckets angetastet (SCOPE-001-
+      Garantie bleibt). Der davon belastete Teil steht in
+      `foundation_charged_other_liabilities_rappen`, der im Netto-Vermögen
+      verbleibende Teil in `foundation_in_net_wealth_rappen` — nur dieser ist
+      der fixe Block in IST und SOLL.
+
+    Invariante (Netto-Gesamtvermögen > 0, konsistente Eingaben): Beträge von
+    IST und SOLL summieren je exakt auf `total_base_rappen`, Gewichte je exakt
+    auf 10'000 bps (Largest-Remainder-Rundung, MATH-DISP-1).
+
+    Netto-Gesamtvermögen <= 0 (Schulden >= Aktiven): fail-soft — alle Beträge
+    und Gewichte 0, `net_wealth_non_positive=True`, der nicht durch Aktiven
+    gedeckte Rest in `uncovered_liabilities_rappen`. Keine negativen Beträge,
+    keine Gewichte > 100 %.
+
     REIN ADDITIV: beeinflusst Optimizer/Reserve/Ziele NICHT — nur die Anzeige.
     Der Optimizer/die Reserve rechnen unverändert auf dem Beratungsvermögen.
     """
@@ -84,6 +131,7 @@ def _build_total_wealth_allocation(
 
     amounts = {k: max(0, int(total_summary.amounts_rappen.get(k, 0))) for k in BUCKET_FIELDS}
     liabilities = max(0, int(total_liabilities_rappen or 0))
+    other_liabilities = max(0, int(other_liabilities_rappen or 0))
     total_base = max(0, int(total_wealth_rappen or 0))
     # Only position_type='Immobilien' is the fixed direct-property foundation.
     # Listed funds/REITs inside depots remain an investable real-estate sleeve.
@@ -99,34 +147,40 @@ def _build_total_wealth_allocation(
         )
     listed_real_estate_rappen = real_estate_gross - direct_property_gross
     foundation_rappen = max(0, direct_property_gross - liabilities)
-    liab_remaining = max(0, liabilities - direct_property_gross)
-    financial_base_rappen = max(0, total_base - foundation_rappen)
-
-    # IST (heutiger Mix, total): Fundament + heutige Finanz-Buckets; ein Rest-
-    # Hypothek-Überhang wird von der Liquidität abgezogen (Netto-Konsistenz).
-    current_amounts = dict(amounts)
-    current_amounts["real_estate"] = (
-        listed_real_estate_rappen + foundation_rappen
+    # Hypotheken-Überhang (Hypothek > Immobilie) + alle übrigen Schulden.
+    liab_remaining = (
+        max(0, liabilities - direct_property_gross) + other_liabilities
     )
+
+    # IST (heutiger Mix, total): heutige Finanz-Buckets + Fundament; offene
+    # Schulden werden kaskadiert abgezogen (Netto-Konsistenz). Innerhalb der
+    # Immobilien zuerst der kotierte Teil, das Fundament ganz zuletzt.
+    current_amounts = dict(amounts)
+    current_amounts["real_estate"] = listed_real_estate_rappen
     for key in ("liquidity", "bonds", "alternatives", "equities", "real_estate"):
         if liab_remaining <= 0:
             break
         removable = min(liab_remaining, current_amounts[key])
         current_amounts[key] -= removable
         liab_remaining -= removable
+    foundation_charged = min(liab_remaining, foundation_rappen)
+    foundation_in_net_wealth = foundation_rappen - foundation_charged
+    uncovered_liabilities = liab_remaining - foundation_charged
+    current_amounts["real_estate"] += foundation_in_net_wealth
+    financial_base_rappen = max(0, total_base - foundation_in_net_wealth)
 
     # SOLL (Ziel, total): the fixed foundation stays in place. The financial
     # part follows the full investable SAA, including listed real estate.
     tgt = _total_financial_target_weights(target_weights_bps)
     target_amounts = {k: 0 for k in BUCKET_FIELDS}
-    target_amounts["real_estate"] = foundation_rappen
+    target_amounts["real_estate"] = foundation_in_net_wealth
     if sum(tgt.values()) > 0 and financial_base_rappen > 0:
         for k in BUCKET_FIELDS:
             target_amounts[k] += int(
                 round(financial_base_rappen * tgt[k] / 10_000)
             )
         # Rundungsrest dem grössten Finanz-Bucket zuschlagen -> Summe exakt = Finanzbasis.
-        allocated_financial = sum(target_amounts.values()) - foundation_rappen
+        allocated_financial = sum(target_amounts.values()) - foundation_in_net_wealth
         residual = financial_base_rappen - allocated_financial
         if residual:
             biggest = max(BUCKET_FIELDS, key=lambda k: tgt[k])
@@ -136,30 +190,45 @@ def _build_total_wealth_allocation(
         for k in BUCKET_FIELDS:
             target_amounts[k] = current_amounts[k]
 
-    base = max(1, total_base)
+    def _weights(bucket_amounts: dict) -> dict[str, int]:
+        # MATH-DISP-1: exakt 10'000 bps, sofern die Beträge die Basis exakt
+        # zerlegen. Sonst (inkonsistente Eingaben / Basis 0 -> überall 0)
+        # bisherige Einzelrundung, damit kein Fehler kaschiert wird.
+        if total_base > 0 and sum(bucket_amounts.values()) == total_base:
+            return _largest_remainder_bps(bucket_amounts, total_base)
+        return {k: _bps(bucket_amounts[k], total_base) for k in BUCKET_FIELDS}
+
+    current_weights = _weights(current_amounts)
+    target_weights = _weights(target_amounts)
     allocation = []
     for key in BUCKET_FIELDS:
         allocation.append({
             "asset_class": BUCKET_LABELS[key],
-            "current_weight_bps": _bps(current_amounts[key], base),
-            "target_weight_bps": _bps(target_amounts[key], base),
+            "current_weight_bps": current_weights[key],
+            "target_weight_bps": target_weights[key],
             "current_amount_rappen": int(current_amounts[key]),
             "target_amount_rappen": int(target_amounts[key]),
             "is_foundation": key == "real_estate" and direct_property_gross > 0,
             "foundation_component_rappen": (
-                int(foundation_rappen) if key == "real_estate" else 0
+                int(foundation_in_net_wealth) if key == "real_estate" else 0
             ),
             "investable_component_rappen": (
-                int(current_amounts[key] - foundation_rappen)
+                int(current_amounts[key] - foundation_in_net_wealth)
                 if key == "real_estate"
                 else int(current_amounts[key])
             ),
         })
     return {
         "basis": "gesamtvermoegen",
+        # Immobilie netto Hypothek (SCOPE-001-Vertrag, unverändert).
         "foundation_rappen": int(foundation_rappen),
+        # Davon im Netto-Gesamtvermögen verbleibend (= fixer Block IST/SOLL).
+        "foundation_in_net_wealth_rappen": int(foundation_in_net_wealth),
+        "foundation_charged_other_liabilities_rappen": int(foundation_charged),
         "financial_base_rappen": int(financial_base_rappen),
         "total_base_rappen": int(total_base),
+        "net_wealth_non_positive": total_base <= 0,
+        "uncovered_liabilities_rappen": int(uncovered_liabilities),
         "allocation": allocation,
     }
 

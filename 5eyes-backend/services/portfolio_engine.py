@@ -4195,6 +4195,11 @@ def generate_target_allocation(
         direct_property_rappen=external_foundation_projection[
             "property_series_rappen"
         ][0],
+        # TOTAL-WEALTH-LIABILITY-001: uebrige Schulden stecken in
+        # total_wealth_rappen und muessen auch im IST abgezogen werden.
+        other_liabilities_rappen=max(
+            0, total_liabilities_rappen - mortgage_liabilities_rappen
+        ),
     )
 
     return {
@@ -6322,6 +6327,10 @@ def build_target_payload_from_allocation(
         direct_property_rappen=external_foundation_projection[
             "property_series_rappen"
         ][0],
+        # TOTAL-WEALTH-LIABILITY-001: siehe generate-Pfad.
+        other_liabilities_rappen=max(
+            0, total_liabilities_rappen - mortgage_liabilities_rappen
+        ),
     )
     return {
         "target_allocation": allocation,
