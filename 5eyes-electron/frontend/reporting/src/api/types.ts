@@ -460,6 +460,10 @@ export interface BuildingBlocksData {
   blocks: BuildingBlock[];
   constraints: BuildingBlockConstraint[];
   methodologie: string;
+  /** ALLOCATION-INPUT-STALENESS-001: Soll-Allokation veraltet (Risikoprofil oder geaenderte Inputs). */
+  target_allocation_stale?: boolean;
+  /** Hinweistext, gesetzt wenn target_allocation_stale. */
+  staleness_hinweis?: string | null;
 }
 
 // ---------------------------------------------------------------------------

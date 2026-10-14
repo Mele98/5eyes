@@ -394,7 +394,7 @@ def _compute_advisory_report_inner(
         # --- Sektion 12
         "risikoprofilierung": _build_risikoprofilierung(db, mandate),
         # --- Sektion 13
-        "building_blocks": _build_building_blocks(db, mandate),
+        "building_blocks": _build_building_blocks(db, mandate, dc=dc),
         # --- Sektion 14
         "statement_pm": _build_statement_pm(),
         # --- Sektion 15
@@ -1384,6 +1384,14 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
     # Sektion "gruen" zeigen, waehrend Sektion 19 (Compliance-Audit,
     # services/suitability_audit.py) dasselbe Mandat bereits als nicht-
     # konform ausweist. Siehe depot_check.py::target_allocation_stale.
+    if dc.get("target_allocation_inputs_stale"):
+        # ALLOCATION-INPUT-STALENESS-001: gleiche Konsequenz, anderer Grund.
+        return _verdict(
+            "Asset Allocation", "nicht_beurteilbar",
+            _INPUT_STALE_ALLOCATION_TEXT
+            + " -- Band-Vergleich nicht aussagekraeftig.",
+            "Strategie neu berechnen.",
+        )
     if dc.get("target_allocation_stale"):
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
@@ -1883,8 +1891,7 @@ def _build_asset_allocation(
     target_allocation_stale = bool(dc.get("target_allocation_stale"))
     if target_allocation_stale:
         anmerkungen = (
-            "Hinweis: Soll-Allokation basiert auf einem frueheren, nicht "
-            "mehr aktuellen Risikoprofil. " + str(anmerkungen or "")
+            _stale_allocation_hinweis(dc) + " " + str(anmerkungen or "")
         ).strip()
     return {
         "items": items,
@@ -2360,7 +2367,26 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
     }
 
 
-def _build_building_blocks(db: Session, mandate: Mandate) -> dict[str, Any]:
+_INPUT_STALE_ALLOCATION_TEXT = (
+    "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben "
+    "sich seit der Berechnung geaendert"
+)
+
+
+def _stale_allocation_hinweis(dc: dict[str, Any]) -> str:
+    """Hinweistext fuer eine veraltete Soll-Allokation (Grund aus dem
+    Depot-Check: geaenderte Inputs vs. frueheres Risikoprofil)."""
+    if dc.get("target_allocation_inputs_stale"):
+        return "Hinweis: " + _INPUT_STALE_ALLOCATION_TEXT + "."
+    return (
+        "Hinweis: Soll-Allokation basiert auf einem frueheren, nicht "
+        "mehr aktuellen Risikoprofil."
+    )
+
+
+def _build_building_blocks(
+    db: Session, mandate: Mandate, dc: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Sektion 13 — Building Blocks / iSAA.
 
     Liefert die 5 Allokations-Buckets der aktuellen TA plus die statische
@@ -2392,8 +2418,18 @@ def _build_building_blocks(db: Session, mandate: Mandate) -> dict[str, Any]:
             "band_min_bps": band_min,
             "band_max_bps": band_max,
         })
+    # ALLOCATION-INPUT-STALENESS-001: dieselbe Staleness wie Sektion 7/8
+    # (Depot-Check-Flag, deckt Risikoprofil UND geaenderte Inputs ab) --
+    # sonst praesentierte der Report hier die alten Zielgewichte als aktuell.
+    target_allocation_stale = bool(ta is not None and (dc or {}).get("target_allocation_stale"))
     return {
         "blocks": blocks,
+        "target_allocation_stale": target_allocation_stale,
+        "staleness_hinweis": (
+            _stale_allocation_hinweis(dc or {}) + " Strategie neu berechnen."
+            if target_allocation_stale
+            else None
+        ),
         "constraints": _default_isaa_constraints(ta),
         "methodologie": (
             "Die Portfolio-Konstruktion folgt einer institutionellen "

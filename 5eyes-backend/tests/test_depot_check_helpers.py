@@ -110,6 +110,7 @@ def test_init_result_dict_has_all_top_level_keys():
         # Kontrollrunde 2026-09-20: True wenn die TargetAllocation unter
         # einem aelteren, nicht mehr aktuellen Risikoprofil erstellt wurde.
         "target_allocation_stale",
+        "target_allocation_inputs_stale",
         "buckets",
         "country_exposure_bps",
         "sector_exposure_bps",

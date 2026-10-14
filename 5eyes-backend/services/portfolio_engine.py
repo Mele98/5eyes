@@ -5399,6 +5399,8 @@ def build_target_payload_from_allocation(
     cma: CapitalMarketAssumption,
     assessment: RiskAssessment,
     preferences: dict | None,
+    *,
+    input_snapshot_check_only: bool = False,
 ) -> dict:
     current_cma_for_drift = cma
     modern_context = int(
@@ -5908,6 +5910,12 @@ def build_target_payload_from_allocation(
             "Bitte Strategie neu berechnen; alte Targets werden nicht mit "
             "einer aktuellen Analyse kombiniert."
         )
+    if input_snapshot_check_only:
+        # ALLOCATION-INPUT-STALENESS-001: Lese-Oberflaechen (Depot-Check,
+        # Beratungsreport) brauchen nur die Anker-Aussage, nicht die
+        # Analyse/Simulation. Frueher Ausstieg NACH exakt derselben
+        # Hash-Pruefung -- keine zweite, divergierende Hash-Herleitung.
+        return {"input_snapshot_current": True}
 
     asset_class_assumptions = _build_asset_class_assumptions(
         current_amounts=advisory_summary.amounts_rappen,

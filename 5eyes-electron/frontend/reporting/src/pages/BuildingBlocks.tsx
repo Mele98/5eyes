@@ -22,6 +22,11 @@ export function BuildingBlocks({ data }: BuildingBlocksProps) {
       title="Building Blocks"
       subtitle="Strategische Allokation auf Anlageklassen-Ebene mit Toleranzbändern."
     >
+      {data.target_allocation_stale && data.staleness_hinweis ? (
+        <p role="alert" className="mb-4 text-caption font-semibold text-status-rot">
+          Achtung: {data.staleness_hinweis}
+        </p>
+      ) : null}
       {blocks.length === 0 ? (
         <p className="italic text-caption text-ink-subtle">
           Keine Building Blocks erfasst.
