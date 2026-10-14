@@ -8207,7 +8207,7 @@ function initCharts(){
     // 3eyes-Paritaet: Alters-Achse (Haupt-/Partnerperson) unter den Jahren — nur
     // auf der IST-Reinvermoegenskurve, nicht auf den AA-Vergleichscharts.
     if(charts.ist&&charts.ist.options&&charts.ist.options.scales&&charts.ist.options.scales.x){
-      charts.ist.options.scales.x.ticks=charts.ist.options.scales.x.ticks||{};
+      if(!charts.ist.options.scales.x.ticks)charts.ist.options.scales.x.ticks={};
       charts.ist.options.scales.x.ticks.maxRotation=0;
       charts.ist.options.scales.x.ticks.autoSkip=true;
       charts.ist.options.scales.x.ticks.callback=function(value,index){
@@ -20021,7 +20021,7 @@ function updateProjectionChartsFromSimulation(result){
         };
         if(charts.opt.options&&charts.opt.options.plugins&&charts.opt.options.plugins.legend){
           charts.opt.options.plugins.legend.display=true;
-          charts.opt.options.plugins.legend.labels=charts.opt.options.plugins.legend.labels||{};
+          if(!charts.opt.options.plugins.legend.labels)charts.opt.options.plugins.legend.labels={};
           charts.opt.options.plugins.legend.labels.boxWidth=18;
           charts.opt.options.plugins.legend.labels.font={size:9};
         }
@@ -20062,7 +20062,7 @@ function updateProjectionChartsFromSimulation(result){
       };
       if(charts.ist.options&&charts.ist.options.plugins&&charts.ist.options.plugins.legend){
         charts.ist.options.plugins.legend.display=true;
-        charts.ist.options.plugins.legend.labels=charts.ist.options.plugins.legend.labels||{};
+        if(!charts.ist.options.plugins.legend.labels)charts.ist.options.plugins.legend.labels={};
         charts.ist.options.plugins.legend.labels.boxWidth=18;
         charts.ist.options.plugins.legend.labels.font={size:9};
       }
@@ -20097,7 +20097,7 @@ function updateProjectionChartsFromSimulation(result){
       };
       if(charts.aaCurrent.options&&charts.aaCurrent.options.plugins&&charts.aaCurrent.options.plugins.legend){
         charts.aaCurrent.options.plugins.legend.display=true;
-        charts.aaCurrent.options.plugins.legend.labels=charts.aaCurrent.options.plugins.legend.labels||{};
+        if(!charts.aaCurrent.options.plugins.legend.labels)charts.aaCurrent.options.plugins.legend.labels={};
         charts.aaCurrent.options.plugins.legend.labels.boxWidth=18;
         charts.aaCurrent.options.plugins.legend.labels.font={size:9};
       }
