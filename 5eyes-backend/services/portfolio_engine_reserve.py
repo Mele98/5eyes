@@ -312,6 +312,31 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     return 0
 
 
+def _saa_internal_reserve_rappen(
+    reserve_needed_rappen: int,
+    advisory_wealth_rappen: int,
+    saa_liquidity_ceiling_bps: int,
+) -> int:
+    """Interner (SAA-)Teil der Reserve -- die EINZIGE Aufteilungsregel.
+
+    RESERVE-CEILING-001 (2026-10-14): ``_compute_reserve_for_inputs`` legt
+    die externe Reserve als ``R - intern`` fest; der harte Liquiditaets-
+    Floor des stochastischen Solvers muss genau denselben internen Betrag
+    vorhalten. Beide Stellen leiteten ihn frueher getrennt her (hier mit dem
+    SAA-Ceiling, am Floor mit fixen 300 bps) -- fuer jede Hausmatrix-Zeile
+    mit Liquiditaets-Max 200 bps wurde dadurch R + 1 % des Beratungs-
+    vermoegens reserviert. Zwei Herleitungen desselben Werts koennen immer
+    auseinanderlaufen, eine gemeinsame nicht.
+    """
+    from services.portfolio_engine import _bps
+
+    if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:
+        return 0
+    if _bps(reserve_needed_rappen, advisory_wealth_rappen) > saa_liquidity_ceiling_bps:
+        return int(round(saa_liquidity_ceiling_bps * advisory_wealth_rappen / 10000))
+    return int(reserve_needed_rappen)
+
+
 def _compute_reserve_for_inputs(
     *,
     goals: list[Goal],
@@ -477,9 +502,12 @@ def _compute_reserve_for_inputs(
     if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:
         return reserve_needed_rappen, 0
 
-    uncapped_required_liquidity_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
-    if uncapped_required_liquidity_bps > saa_liquidity_ceiling_bps:
-        saa_reserve_rappen = int(round(saa_liquidity_ceiling_bps * advisory_wealth_rappen / 10000))
+    saa_reserve_rappen = _saa_internal_reserve_rappen(
+        reserve_needed_rappen,
+        advisory_wealth_rappen,
+        saa_liquidity_ceiling_bps,
+    )
+    if saa_reserve_rappen < reserve_needed_rappen:
         external_reserve_rappen = max(0, reserve_needed_rappen - saa_reserve_rappen)
         # Sprint B2: Anderes-Vermoegen-Schloss reduziert die externe Reserve,
         # weil verfuegbares 'anderes Vermoegen' den Reserve-Bedarf decken kann.

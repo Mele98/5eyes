@@ -110,6 +110,30 @@ BUCKET_LABELS = {
 _SAA_LIQUIDITY_HARD_CAP_BPS: int = 300  # 3% Soll-Maximum (Stufe 2 der Eskalation)
 _SAA_LIQUIDITY_EMERGENCY_CAP_BPS: int = 1000  # 10% absolutes Maximum (Stufe 3, mit Warnung)
 
+
+def _saa_liquidity_ceiling_bps(liquidity_max_bps: int) -> int:
+    """SAA-Ceiling der internen Reserve (RESERVE-CEILING-001).
+
+    Immer aus dem Liquiditaets-Max VOR dem Reserve-Floor-Lift ableiten: der
+    Lift normiert auf die investierbare Basis I = A - E, das Ceiling gilt
+    auf dem Beratungsvermoegen A. Wer den gelifteten persistierten Bandwert
+    hier einsetzt, mischt zwei Nenner.
+    """
+    return min(int(liquidity_max_bps), _SAA_LIQUIDITY_HARD_CAP_BPS)
+
+
+def _pre_reserve_liquidity_max_bps(house_matrix, policy, band_prefs) -> int:
+    """Liquiditaets-Max, das der Generate-Pfad beim Reserve-Split sah.
+
+    Generate: House/Policy-Baseline -> Mandats-Bandpraeferenzen -> Reserve.
+    Der Wiederaufbau aus einer persistierten Allokation kennt nur das Band
+    NACH dem Floor-Lift; diese Funktion rekonstruiert den Wert davor aus
+    denselben Quellen in derselben Reihenfolge.
+    """
+    targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    _apply_band_preferences(band_prefs, targets, minimums, maximums, [])
+    return int(maximums["liquidity"])
+
 LABEL_TO_BUCKET = {value: key for key, value in BUCKET_LABELS.items()}
 GOAL_WEIGHT_BY_RANK = {
     1: 10000,
@@ -2902,6 +2926,7 @@ def _strategy_drift_warnings(
 # Docstring von portfolio_engine_reserve.py) und bleibt unberuehrt hier.
 from services.portfolio_engine_reserve import (  # noqa: F401,E402
     _compute_reserve_for_inputs,
+    _saa_internal_reserve_rappen,
     _compute_reserve_requirements,
     _goal_is_conditional,
     _goal_pension_pillar,
@@ -3092,6 +3117,10 @@ def generate_target_allocation(
     # Netto-Effekt-Reasoning-Satz unten.
     targets_before_tilts = dict(targets)
     _apply_external_exposure_tilts(targets, minimums, maximums, total_summary, house_matrix, manual_target_override, reasoning)
+    # RESERVE-CEILING-001: dasselbe Ceiling, mit dem
+    # _apply_goal_and_reserve_tilts den Reserve-Split gleich vornimmt -- der
+    # stochastische Floor unten muss genau diesen internen Betrag halten.
+    saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(maximums["liquidity"])
     reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
         targets=targets,
         minimums=minimums,
@@ -3230,16 +3259,15 @@ def generate_target_allocation(
         and reserve_needed_rappen > 0
     ):
         # ``external_reserve_rappen`` is carved out before the SAA is applied.
-        # The internal reserve remains capped at 3% of the original advisory
-        # wealth, but its normalized weight must use the actually investable
+        # The internal reserve is exactly the part the carve-out left inside
+        # (RESERVE-CEILING-001: same ceiling, same rule -- previously a fixed
+        # 300 bps here reserved R + 1 % of A for every 200-bps House row),
+        # and its normalized weight must use the actually investable
         # denominator. Otherwise the carve-out silently underfunds liquidity.
-        saa_reserve_rappen = min(
+        saa_reserve_rappen = _saa_internal_reserve_rappen(
             int(reserve_needed_rappen),
-            int(round(
-                advisory_wealth_rappen
-                * _SAA_LIQUIDITY_HARD_CAP_BPS
-                / 10000
-            )),
+            int(advisory_wealth_rappen),
+            saa_liquidity_ceiling_bps,
         )
         reserve_floor_bps = min(
             10000,
@@ -4892,6 +4920,10 @@ def evaluate_goal_sensitivity(
             live_manual_target_override,
             live_reasoning,
         )
+        # RESERVE-CEILING-001: identisch zum Generate-Pfad.
+        live_saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(
+            live_maximums["liquidity"]
+        )
         live_reserve_needed, sensitivity_external_reserve = (
             _apply_goal_and_reserve_tilts(
                 targets=live_targets,
@@ -4954,13 +4986,10 @@ def evaluate_goal_sensitivity(
             sensitivity_external_reserve,
         )
         if live_investable_wealth > 0 and live_reserve_needed > 0:
-            saa_reserve_rappen = min(
+            saa_reserve_rappen = _saa_internal_reserve_rappen(
                 int(live_reserve_needed),
-                int(round(
-                    int(inputs["advisory_wealth_rappen"])
-                    * _SAA_LIQUIDITY_HARD_CAP_BPS
-                    / 10000
-                )),
+                int(inputs["advisory_wealth_rappen"]),
+                live_saa_liquidity_ceiling_bps,
             )
             reserve_floor_bps = min(
                 10000,
@@ -5067,15 +5096,13 @@ def evaluate_goal_sensitivity(
             "live_canonical_stochastic_context"
         )
     else:
-        sensitivity_liquidity_ceiling_bps = min(
-            int(
-                (
-                    sensitivity_effective_bounds or {}
-                ).get("liquidity", (0, 0))[1]
-                or getattr(house_matrix, "liq_max_bps", 0)
-                or _SAA_LIQUIDITY_HARD_CAP_BPS
-            ),
-            _SAA_LIQUIDITY_HARD_CAP_BPS,
+        # RESERVE-CEILING-001: das persistierte Liquiditaetsband ist bereits
+        # um den Reserve-Floor geliftet (Nenner I statt A) und taugt nicht als
+        # Ceiling; rekonstruiert wird der Wert, den Generate beim Split sah.
+        sensitivity_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(
+            _pre_reserve_liquidity_max_bps(
+                house_matrix, policy, sensitivity_prefs["bands"]
+            )
         )
         _sensitivity_reserve_needed, sensitivity_external_reserve = (
             _compute_reserve_for_inputs(
@@ -5813,6 +5840,16 @@ def build_target_payload_from_allocation(
         int(maximums["liquidity"] or house_matrix.liq_max_bps or _SAA_LIQUIDITY_HARD_CAP_BPS),
         _SAA_LIQUIDITY_HARD_CAP_BPS,
     )
+    # RESERVE-CEILING-001: fuer den Reserve-Split ist ``maximums`` das
+    # falsche Band -- es stammt aus der persistierten Allokation, deren
+    # Liquiditaets-Max der stochastische Reserve-Floor bereits auf der Basis
+    # I = A - E geliftet hat. Als Ceiling auf A gelesen ergab das eine
+    # zweite, abweichende externe Reserve (Generate 546k vs. Payload 519k im
+    # Foundation-Beispiel). Massgeblich ist das Band VOR dem Lift. Die
+    # Legacy-Normalisierung oben bleibt bewusst unveraendert.
+    reserve_saa_liq_ceil_bps = _saa_liquidity_ceiling_bps(
+        _pre_reserve_liquidity_max_bps(house_matrix, policy, prefs["bands"])
+    )
     if stored_sub_allocations is None and targets["liquidity"] > saa_liq_ceil_bps:
         normalized_legacy_liquidity = True
         minimums["liquidity"] = min(int(minimums["liquidity"]), saa_liq_ceil_bps)
@@ -5882,7 +5919,7 @@ def build_target_payload_from_allocation(
         recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
         recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
         advisory_wealth_rappen=advisory_wealth_rappen,
-        saa_liquidity_ceiling_bps=saa_liq_ceil_bps,
+        saa_liquidity_ceiling_bps=reserve_saa_liq_ceil_bps,
         reasoning=None,
         unlocked_other_assets_rappen=unlocked_other_assets_rappen,
         # Sprint U-P2 Fix H11: Wealth-Inflows in Reserve berücksichtigen (rebuild-Pfad)
