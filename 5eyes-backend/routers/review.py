@@ -80,6 +80,7 @@ from services.review_calendar_feed import (
     revoke_calendar_feed_token,
 )
 from services.risk_assessment_semantics import (
+    OVERRIDE_AFTER_ALLOCATION_MESSAGE as _OVERRIDE_AFTER_ALLOCATION_MESSAGE,
     assessment_overridden_after_allocation as _assessment_overridden_after_allocation,
 )
 
@@ -200,10 +201,7 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
     elif assessment and _assessment_overridden_after_allocation(allocation, assessment):
         # RISK-OVERRIDE-STALENESS-001: Override in place (gleiche id) nach der
         # Generierung -- die Allokation gehoert zum alten Profil.
-        errors.append(
-            "Das Risikoprofil wurde nach Erstellung der Soll-Allokation per "
-            "Override geaendert; bitte Strategie neu berechnen."
-        )
+        errors.append(_OVERRIDE_AFTER_ALLOCATION_MESSAGE)
     # RISK-BUDGET-FINALIZATION-001 (Audit 2026-10-04, Kontrollrunde 46):
     # `services/mandate_lock_audit.py` berechnet seit laengerem einen harten
     # Lock-Reason `risk_budget_violated`, sobald die Risky-Fraktion einer

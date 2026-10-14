@@ -39,6 +39,14 @@ def _parse_iso_timestamp(value: Any):
         return None
 
 
+# Gemeinsame Meldung fuer alle Gates, die einen Override nach der Generierung
+# ablehnen (Payload-Rebuild, Empfehlungs-Lauf, Finalisierung).
+OVERRIDE_AFTER_ALLOCATION_MESSAGE = (
+    "Das Risikoprofil wurde nach Erstellung der Soll-Allokation per "
+    "Override geaendert; bitte Strategie neu berechnen."
+)
+
+
 def assessment_overridden_after_allocation(
     target_allocation: Any, assessment: Any,
 ) -> bool:
