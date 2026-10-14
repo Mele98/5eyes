@@ -76,7 +76,10 @@ from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.review import Product, RecommendationPosition, RecommendationRun
 from models.users import User
-from routers.review import finalize_recommendation
+from routers.review import (
+    _validate_recommendation_for_finalization,
+    finalize_recommendation,
+)
 from services.mandate_lock_audit import (
     REASON_RISK_BUDGET_VIOLATED,
     audit_mandate_editability,
@@ -232,14 +235,6 @@ def _add_full_position(session_factory, run_id) -> None:
         s.commit()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "RISK-BUDGET-FINALIZATION-001 -- round 46 red test, see audit "
-        "2026-10-04-risk-budget-fallback-context-and-finalization-integrity-"
-        "audit.md (not committed in this repo)"
-    ),
-)
 def test_finalize_recommendation_must_reject_active_risk_budget_violated_lock(session_factory):
     advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(
         session_factory, suffix="risk-budget-finalization-001",
@@ -283,3 +278,121 @@ def test_finalize_recommendation_must_reject_active_risk_budget_violated_lock(se
                 db=db, current_user=advisor,
             )
         assert exc_info.value.status_code == 422
+
+    # Die Ablehnung muss die ZAHLEN nennen. Ein "nicht finalisierbar" ohne
+    # Ist und Budget liesse den Berater raten, ob das Risikoprofil oder die
+    # Bausteine die richtige Stellschraube sind.
+    detail = str(exc_info.value.detail)
+    assert "Risikobudget" in detail, detail
+    assert f"{_FORCED_RISK_BUDGET_BPS / 100:.2f}" in detail, detail
+    assert f"{realized_risky_bps / 100:.2f}" in detail, detail
+
+    # Und der Run ist NICHT final geworden -- eine Ablehnung, die den Status
+    # trotzdem setzt, waere schlimmer als keine.
+    with session_factory() as db:
+        run = db.query(RecommendationRun).filter(
+            RecommendationRun.id == run_id
+        ).first()
+        assert run.result_status == "Draft", run.result_status
+
+
+def test_finalize_recommendation_passes_when_allocation_is_within_budget(session_factory):
+    """GEGENPROBE und der wichtigere Test: der Normalfall muss durchgehen.
+
+    Die ueberwiegende Mehrheit der Allokationen liegt im Budget. Ein Gate,
+    das sie blockiert, waere kein Nachweis, sondern ein Totalausfall -- und
+    ohne diesen Test waere eine Implementierung, die JEDE Finalisierung
+    ablehnt, von der richtigen nicht zu unterscheiden.
+
+    Geprueft wird nur, dass der Risikobudget-Fehler NICHT auftritt. Ob der
+    Run am Ende final wird, haengt an weiteren Gates (Konflikt-Nachweis,
+    Produkt-Eignung), die hier nicht Gegenstand sind.
+    """
+    advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(
+        session_factory, suffix="risk-budget-finalization-ok",
+    )
+    alloc_id = _current_allocation_id(session_factory, mid, advisor_id)
+
+    # Vorbedingung: diese vom Engine erzeugte Allokation liegt im Budget --
+    # ohne diese Zusicherung koennte der Test aus dem falschen Grund gruen
+    # sein (etwa weil die Spalten leer sind).
+    with session_factory() as db:
+        allocation = db.query(TargetAllocation).filter(
+            TargetAllocation.id == alloc_id
+        ).first()
+        realized = allocation.risky_fraction_bps_at_generation
+        budget = allocation.risk_budget_bps_at_generation
+        mandate = db.query(Mandate).filter(Mandate.id == mid).first()
+        assert realized is not None and budget is not None, (
+            "Setup: die typisierten Spalten muessen gefuellt sein, sonst "
+            "prueft dieser Test den Warnpfad statt den Normalfall."
+        )
+        assert int(realized) <= int(budget), (realized, budget)
+
+        policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
+        run_id = _make_run(
+            session_factory, mid, alloc_id, aid, advisor_id, policy, cma,
+            result_status="Draft",
+        )
+        _add_full_position(session_factory, run_id)
+
+        run = db.query(RecommendationRun).filter(
+            RecommendationRun.id == run_id
+        ).first()
+        errors, _warnings = _validate_recommendation_for_finalization(
+            db, mandate, run
+        )
+
+    risk_budget_errors = [e for e in errors if "Risikobudget" in e]
+    assert not risk_budget_errors, (
+        "Eine budgetkonforme Allokation wurde wegen des Risikobudgets "
+        f"abgelehnt: {risk_budget_errors}"
+    )
+
+
+def test_missing_realized_risky_fraction_warns_instead_of_claiming_compliance(
+    session_factory
+):
+    """Fehlender IST-Risikoanteil: Warnung, nicht stilles Durchwinken.
+
+    Dieser Fall ist bewusst der einzige, den das neue Gate selbst behandelt.
+    Nachgemessen: ein fehlendes typisiertes BUDGET ist schon abgedeckt --
+    ``_verified_persisted_allocation_context()`` wirft dafuer
+    "Persistiertes Risikobudget widerspricht der typisierten
+    TargetAllocation-Spalte", also einen harten Fehler. Dort zusaetzlich zu
+    warnen waere eine zweite Meldung fuer denselben Sachverhalt.
+
+    Der IST-Risikoanteil ist dagegen NICHT validiert. Ohne ihn ist die
+    Budget-Treue nicht belegbar, und "nicht belegbar" darf nicht als
+    "eingehalten" durchgehen.
+    """
+    advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(
+        session_factory, suffix="risk-budget-finalization-unprovable",
+    )
+    alloc_id = _current_allocation_id(session_factory, mid, advisor_id)
+
+    with session_factory() as db:
+        allocation = db.query(TargetAllocation).filter(
+            TargetAllocation.id == alloc_id
+        ).first()
+        allocation.risky_fraction_bps_at_generation = None
+        db.commit()
+
+    policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
+    run_id = _make_run(
+        session_factory, mid, alloc_id, aid, advisor_id, policy, cma,
+        result_status="Draft",
+    )
+    _add_full_position(session_factory, run_id)
+
+    with session_factory() as db:
+        mandate = db.query(Mandate).filter(Mandate.id == mid).first()
+        run = db.query(RecommendationRun).filter(
+            RecommendationRun.id == run_id
+        ).first()
+        errors, warnings = _validate_recommendation_for_finalization(
+            db, mandate, run
+        )
+
+    assert not [e for e in errors if "Risikobudget" in e], errors
+    assert [w for w in warnings if "nicht belegbar" in w], warnings
