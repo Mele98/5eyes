@@ -624,13 +624,30 @@ def _build_sub_allocations(
         # damit Filter (HY/EM raus etc.) keine Uebergewichtung des
         # letzten Eintrags erzeugen.
         normalized = _normalize_splits(splits)
+        weights: list[int] = []
         remaining = bucket_weight
-        for idx, (label, split_bps, rationale) in enumerate(normalized):
+        for idx, (_label, split_bps, _rationale) in enumerate(normalized):
             if idx == len(normalized) - 1:
                 weight = remaining
             else:
                 weight = int(round(bucket_weight * split_bps / 10000))
                 remaining -= weight
+            weights.append(weight)
+        if any(weight < 0 for weight in weights):
+            # SUB-SPLIT-ROUNDING-001: bei kleinen Buckets ueberstiegen die
+            # einzeln gerundeten Sleeves bereits das Bucket (13 bps Aktien mit
+            # drei Thema-Tilts -> 6+4+1+1+1+1 = 14), der Rest wurde negativ und
+            # verworfen -- das Bucket behielt den Ueberschuss. Dann exakte
+            # Largest-Remainder-Verteilung (wie _materialize_sub_allocation_plan);
+            # fuer alle anderen Gewichte bleibt die bisherige Rundung unveraendert.
+            floors = [bucket_weight * split_bps // 10000 for _l, split_bps, _r in normalized]
+            remainders = [bucket_weight * split_bps % 10000 for _l, split_bps, _r in normalized]
+            missing = bucket_weight - sum(floors)
+            order = sorted(range(len(normalized)), key=lambda i: (-remainders[i], i))
+            for i in order[:missing]:
+                floors[i] += 1
+            weights = floors
+        for (label, _split_bps, rationale), weight in zip(normalized, weights):
             if weight <= 0:
                 continue
             sub_allocations.append(
