@@ -1456,6 +1456,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_is_structured,
     _product_matches_constraints,
     _product_score,
+    theme_screening_disclosure,
     _suitability_block_hint,
     _tenant_visible_products_query,
     _ter_coverage_bps,
@@ -6697,6 +6698,13 @@ def generate_recommendation_run(
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
     warnings = []
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): sobald ein Thema
+    # ausgeschlossen/untergewichtet ist (direkt oder via negative_screening),
+    # wird offengelegt, dass der Filter auf der Katalog-Klassifikation beruht
+    # und breite Indexprodukte nicht durchleuchtet werden.
+    theme_disclosure = theme_screening_disclosure(prefs)
+    if theme_disclosure:
+        warnings.append(theme_disclosure)
     positions_payload = []
     aggregated_positions: dict[str, dict] = {}
     # Sprint 14 Phase 4 F6: fehlende Sub-Klassen sammeln statt still continue
@@ -6792,7 +6800,8 @@ def generate_recommendation_run(
                 f"{len(missing_sub_classes)} Sub-Klassen ({details}). "
                 f"Gesamt-Luecke: {total_missing_bps/100:.1f}%. "
                 f"Bitte Produktuniversum erweitern oder Restriktionen "
-                f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG) lockern."
+                f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG, "
+                f"Themen-Ausschluss/-Untergewichtung) lockern."
             )
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
