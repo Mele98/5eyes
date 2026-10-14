@@ -470,24 +470,40 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
         # innerhalb des (hoeheren) Override-Caps lag; nach einem Override nach
         # UNTEN (konservativer) wurde umgekehrt eine echte Ueberschreitung des
         # (niedrigeren) Override-Caps NIE erkannt (Fail-Open).
-        is_overridden = bool(_safe_int(getattr(ra, "is_overridden", 0)))
-        score = (
-            _safe_int(getattr(ra, "override_score_x10", 0))
-            if is_overridden
-            else _safe_int(getattr(ra, "final_score_x10", 0))
-        )
+        #
+        # SUITABILITY-DETECTOR-SCALE-001 (2026-10-14): HouseMatrix.score_from/
+        # score_to sind 1..10-skaliert, score_x10 ist 0..100. Vorher wurde der
+        # Rohwert direkt verglichen: Score 11..100 fand keine Zeile (Cap-
+        # Warnung feuerte nie, fail-open), Score 10 (Kapitalschutz) traf die
+        # Zeile (10,10) "Aktien" mit 100 % Cap, Score 0 wurde uebersprungen.
+        # score_bucket_from_assessment() ist dieselbe override-bewusste
+        # 0..100 -> 1..10-Abbildung wie bei BENCHMARK-ATTRIBUTION-SCORE-001
+        # und max_risky_fraction_for_mandate(). Ein nicht herleitbares
+        # Risikoprofil wird gemeldet statt still uebersprungen (fail-closed).
+        from services.risk_assessment_semantics import RiskAssessmentInputError
+        from services.risk_matrix import score_bucket_from_assessment
+
         policy = (
             db.query(OptimizerPolicy)
             .filter(OptimizerPolicy.is_current == 1)
             .first()
         )
-        if policy and score:
+        score_bucket = None
+        if policy:
+            try:
+                score_bucket = score_bucket_from_assessment(ra)
+            except RiskAssessmentInputError as exc:
+                warnings.append(
+                    "HouseMatrix-Cap nicht pruefbar: Risikoprofil ist nicht "
+                    f"konsistent herleitbar ({exc})."
+                )
+        if policy and score_bucket is not None:
             hm = (
                 db.query(HouseMatrix)
                 .filter(
                     HouseMatrix.policy_id == policy.id,
-                    HouseMatrix.score_from <= score,
-                    HouseMatrix.score_to >= score,
+                    HouseMatrix.score_from <= score_bucket,
+                    HouseMatrix.score_to >= score_bucket,
                     HouseMatrix.is_active == 1,
                 )
                 .first()
