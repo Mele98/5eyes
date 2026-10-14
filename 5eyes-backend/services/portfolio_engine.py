@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session, selectinload
 
 from config import settings
+from core.chf_amount import normalize_chf_amount_text
 from database import new_uuid
 from models.allocation import (
     BuildingBlock,
@@ -236,7 +237,13 @@ def _parse_bps_percent(value) -> int | None:
 def _parse_rappen(value) -> int | None:
     if value in (None, "", False):
         return None
-    raw = str(value).replace("CHF", "").replace("'", "").replace(" ", "").replace(",", ".").strip()
+    # CHF-AMOUNT-THOUSANDS-001: Tausendergruppen ("50.000", "50,000") wurden
+    # als Dezimalpunkt gelesen -> CHF 50 statt 50'000 (Faktor 1000 auf die
+    # Mindestreserve). Uneindeutiges wird nicht geraten.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        raw = repr(value)
+    else:
+        raw = normalize_chf_amount_text(value)
     if not raw:
         return None
     try:
