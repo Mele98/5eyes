@@ -84,8 +84,15 @@ def test_current_payload_blocks_stale_run_then_regenerate_succeeds(session_facto
         before = get_current_recommendation_payload(mandate.id, db=s, current_user=adv)
         assert before["run"] is not None
 
-        # SAA neu berechnen -> neue is_current TA, alte Runs werden stale
-        gen = generate_target_allocation(db=s, mandate=mandate, user_id=adv.id, preferences=None)
+        # SAA mit GEAENDERTER Eingabe neu berechnen -> neue is_current TA,
+        # alte Runs werden stale. (REGENERATE-IDEMPOTENT-001: eine Neuberechnung
+        # mit unveraenderten Eingaben behaelt die Allokation bewusst bei und
+        # macht den Run NICHT stale -- dieser Test brauchte frueher genau
+        # diesen Defekt als Ausloeser.)
+        gen = generate_target_allocation(
+            db=s, mandate=mandate, user_id=adv.id,
+            preferences={"assetClasses": {"equitiesGeo": "Global"}},
+        )
         s.commit()
         ta2 = gen["target_allocation"]
 

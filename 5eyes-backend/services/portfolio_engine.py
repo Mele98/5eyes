@@ -3020,6 +3020,50 @@ def _assert_allocation_has_basis(
         )
 
 
+
+def _identical_previous_allocation(
+    previous,
+    *,
+    allocation_context_hash: str,
+    input_snapshot_hash: str,
+    policy_id,
+    cma_id,
+    assessment,
+    targets: dict,
+    minimums: dict,
+    maximums: dict,
+) -> bool:
+    """REGENERATE-IDEMPOTENT-001: ist die neue Allokation exakt die bisherige?"""
+    if previous is None:
+        return False
+    if int(getattr(previous, "context_artifacts_required", 0) or 0) != 1:
+        return False
+    if str(getattr(previous, "allocation_context_hash", "") or "") != str(allocation_context_hash):
+        return False
+    if str(getattr(previous, "input_snapshot_hash", "") or "") != str(input_snapshot_hash):
+        return False
+    if (
+        str(getattr(previous, "policy_id", "") or "") != str(policy_id)
+        or str(getattr(previous, "capital_market_assumptions_id", "") or "") != str(cma_id)
+        or str(getattr(previous, "based_on_assessment_id", "") or "") != str(getattr(assessment, "id", ""))
+    ):
+        return False
+    for bucket in BUCKET_FIELDS:
+        if (
+            int(getattr(previous, f"target_{bucket}_bps") or 0) != int(targets[bucket])
+            or int(getattr(previous, f"band_{bucket}_min_bps") or 0) != int(minimums[bucket])
+            or int(getattr(previous, f"band_{bucket}_max_bps") or 0) != int(maximums[bucket])
+        ):
+            return False
+    # Ein Override nach der Generierung (gleiche Assessment-id, in place)
+    # darf nie eine alte Allokation wiederbeleben.
+    if int(getattr(assessment, "is_overridden", 0) or 0):
+        override_at = str(getattr(assessment, "override_at", "") or "")
+        created_at = str(getattr(previous, "created_at", "") or "")
+        if not override_at or not created_at or override_at > created_at:
+            return False
+    return True
+
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
@@ -4094,68 +4138,93 @@ def generate_target_allocation(
         ).encode("utf-8")
     ).hexdigest()
 
-    target_allocation = TargetAllocation(
-        id=new_uuid(),
-        mandate_id=mandate.id,
-        version=previous_version + 1,
-        is_current=1,
-        target_equities_bps=targets["equities"],
-        target_bonds_bps=targets["bonds"],
-        target_real_estate_bps=targets["real_estate"],
-        target_alternatives_bps=targets["alternatives"],
-        target_liquidity_bps=targets["liquidity"],
-        band_equities_min_bps=minimums["equities"],
-        band_equities_max_bps=maximums["equities"],
-        band_bonds_min_bps=minimums["bonds"],
-        band_bonds_max_bps=maximums["bonds"],
-        band_real_estate_min_bps=minimums["real_estate"],
-        band_real_estate_max_bps=maximums["real_estate"],
-        band_alternatives_min_bps=minimums["alternatives"],
-        band_alternatives_max_bps=maximums["alternatives"],
-        band_liquidity_min_bps=minimums["liquidity"],
-        band_liquidity_max_bps=maximums["liquidity"],
-        risky_fraction_bps=risky_fraction_total_bps,
-        risky_fraction_bps_at_generation=risky_fraction_total_bps,
-        risk_budget_bps_at_generation=risk_budget_bps,
-        limiting_factor=limiting_factor,
-        goal_achievability_json=goal_achievability_json,
-        sub_allocations_json=sub_allocations_json,
-        effective_constraints_json=effective_constraints_json,
+    # REGENERATE-IDEMPOTENT-001 (Assetallocation-Audit 2026-10-14): die
+    # Generierung ist deterministisch -- unveraenderte Eingaben ergeben exakt
+    # dieselbe Allokation (gleicher allocation_context_hash). Frueher entstand
+    # trotzdem eine neue Version, die aktuelle wurde demotiert und eine bereits
+    # zertifizierte Final-Empfehlung verwaiste (409 "basiert nicht auf der
+    # aktuellen Soll-Allokation", unsichtbar im Kundenportal). Jetzt bleibt die
+    # bestehende Allokation aktuell, wenn Hash, Input-Snapshot, Anker und alle
+    # Quoten/Baender identisch sind und das Risikoprofil seither nicht per
+    # Override geaendert wurde.
+    reuse_previous_allocation = _identical_previous_allocation(
+        previous_current,
         allocation_context_hash=allocation_context_hash,
-        context_artifacts_required=1,
-        based_on_assessment_id=assessment.id,
-        capital_market_assumptions_id=cma.id,
-        # C8 audit anchors
-        preferences_json=preferences_json_snapshot,
-        input_snapshot_hash=input_snapshot_hash,
-        advisory_wealth_at_generation_rappen=advisory_wealth_rappen,
-        total_wealth_at_generation_rappen=total_wealth_rappen,
-        reserve_needed_at_generation_rappen=reserve_needed_rappen,
-        external_reserve_at_generation_rappen=external_reserve_rappen,
-        # Phase 4 Optimizer-Audit-Anchor (None wenn house_matrix-Modus)
-        optimization_method=optimizer_audit.get("optimization_method"),
-        optimization_objective_value_milli=optimizer_audit.get("optimization_objective_value_milli"),
-        optimization_iterations=optimizer_audit.get("optimization_iterations"),
-        optimization_seed=optimizer_audit.get("optimization_seed"),
-        optimization_status=optimizer_audit.get("optimization_status"),
-        stress_evaluations_json=stress_evaluations_json,
-        optimizer_reasoning_json=optimizer_reasoning_json,
-        shadow_optimization_json=shadow_optimization_json,
-        # AR-2 (FIDLEG-Report): MC-Risiko-KPIs auf Beratungsvermoegens-Ebene
-        # (target_*, NICHT total_*) persistieren, damit _build_key_metrics sie
-        # ausweisen kann statt "—". Defensiv: fehlt ein Key -> None. Einheit bps.
-        mc_exp_vol_bps=monte_carlo.get("target_volatility_1y_bps"),
-        mc_exp_return_bps=monte_carlo.get("target_annualized_return_p50_bps"),
-        mc_max_drawdown_bps=monte_carlo.get("target_max_drawdown_p50_bps"),
-        mc_var_95_bps=monte_carlo.get("target_var_95_1y_bps"),
+        input_snapshot_hash=str(input_snapshot_hash),
         policy_id=policy.id,
-        set_by=user_id,
-        set_at=now,
-        created_at=now,
-        updated_at=now,
+        cma_id=cma.id,
+        assessment=assessment,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
     )
-    db.add(target_allocation)
-    db.flush()
+    if reuse_previous_allocation:
+        previous_current.is_current = 1
+        db.flush()
+        target_allocation = previous_current
+    else:
+        target_allocation = TargetAllocation(
+            id=new_uuid(),
+            mandate_id=mandate.id,
+            version=previous_version + 1,
+            is_current=1,
+            target_equities_bps=targets["equities"],
+            target_bonds_bps=targets["bonds"],
+            target_real_estate_bps=targets["real_estate"],
+            target_alternatives_bps=targets["alternatives"],
+            target_liquidity_bps=targets["liquidity"],
+            band_equities_min_bps=minimums["equities"],
+            band_equities_max_bps=maximums["equities"],
+            band_bonds_min_bps=minimums["bonds"],
+            band_bonds_max_bps=maximums["bonds"],
+            band_real_estate_min_bps=minimums["real_estate"],
+            band_real_estate_max_bps=maximums["real_estate"],
+            band_alternatives_min_bps=minimums["alternatives"],
+            band_alternatives_max_bps=maximums["alternatives"],
+            band_liquidity_min_bps=minimums["liquidity"],
+            band_liquidity_max_bps=maximums["liquidity"],
+            risky_fraction_bps=risky_fraction_total_bps,
+            risky_fraction_bps_at_generation=risky_fraction_total_bps,
+            risk_budget_bps_at_generation=risk_budget_bps,
+            limiting_factor=limiting_factor,
+            goal_achievability_json=goal_achievability_json,
+            sub_allocations_json=sub_allocations_json,
+            effective_constraints_json=effective_constraints_json,
+            allocation_context_hash=allocation_context_hash,
+            context_artifacts_required=1,
+            based_on_assessment_id=assessment.id,
+            capital_market_assumptions_id=cma.id,
+            # C8 audit anchors
+            preferences_json=preferences_json_snapshot,
+            input_snapshot_hash=input_snapshot_hash,
+            advisory_wealth_at_generation_rappen=advisory_wealth_rappen,
+            total_wealth_at_generation_rappen=total_wealth_rappen,
+            reserve_needed_at_generation_rappen=reserve_needed_rappen,
+            external_reserve_at_generation_rappen=external_reserve_rappen,
+            # Phase 4 Optimizer-Audit-Anchor (None wenn house_matrix-Modus)
+            optimization_method=optimizer_audit.get("optimization_method"),
+            optimization_objective_value_milli=optimizer_audit.get("optimization_objective_value_milli"),
+            optimization_iterations=optimizer_audit.get("optimization_iterations"),
+            optimization_seed=optimizer_audit.get("optimization_seed"),
+            optimization_status=optimizer_audit.get("optimization_status"),
+            stress_evaluations_json=stress_evaluations_json,
+            optimizer_reasoning_json=optimizer_reasoning_json,
+            shadow_optimization_json=shadow_optimization_json,
+            # AR-2 (FIDLEG-Report): MC-Risiko-KPIs auf Beratungsvermoegens-Ebene
+            # (target_*, NICHT total_*) persistieren, damit _build_key_metrics sie
+            # ausweisen kann statt "—". Defensiv: fehlt ein Key -> None. Einheit bps.
+            mc_exp_vol_bps=monte_carlo.get("target_volatility_1y_bps"),
+            mc_exp_return_bps=monte_carlo.get("target_annualized_return_p50_bps"),
+            mc_max_drawdown_bps=monte_carlo.get("target_max_drawdown_p50_bps"),
+            mc_var_95_bps=monte_carlo.get("target_var_95_1y_bps"),
+            policy_id=policy.id,
+            set_by=user_id,
+            set_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(target_allocation)
+        db.flush()
 
     # V3 Sprint 2: persistierter Audit-Trail aller Solver-Laufe.
     persisted_run = _persist_optimizer_run(
@@ -4171,7 +4240,14 @@ def generate_target_allocation(
     # stochastic-Modus, in dem der Solver tatsaechlich die TA produziert hat).
     # Im shadow_stochastic-Modus bleibt optimization_run_id NULL, weil die
     # TA House-Matrix-basiert ist.
-    if persisted_run is not None and persisted_run.role == "active":
+    if (
+        persisted_run is not None
+        and persisted_run.role == "active"
+        and not reuse_previous_allocation
+    ):
+        # Eine wiederverwendete (ggf. bereits zertifizierte) Allokation bleibt
+        # unveraendert mit ihrem urspruenglichen Solver-Lauf verknuepft; der
+        # neue, identische Lauf ist trotzdem im Audit-Trail persistiert.
         db.flush()  # ensure persisted_run.id ist gesetzt
         target_allocation.optimization_run_id = persisted_run.id
 
