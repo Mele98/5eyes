@@ -172,6 +172,10 @@ def _apply_band_preferences(
     minimums: dict[str, int],
     maximums: dict[str, int],
     reasoning: list[str],
+    *,
+    warnings: list[dict] | None = None,
+    house_profile: str | None = None,
+    score_bucket: int | None = None,
 ) -> None:
     """Applies a bands override, keeping hard Bounds and Target Intent
     orthogonal (CERT-ALLOCATION-INTENT-001 / BAND-PARTIAL-OVERRIDE-001).
@@ -193,11 +197,29 @@ def _apply_band_preferences(
     Preference and must itself respect that bucket's own (possibly just-
     overridden) bounds -- violating that is a real, reported conflict, never
     silently clamped away.
+
+    BAND-OVERRIDE-DISCLOSURE-001 (Audit 2026-10-14):
+    - F-BAND-1: die Bounds beim Eintritt sind die (policy-bereinigte)
+      Hausmatrix-Bandbreite des Risikoprofils -- der Eignungsrahmen. Ein
+      Berater-Band, das diesen Rahmen verlaesst, bleibt erlaubt, wird aber
+      wie ``policy_band_clamp_notes()`` im Reasoning und -- falls
+      ``warnings`` uebergeben -- als ``WARN_BAND_OUTSIDE_HOUSE_MATRIX``
+      ausgewiesen.
+    - F-BAND-3: ist der Bounds-Satz unerfuellbar, nennt der Fehler auf
+      Deutsch, WELCHE Grenze vom Berater und welche aus der Hausmatrix
+      stammt. ``_rebalance_to_total()`` wuerde fuer diesen Fall (Summe der
+      Minima > 100 %; nachfolgende Schritte heben Minima nur an) ohnehin
+      werfen, aber nur mit einem internen englischen Text. Exception-Typ
+      bleibt ValueError.
     """
     from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS, _bucket_key, _coerce_band_bps
 
     if not bands:
         return
+    house_minimums = {key: int(minimums[key]) for key in BUCKET_FIELDS}
+    house_maximums = {key: int(maximums[key]) for key in BUCKET_FIELDS}
+    advisor_min_buckets: set[str] = set()
+    advisor_max_buckets: set[str] = set()
     applied = []
     explicit_target_buckets: set[str] = set()
     for raw_key, override in bands.items():
@@ -209,8 +231,10 @@ def _apply_band_preferences(
         maximum = _coerce_band_bps(override.get("max_bps"))
         if minimum is not None:
             minimums[bucket] = minimum
+            advisor_min_buckets.add(bucket)
         if maximum is not None:
             maximums[bucket] = maximum
+            advisor_max_buckets.add(bucket)
         if target is not None:
             targets[bucket] = target
             explicit_target_buckets.add(bucket)
@@ -227,10 +251,34 @@ def _apply_band_preferences(
     # exists.
     for key in BUCKET_FIELDS:
         minimum, maximum = minimums[key], maximums[key]
-        if minimum < 0 or maximum > 10000 or minimum > maximum:
+        if minimum < 0 or maximum > 10000:
             raise ValueError(
                 f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
                 f"Min {minimum} / Max {maximum} (0..10000 bps, Min darf Max nicht ueberschreiten)."
+            )
+        if minimum > maximum:
+            # F-BAND-3: benennen, woher jede der beiden Grenzen stammt -- ein
+            # "Min 500 / Max 0" fuer ein Minimum, das der Berater nie gesetzt
+            # hat, ist nicht nachvollziehbar.
+            min_source = (
+                "das Berater-Minimum" if key in advisor_min_buckets
+                else "das Hausmatrix-Minimum des Risikoprofils"
+            )
+            max_source = (
+                "dem Berater-Maximum" if key in advisor_max_buckets
+                else "dem Hausmatrix-Maximum des Risikoprofils"
+            )
+            hint = ""
+            if key not in advisor_min_buckets:
+                hint = (
+                    " Soll die Anlageklasse tiefer gewichtet oder ausgeschlossen "
+                    "werden, ist auch das Minimum als Berater-Vorgabe zu setzen; "
+                    "die Abweichung von der Hausmatrix wird dann offengelegt."
+                )
+            raise ValueError(
+                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind nicht vereinbar: "
+                f"{min_source} von {_band_pct(minimum)} % liegt ueber "
+                f"{max_source} von {_band_pct(maximum)} %.{hint}"
             )
 
     # A bucket with an EXPLICIT Target Intent must itself respect that same
@@ -241,6 +289,13 @@ def _apply_band_preferences(
                 f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
                 f"Min {minimums[key]} / Ziel {targets[key]} / Max {maximums[key]}."
             )
+
+    # F-BAND-3: cross-bucket envelope, explained in German with provenance
+    # (same ValueError type; see docstring for why this is no new rule).
+    _raise_if_band_envelope_infeasible(
+        minimums,
+        advisor_min_buckets=advisor_min_buckets,
+    )
 
     # Every OTHER bucket keeps no Target Intent at all: its carried-over
     # value is only a feasible seed for the deterministic rebalance every
@@ -258,6 +313,176 @@ def _apply_band_preferences(
         if total != 10000:
             raise ValueError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
     reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
+
+    # F-BAND-1: jede Mandatsbandbreite ausserhalb der Hausmatrix-Bandbreite
+    # des Risikoprofils wird offengelegt (Muster policy_band_clamp_notes).
+    deviations = advisor_band_house_deviations(bands, house_minimums, house_maximums)
+    for deviation in deviations:
+        reasoning.append(
+            house_band_deviation_note(
+                deviation, house_profile=house_profile, score_bucket=score_bucket,
+            )
+        )
+        if warnings is not None:
+            from services.allocation_messages import (
+                WARN_BAND_OUTSIDE_HOUSE_MATRIX,
+                format_message,
+            )
+
+            warnings.append(format_message(
+                WARN_BAND_OUTSIDE_HOUSE_MATRIX,
+                bucket_label=deviation["bucket_label"],
+                mandate_min=_band_pct(deviation["mandate_min_bps"]),
+                mandate_max=_band_pct(deviation["mandate_max_bps"]),
+                house_min=_band_pct(deviation["house_min_bps"]),
+                house_max=_band_pct(deviation["house_max_bps"]),
+                profile_label=house_profile or "unbekannt",
+                score_bucket=score_bucket if score_bucket is not None else "?",
+            ))
+
+
+def _band_pct(bps: int) -> str:
+    return f"{int(bps) / 100:.2f}"
+
+
+def _raise_if_band_envelope_infeasible(
+    minimums: dict[str, int],
+    *,
+    advisor_min_buckets: set[str],
+) -> None:
+    """BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-3): deutsche, bucket-genaue
+    Erklaerung fuer einen unerfuellbaren Bounds-Satz.
+
+    Eine Summe der Minima ueber 100 % laesst ``_rebalance_to_total()`` in
+    jedem Fall scheitern -- alle nachfolgenden Schritte (Tilts, globale
+    Caps/Floors, Reserve) heben Minima hoechstens an. Dort fehlt aber die
+    Herkunft der Grenzen (Berater vs. Hausmatrix).
+
+    Bewusst NICHT geprueft: Summe der Maxima unter 100 %. Die Liquiditaets-
+    Obergrenze kann danach noch angehoben werden (Reserve-Normierung,
+    Liquiditaets-Eskalation); eine Vorab-Pruefung wuerde heute erfolgreiche
+    Allokationen ablehnen.
+    """
+    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
+
+    total_min = sum(int(minimums[key]) for key in BUCKET_FIELDS)
+    if total_min > 10000:
+        parts = [
+            f"{BUCKET_LABELS[key]} {_band_pct(minimums[key])} % "
+            f"({'Berater-Vorgabe' if key in advisor_min_buckets else 'Hausmatrix-Minimum'})"
+            for key in BUCKET_FIELDS
+            if int(minimums[key]) > 0
+        ]
+        raise ValueError(
+            f"Die Mindestquoten summieren sich auf {_band_pct(total_min)} % "
+            f"({', '.join(parts)}) und uebersteigen 100 %. Bitte die "
+            "Berater-Vorgaben so anpassen, dass die Mindestquoten zusammen "
+            "hoechstens 100 % ergeben."
+        )
+
+
+def advisor_band_house_deviations(
+    bands: dict | None,
+    house_minimums: dict[str, int],
+    house_maximums: dict[str, int],
+) -> list[dict]:
+    """BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): Buckets, deren vom Berater
+    gesetzte Mandatsbandbreite die Hausmatrix-Bandbreite verlaesst.
+
+    Reine Funktion, geteilt zwischen Generate (Reasoning + Warning) und dem
+    Freigabe-Gate (``routers/review.py``), damit beide dieselbe Regel lesen.
+    Eine Verengung INNERHALB des Hausbands ist keine Abweichung. Nicht
+    gesetzte Grenzen eines Buckets erben die Hausmatrix-Grenze.
+    """
+    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS, _bucket_key, _coerce_band_bps
+
+    if not isinstance(bands, dict):
+        return []
+    requested: dict[str, dict[str, int]] = {}
+    for raw_key, override in bands.items():
+        bucket = _bucket_key(raw_key)
+        if not bucket or not isinstance(override, dict):
+            continue
+        entry = requested.setdefault(bucket, {})
+        minimum = _coerce_band_bps(override.get("min_bps"))
+        maximum = _coerce_band_bps(override.get("max_bps"))
+        if minimum is not None:
+            entry["min"] = int(minimum)
+        if maximum is not None:
+            entry["max"] = int(maximum)
+    deviations: list[dict] = []
+    for bucket in BUCKET_FIELDS:
+        entry = requested.get(bucket)
+        if not entry:
+            continue
+        house_min = int(house_minimums[bucket])
+        house_max = int(house_maximums[bucket])
+        mandate_min = int(entry.get("min", house_min))
+        mandate_max = int(entry.get("max", house_max))
+        if house_min <= mandate_min and mandate_max <= house_max:
+            continue
+        deviations.append({
+            "bucket": bucket,
+            "bucket_label": BUCKET_LABELS[bucket],
+            "house_min_bps": house_min,
+            "house_max_bps": house_max,
+            "mandate_min_bps": mandate_min,
+            "mandate_max_bps": mandate_max,
+        })
+    return deviations
+
+
+def house_band_deviation_note(
+    deviation: dict,
+    *,
+    house_profile: str | None,
+    score_bucket: int | None,
+) -> str:
+    profile = house_profile or "unbekannt"
+    score = score_bucket if score_bucket is not None else "?"
+    return (
+        f"{deviation['bucket_label']}: Mandatsbandbreite "
+        f"{_band_pct(deviation['mandate_min_bps'])} % bis "
+        f"{_band_pct(deviation['mandate_max_bps'])} % liegt ausserhalb der "
+        f"Hausmatrix-Bandbreite {_band_pct(deviation['house_min_bps'])} % bis "
+        f"{_band_pct(deviation['house_max_bps'])} % fuer Score {score} "
+        f"({profile}); die Allokation kann damit den Eignungsrahmen des "
+        "Risikoprofils verlassen."
+    )
+
+
+def house_band_deviation_notes_for_allocation(
+    db: Session,
+    allocation,
+    assessment,
+    policy: OptimizerPolicy,
+) -> list[str]:
+    """Freigabe-Gate (F-BAND-1): rekonstruiert aus dem persistierten
+    Praeferenz-Snapshot der Soll-Allokation, ob eine Mandatsbandbreite die
+    Hausmatrix-Bandbreite des Risikoprofils verlaesst. Liefert Hinweistexte,
+    keine Fehler -- die Abweichung ist erlaubt, nur nicht still.
+    """
+    from services.portfolio_engine import (
+        _allocation_snapshot_preferences,
+        _house_matrix_or_default,
+        _risk_score_bucket,
+    )
+
+    prefs = _allocation_snapshot_preferences(allocation) or {}
+    bands = prefs.get("bands") if isinstance(prefs, dict) else None
+    if not bands:
+        return []
+    score_bucket = _risk_score_bucket(assessment)
+    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    _targets, house_minimums, house_maximums = _baseline_target_bands(house_matrix, policy)
+    return [
+        house_band_deviation_note(
+            deviation,
+            house_profile=house_matrix.profile_name,
+            score_bucket=score_bucket,
+        )
+        for deviation in advisor_band_house_deviations(bands, house_minimums, house_maximums)
+    ]
 
 
 def _apply_band_min_max_overrides(

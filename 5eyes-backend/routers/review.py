@@ -365,6 +365,30 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
                 "Der verankerte Allocation-Kontext ist nicht mehr integer: "
                 f"{exc}"
             )
+    if allocation and assessment and policy:
+        # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): eine Mandatsbandbreite
+        # ausserhalb der Hausmatrix-Bandbreite des Risikoprofils ist erlaubt,
+        # darf aber nicht unbemerkt freigegeben werden. Bewusst nur WARNUNG,
+        # kein neuer Blocker -- ob eine dokumentierte Begruendung Pflicht
+        # wird, ist eine Produktentscheidung.
+        from services.portfolio_engine_house_matrix import (
+            house_band_deviation_notes_for_allocation,
+        )
+
+        try:
+            band_notes = house_band_deviation_notes_for_allocation(
+                db, allocation, assessment, policy,
+            )
+        except ValueError as exc:
+            band_notes = [
+                "Abgleich der Mandatsbandbreiten mit der Hausmatrix war nicht "
+                f"moeglich: {exc}"
+            ]
+        for note in band_notes:
+            warnings.append(
+                f"{note} Abweichung vom Eignungsrahmen vor der Freigabe "
+                "begruenden und mit dem Kunden besprechen."
+            )
     positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
     if not positions:
         errors.append("Empfehlung enthaelt keine Positionen.")

@@ -36,7 +36,12 @@ from models.review import (
 )
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, WealthPosition
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
-from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
+from services.allocation_messages import (
+    WARN_FALLBACK,
+    WARN_GLOBAL_CAP_CLAMP,
+    classify_messages,
+    format_message,
+)
 from services.calendar_horizon import add_calendar_years, calendar_years_until
 from services.goal_semantics import (
     GoalInputError,
@@ -3111,7 +3116,15 @@ def generate_target_allocation(
     reasoning.extend(policy_band_clamp_notes(house_matrix, policy))
     if len(set(cashflow_projection_series_rappen[:min(len(cashflow_projection_series_rappen), 7)])) > 1:
         reasoning.append("Zeitlich datierte Cashflows werden jahresgenau in die Liquiditaets- und Zielprojektion einbezogen.")
-    _apply_band_preferences(prefs["bands"], targets, minimums, maximums, reasoning)
+    # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): eine Mandatsbandbreite
+    # ausserhalb der Hausmatrix-Bandbreite des Risikoprofils wird in
+    # Reasoning UND warnings ausgewiesen.
+    _apply_band_preferences(
+        prefs["bands"], targets, minimums, maximums, reasoning,
+        warnings=warnings,
+        house_profile=house_matrix.profile_name,
+        score_bucket=score_bucket,
+    )
     if manual_target_override:
         reasoning.append("Explizit gesetzte Soll-Quoten uebersteuern automatische Exposure-Tilts; harte Risiko- und Liquiditaetsregeln bleiben aktiv.")
     # Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts", Befund 4):
@@ -3234,9 +3247,26 @@ def generate_target_allocation(
                     f"globale Obergrenze ({optimizer_minimums[bucket]} > "
                     f"{cap_bps} bps)."
                 )
-            optimizer_maximums[bucket] = min(
-                int(optimizer_maximums[bucket]), cap_bps
-            )
+            requested_max_bps = int(optimizer_maximums[bucket])
+            optimizer_maximums[bucket] = min(requested_max_bps, cap_bps)
+            # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-2): die Klemmung auf die
+            # globale Modell-Obergrenze war lautlos -- ein Berater-Maximum/
+            # -Ziel von 30 % Alternative endete ohne Hinweis bei 10 %. Nur
+            # offenlegen, wenn das Modell die aktive Allokation stellt; im
+            # Shadow-Modus betrifft die Klemmung nur den Vergleichskandidaten.
+            if apply_stochastic and requested_max_bps > cap_bps:
+                bucket_label = BUCKET_LABELS.get(bucket, bucket)
+                reasoning.append(
+                    f"{bucket_label}: Die vorgegebene Obergrenze von "
+                    f"{requested_max_bps / 100:.2f} % wurde auf die globale "
+                    f"Modell-Obergrenze von {cap_bps / 100:.2f} % begrenzt."
+                )
+                warnings.append(format_message(
+                    WARN_GLOBAL_CAP_CLAMP,
+                    bucket_label=bucket_label,
+                    requested_max=f"{requested_max_bps / 100:.2f}",
+                    cap=f"{cap_bps / 100:.2f}",
+                ))
         global_liquidity_floor_bps = int(round(MIN_LIQUIDITY * 10000))
         if int(optimizer_maximums["liquidity"]) < global_liquidity_floor_bps:
             raise OptimizerInputError(
