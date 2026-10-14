@@ -1,4 +1,21 @@
-"""RISK-FALLBACK-CONTEXT-001 (round 46 red test).
+"""RISK-FALLBACK-CONTEXT-001 -- Fallback-Methode kongruent zur Persistenz.
+
+BEHOBEN am 2026-10-14. Der Befund bleibt unten stehen, weil die Tests
+weiterhin die Eigenschaft festhalten.
+
+Fix: ``_build_allocation_model_basis()`` nimmt jetzt ``forced_active_method``,
+und ``generate_target_allocation()`` berechnet den Wert EINMAL
+(``risk_budget_fallback_method``) und uebergibt ihn sowohl an die Modellbasis
+als auch an die Persistenz (``optimizer_audit``). Vorher leiteten beide
+Stellen denselben Wert unabhaengig voneinander ab -- zwei getrennte
+Herleitungen koennen auseinanderlaufen, ein gemeinsamer Wert nicht.
+
+Der RELOAD-Pfad war unauffaellig: er uebergibt ``allocation`` und findet die
+Methode darueber. Betroffen war nur der Generierungspfad, der mit
+``allocation=None`` aufruft, weil die TargetAllocation dort noch nicht
+existiert.
+
+--- Befund (Kontrollrunde 46) --------------------------------------------
 
 When the risk budget is structurally unachievable (``#AA-1``: Bausteine +
 Pflicht-Bandbreiten lassen die Risky-Fraction nicht unter den Risikoprofil-Cap),
@@ -91,14 +108,6 @@ def fast_monte_carlo(monkeypatch):
     monkeypatch.setattr(pe, "_run_allocation_monte_carlo", lambda **_kwargs: {"goal_summaries": []})
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "RISK-FALLBACK-CONTEXT-001 — round 46 red test, see audit "
-        "2026-10-04-risk-budget-fallback-context-and-finalization-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_fallback_model_basis_active_method_matches_persisted_optimization_method(
     session_factory, monkeypatch
 ):

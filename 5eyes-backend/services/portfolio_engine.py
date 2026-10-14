@@ -3614,7 +3614,20 @@ def generate_target_allocation(
                         risk_budget_bps=risk_budget_bps,
                         allow_best_effort=True,
                     )
-                    warnings.append(format_message(WARN_FALLBACK))
+                    # RISK-FALLBACK-WARNING-001: hier stand ein zweiter
+                    # `warnings.append(format_message(WARN_FALLBACK))`. Der
+                    # aeussere `except RiskBudgetExceeded`-Block haengt die
+                    # Warnung am Ende UNBEDINGT an (siehe dort, und der
+                    # Kommentar in der Stufe-4-Meldung sagt es ausdruecklich:
+                    # "WARN_FALLBACK wird unten angefuegt"). Jeder Pfad, der
+                    # diese Stufe erreicht, laeuft auch dort durch -- die
+                    # Warnung erschien also doppelt.
+                    #
+                    # Entfernt statt dedupliziert: eine Deduplizierung am Ende
+                    # wuerde das doppelte Anhaengen zulassen und nur seine
+                    # Folge verstecken. Die Stufe-3-spezifische BEGRUENDUNG
+                    # unten bleibt -- sie ist zusaetzliche Information, keine
+                    # Wiederholung.
                     reasoning.append(
                         "Liquiditätsanteil über dem SAA-Hard-Cap (3 %): "
                         "das Risikoprofil-Budget liesse sich anders nicht "
@@ -3752,6 +3765,17 @@ def generate_target_allocation(
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
     )
+    # RISK-FALLBACK-CONTEXT-001: EIN Wert fuer die Methode, die diese
+    # Allokation erzeugt hat -- er geht sowohl in die Modellbasis hier als
+    # auch unten in die Persistenz (`optimizer_audit`). Vorher leitete die
+    # Modellbasis sie selbst ab und kam auf "house_matrix", waehrend
+    # "fallback_house_matrix" gespeichert wurde; der Lesepfad lehnte die
+    # frisch erzeugte Allokation daraufhin mit ValueError ab. Zwei getrennte
+    # Herleitungen desselben Werts koennen immer auseinanderlaufen, ein
+    # gemeinsamer nicht.
+    risk_budget_fallback_method = (
+        "fallback_house_matrix" if risk_budget_fallback else None
+    )
     model_basis = _build_allocation_model_basis(
         optimizer_mode=optimizer_mode,
         optimizer_result=optimizer_result,
@@ -3764,6 +3788,7 @@ def generate_target_allocation(
             str(getattr(cashflow, "source", "") or "") == "tax_estimate"
             for cashflow in cashflows
         ),
+        forced_active_method=risk_budget_fallback_method,
     )
     monte_carlo["model_basis"] = dict(model_basis["reporting"])
     current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
@@ -3833,9 +3858,11 @@ def generate_target_allocation(
     persist_optimizer_audit = optimizer_mode == "stochastic" and optimizer_result is not None
     optimizer_audit = _optimizer_audit_fields(optimizer_result) if persist_optimizer_audit else {}
     if risk_budget_fallback:
+        # RISK-FALLBACK-CONTEXT-001: derselbe Wert, den die Modellbasis oben
+        # bekommen hat -- nicht ein zweites Mal hingeschrieben.
         optimizer_audit = {
             **optimizer_audit,
-            "optimization_method": "fallback_house_matrix",
+            "optimization_method": risk_budget_fallback_method,
             "optimization_status": "fallback_house_matrix",
         }
     goal_achievability_json: str | None = None
