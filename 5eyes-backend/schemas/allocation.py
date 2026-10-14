@@ -1399,17 +1399,48 @@ class OptimizerConstraintResponse(BaseModel):
 class OptimizerGoalDriverResponse(BaseModel):
     """V3 Sprint 1d (Plan §6): Goal-Driver fuer 'welches Ziel treibt den Solver'.
 
-    weighted_objective_contribution_milli ist objective_contribution * 1000
-    (gleiche Skalierung wie optimization_objective_value_milli auf der TA).
-    rank ist der 1-basierte Rang in absteigender Sortierung (1 = groesster Treiber).
-    Nur in shadow_stochastic / stochastic Modus befuellt; sonst leere Liste.
+    rank ist der 1-basierte Rang in absteigender Sortierung (1 = groesster
+    Treiber), gebildet aus dem ROHEN Beitrag -- nicht aus einem der Felder
+    unten. Nur in shadow_stochastic / stochastic Modus befuellt.
+
+    OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-13)
+    -------------------------------------------------------
+    `services/portfolio_engine_optimizer_integration.py` berechnete das
+    verlustfreie Paar (`_decimal`, `_binary64_hex`) bereits -- aber dieses
+    Schema deklarierte es NICHT, und Pydantic verwirft unbekannte Felder beim
+    Serialisieren STILL. Gemessen: beide Felder kamen nie an einem Konsumenten
+    an, und der Monolith zeigte das verlustbehaftete Milli-Feld.
+
+    Die Folge war die Pathologie, die das Audit beschreibt -- vier materiell
+    verschiedene Zustaende mit demselben Nachweis:
+
+        roh 0        -> milli 0     "vollstaendig erfuellt"
+        roh 4e-12    -> milli 0     "minimaler Miss"
+        roh 4e-5     -> milli 0     "kleiner materieller Shortfall"
+        roh 0.00049  -> milli 0     "groesserer materieller Shortfall"
+
+    Nachgemessen am echten Konverter: die verlustfreien Felder unterscheiden
+    alle fuenf Testwerte (5 von 5), das Milli-Feld keinen (1 von 5).
     """
     goal_id: str
     label: str
     target_kind: str
     hardness_key: str
     weight_bps: int
+    # LEGACY, deprecated: *1000 Fixed-Point. Kollabiert kleine, materiell
+    # verschiedene Beitraege auf denselben Integer (auch auf 0). Bleibt fuer
+    # bestehende Konsumenten unveraendert erhalten; fuer JEDE Entscheidung
+    # oder Delta-Rechnung sind die beiden Felder darunter zu verwenden
+    # (Zielvertrag Punkt 7 des Audits: nur als klar markiertes Legacy-Feld).
     weighted_objective_contribution_milli: Optional[int] = None
+    # Kanonische verlustfreie Darstellung. `repr(float)` ist der kuerzeste
+    # Dezimalstring, der den exakten binary64-Wert zurueckliest; `float.hex()`
+    # ist bit-exakt. BEIDE sind None, wenn der Wert nicht endlich oder nicht
+    # vorhanden ist -- ein ausdruecklicher "unavailable"-Zustand, der NICHT
+    # als 0 gelesen werden darf (Zielvertrag Punkt 4: exakte Null,
+    # positives Sub-Epsilon und unavailable bleiben verschiedene Zustaende).
+    weighted_objective_contribution_decimal: Optional[str] = None
+    weighted_objective_contribution_binary64_hex: Optional[str] = None
     rank: int
 
 
@@ -1467,7 +1498,10 @@ class TargetAllocationGenerateResponse(BaseModel):
     # sichtbar, welche Leitplanke wirklich begrenzt.
     optimizer_constraints: list[OptimizerConstraintResponse] = Field(default_factory=list)
     # V3 Sprint 1d (Plan §5.4 / §6): Goal-Driver-Liste fuer 'welches Ziel treibt
-    # den Shortfall'. Sortiert absteigend nach weighted_objective_contribution_milli.
+    # den Shortfall'. Sortiert absteigend nach dem ROHEN Beitrag -- nicht nach
+    # dem Milli-Feld, das kleine Beitraege alle auf 0 kollabieren liesse und
+    # die Reihenfolge damit beliebig machen wuerde
+    # (OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001).
     # Nur befuellt wenn Solver lief; sonst leere Liste.
     optimizer_goal_drivers: list[OptimizerGoalDriverResponse] = Field(default_factory=list)
     # C6: explizit benannte Basis fuer Target-/Sim-/MC-Berechnung

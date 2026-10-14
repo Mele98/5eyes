@@ -28437,14 +28437,35 @@ function renderAllocationMethodComparison(result){
     }else{
       dBlock.style.display='';
       dBody.innerHTML=drivers.map(function(d){
-        var milli=d.weighted_objective_contribution_milli;
-        var milliText=milli==null?'—':String(milli);
+        // OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-13): zeigte
+        // bisher weighted_objective_contribution_milli -- ein *1000-
+        // Fixed-Point, der kleine materiell verschiedene Beitraege auf
+        // denselben Integer kollabiert. Gemessen wurden vier Ziele mit
+        // rohen Beitraegen 0, 4e-12, 4e-5 und 0.00049 alle als "0"
+        // angezeigt: "vollstaendig erfuellt" war von einer echten
+        // Unterdeckung nicht zu unterscheiden.
+        //
+        // Jetzt der verlustfreie Dezimalstring. Die drei Zustaende bleiben
+        // getrennt (Zielvertrag Punkt 4 des Audits): nicht verfuegbar
+        // (nicht endlicher oder fehlender Wert) ist NICHT null, und exakt
+        // null ist nicht dasselbe wie ein kleiner positiver Beitrag.
+        // Bewusst ungerundet -- jede Anzeige-Rundung wuerde genau den
+        // Kollaps wieder einfuehren, den dieser Fix behebt.
+        var dec=d.weighted_objective_contribution_decimal;
+        var contribText;
+        if(dec==null||dec===''){
+          contribText='— (nicht verfügbar)';
+        }else if(Number(dec)===0){
+          contribText='0 (erfüllt)';
+        }else{
+          contribText=String(dec);
+        }
         return '<tr>'
           +'<td>'+escapeHtml(String(d.rank||'—'))+'</td>'
           +'<td>'+escapeHtml(d.label||d.goal_id||'')+'</td>'
           +'<td>'+escapeHtml(d.hardness_key||'')+'</td>'
           +'<td>'+escapeHtml(formatBpsPercent(d.weight_bps||0))+'</td>'
-          +'<td>'+escapeHtml(milliText)+'</td>'
+          +'<td>'+escapeHtml(contribText)+'</td>'
           +'</tr>';
       }).join('');
     }
