@@ -55,6 +55,7 @@ def _build_allocation_model_basis(
     cma: CapitalMarketAssumption | None = None,
     stored_optimization_basis: dict | None = None,
     reporting_tax_cashflow_present: bool | None = None,
+    forced_active_method: str | None = None,
 ) -> dict[str, dict]:
     """Describe decision and implementation models as two explicit views.
 
@@ -63,6 +64,26 @@ def _build_allocation_model_basis(
     behaviour (drift, optional rebalancing and transaction costs).  They may
     legitimately produce different goal probabilities, so the API must never
     present them as an unlabeled single methodology.
+
+    ``forced_active_method`` ist die Methode, die der AUFRUFER fuer diese
+    Allokation persistiert -- RISK-FALLBACK-CONTEXT-001. Sie gewinnt vor jeder
+    Ableitung hier, weil sie der tatsaechlich gespeicherte Wert IST und nicht
+    eine Rekonstruktion davon.
+
+    Hintergrund: im Generierungspfad wird diese Funktion mit
+    ``allocation=None`` aufgerufen -- die TargetAllocation existiert noch
+    nicht. Loeste der Risikobudget-Fallback aus, hatte sie damit keine Quelle
+    fuer die Methode und leitete ``"house_matrix"`` aus dem Modus ab, waehrend
+    unmittelbar danach ``"fallback_house_matrix"`` persistiert wurde. Diese
+    Divergenz war nicht nur kosmetisch: der Lesepfad prueft ueber
+    ``_verified_persisted_allocation_context`` genau diese Gleichheit und wirft
+    ``ValueError``, sobald sie verletzt ist -- eine FRISCH erzeugte
+    Fallback-Allokation liess sich dadurch nicht mehr laden oder
+    finalisieren. Ein Gate, das die eigene Ausgabe der Engine ablehnt, ist
+    nicht fail-closed, sondern funktionsunfaehig.
+
+    Der RELOAD-Pfad war unauffaellig, weil er ``allocation`` uebergibt und die
+    Methode darueber findet. Nur der Generierungspfad brauchte die Angabe.
     """
     context = getattr(optimizer_result, "context", None)
     stored_method = (
@@ -71,7 +92,8 @@ def _build_allocation_model_basis(
         else None
     )
     active_method = str(
-        getattr(optimizer_result, "method", None)
+        forced_active_method
+        or getattr(optimizer_result, "method", None)
         or stored_method
         or ("house_matrix" if optimizer_mode == "house_matrix" else optimizer_mode)
     )
