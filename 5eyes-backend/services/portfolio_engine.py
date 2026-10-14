@@ -1303,6 +1303,12 @@ _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS: dict[str, dict[str, object]] = {
     "Krypto": {"asset_class": "Alternative", "expected_return_bps": 800, "expected_volatility_bps": 4500},
     "Geldmarktfonds": {"asset_class": "Liquiditaet", "expected_return_bps": 80, "expected_volatility_bps": 15},
     "Festgeld": {"asset_class": "Liquiditaet", "expected_return_bps": 100, "expected_volatility_bps": 10},
+    # LIQ-INSTRUMENT-KONTOGUTHABEN-001 (2026-10-14): die Praeferenz bietet
+    # Kontoguthaben an, ohne CMA-Zeile scheiterte jede Berechnung damit.
+    # Bewusst die konservativste Annahme: kein Kontozins unterstellt,
+    # Schwankung wie Festgeld. Ein IC kann pro CMA ueberschreiben; bestehende
+    # CMA-Zeilen erben fehlende Keys aus diesen Defaults.
+    "Kontoguthaben": {"asset_class": "Liquiditaet", "expected_return_bps": 0, "expected_volatility_bps": 10},
 }
 
 _ASSET_CLASS_LABEL_TO_BUCKET = {
