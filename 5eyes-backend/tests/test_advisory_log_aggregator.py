@@ -168,45 +168,63 @@ def test_no_mismatches_when_no_target_allocation(session_factory):
 
 
 def _seed_house_matrix_bands(s, policy):
-    """Zwei HouseMatrix-Baender: 'Defensiv' (score 20-40, Cap 30%) und
-    'Wachstumsorientiert' (score 70-90, Cap 70%)."""
-    common = dict(
-        liq_min_bps=0, liq_target_bps=500, liq_max_bps=1000,
-        bonds_min_bps=3000, bonds_target_bps=4000, bonds_max_bps=5000,
-        equity_min_bps=0, equity_target_bps=1000, equity_max_bps=2000,
-        real_estate_min_bps=0, real_estate_target_bps=500, real_estate_max_bps=1000,
-        alt_min_bps=0, alt_target_bps=0, alt_max_bps=1000, equity_minimum_bps=0,
-        is_active=1, created_at=_NOW, updated_at=_NOW,
+    """Produktions-HouseMatrix (1..10-Bucket-Skala) ueber den echten
+    Seeding-Pfad _seed_house_matrix_rows().
+
+    SUITABILITY-DETECTOR-SCALE-001 (2026-10-14): frueher wurden hier zwei
+    handgebaute Zeilen auf der 0..100-Skala geseedet (score 20-40 / 70-90).
+    Solche Zeilen erzeugt die Produktion nie (score_from/score_to sind 1..10)
+    -- das Test-Orakel kodierte damit genau den Defekt, dass
+    detect_suitability_mismatches() den rohen score_x10 gegen die Matrix
+    verglich. Relevante Caps hier: Defensiv (Bucket 3-4) 45 %,
+    Wachstumsorientiert (Bucket 7-8) 80 %.
+    """
+    from services.house_matrix_loader import _HARDCODED_FALLBACK
+    from services.portfolio_engine_house_matrix import (
+        _normalize_house_matrix_defaults,
+        _seed_house_matrix_rows,
     )
-    s.add(HouseMatrix(
-        id=str(uuid.uuid4()), policy_id=policy.id,
-        score_from=20, score_to=40, profile_name="Defensiv",
-        max_risky_fraction_bps=3000, **common,
-    ))
-    s.add(HouseMatrix(
-        id=str(uuid.uuid4()), policy_id=policy.id,
-        score_from=70, score_to=90, profile_name="Wachstumsorientiert",
-        max_risky_fraction_bps=7000, **common,
-    ))
+
+    _seed_house_matrix_rows(
+        s, policy.id,
+        _normalize_house_matrix_defaults(list(_HARDCODED_FALLBACK)), _NOW,
+    )
     s.commit()
+
+
+# Fragebogen-Punkte, aus denen risk_scoring.compute_scores() exakt diesen
+# final_score_x10 herleitet (der Detektor validiert die Herleitung ueber
+# services.risk_matrix.score_bucket_from_assessment()).
+_RA_ANSWERS_BY_SCORE = {
+    30: dict(q_income_points=0, q_obligations_points=0, q_savings_points=0, q_wealth_points=0,
+             investment_horizon_label="Mehr als 12 Jahre",
+             q_investment_goal_points=1, q_risk_preference_points=1, q_risk_behavior_points=3),
+    75: dict(q_income_points=0, q_obligations_points=0, q_savings_points=0, q_wealth_points=12,
+             investment_horizon_label="Mehr als 12 Jahre",
+             q_investment_goal_points=2, q_risk_preference_points=4, q_risk_behavior_points=4),
+}
 
 
 def _seed_risk_assessment(s, mandate, advisor, *, final_score_x10, is_overridden=0,
                            override_score_x10=None):
+    from risk_fixture_helpers import derive_current_risk_fields
+    from services.risk_scoring import profile_for_score_x10
+
+    fields = derive_current_risk_fields(**_RA_ANSWERS_BY_SCORE[final_score_x10])
+    assert fields["final_score_x10"] == final_score_x10
     s.add(RiskAssessment(
         id=str(uuid.uuid4()), mandate_id=mandate.id, version=1, is_current=1,
         valid_from=_NOW[:10],
-        q_income_points=2, q_obligations_points=2, q_savings_points=6, q_wealth_points=6,
-        risk_capacity_total=16, risk_capacity_profile="Ausgewogen",
-        investment_horizon_years=9, investment_horizon_label="8 bis 11 Jahre",
-        risk_capacity_score_x10=final_score_x10,
-        q_investment_goal_points=2, q_risk_preference_points=2, q_risk_behavior_points=2,
-        risk_willingness_total=6, risk_willingness_profile="Ausgewogen",
-        risk_willingness_score_x10=final_score_x10,
-        final_score_x10=final_score_x10, final_profile="Ausgewogen",
+        **fields,
         is_overridden=is_overridden, override_score_x10=override_score_x10,
-        override_profile="Wachstumsorientiert" if override_score_x10 and override_score_x10 >= 70
-        else ("Defensiv" if override_score_x10 else None),
+        override_profile=profile_for_score_x10(override_score_x10) if override_score_x10 else None,
+        override_reason=(
+            "Kunde hat nach ausfuehrlichem Gespraech seine Risikoneigung "
+            "begruendet anders eingeschaetzt" if is_overridden else None
+        ),
+        # Override um >= 2 Profilbaender nach oben verlangt beides.
+        override_client_confirmed=1 if is_overridden else 0,
+        override_warning_delivered=1 if is_overridden else 0,
         assessed_at=_NOW, assessed_by=advisor.id,
         created_at=_NOW, updated_at=_NOW,
     ))
@@ -214,8 +232,8 @@ def _seed_risk_assessment(s, mandate, advisor, *, final_score_x10, is_overridden
 
 
 def test_override_upward_no_longer_produces_false_positive_cap_warning(session_factory):
-    """Kontrollrunde 2026-09-20: berechnetes Profil Defensiv (Score 35, Cap
-    30%) wurde auf Wachstumsorientiert (Override-Score 75, Cap 70%)
+    """Kontrollrunde 2026-09-20: berechnetes Profil Defensiv (Score 30, Cap
+    45%) wurde auf Wachstumsorientiert (Override-Score 75, Cap 80%)
     uebersteuert. Allokation nutzt 60% Risiko-Anteil -- innerhalb des
     (hoeheren) Override-Caps, aber ausserhalb des berechneten Caps. Vorher
     (Vergleich gegen final_score_x10) erzeugte das eine spurious Warnung."""
@@ -225,15 +243,15 @@ def test_override_upward_no_longer_produces_false_positive_cap_warning(session_f
         _seed_house_matrix_bands(s, policy)
         _seed_risk_assessment(
             s, mandate, advisor,
-            final_score_x10=35, is_overridden=1, override_score_x10=75,
+            final_score_x10=30, is_overridden=1, override_score_x10=75,
         )
         warnings = detect_suitability_mismatches(s, mandate)
-    assert not any("HouseMatrix-Cap" in w for w in warnings)
+    assert not any("HouseMatrix-Cap" in w for w in warnings), warnings
 
 
 def test_override_downward_now_detects_real_cap_violation(session_factory):
     """Kontrollrunde 2026-09-20: berechnetes Profil Wachstumsorientiert
-    (Score 75, Cap 70%) wurde auf Defensiv (Override-Score 35, Cap 30%)
+    (Score 75, Cap 80%) wurde auf Defensiv (Override-Score 35, Cap 45%)
     uebersteuert. Allokation nutzt weiterhin 60% Risiko-Anteil -- innerhalb
     des berechneten (nicht mehr gueltigen) Caps, aber ausserhalb des
     tatsaechlichen Override-Caps. Vorher (Vergleich gegen final_score_x10)
@@ -247,7 +265,7 @@ def test_override_downward_now_detects_real_cap_violation(session_factory):
             final_score_x10=75, is_overridden=1, override_score_x10=35,
         )
         warnings = detect_suitability_mismatches(s, mandate)
-    assert any("HouseMatrix-Cap" in w for w in warnings)
+    assert any("HouseMatrix-Cap 45.0 % (Defensiv)" in w for w in warnings), warnings
 
 
 # ---------------------------------------------------------------------------
