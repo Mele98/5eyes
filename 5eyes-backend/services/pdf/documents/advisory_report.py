@@ -1723,6 +1723,16 @@ def _build_building_blocks_flowables(bb: dict, styles: dict) -> list[Any]:
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
 
+    # ALLOCATION-INPUT-STALENESS-001: veraltete Soll-Allokation nie ohne
+    # sichtbaren Hinweis vor der Zielgewichte-Tabelle drucken.
+    staleness_hinweis = str(bb.get("staleness_hinweis") or "").strip()
+    if bb.get("target_allocation_stale") and staleness_hinweis:
+        out.append(Paragraph(
+            "<b>Achtung:</b> " + _escape(staleness_hinweis),
+            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_ROT),
+        ))
+        out.append(Spacer(1, 3 * mm))
+
     blocks = bb.get("blocks") or []
     if blocks:
         out.append(_building_blocks_table(blocks, styles))

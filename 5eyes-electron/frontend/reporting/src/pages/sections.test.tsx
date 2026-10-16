@@ -350,6 +350,23 @@ describe('Section 13: BuildingBlocks', () => {
     render(withRouter(<BuildingBlocks data={makeBuildingBlocks()} />));
     expect(screen.getAllByText('Aktien').length).toBeGreaterThan(0);
     expect(screen.getByText('Maximale Risikoquote')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('zeigt Staleness-Hinweis bei veralteter Soll-Allokation', () => {
+    render(
+      withRouter(
+        <BuildingBlocks
+          data={{
+            ...makeBuildingBlocks(),
+            target_allocation_stale: true,
+            staleness_hinweis:
+              'Hinweis: Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben sich seit der Berechnung geaendert.',
+          }}
+        />,
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Vermoegen, Cashflows oder Ziele/);
   });
 });
 

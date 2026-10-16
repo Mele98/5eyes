@@ -249,6 +249,11 @@ def _init_result_dict(mandate: Mandate) -> dict:
         # muessen das beruecksichtigen statt eine veraltete Band-Uebereinstimmung
         # als "alles in Ordnung" zu werten.
         "target_allocation_stale": False,
+        # ALLOCATION-INPUT-STALENESS-001: Grund-Unterscheidung -- True wenn
+        # target_allocation_stale wegen geaenderter Vermoegens-/Cashflow-/
+        # Ziel-Inputs (input_snapshot_hash) gesetzt ist, nicht wegen des
+        # Risikoprofils.
+        "target_allocation_inputs_stale": False,
         "buckets": {},  # bucket → {ist_bps, soll_bps, ist_rappen, drift_bps, in_band, band}
         "country_exposure_bps": {},
         "sector_exposure_bps": {},
@@ -380,7 +385,13 @@ def _aggregate_warnings(result: dict) -> None:
     Mutiert die uebergebene result-Dict (kein Return). Schwellen sind als
     Modul-Konstanten benannt (siehe oben), nicht mehr Magic-Numbers.
     """
-    if result.get("target_allocation_stale"):
+    if result.get("target_allocation_inputs_stale"):
+        result["warnings"].append(
+            "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele "
+            "haben sich seit der Berechnung geaendert -- Band-Vergleiche "
+            "unten sind nicht aussagekraeftig. Strategie neu berechnen."
+        )
+    elif result.get("target_allocation_stale"):
         result["warnings"].append(
             "Soll-Allokation basiert auf einem frueheren, nicht mehr "
             "aktuellen Risikoprofil -- Band-Vergleiche unten sind nicht "
@@ -611,6 +622,18 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
     result["target_allocation_stale"] = target_allocation_predates_current_assessment(
         ta, getattr(current_ra, "id", None), current_ra
     )
+    # ALLOCATION-INPUT-STALENESS-001: Payload/Finalisierung/Strategie-PDF
+    # lehnen eine Allokation auch ab, wenn sich Vermoegen, Cashflows oder
+    # Ziele seit der Berechnung geaendert haben (input_snapshot_hash). Ohne
+    # diese Pruefung zeigte der Depot-Check die alten Soll-Werte als aktuell.
+    # Nur pruefen, wenn das Risikoprofil-Kriterium noch nicht greift (spart
+    # die Anker-Neuberechnung).
+    if not result["target_allocation_stale"]:
+        from services.allocation_input_staleness import allocation_inputs_stale
+        result["target_allocation_inputs_stale"] = allocation_inputs_stale(
+            db, mandate, ta, assessment=current_ra
+        )
+        result["target_allocation_stale"] = result["target_allocation_inputs_stale"]
     for bucket in BUCKET_LABELS:
         amount_rappen = bucket_amounts_rappen.get(bucket, 0)
         ist_bps = int(round(amount_rappen / total_rappen * 10000)) if total_rappen > 0 else 0
