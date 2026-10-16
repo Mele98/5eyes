@@ -44,9 +44,12 @@ def test_cashflow_horizon_falls_back_to_life_expectancy():
 def test_simulation_horizon_reaches_life_expectancy():
     html = _html()
     # Sim-Horizont (SOLL/IST-Vergleich) zieht die Lebenserwartung als Untergrenze:
-    # horizonYears = max(eingestellter Wert, Lebenserwartung-Horizont).
+    # horizonYears = max(eingestellter Wert, Lebenserwartung-Horizont) -- seit
+    # SIM-HORIZON-ALWAYS-EXPLICIT-001 nur noch, wenn der Berater explizit einen
+    # Wert gewaehlt hat; "Auto" sendet keinen Key (Backend: Mandat/BFS/Ziele).
+    # Verhaltenstest: tests/test_sim_horizon_explicit_only.py.
     assert "var _l=_lifeExpectancyHorizonYears();" in html
-    assert "return String((_l&&_l>_b)?_l:_b);" in html
+    assert "return String(Math.min(120,(_l&&_l>_i)?_l:_i));" in html
 
 
 def test_compare_axis_never_shorter_than_data():
