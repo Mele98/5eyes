@@ -68,11 +68,22 @@ def test_esg_gated_values_reject_non_sfdr_product(esg_value):
 
 
 @pytest.mark.parametrize("esg_value", ["best_in_class", "impact", "net_zero", "esg_integration"])
-@pytest.mark.parametrize("sfdr_class", ["8", "9"])
-def test_esg_gated_values_accept_sfdr_8_or_9(esg_value, sfdr_class):
+def test_esg_gated_values_accept_product_meeting_every_criterion(esg_value):
+    """ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): die vier Werte
+    haben jetzt EIGENE Kriterien (impact = nur SFDR 9, best_in_class = SFDR
+    8/9 + Rating/Score, net_zero = SFDR 9 oder PAB/CTB) -- die vollstaendige
+    Matrix steht in tests/test_esg_premium_criteria.py. Hier nur: ein
+    Produkt, das alle Kriterien erfuellt, wird von jedem Wert zugelassen."""
     prefs = portfolio_engine._normalize_preferences({"policy": {"esg": esg_value}})
-    esg_product = _make_product(sfdr_class=sfdr_class)
+    esg_product = _make_product(sfdr_class="9", esg_rating="AA")
     assert portfolio_engine._product_matches_constraints(esg_product, prefs, score_bucket=8) is True
+
+
+def test_esg_integration_still_accepts_sfdr_8():
+    prefs = portfolio_engine._normalize_preferences({"policy": {"esg": "esg_integration"}})
+    assert portfolio_engine._product_matches_constraints(
+        _make_product(sfdr_class="8"), prefs, score_bucket=8,
+    ) is True
 
 
 def test_esg_none_does_not_filter_by_sfdr():

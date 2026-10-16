@@ -2037,6 +2037,11 @@ _PRODUCT_IMPORT_CSV_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
     "suitability_prohibited", "suitability_requires_appropriateness",
     "suitability_requires_override", "suitability_max_position_bps",
+    # ESG-PREMIUM-CRITERIA-001 (2026-10-14): Daten fuer die ESG-Policy-
+    # Kriterien (best_in_class: esg_score_x10; net_zero: climate_benchmark)
+    # und die Themen-Zuordnung (theme_tags, Semikolon-getrennt). Am Ende
+    # angehaengt, damit bestehende Dateien spaltengleich bleiben.
+    "esg_score_x10", "climate_benchmark", "theme_tags",
 )
 _PRODUCT_IMPORT_SUITABILITY_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
@@ -2298,12 +2303,14 @@ def download_products_csv_template(
     example_listed = (
         "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
         "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily,"
-        "4,10,investment_advice;portfolio_management,false,false,false,2500"
+        "4,10,investment_advice;portfolio_management,false,false,false,2500,"
+        "720,PAB,"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
         "Private Equity,CHF,,,150,,,illiquid,"
-        "7,10,investment_advice;portfolio_management,false,true,false,4000"
+        "7,10,investment_advice;portfolio_management,false,true,false,4000,"
+        ",,"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(

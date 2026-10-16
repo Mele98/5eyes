@@ -55,6 +55,9 @@ TOP_LEVEL_KEYS = frozenset(
         "assetClasses",
         "bands",
         "simulation",
+        # ESG-PREMIUM-CRITERIA-001: Begruendungen je Thema ("allow" =
+        # bewusst zulassen verlangt eine, siehe tests/test_esg_premium_criteria.py).
+        "tiltReasons",
     }
 )
 
