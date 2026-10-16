@@ -1386,6 +1386,18 @@ def _build_contract_signoff_data(
     db: Session,
 ) -> ContractSignoffData:
     strategy = _build_anlagestrategie_data(mandate, db)
+    # COST-RUN-RESOLVER-001: der Beratungsentscheid ist das Dokument, das der
+    # Kunde UNTERSCHREIBT. Ohne Empfehlungslauf der aktuellen Allokation
+    # haette er eine leere Produkttabelle (und keinen Kostenbezug) zur
+    # Unterschrift vorgelegt -- blockieren (409 via get_contract_signoff_pdf),
+    # statt ein unvollstaendiges Dokument zu rendern.
+    if strategy.recommendation_status == NO_CURRENT_RECOMMENDATION_MARKER:
+        raise ValueError(
+            "Beratungsentscheid kann nicht erstellt werden: zur aktuellen "
+            f"Soll-Allokation liegt {NO_CURRENT_RECOMMENDATION_MARKER} vor. "
+            "Bitte zuerst die Produktempfehlung (Portfolio) fuer die aktuelle "
+            "Allokation generieren."
+        )
     protocol = _build_protokoll_data(mandate, db)
     ta = _latest_target_allocation(mandate, db)
     method = str(getattr(ta, "optimization_method", "") or "").strip() or None
