@@ -214,7 +214,9 @@ def _seed_realistic_mandate(s):
         target_allocation_id=ta.id,
         policy_id=policy.id,
         run_type="full",
-        result_status="Approved",
+        # PDF-RUN-RESOLVER-001: "Approved" ist kein Domaenenstatus (nur
+        # Draft/Final/Superseded); der Resolver akzeptiert nur Final/Draft.
+        result_status="Final",
         created_by=advisor.id,
         created_at=_NOW, updated_at=_NOW,
     )

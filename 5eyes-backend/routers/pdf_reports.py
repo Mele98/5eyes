@@ -24,6 +24,10 @@ from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.document_archive import archive_generated_pdf, content_hash_for
 from services.pdf import ReportLabRenderer
+from services.recommendation_run_resolver import (
+    NO_CURRENT_RECOMMENDATION_MARKER,
+    resolve_current_recommendation_run,
+)
 from services.pdf.base import (
     AnlagestrategieData,
     BacktestData,
@@ -553,14 +557,19 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
 
     # ---- Produkte (Recommendation) ----
     products: list = []
+    recommendation_status: str | None = None
     try:
-        from models.review import Product, RecommendationPosition, RecommendationRun
-        last_run = (
-            db.query(RecommendationRun)
-            .filter(RecommendationRun.mandate_id == mandate.id)
-            .order_by(RecommendationRun.created_at.desc())
-            .first()
+        from models.review import Product, RecommendationPosition
+        # PDF-RUN-RESOLVER-001: dieselbe Regel wie _build_portfolio_data
+        # (Final, sonst Draft, gebunden an die AKTUELLE TargetAllocation).
+        # Kein passender Run -> keine Produkte + expliziter Marker, nie ein
+        # Rueckfall auf den juengsten Run einer ueberholten Allokation.
+        current_ta_for_run = _latest_target_allocation(mandate, db)
+        last_run = resolve_current_recommendation_run(
+            db, mandate.id, getattr(current_ta_for_run, "id", None)
         )
+        if last_run is None:
+            recommendation_status = NO_CURRENT_RECOMMENDATION_MARKER
         if last_run is not None:
             positions = (
                 db.query(RecommendationPosition)
@@ -845,6 +854,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         bucket_bands_bps=bucket_bands,
         bucket_amounts_rappen=bucket_amounts,
         products=products,
+        recommendation_status=recommendation_status,
         goal_analysis=goal_analysis,
         max_drawdown_bps=max_dd_bps,
         var_95_bps=var_95_bps,
@@ -1132,19 +1142,8 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                 status_code=409,
                 detail="Keine aktuelle Soll-Allokation gefunden. Bitte zuerst die Asset Allocation berechnen.",
             )
-        current_allocation_id = str(getattr(ta, "id", "") or "")
-        matching_runs = (
-            db.query(RecommendationRun)
-            .filter(
-                RecommendationRun.mandate_id == mandate.id,
-                RecommendationRun.target_allocation_id == current_allocation_id,
-            )
-            .order_by(RecommendationRun.created_at.desc())
-            .all()
-        )
-        last_run = (
-            next((run for run in matching_runs if run.result_status == "Final"), None)
-            or next((run for run in matching_runs if run.result_status == "Draft"), None)
+        last_run = resolve_current_recommendation_run(
+            db, mandate.id, getattr(ta, "id", None)
         )
         if last_run is None:
             stale_run = (
@@ -1476,6 +1475,7 @@ def get_contract_signoff_pdf(
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
+    ta = None
     try:
         ta = _latest_target_allocation(mandate, db)
         if ta is not None:
@@ -1488,7 +1488,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     entries: list[dict] = []
     latest_recommendation_summary = None
     try:
-        from models.review import AdvisoryLog, RecommendationRun
+        from models.review import AdvisoryLog
 
         log_rows = (
             db.query(AdvisoryLog)
@@ -1507,11 +1507,10 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
                 "status": str(getattr(row, "status", "") or ""),
             })
 
-        latest_run = (
-            db.query(RecommendationRun)
-            .filter(RecommendationRun.mandate_id == mandate.id)
-            .order_by(RecommendationRun.created_at.desc())
-            .first()
+        # PDF-RUN-RESOLVER-001: "finale Empfehlung" im Protokoll/Beratungs-
+        # entscheid nur aus dem Run der aktuellen Allokation.
+        latest_run = resolve_current_recommendation_run(
+            db, mandate.id, getattr(ta, "id", None)
         )
         if latest_run is not None:
             latest_recommendation_summary = str(
@@ -1655,7 +1654,14 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             list(portfolio.positions or []),
             key=lambda item: -int(item.get("target_weight_bps", 0) or 0),
         )
-    except HTTPException:
+    except HTTPException as exc:
+        # PDF-RUN-RESOLVER-001 / DEPOT-E2E-SOURCE-001: ein veralteter Run
+        # (409) ist ein Domaenenkonflikt und wird wie im Portfolio-PDF
+        # blockiert -- nie durch Produkte eines anderen Runs ersetzt. Gibt es
+        # schlicht noch keinen Run (404), bleibt die Positionsliste leer
+        # (strategy.products nutzt denselben Resolver und ist dann leer).
+        if exc.status_code == 409:
+            raise
         positions = list(strategy.products or [])
     try:
         costs = build_cost_disclosure(db, mandate)

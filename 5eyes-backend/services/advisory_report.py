@@ -67,15 +67,26 @@ def _cached_latest_recommendation_run(db: Session, mandate: Mandate) -> Any:
     entweder keine Target-Allocation-Bindung traegt (Altbestand vor dieser
     Bindung) oder an die AKTUELLE TargetAllocation gebunden ist -- ein
     Draft/Superseded-Run oder ein Final-Run einer inzwischen ueberholten
-    Allokation darf nie in den Kundenportal-Report gelangen. Der Berater-
-    /PDF-/React-Pfad bleibt unveraendert (zeigt weiterhin den neuesten Run
-    egal welchen Status, fuer die Vorschau vor der Finalisierung).
+    Allokation darf nie in den Kundenportal-Report gelangen.
+
+    PDF-RUN-RESOLVER-001: der Berater-/PDF-/React-Pfad (der auch das
+    "kundenfertige" Advisory-Report-PDF erzeugt) nahm bisher den juengsten
+    Run JEDES Status und JEDER Allokation. Er nutzt jetzt dieselbe Regel wie
+    das Portfolio-PDF (services/recommendation_run_resolver.py): Final, sonst
+    Draft, gebunden an die aktuelle TargetAllocation; Superseded nie. Kein
+    passender Run -> None (Sektionen zeigen "keine Empfehlung").
     """
     from models.review import RecommendationRun
+    from services.recommendation_run_resolver import resolve_current_recommendation_run
     cache = db.info.get(_CACHE_KEY) or {}
     client_facing = bool(cache.get("_client_facing"))
 
     def _factory():
+        if not client_facing:
+            current_ta = _cached_current_ta(db, mandate)
+            return resolve_current_recommendation_run(
+                db, mandate.id, getattr(current_ta, "id", None)
+            )
         query = db.query(RecommendationRun).filter(RecommendationRun.mandate_id == mandate.id)
         if client_facing:
             query = query.filter(RecommendationRun.result_status == "Final")
@@ -230,8 +241,8 @@ def compute_advisory_report(
         zugrundeliegende RecommendationRun-Auswahl auf einen Final-Run, der
         an die aktuelle TargetAllocation gebunden ist (siehe
         _cached_latest_recommendation_run). Default False -- Berater-/PDF-/
-        React-Vorschaupfade zeigen weiterhin den neuesten Run unabhaengig
-        vom Status, unveraendertes Verhalten.
+        React-Pfade nutzen den Final-, sonst Draft-Run der aktuellen
+        TargetAllocation (PDF-RUN-RESOLVER-001), nie einen veralteten Run.
 
     Returns
     -------
@@ -1082,8 +1093,10 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
             "total_rappen": 0,
             "has_recommendation_run": False,
             "hinweis": (
-                "Noch keine Empfehlung generiert. Bitte Asset Allokation "
-                "berechnen und Produktauswahl im Portfolio-Tab vornehmen."
+                "Keine aktuelle Empfehlung fuer die gueltige Asset "
+                "Allokation (keine aktuelle Produktempfehlung). Bitte Asset "
+                "Allokation berechnen und Produktauswahl im Portfolio-Tab "
+                "vornehmen."
             ),
         }
 

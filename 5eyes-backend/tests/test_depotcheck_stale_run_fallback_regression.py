@@ -6,7 +6,9 @@ and-publication-integrity-audit.md`` in
 ``C:\\Users\\Emanuele\\Documents\\ChatGPT\\5eyes wird zu Ares\\
 asset-allocation-stochastic-core``.
 
-Finding (P1, open at the time of this test): the JSON Depot-Check API
+Finding (P1; closed by PDF-RUN-RESOLVER-001, which routes every client
+document through services/recommendation_run_resolver.py and lets the
+Depot-Check PDF propagate the 409 instead of falling back): the JSON Depot-Check API
 (``services/depot_check.py``) and the Depot-Check PDF
 (``routers/pdf_reports.py::_build_depotcheck_data``) each resolve "the
 current recommended portfolio" differently from the plain Portfolio PDF
@@ -80,19 +82,6 @@ from test_portfolio_generate_after_saa_recalc import (  # noqa: E402
 )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEPOT-E2E-SOURCE-001 (open): _build_depotcheck_data "
-        "(routers/pdf_reports.py) catches the HTTPException that "
-        "_build_portfolio_data correctly raises for a stale/unmatched "
-        "RecommendationRun and silently falls back to strategy.products "
-        "(itself sourced from the same unscoped, globally-latest run) "
-        "instead of propagating the 409 domain conflict. See "
-        "docs/audits/2026-10-05-depotcheck-end-to-end-product-identity-and-"
-        "publication-integrity-audit.md (Ares worktree)."
-    ),
-)
 def test_depotcheck_pdf_data_must_not_fall_back_to_stale_run_after_saa_recalc(
     session_factory,
 ):

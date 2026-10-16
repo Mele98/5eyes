@@ -106,6 +106,11 @@ class AnlagestrategieData:
     name, isin, asset_class, sub_asset_class, target_weight_bps,
     target_amount_rappen, currency, ter_bps, provider."""
 
+    recommendation_status: str | None = None
+    """PDF-RUN-RESOLVER-001: 'keine aktuelle Produktempfehlung', wenn zur
+    aktuellen TargetAllocation kein Final-/Draft-Run existiert (products
+    ist dann leer); sonst None."""
+
     goal_analysis: list = field(default_factory=list)
     """Goal-Analysis-Liste. Jedes Element ist dict mit:
     rank, label, achievement_score (0-100), target_text."""

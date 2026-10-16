@@ -266,8 +266,30 @@ def test_draft_recommendation_is_not_published_as_final_in_contract_signoff(
 
     with session_factory() as session:
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        # PDF-RUN-RESOLVER-001: Protokoll/Beratungsentscheid loesen den Run
+        # jetzt nur noch an der AKTUELLEN TargetAllocation auf. Ohne Bindung
+        # waere dieser Test aus dem falschen Grund gruen (Run unsichtbar statt
+        # "Draft wird nicht als final ausgewiesen"). Darum wird der Draft an
+        # eine aktuelle TA gebunden -- so reproduziert er SIGN-CLAIM-001 weiter.
+        from models.allocation import TargetAllocation
+        session.add(TargetAllocation(
+            id="ta-current-1", mandate_id=mandate_id, version=1, is_current=1,
+            target_equities_bps=5500, target_bonds_bps=2500,
+            target_real_estate_bps=1000, target_alternatives_bps=500,
+            target_liquidity_bps=500,
+            band_equities_min_bps=5000, band_equities_max_bps=6000,
+            band_bonds_min_bps=2000, band_bonds_max_bps=3000,
+            band_real_estate_min_bps=500, band_real_estate_max_bps=1500,
+            band_alternatives_min_bps=0, band_alternatives_max_bps=1000,
+            band_liquidity_min_bps=0, band_liquidity_max_bps=1000,
+            policy_id="policy-1", set_by=advisor_user.id,
+            set_at="2026-10-09T08:00:00.000Z",
+            created_at="2026-10-09T08:00:00.000Z",
+            updated_at="2026-10-09T08:00:00.000Z",
+        ))
         draft_run = RecommendationRun(
             id="run-draft-1",
+            target_allocation_id="ta-current-1",
             mandate_id=mandate_id,
             client_id=mandate.client_id,
             policy_id="policy-1",

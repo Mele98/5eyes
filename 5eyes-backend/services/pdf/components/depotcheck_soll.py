@@ -135,7 +135,8 @@ def make_sub_allocation_table(rows: list[dict], base_currency: str = "CHF") -> T
             _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
         ])
     if len(data) == 1:
-        data.append(["-", "Noch keine Subanlageklassen verfuegbar.", "-", "-", "-"])
+        # PDF-RUN-RESOLVER-001: expliziter Marker statt stiller Leere.
+        data.append(["-", "Keine aktuelle Produktempfehlung fuer die gueltige Asset Allocation.", "-", "-", "-"])
     return _styled_table(data, [0.19, 0.36, 0.10, 0.14, 0.21], right_from=2)
 
 

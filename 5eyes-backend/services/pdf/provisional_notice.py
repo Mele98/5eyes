@@ -69,13 +69,24 @@ def resolve_pdf_provisional_notice(db: Session | None, mandate: Any) -> dict[str
     if jurisdiction in (None, "CH"):
         return None
 
-    from models.review import RecommendationRun
+    from models.allocation import TargetAllocation
+    from services.recommendation_run_resolver import resolve_current_recommendation_run
 
-    latest_run = (
-        db.query(RecommendationRun)
-        .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
+    # PDF-RUN-RESOLVER-001: der Provisorik-Status muss vom Run stammen, dessen
+    # Produkte das Dokument zeigt (Final, sonst Draft der AKTUELLEN
+    # Allokation) -- nicht vom juengsten Run irgendeiner Allokation.
+    current_ta = (
+        db.query(TargetAllocation)
+        .filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        )
+        .order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc())
         .first()
+    )
+    latest_run = resolve_current_recommendation_run(
+        db, mandate.id, getattr(current_ta, "id", None)
     )
     if latest_run is not None:
         raw_warning = getattr(latest_run, "provisional_data_warning", None)
