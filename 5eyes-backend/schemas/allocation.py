@@ -872,6 +872,20 @@ class AllocationPreferencesPayload(BaseModel):
     assetClasses: dict = Field(default_factory=dict)
     bands: dict[str, AllocationBandOverridePayload] = Field(default_factory=dict)
     simulation: dict = Field(default_factory=dict)
+    # BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14): eine
+    # Mandatsbandbreite ausserhalb der Hausmatrix-Bandbreite des Risikoprofils
+    # braucht eine dokumentierte Begruendung. Hier nur Typ/Laenge -- die
+    # Qualitaetspruefung (validate_override_reason_quality) sitzt im
+    # Freigabe-Gate, damit Entwuerfe weiterhin berechnet werden koennen.
+    # None wird von _normalize_preferences() aus dem Snapshot entfernt.
+    bandDeviationReason: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("bandDeviationReason", mode="before")
+    @classmethod
+    def validate_band_deviation_reason_type(cls, value):
+        if value is not None and not isinstance(value, str):
+            raise ValueError("bandDeviationReason muss ein Text sein")
+        return value
 
     @field_validator("policy")
     @classmethod
@@ -1489,6 +1503,9 @@ class AllocationMethodComparisonResponse(BaseModel):
 class TargetAllocationGenerateResponse(BaseModel):
     target_allocation: TargetAllocationResponse
     house_matrix_profile: str
+    # BAND-DEVIATION-REASON-REQUIRED-001: (policy-bereinigte) Hausmatrix-
+    # Bandbreite je Bucket, {bucket: {min_bps, max_bps}}.
+    house_matrix_bands: dict[str, dict[str, int]] = Field(default_factory=dict)
     score_bucket: int
     advisory_wealth_rappen: int
     investable_advisory_wealth_rappen: Optional[int] = None
