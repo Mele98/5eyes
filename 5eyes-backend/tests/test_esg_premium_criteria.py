@@ -811,7 +811,7 @@ def test_real_admin_fund_form_sends_esg_criteria_data():
             "pf-name": "Paris ETF", "pf-provider": "", "pf-product-type": "ETF", "pf-asset-class": "Aktien",
             "pf-sub-asset-class": "Aktien Global", "pf-currency": "CHF", "pf-isin": "", "pf-symbol": "",
             "pf-ter": "", "pf-error": "", "pf-sfdr": "8", "pf-esg-rating": "BBB", "pf-esg-score": "64.5",
-            "pf-climate-benchmark": "PAB",
+            "pf-climate-benchmark": "PAB", "pf-suit-from": "3", "pf-suit-to": "7",
         }),
         # _extract_js_function beginnt bei "function" -- die Funktion ist async.
         "async " + _extract_js_function(html, "adminCreateFund"),
