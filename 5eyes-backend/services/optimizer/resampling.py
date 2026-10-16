@@ -1,0 +1,285 @@
+"""SAA-RESAMPLED-STABILITY-001 (2026-10-14): Resampled Efficiency fuer den
+stochastischen SAA-Optimierer.
+
+Befund (Fundament-Beispielmandat, identische Inputs, nur der Monte-Carlo-Seed
+variiert, alle Laeufe ``converged``):
+
+* 2'000 Pfade (Produktion): Aktien 63.2-75.0 % (Sigma 5.4 pp), Immobilien
+  5.0-20.0 % (Sigma 6.6 pp); 10 Seeds -> 7 verschiedene SAAs.
+* 8'000 Pfade: Sigma 3.7 / 4.2 pp; 6 von 8 Seeds auf einer Eckloesung.
+
+Die Zielfunktion ist auf diesem Mandat flach und -- wegen der
+Chance-Constraint-Indikatoren -- stueckweise konstant. Das Argmin eines
+einzelnen Monte-Carlo-Wuerfels ist deshalb zum grossen Teil Stichproben-
+rauschen: mehr Pfade helfen nur langsam (Sigma ~ n^-0.27), weil der Solver
+zwischen nahezu gleichwertigen Ecken springt.
+
+Methode (Michaud-artiges Bagging mit Common Random Numbers):
+
+1. Aus dem INHALTS-Seed des Laufs (nie aus Datenbank-IDs, siehe
+   ``solver.optimizer_content_seed``) werden ``n_bags`` Teil-Seeds abgeleitet.
+2. Je Teil-Seed wird ein unabhaengiger Szenario-Wuerfel mit
+   ``bag_n_paths`` Pfaden gezogen (identische Verteilung, identische
+   Importance-Sampling-Entscheidung wie der Hauptwuerfel) und der
+   UNVERAENDERTE bestehende Solver (Multi-Start-SLSQP + DE-Fallback +
+   Stage-9-Robustifizierung) darauf gefahren.
+3. Die optimalen Gewichte werden gemittelt. Der zulaessige Bereich (Bandbreiten,
+   Risikobudget, Reserve-Untergrenze, Illiquiditaets-Caps, Summe = 1) ist
+   konvex -- der Mittelwert zulaessiger Punkte ist selbst zulaessig. Die
+   Projektion darauf ist deshalb im Normalfall die Identitaet und nur eine
+   Absicherung gegen numerische Randfaelle.
+4. Die Streuung je Bucket ueber die Bags (Standardabweichung in bps) wird als
+   Stabilitaetskennzahl ausgewiesen.
+5. Signifikanztest gegen die Hausmatrix: auf dem UNABHAENGIGEN
+   Validierungswuerfel wird die Zielfunktion der resampelten Allokation mit
+   der (auf Zulaessigkeit projizierten) Hausmatrix-Zielquote GEPAART
+   verglichen. Ist die Verbesserung nicht signifikant, bleibt die
+   Hausmatrix-Zielquote stehen.
+
+Wahl des Tests: Die Zielfunktion ist KEIN Mittelwert pfadweiser Verluste --
+die Chance-Constraint-Strafe ist eine quadratische Funktion der
+Wilson-Untergrenze einer Erfolgsquote. Ein gepaarter t-Test auf
+pfadweisen Verlustdifferenzen ist daher nicht definiert. Verwendet wird ein
+gepaarter Bootstrap: dieselben gezogenen Pfadindizes werden fuer beide
+Allokationen verwendet, die Zielfunktion auf jeder Replikation vollstaendig
+neu ausgewertet. Einseitig, alpha = 5 %: signifikant genau dann, wenn die
+Punktschaetzung der Verbesserung positiv ist UND das untere 5-%-Perzentil
+der Bootstrap-Verteilung der Verbesserung > 0 liegt.
+"""
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from typing import Callable
+
+import numpy as np
+
+from .importance_sampling import DEFAULT_TAIL_SHIFT_STRENGTH, build_shift_vector
+from .scenario_engine import (
+    N_BUCKETS,
+    ScenarioInputs,
+    build_scenario_paths,
+    build_scenario_paths_with_weights,
+)
+
+RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
+SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_v1"
+
+# Parameterwahl siehe docs/planning/2026-10-14-saa-stability-resampling.md.
+# Gemessen auf dem Fundament-Beispielmandat (10 Seed-Salze): die Streuung
+# EINES Bags (500 Pfade) liegt bei ~4-5 pp je Bucket (Aktien/Immobilien), die
+# des Bag-Mittels faellt mit 1/sqrt(n_bags): 40 Bags -> gemessen 0.76 pp
+# (Aktien) / 0.77 pp (Immobilien), also unter dem 1-pp-Ziel. Zu kleine Bags
+# verschieben das Optimum systematisch (die Wilson-Untergrenze der
+# Chance-Constraints haengt von n ab); 500 Pfade je Bag halten die gesamte
+# Generierung bei ~2.4x der bisherigen Laufzeit (Budget: <= 3x).
+DEFAULT_N_BAGS = 40
+DEFAULT_BAG_N_PATHS = 500
+# Weniger als die Haelfte erfolgreicher Bags ist kein belastbarer Mittelwert:
+# dann gilt der Lauf als nicht konvergiert (kontrollierter House-Fallback).
+MIN_SUCCESSFUL_BAG_SHARE = 0.5
+DEFAULT_SIGNIFICANCE_ALPHA = 0.05
+DEFAULT_N_BOOTSTRAP = 400
+
+BAG_SEED_DOMAIN = "saa-resampling-bag-v1"
+BOOTSTRAP_SEED_DOMAIN = "saa-significance-bootstrap-v1"
+
+
+@dataclass(frozen=True)
+class ResamplingConfig:
+    """Parameter des Resamplings. ``n_bags <= 1`` schaltet es ab (Altpfad:
+    ein einzelner Wuerfel, nur noch fuer gezielte Vergleichsmessungen)."""
+
+    n_bags: int = DEFAULT_N_BAGS
+    bag_n_paths: int = DEFAULT_BAG_N_PATHS
+    significance_alpha: float = DEFAULT_SIGNIFICANCE_ALPHA
+    n_bootstrap: int = DEFAULT_N_BOOTSTRAP
+    significance_test: bool = True
+
+    @property
+    def enabled(self) -> bool:
+        return int(self.n_bags) > 1
+
+
+DEFAULT_RESAMPLING = ResamplingConfig()
+SINGLE_CUBE = ResamplingConfig(n_bags=1, significance_test=False)
+
+
+def _domain_seed(domain: str, *parts) -> int:
+    hasher = hashlib.sha256()
+    hasher.update(domain.encode("utf-8"))
+    for part in parts:
+        hasher.update(b"\x00")
+        hasher.update(str(part).encode("utf-8"))
+    return int.from_bytes(hasher.digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
+def bag_seeds(content_seed: int, n_bags: int) -> list[int]:
+    """Teil-Seeds der Bags, ausschliesslich aus dem Inhalts-Seed abgeleitet.
+
+    Common Random Numbers: zwei Laeufe mit gleichem Inhalts-Seed (z.B.
+    Baseline und Variante der Goal-Sensitivity, die denselben gepinnten Seed
+    teilen) sehen exakt dieselben Bag-Wuerfel.
+    """
+    return [
+        _domain_seed(BAG_SEED_DOMAIN, int(content_seed), index)
+        for index in range(int(n_bags))
+    ]
+
+
+def bootstrap_seed(validation_seed: int) -> int:
+    return _domain_seed(BOOTSTRAP_SEED_DOMAIN, int(validation_seed))
+
+
+def build_bag_paths(
+    inputs: ScenarioInputs,
+    *,
+    scenario_horizon_years: int,
+    horizon_years: int,
+    n_paths: int,
+    seed: int,
+    importance_sampling: bool,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Zieht einen Bag-Wuerfel mit derselben Verteilung wie der Hauptwuerfel.
+
+    Bewusst ungecacht: 40 Bags je Lauf wuerden den 16er-LRU-Cache des
+    Hauptwuerfels nur verdraengen, ohne je wieder getroffen zu werden.
+    Gezogen wird -- wie im Hauptwuerfel -- auf dem gemeinsamen
+    Szenario-Horizont und danach auf den Optimierungshorizont gekuerzt.
+    """
+    if importance_sampling:
+        shift = build_shift_vector(N_BUCKETS, strength=DEFAULT_TAIL_SHIFT_STRENGTH)
+        paths, weights = build_scenario_paths_with_weights(
+            inputs,
+            horizon_years=int(scenario_horizon_years),
+            n_paths=int(n_paths),
+            seed=int(seed),
+            antithetic=True,
+            use_importance_sampling=True,
+            is_shift_strength=float(np.max(np.abs(shift))),
+        )
+    else:
+        paths = build_scenario_paths(
+            inputs,
+            horizon_years=int(scenario_horizon_years),
+            n_paths=int(n_paths),
+            seed=int(seed),
+            antithetic=True,
+        )
+        weights = None
+    return paths[:, : int(horizon_years), :], weights
+
+
+def paired_bootstrap_improvement(
+    loss_pair: Callable[[np.ndarray | None], tuple[float, float]],
+    *,
+    n_paths: int,
+    n_bootstrap: int,
+    alpha: float,
+    seed: int,
+) -> dict:
+    """Gepaarter, einseitiger Bootstrap der Verbesserung ``L(anker) - L(kandidat)``.
+
+    ``loss_pair(idx)`` liefert ``(L_anker, L_kandidat)`` auf der Pfadauswahl
+    ``idx`` (None = alle Pfade). Beide Verluste werden auf DENSELBEN Indizes
+    ausgewertet -- das ist die Paarung; sie entfernt die gemeinsame
+    Szenariostreuung aus der Differenz.
+
+    p-Wert: Anteil der Replikationen ohne Verbesserung, mit der ueblichen
+    (1 + k) / (1 + B)-Korrektur, damit nie p = 0 ausgewiesen wird.
+    """
+    anchor_full, candidate_full = loss_pair(None)
+    improvement = float(anchor_full) - float(candidate_full)
+    rng = np.random.default_rng(int(seed))
+    replicates = np.empty(int(n_bootstrap), dtype=np.float64)
+    for b in range(int(n_bootstrap)):
+        idx = rng.integers(0, int(n_paths), size=int(n_paths))
+        anchor_b, candidate_b = loss_pair(idx)
+        replicates[b] = float(anchor_b) - float(candidate_b)
+    finite = replicates[np.isfinite(replicates)]
+    if finite.size == 0 or not np.isfinite(improvement):
+        return {
+            "test": SIGNIFICANCE_TEST_VERSION,
+            "n_bootstrap": int(n_bootstrap),
+            "alpha": float(alpha),
+            "anchor_objective": float(anchor_full),
+            "candidate_objective": float(candidate_full),
+            "improvement": improvement,
+            "improvement_lower_bound": None,
+            "p_value": None,
+            "significant": False,
+        }
+    lower = float(np.quantile(finite, float(alpha)))
+    no_improvement = int(np.count_nonzero(finite <= 0.0))
+    p_value = (1.0 + no_improvement) / (1.0 + float(finite.size))
+    return {
+        "test": SIGNIFICANCE_TEST_VERSION,
+        "n_bootstrap": int(n_bootstrap),
+        "alpha": float(alpha),
+        "anchor_objective": float(anchor_full),
+        "candidate_objective": float(candidate_full),
+        "improvement": improvement,
+        "improvement_lower_bound": lower,
+        "p_value": float(p_value),
+        "significant": bool(improvement > 0.0 and lower > 0.0),
+    }
+
+
+# Felder des Resampling-Audits, die in die Modellbasis (und damit in
+# effective_constraints_json / allocation_context_hash) eingehen. Bewusst
+# NICHT: Laufzeiten (nicht deterministisch) und die Einzel-Bags (Umfang;
+# die Streuung je Bucket ist die verdichtete Kennzahl daraus).
+_MODEL_BASIS_FIELDS = (
+    "scheme",
+    "seed_scheme",
+    "engine_version",
+    "content_seed",
+    "n_bags",
+    "n_bags_succeeded",
+    "n_bags_robustified",
+    "n_bags_de_fallback",
+    "bag_n_paths",
+    "mean_weights_bps",
+    "dispersion_bps",
+    "standard_error_bps",
+    "projection_distance_bps",
+    "resampled_weights_bps",
+    "final_weights_bps",
+    "decision",
+)
+_SIGNIFICANCE_BASIS_FIELDS = (
+    "test",
+    "alpha",
+    "n_bootstrap",
+    "house_anchor_bps",
+    "house_anchor_projected_bps",
+    "candidate_bps",
+    "anchor_objective",
+    "candidate_objective",
+    "improvement",
+    "improvement_lower_bound",
+    "p_value",
+    "significant",
+    "validation_seed",
+    "validation_cube_hash",
+    "validation_n_paths",
+    "decision",
+    "reason",
+)
+
+
+def resampling_model_basis(resampling: dict | None) -> dict | None:
+    """Deterministische Verdichtung des Resampling-Audits fuer die Modellbasis."""
+    if not isinstance(resampling, dict) or not resampling.get("enabled"):
+        return None
+    basis = {
+        key: resampling[key] for key in _MODEL_BASIS_FIELDS if key in resampling
+    }
+    significance = resampling.get("significance")
+    if isinstance(significance, dict):
+        basis["significance"] = {
+            key: significance[key]
+            for key in _SIGNIFICANCE_BASIS_FIELDS
+            if key in significance
+        }
+    return basis

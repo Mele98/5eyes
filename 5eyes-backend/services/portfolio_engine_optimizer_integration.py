@@ -200,6 +200,44 @@ def sensitivity_delta_availability(
     return delta, None
 
 
+def sensitivity_house_anchor_bps(
+    current_allocation,
+    live_targets: dict[str, int] | None,
+) -> dict[str, int] | None:
+    """Hausmatrix-Anker des Signifikanztests fuer die Goal-Sensitivity.
+
+    SAA-RESAMPLED-STABILITY-001: Generierung und Sensitivity muessen gegen
+    DENSELBEN Anker testen, sonst entscheidet der Sensitivity-Lauf
+    "Hausmatrix vs. Optimierer" anders als die aktive Strategie.
+
+    * Ohne aktive Allokation baut die Sensitivity die Hausmatrix-Zielquote
+      exakt wie Generate auf (``live_targets``) -- sie ist der Anker.
+    * Mit aktiver Allokation gilt der Anker, gegen den diese Allokation
+      getestet wurde (persistiert in der Modellbasis).
+    * Eine Alt-Allokation ohne persistierten Anker liefert None; der Solver
+      nimmt dann die target-Spalten der Hausmatrix-Zeile (im Audit sichtbar).
+    """
+    if current_allocation is None:
+        if not live_targets:
+            return None
+        return {bucket: int(value) for bucket, value in live_targets.items()}
+    try:
+        stored = json.loads(
+            getattr(current_allocation, "effective_constraints_json", None) or "{}"
+        )
+    except (TypeError, ValueError):
+        return None
+    anchor = (
+        ((stored.get("optimization_model_basis") or {}).get("resampling") or {})
+        .get("significance") or {}
+    ).get("house_anchor_bps") if isinstance(stored, dict) else None
+    if not isinstance(anchor, dict) or not anchor:
+        return None
+    if any(isinstance(v, bool) or not isinstance(v, int) for v in anchor.values()):
+        return None
+    return {str(bucket): int(value) for bucket, value in anchor.items()}
+
+
 def _build_tax_solver_kwargs(mandate) -> dict:
     """Baut die tax-*-kwargs fuer run_solver aus dem Mandat (Sprint U-P2 Fix C9).
 
@@ -339,7 +377,6 @@ def _run_stochastic_optimizer_pass(
             OptimizerResult,
             SolverTechnicalError,
             build_optimizer_context,
-            deterministic_seed,
             run_solver,
         )
     except ImportError as exc:
@@ -437,6 +474,13 @@ def _run_stochastic_optimizer_pass(
         result = run_solver(
             **context_kwargs,
             optimizer_context=optimizer_context,
+            # SAA-RESAMPLED-STABILITY-001: die Hausmatrix-Zielquote dieses
+            # Generierungslaufs (bereits um Reserve-Untergrenze/Praeferenzen
+            # bereinigt) ist der Anker des Signifikanztests. Ist die
+            # Optimierer-Abweichung davon nicht signifikant, bleibt sie stehen.
+            house_anchor_bps={
+                bucket: int(value) for bucket, value in targets.items()
+            },
         )
         elapsed_ms = int(round((time.perf_counter() - t0) * 1000))
         object.__setattr__(result, "elapsed_ms", elapsed_ms)
@@ -451,12 +495,11 @@ def _run_stochastic_optimizer_pass(
             "House-Matrix-Default bleibt aktiv."
         )
         reasoning.append(fallback_reason)
-        fallback_seed = deterministic_seed(
-            getattr(cma, "id", "no-cma"),
-            "|".join(str(getattr(goal, "id", "?")) for goal in goals),
-            score_x10,
-            horizon,
-            _OPTIMIZER_N_PATHS_DEFAULT,
+        # SAA-RESAMPLED-STABILITY-001: nie ein ID-Seed. Existiert der
+        # Context schon, ist sein Inhalts-Seed der Seed dieses Laufs;
+        # sonst wurde nie ein Wuerfel gezogen -> 0 ("kein Seed").
+        fallback_seed = (
+            int(optimizer_context.seed) if optimizer_context is not None else 0
         )
         return OptimizerResult(
             weights_bps={bucket: int(value) for bucket, value in targets.items()},
