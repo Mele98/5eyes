@@ -28,6 +28,8 @@ CONFLICT_GOAL_INCOMPATIBLE = "CONFLICT_GOAL_INCOMPATIBLE"
 CONFLICT_DATA_INSUFFICIENT = "CONFLICT_DATA_INSUFFICIENT"
 WARN_FALLBACK = "WARN_FALLBACK"
 WARN_OVERRIDE = "WARN_OVERRIDE"
+WARN_BAND_OUTSIDE_HOUSE_MATRIX = "WARN_BAND_OUTSIDE_HOUSE_MATRIX"
+WARN_GLOBAL_CAP_CLAMP = "WARN_GLOBAL_CAP_CLAMP"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -37,6 +39,8 @@ ALL_CODES: tuple[str, ...] = (
     CONFLICT_DATA_INSUFFICIENT,
     WARN_FALLBACK,
     WARN_OVERRIDE,
+    WARN_BAND_OUTSIDE_HOUSE_MATRIX,
+    WARN_GLOBAL_CAP_CLAMP,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -167,6 +171,41 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
             "Die ursprüngliche Einschätzung bleibt im Beratungsdossier erhalten."
         ),
         "actions": (),
+    },
+    # BAND-OVERRIDE-DISCLOSURE-001 (Audit 2026-10-14, F-BAND-1): eine
+    # Mandatsbandbreite darf die Hausmatrix-Bandbreite des Risikoprofils
+    # verlassen -- aber nie still. Die Hausmatrix ist der Eignungsrahmen.
+    WARN_BAND_OUTSIDE_HOUSE_MATRIX: {
+        "severity": SEVERITY_WARNING,
+        "title": "Mandatsbandbreite ausserhalb der Hausmatrix",
+        "body_advisor": (
+            "{bucket_label}: Die Mandatsbandbreite {mandate_min} % bis {mandate_max} % "
+            "liegt ausserhalb der Hausmatrix-Bandbreite {house_min} % bis {house_max} % "
+            "des Risikoprofils «{profile_label}» (Score {score_bucket}). Die Allokation "
+            "kann damit den Eignungsrahmen des Risikoprofils verlassen. Abweichung im "
+            "Beratungsgespräch begründen und dokumentieren."
+        ),
+        "body_client": (
+            "Für {bucket_label} wurde mit Ihnen eine Bandbreite vereinbart, die vom "
+            "Standardrahmen Ihres Anlageprofils abweicht."
+        ),
+        "actions": ("review_constraints",),
+    },
+    # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-2): globale Modell-Obergrenze
+    # (services/optimizer/constraints.py) kuerzt eine hoehere Vorgabe.
+    WARN_GLOBAL_CAP_CLAMP: {
+        "severity": SEVERITY_WARNING,
+        "title": "Globale Obergrenze angewendet",
+        "body_advisor": (
+            "{bucket_label}: Die vorgegebene Obergrenze von {requested_max} % übersteigt "
+            "die globale Modell-Obergrenze von {cap} %. Das stochastische Modell rechnet "
+            "mit höchstens {cap} %; eine höhere Zielquote wird nicht umgesetzt."
+        ),
+        "body_client": (
+            "Für {bucket_label} gilt eine allgemeine Obergrenze von {cap} %, die auch in "
+            "Ihrer Strategie eingehalten wird."
+        ),
+        "actions": ("review_constraints",),
     },
 }
 

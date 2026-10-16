@@ -1257,6 +1257,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _apply_band_min_max_overrides,
     _apply_band_preferences,
     _apply_external_exposure_tilts,
+    _disclose_global_cap_clamp,
     _apply_goal_and_reserve_tilts,
     _apply_illiquid_cap,
     _asset_risky_weight_fallbacks,
@@ -3123,7 +3124,10 @@ def generate_target_allocation(
     reasoning.extend(policy_band_clamp_notes(house_matrix, policy))
     if len(set(cashflow_projection_series_rappen[:min(len(cashflow_projection_series_rappen), 7)])) > 1:
         reasoning.append("Zeitlich datierte Cashflows werden jahresgenau in die Liquiditaets- und Zielprojektion einbezogen.")
-    _apply_band_preferences(prefs["bands"], targets, minimums, maximums, reasoning)
+    _apply_band_preferences(  # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): Austritt aus dem Hausband offenlegen
+        prefs["bands"], targets, minimums, maximums, reasoning,
+        warnings=warnings, house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+    )
     if manual_target_override:
         reasoning.append("Explizit gesetzte Soll-Quoten uebersteuern automatische Exposure-Tilts; harte Risiko- und Liquiditaetsregeln bleiben aktiv.")
     # Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts", Befund 4):
@@ -3246,6 +3250,8 @@ def generate_target_allocation(
                     f"globale Obergrenze ({optimizer_minimums[bucket]} > "
                     f"{cap_bps} bps)."
                 )
+            if apply_stochastic:  # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-2)
+                _disclose_global_cap_clamp(bucket, int(optimizer_maximums[bucket]), cap_bps, reasoning, warnings)
             optimizer_maximums[bucket] = min(
                 int(optimizer_maximums[bucket]), cap_bps
             )
