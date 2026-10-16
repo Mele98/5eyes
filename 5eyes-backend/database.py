@@ -897,49 +897,109 @@ def run_advisory_log_migration(target_engine: Engine = engine) -> None:
 
 
 def run_risk_assessment_answer_migration(target_engine: Engine = engine) -> None:
+    """Bringt risk_assessment_answers auf die kanonische DDL (CHECKs, UNIQUE).
+
+    ANSWERS-MIGRATION-IDEMPOTENT-001 (Incident 2026-10-15): die Bedingung
+    verglich 'KENNTNISSE & ERFAHRUNGEN' mit der NICHT grossgeschriebenen DDL
+    und war damit immer wahr -- jeder App-Start baute die Tabelle um. pysqlite
+    committet DDL sofort; ein unterbrochener oder paralleler Start hinterliess
+    risk_assessment_answers__old (alle Zeilen) neben einer leeren ORM-Tabelle,
+    und jeder weitere Start scheiterte am RENAME. Jetzt: korrekter Vergleich,
+    Umbau in EINER expliziten SQLite-Transaktion, und ein vorgefundener
+    unterbrochener Zustand wird sicher abgeschlossen (nur wenn die neue
+    Tabelle leer ist -- sonst laut abbrechen statt zu raten).
+    """
     inspector = inspect(target_engine)
-    if not inspector.has_table('risk_assessment_answers'):
+    has_new = inspector.has_table('risk_assessment_answers')
+    has_old = inspector.has_table('risk_assessment_answers__old')
+    if not has_new and not has_old:
         return
 
-    with target_engine.begin() as conn:
-        ddl = conn.execute(
-            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='risk_assessment_answers'")
-        ).scalar()
-        ddl_text = str(ddl or '')
-        ddl_upper = ddl_text.upper()
-        needs_question_upgrade = 'BETWEEN 1 AND 12' not in ddl_upper
-        needs_section_upgrade = 'KENNTNISSE & ERFAHRUNGEN' not in ddl_text
-        if not needs_question_upgrade and not needs_section_upgrade:
-            return
+    raw = target_engine.raw_connection()
+    try:
+        dbapi = raw.driver_connection if hasattr(raw, "driver_connection") else raw.connection
+        previous_isolation = dbapi.isolation_level
+        dbapi.isolation_level = None  # explizite Transaktionssteuerung, DDL inklusive
+        cur = dbapi.cursor()
+        # Vorherigen FK-Modus der (gepoolten) Verbindung merken und exakt
+        # wiederherstellen -- nie hart auf ON setzen, sonst aendert die
+        # Migration das FK-Verhalten aller spaeteren Sessions auf dieser
+        # Verbindung (der alte Code setzte die PRAGMAs innerhalb der
+        # Transaktion, wo SQLite sie ignoriert).
+        previous_fk = int(cur.execute('PRAGMA foreign_keys').fetchone()[0])
+        cur.execute('PRAGMA foreign_keys = OFF')
+        cur.execute('BEGIN IMMEDIATE')
+        try:
+            names = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'risk_assessment_answers__old' in names:
+                # Unterbrochener Umbau: neue Tabelle darf nur leer sein.
+                if 'risk_assessment_answers' in names:
+                    n_new = cur.execute('SELECT COUNT(*) FROM risk_assessment_answers').fetchone()[0]
+                    if n_new:
+                        raise RuntimeError(
+                            "risk_assessment_answers__old existiert neben einer NICHT leeren "
+                            "risk_assessment_answers -- unterbrochene Migration, bitte manuell pruefen."
+                        )
+                    cur.execute('DROP TABLE risk_assessment_answers')
+            else:
+                ddl_text = str(cur.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='risk_assessment_answers'"
+                ).fetchone()[0] or '')
+                ddl_upper = ddl_text.upper()
+                needs_question_upgrade = 'BETWEEN 1 AND 12' not in ddl_upper
+                needs_section_upgrade = 'KENNTNISSE & ERFAHRUNGEN' not in ddl_upper
+                if not needs_question_upgrade and not needs_section_upgrade:
+                    cur.execute('COMMIT')
+                    return
+                cur.execute('ALTER TABLE risk_assessment_answers RENAME TO risk_assessment_answers__old')
+            _rebuild_risk_assessment_answers_from_old(cur)
+            cur.execute('COMMIT')
+        except Exception:
+            cur.execute('ROLLBACK')
+            raise
+        finally:
+            cur.execute(f'PRAGMA foreign_keys = {"ON" if previous_fk else "OFF"}')
+            dbapi.isolation_level = previous_isolation
+    finally:
+        raw.close()
 
-        conn.execute(text('PRAGMA foreign_keys = OFF'))
-        conn.execute(text('ALTER TABLE risk_assessment_answers RENAME TO risk_assessment_answers__old'))
-        conn.execute(text("""
-            CREATE TABLE risk_assessment_answers (
-                id TEXT PRIMARY KEY,
-                assessment_id TEXT NOT NULL REFERENCES risk_assessments(id) ON UPDATE CASCADE,
-                question_number INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 12),
-                question_section TEXT NOT NULL CHECK(question_section IN ('Kenntnisse & Erfahrungen','Risikofähigkeit','Risikobereitschaft')),
-                answer_label TEXT NOT NULL,
-                answer_points INTEGER NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-                UNIQUE(assessment_id, question_number)
-            )
-        """))
-        conn.execute(text("""
-            INSERT INTO risk_assessment_answers (
-                id, assessment_id, question_number, question_section,
-                answer_label, answer_points, created_at
-            )
-            SELECT
-                id, assessment_id, question_number, question_section,
-                answer_label, answer_points, created_at
-            FROM risk_assessment_answers__old
-        """))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id)'))
-        conn.execute(text('DROP TABLE risk_assessment_answers__old'))
-        conn.execute(text('PRAGMA foreign_keys = ON'))
 
+def _rebuild_risk_assessment_answers_from_old(cur) -> None:
+    """Kanonische Tabelle aus risk_assessment_answers__old neu aufbauen.
+
+    Laeuft innerhalb der expliziten Transaktion des Aufrufers; prueft, dass
+    jede Zeile uebernommen wurde, bevor __old geloescht wird.
+    """
+    n_old = cur.execute('SELECT COUNT(*) FROM risk_assessment_answers__old').fetchone()[0]
+    cur.execute("""
+        CREATE TABLE risk_assessment_answers (
+            id TEXT PRIMARY KEY,
+            assessment_id TEXT NOT NULL REFERENCES risk_assessments(id) ON UPDATE CASCADE,
+            question_number INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 12),
+            question_section TEXT NOT NULL CHECK(question_section IN ('Kenntnisse & Erfahrungen','Risikofähigkeit','Risikobereitschaft')),
+            answer_label TEXT NOT NULL,
+            answer_points INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            UNIQUE(assessment_id, question_number)
+        )
+    """)
+    cur.execute("""
+        INSERT INTO risk_assessment_answers (
+            id, assessment_id, question_number, question_section,
+            answer_label, answer_points, created_at
+        )
+        SELECT
+            id, assessment_id, question_number, question_section,
+            answer_label, answer_points, created_at
+        FROM risk_assessment_answers__old
+    """)
+    n_new = cur.execute('SELECT COUNT(*) FROM risk_assessment_answers').fetchone()[0]
+    if n_new != n_old:
+        raise RuntimeError(
+            f"risk_assessment_answers-Umbau unvollstaendig ({n_new} von {n_old} Zeilen)."
+        )
+    cur.execute('CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id)')
+    cur.execute('DROP TABLE risk_assessment_answers__old')
 
 def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
     inspector = inspect(target_engine)
