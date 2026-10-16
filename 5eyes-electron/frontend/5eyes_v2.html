@@ -3556,12 +3556,13 @@ function _wireSollIstHover(){
               </details>
               <details id="opt-achievability-block">
                 <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Zielerreichung (Entscheidungsmodell)</summary>
+                <div id="opt-plan-solvency" style="margin:6px 0"></div>
                 <table class="optimizer-table" id="opt-achievability-table">
                   <thead>
                     <tr>
                       <th>Ziel</th>
                       <th>H&auml;rte</th>
-                      <th>P</th>
+                      <th title="Auf jedem Pfad werden die Ziele in Rangfolge finanziert (Rang 1 zuerst); das Ziel gilt als erreicht, wenn es nach allen h&ouml;her priorisierten Zielen voll finanziert ist.">Zielerreichung nach Priorit&auml;t</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -3624,7 +3625,7 @@ function _wireSollIstHover(){
                 </table>
               </details>
               <details id="method-drivers-block">
-                <summary class="optimizer-summary">Goal-Driver (Shortfall-Beitrag)</summary>
+                <summary class="optimizer-summary" title="Gewichteter Verlustterm je Ziel auf dem gemeinsamen Pfad (weighted_loss_component_under_joint_path) &ndash; kein kausaler oder marginaler Zielanteil.">Goal-Driver (Shortfall-Beitrag, gemeinsamer Pfad)</summary>
                 <table class="optimizer-table" id="method-drivers-table">
                   <thead>
                     <tr>
@@ -3903,7 +3904,7 @@ function _wireSollIstHover(){
             </div>
           </div>
           <div class="rv-cockpit-tile">
-            <div class="rv-cockpit-kicker">Zielerreichung</div>
+            <div class="rv-cockpit-kicker">Zielerreichung nach Priorit&auml;t</div>
             <div id="rv-goal-achievability-list" class="rv-goal-list"><div style="font-size:10px;color:var(--n4)">Noch keine stochastische Zielerreichung vorhanden.</div></div>
           </div>
           <details id="rv-details-accordion" class="rv-cockpit-tile">
@@ -7821,8 +7822,37 @@ function renderAllocationMessageBanner(result){
     }).join('');
   }
 }
-function allocationAchievability(result){
+// GOAL-ACHIEVABILITY-ATTRIBUTION-001 (2026-10-14): die Optimizer-Liste
+// enthaelt priorisierte Zielzeilen (evaluation_scope=priority_funded) und
+// GENAU EINE Plan-Solvenz-Zeile (evaluation_scope=joint_plan). Der gemeinsame
+// Planwert ist kein Ziel und wird nie als Zielwahrscheinlichkeit gezeigt.
+function allocationAchievabilityRaw(result){
   return result&&Array.isArray(result.goal_achievability)?result.goal_achievability:[];
+}
+function allocationAchievability(result){
+  return allocationAchievabilityRaw(result).filter(function(row){
+    return row&&row.evaluation_scope!=='joint_plan';
+  });
+}
+function allocationPlanSolvency(result){
+  return allocationAchievabilityRaw(result).filter(function(row){
+    return row&&row.evaluation_scope==='joint_plan';
+  })[0]||null;
+}
+// Zeile ohne Scope = Altbewertung: ein gemeinsamer Planwert je Zeile, der
+// keine individuelle Ampel tragen darf (Publikationsquarantaene).
+function goalAchievabilityIsLegacy(row){
+  return !!row&&row.evaluation_scope!=='priority_funded';
+}
+var PLAN_SOLVENCY_LABEL='Plan-Solvenz (alle Ziele gemeinsam)';
+var PRIORITY_FUNDED_LABEL='Zielerreichung nach Priorit\u00e4t';
+function planSolvencyHtml(plan){
+  if(!plan)return '';
+  var pct=Math.round(Number(plan.probability||0)*100);
+  return '<div class="goal-plan-solvency" data-scope="joint_plan" style="display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--n6);padding:6px 8px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)">'
+    +'<span title="Anteil der simulierten Pfade, auf denen alle Ziele gemeinsam finanziert sind.">'+escapeHtml(PLAN_SOLVENCY_LABEL)+'</span>'
+    +'<strong style="color:var(--n8)">'+escapeHtml(pct+'%')+'</strong>'
+    +'</div>';
 }
 function goalById(goalId){
   return (Array.isArray(currentGoals)?currentGoals:[]).filter(function(goal){
@@ -7857,6 +7887,7 @@ function limitingFactorMeta(factor){
     liquiditaetsreserve:{label:'Liquidit\u00e4tsreserve bindend',tone:'warn'},
     bandbreite:{label:'Innerhalb der Bandbreiten',tone:'good'},
     zielkonflikt:{label:'Zielkonflikt erkannt',tone:'danger'},
+    gemeinsamer_engpass:{label:'Gemeinsamer Engpass',tone:'danger'},
     solver_konvergenz:{label:'Bandbreiten-Mittelwert',tone:'warn'}
   };
   return map[factor]||{label:'Noch offen',tone:'neutral'};
@@ -7881,6 +7912,7 @@ function rvBuildAllocationStory(result,riskAssessment){
   if(factor==='liquiditaetsreserve')return 'Die Liquidit\u00e4tsreserve wirkt als Untergrenze. Der Optimierer h\u00e4lt den Mindestanteil sicherer Anlagen ein; effektiv risikobehaftet: '+realTxt+'.';
   if(factor==='bandbreite')return 'Die Allokation liegt innerhalb der Profilbandbreiten. Risikoprofil "'+profile+'" ist nicht bindend; effektiv risikobehaftet: '+realTxt+'.';
   if(factor==='zielkonflikt')return 'Mindestens zwei Ziele konkurrieren miteinander. Die Allokation ist ein dokumentierter Kompromiss; der Hinweis unten ordnet ihn ein.';
+  if(factor==='gemeinsamer_engpass')return 'Mehrere Ziele scheitern am selben Engpass. Das ist ein Konflikt, nicht mehrere: wird der Engpass behoben, verbessern sich alle betroffenen Ziele gemeinsam.';
   if(factor==='solver_konvergenz')return 'Der Optimierer konnte nicht stabil konvergieren. Die Strategie nutzt den Bandbreiten-Mittelwert des Profils "'+profile+'".';
   return 'Strategie auf Risikoprofil "'+profile+'" ausgerichtet. Effektiv risikobehaftet: '+realTxt+'.';
 }
@@ -7889,19 +7921,25 @@ function renderOptimizerAchievability(result){
   var tbody=document.querySelector('#opt-achievability-table tbody');
   if(!block||!tbody)return;
   var rows=allocationAchievability(result);
+  var planEl=document.getElementById('opt-plan-solvency');
   if(!rows.length){
     block.style.display='none';
     tbody.innerHTML='';
+    if(planEl)planEl.innerHTML='';
     return;
   }
   block.style.display='';
+  // GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz einmal, darunter je
+  // Ziel die Zielerreichung nach Prioritaet.
+  if(planEl)planEl.innerHTML=planSolvencyHtml(allocationPlanSolvency(result));
   tbody.innerHTML=rows.map(function(row){
     var prob=Number(row.probability||0);
-    return '<tr>'
+    var legacy=goalAchievabilityIsLegacy(row);
+    return '<tr data-scope="'+escapeHtml(legacy?'legacy_aggregate_unknown':'priority_funded')+'">'
       +'<td>'+escapeHtml(goalAchievabilityLabel(row))+'</td>'
       +'<td>'+escapeHtml(hardnessDisplay(row.hardness))+'</td>'
       +'<td>'+escapeHtml(Math.round(prob*100)+'%')+'</td>'
-      +'<td>'+escapeHtml(goalAchievabilityStatusLabel(row.status))+'</td>'
+      +'<td>'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</td>'
       +'</tr>';
   }).join('');
 }
@@ -25532,14 +25570,18 @@ function renderReviewGoalAchievability(result){
     list.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine stochastische Zielerreichung vorhanden.</div>';
     return;
   }
-  list.innerHTML=rows.map(function(row){
+  // GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz genau einmal oben,
+  // darunter je Ziel die Zielerreichung nach Prioritaet. Altbewertungen ohne
+  // Scope bleiben sichtbar, aber ohne Ampel.
+  list.innerHTML=planSolvencyHtml(allocationPlanSolvency(result))+rows.map(function(row){
     var prob=Number(row.probability||0);
-    var badge=rvGoalProbBadge(prob);
-    return '<div class="rv-goal-list-item">'
+    var legacy=goalAchievabilityIsLegacy(row);
+    var badge=legacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob);
+    return '<div class="rv-goal-list-item" data-scope="'+escapeHtml(legacy?'legacy_aggregate_unknown':'priority_funded')+'">'
       +'<div style="color:'+badge.color+';font-size:15px;line-height:1">'+badge.icon+'</div>'
-      +'<div><div class="rv-goal-list-label">'+escapeHtml(goalAchievabilityLabel(row))+'</div><div class="rv-goal-list-meta">'+escapeHtml(hardnessDisplay(row.hardness))+'</div></div>'
+      +'<div><div class="rv-goal-list-label">'+escapeHtml(goalAchievabilityLabel(row))+'</div><div class="rv-goal-list-meta">'+escapeHtml(hardnessDisplay(row.hardness))+(legacy?'':' \u00b7 '+escapeHtml(PRIORITY_FUNDED_LABEL))+'</div></div>'
       +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right">'+escapeHtml(Math.round(prob*100)+'%')+'</div>'
-      +'<span class="tag '+badge.tag+'">'+escapeHtml(goalAchievabilityStatusLabel(row.status))+'</span>'
+      +'<span class="tag '+badge.tag+'">'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</span>'
       +'</div>';
   }).join('');
 }
@@ -25586,12 +25628,13 @@ function renderReviewCockpit(state){
   var metaEl=document.getElementById('rv-main-goal-meta');
   if(main){
     var prob=main.probability==null?null:Number(main.probability||0);
-    var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:rvGoalProbBadge(prob);
+    var mainLegacy=prob!=null&&goalAchievabilityIsLegacy(main);
+    var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:(mainLegacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob));
     if(labelEl)labelEl.textContent=goalAchievabilityLabel(main);
     if(probEl)probEl.textContent=prob==null?'—':Math.round(prob*100)+'%';
     if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;}
     if(statusEl){statusEl.className='tag '+badge.tag;statusEl.textContent=badge.label;}
-    if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' · '+(main.tau!=null?('Zielniveau '+Math.round(Number(main.tau||0)*100)+'%'):'Wahrscheinlichkeit nach Strategie-Lauf');
+    if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' · '+(mainLegacy?'Altbewertung ohne Priorit\u00e4tszuordnung \u2013 Strategie neu berechnen':(PRIORITY_FUNDED_LABEL+(main.tau!=null?(' · Zielniveau '+Math.round(Number(main.tau||0)*100)+'%'):'')));
   }else{
     if(labelEl)labelEl.textContent='Noch kein Ziel bewertet';
     if(probEl)probEl.textContent='—';

@@ -61,6 +61,7 @@ from .goal_liabilities import (
     aggregate_liability_path,
     goals_to_liabilities,
 )
+from .goal_attribution import publish_goal_achievability
 from .objective import (
     chance_constraint_penalty,
     combined_objective_two_phase,
@@ -285,7 +286,10 @@ def _certify_on_independent_validation_cube(
         return train_achievability, None, None, None
     validation_context, validation_seed, cube_hash = validation
     validation_wealth = _simulate_context_wealth(validation_context, weights_array)
-    _penalty, validation_achievability = chance_constraint_penalty(
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: publiziert wird der typisierte
+    # Vertrag (Zielzeilen nach Prioritaet + genau eine Plan-Solvenz-Zeile),
+    # nicht die interne Joint-Sicht der Chance-Penalty.
+    validation_achievability = publish_goal_achievability(
         validation_wealth,
         validation_context.liabilities,
         validation_context.advisory_wealth_rappen,
@@ -2108,7 +2112,9 @@ def _house_midpoint_fallback_result(
     weights_bps = _weights_to_bps_dict(mid, bounds=bounds)
     midpoint_w = _trusted_weights_bps_to_array(weights_bps)
     mid_wealth = _simulate_context_wealth(context, midpoint_w)
-    _penalty, goal_achievability = chance_constraint_penalty(
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: auch der House-Fallback publiziert
+    # den typisierten Vertrag (Zielzeilen nach Prioritaet + Plan-Solvenz).
+    goal_achievability = publish_goal_achievability(
         mid_wealth,
         context.liabilities,
         context.advisory_wealth_rappen,
@@ -2252,7 +2258,7 @@ def _finalize_solver_result(
             "bewertbar und darf nicht als konvergiert gelten.",
         )
     final_wealth = _simulate_context_wealth(context, rounded_w)
-    _penalty, train_achievability = chance_constraint_penalty(
+    train_achievability = publish_goal_achievability(
         final_wealth,
         context.liabilities,
         context.advisory_wealth_rappen,

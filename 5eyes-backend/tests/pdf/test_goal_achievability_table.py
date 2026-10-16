@@ -80,7 +80,8 @@ def test_table_header_contains_all_7_labels():
     )
     for expected in (
         "Ziel", "Typ", "Hartheit", "Ziel-Datum",
-        "Zielwert", "Status", "Wahrscheinlichkeit",
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Spalte traegt ihren Scope.
+        "Zielwert", "Status", "Zielerreichung nach Priorität",
     ):
         assert expected in header_text, (
             f"Spalten-Titel {expected!r} fehlt: {header_text!r}"

@@ -189,10 +189,16 @@ def test_achievability_rows_carry_no_shared_cause_or_event_identity():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "GOAL-ACHIEVABILITY-ATTRIBUTION-001 -- round 47 red test (conflict "
-        "double-counting of shared failure event), see audit "
-        "docs/audits/2026-09-28-goal-funding-priority-and-achievability-"
-        "attribution-audit.md"
+        "GOAL-ACHIEVABILITY-ATTRIBUTION-001 -- bleibt bewusst rot (Stand "
+        "2026-10-14), weil der Test in sich widerspruechlich ist: er verlangt "
+        "als Vorbedingung `shared == 'zielkonflikt'` UND `independent == "
+        "'zielkonflikt'` und danach `shared != independent` -- das kann keine "
+        "Implementierung erfuellen. Die Deduplikation ist umgesetzt (shared -> "
+        "'gemeinsamer_engpass', independent -> 'zielkonflikt'), die Optimizer-"
+        "Zeilen tragen seit 2026-10-14 eine typisierte `failure_event_id`; "
+        "abgesichert durch tests/test_risk_matrix_shared_vs_independent_conflict.py "
+        "und tests/test_goal_achievability_evaluation_scope.py::"
+        "test_shared_liquidity_bottleneck_is_one_failure_event."
     ),
 )
 def test_zielkonflikt_cannot_distinguish_shared_cause_from_independent_causes():
