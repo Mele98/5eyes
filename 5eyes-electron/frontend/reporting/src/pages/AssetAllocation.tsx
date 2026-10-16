@@ -8,8 +8,8 @@
  * EditButton + SingleFieldForm aus U-P28 PR C — Berater kann eigene
  * Anmerkungen pflegen, leerer Text fällt auf Auto-Default zurück.
  */
-import type { AssetAllocationData } from '@/api/types';
-import { BarChartIstSoll } from '@/components/BarChartIstSoll';
+import type { AssetAllocationData, AssetAllocationItem } from '@/api/types';
+import { BarChartIstSoll, type BarChartItem } from '@/components/BarChartIstSoll';
 import { EditorialNote, ReportPage } from '@/components/ReportPage';
 import { SingleFieldEditWrapper } from '@/components/SectionEditWrapper';
 
@@ -42,15 +42,49 @@ export function AssetAllocation({
         />
       }
     >
-      {data.ist_basiert_auf_soll ? <DataBasisBanner /> : null}
+      {data.soll_ausgeblendet ? (
+        // STALE-ALLOCATION-HIDE-TARGETS-001: veraltete Soll-Allokation ->
+        // keine alten Zielzahlen, nur der Hinweis.
+        <StaleTargetsNotice hinweis={data.staleness_hinweis || data.anmerkungen} />
+      ) : (
+        <>
+          {data.ist_basiert_auf_soll ? <DataBasisBanner /> : null}
 
-      <div className="grid gap-block lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <section className="border border-rule bg-canvas-panel p-5">
-          <BarChartIstSoll items={data.items} showBands />
-        </section>
-        <EditorialNote title="Einordnung" body={data.anmerkungen} />
-      </div>
+          <div className="grid gap-block lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+            <section className="border border-rule bg-canvas-panel p-5">
+              <BarChartIstSoll items={toBarChartItems(data.items)} showBands />
+            </section>
+            <EditorialNote title="Einordnung" body={data.anmerkungen} />
+          </div>
+        </>
+      )}
     </ReportPage>
+  );
+}
+
+/** Nur im nicht-ausgeblendeten Zweig aufgerufen: dort sind alle Zahlen gesetzt. */
+function toBarChartItems(items: AssetAllocationItem[]): BarChartItem[] {
+  return items.map((it) => ({
+    label: it.label,
+    ist_bps: it.ist_bps ?? 0,
+    soll_bps: it.soll_bps ?? 0,
+    drift_bps: it.drift_bps ?? 0,
+    band_min_bps: it.band_min_bps ?? undefined,
+    band_max_bps: it.band_max_bps ?? undefined,
+  }));
+}
+
+export function StaleTargetsNotice({ hinweis }: { hinweis?: string | null }) {
+  return (
+    <div role="alert" className="border border-rule bg-canvas-subtle p-4 text-caption">
+      <p className="font-semibold text-status-rot">
+        Achtung: {hinweis || 'Soll-Allokation ist veraltet. Strategie neu berechnen.'}
+      </p>
+      <p className="mt-2 text-ink-muted">
+        Die bisherigen Zielgewichte und Bandbreiten werden nicht angezeigt, bis
+        die Strategie neu berechnet ist.
+      </p>
+    </div>
   );
 }
 

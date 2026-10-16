@@ -250,6 +250,42 @@ describe('Section 8: AssetAllocation', () => {
     );
     expect(screen.getAllByText('Aktien').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Obligationen').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('STALE-ALLOCATION-HIDE-TARGETS-001: veraltet -> nur Hinweis, keine Zielzahlen', () => {
+    const base = makeAssetAllocation();
+    const hinweis =
+      'Hinweis: Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben sich seit der Berechnung geaendert. Strategie neu berechnen.';
+    const { container } = render(
+      withRouter(
+        <AssetAllocation
+          data={{
+            ...base,
+            items: base.items.map((it) => ({
+              ...it,
+              soll_bps: null,
+              drift_bps: null,
+              band_min_bps: null,
+              band_max_bps: null,
+              in_band: null,
+            })),
+            soll_bps: null,
+            drift_bps: null,
+            target_allocation_stale: true,
+            soll_ausgeblendet: true,
+            staleness_hinweis: hinweis,
+            anmerkungen: hinweis,
+          }}
+          mandateId="test"
+          onReload={() => {}}
+        />,
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Vermoegen, Cashflows oder Ziele/);
+    expect(screen.queryByText('Aktien')).not.toBeInTheDocument();
+    expect(container.textContent ?? '').not.toMatch(/SOLL \d/);
+    expect(container.textContent ?? '').not.toMatch(/\d+\.\d %/);
   });
 });
 
@@ -367,6 +403,35 @@ describe('Section 13: BuildingBlocks', () => {
       ),
     );
     expect(screen.getByRole('alert')).toHaveTextContent(/Vermoegen, Cashflows oder Ziele/);
+  });
+
+  it('STALE-ALLOCATION-HIDE-TARGETS-001: ausgeblendete Ziele -> keine Tabelle, keine Prozente', () => {
+    const base = makeBuildingBlocks();
+    const { container } = render(
+      withRouter(
+        <BuildingBlocks
+          data={{
+            ...base,
+            blocks: base.blocks.map((b) => ({
+              ...b,
+              target_bps: null,
+              band_min_bps: null,
+              band_max_bps: null,
+            })),
+            constraints: [],
+            target_allocation_stale: true,
+            soll_ausgeblendet: true,
+            staleness_hinweis:
+              'Hinweis: Soll-Allokation basiert auf einem frueheren, nicht mehr aktuellen Risikoprofil. Strategie neu berechnen.',
+          }}
+        />,
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Risikoprofil/);
+    expect(screen.queryByText('Aktien')).not.toBeInTheDocument();
+    expect(screen.queryByText('Target')).not.toBeInTheDocument();
+    expect(screen.queryByText('Keine Building Blocks erfasst.')).not.toBeInTheDocument();
+    expect(container.querySelector('table')).toBeNull();
   });
 });
 

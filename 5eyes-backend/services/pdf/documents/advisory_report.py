@@ -1132,6 +1132,14 @@ def _build_asset_allocation_flowables(aa: dict, styles: dict) -> list[Any]:
     """Sektion 8 — Asset Allocation: 5 Anlageklassen IST vs SOLL inkl.
     Toleranzbänder. Anmerkungen-Text aus Aggregator (vom Berater
     überschreibbar via MandateReportNotes, U-P28 PR B)."""
+    if aa.get("soll_ausgeblendet"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001: veraltete Soll-Allokation ->
+        # kein IST/SOLL-Chart, nur der Hinweis.
+        return _stale_targets_hidden_flowables(
+            kicker="Sektion 8", title="Asset Allocation",
+            hinweis=str(aa.get("staleness_hinweis") or aa.get("anmerkungen") or ""),
+            styles=styles,
+        )
     return _build_bar_chart_section(
         nr=8, kicker="Sektion 8", title="Asset Allocation",
         subtitle=(
@@ -1145,6 +1153,36 @@ def _build_asset_allocation_flowables(aa: dict, styles: dict) -> list[Any]:
         styles=styles,
         show_bands=True,
     )
+
+
+_STALE_TARGETS_FALLBACK_HINWEIS = (
+    "Hinweis: Soll-Allokation ist veraltet. Strategie neu berechnen."
+)
+
+
+def _stale_targets_hidden_flowables(
+    *, kicker: str, title: str, hinweis: str, styles: dict,
+) -> list[Any]:
+    """STALE-ALLOCATION-HIDE-TARGETS-001: Sektionskopf + Hinweis, keine
+    Zielzahlen."""
+    text = hinweis.strip() or _STALE_TARGETS_FALLBACK_HINWEIS
+    return [
+        Paragraph(kicker, styles["kicker"]),
+        Paragraph(title, styles["h1"]),
+        Spacer(1, 4 * mm),
+        _hr(),
+        Spacer(1, 5 * mm),
+        Paragraph(
+            "<b>Achtung:</b> " + _escape(text),
+            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_ROT),
+        ),
+        Spacer(1, 2 * mm),
+        Paragraph(
+            "Die bisherigen Zielgewichte und Bandbreiten werden nicht "
+            "angezeigt, bis die Strategie neu berechnet ist.",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ),
+    ]
 
 
 def _build_risikowaehrungen_flowables(rw: dict, styles: dict) -> list[Any]:
@@ -1716,6 +1754,13 @@ def _risikoprofil_questions_table(questions: list[dict], styles: dict) -> Table:
 
 def _build_building_blocks_flowables(bb: dict, styles: dict) -> list[Any]:
     """5 Building Blocks (Target + Band) + Constraints + Methodologie-Text."""
+    if bb.get("soll_ausgeblendet"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001: keine alten Zielgewichte.
+        return _stale_targets_hidden_flowables(
+            kicker="Sektion 13", title="Building Blocks",
+            hinweis=str(bb.get("staleness_hinweis") or ""),
+            styles=styles,
+        )
     out: list[Any] = []
     out.append(Paragraph("Sektion 13", styles["kicker"]))
     out.append(Paragraph("Building Blocks", styles["h1"]))

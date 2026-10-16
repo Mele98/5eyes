@@ -13542,7 +13542,7 @@ async function openDepotCheck(){
 }
 
 function dcRender(data, stress){
-  dcRenderBucketDrift(data.buckets || {});
+  dcRenderBucketDrift(data.buckets || {}, data);
   dcRenderExposureList('dc-country-list', data.country_exposure_bps || {});
   dcRenderExposureList('dc-sector-list', data.sector_exposure_bps || {});
   dcRenderExposureList('dc-currency-list', data.currency_exposure_bps || {});
@@ -13565,7 +13565,27 @@ function dcRender(data, stress){
   dcRenderWarnings(data.warnings || []);
 }
 
-function dcRenderBucketDrift(buckets){
+function dcRenderBucketDrift(buckets, data){
+  // STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid): veraltete Soll-Allokation ->
+  // keine alten Zielzahlen (SOLL/Drift/Band/Status), nur IST + Hinweis "neu berechnen".
+  if(data && data.soll_ausgeblendet){
+    var reason = data.target_allocation_inputs_stale
+      ? 'Vermögen, Cashflows oder Ziele haben sich seit der Berechnung geändert.'
+      : 'Sie basiert auf einem früheren, nicht mehr aktuellen Risikoprofil.';
+    var hidden = '<div id="dc-soll-hidden" role="alert" style="border:1px solid var(--neg);padding:8px 10px;margin-bottom:8px;font-size:10.5px">'
+      + '<div style="color:var(--neg);font-weight:600">Soll-Allokation veraltet &ndash; Strategie neu berechnen.</div>'
+      + '<div style="color:var(--n6);margin-top:2px">' + escapeHtml(reason) + ' Zielgewichte, Drift und Toleranzbänder werden bis zur Neuberechnung nicht angezeigt.</div></div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Bucket</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">IST</th></tr></thead><tbody>';
+    ['equities','bonds','real_estate','alternatives','liquidity'].forEach(function(key){
+      var hb = buckets[key] || {};
+      var hcolor = DC_BUCKET_COLORS[key] || '#5a6878';
+      hidden += '<tr><td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+hcolor+';border-radius:50%;margin-right:6px"></span>' + escapeHtml(hb.label || key) + '</td>'
+        + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + ((hb.ist_bps || 0)/100).toFixed(1) + '%</td></tr>';
+    });
+    hidden += '</tbody></table>';
+    document.getElementById('dc-bucket-drift').innerHTML = hidden;
+    return;
+  }
   var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
     + '<thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Bucket</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">IST</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">SOLL</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">Drift</th><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Toleranzband</th><th style="padding:5px;text-align:center;border:1px solid var(--b1)">Status</th></tr></thead><tbody>';
   ['equities','bonds','real_estate','alternatives','liquidity'].forEach(function(key){

@@ -1903,16 +1903,40 @@ def _build_asset_allocation(
     # nicht versehentlich durch eine gepflegte Anmerkung verdeckt wird.
     target_allocation_stale = bool(dc.get("target_allocation_stale"))
     if target_allocation_stale:
-        anmerkungen = (
-            _stale_allocation_hinweis(dc) + " " + str(anmerkungen or "")
-        ).strip()
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (Owner-Entscheid 2026-10-14):
+        # die alten Zielzahlen werden NICHT mehr neben dem Hinweis gezeigt,
+        # sondern ausgeblendet. Auto-Drift-Text und Berater-Anmerkung
+        # beziehen sich auf genau diese alten Ziele -> nur der Hinweis.
+        hinweis = _stale_allocation_hinweis(dc) + " Strategie neu berechnen."
+        hide_ist = bool(ist_basiert_auf_soll)  # IST = alte Empfehlungswerte
+        for it in items:
+            it["soll_bps"] = None
+            it["drift_bps"] = None
+            it["band_min_bps"] = None
+            it["band_max_bps"] = None
+            it["in_band"] = None
+            if hide_ist:
+                it["ist_bps"] = None
+        return {
+            "items": items,
+            "ist_bps": None if hide_ist else ist_bps,
+            "soll_bps": None,
+            "drift_bps": None,
+            "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+            "target_allocation_stale": True,
+            "soll_ausgeblendet": True,
+            "staleness_hinweis": hinweis,
+            "anmerkungen": hinweis,
+        }
     return {
         "items": items,
         "ist_bps": ist_bps,
         "soll_bps": soll_bps,
         "drift_bps": drift_bps,
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
-        "target_allocation_stale": target_allocation_stale,
+        "target_allocation_stale": False,
+        "soll_ausgeblendet": False,
+        "staleness_hinweis": None,
         "anmerkungen": anmerkungen,
     }
 
@@ -2435,15 +2459,26 @@ def _build_building_blocks(
     # (Depot-Check-Flag, deckt Risikoprofil UND geaenderte Inputs ab) --
     # sonst praesentierte der Report hier die alten Zielgewichte als aktuell.
     target_allocation_stale = bool(ta is not None and (dc or {}).get("target_allocation_stale"))
+    constraints = _default_isaa_constraints(ta)
+    if target_allocation_stale:
+        # STALE-ALLOCATION-HIDE-TARGETS-001: alte Zielgewichte, Bandbreiten
+        # und die Risikoquote der veralteten TA werden ausgeblendet; nur der
+        # Hinweis bleibt.
+        for b in blocks:
+            b["target_bps"] = None
+            b["band_min_bps"] = None
+            b["band_max_bps"] = None
+        constraints = []
     return {
         "blocks": blocks,
         "target_allocation_stale": target_allocation_stale,
+        "soll_ausgeblendet": target_allocation_stale,
         "staleness_hinweis": (
             _stale_allocation_hinweis(dc or {}) + " Strategie neu berechnen."
             if target_allocation_stale
             else None
         ),
-        "constraints": _default_isaa_constraints(ta),
+        "constraints": constraints,
         "methodologie": (
             "Die Portfolio-Konstruktion folgt einer institutionellen "
             "Strategic-Asset-Allocation-Logik (iSAA): Allokation auf "

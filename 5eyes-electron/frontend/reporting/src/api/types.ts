@@ -307,21 +307,31 @@ export interface ErkenntnisseData {
 export interface AssetAllocationItem {
   key: BucketKey;
   label: string;
-  ist_bps: number;
-  soll_bps: number;
-  drift_bps: number;
-  band_min_bps: number;
-  band_max_bps: number;
+  /** null nur bei soll_ausgeblendet + ist_basiert_auf_soll (IST = alte Empfehlung). */
+  ist_bps: number | null;
+  /** STALE-ALLOCATION-HIDE-TARGETS-001: null wenn soll_ausgeblendet. */
+  soll_bps: number | null;
+  drift_bps: number | null;
+  band_min_bps: number | null;
+  band_max_bps: number | null;
   in_band: boolean | null;
 }
 
 export interface AssetAllocationData {
   items: AssetAllocationItem[];
-  ist_bps: Record<string, number>;
-  soll_bps: Record<string, number>;
-  drift_bps: Record<string, number>;
+  ist_bps: Record<string, number> | null;
+  soll_bps: Record<string, number> | null;
+  drift_bps: Record<string, number> | null;
   ist_basiert_auf_soll: boolean;
   anmerkungen: string;
+  /** Soll-Allokation veraltet (Risikoprofil oder geaenderte Inputs). */
+  target_allocation_stale?: boolean;
+  /**
+   * STALE-ALLOCATION-HIDE-TARGETS-001: alte Zielzahlen sind im Payload
+   * genullt -- nur staleness_hinweis anzeigen, kein IST/SOLL-Chart.
+   */
+  soll_ausgeblendet?: boolean;
+  staleness_hinweis?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,9 +454,10 @@ export interface RisikoprofilierungData {
 export interface BuildingBlock {
   key: BucketKey;
   label: string;
-  target_bps: number;
-  band_min_bps: number;
-  band_max_bps: number;
+  /** STALE-ALLOCATION-HIDE-TARGETS-001: null wenn soll_ausgeblendet. */
+  target_bps: number | null;
+  band_min_bps: number | null;
+  band_max_bps: number | null;
 }
 
 export interface BuildingBlockConstraint {
@@ -464,6 +475,11 @@ export interface BuildingBlocksData {
   target_allocation_stale?: boolean;
   /** Hinweistext, gesetzt wenn target_allocation_stale. */
   staleness_hinweis?: string | null;
+  /**
+   * STALE-ALLOCATION-HIDE-TARGETS-001: Zielgewichte/Bandbreiten/Constraints
+   * sind genullt -- nur den Hinweis anzeigen, keine Tabelle.
+   */
+  soll_ausgeblendet?: boolean;
 }
 
 // ---------------------------------------------------------------------------
