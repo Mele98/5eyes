@@ -93,6 +93,8 @@ from services.risk_matrix import (
     compute_portfolio_risky_fraction_bps,
 )
 from services.risk_assessment_semantics import (
+    OVERRIDE_AFTER_ALLOCATION_MESSAGE,
+    assessment_overridden_after_allocation,
     risk_score_bucket_from_validated_score,
     validate_risk_assessment_model_input,
 )
@@ -2857,7 +2859,10 @@ def _strategy_drift_warnings(
     """
     msgs: list[str] = []
     # Assessment-Drift
-    if allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
+    if (
+        (allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id)
+        or assessment_overridden_after_allocation(allocation, assessment)
+    ):
         msgs.append(
             "Hinweis: Diese Soll-Allokation basiert auf einem frueheren Risikoprofil. "
             "Bitte Strategie neu berechnen, bevor sie umgesetzt wird."
@@ -2972,7 +2977,7 @@ def _target_allocation_context_warnings(allocation, assessment, cma):
     if (
         getattr(allocation, "based_on_assessment_id", None)
         and allocation.based_on_assessment_id != a_id
-    ):
+    ) or assessment_overridden_after_allocation(allocation, assessment):
         msgs.append(
             "Hinweis: Aktuelle Soll-Allokation basiert auf einem frueheren "
             "Risikoprofil. Bitte Strategie neu berechnen."
@@ -5418,6 +5423,8 @@ def build_target_payload_from_allocation(
             "Die Soll-Allokation basiert nicht auf dem aktuellen "
             "Risikoprofil; bitte Strategie neu berechnen."
         )
+    if modern_context and assessment_overridden_after_allocation(allocation, assessment):  # RISK-OVERRIDE-STALENESS-001
+        raise ValueError(OVERRIDE_AFTER_ALLOCATION_MESSAGE)
     # Identitaets-/Anker-Pruefung (oben) muss vor der Inhalts-Validierung
     # laufen: ein falsch zugeordnetes Assessment-Objekt soll als "falsches
     # Risikoprofil" erkannt werden, nicht an einer zufaellig fehlenden
@@ -6578,6 +6585,8 @@ def generate_recommendation_run(
                 "Die Soll-Allokation basiert auf einem anderen Risikoprofil; "
                 "bitte Strategie neu berechnen."
             )
+        if assessment_overridden_after_allocation(allocation, assessment):  # RISK-OVERRIDE-STALENESS-001
+            raise ValueError(OVERRIDE_AFTER_ALLOCATION_MESSAGE)
         target_payload = build_target_payload_from_allocation(
             db=db,
             mandate=mandate,

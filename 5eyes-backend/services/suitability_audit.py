@@ -369,7 +369,7 @@ def audit_mandate_suitability(
         from services.risk_assessment_semantics import (
             target_allocation_predates_current_assessment,
         )
-        if target_allocation_predates_current_assessment(ta, base["risk_assessment_id"]):
+        if target_allocation_predates_current_assessment(ta, base["risk_assessment_id"], ra):
             base["allocation_issues"].append({
                 "target_allocation_id": getattr(ta, "id", None),
                 "based_on_assessment_id": str(

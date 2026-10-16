@@ -27,8 +27,62 @@ _PROFILE_BAND = {
 }
 
 
+def _parse_iso_timestamp(value: Any):
+    from datetime import datetime
+
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+# Gemeinsame Meldung fuer alle Gates, die einen Override nach der Generierung
+# ablehnen (Payload-Rebuild, Empfehlungs-Lauf, Finalisierung).
+OVERRIDE_AFTER_ALLOCATION_MESSAGE = (
+    "Das Risikoprofil wurde nach Erstellung der Soll-Allokation per "
+    "Override geaendert; bitte Strategie neu berechnen."
+)
+
+
+def assessment_overridden_after_allocation(
+    target_allocation: Any, assessment: Any,
+) -> bool:
+    """True wenn das Risikoprofil NACH der Generierung per Override geaendert wurde.
+
+    RISK-OVERRIDE-STALENESS-001 (Assetallocation-Audit 2026-10-14): der
+    Override-Endpunkt aendert die aktuelle RiskAssessment-Zeile IN PLACE --
+    die id bleibt gleich. Jede Veraltungs-Pruefung verglich aber nur
+    ``based_on_assessment_id`` mit der aktuellen id. Gemessen: Foundation-
+    Fall Score 7.0 -> Override 3.0 "Defensiv"; die alte Allokation mit
+    ~70 % Aktien (Risikobudget bei Generierung 8000 bps, neu 4500) wurde
+    ohne Warnung ausgeliefert, war finalisierbar, Depot-Check und
+    Eignungs-Audit meldeten "aktuell"/"konform".
+
+    Ein Override VOR der Generierung ist der Normalfall und macht nichts
+    veraltet. Fehlt einer der Zeitstempel, laesst sich die Reihenfolge nicht
+    belegen -- dann gilt die bisherige id-Semantik (kein Fehlalarm fuer
+    Altdaten; der Override-Endpunkt setzt ``override_at`` immer).
+    """
+    if target_allocation is None or assessment is None:
+        return False
+    if not int(getattr(assessment, "is_overridden", 0) or 0):
+        return False
+    based_on = str(getattr(target_allocation, "based_on_assessment_id", "") or "")
+    if based_on and based_on != str(getattr(assessment, "id", "") or ""):
+        return False  # anderer Fall: id-Drift, wird separat erkannt
+    override_at = _parse_iso_timestamp(getattr(assessment, "override_at", None))
+    generated_at = _parse_iso_timestamp(getattr(target_allocation, "created_at", None))
+    if override_at is None or generated_at is None:
+        return False
+    return override_at > generated_at
+
+
 def target_allocation_predates_current_assessment(
     target_allocation: Any, current_assessment_id: Any,
+    current_assessment: Any = None,
 ) -> bool:
     """True wenn target_allocation unter einem AELTEREN, nicht mehr aktuellen
     RiskAssessment erstellt wurde als current_assessment_id.
@@ -61,7 +115,9 @@ def target_allocation_predates_current_assessment(
     based_on = str(getattr(target_allocation, "based_on_assessment_id", "") or "")
     if not modern_context or not based_on:
         return False
-    return based_on != str(current_assessment_id or "")
+    if based_on != str(current_assessment_id or ""):
+        return True
+    return assessment_overridden_after_allocation(target_allocation, current_assessment)
 
 
 def _exact_int(

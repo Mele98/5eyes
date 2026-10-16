@@ -609,7 +609,7 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
     )
     current_ra = _current_risk_assessment_or_none(db, mandate.id)
     result["target_allocation_stale"] = target_allocation_predates_current_assessment(
-        ta, getattr(current_ra, "id", None)
+        ta, getattr(current_ra, "id", None), current_ra
     )
     for bucket in BUCKET_LABELS:
         amount_rappen = bucket_amounts_rappen.get(bucket, 0)
