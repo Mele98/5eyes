@@ -47,6 +47,19 @@ Zeilenspannen pro Funktion, unabhaengig davon, was dazwischen steht)
 umgestellt — Schritt 8 (der am staerksten verflochtene, riskanteste
 Cluster) lief damit beim ersten Versuch fehlerfrei durch.
 
+**Nachtraegliche Cluster-Submodule (Zeilenbudget-Gate,
+`scripts/check_engine_line_budget.py`):**
+
+| Datum | Cluster | Ziel-Datei | Inhalt |
+|---|---|---|---|
+| 2026-10-11 | Modell-Basis | `portfolio_engine_model_basis.py` | `_build_allocation_model_basis()` — Nachweis, unter welcher Methodik ein Lauf entstand |
+| 2026-10-14 | Allocation-Integritaet | `portfolio_engine_allocation_integrity.py` | `_verified_persisted_allocation_context()` — Integritaets-Gate (Struktur, Semantik, Hash) fuer persistierte Allokations-Artefakte; Heimat fuer kuenftige Verifier-/Hash-Vertragslogik (z.B. manueller Speicherpfad) |
+
+Beide nach demselben Muster wie die Schritte 1-8: Funktionskoerper
+byte-identisch verschoben (AST-Span), CORE-Namen (`BUCKET_FIELDS`,
+`_bucket_key`, ...) per Lazy-Import aus `services.portfolio_engine`,
+Re-Export in `portfolio_engine.py` fuer Aufrufstellen und Tests.
+
 **Externe Konsumenten ueber das urspruengliche ADR hinaus gefunden**
 (alle bereits vor der jeweiligen Extraktion per Lazy-Import/Re-Export
 transparent gehalten, keine Aenderung an den Konsumenten noetig):

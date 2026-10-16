@@ -83,6 +83,17 @@ ENGINE_FILE = REPO_ROOT / "5eyes-backend" / "services" / "portfolio_engine.py"
 # vergleichbarem Profil (explizite Parameter, dict-Rueckgabe, wenige
 # Fremdaufrufe) muessen erst identifiziert werden -- eine Anhebung ohne
 # vorherige Suche ist weiterhin die falsche Antwort.
+#
+# 2026-10-14: zweiter solcher Kandidat gefunden und extrahiert --
+# `_verified_persisted_allocation_context()` (206 Zeilen, Integritaets-Gate
+# fuer persistierte Allokations-Artefakte) nach
+# services/portfolio_engine_allocation_integrity.py (7'140 -> 6'937 Zeilen;
+# develop stand nach den Merges #600-#607 mit 7'140 bereits UEBER Budget).
+# Das Budget bleibt hier BEWUSST bei 7'100: der frei gewordene Platz ist fuer
+# die noch offenen Audit-Fix-PRs (#606-#616, Asset-Allocation-Audit
+# 2026-10-14) reserviert, deren Kern-Datei-Anteile auf das Minimum
+# (Aufrufstellen + Ticket-Verweis) reduziert wurden. Sobald diese gemergt
+# sind, ist die Ratsche auf den dann gueltigen Ist-Stand nachzuziehen.
 MAX_LINES = 7_100
 
 
