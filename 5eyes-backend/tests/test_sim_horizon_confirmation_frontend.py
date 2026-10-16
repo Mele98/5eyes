@@ -50,6 +50,9 @@ _REQUIRED_FUNCTIONS = (
     "_lifeExpectancyHorizonYears",
     "collectAllocationPreferencesFromUI",
     "applyAllocationPreferencesToUI",
+    # ESG-PREMIUM-CRITERIA-001: von collect/apply aufgerufene Begruendungs-Helfer.
+    "collectTiltReasonsFromUI",
+    "syncTiltReasonVisibility",
     "readSimulationHorizonOverride",
     "setSimulationHorizonSelectValue",
     "bindAllocationPreferenceControls",

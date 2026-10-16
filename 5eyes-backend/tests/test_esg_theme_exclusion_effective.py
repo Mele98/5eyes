@@ -284,12 +284,15 @@ def _option_label(select_id: str, value: str) -> str:
 
 
 @pytest.mark.parametrize("value", ["best_in_class", "impact", "net_zero", "esg_integration"])
-def test_ui_label_for_sfdr_gated_esg_values_states_the_8_9_filter(value):
+def test_ui_label_for_sfdr_gated_esg_values_states_a_filter(value):
+    """ESG-PREMIUM-CRITERIA-001: jedes Label nennt jetzt sein EIGENES
+    Kriterium (Matrix in tests/test_esg_premium_criteria.py); hier bleibt
+    der urspruengliche Kern: kein Label behauptet 'kein Filter'."""
     prefs_ok = _ui_prefs(**{"policy.esg": value})
-    assert _product_matches_constraints(_product(sfdr_class="8"), prefs_ok, 8) is True
+    assert _product_matches_constraints(_product(sfdr_class="9", esg_rating="AA"), prefs_ok, 8) is True
     assert _product_matches_constraints(_product(sfdr_class="6"), prefs_ok, 8) is False
     label = _option_label("aa-policy-esg", value)
-    assert "SFDR 8/9 Filter aktiv" in label, label
+    assert "SFDR" in label, label
     assert "kein Filter" not in label
 
 
@@ -344,8 +347,11 @@ def test_pdf_lists_negative_screening_exclusions_from_ui_payload_and_discloses_l
         "tilts": {key: "neutral" for key in THEMES} | {"alcohol": "overweight"},
     })
     assert "Tabak ausschliessen" in text and "Kernenergie ausschliessen" in text
-    assert "Alkohol uebergewichten" in text and "Alkohol ausschliessen" not in text
-    assert "nicht auf ihr Themen-Exposure durchleuchtet" in text
+    # ESG-PREMIUM-CRITERIA-001: Uebergewichten trotz Negativ-Screening ist
+    # eine dokumentierte Abweichung von der ESG-Policy (eigene Zeile).
+    assert "Alkohol uebergewichtet" in text and "Alkohol ausschliessen" not in text
+    assert "Abweichungen von der ESG-Policy" in text
+    assert "nicht durchleuchtet" in text
 
 
 def test_pdf_describes_underweight_as_implemented():
@@ -362,4 +368,4 @@ def test_pdf_without_screening_has_no_screening_note():
 
 def test_pdf_esg_integration_label_states_sfdr_filter():
     text = _pdf_preferences_text({"policy": {"esg": "esg_integration"}})
-    assert "ESG-Integration (nur Produkte nach SFDR Art. 8/9)" in text
+    assert "ESG-Integration (nur Produkte nach SFDR Art. 8 oder 9)" in text
