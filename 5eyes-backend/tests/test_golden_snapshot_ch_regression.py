@@ -95,6 +95,17 @@ expected_volatility_bps, risky_fraction_bps, targets_bps.*, sowie der
 CHF-Betrag in implementation_steps) -- siehe _assert_ch_snapshot_matches().
 Jede andere Abweichung (Struktur, Reihenfolge, Produktauswahl, Methode,
 oder eine Abweichung GROESSER als die Toleranz) bleibt ein echter Testfehler.
+
+Nachtrag (2026-10-16, SAA-RESAMPLED-STABILITY-001): alle sechs Fixtures neu
+eingefroren, weil sich die Methode bewusst geaendert hat (Inhalts-Seed,
+Resampled Efficiency ueber 40 Bags, Signifikanztest gegen die Hausmatrix).
+Ein Linux-Runner stand dafuer nicht zur Verfuegung (die Branch loest ohne PR
+keinen CI-Lauf aus). Ersatz-Kontrolle: lokal mit OMP/OPENBLAS/MKL_NUM_THREADS=1
+je einmal unter OPENBLAS_CORETYPE=Haswell UND =Nehalem erzeugt -- genau die
+beiden Kernel-Familien, die frueher die zwei CI-Auspraegungen lieferten. Alle
+sechs Dateien kamen byte-identisch zurueck (das Bag-Mittel glaettet das
+SLSQP-Rundungsrauschen). Begruendung je Datei:
+docs/planning/2026-10-14-saa-stability-resampling.md.
 """
 from __future__ import annotations
 
