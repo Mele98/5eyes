@@ -2,6 +2,7 @@ import math
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal, Optional
+from core.chf_amount import normalize_chf_amount_text
 from schemas.common import BaseResponse
 from services.cma_validation import (
     parse_correlation_matrix_json,
@@ -177,7 +178,14 @@ def _parse_finite_number(
         raise ValueError(f"{section}.{key} muss eine Zahl sein")
     raw = str(value).strip()
     if currency:
-        raw = raw.replace("CHF", "")
+        # CHF-AMOUNT-THOUSANDS-001: "50.000"/"50,000" sind Tausendertrenner
+        # (CHF hat nie drei Nachkommastellen) -- frueher CHF 50 statt 50'000.
+        normalized = normalize_chf_amount_text(raw)
+        if normalized is None:
+            raise ValueError(
+                f"{section}.{key} muss ein CHF-Betrag sein (z.B. 50'000 oder 50'000.50)"
+            )
+        raw = normalized
     if percent:
         raw = raw.replace("%", "")
     raw = raw.replace("'", "").replace(" ", "").replace(",", ".")
