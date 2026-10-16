@@ -61,6 +61,10 @@ from .goal_liabilities import (
     aggregate_liability_path,
     goals_to_liabilities,
 )
+from .drawdown_certification import (
+    certify_drawdown_candidates,
+    drawdown_certification_reasoning,
+)
 from .goal_attribution import publish_goal_achievability
 from .objective import (
     chance_constraint_penalty,
@@ -175,6 +179,11 @@ class OptimizerResult:
     # Bucket, Projektion, Signifikanztest gegen die Hausmatrix, Entscheid).
     # None nur im Einzelwuerfel-Altpfad (ResamplingConfig mit n_bags <= 1).
     resampling: dict | None = None
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (2026-10-14): Audit des
+    # Drawdown-Reranks ALLER zulaessigen Finalisten auf dem Validierungs-Cube
+    # (nur Modus max_drawdown; sonst None). Siehe
+    # services/optimizer/drawdown_certification.py.
+    drawdown_certification: dict | None = None
     # Exact owned run-context snapshot used by the solver. compare=False is
     # essential because OptimizerContext contains NumPy arrays whose equality
     # is not scalar-valued. The context is intentionally not persisted as JSON;
@@ -1815,12 +1824,27 @@ def run_solver(
         selection = _select_cube_candidate(context, max_iter=max_iter, ftol=ftol)
         if selection.weights is None:
             return _house_midpoint_fallback_result(context, selection)
+        weights = selection.weights
+        # ---- 6c. OPTIMIZER-DRAWDOWN-CERTIFICATION-001: Drawdown-Rerank ----
+        # Modus max_drawdown: alle zulaessigen Multi-Start-Finalisten auf dem
+        # Validierungs-Cube mit dem verfeinerten Drawdown neu bewerten; die
+        # Auswahl folgt dem validierten Objective.
+        drawdown_certification: dict | None = None
+        if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+            certified_w, drawdown_certification = certify_drawdown_candidates(
+                context,
+                winner_weights=np.asarray(weights, dtype=np.float64),
+                candidates=selection.finalists,
+            )
+            if certified_w is not None:
+                weights = certified_w
         return _finalize_solver_result(
             context,
             selection=selection,
-            weights=selection.weights,
+            weights=weights,
             advisory_wealth_rappen=advisory_wealth_rappen,
             cashflow_series_rappen=cashflow_series_rappen,
+            drawdown_certification=drawdown_certification,
         )
 
     return _run_resampled_solver(
@@ -1848,6 +1872,11 @@ class _CubeSelection:
     used_ga_fallback: bool
     accepted_feasible_non_success: bool
     robustification_derisked: bool
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: zulaessige Multi-Start-Finalisten
+    # (sauber konvergierter Lauf: nur konvergierte Starts) fuer den
+    # Drawdown-Rerank des Einzelwuerfel-Pfads. Im Resampling-Pfad ungenutzt:
+    # dort rankt der Rerank {Bag-Mittel, projiziertes Mittel, Hausmatrix-Anker}.
+    finalists: list[dict] = field(default_factory=list)
 
 
 def _select_cube_candidate(
@@ -2086,6 +2115,11 @@ def _select_cube_candidate(
         used_ga_fallback=bool(used_ga_fallback),
         accepted_feasible_non_success=bool(accepted_feasible_non_success),
         robustification_derisked=bool(robustification_derisked),
+        finalists=[
+            candidate for candidate in finite_feasible_candidates
+            if accepted_feasible_non_success
+            or bool(getattr(candidate["result"], "success", False))
+        ],
     )
 
 
@@ -2178,6 +2212,7 @@ def _finalize_solver_result(
     cashflow_series_rappen: Iterable[int],
     extra_reasoning: list[str] | None = None,
     resampling_payload: dict | None = None,
+    drawdown_certification: dict | None = None,
 ) -> OptimizerResult:
     """Schritt 7-8: Rundung, Status, Nachzertifizierung, Audit-Trail, Stress.
 
@@ -2319,23 +2354,25 @@ def _finalize_solver_result(
     # -- die Umgebung erneut gelesen: ein Wechsel mittendrin konnte die
     # Nachrechnung fuer einen Lauf ausloesen, der gar nicht auf max_drawdown
     # optimiert hatte, oder sie fuer einen unterdruecken, der es tat.
-    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
-        drawdown_proxy = refined_drawdown_check_for_winner(
-            _portfolio_return_factors(context, rounded_w),
-            seed=int(context.seed),
-            weights=context.scenario_weights,
-        )
-        reasoning.append(
-            "Zielfunktion max_drawdown: optimiert auf dem Jahresgitter "
-            f"({drawdown_proxy['annual_grid_mean_drawdown'] * 100:.2f}% "
-            "mittlerer Max-Drawdown). Nachrechnung des Gewinners auf dem "
-            f"verfeinerten Zeitgitter ({drawdown_proxy['sub_steps_per_year']} "
-            "Teilschritte/Jahr, "
-            f"{drawdown_proxy['model_version']}): "
-            f"{drawdown_proxy['refined_mean_drawdown'] * 100:.2f}%, "
-            "Unterschaetzung des Optimierungs-Proxy "
-            f"{drawdown_proxy['understatement'] * 100:.2f} Prozentpunkte."
-        )
+    #
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (2026-10-14): statt nur den
+    # Gewinner auf dem Trainings-Cube nachzurechnen, werden alle Finalisten
+    # auf dem Validierungs-Cube gerankt (Schritt 6c). Nur wenn das nicht
+    # moeglich war, bleibt die alte Trainings-Cube-Nachrechnung als
+    # (gekennzeichnete) Offenlegung.
+    if drawdown_certification is not None:
+        reasoning.extend(drawdown_certification_reasoning(
+            drawdown_certification,
+            training_cube_check=(
+                None
+                if drawdown_certification.get("certified")
+                else refined_drawdown_check_for_winner(
+                    _portfolio_return_factors(context, rounded_w),
+                    seed=int(context.seed),
+                    weights=context.scenario_weights,
+                )
+            ),
+        ))
     robustification_payload: dict[str, object] | None = None
     if accepted_feasible_non_success:
         robustification_payload = {
@@ -2417,6 +2454,7 @@ def _finalize_solver_result(
         validation_cube_hash=validation_cube_hash_used,
         validation_n_paths=validation_n_paths_used,
         resampling=resampling_payload,
+        drawdown_certification=drawdown_certification,
         context=context,
     )
 

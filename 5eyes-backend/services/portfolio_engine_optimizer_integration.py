@@ -1500,6 +1500,19 @@ def _persist_optimizer_run(
 
     robustification_json: str | None = None
     robustification = getattr(optimizer_result, "robustification", None)
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: das Kandidaten-Audit des
+    # Drawdown-Reranks gehoert in denselben Auswahl-Audit-Umschlag
+    # (`robustification_json` = "effective/rejected candidate audit
+    # envelope"): welcher Kandidat warum gewaehlt wurde. Keine neue Spalte.
+    drawdown_certification = getattr(optimizer_result, "drawdown_certification", None)
+    if drawdown_certification:
+        envelope = dict(robustification or {
+            "enabled": False,
+            "stage": "drawdown_certification",
+            "final_reason": "drawdown_validation_rerank",
+        })
+        envelope["drawdown_certification"] = dict(drawdown_certification)
+        robustification = envelope
     if robustification:
         try:
             robustification_json = json.dumps(
