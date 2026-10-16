@@ -12116,6 +12116,7 @@ function adminEditFund(productId){
   if (titleEl) titleEl.textContent = 'Fonds bearbeiten: ' + (product.product_name || '');
   var btn = document.getElementById('btn-pf-create');
   if (btn) btn.textContent = 'Aenderungen speichern';
+  var suitWrap = document.getElementById('pf-suit-wrap'); if (suitWrap) suitWrap.style.display = 'none';
   var form = document.getElementById('pf-create-form');
   if (form) form.style.display = 'block';
   var nameInput = document.getElementById('pf-name');
@@ -12133,7 +12134,7 @@ async function adminToggleFundActive(productId, currentlyActive){
 }
 function adminResetFundForm(){
   adminFundEditingId = null;
-  ['pf-name','pf-provider','pf-sub-asset-class','pf-isin','pf-symbol','pf-ter','pf-sfdr','pf-esg-rating','pf-esg-score','pf-climate-benchmark'].forEach(function(id){
+  ['pf-name','pf-provider','pf-sub-asset-class','pf-isin','pf-symbol','pf-ter','pf-sfdr','pf-esg-rating','pf-esg-score','pf-climate-benchmark','pf-suit-from','pf-suit-to'].forEach(function(id){
     var el = document.getElementById(id); if (el) el.value = '';
   });
   document.querySelectorAll('.pf-theme-tag').forEach(function(box){ box.checked = false; });
@@ -12142,6 +12143,7 @@ function adminResetFundForm(){
   if (titleEl) titleEl.textContent = 'Neuen Fonds erfassen';
   var btn = document.getElementById('btn-pf-create');
   if (btn) btn.textContent = 'Fonds erfassen';
+  var suitWrap = document.getElementById('pf-suit-wrap'); if (suitWrap) suitWrap.style.display = '';
 }
 async function adminCreateFund(){
   var errBox = document.getElementById('pf-error');
@@ -12188,6 +12190,22 @@ async function adminCreateFund(){
   }
   payload.theme_tags = Array.prototype.slice.call(document.querySelectorAll('.pf-theme-tag'))
     .filter(function(box){ return box.checked; }).map(function(box){ return box.value; });
+  // PRODUCT-CREATE-SUITABILITY-001: POST /products verlangt seit
+  // CERT-PRODUCT-ELIGIBILITY-001 eine echte Risikoband-Einstufung (kein
+  // Default "passt fuer alle"); ohne sie lehnte das Backend jede Erfassung
+  // mit 422 ab. Beim Bearbeiten nicht gesendet (ProductUpdate fuehrt die
+  // Eignung nicht; sie wird ueber die Eignungsregeln gepflegt).
+  if (!adminFundEditingId) {
+    var suitFromRaw = val('pf-suit-from'), suitToRaw = val('pf-suit-to');
+    var suitFrom = Number(suitFromRaw), suitTo = Number(suitToRaw);
+    if (suitFromRaw === '' || suitToRaw === '' || !Number.isInteger(suitFrom) || !Number.isInteger(suitTo)
+        || suitFrom < 1 || suitTo > 10 || suitFrom > suitTo) {
+      if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Bitte die Eignung angeben: Risikoprofil von / bis als ganze Zahlen 1–10 (von ≤ bis).'; }
+      return;
+    }
+    payload.suitability_profile_from = suitFrom;
+    payload.suitability_profile_to = suitTo;
+  }
   try {
     if (adminFundEditingId) {
       await API.put('/products/' + encodeURIComponent(adminFundEditingId), payload);
@@ -27112,7 +27130,7 @@ function openStammdatenModal(){
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Sub-Anlageklasse</label><input class="fi" id="pf-sub-asset-class" style="font-size:11px"></div>
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Waehrung</label><input class="fi" id="pf-currency" value="CHF" style="font-size:11px"></div>
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">TER (Bps, optional)</label><input class="fi" type="number" min="0" id="pf-ter" style="font-size:11px"></div>
-              <div></div>
+              <div id="pf-suit-wrap"><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Eignung Risikoprofil von / bis (1–10, Pflicht)</label><div style="display:flex;gap:4px"><input class="fi" type="number" min="1" max="10" step="1" id="pf-suit-from" style="font-size:11px"><input class="fi" type="number" min="1" max="10" step="1" id="pf-suit-to" style="font-size:11px"></div></div>
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">ISIN (optional, kotiert)</label><input class="fi" id="pf-isin" style="font-size:11px"></div>
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Symbol (optional, kotiert)</label><input class="fi" id="pf-symbol" style="font-size:11px"></div>
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">SFDR-Klassifikation</label><select class="fsel" id="pf-sfdr" style="font-size:11px"><option value="">nicht gepflegt</option><option value="6">Art. 6</option><option value="8">Art. 8</option><option value="9">Art. 9</option></select></div>
