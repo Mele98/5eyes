@@ -96,11 +96,15 @@ def test_depotcheck_pdf_data_must_not_fall_back_to_stale_run_after_saa_recalc(
         portfolio_before = _build_portfolio_data(mandate, s)
         assert portfolio_before.positions
 
-        # Trigger a fresh SAA recalc: a NEW TargetAllocation becomes current.
-        # The existing RecommendationRun from the foundation seed stays bound
-        # to the OLD (now non-current) TargetAllocation id -> stale.
+        # Trigger a fresh SAA recalc WITH CHANGED INPUT: a NEW TargetAllocation
+        # becomes current. The existing RecommendationRun from the foundation
+        # seed stays bound to the OLD (now non-current) TargetAllocation id ->
+        # stale. (REGENERATE-IDEMPOTENT-001: a recalc with unchanged inputs
+        # deliberately keeps the allocation and its run, so it can no longer
+        # serve as the trigger here.)
         generate_target_allocation(
-            db=s, mandate=mandate, user_id=advisor.id, preferences=None,
+            db=s, mandate=mandate, user_id=advisor.id,
+            preferences={"assetClasses": {"equitiesGeo": "Global"}},
         )
         s.commit()
 
