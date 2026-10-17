@@ -109,7 +109,12 @@ jobs:
     # trotzdem "cancelled". Grosszuegigerer Puffer verhindert, dass der
     # ohnehin nicht-blockierende Coverage-Schritt den mergebar-Status des
     # PRs ueber die Jobgrenze hinweg gefaehrdet.
-    timeout-minutes: 150
+    # Nachtrag (2026-10-17, SAA-RESAMPLED-STABILITY-001): das Resampling
+    # (40 Bags je Optimierung) verlaengert den Correctness-Gate auf ~100 min.
+    # Job-Limit = Gate (~100) + Coverage-Schritt (max. 60) + Puffer, damit der
+    # nicht-blockierende Coverage-Schritt den Job nie mehr abbricht (Run
+    # 38964294815: Gate success, Job trotzdem "cancelled").
+    timeout-minutes: 200
 
     strategy:
       fail-fast: false
