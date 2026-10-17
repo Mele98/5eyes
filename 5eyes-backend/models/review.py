@@ -277,7 +277,8 @@ class Product(Base):
     liquidity_tier = Column(String)          # 'daily','weekly','monthly','illiquid'
     # ESG-PREMIUM-CRITERIA-001 (2026-10-14): EU-Klima-Benchmark des Produkts
     # ('PAB' = Paris-aligned, 'CTB' = Climate Transition, sonst NULL) --
-    # Kriterium der ESG-Policy net_zero (SFDR Art. 9 ODER PAB/CTB).
+    # Pflicht-Kriterium der ESG-Policy net_zero (PAB/CTB; SFDR 9 allein
+    # reicht nicht, CIO-Entscheid 2026-10-18).
     climate_benchmark = Column(String)
     # ESG-PREMIUM-CRITERIA-001: JSON-Liste von Themen-Keys
     # (fossil/defense/tobacco/alcohol/gaming/nuclear), z.B. '["fossil"]'.

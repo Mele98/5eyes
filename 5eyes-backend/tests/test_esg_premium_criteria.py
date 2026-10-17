@@ -11,10 +11,12 @@ Baut auf ESG-THEME-EXCLUSION-EFFECTIVE-001 auf (harter Themen-Filter).
      als dokumentierte Abweichung von der ESG-Policy.
 2. Unterscheidbare, datengetriebene ESG-Policy-Kriterien:
    - esg_integration: SFDR Art. 8 oder 9.
-   - best_in_class: SFDR 8/9 UND (esg_rating in AAA/AA/A ODER
-     esg_score_x10 >= 600). Fehlende Daten -> nicht zulaessig.
+   - best_in_class: SFDR 8/9 UND (esg_rating in AAA/AA ODER
+     esg_score_x10 >= 714). Fehlende Daten -> nicht zulaessig.
+     (CIO-Entscheid 2026-10-18: nur die Leader-Klasse; "A" zaehlt nicht.)
    - impact: NUR SFDR Art. 9.
-   - net_zero: SFDR Art. 9 ODER climate_benchmark in {PAB, CTB}.
+   - net_zero: climate_benchmark in {PAB, CTB} PFLICHT; SFDR 9 allein
+     reicht nicht (CIO-Entscheid 2026-10-18).
    Leere Slots laufen in den fail-closed-Pfad, dessen Meldung jetzt das
    verletzte Kriterium UND die betroffene Sub-Anlageklasse nennt.
 3. Zweistufige Themen-Erkennung:
@@ -216,8 +218,8 @@ def test_run_disclosure_names_the_documented_deviation():
 
 
 def test_documented_thresholds():
-    assert ESG_BEST_IN_CLASS_RATINGS == ("AAA", "AA", "A")
-    assert ESG_BEST_IN_CLASS_MIN_SCORE_X10 == 600
+    assert ESG_BEST_IN_CLASS_RATINGS == ("AAA", "AA")
+    assert ESG_BEST_IN_CLASS_MIN_SCORE_X10 == 714
     assert CLIMATE_BENCHMARKS == ("PAB", "CTB")
     assert FOSSIL_LOOK_THROUGH_SECTOR == "Energy"
     assert FOSSIL_LOOK_THROUGH_THRESHOLD_BPS == 1000
@@ -232,22 +234,26 @@ def test_documented_thresholds():
         ("esg_integration", {"sfdr_class": "6"}, False),
         ("esg_integration", {"sfdr_class": None}, False),
         # best_in_class: SFDR 8/9 UND Qualitaetsschwelle
-        ("best_in_class", {"sfdr_class": "8", "esg_rating": "A"}, True),
+        ("best_in_class", {"sfdr_class": "8", "esg_rating": "A"}, False),
+        ("best_in_class", {"sfdr_class": "9", "esg_rating": "A"}, False),
         ("best_in_class", {"sfdr_class": "8", "esg_rating": "AA"}, True),
         ("best_in_class", {"sfdr_class": "9", "esg_rating": "AAA"}, True),
         ("best_in_class", {"sfdr_class": "8", "esg_rating": " aa "}, True),
         ("best_in_class", {"sfdr_class": "8", "esg_rating": "BBB"}, False),
         ("best_in_class", {"sfdr_class": "8", "esg_rating": None}, False),
-        ("best_in_class", {"sfdr_class": "8", "esg_rating": "BBB", "esg_score_x10": 600}, True),
-        ("best_in_class", {"sfdr_class": "8", "esg_rating": None, "esg_score_x10": 599}, False),
+        ("best_in_class", {"sfdr_class": "8", "esg_rating": "BBB", "esg_score_x10": 714}, True),
+        ("best_in_class", {"sfdr_class": "8", "esg_rating": "A", "esg_score_x10": 713}, False),
+        ("best_in_class", {"sfdr_class": "8", "esg_rating": None, "esg_score_x10": 600}, False),
         ("best_in_class", {"sfdr_class": "8", "esg_score_x10": 850}, True),
         ("best_in_class", {"sfdr_class": "6", "esg_rating": "AAA", "esg_score_x10": 900}, False),
         # impact: NUR SFDR 9
         ("impact", {"sfdr_class": "9"}, True),
         ("impact", {"sfdr_class": "8", "esg_rating": "AAA"}, False),
         ("impact", {"sfdr_class": "6"}, False),
-        # net_zero: SFDR 9 ODER EU-Klima-Benchmark
-        ("net_zero", {"sfdr_class": "9"}, True),
+        # net_zero: EU-Klima-Benchmark PFLICHT, SFDR 9 allein reicht nicht
+        ("net_zero", {"sfdr_class": "9"}, False),
+        ("net_zero", {"sfdr_class": "9", "climate_benchmark": None}, False),
+        ("net_zero", {"sfdr_class": "9", "climate_benchmark": "PAB"}, True),
         ("net_zero", {"sfdr_class": "8", "climate_benchmark": "PAB"}, True),
         ("net_zero", {"sfdr_class": "6", "climate_benchmark": "CTB"}, True),
         ("net_zero", {"sfdr_class": "8"}, False),
@@ -351,8 +357,8 @@ def test_look_through_respects_underweight_and_allow():
 )
 def test_broad_core_equity_proxies_stay_below_fossil_threshold(sub_asset_class):
     """Kontrolle mit den realistischen Index-Sektorgewichten aus
-    services/product_exposures.py: ein breiter Kern-ETF (MSCI World ~4.5 %,
-    SPI ~0.5 %, Europa/EM ~6 % Energy) wird bei 10 % NICHT ausgeschlossen."""
+    services/product_exposures.py: ein breiter Kern-ETF (Welt ~4.5 %,
+    Schweiz ~0.5 %, Europa/EM ~6 % Energy) wird bei 10 % NICHT ausgeschlossen."""
     from services.product_exposures import _SECTOR_PROXIES_BY_SUB_CLASS
 
     weights = _SECTOR_PROXIES_BY_SUB_CLASS[sub_asset_class]
@@ -639,9 +645,9 @@ def test_ui_sends_tilt_reasons_and_persists_them():
     "policy,fragments",
     [
         ("esg_integration", ["SFDR 8/9"]),
-        ("best_in_class", ["SFDR 8/9", "AAA", "60"]),
+        ("best_in_class", ["SFDR 8/9", "AAA", "AA", "71.4"]),
         ("impact", ["nur SFDR 9"]),
-        ("net_zero", ["SFDR 9", "PAB", "CTB"]),
+        ("net_zero", ["PAB", "CTB", "Pflicht"]),
     ],
 )
 def test_ui_esg_labels_state_exact_criterion(policy, fragments):
@@ -650,6 +656,10 @@ def test_ui_esg_labels_state_exact_criterion(policy, fragments):
         assert fragment in label, label
     if policy == "impact":
         assert "8/9" not in label
+    if policy == "best_in_class":
+        assert "AAA–A " not in label and "AAA/AA/A" not in label and "≥ 60" not in label
+    if policy == "net_zero":
+        assert "SFDR 9 oder" not in label
 
 
 def test_ui_screening_note_is_theme_specific():
@@ -892,3 +902,55 @@ def test_ui_fund_edit_sends_null_to_clear_esg_evidence():
     body = _extract_js_function(_html(), "adminCreateFund")
     for field in ("sfdr_class", "esg_rating", "climate_benchmark", "esg_score_x10"):
         assert re.search(r"payload\." + field + r"\s*=\s*null", body), field
+
+
+# ---------------------------------------------------------------------------
+# 8. CIO-Entscheid 2026-10-18 (konservativ, gegen Greenwashing)
+# ---------------------------------------------------------------------------
+
+
+def test_best_in_class_criterion_text_names_only_leader_class():
+    text_ = ESG_POLICY_CRITERIA["best_in_class"]
+    assert "AAA oder AA" in text_
+    assert "71.4" in text_
+    assert "AA oder A " not in text_ and "60.0" not in text_
+
+
+def test_net_zero_criterion_text_requires_climate_benchmark():
+    text_ = ESG_POLICY_CRITERIA["net_zero"]
+    assert "PAB" in text_ and "CTB" in text_
+    assert "SFDR Art. 9 oder" not in text_
+    assert "SFDR Art. 9 allein genuegt nicht" in text_
+
+
+@pytest.mark.parametrize("policy,fragment", [
+    ("best_in_class", "AAA oder AA"),
+    ("net_zero", "SFDR Art. 9 allein genuegt nicht"),
+])
+def test_pdf_label_states_cio_criterion(policy, fragment):
+    text_ = _pdf_preferences_text({"policy": {"esg": policy}})
+    assert fragment in text_
+
+
+def test_ui_summary_labels_and_admin_note_state_cio_criteria():
+    html = _html()
+    assert "AAA–A " not in html and "Score ≥ 60" not in html
+    assert "ESG-Rating AAA/AA/A" not in html
+    assert "SFDR 9 oder PAB/CTB" not in html
+    assert "Net Zero = SFDR Art. 9 oder" not in html
+
+
+def test_esg_criteria_texts_name_no_third_party_brand():
+    """Keine Dritt-Markennamen (Rating-/Index-Anbieter) in den ESG-Texten,
+    die in Kundendokumente und UI gelangen (Branding-Regel)."""
+    import services.portfolio_engine_payload as payload
+
+    texts = list(ESG_POLICY_CRITERIA.values()) + [
+        payload.ESG_POLICY_LIQUIDITY_EXEMPTION,
+        payload.theme_look_through_disclosure(payload.THEME_SUB_ASSET_CLASSES),
+    ]
+    for policy in ESG_POLICY_CRITERIA:
+        texts.append(_pdf_preferences_text({"policy": {"esg": policy}, "tilts": {"fossil": "exclude"}}))
+    for brand in ("MSCI", "Sustainalytics", "ISS", "Morningstar", "Refinitiv", "S&P", "Bloomberg"):
+        for text_ in texts:
+            assert brand not in text_, (brand, text_)

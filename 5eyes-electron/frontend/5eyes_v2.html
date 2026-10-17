@@ -3684,7 +3684,7 @@ function _wireSollIstHover(){
             <div>
               <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Policy</div>
                 <div style="display:flex;flex-direction:column;gap:9px">
-                <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none" selected>Keine ESG-Präferenz</option><option value="best_in_class">Best-in-Class (SFDR 8/9 und ESG-Rating AAA/AA/A oder ESG-Score ≥ 60; ohne Rating ausgeschlossen)</option><option value="impact">Impact Investing (nur SFDR 9)</option><option value="net_zero">Paris-aligned / Net Zero (SFDR 9 oder EU-Klima-Benchmark PAB/CTB)</option><option value="esg_integration">ESG-Integration (SFDR 8/9 Filter aktiv)</option><option value="negative_screening">Negativ-Screening (Themenprodukte unten ausgeschlossen, sofern nicht abweichend gewählt)</option></select></div>
+                <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none" selected>Keine ESG-Präferenz</option><option value="best_in_class">Best-in-Class (SFDR 8/9 und ESG-Rating AAA/AA oder ESG-Score ≥ 71.4; ohne Rating ausgeschlossen; Liquidität ausgenommen)</option><option value="impact">Impact Investing (nur SFDR 9; Liquidität ausgenommen)</option><option value="net_zero">Paris-aligned / Net Zero (EU-Klima-Benchmark PAB/CTB Pflicht; SFDR 9 allein genügt nicht; Liquidität ausgenommen)</option><option value="esg_integration">ESG-Integration (SFDR 8/9 Filter aktiv; Liquidität ausgenommen)</option><option value="negative_screening">Negativ-Screening (Themenprodukte unten ausgeschlossen, sofern nicht abweichend gewählt)</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Anlageuniversum</label><select class="fsel" id="aa-policy-universe" style="font-size:10px"><option value="funds_only" selected>Nur Fonds / ETFs (Filter aktiv)</option><option value="listed_only">Nur kotierte Instrumente (Filter aktiv)</option><option value="standard">Standard (kein Zusatzfilter; Checkboxen unter Produkt &amp; Struktur gelten)</option><option value="extended">Erweitert (kein Zusatzfilter; Checkboxen unter Produkt &amp; Struktur gelten)</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Heimmarkt-Präferenz</label><select class="fsel" id="aa-policy-home-bias" style="font-size:10px"><option value="ch_focus" selected>CH-Fokus bevorzugt (Score-Boost aktiv)</option><option value="none">Kein Heimmarkt-Bias</option><option value="europe_focus">Europa-Fokus (Dokumentation, kein Boost)</option><option value="global">Global neutral (Dokumentation, kein Boost)</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Währungsabsicherung</label><select class="fsel" id="aa-policy-hedging" style="font-size:10px"><option value="none" selected>Keine Vorgabe</option><option value="hedged">FX-gehedgt bevorzugt</option><option value="chf_only">Nur CHF-Instrumente</option><option value="risk_budget">Nur ausserhalb Risiko-Budget</option></select></div>
@@ -18929,10 +18929,10 @@ function buildAllocationRestrictionItems(prefs){
   var esgLabels={
     none:'Keine ESG-Präferenz',
     esg_integration:'ESG-Integration (SFDR 8/9)',
-    best_in_class:'Best-in-Class (SFDR 8/9 + Rating AAA–A / Score ≥ 60)',
+    best_in_class:'Best-in-Class (SFDR 8/9 + Rating AAA/AA / Score ≥ 71.4)',
     negative_screening:'Negativ-Screening',
     impact:'Impact Investing (nur SFDR 9)',
-    net_zero:'Net Zero (SFDR 9 oder PAB/CTB)'
+    net_zero:'Net Zero (EU-Klima-Benchmark PAB/CTB Pflicht)'
   };
   var tiltActionLabels={exclude:'Ausschliessen',underweight:'Untergewichten',allow:'Bewusst zulassen',overweight:'Übergewichten'};
   var tiltNames={fossil:'Fossile Energie',defense:'Verteidigung',tobacco:'Tabak',alcohol:'Alkohol',gaming:'Glücksspiel',nuclear:'Kernenergie'};
@@ -19109,10 +19109,10 @@ function renderAllocationPreferenceSummary(prefs){
   var esgLabels={
     none:'Keine ESG-Präferenz',
     esg_integration:'ESG-Integration (SFDR 8/9)',
-    best_in_class:'Best-in-Class (SFDR 8/9 + Rating AAA–A / Score ≥ 60)',
+    best_in_class:'Best-in-Class (SFDR 8/9 + Rating AAA/AA / Score ≥ 71.4)',
     negative_screening:'Negativ-Screening',
     impact:'Impact Investing (nur SFDR 9)',
-    net_zero:'Net Zero (SFDR 9 oder PAB/CTB)'
+    net_zero:'Net Zero (EU-Klima-Benchmark PAB/CTB Pflicht)'
   };
   var universeLabels={standard:'Standard',extended:'Erweitert',funds_only:'Nur Fonds/ETFs',listed_only:'Nur kotierte Instrumente'};
   var homeBiasLabels={none:'Kein Heimmarkt-Bias',ch_focus:'CH-Fokus bevorzugt',europe_focus:'Europa-Fokus',global:'Global neutral'};
@@ -27534,7 +27534,7 @@ function openStammdatenModal(){
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">EU-Klima-Benchmark</label><select class="fsel" id="pf-climate-benchmark" style="font-size:11px"><option value="">keiner</option><option value="PAB">PAB (Paris-aligned)</option><option value="CTB">CTB (Climate Transition)</option></select></div>
               <div style="grid-column:1/-1"><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Themen-Zuordnung (kontroverse Exposures)</label><label style="font-size:10px;color:var(--n6);display:inline-flex;gap:3px;align-items:center;margin-right:8px"><input type="checkbox" class="pf-theme-tag" value="fossil">Fossile Energie</label><label style="font-size:10px;color:var(--n6);display:inline-flex;gap:3px;align-items:center;margin-right:8px"><input type="checkbox" class="pf-theme-tag" value="defense">Verteidigung</label><label style="font-size:10px;color:var(--n6);display:inline-flex;gap:3px;align-items:center;margin-right:8px"><input type="checkbox" class="pf-theme-tag" value="tobacco">Tabak</label><label style="font-size:10px;color:var(--n6);display:inline-flex;gap:3px;align-items:center;margin-right:8px"><input type="checkbox" class="pf-theme-tag" value="alcohol">Alkohol</label><label style="font-size:10px;color:var(--n6);display:inline-flex;gap:3px;align-items:center;margin-right:8px"><input type="checkbox" class="pf-theme-tag" value="gaming">Glücksspiel</label><label style="font-size:10px;color:var(--n6);display:inline-flex;gap:3px;align-items:center;margin-right:8px"><input type="checkbox" class="pf-theme-tag" value="nuclear">Kernenergie</label></div>
             </div>
-            <div class="admin-section-sub" style="margin-top:6px">ESG-Kriterien der Mandats-Policies: ESG-Integration = SFDR Art. 8/9; Best-in-Class = SFDR Art. 8/9 und ESG-Rating AAA/AA/A oder ESG-Score ≥ 60; Impact = nur SFDR Art. 9; Net Zero = SFDR Art. 9 oder EU-Klima-Benchmark PAB/CTB. Fehlende Angaben gelten als nicht erfüllt. Themen-Zuordnung: das Produkt gilt als Themenprodukt und wird bei Ausschluss des Themas nie ausgewählt.</div>
+            <div class="admin-section-sub" style="margin-top:6px">ESG-Kriterien der Mandats-Policies: ESG-Integration = SFDR Art. 8/9; Best-in-Class = SFDR Art. 8/9 und ESG-Rating AAA/AA (Leader-Klasse der Rating-Skala AAA–CCC) oder ESG-Score ≥ 71.4; Impact = nur SFDR Art. 9; Net Zero = EU-Klima-Benchmark PAB/CTB (Pflicht, SFDR Art. 9 allein genügt nicht). Liquidität (Konto/Festgeld) ist ausgenommen. Fehlende Angaben gelten als nicht erfüllt. Themen-Zuordnung: das Produkt gilt als Themenprodukt und wird bei Ausschluss des Themas nie ausgewählt.</div>
             <div style="display:flex;gap:8px;margin-top:10px">
               <button class="btn-p admin-primary-btn" onclick="adminCreateFund()" id="btn-pf-create">Fonds erfassen</button>
               <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="adminToggleFundCreateForm()">Abbrechen</button>

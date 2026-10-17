@@ -746,8 +746,8 @@ THEME_TILT_ALLOW = "allow"
 # Staples, Consumer Discretionary, Industrials, Utilities) und aus der
 # Sektor-Aufschluesselung NICHT ableitbar -- dafuer gibt es bewusst keinen
 # Look-through (er waere erfunden). Schwelle 10 % (1000 bps, strikt groesser):
-# breite Kernindizes liegen deutlich darunter (MSCI World ~4.5 %, MSCI
-# Europe/EM ~6 %, SPI ~0.5 %), ein Energie-Sektor- oder Rohstoff-ETF deutlich
+# breite Kernindizes liegen deutlich darunter (Welt ~4.5 %, Europa/EM ~6 %,
+# Schweiz ~0.5 %), ein Energie-Sektor- oder Rohstoff-ETF deutlich
 # darueber. Nur GEPFLEGTE Produktdaten zaehlen, nie der Sub-Klassen-Proxy aus
 # services/product_exposures.py (das ist eine Schaetzung, keine Produktdaten).
 FOSSIL_LOOK_THROUGH_SECTOR = "Energy"
@@ -757,15 +757,21 @@ FOSSIL_LOOK_THROUGH_THRESHOLD_BPS = 1000
 # Kriterien je ESG-Policy. Fehlende Daten -> Produkt fuer diese Policy NICHT
 # zulaessig (fail-closed). Liquiditaet bleibt ausgenommen (Konto/Festgeld
 # haben keine SFDR-Klassifikation).
-# - best_in_class: MSCI-artige Buchstaben-Ratings wie im Katalog
-#   (Product.esg_rating, Seed-Werte "A"/"BBB"/"BB") -- Spitzengruppe
-#   AAA/AA/A. Alternativ der numerische Score Product.esg_score_x10
-#   (Skala 0-1000 = 0.0-100.0, siehe models/review.py) ab 600 = 60.0.
-# - net_zero: EU-Klima-Benchmarks nach Verordnung (EU) 2019/2089 --
-#   Paris-aligned Benchmark (PAB) / Climate Transition Benchmark (CTB),
-#   Katalogfeld Product.climate_benchmark.
-ESG_BEST_IN_CLASS_RATINGS: tuple[str, ...] = ("AAA", "AA", "A")
-ESG_BEST_IN_CLASS_MIN_SCORE_X10 = 600
+# - best_in_class (CIO-Entscheid 2026-10-18, konservativ gegen
+#   Greenwashing): nur die LEADER-Klasse der siebenstufigen Rating-Skala
+#   AAA-CCC (Product.esg_rating). Die Skala teilt sich in Leader (AAA, AA),
+#   Durchschnitt (A, BBB, BB) und Nachzuegler (B, CCC); "A" ist damit
+#   Durchschnitt und KEIN Best-in-Class. Alternativ der numerische Score
+#   Product.esg_score_x10 (Skala 0-1000 = 0.0-100.0, siehe models/review.py)
+#   ab der Untergrenze der Leader-Klasse: auf der 0-10-Skala der
+#   Rating-Systematik liegt AA ab 7.143 (= 10 * 5/7), also hier >= 714.
+# - net_zero (CIO-Entscheid 2026-10-18): EU-Klima-Benchmark nach
+#   Verordnung (EU) 2019/2089 -- Paris-aligned Benchmark (PAB) / Climate
+#   Transition Benchmark (CTB), Katalogfeld Product.climate_benchmark -- ist
+#   PFLICHT. SFDR Art. 9 allein belegt kein Netto-Null-Ziel und reicht
+#   nicht.
+ESG_BEST_IN_CLASS_RATINGS: tuple[str, ...] = ("AAA", "AA")
+ESG_BEST_IN_CLASS_MIN_SCORE_X10 = 714
 CLIMATE_BENCHMARKS: tuple[str, ...] = ("PAB", "CTB")
 ESG_POLICY_NAMES: dict[str, str] = {
     "esg_integration": "ESG-Integration",
@@ -776,14 +782,14 @@ ESG_POLICY_NAMES: dict[str, str] = {
 ESG_POLICY_CRITERIA: dict[str, str] = {
     "esg_integration": "nur Produkte nach SFDR Art. 8 oder 9",
     "best_in_class": (
-        "nur Produkte nach SFDR Art. 8 oder 9 mit ESG-Rating AAA, AA oder A "
-        "oder ESG-Score von mindestens 60.0/100; Produkte ohne Rating/Score "
-        "sind nicht zulaessig"
+        "nur Produkte nach SFDR Art. 8 oder 9 mit ESG-Rating AAA oder AA "
+        "(Leader-Klasse der Rating-Skala AAA-CCC) oder ESG-Score von "
+        "mindestens 71.4/100; Produkte ohne Rating/Score sind nicht zulaessig"
     ),
     "impact": "nur Produkte nach SFDR Art. 9",
     "net_zero": (
-        "nur Produkte nach SFDR Art. 9 oder mit EU-Klima-Benchmark "
-        "(Paris-aligned PAB oder Climate Transition CTB)"
+        "nur Produkte mit EU-Klima-Benchmark (Paris-aligned PAB oder Climate "
+        "Transition CTB, Pflicht); SFDR Art. 9 allein genuegt nicht"
     ),
 }
 
@@ -830,7 +836,7 @@ def product_meets_esg_policy(product, policy: str | None) -> bool:
         return sfdr == "9"
     if policy == "net_zero":
         benchmark = str(getattr(product, "climate_benchmark", None) or "").strip().upper()
-        return sfdr == "9" or benchmark in CLIMATE_BENCHMARKS
+        return benchmark in CLIMATE_BENCHMARKS
     return False  # pragma: no cover -- alle Keys oben abgedeckt
 
 
