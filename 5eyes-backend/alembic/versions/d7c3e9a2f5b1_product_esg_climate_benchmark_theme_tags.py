@@ -6,8 +6,9 @@ Zwei neue, optionale Katalogfelder auf ``products``:
 
 ``climate_benchmark``
     'PAB' (EU Paris-aligned Benchmark) oder 'CTB' (EU Climate Transition
-    Benchmark), sonst NULL. Kriterium der ESG-Policy ``net_zero``: zulaessig
-    sind Produkte nach SFDR Art. 9 ODER mit PAB/CTB. Vorher bildete
+    Benchmark), sonst NULL. Pflicht-Kriterium der ESG-Policy ``net_zero``:
+    zulaessig sind nur Produkte mit PAB/CTB (SFDR Art. 9 allein reicht nicht,
+    CIO-Entscheid 2026-10-18). Vorher bildete
     ``net_zero`` -- wie alle SFDR-gebundenen Policies -- nur auf SFDR 8/9 ab
     und versprach damit im Dokument mehr, als die Engine pruefte.
 

@@ -289,7 +289,7 @@ def test_ui_label_for_sfdr_gated_esg_values_states_a_filter(value):
     Kriterium (Matrix in tests/test_esg_premium_criteria.py); hier bleibt
     der urspruengliche Kern: kein Label behauptet 'kein Filter'."""
     prefs_ok = _ui_prefs(**{"policy.esg": value})
-    assert _product_matches_constraints(_product(sfdr_class="9", esg_rating="AA"), prefs_ok, 8) is True
+    assert _product_matches_constraints(_product(sfdr_class="9", esg_rating="AA", climate_benchmark="PAB"), prefs_ok, 8) is True
     assert _product_matches_constraints(_product(sfdr_class="6"), prefs_ok, 8) is False
     label = _option_label("aa-policy-esg", value)
     assert "SFDR" in label, label

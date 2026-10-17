@@ -71,11 +71,11 @@ def test_esg_gated_values_reject_non_sfdr_product(esg_value):
 def test_esg_gated_values_accept_product_meeting_every_criterion(esg_value):
     """ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): die vier Werte
     haben jetzt EIGENE Kriterien (impact = nur SFDR 9, best_in_class = SFDR
-    8/9 + Rating/Score, net_zero = SFDR 9 oder PAB/CTB) -- die vollstaendige
+    8/9 + Rating AAA/AA bzw. Score >= 71.4, net_zero = PAB/CTB Pflicht) -- die vollstaendige
     Matrix steht in tests/test_esg_premium_criteria.py. Hier nur: ein
     Produkt, das alle Kriterien erfuellt, wird von jedem Wert zugelassen."""
     prefs = portfolio_engine._normalize_preferences({"policy": {"esg": esg_value}})
-    esg_product = _make_product(sfdr_class="9", esg_rating="AA")
+    esg_product = _make_product(sfdr_class="9", esg_rating="AA", climate_benchmark="PAB")
     assert portfolio_engine._product_matches_constraints(esg_product, prefs, score_bucket=8) is True
 
 
