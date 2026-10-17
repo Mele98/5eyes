@@ -2680,23 +2680,23 @@ async function doResetConfirm(){
      synchroner Hover). Eine versteckte Grafik kann nicht syncen -> hier beide gross. -->
 <div id="m-sollist" class="overlay"><div class="modal" style="max-width:96vw;width:96vw;height:92vh;display:flex;flex-direction:column">
   <div class="mhd"><div class="mtitle">Vergleich: SOLL-Strategie vs. heutige IST-Situation</div><div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" style="font-size:11px;padding:4px 12px" onclick="exportSollIstComparePng()" title="Beide Grafiken als PNG-Bild fürs Kundengespräch speichern">&#10515; PNG exportieren</button><button class="mx" onclick="closeSollIstCompare()">&#10005;</button></div></div>
-  <div id="m-sollist-delta" style="display:none;font-size:13px;font-weight:700;color:var(--pos);background:rgba(22,101,52,0.08);border:1px solid rgba(22,101,52,0.18);border-radius:8px;padding:8px 12px;margin:0 4px 8px"></div>
-  <div style="font-size:11px;color:var(--n6);padding:0 4px 8px;line-height:1.5">Gleiche Achsen, gleicher Horizont. Fahre über eine Kurve — die andere Grafik zeigt zeitgleich Best&nbsp;/&nbsp;Haupt&nbsp;/&nbsp;Worst desselben Jahres. Der Abstand SOLL&nbsp;&minus;&nbsp;IST ist der Beratungs-Mehrwert (heute brachliegendes Cash wird investiert).</div>
+  <div id="m-sollist-delta" style="display:none;font-size:13px;font-weight:700;color:var(--n7);background:var(--bg);border:1px solid var(--b1);border-radius:8px;padding:8px 12px;margin:0 4px 8px"></div>
+  <div style="font-size:11px;color:var(--n6);padding:0 4px 8px;line-height:1.5">Gleiche Achsen, gleicher Horizont. Fahre über eine Kurve — die andere Grafik zeigt zeitgleich das günstige, mittlere und ungünstige Szenario desselben Jahres. In 8 von 10 simulierten Verläufen liegt das Vermögen zwischen P10 und P90; keine Garantie.</div>
   <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:0">
     <div style="display:flex;flex-direction:column;border:1px solid rgba(22,101,52,0.18);border-radius:8px;padding:8px 10px;background:rgba(22,101,52,0.04);min-height:0">
       <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">SOLL — optimierte Strategie <span class="tag tg">Ziel</span></div>
-      <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-soll" role="img" aria-label="SOLL-Strategie: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+      <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-soll" role="img" aria-label="SOLL-Strategie: Vermögensentwicklung mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)"></canvas></div>
       <table id="ch-sollist-soll-table" class="sr-only sr-only-table">
-        <caption>SOLL-Strategie: Vermögensentwicklung (Best Case, Hauptszenario, Worst Case) nach Jahr</caption>
+        <caption>SOLL-Strategie: Vermögensentwicklung (Günstiges Szenario (P90), Mittleres Szenario (Median), Ungünstiges Szenario (P10)) nach Jahr</caption>
         <thead><tr id="ch-sollist-soll-thead"><th scope="col">Jahr</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
     <div style="display:flex;flex-direction:column;border:1px solid var(--b1);border-radius:8px;padding:8px 10px;background:var(--bg);min-height:0">
       <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">IST — heutiger Mix <span class="tag tn">Ist</span></div>
-      <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-ist" role="img" aria-label="IST heutiger Mix: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+      <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-ist" role="img" aria-label="IST heutiger Mix: Vermögensentwicklung mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)"></canvas></div>
       <table id="ch-sollist-ist-table" class="sr-only sr-only-table">
-        <caption>IST heutiger Mix: Vermögensentwicklung (Best Case, Hauptszenario, Worst Case) nach Jahr</caption>
+        <caption>IST heutiger Mix: Vermögensentwicklung (Günstiges Szenario (P90), Mittleres Szenario (Median), Ungünstiges Szenario (P10)) nach Jahr</caption>
         <thead><tr id="ch-sollist-ist-thead"><th scope="col">Jahr</th></tr></thead>
         <tbody></tbody>
       </table>
@@ -2768,11 +2768,13 @@ function _renderSollIstCompare(){
     charts.sollistSoll=new Chart(elS.getContext('2d'),{type:'line',data:{labels:labels.slice(),datasets:sollDs},options:optS});
     charts.sollistIst=new Chart(elI.getContext('2d'),{type:'line',data:{labels:labels.slice(),datasets:istDs},options:optI});
     _wireSollIstHover();
-    // 2026-06-14 (#97): Beratungs-Mehrwert am Horizont prominent anzeigen
-    // (Hauptszenario-Endwert SOLL − IST). Werte in k-CHF -> ×1000 für CHF.
+    // 2026-06-14 (#97): Differenz der Median-Endwerte am Horizont anzeigen
+    // (Mittleres Szenario SOLL − IST). Werte in k-CHF -> ×1000 für CHF.
+    // AA-UX-NUMBERS-001: neutral dargestellt -- Differenz zweier Mediane, kein
+    // Median der Differenz und keine Garantie.
     try{
       var _mainLast=function(dss){
-        var d=(dss||[]).filter(function(x){return x&&x.label==='Hauptszenario';})[0]||(dss||[])[0];
+        var d=(dss||[]).filter(function(x){return x&&x.scenarioKey==='p50';})[0]||(dss||[])[0];
         var arr=(d&&d.data)||[]; for(var i=arr.length-1;i>=0;i--){var n=Number(arr[i]);if(isFinite(n))return n;} return null;
       };
       var sMain=_mainLast(sollDs), iMain=_mainLast(istDs);
@@ -2781,16 +2783,16 @@ function _renderSollIstCompare(){
         var deltaChf=Math.round((sMain-iMain)*1000);
         var hLabel=labels.length?String(labels[labels.length-1]):'Horizont';
         box.style.display='';
-        box.style.color=deltaChf>=0?'var(--pos)':'var(--warn)';
-        box.style.background=deltaChf>=0?'rgba(22,101,52,0.08)':'rgba(146,64,14,0.08)';
-        box.innerHTML='Beratungs-Mehrwert bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' (Hauptszenario SOLL gegenüber heutigem Mix)';
+        box.style.color='var(--n7)';
+        box.style.background='var(--bg)';
+        box.innerHTML='Differenz der Median-Endwerte SOLL − IST bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';
       } else if(box){ box.style.display='none'; }
-      // Roadmap #105: aria-label mit dem tatsaechlichen Endwert (Hauptszenario)
+      // Roadmap #105: aria-label mit dem tatsaechlichen Endwert (mittleres Szenario)
       // fuellen -- ein statisches Label kann den Zahlenwert nicht abbilden.
       var _fmtEndK=function(k){return k==null?null:formatRappen(Math.round(k*100000));};
       var _sEndFmt=_fmtEndK(sMain), _iEndFmt=_fmtEndK(iMain);
-      if(elS)elS.setAttribute('aria-label','SOLL-Strategie: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case'+(_sEndFmt?('. Hauptszenario Endwert '+hLabel+': '+_sEndFmt):''));
-      if(elI)elI.setAttribute('aria-label','IST heutiger Mix: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case'+(_iEndFmt?('. Hauptszenario Endwert '+hLabel+': '+_iEndFmt):''));
+      if(elS)elS.setAttribute('aria-label','SOLL-Strategie: Vermögensentwicklung mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)'+(_sEndFmt?('. Mittleres Szenario (Median) Endwert '+hLabel+': '+_sEndFmt):''));
+      if(elI)elI.setAttribute('aria-label','IST heutiger Mix: Vermögensentwicklung mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)'+(_iEndFmt?('. Mittleres Szenario (Median) Endwert '+hLabel+': '+_iEndFmt):''));
     }catch(_d){}
     // Roadmap #105: sr-only Tabellen-Fallback -- gleiche Kurven-Daten als
     // semantische Tabelle (Jahr x Szenario) fuer Screenreader-Nutzer.
@@ -3415,7 +3417,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button><button class="btn" id="btn-al-react-editor" onclick="openAllocationEditor();this.closest('details').removeAttribute('open')" title="Asset-Allokation-Editor (React, Beta)">Editor (Beta)</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalität, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button><button class="btn" id="btn-al-react-editor" onclick="openAllocationEditor();this.closest('details').removeAttribute('open')" title="Asset-Allokation-Editor (React, Beta)">Editor (Beta)</button></div></details></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
@@ -3435,7 +3437,7 @@ function _wireSollIstHover(){
         <div class="alloc-top-grid">
           <div class="card alloc-donut-card">
             <div class="section-kicker">SOLL-Allokation</div>
-            <div class="donut-wrap"><canvas id="ch-dn" role="img" aria-label="SOLL-Allokation: Aufteilung des Beratungsvermögens nach Anlageklassen, Ring-/Doughnut-Diagramm"></canvas><div class="dc"><div class="dcv">CHF<br>2.85M</div><div class="dcl">Beratung</div></div></div>
+            <div class="donut-wrap"><canvas id="ch-dn" role="img" aria-label="SOLL-Allokation: Aufteilung des Beratungsvermögens nach Anlageklassen, Ring-/Doughnut-Diagramm"></canvas><div class="dc"><div class="dcv">—</div><div class="dcl">Beratung</div></div></div>
             <div id="dnleg" class="alloc-legend"></div>
             <table id="ch-dn-table" class="sr-only sr-only-table">
               <caption>SOLL-Allokation nach Anlageklassen (Beratungsvermögen)</caption>
@@ -3461,7 +3463,7 @@ function _wireSollIstHover(){
                 <div id="aa-proj-benchmark-note" style="font-size:10px;color:var(--n6);background:var(--bg);border:1px solid rgba(90,104,120,0.12);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;line-height:1.5">Berater-Sicht: SOLL-Strategie gegen die heutige IST-Situation (aktueller Mix des Beratungsverm&ouml;gens). Der Mehrwert entsteht v.a. dadurch, dass heute brachliegende Cash-Positionen investiert werden. Vergleich &amp; Delta folgen im Review.</div>
               </div>
               <div id="aa-horizon-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding:7px 10px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);font-size:10px">
-                <span style="font-weight:600;color:var(--n6)">Prognose-Horizont</span>
+                <span style="font-weight:600;color:var(--n6)" title="Steuert nur, bis zu welchem Jahr Grafik und Endwerte der Kennzahlen angezeigt werden. Wie weit die Simulation rechnet, legt Parameter › Prognose-Horizont (Simulation) fest.">Grafik-Ausschnitt</span>
                 <select id="aa-horizon-mode" onchange="setAaHorizonMode(this.value)" style="font-size:10px">
                   <option value="auto">Auto (bis Lebensende)</option>
                   <option value="age">bis Alter</option>
@@ -3473,13 +3475,14 @@ function _wireSollIstHover(){
                 <input id="aa-horizon-years" type="number" min="3" max="60" placeholder="auto" onchange="applyIstHorizonOverride(this.value)" style="display:none;width:56px;font-size:10px" aria-label="Prognose Anzahl Jahre">
                 <button type="button" class="btn" style="font-size:10px;padding:2px 10px" onclick="saveAaHorizon()" title="Horizont anwenden &amp; speichern">Speichern</button>
                 <span id="aa-horizon-eff" style="color:var(--n6);font-style:italic"></span>
+                <span id="aa-horizon-sim-end" style="color:var(--n6)"></span>
                 <span style="color:var(--n4);margin-left:auto">ändert nur die Grafik-Länge, nicht die Renditen</span>
               </div>
               <div id="aa-proj-chart-grid" style="margin-bottom:10px;grid-template-columns:1fr">
                 <div style="border:1px solid rgba(22,101,52,0.16);border-radius:var(--r2);padding:10px 11px;background:rgba(22,101,52,0.04)">
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">Optimierte Zielallokation</span><span class="tag tg">Ziel</span></div>
                   <div style="font-size:10px;color:var(--n5);line-height:1.45;margin-bottom:8px">Hier bleibt der echte Zielpfad der Soll-Strategie. Laufende Cashflows sowie einmalige Kapitalereignisse fliessen in die Prognose ein; Vergleich, Mehrwert und Abweichung folgen im Review.</div>
-                  <div class="chart-lg" id="aa-opt-chart-wrap" style="height:390px"><canvas id="ch-opt" role="img" aria-label="SOLL-Prognose der optimierten Strategie mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+                  <div class="chart-lg" id="aa-opt-chart-wrap" style="height:390px"><canvas id="ch-opt" role="img" aria-label="SOLL-Prognose der optimierten Strategie mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)"></canvas></div>
                 </div>
                 <div id="aa-compare-chart-col" style="display:none;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);overflow:hidden">
                   <div style="padding:10px 11px 0">
@@ -3487,10 +3490,11 @@ function _wireSollIstHover(){
                     <div style="font-size:10px;color:var(--n5);line-height:1.45;margin-bottom:8px">Gleiche Achsen, gleicher Horizont. So bleibt der Vergleich mit der Soll-Strategie fair und lesbar.</div>
                   </div>
                   <div style="padding:0 11px 10px">
-                  <div class="chart-lg" id="aa-current-chart-wrap" style="height:390px"><canvas id="ch-aa-current" role="img" aria-label="IST heutiger Mix: Prognose mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+                  <div class="chart-lg" id="aa-current-chart-wrap" style="height:390px"><canvas id="ch-aa-current" role="img" aria-label="IST heutiger Mix: Prognose mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)"></canvas></div>
                   </div>
                 </div>
               </div>
+              <div class="aa-fan-footnote" style="font-size:11px;color:var(--n5);line-height:1.5;margin:-4px 0 10px">In 8 von 10 simulierten Verläufen liegt das Vermögen zwischen P10 und P90; keine Garantie.</div>
               <div id="aa-proj-metrics" style="display:none">
                 <!-- 2026-06-14: Sauberer Zwei-Spalten-Kennzahlen-Vergleich SOLL vs IST. -->
                 <div style="overflow-x:auto;margin-bottom:12px">
@@ -3503,11 +3507,11 @@ function _wireSollIstHover(){
                       </tr>
                     </thead>
                     <tbody style="font-family:var(--f-d)">
-                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Prognose Endwert (Median)</td><td id="aa-proj-median" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-median" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
-                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Optimistisches Szenario: in 10% der Simulationen liegt der Endwert darüber">Endwert optimistisch (P90)</td><td id="aa-proj-p90" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p90" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
-                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Pessimistisches Szenario: in 10% der Simulationen liegt der Endwert darunter">Endwert pessimistisch (P10)</td><td id="aa-proj-p10" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p10" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
-                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Erwartete Rendite p.a. (P50)</td><td id="aa-proj-p50-return" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p50-return" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
-                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Wachstum p.a. (CAGR Median)</td><td id="aa-proj-cagr" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-cagr" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td id="aa-proj-lbl-median" style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Endwert – Mittleres Szenario (Median)</td><td id="aa-proj-median" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-median" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td id="aa-proj-lbl-p90" style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Günstiges Szenario: in 1 von 10 simulierten Verläufen liegt der Endwert darüber">Endwert – Günstiges Szenario (P90)</td><td id="aa-proj-p90" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p90" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td id="aa-proj-lbl-p10" style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Ungünstiges Szenario: in 1 von 10 simulierten Verläufen liegt der Endwert darunter – keine Untergrenze">Endwert – Ungünstiges Szenario (P10)</td><td id="aa-proj-p10" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p10" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Median der zeitgewichteten Jahresrendite über alle simulierten Verläufe – unabhängig von Ein- und Auszahlungen, über den gesamten Simulationshorizont.">Rendite p.a. (Median, zeitgewichtet)</td><td id="aa-proj-p50-return" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p50-return" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Jährliches Wachstum des Vermögens entlang des mittleren Szenarios (Median-Pfad) bis zum angezeigten Endjahr – inklusive Ein- und Auszahlungen. SOLL und IST aus derselben Monte-Carlo-Quelle.">Vermögenswachstum p.a. (Mittleres Szenario, inkl. Cashflows)</td><td id="aa-proj-cagr" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-cagr" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Sharpe-Ratio = (Median-Rendite − risikofrei 0.8%) / Volatilität. Rendite je Einheit Risiko — höher = besser.">Rendite/Risiko (Sharpe)</td><td id="aa-proj-sharpe" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-sharpe" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Median-Reichweite</td><td id="aa-proj-runway-target" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-runway-current" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr><td colspan="3" style="padding:9px 8px 3px;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600">Risiko (Monte-Carlo, 1 Jahr · tiefer = besser)</td></tr>
@@ -3520,9 +3524,12 @@ function _wireSollIstHover(){
                     </tbody>
                   </table>
                 </div>
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:rgba(22,101,52,0.06);border:1px solid rgba(22,101,52,0.16);border-radius:8px;padding:9px 12px;margin-bottom:12px">
-                  <span style="font-size:11px;color:var(--n7);font-weight:600">Beratungs-Mehrwert (Median-Endwert SOLL &minus; IST)</span>
-                  <span id="aa-proj-delta-value" style="font-family:var(--f-d);font-size:15px;font-weight:700;color:var(--pos)">—</span>
+                <div style="background:var(--bg);border:1px solid var(--b1);border-radius:8px;padding:9px 12px;margin-bottom:12px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+                    <span id="aa-proj-delta-label" style="font-size:11px;color:var(--n7);font-weight:600">Differenz der Median-Endwerte SOLL &minus; IST</span>
+                    <span id="aa-proj-delta-value" style="font-family:var(--f-d);font-size:15px;font-weight:700;color:var(--n7)">—</span>
+                  </div>
+                  <div style="font-size:11px;color:var(--n5);line-height:1.5;margin-top:3px">Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz – keine Garantie für einen Mehrwert.</div>
                 </div>
                 <!-- #36/PAR-3: Zielerreichung SOLL vs IST je Ziel (nur sichtbar, wenn das
                      Backend current_goal_analysis liefert). -->
@@ -3721,11 +3728,11 @@ function _wireSollIstHover(){
       </div>
 
       <div class="card" id="aa-simulation-card" style="display:none;margin:0 24px 12px">
-        <div class="chd"><span class="cht">Simulation & Rebalancing</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Forecast-Horizont, Stressband und Rebalancing-Modus für die Engine</span></div>
+        <div class="chd"><span class="cht">Simulation & Rebalancing</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Prognose-Horizont, Volatilitäts-Szenario und Rebalancing-Modus für die Berechnung</span></div>
         <div class="cbody">
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
             <div>
-              <label style="font-size:9px;color:var(--n4)">Horizont</label>
+              <label style="font-size:9px;color:var(--n4)" title="Wie weit die Simulation rechnet (wirkt auf Strategie und Kennzahlen). Der Grafik-Ausschnitt bei der SOLL-Prognose ändert nur die Anzeige.">Prognose-Horizont (Simulation)</label>
               <select class="fsel" id="aa-sim-horizon" style="font-size:10px" title="Auto: Horizont bis Lebenserwartung bzw. letzter Cashflow (Mandatseinstellung/BFS-Sterbetafel). Ein Jahreswert ist ein expliziter Berater-Override.">
                 <option value="" selected>Auto (Lebenserwartung/letzter Cashflow)</option>
                 <option value="7">7 Jahre</option>
@@ -3742,22 +3749,22 @@ function _wireSollIstHover(){
               </select>
             </div>
             <div>
-              <label style="font-size:9px;color:var(--n4)">Stressband</label>
+              <label style="font-size:9px;color:var(--n4)">Volatilitäts-Szenario</label>
               <select class="fsel" id="aa-sim-stress" style="font-size:10px"
-                title="Volatilitaets-Multiplikator der Szenarien. Benannte Presets entsprechen historischen Stress-Schweregraden.">
-                <option value="0.75">Mild (0.75x Vola)</option>
-                <option value="1.0" selected>Normal (1.0x Vola)</option>
-                <option value="1.5">Erhoeht (1.5x Vola)</option>
-                <option value="1.6">Corona-Schock 2020 (1.6x)</option>
-                <option value="1.8">Finanzkrise 2008 (1.8x)</option>
-                <option value="2.0">Zinsschock / Stagflation (2.0x)</option>
+                title="Skaliert nur die Schwankungsbreite der simulierten Renditen. Kein Nachbau historischer Krisen (Verlaufsmuster, Korrelationsbrüche und Zinsreaktion fehlen) – historische Krisen-Replays zeigt die Stress-Test-Tabelle.">
+                <option value="0.75">Volatilität ×0.75 (gedämpft)</option>
+                <option value="1.0" selected>Volatilität ×1.0 (normal)</option>
+                <option value="1.5">Volatilität ×1.5 (erhöht)</option>
+                <option value="1.6">Volatilität ×1.6 (deutlich erhöht)</option>
+                <option value="1.8">Volatilität ×1.8 (stark erhöht)</option>
+                <option value="2.0">Volatilität ×2.0 (extrem erhöht)</option>
               </select>
             </div>
             <div>
               <label style="font-size:9px;color:var(--n4)">Rebalancing</label>
               <select class="fsel" id="aa-sim-rebalance" style="font-size:10px">
                 <option value="bands" selected>Nur bei Bandbruch</option>
-                <option value="calendar">Jaehrlich auf Soll</option>
+                <option value="calendar">Jährlich auf Soll</option>
                 <option value="none">Kein Rebalancing</option>
               </select>
             </div>
@@ -8045,7 +8052,7 @@ function buildDLegend(){
     }).join('');
   }
   var dcv=document.querySelector('.dcv');
-  if(dcv&&TOTAL){var _t=Number(TOTAL||0);var _lbl=_t>=1000000?(_t/1000000).toFixed(2).replace('.',"'")+" Mio":Math.round(_t).toLocaleString('de-CH');dcv.innerHTML='CHF<br>'+_lbl;}
+  if(dcv)dcv.innerHTML=donutCenterValueHtml(TOTAL);
 }
 
 function syncAllocationDonutFromStrategyState(){
@@ -19082,11 +19089,27 @@ function formatUnitsMilli(value){
   if(value===null||value===undefined||value==='')return 'n/a';
   return (Number(value||0)/1000).toLocaleString('de-CH',{minimumFractionDigits:0,maximumFractionDigits:3});
 }
-function formatCompactCHF(chf){
+// AA-UX-NUMBERS-001: CH-Konvention -- Apostroph = Tausendertrenner, Punkt =
+// Dezimalzeichen. Vorher wurde der Dezimalpunkt durch einen Apostroph ersetzt
+// ("CHF 2'85 Mio" fuer 2'850'000 -- fuer Schweizer Leser falsch lesbar).
+// Gruppierung kommt wie bei allen anderen Formatern aus toLocaleString('de-CH').
+function formatCompactCHFAmount(chf){
   var n=Number(chf||0);
-  if(n>=1000000)return 'CHF '+(n/1000000).toFixed(2).replace('.',"'")+' Mio';
-  if(n>=1000)return 'CHF '+Math.round(n).toLocaleString('de-CH');
-  return 'CHF '+Math.round(n).toLocaleString('de-CH');
+  if(!isFinite(n))n=0;
+  var a=Math.abs(n);
+  var sign=(n<0&&Math.round(a)>0)?'−':'';
+  if(a>=1000000)return sign+(a/1000000).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' Mio.';
+  return sign+Math.round(a).toLocaleString('de-CH');
+}
+function formatCompactCHF(chf){
+  return 'CHF '+formatCompactCHFAmount(chf);
+}
+// Donut-Zentrum: gleicher Formatter; ohne Beratungsvermoegen ein neutraler
+// Leerzustand statt eines Fantasiewerts.
+function donutCenterValueHtml(total){
+  var t=Number(total||0);
+  if(!isFinite(t)||t<=0)return '—';
+  return 'CHF<br>'+formatCompactCHFAmount(t);
 }
 function projectionContributionAt(contributionInput,index){
   if(Array.isArray(contributionInput)){
@@ -19216,6 +19239,8 @@ async function applyCashflowIndexation(on){
   try {
     updateProjectionChartsFromSimulation(strategyState && strategyState.allocation);
     upgradeFanChartWithMonteCarlo(strategyState && strategyState.allocation);
+    // AA-UX-NUMBERS-001: Tabellen-Endwerte am neuen Anzeige-Horizont lesen.
+    if (strategyState && strategyState.allocation) renderAaProjectionEndValues(strategyState.allocation);
   } catch(e) { /* defensive */ }
   try { updateHorizonEffectiveLabel(); } catch(e) {}
   try{ var _ovNow=loadIstHorizonOverride(); if(_ovNow&&_ovNow>0)_truncateProjectionChartsTo(_ovNow); }catch(e){}
@@ -19288,9 +19313,11 @@ async function applyIstHorizonOverride(yearsRaw){
   // ist deterministisch und respektiert die neue Horizont-Laenge).
   try {
     updateProjectionChartsFromSimulation(strategyState && strategyState.allocation);
-    // SOLL-Fächer (Best/Haupt/Worst) ebenfalls auf den neuen Horizont neu zeichnen,
+    // SOLL-Fächer (P90/Median/P10) ebenfalls auf den neuen Horizont neu zeichnen,
     // sonst bliebe nur die deterministische Linie auf neuer Länge.
     upgradeFanChartWithMonteCarlo(strategyState && strategyState.allocation);
+    // AA-UX-NUMBERS-001: Tabellen-Endwerte am neuen Anzeige-Horizont lesen.
+    if (strategyState && strategyState.allocation) renderAaProjectionEndValues(strategyState.allocation);
   } catch(e) { /* defensive */ }
   // Effektiv-Label mit der NEU geladenen Projektion aktualisieren (bis Jahr / Jahre).
   updateHorizonEffectiveLabel();
@@ -19375,6 +19402,10 @@ function _truncateProjectionChartsTo(years){
     ((ch.data.datasets)||[]).forEach(function(d){ if(d&&Array.isArray(d.data)&&d.data.length>keep){ d.data=d.data.slice(0,keep); changed=true; } });
     if(changed){ try{ ch.update(); }catch(_e){} }
   });
+  // AA-UX-NUMBERS-001: Kennzahlen-Endwerte (Tabelle) synchron mit der Grafik
+  // am neuen Horizont lesen -- sonst endet der Faecher z.B. 2036, die Tabelle
+  // zeigt aber den Wert am Simulationsende.
+  try{ if(typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation)renderAaProjectionEndValues(strategyState.allocation); }catch(_e){}
 }
 // Expliziter Speichern/Anwenden-Knopf: wendet den aktuell gewaehlten Modus + Wert an
 // (mehrfach beliebig wiederholbar). Persistenz + Re-Render passieren in den
@@ -19824,7 +19855,7 @@ function renderOverviewProjectionSummary(config){
   var targetCagrBps=Number(config&&config.targetCagrBps||0);
   var currentAnnualNetCashflowRappen=Number(config&&config.currentAnnualNetCashflowRappen||0);
   var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
-  var horizonLabel=String(config&&config.horizonLabel||'2033');
+  var horizonLabel=String(config&&config.horizonLabel||'Horizontende');
   var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
   var tone=deltaChf>=0?'var(--pos)':'var(--warn)';
   setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));
@@ -19857,7 +19888,7 @@ function updateAllocationProjectionComparison(config){
   var currentAnnualNetCashflowRappen=Number(config&&config.currentAnnualNetCashflowRappen||0);
   var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
   var targetCagrBps=Number(config&&config.targetCagrBps||0);
-  var horizonLabel=String(config&&config.horizonLabel||'2033');
+  var horizonLabel=String(config&&config.horizonLabel||'Horizontende');
   var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
   setText('aa-proj-current-wealth',formatCompactCHF(currentProjectedRappen/100));
   setText('aa-proj-target-wealth',formatCompactCHF(targetProjectedRappen/100));
@@ -20217,6 +20248,13 @@ function wireProjectionChartHoverSync(){
     b.addEventListener('mouseleave',function(){__clearSiblingHover(charts.opt);});
   }catch(e){/* defensiv */}
 }
+// AA-UX-NUMBERS-001: einheitliche Szenario-Namen fuer Faecher, Tabelle und
+// Aria. P10 ist keine Untergrenze (1 von 10 Verlaeufen liegt darunter).
+function aaScenarioLabel(key){
+  if(key==='p90')return 'Günstiges Szenario (P90)';
+  if(key==='p10')return 'Ungünstiges Szenario (P10)';
+  return 'Mittleres Szenario (Median)';
+}
 function upgradeCurrentAaChartWithMonteCarlo(result){
   if(!charts.aaCurrent||!charts.aaCurrent.data)return;
   var mc=monteCarloPayload(result);
@@ -20227,7 +20265,7 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
     ? result.cashflow_projection_series_rappen.map(function(value){return Number(value||0);}).slice(0,Math.max(0,labels.length-1))
     : [];
   // 2026-06-14: KEIN Early-Return mehr. Die IST-Grafik zeigt IMMER die drei
-  // Szenarien (Best/Haupt/Worst) aus der Monte-Carlo-Simulation des heutigen
+  // Szenarien (P90/Median/P10) aus der Monte-Carlo-Simulation des heutigen
   // Mix — nur so ist sie achsen- UND inhaltsgleich mit der SOLL-Grafik
   // vergleichbar (User-Anforderung). Die alte Differenz-Heuristik, die hier
   // sonst die Bänder unterdrückte, ist entfernt.
@@ -20239,7 +20277,8 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
   charts.aaCurrent.data.labels=labels;
   charts.aaCurrent.data.datasets=[
     {
-      label:'Best Case',
+      label:aaScenarioLabel('p90'),
+      scenarioKey:'p90',
       data:p90,
       borderColor:'rgba(146,64,14,0.28)',
       backgroundColor:'rgba(146,64,14,0.10)',
@@ -20251,7 +20290,8 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
       stepped:false
     },
     {
-      label:'Hauptszenario',
+      label:aaScenarioLabel('p50'),
+      scenarioKey:'p50',
       data:p50,
       borderColor:'rgba(146,64,14,0.82)',
       backgroundColor:'rgba(146,64,14,0.10)',
@@ -20262,7 +20302,8 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
       stepped:false
     },
     {
-      label:'Worst Case',
+      label:aaScenarioLabel('p10'),
+      scenarioKey:'p10',
       data:p10,
       borderColor:'rgba(146,64,14,0.28)',
       backgroundColor:'transparent',
@@ -20314,14 +20355,15 @@ function upgradeFanChartWithMonteCarlo(result){
     eventPointBackground.push(capitalNet>0?'rgb(22,101,52)':(capitalNet<0?'rgb(139,30,30)':'rgb(15,72,38)'));
   });
   if(!p90.length||!p10.length)return;
-  // 2026-06-14: IDENTISCHE Struktur wie die IST-Grafik — Best/Hauptszenario/Worst
+  // 2026-06-14: IDENTISCHE Struktur wie die IST-Grafik — P90/Median/P10
   // in DIESER Reihenfolge (Haupt in der Mitte) + gleiche Legenden-Labels, damit
   // der Vergleich 1:1 lesbar ist. Fill-Kette: Best→Haupt→Worst (zwei Bänder).
   var mainData=p50.length?p50:(deterministic.length?deterministic:p10);
   charts.opt.data.labels=labels;
   charts.opt.data.datasets=[
     {
-      label:'Best Case',
+      label:aaScenarioLabel('p90'),
+      scenarioKey:'p90',
       data:p90,
       borderColor:'rgba(22,101,52,0.30)',
       backgroundColor:'rgba(22,101,52,0.10)',
@@ -20332,7 +20374,8 @@ function upgradeFanChartWithMonteCarlo(result){
       tension:0.18
     },
     {
-      label:'Hauptszenario',
+      label:aaScenarioLabel('p50'),
+      scenarioKey:'p50',
       data:mainData,
       borderColor:'rgb(15,72,38)',
       backgroundColor:'rgba(22,101,52,0.10)',
@@ -20347,7 +20390,8 @@ function upgradeFanChartWithMonteCarlo(result){
       stepped:false
     },
     {
-      label:'Worst Case',
+      label:aaScenarioLabel('p10'),
+      scenarioKey:'p10',
       data:p10,
       borderColor:'rgba(22,101,52,0.30)',
       backgroundColor:'transparent',
@@ -20364,11 +20408,96 @@ function upgradeFanChartWithMonteCarlo(result){
     font:{size:9},
     boxWidth:9,
     padding:7
-    // 2026-06-14: alle drei Szenarien (Best/Haupt/Worst) in der Legende zeigen —
+    // 2026-06-14: alle drei Szenarien (P90/Median/P10) in der Legende zeigen —
     // konsistent mit der IST-Grafik, für den direkten Vergleich.
   };
   charts.opt.update();
   syncAaProjectionAxisScales();
+}
+// AA-UX-NUMBERS-001: Endjahr aus den Daten statt hart codiertem Fallback.
+function projectionHorizonYearLabel(source){
+  var sim=(source&&Array.isArray(source.year_labels))?source:simulationPayload(source);
+  var labels=(sim&&Array.isArray(sim.year_labels))?sim.year_labels:[];
+  if(!labels.length)return '';
+  var last=labels[labels.length-1];
+  return (last==null||last==='')?'':String(last);
+}
+// Anzahl angezeigter Punkte (Jahr 0..N) -- identisch zur Kappung des Faechers
+// in upgradeFanChartWithMonteCarlo (Berater-Override aus dem Grafik-Ausschnitt).
+function aaProjectionHorizonCut(length){
+  var n=Math.max(0,Math.floor(Number(length)||0));
+  var ov=(typeof loadIstHorizonOverride==='function')?loadIstHorizonOverride():null;
+  return (ov&&ov>0)?Math.min(n,ov+1):n;
+}
+function aaSeriesValueAt(series,cut){
+  if(!Array.isArray(series)||!series.length)return 0;
+  var c=Number(cut);
+  var idx=(isFinite(c)&&c>=1)?Math.min(series.length,Math.floor(c))-1:series.length-1;
+  return Number(series[idx]||0);
+}
+// Endwerte (Median/P90/P10), Vermoegenswachstum und Median-Differenz der
+// Kennzahlen-Tabelle -- gelesen am ANGEZEIGTEN Horizont (wie der Faecher) und
+// mit Jahresangabe. SOLL- und IST-Wachstum aus derselben Quelle (MC-Median-Pfad).
+function renderAaProjectionEndValues(result){
+  var mc=monteCarloPayload(result);
+  var sim=simulationPayload(result);
+  var labels=(mc&&Array.isArray(mc.year_labels)&&mc.year_labels.length)?mc.year_labels:((sim&&Array.isArray(sim.year_labels))?sim.year_labels:[]);
+  var baseSeries=mc?mc.target_p50_series_rappen:(sim?sim.target_mix_series_rappen:[]);
+  var fullLen=labels.length||((baseSeries&&baseSeries.length)||0);
+  var cut=aaProjectionHorizonCut(fullLen);
+  var year=(cut>=1&&labels.length>=cut&&labels[cut-1]!=null)?String(labels[cut-1]):'';
+  var lastYear=labels.length?String(labels[labels.length-1]):'';
+  // Liquiditaetsreserve-Sockel konsistent zur SOLL-Kurve auf die SOLL-Werte
+  // aufschlagen (Backend rechnet sie aus dem Startkapital heraus).
+  var res=Math.round(Number(result&&result.external_reserve_rappen||0));
+  var withRes=function(arr){return (Array.isArray(arr)?arr:[]).map(function(v){return Number(v||0)+res;});};
+  var upTo=function(arr){return (Array.isArray(arr)?arr:[]).slice(0,Math.max(1,cut));};
+  var tMedSeries=mc?withRes(mc.target_p50_series_rappen):(sim?(sim.target_mix_series_rappen||[]).map(Number):[]);
+  var cMedSeries=mc&&Array.isArray(mc.current_p50_series_rappen)?mc.current_p50_series_rappen:[];
+  var tMed=tMedSeries.length?aaSeriesValueAt(tMedSeries,cut):0;
+  var cMed=cMedSeries.length?aaSeriesValueAt(cMedSeries,cut):0;
+  var tP90=mc?aaSeriesValueAt(mc.target_p90_series_rappen,cut):0; if(tP90)tP90+=res;
+  var tP10=mc?aaSeriesValueAt(mc.target_p10_series_rappen,cut):0; if(tP10)tP10+=res;
+  var cP90=mc?aaSeriesValueAt(mc.current_p90_series_rappen,cut):0;
+  var cP10=mc?aaSeriesValueAt(mc.current_p10_series_rappen,cut):0;
+  var tCagr=tMedSeries.length>1?simulationCagrBps(upTo(tMedSeries)):null;
+  var cCagr=cMedSeries.length>1?simulationCagrBps(upTo(cMedSeries)):null;
+  var pre='Endwert'+(year?(' '+year):'')+' – ';
+  setText('aa-proj-lbl-median',pre+'Mittleres Szenario (Median)');
+  setText('aa-proj-lbl-p90',pre+'Günstiges Szenario (P90)');
+  setText('aa-proj-lbl-p10',pre+'Ungünstiges Szenario (P10)');
+  setText('aa-proj-median',tMed?formatCompactCHF(tMed/100):'—');
+  setText('aa-proj-current-median',cMed?formatCompactCHF(cMed/100):'—');
+  setText('aa-proj-p90',tP90?formatCompactCHF(tP90/100):'—');
+  setText('aa-proj-current-p90',cP90?formatCompactCHF(cP90/100):'—');
+  setText('aa-proj-p10',tP10?formatCompactCHF(tP10/100):'—');
+  setText('aa-proj-current-p10',cP10?formatCompactCHF(cP10/100):'—');
+  setText('aa-proj-cagr',tCagr==null?'—':((tCagr/100).toFixed(2)+'%'));
+  setText('aa-proj-current-cagr',cCagr==null?'—':((cCagr/100).toFixed(2)+'%'));
+  setText('aa-proj-delta-label','Differenz der Median-Endwerte SOLL − IST'+(year?(' '+year):''));
+  var deltaEl=document.getElementById('aa-proj-delta-value');
+  if(deltaEl){
+    if(tMed&&cMed){
+      var d=tMed-cMed;
+      deltaEl.textContent=(d>=0?'+':'−')+formatCompactCHF(Math.abs(d)/100);
+    }else{
+      deltaEl.textContent='—';
+    }
+    // Neutral: Differenz zweier Mediane ist kein gesicherter Gewinn.
+    deltaEl.style.color='var(--n7)';
+  }
+  setText('aa-horizon-sim-end',(year&&lastYear&&cut<fullLen)?('Ausschnitt bis '+year+' – Simulation läuft bis '+lastYear):'');
+  var paint=function(id,sv,iv){
+    var el=document.getElementById(id); if(!el)return;
+    var a=Number(sv), b=Number(iv);
+    if(sv==null||iv==null||!isFinite(a)||!isFinite(b)||(!a&&!b)||a===b){el.style.color='var(--n7)';return;}
+    el.style.color=(a>b)?'var(--pos)':'var(--warn)';
+  };
+  paint('aa-proj-median',tMed,cMed);
+  paint('aa-proj-p90',tP90,cP90);
+  paint('aa-proj-p10',tP10,cP10);
+  paint('aa-proj-cagr',tCagr,cCagr);
+  return {cut:cut,year:year,targetMedianRappen:tMed,currentMedianRappen:cMed,targetCagrBps:tCagr,currentCagrBps:cCagr};
 }
 function simulationCagrBps(series){
   var values=Array.isArray(series)?series:[];
@@ -21410,7 +21539,7 @@ function renderStrategySummary(){
   setText('sr-proj-sub',sim?('Simulation bis '+String((sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'')):'Nach Umsetzung Soll');
   var srProjValue=document.getElementById('sr-proj-wealth');
   if(srProjValue&&srProjValue.previousElementSibling){
-    srProjValue.previousElementSibling.textContent='Prognose '+String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033');
+    srProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
   }
   setText('sr-strategy-name',risk&&risk.final_profile?risk.final_profile:'Nicht definiert');
   setText('sr-horizon',risk&&risk.investment_horizon_years?(risk.investment_horizon_years+' Jahre'):'Langfristig');
@@ -21532,7 +21661,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   setText('sr-proj-sub',sim?('Terminal Value bis '+String((sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'')):'Aktuelle Soll-Allokation');
   var srProjValue=document.getElementById('sr-proj-wealth');
   if(srProjValue&&srProjValue.previousElementSibling){
-    srProjValue.previousElementSibling.textContent='Prognose '+String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033');
+    srProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
   }
   setText('sr-strategy-name',activeRisk&&activeRisk.final_profile?activeRisk.final_profile:'Nicht definiert');
   setText('sr-horizon',activeRisk&&activeRisk.investment_horizon_years?(activeRisk.investment_horizon_years+' Jahre'):(sim&&sim.horizon_years?(sim.horizon_years+' Jahre'):'Langfristig'));
@@ -21756,14 +21885,10 @@ function applyAllocationEngineResult(result){
   var advisoryCurrentMixReturnBps=advisoryBaselineProjection.expectedReturnBps;
   var advisoryCagrBps=sim?simulationCagrBps(sim.target_mix_series_rappen):Number(result.expected_return_bps||0);
   var deltaChf=Math.round((advisoryProjectedRappen-advisoryCurrentProjectedRappen)/100);
-  // 2026-06-17: Liquiditätsreserve-Sockel konsistent zur SOLL-Kurve auch auf die
-  // SOLL-Endwerte aufschlagen (Backend rechnet sie raus). _resRappen = der Carve-out.
-  var _resRappen=Math.round(Number(result&&result.external_reserve_rappen||0));
-  var mcTargetMedianRappen=mc&&Array.isArray(mc.target_p50_series_rappen)&&mc.target_p50_series_rappen.length?(Number(mc.target_p50_series_rappen[mc.target_p50_series_rappen.length-1]||0)+_resRappen):advisoryProjectedRappen;
   setText('aa-proj-wealth',formatCompactCHF(advisoryProjectedRappen/100));
   var aaProjValue=document.getElementById('aa-proj-wealth');
   if(aaProjValue&&aaProjValue.previousElementSibling){
-    aaProjValue.previousElementSibling.textContent='Prognose '+String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033');
+    aaProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
   }
   updateAllocationProjectionComparison({
     currentProjectedRappen:advisoryCurrentProjectedRappen,
@@ -21773,7 +21898,7 @@ function applyAllocationEngineResult(result){
     currentAnnualNetCashflowRappen:advisoryCurrentAnnualNetRappen,
     currentMixReturnBps:advisoryCurrentMixReturnBps,
     targetCagrBps:advisoryCagrBps,
-    horizonLabel:String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033')
+    horizonLabel:projectionHorizonYearLabel(sim)
   });
   renderOverviewProjectionSummary({
     currentProjectedRappen:totalBaselineProjection.projectedRappen,
@@ -21784,29 +21909,20 @@ function applyAllocationEngineResult(result){
     currentMixReturnBps:totalBaselineProjection.expectedReturnBps,
     currentCagrBps:totalBaselineProjection.cagrBps,
     targetCagrBps:totalImprovedProjection.cagrBps,
-    horizonLabel:String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033')
+    horizonLabel:projectionHorizonYearLabel(sim)
   });
   // 3eyes-Paritaet: zwei Renditesaetze — Reinvermoegen (gesamt, optimiert) vs.
   // Beratungsvermoegen (der Teil, auf den die Optimierung wirkt).
   setText('ub-return-rein',((Number(totalImprovedProjection.cagrBps||0)/100).toFixed(2))+'%');
   setText('ub-return-beratung',((Number(advisoryCagrBps||0)/100).toFixed(2))+'%');
-  setText('aa-proj-cagr',((Number(advisoryCagrBps||0)/100).toFixed(2))+'%');
-  setText('aa-proj-median',formatCompactCHF(mcTargetMedianRappen/100));
   setText('aa-proj-p50-return',((Number(mc&&mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'%');
   setText('aa-proj-current-p50-return',((Number(mc&&mc.current_annualized_return_p50_bps||0)/100).toFixed(2))+'%');
   setText('aa-proj-runway-target',projectionRunwayLabel(mc&&mc.target_p50_series_rappen,mc&&mc.year_labels));
   setText('aa-proj-runway-current',projectionRunwayLabel(mc&&mc.current_p50_series_rappen,mc&&mc.year_labels));
-  // 2026-06-14: IST-Spalte des Kennzahlen-Vergleichs (heutiger Mix, Median) +
-  // Beratungs-Mehrwert (Median-Endwert SOLL − IST).
-  var mcCurrentMedianRappen=mc&&Array.isArray(mc.current_p50_series_rappen)&&mc.current_p50_series_rappen.length?Number(mc.current_p50_series_rappen[mc.current_p50_series_rappen.length-1]||0):0;
-  setText('aa-proj-current-median',mcCurrentMedianRappen?formatCompactCHF(mcCurrentMedianRappen/100):'—');
-  setText('aa-proj-current-cagr',((Number(simulationCagrBps(mc&&mc.current_p50_series_rappen)||0)/100).toFixed(2))+'%');
-  var mcDeltaMedianRappen=Number(mcTargetMedianRappen||0)-Number(mcCurrentMedianRappen||0);
-  var deltaEl=document.getElementById('aa-proj-delta-value');
-  if(deltaEl){
-    deltaEl.textContent=(mcDeltaMedianRappen>=0?'+':'−')+formatCompactCHF(Math.abs(mcDeltaMedianRappen)/100);
-    deltaEl.style.color=mcDeltaMedianRappen>=0?'var(--pos)':'var(--warn)';
-  }
+  // AA-UX-NUMBERS-001: Endwerte (Median/P90/P10, inkl. Reserve-Sockel),
+  // Vermoegenswachstum SOLL/IST aus derselben MC-Median-Quelle und die
+  // (neutrale) Median-Differenz -- am angezeigten Horizont, mit Jahresangabe.
+  renderAaProjectionEndValues(result);
   // 2026-06-14: Risikometriken zweispaltig SOLL vs IST (gleiche MC-Methodik).
   // Volatilität = MC-1J-Streuung (target/current_volatility_1y_bps) für saubere
   // Vergleichbarkeit; Fallback auf analytische Mix-Vola wenn (alt) nicht vorhanden.
@@ -21836,15 +21952,7 @@ function applyAllocationEngineResult(result){
   };
   setText('aa-proj-depletion',_fmtDepletion(mc&&mc.target_depletion_probability_pct, mc&&mc.target_depletion_median_year));
   setText('aa-proj-current-depletion',_fmtDepletion(mc&&mc.current_depletion_probability_pct, mc&&mc.current_depletion_median_year));
-  // 2026-06-15 (#37): Endwert optimistisch (P90) / pessimistisch (P10), SOLL vs IST.
-  var _lastRappen=function(arr){return (Array.isArray(arr)&&arr.length)?Number(arr[arr.length-1]||0):0;};
-  var _tP90=_lastRappen(mc&&mc.target_p90_series_rappen); if(_tP90)_tP90+=_resRappen;
-  var _tP10=_lastRappen(mc&&mc.target_p10_series_rappen); if(_tP10)_tP10+=_resRappen;
-  var _cP90=_lastRappen(mc&&mc.current_p90_series_rappen), _cP10=_lastRappen(mc&&mc.current_p10_series_rappen);
-  setText('aa-proj-p90', _tP90?formatCompactCHF(_tP90/100):'—');
-  setText('aa-proj-current-p90', _cP90?formatCompactCHF(_cP90/100):'—');
-  setText('aa-proj-p10', _tP10?formatCompactCHF(_tP10/100):'—');
-  setText('aa-proj-current-p10', _cP10?formatCompactCHF(_cP10/100):'—');
+  // 2026-06-15 (#37): Endwerte P90/P10 SOLL vs IST -> renderAaProjectionEndValues.
   // 2026-06-15 (#35): Sharpe (Rendite/Risiko) = (Median-Rendite − risk-free) / Vola.
   // risk-free = 80 bps (= liquidity_return_bps, Backend-Konvention portfolio_engine).
   var _RF_BPS=80;
@@ -21861,12 +21969,8 @@ function applyAllocationEngineResult(result){
     if(!isFinite(sv)||!isFinite(iv)||sv===iv){ el.style.color='var(--n7)'; return; }
     el.style.color=(higherBetter?(sv>iv):(sv<iv))?'var(--pos)':'var(--warn)';
   };
-  _colorBetter('aa-proj-median', mcTargetMedianRappen, mcCurrentMedianRappen, true);
-  _colorBetter('aa-proj-p90', _tP90, _cP90, true);
-  _colorBetter('aa-proj-p10', _tP10, _cP10, true);
   _colorBetter('aa-proj-sharpe', _shT, _shC, true);
   _colorBetter('aa-proj-p50-return', mc&&mc.target_annualized_return_p50_bps, mc&&mc.current_annualized_return_p50_bps, true);
-  _colorBetter('aa-proj-cagr', advisoryCagrBps, simulationCagrBps(mc&&mc.current_p50_series_rappen), true);
   _colorBetter('aa-proj-vol', _tVol, mc&&mc.current_volatility_1y_bps, false);
   _colorBetter('aa-proj-var95', mc&&mc.target_var_95_1y_bps, mc&&mc.current_var_95_1y_bps, false);
   _colorBetter('aa-proj-cvar95', mc&&mc.target_cvar_95_1y_bps, mc&&mc.current_cvar_95_1y_bps, false);
