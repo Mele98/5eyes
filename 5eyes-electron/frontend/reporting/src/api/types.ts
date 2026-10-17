@@ -400,6 +400,14 @@ export interface MonteCarloPaths {
   p5?: number[];
   p50?: number[];
   p75?: number[];
+  /**
+   * REPORT-FAN-CHART-BANDS-001: Faecher-Baender in Rappen. P10–P90 =
+   * zentrale 80 %, P25–P75 = zentrale 50 % der Pfade. Aeltere Payloads
+   * liefern sie nicht -> Chart faellt ehrlich beschriftet auf p5–p75 zurueck.
+   */
+  p10?: number[];
+  p25?: number[];
+  p90?: number[];
   /** ISO-Jahresstrings, Laenge = horizon_years + 1, gleich-laenge wie pX. */
   time_axis?: string[];
   /** U-11 metadata fuer Audit / Reproduktion. */
