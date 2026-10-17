@@ -77,7 +77,14 @@ def test_opt1_weights_change_chance_penalty():
     # Shortfall, weil zwei Pfade fast keine Evidenz sind) -- ein fester
     # Faktor ist dort keine sinnvolle Zusicherung mehr. Geprueft wird
     # stattdessen ein klarer, aber formelunabhaengiger Abstand.
-    assert mass_on_fail > uniform * 1.25
+    #
+    # OBJECTIVE-NORMALIZATION-001 (2026-10-18): stand hier
+    # `mass_on_fail > uniform * 1.25`. Seit die Strafe LINEAR im Defizit ist
+    # (statt quadratisch), schrumpft das Verhaeltnis (0.80 / 0.68 = 1.18) --
+    # ein Faktor bleibt formelabhaengig. Geprueft wird ein klarer
+    # absoluter Abstand in der Einheit der Strafe (Defizit-Anteil, hier
+    # Zielvolumen = W0): mehr als 0.1 Wahrscheinlichkeitsdefizit.
+    assert mass_on_fail - uniform > 0.1
 
     # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): hier stand
     # frueher `mass_on_pass == 0.0 or mass_on_pass < 1e-6`. Bei ZWEI Pfaden
@@ -128,4 +135,6 @@ def test_opt1_uniform_matches_unweighted_mean():
     abgeleitet statt als neue Magic Number eingetragen.
     """
     expected_shortfall = 0.8 - wilson_lower_bound(0.5, 2)
-    assert abs(_chance_only(None) - expected_shortfall ** 2) < 1e-9
+    # OBJECTIVE-NORMALIZATION-001: linear im Defizit mal (Zielvolumen/W0)^2,
+    # hier 100k / 100k = 1; lambda_chance = 1.0.
+    assert abs(_chance_only(None) - expected_shortfall * 1.0) < 1e-9

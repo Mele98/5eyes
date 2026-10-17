@@ -130,8 +130,11 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     # Entscheid und Test sind vollstaendig dokumentiert.
     significance = resampling["significance"]
     assert significance["decision"] in {"optimizer", "house_matrix"}
-    assert significance["test"] == "paired_bootstrap_one_sided_lexicographic_v2"
-    assert significance["comparison"] in {"goal_level", "volatility_tiebreak"}
+    # OBJECTIVE-NORMALIZATION-001 (2026-10-18): der Solver minimiert eine
+    # stetige, Pareto-monotone Skalar-Zielfunktion; der Test vergleicht
+    # wieder genau diese (v3), nicht mehr die zwei Stufen getrennt (v2).
+    assert significance["test"] == "paired_bootstrap_one_sided_scalar_v3"
+    assert significance["comparison"] == "scalar"
     assert significance["p_value"] is not None
     assert resampling["final_weights_bps"] == result.weights_bps
     # Die publizierte Allokation erfuellt alle harten Constraints.

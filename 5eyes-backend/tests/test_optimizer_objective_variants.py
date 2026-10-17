@@ -250,8 +250,9 @@ def test_variants_are_dimensionless_and_commensurate(mode: str) -> None:
 
     L(w) normalisiert auf das Anfangsvermoegen und liegt typisch in [0, 1].
     Waere eine Variante in Rappen oder Rappen^2 skaliert, wuerde die
-    Chance-Penalty (lambda = 1e6) sie entweder voellig erdruecken oder voellig
-    verschwinden -- die Variante waere nominell vorhanden und wirkungslos.
+    Chance-Penalty (Defizit mal (Zielvolumen/W0)^2, ebenfalls in dieser
+    Einheit) sie entweder voellig erdruecken oder voellig verschwinden -- die
+    Variante waere nominell vorhanden und wirkungslos.
     """
     for factors in (_RUHIG, _UNRUHIG):
         value = primary_objective(
