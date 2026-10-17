@@ -1645,6 +1645,24 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
     from services.depot_check import compute_depot_check
 
     dc = compute_depot_check(db, mandate) or {}
+    if dc.get("soll_ausgeblendet"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001: ein Depot-Check-PDF ist ein
+        # Soll/Ist-Vergleich. Bei veralteter Soll-Allokation gibt es keine
+        # gueltigen Zielzahlen -- blockieren (409) statt alte Ziele zu drucken.
+        if dc.get("target_allocation_inputs_stale"):
+            grund = (
+                "Vermoegen, Cashflows oder Ziele haben sich seit der "
+                "Berechnung geaendert"
+            )
+        else:
+            grund = (
+                "sie basiert auf einem frueheren, nicht mehr aktuellen "
+                "Risikoprofil"
+            )
+        raise ValueError(
+            f"Depot-Check kann nicht erstellt werden: die Soll-Allokation ist "
+            f"veraltet ({grund}). Bitte Strategie neu berechnen."
+        )
     sr = compute_stress_replays(db, mandate) or {}
     fc = dc.get("fund_characteristics") or {}
     strategy = _build_anlagestrategie_data(mandate, db)
