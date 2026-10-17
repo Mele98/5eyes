@@ -2339,6 +2339,9 @@ def download_products_csv_template(
     )
 
 
+_PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
+
+
 @products_router.put("/{product_id}", response_model=ProductResponse)
 def update_product(
     product_id: str,
@@ -2357,6 +2360,14 @@ def update_product(
     """
     product = _get_product_or_404(product_id, db, current_user)
     payload = body.model_dump(exclude_none=True)
+    # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
+    # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
+    # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt
+    # galt weiter als net_zero-zulaessig, obwohl der Nachweis entfallen ist.
+    # Nicht gesendete Felder bleiben unveraendert (model_fields_set).
+    for field in _PRODUCT_CLEARABLE_ESG_FIELDS:
+        if field in body.model_fields_set and getattr(body, field) is None:
+            payload[field] = None
     if not payload:
         return product
     for field, value in payload.items():

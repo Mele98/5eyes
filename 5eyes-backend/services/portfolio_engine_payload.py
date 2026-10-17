@@ -788,6 +788,15 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
 }
 
 
+# Self-Review 2026-10-18: die Liquiditaets-Ausnahme (siehe
+# _product_matches_constraints) gehoert in jedes Kundendokument, das ein
+# Kriterium nennt -- sonst behauptet "nur Produkte nach SFDR Art. 9" mehr, als
+# die Engine umsetzt (Konto/Festgeld haben keine SFDR-Klasse).
+ESG_POLICY_LIQUIDITY_EXEMPTION = (
+    "Liquiditaet (Konto/Festgeld ohne SFDR-Klassifikation) ist vom Kriterium ausgenommen"
+)
+
+
 def esg_policy_criterion_label(policy: str | None) -> str | None:
     """'<Name> (<exaktes Kriterium>)' fuer SFDR-gebundene Policies, sonst None."""
     if policy not in ESG_POLICY_CRITERIA:

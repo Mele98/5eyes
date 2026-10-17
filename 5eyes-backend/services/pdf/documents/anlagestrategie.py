@@ -676,6 +676,7 @@ def _make_preferences_section(preferences, styles) -> list:
     # _product_matches_constraints) -- Dokument == Engine.
     from services.portfolio_engine_payload import (
         ESG_POLICY_CRITERIA,
+        ESG_POLICY_LIQUIDITY_EXEMPTION,
         THEME_DISPLAY_NAMES,
         THEME_TILT_ALLOW,
         effective_theme_screening,
@@ -691,7 +692,10 @@ def _make_preferences_section(preferences, styles) -> list:
             "sofern nicht abweichend festgelegt)"
         ),
     }
-    esg_labels.update({key: esg_policy_criterion_label(key) for key in ESG_POLICY_CRITERIA})
+    esg_labels.update({
+        key: f"{esg_policy_criterion_label(key)}; {ESG_POLICY_LIQUIDITY_EXEMPTION}"
+        for key in ESG_POLICY_CRITERIA
+    })
 
     rows = [["Bereich", "Festgehaltene Praeferenz"]]
     rows.extend([
