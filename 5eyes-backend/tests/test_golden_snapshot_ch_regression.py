@@ -106,13 +106,28 @@ beiden Kernel-Familien, die frueher die zwei CI-Auspraegungen lieferten. Alle
 sechs Dateien kamen byte-identisch zurueck (das Bag-Mittel glaettet das
 SLSQP-Rundungsrauschen). Begruendung je Datei:
 docs/planning/2026-10-14-saa-stability-resampling.md.
+
+Nachtrag (2026-10-17, SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 /
+SAA-SEED-FLOAT-ROBUST-001): die am 16.10. eingefrorenen Fixtures fielen am
+17.10. in CI durch (bucket3/5/7/equities_global; chfonly lief wegen
+--maxfail=5 gar nicht mehr). Keine Plattform-Frage: lokal unter Windows kamen
+am 17.10. exakt dieselben Werte wie auf dem Linux-Runner. Wurzel 1: das
+Seeding unten setzte die Zieldaten auf "heute + N*365 Tage", der Inhalts-Seed
+hasht die Zieldaten -> jeder Kalendertag zog andere Bag-Wuerfel (Beleg:
+date.today() im Seeding auf den 16.10. gestellt -> alle Fixtures wieder
+gruen). Die Daten sind jetzt kalenderjahr-relativ mit festem Monat/Tag, und
+der Seed hasht sie relativ zum Bewertungsjahr. Wurzel 2 (Methodik): bei
+Score 7 kippte der Hausmatrix-Signifikanzentscheid je nach Wuerfel (60 % vs.
+68 % Aktien), weil die Skalar-Zielfunktion als Differenz zweier Allokationen
+nicht monoton ist (Stufe-2-Volatilitaetsterm pro Allokation zugeschaltet);
+der Test vergleicht jetzt lexikographisch. Fixtures danach neu eingefroren.
 """
 from __future__ import annotations
 
 import json
 import re
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -211,10 +226,18 @@ def _seed_ch_mandate(session_factory, *, suffix: str, score_x10: int) -> tuple[s
     gid_pension = f"golden-goal-pension-{suffix}"
     gid_wealth = f"golden-goal-wealth-{suffix}"
     now = _now()
-    today = date.today()
-    pension_start = (today + timedelta(days=365 * 5)).isoformat()
-    pension_end = (today + timedelta(days=365 * 30)).isoformat()
-    wealth_target_date = (today + timedelta(days=365 * 10)).isoformat()
+    # SAA-SEED-FLOAT-ROBUST-001 (2026-10-17): Zieldaten KALENDERJAHR-relativ
+    # mit festem Monat/Tag, nicht "heute + N*365 Tage". Die Goal-Daten gehen
+    # (relativ zum Bewertungsjahr) in den Inhalts-Seed ein; mit tagesrelativen
+    # Daten zog jeder Kalendertag einen anderen Wuerfel -- die am 16.10.
+    # eingefrorenen Fixtures fielen am 17.10. in CI durch (reproduziert durch
+    # blosses Umstellen von date.today() im Seeding). So bleiben Seed UND die
+    # Kalenderjahr-Achse der Engine (date.today().year) ueber das ganze Jahr
+    # und ueber Jahreswechsel hinweg gleich.
+    base_year = date.today().year
+    pension_start = date(base_year + 5, 6, 30).isoformat()
+    pension_end = date(base_year + 30, 6, 30).isoformat()
+    wealth_target_date = date(base_year + 10, 6, 30).isoformat()
 
     with session_factory() as s:
         s.add(User(
@@ -458,8 +481,19 @@ def _build_ch_snapshot(session_factory, combo: dict) -> dict:
 # Fachlogik-Regression verursachen wuerde (typischerweise hunderte bis
 # tausende bps Verschiebung, nicht einstellig/zweistellig).
 # ---------------------------------------------------------------------------
-_BPS_TOLERANCE = 20
-_RAPPEN_TOLERANCE = 100_000  # = CHF 1'000
+#
+# Nachtrag 2026-10-17 (SAA-RESAMPLED-STABILITY-001, v2): mit dem Bag-Mittel
+# gibt es einen zweiten Rauschkanal -- unter einem anderen BLAS-Kernel landet
+# gelegentlich EIN Bag (von 40) auf einer anderen, nahezu gleichwertigen Ecke
+# und verschiebt das Mittel. Gemessen Haswell vs. Nehalem, identischer Code
+# und identischer Inhalts-Seed (8371157439290704497): 5 von 6 Fixtures
+# byte-identisch, bucket5_ausgewogen_default_prefs max. 22 bps
+# (targets_bps.real_estate 854 vs. 832), Positionen max. 17 bps, CHF max.
+# 1'100 (Immobilien-Schritt 42'700 vs. 41'600; deshalb CHF 1'500). Entscheid
+# und Produktauswahl identisch. Toleranz daher 30 bps -- weiter weit unter dem
+# 1-pp-Stabilitaetsziel und unter jeder fachlichen Regression.
+_BPS_TOLERANCE = 30
+_RAPPEN_TOLERANCE = 150_000  # = CHF 1'500 (Nachtrag 2026-10-17, siehe oben)
 
 # Feldnamen, deren Wert direkt aus der kontinuierlichen SLSQP-Loesung
 # abgeleitet ist und deshalb BLAS-Rundungsrauschen tragen kann -- unabhaengig
