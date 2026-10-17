@@ -23,9 +23,11 @@ Fallback-Strategie (OWNER-DECISION OD-5):
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import time
 from collections.abc import Mapping
+from datetime import date
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from numbers import Integral
@@ -59,7 +61,11 @@ from .goal_liabilities import (
     aggregate_liability_path,
     goals_to_liabilities,
 )
-from .objective import chance_constraint_penalty, combined_objective_two_phase
+from .objective import (
+    chance_constraint_penalty,
+    combined_objective_two_phase,
+    two_phase_objective_parts,
+)
 from .objective_contract import (
     ObjectiveContractV1,
     objective_contract_of,
@@ -70,10 +76,21 @@ from .objective_variants import (
     ObjectiveDomainError,
     refined_drawdown_check_for_winner,
 )
+from .resampling import (
+    DEFAULT_RESAMPLING,
+    MIN_SUCCESSFUL_BAG_SHARE,
+    RESAMPLING_SCHEME_VERSION,
+    ResamplingConfig,
+    bag_seeds,
+    bootstrap_seed,
+    build_bag_paths,
+    paired_bootstrap_improvement,
+)
 from .scenario_cache import (
     build_scenario_paths_cached,
     build_scenario_paths_with_weights_cached,
     scenario_inputs_digest,
+    scenario_inputs_seed_digest,
 )
 from .importance_sampling import (
     DEFAULT_TAIL_SHIFT_STRENGTH,
@@ -153,6 +170,10 @@ class OptimizerResult:
     validation_seed: int | None = None
     validation_cube_hash: str | None = None
     validation_n_paths: int | None = None
+    # SAA-RESAMPLED-STABILITY-001: Audit des Resamplings (Bags, Streuung je
+    # Bucket, Projektion, Signifikanztest gegen die Hausmatrix, Entscheid).
+    # None nur im Einzelwuerfel-Altpfad (ResamplingConfig mit n_bags <= 1).
+    resampling: dict | None = None
     # Exact owned run-context snapshot used by the solver. compare=False is
     # essential because OptimizerContext contains NumPy arrays whose equality
     # is not scalar-valued. The context is intentionally not persisted as JSON;
@@ -176,6 +197,58 @@ class OptimizerResult:
 # Validierungs-Cubes unabhaengig vom Trainings-Stream; ein Offset von z.B. 1
 # oder 2 wuerde bei benachbarten Mandats-Seeds Ueberlappungen riskieren.
 VALIDATION_SEED_OFFSET = 1_000_003
+
+
+def _build_validation_context(
+    context: "OptimizerContext",
+) -> tuple["OptimizerContext", int, str] | None:
+    """Unabhaengiger Validierungs-Cube (gleiche Verteilung, anderer Seed).
+
+    Einzige Konstruktion dieses Cubes: die Nachzertifizierung der
+    Zielerreichung UND der Signifikanztest gegen die Hausmatrix
+    (SAA-RESAMPLED-STABILITY-001) bewerten auf exakt demselben Cube.
+    None, wenn keine ScenarioInputs vorliegen oder der Cube nicht gebaut
+    werden kann.
+    """
+    inputs = getattr(context, "scenario_inputs", None)
+    if inputs is None:
+        return None
+    validation_seed = int(context.seed) + VALIDATION_SEED_OFFSET
+    scenario_horizon = int(
+        getattr(context, "scenario_horizon_years", None) or context.horizon_years
+    )
+    try:
+        validation_paths = build_scenario_paths(
+            inputs,
+            horizon_years=scenario_horizon,
+            n_paths=int(context.n_paths),
+            seed=validation_seed,
+            antithetic=True,
+        )
+    except (ReturnMomentError, ValueError):
+        return None
+    # Wie der Hauptwuerfel auf dem gemeinsamen Szenario-Horizont gezogen und
+    # auf den Optimierungshorizont gekuerzt (sonst passt die Jahresachse
+    # nicht zu Cashflows/Liabilities des Contexts).
+    validation_paths = validation_paths[:, : int(context.horizon_years), :]
+    validation_context = replace(
+        context, return_paths=validation_paths, scenario_weights=None,
+    )
+    # Der Hash identifiziert den CUBE, nicht nur die Verteilung: derselbe
+    # Inputs-Digest mit anderem Seed ist ein anderer Cube. Wuerde hier nur
+    # der Inputs-Digest stehen, waeren Trainings- und Validierungs-Cube
+    # nicht unterscheidbar -- genau die Verwechslung, die dieser Anker
+    # ausschliessen soll.
+    cube_hash = hashlib.sha256(
+        "|".join([
+            scenario_inputs_digest(inputs),
+            str(scenario_horizon),
+            str(int(context.n_paths)),
+            str(validation_seed),
+            "antithetic=True",
+        ]).encode("utf-8")
+    ).hexdigest()
+    return validation_context, validation_seed, cube_hash
 
 
 def _certify_on_independent_validation_cube(
@@ -205,30 +278,12 @@ def _certify_on_independent_validation_cube(
     ``reliability_verdict`` der Rows sichtbar, statt stillschweigend als
     validiert zu gelten.
     """
-    inputs = getattr(context, "scenario_inputs", None)
-    if inputs is None:
+    validation = _build_validation_context(context)
+    if validation is None:
+        # Ohne Inputs bzw. bei fehlgeschlagenem Validierungs-Cube: der Lauf
+        # wird NICHT abgebrochen -- aber er gilt auch nicht als validiert.
         return train_achievability, None, None, None
-
-    validation_seed = int(context.seed) + VALIDATION_SEED_OFFSET
-    scenario_horizon = int(
-        getattr(context, "scenario_horizon_years", None) or context.horizon_years
-    )
-    try:
-        validation_paths = build_scenario_paths(
-            inputs,
-            horizon_years=scenario_horizon,
-            n_paths=int(context.n_paths),
-            seed=validation_seed,
-            antithetic=True,
-        )
-    except (ReturnMomentError, ValueError):
-        # Ein fehlgeschlagener Validierungs-Cube darf den Lauf NICHT
-        # abbrechen -- aber er darf auch nicht als validiert gelten.
-        return train_achievability, None, None, None
-
-    validation_context = replace(
-        context, return_paths=validation_paths, scenario_weights=None,
-    )
+    validation_context, validation_seed, cube_hash = validation
     validation_wealth = _simulate_context_wealth(validation_context, weights_array)
     _penalty, validation_achievability = chance_constraint_penalty(
         validation_wealth,
@@ -240,20 +295,6 @@ def _certify_on_independent_validation_cube(
         ),
         validation_seed=validation_seed,
     )
-    # Der Hash identifiziert den CUBE, nicht nur die Verteilung: derselbe
-    # Inputs-Digest mit anderem Seed ist ein anderer Cube. Wuerde hier nur
-    # der Inputs-Digest stehen, waeren Trainings- und Validierungs-Cube
-    # nicht unterscheidbar -- genau die Verwechslung, die dieser Anker
-    # ausschliessen soll.
-    cube_hash = hashlib.sha256(
-        "|".join([
-            scenario_inputs_digest(inputs),
-            str(scenario_horizon),
-            str(int(context.n_paths)),
-            str(validation_seed),
-            "antithetic=True",
-        ]).encode("utf-8")
-    ).hexdigest()
     return (
         validation_achievability,
         validation_seed,
@@ -548,8 +589,8 @@ def build_optimizer_context(
     """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
 
     Identische Inputs liefern identische Contexts. Wenn `seed=None`, wird der
-    deterministische Seed aus `(cma_id, goal_ids, score_x10, horizon, n_paths)`
-    abgeleitet — gleicher Pfad wie bisher in `run_solver`.
+    deterministische Inhalts-Seed aus dem wirtschaftlichen Inhalt abgeleitet
+    (siehe `optimizer_content_seed`) -- nie aus Datenbank-IDs.
     """
     validated_preferred_target_bps: dict[str, int] | None = None
     if preferred_target_bps is not None:
@@ -591,11 +632,6 @@ def build_optimizer_context(
             "scenario_horizon_years must be >= horizon_years."
         )
 
-    if seed is None:
-        cma_id = getattr(cma, "id", "no-cma")
-        goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
-        seed = deterministic_seed(cma_id, goal_ids, score_x10, horizon_years, n_paths)
-
     canonical_sub_allocations = _canonicalize_sub_allocations(sub_allocations)
     exact_risky_fractions = (
         validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
@@ -622,6 +658,20 @@ def build_optimizer_context(
         cma,
         sub_allocations=list(canonical_sub_allocations) or None,
     )
+    if seed is None:
+        # SAA-RESAMPLED-STABILITY-001: Inhalts-Seed statt ID-Seed. Vorher
+        # gingen `cma.id` und die Goal-IDs in den Seed -- ein geloeschtes und
+        # identisch neu erfasstes Ziel aenderte damit den Monte-Carlo-Wuerfel
+        # und (bei einem flachen Optimum) die Strategie. Jetzt bestimmt
+        # ausschliesslich der wirtschaftliche Inhalt den Seed.
+        seed = optimizer_content_seed(
+            scenario_inputs=inputs,
+            goals=goals,
+            score_x10=score_x10,
+            horizon_years=horizon_years,
+            scenario_horizon_years=common_scenario_horizon,
+            n_paths=n_paths,
+        )
     scenario_mu_bps = np.array(inputs.mu_bps, dtype=np.float64, copy=True)
     scenario_cov_bps2 = np.array(
         _covariance_bps_from_scenario_inputs(inputs.sigma_bps, inputs.cholesky),
@@ -966,6 +1016,175 @@ def deterministic_seed(*parts) -> int:
         h.update(str(p).encode("utf-8"))
         h.update(b"\x00")
     return int.from_bytes(h.digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
+# SAA-RESAMPLED-STABILITY-001 (2026-10-14): Inhalts-Seed.
+#
+# Version der Seed-Konstruktion UND der Entscheidungslogik, die auf dem Seed
+# aufsetzt. Geht in den Seed ein: eine neue Engine-Version zieht bewusst
+# neue Wuerfel, statt alte Wuerfel unter neuer Mathematik wiederzuverwenden.
+#
+# v2 (2026-10-17): Seed float-robust (scenario_inputs_seed_digest) und
+# Goal-Daten relativ zum Bewertungsjahr (SAA-SEED-FLOAT-ROBUST-001);
+# Signifikanzentscheid lexikographisch (SAA-SIGNIFICANCE-LEXICOGRAPHIC-001).
+OPTIMIZER_SEED_SCHEME = "content_seed_v2"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v2"
+
+# Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
+# client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
+# Scoring-Cache-Felder. Ein identisch neu erfasstes Ziel hat damit denselben
+# Fingerabdruck -- und dieselbe Strategie.
+GOAL_ECONOMIC_FIELDS = (
+    "goal_family",
+    "goal_type",
+    "goal_scope",
+    "rank",
+    "weight_bps",
+    "hardness",
+    "value_mode",
+    "target_amount_rappen",
+    "target_wealth_rappen",
+    "target_return_bps",
+    "success_probability_min_x100",
+    "probability_pct",
+    "start_date",
+    "target_date",
+    "horizon_years",
+    "is_ongoing",
+    "frequency",
+    "pension_pillar",
+    "is_active",
+    "is_included",
+    "lifecycle_decision",
+)
+
+
+# Goal-Datumsfelder gehen RELATIV zum Bewertungsjahr in den Fingerabdruck
+# ein (SAA-SEED-FLOAT-ROBUST-001): die Engine modelliert Ziele auf
+# Kalenderjahr-Achsen relativ zu ``date.today().year`` (ADR-2,
+# goal_liabilities). Wirtschaftlich identische Laeufe (gleiche Jahres-Offsets)
+# ziehen damit denselben Wuerfel -- auch ueber Kalenderjahre hinweg --,
+# waehrend ein Jahreswechsel, der die effektiven Liabilities verschiebt,
+# bewusst einen neuen Wuerfel zieht.
+_GOAL_DATE_FIELDS = frozenset({"start_date", "target_date"})
+
+
+def _seed_goal_date(value, valuation_year: int):
+    if value is None:
+        return None
+    text = str(value)[:10]
+    try:
+        parsed = date.fromisoformat(text)
+    except ValueError:
+        return _seed_scalar(value)
+    return f"Y{parsed.year - int(valuation_year):+d}-{parsed.month:02d}-{parsed.day:02d}"
+
+
+def _seed_scalar(value):
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, Integral):
+        return int(value)
+    if isinstance(value, float):
+        return repr(value)
+    return str(value)
+
+
+def goal_economic_fingerprint(
+    goals: Iterable,
+    *,
+    valuation_year: int | None = None,
+) -> list[str]:
+    """Kanonische, ID-freie Darstellung der Ziele (sortiert).
+
+    Datumsfelder relativ zu ``valuation_year`` (Default: laufendes
+    Kalenderjahr, wie die Liability-Achse der Engine).
+    """
+    year = int(valuation_year) if valuation_year is not None else date.today().year
+    rows = []
+    for goal in goals or ():
+        if isinstance(goal, Mapping):
+            raw = {name: goal.get(name) for name in GOAL_ECONOMIC_FIELDS}
+        else:
+            raw = {name: getattr(goal, name, None) for name in GOAL_ECONOMIC_FIELDS}
+        row = {
+            name: (
+                _seed_goal_date(value, year)
+                if name in _GOAL_DATE_FIELDS
+                else _seed_scalar(value)
+            )
+            for name, value in raw.items()
+        }
+        rows.append(json.dumps(row, sort_keys=True, separators=(",", ":")))
+    return sorted(rows)
+
+
+def optimizer_content_seed(
+    *,
+    scenario_inputs: ScenarioInputs,
+    goals: Iterable,
+    score_x10: int,
+    horizon_years: int,
+    scenario_horizon_years: int,
+    n_paths: int,
+    salt: tuple = (),
+) -> int:
+    """Seed aus dem WIRTSCHAFTLICHEN Inhalt eines Optimierungslaufs.
+
+    Eingehen: der Digest der effektiven ScenarioInputs (mu, sigma, Schiefe,
+    Kurtosis, Cholesky der Korrelation -- also CMA-Werte inklusive
+    Sub-Klassen-Annahmen und Korrelationsstruktur), die kanonisch sortierten
+    wirtschaftlichen Goal-Felder, Score, Horizonte, Pfadzahl und die
+    Engine-Version. Nie Datenbank-IDs.
+
+    Laeuft ueber ``deterministic_seed`` (SHA-256), damit es genau EINE
+    Hash-Konstruktion fuer Seeds gibt.
+    """
+    return deterministic_seed(
+        OPTIMIZER_SEED_SCHEME,
+        OPTIMIZER_ENGINE_VERSION,
+        scenario_inputs_seed_digest(scenario_inputs),
+        json.dumps(goal_economic_fingerprint(goals), separators=(",", ":")),
+        int(score_x10),
+        int(horizon_years),
+        int(scenario_horizon_years),
+        int(n_paths),
+        *salt,
+    )
+
+
+def sensitivity_content_seed(
+    *,
+    cma,
+    sub_allocations: list[dict] | None,
+    goals: Iterable,
+    target_goal,
+    score_x10: int,
+    horizon_years: int,
+    scenario_horizon_years: int,
+    n_paths: int,
+) -> int:
+    """Gepinnter Inhalts-Seed der Goal-Sensitivity.
+
+    Baseline und Variante teilen ihn (Common Random Numbers, siehe
+    GOAL-SENSITIVITY-COMMON-BASELINE-001). Er unterscheidet sich vom
+    Generierungs-Seed durch das Salz ``("sensitivity", <Fingerabdruck des
+    variierten Ziels>)`` -- verschiedene ZIELE bleiben getrennt, aber wie beim
+    Generierungs-Seed ohne jede Datenbank-ID.
+    """
+    canonical_sub_allocations = _canonicalize_sub_allocations(sub_allocations)
+    inputs = scenario_inputs_from_cma(
+        cma, sub_allocations=list(canonical_sub_allocations) or None,
+    )
+    return optimizer_content_seed(
+        scenario_inputs=inputs,
+        goals=goals,
+        score_x10=score_x10,
+        horizon_years=horizon_years,
+        scenario_horizon_years=scenario_horizon_years,
+        n_paths=n_paths,
+        salt=("sensitivity", *goal_economic_fingerprint([target_goal])),
+    )
 
 
 # ============================================================================
@@ -1520,8 +1739,15 @@ def run_solver(
     # Mathematiken vergleichen. None heisst "eigenen aufloesen" -- der
     # Normalfall fuer einen einzelnen Lauf.
     objective_contract: ObjectiveContractV1 | None = None,
+    # SAA-RESAMPLED-STABILITY-001: Hausmatrix-Zielquote als Anker des
+    # Signifikanztests. None = aus `house_matrix_row` (target-Spalten)
+    # ableiten; fehlen auch die, entfaellt der Test (im Audit ausgewiesen).
+    house_anchor_bps: Mapping[str, int] | None = None,
+    # SAA-RESAMPLED-STABILITY-001: None = Produktions-Resampling
+    # (DEFAULT_RESAMPLING). Nur Vergleichsmessungen setzen SINGLE_CUBE.
+    resampling: ResamplingConfig | None = None,
 ) -> OptimizerResult:
-    """Mulvey-Light SLSQP Optimizer.
+    """Mulvey-Light SLSQP Optimizer mit Resampled Efficiency.
 
     Returns OptimizerResult mit weights_bps + Audit-Trace.
 
@@ -1574,14 +1800,67 @@ def run_solver(
         raise OptimizerInputError(
             "optimizer_context must be an OptimizerContext instance."
         )
-    # Lokale Aliase fuer Lesbarkeit der bestehenden Logik unten
+    config = DEFAULT_RESAMPLING if resampling is None else resampling
+    if not isinstance(config, ResamplingConfig):
+        raise OptimizerInputError("resampling must be a ResamplingConfig instance.")
+
+    if not config.enabled:
+        # Einzelwuerfel-Altpfad: nur noch fuer gezielte Vergleichsmessungen
+        # (z.B. "vorher"-Messung im Stabilitaetsnachweis). Kein produktiver
+        # Aufrufer setzt ihn.
+        selection = _select_cube_candidate(context, max_iter=max_iter, ftol=ftol)
+        if selection.weights is None:
+            return _house_midpoint_fallback_result(context, selection)
+        return _finalize_solver_result(
+            context,
+            selection=selection,
+            weights=selection.weights,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_series_rappen,
+        )
+
+    return _run_resampled_solver(
+        context,
+        config=config,
+        house_anchor_bps=_resolve_house_anchor_bps(
+            house_anchor_bps, house_matrix_row
+        ),
+        max_iter=max_iter,
+        ftol=ftol,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        cashflow_series_rappen=cashflow_series_rappen,
+    )
+
+
+@dataclass
+class _CubeSelection:
+    """Ergebnis der Kandidatenauswahl auf EINEM Szenario-Wuerfel."""
+
+    weights: np.ndarray | None
+    objective: float
+    total_iters: int
+    n_starts: int
+    attempt_summaries: list[dict]
+    used_ga_fallback: bool
+    accepted_feasible_non_success: bool
+    robustification_derisked: bool
+
+
+def _select_cube_candidate(
+    context: OptimizerContext,
+    *,
+    max_iter: int,
+    ftol: float,
+) -> _CubeSelection:
+    """Multi-Start-SLSQP + DE-Fallback + Stage-9-Robustifizierung auf einem Wuerfel.
+
+    Unveraenderte Auswahl-Logik des bisherigen ``run_solver`` (Schritte 5-6);
+    SAA-RESAMPLED-STABILITY-001 hat sie nur aus ``run_solver`` herausgeloest,
+    damit dieselbe Logik auf jedem Bag-Wuerfel laeuft.
+    """
     seed = context.seed
     score_x10 = context.score_x10
-    horizon_years = context.horizon_years
     n_paths = context.n_paths
-    return_paths = context.return_paths
-    liabilities = context.liabilities
-    aggregated_liability = context.aggregated_liability_path
     bounds = context.bounds
     scipy_constraints = context.scipy_constraints
 
@@ -1790,71 +2069,133 @@ def run_solver(
         accepted_feasible_non_success = True
         used_ga_fallback = best_feasible_source == "differential_evolution"
 
+    return _CubeSelection(
+        weights=(
+            None
+            if best_result is None
+            else np.asarray(best_result.x, dtype=np.float64).copy()
+        ),
+        objective=float(best_obj),
+        total_iters=int(total_iters),
+        n_starts=int(len(initials)),
+        attempt_summaries=attempt_summaries,
+        used_ga_fallback=bool(used_ga_fallback),
+        accepted_feasible_non_success=bool(accepted_feasible_non_success),
+        robustification_derisked=bool(robustification_derisked),
+    )
+
+
+def _house_midpoint_fallback_result(
+    context: OptimizerContext,
+    selection: _CubeSelection,
+    *,
+    extra_reasoning: list[str] | None = None,
+    resampling_payload: dict | None = None,
+) -> OptimizerResult:
+    """Schritt 7, Fallback-Zweig: kein zulaessiger Kandidat (OD-5)."""
+    seed = context.seed
+    n_paths = context.n_paths
+    bounds = context.bounds
+    total_iters = selection.total_iters
+    attempt_summaries = selection.attempt_summaries
+    n_starts = selection.n_starts
     # ---- 7. Status & Output ----
-    if best_result is None:
-        # Auch GA divergiert -> Fallback House-Matrix
-        mid = _normalize_to_bounds(
-            np.array([(lo + hi) / 2.0 for lo, hi in bounds]),
-            bounds,
+    # Auch GA divergiert -> Fallback House-Matrix
+    mid = _normalize_to_bounds(
+        np.array([(lo + hi) / 2.0 for lo, hi in bounds]),
+        bounds,
+    )
+    weights_bps = _weights_to_bps_dict(mid, bounds=bounds)
+    midpoint_w = _trusted_weights_bps_to_array(weights_bps)
+    mid_wealth = _simulate_context_wealth(context, midpoint_w)
+    _penalty, goal_achievability = chance_constraint_penalty(
+        mid_wealth,
+        context.liabilities,
+        context.advisory_wealth_rappen,
+        weights=context.scenario_weights,
+        annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+            context, midpoint_w
+        ),
+    )
+    fallback_preference_deviation = (
+        preference_deviation_bps(weights_bps, context.preferred_target_bps)
+        if context.preferred_target_bps
+        else None
+    )
+    fallback_reasoning = [
+        "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
+        "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
+    ] + list(context.bounds_collapse_warnings) + list(extra_reasoning or [])
+    if fallback_preference_deviation is not None:
+        # CERT-ALLOCATION-INTENT-001 (spec Sec. 8): a Soft Preference is
+        # never silently promoted to an exactly-active value just because
+        # the solver fell back -- the fallback candidate is evaluated
+        # under the same preference, deviation is disclosed, nothing is
+        # published as if it matched the preference.
+        fallback_reasoning.append(
+            "Soft-Preference-Praeferenz (Policy "
+            f"{context.soft_preference_policy_version}) war aktiv; "
+            "der House-Matrix-Fallback wurde dagegen bewertet, nicht "
+            f"exakt uebernommen. Abweichung Effektiv-vs-Praeferenz (bps): "
+            f"{fallback_preference_deviation}."
         )
-        weights_bps = _weights_to_bps_dict(mid, bounds=bounds)
-        midpoint_w = _trusted_weights_bps_to_array(weights_bps)
-        mid_wealth = _simulate_context_wealth(context, midpoint_w)
-        _penalty, goal_achievability = chance_constraint_penalty(
-            mid_wealth,
-            context.liabilities,
-            context.advisory_wealth_rappen,
-            weights=context.scenario_weights,
-            annualized_return_bps_per_path=_annualized_twr_bps_per_path(
-                context, midpoint_w
-            ),
-        )
-        fallback_preference_deviation = (
-            preference_deviation_bps(weights_bps, context.preferred_target_bps)
-            if context.preferred_target_bps
-            else None
-        )
-        fallback_reasoning = [
-            "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
-            "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
-        ] + list(context.bounds_collapse_warnings)
-        if fallback_preference_deviation is not None:
-            # CERT-ALLOCATION-INTENT-001 (spec Sec. 8): a Soft Preference is
-            # never silently promoted to an exactly-active value just because
-            # the solver fell back -- the fallback candidate is evaluated
-            # under the same preference, deviation is disclosed, nothing is
-            # published as if it matched the preference.
-            fallback_reasoning.append(
-                "Soft-Preference-Praeferenz (Policy "
-                f"{context.soft_preference_policy_version}) war aktiv; "
-                "der House-Matrix-Fallback wurde dagegen bewertet, nicht "
-                f"exakt uebernommen. Abweichung Effektiv-vs-Praeferenz (bps): "
-                f"{fallback_preference_deviation}."
-            )
-        return OptimizerResult(
-            weights_bps=weights_bps,
-            objective_value=float("inf"),
-            iterations=total_iters,
-            seed=seed,
-            status="fallback_house_matrix",
-            method="fallback_house_matrix",
-            reasoning=fallback_reasoning,
-            n_paths=n_paths,
-            n_starts_attempted=len(initials),
-            goal_achievability=tuple(goal_achievability),
-            robustification={
-                "enabled": True,
-                "stage": "fallback_house_matrix",
-                "attempts": attempt_summaries,
-                "final_reason": "no_finite_feasible_candidate",
-            },
-            restart_results=tuple(attempt_summaries),
-            preference_deviation_bps=fallback_preference_deviation,
-            context=context,
-        )
+    return OptimizerResult(
+        weights_bps=weights_bps,
+        objective_value=float("inf"),
+        iterations=total_iters,
+        seed=seed,
+        status="fallback_house_matrix",
+        method="fallback_house_matrix",
+        reasoning=fallback_reasoning,
+        n_paths=n_paths,
+        n_starts_attempted=n_starts,
+        goal_achievability=tuple(goal_achievability),
+        robustification={
+            "enabled": True,
+            "stage": "fallback_house_matrix",
+            "attempts": attempt_summaries,
+            "final_reason": "no_finite_feasible_candidate",
+        },
+        restart_results=tuple(attempt_summaries),
+        preference_deviation_bps=fallback_preference_deviation,
+        resampling=resampling_payload,
+        context=context,
+    )
+
+
+def _finalize_solver_result(
+    context: OptimizerContext,
+    *,
+    selection: _CubeSelection,
+    weights: np.ndarray,
+    advisory_wealth_rappen: int,
+    cashflow_series_rappen: Iterable[int],
+    extra_reasoning: list[str] | None = None,
+    resampling_payload: dict | None = None,
+) -> OptimizerResult:
+    """Schritt 7-8: Rundung, Status, Nachzertifizierung, Audit-Trail, Stress.
+
+    Unveraenderte Abschluss-Logik des bisherigen ``run_solver``. Seit
+    SAA-RESAMPLED-STABILITY-001 bekommt sie die finale Gewichtung explizit
+    (Bag-Mittel bzw. Hausmatrix-Anker) und bewertet sie auf dem
+    HAUPT-Wuerfel ``context`` -- derselbe Wuerfel, den alle nachgelagerten
+    Konsumenten ueber ``result.context`` sehen.
+    """
+    seed = context.seed
+    horizon_years = context.horizon_years
+    n_paths = context.n_paths
+    aggregated_liability = context.aggregated_liability_path
+    bounds = context.bounds
+    scipy_constraints = context.scipy_constraints
+    total_iters = selection.total_iters
+    attempt_summaries = selection.attempt_summaries
+    used_ga_fallback = selection.used_ga_fallback
+    accepted_feasible_non_success = selection.accepted_feasible_non_success
+    robustification_derisked = selection.robustification_derisked
+    n_starts = selection.n_starts
 
     # Final clip + renorm + feasibility check
-    final_w = _normalize_to_bounds(np.clip(best_result.x, 0.0, 1.0), bounds)
+    final_w = _normalize_to_bounds(np.clip(weights, 0.0, 1.0), bounds)
     continuous_feasible, continuous_violation_reasons = is_feasible(
         final_w, bounds=bounds, constraints=scipy_constraints,
     )
@@ -1934,8 +2275,17 @@ def run_solver(
     )
     reasoning: list[str] = list(context.bounds_collapse_warnings)
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
-    reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
-                      f"{len(initials)} multi-starts.")
+    if resampling_payload is not None and resampling_payload.get("enabled"):
+        reasoning.append(
+            f"Stochastic Solver ({method_used}, Resampled Efficiency): "
+            f"{total_iters} iterations across "
+            f"{int(resampling_payload.get('n_bags_succeeded') or 0)} bags x "
+            f"{n_starts} multi-starts."
+        )
+    else:
+        reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
+                          f"{n_starts} multi-starts.")
+    reasoning.extend(extra_reasoning or [])
     # Sprint P1 (2026-06-06): IS-Status im Audit-Trail
     if context.scenario_weights is not None:
         reasoning.append(
@@ -2051,7 +2401,7 @@ def run_solver(
         constraint_violations=violation_reasons,
         reasoning=reasoning,
         n_paths=n_paths,
-        n_starts_attempted=len(initials),
+        n_starts_attempted=n_starts,
         stress_evaluations=stress_evals,
         goal_achievability=tuple(goal_achievability),
         robustification=robustification_payload,
@@ -2060,8 +2410,565 @@ def run_solver(
         validation_seed=validation_seed_used,
         validation_cube_hash=validation_cube_hash_used,
         validation_n_paths=validation_n_paths_used,
+        resampling=resampling_payload,
         context=context,
     )
+
+
+# ============================================================================
+# SAA-RESAMPLED-STABILITY-001: Resampled Efficiency + Hausmatrix-Signifikanz
+# ============================================================================
+
+_HOUSE_ANCHOR_ROW_FIELDS = {
+    "equities": "equity_target_bps",
+    "bonds": "bonds_target_bps",
+    "real_estate": "real_estate_target_bps",
+    "alternatives": "alt_target_bps",
+    "liquidity": "liq_target_bps",
+}
+
+
+def _resolve_house_anchor_bps(
+    house_anchor_bps: Mapping[str, int] | None,
+    house_matrix_row,
+) -> dict[str, int] | None:
+    """Hausmatrix-Zielquote fuer den Signifikanztest.
+
+    Vorrang hat der explizit uebergebene Anker (Produktion: die bereits um
+    Reserve-Untergrenze und Praeferenzen bereinigte Hausmatrix-Zielquote des
+    Generierungspfads). Sonst die target-Spalten der Hausmatrix-Zeile. Fehlt
+    beides oder ist es unvollstaendig, gibt es keinen Anker (None) -- der
+    Test entfaellt dann sichtbar, statt einen erfundenen Anker zu nehmen.
+    """
+    if house_anchor_bps is not None:
+        if not isinstance(house_anchor_bps, Mapping):
+            raise OptimizerInputError(
+                "house_anchor_bps must be a mapping of optimizer bucket -> integer bps."
+            )
+        anchor: dict[str, int] = {}
+        for bucket in BUCKET_ORDER:
+            value = house_anchor_bps.get(bucket)
+            if isinstance(value, bool) or not isinstance(value, Integral):
+                raise OptimizerInputError(
+                    f"house_anchor_bps[{bucket!r}] must be integer basis points."
+                )
+            anchor[bucket] = int(value)
+        return anchor
+    if house_matrix_row is None:
+        return None
+    anchor = {}
+    for bucket, attribute in _HOUSE_ANCHOR_ROW_FIELDS.items():
+        value = getattr(house_matrix_row, attribute, None)
+        if isinstance(value, bool) or not isinstance(value, Integral):
+            return None
+        anchor[bucket] = int(value)
+    return anchor
+
+
+def _project_onto_feasible_set(
+    target: np.ndarray,
+    context: OptimizerContext,
+) -> np.ndarray | None:
+    """Euklidische Projektion auf {Bandbreiten, Risikobudget, Summe = 1, ...}.
+
+    Alle harten Constraints des Contexts (Bandbreiten inkl. Reserve-
+    Untergrenze und Illiquiditaets-Caps als Box-Bounds, Risikobudget als
+    lineare Ungleichung, Summe = 1) bilden eine konvexe Menge -- die
+    Projektion ist eindeutig. Ist der Punkt schon zulaessig, wird er
+    unveraendert zurueckgegeben (Normalfall fuer das Bag-Mittel). None, wenn
+    keine zulaessige Projektion gefunden wird.
+    """
+    bounds = context.bounds
+    constraints = context.scipy_constraints
+    target = np.asarray(target, dtype=np.float64)
+    feasible, _violations = is_feasible(target, bounds=bounds, constraints=constraints)
+    if feasible:
+        return target.copy()
+    starts = [
+        _normalize_to_bounds(np.clip(target, 0.0, 1.0), bounds),
+        _minimum_risk_allocation(bounds, context.risky_fraction_per_bucket),
+    ]
+    best: np.ndarray | None = None
+    best_distance = float("inf")
+    for x0 in starts:
+        result = minimize(
+            lambda w: float(np.sum((w - target) ** 2)),
+            x0=x0,
+            jac=lambda w: 2.0 * (w - target),
+            method="SLSQP",
+            bounds=bounds,
+            constraints=constraints,
+            options={"maxiter": 200, "ftol": 1e-12, "disp": False},
+        )
+        raw = getattr(result, "x", None)
+        if raw is None:
+            continue
+        candidate = np.asarray(raw, dtype=np.float64)
+        if candidate.shape != target.shape or not np.all(np.isfinite(candidate)):
+            continue
+        candidate = _normalize_to_bounds(np.clip(candidate, 0.0, 1.0), bounds)
+        ok, _violations = is_feasible(candidate, bounds=bounds, constraints=constraints)
+        if not ok:
+            continue
+        distance = float(np.sum((candidate - target) ** 2))
+        if distance < best_distance:
+            best, best_distance = candidate, distance
+    return best
+
+
+def _bag_context(
+    context: OptimizerContext,
+    *,
+    seed: int,
+    n_paths: int,
+) -> OptimizerContext:
+    """Bag-Wuerfel: identische Inputs/Constraints/Vertrag, eigener Pfadsatz.
+
+    Wird ausschliesslich aus dem Haupt-Context abgeleitet -- nicht aus den
+    Aufrufer-kwargs. So sehen Generierung, Sensitivity und jede
+    Nachzertifizierung per Konstruktion dieselben Bags, sobald sie denselben
+    Haupt-Context (Inhalts-Seed) haben.
+    """
+    paths, scenario_weights = build_bag_paths(
+        context.scenario_inputs,
+        scenario_horizon_years=int(
+            context.scenario_horizon_years or context.horizon_years
+        ),
+        horizon_years=int(context.horizon_years),
+        n_paths=int(n_paths),
+        seed=int(seed),
+        importance_sampling=context.scenario_weights is not None,
+    )
+    death_indices = context.mortality_death_year_index_per_path
+    if death_indices is not None:
+        # Deterministischer Mortalitaets-Cutoff: fuer alle Pfade identisch
+        # (siehe build_optimizer_context), also einfach auf n_paths ausrollen.
+        death_indices = np.full(
+            int(n_paths), int(np.asarray(death_indices)[0]), dtype=np.int32
+        )
+    return replace(
+        context,
+        seed=int(seed),
+        n_paths=int(n_paths),
+        return_paths=paths,
+        scenario_weights=scenario_weights,
+        mortality_death_year_index_per_path=death_indices,
+    )
+
+
+def _context_loss_pair_on_validation(
+    validation_context: OptimizerContext,
+    anchor_w: np.ndarray,
+    candidate_w: np.ndarray,
+):
+    """Liefert ``loss_pair(idx)`` fuer den gepaarten Bootstrap.
+
+    Vermoegenspfade, Faktoren und Jahresrenditen werden EINMAL je Allokation
+    auf dem Validierungs-Cube simuliert; jede Replikation wertet dieselbe
+    Zielfunktion wie ``evaluate_weights`` (Vertrag des Laufs, Soft-Preference
+    inklusive) auf derselben Pfadauswahl fuer beide Allokationen aus.
+    """
+    contract = objective_contract_of(validation_context)
+
+    def _prepare(w: np.ndarray):
+        wealth = _simulate_context_wealth(validation_context, w)
+        factors = _portfolio_return_factors(validation_context, w)
+        annualized = _annualized_twr_bps_per_path(
+            validation_context, w, portfolio_factors=factors
+        )
+        preference = (
+            preference_loss_from_array(
+                w,
+                validation_context.preferred_target_bps,
+                lam=validation_context.preference_penalty_lambda,
+            )
+            if validation_context.preferred_target_bps
+            else 0.0
+        )
+        return wealth, factors, annualized, float(preference)
+
+    prepared = (_prepare(anchor_w), _prepare(candidate_w))
+
+    def _loss(bundle, idx):
+        # SAA-SIGNIFICANCE-LEXICOGRAPHIC-001: die Stufen GETRENNT liefern,
+        # nicht die Skalar-Zielfunktion. Deren Stufe-2-Schalter wirkt pro
+        # Allokation; als Differenz zweier Allokationen ist sie nicht monoton
+        # (siehe resampling.lexicographic_improvement).
+        wealth, factors, annualized, preference = bundle
+        if idx is not None:
+            wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
+        goal_level, tiebreak = two_phase_objective_parts(
+            validation_context.liabilities,
+            wealth,
+            initial_wealth_rappen=validation_context.advisory_wealth_rappen,
+            horizon_years=validation_context.horizon_years,
+            weights=None,
+            annualized_return_bps_per_path=annualized,
+            objective_mode=contract.objective_mode,
+            goal_weighting_mode=contract.goal_weighting_mode,
+            portfolio_return_factors=factors,
+        )
+        return (float(goal_level), float(tiebreak), float(preference))
+
+    def loss_pair(idx):
+        return _loss(prepared[0], idx), _loss(prepared[1], idx)
+
+    return loss_pair
+
+
+def _bps_dict_for_feasible_point(
+    w: np.ndarray,
+    context: OptimizerContext,
+) -> dict[str, int] | None:
+    weights_bps = _weights_to_bps_dict(w, bounds=context.bounds)
+    ok, _violations = is_feasible(
+        _trusted_weights_bps_to_array(weights_bps),
+        bounds=context.bounds,
+        constraints=context.scipy_constraints,
+    )
+    return weights_bps if ok else None
+
+
+def _significance_vs_house_anchor(
+    context: OptimizerContext,
+    *,
+    candidate_bps: dict[str, int],
+    house_anchor_bps: dict[str, int] | None,
+    config: ResamplingConfig,
+) -> dict:
+    """Test: verbessert die resampelte Allokation die Zielfunktion signifikant
+    gegenueber der (zulaessig projizierten) Hausmatrix-Zielquote?
+
+    Entscheid ``decision``:
+    * ``optimizer``  -- signifikante Verbesserung, Optimierer-Allokation gilt.
+    * ``house_matrix`` -- nicht signifikant, Hausmatrix-Zielquote gilt.
+    * ``optimizer_untested`` -- kein Test moeglich (kein Anker, keine
+      zulaessige Projektion, kein Validierungs-Cube, Test abgeschaltet);
+      die Optimierer-Allokation gilt, der Grund steht in ``reason``.
+    """
+    block: dict = {
+        "test": None,
+        "alpha": float(config.significance_alpha),
+        "house_anchor_bps": dict(house_anchor_bps) if house_anchor_bps else None,
+        "house_anchor_projected_bps": None,
+        "candidate_bps": dict(candidate_bps),
+    }
+    if not config.significance_test:
+        return {**block, "decision": "optimizer_untested", "reason": "test_disabled"}
+    if not house_anchor_bps:
+        return {**block, "decision": "optimizer_untested", "reason": "no_house_anchor"}
+    anchor_raw = np.array(
+        [int(house_anchor_bps[bucket]) / 10000.0 for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+    anchor_total = float(np.sum(anchor_raw))
+    if anchor_total <= 0:
+        return {**block, "decision": "optimizer_untested", "reason": "invalid_house_anchor"}
+    projected = _project_onto_feasible_set(anchor_raw / anchor_total, context)
+    anchor_bps = (
+        _bps_dict_for_feasible_point(projected, context)
+        if projected is not None
+        else None
+    )
+    if anchor_bps is None:
+        return {
+            **block,
+            "decision": "optimizer_untested",
+            "reason": "house_anchor_not_projectable",
+        }
+    block["house_anchor_projected_bps"] = dict(anchor_bps)
+    if anchor_bps == candidate_bps:
+        return {
+            **block,
+            "decision": "house_matrix",
+            "reason": "identical_to_house_anchor",
+            "significant": False,
+        }
+    validation = _build_validation_context(context)
+    if validation is None:
+        return {
+            **block,
+            "decision": "optimizer_untested",
+            "reason": "no_validation_cube",
+        }
+    validation_context, validation_seed, cube_hash = validation
+    loss_pair = _context_loss_pair_on_validation(
+        validation_context,
+        _trusted_weights_bps_to_array(anchor_bps),
+        _trusted_weights_bps_to_array(candidate_bps),
+    )
+    stats = paired_bootstrap_improvement(
+        loss_pair,
+        n_paths=int(validation_context.n_paths),
+        n_bootstrap=int(config.n_bootstrap),
+        alpha=float(config.significance_alpha),
+        seed=bootstrap_seed(validation_seed),
+    )
+    return {
+        **block,
+        **stats,
+        "validation_seed": int(validation_seed),
+        "validation_cube_hash": cube_hash,
+        "validation_n_paths": int(validation_context.n_paths),
+        "decision": "optimizer" if stats["significant"] else "house_matrix",
+        "reason": (
+            "significant_improvement"
+            if stats["significant"]
+            else "improvement_not_significant"
+        ),
+    }
+
+
+def _run_resampled_solver(
+    context: OptimizerContext,
+    *,
+    config: ResamplingConfig,
+    house_anchor_bps: dict[str, int] | None,
+    max_iter: int,
+    ftol: float,
+    advisory_wealth_rappen: int,
+    cashflow_series_rappen: Iterable[int],
+) -> OptimizerResult:
+    """Resampled Efficiency (Michaud-Bagging) + Signifikanztest gegen die Hausmatrix.
+
+    Siehe services/optimizer/resampling.py fuer Methode und Parameterwahl.
+    """
+    started = time.perf_counter()
+    if context.scenario_inputs is None:
+        raise OptimizerInputError(
+            "Resampling braucht die ScenarioInputs des Contexts, um Bag-Wuerfel "
+            "derselben Verteilung zu ziehen."
+        )
+    n_bags = int(config.n_bags)
+    # Nie mehr Pfade je Bag als der Hauptwuerfel hat: der Hauptwuerfel ist die
+    # Referenzgroesse des Laufs (Tests mit kleinen Wuerfeln bleiben klein).
+    bag_n_paths = max(2, min(int(config.bag_n_paths), int(context.n_paths)))
+    seeds = bag_seeds(int(context.seed), n_bags)
+
+    bag_weights: list[np.ndarray] = []
+    total_iters = 0
+    n_starts = 0
+    bag_summaries: list[dict] = []
+    robustified_bags = 0
+    ga_bags = 0
+    for index, bag_seed in enumerate(seeds):
+        bag_started = time.perf_counter()
+        selection = _select_cube_candidate(
+            _bag_context(context, seed=bag_seed, n_paths=bag_n_paths),
+            max_iter=max_iter,
+            ftol=ftol,
+        )
+        total_iters += selection.total_iters
+        n_starts = max(n_starts, selection.n_starts)
+        succeeded = selection.weights is not None
+        if succeeded:
+            bag_weights.append(np.asarray(selection.weights, dtype=np.float64))
+            robustified_bags += int(selection.accepted_feasible_non_success)
+            ga_bags += int(selection.used_ga_fallback)
+        # Gleiche Schluessel wie die Start-Diagnose eines Einzelwuerfels
+        # (stage/status/reason/n_paths/n_starts/seed/elapsed_ms), damit
+        # OptimizerRun.restart_results_json lesbar bleibt; je Bag eine Zeile.
+        bag_summaries.append({
+            "attempt": index + 1,
+            "bag": index + 1,
+            "stage": "resampling_bag",
+            "seed": int(bag_seed),
+            "n_paths": int(bag_n_paths),
+            "n_starts": int(selection.n_starts),
+            "status": (
+                "no_feasible_candidate"
+                if not succeeded
+                else (
+                    "converged_robustified"
+                    if selection.accepted_feasible_non_success
+                    else "converged"
+                )
+            ),
+            "reason": (
+                "bag_no_feasible_candidate"
+                if not succeeded
+                else (
+                    "bag_de_fallback"
+                    if selection.used_ga_fallback
+                    else "bag_solver_success"
+                )
+            ),
+            "objective_value": (
+                float(selection.objective)
+                if succeeded and math.isfinite(float(selection.objective))
+                else None
+            ),
+            "feasible_candidate": bool(succeeded),
+            "iterations": int(selection.total_iters),
+            "weights_bps": (
+                _weights_to_bps_dict(selection.weights, bounds=context.bounds)
+                if succeeded
+                else None
+            ),
+            "elapsed_ms": int(round((time.perf_counter() - bag_started) * 1000)),
+        })
+
+    n_succeeded = len(bag_weights)
+    payload: dict = {
+        "enabled": True,
+        "scheme": RESAMPLING_SCHEME_VERSION,
+        "seed_scheme": OPTIMIZER_SEED_SCHEME,
+        "engine_version": OPTIMIZER_ENGINE_VERSION,
+        "content_seed": int(context.seed),
+        "n_bags": n_bags,
+        "n_bags_succeeded": n_succeeded,
+        "n_bags_robustified": robustified_bags,
+        "n_bags_de_fallback": ga_bags,
+        "bag_n_paths": bag_n_paths,
+        "bags": bag_summaries,
+    }
+    aggregate_selection = _CubeSelection(
+        weights=None,
+        objective=float("inf"),
+        total_iters=total_iters,
+        n_starts=n_starts,
+        attempt_summaries=bag_summaries,
+        used_ga_fallback=ga_bags > 0,
+        # Ein robustifizierter Bag macht den ganzen Lauf "robustifiziert":
+        # das Mittel enthaelt einen Kandidaten, den SciPy nicht als Erfolg
+        # gemeldet hat -- das muss am Status sichtbar bleiben.
+        accepted_feasible_non_success=robustified_bags > 0,
+        robustification_derisked=False,
+    )
+    if n_succeeded < max(1, int(np.ceil(MIN_SUCCESSFUL_BAG_SHARE * n_bags))):
+        payload["decision"] = "fallback_house_matrix"
+        payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
+        return _house_midpoint_fallback_result(
+            context,
+            aggregate_selection,
+            extra_reasoning=[
+                f"Resampling: nur {n_succeeded} von {n_bags} Bags lieferten eine "
+                "zulaessige Allokation -- kein belastbarer Mittelwert."
+            ],
+            resampling_payload=payload,
+        )
+
+    stacked = np.vstack(bag_weights)
+    mean_w = stacked.mean(axis=0)
+    dispersion = (
+        stacked.std(axis=0, ddof=1) if n_succeeded > 1 else np.zeros(N_BUCKETS)
+    )
+    payload["mean_weights_bps"] = {
+        bucket: round(float(mean_w[i]) * 10000.0, 2)
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    payload["dispersion_bps"] = {
+        bucket: round(float(dispersion[i]) * 10000.0, 2)
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    # Standardfehler des Bag-Mittels: die erwartete Streuung der
+    # publizierten Quote, wenn nur der Monte-Carlo-Zufall variiert.
+    payload["standard_error_bps"] = {
+        bucket: round(float(dispersion[i]) * 10000.0 / float(np.sqrt(n_succeeded)), 2)
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+
+    projected = _project_onto_feasible_set(mean_w, context)
+    if projected is None:
+        payload["decision"] = "fallback_house_matrix"
+        payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
+        return _house_midpoint_fallback_result(
+            context,
+            aggregate_selection,
+            extra_reasoning=[
+                "Resampling: das Bag-Mittel liess sich nicht auf die harten "
+                "Constraints projizieren."
+            ],
+            resampling_payload=payload,
+        )
+    payload["projection_distance_bps"] = round(
+        float(np.sqrt(np.sum((projected - mean_w) ** 2))) * 10000.0, 4
+    )
+    candidate_bps = _weights_to_bps_dict(projected, bounds=context.bounds)
+    payload["resampled_weights_bps"] = dict(candidate_bps)
+
+    significance = _significance_vs_house_anchor(
+        context,
+        candidate_bps=candidate_bps,
+        house_anchor_bps=house_anchor_bps,
+        config=config,
+    )
+    payload["significance"] = significance
+    decision = significance["decision"]
+    payload["decision"] = decision
+
+    reasoning: list[str] = []
+    max_dispersion_pp = float(np.max(dispersion)) * 100.0
+    max_standard_error_pp = max_dispersion_pp / float(np.sqrt(n_succeeded))
+    reasoning.append(
+        f"Resampled Efficiency: {n_succeeded} von {n_bags} Bags a "
+        f"{bag_n_paths} Pfaden (Inhalts-Seed, Common Random Numbers) gemittelt; "
+        f"Streuung je Bucket ueber die Bags max. {max_dispersion_pp:.1f} pp, "
+        f"Standardfehler der Quote max. {max_standard_error_pp:.2f} pp."
+    )
+    if decision == "house_matrix":
+        final_bps = dict(significance["house_anchor_projected_bps"])
+        if significance.get("reason") == "identical_to_house_anchor":
+            reasoning.append(
+                "Optimierer-Allokation ist identisch mit der Hausmatrix-Zielquote; "
+                "Hausmatrix-Zielquote beibehalten."
+            )
+        else:
+            reasoning.append(
+                "Optimierer-Abweichung von der Hausmatrix ist statistisch nicht "
+                "signifikant; Hausmatrix-Zielquote beibehalten. "
+                + _significance_sentence(significance)
+            )
+    elif decision == "optimizer":
+        final_bps = dict(candidate_bps)
+        reasoning.append(
+            "Optimierer-Abweichung von der Hausmatrix ist statistisch "
+            "signifikant; Optimierer-Allokation uebernommen. "
+            + _significance_sentence(significance)
+        )
+    else:
+        final_bps = dict(candidate_bps)
+        reasoning.append(
+            "Signifikanztest gegen die Hausmatrix nicht durchfuehrbar "
+            f"({significance.get('reason')}); Optimierer-Allokation uebernommen."
+        )
+    payload["final_weights_bps"] = dict(final_bps)
+    payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
+    return _finalize_solver_result(
+        context,
+        selection=aggregate_selection,
+        weights=_trusted_weights_bps_to_array(final_bps),
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        cashflow_series_rappen=cashflow_series_rappen,
+        extra_reasoning=reasoning,
+        resampling_payload=payload,
+    )
+
+
+def _significance_sentence(significance: Mapping) -> str:
+    p_value = significance.get("p_value")
+    lower = significance.get("improvement_lower_bound")
+    improvement = significance.get("improvement")
+    alpha = float(significance.get("alpha") or 0.05)
+    parts = [
+        f"Gepaarter Bootstrap (B={significance.get('n_bootstrap')}, einseitig, "
+        f"alpha={alpha:.0%}) auf dem unabhaengigen Validierungs-Cube "
+        f"({significance.get('validation_n_paths')} Pfade):"
+    ]
+    if improvement is not None:
+        parts.append(f"Verbesserung der Zielfunktion {float(improvement):.6e}")
+    if lower is not None:
+        parts.append(
+            f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
+        )
+    comparison = significance.get("comparison")
+    if comparison == "volatility_tiebreak":
+        parts.append("Vergleich: beide erfuellen die Ziele, Volatilitaet entscheidet")
+    elif comparison == "goal_level":
+        parts.append("Vergleich: Ziel-Fehlbetrag und Chance-Constraints")
+    if p_value is not None:
+        parts.append(f"p = {float(p_value):.4f}")
+    return " ".join(parts[:1]) + " " + ", ".join(parts[1:]) + "."
 
 
 def _weights_to_bps_dict(

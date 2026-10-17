@@ -336,10 +336,14 @@ def test_run_persists_restart_results_json(session_factory, monkeypatch):
         assert isinstance(restart_results, list)
         assert len(restart_results) >= run.n_starts_attempted
         first = restart_results[0]
-        assert first["stage"] == "slsqp"
-        assert first["n_paths"] == run.n_paths
-        assert first["n_starts"] == run.n_starts_attempted
-        assert first["seed"] == run.seed
+        # SAA-RESAMPLED-STABILITY-001: eine Zeile je Resampling-Bag; der
+        # Bag-Seed ist aus dem Inhalts-Seed des Laufs abgeleitet.
+        from services.optimizer.resampling import bag_seeds
+
+        assert first["stage"] == "resampling_bag"
+        assert first["n_paths"] <= run.n_paths
+        assert first["n_starts"] <= run.n_starts_attempted
+        assert first["seed"] == bag_seeds(run.seed, len(restart_results))[0]
         assert isinstance(first["elapsed_ms"], int)
         assert "reason" in first
         if run.robustification_json is not None:
@@ -407,7 +411,9 @@ def test_endpoint_returns_runs_sorted_descending(session_factory, monkeypatch):
             assert "robustification_json" in run
             restart_results = json.loads(run["restart_results_json"])
             assert isinstance(restart_results, list)
-            assert restart_results[0]["seed"] == run["seed"]
+            from services.optimizer.resampling import bag_seeds
+
+            assert restart_results[0]["seed"] == bag_seeds(run["seed"], 1)[0]
     finally:
         app.dependency_overrides.clear()
 

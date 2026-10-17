@@ -958,6 +958,100 @@ def combined_objective_two_phase(
     Primaerterm selbst, und bei ``min_volatility`` wuerde er die Kennzahl
     doppelt zaehlen.
     """
+    goal_level, tiebreak, _in_phase_two = _two_phase_terms(
+        liabilities,
+        wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        primary_weight=primary_weight,
+        volatility_weight=volatility_weight,
+        lambda_chance=lambda_chance,
+        epsilon=epsilon,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        objective_mode=objective_mode,
+        goal_weighting_mode=goal_weighting_mode,
+        portfolio_return_factors=portfolio_return_factors,
+        always_compute_tiebreak=False,
+    )
+    return goal_level + tiebreak
+
+
+def two_phase_objective_parts(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    primary_weight: float = 1.0,
+    volatility_weight: float = 1e-12,
+    lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
+    epsilon: float = 1e-12,
+    weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+    objective_mode: str | None = None,
+    goal_weighting_mode: str | None = None,
+    portfolio_return_factors: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """Die beiden Stufen von ``combined_objective_two_phase`` GETRENNT.
+
+    Rueckgabe ``(goal_level, tiebreak)``: ``goal_level`` = Primaerterm +
+    Chance-Penalty (Stufe 1), ``tiebreak`` = skalierter Volatilitaetsterm
+    (Stufe 2, nur im Modus ``goal_shortfall``, sonst 0) -- hier IMMER
+    berechnet, unabhaengig davon, ob Stufe 1 unter ``epsilon`` liegt.
+
+    SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 (2026-10-17): wer ZWEI Allokationen
+    vergleicht, darf die Skalar-Zielfunktion nicht direkt subtrahieren. Der
+    Volatilitaetsterm wird dort pro Allokation nur zugeschaltet, wenn IHRE
+    Stufe 1 unter ``epsilon`` liegt; eine Allokation mit einem winzigen
+    Fehlbetrag auf einem einzigen Pfad (Stufe 1 = 8e-9) sparte damit ihren
+    ganzen Volatilitaetsterm (~1.4e4) und "schlug" eine Allokation, die
+    alle Ziele erfuellt UND weniger schwankt. Der Vergleich braucht deshalb
+    beide Stufen einzeln (siehe ``resampling.lexicographic_improvement``).
+    """
+    goal_level, tiebreak, _in_phase_two = _two_phase_terms(
+        liabilities,
+        wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        primary_weight=primary_weight,
+        volatility_weight=volatility_weight,
+        lambda_chance=lambda_chance,
+        epsilon=epsilon,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        objective_mode=objective_mode,
+        goal_weighting_mode=goal_weighting_mode,
+        portfolio_return_factors=portfolio_return_factors,
+        always_compute_tiebreak=True,
+    )
+    return goal_level, tiebreak
+
+
+def _two_phase_terms(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    primary_weight: float,
+    volatility_weight: float,
+    lambda_chance: float,
+    epsilon: float,
+    weights: np.ndarray | None,
+    annualized_return_bps_per_path: np.ndarray | None,
+    objective_mode: str | None,
+    goal_weighting_mode: str | None,
+    portfolio_return_factors: np.ndarray | None,
+    always_compute_tiebreak: bool,
+) -> tuple[float, float, bool]:
+    """Gemeinsamer Kern: ``(goal_level, tiebreak, in_phase_two)``.
+
+    Ohne ``always_compute_tiebreak`` ist ``tiebreak`` ausserhalb von
+    Stufe 2 exakt 0.0 -- damit bleibt ``combined_objective_two_phase``
+    bit-identisch zur frueheren Einzelformel
+    ``primary_weight * primary + chance + volatility_weight * vol``.
+    """
     from .objective_variants import (
         OBJECTIVE_GOAL_SHORTFALL,
         primary_objective,
@@ -1000,9 +1094,11 @@ def combined_objective_two_phase(
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
+    in_phase_two = bool(primary + chance < float(epsilon))
     vol = (
         volatility_objective(wealth_paths, weights=weights)
-        if is_goal_shortfall and primary + chance < float(epsilon)
+        if is_goal_shortfall and (in_phase_two or always_compute_tiebreak)
         else 0.0
     )
-    return primary_weight * primary + chance + volatility_weight * vol
+    goal_level = primary_weight * primary + chance
+    return goal_level, volatility_weight * vol, in_phase_two

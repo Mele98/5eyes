@@ -122,8 +122,13 @@ def test_pytest_job_has_timeout(workflow_yaml):
     Korrektheits-Lauf (beobachtet an PR #525/#527 mit identischem Muster:
     "0 failed" in den Logs, Job-Conclusion trotzdem "cancelled"). Siehe
     .github/workflows/test.yml Job-Kommentar.
+
+    2026-10-17 von 150 auf 200 erhoeht: Korrektheits-Lauf inzwischen
+    ~45-80min (Suite >8100 Tests, SAA-Resampling), plus bis zu 60min
+    Coverage; Run 38964294815 wurde nach gruenem Gate im Coverage-Schritt
+    vom Job-Limit abgebrochen.
     """
-    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 150
+    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 200
 
 
 def test_pytest_uses_python_3_12(workflow_yaml):
