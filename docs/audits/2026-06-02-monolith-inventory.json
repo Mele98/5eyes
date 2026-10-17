@@ -3,7 +3,7 @@
     "css_selectors": 1023,
     "event_handlers": 450,
     "ids": 943,
-    "js_functions": 1182,
+    "js_functions": 1184,
     "modal_structures": 102,
     "script_blocks": 19,
     "style_blocks": 3,
@@ -13529,12 +13529,12 @@
     },
     {
       "declaration": "function",
-      "line": 28815,
+      "line": 28827,
       "name": "_reviewIsDiscretionaryMandate"
     },
     {
       "declaration": "function",
-      "line": 28811,
+      "line": 28823,
       "name": "_reviewIsIlliquidAssetClass"
     },
     {
@@ -16054,7 +16054,7 @@
     },
     {
       "declaration": "function",
-      "line": 28937,
+      "line": 28949,
       "name": "getColor"
     },
     {
@@ -16574,7 +16574,7 @@
     },
     {
       "declaration": "function",
-      "line": 28982,
+      "line": 28994,
       "name": "loadReviewSpiegel"
     },
     {
@@ -17369,7 +17369,7 @@
     },
     {
       "declaration": "var",
-      "line": 28734,
+      "line": 28746,
       "name": "pushCard"
     },
     {
@@ -17509,7 +17509,7 @@
     },
     {
       "declaration": "function",
-      "line": 28727,
+      "line": 28739,
       "name": "renderActionCards"
     },
     {
@@ -17834,7 +17834,7 @@
     },
     {
       "declaration": "function",
-      "line": 28987,
+      "line": 28999,
       "name": "renderReviewStrategyComparison"
     },
     {
@@ -17874,7 +17874,7 @@
     },
     {
       "declaration": "function",
-      "line": 28649,
+      "line": 28661,
       "name": "renderSensitivitySlidersForResult"
     },
     {
@@ -18094,7 +18094,7 @@
     },
     {
       "declaration": "function",
-      "line": 28935,
+      "line": 28947,
       "name": "reviewAllocationPortraitHtml"
     },
     {
@@ -18104,7 +18104,7 @@
     },
     {
       "declaration": "function",
-      "line": 28829,
+      "line": 28841,
       "name": "reviewBandStateMeta"
     },
     {
@@ -18134,7 +18134,7 @@
     },
     {
       "declaration": "function",
-      "line": 28903,
+      "line": 28915,
       "name": "reviewImplementationHotspots"
     },
     {
@@ -18154,7 +18154,7 @@
     },
     {
       "declaration": "function",
-      "line": 28866,
+      "line": 28878,
       "name": "reviewStrategyComparisonRows"
     },
     {
@@ -18269,7 +18269,7 @@
     },
     {
       "declaration": "function",
-      "line": 28686,
+      "line": 28698,
       "name": "runSensitivityCall"
     },
     {
@@ -18434,7 +18434,7 @@
     },
     {
       "declaration": "function",
-      "line": 28948,
+      "line": 28960,
       "name": "seg"
     },
     {
@@ -18769,7 +18769,7 @@
     },
     {
       "declaration": "function",
-      "line": 29021,
+      "line": 29033,
       "name": "srAcColor2"
     },
     {
@@ -18821,6 +18821,16 @@
       "declaration": "function",
       "line": 28267,
       "name": "strategyGoalTargetText"
+    },
+    {
+      "declaration": "function",
+      "line": 28633,
+      "name": "stressNum"
+    },
+    {
+      "declaration": "function",
+      "line": 28638,
+      "name": "stressSigned"
     },
     {
       "declaration": "function",
@@ -19995,8 +20005,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "ccf05d7cb94dba5562046697c1d2704ee94fbf31de0f7a1eb623786858c61f3f",
-  "source_size_bytes": 1770653,
+  "source_sha256": "fa26fff30d4c352cd886965d8bf61951ba1ba2ba08cbb8ff948136432fea988a",
+  "source_size_bytes": 1771598,
   "sub_sections": [
     {
       "class": "admin-sec-btn",
