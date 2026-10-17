@@ -940,17 +940,44 @@ def test_ui_summary_labels_and_admin_note_state_cio_criteria():
     assert "Net Zero = SFDR Art. 9 oder" not in html
 
 
-def test_esg_criteria_texts_name_no_third_party_brand():
-    """Keine Dritt-Markennamen (Rating-/Index-Anbieter) in den ESG-Texten,
-    die in Kundendokumente und UI gelangen (Branding-Regel)."""
+# Geschlossenes Vokabular der ESG-Kriterientexte (Kundendokument). Jedes
+# neue Wort muss hier bewusst aufgenommen werden -- so gelangt kein
+# unbeabsichtigter Begriff (z.B. ein Anbieter- oder Produktname) in den
+# Kriterientext oder das PDF-Label (Branding-Regel, Greenwashing-Schutz).
+_ESG_CRITERIA_VOCABULARY = frozenset({
+    # Regulierung / Kennzahlen
+    "SFDR", "Art", "EU", "PAB", "CTB", "ESG", "Rating", "Score", "Skala",
+    "AAA", "AA", "CCC", "Leader", "Klasse", "Klassifikation", "Benchmark",
+    "Klima", "Paris", "aligned", "Climate", "Transition", "Pflicht",
+    # Policy-Namen
+    "Best", "Class", "Impact", "Investing", "Integration", "Net", "Zero",
+    # Liquiditaets-Ausnahme
+    "Liquiditaet", "Konto", "Festgeld", "Kriterium", "ausgenommen",
+    # Funktionswoerter
+    "Produkte", "nur", "nach", "oder", "mit", "von", "vom", "der", "in",
+    "ist", "sind", "nicht", "ohne", "allein", "genuegt", "mindestens",
+    "zulaessig",
+})
+
+
+def _pdf_esg_label(policy: str) -> str:
+    lines = _pdf_preferences_text({"policy": {"esg": policy}}).splitlines()
+    return lines[lines.index("Nachhaltigkeit") + 1]
+
+
+@pytest.mark.parametrize("policy", ["esg_integration", "best_in_class", "impact", "net_zero"])
+def test_esg_criteria_texts_use_only_whitelisted_vocabulary(policy):
+    """Kriterientext und PDF-Label bestehen nur aus dem freigegebenen
+    Vokabular; jedes unbekannte Wort ist ein Fehler."""
     import services.portfolio_engine_payload as payload
 
-    texts = list(ESG_POLICY_CRITERIA.values()) + [
+    texts = [
+        ESG_POLICY_CRITERIA[policy],
+        payload.esg_policy_criterion_label(policy),
         payload.ESG_POLICY_LIQUIDITY_EXEMPTION,
-        payload.theme_look_through_disclosure(payload.THEME_SUB_ASSET_CLASSES),
+        _pdf_esg_label(policy),
     ]
-    for policy in ESG_POLICY_CRITERIA:
-        texts.append(_pdf_preferences_text({"policy": {"esg": policy}, "tilts": {"fossil": "exclude"}}))
-    for brand in ("MSCI", "Sustainalytics", "ISS", "Morningstar", "Refinitiv", "S&P", "Bloomberg"):
-        for text_ in texts:
-            assert brand not in text_, (brand, text_)
+    for text_ in texts:
+        unknown = set(re.findall(r"[A-Za-zÄÖÜäöüß]+", text_)) - _ESG_CRITERIA_VOCABULARY
+        assert not unknown, (policy, sorted(unknown), text_)
+    assert ESG_POLICY_CRITERIA[policy] in _pdf_esg_label(policy)
