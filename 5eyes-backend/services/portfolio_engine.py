@@ -4172,7 +4172,17 @@ def generate_target_allocation(
         created_at=now,
         updated_at=now,
     )
-    db.add(target_allocation)
+    # REGENERATE-IDEMPOTENT-001: identische Neuberechnung behaelt die aktuelle Allokation (siehe Helfer).
+    reuse_previous_allocation = _identical_previous_allocation(
+        previous_current, allocation_context_hash=allocation_context_hash,
+        input_snapshot_hash=str(input_snapshot_hash), policy_id=policy.id, cma_id=cma.id,
+        assessment=assessment, targets=targets, minimums=minimums, maximums=maximums,
+    )
+    if reuse_previous_allocation:
+        previous_current.is_current = 1
+        target_allocation = previous_current  # der oben gebaute Datensatz bleibt transient
+    else:
+        db.add(target_allocation)
     db.flush()
 
     # V3 Sprint 2: persistierter Audit-Trail aller Solver-Laufe.
@@ -4189,7 +4199,8 @@ def generate_target_allocation(
     # stochastic-Modus, in dem der Solver tatsaechlich die TA produziert hat).
     # Im shadow_stochastic-Modus bleibt optimization_run_id NULL, weil die
     # TA House-Matrix-basiert ist.
-    if persisted_run is not None and persisted_run.role == "active":
+    # REGENERATE-IDEMPOTENT-001: wiederverwendete Allokation behaelt ihren urspruenglichen Solver-Lauf.
+    if persisted_run is not None and persisted_run.role == "active" and not reuse_previous_allocation:
         db.flush()  # ensure persisted_run.id ist gesetzt
         target_allocation.optimization_run_id = persisted_run.id
 
@@ -4288,6 +4299,7 @@ def generate_target_allocation(
 
 
 from services.portfolio_engine_allocation_integrity import (  # noqa: F401,E402
+    _identical_previous_allocation,
     _verified_persisted_allocation_context,
 )
 
