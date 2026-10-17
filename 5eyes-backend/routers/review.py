@@ -2037,6 +2037,11 @@ _PRODUCT_IMPORT_CSV_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
     "suitability_prohibited", "suitability_requires_appropriateness",
     "suitability_requires_override", "suitability_max_position_bps",
+    # ESG-PREMIUM-CRITERIA-001 (2026-10-14): Daten fuer die ESG-Policy-
+    # Kriterien (best_in_class: esg_score_x10; net_zero: climate_benchmark)
+    # und die Themen-Zuordnung (theme_tags, Semikolon-getrennt). Am Ende
+    # angehaengt, damit bestehende Dateien spaltengleich bleiben.
+    "esg_score_x10", "climate_benchmark", "theme_tags",
 )
 _PRODUCT_IMPORT_SUITABILITY_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
@@ -2298,12 +2303,14 @@ def download_products_csv_template(
     example_listed = (
         "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
         "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily,"
-        "4,10,investment_advice;portfolio_management,false,false,false,2500"
+        "4,10,investment_advice;portfolio_management,false,false,false,2500,"
+        "720,PAB,"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
         "Private Equity,CHF,,,150,,,illiquid,"
-        "7,10,investment_advice;portfolio_management,false,true,false,4000"
+        "7,10,investment_advice;portfolio_management,false,true,false,4000,"
+        ",,"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(
@@ -2311,6 +2318,9 @@ def download_products_csv_template(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=fondsuniversum-import-vorlage.csv"},
     )
+
+
+_PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
 
 
 @products_router.put("/{product_id}", response_model=ProductResponse)
@@ -2331,6 +2341,14 @@ def update_product(
     """
     product = _get_product_or_404(product_id, db, current_user)
     payload = body.model_dump(exclude_none=True)
+    # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
+    # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
+    # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt
+    # galt weiter als net_zero-zulaessig, obwohl der Nachweis entfallen ist.
+    # Nicht gesendete Felder bleiben unveraendert (model_fields_set).
+    for field in _PRODUCT_CLEARABLE_ESG_FIELDS:
+        if field in body.model_fields_set and getattr(body, field) is None:
+            payload[field] = None
     if not payload:
         return product
     for field, value in payload.items():
