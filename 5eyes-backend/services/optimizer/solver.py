@@ -61,6 +61,13 @@ from .goal_liabilities import (
     aggregate_liability_path,
     goals_to_liabilities,
 )
+from .drawdown_certification import (
+    certify_drawdown_candidates,
+    certify_resampled_candidates,
+    drawdown_certification_reasoning,
+    refined_primary_per_path,
+)
+from .goal_attribution import publish_goal_achievability
 from .objective import (
     chance_constraint_penalty,
     combined_objective_two_phase,
@@ -174,6 +181,11 @@ class OptimizerResult:
     # Bucket, Projektion, Signifikanztest gegen die Hausmatrix, Entscheid).
     # None nur im Einzelwuerfel-Altpfad (ResamplingConfig mit n_bags <= 1).
     resampling: dict | None = None
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (2026-10-14): Audit des
+    # Drawdown-Reranks ALLER zulaessigen Finalisten auf dem Validierungs-Cube
+    # (nur Modus max_drawdown; sonst None). Siehe
+    # services/optimizer/drawdown_certification.py.
+    drawdown_certification: dict | None = None
     # Exact owned run-context snapshot used by the solver. compare=False is
     # essential because OptimizerContext contains NumPy arrays whose equality
     # is not scalar-valued. The context is intentionally not persisted as JSON;
@@ -285,7 +297,10 @@ def _certify_on_independent_validation_cube(
         return train_achievability, None, None, None
     validation_context, validation_seed, cube_hash = validation
     validation_wealth = _simulate_context_wealth(validation_context, weights_array)
-    _penalty, validation_achievability = chance_constraint_penalty(
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: publiziert wird der typisierte
+    # Vertrag (Zielzeilen nach Prioritaet + genau eine Plan-Solvenz-Zeile),
+    # nicht die interne Joint-Sicht der Chance-Penalty.
+    validation_achievability = publish_goal_achievability(
         validation_wealth,
         validation_context.liabilities,
         validation_context.advisory_wealth_rappen,
@@ -1811,12 +1826,27 @@ def run_solver(
         selection = _select_cube_candidate(context, max_iter=max_iter, ftol=ftol)
         if selection.weights is None:
             return _house_midpoint_fallback_result(context, selection)
+        weights = selection.weights
+        # ---- 6c. OPTIMIZER-DRAWDOWN-CERTIFICATION-001: Drawdown-Rerank ----
+        # Modus max_drawdown: alle zulaessigen Multi-Start-Finalisten auf dem
+        # Validierungs-Cube mit dem verfeinerten Drawdown neu bewerten; die
+        # Auswahl folgt dem validierten Objective.
+        drawdown_certification: dict | None = None
+        if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+            certified_w, drawdown_certification = certify_drawdown_candidates(
+                context,
+                winner_weights=np.asarray(weights, dtype=np.float64),
+                candidates=selection.finalists,
+            )
+            if certified_w is not None:
+                weights = certified_w
         return _finalize_solver_result(
             context,
             selection=selection,
-            weights=selection.weights,
+            weights=weights,
             advisory_wealth_rappen=advisory_wealth_rappen,
             cashflow_series_rappen=cashflow_series_rappen,
+            drawdown_certification=drawdown_certification,
         )
 
     return _run_resampled_solver(
@@ -1844,6 +1874,11 @@ class _CubeSelection:
     used_ga_fallback: bool
     accepted_feasible_non_success: bool
     robustification_derisked: bool
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: zulaessige Multi-Start-Finalisten
+    # (sauber konvergierter Lauf: nur konvergierte Starts) fuer den
+    # Drawdown-Rerank des Einzelwuerfel-Pfads. Im Resampling-Pfad ungenutzt:
+    # dort rankt der Rerank {Bag-Mittel, projiziertes Mittel, Hausmatrix-Anker}.
+    finalists: list[dict] = field(default_factory=list)
 
 
 def _select_cube_candidate(
@@ -2082,6 +2117,11 @@ def _select_cube_candidate(
         used_ga_fallback=bool(used_ga_fallback),
         accepted_feasible_non_success=bool(accepted_feasible_non_success),
         robustification_derisked=bool(robustification_derisked),
+        finalists=[
+            candidate for candidate in finite_feasible_candidates
+            if accepted_feasible_non_success
+            or bool(getattr(candidate["result"], "success", False))
+        ],
     )
 
 
@@ -2108,7 +2148,9 @@ def _house_midpoint_fallback_result(
     weights_bps = _weights_to_bps_dict(mid, bounds=bounds)
     midpoint_w = _trusted_weights_bps_to_array(weights_bps)
     mid_wealth = _simulate_context_wealth(context, midpoint_w)
-    _penalty, goal_achievability = chance_constraint_penalty(
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: auch der House-Fallback publiziert
+    # den typisierten Vertrag (Zielzeilen nach Prioritaet + Plan-Solvenz).
+    goal_achievability = publish_goal_achievability(
         mid_wealth,
         context.liabilities,
         context.advisory_wealth_rappen,
@@ -2172,6 +2214,7 @@ def _finalize_solver_result(
     cashflow_series_rappen: Iterable[int],
     extra_reasoning: list[str] | None = None,
     resampling_payload: dict | None = None,
+    drawdown_certification: dict | None = None,
 ) -> OptimizerResult:
     """Schritt 7-8: Rundung, Status, Nachzertifizierung, Audit-Trail, Stress.
 
@@ -2252,7 +2295,7 @@ def _finalize_solver_result(
             "bewertbar und darf nicht als konvergiert gelten.",
         )
     final_wealth = _simulate_context_wealth(context, rounded_w)
-    _penalty, train_achievability = chance_constraint_penalty(
+    train_achievability = publish_goal_achievability(
         final_wealth,
         context.liabilities,
         context.advisory_wealth_rappen,
@@ -2313,23 +2356,25 @@ def _finalize_solver_result(
     # -- die Umgebung erneut gelesen: ein Wechsel mittendrin konnte die
     # Nachrechnung fuer einen Lauf ausloesen, der gar nicht auf max_drawdown
     # optimiert hatte, oder sie fuer einen unterdruecken, der es tat.
-    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
-        drawdown_proxy = refined_drawdown_check_for_winner(
-            _portfolio_return_factors(context, rounded_w),
-            seed=int(context.seed),
-            weights=context.scenario_weights,
-        )
-        reasoning.append(
-            "Zielfunktion max_drawdown: optimiert auf dem Jahresgitter "
-            f"({drawdown_proxy['annual_grid_mean_drawdown'] * 100:.2f}% "
-            "mittlerer Max-Drawdown). Nachrechnung des Gewinners auf dem "
-            f"verfeinerten Zeitgitter ({drawdown_proxy['sub_steps_per_year']} "
-            "Teilschritte/Jahr, "
-            f"{drawdown_proxy['model_version']}): "
-            f"{drawdown_proxy['refined_mean_drawdown'] * 100:.2f}%, "
-            "Unterschaetzung des Optimierungs-Proxy "
-            f"{drawdown_proxy['understatement'] * 100:.2f} Prozentpunkte."
-        )
+    #
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (2026-10-14): statt nur den
+    # Gewinner auf dem Trainings-Cube nachzurechnen, werden alle Finalisten
+    # auf dem Validierungs-Cube gerankt (Schritt 6c). Nur wenn das nicht
+    # moeglich war, bleibt die alte Trainings-Cube-Nachrechnung als
+    # (gekennzeichnete) Offenlegung.
+    if drawdown_certification is not None:
+        reasoning.extend(drawdown_certification_reasoning(
+            drawdown_certification,
+            training_cube_check=(
+                None
+                if drawdown_certification.get("certified")
+                else refined_drawdown_check_for_winner(
+                    _portfolio_return_factors(context, rounded_w),
+                    seed=int(context.seed),
+                    weights=context.scenario_weights,
+                )
+            ),
+        ))
     robustification_payload: dict[str, object] | None = None
     if accepted_feasible_non_success:
         robustification_payload = {
@@ -2411,6 +2456,7 @@ def _finalize_solver_result(
         validation_cube_hash=validation_cube_hash_used,
         validation_n_paths=validation_n_paths_used,
         resampling=resampling_payload,
+        drawdown_certification=drawdown_certification,
         context=context,
     )
 
@@ -2560,6 +2606,8 @@ def _context_loss_pair_on_validation(
     validation_context: OptimizerContext,
     anchor_w: np.ndarray,
     candidate_w: np.ndarray,
+    *,
+    validation_seed: int | None = None,
 ):
     """Liefert ``loss_pair(idx)`` fuer den gepaarten Bootstrap.
 
@@ -2569,6 +2617,16 @@ def _context_loss_pair_on_validation(
     inklusive) auf derselben Pfadauswahl fuer beide Allokationen aus.
     """
     contract = objective_contract_of(validation_context)
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (CIO-Entscheid 2026-10-18): im
+    # Modus max_drawdown vergleicht der Signifikanztest mit dem VERFEINERTEN
+    # Drawdown (Brownsche Bruecke, Bruecken-Seed = Validierungs-Seed) statt
+    # des Jahresgitter-Proxy -- dasselbe Mass wie der Drawdown-Rerank. Der
+    # Proxy unterschaetzt volatilitaetsabhaengig und wuerde den Test
+    # systematisch zugunsten der riskanteren Allokation verschieben.
+    refined_drawdown = (
+        contract.objective_mode == OBJECTIVE_MAX_DRAWDOWN
+        and validation_seed is not None
+    )
 
     def _prepare(w: np.ndarray):
         wealth = _simulate_context_wealth(validation_context, w)
@@ -2585,7 +2643,14 @@ def _context_loss_pair_on_validation(
             if validation_context.preferred_target_bps
             else 0.0
         )
-        return wealth, factors, annualized, float(preference)
+        drawdowns = (
+            refined_primary_per_path(
+                validation_context, w, validation_seed=int(validation_seed),
+            )
+            if refined_drawdown
+            else None
+        )
+        return wealth, factors, annualized, float(preference), drawdowns
 
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
 
@@ -2594,9 +2659,11 @@ def _context_loss_pair_on_validation(
         # nicht die Skalar-Zielfunktion. Deren Stufe-2-Schalter wirkt pro
         # Allokation; als Differenz zweier Allokationen ist sie nicht monoton
         # (siehe resampling.lexicographic_improvement).
-        wealth, factors, annualized, preference = bundle
+        wealth, factors, annualized, preference, drawdowns = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
+            if drawdowns is not None:
+                drawdowns = drawdowns[idx]
         goal_level, tiebreak = two_phase_objective_parts(
             validation_context.liabilities,
             wealth,
@@ -2607,6 +2674,9 @@ def _context_loss_pair_on_validation(
             objective_mode=contract.objective_mode,
             goal_weighting_mode=contract.goal_weighting_mode,
             portfolio_return_factors=factors,
+            primary_value_override=(
+                float(np.mean(drawdowns)) if drawdowns is not None else None
+            ),
         )
         return (float(goal_level), float(tiebreak), float(preference))
 
@@ -2629,12 +2699,43 @@ def _bps_dict_for_feasible_point(
     return weights_bps if ok else None
 
 
+def _project_house_anchor(
+    context: OptimizerContext,
+    house_anchor_bps: dict[str, int] | None,
+) -> tuple[dict[str, int] | None, str | None]:
+    """Hausmatrix-Zielquote zulaessig projiziert, als bps -- oder (None, Grund).
+
+    Herausgeloest aus ``_significance_vs_house_anchor``, damit der
+    Drawdown-Rerank (OPTIMIZER-DRAWDOWN-CERTIFICATION-001) exakt denselben
+    projizierten Anker bewertet wie der Signifikanztest.
+    """
+    if not house_anchor_bps:
+        return None, "no_house_anchor"
+    anchor_raw = np.array(
+        [int(house_anchor_bps[bucket]) / 10000.0 for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+    anchor_total = float(np.sum(anchor_raw))
+    if anchor_total <= 0:
+        return None, "invalid_house_anchor"
+    projected = _project_onto_feasible_set(anchor_raw / anchor_total, context)
+    anchor_bps = (
+        _bps_dict_for_feasible_point(projected, context)
+        if projected is not None
+        else None
+    )
+    if anchor_bps is None:
+        return None, "house_anchor_not_projectable"
+    return anchor_bps, None
+
+
 def _significance_vs_house_anchor(
     context: OptimizerContext,
     *,
     candidate_bps: dict[str, int],
     house_anchor_bps: dict[str, int] | None,
     config: ResamplingConfig,
+    validation: tuple[OptimizerContext, int, str] | None = None,
 ) -> dict:
     """Test: verbessert die resampelte Allokation die Zielfunktion signifikant
     gegenueber der (zulaessig projizierten) Hausmatrix-Zielquote?
@@ -2655,27 +2756,9 @@ def _significance_vs_house_anchor(
     }
     if not config.significance_test:
         return {**block, "decision": "optimizer_untested", "reason": "test_disabled"}
-    if not house_anchor_bps:
-        return {**block, "decision": "optimizer_untested", "reason": "no_house_anchor"}
-    anchor_raw = np.array(
-        [int(house_anchor_bps[bucket]) / 10000.0 for bucket in BUCKET_ORDER],
-        dtype=np.float64,
-    )
-    anchor_total = float(np.sum(anchor_raw))
-    if anchor_total <= 0:
-        return {**block, "decision": "optimizer_untested", "reason": "invalid_house_anchor"}
-    projected = _project_onto_feasible_set(anchor_raw / anchor_total, context)
-    anchor_bps = (
-        _bps_dict_for_feasible_point(projected, context)
-        if projected is not None
-        else None
-    )
+    anchor_bps, anchor_reason = _project_house_anchor(context, house_anchor_bps)
     if anchor_bps is None:
-        return {
-            **block,
-            "decision": "optimizer_untested",
-            "reason": "house_anchor_not_projectable",
-        }
+        return {**block, "decision": "optimizer_untested", "reason": anchor_reason}
     block["house_anchor_projected_bps"] = dict(anchor_bps)
     if anchor_bps == candidate_bps:
         return {
@@ -2684,7 +2767,8 @@ def _significance_vs_house_anchor(
             "reason": "identical_to_house_anchor",
             "significant": False,
         }
-    validation = _build_validation_context(context)
+    if validation is None:
+        validation = _build_validation_context(context)
     if validation is None:
         return {
             **block,
@@ -2692,10 +2776,15 @@ def _significance_vs_house_anchor(
             "reason": "no_validation_cube",
         }
     validation_context, validation_seed, cube_hash = validation
+    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+        # Nur in diesem Modus gesetzt: Default-Laeufe behalten ihre
+        # Modellbasis (und damit ihren allocation_context_hash) bit-gleich.
+        block["drawdown_measure"] = "refined_brownian_bridge"
     loss_pair = _context_loss_pair_on_validation(
         validation_context,
         _trusted_weights_bps_to_array(anchor_bps),
         _trusted_weights_bps_to_array(candidate_bps),
+        validation_seed=int(validation_seed),
     )
     stats = paired_bootstrap_improvement(
         loss_pair,
@@ -2887,11 +2976,31 @@ def _run_resampled_solver(
     candidate_bps = _weights_to_bps_dict(projected, bounds=context.bounds)
     payload["resampled_weights_bps"] = dict(candidate_bps)
 
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 unter Resampling (CIO-Entscheid
+    # 2026-10-18): Modus max_drawdown -> {projiziertes Bag-Mittel, rohes
+    # Bag-Mittel, Hausmatrix-Anker} auf dem gemeinsamen Validierungs-Cube mit
+    # dem verfeinerten Drawdown ranken; der beste Nicht-Anker-Kandidat geht
+    # in den Signifikanztest (der dasselbe Mass verwendet).
+    drawdown_certification: dict | None = None
+    validation = None
+    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+        validation = _build_validation_context(context)
+        certified_w, drawdown_certification = certify_resampled_candidates(
+            context,
+            projected_mean=projected,
+            raw_mean=mean_w,
+            house_anchor_bps=_project_house_anchor(context, house_anchor_bps)[0],
+            validation=validation,
+        )
+        if certified_w is not None:
+            candidate_bps = _weights_to_bps_dict(certified_w, bounds=context.bounds)
+
     significance = _significance_vs_house_anchor(
         context,
         candidate_bps=candidate_bps,
         house_anchor_bps=house_anchor_bps,
         config=config,
+        validation=validation,
     )
     payload["significance"] = significance
     decision = significance["decision"]
@@ -2942,6 +3051,7 @@ def _run_resampled_solver(
         cashflow_series_rappen=cashflow_series_rappen,
         extra_reasoning=reasoning,
         resampling_payload=payload,
+        drawdown_certification=drawdown_certification,
     )
 
 

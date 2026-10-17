@@ -1302,6 +1302,9 @@ _GOAL_STATUS_PILL = {
     "past":            ("Vergangen",      "#E9EBEE", "#7A8395"),
     "beyond_horizon":  ("Jenseits Horizont","#E9EBEE", "#7A8395"),
     "unknown":         ("Unklar",         "#E9EBEE", "#7A8395"),
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Altbewertung ohne Prioritaets-
+    # zuordnung -- gemeinsamer Planwert, keine Ampel.
+    "legacy_aggregate_unknown": ("Altbewertung", "#E9EBEE", "#7A8395"),
 }
 
 
@@ -1334,14 +1337,42 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
         ))
         out.append(Spacer(1, 5 * mm))
 
+    plan = gbi.get("plan_solvency") or None
+    if goals and isinstance(plan, dict) and plan.get("probability_bps") is not None:
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: der gemeinsame Planwert steht
+        # GENAU EINMAL und klar beschriftet ueber der Zieltabelle -- nie als
+        # Zielzeile und nie als individuelle Wahrscheinlichkeit.
+        out.append(_plan_solvency_line(plan, styles))
+        out.append(Spacer(1, 3 * mm))
+
     if goals:
         out.append(_goals_table(goals, styles, mc_classifications, currency=currency))
+        out.append(Spacer(1, 2 * mm))
+        out.append(Paragraph(
+            "<b>Zielerreichung nach Priorität:</b> Auf jedem simulierten Pfad "
+            "werden die Ziele in der festgelegten Rangfolge finanziert "
+            "(Rang 1 zuerst). Ein Ziel gilt als erreicht, wenn es nach allen "
+            "höher priorisierten Zielen vollständig finanziert ist. "
+            "<b>Plan-Solvenz:</b> Anteil der Pfade, auf denen alle Ziele "
+            "gemeinsam finanziert sind.",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ))
     else:
         out.append(Paragraph(
             "<i>Keine Ziele erfasst.</i>",
             styles["caption"],
         ))
     return out
+
+
+def _plan_solvency_line(plan: dict, styles: dict) -> Paragraph:
+    """Plan-Solvenz (alle Ziele gemeinsam) als eine beschriftete Zeile."""
+    label = _safe_string(plan.get("label")) or "Plan-Solvenz (alle Ziele gemeinsam)"
+    value = format_bps_as_pct(plan.get("probability_bps"), decimals=0)
+    return Paragraph(
+        f"<b>{_escape(label)}:</b> {_escape(value)}",
+        _ar_paragraph_style(styles["body"], color=COLOR_INK),
+    )
 
 
 def _achievement_score_kpi(score_bps: int, styles: dict):
@@ -1402,7 +1433,7 @@ def _goals_table(
         _th("Hartheit", styles), _th("Ziel-Datum", styles),
         _th("Zielwert", styles), _th("Status", styles),
         _th("MC-Status", styles),
-        _th("Wahrscheinlichkeit", styles),
+        _th("Zielerreichung nach Priorität", styles),
     ]
     rows = [header]
     mc_by_goal_id = {
@@ -1417,6 +1448,9 @@ def _goals_table(
         target_date = _safe_string(g.get("target_date")) or "—"
         target = format_chf_rappen(g.get("target_amount_rappen"), currency=currency)
         status = str(g.get("status") or "data_pending").lower()
+        if str(g.get("evaluation_scope") or "") == "legacy_aggregate_unknown":
+            # Altbewertung: gemeinsamer Planwert je Zeile, keine Ampel.
+            status = "legacy_aggregate_unknown"
         mc_status = str(
             (mc_by_goal_id.get(str(g.get("goal_id") or "")) or {}).get("status")
             or "unknown"
@@ -1448,7 +1482,7 @@ def _goals_table(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
         ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
-        ("ALIGN", (7, 0), (7, -1), "RIGHT"),  # Wahrscheinlichkeit rechts (Spalte 8)
+        ("ALIGN", (7, 0), (7, -1), "RIGHT"),  # Zielerreichung nach Prioritaet rechts (Spalte 8)
     ]))
     return table
 

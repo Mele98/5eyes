@@ -723,7 +723,7 @@ def _synchronize_fallback_optimizer_result(
         }
     else:
         from services.optimizer.constraints import OptimizerInputError
-        from services.optimizer.objective import chance_constraint_penalty
+        from services.optimizer.goal_attribution import publish_goal_achievability
         from services.optimizer.solver import (
             _annualized_twr_bps_per_path,
             _simulate_context_wealth,
@@ -739,7 +739,7 @@ def _synchronize_fallback_optimizer_result(
             )
         active_array = _weights_bps_to_array(active)
         wealth_paths = _simulate_context_wealth(context, active_array)
-        _penalty, achievability = chance_constraint_penalty(
+        achievability = publish_goal_achievability(
             wealth_paths,
             context.liabilities,
             context.advisory_wealth_rappen,
@@ -832,7 +832,8 @@ def _optimizer_audit_fields(optimizer_result) -> dict:
 def _driving_goal_id_from_achievability(achievability: list[dict]) -> str | None:
     priority = [
         row for row in (achievability or [])
-        if str(row.get("hardness") or "").strip().lower() in ("hart", "primär", "primaer")
+        if str(row.get("evaluation_scope") or "") != "joint_plan"
+        and str(row.get("hardness") or "").strip().lower() in ("hart", "primär", "primaer")
     ]
     if not priority:
         return None
@@ -1391,6 +1392,10 @@ def _build_optimizer_explainability(
                     contribution_binary64_hex
                 ),
                 "rank": rank,
+                # GOAL-ACHIEVABILITY-ATTRIBUTION-001 (Reparaturvertrag Punkt
+                # 5): der Beitrag ist der gewichtete Verlustterm dieses Ziels
+                # auf dem GEMEINSAMEN Pfad, kein kausaler/marginaler Anteil.
+                "evaluation_scope": "weighted_loss_component_under_joint_path",
             })
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -1495,6 +1500,19 @@ def _persist_optimizer_run(
 
     robustification_json: str | None = None
     robustification = getattr(optimizer_result, "robustification", None)
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: das Kandidaten-Audit des
+    # Drawdown-Reranks gehoert in denselben Auswahl-Audit-Umschlag
+    # (`robustification_json` = "effective/rejected candidate audit
+    # envelope"): welcher Kandidat warum gewaehlt wurde. Keine neue Spalte.
+    drawdown_certification = getattr(optimizer_result, "drawdown_certification", None)
+    if drawdown_certification:
+        envelope = dict(robustification or {
+            "enabled": False,
+            "stage": "drawdown_certification",
+            "final_reason": "drawdown_validation_rerank",
+        })
+        envelope["drawdown_certification"] = dict(drawdown_certification)
+        robustification = envelope
     if robustification:
         try:
             robustification_json = json.dumps(

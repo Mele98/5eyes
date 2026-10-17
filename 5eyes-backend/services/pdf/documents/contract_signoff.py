@@ -332,6 +332,7 @@ def _limiting_factor_label(value: str | None) -> str:
         "liquiditaetsreserve": "Liquiditaetsreserve",
         "bandbreite": "Strategische Bandbreiten",
         "zielkonflikt": "Zielkonflikt",
+        "gemeinsamer_engpass": "Gemeinsamer Engpass (ein Konflikt)",
         "solver_konvergenz": "Berechnung / Konvergenz",
     }
     return labels.get(str(value or "").lower(), str(value or "Nicht klassifiziert"))

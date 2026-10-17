@@ -355,6 +355,10 @@ _SIGNIFICANCE_BASIS_FIELDS = (
     "improvement_lower_bound",
     "comparison",
     "replicate_comparisons",
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: nur im Modus max_drawdown gesetzt
+    # ("refined_brownian_bridge"); sonst fehlt der Schluessel und die
+    # Modellbasis bleibt bit-gleich.
+    "drawdown_measure",
     "p_value",
     "significant",
     "validation_seed",

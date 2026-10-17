@@ -191,6 +191,15 @@ def test_sens_hart_goal_triggert_konservativer_als_opp(monkeypatch):
 # ===========================================================================
 
 
+def _goal_rows(result) -> list[dict]:
+    """GOAL-ACHIEVABILITY-ATTRIBUTION-001: Zielzeilen ohne die eine
+    Plan-Solvenz-Zeile (evaluation_scope=joint_plan), die genau einmal dabei ist."""
+    rows = list(result.goal_achievability)
+    plan = [row for row in rows if row.get("evaluation_scope") == "joint_plan"]
+    assert len(plan) == 1, rows
+    return [row for row in rows if row.get("evaluation_scope") != "joint_plan"]
+
+
 def test_sens_mehr_goals_mehr_achievability_rows(monkeypatch):
     """Mit N Goals MUSS goal_achievability genau N Eintraege haben."""
     from config import settings
@@ -205,13 +214,13 @@ def test_sens_mehr_goals_mehr_achievability_rows(monkeypatch):
         ]
         r = _run(cma_id=f"cma-{n_goals}", hm=_hm_ausgewogen(),
                  score_x10=55, goals=goals, seed=33)
-        assert len(r.goal_achievability) == n_goals, (
+        assert len(_goal_rows(r)) == n_goals, (
             f"Bei {n_goals} Goals erwartet {n_goals} achievability-rows, "
-            f"got {len(r.goal_achievability)}"
+            f"got {len(_goal_rows(r))}"
         )
         # Alle Goal-IDs vorhanden
         goal_ids_in = {g.id for g in goals}
-        goal_ids_out = {a["goal_id"] for a in r.goal_achievability}
+        goal_ids_out = {a["goal_id"] for a in _goal_rows(r)}
         assert goal_ids_in == goal_ids_out
 
 
@@ -376,8 +385,8 @@ def test_e2e_solver_output_komplett_auditierbar(monkeypatch):
     reasoning_text = " ".join(r.reasoning).lower()
     assert "importance sampling" in reasoning_text
     # 4. Goal-Achievability pro Goal
-    assert len(r.goal_achievability) == 2
-    for ach in r.goal_achievability:
+    assert len(_goal_rows(r)) == 2
+    for ach in _goal_rows(r):
         assert "goal_id" in ach
         assert "status" in ach
         assert "probability" in ach
