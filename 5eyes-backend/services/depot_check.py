@@ -717,7 +717,14 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
         result["currency_exposure_drift_bps"] = _compute_drift(
             result["currency_exposure_bps"], result["soll_currency_exposure_bps"]
         )
-    elif positions_with_products:
+    if result["soll_ausgeblendet"]:
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (Nachtrag Sektion 9/10): die
+        # SOLL-Exposures stammen aus der Empfehlung zur veralteten Allokation
+        # -- wie die Bucket-Ziele nicht ausliefern.
+        for dim in ("country", "sector", "currency"):
+            result[f"soll_{dim}_exposure_bps"] = {}
+            result[f"{dim}_exposure_drift_bps"] = {}
+    elif soll_total_target_rappen <= 0 and positions_with_products:
         # RecommendationPositions vorhanden, aber kein target_amount gepflegt.
         # Berater hat noch nicht „Empfehlung übernehmen" geklickt.
         result["warnings"].append(

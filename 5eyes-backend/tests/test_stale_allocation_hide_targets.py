@@ -154,7 +154,7 @@ def test_report_stale_risk_profile_hides_targets(session, monkeypatch):  # noqa:
     import services.risk_assessment_semantics as ras
     monkeypatch.setattr(
         ras, "target_allocation_predates_current_assessment",
-        lambda ta, ra_id: True,
+        lambda ta, ra_id, *_a, **_k: True,
     )
     rep = compute_advisory_report(session, mandate, advisor=adv)
     bb = rep["building_blocks"]
@@ -289,7 +289,7 @@ def test_depot_check_stale_risk_profile_hides_bucket_targets(session, monkeypatc
     _adv, mandate = _seed(session)
     monkeypatch.setattr(
         ras, "target_allocation_predates_current_assessment",
-        lambda ta, ra_id: True,
+        lambda ta, ra_id, *_a, **_k: True,
     )
     dc = compute_depot_check(session, mandate)
     assert dc["soll_ausgeblendet"] is True
@@ -308,7 +308,7 @@ def test_depotcheck_pdf_blocked_when_risk_profile_stale(session, monkeypatch):  
     _adv, mandate = _seed(session)
     monkeypatch.setattr(
         ras, "target_allocation_predates_current_assessment",
-        lambda ta, ra_id: True,
+        lambda ta, ra_id, *_a, **_k: True,
     )
     with pytest.raises(ValueError) as exc:
         pdf._build_depotcheck_data(mandate, session)

@@ -63,7 +63,12 @@ export function AssetAllocation({
 }
 
 /** Nur im nicht-ausgeblendeten Zweig aufgerufen: dort sind alle Zahlen gesetzt. */
-function toBarChartItems(items: AssetAllocationItem[]): BarChartItem[] {
+export function toBarChartItems(
+  items: Array<
+    Pick<AssetAllocationItem, 'label' | 'ist_bps' | 'soll_bps' | 'drift_bps'> &
+      Partial<Pick<AssetAllocationItem, 'band_min_bps' | 'band_max_bps'>>
+  >,
+): BarChartItem[] {
   return items.map((it) => ({
     label: it.label,
     ist_bps: it.ist_bps ?? 0,

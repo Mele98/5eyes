@@ -1188,6 +1188,13 @@ def _stale_targets_hidden_flowables(
 def _build_risikowaehrungen_flowables(rw: dict, styles: dict) -> list[Any]:
     """Sektion 9 — Risikowährungen. Items haben keine Bands; Erklärung-Text
     aus Aggregator."""
+    if rw.get("soll_ausgeblendet"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001: keine alten SOLL-Exposures.
+        return _stale_targets_hidden_flowables(
+            kicker="Sektion 9", title="Risikowährungen",
+            hinweis=str(rw.get("staleness_hinweis") or rw.get("erklaerung") or ""),
+            styles=styles,
+        )
     return _build_bar_chart_section(
         nr=9, kicker="Sektion 9", title="Risikowährungen",
         subtitle=(
@@ -1206,6 +1213,13 @@ def _build_risikowaehrungen_flowables(rw: dict, styles: dict) -> list[Any]:
 def _build_branchen_flowables(br: dict, styles: dict) -> list[Any]:
     """Sektion 10 — Branchen. Sortiert nach Spec (GICS-Reihenfolge), aber
     nur Top-Items + Sammelkategorie 'Übrige'. Analyse-Text aus Aggregator."""
+    if br.get("soll_ausgeblendet"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001: keine alten SOLL-Exposures.
+        return _stale_targets_hidden_flowables(
+            kicker="Sektion 10", title="Diversifikation Branchen",
+            hinweis=str(br.get("staleness_hinweis") or br.get("analyse") or ""),
+            styles=styles,
+        )
     return _build_bar_chart_section(
         nr=10, kicker="Sektion 10", title="Diversifikation Branchen",
         subtitle=(

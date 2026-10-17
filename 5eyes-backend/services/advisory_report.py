@@ -1969,6 +1969,23 @@ def _build_risikowaehrungen(
             "soll_bps": s,
             "drift_bps": i - s,
         })
+    if dc.get("target_allocation_stale"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid, Nachtrag
+        # Sektion 9): die SOLL-Waehrungs-Exposures stammen aus der alten
+        # Empfehlung -> ausblenden wie Sektion 8, nur der Hinweis.
+        hinweis = _stale_allocation_hinweis(dc) + " Strategie neu berechnen."
+        _hide_stale_exposure_items(items)
+        return {
+            "items": items,
+            "ist_bps": None,
+            "soll_bps": None,
+            "drift_bps": None,
+            "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+            "target_allocation_stale": True,
+            "soll_ausgeblendet": True,
+            "staleness_hinweis": hinweis,
+            "erklaerung": hinweis,
+        }
     default_erkl = _default_erklaerung_waehrungen(items)
     erklaerung = _override_or_default(
         getattr(notes, "waehrungen_erklaerung", None) if notes is not None else None,
@@ -1980,8 +1997,25 @@ def _build_risikowaehrungen(
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
         "drift_bps": {it["label"]: it["drift_bps"] for it in items},
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+        "target_allocation_stale": False,
+        "soll_ausgeblendet": False,
+        "staleness_hinweis": None,
         "erklaerung": erklaerung,
     }
+
+
+def _hide_stale_exposure_items(items: list[dict[str, Any]]) -> None:
+    """STALE-ALLOCATION-HIDE-TARGETS-001 (Sektion 9/10): nullt IST, SOLL
+    und Drift je Item. Anders als in Sektion 8 auch den IST: die Waehrungs-
+    und Sektor-Exposures werden ueber die RecommendationPositions der
+    Empfehlung zur veralteten Allokation aggregiert, und fehlende Ist-
+    Betraege fuellt der Depot-Check mit deren target_amount auf -- der
+    Report-Flag ist_basiert_auf_soll erkennt das nicht in jedem Pfad
+    (client_facing loest den Run anders auf als der Depot-Check)."""
+    for it in items:
+        it["ist_bps"] = None
+        it["soll_bps"] = None
+        it["drift_bps"] = None
 
 
 def _build_branchen(
@@ -2031,6 +2065,26 @@ def _build_branchen(
             "soll_bps": other_soll,
             "drift_bps": other_ist - other_soll,
         })
+    if dc.get("target_allocation_stale"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid, Nachtrag
+        # Sektion 10): Sektor-Exposures der alten Empfehlung ausblenden,
+        # inkl. Aktienanteil ("basiert auf X % Aktien-Allokation"), der aus
+        # denselben Empfehlungspositionen stammt.
+        hinweis = _stale_allocation_hinweis(dc) + " Strategie neu berechnen."
+        _hide_stale_exposure_items(items)
+        return {
+            "items": items,
+            "ist_bps": None,
+            "soll_bps": None,
+            "drift_bps": None,
+            "anteil_aktien_bps": None,
+            "hinweis": None,
+            "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+            "target_allocation_stale": True,
+            "soll_ausgeblendet": True,
+            "staleness_hinweis": hinweis,
+            "analyse": hinweis,
+        }
     default_analyse = _default_analyse_branchen(items)
     analyse = _override_or_default(
         getattr(notes, "branchen_analyse", None) if notes is not None else None,
@@ -2044,6 +2098,9 @@ def _build_branchen(
         "anteil_aktien_bps": anteil_aktien_bps,
         "hinweis": _sector_basis_note(anteil_aktien_bps),
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+        "target_allocation_stale": False,
+        "soll_ausgeblendet": False,
+        "staleness_hinweis": None,
         "analyse": analyse,
     }
 

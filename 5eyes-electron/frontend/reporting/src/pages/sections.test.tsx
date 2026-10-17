@@ -302,6 +302,36 @@ describe('Section 9: Risikowaehrungen', () => {
     );
     expect(screen.getByText('CHF')).toBeInTheDocument();
     expect(screen.getByText('USD')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('STALE-ALLOCATION-HIDE-TARGETS-001: veraltet -> nur Hinweis, keine SOLL-Exposures', () => {
+    const base = makeRisikowaehrungen();
+    const hinweis =
+      'Hinweis: Soll-Allokation basiert auf einem frueheren, nicht mehr aktuellen Risikoprofil. Strategie neu berechnen.';
+    const { container } = render(
+      withRouter(
+        <Risikowaehrungen
+          data={{
+            ...base,
+            items: base.items.map((it) => ({ ...it, ist_bps: null, soll_bps: null, drift_bps: null })),
+            ist_bps: null,
+            soll_bps: null,
+            drift_bps: null,
+            ist_basiert_auf_soll: true,
+            target_allocation_stale: true,
+            soll_ausgeblendet: true,
+            staleness_hinweis: hinweis,
+            erklaerung: hinweis,
+          }}
+          mandateId="test"
+          onReload={() => {}}
+        />,
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Strategie neu berechnen/);
+    expect(screen.queryByText('USD')).not.toBeInTheDocument();
+    expect(container.textContent ?? '').not.toMatch(/\d+\.\d %/);
   });
 });
 
@@ -318,6 +348,38 @@ describe('Section 10: Branchen', () => {
     );
     expect(screen.getByText('Tech')).toBeInTheDocument();
     expect(screen.getByText('Health')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('STALE-ALLOCATION-HIDE-TARGETS-001: veraltet -> nur Hinweis, keine SOLL-Exposures/Aktienquote', () => {
+    const base = makeBranchen();
+    const hinweis =
+      'Hinweis: Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben sich seit der Berechnung geaendert. Strategie neu berechnen.';
+    const { container } = render(
+      withRouter(
+        <Branchen
+          data={{
+            ...base,
+            items: base.items.map((it) => ({ ...it, ist_bps: null, soll_bps: null, drift_bps: null })),
+            ist_bps: null,
+            soll_bps: null,
+            drift_bps: null,
+            anteil_aktien_bps: null,
+            hinweis: null,
+            ist_basiert_auf_soll: true,
+            target_allocation_stale: true,
+            soll_ausgeblendet: true,
+            staleness_hinweis: hinweis,
+            analyse: hinweis,
+          }}
+          mandateId="test"
+          onReload={() => {}}
+        />,
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(/Vermoegen, Cashflows oder Ziele/);
+    expect(screen.queryByText('Tech')).not.toBeInTheDocument();
+    expect(container.textContent ?? '').not.toMatch(/\d+\.\d %/);
   });
 });
 
