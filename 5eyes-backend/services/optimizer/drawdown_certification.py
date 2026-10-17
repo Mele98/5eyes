@@ -40,10 +40,32 @@ Lauf-Seed abgeleitet.
 Der Audit-Eintrag haelt fest, ob die Rangfolge und ob der Gewinner sich
 geaendert haben -- also ob die Proxy-Verzerrung die Entscheidung bewegt hat.
 
+**Unter Resampled Efficiency (SAA-RESAMPLED-STABILITY-001, CIO-Entscheid
+2026-10-18).** Der Produktionspfad mittelt 40 Bag-Optima. Die einzelnen
+Bag-Optima sind Stichprobenrauschen und werden NICHT einzeln gerankt -- ein
+Rerank ueber 40 Einzel-Optima auf EINEM Cube wuerde genau die
+Seed-Instabilitaet zurueckholen, die das Resampling beseitigt. Kandidaten
+sind:
+
+* das projizierte Bag-Mittel (die Allokation, die ohne Rerank in den
+  Signifikanztest ginge -- der "Trainingsgewinner"),
+* das rohe (gemittelte) Bag-Mittel (im Normalfall identisch und dann
+  zusammengefasst),
+* der zulaessig projizierte Hausmatrix-Anker.
+
+Alle werden auf dem gemeinsamen Validierungs-Cube mit dem verfeinerten
+Drawdown bewertet. Der beste Nicht-Anker-Kandidat geht in den gepaarten
+Signifikanztest gegen den Anker, der im Modus ``max_drawdown`` ebenfalls das
+verfeinerte Mass verwendet (``refined_primary_per_path``). Weil Rerank und
+Test dieselbe Zielfunktion auf demselben Cube auswerten, ist ihre
+Punktschaetzung identisch: rankt der Rerank den Anker vorne, ist die
+Verbesserung <= 0 und der Test faellt auf die Hausmatrix -- die beiden
+Entscheide koennen sich nicht widersprechen.
+
 Dieses Modul haelt die Logik bewusst ausserhalb von ``solver.py``: der Solver
-ruft nur ``certify_drawdown_candidates`` und
-``drawdown_certification_reasoning`` auf. Solver-Interna werden lazy
-importiert (kein Zirkularimport).
+ruft nur ``certify_drawdown_candidates``, ``certify_resampled_candidates``,
+``refined_primary_per_path`` und ``drawdown_certification_reasoning`` auf.
+Solver-Interna werden lazy importiert (kein Zirkularimport).
 """
 from __future__ import annotations
 
@@ -52,6 +74,13 @@ from typing import Sequence
 import numpy as np
 
 DRAWDOWN_CERTIFICATION_VERSION = "validation_cube_refined_rerank_v1"
+
+# Kandidatenmenge des Reranks (im Audit ausgewiesen).
+POOL_MULTI_START_FINALISTS = "multi_start_finalists"
+POOL_RESAMPLED = "resampled_mean_projected_mean_house_anchor"
+LABEL_PROJECTED_MEAN = "resampled_projected_mean"
+LABEL_RAW_MEAN = "resampled_raw_mean"
+LABEL_HOUSE_ANCHOR = "house_anchor"
 
 _TIE_REL_TOL = 1e-12
 
@@ -140,10 +169,35 @@ def validated_drawdown_evaluation(
     }
 
 
-def _not_certified(reason: str) -> dict:
+def refined_primary_per_path(
+    validation_context,
+    weights_array: np.ndarray,
+    *,
+    validation_seed: int,
+) -> np.ndarray:
+    """Verfeinerter Max-Drawdown je Pfad auf dem Validierungs-Cube.
+
+    Fuer den gepaarten Signifikanztest im Modus ``max_drawdown``: der
+    Primaerterm einer Bootstrap-Replikation ist der Mittelwert dieser Werte
+    auf der gezogenen Pfadauswahl. Gleicher Bruecken-Seed wie
+    ``validated_drawdown_evaluation`` -- ueber alle Pfade gemittelt ergibt
+    sich exakt deren ``refined_mean_drawdown``.
+    """
+    from . import solver as _solver
+    from .objective_variants import refined_drawdowns_per_path
+
+    refined, _annual, _refinement = refined_drawdowns_per_path(
+        _solver._portfolio_return_factors(validation_context, weights_array),
+        seed=int(validation_seed),
+    )
+    return refined
+
+
+def _not_certified(reason: str, *, candidate_pool: str = POOL_MULTI_START_FINALISTS) -> dict:
     return {
         "version": DRAWDOWN_CERTIFICATION_VERSION,
         "objective_mode": "max_drawdown",
+        "candidate_pool": candidate_pool,
         "certified": False,
         "reason": reason,
         "validation_seed": None,
@@ -157,6 +211,9 @@ def certify_drawdown_candidates(
     *,
     winner_weights: np.ndarray,
     candidates: Sequence[dict],
+    winner_label: str = "training_winner",
+    candidate_pool: str = POOL_MULTI_START_FINALISTS,
+    validation=None,
 ) -> tuple[np.ndarray | None, dict]:
     """Drawdown-Rerank ALLER zulaessigen Finalisten auf dem Validierungs-Cube.
 
@@ -175,19 +232,22 @@ def certify_drawdown_candidates(
     from .constraints import is_feasible
     from .scenario_engine import BUCKET_ORDER
 
-    validation = _solver._build_validation_context(context)
     if validation is None:
-        return None, _not_certified("no_independent_validation_cube")
+        validation = _solver._build_validation_context(context)
+    if validation is None:
+        return None, _not_certified(
+            "no_independent_validation_cube", candidate_pool=candidate_pool,
+        )
     validation_context, validation_seed, cube_hash = validation
 
     pool: list[tuple[str, np.ndarray]] = [
-        ("training_winner", np.asarray(winner_weights, dtype=np.float64)),
+        (winner_label, np.asarray(winner_weights, dtype=np.float64)),
     ]
     for index, candidate in enumerate(candidates):
-        pool.append((
-            f"{candidate.get('source', 'candidate')}#{index + 1}",
-            np.asarray(candidate["weights"], dtype=np.float64),
-        ))
+        label = candidate.get("label") or (
+            f"{candidate.get('source', 'candidate')}#{index + 1}"
+        )
+        pool.append((str(label), np.asarray(candidate["weights"], dtype=np.float64)))
 
     entries: list[dict] = []
     seen: set[tuple[int, ...]] = set()
@@ -206,11 +266,14 @@ def certify_drawdown_candidates(
             rounded, bounds=context.bounds, constraints=context.scipy_constraints,
         )
         if not feasible:
-            if label == "training_winner":
+            if label == winner_label:
                 # Ohne publizierbaren Trainingsgewinner gibt es nichts zu
                 # vergleichen; der Lauf wird ohnehin als
                 # `diverged_infeasible` markiert.
-                return None, _not_certified("training_winner_infeasible_after_rounding")
+                return None, _not_certified(
+                    "training_winner_infeasible_after_rounding",
+                    candidate_pool=candidate_pool,
+                )
             skipped_infeasible += 1
             continue
         evaluation = validated_drawdown_evaluation(
@@ -237,6 +300,7 @@ def certify_drawdown_candidates(
     audit = {
         "version": DRAWDOWN_CERTIFICATION_VERSION,
         "objective_mode": "max_drawdown",
+        "candidate_pool": candidate_pool,
         "certified": True,
         "reason": "validation_cube_rerank",
         "validation_seed": int(validation_seed),
@@ -263,6 +327,78 @@ def certify_drawdown_candidates(
         ],
     }
     return np.asarray(winner["_rounded_weights"], dtype=np.float64), audit
+
+
+def certify_resampled_candidates(
+    context,
+    *,
+    projected_mean: np.ndarray,
+    raw_mean: np.ndarray,
+    house_anchor_bps: dict[str, int] | None,
+    validation,
+) -> tuple[np.ndarray | None, dict]:
+    """Drawdown-Rerank unter Resampled Efficiency (CIO-Entscheid 2026-10-18).
+
+    Kandidaten: projiziertes Bag-Mittel (Trainingsgewinner), rohes Bag-Mittel
+    und der bereits zulaessig projizierte Hausmatrix-Anker
+    (``house_anchor_bps``; None = kein Anker) -- alle auf dem gemeinsamen
+    Validierungs-Cube ``validation`` (derselbe Cube wie Signifikanztest und
+    Zielerreichungs-Nachzertifizierung) mit dem verfeinerten Drawdown.
+
+    Returns ``(gewichte, audit)``: ``gewichte`` ist der beste
+    NICHT-Anker-Kandidat -- er geht in den Signifikanztest gegen den Anker,
+    der ueber Optimierer vs. Hausmatrix entscheidet. Der Rang des Ankers steht
+    im Audit (``house_anchor_validated_rank``). None, wenn nicht zertifiziert
+    werden konnte oder jeder Nicht-Anker-Kandidat nach dem Runden mit dem
+    Anker zusammenfaellt; dann bleibt das projizierte Mittel.
+    """
+    from .scenario_engine import BUCKET_ORDER
+
+    candidates: list[dict] = [{"label": LABEL_RAW_MEAN, "weights": raw_mean}]
+    anchor_key: tuple[int, ...] | None = None
+    if house_anchor_bps:
+        anchor_key = tuple(int(house_anchor_bps[bucket]) for bucket in BUCKET_ORDER)
+        candidates.append({
+            "label": LABEL_HOUSE_ANCHOR,
+            "weights": np.array(anchor_key, dtype=np.float64) / 10000.0,
+        })
+    _weights, audit = certify_drawdown_candidates(
+        context,
+        winner_weights=projected_mean,
+        candidates=candidates,
+        winner_label=LABEL_PROJECTED_MEAN,
+        candidate_pool=POOL_RESAMPLED,
+        validation=validation,
+    )
+    if not audit.get("certified"):
+        return None, audit
+
+    def _key(entry: dict) -> tuple[int, ...]:
+        return tuple(int(entry["weights_bps"][bucket]) for bucket in BUCKET_ORDER)
+
+    ranked = sorted(audit["candidates"], key=lambda entry: entry["validated_rank"])
+    # Gleiche bps werden zusammengefasst (unter dem zuerst gesehenen Label):
+    # ein Kandidat mit den bps des Ankers IST der Anker.
+    anchor_entry = next(
+        (entry for entry in ranked if anchor_key is not None and _key(entry) == anchor_key),
+        None,
+    )
+    challenger = next(
+        (entry for entry in ranked if anchor_key is None or _key(entry) != anchor_key),
+        None,
+    )
+    audit["house_anchor_validated_rank"] = (
+        int(anchor_entry["validated_rank"]) if anchor_entry is not None else None
+    )
+    audit["significance_candidate_label"] = (
+        challenger["label"] if challenger is not None else None
+    )
+    audit["significance_candidate_weights_bps"] = (
+        dict(challenger["weights_bps"]) if challenger is not None else None
+    )
+    if challenger is None:
+        return None, audit
+    return np.array(_key(challenger), dtype=np.float64) / 10000.0, audit
 
 
 def drawdown_certification_reasoning(
@@ -300,10 +436,17 @@ def drawdown_certification_reasoning(
     winner = next(
         (c for c in candidates if c.get("validated_rank") == 0), training,
     )
+    resampled = audit.get("candidate_pool") == POOL_RESAMPLED
+    pool_text = (
+        f"Alle {audit.get('n_candidates')} Kandidaten (projiziertes Bag-Mittel, "
+        "rohes Bag-Mittel, Hausmatrix-Anker; gleiche bps zusammengefasst) auf dem "
+        if resampled
+        else f"Alle {audit.get('n_candidates')} zulaessigen Finalisten auf dem "
+    )
     lines = [
         "Zielfunktion max_drawdown: optimiert auf dem Jahresgitter (Proxy). "
-        f"Alle {audit.get('n_candidates')} zulaessigen Finalisten auf dem "
-        "unabhaengigen Validierungs-Cube "
+        + pool_text
+        + "unabhaengigen Validierungs-Cube "
         f"(Seed {audit.get('validation_seed')}, {audit.get('validation_n_paths')} "
         "Pfade) mit verfeinertem Drawdown "
         f"({audit.get('sub_steps_per_year')} Teilschritte/Jahr, "
@@ -314,6 +457,23 @@ def drawdown_certification_reasoning(
         f"{float(training.get('annual_grid_mean_drawdown', 0.0)) * 100:.2f}% "
         "auf dem Jahresgitter.",
     ]
+    if resampled:
+        # Unter Resampling entscheidet nicht der Rerank, sondern der gepaarte
+        # Signifikanztest (mit demselben verfeinerten Mass) zwischen dem
+        # besten Nicht-Anker-Kandidaten und der Hausmatrix.
+        anchor_rank = audit.get("house_anchor_validated_rank")
+        if anchor_rank is None:
+            anchor_text = "Hausmatrix-Anker nicht separat bewertbar"
+        elif int(anchor_rank) == 0:
+            anchor_text = "Hausmatrix-Anker validiert vorne"
+        else:
+            anchor_text = f"Hausmatrix-Anker validiert auf Rang {int(anchor_rank) + 1}"
+        lines.append(
+            f"{anchor_text}; in den Signifikanztest gegen die Hausmatrix geht "
+            f"{audit.get('significance_candidate_label') or 'kein separater Kandidat'} "
+            "(verfeinertes Drawdown-Mass)."
+        )
+        return lines
     if audit.get("winner_changed"):
         lines.append(
             "Die Proxy-Verzerrung hat die Entscheidung BEWEGT: gewaehlt ist "
@@ -338,7 +498,9 @@ def drawdown_certification_reasoning(
 __all__ = [
     "DRAWDOWN_CERTIFICATION_VERSION",
     "certify_drawdown_candidates",
+    "certify_resampled_candidates",
     "drawdown_certification_reasoning",
+    "refined_primary_per_path",
     "rerank_by_validated_objective",
     "validated_drawdown_evaluation",
 ]

@@ -63,7 +63,9 @@ from .goal_liabilities import (
 )
 from .drawdown_certification import (
     certify_drawdown_candidates,
+    certify_resampled_candidates,
     drawdown_certification_reasoning,
+    refined_primary_per_path,
 )
 from .goal_attribution import publish_goal_achievability
 from .objective import (
@@ -2604,6 +2606,8 @@ def _context_loss_pair_on_validation(
     validation_context: OptimizerContext,
     anchor_w: np.ndarray,
     candidate_w: np.ndarray,
+    *,
+    validation_seed: int | None = None,
 ):
     """Liefert ``loss_pair(idx)`` fuer den gepaarten Bootstrap.
 
@@ -2613,6 +2617,16 @@ def _context_loss_pair_on_validation(
     inklusive) auf derselben Pfadauswahl fuer beide Allokationen aus.
     """
     contract = objective_contract_of(validation_context)
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (CIO-Entscheid 2026-10-18): im
+    # Modus max_drawdown vergleicht der Signifikanztest mit dem VERFEINERTEN
+    # Drawdown (Brownsche Bruecke, Bruecken-Seed = Validierungs-Seed) statt
+    # des Jahresgitter-Proxy -- dasselbe Mass wie der Drawdown-Rerank. Der
+    # Proxy unterschaetzt volatilitaetsabhaengig und wuerde den Test
+    # systematisch zugunsten der riskanteren Allokation verschieben.
+    refined_drawdown = (
+        contract.objective_mode == OBJECTIVE_MAX_DRAWDOWN
+        and validation_seed is not None
+    )
 
     def _prepare(w: np.ndarray):
         wealth = _simulate_context_wealth(validation_context, w)
@@ -2629,7 +2643,14 @@ def _context_loss_pair_on_validation(
             if validation_context.preferred_target_bps
             else 0.0
         )
-        return wealth, factors, annualized, float(preference)
+        drawdowns = (
+            refined_primary_per_path(
+                validation_context, w, validation_seed=int(validation_seed),
+            )
+            if refined_drawdown
+            else None
+        )
+        return wealth, factors, annualized, float(preference), drawdowns
 
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
 
@@ -2638,9 +2659,11 @@ def _context_loss_pair_on_validation(
         # nicht die Skalar-Zielfunktion. Deren Stufe-2-Schalter wirkt pro
         # Allokation; als Differenz zweier Allokationen ist sie nicht monoton
         # (siehe resampling.lexicographic_improvement).
-        wealth, factors, annualized, preference = bundle
+        wealth, factors, annualized, preference, drawdowns = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
+            if drawdowns is not None:
+                drawdowns = drawdowns[idx]
         goal_level, tiebreak = two_phase_objective_parts(
             validation_context.liabilities,
             wealth,
@@ -2651,6 +2674,9 @@ def _context_loss_pair_on_validation(
             objective_mode=contract.objective_mode,
             goal_weighting_mode=contract.goal_weighting_mode,
             portfolio_return_factors=factors,
+            primary_value_override=(
+                float(np.mean(drawdowns)) if drawdowns is not None else None
+            ),
         )
         return (float(goal_level), float(tiebreak), float(preference))
 
@@ -2673,12 +2699,43 @@ def _bps_dict_for_feasible_point(
     return weights_bps if ok else None
 
 
+def _project_house_anchor(
+    context: OptimizerContext,
+    house_anchor_bps: dict[str, int] | None,
+) -> tuple[dict[str, int] | None, str | None]:
+    """Hausmatrix-Zielquote zulaessig projiziert, als bps -- oder (None, Grund).
+
+    Herausgeloest aus ``_significance_vs_house_anchor``, damit der
+    Drawdown-Rerank (OPTIMIZER-DRAWDOWN-CERTIFICATION-001) exakt denselben
+    projizierten Anker bewertet wie der Signifikanztest.
+    """
+    if not house_anchor_bps:
+        return None, "no_house_anchor"
+    anchor_raw = np.array(
+        [int(house_anchor_bps[bucket]) / 10000.0 for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+    anchor_total = float(np.sum(anchor_raw))
+    if anchor_total <= 0:
+        return None, "invalid_house_anchor"
+    projected = _project_onto_feasible_set(anchor_raw / anchor_total, context)
+    anchor_bps = (
+        _bps_dict_for_feasible_point(projected, context)
+        if projected is not None
+        else None
+    )
+    if anchor_bps is None:
+        return None, "house_anchor_not_projectable"
+    return anchor_bps, None
+
+
 def _significance_vs_house_anchor(
     context: OptimizerContext,
     *,
     candidate_bps: dict[str, int],
     house_anchor_bps: dict[str, int] | None,
     config: ResamplingConfig,
+    validation: tuple[OptimizerContext, int, str] | None = None,
 ) -> dict:
     """Test: verbessert die resampelte Allokation die Zielfunktion signifikant
     gegenueber der (zulaessig projizierten) Hausmatrix-Zielquote?
@@ -2699,27 +2756,9 @@ def _significance_vs_house_anchor(
     }
     if not config.significance_test:
         return {**block, "decision": "optimizer_untested", "reason": "test_disabled"}
-    if not house_anchor_bps:
-        return {**block, "decision": "optimizer_untested", "reason": "no_house_anchor"}
-    anchor_raw = np.array(
-        [int(house_anchor_bps[bucket]) / 10000.0 for bucket in BUCKET_ORDER],
-        dtype=np.float64,
-    )
-    anchor_total = float(np.sum(anchor_raw))
-    if anchor_total <= 0:
-        return {**block, "decision": "optimizer_untested", "reason": "invalid_house_anchor"}
-    projected = _project_onto_feasible_set(anchor_raw / anchor_total, context)
-    anchor_bps = (
-        _bps_dict_for_feasible_point(projected, context)
-        if projected is not None
-        else None
-    )
+    anchor_bps, anchor_reason = _project_house_anchor(context, house_anchor_bps)
     if anchor_bps is None:
-        return {
-            **block,
-            "decision": "optimizer_untested",
-            "reason": "house_anchor_not_projectable",
-        }
+        return {**block, "decision": "optimizer_untested", "reason": anchor_reason}
     block["house_anchor_projected_bps"] = dict(anchor_bps)
     if anchor_bps == candidate_bps:
         return {
@@ -2728,7 +2767,8 @@ def _significance_vs_house_anchor(
             "reason": "identical_to_house_anchor",
             "significant": False,
         }
-    validation = _build_validation_context(context)
+    if validation is None:
+        validation = _build_validation_context(context)
     if validation is None:
         return {
             **block,
@@ -2736,10 +2776,15 @@ def _significance_vs_house_anchor(
             "reason": "no_validation_cube",
         }
     validation_context, validation_seed, cube_hash = validation
+    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+        # Nur in diesem Modus gesetzt: Default-Laeufe behalten ihre
+        # Modellbasis (und damit ihren allocation_context_hash) bit-gleich.
+        block["drawdown_measure"] = "refined_brownian_bridge"
     loss_pair = _context_loss_pair_on_validation(
         validation_context,
         _trusted_weights_bps_to_array(anchor_bps),
         _trusted_weights_bps_to_array(candidate_bps),
+        validation_seed=int(validation_seed),
     )
     stats = paired_bootstrap_improvement(
         loss_pair,
@@ -2931,11 +2976,31 @@ def _run_resampled_solver(
     candidate_bps = _weights_to_bps_dict(projected, bounds=context.bounds)
     payload["resampled_weights_bps"] = dict(candidate_bps)
 
+    # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 unter Resampling (CIO-Entscheid
+    # 2026-10-18): Modus max_drawdown -> {projiziertes Bag-Mittel, rohes
+    # Bag-Mittel, Hausmatrix-Anker} auf dem gemeinsamen Validierungs-Cube mit
+    # dem verfeinerten Drawdown ranken; der beste Nicht-Anker-Kandidat geht
+    # in den Signifikanztest (der dasselbe Mass verwendet).
+    drawdown_certification: dict | None = None
+    validation = None
+    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+        validation = _build_validation_context(context)
+        certified_w, drawdown_certification = certify_resampled_candidates(
+            context,
+            projected_mean=projected,
+            raw_mean=mean_w,
+            house_anchor_bps=_project_house_anchor(context, house_anchor_bps)[0],
+            validation=validation,
+        )
+        if certified_w is not None:
+            candidate_bps = _weights_to_bps_dict(certified_w, bounds=context.bounds)
+
     significance = _significance_vs_house_anchor(
         context,
         candidate_bps=candidate_bps,
         house_anchor_bps=house_anchor_bps,
         config=config,
+        validation=validation,
     )
     payload["significance"] = significance
     decision = significance["decision"]
@@ -2986,6 +3051,7 @@ def _run_resampled_solver(
         cashflow_series_rappen=cashflow_series_rappen,
         extra_reasoning=reasoning,
         resampling_payload=payload,
+        drawdown_certification=drawdown_certification,
     )
 
 

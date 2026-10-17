@@ -1038,6 +1038,7 @@ def two_phase_objective_parts(
     objective_mode: str | None = None,
     goal_weighting_mode: str | None = None,
     portfolio_return_factors: np.ndarray | None = None,
+    primary_value_override: float | None = None,
 ) -> tuple[float, float]:
     """Die beiden Stufen von ``combined_objective_two_phase`` GETRENNT.
 
@@ -1054,6 +1055,13 @@ def two_phase_objective_parts(
     ganzen Volatilitaetsterm (~1.4e4) und "schlug" eine Allokation, die
     alle Ziele erfuellt UND weniger schwankt. Der Vergleich braucht deshalb
     beide Stufen einzeln (siehe ``resampling.lexicographic_improvement``).
+
+    ``primary_value_override`` (OPTIMIZER-DRAWDOWN-CERTIFICATION-001,
+    2026-10-18): ersetzt den Primaerterm durch einen extern gemessenen Wert --
+    im Modus ``max_drawdown`` der verfeinerte mittlere Max-Drawdown
+    (Brownsche Bruecke) statt des Jahresgitter-Proxy. Chance-Penalty und
+    Stufen-Logik bleiben dieselben; so gibt es fuer die Chance-Penalty genau
+    EINE Implementierung, egal mit welchem Drawdown-Mass verglichen wird.
     """
     goal_level, tiebreak, _in_phase_two = _two_phase_terms(
         liabilities,
@@ -1070,6 +1078,7 @@ def two_phase_objective_parts(
         goal_weighting_mode=goal_weighting_mode,
         portfolio_return_factors=portfolio_return_factors,
         always_compute_tiebreak=True,
+        primary_value_override=primary_value_override,
     )
     return goal_level, tiebreak
 
@@ -1090,6 +1099,7 @@ def _two_phase_terms(
     goal_weighting_mode: str | None,
     portfolio_return_factors: np.ndarray | None,
     always_compute_tiebreak: bool,
+    primary_value_override: float | None = None,
 ) -> tuple[float, float, bool]:
     """Gemeinsamer Kern: ``(goal_level, tiebreak, in_phase_two)``.
 
@@ -1121,11 +1131,15 @@ def _two_phase_terms(
         if is_goal_shortfall
         else 0.0
     )
-    primary = primary_objective(
-        mode,
-        goal_shortfall_value=goal_shortfall_value,
-        portfolio_return_factors=portfolio_return_factors,
-        weights=weights,
+    primary = (
+        float(primary_value_override)
+        if primary_value_override is not None
+        else primary_objective(
+            mode,
+            goal_shortfall_value=goal_shortfall_value,
+            portfolio_return_factors=portfolio_return_factors,
+            weights=weights,
+        )
     )
     chance, _achievability = chance_constraint_penalty(
         wealth_paths,
