@@ -63,7 +63,18 @@ from .scenario_engine import (
 )
 
 RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
-SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_v1"
+# v2 (SAA-SIGNIFICANCE-LEXICOGRAPHIC-001, 2026-10-17): lexikographischer
+# Vergleich der zwei Zielfunktions-Stufen statt Differenz der Skalar-
+# Zielfunktion; Entscheid ueber den Vorzeichen-Anteil (p-Wert), siehe
+# ``lexicographic_improvement`` und ``paired_bootstrap_improvement``.
+SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_lexicographic_v2"
+# Gleiche Nulltoleranz wie der Stufe-2-Schalter in
+# ``objective.combined_objective_two_phase`` (epsilon=1e-12): "Stufe 1
+# erfuellt" bedeutet im Vergleich exakt dasselbe wie im Solver.
+GOAL_LEVEL_EPSILON = 1e-12
+COMPARISON_GOAL_LEVEL = "goal_level"
+COMPARISON_TIEBREAK = "volatility_tiebreak"
+COMPARISON_SCALAR = "scalar"
 
 # Parameterwahl siehe docs/planning/2026-10-14-saa-stability-resampling.md.
 # Gemessen auf dem Fundament-Beispielmandat (10 Seed-Salze): die Streuung
@@ -170,8 +181,68 @@ def build_bag_paths(
     return paths[:, : int(horizon_years), :], weights
 
 
+def lexicographic_improvement(
+    anchor,
+    candidate,
+    *,
+    epsilon: float = GOAL_LEVEL_EPSILON,
+) -> tuple[float, str]:
+    """Verbesserung ``anker - kandidat`` in der Logik der Zwei-Stufen-Zielfunktion.
+
+    Argumente sind entweder Skalare (Altvertrag: Differenz der Skalar-
+    Zielfunktion, Ebene ``scalar``) oder ``(goal_level, tiebreak[, additiv])``
+    aus ``objective.two_phase_objective_parts`` (plus optional der
+    Soft-Preference-Strafe, die wie im Solver auf jeder Ebene mitzaehlt).
+
+    SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 (2026-10-17): Die Skalar-Zielfunktion
+    schaltet den Volatilitaetsterm PRO ALLOKATION zu, sobald deren Stufe 1
+    (Ziel-Fehlbetrag + Chance-Penalty) unter ``epsilon`` faellt. Als
+    Differenz zweier Allokationen ist sie damit nicht monoton: gemessen auf
+    dem CH-Golden-Mandat (Score 7) hatte die Hausmatrix-Zielquote auf EINEM
+    von 2'000 Validierungspfaden einen winzigen Fehlbetrag (Stufe 1 = 8.1e-9,
+    kein Volatilitaetsterm), der Kandidat erfuellte alle Ziele (Stufe 2,
+    Volatilitaetsterm 1.42e4) -- "Verbesserung" -14'204, Hausmatrix gewaehlt,
+    obwohl der Kandidat auf BEIDEN Stufen besser war. Ob dieser eine Pfad im
+    Wuerfel lag, entschied je nach Inhalts-Seed zwischen 60 % und 68 % Aktien.
+
+    Regel (dieselbe Prioritaet wie der Solver):
+    * Erfuellen BEIDE Stufe 1 (``goal_level < epsilon``), entscheidet der
+      Volatilitaetsterm (Ebene ``volatility_tiebreak``).
+    * Sonst entscheidet allein Stufe 1 (Ebene ``goal_level``); der
+      Volatilitaetsterm zaehlt fuer keine der beiden Allokationen.
+    """
+    if isinstance(anchor, (tuple, list)) != isinstance(candidate, (tuple, list)):
+        raise TypeError("Anker und Kandidat muessen dieselbe Verlustform haben.")
+    if not isinstance(anchor, (tuple, list)):
+        return float(anchor) - float(candidate), COMPARISON_SCALAR
+    anchor_goal, anchor_tiebreak, anchor_extra = _loss_parts(anchor)
+    candidate_goal, candidate_tiebreak, candidate_extra = _loss_parts(candidate)
+    if anchor_goal < float(epsilon) and candidate_goal < float(epsilon):
+        return (
+            (anchor_goal + anchor_tiebreak + anchor_extra)
+            - (candidate_goal + candidate_tiebreak + candidate_extra),
+            COMPARISON_TIEBREAK,
+        )
+    return (
+        (anchor_goal + anchor_extra) - (candidate_goal + candidate_extra),
+        COMPARISON_GOAL_LEVEL,
+    )
+
+
+def _loss_parts(loss) -> tuple[float, float, float]:
+    """``(goal_level, tiebreak[, additiv])`` -> drei Floats.
+
+    Der optionale dritte Term (Soft-Preference-Strafe) liegt im Solver
+    ausserhalb des Stufen-Schalters und wird deshalb auf JEDER Ebene addiert,
+    entscheidet aber nicht ueber den Wechsel in Stufe 2.
+    """
+    goal_level, tiebreak = float(loss[0]), float(loss[1])
+    extra = float(loss[2]) if len(loss) > 2 else 0.0
+    return goal_level, tiebreak, extra
+
+
 def paired_bootstrap_improvement(
-    loss_pair: Callable[[np.ndarray | None], tuple[float, float]],
+    loss_pair: Callable[[np.ndarray | None], tuple],
     *,
     n_paths: int,
     n_bootstrap: int,
@@ -187,42 +258,66 @@ def paired_bootstrap_improvement(
 
     p-Wert: Anteil der Replikationen ohne Verbesserung, mit der ueblichen
     (1 + k) / (1 + B)-Korrektur, damit nie p = 0 ausgewiesen wird.
+
+    ``loss_pair`` darf Skalare oder ``(goal_level, tiebreak)``-Paare liefern;
+    die Verbesserung je Replikation bildet ``lexicographic_improvement``.
+
+    Entscheid (SAA-SIGNIFICANCE-LEXICOGRAPHIC-001): signifikant genau dann,
+    wenn die Punktschaetzung positiv ist UND ``p <= alpha``. Der Entscheid
+    haengt damit nur an Vorzeichen, nie an Betraegen -- noetig, weil
+    Replikationen auf verschiedenen Ebenen verglichen werden koennen (Stufe 1
+    in der einen, Volatilitaets-Tiebreak in der anderen) und ein Quantil
+    ueber Werte verschiedener Einheit interpolieren wuerde. Die untere
+    Konfidenzgrenze wird nur noch ausgewiesen, und nur wenn alle
+    Replikationen auf derselben Ebene verglichen wurden.
     """
     anchor_full, candidate_full = loss_pair(None)
-    improvement = float(anchor_full) - float(candidate_full)
+    improvement, comparison = lexicographic_improvement(anchor_full, candidate_full)
     rng = np.random.default_rng(int(seed))
     replicates = np.empty(int(n_bootstrap), dtype=np.float64)
+    levels: dict[str, int] = {}
     for b in range(int(n_bootstrap)):
         idx = rng.integers(0, int(n_paths), size=int(n_paths))
         anchor_b, candidate_b = loss_pair(idx)
-        replicates[b] = float(anchor_b) - float(candidate_b)
+        replicates[b], level = lexicographic_improvement(anchor_b, candidate_b)
+        levels[level] = levels.get(level, 0) + 1
     finite = replicates[np.isfinite(replicates)]
+    block = {
+        "test": SIGNIFICANCE_TEST_VERSION,
+        "n_bootstrap": int(n_bootstrap),
+        "alpha": float(alpha),
+        "anchor_objective": _objective_scalar(anchor_full),
+        "candidate_objective": _objective_scalar(candidate_full),
+        "comparison": comparison,
+        "replicate_comparisons": dict(sorted(levels.items())),
+        "improvement": float(improvement),
+    }
     if finite.size == 0 or not np.isfinite(improvement):
         return {
-            "test": SIGNIFICANCE_TEST_VERSION,
-            "n_bootstrap": int(n_bootstrap),
-            "alpha": float(alpha),
-            "anchor_objective": float(anchor_full),
-            "candidate_objective": float(candidate_full),
-            "improvement": improvement,
+            **block,
             "improvement_lower_bound": None,
             "p_value": None,
             "significant": False,
         }
-    lower = float(np.quantile(finite, float(alpha)))
     no_improvement = int(np.count_nonzero(finite <= 0.0))
     p_value = (1.0 + no_improvement) / (1.0 + float(finite.size))
+    lower = float(np.quantile(finite, float(alpha))) if len(levels) == 1 else None
     return {
-        "test": SIGNIFICANCE_TEST_VERSION,
-        "n_bootstrap": int(n_bootstrap),
-        "alpha": float(alpha),
-        "anchor_objective": float(anchor_full),
-        "candidate_objective": float(candidate_full),
-        "improvement": improvement,
+        **block,
         "improvement_lower_bound": lower,
         "p_value": float(p_value),
-        "significant": bool(improvement > 0.0 and lower > 0.0),
+        "significant": bool(improvement > 0.0 and p_value <= float(alpha)),
     }
+
+
+def _objective_scalar(loss) -> float:
+    """Skalar-Zielfunktion fuer den Audit (wie ``combined_objective_two_phase``)."""
+    if not isinstance(loss, (tuple, list)):
+        return float(loss)
+    goal_level, tiebreak, extra = _loss_parts(loss)
+    if goal_level < GOAL_LEVEL_EPSILON:
+        return goal_level + tiebreak + extra
+    return goal_level + extra
 
 
 # Felder des Resampling-Audits, die in die Modellbasis (und damit in
@@ -258,6 +353,8 @@ _SIGNIFICANCE_BASIS_FIELDS = (
     "candidate_objective",
     "improvement",
     "improvement_lower_bound",
+    "comparison",
+    "replicate_comparisons",
     "p_value",
     "significant",
     "validation_seed",

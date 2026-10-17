@@ -52,15 +52,20 @@ Zwei Ursachen:
 
 SHA-256 (ueber das bestehende `deterministic_seed`) aus:
 
-- `OPTIMIZER_SEED_SCHEME = "content_seed_v1"` und `OPTIMIZER_ENGINE_VERSION = "saa_resampled_v1"`
-  (eine neue Engine-Version zieht bewusst neue Wuerfel),
-- `scenario_inputs_digest(ScenarioInputs)` -- mu, sigma, Schiefe, Kurtosis und Cholesky der
+- `OPTIMIZER_SEED_SCHEME = "content_seed_v2"` und `OPTIMIZER_ENGINE_VERSION = "saa_resampled_v2"`
+  (eine neue Engine-Version zieht bewusst neue Wuerfel; v2 seit 2026-10-17, siehe
+  "Nachtrag 2026-10-17" unten),
+- `scenario_inputs_seed_digest(ScenarioInputs)` -- mu, sigma, Schiefe, Kurtosis und Cholesky der
   Korrelation, also CMA-Werte **inklusive Sub-Klassen-Annahmen und Korrelationsstruktur**
-  (die Inputs werden mit den kanonischen Sub-Allokationen gebaut),
+  (die Inputs werden mit den kanonischen Sub-Allokationen gebaut); vor dem Hashen gerundet
+  (0.001 bps bzw. 1e-8 in der Cholesky), damit letzte Bits aus BLAS/LAPACK/libm den Seed nicht
+  wechseln. Der Cache-Key (`scenario_inputs_digest`) bleibt bit-exakt,
 - die wirtschaftlichen Goal-Felder (`GOAL_ECONOMIC_FIELDS`: Familie, Typ, Scope, Rang, Gewicht,
   Haerte, Wertmodus, Betraege, Renditeziel, Mindest-Erfolgswahrscheinlichkeit, Daten, Horizont,
   Frequenz, Saeule, Aktiv-/Einschluss-/Lifecycle-Status), je Ziel kanonisch als JSON, die Liste
-  sortiert -- **ohne** `id`, `mandate_id`, `label`, `notes`, `linked_position_id`, Zeitstempel,
+  sortiert -- **ohne** `id`, `mandate_id`, `label`, `notes`, `linked_position_id`, Zeitstempel;
+  `start_date`/`target_date` relativ zum Bewertungsjahr (`Y+10-06-30`), weil die Engine Ziele
+  auf Kalenderjahr-Achsen relativ zu `date.today().year` modelliert (ADR-2),
 - `score_x10`, Optimierungs- und Szenario-Horizont, `n_paths`.
 
 Die Goal-Sensitivity nutzt `sensitivity_content_seed` = derselbe Inhalts-Seed plus Salz
@@ -115,10 +120,14 @@ Inhalts-Seed des bereits gebauten Contexts aus, sonst 0 -- nie mehr einen ID-See
   t-Test auf pfadweisen Differenzen waere nicht dieselbe Groesse, die optimiert wird. Der
   Bootstrap zieht Pfadindizes mit Zuruecklegen und wertet auf DENSELBEN Indizes fuer Anker und
   Kandidat die vollstaendige Zielfunktion neu aus (inkl. Soft-Preference-Strafe, gleicher
-  Vertrag wie `evaluate_weights`) -- das ist die Paarung je Pfad. Signifikant genau dann, wenn
-  die Punktschaetzung der Verbesserung `L(Anker) - L(Kandidat)` > 0 UND das untere
-  5-%-Perzentil der Bootstrap-Verteilung > 0. p-Wert = (1 + #{Replikate <= 0}) / (1 + B), also
-  nie 0 (Untergrenze 1/401 = 0.0025). Bootstrap-Seed aus dem Validierungs-Seed (deterministisch).
+  Vertrag wie `evaluate_weights`) -- das ist die Paarung je Pfad. **Seit v2 (2026-10-17)
+  lexikographisch** (`resampling.lexicographic_improvement`): erfuellen beide Allokationen
+  Stufe 1 (Ziel-Fehlbetrag + Chance-Penalty < 1e-12), entscheidet der Volatilitaetsterm; sonst
+  allein Stufe 1. Die Soft-Preference-Strafe zaehlt wie im Solver auf jeder Ebene. Signifikant
+  genau dann, wenn die Punktschaetzung > 0 UND p <= alpha mit
+  p = (1 + #{Replikate <= 0}) / (1 + B), also nie 0 (Untergrenze 1/401 = 0.0025). Die untere
+  Konfidenzgrenze wird nur ausgewiesen, wenn alle Replikate auf derselben Ebene verglichen
+  wurden. Bootstrap-Seed aus dem Validierungs-Seed (deterministisch).
 - Entscheid: `optimizer` (signifikant) / `house_matrix` (nicht signifikant oder identisch) /
   `optimizer_untested`. Begruendungszeile z.B. "Optimierer-Abweichung von der Hausmatrix ist
   statistisch nicht signifikant; Hausmatrix-Zielquote beibehalten. Gepaarter Bootstrap
@@ -223,6 +232,58 @@ Aktienquote auf die Hausmatrix-Zielquote (+8 bzw. +4 pp), weil die Optimierer-Ab
 statistisch nicht belegt ist. Das ist genau die freigegebene Regel ("nicht signifikant ->
 Hausmatrix"), aber es ist eine Risikoerhoehung gegenueber dem bisherigen Output. Die
 Hausmatrix-Zielquote liegt innerhalb aller harten Constraints (Risikobudget, Bandbreiten).
+
+## Nachtrag 2026-10-17: CI-Bruch der Goldens, zwei Wurzeln, v2
+
+**Befund.** CI-Lauf 39055734058 (17.10., Linux): bucket3/5/7/equities_global rot gegen die am
+16.10. eingefrorenen Fixtures (chfonly lief wegen `--maxfail=5` nicht mehr). Lokal unter Windows
+kamen am 17.10. **exakt dieselben Werte** wie auf dem Runner -- keine Plattformfrage.
+
+**Wurzel 1 (Test).** Das Golden-Seeding setzte Zieldaten auf `date.today() + N*365 Tage`; der
+Inhalts-Seed hasht die Zieldaten. Jeder Kalendertag zog damit andere Bag-Wuerfel. Beleg: nur
+`date.today()` im Seeding auf den 16.10. gestellt -> bucket3/5/7/chfonly wieder identisch mit den
+Fixtures; 17./18.10. -> die CI-Werte. Fix: Zieldaten kalenderjahr-relativ mit festem Monat/Tag;
+der Seed hasht Datumsfelder relativ zum Bewertungsjahr (gleiche Achse wie die Engine, ADR-2).
+
+**Wurzel 2 (Methodik, der eigentliche Defekt).** Bei Score 7 lieferten alle 40 Bags dieselbe
+Ecke (60/25/10/3/2), trotzdem kippte der Entscheid mit dem Wuerfel: ueber 8 Inhalts-Seeds
+6x Hausmatrix (68 % Aktien, p ~ 0.64), 2x Optimierer (60 %, p = 0.0025). Zerlegung der
+Zielfunktion auf dem Validierungs-Cube vom 16.10.: Hausmatrix Stufe 1 = 8.1e-9 (Fehlbetrag auf
+EINEM von 2'000 Pfaden, Erfolgsquote 0.9995) -> kein Volatilitaetsterm, L = 8.1e-9; Kandidat
+Stufe 1 = 0 -> Volatilitaetsterm 1.42e4. "Verbesserung" -14'204 zugunsten der Allokation, die
+auf beiden Stufen schlechter war (Volatilitaetsterm 2.19e4 > 1.42e4). Der Bootstrap-p von 0.64
+ist genau der Anteil der Replikate, die diesen einen Pfad enthalten (1 - 1/e). Bucket 9 zeigte
+dasselbe Muster (p = 0.13/0.15). Fix: lexikographischer Vergleich (Abschnitt 3), Entscheid ueber
+den Vorzeichen-Anteil.
+
+**Plattform-Robustheit des Seeds.** Der Seed hashte die exakten Float-Bytes von sigma und
+Cholesky (BLAS/LAPACK/libm-abhaengig). Nicht Ursache dieses CI-Bruchs (die Seeds stimmten
+ueberein), aber ein letztes abweichendes Bit haette einen voellig anderen Wuerfel gezogen. Jetzt
+gerundet vor dem Hash (`scenario_inputs_seed_digest`), getestet mit 1e-12-Stoerungen.
+
+**Nach dem Fix.** Score 7 und 9 ueber 10 Seed-Salze: 20/20 `optimizer`, Aktien 60.00-60.09 %
+bzw. 75.00-75.25 %. Die bucket7/9-Hausmatrix-Entscheide der ersten Fassung (+8/+4 pp Aktien)
+waren Artefakte und sind zurueckgenommen.
+
+| Fixture | Entscheid | v1 -> v2 (Aktien/Obl/Immo/Alt/Liq, %) |
+|---|---|---|
+| `bucket3_defensiv_default_prefs` | optimizer | 0/89.70/0/5.69/4.61 -> 0/89.03/0/6.29/4.68 |
+| `bucket5_ausgewogen_default_prefs` | optimizer | 46.38/38.13/8.85/4.17/2.47 -> 46.16/38.70/8.54/4.13/2.47 |
+| `bucket7_wachstum_default_prefs` | **optimizer** (v1: house_matrix) | 68/16/8/6/2 -> 60/25/10/3/2 |
+| `bucket9_dynamisch_default_prefs` | **optimizer** (v1: house_matrix) | 79/8/7/4/2 -> 75/15/6/2/2 |
+| `bucket5_ausgewogen_equities_global` | optimizer | 48.04/36.98/8.53/4.12/2.33 -> 46.69/37.83/8.91/4.18/2.39 |
+| `bucket5_ausgewogen_chfonly_em_focus` | optimizer | 47.25/37.54/8.81/4.06/2.34 -> 45.33/39.45/8.90/3.82/2.50 |
+
+Produktauswahl, Reihenfolge, Positionszahl, Schrittzahl, limiting_factor und engine_version
+unveraendert. Erzeugt unter `OPENBLAS_CORETYPE=Haswell` (wie CI); Kontrolle unter `=Nehalem`:
+5/6 byte-identisch, bucket5_default max. 22 bps / CHF 1'100 abweichend bei identischem Seed
+(ein Bag auf anderer, nahezu gleichwertiger Ecke) -> Golden-Toleranz 20 -> 30 bps, CHF 1'000 ->
+1'500, begruendet im Test.
+
+**Laufzeit / Performance-Budget.** `tests/test_performance_budget.py` war in CI nie gelaufen
+(`--maxfail=5` brach bei ~50 % ab). Lokal: develop generate 5.7-6.7 s, PR 7.96-8.24 s (unter
+Parallellast 10.2 s) gegen Budget 9.0 s. Budget mit Messwerten auf 24 s angehoben (Begruendung
+im Test).
 
 ## Angepasste Bestandstests (mit Begruendung)
 

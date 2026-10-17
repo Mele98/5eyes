@@ -27,6 +27,7 @@ import json
 import math
 import time
 from collections.abc import Mapping
+from datetime import date
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from numbers import Integral
@@ -60,7 +61,11 @@ from .goal_liabilities import (
     aggregate_liability_path,
     goals_to_liabilities,
 )
-from .objective import chance_constraint_penalty, combined_objective_two_phase
+from .objective import (
+    chance_constraint_penalty,
+    combined_objective_two_phase,
+    two_phase_objective_parts,
+)
 from .objective_contract import (
     ObjectiveContractV1,
     objective_contract_of,
@@ -85,6 +90,7 @@ from .scenario_cache import (
     build_scenario_paths_cached,
     build_scenario_paths_with_weights_cached,
     scenario_inputs_digest,
+    scenario_inputs_seed_digest,
 )
 from .importance_sampling import (
     DEFAULT_TAIL_SHIFT_STRENGTH,
@@ -1017,8 +1023,12 @@ def deterministic_seed(*parts) -> int:
 # Version der Seed-Konstruktion UND der Entscheidungslogik, die auf dem Seed
 # aufsetzt. Geht in den Seed ein: eine neue Engine-Version zieht bewusst
 # neue Wuerfel, statt alte Wuerfel unter neuer Mathematik wiederzuverwenden.
-OPTIMIZER_SEED_SCHEME = "content_seed_v1"
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v1"
+#
+# v2 (2026-10-17): Seed float-robust (scenario_inputs_seed_digest) und
+# Goal-Daten relativ zum Bewertungsjahr (SAA-SEED-FLOAT-ROBUST-001);
+# Signifikanzentscheid lexikographisch (SAA-SIGNIFICANCE-LEXICOGRAPHIC-001).
+OPTIMIZER_SEED_SCHEME = "content_seed_v2"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v2"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -1049,6 +1059,27 @@ GOAL_ECONOMIC_FIELDS = (
 )
 
 
+# Goal-Datumsfelder gehen RELATIV zum Bewertungsjahr in den Fingerabdruck
+# ein (SAA-SEED-FLOAT-ROBUST-001): die Engine modelliert Ziele auf
+# Kalenderjahr-Achsen relativ zu ``date.today().year`` (ADR-2,
+# goal_liabilities). Wirtschaftlich identische Laeufe (gleiche Jahres-Offsets)
+# ziehen damit denselben Wuerfel -- auch ueber Kalenderjahre hinweg --,
+# waehrend ein Jahreswechsel, der die effektiven Liabilities verschiebt,
+# bewusst einen neuen Wuerfel zieht.
+_GOAL_DATE_FIELDS = frozenset({"start_date", "target_date"})
+
+
+def _seed_goal_date(value, valuation_year: int):
+    if value is None:
+        return None
+    text = str(value)[:10]
+    try:
+        parsed = date.fromisoformat(text)
+    except ValueError:
+        return _seed_scalar(value)
+    return f"Y{parsed.year - int(valuation_year):+d}-{parsed.month:02d}-{parsed.day:02d}"
+
+
 def _seed_scalar(value):
     if value is None or isinstance(value, (bool, int, str)):
         return value
@@ -1059,17 +1090,31 @@ def _seed_scalar(value):
     return str(value)
 
 
-def goal_economic_fingerprint(goals: Iterable) -> list[str]:
-    """Kanonische, ID-freie Darstellung der Ziele (sortiert)."""
+def goal_economic_fingerprint(
+    goals: Iterable,
+    *,
+    valuation_year: int | None = None,
+) -> list[str]:
+    """Kanonische, ID-freie Darstellung der Ziele (sortiert).
+
+    Datumsfelder relativ zu ``valuation_year`` (Default: laufendes
+    Kalenderjahr, wie die Liability-Achse der Engine).
+    """
+    year = int(valuation_year) if valuation_year is not None else date.today().year
     rows = []
     for goal in goals or ():
         if isinstance(goal, Mapping):
-            row = {name: _seed_scalar(goal.get(name)) for name in GOAL_ECONOMIC_FIELDS}
+            raw = {name: goal.get(name) for name in GOAL_ECONOMIC_FIELDS}
         else:
-            row = {
-                name: _seed_scalar(getattr(goal, name, None))
-                for name in GOAL_ECONOMIC_FIELDS
-            }
+            raw = {name: getattr(goal, name, None) for name in GOAL_ECONOMIC_FIELDS}
+        row = {
+            name: (
+                _seed_goal_date(value, year)
+                if name in _GOAL_DATE_FIELDS
+                else _seed_scalar(value)
+            )
+            for name, value in raw.items()
+        }
         rows.append(json.dumps(row, sort_keys=True, separators=(",", ":")))
     return sorted(rows)
 
@@ -1098,7 +1143,7 @@ def optimizer_content_seed(
     return deterministic_seed(
         OPTIMIZER_SEED_SCHEME,
         OPTIMIZER_ENGINE_VERSION,
-        scenario_inputs_digest(scenario_inputs),
+        scenario_inputs_seed_digest(scenario_inputs),
         json.dumps(goal_economic_fingerprint(goals), separators=(",", ":")),
         int(score_x10),
         int(horizon_years),
@@ -2545,10 +2590,14 @@ def _context_loss_pair_on_validation(
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
 
     def _loss(bundle, idx):
+        # SAA-SIGNIFICANCE-LEXICOGRAPHIC-001: die Stufen GETRENNT liefern,
+        # nicht die Skalar-Zielfunktion. Deren Stufe-2-Schalter wirkt pro
+        # Allokation; als Differenz zweier Allokationen ist sie nicht monoton
+        # (siehe resampling.lexicographic_improvement).
         wealth, factors, annualized, preference = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
-        return float(combined_objective_two_phase(
+        goal_level, tiebreak = two_phase_objective_parts(
             validation_context.liabilities,
             wealth,
             initial_wealth_rappen=validation_context.advisory_wealth_rappen,
@@ -2558,7 +2607,8 @@ def _context_loss_pair_on_validation(
             objective_mode=contract.objective_mode,
             goal_weighting_mode=contract.goal_weighting_mode,
             portfolio_return_factors=factors,
-        )) + preference
+        )
+        return (float(goal_level), float(tiebreak), float(preference))
 
     def loss_pair(idx):
         return _loss(prepared[0], idx), _loss(prepared[1], idx)
@@ -2911,6 +2961,11 @@ def _significance_sentence(significance: Mapping) -> str:
         parts.append(
             f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
         )
+    comparison = significance.get("comparison")
+    if comparison == "volatility_tiebreak":
+        parts.append("Vergleich: beide erfuellen die Ziele, Volatilitaet entscheidet")
+    elif comparison == "goal_level":
+        parts.append("Vergleich: Ziel-Fehlbetrag und Chance-Constraints")
     if p_value is not None:
         parts.append(f"p = {float(p_value):.4f}")
     return " ".join(parts[:1]) + " " + ", ".join(parts[1:]) + "."

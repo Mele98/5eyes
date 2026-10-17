@@ -130,7 +130,8 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     # Entscheid und Test sind vollstaendig dokumentiert.
     significance = resampling["significance"]
     assert significance["decision"] in {"optimizer", "house_matrix"}
-    assert significance["test"] == "paired_bootstrap_one_sided_v1"
+    assert significance["test"] == "paired_bootstrap_one_sided_lexicographic_v2"
+    assert significance["comparison"] in {"goal_level", "volatility_tiebreak"}
     assert significance["p_value"] is not None
     assert resampling["final_weights_bps"] == result.weights_bps
     # Die publizierte Allokation erfuellt alle harten Constraints.
@@ -340,3 +341,196 @@ def test_paired_bootstrap_detects_only_real_improvements():
     )
     assert clear["significant"] is True
     assert clear["p_value"] < 0.05 and clear["improvement_lower_bound"] > 0
+
+
+# ---------------------------------------------------------------------------
+# SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 / SAA-SEED-FLOAT-ROBUST-001 (2026-10-17)
+#
+# Befund: die CH-Golden-Snapshots (eingefroren am 16.10.) fielen am 17.10. in
+# CI durch. Wurzel 1: das Golden-Seeding setzte Zieldaten "heute + N Tage",
+# der Inhalts-Seed hasht die Zieldaten -> jeder Tag ein anderer Wuerfel.
+# Wurzel 2 (Methodik): beim Score-7-Fall kippte der Entscheid je nach Wuerfel
+# zwischen Hausmatrix (68 % Aktien) und Optimierer (60 %), obwohl ALLE 40 Bags
+# denselben Kandidaten lieferten. Ursache: die Skalar-Zielfunktion schaltet
+# den Volatilitaetsterm pro Allokation erst zu, wenn deren Ziel-Stufe < 1e-12
+# ist. Ein einziger Validierungspfad mit winzigem Fehlbetrag (8.1e-9) bei der
+# Hausmatrix ersparte ihr den ganzen Volatilitaetsterm (2.2e4) -> sie "gewann"
+# mit -14204 gegen einen Kandidaten, der auf beiden Stufen besser war.
+# Gemessen ueber 8 Inhalts-Seeds: 6x Hausmatrix, 2x Optimierer.
+# ---------------------------------------------------------------------------
+from dataclasses import replace as _replace  # noqa: E402
+
+from services.optimizer.resampling import lexicographic_improvement  # noqa: E402
+from services.optimizer.scenario_cache import scenario_inputs_seed_digest  # noqa: E402
+from services.optimizer.scenario_engine import ScenarioInputs  # noqa: E402
+from services.optimizer.solver import optimizer_content_seed  # noqa: E402
+
+_GOLDEN_ANCHOR_GOAL_LEVEL = 8.110173291668927e-09
+_GOLDEN_ANCHOR_TIEBREAK = 2.187e4
+_GOLDEN_CANDIDATE_TIEBREAK = 1.420e4
+
+
+def _one_path_shortfall_pair(*, candidate_tiebreak: float, bad_path: int = 0):
+    """Nachbau des gemessenen Golden-Falls (Score 7, Validierungs-Cube 16.10.).
+
+    Anker (Hausmatrix): Fehlbetrag NUR auf Pfad ``bad_path`` (Stufe 1 =
+    8.1e-9, solange der Pfad in der Stichprobe liegt), Volatilitaetsterm
+    2.187e4. Kandidat: erfuellt alle Ziele, Volatilitaetsterm wie angegeben.
+    """
+    def loss_pair(idx):
+        has_bad = True if idx is None else bool(np.any(idx == bad_path))
+        anchor = (_GOLDEN_ANCHOR_GOAL_LEVEL if has_bad else 0.0, _GOLDEN_ANCHOR_TIEBREAK)
+        candidate = (0.0, float(candidate_tiebreak))
+        return anchor, candidate
+    return loss_pair
+
+
+def test_scalar_difference_reproduces_the_phase_switch_defect():
+    """Pin des Defekts: die Skalar-Differenz bevorzugt die SCHLECHTERE Allokation."""
+    anchor, candidate = _one_path_shortfall_pair(
+        candidate_tiebreak=_GOLDEN_CANDIDATE_TIEBREAK
+    )(None)
+    anchor_scalar = anchor[0]  # Stufe 1 > 1e-12 -> kein Volatilitaetsterm
+    candidate_scalar = candidate[0] + candidate[1]  # Stufe 2 -> mit Term
+    old_improvement, _ = lexicographic_improvement(anchor_scalar, candidate_scalar)
+    assert old_improvement < -1.0e4  # alte Regel: Hausmatrix "deutlich besser"
+
+    improvement, level = lexicographic_improvement(anchor, candidate)
+    assert level == "goal_level" and improvement > 0.0
+
+
+@pytest.mark.parametrize("bad_path", [0, 7, 1999])
+def test_candidate_better_on_both_levels_is_significant_on_every_cube(bad_path):
+    """Kandidat besser auf Stufe 1 UND im Tiebreak -> signifikant, egal ob
+    der eine schlechte Pfad im Bootstrap-Sample liegt oder nicht."""
+    stats = paired_bootstrap_improvement(
+        _one_path_shortfall_pair(
+            candidate_tiebreak=_GOLDEN_CANDIDATE_TIEBREAK, bad_path=bad_path,
+        ),
+        n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
+    )
+    assert stats["significant"] is True, stats
+    assert stats["comparison"] == "goal_level"
+    # Beide Ebenen kommen in den Replikationen vor (Pfad drin/nicht drin),
+    # der Entscheid haengt trotzdem nicht davon ab.
+    assert set(stats["replicate_comparisons"]) == {"goal_level", "volatility_tiebreak"}
+    # Ueber gemischte Ebenen gibt es kein sinnvolles Quantil.
+    assert stats["improvement_lower_bound"] is None
+
+
+def test_cube_without_the_bad_path_decides_the_same_way():
+    """Liegt der Pfad gar nicht im Validierungs-Cube, vergleicht schon die
+    Punktschaetzung im Tiebreak -- und kommt zum selben Entscheid."""
+    def loss_pair(idx):
+        return (0.0, _GOLDEN_ANCHOR_TIEBREAK), (0.0, _GOLDEN_CANDIDATE_TIEBREAK)
+
+    stats = paired_bootstrap_improvement(
+        loss_pair, n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
+    )
+    assert stats["comparison"] == "volatility_tiebreak"
+    assert stats["significant"] is True
+
+
+def test_one_path_advantage_against_higher_volatility_is_not_significant():
+    """Gegenprobe: erkauft der Kandidat den einen Pfad mit HOEHERER
+    Volatilitaet, ist das kein robuster Vorteil -> nicht signifikant."""
+    stats = paired_bootstrap_improvement(
+        _one_path_shortfall_pair(candidate_tiebreak=3.0e4),
+        n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
+    )
+    assert stats["improvement"] > 0.0  # Punktschaetzung: Stufe 1 entscheidet
+    assert stats["significant"] is False, stats  # ~37 % der Replikationen dagegen
+
+
+def test_soft_preference_counts_on_both_levels_but_does_not_switch_level():
+    # Beide erfuellen die Ziele; die Praeferenz-Strafe zaehlt im Tiebreak mit.
+    improvement, level = lexicographic_improvement((0.0, 100.0, 50.0), (0.0, 120.0, 0.0))
+    assert level == "volatility_tiebreak" and improvement == pytest.approx(30.0)
+    # Praeferenz-Strafe > epsilon schaltet NICHT auf Stufe 1 um.
+    _, level = lexicographic_improvement((0.0, 1.0, 5.0), (0.0, 1.0, 0.0))
+    assert level == "volatility_tiebreak"
+    improvement, level = lexicographic_improvement((1e-6, 1.0, 0.0), (0.0, 9.0, 2e-6))
+    assert level == "goal_level" and improvement == pytest.approx(-1e-6)
+
+
+@pytest.mark.parametrize("relative", [1e-12, -1e-12])
+def test_lexicographic_decision_is_stable_under_float_noise(relative):
+    """1e-12-Stoerungen aller Terme kippen weder Ebene noch Vorzeichen."""
+    rng = np.random.default_rng(5)
+    for _ in range(200):
+        anchor = (float(rng.choice([0.0, rng.uniform(1e-9, 1e-3)])),
+                  float(rng.uniform(1e3, 3e4)), 0.0)
+        candidate = (float(rng.choice([0.0, rng.uniform(1e-9, 1e-3)])),
+                     float(rng.uniform(1e3, 3e4)), 0.0)
+        base, base_level = lexicographic_improvement(anchor, candidate)
+        noisy = tuple(v * (1.0 + relative) for v in anchor)
+        moved, moved_level = lexicographic_improvement(noisy, candidate)
+        assert moved_level == base_level
+        assert np.sign(moved) == np.sign(base)
+
+
+def _realistic_inputs() -> ScenarioInputs:
+    correlation = np.array([
+        [1.00, 0.10, 0.45, 0.35, 0.00],
+        [0.10, 1.00, 0.25, 0.05, 0.10],
+        [0.45, 0.25, 1.00, 0.30, 0.00],
+        [0.35, 0.05, 0.30, 1.00, 0.00],
+        [0.00, 0.10, 0.00, 0.00, 1.00],
+    ])
+    return ScenarioInputs(
+        mu_bps=np.array([612.37, 187.91, 401.55, 455.02, 61.4]),
+        sigma_bps=np.array([1534.871234, 412.66, 1088.13, 1210.9, 52.3]),
+        skew_bps=np.array([-41.2, 3.3, -17.9, -22.4, 0.0]),
+        excess_kurt_bps=np.array([180.5, 22.0, 95.3, 110.1, 0.0]),
+        cholesky=np.linalg.cholesky(correlation),
+    )
+
+
+def _content_seed(inputs: ScenarioInputs) -> int:
+    return optimizer_content_seed(
+        scenario_inputs=inputs, goals=[], score_x10=70,
+        horizon_years=15, scenario_horizon_years=30, n_paths=2000,
+    )
+
+
+@pytest.mark.parametrize("relative", [1e-12, -1e-12, 3e-15])
+def test_content_seed_ignores_float_noise_in_scenario_inputs(relative):
+    """Letzte Bits aus BLAS/LAPACK/libm duerfen den Seed nicht wechseln --
+    sonst zoege eine andere Maschine andere Bag-Wuerfel."""
+    inputs = _realistic_inputs()
+    noisy = _replace(inputs, **{
+        name: np.asarray(getattr(inputs, name)) * (1.0 + relative)
+        for name in ("mu_bps", "sigma_bps", "skew_bps", "excess_kurt_bps", "cholesky")
+    })
+    assert scenario_inputs_seed_digest(noisy) == scenario_inputs_seed_digest(inputs)
+    assert _content_seed(noisy) == _content_seed(inputs)
+
+
+def test_content_seed_still_reacts_to_economic_input_changes():
+    inputs = _realistic_inputs()
+    bumped_mu = np.array(inputs.mu_bps, dtype=float)
+    bumped_mu[0] += 0.01  # 0.01 bps
+    assert _content_seed(_replace(inputs, mu_bps=bumped_mu)) != _content_seed(inputs)
+
+
+def test_goal_dates_enter_the_seed_relative_to_the_valuation_year():
+    def goal(target_date):
+        return {"goal_type": "Vermoegensziel", "target_wealth_rappen": 300_000_00,
+                "target_date": target_date, "start_date": None, "is_active": 1}
+
+    fp = goal_economic_fingerprint
+    # Gleicher Jahres-Offset, gleicher Monat/Tag -> gleicher Fingerabdruck.
+    assert fp([goal("2036-06-30")], valuation_year=2026) == fp(
+        [goal("2037-06-30")], valuation_year=2027
+    )
+    # Anderer Tag bzw. anderer Offset -> anderer Fingerabdruck.
+    assert fp([goal("2036-06-30")], valuation_year=2026) != fp(
+        [goal("2036-07-01")], valuation_year=2026
+    )
+    assert fp([goal("2036-06-30")], valuation_year=2026) != fp(
+        [goal("2036-06-30")], valuation_year=2027
+    )
+    # Datum mit Zeitanteil wird wie das Datum behandelt.
+    assert fp([goal("2036-06-30T00:00:00Z")], valuation_year=2026) == fp(
+        [goal("2036-06-30")], valuation_year=2026
+    )
