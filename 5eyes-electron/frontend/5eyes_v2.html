@@ -7566,15 +7566,20 @@ function buildQT(id){
   const prefs=loadAllocationPreferences();
   const activeBands=prefs&&prefs.bands?prefs.bands:{};
   allocationBandBaseline={};
-  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Nur Abweichungen von der Engine-Basis werden als Overrides ans Backend gesendet.</div><div style="display:grid;grid-template-columns:8px 1fr 42px 62px 62px 62px;gap:0;padding-bottom:4px;border-bottom:2px solid var(--b2);margin-bottom:2px;"><div></div><div style="font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);padding-left:6px">Asset-Klasse</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ist</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Min</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ziel</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Max</div></div>`+quoten.map(function(r,idx){
+  // BAND-OVERRIDE-ROUNDTRIP-001: gespeicherte Overrides sind die Wahrheit
+  // fuer unberuehrte Felder -- nie aus dem (bereits override-haltigen)
+  // Engine-Ergebnis zurueckgerechnet.
+  allocationBandStoredOverrides={};
+  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Gesendet werden bestehende Overrides plus die Felder, die Sie hier aendern; ein geleertes Feld hebt seinen Override auf, Zuruecksetzen hebt alle auf.</div><div style="display:grid;grid-template-columns:8px 1fr 42px 62px 62px 62px;gap:0;padding-bottom:4px;border-bottom:2px solid var(--b2);margin-bottom:2px;"><div></div><div style="font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);padding-left:6px">Asset-Klasse</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ist</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Min</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ziel</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Max</div></div>`+quoten.map(function(r,idx){
     var bucket=normalizeBandKey(r.key||r.n||('bucket_'+idx));
     var baseline={min_bps:Math.round(Number(r.min||0)*100),target_bps:Math.round(Number(r.ziel||0)*100),max_bps:Math.round(Number(r.max||0)*100)};
     allocationBandBaseline[bucket]=baseline;
-    var override=normalizeBandOverrideEntry(activeBands[bucket])||{};
+    var override=normalizeStoredBandOverride(activeBands[bucket])||{};
+    if(Object.keys(override).length)allocationBandStoredOverrides[bucket]=override;
     var minimum=override.min_bps!=null?override.min_bps:baseline.min_bps;
     var target=override.target_bps!=null?override.target_bps:baseline.target_bps;
     var maximum=override.max_bps!=null?override.max_bps:baseline.max_bps;
-    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${r.ist}%</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" value="${formatBandPercent(minimum)}"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" value="${formatBandPercent(target)}" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" value="${formatBandPercent(maximum)}"></div>`;
+    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${r.ist}%</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}"></div>`;
   }).join('');
   t.querySelectorAll('.qtinp').forEach(function(input){
     input.addEventListener('input',function(){
@@ -18211,6 +18216,7 @@ function resetAdvisoryLogModal(){
 var allocationPreferencesCache={};
 var allocationPreferenceStoragePrefix='5eyes.allocprefs.';
 var allocationBandBaseline={};
+var allocationBandStoredOverrides={};
 function getAllocationPreferenceKey(){
   var mid=getActiveMandateId();
   if(mid)return 'mandate:'+mid;
@@ -18327,30 +18333,66 @@ function normalizeBandKey(value){
 function collectBandOverridesFromModal(){
   var inputs=document.querySelectorAll('#qt-modal .qtinp[data-bucket][data-field]');
   if(!inputs.length)return null;
-  var collected={};
+  // BAND-OVERRIDE-ROUNDTRIP-001 (Assetallocation-Audit 2026-10-14): frueher
+  // galt das ENGINE-ERGEBNIS als "unveraendert"-Basis. Die Engine spiegelt
+  // einen angewendeten Override aber zurueck -- beim naechsten Oeffnen war er
+  // die Basis, wurde nicht mehr gesendet und ging still verloren. Ausserdem
+  // wurde jede Anzeige-Rundung (10.33 % -> "10.3%") als Aenderung gelesen und
+  // als harter Min/Ziel/Max-Override gesendet, und ein reines Max-Edit schickte
+  // das volle Triplet aus dem Ergebnis (-> 422). Jetzt: gespeicherte Overrides
+  // bleiben unberuehrt, gesendet wird nur, was im Editor tatsaechlich
+  // geaendert wurde (Vergleich gegen den gerenderten Text, nicht gegen bps).
+  var overrides={};
+  Object.keys(allocationBandStoredOverrides||{}).forEach(function(bucket){
+    overrides[bucket]=Object.assign({},allocationBandStoredOverrides[bucket]);
+  });
   inputs.forEach(function(input){
     var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
     var field=String(input.getAttribute('data-field')||'');
     if(!bucket||!field)return;
-    if(!collected[bucket])collected[bucket]={};
-    collected[bucket][field]=input.value;
+    var initial=input.getAttribute('data-initial');
+    var raw=String(input.value==null?'':input.value);
+    if(initial!=null&&raw.trim()===String(initial).trim())return;
+    if(!overrides[bucket])overrides[bucket]={};
+    if(!raw.trim()){
+      delete overrides[bucket][field];
+      return;
+    }
+    var parsed=parseBandPercentUserInput(raw);
+    if(parsed==null){
+      // Ungueltig (kein Prozentwert 0-100): nie still als bps uebernehmen.
+      if(input.style)input.style.borderColor='var(--err, #c0392b)';
+      return;
+    }
+    if(input.style)input.style.borderColor='';
+    overrides[bucket][field]=parsed;
   });
-  var overrides={};
-  Object.keys(collected).forEach(function(bucket){
-    var normalized=normalizeBandOverrideEntry(collected[bucket]);
-    var baseline=allocationBandBaseline[bucket]||{};
-    if(!normalized)return;
-    var minimum=normalized.min_bps==null?baseline.min_bps:normalized.min_bps;
-    var target=normalized.target_bps==null?baseline.target_bps:normalized.target_bps;
-    var maximum=normalized.max_bps==null?baseline.max_bps:normalized.max_bps;
-    if(minimum===baseline.min_bps&&target===baseline.target_bps&&maximum===baseline.max_bps)return;
-    overrides[bucket]={
-      min_bps:minimum,
-      target_bps:target,
-      max_bps:maximum,
-    };
+  Object.keys(overrides).forEach(function(bucket){
+    if(!Object.keys(overrides[bucket]).length)delete overrides[bucket];
   });
   return overrides;
+}
+function parseBandPercentUserInput(value){
+  // Eingabe im Editor ist IMMER Prozent (das Feld zeigt "70%"); 0..100.
+  var raw=String(value==null?'':value).replace('%','').replace(/'/g,'').replace(/\s+/g,'').replace(',','.').trim();
+  if(!raw)return null;
+  var numeric=Number(raw);
+  if(!isFinite(numeric)||numeric<0||numeric>100)return null;
+  return Math.round(numeric*100);
+}
+function normalizeStoredBandOverride(entry){
+  // Gespeicherte Overrides (prefs.bands, preferences_json) sind bps-Zahlen.
+  // Der Prozent-Parser las Zahlen <= 100 als Prozent: 100 bps (1 %) wurden
+  // zu 10'000 bps (100 %). Teil-Overrides bleiben Teil-Overrides.
+  if(!entry||typeof entry!=='object')return null;
+  var out={};
+  ['min_bps','target_bps','max_bps'].forEach(function(field){
+    var value=entry[field];
+    if(value==null||value==='')return;
+    var bps=(typeof value==='number')?Math.round(value):parseBandPercentInput(value);
+    if(bps!=null&&isFinite(bps))out[field]=bps;
+  });
+  return Object.keys(out).length?out:null;
 }
 function hasCanonicalBandBaseline(){
   return ['equities','bonds','real_estate','alternatives','liquidity'].every(function(key){
@@ -18359,7 +18401,7 @@ function hasCanonicalBandBaseline(){
 }
 function countBandOverrides(bands){
   return Object.keys(bands||{}).filter(function(key){
-    return !!normalizeBandOverrideEntry(bands[key]);
+    return !!normalizeStoredBandOverride(bands[key]);
   }).length;
 }
 function updateBandOverrideStatus(bands){
