@@ -25,12 +25,22 @@ die Ziele des Mandats aufgibt. Die Zielfunktion ist deshalb immer
 
     primaerterm(modus) + chance_penalty(ziele)
 
-und die Chance-Penalty ist mit ``LAMBDA_CHANCE_DEFAULT = 1e6`` um Groessen-
-ordnungen dominanter als jeder Primaerterm -- sie wirkt als nahezu harte
-Nebenbedingung. Eine Variante verschiebt also, welche Allokation unter den
-ziel-zulaessigen die beste ist, nicht ob die Ziele ueberhaupt zaehlen. Das ist
-der Unterschied zu einem freien Menue von Zielfunktionen: eine Risikomass-
-Optimierung ohne Ziel-Untergrenze waere ein Eignungsrisiko.
+und die Chance-Penalty ist so gewichtet, dass ein MATERIELLES Zieldefizit
+mehr kostet als der ganze Wertebereich jedes Primaerterms. Eine Variante
+verschiebt also, welche Allokation unter den ziel-zulaessigen die beste ist,
+nicht ob die Ziele ueberhaupt zaehlen. Das ist der Unterschied zu einem freien
+Menue von Zielfunktionen: eine Risikomass-Optimierung ohne Ziel-Untergrenze
+waere ein Eignungsrisiko.
+
+OBJECTIVE-NORMALIZATION-001 (2026-10-18): bis dahin war die Penalty
+``1e6 * Defizit^2`` -- "um Groessenordnungen dominanter als jeder
+Primaerterm". Das war zu viel des Guten: auch ein statistisch bedeutungsloses
+Defizit von wenigen Pfaden ueberstimmte den ganzen Primaerterm. Gemessen auf
+dem Fundament-Mandat (Strafe 1.1e6 gegen Drawdown 0.26) lieferten
+``max_drawdown`` und ``min_volatility`` 67.9 % bzw. 70.3 % Aktien -- MEHR als
+der Default (67.3 %). Jetzt ist die Strafe linear im Defizit mal
+``(Zielvolumen / W0)^2``, also in derselben Einheit wie L(w) und die
+Varianten (siehe ``objective.chance_constraint_penalty``).
 
 **2. Jeder Primaerterm ist dimensionslos und in derselben Groessenordnung.**
 

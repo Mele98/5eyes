@@ -4,7 +4,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import services.optimizer.objective as objective_module
 from services.optimizer.certification import wilson_lower_bound
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import (
@@ -71,9 +70,13 @@ def test_primary_and_chance_terms_are_currency_scale_invariant():
     # deutlich groesser als die frueheren 1e6 * 0.3**2. Bewusst aus dem
     # Produktions-Schaetzer abgeleitet statt als neue Magic Number
     # eingetragen -- so dokumentiert die Zusicherung die Formel.
+    #
+    # OBJECTIVE-NORMALIZATION-001 (2026-10-18): Strafe linear im Defizit
+    # mal (Zielvolumen / W0)^2 statt 1e6 * Defizit^2 -- dieselbe
+    # Skaleninvarianz, aber in der Einheit des Primaerterms.
     expected_chance_shortfall = 0.8 - wilson_lower_bound(0.5, small_paths.shape[0])
     assert small == pytest.approx(
-        0.125 + 1_000_000.0 * expected_chance_shortfall ** 2
+        0.125 + expected_chance_shortfall * (150.0 / 100.0) ** 2
     )
     # Der eigentliche Vertrag dieses Tests: reine Einheiten-Skalierung darf
     # die Zielfunktion nicht veraendern.
@@ -191,20 +194,21 @@ def test_spending_goal_without_positive_due_is_neutral(target_kind: str):
     assert goal_probability_per_path(paths, goal, 100).tolist() == [1]
 
 
-def test_phase_two_does_not_activate_for_nonzero_dimensionless_primary(monkeypatch):
+def test_tiebreak_is_continuous_instead_of_a_phase_switch():
+    """OBJECTIVE-NORMALIZATION-001 (2026-10-18): ersetzt
+    ``test_phase_two_does_not_activate_for_nonzero_dimensionless_primary``.
+
+    Der Test pinnte den Stufen-Schalter (Volatilitaetsterm nur bei
+    Ziel-Stufe < 1e-12). Genau dieser Schalter machte die Zielfunktion
+    nicht monoton (Messung und Reproducer:
+    tests/test_objective_normalization.py). Jetzt ist der Tiebreak bei
+    JEDER Ziel-Stufe aktiv -- in der Einheit des Primaerterms.
+    """
     goal = _liability(
         target_amount_rappen=100,
-        hardness_key="opportunistisch",  # no chance penalty; isolates switch
+        hardness_key="opportunistisch",  # keine Chance-Strafe
     )
-    calls = 0
-
-    def _volatility(*_args, **_kwargs):
-        nonlocal calls
-        calls += 1
-        return 123.0
-
-    monkeypatch.setattr(objective_module, "volatility_objective", _volatility)
-    missed = np.array([[100.0, 99.0]])
+    missed = np.array([[100.0, 99.0], [100.0, 97.0]])
 
     value = combined_objective_two_phase(
         [goal],
@@ -214,6 +218,6 @@ def test_phase_two_does_not_activate_for_nonzero_dimensionless_primary(monkeypat
         volatility_weight=1.0,
     )
 
-    assert value == pytest.approx(0.01**2)
-    assert calls == 0
-
+    primary = (0.01**2 + 0.03**2) / 2.0
+    tiebreak = float(np.var(missed[:, -1])) / 100.0**2
+    assert value == pytest.approx(primary + tiebreak)

@@ -347,7 +347,11 @@ def test_combined_objective_includes_both_terms():
         [liab], wealth, initial_wealth_rappen=100_000_00, horizon_years=10,
         primary_weight=2.0, volatility_weight=0.5,
     )
-    assert combined == pytest.approx(2.0 * primary + chance)
+    # OBJECTIVE-NORMALIZATION-001 (2026-10-18): der Tiebreak ist IMMER aktiv
+    # (vorher nur, wenn die Ziel-Stufe < 1e-12 war -- hier ist sie > 0, der
+    # Term fehlte deshalb). Er ist jetzt die normierte Endvermoegens-Varianz.
+    tiebreak = 0.5 * np.var(wealth[:, -1]) / (100_000_00 ** 2)
+    assert combined == pytest.approx(2.0 * primary + chance + tiebreak)
 
 
 def test_combined_objective_without_goals_minimizes_terminal_wealth_variance():
@@ -379,8 +383,10 @@ def test_combined_objective_without_goals_minimizes_terminal_wealth_variance():
         volatility_weight=volatility_weight,
     )
 
-    assert low == pytest.approx(volatility_weight * np.var(low_variance[:, -1]))
-    assert high == pytest.approx(volatility_weight * np.var(high_variance[:, -1]))
+    # OBJECTIVE-NORMALIZATION-001: Varianz in der Einheit des Primaerterms
+    # (geteilt durch W0^2), nicht mehr in Rappen^2.
+    assert low == pytest.approx(volatility_weight * np.var(low_variance[:, -1]) / 100.0**2)
+    assert high == pytest.approx(volatility_weight * np.var(high_variance[:, -1]) / 100.0**2)
     assert low < high
 
 

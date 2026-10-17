@@ -9,10 +9,19 @@ aufgibt. Die Zielfunktion ist deshalb immer
 
     primaerterm(modus) + chance_penalty(ziele)
 
-und die Chance-Penalty ist mit ``LAMBDA_CHANCE_DEFAULT = 1e6`` um
-Groessenordnungen dominanter als jeder Primaerterm -- sie wirkt als nahezu
-harte Nebenbedingung. Eine Variante verschiebt also, welche Allokation unter
-den ziel-zulaessigen die beste ist, nicht ob die Ziele ueberhaupt zaehlen.
+und die Chance-Penalty ist so gewichtet, dass ein MATERIELLES Zieldefizit
+mehr kostet als der ganze Wertebereich jedes Primaerterms. Eine Variante
+verschiebt also, welche Allokation unter den ziel-zulaessigen die beste ist,
+nicht ob die Ziele ueberhaupt zaehlen.
+
+OBJECTIVE-NORMALIZATION-001 (2026-10-18): bis dahin stand hier
+``LAMBDA_CHANCE_DEFAULT = 1e6`` auf das Defizit-QUADRAT -- "um
+Groessenordnungen dominanter als jeder Primaerterm". Das war zu viel: auch
+ein statistisch bedeutungsloses Defizit von wenigen Pfaden ueberstimmte den
+ganzen Primaerterm (Fundament-Mandat: Strafe 1.1e6 gegen Drawdown 0.26; die
+Varianten Drawdown/Volatilitaet lieferten MEHR Aktien als der Default).
+Jetzt: Defizit linear mal (Zielvolumen / W0)^2, in der Einheit des
+Primaerterms (siehe tests/test_objective_normalization.py).
 
 Zusaetzlich geprueft: der Default-Modus rechnet bit-identisch wie vor der
 Variantenfaehigkeit.
@@ -33,6 +42,7 @@ import pytest
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import (
     LAMBDA_CHANCE_DEFAULT,
+    TIEBREAK_VARIANCE_WEIGHT,
     chance_constraint_penalty,
     combined_objective_two_phase,
     shortfall_objective,
@@ -92,29 +102,35 @@ def _factors(*, mean: float, vol: float, seed: int = 5) -> np.ndarray:
 
 
 @pytest.mark.parametrize("mode", VARIANTS)
-def test_unreachable_goal_dominates_every_variant(mode: str) -> None:
-    """Ein verfehltes Ziel erzeugt in JEDER Variante eine erdrueckende Strafe.
+def test_material_goal_deficit_outweighs_every_variant(mode: str) -> None:
+    """Ein materiell verfehltes Ziel kostet in JEDER Variante mehr als der
+    ganze Wertebereich ihres Primaerterms.
 
     Ohne diese Eigenschaft waere "maximiere die Rendite" eine Lizenz, die
-    Ziele des Mandats zu ignorieren.
+    Ziele des Mandats zu ignorieren. (Hiess bis OBJECTIVE-NORMALIZATION-001
+    ``test_unreachable_goal_dominates_every_variant`` und verlangte eine
+    Strafe > 1000 -- die Groessenordnung der alten 1e6-Skala.)
     """
     goal = _hard_goal()
     missed = _wealth_paths(success_fraction=0.10)  # weit unter tau = 0.80
+    reached = _wealth_paths(success_fraction=1.0)
     factors = _factors(mean=0.05, vol=0.10)
 
-    value = combined_objective_two_phase(
-        [goal],
-        missed,
-        initial_wealth_rappen=INITIAL_WEALTH,
-        horizon_years=HORIZON,
-        objective_mode=mode,
-        portfolio_return_factors=factors,
-    )
-    # Jeder Primaerterm liegt in (-1, 1); eine Strafe dieser Groesse kann nur
-    # aus der Chance-Penalty stammen.
-    assert value > 1000.0, (
-        f"{mode}: Zielverfehlung erzeugt nur {value:.4f} -- die "
-        "Ziel-Untergrenze wirkt in dieser Variante nicht"
+    def value(paths):
+        return combined_objective_two_phase(
+            [goal],
+            paths,
+            initial_wealth_rappen=INITIAL_WEALTH,
+            horizon_years=HORIZON,
+            objective_mode=mode,
+            portfolio_return_factors=factors,
+        )
+
+    # Jeder Primaerterm liegt in (-1, 1), sein ganzer Wertebereich also
+    # unter 2; die Differenz stammt allein aus der Chance-Penalty.
+    assert value(missed) - value(reached) > 2.0, (
+        f"{mode}: Zielverfehlung kostet nur {value(missed) - value(reached):.4f} "
+        "-- die Ziel-Untergrenze wirkt in dieser Variante nicht"
     )
 
 
@@ -192,7 +208,7 @@ def test_penalty_component_is_identical_across_variants(mode: str) -> None:
 
 
 def test_default_mode_is_bit_identical_to_the_explicit_composition() -> None:
-    """``goal_shortfall`` == L(w) + Chance-Penalty + winziger Vol-Term.
+    """``goal_shortfall`` == L(w) + Chance-Penalty + normierter Vol-Tiebreak.
 
     Der Default-Pfad darf sich durch die Variantenfaehigkeit um kein Bit
     veraendert haben, sonst verschiebt sich jede bestehende Zahl und jeder
@@ -210,12 +226,12 @@ def test_default_mode_is_bit_identical_to_the_explicit_composition() -> None:
         expected_penalty, _ = chance_constraint_penalty(
             paths, [goal], INITIAL_WEALTH, lambda_chance=LAMBDA_CHANCE_DEFAULT
         )
-        expected_vol = (
-            volatility_objective(paths)
-            if expected_primary + expected_penalty < 1e-12
-            else 0.0
+        # OBJECTIVE-NORMALIZATION-001: Tiebreak immer aktiv, normiert auf W0^2.
+        expected_vol = volatility_objective(paths) / float(INITIAL_WEALTH) ** 2
+        expected = (
+            expected_primary + expected_penalty
+            + TIEBREAK_VARIANCE_WEIGHT * expected_vol
         )
-        expected = expected_primary + expected_penalty + 1e-12 * expected_vol
 
         actual = combined_objective_two_phase(
             [goal],

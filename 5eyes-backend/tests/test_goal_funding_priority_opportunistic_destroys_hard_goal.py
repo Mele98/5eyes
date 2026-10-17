@@ -27,8 +27,9 @@ gemessenen Werte):
     Mit Goal B:  wealth-Pfad = [100,  80,  80] -> Goal A Probability = 0.0
                  Goal B Probability = 1.0 (die opportunistische Ausgabe wird
                  voll bedient, WAEHREND das harte Goal komplett ausfaellt)
-                 Chance-Constraint-Penalty fuer Goal A = 640'000.0
-                 (lambda=1e6, tau=0.8, shortfall=tau-prob=0.8 -> 1e6*0.8^2)
+                 Chance-Constraint-Penalty fuer Goal A = 0.648
+                 (Defizit tau-LB = 0.8 mal (Zielvolumen 90 / W0 100)^2;
+                 bis OBJECTIVE-NORMALIZATION-001: 1e6*0.8^2 = 640'000)
 
 Verifiziert: das Ergebnis ist IDENTISCH mit und ohne
 OPTIMIZER_GOAL_WEIGHTING=hardness -- der Opt-in-Haertegrad-Modus skaliert nur
@@ -251,12 +252,13 @@ def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypa
 
     # ...while the hard, rank-1 Goal A's achievability collapsed from 100% to 0%,
     # purely because it shares an unprioritized aggregated wealth path with a
-    # lower-priority goal. Verified penalty matches the audit's documented
-    # value exactly: lambda_chance(1e6) * (tau(0.8) - probability(0.0))^2.
+    # lower-priority goal. Penalty (OBJECTIVE-NORMALIZATION-001, 2026-10-18;
+    # was 1e6 * 0.8^2 = 640'000): deficit (tau 0.8 - LB 0.0) times
+    # (goal volume 90 / initial wealth 100)^2 = 0.8 * 0.81.
     penalty, rows = chance_constraint_penalty(
         wealth_with_b, liabilities_with_b, initial_value_rappen=INITIAL_WEALTH_RAPPEN
     )
-    assert penalty == pytest.approx(640_000.0)
+    assert penalty == pytest.approx(0.8 * 0.9 ** 2)
     assert rows[0]["goal_id"] == "goal-a-hart"
     assert rows[0]["status"] == "nicht_erreichbar"
 
