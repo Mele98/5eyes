@@ -145,6 +145,16 @@ def _bps_to_pct(bps: int) -> float:
 # ===========================================================================
 
 
+
+def _goal_rows(result) -> list[dict]:
+    """GOAL-ACHIEVABILITY-ATTRIBUTION-001: Zielzeilen ohne die eine
+    Plan-Solvenz-Zeile (evaluation_scope=joint_plan), die genau einmal dabei ist."""
+    rows = list(result.goal_achievability)
+    plan = [row for row in rows if row.get("evaluation_scope") == "joint_plan"]
+    assert len(plan) == 1, rows
+    return [row for row in rows if row.get("evaluation_scope") != "joint_plan"]
+
+
 def test_m1_pensionaer_decumulation_alle_is_trigger(monkeypatch):
     """M1: Alle 3 IS-Trigger aktiv -> IS muss aktiviert sein. Bonds-Dominanz."""
     from config import settings
@@ -198,8 +208,8 @@ def test_m1_pensionaer_decumulation_alle_is_trigger(monkeypatch):
             f"M1: Bonds ({bonds_pct}%) muss > Equity ({equity_pct}%) sein"
         )
     # AUDIT: Achievability muss vorhanden sein
-    assert len(result.goal_achievability) == 1
-    ach = result.goal_achievability[0]
+    assert len(_goal_rows(result)) == 1
+    ach = _goal_rows(result)[0]
     assert ach["goal_id"] == "m1-lebenshaltung"
     assert ach["hardness"] == "hart"
     # AUDIT: Reasoning muss IS-Status nennen
@@ -340,11 +350,11 @@ def test_m3_hnw_multi_goal_hart_trigger_is(monkeypatch):
     )
     assert result.status in {"converged", "converged_robustified", "fallback_house_matrix"}
     # AUDIT: alle 3 Goals haben Achievability-Eintrag
-    assert len(result.goal_achievability) == 3
-    goal_ids = {ach["goal_id"] for ach in result.goal_achievability}
+    assert len(_goal_rows(result)) == 3
+    goal_ids = {ach["goal_id"] for ach in _goal_rows(result)}
     assert goal_ids == {"m3-pension", "m3-erbschaft", "m3-rendite"}
     # AUDIT: jedes Goal hat status + probability
-    for ach in result.goal_achievability:
+    for ach in _goal_rows(result):
         assert ach["status"] in {"erreichbar", "knapp", "nicht_erreichbar"}
         assert 0.0 <= ach["probability"] <= 1.0
 
@@ -465,8 +475,8 @@ def test_m5_rentenincome_positiver_cashflow_hart_goal(monkeypatch):
         is_retired=True,
     )
     assert result.status in {"converged", "converged_robustified", "fallback_house_matrix"}
-    assert len(result.goal_achievability) == 1
-    ach = result.goal_achievability[0]
+    assert len(_goal_rows(result)) == 1
+    ach = _goal_rows(result)[0]
     assert ach["goal_id"] == "m5-erbe"
     assert ach["hardness"] == "hart"
     # AUDIT: Mit positivem Netto-Cashflow muss das Goal mindestens "knapp"
