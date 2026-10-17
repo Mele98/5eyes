@@ -12176,10 +12176,16 @@ async function adminCreateFund(){
   // ESG-PREMIUM-CRITERIA-001: leere Felder werden nicht gesendet (= nicht
   // gepflegt -> fuer ESG-Policies fail-closed nicht zulaessig); Themen-Tags
   // immer als Liste (leere Liste entfernt bestehende Tags beim Bearbeiten).
+  // Beim Bearbeiten entfernt ein geleertes Feld den Nachweis explizit (null),
+  // sonst bliebe z.B. ein entfallener PAB-Status fuer net_zero wirksam.
   if (val('pf-sfdr')) payload.sfdr_class = val('pf-sfdr');
+  else if (adminFundEditingId) payload.sfdr_class = null;
   if (val('pf-esg-rating')) payload.esg_rating = val('pf-esg-rating');
+  else if (adminFundEditingId) payload.esg_rating = null;
   if (val('pf-climate-benchmark')) payload.climate_benchmark = val('pf-climate-benchmark');
+  else if (adminFundEditingId) payload.climate_benchmark = null;
   var esgScoreRaw = val('pf-esg-score');
+  if (esgScoreRaw === '' && adminFundEditingId) payload.esg_score_x10 = null;
   if (esgScoreRaw !== '') {
     var esgScore = Number(esgScoreRaw);
     if (!isFinite(esgScore) || esgScore < 0 || esgScore > 100) {

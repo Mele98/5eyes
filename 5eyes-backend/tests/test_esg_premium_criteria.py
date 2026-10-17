@@ -826,3 +826,69 @@ def test_real_admin_fund_form_sends_esg_criteria_data():
     assert payload["esg_score_x10"] == 645
     assert payload["climate_benchmark"] == "PAB"
     assert payload["theme_tags"] == ["fossil", "nuclear"]
+
+
+# ---------------------------------------------------------------------------
+# 7. Self-Review-Nachtrag: Dokument behauptet nie mehr, als die Daten tragen
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("policy", ["esg_integration", "best_in_class", "impact", "net_zero"])
+def test_pdf_esg_label_discloses_liquidity_exemption(policy):
+    """Die Engine nimmt Liquiditaet (Konto/Festgeld, ohne SFDR-Klasse) vom
+    Kriterium aus (test_liquidity_stays_exempt_from_esg_criteria). Ohne
+    diesen Hinweis behauptete das PDF z.B. 'nur Produkte nach SFDR Art. 9',
+    obwohl jedes Portfolio eine Liquiditaetsposition ohne SFDR-Klasse traegt."""
+    from services.portfolio_engine_payload import ESG_POLICY_LIQUIDITY_EXEMPTION
+
+    text_ = _pdf_preferences_text({"policy": {"esg": policy}})
+    assert ESG_POLICY_LIQUIDITY_EXEMPTION in text_
+    assert ESG_POLICY_LIQUIDITY_EXEMPTION not in _pdf_preferences_text({"policy": {"esg": "none"}})
+
+
+def test_product_update_can_clear_esg_evidence_fields(tmp_path):
+    """Ein einmal gesetzter Nachweis (z.B. climate_benchmark='PAB', der ein
+    Produkt fuer net_zero zulaessig macht) muss sich per PUT wieder entfernen
+    lassen -- vorher verwarf exclude_none ein explizites null, das Produkt
+    blieb fuer immer 'Paris-aligned'. Nicht gesendete Felder bleiben."""
+    from main import app
+    from test_products_fund_universe import _client_for, _seed_tenants
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'put.db'}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    SF = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    _seed_tenants(SF, ["firm-a"])
+    try:
+        with _client_for(SF, user_id="u-a", tenant_id="firm-a") as client:
+            created = client.post("/products", json={
+                "product_name": "Paris ETF", "product_type": "ETF", "asset_class": "Aktien",
+                "sub_asset_class": "Aktien Global", "currency": "CHF", "sfdr_class": "8",
+                "esg_rating": "AA", "esg_score_x10": 700, "climate_benchmark": "PAB",
+                "suitability_profile_from": 1, "suitability_profile_to": 10,
+            })
+            assert created.status_code == 201, created.text
+            pid = created.json()["id"]
+            kept = client.put(f"/products/{pid}", json={"product_name": "Paris ETF 2"})
+            assert kept.status_code == 200, kept.text
+            assert kept.json()["climate_benchmark"] == "PAB"
+            assert kept.json()["esg_rating"] == "AA"
+            cleared = client.put(f"/products/{pid}", json={
+                "climate_benchmark": None, "esg_rating": None,
+                "esg_score_x10": None, "sfdr_class": None,
+            })
+            assert cleared.status_code == 200, cleared.text
+            body = cleared.json()
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
+    assert body["climate_benchmark"] is None
+    assert body["esg_rating"] is None
+    assert body["esg_score_x10"] is None
+    assert body["sfdr_class"] is None
+    assert body["product_name"] == "Paris ETF 2"
+
+
+def test_ui_fund_edit_sends_null_to_clear_esg_evidence():
+    body = _extract_js_function(_html(), "adminCreateFund")
+    for field in ("sfdr_class", "esg_rating", "climate_benchmark", "esg_score_x10"):
+        assert re.search(r"payload\." + field + r"\s*=\s*null", body), field
