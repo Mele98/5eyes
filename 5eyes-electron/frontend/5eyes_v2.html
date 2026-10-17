@@ -3423,6 +3423,14 @@ function _wireSollIstHover(){
         </div>
         <button class="btn-g" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
       </div>
+      <div id="al-sim-horizon-confirm-banner" class="strip strip-w" style="display:none">
+        <div>
+          <div class="st">Horizont bestätigen</div>
+          <div class="ss" id="al-sim-horizon-confirm-text">Der gespeicherte Prognose-Horizont stammt von vor der Umstellung auf «Auto» und ist nicht als Berater-Wahl belegt — bitte bestätigen oder ändern.</div>
+        </div>
+        <select class="fsel" id="al-sim-horizon-confirm-select" style="font-size:10px;max-width:220px" aria-label="Prognose-Horizont"></select>
+        <button class="btn-g" id="btn-sim-horizon-confirm" onclick="confirmSimHorizonFromBanner()">Bestätigen</button>
+      </div>
       <div class="pad">
         <div id="al-message-banner" class="al-banner-warning" style="display:none">
           <div class="al-banner-icon">!</div>
@@ -15852,6 +15860,15 @@ function applyGoalDerivedRiskHorizon(force){
 // wertet jeden gesendeten Wert als Berater-Override, womit Lebenserwartung
 // (Mandat/BFS) und letzter Cashflow nie erreicht wurden. Der Simulationshorizont
 // steht jetzt auf "Auto", bis der Berater ihn selbst waehlt.
+function markSimulationHorizonExplicit(field,explicit){
+  if(!field)return;
+  field.__simHorizonExplicit=!!explicit;
+  try{if(field.dataset)field.dataset.horizonExplicit=explicit?'1':'';}catch(e){}
+}
+function isSimulationHorizonExplicit(){
+  var field=document.getElementById('aa-sim-horizon');
+  return !!(field&&field.__simHorizonExplicit===true);
+}
 function readSimulationHorizonOverride(){
   // null = Auto (kein Override senden). Eine explizite Wahl wird wie bisher nie
   // kuerzer als die (flache) Lebenserwartung gesendet, damit die SOLL/IST-
@@ -15863,7 +15880,7 @@ function readSimulationHorizonOverride(){
   var _l=_lifeExpectancyHorizonYears();
   return String(Math.min(120,(_l&&_l>_i)?_l:_i));
 }
-function setSimulationHorizonSelectValue(value){
+function setSimulationHorizonSelectValue(value,explicit){
   // Fehlender/leerer Wert -> Auto (auch beim Mandantenwechsel; vorher erbte der
   // Select den expliziten Wert des vorherigen Kunden). Ein gespeicherter Wert
   // ausserhalb der Optionsliste (z.B. 37) wird als Option ergaenzt, statt den
@@ -15872,6 +15889,10 @@ function setSimulationHorizonSelectValue(value){
   if(!field)return;
   var raw=value==null?'':String(value).trim();
   var years=parseInt(raw,10);
+  // SIM-HORIZON-CONFIRM-001: Herkunft des Werts am Feld merken. Nur eine
+  // ausdrueckliche Wahl (Change-Event, Banner-Bestaetigung, gespeichertes
+  // horizonExplicit) wird mit horizonExplicit=true gesendet.
+  markSimulationHorizonExplicit(field,!!explicit&&!!raw&&isFinite(years)&&years>=1);
   if(!raw||!isFinite(years)||years<1){field.value='';return;}
   var normalized=String(years);
   if(!Array.prototype.some.call(field.options,function(option){return String(option.value||'')===normalized;})){
@@ -18269,6 +18290,140 @@ function loadAllocationPreferences(){
   allocationPreferencesCache[key]=prefs;
   return prefs;
 }
+// SIM-HORIZON-CONFIRM-001 (CIO-Entscheid 2026-10-17): Bis SIM-HORIZON-ALWAYS-
+// EXPLICIT-001 (#611) schrieb der Monolith simulation.horizonYears IMMER (Select-
+// Default '10' bzw. flache Lebenserwartung). Ein so gespeicherter Wert ist KEINE
+// belegte Berater-Wahl -- wird aber auch NICHT automatisch migriert. Stattdessen
+// erscheint einmalig das Banner "Horizont bestaetigen" (Wert anzeigen, optional
+// aendern). Seit dieser Umstellung traegt jede ausdrueckliche Wahl
+// simulation.horizonExplicit=true; "vor der Umstellung" = horizonYears vorhanden
+// OHNE dieses Flag. Bestaetigung: Flag im editierbaren Store + (falls der Wert
+// der aktuellen Soll-Allokation entspricht) serverseitiger Vermerk
+// target_allocations.sim_horizon_confirmed_at. preferences_json selbst bleibt
+// unveraendert (Teil des allocation_context_hash).
+function simHorizonNeedsConfirmation(prefs){
+  var sim=prefs&&typeof prefs==='object'?prefs.simulation:null;
+  if(!sim||typeof sim!=='object')return false;
+  var raw=sim.horizonYears;
+  if(raw==null||String(raw).trim()==='')return false;
+  return sim.horizonExplicit!==true;
+}
+function simHorizonConfirmedOnServer(targetAllocation){
+  if(!targetAllocation||typeof targetAllocation!=='object')return false;
+  return !!(targetAllocation.sim_horizon_confirmed_at&&String(targetAllocation.sim_horizon_confirmed_at).trim());
+}
+function hydrateAllocationPreferencesFromServer(result){
+  // Sprint 14 Phase 4 F1: Praeferenzen aus persistierter Allocation hydratisieren
+  // (vorher nur localStorage). So sind die Tilts nach Geraete-/Browser-Wechsel
+  // konsistent mit der gespeicherten SAA, statt UI-Defaults zu zeigen.
+  var serverPrefsRaw=result&&result.target_allocation&&result.target_allocation.preferences_json;
+  if(!serverPrefsRaw)return false;
+  var serverPrefs=(typeof serverPrefsRaw==='string')?JSON.parse(serverPrefsRaw):serverPrefsRaw;
+  if(!serverPrefs||typeof serverPrefs!=='object')return false;
+  var key=getAllocationPreferenceKey();
+  var localPrefs=(function(){
+    try{
+      var raw=localStorage.getItem(allocationPreferenceStoragePrefix+key);
+      return raw?JSON.parse(raw):null;
+    }catch(e){return null;}
+  })();
+  // Wenn lokaler State leer ist oder dirty=false, dann Server-Prefs uebernehmen.
+  // Bei "dirty" UI-Edits NICHT ueberschreiben.
+  var shouldHydrate=!localPrefs||!strategyState.dirty;
+  if(!shouldHydrate)return false;
+  // mergeAllocationPreferences klont -- der Snapshot im result bleibt unveraendert.
+  var hydrated=mergeAllocationPreferences(buildDefaultAllocationPreferences(),serverPrefs);
+  // SIM-HORIZON-CONFIRM-001: serverseitig bestaetigter Alt-Horizont gilt als
+  // ausdrueckliche Wahl (Banner bleibt weg, auch auf anderen Geraeten).
+  if(simHorizonNeedsConfirmation(hydrated)&&simHorizonConfirmedOnServer(result.target_allocation)){
+    hydrated.simulation.horizonExplicit=true;
+  }
+  allocationPreferencesCache[key]=hydrated;
+  try{localStorage.setItem(allocationPreferenceStoragePrefix+key,JSON.stringify(hydrated));}catch(e){}
+  if(typeof applyAllocationPreferencesToUI==='function'){
+    applyAllocationPreferencesToUI(hydrated);
+  }
+  return true;
+}
+function renderSimHorizonConfirmBanner(){
+  var banner=document.getElementById('al-sim-horizon-confirm-banner');
+  if(!banner)return;
+  var prefs=loadAllocationPreferences();
+  if(!simHorizonNeedsConfirmation(prefs)){banner.style.display='none';return;}
+  var current=String(parseInt(String(prefs.simulation.horizonYears).trim(),10));
+  var text=document.getElementById('al-sim-horizon-confirm-text');
+  if(text)text.textContent='Gespeicherter Prognose-Horizont: '+current+' Jahre. Der Wert stammt von vor der Umstellung auf «Auto» (Lebenserwartung/letzter Cashflow) und ist nicht als Berater-Wahl belegt — bitte bestätigen oder ändern.';
+  var select=document.getElementById('al-sim-horizon-confirm-select');
+  if(select){
+    var values=[];
+    var source=document.getElementById('aa-sim-horizon');
+    if(source&&source.options)Array.prototype.forEach.call(source.options,function(option){
+      var v=String(option.value||'');if(v&&values.indexOf(v)<0)values.push(v);
+    });
+    if(!values.length)values=['7','10','12','15','20','25','30'];
+    if(values.indexOf(current)<0)values.push(current);
+    values.sort(function(a,b){return Number(a)-Number(b);});
+    select.innerHTML='';
+    var auto=document.createElement('option');
+    auto.value='';auto.textContent='Auto (Lebenserwartung/letzter Cashflow)';
+    select.appendChild(auto);
+    values.forEach(function(v){
+      var option=document.createElement('option');
+      option.value=v;option.textContent=v+' Jahre';
+      select.appendChild(option);
+    });
+    select.value=current;
+  }
+  banner.style.display='';
+}
+async function confirmSimHorizonFromBanner(){
+  var prefs=cloneJSON(loadAllocationPreferences());
+  if(!simHorizonNeedsConfirmation(prefs)){renderSimHorizonConfirmBanner();return {changed:false,serverConfirmed:false};}
+  var current=String(parseInt(String(prefs.simulation.horizonYears).trim(),10));
+  var select=document.getElementById('al-sim-horizon-confirm-select');
+  var chosen=select?String(select.value==null?current:select.value).trim():current;
+  var changed=chosen!==current;
+  if(!chosen){
+    // "Auto" gewaehlt: kein Override mehr -> Backend leitet den Horizont ab.
+    delete prefs.simulation.horizonYears;
+    delete prefs.simulation.horizonExplicit;
+  }else{
+    prefs.simulation.horizonYears=chosen;
+    prefs.simulation.horizonExplicit=true;
+  }
+  persistAllocationPreferences(prefs);
+  setSimulationHorizonSelectValue(prefs.simulation.horizonYears,!!chosen);
+  if(changed){
+    markStrategyDirty('Prognose-Horizont geändert: Strategie neu berechnen.');
+    renderSimHorizonConfirmBanner();
+    return {changed:true,serverConfirmed:false};
+  }
+  // Unveraenderter Wert: Bestaetigung serverseitig vermerken, sofern die
+  // aktuelle Soll-Allokation genau diesen Alt-Horizont gespeichert hat. Sonst
+  // reist das Flag mit der naechsten Berechnung in den Snapshot.
+  var serverConfirmed=false;
+  var ta=strategyState&&strategyState.allocation&&strategyState.allocation.target_allocation;
+  var mid=(typeof getActiveMandateId==='function')?getActiveMandateId():null;
+  if(ta&&mid&&!simHorizonConfirmedOnServer(ta)){
+    var snapshot=null;
+    try{snapshot=(typeof ta.preferences_json==='string')?JSON.parse(ta.preferences_json):ta.preferences_json;}catch(e){snapshot=null;}
+    if(simHorizonNeedsConfirmation(snapshot)&&String(parseInt(String(snapshot.simulation.horizonYears).trim(),10))===current){
+      try{
+        var response=await API.post('/mandates/'+mid+'/target-allocation/current/sim-horizon-confirmation',{horizon_years:parseInt(current,10)});
+        if(response&&response.sim_horizon_confirmed_at){
+          ta.sim_horizon_confirmed_at=response.sim_horizon_confirmed_at;
+          ta.sim_horizon_confirmed_by=response.sim_horizon_confirmed_by||null;
+          serverConfirmed=true;
+        }
+      }catch(e){
+        console.warn('Horizont-Bestaetigung konnte nicht gespeichert werden',e);
+        try{if(typeof showAppError==='function')showAppError('Horizont lokal bestätigt, serverseitig aber nicht gespeichert: '+((e&&e.message)||e));}catch(_e){}
+      }
+    }
+  }
+  renderSimHorizonConfirmBanner();
+  return {changed:false,serverConfirmed:serverConfirmed};
+}
 function cloneJSON(value){
   try{return JSON.parse(JSON.stringify(value||{}));}catch(e){return value||{};}
 }
@@ -18808,6 +18963,7 @@ function renderAllocationPreferenceSummary(prefs){
   renderPreferenceChips('sr-pref-focus-chips',focus,'summary');
   renderPreferenceChips('sr-pref-restriction-chips',restrictions,'restriction');
   updateBandOverrideStatus(prefs.bands||{});
+  if(typeof renderSimHorizonConfirmBanner==='function')renderSimHorizonConfirmBanner();
 }
 function collectAllocationPreferencesFromUI(){
   var stored=loadAllocationPreferences();
@@ -18887,7 +19043,12 @@ function collectAllocationPreferencesFromUI(){
   // Wahl senden. Fehlt der Key, leitet das Backend den Horizont aus Mandats-
   // Lebenserwartung / BFS-Sterbetafel / letztem datierten Ziel ab.
   var simHorizonOverride=readSimulationHorizonOverride();
-  if(simHorizonOverride!=null)live.simulation.horizonYears=simHorizonOverride;
+  if(simHorizonOverride!=null){
+    live.simulation.horizonYears=simHorizonOverride;
+    // SIM-HORIZON-CONFIRM-001: nur eine ausdrueckliche Wahl markieren. Ein aus
+    // Alt-Daten (vor #611) hydratisierter Wert bleibt unmarkiert -> Banner.
+    if(isSimulationHorizonExplicit())live.simulation.horizonExplicit=true;
+  }
   prefs.simulation=live.simulation;
   prefs.assetClasses=live.assetClasses;
   var modal=document.getElementById('m-eq');
@@ -18920,7 +19081,7 @@ function applyAllocationPreferencesToUI(prefs){
   setCheckboxValue('aa-geo-hedging-required',prefs.geo&&prefs.geo.hedgingRequired);
   setCheckboxValue('aa-geo-chf-only',prefs.geo&&prefs.geo.chfOnly);
   setCheckboxValue('aa-geo-no-usd',prefs.geo&&prefs.geo.noUsd);
-  setSimulationHorizonSelectValue(prefs.simulation&&prefs.simulation.horizonYears);
+  setSimulationHorizonSelectValue(prefs.simulation&&prefs.simulation.horizonYears,!!(prefs.simulation&&prefs.simulation.horizonExplicit===true));
   setSelectValue('aa-sim-stress',prefs.simulation&&prefs.simulation.stressMultiplier);
   setSelectValue('aa-sim-rebalance',prefs.simulation&&prefs.simulation.rebalanceMode);
   setSelectValue('aa-sim-mc-runs',prefs.simulation&&prefs.simulation.monteCarloRuns);
@@ -18978,6 +19139,13 @@ function bindAllocationPreferenceControls(){
     '#aa-realestate-funds','#aa-realestate-direct','#aa-alts-gold','#aa-alts-liquid-alts','#aa-alts-hedge','#aa-alts-pe','#aa-alts-crypto',
     '#aa-liquidity-reserve-target'
   ];
+  // SIM-HORIZON-CONFIRM-001: eine Auswahl im Horizont-Select ist eine
+  // ausdrueckliche Berater-Wahl. Muss VOR dem generischen Persist-Listener
+  // registriert sein, damit dieser das Flag bereits mitnimmt.
+  var simHorizonField=document.getElementById('aa-sim-horizon');
+  if(simHorizonField){
+    simHorizonField.addEventListener('change',function(){markSimulationHorizonExplicit(simHorizonField,!!String(simHorizonField.value||'').trim());});
+  }
   document.querySelectorAll(selectors.join(',')).forEach(function(el){
     el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
     el.addEventListener('input',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
@@ -21677,34 +21845,9 @@ function applyAllocationEngineResult(result){
     return false;
   }
   strategyState.allocation=result;
-  // Sprint 14 Phase 4 F1: Praeferenzen aus persistierter Allocation hydratisieren
-  // (vorher nur localStorage). So sind die Tilts nach Geraete-/Browser-Wechsel
-  // konsistent mit der gespeicherten SAA, statt UI-Defaults zu zeigen.
+  // Hydration aus dem Server-Snapshot (inkl. SIM-HORIZON-LEGACY-MIGRATION-001).
   try {
-    var serverPrefsRaw = result && result.target_allocation && result.target_allocation.preferences_json;
-    if(serverPrefsRaw){
-      var serverPrefs = (typeof serverPrefsRaw === 'string') ? JSON.parse(serverPrefsRaw) : serverPrefsRaw;
-      if(serverPrefs && typeof serverPrefs === 'object'){
-        var key = getAllocationPreferenceKey();
-        var localPrefs = (function(){
-          try {
-            var raw = localStorage.getItem(allocationPreferenceStoragePrefix + key);
-            return raw ? JSON.parse(raw) : null;
-          } catch(e){ return null; }
-        })();
-        // Wenn lokaler State leer ist oder dirty=false, dann Server-Prefs uebernehmen.
-        // Bei "dirty" UI-Edits NICHT ueberschreiben.
-        var shouldHydrate = !localPrefs || !strategyState.dirty;
-        if(shouldHydrate){
-          var hydrated = mergeAllocationPreferences(buildDefaultAllocationPreferences(), serverPrefs);
-          allocationPreferencesCache[key] = hydrated;
-          try { localStorage.setItem(allocationPreferenceStoragePrefix + key, JSON.stringify(hydrated)); } catch(e){}
-          if(typeof applyAllocationPreferencesToUI === 'function'){
-            applyAllocationPreferencesToUI(hydrated);
-          }
-        }
-      }
-    }
+    hydrateAllocationPreferencesFromServer(result);
   } catch(e) { console.warn('preferences hydration failed', e); }
   TOTAL=Math.round((Number(result.advisory_wealth_rappen||0))/100);
   var colors={Aktien:'#1e4b8f',Obligationen:'#78601a',Immobilien:'#2c5080',Alternative:'#4a6080',Liquiditaet:'#166534'};
