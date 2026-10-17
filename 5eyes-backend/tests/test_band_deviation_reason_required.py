@@ -90,6 +90,34 @@ def test_band_outside_house_matrix_with_documented_reason_passes_gate(session_fa
     assert GOOD_REASON in documented[0], documented
 
 
+def test_reason_added_after_generation_unblocks_gate_on_regenerate(session_factory):
+    """Nachgetragene Begruendung + Neuberechnung muss das Gate freigeben.
+
+    Absicherung gegen REGENERATE-IDEMPOTENT-001: eine Neuberechnung, die sich
+    nur in der Begruendung unterscheidet, darf NICHT als identisch gelten und
+    die alte Allokation (Snapshot ohne Begruendung) aktuell lassen -- sonst
+    bliebe die Freigabe dauerhaft blockiert."""
+    adv, _cid, mid, aid = _seed_realistic_mandate(session_factory, "br-later")
+    from models.allocation import TargetAllocation
+
+    def _current_ta_id():
+        with session_factory() as db:
+            return str(db.query(TargetAllocation.id).filter(
+                TargetAllocation.mandate_id == mid,
+                TargetAllocation.is_current == 1,
+            ).one()[0])
+
+    _generate(session_factory, mid, adv, {"bands": OUTSIDE_BANDS})
+    first_id = _current_ta_id()
+    errors, warnings = _gate(
+        session_factory, mid, aid, adv,
+        {"bands": OUTSIDE_BANDS, "bandDeviationReason": GOOD_REASON},
+    )
+    assert not [e for e in errors if HEADING in e], errors
+    assert [w for w in warnings if HEADING in w and GOOD_REASON in w], warnings
+    assert _current_ta_id() != first_id
+
+
 def test_band_inside_house_matrix_needs_no_reason(session_factory):
     adv, _cid, mid, aid = _seed_realistic_mandate(session_factory, "br-inside")
     errors, warnings = _gate(session_factory, mid, aid, adv, {"bands": INSIDE_BANDS})
