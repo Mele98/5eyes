@@ -503,6 +503,17 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         preferences=None,
     )
 
+    # BAND-DEVIATION-REASON-REQUIRED-001: Abweichung vom Eignungsrahmen des
+    # Risikoprofils aus dem persistierten Praeferenz-Snapshot -- dieselbe
+    # Quelle wie das Freigabe-Gate. Fail-closed (ValueError -> 409).
+    from services.portfolio_engine_house_matrix import (
+        house_band_deviation_disclosure_for_allocation,
+    )
+
+    band_disclosure = house_band_deviation_disclosure_for_allocation(
+        db, ta_obj, assessment_obj, policy,
+    )
+
     # ---- CMA-Werte aus Engine-Payload (echtes √(w'Σw) via _portfolio_volatility_bps) ----
     if not isinstance(engine_payload, dict):
         raise ValueError(
@@ -878,6 +889,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         current_annualized_return_p50_bps=current_cagr_bps,
         target_volatility_1y_bps=target_vol_1y_bps,
         current_volatility_1y_bps=current_vol_1y_bps,
+        band_house_deviations=list(band_disclosure["deviations"]),
+        band_house_profile=band_disclosure["profile"],
+        band_deviation_reason=band_disclosure["reason"],
     )
 
 
@@ -1413,6 +1427,9 @@ def _build_contract_signoff_data(
         portfolio_orientation=orientation,
         consultation_summary=list(protocol.entries or []),
         final_recommendation=protocol.latest_recommendation_summary,
+        band_house_deviations=list(strategy.band_house_deviations or []),
+        band_house_profile=strategy.band_house_profile,
+        band_deviation_reason=strategy.band_deviation_reason,
     )
 
 

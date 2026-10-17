@@ -11,6 +11,7 @@ from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
 from services.pdf.base import AnlagestrategieData, PDFContext
 from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import PAGE_SIZE
+from services.pdf.components.band_deviation import make_band_deviation_section
 from services.pdf.components.cover import make_cover_page, make_section_cover
 from services.pdf.components.effektives_portfolio import make_effektives_portfolio_section
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
@@ -409,6 +410,13 @@ def _build_anlagestrategie_flowables_template_order(
         ))
     else:
         empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+    # BAND-DEVIATION-REASON-REQUIRED-001: Abweichung vom Eignungsrahmen des
+    # Risikoprofils + dokumentierte Begruendung direkt bei den Bandbreiten.
+    flowables.extend(make_band_deviation_section(
+        data.band_house_deviations,
+        profile_label=data.band_house_profile,
+        reason=data.band_deviation_reason,
+    ))
     flowables.append(PageBreak())
 
     # 6 Vermoegensstruktur: Subanlageklassen und IST/SOLL-Visualisierung

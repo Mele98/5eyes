@@ -7585,7 +7585,78 @@ function buildQT(id){
       persistAllocationPreferences();
     });
   });
+  // BAND-DEVIATION-REASON-REQUIRED-001: Begruendungsfeld unter den Bandbreiten.
+  t.insertAdjacentHTML('beforeend',buildBandDeviationReasonBoxHtml(prefs));
+  t.querySelectorAll('.qtinp').forEach(function(input){
+    input.addEventListener('input',updateBandDeviationReasonBox);
+  });
+  var reasonInput=document.getElementById('aa-band-deviation-reason');
+  if(reasonInput){
+    reasonInput.addEventListener('input',function(){
+      markStrategyDirty('Begruendung der Bandbreiten-Abweichung geaendert: Strategie neu berechnen.');
+    });
+    reasonInput.addEventListener('change',function(){
+      persistAllocationPreferences();
+    });
+  }
   updateBandOverrideStatus(activeBands);
+  updateBandDeviationReasonBox();
+}
+// BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14): verlaesst
+// eine Mandatsbandbreite die Hausmatrix-Bandbreite des Risikoprofils, ist eine
+// dokumentierte Begruendung Pflicht (prefs.bandDeviationReason). Ohne sie
+// blockiert das Freigabe-Gate im Backend. Vergleichsbasis ist
+// house_matrix_bands aus dem Engine-Payload -- die Bucket-Bandbreite ist nach
+// einem Override bereits die Mandatsbandbreite.
+function currentHouseMatrixBands(){
+  var alloc=strategyState&&strategyState.allocation;
+  var bands=alloc&&alloc.house_matrix_bands;
+  return bands&&typeof bands==='object'?bands:null;
+}
+function bandHouseDeviationsFromModal(){
+  var house=currentHouseMatrixBands();
+  if(!house)return [];
+  var inputs=document.querySelectorAll('#qt-modal .qtinp[data-bucket][data-field]');
+  var values={};
+  inputs.forEach(function(input){
+    var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
+    var field=String(input.getAttribute('data-field')||'');
+    if(!values[bucket])values[bucket]={};
+    values[bucket][field]=parseBandPercentInput(input.value);
+  });
+  var deviations=[];
+  Object.keys(values).forEach(function(bucket){
+    var hb=house[bucket];
+    if(!hb)return;
+    var mn=values[bucket].min_bps, mx=values[bucket].max_bps;
+    var hmin=Number(hb.min_bps), hmax=Number(hb.max_bps);
+    if((mn!=null&&mn<hmin)||(mx!=null&&mx>hmax)){
+      deviations.push({bucket:bucket,label:({equities:'Aktien',bonds:'Obligationen',real_estate:'Immobilien',alternatives:'Alternative',liquidity:'Liquidität'})[bucket]||bucket,min:mn==null?hmin:mn,max:mx==null?hmax:mx,houseMin:hmin,houseMax:hmax});
+    }
+  });
+  return deviations;
+}
+function buildBandDeviationReasonBoxHtml(prefs){
+  var reason=prefs&&typeof prefs.bandDeviationReason==='string'?prefs.bandDeviationReason:'';
+  return '<div id="aa-band-deviation-box" style="display:none;margin-top:10px;padding:8px 10px;border:1px solid #c9a227;border-left:3px solid #8a6718;border-radius:var(--r);background:#fbf4df">'
+    +'<div style="font-size:10px;font-weight:600;color:#5c4510;margin-bottom:4px">Abweichung vom Eignungsrahmen des Risikoprofils</div>'
+    +'<div id="aa-band-deviation-list" style="font-size:10px;color:var(--n6);line-height:1.5;margin-bottom:6px"></div>'
+    +'<label for="aa-band-deviation-reason" style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4)">Begruendung (Pflicht, wird im Kundendokument ausgewiesen)</label>'
+    +'<textarea id="aa-band-deviation-reason" rows="3" maxlength="2000" style="width:100%;box-sizing:border-box;font-size:11px;margin-top:3px" placeholder="Warum verlaesst die Mandatsbandbreite den Rahmen des Risikoprofils? (mind. 20 Zeichen, keine Floskeln)">'+escapeHtml(reason)+'</textarea>'
+    +'<div style="font-size:9px;color:#8a6718;margin-top:3px">Ohne dokumentierte Begruendung ist die Freigabe der Empfehlung blockiert.</div>'
+    +'</div>';
+}
+function updateBandDeviationReasonBox(){
+  var box=document.getElementById('aa-band-deviation-box');
+  if(!box)return;
+  var deviations=bandHouseDeviationsFromModal();
+  box.style.display=deviations.length?'block':'none';
+  var list=document.getElementById('aa-band-deviation-list');
+  if(list){
+    list.innerHTML=deviations.map(function(d){
+      return escapeHtml(d.label)+': Mandatsband '+formatBandPercent(d.min)+'–'+formatBandPercent(d.max)+' ausserhalb Hausmatrix '+formatBandPercent(d.houseMin)+'–'+formatBandPercent(d.houseMax);
+    }).join('<br>');
+  }
 }
 function applyAllocationBandOverrides(){
   persistAllocationPreferences();
@@ -7597,6 +7668,7 @@ function applyAllocationBandOverrides(){
 function resetAllocationBandOverrides(){
   var prefs=mergeAllocationPreferences(buildDefaultAllocationPreferences(),loadAllocationPreferences());
   prefs.bands={};
+  delete prefs.bandDeviationReason;
   persistAllocationPreferences(prefs);
   buildQT('qt-modal');
   updateBandOverrideStatus({});
@@ -18282,6 +18354,11 @@ function mergeAllocationPreferences(base,override){
       merged[section]={};
     }
   });
+  // BAND-DEVIATION-REASON-REQUIRED-001: Begruendung der Bandbreiten-Abweichung
+  // ist ein Top-Level-Text, kein Abschnitt -- explizit uebernehmen.
+  if(typeof incoming.bandDeviationReason==='string'){
+    merged.bandDeviationReason=incoming.bandDeviationReason;
+  }
   return merged;
 }
 function formatBandPercent(bps){
@@ -18893,6 +18970,9 @@ function collectAllocationPreferencesFromUI(){
   var modal=document.getElementById('m-eq');
   var modalBands=(modal&&modal.classList.contains('open')&&hasCanonicalBandBaseline())?collectBandOverridesFromModal():null;
   prefs.bands=modalBands==null?(prefs.bands||{}):modalBands;
+  var reasonInput=document.getElementById('aa-band-deviation-reason');
+  if(reasonInput)prefs.bandDeviationReason=String(reasonInput.value||'').trim();
+  if(!prefs.bandDeviationReason)delete prefs.bandDeviationReason;
   return prefs;
 }
 function applyAllocationPreferencesToUI(prefs){

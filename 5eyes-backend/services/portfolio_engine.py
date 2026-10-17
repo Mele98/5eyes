@@ -503,7 +503,13 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     validated = AllocationPreferencesPayload.model_validate(
         {} if preferences is None else preferences
     )
-    return validated.model_dump()
+    dumped = validated.model_dump()
+    # BAND-DEVIATION-REASON-REQUIRED-001: ein fehlendes Begruendungsfeld darf
+    # den persistierten Praeferenz-Snapshot nicht veraendern (sonst meldete
+    # die Drift-Erkennung jede bestehende Allokation als veraltet).
+    if dumped.get("bandDeviationReason") is None:
+        dumped.pop("bandDeviationReason", None)
+    return dumped
 
 
 def _allocation_snapshot_preferences(allocation: TargetAllocation | None) -> dict | None:
@@ -1262,6 +1268,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _apply_illiquid_cap,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
+    house_matrix_bands_payload,
     policy_band_clamp_notes,
     _building_block_risky_map,
     _building_block_rows_for_policy,
@@ -4237,6 +4244,9 @@ def generate_target_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -6175,6 +6185,9 @@ def build_target_payload_from_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
