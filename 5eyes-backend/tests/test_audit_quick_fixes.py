@@ -338,6 +338,8 @@ def test_f4_create_target_allocation_with_assessment_succeeds(
     with session_factory() as s:
         policy = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
         policy_id = policy.id
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(s, cid)
 
     payload = {
         "policy_id": policy_id,
