@@ -703,6 +703,99 @@ def _build_bucket_response(
     return bucket_response
 
 
+# ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): Klassifikation der
+# sechs "Kontroverse Exposures"-Themen ueber die EIGENE Sub-Anlageklasse des
+# Produkts (Katalogfeld product.sub_asset_class). Einzige Quelle fuer
+# Filter (_product_matches_constraints), Score (_product_score), Run-Warnung
+# und PDF-Text -- die Labels sind dieselben, die
+# portfolio_engine_house_matrix._build_sub_allocations() fuer Overweight-
+# Themenbausteine verwendet.
+THEME_SUB_ASSET_CLASSES: dict[str, str] = {
+    "fossil": "Thema Fossile Energie",
+    "defense": "Thema Verteidigung",
+    "tobacco": "Thema Tabak",
+    "alcohol": "Thema Alkohol",
+    "gaming": "Thema Gluecksspiel",
+    "nuclear": "Thema Kernenergie",
+}
+THEME_DISPLAY_NAMES: dict[str, str] = {
+    "fossil": "Fossile Energie",
+    "defense": "Verteidigung",
+    "tobacco": "Tabak",
+    "alcohol": "Alkohol",
+    "gaming": "Gluecksspiel",
+    "nuclear": "Kernenergie",
+}
+_THEME_KEY_BY_SUB_ASSET_CLASS = {label: key for key, label in THEME_SUB_ASSET_CLASSES.items()}
+SCREENING_TILT_MODES = frozenset({"exclude", "underweight"})
+THEME_LOOK_THROUGH_DISCLOSURE = (
+    "Der Ausschluss wirkt auf Produkte, die im Produktkatalog als Themenprodukt "
+    "(Sub-Anlageklasse 'Thema ...') klassifiziert sind; breit diversifizierte "
+    "Index- und Fondsprodukte werden nicht auf ihr Themen-Exposure durchleuchtet "
+    "(kein Look-through) und koennen Titel dieser Themen enthalten."
+)
+
+
+def effective_theme_screening(prefs: dict | None) -> dict[str, str]:
+    """ESG-THEME-EXCLUSION-EFFECTIVE-001: liefert {theme_key: mode} fuer alle
+    Themen, deren Produkte NICHT empfohlen werden duerfen (mode "exclude"
+    oder "underweight").
+
+    Semantik:
+    - "exclude": Themenprodukte werden nie ausgewaehlt -- weder in einem
+      Themenbaustein noch als Ersatz/Fallback fuer einen anderen Slot.
+    - "underweight": kein eigener Themenbaustein (ein solcher entsteht ohnehin
+      nur bei "overweight") UND Themenprodukte werden nie als Ersatz/Fallback
+      fuer einen anderen Slot ausgewaehlt. Produktwirkung damit identisch zu
+      "exclude"; das abweichende Label bleibt im Dokument erhalten, weil der
+      Berater-Entscheid ("untergewichten", nicht "ausschliessen") so
+      festgehalten wurde. Ein echtes Untergewicht gegenueber Indexgewichten
+      ist ohne Look-through nicht umsetzbar (siehe
+      THEME_LOOK_THROUGH_DISCLOSURE).
+    - policy.esg == "negative_screening" (User-Entscheid 2026-09-27): alle
+      sechs Themen auf "exclude", AUSSER der Berater hat fuer ein Thema einen
+      ABWEICHENDEN Tilt gesetzt. "neutral" ist der UI-Default und weicht nicht
+      ab -- "neutral" und "Key fehlt" sind deshalb gleichbedeutend. Vorher
+      griff der Default nur bei fehlendem Key; die Monolith-UI sendet aber
+      immer alle sechs Tilts mit "neutral", womit Negativ-Screening aus der UI
+      heraus nie wirkte. Nur "overweight"/"underweight" uebersteuern.
+    """
+    prefs = prefs if isinstance(prefs, dict) else {}
+    tilts = prefs.get("tilts") if isinstance(prefs.get("tilts"), dict) else {}
+    policy = prefs.get("policy") if isinstance(prefs.get("policy"), dict) else {}
+    negative_screening = policy.get("esg") == "negative_screening"
+    screened: dict[str, str] = {}
+    for key in THEME_SUB_ASSET_CLASSES:
+        mode = tilts.get(key)
+        if mode in (None, "neutral") and negative_screening:
+            mode = "exclude"
+        if mode in SCREENING_TILT_MODES:
+            screened[key] = mode
+    return screened
+
+
+def product_theme_key(product) -> str | None:
+    """Themen-Key des Produkts aus seiner eigenen Sub-Anlageklasse (nicht aus
+    dem angefragten Slot)."""
+    return _THEME_KEY_BY_SUB_ASSET_CLASS.get(str(getattr(product, "sub_asset_class", None) or "").strip())
+
+
+def theme_screening_disclosure(prefs: dict | None) -> str | None:
+    """Run-Warnung/Offenlegung, sobald mindestens ein Thema gescreent wird."""
+    screened = effective_theme_screening(prefs)
+    if not screened:
+        return None
+    parts = [
+        f"{THEME_DISPLAY_NAMES[key]} ({'ausgeschlossen' if mode == 'exclude' else 'untergewichtet'})"
+        for key, mode in screened.items()
+    ]
+    return (
+        "Themen-Screening aktiv: " + ", ".join(parts) + ". Ausgeschlossene und "
+        "untergewichtete Themen werden weder als Themenbaustein noch als Ersatz "
+        "fuer einen anderen Baustein umgesetzt. " + THEME_LOOK_THROUGH_DISCLOSURE
+    )
+
+
 def _product_matches_constraints(
     product: Product,
     prefs: dict,
@@ -770,6 +863,18 @@ def _product_matches_constraints(
     # ichtigung von E/S-Merkmalen ohne volles Impact-Mandat) ist inhaltlich
     # am naechsten an SFDR Art. 8 -- behandelt wie die bestehenden drei Werte,
     # die bereits identisch auf denselben SFDR-8/9-Gate abgebildet sind.
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): harter Filter auf
+    # der Produkt-Klassifikation. Vorher nur ein Score-Malus, der am
+    # angefragten SLOT hing -- ein ausgeschlossenes Themenprodukt wurde als
+    # Anlageklassen-Fallback fuer z.B. "Aktien Global" normal ausgewaehlt
+    # (live reproduziert: fossil=exclude -> 60% "Energy Select Sector ETF").
+    # Weil dieser Filter VOR exact- und Fallback-Kandidatenbildung in
+    # generate_recommendation_run() greift, gilt er fuer jeden Slot; ein Slot
+    # ohne verbleibendes Produkt laeuft in den bestehenden fail-closed-Pfad
+    # (missing_sub_classes -> ValueError "Produktselektion unvollstaendig").
+    theme_key = product_theme_key(product)
+    if theme_key and theme_key in effective_theme_screening(prefs):
+        return False
     if (
         policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero", "esg_integration")
         and asset_class != "Liquiditaet"
@@ -913,34 +1018,22 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
         score += 20
     if str(product.sfdr_class or "") in ("8", "9"):
         score += 25
-    thematic_map = {
-        "Thema Fossile Energie": "fossil",
-        "Thema Verteidigung": "defense",
-        "Thema Tabak": "tobacco",
-        "Thema Alkohol": "alcohol",
-        "Thema Gluecksspiel": "gaming",
-        "Thema Kernenergie": "nuclear",
-    }
-    thematic_key = thematic_map.get(sub_asset_class)
-    if thematic_key:
-        # ESG-POLICY-PARTIAL-NOOP-001 (Kontrollrunde 2026-09-27, User-Entscheid):
-        # "negative_screening" war ein gueltiger, im PDF sichtbarer Policy-
-        # Wert ohne jede Wirkung auf die Produktauswahl. Negative Screening
-        # ist konzeptionell kein SFDR-Artikel, sondern ein Sektor-Ausschluss
-        # -- dafuer existiert bereits dieses Themen-Tilt-System. Fachlicher
-        # Default (User-Entscheid): "negative_screening" setzt alle 6 Themen
-        # auf "exclude", AUSSER der Berater hat fuer dieses Thema bereits
-        # explizit einen abweichenden Tilt gesetzt -- ein expliziter Berater-
-        # Entscheid geht dem Policy-Default immer vor, nie umgekehrt.
-        tilt_mode = tilts.get(thematic_key)
-        if tilt_mode is None and policy_prefs.get("esg") == "negative_screening":
-            tilt_mode = "exclude"
-        if tilt_mode == "exclude":
-            return -10000
-        if tilt_mode == "underweight":
-            score -= 150
-        if tilt_mode == "overweight":
-            score += 250
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): Ausschluss /
+    # Untergewichtung haengt an der EIGENEN Sub-Anlageklasse des Produkts
+    # (gleiche Regel wie der harte Filter in _product_matches_constraints;
+    # hier nur Defense in Depth fuer Aufrufer, die den Filter umgehen).
+    # Vorher hing er am angefragten Slot und war damit unerreichbar, weil ein
+    # Slot "Thema X" nur bei "overweight" existiert. Siehe
+    # effective_theme_screening() fuer die negative_screening-Semantik.
+    product_theme = product_theme_key(product)
+    if product_theme and product_theme in effective_theme_screening(prefs):
+        return -10000
+    # Der Overweight-Bonus bleibt bewusst SLOT-gebunden: nur im eigenen
+    # Themenbaustein "Thema X" bevorzugt, nie als Ersatz fuer einen
+    # Kernbaustein hochgestuft.
+    slot_theme = _THEME_KEY_BY_SUB_ASSET_CLASS.get(str(sub_asset_class or ""))
+    if slot_theme and tilts.get(slot_theme) == "overweight":
+        score += 250
     return score
 
 

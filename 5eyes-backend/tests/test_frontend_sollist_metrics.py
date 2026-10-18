@@ -12,6 +12,16 @@ def _html() -> str:
     return HTML_PATH.read_text(encoding="utf-8")
 
 
+def _end_values_body() -> str:
+    # AA-UX-NUMBERS-001: Endwerte/Faerbung/Reserve leben jetzt in
+    # renderAaProjectionEndValues (auch bei Horizont-Wechsel neu gerendert).
+    html = _html()
+    start = html.find("function renderAaProjectionEndValues(")
+    assert start != -1
+    end = html.find("\nfunction ", start + 10)
+    return html[start:end]
+
+
 def test_p90_p10_endwert_rows_exist():
     html = _html()
     for cell in ("aa-proj-p90", "aa-proj-current-p90", "aa-proj-p10", "aa-proj-current-p10"):
@@ -29,8 +39,11 @@ def test_endwert_filled_from_percentile_series_last_value():
     assert "target_p90_series_rappen" in html
     assert "target_p10_series_rappen" in html
     assert "current_p90_series_rappen" in html
-    # Endwert = letztes Element der Reihe.
-    assert "_lastRappen" in html
+    # AA-UX-NUMBERS-001: Endwert = Element am ANGEZEIGTEN Horizont (ohne
+    # Grafik-Ausschnitt = letztes Element). Verhalten: test_aa_view_numbers_and_labels.
+    body = _end_values_body()
+    assert "aaSeriesValueAt(mc.target_p90_series_rappen,cut)" in body
+    assert "aaSeriesValueAt(mc.current_p10_series_rappen,cut)" in body
 
 
 def test_sharpe_uses_riskfree_80bps_convention():
@@ -43,8 +56,9 @@ def test_sharpe_uses_riskfree_80bps_convention():
 
 def test_new_metrics_get_better_worse_coloring():
     html = _html()
-    assert "_colorBetter('aa-proj-p90'" in html
-    assert "_colorBetter('aa-proj-p10'" in html
+    body = _end_values_body()
+    assert "paint('aa-proj-p90'" in body
+    assert "paint('aa-proj-p10'" in body
     assert "_colorBetter('aa-proj-sharpe'" in html
 
 
@@ -56,9 +70,11 @@ def test_reserve_sockel_added_to_soll_curve_and_metrics():
     assert "external_reserve_rappen" in html
     assert "_withSockel" in html and "_reserveR" in html
     assert "p90=_prep(mc.target_p90_series_rappen)" in html
-    # Kennzahlen konsistent: _resRappen auf SOLL-Endwerte.
-    assert "_resRappen" in html
-    assert "+_resRappen" in html
+    # Kennzahlen konsistent: Reserve auf SOLL-Endwerte (renderAaProjectionEndValues).
+    body = _end_values_body()
+    assert "external_reserve_rappen" in body
+    assert "withRes(mc.target_p50_series_rappen)" in body
+    assert "if(tP90)tP90+=res" in body and "if(tP10)tP10+=res" in body
 
 
 def test_sollist_png_export_exists():
