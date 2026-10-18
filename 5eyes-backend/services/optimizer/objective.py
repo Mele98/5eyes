@@ -10,7 +10,7 @@ Primary Objective (Advisory-Methodik Slide 18, Priorität 1):
     L(w) = Σ_g h_g · w_g · (1/N) · Σ_n max(0, target_g - wealth_g(w, n))^2
 
 Sekundaer (Priorität 2, als stetiger Tiebreak, OBJECTIVE-NORMALIZATION-001):
-    kappa · Var_n(W_T(w)) / W0^2   (immer aktiv, kein Stufen-Schalter mehr)
+    kappa · w' Sigma w   (einjaehrige Portfolio-Varianz aus der CMA-Kovarianz, immer aktiv)
 
 Chance-Constraint (Ziel-Untergrenze, jeder Modus):
     Σ_g max(0, tau_g - LB_g) · (Zielvolumen_g / W0)^2
@@ -61,24 +61,24 @@ from .goal_liabilities import GoalLiability
 CHANCE_PENALTY_WEIGHT = 1.0
 # Rueckwaertskompatibler Name (Tests/Aufrufer); Semantik siehe oben.
 LAMBDA_CHANCE_DEFAULT = CHANCE_PENALTY_WEIGHT
-# OBJECTIVE-NORMALIZATION-001: Gewicht des IMMER aktiven Volatilitaets-
-# Tiebreaks auf ``Var(W_T) / Kontext-Skala^2`` (dimensionslos, dieselbe Skala
-# wie der Primaerterm). Gemessen (40 Bags je Mandat, 7 Mandate, Werte
-# 0/1e-6/.../10), Doku: docs/planning/2026-10-18-objective-normalization.md:
+# Gewicht des IMMER aktiven Volatilitaets-Tiebreaks (OBJECTIVE-NORMALIZATION-001:
+# stetig, kein Stufen-Schalter).
 #
-# * Untergrenze (der Solver muss den Tiebreak AUFLOESEN koennen; SLSQP
-#   stoppt bei absoluten Aenderungen < ftol = 1e-6): bei 1e-3 blieb der
-#   Solver auf dem Defensiv-Mandat (Var/W0^2 = 0.11) in 40 von 40 Bags auf
-#   einem Startpunkt stehen, bei 1e-2 in 2 von 40.
-# * Obergrenze (Ziel-Prioritaet darf nicht erodieren): auf dem einzigen
-#   Mandat mit echtem Zielkonflikt (Fundament, Ziel-Stufe ~9) ist die
-#   Allokation bis 1e-2 unveraendert, ab 1e-1 bewegt sie sich (-0.3 pp
-#   Aktien), bei 1 deutlich (-3.1 pp), bei 10 bis an die Bandgrenze.
+# TIEBREAK-PORTFOLIO-VARIANCE-001 (CIO-Entscheid 2026-10-18): das Mass ist
+# die EINJAEHRIGE Portfolio-Varianz ``w' Sigma w`` aus der CMA-Kovarianz des
+# Laufs (Dezimal^2), nicht mehr ``Var(W_T) / W0^2``. Das alte Mass war
+# mittelwertabhaengig (eine hoehere erwartete Rendite vergroessert ueber 31
+# Jahre auch die Endvermoegens-Streuung; Score 7/9: analytische Vola +3..6
+# bps durch den "Varianz"-Tiebreak) und wurde auf dem IS-Wuerfel mit ~10
+# effektiven Pfaden geschaetzt. ``w' Sigma w`` ist exakt, glatt, pfadfrei und
+# dieselbe Groesse wie die ausgewiesene erwartete Volatilitaet.
 #
-# 1e-2 ist der kleinste Wert, der auf allen Mandaten aufgeloest wird --
-# eine Dekade unter der ersten messbaren Ziel-Erosion. Kleiner waere nicht
-# "vorsichtiger", sondern wieder ein Startpunkt-Waehler.
-TIEBREAK_VARIANCE_WEIGHT = 1e-2
+# Kalibrierung (40 Bags je Mandat, 7 Mandate; Doku
+# docs/planning/2026-10-18-importance-sampling-ess.md, Abschnitt 4):
+# siehe dort -- kleinster Wert, bei dem der Solver auf allen Mandaten den
+# Startpunkt verlaesst, mit mindestens einer Dekade Abstand zur ersten
+# messbaren Ziel-Erosion auf dem Konfliktmandat.
+TIEBREAK_VARIANCE_WEIGHT = 1.0
 TAU_UNREACHABLE = 0.50
 
 # OWNER-DECISION OD-1 (bestaetigt 2026-05-05): 50x zwischen hart/opportunistisch.
@@ -704,8 +704,15 @@ def chance_constraint_penalty(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     validation_seed: int | None = None,
+    penalty_exempt_goal_ids: frozenset | set | tuple = frozenset(),
 ) -> tuple[float, list[dict]]:
     """Return chance-constraint penalty and per-goal achievability rows.
+
+    ``penalty_exempt_goal_ids`` (GOAL-REACHABILITY-SCREEN-001): Ziele, deren
+    Strafe NICHT in den Wert eingeht. Der Solver setzt sie nur in den
+    Risikomass-Varianten und nur fuer Ziele, die auf keiner zulaessigen
+    Allokation erreichbar sind (``solver._goal_reachability_screen``); die
+    Zeile wird trotzdem gebildet und als ``penalty_exempt`` markiert.
 
     Parameters
     ----------
@@ -781,6 +788,7 @@ def chance_constraint_penalty(
     else:
         weights_arr = None
         weight_sum = None
+    exempt_ids = frozenset(str(goal_id) for goal_id in (penalty_exempt_goal_ids or ()))
     for goal in goal_liabilities:
         # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
         # 4.2 `W_joint_requested`/`P_joint_requested`): the chance-constraint
@@ -834,6 +842,14 @@ def chance_constraint_penalty(
             # fehlende Strafe -- deshalb wird hier offengelegt, nicht
             # bestraft.
             applies_penalty = False
+        penalty_exempt = applies_penalty and str(goal.goal_id) in exempt_ids
+        if penalty_exempt:
+            # GOAL-REACHABILITY-SCREEN-001: ein Ziel, das auf KEINER
+            # zulaessigen Allokation erreichbar ist, kann zwischen zulaessigen
+            # Allokationen nichts entscheiden, was der Primaerterm der
+            # Risikomass-Variante nicht besser entscheidet -- sein Defizit
+            # bleibt auf jeder Allokation, nur sein Rauschen wuerde steuern.
+            applies_penalty = False
         if applies_penalty:
             # Strafe an der unteren Grenze, nicht am Punktschaetzer (siehe
             # Docstring). Bei kollabierendem ESS geht die Grenze gegen 0 und
@@ -862,6 +878,7 @@ def chance_constraint_penalty(
             # Strecken gleich lesen kann.
             "outside_simulation_horizon": outside_horizon,
             "evaluation_scope": "joint_path_chance_penalty",
+            "penalty_exempt": bool(penalty_exempt),
         })
     return float(penalty), achievability
 
@@ -1079,6 +1096,22 @@ def normalized_terminal_variance(
     return volatility_objective(wealth_paths, weights=weights) / (scale * scale)
 
 
+def portfolio_variance_one_year(
+    weights: np.ndarray,
+    covariance_bps2: np.ndarray,
+) -> float:
+    """``w' Sigma w`` in Dezimal^2 (Sigma in bps^2): Tiebreak-Mass.
+
+    TIEBREAK-PORTFOLIO-VARIANCE-001: einjaehrige Portfolio-Varianz aus der
+    CMA-Kovarianz des Laufs -- dieselbe Groesse wie die ausgewiesene
+    erwartete Volatilitaet (Quadrat), unabhaengig vom Mittelwert und von
+    den Szenariopfaden.
+    """
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
+    cov = np.asarray(covariance_bps2, dtype=np.float64) / 1e8
+    return float(w @ cov @ w)
+
+
 def combined_objective_two_phase(
     liabilities: Iterable[GoalLiability],
     wealth_paths: np.ndarray,
@@ -1093,10 +1126,12 @@ def combined_objective_two_phase(
     objective_mode: str | None = None,
     goal_weighting_mode: str | None = None,
     portfolio_return_factors: np.ndarray | None = None,
+    portfolio_variance: float | None = None,
+    penalty_exempt_goal_ids: frozenset | set | tuple = frozenset(),
 ) -> float:
     """Skalare Zielfunktion des Solvers: Ziel-Stufe + IMMER aktiver Tiebreak.
 
-    ``f(w) = primary_weight * P(w) + C(w) + kappa * Var(W_T) / W0^2``
+    ``f(w) = primary_weight * P(w) + C(w) + kappa * w' Sigma w``
 
     * ``P(w)``: Primaerterm des Modus (Default ``goal_shortfall`` = L(w)).
     * ``C(w)``: Chance-Constraint-Strafe (``chance_constraint_penalty``),
@@ -1142,6 +1177,8 @@ def combined_objective_two_phase(
         objective_mode=objective_mode,
         goal_weighting_mode=goal_weighting_mode,
         portfolio_return_factors=portfolio_return_factors,
+        portfolio_variance=portfolio_variance,
+        penalty_exempt_goal_ids=penalty_exempt_goal_ids,
     )
     return goal_level + tiebreak
 
@@ -1160,6 +1197,8 @@ def two_phase_objective_parts(
     objective_mode: str | None = None,
     goal_weighting_mode: str | None = None,
     portfolio_return_factors: np.ndarray | None = None,
+    portfolio_variance: float | None = None,
+    penalty_exempt_goal_ids: frozenset | set | tuple = frozenset(),
     primary_value_override: float | None = None,
 ) -> tuple[float, float]:
     """Die beiden Terme von ``combined_objective_two_phase`` GETRENNT.
@@ -1222,17 +1261,17 @@ def two_phase_objective_parts(
         # _objective_from_array/evaluate_weights (solver.py), die weights setzen.
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
+        penalty_exempt_goal_ids=penalty_exempt_goal_ids,
     )
     kappa = (
         TIEBREAK_VARIANCE_WEIGHT if volatility_weight is None else float(volatility_weight)
     )
+    # TIEBREAK-PORTFOLIO-VARIANCE-001: kappa * w' Sigma w (vom Aufrufer, der
+    # die Allokation kennt). Ohne Allokation (Konsumenten ausserhalb eines
+    # Laufs) gibt es keinen Tiebreak -- er ordnet nur Allokationen.
     tiebreak = (
-        kappa * normalized_terminal_variance(
-            wealth_paths,
-            initial_wealth_rappen=initial_wealth_rappen,
-            weights=weights,
-        )
-        if is_goal_shortfall and kappa != 0.0
+        kappa * float(portfolio_variance)
+        if is_goal_shortfall and kappa != 0.0 and portfolio_variance is not None
         else 0.0
     )
     goal_level = primary_weight * primary + chance

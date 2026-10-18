@@ -216,8 +216,10 @@ def test_tiebreak_is_continuous_instead_of_a_phase_switch():
         initial_wealth_rappen=100,
         horizon_years=1,
         volatility_weight=1.0,
+        portfolio_variance=0.07 ** 2,
     )
 
     primary = (0.01**2 + 0.03**2) / 2.0
-    tiebreak = float(np.var(missed[:, -1])) / 100.0**2
+    # TIEBREAK-PORTFOLIO-VARIANCE-001: kappa * w' Sigma w (dimensionslos).
+    tiebreak = 0.07 ** 2
     assert value == pytest.approx(primary + tiebreak)

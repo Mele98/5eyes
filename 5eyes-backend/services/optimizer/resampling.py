@@ -54,7 +54,7 @@ from typing import Callable
 
 import numpy as np
 
-from .importance_sampling import DEFAULT_TAIL_SHIFT_STRENGTH, build_shift_vector
+from .importance_sampling import IS_TOTAL_SHIFT_SIGMA, ess_requires_fallback
 from .scenario_engine import (
     N_BUCKETS,
     ScenarioInputs,
@@ -166,7 +166,9 @@ def build_bag_paths(
     Szenario-Horizont und danach auf den Optimierungshorizont gekuerzt.
     """
     if importance_sampling:
-        shift = build_shift_vector(N_BUCKETS, strength=DEFAULT_TAIL_SHIFT_STRENGTH)
+        # IMPORTANCE-SAMPLING-ESS-001: dieselbe Proposal wie der Hauptwuerfel
+        # (defensive Mischung, horizont-skalierter Shift), Gewichte auf dem
+        # tatsaechlich verwendeten Jahres-Praefix.
         paths, weights = build_scenario_paths_with_weights(
             inputs,
             horizon_years=int(scenario_horizon_years),
@@ -174,9 +176,14 @@ def build_bag_paths(
             seed=int(seed),
             antithetic=True,
             use_importance_sampling=True,
-            is_shift_strength=float(np.max(np.abs(shift))),
+            is_shift_strength=IS_TOTAL_SHIFT_SIGMA,
+            weight_horizon_years=int(horizon_years),
         )
-    else:
+        if ess_requires_fallback(weights):
+            # Dieselbe Regel wie im Hauptwuerfel: unter der ESS-Schwelle
+            # rechnet dieser Bag mit Standard-MC.
+            importance_sampling = False
+    if not importance_sampling:
         paths = build_scenario_paths(
             inputs,
             horizon_years=int(scenario_horizon_years),
