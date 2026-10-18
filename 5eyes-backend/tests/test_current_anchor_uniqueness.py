@@ -707,6 +707,8 @@ def test_direct_target_allocation_api_rollover_keeps_one_current_anchor(
         session.add(OptimizerPolicy(**_policy_row("policy-anchor", policy_name="Anchor")))
         session.commit()
         _seed_building_blocks(session, "policy-anchor")
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(session, "client-anchor")
 
         first = create_target_allocation(
             "mandate-anchor",
@@ -810,6 +812,8 @@ def test_create_target_allocation_returns_409_not_500_on_current_anchor_race(
         session.add(OptimizerPolicy(**_policy_row("policy-anchor", policy_name="Anchor")))
         session.commit()
         _seed_building_blocks(session, "policy-anchor")
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(session, "client-anchor")
         create_target_allocation(
             "mandate-anchor", _target_payload("policy-anchor"), _request_stub(),
             db=session, current_user=advisor,

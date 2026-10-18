@@ -95,13 +95,111 @@ expected_volatility_bps, risky_fraction_bps, targets_bps.*, sowie der
 CHF-Betrag in implementation_steps) -- siehe _assert_ch_snapshot_matches().
 Jede andere Abweichung (Struktur, Reihenfolge, Produktauswahl, Methode,
 oder eine Abweichung GROESSER als die Toleranz) bleibt ein echter Testfehler.
+
+Nachtrag (2026-10-16, SAA-RESAMPLED-STABILITY-001): alle sechs Fixtures neu
+eingefroren, weil sich die Methode bewusst geaendert hat (Inhalts-Seed,
+Resampled Efficiency ueber 40 Bags, Signifikanztest gegen die Hausmatrix).
+Ein Linux-Runner stand dafuer nicht zur Verfuegung (die Branch loest ohne PR
+keinen CI-Lauf aus). Ersatz-Kontrolle: lokal mit OMP/OPENBLAS/MKL_NUM_THREADS=1
+je einmal unter OPENBLAS_CORETYPE=Haswell UND =Nehalem erzeugt -- genau die
+beiden Kernel-Familien, die frueher die zwei CI-Auspraegungen lieferten. Alle
+sechs Dateien kamen byte-identisch zurueck (das Bag-Mittel glaettet das
+SLSQP-Rundungsrauschen). Begruendung je Datei:
+docs/planning/2026-10-14-saa-stability-resampling.md.
+
+Nachtrag (2026-10-17, SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 /
+SAA-SEED-FLOAT-ROBUST-001): die am 16.10. eingefrorenen Fixtures fielen am
+17.10. in CI durch (bucket3/5/7/equities_global; chfonly lief wegen
+--maxfail=5 gar nicht mehr). Keine Plattform-Frage: lokal unter Windows kamen
+am 17.10. exakt dieselben Werte wie auf dem Linux-Runner. Wurzel 1: das
+Seeding unten setzte die Zieldaten auf "heute + N*365 Tage", der Inhalts-Seed
+hasht die Zieldaten -> jeder Kalendertag zog andere Bag-Wuerfel (Beleg:
+date.today() im Seeding auf den 16.10. gestellt -> alle Fixtures wieder
+gruen). Die Daten sind jetzt kalenderjahr-relativ mit festem Monat/Tag, und
+der Seed hasht sie relativ zum Bewertungsjahr. Wurzel 2 (Methodik): bei
+Score 7 kippte der Hausmatrix-Signifikanzentscheid je nach Wuerfel (60 % vs.
+68 % Aktien), weil die Skalar-Zielfunktion als Differenz zweier Allokationen
+nicht monoton ist (Stufe-2-Volatilitaetsterm pro Allokation zugeschaltet);
+der Test vergleicht jetzt lexikographisch. Fixtures danach neu eingefroren.
+
+Nachtrag (2026-10-18, OBJECTIVE-NORMALIZATION-001): alle sechs Fixtures neu
+eingefroren, weil sich die Zielfunktion bewusst geaendert hat (Tiebreak
+immer aktiv und auf W0^2 normiert statt Stufen-Schalter; Chance-Strafe
+linear und volumen-normiert statt 1e6 * Defizit^2; Engine
+``saa_resampled_v3``). Vorher blieb der Bag-Solver auf diesen Mandaten in
+37-40 von 40 Bags auf einem Startpunkt stehen (Zielfunktion ~1e-9, unter
+SLSQP-ftol); jetzt entscheidet bei erfuellten Zielen die Volatilitaet.
+Zahlen je Datei (Aktien/Obl/Immo/Alt/Liq in bps, erw. Rendite/Vola):
+Score 3 0/8903/0/629/468 -> 0/8824/0/676/500 (207/344 -> 206/342);
+Score 5 4616/3870/854/413/247 -> 4000/4453/567/680/300 (435/740 -> 398/647);
+Score 5 global 4669/3783/891/418/239 -> 4000/4445/622/636/297 (451/776 -> 410/671);
+Score 5 CHF/EM 4533/3945/890/382/250 -> 4000/4379/600/721/300 (445/770 -> 410/686);
+Score 7 6000/2500/1000/300/200 -> 6000/2312/678/810/200 (501/953 -> 489/959);
+Score 9 7500/1500/600/200/200 -> 7500/1387/389/524/200 (559/1171 -> 551/1174).
+Kontrolle wie am 16.10.: lokal mit OMP/OPENBLAS/MKL_NUM_THREADS=1 unter
+OPENBLAS_CORETYPE=Haswell UND =Nehalem erzeugt; 5 von 6 Dateien
+byte-identisch, Score 5 Default weicht um 1 bps (Obl/Immo) bzw. CHF 50 in
+einem Umsetzungsschritt ab -- weit innerhalb _BPS_TOLERANCE/_RAPPEN_TOLERANCE.
+Eingefroren ist die Haswell-Fassung (CI-Kernel). Begruendung:
+docs/planning/2026-10-18-objective-normalization.md.
+
+Nachtrag (2026-10-18, IMPORTANCE-SAMPLING-ESS-001 +
+TIEBREAK-PORTFOLIO-VARIANCE-001, Engine ``saa_resampled_v4``): alle sechs
+Fixtures neu eingefroren. Importance Sampling als defensive Mischung mit
+horizont-skaliertem Shift (Kish-ESS des Hauptwuerfels 14-85 -> ~1'650 von
+2'000 Pfaden) und Tiebreak ``kappa * w' Sigma w`` (kappa = 1) statt
+``Var(W_T)/W0^2``. Die Bag-Streuung faellt auf 0 (alle 40 Bags landen auf
+derselben Bandecke). Aktien/Obl/Immo/Alt/Liq in bps, erw. Rendite/Vola:
+Score 3 0/8824/0/676/500 -> 0/8700/0/800/500 (206/342 -> 205/341);
+Score 5 4000/4453/567/680/300 -> 4000/4500/503/697/300 (398/647 -> 396/645);
+Score 5 global 4000/4445/622/636/297 -> 4000/4500/500/700/300 (410/671 -> 407/668);
+Score 5 CHF/EM 4000/4379/600/721/300 -> 4000/4500/500/700/300 (410/686 -> 408/682);
+Score 7 6000/2312/678/810/200 -> 6000/2500/536/764/200 (489/959 -> 486/951);
+Score 9 7500/1387/389/524/200 -> 7500/1500/300/500/200 (551/1174 -> 550/1169).
+Unter OPENBLAS_CORETYPE=Haswell UND =Nehalem erzeugt: alle sechs Dateien
+byte-identisch. Begruendung:
+docs/planning/2026-10-18-importance-sampling-ess.md.
+
+Nachtrag (2026-10-18, HOUSE-FIRST-SIGNIFICANCE-001, Engine
+``saa_resampled_v5``): alle sechs Fixtures neu eingefroren, weil sich die
+Methode bewusst geaendert hat (CIO-Entscheid "Hausmatrix, solange die Ziele
+mit ihr gleich sicher erreicht sind"). Auf allen sechs Mandaten erreichen
+Hausmatrix und Optimierer alle Ziele mit p = 1; der Signifikanztest
+entschied bisher allein ueber den deterministischen Varianz-Tiebreak
+(p = 0.0025) fuer Eckloesungen. Jetzt entscheidet er auf der Zielebene
+(Ziel-Fehlbetrag + Chance-Strafe) -> nicht signifikant -> Hausmatrix.
+Aktien/Obl/Immo/Alt/Liq in bps, erw. Rendite/Vola:
+Score 3 0/8700/0/800/500 -> 0/9500/0/300/200 (205/341 -> 214/362);
+Score 5 4000/4500/503/697/300 -> 4800/3500/1000/500/200 (396/645 -> 446/776);
+Score 5 global 4000/4500/500/700/300 -> 4800/3500/1000/500/200 (407/668 -> 459/804);
+Score 5 CHF/EM 4000/4500/500/700/300 -> 4800/3500/1000/500/200 (408/682 -> 460/821);
+Score 7 6000/2500/536/764/200 -> 6800/1600/800/600/200 (486/951 -> 529/1081);
+Score 9 7500/1500/300/500/200 -> 7900/800/700/400/200 (550/1169 -> 577/1245).
+Unter OPENBLAS_CORETYPE=Haswell UND =Nehalem (OMP/OPENBLAS/MKL_NUM_THREADS=1)
+erzeugt: alle sechs Dateien byte-identisch (die publizierte Quote ist die
+projizierte Hausmatrix-Zielquote, kein SLSQP-Konvergenzpunkt); eingefroren
+ist die Haswell-Fassung (CI-Kernel). Begruendung und Vorher/Nachher aller
+Modi: docs/planning/2026-10-18-importance-sampling-ess.md.
+
+Nachtrag (2026-10-18, HOUSE-PRIOR-001, Engine ``saa_resampled_v6``): die
+Hausmatrix ist jetzt Prior im Optimierer (``kappa_H * (w - w_H)' Sigma
+(w - w_H)``, kappa_H = 300) statt eines Signifikanzschalters; die Version geht
+in den Seed, alle Wuerfel sind neu. Alle sechs Fixtures unter
+OPENBLAS_CORETYPE=Haswell UND =Nehalem (OMP/OPENBLAS/MKL_NUM_THREADS=1) neu
+erzeugt: beide Laeufe BYTE-IDENTISCH zu den v5-Fixtures, deshalb keine Datei
+geaendert. Fachlich erwartet: auf allen sechs Mandaten sind alle Ziele mit
+der Hausquote sicher erreicht (p = 1), der Gradient der Zielebene ist dort 0,
+und das Optimum des Priors ist exakt die (projizierte) Hausquote (Tracking
+Error 0, Entscheid ``house_prior`` /
+``identical_to_house_anchor``). Begruendung:
+docs/planning/2026-10-18-house-prior-v6.md.
 """
 from __future__ import annotations
 
 import json
 import re
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -200,10 +298,18 @@ def _seed_ch_mandate(session_factory, *, suffix: str, score_x10: int) -> tuple[s
     gid_pension = f"golden-goal-pension-{suffix}"
     gid_wealth = f"golden-goal-wealth-{suffix}"
     now = _now()
-    today = date.today()
-    pension_start = (today + timedelta(days=365 * 5)).isoformat()
-    pension_end = (today + timedelta(days=365 * 30)).isoformat()
-    wealth_target_date = (today + timedelta(days=365 * 10)).isoformat()
+    # SAA-SEED-FLOAT-ROBUST-001 (2026-10-17): Zieldaten KALENDERJAHR-relativ
+    # mit festem Monat/Tag, nicht "heute + N*365 Tage". Die Goal-Daten gehen
+    # (relativ zum Bewertungsjahr) in den Inhalts-Seed ein; mit tagesrelativen
+    # Daten zog jeder Kalendertag einen anderen Wuerfel -- die am 16.10.
+    # eingefrorenen Fixtures fielen am 17.10. in CI durch (reproduziert durch
+    # blosses Umstellen von date.today() im Seeding). So bleiben Seed UND die
+    # Kalenderjahr-Achse der Engine (date.today().year) ueber das ganze Jahr
+    # und ueber Jahreswechsel hinweg gleich.
+    base_year = date.today().year
+    pension_start = date(base_year + 5, 6, 30).isoformat()
+    pension_end = date(base_year + 30, 6, 30).isoformat()
+    wealth_target_date = date(base_year + 10, 6, 30).isoformat()
 
     with session_factory() as s:
         s.add(User(
@@ -447,8 +553,19 @@ def _build_ch_snapshot(session_factory, combo: dict) -> dict:
 # Fachlogik-Regression verursachen wuerde (typischerweise hunderte bis
 # tausende bps Verschiebung, nicht einstellig/zweistellig).
 # ---------------------------------------------------------------------------
-_BPS_TOLERANCE = 20
-_RAPPEN_TOLERANCE = 100_000  # = CHF 1'000
+#
+# Nachtrag 2026-10-17 (SAA-RESAMPLED-STABILITY-001, v2): mit dem Bag-Mittel
+# gibt es einen zweiten Rauschkanal -- unter einem anderen BLAS-Kernel landet
+# gelegentlich EIN Bag (von 40) auf einer anderen, nahezu gleichwertigen Ecke
+# und verschiebt das Mittel. Gemessen Haswell vs. Nehalem, identischer Code
+# und identischer Inhalts-Seed (8371157439290704497): 5 von 6 Fixtures
+# byte-identisch, bucket5_ausgewogen_default_prefs max. 22 bps
+# (targets_bps.real_estate 854 vs. 832), Positionen max. 17 bps, CHF max.
+# 1'100 (Immobilien-Schritt 42'700 vs. 41'600; deshalb CHF 1'500). Entscheid
+# und Produktauswahl identisch. Toleranz daher 30 bps -- weiter weit unter dem
+# 1-pp-Stabilitaetsziel und unter jeder fachlichen Regression.
+_BPS_TOLERANCE = 30
+_RAPPEN_TOLERANCE = 150_000  # = CHF 1'500 (Nachtrag 2026-10-17, siehe oben)
 
 # Feldnamen, deren Wert direkt aus der kontinuierlichen SLSQP-Loesung
 # abgeleitet ist und deshalb BLAS-Rundungsrauschen tragen kann -- unabhaengig

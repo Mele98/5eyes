@@ -401,6 +401,36 @@ export interface BranchenData {
 // Sektion 11 — Goal-Based Investing
 // ---------------------------------------------------------------------------
 
+/**
+ * GOAL-ACHIEVABILITY-ATTRIBUTION-001: was `probability_bps` einer Zielzeile
+ * bedeutet.
+ * - `priority_funded`: Zielerreichung nach Priorität — auf jedem Pfad werden
+ *   die Ziele in Rangfolge finanziert (Rang 1 zuerst); das Ziel gilt als
+ *   erreicht, wenn es nach allen höher priorisierten Zielen voll finanziert ist.
+ * - `legacy_aggregate_unknown`: Altbewertung ohne Prioritätszuordnung —
+ *   gemeinsamer Planwert, darf keine Ampel tragen.
+ * - `data_pending`: noch keine stochastische Bewertung.
+ */
+export type GoalEvaluationScope =
+  | 'priority_funded'
+  | 'legacy_aggregate_unknown'
+  | 'data_pending'
+  | '';
+
+/**
+ * GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz — alle Ziele gemeinsam auf
+ * dem simulierten Pfad. Genau EIN Wert pro Bericht, nie als Zielzeile.
+ */
+export interface PlanSolvency {
+  label: string;
+  evaluation_scope: 'joint_plan';
+  /** Anteil der Pfade, auf denen alle Ziele gemeinsam finanziert sind (bps). */
+  probability_bps: number;
+  status: GoalStatus;
+  goal_count: number;
+  failure_event_id: string | null;
+}
+
 export interface GoalEntry {
   goal_id: string;
   label: string;
@@ -418,6 +448,16 @@ export interface GoalEntry {
    * bewertet" von "bewertet und aussichtslos" nicht unterscheidbar.
    */
   outside_simulation_horizon: boolean;
+  /** GOAL-ACHIEVABILITY-ATTRIBUTION-001: Bedeutung von `probability_bps`. */
+  evaluation_scope: GoalEvaluationScope;
+  /** Kanonischer Funding-Rang (1 = zuerst finanziert); null = unbekannt. */
+  funding_rank: number | null;
+  /**
+   * Typisierte Ursache, wenn das Ziel nicht auf jedem Pfad erreicht wird
+   * (z. B. `liquiditaetsengpass-jahr-3`). Ziele mit derselben ID scheitern am
+   * selben Engpass — ein Konflikt, nicht mehrere.
+   */
+  failure_event_id: string | null;
 }
 
 export interface MonteCarloPaths {
@@ -452,6 +492,8 @@ export interface GoalBasedInvestingData {
   goals: GoalEntry[];
   /** Gewichteter Achievement-Score in bps (10000 = 100%) */
   goal_achievement_score_bps: number;
+  /** GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz, null ohne Bewertung. */
+  plan_solvency: PlanSolvency | null;
   monte_carlo_paths: MonteCarloPaths;
 }
 
@@ -1544,6 +1586,8 @@ export interface WealthInflowCreatePayload {
   value_mode?: 'nominal' | 'real';
   mandate_id?: string | null;
   notes?: string | null;
+  /** VORSORGE-PROJECTION-001: Zufluss ist der Bezug dieser Vorsorge-Position. */
+  linked_position_id?: string | null;
 }
 
 export type WealthInflowUpdatePayload = Partial<
@@ -1565,6 +1609,7 @@ export interface WealthInflowRecord {
   duration_years: number | null;
   value_mode: string;
   notes: string | null;
+  linked_position_id?: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;

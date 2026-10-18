@@ -103,9 +103,23 @@ _NOW = "2026-07-22T09:00:00.000Z"
 # (generate=6.138s, kombiniert=7.006s in einem Einzellauf) -- Budget daher
 # mit Sicherheitsabstand ueber dem real beobachteten CI-Wert gesetzt, nicht
 # nur 3x lokal:
-BUDGET_GENERATE_S = 9.0
+#
+# 2026-10-17-Nachtrag (SAA-RESAMPLED-STABILITY-001, PR #619): die SAA wird
+# jetzt per Resampled Efficiency bestimmt (40 Bags a 500 Pfade, je Bag die
+# volle Multi-Start-Auswahl) plus gepaartem Bootstrap gegen die Hausmatrix --
+# gewollte, im PR dokumentierte Mehrarbeit (Laufzeitbudget des PR: <= 3x).
+# Gemessen auf dem Dev-Rechner (Windows 11, 3 Laeufe, Threads=1, sonst idle):
+#   develop (ac93094):  generate 6.69s / 5.70s, kombiniert 4.75s / 4.69s
+#   PR #619:            generate 8.17s / 8.24s / 7.96s,
+#                       kombiniert 7.50s / 7.21s / 7.30s
+# (unter Parallellast lokal einmal 10.17s gemessen -> Budget 9.0 wurde schon
+# lokal gerissen). Der GitHub-Runner lief historisch bis ~2.5x langsamer als
+# lokal (6.138s vs. 2.46s, siehe oben); 2.5 x 8.24s = 20.6s. Budget daher
+# 24s fuer beide Wandzeit-Gates: weiterhin ~3x unter einer 10x-Regression
+# (~80s), aber nicht mehr unter der gewollten Resampling-Laufzeit.
+BUDGET_GENERATE_S = 24.0
 BUDGET_REPORT_S = 1.0
-BUDGET_COMBINED_S = 10.5
+BUDGET_COMBINED_S = 24.0
 
 
 class _QueryCounter:
@@ -328,19 +342,33 @@ def test_generate_target_allocation_within_time_budget(session_factory):
 def test_compute_advisory_report_within_time_budget(session_factory):
     """compute_advisory_report() fuer dasselbe realistische Mandat muss
     innerhalb von BUDGET_REPORT_S laufen. Grobe 10x-Regressions-Bremse."""
-    with session_factory() as s:
-        mandate, _client, advisor = _seed_realistic_mandate_for_perf(s)
-        s.commit()
-        # Strategie zuerst laufen lassen, damit der Report eine echte
-        # TargetAllocation/Simulation vorfindet (realistischer Pfad).
-        generate_target_allocation(s, mandate, advisor.id, preferences=None)
-        s.commit()
+    # PERF-BUDGET-BEST-OF-3 (2026-10-18): Die Einzelmessung flakte auf
+    # geteilten CI-Runnern (PR #628, Run auf ddabf81: 1.246s), lokal
+    # 0.25-0.27s auf demselben Stand -> Lastspitze, keine Regression.
+    # Standard fuer Wanduhr-Budgets: bestes von 3 Laeufen. Jeder Lauf misst
+    # den KALTEN Pfad: eigenes, frisch geseedetes Mandat (neue IDs) und
+    # frische Session -- ein zweiter Report fuer DASSELBE Mandat ist durch
+    # prozessweite Caches ~10x schneller und wuerde das Budget schoenen.
+    # Das Budget selbst bleibt unveraendert.
+    timings = []
+    for _ in range(3):
+        with session_factory() as s:
+            mandate, _client, advisor = _seed_realistic_mandate_for_perf(s)
+            s.commit()
+            # Strategie zuerst laufen lassen, damit der Report eine echte
+            # TargetAllocation/Simulation vorfindet (realistischer Pfad).
+            generate_target_allocation(s, mandate, advisor.id, preferences=None)
+            s.commit()
+            mandate_id, advisor_id = mandate.id, advisor.id
+        with session_factory() as s:
+            mandate = s.get(Mandate, mandate_id)
+            advisor = s.get(User, advisor_id)
+            start = time.perf_counter()
+            report = compute_advisory_report(s, mandate, advisor=advisor)
+            timings.append(time.perf_counter() - start)
+    elapsed = min(timings)
 
-        start = time.perf_counter()
-        report = compute_advisory_report(s, mandate, advisor=advisor)
-        elapsed = time.perf_counter() - start
-
-    print(f"\n[perf] compute_advisory_report: {elapsed:.4f}s")
+    print(f"\n[perf] compute_advisory_report: best {elapsed:.4f}s of {[round(t, 4) for t in timings]}")
     assert report["schema_version"] == 2
     assert elapsed < BUDGET_REPORT_S, (
         f"compute_advisory_report() dauerte {elapsed:.3f}s — "

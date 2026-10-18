@@ -73,8 +73,19 @@ def _one_off_goal(
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "GOAL-ACHIEVABILITY-ATTRIBUTION-001 -- round 47 red test, see audit "
-        "docs/audits/2026-09-28-goal-funding-priority-and-achievability-attribution-audit.md"
+        "GOAL-ACHIEVABILITY-ATTRIBUTION-001 -- bleibt bewusst rot (Stand "
+        "2026-10-14): der Test prueft `shortfall_squared_per_path`, also den "
+        "Verlustterm der ZIELFUNKTION auf dem gemeinsamen Pfad. Der "
+        "Owner-Entscheid laesst die Objective-Mathematik unveraendert; der "
+        "Term ist als `weighted_loss_component_under_joint_path` benannt "
+        "(Reparaturvertrag Punkt 5) und wird nicht als zielindividuelle "
+        "Evidenz publiziert. Die publizierte Zielerreichung ist seit "
+        "2026-10-14 `priority_funded` (services/optimizer/goal_attribution.py) "
+        "und unterscheidet genau dieses Szenario -- siehe "
+        "tests/test_goal_achievability_evaluation_scope.py::"
+        "test_simultaneous_goals_get_priority_funded_individual_evidence. "
+        "Wird der Verlustterm selbst priorisiert, kippt dieser Test auf gruen "
+        "(strict) und ist dann umzustellen."
     ),
 )
 def test_simultaneous_goals_with_different_targets_get_identical_shortfall_and_probability():

@@ -113,6 +113,19 @@ class WealthPositionCreate(BaseModel):
         "Rente", "Kapital", "Gemischt", "Offen"
     ]] = None
     pension_wef_possible: bool = False
+    # VORSORGE-PROJECTION-001 (2026-10-18): deterministische Fortschreibung.
+    # pension_vehicle: Anlageform (Konto 0 % / Wertschriften 3 % / Police
+    # Rueckkaufs- -> Ablaufwert); pension_interest_rate_bps: erfasster
+    # NOMINALER Satz p.a. (ueberschreibt den Default der Anlageform);
+    # pension_maturity_*: garantierter Ablaufwert + Faelligkeit einer Police.
+    pension_vehicle: Optional[Literal["Konto", "Wertschriften", "Police"]] = None
+    pension_interest_rate_bps: Optional[int] = Field(default=None, ge=-500, le=1500)
+    pension_maturity_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_maturity_date: Optional[str] = None
+    # Kapitalbezugssteuer aus dem kantonalen Steuerrechner (Betrag hat Vorrang
+    # vor Satz); beides leer = defensiver Default 10 % (3a/FZ/BVG).
+    pension_lumpsum_tax_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_lumpsum_tax_bps: Optional[int] = Field(default=None, ge=0, le=5000)
     # Hypothek
     mortgage_bank: Optional[str] = None
     # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 570): mortgage_type
@@ -191,6 +204,11 @@ class WealthPositionCreate(BaseModel):
     # die einzigen sensiblen Datensaetze, die das Phase-0-Gate umgehen konnten.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @field_validator("pension_maturity_date")
+    @classmethod
+    def validate_pension_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="pension_maturity_date")
+
     @field_validator("mortgage_maturity_date")
     @classmethod
     def validate_mortgage_maturity_date(cls, value):
@@ -220,6 +238,20 @@ class WealthPositionCreate(BaseModel):
             )
             if total != 10000:
                 raise ValueError(f"Depot Allokation muss 10000 BP ergeben (aktuell: {total})")
+        elif self.position_type == "Vorsorge":
+            # VORSORGE-EXPOSURE-001 (2026-10-18): Vorsorge darf eine
+            # Aufteilung tragen (z.B. 3a-Wertschriftenloesung) -- entweder
+            # vollstaendig (10000) oder gar nicht (0 = Default nach pension_type).
+            total = (
+                self.alloc_equities_bps + self.alloc_bonds_bps
+                + self.alloc_real_estate_bps + self.alloc_liquidity_bps
+                + self.alloc_alternatives_bps
+            )
+            if total not in (0, 10000):
+                raise ValueError(
+                    "Vorsorge-Aufteilung muss 10000 BP oder alle 0 ergeben "
+                    f"(aktuell: {total})"
+                )
         elif any(
             (
                 self.alloc_equities_bps,
@@ -230,7 +262,7 @@ class WealthPositionCreate(BaseModel):
             )
         ):
             raise ValueError(
-                "alloc_*-Felder sind ausschliesslich für Depot-Positionen zulässig."
+                "alloc_*-Felder sind ausschliesslich für Depot- und Vorsorge-Positionen zulässig."
             )
         if self.position_type == "Hypothek":
             if self.assignment != "Verbindlichkeit":
@@ -285,6 +317,15 @@ class WealthPositionUpdate(BaseModel):
         "Rente", "Kapital", "Gemischt", "Offen"
     ]] = None
     pension_wef_possible: Optional[bool] = None
+    # VORSORGE-PROJECTION-001: siehe WealthPositionCreate.
+    pension_vehicle: Optional[Literal["Konto", "Wertschriften", "Police"]] = None
+    pension_interest_rate_bps: Optional[int] = Field(default=None, ge=-500, le=1500)
+    pension_maturity_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_maturity_date: Optional[str] = None
+    # Kapitalbezugssteuer aus dem kantonalen Steuerrechner (Betrag hat Vorrang
+    # vor Satz); beides leer = defensiver Default 10 % (3a/FZ/BVG).
+    pension_lumpsum_tax_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_lumpsum_tax_bps: Optional[int] = Field(default=None, ge=0, le=5000)
     mortgage_bank: Optional[str] = None
     # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): siehe pension_type
     # oben -- dieselbe A3-Pilot-Haertung, bisher nur auf Create angewendet.
@@ -329,6 +370,11 @@ class WealthPositionUpdate(BaseModel):
     notes: Optional[str] = None
     is_active: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    @field_validator("pension_maturity_date")
+    @classmethod
+    def validate_pension_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="pension_maturity_date")
 
     @field_validator("mortgage_maturity_date")
     @classmethod
@@ -386,6 +432,13 @@ class WealthPositionResponse(BaseResponse):
     pension_retirement_age: Optional[int]
     pension_payout_form: Optional[str]
     pension_wef_possible: int
+    # VORSORGE-PROJECTION-001: siehe WealthPositionCreate.
+    pension_vehicle: Optional[str] = None
+    pension_interest_rate_bps: Optional[int] = None
+    pension_maturity_value_rappen: Optional[int] = None
+    pension_maturity_date: Optional[str] = None
+    pension_lumpsum_tax_rappen: Optional[int] = None
+    pension_lumpsum_tax_bps: Optional[int] = None
     mortgage_bank: Optional[str]
     mortgage_type: Optional[str]
     mortgage_interest_rate_bps: Optional[int]
@@ -399,6 +452,9 @@ class WealthPositionResponse(BaseResponse):
     asset_valuation_method: Optional[str]
     liquidity_instrument: Optional[str]
     liquidity_interest_rate_bps: Optional[int]
+    # VORSORGE-PROJECTION-001: wurde geschrieben, aber nie zurueckgegeben --
+    # das Bezugsdatum ("Verfuegbar ab") war im Editor so nicht pflegbar.
+    liquidity_available_from: Optional[str] = None
     is_available_for_goal_funding: int
     goal_funding_method: Optional[str]
     notes: Optional[str]
@@ -583,6 +639,8 @@ class WealthInflowCreate(BaseModel):
     value_mode: Literal["nominal", "real"] = "nominal"
     mandate_id: Optional[str] = None
     notes: Optional[str] = None
+    # VORSORGE-TRANSFER-001: siehe models/wealth.py::WealthInflow.linked_position_id.
+    linked_position_id: Optional[str] = None
     # rls-3 (2026-07-23): Phase-0-Gate (enforce_data_classification) fehlte fuer
     # Wealth-Inflows komplett -- analog zu Cashflow/Goal/Wealth-Position nachgezogen.
     data_classification: Literal["synthetic", "real"] = "synthetic"
@@ -614,6 +672,7 @@ class WealthInflowUpdate(BaseModel):
     duration_years: Optional[int] = Field(None, ge=1, le=99)
     value_mode: Optional[Literal["nominal", "real"]] = None
     notes: Optional[str] = None
+    linked_position_id: Optional[str] = None
     is_active: Optional[int] = Field(None, ge=0, le=1)
     # rls-3 (2026-07-23): siehe WealthInflowCreate.
     data_classification: Optional[Literal["synthetic", "real"]] = None
@@ -632,6 +691,7 @@ class WealthInflowResponse(BaseResponse):
     duration_years: Optional[int]
     value_mode: str
     notes: Optional[str]
+    linked_position_id: Optional[str] = None
     is_active: int
     created_at: str
     updated_at: str
