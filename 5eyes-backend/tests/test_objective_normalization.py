@@ -14,6 +14,12 @@ Bags, in denen der Solver ueberhaupt einen Punkt mit Ziel-Stufe 0
 ausgewertet hatte, trotzdem eine Allokation mit Restfehlbetrag (~1e-9) --
 weil die Ziel-erfuellende Allokation ihren Volatilitaetsterm (~1.5e3)
 "bezahlen" musste. Messung: docs/planning/2026-10-18-objective-normalization.md.
+
+TIEBREAK-PORTFOLIO-VARIANCE-001 (2026-10-18): der Tiebreak ist jetzt
+``kappa * w' Sigma w`` (einjaehrige Portfolio-Varianz aus der CMA-Kovarianz,
+vom Aufrufer mit der Allokation uebergeben) statt ``Var(W_T)/W0^2``. Die
+Monotonie- und Stetigkeitseigenschaften gelten unveraendert; die Tests
+uebergeben die Portfolio-Varianz explizit.
 """
 from __future__ import annotations
 
@@ -28,7 +34,7 @@ from services.optimizer.objective import (
     chance_constraint_penalty,
     combined_objective_two_phase,
     goal_volume_rappen,
-    normalized_terminal_variance,
+    portfolio_variance_one_year,
     two_phase_objective_parts,
 )
 
@@ -74,12 +80,19 @@ def _objective(goals, paths, *, w0: float = 100.0, **kwargs) -> float:
 W0 = 50_000_000.0
 
 
+# Einjaehrige Portfolio-Varianzen (Dezimal^2) der beiden Allokationen des
+# nachgebauten Falls: ``meets`` schwankt weniger (Vola 9.0 % gegen 9.5 %).
+VAR_MEETS = 0.090 ** 2
+VAR_MISSES = 0.095 ** 2
+
+
 def _golden_like_pair(n_paths: int = 2000, seed: int = 3):
     """Nachbau des gemessenen Falls (CH-Golden Score 7, Validierungs-Cube).
 
-    ``meets``: erfuellt das Ziel (= W0) auf jedem Pfad, schwankt weniger.
-    ``misses``: CHF 100 Fehlbetrag auf genau EINEM von 2'000 Pfaden,
-    schwankt mehr. ``meets`` ist auf beiden Stufen besser.
+    ``meets``: erfuellt das Ziel (= W0) auf jedem Pfad, schwankt weniger
+    (``VAR_MEETS``). ``misses``: CHF 100 Fehlbetrag auf genau EINEM von
+    2'000 Pfaden, schwankt mehr (``VAR_MISSES``). ``meets`` ist auf beiden
+    Stufen besser.
     """
     rng = np.random.default_rng(seed)
     terminal = W0 * (2.0 + rng.normal(0.0, 0.3, size=n_paths))
@@ -102,29 +115,54 @@ def test_reproducer_tiny_one_path_shortfall_no_longer_beats_full_goal_attainment
     """
     goal, meets, misses = _golden_like_pair()
     assert np.all(meets[:, 1] >= W0) and int(np.sum(misses[:, 1] < W0)) == 1
-    assert np.var(meets[:, 1]) < np.var(misses[:, 1])
-    assert _objective([goal], meets, w0=W0) < _objective([goal], misses, w0=W0)
+    assert (
+        _objective([goal], meets, w0=W0, portfolio_variance=VAR_MEETS)
+        < _objective([goal], misses, w0=W0, portfolio_variance=VAR_MISSES)
+    )
 
 
 def test_tiebreak_is_always_active_not_switched_by_goal_level():
     goal, meets, misses = _golden_like_pair()
-    for paths in (meets, misses):
+    for paths, variance in ((meets, VAR_MEETS), (misses, VAR_MISSES)):
         goal_level, tiebreak = two_phase_objective_parts(
             [goal], paths, initial_wealth_rappen=W0, horizon_years=1,
             objective_mode="goal_shortfall", goal_weighting_mode="equal",
+            portfolio_variance=variance,
         )
-        assert tiebreak == pytest.approx(
-            TIEBREAK_VARIANCE_WEIGHT * normalized_terminal_variance(
-                paths, initial_wealth_rappen=W0,
-            )
-        )
+        assert tiebreak == pytest.approx(TIEBREAK_VARIANCE_WEIGHT * variance)
         assert tiebreak > 0.0
-        assert _objective([goal], paths, w0=W0) == pytest.approx(goal_level + tiebreak)
+        assert _objective(
+            [goal], paths, w0=W0, portfolio_variance=variance
+        ) == pytest.approx(goal_level + tiebreak)
+
+
+def test_tiebreak_is_the_one_year_portfolio_variance_and_mean_independent():
+    """TIEBREAK-PORTFOLIO-VARIANCE-001: ``w' Sigma w`` haengt weder von den
+    erwarteten Renditen ab (das alte ``Var(W_T)`` wuchs ueber 31 Jahre mit
+    dem Mittelwert und bevorzugte rendite-schwaechere Mischungen) noch von
+    den Szenariopfaden."""
+    sigma_bps = np.array([1600.0, 450.0, 1200.0, 1500.0, 50.0])
+    corr = np.full((5, 5), 0.2) + 0.8 * np.eye(5)
+    cov_bps2 = corr * np.outer(sigma_bps, sigma_bps)
+    w = np.array([0.4, 0.45, 0.05, 0.07, 0.03])
+    expected = float(w @ (cov_bps2 / 1e8) @ w)
+    assert portfolio_variance_one_year(w, cov_bps2) == pytest.approx(expected)
+    goal, meets, _ = _golden_like_pair()
+    shifted = meets * 1.7  # anderer Mittelwert, andere Endvermoegens-Streuung
+    tiebreaks = [
+        two_phase_objective_parts(
+            [goal], paths, initial_wealth_rappen=W0, horizon_years=1,
+            objective_mode="goal_shortfall", goal_weighting_mode="equal",
+            portfolio_variance=expected,
+        )[1]
+        for paths in (meets, shifted)
+    ]
+    assert tiebreaks[0] == tiebreaks[1] == pytest.approx(TIEBREAK_VARIANCE_WEIGHT * expected)
 
 
 def test_objective_is_pareto_monotone_property():
     """Property: ist eine Allokation auf jedem Pfad mindestens so nah am Ziel
-    und hat sie hoechstens dieselbe Endvermoegens-Streuung, darf ihr Wert
+    und hat sie hoechstens dieselbe Portfolio-Varianz, darf ihr Wert
     nicht groesser sein -- fuer beliebige Skalen, Haertegrade, Schwellen.
 
     Konstruktion: ``better`` erfuellt das Ziel auf jedem Pfad; ``worse`` ist
@@ -150,8 +188,12 @@ def test_objective_is_pareto_monotone_property():
         hardness = ["hart", "primaer", "opportunistisch"][trial % 3]
         goal = _goal(target_amount_rappen=int(np.floor(target)), hardness_key=hardness,
                      tau_x100=int(rng.integers(5_000, 9_900)))
-        f_better = _objective([goal], better, w0=w0)
-        f_worse = _objective([goal], worse, w0=w0)
+        variance = float(rng.uniform(0.02, 0.2)) ** 2
+        f_better = _objective([goal], better, w0=w0, portfolio_variance=variance)
+        f_worse = _objective(
+            [goal], worse, w0=w0,
+            portfolio_variance=variance * float(rng.uniform(1.0, 2.0)),
+        )
         if not f_better <= f_worse:
             failures.append((trial, f_better, f_worse))
     assert not failures, (len(failures), failures[:5])
@@ -169,7 +211,10 @@ def test_objective_is_continuous_at_goal_attainment():
     at_target[0, 1] = W0
     just_below = at_target.copy()
     just_below[0, 1] = W0 - 100.0
-    jump = abs(_objective([goal], just_below, w0=W0) - _objective([goal], at_target, w0=W0))
+    jump = abs(
+        _objective([goal], just_below, w0=W0, portfolio_variance=VAR_MEETS)
+        - _objective([goal], at_target, w0=W0, portfolio_variance=VAR_MEETS)
+    )
     assert jump < 1e-9
 
 
@@ -329,6 +374,10 @@ def test_house_matrix_significance_compares_the_scalar_the_solver_minimizes():
             objective_mode="goal_shortfall",
             goal_weighting_mode=result.context.objective_contract.goal_weighting_mode,
             portfolio_return_factors=factors,
+            portfolio_variance=portfolio_variance_one_year(
+                w, validation_context.scenario_cov_bps2
+            ),
+            penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
 
     assert significance["anchor_objective"] == pytest.approx(

@@ -184,3 +184,5 @@ Umgesetzt ist (a), weil es der dokumentierten Owner-Entscheidung „Ziel-Untergr
 Mit dem jetzt wirksamen Tiebreak landen ziel-sichere Mandate an der Unterkante der Aktienbandbreite (Score 5: 46 → 40 %, erwartete Rendite 4.35 → 3.98 %, Vola 7.40 → 6.47 %). Das ist die Methodik (Slide 18: Priorität 2 = Volatilität minimieren), die vorher wegen der Skalierung nie gegriffen hat. `Var(W_T)` ist aber mittelwertabhängig (bevorzugt über 31 Jahre auch rendite-schwächere Mischungen, Score 7/9: analytische Vola +3–6 bps). Alternative: die cashflow-neutrale Einperioden-Volatilität aus `min_volatility` (OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001) als Tiebreak. Nicht umgesetzt – das ändert die Methodik, nicht nur die Skala.
 
 **Frage 3 (technisch, kein Owner-Entscheid, aber Priorität):** Importance Sampling reparieren (1.4). Solange ~10 effektive Pfade die Bag-Zielfunktion tragen, bleibt jede Feinjustierung der Terme im Rauschen.
+
+**Nachtrag 2026-10-18:** Fragen 1 (Option c), 2 (Tiebreak w'Σw) und 3 (Importance Sampling) per CIO-Entscheid umgesetzt in IMPORTANCE-SAMPLING-ESS-001, siehe `docs/planning/2026-10-18-importance-sampling-ess.md`.
