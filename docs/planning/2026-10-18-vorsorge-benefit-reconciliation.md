@@ -85,13 +85,20 @@ Ein nicht verknüpfter Zufluss im selben Jahr wie ein automatischer Bezug, der n
 Vorsorgebezug aussieht (`source_type='Saeule3b'` oder Stichworte wie 3a/PK/BVG/Police), wird als
 „Möglicher Doppelbezug" gemeldet und nicht still entfernt.
 
-### 2.4 Kapitalbezugssteuer
+### 2.4 Kapitalbezugssteuer (User-Entscheid 2026-10-18)
 
-`TaxRegime.pension_lumpsum_tax` existierte bereits, wurde aber nie aufgerufen (CH-Light: pauschal
-600 bps, über `tax_overrides_json` überschreibbar). Phase 0.5 wendet sie auf automatische Bezüge
-von 3a und Freizügigkeit an, sofern das Mandat ein Steuerdomizil hat. Policen der Säule 3b bzw.
-Lebensversicherungen bleiben steuerfrei. Ohne Steuerdomizil wird keine Steuer abgezogen, und das
-Reasoning weist darauf hin. **Offen:** der progressive kantonale Sondertarif (siehe Abschnitt 4).
+Das pauschale Steuermodul (`TaxRegime.pension_lumpsum_tax`, CH-Light 6 %) wird für den
+Vorsorgebezug **nicht** verwendet, und es gibt keine Abhängigkeit vom Steuerdomizil des Mandats.
+Pro Vorsorge-Position gilt:
+
+1. Erfasster Betrag `pension_lumpsum_tax_rappen` aus dem Steuerrechner des Kantons. Er hat Vorrang
+   und wird höchstens bis zum Bruttobezug abgezogen.
+2. Sonst ein erfasster Satz `pension_lumpsum_tax_bps`.
+3. Sonst der defensive Default `PENSION_LUMPSUM_TAX_DEFAULT_BPS = 1000` (10 %) für 3a,
+   Freizügigkeit und BVG-Kapital. Policen der Säule 3b bzw. Lebensversicherungen bleiben bei 0 %.
+
+Das Reasoning weist aus, ob der Wert erfasst ist oder ob der Default gilt
+(„Kapitalbezugssteuer CHF X (erfasst)" bzw. „(Default 10 %, defensiv)").
 
 ## 3. Phase 1: automatischer BVG-Bezug (nur Konzept)
 
@@ -115,7 +122,7 @@ AGS(t)  = koordinierter Lohn(t) · s(Alter_t)          (obligatorisch)
 
 ### 3.2 Bezugsform ab Bezugsalter
 
-- **Kapital:** wie Phase 0.5, also `Wert[k+1]` abzüglich Kapitalleistungssteuer als Zufluss.
+- **Kapital:** wie Phase 0.5, also `Wert[k+1]` abzüglich der erfassten bzw. Default-Kapitalbezugssteuer als Zufluss.
 - **Rente:** `R = AG(Pensionierung) · UWS`, als wiederkehrender Einkommens-Cashflow ab dem
   Bezugsjahr. Das Altersguthaben verlässt das Gesamtvermögen im Bezugsjahr ohne Zufluss (es wird
   in die Rente umgewandelt). Die Rente ist **voll einkommenssteuerpflichtig**, die
@@ -155,10 +162,10 @@ Reserve-Logik eine zeitabhängige Verfügbarkeit.
 | Altersgutschriften-Sätze, Koordinationsabzug, Eintrittsschwelle | BVG | nicht hinterlegt |
 | Referenzalter AHV/BVG | AHVG/BVG | nur `mandate.retirement_year` / `pension_retirement_age` |
 | 3a-Bezugsfenster | BVV 3 | nicht modelliert |
-| Kapitalleistungssteuer-Tarif je Kanton/Gemeinde, Zivilstand | Steuer-Owner | pauschal 600 bps (CH-Light), Override pro Mandat |
+| Kapitalleistungssteuer-Tarif je Kanton/Gemeinde, Zivilstand | Steuer-Owner | pro Position erfasst (Steuerrechner); Default defensiv 10 % (User-Entscheid) |
 | Einkommenssteuer auf Renten | Steuer-Owner | `dividend/interest_tax_bps` als Näherung, nicht verdrahtet |
 | Indexierung BVG-Renten | Reglement | `pension_indexation_bps` (PlanningAssumption) |
-| Default-Sätze 0 % (Konto/BVG/Police) und 3 % (Wertschriften) | **User-Entscheid 2026-10-18** | Konstanten, versioniert |
+| Default-Sätze 0 % (Konto/BVG/Police), 3 % (Wertschriften), 10 % Kapitalbezugssteuer | **User-Entscheid 2026-10-18** | Konstanten, versioniert |
 
 ## 5. Idee: Vorsorge als verwaltetes Mandat (Anlagestiftung)
 

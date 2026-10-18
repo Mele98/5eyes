@@ -261,6 +261,7 @@ def test_api_roundtrips_projection_fields(auth_client, advisor_user):
         pension_vehicle="Police", pension_interest_rate_bps=None,
         pension_maturity_value_rappen=80_000_00, pension_maturity_date="2034-12-31",
         liquidity_available_from="2034-12-31",
+        pension_lumpsum_tax_rappen=4_500_00, pension_lumpsum_tax_bps=None,
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -268,6 +269,8 @@ def test_api_roundtrips_projection_fields(auth_client, advisor_user):
     assert body["pension_maturity_value_rappen"] == 80_000_00
     assert body["pension_maturity_date"] == "2034-12-31"
     assert body["liquidity_available_from"] == "2034-12-31"
+    assert body["pension_lumpsum_tax_rappen"] == 4_500_00
+    assert body["pension_lumpsum_tax_bps"] is None
     pid = body["id"]
     upd = auth_client.put(f"/clients/{cid}/wealth-positions/{pid}", json={
         "pension_vehicle": "Wertschriften", "pension_interest_rate_bps": 250,
@@ -281,20 +284,26 @@ def test_api_rejects_invalid_projection_fields(auth_client, advisor_user):
     assert _position(auth_client, cid, pension_vehicle="Fonds").status_code == 422
     assert _position(auth_client, cid, pension_interest_rate_bps=5000).status_code == 422
     assert _position(auth_client, cid, pension_maturity_date="31.12.2034").status_code == 422
+    assert _position(auth_client, cid, pension_lumpsum_tax_rappen=-1).status_code == 422
+    assert _position(auth_client, cid, pension_lumpsum_tax_bps=6000).status_code == 422
 
 
 def test_monolith_pension_dialog_captures_projection_fields():
     html = _html()
     for element_id in ("maw-pension-vehicle", "maw-pension-interest",
-                       "maw-pension-maturity-value", "maw-pension-maturity-date"):
+                       "maw-pension-maturity-value", "maw-pension-maturity-date",
+                       "maw-pension-tax-chf", "maw-pension-tax-pct"):
         assert f'id="{element_id}"' in html, element_id
     build = _function_source(html, "buildWealthPositionPayload").replace(" ", "")
     for field in ("pension_vehicle", "pension_interest_rate_bps",
-                  "pension_maturity_value_rappen", "pension_maturity_date"):
+                  "pension_maturity_value_rappen", "pension_maturity_date",
+                  "pension_lumpsum_tax_rappen", "pension_lumpsum_tax_bps"):
         assert field in build, field
     assert "payload.liquidity_available_from=" in build
     editor = _function_source(html, "openWealthPositionEditor")
     assert "pension_vehicle" in editor and "liquidity_available_from" in editor
+    assert "pension_lumpsum_tax_rappen" in editor and "pension_lumpsum_tax_bps" in editor
+    assert "Steuerrechner" in html
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node nicht verfuegbar")
@@ -325,3 +334,18 @@ def test_monolith_preview_rate_matches_backend_defaults():
 def test_monolith_preview_excludes_external_pension_from_buckets():
     source = _function_source(_html(), "inferPositionBucketMixBps")
     assert "isExternalPensionPosition" in source
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node nicht verfuegbar")
+def test_monolith_lumpsum_tax_default_matches_backend():
+    from services import portfolio_engine_pension_positions as pp
+
+    source = _function_source(_html(), "pensionLumpsumTaxDefaultBps")
+    types = ["Säule 3a", "Freizügigkeit", "BVG", "Säule 3b", "Lebensversicherung", None]
+    cases = [{"pension_type": t} for t in types]
+    script = source + ";console.log(JSON.stringify(" + json.dumps(cases) + ".map(pensionLumpsumTaxDefaultBps)));"
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True, encoding="utf-8")
+    frontend = json.loads(out.stdout)
+    assert pp.PENSION_LUMPSUM_TAX_DEFAULT_BPS == 1000
+    for pension_type, fe in zip(types, frontend):
+        assert fe == pp.pension_lumpsum_tax_default_bps(SimpleNamespace(pension_type=pension_type)), pension_type

@@ -42,6 +42,8 @@ class WealthPosition(Base):
     pension_interest_rate_bps = Column(Integer)  # nominal p.a.; NULL = Default
     pension_maturity_value_rappen = Column(Integer)  # garantierter Ablaufwert
     pension_maturity_date = Column(String)  # ISO, Faelligkeit der Police
+    pension_lumpsum_tax_rappen = Column(Integer)  # Kapitalbezugssteuer CHF (Vorrang)
+    pension_lumpsum_tax_bps = Column(Integer)  # oder Satz; beides NULL = Default
     mortgage_bank = Column(String)
     mortgage_type = Column(String)
     mortgage_interest_rate_bps = Column(Integer)

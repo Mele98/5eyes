@@ -122,6 +122,10 @@ class WealthPositionCreate(BaseModel):
     pension_interest_rate_bps: Optional[int] = Field(default=None, ge=-500, le=1500)
     pension_maturity_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
     pension_maturity_date: Optional[str] = None
+    # Kapitalbezugssteuer aus dem kantonalen Steuerrechner (Betrag hat Vorrang
+    # vor Satz); beides leer = defensiver Default 10 % (3a/FZ/BVG).
+    pension_lumpsum_tax_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_lumpsum_tax_bps: Optional[int] = Field(default=None, ge=0, le=5000)
     # Hypothek
     mortgage_bank: Optional[str] = None
     # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 570): mortgage_type
@@ -318,6 +322,10 @@ class WealthPositionUpdate(BaseModel):
     pension_interest_rate_bps: Optional[int] = Field(default=None, ge=-500, le=1500)
     pension_maturity_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
     pension_maturity_date: Optional[str] = None
+    # Kapitalbezugssteuer aus dem kantonalen Steuerrechner (Betrag hat Vorrang
+    # vor Satz); beides leer = defensiver Default 10 % (3a/FZ/BVG).
+    pension_lumpsum_tax_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_lumpsum_tax_bps: Optional[int] = Field(default=None, ge=0, le=5000)
     mortgage_bank: Optional[str] = None
     # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): siehe pension_type
     # oben -- dieselbe A3-Pilot-Haertung, bisher nur auf Create angewendet.
@@ -429,6 +437,8 @@ class WealthPositionResponse(BaseResponse):
     pension_interest_rate_bps: Optional[int] = None
     pension_maturity_value_rappen: Optional[int] = None
     pension_maturity_date: Optional[str] = None
+    pension_lumpsum_tax_rappen: Optional[int] = None
+    pension_lumpsum_tax_bps: Optional[int] = None
     mortgage_bank: Optional[str]
     mortgage_type: Optional[str]
     mortgage_interest_rate_bps: Optional[int]

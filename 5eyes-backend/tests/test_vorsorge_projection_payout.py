@@ -14,7 +14,9 @@ fliesst derselbe Betrag ein zweites Mal ein:
 Fachentscheid (User, 2026-10-18): Vorsorge wird deterministisch nominal
 fortgeschrieben (3a-/FZ-Konto 0 %, -Wertschriften 3 %, Police Rueckkaufswert ->
 garantierter Ablaufwert, BVG erfasster Zins / 0 %) und beim Bezug GENAU EINMAL
-freies Vermoegen. Ein mit der Position verknuepfter WealthInflow IST der
+freies Vermoegen. Kapitalbezugssteuer (User-Entscheid 2026-10-18): pro Position
+erfasst (CHF-Betrag hat Vorrang vor Satz), sonst defensiv 10 % fuer 3a/FZ/BVG,
+3b-Policen 0 % -- unabhaengig vom Steuerdomizil des Mandats. Ein mit der Position verknuepfter WealthInflow IST der
 Bezug (automatischer Bezug entfaellt).
 """
 from __future__ import annotations
@@ -51,6 +53,7 @@ def _pension(**overrides):
         pension_interest_rate_bps=None, pension_maturity_value_rappen=None,
         pension_maturity_date=None, pension_retirement_age=None,
         pension_payout_form=None, liquidity_available_from=f"{START + 2}-06-30",
+        pension_lumpsum_tax_rappen=None, pension_lumpsum_tax_bps=None,
         alloc_equities_bps=0, alloc_bonds_bps=0, alloc_real_estate_bps=0,
         alloc_liquidity_bps=0, alloc_alternatives_bps=0,
         asset_expected_return_bps=0, property_rental_income_rappen=0,
@@ -120,14 +123,15 @@ def _total_summary(positions):
 def test_3a_konto_default_zero_rate_paid_out_once():
     foundation = _foundation([_pension()])
     assert foundation["pension_series_rappen"] == [100_000, 100_000, 100_000, 0, 0, 0]
-    assert foundation["pension_payout_series_rappen"] == [0, 0, 100_000, 0, 0]
+    # 100'000 brutto - 10 % Default-Kapitalbezugssteuer
+    assert foundation["pension_payout_series_rappen"] == [0, 0, 90_000, 0, 0]
 
 
 def test_3a_wertschriften_default_three_percent_nominal():
     foundation = _foundation([_pension(pension_vehicle="Wertschriften")])
     assert foundation["pension_series_rappen"] == [100_000, 103_000, 106_090, 0, 0, 0]
     # Bezug Offset 2 entnimmt den Wert, den die Position in Serie[3] haette
-    assert foundation["pension_payout_series_rappen"] == [0, 0, 109_273, 0, 0]
+    assert foundation["pension_payout_series_rappen"] == [0, 0, 109_273 - 10_927, 0, 0]
 
 
 def test_recorded_rate_overrides_default():
@@ -168,13 +172,13 @@ def test_bvg_is_only_projected_no_automatic_payout():
 def test_payout_year_from_birth_year_and_retirement_age():
     pos = _pension(liquidity_available_from=None, pension_retirement_age=64)
     foundation = _foundation([pos], mandate=_mandate(client_birth_year=START + 1 - 64))
-    assert foundation["pension_payout_series_rappen"] == [0, 100_000, 0, 0, 0]
+    assert foundation["pension_payout_series_rappen"] == [0, 90_000, 0, 0, 0]
 
 
 def test_payout_year_falls_back_to_mandate_retirement_year():
     pos = _pension(liquidity_available_from=None)
     foundation = _foundation([pos], mandate=_mandate(retirement_year=START + 3))
-    assert foundation["pension_payout_series_rappen"] == [0, 0, 0, 100_000, 0]
+    assert foundation["pension_payout_series_rappen"] == [0, 0, 0, 90_000, 0]
 
 
 def test_without_payout_year_position_stays_bound_and_is_disclosed():
@@ -196,23 +200,53 @@ def test_no_pension_positions_keep_foundation_contract_unchanged():
 # ---------------------------------------------------------------------------
 
 
-def test_lumpsum_tax_applied_with_tax_domicile():
-    foundation = _foundation([_pension()], mandate=_mandate(tax_jurisdiction="CH"))
-    # CH-Regime pauschal 600 bps -> 6'000 Steuer auf 100'000
-    assert foundation["pension_payout_series_rappen"] == [0, 0, 94_000, 0, 0]
-
-
-def test_lumpsum_tax_missing_domicile_is_disclosed():
+def test_default_lumpsum_tax_is_ten_percent_without_tax_domicile():
     projection = _projection([_pension()])
-    assert any("Kapitalbezugssteuer" in n and "kein Steuerdomizil" in n for n in projection.notes)
+    assert projection.payout_series_rappen == [0, 0, 90_000, 0, 0]
+    assert any("Kapitalbezugssteuer CHF 100 (Default 10 %, defensiv)" in n for n in projection.notes)
 
 
-def test_3b_police_payout_not_lumpsum_taxed():
+def test_default_ignores_mandate_tax_regime():
+    """Das Steuermodul (CH pauschal 6 %) wird fuer den Vorsorgebezug nicht verwendet."""
+    foundation = _foundation([_pension()], mandate=_mandate(tax_jurisdiction="CH"))
+    assert foundation["pension_payout_series_rappen"] == [0, 0, 90_000, 0, 0]
+
+
+def test_recorded_lumpsum_tax_amount_is_used_and_disclosed():
+    projection = _projection([_pension(pension_lumpsum_tax_rappen=7_000)])
+    assert projection.payout_series_rappen == [0, 0, 93_000, 0, 0]
+    assert any("Kapitalbezugssteuer CHF 70 (erfasst)" in n for n in projection.notes)
+
+
+def test_recorded_lumpsum_tax_rate_is_used():
+    projection = _projection([_pension(pension_lumpsum_tax_bps=550)])
+    assert projection.payout_series_rappen == [0, 0, 94_500, 0, 0]
+    assert any("(erfasst 5.50 %)" in n for n in projection.notes)
+
+
+def test_recorded_amount_wins_over_rate():
+    pos = _pension(pension_lumpsum_tax_rappen=2_000, pension_lumpsum_tax_bps=900)
+    assert _projection([pos]).payout_series_rappen == [0, 0, 98_000, 0, 0]
+
+
+def test_recorded_amount_is_capped_at_gross_payout():
+    pos = _pension(pension_lumpsum_tax_rappen=250_000)
+    assert _projection([pos]).payout_series_rappen == [0] * H
+
+
+def test_3b_police_payout_not_taxed_by_default():
     police = _pension(pension_type="Säule 3b", current_value_rappen=50_000,
                       pension_maturity_value_rappen=60_000,
                       pension_maturity_date=f"{START + 1}-01-01", liquidity_available_from=None)
     foundation = _foundation([police], mandate=_mandate(tax_jurisdiction="CH"))
     assert foundation["pension_payout_series_rappen"] == [0, 60_000, 0, 0, 0]
+
+
+def test_3b_police_with_recorded_tax_is_taxed():
+    police = _pension(pension_type="Säule 3b", current_value_rappen=50_000,
+                      pension_maturity_value_rappen=60_000, pension_lumpsum_tax_bps=500,
+                      pension_maturity_date=f"{START + 1}-01-01", liquidity_available_from=None)
+    assert _foundation([police])["pension_payout_series_rappen"] == [0, 57_000, 0, 0, 0]
 
 
 # ---------------------------------------------------------------------------
@@ -249,13 +283,15 @@ def test_automatic_payout_counts_exactly_once_in_total_and_advisory_paths():
         cma=_zero_cma(), cashflows=cashflows,
         total_summary=_total_summary(positions), foundation=foundation,
     )
-    assert result["total_mix_current_series_rappen"] == [200_000] * 6
-    assert cashflows == [0, 0, 100_000, 0, 0]  # freies Vermoegen erst ab Bezug
+    # Bezug genau einmal; das Gesamtvermoegen sinkt nur um die Steuer (10'000)
+    assert result["total_mix_current_series_rappen"] == [200_000] * 3 + [190_000] * 3
+    assert cashflows == [0, 0, 90_000, 0, 0]  # freies Vermoegen erst ab Bezug
 
 
 def test_tax_reduces_total_wealth_by_exactly_the_tax():
     positions = [_cash(), _pension()]
-    cashflows, foundation = _cashflows(positions, mandate=_mandate(tax_jurisdiction="CH"))
+    positions[1].pension_lumpsum_tax_rappen = 6_000
+    cashflows, foundation = _cashflows(positions)
     result = _deterministic(
         cma=_zero_cma(), cashflows=cashflows,
         total_summary=_total_summary(positions), foundation=foundation,
@@ -285,7 +321,7 @@ def test_monte_carlo_total_paths_follow_deterministic_pension(monkeypatch):
         monkeypatch=monkeypatch, cma=cma, cashflows=cashflows,
         total_summary=_total_summary(positions), foundation=foundation,
     )
-    expected = [200_000, 203_000, 206_090, 209_273, 209_273, 209_273]
+    expected = [200_000, 203_000, 206_090] + [100_000 + 109_273 - 10_927] * 3
     for prefix in ("total_current", "total_target"):
         assert result[f"{prefix}_p10_series_rappen"] == expected, prefix
         assert result[f"{prefix}_p90_series_rappen"] == expected, prefix
@@ -346,11 +382,6 @@ def test_load_allocation_inputs_books_automatic_payout(session_factory):  # noqa
             inputs["inflow_projection_series_rappen"], baseline["inflow_projection_series_rappen"],
         )
     ]
-    from services import portfolio_engine_pension_positions as pp
-
-    expected_tax = 0
-    if str(getattr(mandate, "tax_jurisdiction", "") or "").strip():
-        expected_tax = pp.mandate_lumpsum_tax(mandate)(80_000_00, start_year + 3, 3)
-    assert delta[3] == 80_000_00 - expected_tax
+    assert delta[3] == 80_000_00 - 8_000_00  # 10 % Default-Kapitalbezugssteuer
     assert sum(delta) == delta[3]
     assert any("3a Konto" in note for note in inputs["total_summary"].assumption_notes)

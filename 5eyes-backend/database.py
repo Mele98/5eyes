@@ -342,6 +342,8 @@ def ensure_runtime_columns() -> None:
             ('pension_interest_rate_bps', 'INTEGER'),
             ('pension_maturity_value_rappen', 'INTEGER'),
             ('pension_maturity_date', 'TEXT'),
+            ('pension_lumpsum_tax_rappen', 'INTEGER'),
+            ('pension_lumpsum_tax_bps', 'INTEGER'),
         ],
         # A2-Smoke-Test-Fund (2026-07-22): 'target_allocations' hatte einen
         # DOPPELTEN Dict-Key in diesem Literal (hier + weiter unten). In Python

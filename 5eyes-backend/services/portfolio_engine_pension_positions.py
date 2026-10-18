@@ -22,9 +22,10 @@ Jetzt, fuer jede aktive EXTERNE Vorsorge-Position ("Anderes Vermoegen"):
    User-Entscheid). Police: Rueckkaufswert heute -> garantierter Ablaufwert
    bei Faelligkeit (geometrisch interpoliert).
 3. Bezug: 3a, Freizuegigkeit und Policen werden beim Bezug GENAU EINMAL
-   freies Vermoegen (Zufluss im Cashflow-Pfad, 3a/FZ nach pauschaler
-   Kapitalbezugssteuer des Steuerregimes, falls das Mandat ein Steuerdomizil
-   hat). Davor zaehlen sie nicht als verfuegbar (PENSION-AVAILABILITY-001
+   freies Vermoegen (Zufluss im Cashflow-Pfad, nach Kapitalbezugssteuer: pro
+   Position erfasst -- CHF-Betrag vor Satz, aus dem kantonalen Steuerrechner --,
+   sonst defensiv 10 % fuer 3a/FZ/BVG-Kapital, 3b-Policen 0 %; das pauschale
+   Steuermodul des Mandats wird dafuer NICHT verwendet). Davor zaehlen sie nicht als verfuegbar (PENSION-AVAILABILITY-001
    bleibt). BVG: nur Fortschreibung, kein automatischer Bezug (Kapitalbezug
    als verknuepften Vermoegenszufluss erfassen; Rentenmodellierung siehe
    docs/planning/2026-10-18-vorsorge-benefit-reconciliation.md).
@@ -76,8 +77,13 @@ PENSION_DEFAULT_VEHICLE_BY_TYPE: dict[str, str] = {
 # Vorsorgearten mit automatischem Kapitalbezug in diesem Modell.
 PENSION_AUTO_PAYOUT_TYPES = frozenset({"saeule 3a", "freizuegigkeit", "saeule 3b", "lebensversicherung"})
 # Vorsorgearten, deren Kapitalbezug der Kapitalleistungssteuer unterliegt
-# (3b-/Lebensversicherungs-Policen: in der Regel steuerfrei -> keine Steuer).
+# (3b-/Lebensversicherungs-Policen: in der Regel steuerfrei -> Default 0).
 PENSION_LUMPSUM_TAXED_TYPES = frozenset({"saeule 3a", "freizuegigkeit", "bvg"})
+# Kapitalbezugssteuer, wenn pro Position weder Betrag noch Satz erfasst ist:
+# defensiv 10 % (User-Entscheid 2026-10-18, Version siehe oben). Der Berater
+# erfasst den Wert aus dem Steuerrechner des Kantons
+# (pension_lumpsum_tax_rappen hat Vorrang vor pension_lumpsum_tax_bps).
+PENSION_LUMPSUM_TAX_DEFAULT_BPS = 1000
 
 # Bisheriger gemischter Default -- gilt NUR noch fuer Vorsorge-Positionen im
 # BERATUNGSvermoegen (vom Berater bewusst als verwaltet erfasst) ohne
@@ -226,6 +232,30 @@ def _chf(rappen: int) -> str:
     return "CHF " + f"{int(round(rappen / 100)):,}".replace(",", "'")
 
 
+def pension_lumpsum_tax_default_bps(position) -> int:
+    """Default-Satz ohne Erfassung: 10 % fuer steuerbare Arten, sonst 0."""
+    type_key = normalized_pension_type(getattr(position, "pension_type", None))
+    return PENSION_LUMPSUM_TAX_DEFAULT_BPS if type_key in PENSION_LUMPSUM_TAXED_TYPES else 0
+
+
+def pension_lumpsum_tax(position, gross_rappen: int) -> tuple[int, str]:
+    """(Kapitalbezugssteuer in Rappen, Reasoning-Text) fuer einen Bezug."""
+    gross = max(0, int(gross_rappen))
+    amount = getattr(position, "pension_lumpsum_tax_rappen", None)
+    rate = getattr(position, "pension_lumpsum_tax_bps", None)
+    if amount is not None:
+        tax = min(gross, max(0, int(amount)))
+        return tax, f"Kapitalbezugssteuer {_chf(tax)} (erfasst)"
+    if rate is not None:
+        tax = min(gross, max(0, int(round(gross * int(rate) / 10000))))
+        return tax, f"Kapitalbezugssteuer {_chf(tax)} (erfasst {int(rate) / 100:.2f} %)"
+    default_bps = pension_lumpsum_tax_default_bps(position)
+    if default_bps <= 0:
+        return 0, ""
+    tax = min(gross, int(round(gross * default_bps / 10000)))
+    return tax, f"Kapitalbezugssteuer {_chf(tax)} (Default {default_bps / 100:g} %, defensiv)"
+
+
 @dataclass
 class PensionProjection:
     series_rappen: list[int]
@@ -261,13 +291,11 @@ def build_pension_projection(
     value_of: Callable[[object], int],
     birth_year: int | None = None,
     retirement_year: int | None = None,
-    lumpsum_tax: Callable[[int, int, int], int] | None = None,
 ) -> PensionProjection | None:
     """Deterministische Projektion aller externen Vorsorge-Positionen.
 
     ``None``, wenn es keine gibt (Foundation-Vertrag bleibt dann
-    byte-identisch). ``lumpsum_tax(gross_rappen, calendar_year, offset)``
-    liefert die Kapitalbezugssteuer in Rappen; ``None`` = kein Steuerdomizil.
+    byte-identisch). Kapitalbezugssteuer: siehe pension_lumpsum_tax.
     """
     horizon = max(0, int(horizon_years or 0))
     start_year = int(start_year)
@@ -287,7 +315,6 @@ def build_pension_projection(
     notes: list[str] = []
     auto_payout_years: dict[int, list[str]] = {}
     found = False
-    tax_missing = False
     for position in positions or []:
         if not is_external_pension_position(position):
             continue
@@ -337,17 +364,12 @@ def build_pension_projection(
                 else:
                     exit_offset = offset
                     gross = int(round(path[offset + 1]))
-                    tax = 0
-                    if type_key in PENSION_LUMPSUM_TAXED_TYPES:
-                        if lumpsum_tax is None:
-                            tax_missing = True
-                        else:
-                            tax = max(0, min(gross, int(round(lumpsum_tax(gross, start_year + offset, offset)))))
+                    tax, tax_text = pension_lumpsum_tax(position, gross)
                     payouts[offset] += gross - tax
                     auto_payout_years.setdefault(start_year + offset, []).append(label)
                     payout_text = (
                         f"Kapitalbezug {start_year + offset} ({source}) {_chf(gross)}"
-                        + (f", nach Kapitalbezugssteuer {_chf(tax)}" if tax else "")
+                        + (f", {tax_text}" if tax_text else "")
                         + f" -> {_chf(gross - tax)} freies Vermögen"
                     )
         else:
@@ -379,11 +401,6 @@ def build_pension_projection(
                 f"{', '.join(auto_payout_years[year])} im selben Jahr automatisch "
                 "bezogen wird. Bitte den Zufluss mit der Position verknüpfen oder entfernen."
             )
-    if tax_missing:
-        notes.append(
-            "Kapitalbezugssteuer auf Vorsorgebezüge nicht berücksichtigt: das Mandat "
-            "hat kein Steuerdomizil."
-        )
     notes.append(
         "Vorsorgevermögen wird nicht verwaltet, sondern deterministisch fortgeschrieben "
         f"(Annahmen-Version {PENSION_PROJECTION_ASSUMPTIONS_VERSION}); es zählt erst ab "
@@ -392,29 +409,6 @@ def build_pension_projection(
     return PensionProjection(series_rappen=series, payout_series_rappen=payouts, notes=notes)
 
 
-def mandate_lumpsum_tax(mandate) -> Callable[[int, int, int], int] | None:
-    """Kapitalbezugssteuer aus dem Steuerregime des Mandats (pauschal,
-    TaxRegime.pension_lumpsum_tax); ``None`` ohne Steuerdomizil."""
-    if mandate is None or not str(getattr(mandate, "tax_jurisdiction", "") or "").strip():
-        return None
-    from services.portfolio_engine_optimizer_integration import _build_tax_solver_kwargs
-    from services.tax.base import TaxContext
-
-    regime = _build_tax_solver_kwargs(mandate).get("tax_regime")
-    if regime is None:
-        return None
-    birth_year = int(getattr(mandate, "client_birth_year", 0) or 0)
-
-    def _tax(gross_rappen: int, calendar_year: int, offset: int) -> int:
-        ctx = TaxContext(
-            year_index=int(offset),
-            calendar_year=int(calendar_year),
-            wealth_rappen=0.0,
-            age=(int(calendar_year) - birth_year) if birth_year else None,
-        )
-        return int(round(regime.pension_lumpsum_tax(ctx, float(gross_rappen)).amount_rappen))
-
-    return _tax
 
 
 def external_pension_projection(
@@ -443,7 +437,6 @@ def external_pension_projection(
         )),
         birth_year=int(getattr(mandate, "client_birth_year", 0) or 0) or None,
         retirement_year=int(getattr(mandate, "retirement_year", 0) or 0) or None,
-        lumpsum_tax=mandate_lumpsum_tax(mandate),
     )
 
 
@@ -456,3 +449,125 @@ def with_pension_payouts(inflow_series_rappen: list[int], external_foundation_pr
     if len(payouts) != len(inflow_series_rappen):
         raise ValueError("Vorsorge-Bezugsserie passt nicht zum Projektionshorizont.")
     return [int(a) + int(b) for a, b in zip(inflow_series_rappen, payouts)]
+
+
+# ---------------------------------------------------------------------------
+# Engine-Einstiege (aus portfolio_engine.py ausgelagert, Zeilenbudget)
+# ---------------------------------------------------------------------------
+
+
+def summarize_positions(positions, fx_source=None, target_currency: str = "CHF"):
+    """Ersetzt portfolio_engine._summarize_positions (re-exportiert).
+
+    Externe Vorsorge ist eigene Kategorie: in total_rappen, nicht in
+    amounts_rappen; nur eine bewusst erfasste Aufteilung landet in
+    pension_exposure_amounts_rappen (Exposure-Tilt)."""
+    from services.portfolio_engine import (
+        BUCKET_FIELDS,
+        PortfolioSummary,
+        _convert_position_amount_to_target_currency,
+    )
+
+    amounts = {key: 0 for key in BUCKET_FIELDS}
+    total_rappen = 0
+    pension_bound_rappen = 0
+    pension_exposure = {key: 0 for key in BUCKET_FIELDS}
+    for pos in positions:
+        value_rappen = _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        if value_rappen <= 0:
+            continue
+        total_rappen += value_rappen
+        if is_external_pension_position(pos):
+            pension_bound_rappen += value_rappen
+            split = recorded_split(pos)
+            if split is not None:
+                for key in BUCKET_FIELDS:
+                    pension_exposure[key] += int(round(value_rappen * split[key] / 10000))
+            continue
+        weights = position_bucket_weights(pos)
+        for key in BUCKET_FIELDS:
+            amounts[key] += int(round(value_rappen * weights[key] / 10000))
+    return PortfolioSummary(
+        amounts_rappen=amounts,
+        total_rappen=total_rappen,
+        pension_bound_rappen=pension_bound_rappen,
+        pension_exposure_amounts_rappen=(
+            pension_exposure if any(pension_exposure.values()) else None
+        ),
+    )
+
+
+def pension_foundation_keys(
+    positions,
+    wealth_inflows,
+    *,
+    start_year,
+    horizon_years: int,
+    fx_source=None,
+    target_currency: str = "CHF",
+    mandate=None,
+) -> dict[str, list[int]]:
+    """Zusatz-Keys fuer _build_external_foundation_projection: deterministische
+    Vorsorge-Serie (H+1) und Netto-Bezuege (H, vom Loader in den Cashflow-Pfad
+    addiert). Ohne externe Vorsorge ``{}`` -> Vertrag byte-identisch."""
+    pension = external_pension_projection(
+        positions,
+        wealth_inflows,
+        start_year=start_year,
+        horizon_years=horizon_years,
+        fx_source=fx_source,
+        target_currency=target_currency,
+        mandate=mandate,
+    )
+    if pension is None:
+        return {}
+    return {
+        "pension_series_rappen": list(pension.series_rappen),
+        "pension_payout_series_rappen": list(pension.payout_series_rappen),
+    }
+
+
+def pension_series_for_horizon(external_foundation_projection: dict, required_length: int) -> list[int]:
+    """Vorsorge-Serie fuer die Optimizer-Funding-Serie: externe Vorsorge laeuft
+    mit ihrer eigenen deterministischen Serie statt in der CPI-Basis."""
+    series = list(
+        (external_foundation_projection or {}).get("pension_series_rappen")
+        or [0] * required_length
+    )
+    if len(series) != required_length:
+        from services.optimizer.constraints import OptimizerInputError
+
+        raise OptimizerInputError(
+            "Die Vorsorge-Serie deckt den Optimizer-Horizont nicht "
+            "vollstaendig ab."
+        )
+    return [max(0, int(value)) for value in series]
+
+
+def with_pension_notes(
+    total_summary,
+    positions,
+    wealth_inflows,
+    *,
+    start_year,
+    horizon_years: int,
+    fx_source=None,
+    target_currency: str = "CHF",
+    mandate=None,
+):
+    """total_summary mit den Reasoning-Saetzen zur Vorsorge-Fortschreibung
+    (ausgegeben ueber _apply_external_exposure_tilts)."""
+    from dataclasses import replace
+
+    pension = external_pension_projection(
+        positions,
+        wealth_inflows,
+        start_year=start_year,
+        horizon_years=horizon_years,
+        fx_source=fx_source,
+        target_currency=target_currency,
+        mandate=mandate,
+    )
+    if pension is None:
+        return total_summary
+    return replace(total_summary, assumption_notes=tuple(pension.notes))

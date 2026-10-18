@@ -570,6 +570,8 @@ CREATE TABLE IF NOT EXISTS wealth_positions (
     pension_interest_rate_bps   INTEGER,
     pension_maturity_value_rappen INTEGER CHECK(pension_maturity_value_rappen >= 0),
     pension_maturity_date       TEXT,
+    pension_lumpsum_tax_rappen  INTEGER CHECK(pension_lumpsum_tax_rappen >= 0),
+    pension_lumpsum_tax_bps     INTEGER CHECK(pension_lumpsum_tax_bps BETWEEN 0 AND 5000),
     mortgage_bank               TEXT,
     mortgage_type               TEXT CHECK(mortgage_type IN ('Festhypothek','SARON','Gemischt')),
     mortgage_interest_rate_bps  INTEGER,
