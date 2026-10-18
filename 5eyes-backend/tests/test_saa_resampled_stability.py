@@ -259,6 +259,58 @@ def test_insignificant_deviation_keeps_house_target(foundation, monkeypatch):
     )
 
 
+def test_risk_variants_take_no_more_risk_than_the_default_on_the_foundation(foundation):
+    """GOAL-REACHABILITY-SCREEN-001, CIO-Entscheid (b) 2026-10-18.
+
+    Regression: solange in ``min_volatility`` ein Ziel steuerte, dessen
+    Schwelle auf keiner zulaessigen Allokation erreichbar ist
+    (Einkommensbruecke, max ~54 % gegen tau 80 %), lieferte die Variante
+    73.7 % Aktien -- mehr als der Default (64.4 %) und die Hausmatrix.
+    Eine Risikomass-Variante darf nicht riskanter sein als der Default."""
+    from services.optimizer.drawdown_certification import validated_drawdown_evaluation
+    from services.optimizer.objective_contract import ObjectiveContractV1
+
+    goal_weighting = foundation["result"].context.objective_contract.goal_weighting_mode
+    results = {}
+    for mode in ("goal_shortfall", "min_volatility", "max_drawdown"):
+        results[mode] = run_solver(**{
+            **foundation["kwargs"],
+            "objective_contract": ObjectiveContractV1(
+                objective_mode=mode, goal_weighting_mode=goal_weighting,
+            ),
+        })
+    default = results["goal_shortfall"]
+    cov = np.asarray(default.context.scenario_cov_bps2, dtype=float) / 1e8
+
+    def _w(result):
+        return _weights(result) / 10000.0
+
+    def _vol(result):
+        w = _w(result)
+        return float(np.sqrt(w @ cov @ w))
+
+    equities = BUCKET_ORDER.index("equities")
+    assert _w(results["min_volatility"])[equities] <= _w(default)[equities] + 1e-12
+    assert _vol(results["min_volatility"]) <= _vol(default) + 1e-12
+
+    validation_context, validation_seed, _hash = solver_module._build_validation_context(
+        default.context
+    )
+
+    def _drawdown(result):
+        return validated_drawdown_evaluation(
+            validation_context, _w(result), validation_seed=validation_seed,
+        )["refined_mean_drawdown"]
+
+    assert _drawdown(results["max_drawdown"]) <= _drawdown(default) + 1e-12
+    # Die ausgenommenen Ziele sind offengelegt (Beraterhinweis).
+    for mode in ("min_volatility", "max_drawdown"):
+        screen = results[mode].goal_reachability
+        assert screen["objective_mode"] == mode
+        assert screen["penalty_exempt_goal_ids"]
+        assert any(line.startswith("Beraterhinweis: Ziel") for line in results[mode].reasoning)
+
+
 def test_sensitivity_tests_against_the_same_house_anchor_as_generate(foundation):
     """Generate und Goal-Sensitivity muessen gegen DENSELBEN Anker testen.
 

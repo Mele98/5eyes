@@ -121,9 +121,11 @@ Definition: Prüfmenge K = Ecken des Bandbreiten-Simplex (höchstens ein Bucket 
 
 Begründung der Schwelle τ/2 (CIO): Ein Ziel, das mehr als die halbe geforderte Sicherheit erreichen kann, bleibt entscheidungsrelevant und steuert weiter (Fundament: Einkommensbrücke, max ≈ 54 % gegen τ = 80 %); nur praktisch aussichtslose Ziele (Familienvermögen 2035, max ≈ 5 %) werden ausgenommen. K ist eine Überdeckung, kein Beweis (ein Maximum kann im Inneren liegen); obere Grenze, halbe Schwelle und Multi-Start-Punkte halten die Regel konservativ. Einmal je Context berechnet (0.02–0.05 s; frühes Ende, sobald jedes Ziel die Schwelle erreicht – `max_probability` eines erreichbaren Ziels ist daher die beste bis dahin geprüfte, nicht zwingend das Maximum).
 
-Wirkung in **jedem** Modus (CIO-Nachtrag 4): ein praktisch unerreichbares Ziel steuert weder die Chance-Strafe noch (Default `goal_shortfall`) den Primärterm L(w) – sein Fehlbetrag bleibt auf jeder zulässigen Allokation, als Zielterm würde es nur in mehr Risiko treiben („Hoffen auf ein Wunder“, gegen den Kapitalschutz). Es wird weiter simuliert und publiziert. Offenlegung: `OptimizerResult.goal_reachability`, je Ziel ein Beraterhinweis im Reasoning („Beraterhinweis: Ziel 'X' ist mit keiner zulässigen Allokation mit ausreichender Sicherheit erreichbar (max. Y %, …). Ziel mit dem Kunden überprüfen (Betrag, Termin, Priorität). …“) und `feasible_set_reachable` auf den publizierten Zeilen der geprüften Ziele (auch im House-Matrix-Fallback der Produktionsgrenze). Bags, Signifikanztest und Drawdown-Rerank erben die Ausnahme über den Context (eine Zielfunktion).
+Wirkung in den **Risikomass-Varianten** (`max_drawdown`, `min_volatility`, `cvar_return`, `max_return`; CIO-Entscheid b): dort steuern nur Ziele, deren Schwelle τ auf mindestens einer zulässigen Allokation erreichbar ist (`max UB₉₅ ≥ τ`). Begründung: Die Variante verspricht ein Risikomass; sie darf nicht für ein ohnehin nicht absicherbares Ziel Risiko aufbauen. Gemessen: Solange die Einkommensbrücke (max ≈ 54 % gegen τ 80 %) in `min_volatility` steuerte, lieferte die Variante 73.7 % Aktien – mehr als Default (64.4 %) und Hausmatrix (67.5 %). Teilweise erreichbare Ziele (über τ/2, unter τ) werden dort mit eigenem Beraterhinweis offengelegt („Ziel 'X' wird in dieser Risikovariante (min_volatility) nicht optimiert, da die geforderte Sicherheit auf keiner zulässigen Allokation erreichbar ist (…). Die Variante baut für ein nicht absicherbares Ziel kein Risiko auf; Ziel mit dem Kunden überprüfen …“). Regressionstest auf dem Fundament (`test_risk_variants_take_no_more_risk_than_the_default_on_the_foundation`): Aktienquote und analytische Vola von `min_volatility` ≤ Default, verfeinerter Drawdown von `max_drawdown` ≤ Default.
 
-Ergebnis: Golden-Mandate – alle Ziele erreichbar (nach 1 Kandidaten). Fundament – „Familienvermögen 2035“ (max 5.2 %, UB < 40 %) praktisch unerreichbar und ausgenommen; „Einkommensbrücke Pension“ (≈ 49–54 %) und „Eigenmittel Ferienhaus“ steuern weiter.
+Wirkung im **Default** (CIO-Nachtrag 4): ein praktisch unerreichbares Ziel steuert weder die Chance-Strafe noch (Default `goal_shortfall`) den Primärterm L(w) – sein Fehlbetrag bleibt auf jeder zulässigen Allokation, als Zielterm würde es nur in mehr Risiko treiben („Hoffen auf ein Wunder“, gegen den Kapitalschutz). Es wird weiter simuliert und publiziert. Offenlegung: `OptimizerResult.goal_reachability`, je Ziel ein Beraterhinweis im Reasoning („Beraterhinweis: Ziel 'X' ist mit keiner zulässigen Allokation mit ausreichender Sicherheit erreichbar (max. Y %, …). Ziel mit dem Kunden überprüfen (Betrag, Termin, Priorität). …“) und `feasible_set_reachable` auf den publizierten Zeilen der geprüften Ziele (auch im House-Matrix-Fallback der Produktionsgrenze). Bags, Signifikanztest und Drawdown-Rerank erben die Ausnahme über den Context (eine Zielfunktion).
+
+Ergebnis: Golden-Mandate – alle Ziele erreichbar, auch an τ (sie steuern in jedem Modus). Fundament – Default: „Familienvermögen 2035“ (max 5.2 %, UB < 40 %) ausgenommen, „Einkommensbrücke Pension“ (≈ 49–54 %) und „Eigenmittel Ferienhaus“ steuern; Risikomass-Varianten: Familienvermögen und Einkommensbrücke ausgenommen, nur das Ferienhaus steuert.
 
 ## 6. Nebenbefund: bps-Rundung auf aktiver Nebenbedingung (BPS-ROUNDING-ON-ACTIVE-CONSTRAINT-001)
 
@@ -146,8 +148,8 @@ Werte in % (Aktien/Obl./Immo/Alt./Liq.), erw. Rendite/Vola in bps, Entscheid in 
 | Score 7 | goal_shortfall | 60.0/23.1/6.8/8.1/2.0 (opt.) | 60.0/25.0/5.4/7.6/2.0 (opt.) | 489/959 → 486/951 | 372 → 0 |
 | Score 9 | goal_shortfall | 75.0/13.9/3.9/5.2/2.0 (opt.) | 75.0/15.0/3.0/5.0/2.0 (opt.) | 551/1174 → 550/1169 | 257 → 0 |
 | Fundament | goal_shortfall | 66.0/11.0/17.5/3.0/2.5 (opt.) | 64.4/10.1/20.0/3.0/2.5 (opt., p = 0.0025) | 543/1081 → 542/1067 | 474 → **16** |
-| Fundament | max_drawdown | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | 61.0/23.7/9.8/3.0/2.5 (**opt.**, p = 0.0025) | 524/1070 → 504/968 | 193 → 274 |
-| Fundament | min_volatility | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | **73.7**/15.2/5.3/3.3/2.5 (**opt.**, p = 0.0025) | 524/1070 → 550/1152 | 470 → 205 |
+| Fundament | max_drawdown | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | 60.0/25.0/9.5/3.0/2.5 (**opt.**, p = 0.0025) | 524/1070 → 499/952 | 193 → 0 |
+| Fundament | min_volatility | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | 60.0/25.0/5.1/7.4/2.5 (**opt.**, p = 0.0025) | 524/1070 → 485/950 | 470 → 23 |
 | Golden (alle) | max_drawdown / min_volatility | Änderungen ≤ 1.7 pp je Bucket, Aktien unverändert | | | ≤ 54 |
 
 Fundament, Zielwahrscheinlichkeiten (Validierungswürfel) vorher → nachher:
@@ -155,17 +157,18 @@ Fundament, Zielwahrscheinlichkeiten (Validierungswürfel) vorher → nachher:
 | Ziel | goal_shortfall | max_drawdown | min_volatility |
 |---|---|---|---|
 | Eigenmittel Ferienhaus 2028 (τ 80 %, erreichbar) | 100 → 100 % | 100 → 100 % | 100 → 100 % |
-| Familienvermögen 2035 (τ 80 %, **praktisch unerreichbar**, ausgenommen) | 5.9 → 6.7 % | 5.3 → 4.2 % | 5.3 → 7.5 % |
-| Einkommensbrücke Pension (τ 80 %, über τ/2, steuert) | 52.5 → 51.6 % | 49.5 → 48.5 % | 49.5 → 51.7 % |
-| Mindestrendite Advisory (keine Untergrenze) | 59.6 → 59.0 % | 55.3 → 51.9 % | 55.3 → 58.1 % |
-| Plan-Solvenz (alle Ziele gemeinsam) | 3.2 → 3.2 % | 2.6 → 1.8 % | 2.6 → 4.3 % |
+| Familienvermögen 2035 (τ 80 %, praktisch unerreichbar; überall ausgenommen) | 5.9 → 6.7 % | 5.3 → 4.0 % | 5.3 → 3.5 % |
+| Einkommensbrücke Pension (τ 80 %, über τ/2 und unter τ; steuert nur im Default) | 52.5 → 51.6 % | 49.5 → 48.4 % | 49.5 → 46.1 % |
+| Mindestrendite Advisory (keine Untergrenze) | 59.6 → 59.0 % | 55.3 → 51.2 % | 55.3 → 48.2 % |
+| Plan-Solvenz (alle Ziele gemeinsam) | 3.2 → 3.2 % | 2.6 → 1.5 % | 2.6 → 1.4 % |
 
 Lesart: Auf den Golden-Mandaten verschwindet die Bag-Streuung (2–4 pp → 0): alle 40 Bags finden dieselbe Bandecke, weil der Tiebreak pfadfrei ist und die Chance-Strafe nicht mehr am ESS-Artefakt hängt (Golden-Allokationen durch den Nachtrag unverändert, alle Ziele erreichbar).
 
 Fundament (nach CIO-Nachtrag, Schwelle τ/2, auch im Default):
 * **Default:** Ohne das aussichtslose Familienvermögen-Ziel im Primärterm verschwindet das flache Plateau: Bag-σ 474 bps (v3) → 634 bps (v4 vor Nachtrag) → **16 bps**. Allokation 64.4/10.1/20.0/3.0/2.5, Vola 10.81 → 10.67 %, Zielwahrscheinlichkeiten praktisch unverändert (Familienvermögen 6.7 %, Einkommensbrücke 51.6 %, Ferienhaus 100 %).
-* **max_drawdown:** 61 % Aktien statt Hausmatrix 67.5 %; Vola 9.68 %.
-* **min_volatility:** **73.7 % Aktien** – mehr als Default und Hausmatrix. Ursache: die Einkommensbrücke steuert wieder (über τ/2); ihr Defizit `τ − LB ≈ 0.3` mal `(Z/W0)² ≈ 1` kostet ~0.3, der gesamte Volatilitätsterm liegt bei ~0.1. Die Variante tauscht damit Volatilität gegen Erfolgswahrscheinlichkeit dieses Ziels (46.1 → 51.7 %) – Ziele vor Risiko, wie entschieden, aber im Ergebnis für eine „Minimum-Volatilität“-Variante kontraintuitiv. Siehe Owner-Frage 3.
+* **max_drawdown:** 60.0 % Aktien (Bandunterkante) statt Hausmatrix 67.5 %; Vola 9.52 %, Bag-σ 0.
+* **min_volatility:** 60.0 % Aktien, Vola 9.50 % (Default 10.67 %), Bag-σ 23 bps.
+* Verlauf `min_volatility` über die Entscheide: Hausmatrix 67.5 % (v3) → 60.0 % (v4, Ausnahme nur unerreichbarer Ziele) → 73.7 % (τ/2 in jedem Modus, Einkommensbrücke steuerte wieder) → **60.0 %** (Entscheid b). Bezahlt wird mit 1–3 pp Wahrscheinlichkeit der zwei nicht absicherbaren Ziele (Familienvermögen 3.5–4.0 %, Einkommensbrücke 46–48 %); beide werden mit Beraterhinweis offengelegt.
 
 ## 9. Golden-Fixtures
 
@@ -173,7 +176,7 @@ Alle sechs neu eingefroren (Engine `saa_resampled_v4`), erzeugt mit `OMP/OPENBLA
 
 ## 10. Tests und Budgets
 
-* Neu `tests/test_importance_sampling_ess.py` (24 Tests): Unverzerrtheit gegen Lognormal (T = 5/20/40), ESS/N ≥ 0.75 für T = 5…40, Kollaps des alten Shifts (ESS/N < 0.05), Gewichte ≤ 1/α und ESS ≥ α Σw, Mischungs-Präfixe, Tail-Abdeckung 15.5 %, Varianzreduktion, Gewichte der Marginale + CRN, ESS im Audit und in der Wilson-Grenze, ESS-Rückfall, Erreichbarkeits-Screen (Ausnahme in jedem Modus inkl. Primärterm, Schwelle τ/2 mit 54 %/5 %-Fall, Beraterhinweis, eine Zielfunktion über Bag/Evaluate/Validierung/Rerank), Strafausnahme, Publikation, Rundungs-Reparatur.
+* Neu `tests/test_importance_sampling_ess.py` (28 Tests): Unverzerrtheit gegen Lognormal (T = 5/20/40), ESS/N ≥ 0.75 für T = 5…40, Kollaps des alten Shifts (ESS/N < 0.05), Gewichte ≤ 1/α und ESS ≥ α Σw, Mischungs-Präfixe, Tail-Abdeckung 15.5 %, Varianzreduktion, Gewichte der Marginale + CRN, ESS im Audit und in der Wilson-Grenze, ESS-Rückfall, Erreichbarkeits-Screen (Ausnahme in jedem Modus inkl. Primärterm, Schwelle τ/2 mit 54 %/5 %-Fall, Beraterhinweis, eine Zielfunktion über Bag/Evaluate/Validierung/Rerank), Strafausnahme, Publikation, Rundungs-Reparatur.
 * SIGNIFICANCE-SCALAR-ONLY-001: die Zwei-Stufen-Logik in `resampling.py` (`lexicographic_improvement`, Stufen-Schalter in `_objective_scalar`) ist entfernt. Tupel-Verluste werden wie im Solver summiert (`scalar_loss`), ungültige Formen abgelehnt; Tests in `test_saa_resampled_stability.py` umgestellt (Tupel- = Skalar-Bootstrap, Golden-Fall entscheidet auf jedem Würfel gleich, Ablehnung ungültiger Formen).
 * Angepasst: Tiebreak-Tests in `test_objective_normalization.py` (Monotonie-Property, Stetigkeit, Reproducer, Signifikanz-Skalar; neu: Tiebreak = κ w'Σw und mittelwertunabhängig), `test_optimizer_objective_constraints.py`, `test_optimizer_objective_dimensionless.py`.
 * Performance-Budget: `generate_target_allocation` 4.6 s (Budget 24 s). `services/portfolio_engine.py` unverändert 6'979 Zeilen (≤ 7'100).
@@ -185,4 +188,6 @@ Alle sechs neu eingefroren (Engine `saa_resampled_v4`), erzeugt mit `OMP/OPENBLA
 3. **Schwelle „praktisch unerreichbar“ = max UB₉₅ < τ/2** (`UNREACHABLE_TAU_FRACTION`), Abschnitt 5.
 4. **Auch im Default steuern praktisch unerreichbare Ziele weder Strafe noch Primärterm**; Beraterhinweis im Ergebnis. Fundament Default: Bag-σ 634 → 16 bps (Abschnitt 8).
 
-Verbleibende Frage: In `min_volatility` liefert das Fundament jetzt 73.7 % Aktien (mehr als Default 64.4 % und Hausmatrix 67.5 %), weil die Einkommensbrücke (≈ 50 % gegen τ 80 %, über τ/2) die Variante dominiert. Das folgt konsequent aus „Ziele vor Risiko“ plus τ/2, ist für eine „Minimum-Volatilität“-Variante aber erklärungsbedürftig. Optionen: so lassen (offenlegen), oder in den Risikomass-Varianten nur Ziele steuern lassen, deren Schwelle auf einer zulässigen Allokation erreichbar ist (UB ≥ τ).
+5. **Risikomass-Varianten steuern nur auf an τ erreichbare Ziele** (Entscheid b). Fundament `min_volatility` 73.7 → 60.0 % Aktien; per Regressionstest abgesichert (Varianten ≤ Default in Aktienquote, Vola, verfeinertem Drawdown).
+
+Keine offenen Fragen aus diesem Auftrag.

@@ -394,6 +394,44 @@ def test_half_tau_threshold_keeps_decision_relevant_goals_steering(
 
 
 @pytest.mark.parametrize("mode", ["max_drawdown", "min_volatility"])
+@pytest.mark.parametrize("success_share,steers", [(0.54, False), (0.90, True)])
+def test_risk_variants_steer_only_goals_whose_tau_is_reachable(
+    monkeypatch, mode, success_share, steers,
+):
+    """CIO-Entscheid (b): in den Risikomass-Varianten steuert ein Ziel nur,
+    wenn tau (80 %) auf mindestens einer zulaessigen Allokation erreichbar
+    ist. 54 % (ueber tau/2, im Default steuernd) steuert dort NICHT und wird
+    mit eigenem Beraterhinweis offengelegt."""
+    from services.optimizer import objective as objective_module
+    from services.optimizer.goal_reachability import (
+        goal_reachability_screen,
+        reachability_reasoning,
+    )
+
+    ctx = _screen_context(mode)
+    n = int(ctx.n_paths)
+
+    def _constant_success(wealth, goal, *_args, **_kwargs):
+        return (np.arange(wealth.shape[0]) < int(round(success_share * n))).astype(np.int8)
+
+    monkeypatch.setattr(objective_module, "_goal_probability_core", _constant_success)
+    screen = goal_reachability_screen(ctx)
+    assert all(row["reachable"] is True for row in screen["goals"])
+    assert all(row["tau_reachable"] is steers for row in screen["goals"])
+    assert bool(screen["penalty_exempt_goal_ids"]) is (not steers)
+    lines = reachability_reasoning(screen)
+    if steers:
+        assert lines == []
+    else:
+        assert len(lines) == len(screen["goals"])
+        assert all(
+            "in dieser Risikovariante (" + mode + ") nicht optimiert" in line
+            and "geforderte Sicherheit auf keiner zulaessigen Allokation erreichbar" in line
+            for line in lines
+        )
+
+
+@pytest.mark.parametrize("mode", ["max_drawdown", "min_volatility"])
 def test_unreachable_goal_does_not_steer_risk_measure_variants(mode):
     from services.optimizer.drawdown_certification import validated_drawdown_evaluation
     from services.optimizer.objective import chance_constraint_penalty

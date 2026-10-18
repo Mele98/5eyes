@@ -42,7 +42,16 @@ konservativ: im Zweifel steuert ein Ziel weiter.
 
 Wirkung (JEDER Modus, CIO-Entscheid 2026-10-18)
 ------------------------------------------------
-* Ein praktisch unerreichbares Ziel steuert weder die Chance-Strafe noch
+* Risikomass-Varianten (``max_drawdown``, ``min_volatility``,
+  ``cvar_return``, ``max_return``; CIO-Entscheid b, 2026-10-18): dort
+  steuern nur Ziele, deren Schwelle tau auf mindestens einer zulaessigen
+  Allokation erreichbar ist (``max UB_95 >= tau``). Die Variante verspricht
+  ein Risikomass; sie darf nicht fuer ein ohnehin nicht absicherbares Ziel
+  Risiko aufbauen (gemessen: Fundament ``min_volatility`` 73.7 % Aktien,
+  mehr als Default und Hausmatrix, solange die Einkommensbruecke mit max
+  ~54 % gegen tau 80 % steuerte). Teilweise erreichbare Ziele werden mit
+  eigenem Beraterhinweis offengelegt.
+* Default: ein praktisch unerreichbares Ziel steuert weder die Chance-Strafe noch
   (Modus ``goal_shortfall``) den Primaerterm
   (``OptimizerContext.penalty_exempt_goal_ids``). Begruendung: sein
   Fehlbetrag bleibt auf JEDER zulaessigen Allokation bestehen; als Zielterm
@@ -65,7 +74,7 @@ import numpy as np
 
 from .certification import wilson_upper_bound
 
-GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v2"
+GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v3"
 # Ein Ziel gilt als praktisch unerreichbar, wenn die obere 95 %-Grenze seiner
 # besten zulaessigen Erfolgswahrscheinlichkeit unter diesem Anteil seiner
 # geforderten Sicherheit tau liegt (CIO-Entscheid 2026-10-18).
@@ -148,6 +157,7 @@ def goal_reachability_screen(context) -> dict | None:
     from . import solver as _solver
     from .objective import _default_tau_x100, _goal_probability_core
     from .objective_contract import objective_contract_of
+    from .objective_variants import OBJECTIVE_GOAL_SHORTFALL
 
     goals = _screened_goals(context, int(context.horizon_years) + 1)
     if not goals:
@@ -166,12 +176,20 @@ def goal_reachability_screen(context) -> dict | None:
             "max_upper_bound": 0.0,
             "best_candidate_bps": None,
             "reachable": False,
+            "tau_reachable": False,
         }
         for goal in goals
     }
+    mode = objective_contract_of(context).objective_mode
+    risk_variant = mode != OBJECTIVE_GOAL_SHORTFALL
     evaluated = 0
     for w in candidates:
-        open_ids = [gid for gid, row in state.items() if not row["reachable"]]
+        # Default: Entscheid an tau/2 genuegt. Risikomass-Variante: ein Ziel
+        # ist erst entschieden, wenn tau selbst erreicht ist.
+        open_ids = [
+            gid for gid, row in state.items()
+            if not (row["tau_reachable"] if risk_variant else row["reachable"])
+        ]
         if not open_ids:
             break
         evaluated += 1
@@ -195,10 +213,19 @@ def goal_reachability_screen(context) -> dict | None:
             row["max_upper_bound"] = max(row["max_upper_bound"], upper)
             if upper >= UNREACHABLE_TAU_FRACTION * row["tau"]:
                 row["reachable"] = True
+            if upper >= row["tau"]:
+                row["tau_reachable"] = True
 
     unreachable = sorted(gid for gid, row in state.items() if not row["reachable"])
-    mode = objective_contract_of(context).objective_mode
-    exempt = list(unreachable)
+    # Default: nur praktisch unerreichbare Ziele (UB < tau/2) steuern nicht.
+    # Risikomass-Variante (CIO-Entscheid b, 2026-10-18): nur Ziele, deren
+    # Schwelle tau auf mindestens einer zulaessigen Allokation erreichbar ist,
+    # steuern -- die Variante verspricht ein Risikomass und darf nicht fuer ein
+    # ohnehin nicht absicherbares Ziel Risiko aufbauen.
+    if risk_variant:
+        exempt = sorted(gid for gid, row in state.items() if not row["tau_reachable"])
+    else:
+        exempt = list(unreachable)
     return {
         "version": GOAL_REACHABILITY_SCREEN_VERSION,
         "objective_mode": mode,
@@ -217,6 +244,14 @@ def goal_reachability_screen(context) -> dict | None:
                 "max_upper_bound": row["max_upper_bound"],
                 "best_candidate_bps": row["best_candidate_bps"],
                 "reachable": bool(row["reachable"]),
+                # In der Default-Variante wird tau nur bis zum Entscheid an
+                # tau/2 verfolgt; None = nicht abschliessend geprueft.
+                "tau_reachable": (
+                    bool(row["tau_reachable"])
+                    if risk_variant or row["tau_reachable"] or not row["reachable"]
+                    else None
+                ),
+                "penalty_exempt": gid in exempt,
             }
             for gid, row in state.items()
         ],
@@ -226,23 +261,35 @@ def goal_reachability_screen(context) -> dict | None:
 
 
 def reachability_reasoning(screen: dict | None) -> list[str]:
-    """Beraterhinweis je praktisch unerreichbarem Ziel."""
-    if not screen or not screen.get("unreachable_goal_ids"):
+    """Beraterhinweis je Ziel, das in diesem Lauf nicht optimiert wird."""
+    if not screen or not screen.get("penalty_exempt_goal_ids"):
         return []
     lines = []
     for row in screen.get("goals") or ():
-        if row.get("reachable"):
+        if not row.get("penalty_exempt"):
             continue
-        lines.append(
-            "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist mit keiner "
-            "zulaessigen Allokation mit ausreichender Sicherheit erreichbar (max. "
-            f"{100.0 * float(row['max_probability']):.1f} %, obere 95 %-Grenze "
+        figures = (
+            f"max. {100.0 * float(row['max_probability']):.1f} %, obere 95 %-Grenze "
             f"{100.0 * float(row['max_upper_bound']):.1f} %, gefordert "
-            f"{100.0 * float(row['tau']):.0f} %). Ziel mit dem Kunden "
-            "ueberpruefen (Betrag, Termin, Prioritaet). Die Allokation wird "
-            "nicht auf dieses Ziel optimiert (kein zusaetzliches Risiko fuer "
-            "ein aussichtsloses Ziel)."
+            f"{100.0 * float(row['tau']):.0f} %"
         )
+        if not row.get("reachable"):
+            lines.append(
+                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist mit keiner "
+                "zulaessigen Allokation mit ausreichender Sicherheit erreichbar ("
+                + figures + "). Ziel mit dem Kunden ueberpruefen (Betrag, Termin, "
+                "Prioritaet). Die Allokation wird nicht auf dieses Ziel optimiert "
+                "(kein zusaetzliches Risiko fuer ein aussichtsloses Ziel)."
+            )
+        else:
+            lines.append(
+                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " wird in dieser "
+                "Risikovariante (" + str(screen.get("objective_mode")) + ") nicht "
+                "optimiert, da die geforderte Sicherheit auf keiner zulaessigen "
+                "Allokation erreichbar ist (" + figures + "). Die Variante baut fuer "
+                "ein nicht absicherbares Ziel kein Risiko auf; Ziel mit dem Kunden "
+                "ueberpruefen (Betrag, Termin, Prioritaet)."
+            )
     return lines
 
 
