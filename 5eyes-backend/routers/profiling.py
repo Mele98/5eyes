@@ -36,6 +36,10 @@ from services.portfolio_engine import (
     risk_assessment_ready_for_strategy,
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
+from services.risk_assessment_semantics import (
+    _optional_capacity_score,
+    override_documentation_requirements,
+)
 
 router = APIRouter(tags=["Risikoprofilierung"])
 
@@ -354,6 +358,27 @@ def override_risk_assessment(
         raise HTTPException(
             status_code=422,
             detail="FZK-Mandat: Override-Score darf 75 (= 7.5/10) nicht überschreiten (FIDLEG).",
+        )
+    # RISK-OVERRIDE-WRITE-BOUNDARY-001: dieselbe Regel wie Strategie-Gate und
+    # Domain-Validierung, VOR jeder Mutation -- ein unvollstaendig
+    # dokumentierter Override wird nie persistiert (422, kein Audit-Log).
+    needs_confirmation, needs_warning = override_documentation_requirements(
+        final_score_x10=int(ra.final_score_x10 or 0),
+        override_score_x10=int(body.override_score_x10),
+        risk_capacity_score_x10=_optional_capacity_score(ra),
+    )
+    if needs_confirmation and not body.override_client_confirmed:
+        raise HTTPException(
+            status_code=422,
+            detail="Ein Override nach oben erfordert die dokumentierte Bestaetigung des ausdruecklichen Kundenwunsches.",
+        )
+    if needs_warning and not body.override_warning_delivered:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ein Override ueber die Risikofaehigkeit oder um mindestens zwei "
+                "Profilbaender nach oben erfordert einen dokumentierten Warnhinweis."
+            ),
         )
 
     ra.is_overridden = 1
