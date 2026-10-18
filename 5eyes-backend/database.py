@@ -254,6 +254,21 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
     conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
 
 
+# ESG-PREMIUM-CRITERIA-001 (2026-10-14): (sub_asset_class, theme_tags-JSON)
+# fuer den Backfill bestehender Themenprodukte. Bewusst als Literal hier
+# (database.py importiert keine services/), synchron mit
+# services/portfolio_engine_payload.py::THEME_SUB_ASSET_CLASSES -- per Test
+# gepinnt (tests/test_esg_premium_criteria.py).
+THEME_TAG_BACKFILL: tuple[tuple[str, str], ...] = (
+    ("Thema Fossile Energie", '["fossil"]'),
+    ("Thema Verteidigung", '["defense"]'),
+    ("Thema Tabak", '["tobacco"]'),
+    ("Thema Alkohol", '["alcohol"]'),
+    ("Thema Gluecksspiel", '["gaming"]'),
+    ("Thema Kernenergie", '["nuclear"]'),
+)
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -619,6 +634,11 @@ def ensure_runtime_columns() -> None:
             ('credit_rating', 'TEXT'),
             ('esg_score_x10', 'INTEGER'),
             ('liquidity_tier', 'TEXT'),
+            # ESG-PREMIUM-CRITERIA-001 (2026-10-14): siehe models/review.py
+            # Product.climate_benchmark / Product.theme_tags. Backfill der
+            # theme_tags fuer "Thema X"-Produkte weiter unten.
+            ('climate_benchmark', 'TEXT'),
+            ('theme_tags', 'TEXT'),
             # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix):
             # siehe models/review.py::Product.jurisdiction. NULL = "CH".
             ('jurisdiction', 'TEXT'),
@@ -725,6 +745,20 @@ def ensure_runtime_columns() -> None:
                     "WHERE status IS NULL"
                 )
             )
+
+        # ESG-PREMIUM-CRITERIA-001 (2026-10-14): idempotenter Backfill --
+        # Produkte mit Sub-Anlageklasse "Thema X" erhalten den Tag X, sofern
+        # noch KEINE Tags gepflegt sind (gepflegte Tags nie ueberschreiben).
+        # Identisch zur Alembic-Revision d7c3e9a2f5b1 (Postgres-Pfad).
+        if inspector.has_table('products'):
+            for sub_asset_class, theme_tags in THEME_TAG_BACKFILL:
+                conn.execute(
+                    text(
+                        "UPDATE products SET theme_tags = :tags "
+                        "WHERE sub_asset_class = :sub AND theme_tags IS NULL"
+                    ),
+                    {'tags': theme_tags, 'sub': sub_asset_class},
+                )
 
         # SEC-003 (Codex-Audit 2026-08-26): audit_log_sequence_counter ist eine
         # neue ORM-only-Tabelle (models.review.AuditLogSequenceCounter). In der

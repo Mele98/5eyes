@@ -139,18 +139,36 @@ def test_pytest_runs_with_coverage(workflow_text):
     assert "--cov-report=xml" in workflow_text
 
 
-def test_pytest_maxfail_5(workflow_text):
-    """maxfail=5 bricht nach 5 Failures ab — Resource-Schutz."""
-    assert "--maxfail=5" in workflow_text
+def test_pytest_maxfail_50(workflow_text):
+    """maxfail=50: bricht bei Totalschaden (z.B. Importfehler) frueh ab --
+    Resource-Schutz --, versteckt aber echte Wechselwirkungen nicht mehr.
+
+    CI-COVERAGE-ON-PUSH (2026-10-18): Mit maxfail=5 brach der kombinierte
+    Integrationslauf (Run 39082332916) nach 5 Fehlern ab; lokal zeigten sich
+    danach 9 Fehler, und test_performance_budget lief auf PR #619 nie."""
+    assert "--maxfail=50" in workflow_text
+    assert "--maxfail=5 " not in workflow_text and not workflow_text.rstrip().endswith("--maxfail=5")
 
 
 def test_pytest_uploads_coverage_artifact(workflow_yaml):
-    pytest_job = workflow_yaml["jobs"]["pytest"]
-    upload_steps = [
-        s for s in pytest_job["steps"]
+    """CI-COVERAGE-ON-PUSH (2026-10-18): Coverage ist ein eigener, nicht-
+    blockierender Job nur nach Merge (push); der PR-Job laedt nur das
+    pytest-Log hoch und laeuft die Suite genau EINMAL."""
+    cov_job = workflow_yaml["jobs"]["coverage"]
+    cov_uploads = [
+        s for s in cov_job["steps"]
         if s.get("uses", "").startswith("actions/upload-artifact@")
     ]
-    assert len(upload_steps) >= 2  # coverage + pytest-log
+    assert len(cov_uploads) == 1
+    assert cov_job["if"] == "github.event_name == 'push'"
+    assert cov_job["continue-on-error"] is True
+    pytest_job = workflow_yaml["jobs"]["pytest"]
+    pytest_runs = [s.get("run", "") for s in pytest_job["steps"] if "pytest tests/" in s.get("run", "")]
+    assert len(pytest_runs) == 1 and "--cov" not in pytest_runs[0]
+    assert any(
+        s.get("uses", "").startswith("actions/upload-artifact@")
+        for s in pytest_job["steps"]
+    )  # pytest-log
 
 
 # ---------------------------------------------------------------------------
