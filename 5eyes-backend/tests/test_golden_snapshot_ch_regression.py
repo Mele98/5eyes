@@ -180,6 +180,19 @@ erzeugt: alle sechs Dateien byte-identisch (die publizierte Quote ist die
 projizierte Hausmatrix-Zielquote, kein SLSQP-Konvergenzpunkt); eingefroren
 ist die Haswell-Fassung (CI-Kernel). Begruendung und Vorher/Nachher aller
 Modi: docs/planning/2026-10-18-importance-sampling-ess.md.
+
+Nachtrag (2026-10-18, HOUSE-PRIOR-001, Engine ``saa_resampled_v6``): die
+Hausmatrix ist jetzt Prior im Optimierer (``kappa_H * (w - w_H)' Sigma
+(w - w_H)``, kappa_H = 300) statt eines Signifikanzschalters; die Version geht
+in den Seed, alle Wuerfel sind neu. Alle sechs Fixtures unter
+OPENBLAS_CORETYPE=Haswell UND =Nehalem (OMP/OPENBLAS/MKL_NUM_THREADS=1) neu
+erzeugt: beide Laeufe BYTE-IDENTISCH zu den v5-Fixtures, deshalb keine Datei
+geaendert. Fachlich erwartet: auf allen sechs Mandaten sind alle Ziele mit
+der Hausquote sicher erreicht (p = 1), der Gradient der Zielebene ist dort 0,
+und das Optimum des Priors ist exakt die (projizierte) Hausquote (Tracking
+Error 0, Entscheid ``house_prior`` /
+``identical_to_house_anchor``). Begruendung:
+docs/planning/2026-10-18-house-prior-v6.md.
 """
 from __future__ import annotations
 
