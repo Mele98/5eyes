@@ -125,11 +125,16 @@ def test_max_drawdown_run_certifies_all_finalists_on_the_validation_cube(monkeyp
     audit = getattr(result, "drawdown_certification", None)
     assert audit is not None, "max_drawdown-Lauf ohne Drawdown-Zertifizierung"
     assert audit["certified"] is True
-    # Validierungs-Cube, nicht Trainings-Cube -- derselbe Cube wie die
-    # Goal-Nachzertifizierung.
-    assert audit["validation_seed"] == SEED + VALIDATION_SEED_OFFSET
+    # DRAWDOWN-HOLDOUT-REUSE-001 (Engine v7): gerankt wird auf dem
+    # AUSWAHL-Wuerfel, nicht auf dem Trainings-Cube und NICHT auf dem finalen
+    # Holdout der Goal-Nachzertifizierung (Seed Inhalts-Seed + Offset).
+    from services.optimizer.resampling import _domain_seed
+
+    assert audit["cube_role"] == "selection"
+    assert audit["validation_seed"] == _domain_seed("saa-validation-selection-v1", SEED)
     assert audit["validation_seed"] != result.seed
-    assert audit["validation_cube_hash"] == result.validation_cube_hash
+    assert result.validation_seed == SEED + VALIDATION_SEED_OFFSET
+    assert audit["validation_cube_hash"] != result.validation_cube_hash
     assert audit["n_candidates"] == len(audit["candidates"]) >= 1
     assert isinstance(audit["ranking_changed"], bool)
     assert isinstance(audit["winner_changed"], bool)
@@ -146,7 +151,7 @@ def test_max_drawdown_run_certifies_all_finalists_on_the_validation_cube(monkeyp
     best = min(audit["candidates"], key=lambda c: (c["validated_objective"], c["training_rank"]))
     assert best["validated_rank"] == 0
     assert result.weights_bps == audit["validated_winner_weights_bps"]
-    assert any("Validierungs-Cube" in line for line in result.reasoning)
+    assert any("Auswahl-Wuerfel" in line for line in result.reasoning)
 
 
 def test_training_winner_is_scored_on_the_validation_cube_not_the_training_cube(monkeypatch):
@@ -352,7 +357,10 @@ def resampled_max_drawdown():
 
 def test_resampled_rerank_scores_mean_projection_and_house_anchor(resampled_max_drawdown):
     """Kandidaten = {projiziertes Bag-Mittel, rohes Bag-Mittel, Hausmatrix-
-    Anker}, alle auf DEMSELBEN Validierungs-Cube wie der Signifikanztest."""
+    Anker}, alle auf dem AUSWAHL-Wuerfel; der Signifikanztest des
+    eingefrorenen Challengers laeuft auf dem getrennten finalen Holdout
+    (DRAWDOWN-HOLDOUT-REUSE-001, Engine v7 -- bis v6 verlangte dieser Test
+    denselben Cube fuer Auswahl und Test)."""
     from services.optimizer import drawdown_certification as dd_module
 
     result = resampled_max_drawdown
@@ -374,10 +382,14 @@ def test_resampled_rerank_scores_mean_projection_and_house_anchor(resampled_max_
     # Der projizierte Anker ist bewertet (eigene Zeile oder zusammengefasst).
     assert any(c["weights_bps"] == anchor for c in audit["candidates"])
     assert audit["house_anchor_validated_rank"] is not None
-    # Gemeinsamer Cube: Rerank, Signifikanztest und Goal-Nachzertifizierung.
-    assert audit["validation_seed"] == significance["validation_seed"]
-    assert audit["validation_cube_hash"] == significance["validation_cube_hash"]
-    assert audit["validation_cube_hash"] == result.validation_cube_hash
+    # Drei Rollen: Auswahl-Wuerfel (Rerank) != finaler Holdout (Test +
+    # Goal-Nachzertifizierung, beide auf DEMSELBEN finalen Cube).
+    assert audit["cube_role"] == "selection"
+    assert significance["cube_role"] == solver_module.CUBE_ROLE_FINAL
+    assert audit["validation_seed"] != significance["validation_seed"]
+    assert audit["validation_cube_hash"] != significance["validation_cube_hash"]
+    assert significance["selection_cube_hash"] == audit["validation_cube_hash"]
+    assert significance["validation_cube_hash"] == result.validation_cube_hash
     # Der Signifikanztest testet den besten Nicht-Anker-Kandidaten.
     assert significance["candidate_bps"] == audit["significance_candidate_weights_bps"]
     # Die publizierte Allokation folgt dem Signifikanzentscheid.
@@ -388,16 +400,20 @@ def test_resampled_rerank_scores_mean_projection_and_house_anchor(resampled_max_
     )
     assert result.weights_bps == expected
     assert any(
-        "Signifikanztest gegen die Hausmatrix geht" in line for line in result.reasoning
+        "in den Signifikanztest gegen die Hausmatrix auf dem finalen Holdout geht" in line
+        for line in result.reasoning
     )
 
 
 def test_resampled_significance_uses_the_refined_drawdown(resampled_max_drawdown):
     """Im Modus max_drawdown vergleicht der Signifikanztest mit dem
-    verfeinerten Drawdown -- seine Punktschaetzung ist identisch mit dem
-    validierten Objective des Reranks (gleiche Zielfunktion, gleicher Cube,
-    gleicher Bruecken-Seed). Mit dem Jahresgitter-Proxy waeren beide Zahlen
-    verschieden (der Proxy liegt systematisch tiefer)."""
+    verfeinerten Drawdown. Engine v7 (DRAWDOWN-HOLDOUT-REUSE-001): der Test
+    laeuft auf dem FINALEN Holdout, der Rerank auf dem Auswahl-Wuerfel -- die
+    Punktschaetzung des Tests ist deshalb das validierte Objective auf dem
+    finalen Cube (gleiche Zielfunktion, Bruecken-Seed = finaler Seed), NICHT
+    das des Reranks. Mit dem Jahresgitter-Proxy laege es tiefer."""
+    from services.optimizer import drawdown_certification as dd_module
+
     result = resampled_max_drawdown
     significance = result.resampling["significance"]
     if significance.get("reason") == "identical_to_house_anchor":
@@ -407,8 +423,26 @@ def test_resampled_significance_uses_the_refined_drawdown(resampled_max_drawdown
         tuple(sorted(c["weights_bps"].items())): c
         for c in result.drawdown_certification["candidates"]
     }
-    anchor = by_bps[tuple(sorted(significance["house_anchor_projected_bps"].items()))]
-    candidate = by_bps[tuple(sorted(significance["candidate_bps"].items()))]
+    selection_anchor = by_bps[tuple(sorted(significance["house_anchor_projected_bps"].items()))]
+    selection_candidate = by_bps[tuple(sorted(significance["candidate_bps"].items()))]
+    final_context, final_seed, final_hash = solver_module._build_validation_context(
+        result.context,
+    )
+    assert final_hash == significance["validation_cube_hash"]
+
+    def _on_final(entry):
+        weights = np.array(
+            [entry["weights_bps"][b] / 10000.0 for b in solver_module.BUCKET_ORDER]
+        )
+        return dd_module.validated_drawdown_evaluation(
+            final_context, weights, validation_seed=final_seed,
+        )
+
+    anchor = _on_final(selection_anchor)
+    candidate = _on_final(selection_candidate)
+    assert anchor["refined_mean_drawdown"] != pytest.approx(
+        selection_anchor["refined_mean_drawdown"], rel=1e-9,
+    ), "Test und Rerank duerfen nicht auf demselben Cube rechnen."
     # HOUSE-FIRST-SIGNIFICANCE-001 (2026-10-18): die Top-Level-Statistik ist
     # die ZIELEBENE (Chance-Strafe + Soft-Preference) ...
     for stats_key, entry in (("anchor_objective", anchor), ("candidate_objective", candidate)):
@@ -439,9 +473,11 @@ def test_resampled_significance_uses_the_refined_drawdown(resampled_max_drawdown
     # Der verfeinerte Drawdown liegt ueber dem Jahresgitter -- haette der
     # Test den Proxy benutzt, laege anchor_objective darunter.
     assert anchor["refined_mean_drawdown"] > anchor["annual_grid_mean_drawdown"]
-    # Konsistenz: Rangfolge im Rerank == Vorzeichen der Punktschaetzung.
-    anchor_ahead = anchor["validated_rank"] < candidate["validated_rank"]
-    assert anchor_ahead == (risk["improvement"] <= 0.0)
+    # Die Punktschaetzung des Tests ist die Differenz auf dem finalen Cube.
+    assert risk["improvement"] == pytest.approx(
+        anchor["validated_objective"] - candidate["validated_objective"],
+        rel=1e-9, abs=1e-15,
+    )
 
 
 def test_default_mode_significance_keeps_its_model_basis(monkeypatch):
@@ -460,7 +496,7 @@ def test_resampled_rerank_hands_the_best_non_anchor_candidate_to_the_test(monkey
 
     monkeypatch.setenv("OPTIMIZER_OBJECTIVE", OBJECTIVE_MAX_DRAWDOWN)
     context = build_optimizer_context(**_kwargs())
-    validation = solver_module._build_validation_context(context)
+    validation = solver_module._build_selection_validation_context(context)
     lo = np.array([lo for lo, _hi in context.bounds])
     hi = np.array([hi for _lo, hi in context.bounds])
     projected = solver_module._normalize_to_bounds((lo + hi) / 2.0, context.bounds)
@@ -530,7 +566,7 @@ def test_house_prior_safety_net_publishes_the_goal_attribution_contract(monkeypa
     monkeypatch.setattr(solver_module, "paired_bootstrap_disclosure", _worse)
     result = _solve(monkeypatch, mode=OBJECTIVE_GOAL_SHORTFALL)
     block = result.resampling["house_prior"]
-    if block["reason"] != "identical_to_house_anchor":
+    if block["reason"] not in {"identical_to_house_anchor", "within_solver_tolerance_of_house_anchor"}:
         assert result.resampling["decision"] == "house_prior_guard", block
     assert result.weights_bps == block["house_anchor_projected_bps"]
     _assert_published_contract(result.goal_achievability)
