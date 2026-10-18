@@ -2,7 +2,6 @@ import hashlib
 import logging
 import secrets
 import threading
-import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -26,8 +25,7 @@ from services.login_guard import login_attempt_guard
 from services.audit import log
 from services.password_audit import needs_rehash
 from services.totp import (
-    generate_secret, provisioning_uri, qr_svg_data_uri, verify as totp_verify,
-    _PERIOD as _TOTP_PERIOD_SECONDS,
+    generate_secret, provisioning_uri, qr_svg_data_uri, match_counter as totp_match_counter,
 )
 from services.totp_secret_storage import store_totp_secret, load_totp_secret
 from services.mailer import send_invite_email, send_password_reset_email
@@ -123,7 +121,7 @@ def _issue_token_response(user: User, db: Session | None = None, request: Reques
     )
 
 
-def _totp_replay_check_and_record(db: Session, user: User, code: str) -> bool:
+def _totp_replay_check_and_record(db: Session, user: User, code: str, code_counter: int) -> bool:
     """AUTH-06: Anti-Replay fuer TOTP-Login. services/totp.verify() prueft nur,
     ob der Code zum aktuellen Zeitfenster (+/-1 Zeitschritt) passt — ohne
     Gedaechtnis kann derselbe (mitgelesene) Code beliebig oft wiederverwendet
@@ -168,8 +166,21 @@ def _totp_replay_check_and_record(db: Session, user: User, code: str) -> bool:
     wachsender Ziffernzahl (acht- vs. neunstelliger Zeitschritt) falsch. Der
     neue Hash-Vergleich ist Teil DERSELBEN Core-UPDATE-WHERE-Klausel -- kein
     separates read-then-write, damit die hier bereits gefixte Race bestehen
-    bleibt."""
-    counter = int(time.time() // _TOTP_PERIOD_SECONDS)
+    bleibt.
+
+    SEC-TOTP-REPLAY-STEP (2026-10-18): gespeichert und verglichen wird jetzt
+    der Zeitschritt, zu dem der CODE passt (`code_counter`, aus
+    services/totp.py::match_counter), nicht mehr der Server-Zeitschritt zum
+    Pruefzeitpunkt. Vorher ging ein Replay durch: Code X (Schritt s) wird bei
+    Server-Schritt s-1 akzeptiert (Client-Uhr vor, w=+1) -> gespeichert s-1/X;
+    ein anderer Code Y wird bei Server-Schritt s akzeptiert -> gespeichert
+    s/Y; bei Server-Schritt s+1 ist X dank w=-1 noch gueltig, s < s+1 und
+    Hash X != Y -> X wurde ein ZWEITES Mal akzeptiert. Mit dem Code-
+    Zeitschritt gilt die RFC-6238-Regel (Abschnitt 5.2): nach Akzeptieren
+    von Schritt s wird jeder Code mit Schritt <= s abgelehnt. Nebeneffekt:
+    ein frischer Code des naechsten Schritts wird nicht mehr faelschlich als
+    Replay verworfen, nur weil der Server-Zeitschritt noch derselbe ist."""
+    counter = int(code_counter)
     code_hash = hashlib.sha256((code or "").encode("utf-8")).hexdigest()
     result = db.execute(
         _sa_update(User)
@@ -376,7 +387,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
                 status_code=401, detail="2FA-Code erforderlich",
                 headers={"X-2FA-Required": "1"},
             )
-        if not totp_verify(load_totp_secret(db, user), code):
+        code_counter = totp_match_counter(load_totp_secret(db, user), code)
+        if code_counter is None:
             # #25 Fallback: 2FA-Recovery-Code (Backup, falls Authenticator weg).
             # Single-use — verbrauchter Code wird entfernt + persistiert.
             ensure_account_recovery_columns(db)
@@ -393,7 +405,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         else:
             # AUTH-06: gueltiger TOTP-Code — aber schon in diesem/einem
             # frueheren Zeitschritt verwendet (Replay, z.B. mitgelesener Code)?
-            if _totp_replay_check_and_record(db, user, code):
+            if _totp_replay_check_and_record(db, user, code, code_counter):
                 failure = login_attempt_guard.register_failure(guard_key)
                 headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
                 raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)
@@ -598,7 +610,8 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
             detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
-    if not totp_verify(load_totp_secret(db, current_user), body.code):
+    code_counter = totp_match_counter(load_totp_secret(db, current_user), body.code)
+    if code_counter is None:
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
@@ -606,7 +619,7 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
     # Endpoint _totp_replay_check_and_record() bisher NICHT auf -- ein
     # mitgelesener/geleakter Code konnte innerhalb des +/-1-Drift-Fensters
     # erneut vorgelegt werden, um Recovery-Codes ein zweites Mal auszuloesen.
-    if _totp_replay_check_and_record(db, current_user, body.code):
+    if _totp_replay_check_and_record(db, current_user, body.code, code_counter):
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)
@@ -637,12 +650,13 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
             detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
-    if not totp_verify(load_totp_secret(db, current_user), body.code):
+    code_counter = totp_match_counter(load_totp_secret(db, current_user), body.code)
+    if code_counter is None:
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
     # Kontrollrunde 2026-09-21: siehe /2fa/enable -- dieselbe Replay-Luecke.
-    if _totp_replay_check_and_record(db, current_user, body.code):
+    if _totp_replay_check_and_record(db, current_user, body.code, code_counter):
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)

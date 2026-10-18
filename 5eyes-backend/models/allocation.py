@@ -134,6 +134,15 @@ class TargetAllocation(Base):
     # Stochastic Goal Engine Stage 5: persistierter Shadow-Vergleich fuer
     # Admin-/Compliance-Auswertung. Nur im shadow_stochastic-Modus befuellt.
     shadow_optimization_json = Column(String)
+    # SIM-HORIZON-CONFIRM-001 (2026-10-17): Bis SIM-HORIZON-ALWAYS-EXPLICIT-001
+    # schrieb der Monolith simulation.horizonYears IMMER in preferences_json
+    # (Select-Default '10' bzw. flache Lebenserwartung) -- ein so gespeicherter
+    # Horizont ist keine belegte Berater-Wahl. preferences_json ist Teil des
+    # allocation_context_hash und bleibt unveraendert; die nachtraegliche
+    # Bestaetigung durch den Berater wird daher NEBEN dem Snapshot vermerkt.
+    # NULL = (noch) nicht bestaetigt.
+    sim_horizon_confirmed_at = Column(String)
+    sim_horizon_confirmed_by = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

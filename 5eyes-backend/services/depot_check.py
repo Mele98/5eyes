@@ -254,6 +254,9 @@ def _init_result_dict(mandate: Mandate) -> dict:
         # Ziel-Inputs (input_snapshot_hash) gesetzt ist, nicht wegen des
         # Risikoprofils.
         "target_allocation_inputs_stale": False,
+        # STALE-ALLOCATION-HIDE-TARGETS-001: True = Bucket-Zielzahlen
+        # (soll/drift/band/in_band) sind genullt, weil veraltet.
+        "soll_ausgeblendet": False,
         "buckets": {},  # bucket → {ist_bps, soll_bps, ist_rappen, drift_bps, in_band, band}
         "country_exposure_bps": {},
         "sector_exposure_bps": {},
@@ -655,6 +658,18 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
             "band_max_bps": band_max_bps,
             "in_band": in_band,
         }
+    # STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid): ist die Soll-
+    # Allokation veraltet (Risikoprofil ODER geaenderte Inputs), werden ihre
+    # Zielzahlen nicht ausgeliefert -- weder Soll noch Drift noch Band noch
+    # Band-Status. Konsumenten zeigen stattdessen den Hinweis "Strategie neu
+    # berechnen". Damit entfallen auch die Band-Warnungen gegen alte Baender.
+    result["soll_ausgeblendet"] = bool(result["target_allocation_stale"])
+    if result["soll_ausgeblendet"]:
+        for bucket_info in result["buckets"].values():
+            bucket_info.update(
+                soll_bps=None, drift_bps=None,
+                band_min_bps=None, band_max_bps=None, in_band=None,
+            )
 
     # 5. Aggregierte Country/Sector/Currency-Exposures (IST)
     if position_weights_bps:
@@ -702,7 +717,14 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
         result["currency_exposure_drift_bps"] = _compute_drift(
             result["currency_exposure_bps"], result["soll_currency_exposure_bps"]
         )
-    elif positions_with_products:
+    if result["soll_ausgeblendet"]:
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (Nachtrag Sektion 9/10): die
+        # SOLL-Exposures stammen aus der Empfehlung zur veralteten Allokation
+        # -- wie die Bucket-Ziele nicht ausliefern.
+        for dim in ("country", "sector", "currency"):
+            result[f"soll_{dim}_exposure_bps"] = {}
+            result[f"{dim}_exposure_drift_bps"] = {}
+    elif soll_total_target_rappen <= 0 and positions_with_products:
         # RecommendationPositions vorhanden, aber kein target_amount gepflegt.
         # Berater hat noch nicht „Empfehlung übernehmen" geklickt.
         result["warnings"].append(

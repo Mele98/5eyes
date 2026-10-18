@@ -827,11 +827,14 @@ def test_target_allocation_predating_current_assessment_is_flagged_stale(session
         s.commit()
         result = compute_depot_check(s, mandate)
     assert old_ra.id != new_ra.id
-    # Die rohe Band-Berechnung selbst bleibt unveraendert verfuegbar ...
-    assert result["buckets"]["equities"]["in_band"] is True
-    # ... aber der Staleness-Flag macht sie als Grundlage fuer eine
-    # Compliance-Aussage ungueltig.
     assert result["target_allocation_stale"] is True
+    # STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid): die Band-Aussage
+    # gegen die veraltete Allokation wird nicht mehr ausgeliefert (vorher
+    # hier "in_band: True"), IST bleibt.
+    assert result["soll_ausgeblendet"] is True
+    assert result["buckets"]["equities"]["in_band"] is None
+    assert result["buckets"]["equities"]["soll_bps"] is None
+    assert result["buckets"]["equities"]["ist_bps"] == 5000
     assert any("frueheren" in w and "Risikoprofil" in w for w in result["warnings"])
 
 
