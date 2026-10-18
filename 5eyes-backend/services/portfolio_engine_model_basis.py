@@ -129,6 +129,12 @@ def _build_allocation_model_basis(
     elif active_method == "fallback_house_matrix":
         optimization_basis_id = "house_matrix_fallback_v1"
         optimization_purpose = "controlled_fallback"
+    elif active_method == "manual_override":
+        # MANUAL-SAVE-DEADEND-001: Quoten vom Berater gesetzt (begruendet,
+        # Risikobudget serverseitig geprueft) -- weder Solver noch
+        # Hausmatrix-Mitte; der Nachweis darf das nicht verschleiern.
+        optimization_basis_id = "manual_override_v1"
+        optimization_purpose = "advisor_manual_selection"
     else:
         optimization_basis_id = "house_matrix_policy_v1"
         optimization_purpose = "allocation_selection"

@@ -35,13 +35,25 @@ def test_aggregator_payload_wires_cost_disclosure_section():
 
 
 def test_wrapper_passes_through_service_result(monkeypatch):
+    import services.advisory_report as advisory_report
+
+    seen: dict = {}
+
+    def _fake(db, mandate, *, target_allocation_id=None):
+        seen["ta_id"] = target_allocation_id
+        return {"available": True, "total_cost_bps": 120}
+
+    # COST-RUN-RESOLVER-001: der Wrapper reicht die aktuelle TA aus dem
+    # Aggregator-Cache durch (keine eigene TA-Abfrage im Kostenausweis).
     monkeypatch.setattr(
-        cost_disclosure, "build_cost_disclosure",
-        lambda db, mandate: {"available": True, "total_cost_bps": 120},
+        advisory_report, "_cached_current_ta",
+        lambda db, mandate: MagicMock(id="TA-CURRENT"),
     )
+    monkeypatch.setattr(cost_disclosure, "build_cost_disclosure", _fake)
     result = _build_cost_disclosure_section(db=None, mandate=_mandate())
     assert result["available"] is True
     assert result["total_cost_bps"] == 120
+    assert seen["ta_id"] == "TA-CURRENT"
 
 
 def test_wrapper_fails_closed_on_service_error(monkeypatch):
