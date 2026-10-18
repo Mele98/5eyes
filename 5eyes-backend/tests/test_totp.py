@@ -71,3 +71,17 @@ def test_provisioning_uri_format():
     assert uri.startswith("otpauth://totp/")
     assert "secret=ABC234" in uri
     assert "issuer=5eyes" in uri
+
+
+def test_match_counter_returns_code_step_not_server_step():
+    """SEC-TOTP-REPLAY-STEP: match_counter() liefert den Zeitschritt des
+    Codes (Grundlage des Anti-Replay-Guards), nicht den Server-Schritt."""
+    sec = totp.generate_secret()
+    t = 1_700_000_010
+    step = t // 30
+    code = totp.totp_at(sec, t)
+    assert totp.match_counter(sec, code, t) == step
+    assert totp.match_counter(sec, code, t + 30) == step   # w=-1
+    assert totp.match_counter(sec, code, t - 30) == step   # w=+1
+    assert totp.match_counter(sec, code, t + 60) is None
+    assert totp.match_counter(sec, "abc", t) is None
