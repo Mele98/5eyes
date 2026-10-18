@@ -133,7 +133,7 @@ Mit dem wirksamen Varianz-Tiebreak landen ziel-sichere Mandate auf Bandecken und
 
 ## 7. Konsistenz
 
-Eine Zielfunktion für alle Pfade: `_objective_from_array` (Bags/Einzelwürfel), `evaluate_weights`, Signifikanztest (`_context_loss_pair_on_validation`) und Drawdown-Rerank (`validated_drawdown_evaluation`) übergeben dieselbe Tiebreak-Varianz und dieselbe Strafausnahme aus dem Context; Bag-Würfel ziehen mit derselben Proposal und denselben Gewichtsregeln wie der Hauptwürfel. Tests: `test_house_matrix_significance_compares_the_scalar_the_solver_minimizes` (erweitert um Varianz und Ausnahme), `test_unreachable_goal_does_not_steer_risk_measure_variants` (Hauptwürfel, Bag, `evaluate_weights` = Closure, Validierung, Drawdown-Rerank).
+Eine Zielfunktion für alle Pfade: `_objective_from_array` (Bags/Einzelwürfel), `evaluate_weights`, Signifikanztest (`_context_loss_components_on_validation`, bis Engine v4 `_context_loss_pair_on_validation`) und Drawdown-Rerank (`validated_drawdown_evaluation`) übergeben dieselbe Tiebreak-Varianz und dieselbe Strafausnahme aus dem Context; Bag-Würfel ziehen mit derselben Proposal und denselben Gewichtsregeln wie der Hauptwürfel. Tests: `test_house_matrix_significance_compares_the_goal_level_not_the_tiebreak` (bis Engine v4 `..._compares_the_scalar_the_solver_minimizes`; seit Abschnitt 12 Zielebene ohne Tiebreak), `test_unreachable_goal_does_not_steer_risk_measure_variants` (Hauptwürfel, Bag, `evaluate_weights` = Closure, Validierung, Drawdown-Rerank).
 
 ## 8. Wirkung in Produktion (40 Bags + Signifikanztest; vorher = #626 Engine v3, nachher Engine v4)
 
@@ -191,3 +191,114 @@ Alle sechs neu eingefroren (Engine `saa_resampled_v4`), erzeugt mit `OMP/OPENBLA
 5. **Risikomass-Varianten steuern nur auf an τ erreichbare Ziele** (Entscheid b). Fundament `min_volatility` 73.7 → 60.0 % Aktien; per Regressionstest abgesichert (Varianten ≤ Default in Aktienquote, Vola, verfeinertem Drawdown).
 
 Keine offenen Fragen aus diesem Auftrag.
+
+## 12. HOUSE-FIRST-SIGNIFICANCE-001 – Hausmatrix, solange die Ziele mit ihr gleich sicher erreicht sind (CIO-Entscheid 2026-10-18, Engine v5)
+
+### 12.1 Befund
+
+Auf allen sechs CH-Golden-Mandaten erreichen Hausmatrix und Optimierer alle Ziele mit p = 1 (Validierungswürfel). Die Zielebene (Ziel-Fehlbetrag + Chance-Strafe) ist für beide exakt 0; übrig bleibt der Tiebreak `κ·wᵀΣw`. Der ist **pfadfrei**: die Differenz Anker − Kandidat hat in jeder Bootstrap-Replikation dasselbe Vorzeichen, der Test meldet unabhängig von der Grösse der Differenz p = 1/(B+1) = 0.0025. Ergebnis: der Optimierer gewann immer, mit Eckenlösungen (Alternative = Gold auf Bandmaximum, Immobilien und Aktien auf Bandminimum), getragen von Schätzfehlern der Korrelationsmatrix. Gegenüber der Hausmeinung (IC) war das eine Abweichung ohne Bezug zu den Zielen des Kunden.
+
+### 12.2 Herleitung
+
+* **Was der Test entscheiden soll.** Die Hausmatrix ist die IC-Meinung und gilt, bis der Optimierer etwas *für den Kunden* besser macht. Im Default ist das die Zielerreichung (Fehlbetrag + Chance-Strafe). Eine Varianzdifferenz bei sicher erreichten Zielen ist kein Kundennutzen, sondern eine Aussage über die Schätzung von Σ.
+* **Warum der Tiebreak im Solver bleibt.** Ohne ihn ist die Zielfunktion auf Mandaten mit sicheren Zielen flach; SLSQP bliebe am Startpunkt stehen und die Bag-Streuung käme zurück (OBJECTIVE-NORMALIZATION-001). Er ordnet die Kandidaten weiter, entscheidet aber nicht mehr über Anker vs. Kandidat.
+* **Ein deterministischer Term hat im gepaarten Bootstrap keine Stichprobenverteilung.** Jeder pfadfreie Term (Tiebreak, Soft-Preference) wird entweder immer oder nie „signifikant“. Die Soft-Preference bleibt trotzdem auf der Zielebene: sie ist eine explizite Berater-Vorgabe (Target Intent, CERT-ALLOCATION-INTENT-001), keine Schätzgrösse. Ein Lauf mit Target Intent soll diese Vorgabe nicht durch die Hausmatrix verlieren.
+* **Risikomass-Varianten.** Dort ist das Risikomass der Zweck des Laufs. Entschieden wird deshalb zusätzlich auf dem Skalar (Risikomass + Chance-Strafe + Preference), aber nur mit **Materialitätsschwelle 50 bps** auf dem Risikomass selbst (`RISK_MEASURE_MATERIALITY = 0.005`, alle Varianten sind Renditeanteile). Begründung:
+  * Ein Vola-Schätzer aus 20 Jahren Monatsdaten hat eine relative Standardabweichung von etwa 1/√(2·240) = 4.6 %. Bei 8–12 % Portfolio-Vola sind das 35–55 bps. Kleinere Unterschiede lassen sich von den CMA-Schätzfehlern nicht trennen.
+  * Für den Drawdown (etwa 2–3× Vola) und die erwartete Rendite (Standardfehler mehrere Prozentpunkte) ist dieselbe Schwelle relativ noch nachsichtiger.
+  * Die SAA wird in ganzen Prozent kommuniziert.
+  * Die verworfenen Eckenlösungen brachten 2–7 bps Vola, also eine bis zwei Grössenordnungen weniger.
+* **Ziele vor Risiko, auch in den Varianten.** Ist der Kandidat auf der Zielebene signifikant besser, gilt er ohne Materialitätsprüfung (die Ziele sind die Untergrenze jeder Variante, Modul-Docstring `objective_variants.py`, Entwurfsentscheidung 1).
+
+### 12.3 Regel (`solver._significance_vs_house_anchor`, Test `paired_bootstrap_one_sided_goal_level_v4`)
+
+1. Zielebene (alle Modi): gepaarter einseitiger Bootstrap (B = 400, α = 5 %) auf `Fehlbetrag + Chance-Strafe + Soft-Preference`. Ist das Ergebnis signifikant, gilt `optimizer` (`significant_goal_improvement`).
+2. Default: sonst `house_matrix` (`goal_improvement_not_significant`), der bestehende House-Fallback-Pfad mit `publish_goal_achievability`.
+3. Varianten: sonst Skalar-Bootstrap; signifikant **und** Risikomass-Verbesserung ≥ 50 bps ergibt `optimizer` (`significant_material_risk_improvement`), sonst `house_matrix` (`risk_improvement_not_material` / `risk_improvement_not_significant`). Die Statistik steht im Audit unter `significance.risk_measure_test` (Risikomass Anker/Kandidat, Verbesserung, Schwelle, p) und in der Modellbasis.
+4. Drawdown-Rerank (#625): unverändert. Er wählt unter {projiziertes Mittel, rohes Mittel, Anker} den besten Nicht-Anker-Kandidaten auf dem verfeinerten Drawdown. Signifikanztest und Materialität messen mit demselben verfeinerten Mass (`refined_primary_per_path`, gleicher Brücken-Seed).
+5. Unerreichbare Ziele (#631): unverändert. Die Strafausnahme gilt auf der Zielebene genauso wie in Bags und Rerank (`penalty_exempt_goal_ids`), es gibt also eine Zielfunktion für alle Pfade.
+
+### 12.4 Wirkung in Produktion (vorher = Engine v4, nachher = Engine v5)
+
+40 Bags, Signifikanztest, Fundament-Beispielmandat und die sechs CH-Golden-Mandate, `OPENBLAS_CORETYPE=Haswell`, Threads = 1. Allokation in % (Aktien/Obl./Immo/Alt./Liq.), erw. Rendite/Vola in %. p = Zielebene; ΔRisiko = Verbesserung des Risikomasses Anker → Kandidat auf dem Validierungswürfel. Zielwahrscheinlichkeiten: publizierte Zeilen (Golden: Pension · Eigenheim · Plan-Solvenz; Fundament: Ferienhaus · Familienvermögen · Einkommensbrücke · Mindestrendite · Plan-Solvenz).
+
+**goal_shortfall**
+
+| Mandat | Hausmatrix (Anker) | vorher A/O/I/Alt/L | vorher Rend./Vola | vorher Entscheid | nachher A/O/I/Alt/L | nachher Rend./Vola | nachher Entscheid | Zielwahrsch. nachher (%) |
+|---|---|---|---|---|---|---|---|---|
+| Score 3 | 0/95/0/3/2 | 0/87/0/8/5 | 2.05/3.41 | Opt, p=0.0025 | 0/95/0/3/2 | 2.14/3.62 | Haus, p=1.0000 | 100 · 100 · 100 |
+| Score 5 | 48/35/10/5/2 | 40/45/5/7/3 | 3.96/6.45 | Opt, p=0.0025 | 48/35/10/5/2 | 4.46/7.76 | Haus, p=1.0000 | 100 · 100 · 100 |
+| Score 7 | 68/16/8/6/2 | 60/25/5.4/7.6/2 | 4.86/9.51 | Opt, p=0.0025 | 68/16/8/6/2 | 5.29/10.81 | Haus, p=1.0000 | 100 · 100 · 100 |
+| Score 9 | 79/8/7/4/2 | 75/15/3/5/2 | 5.50/11.69 | Opt, p=0.0025 | 79/8/7/4/2 | 5.77/12.45 | Haus, p=0.3441 | 100 · 99.95 · 99.95 |
+| Score 5 global | 48/35/10/5/2 | 40/45/5/7/3 | 4.07/6.68 | Opt, p=0.0025 | 48/35/10/5/2 | 4.59/8.04 | Haus, p=1.0000 | 100 · 100 · 100 |
+| Score 5 CHF/EM | 48/35/10/5/2 | 40/45/5/7/3 | 4.08/6.82 | Opt, p=0.0025 | 48/35/10/5/2 | 4.60/8.21 | Haus, p=1.0000 | 100 · 100 · 100 |
+| Fundament | 67.5/17/7/6/2.5 | 64.4/10.1/20/3/2.5 | 5.42/10.67 | Opt, p=0.0025 | 64.4/10.1/20/3/2.5 | 5.42/10.67 | Opt, p=0.0025 | 100 · 6.6 · 53.1 · 60.2 · 2.85 |
+
+**max_drawdown**
+
+| Mandat | Hausmatrix (Anker) | vorher A/O/I/Alt/L | vorher Rend./Vola | vorher Entscheid | nachher A/O/I/Alt/L | nachher Rend./Vola | nachher Entscheid | Zielwahrsch. nachher (%) |
+|---|---|---|---|---|---|---|---|---|
+| Score 3 | 0/95/0/3/2 | 0/87.2/0/7.8/5 | 2.05/3.41 | Opt, p=0.0025 | 0/87.2/0/7.8/5 | 2.05/3.41 | Opt, p=1.0000; ΔRisiko 67 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 | 48/35/10/5/2 | 40/45/9/3/3 | 4.09/6.48 | Opt, p=0.0025 | 40/45/9/3/3 | 4.09/6.48 | Opt, p=1.0000; ΔRisiko 380 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 7 | 68/16/8/6/2 | 60/25/10/3/2 | 5.01/9.53 | Opt, p=0.0025 | 60/25/10/3/2 | 5.01/9.53 | Opt, p=1.0000; ΔRisiko 392 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 9 | 79/8/7/4/2 | 75/15/6/2/2 | 5.59/11.71 | Opt, p=0.0025 | 75/15/6/2/2 | 5.59/11.71 | Opt, p=1.0000; ΔRisiko 217 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 global | 48/35/10/5/2 | 40/45/9/3/3 | 4.20/6.71 | Opt, p=0.0025 | 40/45/9/3/3 | 4.20/6.71 | Opt, p=1.0000; ΔRisiko 397 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 CHF/EM | 48/35/10/5/2 | 40/45/9/3/3 | 4.21/6.84 | Opt, p=0.0025 | 40/45/9/3/3 | 4.21/6.84 | Opt, p=1.0000; ΔRisiko 402 bps (p=0.0025) | 100 · 100 · 100 |
+| Fundament | 67.5/17/7/6/2.5 | 60/25/9.5/3/2.5 | 4.99/9.52 | Opt, p=0.0025 | 60/25/9.5/3/2.5 | 4.99/9.52 | Opt, p=1.0000; ΔRisiko 388 bps (p=0.0025) | 100 · 3.2 · 47.5 · 51.6 · 1 |
+
+**min_volatility**
+
+| Mandat | Hausmatrix (Anker) | vorher A/O/I/Alt/L | vorher Rend./Vola | vorher Entscheid | nachher A/O/I/Alt/L | nachher Rend./Vola | nachher Entscheid | Zielwahrsch. nachher (%) |
+|---|---|---|---|---|---|---|---|---|
+| Score 3 | 0/95/0/3/2 | 0/87/0/8/5 | 2.05/3.41 | Opt, p=0.0025 | 0/95/0/3/2 | 2.14/3.62 | Haus, p=1.0000; ΔRisiko 21 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 | 48/35/10/5/2 | 40/45/5.1/6.9/3 | 3.97/6.45 | Opt, p=0.0025 | 40/45/5.3/6.7/3 | 3.97/6.46 | Opt, p=1.0000; ΔRisiko 131 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 7 | 68/16/8/6/2 | 60/25/5.6/7.4/2 | 4.87/9.51 | Opt, p=0.0025 | 60/25/5.5/7.5/2 | 4.86/9.51 | Opt, p=1.0000; ΔRisiko 130 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 9 | 79/8/7/4/2 | 75/15/3/5/2 | 5.50/11.69 | Opt, p=0.0025 | 75/15/3/5/2 | 5.50/11.69 | Opt, p=1.0000; ΔRisiko 76 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 global | 48/35/10/5/2 | 40/45/5.2/6.8/3 | 4.08/6.68 | Opt, p=0.0025 | 40/45/5.2/6.8/3 | 4.08/6.68 | Opt, p=1.0000; ΔRisiko 136 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 CHF/EM | 48/35/10/5/2 | 40/45/5.2/6.8/3 | 4.08/6.82 | Opt, p=0.0025 | 40/45/5.1/6.9/3 | 4.08/6.82 | Opt, p=1.0000; ΔRisiko 137 bps (p=0.0025) | 100 · 100 · 100 |
+| Fundament | 67.5/17/7/6/2.5 | 60/25/5.1/7.4/2.5 | 4.85/9.50 | Opt, p=0.0025 | 60/25/5.1/7.3/2.5 | 4.85/9.50 | Opt, p=1.0000; ΔRisiko 119 bps (p=0.0025) | 100 · 2.95 · 45.65 · 47.45 · 0.9 |
+
+**cvar_return**
+
+| Mandat | Hausmatrix (Anker) | vorher A/O/I/Alt/L | vorher Rend./Vola | vorher Entscheid | nachher A/O/I/Alt/L | nachher Rend./Vola | nachher Entscheid | Zielwahrsch. nachher (%) |
+|---|---|---|---|---|---|---|---|---|
+| Score 3 | 0/95/0/3/2 | 0/95/0/3/2 | 2.14/3.62 | Haus, p=0.0748 | 0/95/0/3/2 | 2.14/3.62 | Haus, p=1.0000; ΔRisiko 0 bps (p=0.1347) | 100 · 100 · 100 |
+| Score 5 | 48/35/10/5/2 | 40/35.8/19.2/3/2 | 4.33/6.92 | Opt, p=0.0025 | 48/35/10/5/2 | 4.46/7.76 | Haus, p=1.0000; ΔRisiko 20 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 7 | 68/16/8/6/2 | 60/16.4/18.6/3/2 | 5.20/9.91 | Opt, p=0.0025 | 68/16/8/6/2 | 5.29/10.81 | Haus, p=1.0000; ΔRisiko 29 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 9 | 79/8/7/4/2 | 75/5.8/15.2/2/2 | 5.80/12.09 | Opt, p=0.0025 | 79/8/7/4/2 | 5.77/12.45 | Haus, p=1.0000; ΔRisiko 17 bps (p=0.0025) | 100 · 99.95 · 99.95 |
+| Score 5 global | 48/35/10/5/2 | 40/35.2/19.8/3/2 | 4.45/7.18 | Opt, p=0.0025 | 48/35/10/5/2 | 4.59/8.04 | Haus, p=1.0000; ΔRisiko 22 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 CHF/EM | 48/35/10/5/2 | 40/35.4/19.6/3/2 | 4.46/7.30 | Opt, p=0.0025 | 48/35/10/5/2 | 4.60/8.21 | Haus, p=1.0000; ΔRisiko 23 bps (p=0.0025) | 100 · 100 · 100 |
+| Fundament | 67.5/17/7/6/2.5 | 60/14.6/19.9/3/2.5 | 5.22/9.98 | Opt, p=0.0025 | 67.5/17/7/6/2.5 | 5.24/10.70 | Haus, p=1.0000; ΔRisiko 26 bps (p=0.0025) | 100 · 5.65 · 49.65 · 55.9 · 2.25 |
+
+**max_return**
+
+| Mandat | Hausmatrix (Anker) | vorher A/O/I/Alt/L | vorher Rend./Vola | vorher Entscheid | nachher A/O/I/Alt/L | nachher Rend./Vola | nachher Entscheid | Zielwahrsch. nachher (%) |
+|---|---|---|---|---|---|---|---|---|
+| Score 3 | 0/95/0/3/2 | 0/97/0/1/2 | 2.16/3.69 | Opt, p=0.0025 | 0/95/0/3/2 | 2.14/3.62 | Haus, p=1.0000; ΔRisiko 2 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 | 48/35/10/5/2 | 55/25/15/3/2 | 4.90/8.97 | Opt, p=0.0025 | 48/35/10/5/2 | 4.46/7.76 | Haus, p=1.0000; ΔRisiko 35 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 7 | 68/16/8/6/2 | 75/10/10/3/2 | 5.67/11.90 | Opt, p=0.0025 | 68/16/8/6/2 | 5.29/10.81 | Haus, p=1.0000; ΔRisiko 27 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 9 | 79/8/7/4/2 | 85/5/6/2/2 | 6.03/13.31 | Opt, p=0.0025 | 79/8/7/4/2 | 5.77/12.45 | Haus, p=1.0000; ΔRisiko 17 bps (p=0.0025) | 100 · 99.95 · 99.95 |
+| Score 5 global | 48/35/10/5/2 | 54.5/25.4/15.1/3/2 | 5.03/9.22 | Opt, p=0.0025 | 48/35/10/5/2 | 4.59/8.04 | Haus, p=1.0000; ΔRisiko 35 bps (p=0.0025) | 100 · 100 · 100 |
+| Score 5 CHF/EM | 48/35/10/5/2 | 50.6/26.1/18.3/3/2 | 4.93/8.92 | Opt, p=0.0025 | 48/35/10/5/2 | 4.60/8.21 | Haus, p=1.0000; ΔRisiko 27 bps (p=0.0025) | 100 · 100 · 100 |
+| Fundament | 67.5/17/7/6/2.5 | 75/10/9.5/3/2.5 | 5.65/11.89 | Opt, p=0.0025 | 67.5/17/7/6/2.5 | 5.24/10.70 | Haus, p=1.0000; ΔRisiko 30 bps (p=0.0025) | 100 · 5.65 · 49.65 · 55.9 · 2.25 |
+
+Lesart:
+
+* **Default:** Alle sechs Golden-Mandate publizieren jetzt die Hausmatrix (Zielebene identisch, p = 1; Score 9 p = 0.34, weil ein einzelner Validierungspfad der Hausmatrix die Plan-Solvenz verfehlt: 99.95 %). Das korrigiert nicht nur die Immo/Alt-Ecken aus dem Befund. Der Tiebreak hatte auch die **Aktienquote** an die Bandunterkante gedrückt (Score 5: 40 statt 48 %, Score 7: 60 statt 68 %, Score 9: 75 statt 79 %, Score 3: Obligationen 87 statt 95 %). Die publizierte Strategie wird dadurch spürbar riskanter und renditestärker: Score 5 Vola 6.45 → 7.76 %, erw. Rendite 3.96 → 4.46 %; Score 7 9.51 → 10.81 % / 4.86 → 5.29 %. Das ist die Hausmeinung. Die Zielwahrscheinlichkeiten bleiben bei 100 %.
+* **Fundament (Default):** unverändert Optimierer. Ziele werden nicht sicher erreicht, der Kandidat ist auf der Zielebene signifikant besser (p = 0.0025, Verbesserung 0.149).
+* **max_drawdown / min_volatility:** Optimierer mit materiellen Verbesserungen (Drawdown 67–402 bps, Vola 76–137 bps). Ausnahme: min_volatility Score 3 (21 bps Vola) publiziert jetzt die Hausmatrix. Die Varianten bleiben nicht riskanter als der Default (Regressionstest grün).
+* **cvar_return / max_return:** auf allen sieben Mandaten Hausmatrix. Die Verbesserungen des Expected Shortfall (0–29 bps) bzw. der erwarteten Rendite (2–35 bps auf dem Validierungswürfel) liegen unter der Schwelle. Vorher lieferten diese Modi 15–20 % Immobilien (cvar) bzw. bis 85 % Aktien (max_return).
+
+### 12.5 Bekannte Grenzen / Hinweise für den CIO
+
+1. **Materialität gilt für den Kandidaten als Ganzes.** Ist der Kandidat einer Variante material besser (z. B. min_volatility Score 5: 131 bps, getragen von 8 pp weniger Aktien), werden kleine Ecken im selben Kandidaten mitgenommen (Alt 6.7 % statt 5 %). Eine Zerlegung je Abweichung wäre ein eigener Entscheid.
+2. **Fundament cvar_return / max_return vs. Default:** Die Varianten publizieren die Hausmatrix (67.5 % Aktien, Vola 10.70 %), der Default den Optimierer (64.4 %, Vola 10.67 %). Grund ist #631 Entscheid b: Varianten steuern nur auf an τ erreichbare Ziele. Damit fehlt ihnen die Zielverbesserung, die im Default den Optimierer trägt. Die Regressionstests decken min_volatility/max_drawdown ab und sind grün.
+3. Die Golden-Mandate werden durch die Hausmatrix-Rückkehr spürbar riskanter (Vola +0.2 bis +1.4 pp). Das folgt aus der Regel. Ist das nicht gewollt, liegt die Frage bei der Hausmatrix (IC), nicht beim Optimierer.
+
+### 12.6 Tests
+
+* Neu `tests/test_house_first_significance.py`:
+  * Entscheidungslogik mit synthetischer Ziel-/Risikoebene. Reproducer: Ziele erfüllt und kleinere Varianz ergibt Hausmatrix. Nicht erreichte Ziele mit signifikant besserem Kandidaten ergeben den Optimierer, auch bei höherer Vola. Ein-Pfad-Rauschen ist nicht signifikant. Je Variante: 5 bps ergibt Hausmatrix, 100 bps den Optimierer; Grenzfall genau 50 bps; materiell weniger Risiko gegen Zielverlust wird nicht genommen; Zielgewinn in der Variante ohne Materialitätsprüfung.
+  * Golden-Reproducer End-to-End (Score 5): vor dem Fix rot (Optimierer 40/45/5/7/3, p = 0.0025), jetzt Hausmatrix 48/35/10/5/2.
+* Angepasst: `test_objective_normalization.py` (Signifikanz vergleicht Zielebene, Tiebreak existiert weiter) und `test_saa_resampled_stability.py` (Testversion v4, Vergleich `goal_level`).
+* Golden-Fixtures neu eingefroren (Engine `saa_resampled_v5`), unter `OPENBLAS_CORETYPE=Haswell` und `=Nehalem` alle sechs byte-identisch. Zahlen im Docstring von `tests/test_golden_snapshot_ch_regression.py`.

@@ -326,12 +326,14 @@ def test_material_goal_deficit_still_beats_the_variant():
 # ---------------------------------------------------------------------------
 
 
-def test_house_matrix_significance_compares_the_scalar_the_solver_minimizes():
-    """Der gepaarte Test gegen die Hausmatrix vergleicht jetzt exakt die
-    Skalar-Zielfunktion der Bags (Ziel-Stufe + immer aktiver Tiebreak +
-    Soft-Preference) auf dem Validierungs-Cube -- nicht mehr eine
-    abweichende Zwei-Stufen-Ordnung (v2), die nur noetig war, solange der
-    Skalar wegen des Stufen-Schalters nicht monoton war."""
+def test_house_matrix_significance_compares_the_goal_level_not_the_tiebreak():
+    """HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): der gepaarte
+    Test gegen die Hausmatrix vergleicht die ZIELEBENE der Bag-Zielfunktion
+    (Ziel-Fehlbetrag + Chance-Strafe, + Soft-Preference) auf dem
+    Validierungs-Cube -- ohne den Volatilitaets-Tiebreak. Der Tiebreak ist
+    deterministisch; mit ihm war jede noch so kleine Varianzdifferenz
+    "signifikant" (p = 1/(B+1)). Im Solver bleibt er (Stetigkeit), er
+    entscheidet nur nicht mehr ueber Anker vs. Kandidat."""
     import sys
     from pathlib import Path
 
@@ -352,17 +354,18 @@ def test_house_matrix_significance_compares_the_scalar_the_solver_minimizes():
     significance = result.resampling["significance"]
     if significance.get("reason") == "identical_to_house_anchor":
         pytest.skip("Kandidat = Anker; kein Test gelaufen.")
-    assert significance["test"] == "paired_bootstrap_one_sided_scalar_v3"
-    assert significance["comparison"] == "scalar"
-    # Ein Quantil ueber Werte einer Einheit ist wieder definiert.
-    assert significance["improvement_lower_bound"] is not None
+    assert significance["test"] == "paired_bootstrap_one_sided_goal_level_v4"
+    assert significance["comparison"] == "goal_level"
+    assert significance["decision_level"] in {"goal_level"}
+    # Default-Modus: keine Risikomass-Ebene im Entscheid.
+    assert "risk_measure_test" not in significance
 
     validation_context, _seed, _hash = solver_module._build_validation_context(result.context)
 
-    def scalar(bps):
+    def levels(bps):
         w = np.array([bps[b] / 10000.0 for b in BUCKET_ORDER])
         factors = solver_module._portfolio_return_factors(validation_context, w)
-        return combined_objective_two_phase(
+        return two_phase_objective_parts(
             validation_context.liabilities,
             solver_module._simulate_context_wealth(validation_context, w),
             initial_wealth_rappen=validation_context.advisory_wealth_rappen,
@@ -380,12 +383,13 @@ def test_house_matrix_significance_compares_the_scalar_the_solver_minimizes():
             penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
 
-    assert significance["anchor_objective"] == pytest.approx(
-        scalar(significance["house_anchor_projected_bps"]), rel=1e-12
-    )
-    assert significance["candidate_objective"] == pytest.approx(
-        scalar(significance["candidate_bps"]), rel=1e-12
-    )
+    anchor_goal, anchor_tiebreak = levels(significance["house_anchor_projected_bps"])
+    candidate_goal, candidate_tiebreak = levels(significance["candidate_bps"])
+    assert significance["anchor_objective"] == pytest.approx(anchor_goal, rel=1e-12, abs=1e-15)
+    assert significance["candidate_objective"] == pytest.approx(candidate_goal, rel=1e-12, abs=1e-15)
     assert significance["improvement"] == pytest.approx(
-        significance["anchor_objective"] - significance["candidate_objective"], rel=1e-12
+        significance["anchor_objective"] - significance["candidate_objective"],
+        rel=1e-12, abs=1e-15,
     )
+    # Der Tiebreak existiert weiterhin (Solver), steckt aber nicht im Vergleich.
+    assert anchor_tiebreak > 0.0 and candidate_tiebreak > 0.0

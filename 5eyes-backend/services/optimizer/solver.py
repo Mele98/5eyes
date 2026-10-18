@@ -80,12 +80,17 @@ from .objective_contract import (
     resolve_objective_contract,
 )
 from .objective_variants import (
+    OBJECTIVE_GOAL_SHORTFALL,
     OBJECTIVE_MAX_DRAWDOWN,
     ObjectiveDomainError,
+    primary_objective,
     refined_drawdown_check_for_winner,
 )
 from .resampling import (
+    COMPARISON_GOAL_LEVEL,
+    COMPARISON_RISK_MEASURE,
     DEFAULT_RESAMPLING,
+    RISK_MEASURE_MATERIALITY,
     MIN_SUCCESSFUL_BAG_SHARE,
     RESAMPLING_SCHEME_VERSION,
     ResamplingConfig,
@@ -1167,8 +1172,16 @@ def deterministic_seed(*parts) -> int:
 # statt ~exp(-T/4)), Tiebreak kappa * w' Sigma w statt Var(W_T)/W0^2, und
 # in den Risikomass-Varianten keine Chance-Strafe fuer Ziele, die auf keiner
 # zulaessigen Allokation erreichbar sind.
+#
+# Engine v5 (2026-10-18, HOUSE-FIRST-SIGNIFICANCE-001, CIO-Entscheid
+# "Hausmatrix, solange die Ziele mit ihr gleich sicher erreicht sind"): der
+# Signifikanztest gegen die Hausmatrix entscheidet auf der Zielebene
+# (Ziel-Fehlbetrag + Chance-Strafe), nicht mehr ueber den deterministischen
+# Volatilitaets-Tiebreak; Risikomass-Varianten zusaetzlich nur mit
+# Materialitaetsschwelle (50 bps). Neue Wuerfel, weil die Version in den
+# Seed eingeht.
 OPTIMIZER_SEED_SCHEME = "content_seed_v2"
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v4"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v5"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2834,21 +2847,34 @@ def _bag_context(
     )
 
 
-def _context_loss_pair_on_validation(
+def _context_loss_components_on_validation(
     validation_context: OptimizerContext,
     anchor_w: np.ndarray,
     candidate_w: np.ndarray,
     *,
     validation_seed: int | None = None,
 ):
-    """Liefert ``loss_pair(idx)`` fuer den gepaarten Bootstrap.
+    """Liefert ``component_pair(idx)`` fuer den gepaarten Bootstrap.
 
-    Vermoegenspfade, Faktoren und Jahresrenditen werden EINMAL je Allokation
-    auf dem Validierungs-Cube simuliert; jede Replikation wertet dieselbe
-    Zielfunktion wie ``evaluate_weights`` (Vertrag des Laufs, Soft-Preference
-    inklusive) auf derselben Pfadauswahl fuer beide Allokationen aus.
+    Je Allokation das Paar ``(zielebene, risikoebene)`` auf der Pfadauswahl
+    ``idx`` (None = alle Pfade); ihre Summe ist exakt die Skalar-Zielfunktion
+    der Bags (Vertrag des Laufs, Soft-Preference inklusive):
+
+    * ``zielebene`` -- die ZIELERREICHUNG: im Default Ziel-Fehlbetrag L(w) +
+      Chance-Strafe, in den Varianten die Chance-Strafe; jeweils plus
+      Soft-Preference-Strafe (explizite Berater-Vorgabe, keine
+      Schaetzgroesse).
+    * ``risikoebene`` -- im Default der Tiebreak ``kappa * w' Sigma w``, in
+      den Varianten das Risikomass selbst (Primaerterm).
+
+    HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): der
+    Signifikanztest gegen die Hausmatrix entscheidet auf der Zielebene; die
+    Risikoebene zaehlt nur in den Varianten und nur mit Materialitaet
+    (``_significance_vs_house_anchor``). Vermoegenspfade, Faktoren und
+    Jahresrenditen werden EINMAL je Allokation simuliert.
     """
     contract = objective_contract_of(validation_context)
+    is_default = contract.objective_mode == OBJECTIVE_GOAL_SHORTFALL
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (CIO-Entscheid 2026-10-18): im
     # Modus max_drawdown vergleicht der Signifikanztest mit dem VERFEINERTEN
     # Drawdown (Brownsche Bruecke, Bruecken-Seed = Validierungs-Seed) statt
@@ -2887,42 +2913,50 @@ def _context_loss_pair_on_validation(
 
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
 
-    def _loss(bundle, idx):
-        # OBJECTIVE-NORMALIZATION-001 (2026-10-18): wieder die SKALAR-
-        # Zielfunktion -- exakt die, die der Solver in jedem Bag minimiert.
-        # SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 musste hier die Stufen getrennt
-        # vergleichen, weil der Skalar wegen des Stufe-2-Schalters pro
-        # Allokation nicht monoton war. Der Schalter ist entfernt (Tiebreak
-        # immer aktiv), die Differenz zweier Skalare ist damit monoton und
-        # einheitlich -- ein Test gegen eine ANDERE Ordnung als die, nach der
-        # optimiert wurde, waere inkonsistent.
+    def _components(bundle, idx) -> tuple[float, float]:
         wealth, factors, annualized, preference, drawdowns, variance = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
             if drawdowns is not None:
                 drawdowns = drawdowns[idx]
+        primary_override, primary_weight = None, 1.0
+        if not is_default:
+            # Varianten: das Risikomass einmal rechnen und als Override mit
+            # Gewicht 0 durchreichen -> die Zielebene ist exakt die
+            # Chance-Strafe, ohne den Primaerterm doppelt zu berechnen.
+            primary_override = (
+                float(np.mean(drawdowns))
+                if drawdowns is not None
+                else primary_objective(
+                    contract.objective_mode,
+                    goal_shortfall_value=0.0,
+                    portfolio_return_factors=factors,
+                    weights=None,
+                )
+            )
+            primary_weight = 0.0
         goal_level, tiebreak = two_phase_objective_parts(
             validation_context.liabilities,
             wealth,
             initial_wealth_rappen=validation_context.advisory_wealth_rappen,
             horizon_years=validation_context.horizon_years,
+            primary_weight=primary_weight,
             weights=None,
             annualized_return_bps_per_path=annualized,
             objective_mode=contract.objective_mode,
             goal_weighting_mode=contract.goal_weighting_mode,
             portfolio_return_factors=factors,
-            primary_value_override=(
-                float(np.mean(drawdowns)) if drawdowns is not None else None
-            ),
+            primary_value_override=primary_override,
             portfolio_variance=variance,
             penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
-        return float(goal_level) + float(tiebreak) + float(preference)
+        risk_level = float(tiebreak) if is_default else float(primary_override)
+        return float(goal_level) + float(preference), risk_level
 
-    def loss_pair(idx):
-        return _loss(prepared[0], idx), _loss(prepared[1], idx)
+    def component_pair(idx):
+        return _components(prepared[0], idx), _components(prepared[1], idx)
 
-    return loss_pair
+    return component_pair
 
 
 def _rounded_bps_with_repair(
@@ -2997,15 +3031,34 @@ def _significance_vs_house_anchor(
     config: ResamplingConfig,
     validation: tuple[OptimizerContext, int, str] | None = None,
 ) -> dict:
-    """Test: verbessert die resampelte Allokation die Zielfunktion signifikant
-    gegenueber der (zulaessig projizierten) Hausmatrix-Zielquote?
+    """Test: ist die resampelte Allokation der (zulaessig projizierten)
+    Hausmatrix-Zielquote signifikant UEBERLEGEN?
+
+    HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): "Hausmatrix,
+    solange die Ziele mit ihr gleich sicher erreicht sind."
+
+    1. Zielebene (alle Modi): gepaarter Bootstrap der Verbesserung von
+       Ziel-Fehlbetrag + Chance-Strafe (+ Soft-Preference). Signifikant ->
+       Optimierer. Der Volatilitaets-Tiebreak zaehlt hier NICHT: er ist
+       deterministisch (``kappa * w' Sigma w``), jede noch so kleine
+       Differenz waere "signifikant" (p = 1/(B+1)) -- so entstanden
+       Eckloesungen auf Schaetzfehlern der Korrelation. Im Solver bleibt er
+       (Stetigkeit/Monotonie), er entscheidet nur nicht ueber Anker vs.
+       Kandidat.
+    2. Nur in den Varianten (Risikomass = Zweck): Skalar-Zielfunktion
+       (Risikomass + Chance-Strafe + Preference) signifikant UND
+       Risikomass-Verbesserung auf dem Validierungs-Cube
+       >= ``RISK_MEASURE_MATERIALITY`` -> Optimierer.
 
     Entscheid ``decision``:
-    * ``optimizer``  -- signifikante Verbesserung, Optimierer-Allokation gilt.
-    * ``house_matrix`` -- nicht signifikant, Hausmatrix-Zielquote gilt.
+    * ``optimizer``  -- (1) oder (2) erfuellt, Optimierer-Allokation gilt.
+    * ``house_matrix`` -- weder noch, Hausmatrix-Zielquote gilt.
     * ``optimizer_untested`` -- kein Test moeglich (kein Anker, keine
       zulaessige Projektion, kein Validierungs-Cube, Test abgeschaltet);
       die Optimierer-Allokation gilt, der Grund steht in ``reason``.
+
+    Die Top-Level-Statistik (``p_value``, ``improvement`` ...) ist immer die
+    der Zielebene; die Varianten-Statistik steht in ``risk_measure_test``.
     """
     block: dict = {
         "test": None,
@@ -3036,34 +3089,75 @@ def _significance_vs_house_anchor(
             "reason": "no_validation_cube",
         }
     validation_context, validation_seed, cube_hash = validation
-    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+    objective_mode = objective_contract_of(context).objective_mode
+    if objective_mode == OBJECTIVE_MAX_DRAWDOWN:
         # Nur in diesem Modus gesetzt: Default-Laeufe behalten ihre
         # Modellbasis (und damit ihren allocation_context_hash) bit-gleich.
         block["drawdown_measure"] = "refined_brownian_bridge"
-    loss_pair = _context_loss_pair_on_validation(
+    component_pair = _context_loss_components_on_validation(
         validation_context,
         _trusted_weights_bps_to_array(anchor_bps),
         _trusted_weights_bps_to_array(candidate_bps),
         validation_seed=int(validation_seed),
     )
-    stats = paired_bootstrap_improvement(
-        loss_pair,
+    bootstrap_kwargs = dict(
         n_paths=int(validation_context.n_paths),
         n_bootstrap=int(config.n_bootstrap),
         alpha=float(config.significance_alpha),
         seed=bootstrap_seed(validation_seed),
     )
-    return {
+    goal_stats = paired_bootstrap_improvement(
+        lambda idx: tuple(parts[0] for parts in component_pair(idx)),
+        **bootstrap_kwargs,
+    )
+    result = {
         **block,
-        **stats,
+        **goal_stats,
+        "comparison": COMPARISON_GOAL_LEVEL,
+        "decision_level": COMPARISON_GOAL_LEVEL,
         "validation_seed": int(validation_seed),
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
-        "decision": "optimizer" if stats["significant"] else "house_matrix",
+    }
+    if goal_stats["significant"]:
+        return {**result, "decision": "optimizer",
+                "reason": "significant_goal_improvement"}
+    if objective_mode == OBJECTIVE_GOAL_SHORTFALL:
+        return {**result, "decision": "house_matrix",
+                "reason": "goal_improvement_not_significant"}
+
+    (_anchor_goal, anchor_risk), (_cand_goal, candidate_risk) = component_pair(None)
+    risk_improvement = float(anchor_risk) - float(candidate_risk)
+    material = bool(risk_improvement >= RISK_MEASURE_MATERIALITY)
+    risk_stats = paired_bootstrap_improvement(
+        lambda idx: tuple(sum(parts) for parts in component_pair(idx)),
+        **bootstrap_kwargs,
+    )
+    result["risk_measure_test"] = {
+        **{
+            key: risk_stats.get(key)
+            for key in ("improvement", "improvement_lower_bound", "p_value",
+                        "anchor_objective", "candidate_objective")
+        },
+        "comparison": COMPARISON_RISK_MEASURE,
+        "anchor_risk_measure": float(anchor_risk),
+        "candidate_risk_measure": float(candidate_risk),
+        "risk_improvement": risk_improvement,
+        "materiality_threshold": float(RISK_MEASURE_MATERIALITY),
+        "material": material,
+        "significant": bool(risk_stats["significant"]),
+    }
+    if risk_stats["significant"] and material:
+        return {**result, "decision": "optimizer", "significant": True,
+                "decision_level": COMPARISON_RISK_MEASURE,
+                "reason": "significant_material_risk_improvement"}
+    return {
+        **result,
+        "decision": "house_matrix",
         "reason": (
-            "significant_improvement"
-            if stats["significant"]
-            else "improvement_not_significant"
+            "risk_improvement_not_material"
+            if risk_stats["significant"]
+            else "risk_improvement_not_significant"
         ),
     }
 
@@ -3303,6 +3397,13 @@ def _run_resampled_solver(
                 "Optimierer-Allokation ist identisch mit der Hausmatrix-Zielquote; "
                 "Hausmatrix-Zielquote beibehalten."
             )
+        elif significance.get("reason") == "risk_improvement_not_material":
+            reasoning.append(
+                "Optimierer-Abweichung von der Hausmatrix ist nicht material "
+                "(Risikomass-Verbesserung unter der Materialitaetsschwelle, Ziele "
+                "nicht signifikant sicherer erreicht); Hausmatrix-Zielquote "
+                "beibehalten. " + _significance_sentence(significance)
+            )
         else:
             reasoning.append(
                 "Optimierer-Abweichung von der Hausmatrix ist statistisch nicht "
@@ -3346,19 +3447,30 @@ def _significance_sentence(significance: Mapping) -> str:
         f"alpha={alpha:.0%}) auf dem unabhaengigen Validierungs-Cube "
         f"({significance.get('validation_n_paths')} Pfade):"
     ]
+    if significance.get("comparison") == "goal_level":
+        parts.append(
+            "Vergleich auf der Zielebene (Ziel-Fehlbetrag + Chance-Strafe); "
+            "die Volatilitaet allein begruendet keine Abweichung"
+        )
     if improvement is not None:
-        parts.append(f"Verbesserung der Zielfunktion {float(improvement):.6e}")
+        parts.append(f"Verbesserung der Zielebene {float(improvement):.6e}")
     if lower is not None:
         parts.append(
             f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
         )
-    comparison = significance.get("comparison")
-    if comparison == "volatility_tiebreak":
-        parts.append("Vergleich: beide erfuellen die Ziele, Volatilitaet entscheidet")
-    elif comparison == "goal_level":
-        parts.append("Vergleich: Ziel-Fehlbetrag und Chance-Constraints")
     if p_value is not None:
         parts.append(f"p = {float(p_value):.4f}")
+    risk = significance.get("risk_measure_test")
+    if isinstance(risk, Mapping):
+        risk_p = risk.get("p_value")
+        parts.append(
+            "Risikomass "
+            f"{float(risk.get('anchor_risk_measure') or 0.0) * 100:.2f} % "
+            f"(Hausmatrix) vs {float(risk.get('candidate_risk_measure') or 0.0) * 100:.2f} % "
+            f"(Optimierer), Verbesserung {float(risk.get('risk_improvement') or 0.0) * 10000:.1f} bps "
+            f"gegen Materialitaetsschwelle {float(risk.get('materiality_threshold') or 0.0) * 10000:.0f} bps"
+            + (f", p = {float(risk_p):.4f}" if risk_p is not None else "")
+        )
     return " ".join(parts[:1]) + " " + ", ".join(parts[1:]) + "."
 
 

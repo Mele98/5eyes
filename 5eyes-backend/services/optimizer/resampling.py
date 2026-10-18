@@ -31,10 +31,12 @@ Methode (Michaud-artiges Bagging mit Common Random Numbers):
 4. Die Streuung je Bucket ueber die Bags (Standardabweichung in bps) wird als
    Stabilitaetskennzahl ausgewiesen.
 5. Signifikanztest gegen die Hausmatrix: auf dem UNABHAENGIGEN
-   Validierungswuerfel wird die Zielfunktion der resampelten Allokation mit
-   der (auf Zulaessigkeit projizierten) Hausmatrix-Zielquote GEPAART
-   verglichen. Ist die Verbesserung nicht signifikant, bleibt die
-   Hausmatrix-Zielquote stehen.
+   Validierungswuerfel wird die resampelte Allokation mit der (auf
+   Zulaessigkeit projizierten) Hausmatrix-Zielquote GEPAART verglichen --
+   seit HOUSE-FIRST-SIGNIFICANCE-001 auf der Zielebene (Ziel-Fehlbetrag +
+   Chance-Strafe), in den Risikomass-Varianten zusaetzlich auf dem
+   Risikomass mit Materialitaetsschwelle. Ist die Verbesserung nicht
+   signifikant (bzw. nicht material), bleibt die Hausmatrix-Zielquote stehen.
 
 Wahl des Tests: Die Zielfunktion ist KEIN Mittelwert pfadweiser Verluste --
 die Chance-Constraint-Strafe ist eine quadratische Funktion der
@@ -75,8 +77,40 @@ RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
 # definiert. SIGNIFICANCE-SCALAR-ONLY-001 (2026-10-18): die Zwei-Stufen-
 # Logik (``lexicographic_improvement``) ist entfernt; Tupel-Verluste werden
 # wie im Solver summiert (``scalar_loss``).
-SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_scalar_v3"
+# v4 (HOUSE-FIRST-SIGNIFICANCE-001, 2026-10-18, CIO-Entscheid "Hausmatrix,
+# solange die Ziele mit ihr gleich sicher erreicht sind"): der Entscheid
+# Anker vs. Kandidat faellt auf der ZIELEBENE (Ziel-Fehlbetrag +
+# Chance-Strafe + Soft-Preference), nicht mehr auf dem Skalar inklusive
+# Volatilitaets-Tiebreak. Der Tiebreak ist deterministisch; auf Mandaten mit
+# sicher erreichten Zielen war jede Varianzdifferenz "signifikant"
+# (p = 1/(B+1) = 0.0025) und die Hausmatrix verlor gegen Eckloesungen mit
+# 2-7 bps weniger Volatilitaet. In den Risikomass-Varianten entscheidet
+# zusaetzlich der Skalar (Risikomass + Chance-Strafe), aber nur mit
+# Materialitaet (``RISK_MEASURE_MATERIALITY``).
+SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_goal_level_v4"
 COMPARISON_SCALAR = "scalar"
+COMPARISON_GOAL_LEVEL = "goal_level"
+COMPARISON_RISK_MEASURE = "goal_level_plus_risk_measure"
+
+# Materialitaetsschwelle der Risikomass-Varianten (HOUSE-FIRST-SIGNIFICANCE-001):
+# 50 bps auf dem Risikomass selbst (alle Varianten sind Renditeanteile:
+# Einperioden-Vola, mittlerer verfeinerter Max-Drawdown, Expected Shortfall
+# bzw. negative erwartete Rendite p.a.). Begruendung, Herleitung in
+# docs/planning/2026-10-18-importance-sampling-ess.md (Abschnitt
+# HOUSE-FIRST-SIGNIFICANCE-001):
+# * Schaetzfehler der Inputs: die relative Standardabweichung einer
+#   Vola-Schaetzung aus 20 Jahren Monatsdaten ist ~1/sqrt(2*240) = 4.6 %, bei
+#   8-12 % Portfolio-Vola also 35-55 bps. Kleinere Unterschiede sind von den
+#   CMA-Schaetzfehlern nicht unterscheidbar -- sie zu optimieren hiesse,
+#   Schaetzfehler zu optimieren (Michaud). Fuer Drawdown (~2-3x Vola) und
+#   erwartete Rendite (Standardfehler ~ sigma/sqrt(T), mehrere Prozentpunkte)
+#   ist dieselbe Schwelle relativ noch nachsichtiger.
+# * Die SAA wird in ganzen Prozent kommuniziert; eine Abweichung von der
+#   Hausmeinung (IC) braucht einen Effekt, den man dem Kunden in derselben
+#   Granularitaet zeigen kann.
+# * Gemessen: die verworfenen Eckloesungen brachten 2-7 bps Vola -- eine bis
+#   zwei Groessenordnungen unter der Schwelle.
+RISK_MEASURE_MATERIALITY = 0.005
 
 # Parameterwahl siehe docs/planning/2026-10-14-saa-stability-resampling.md.
 # Gemessen auf dem Fundament-Beispielmandat (10 Seed-Salze): die Streuung
@@ -327,6 +361,10 @@ _SIGNIFICANCE_BASIS_FIELDS = (
     "improvement_lower_bound",
     "comparison",
     "replicate_comparisons",
+    # HOUSE-FIRST-SIGNIFICANCE-001: Entscheidungsebene und (nur Varianten)
+    # die Risikomass-Statistik mit Materialitaet.
+    "decision_level",
+    "risk_measure_test",
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: nur im Modus max_drawdown gesetzt
     # ("refined_brownian_bridge"); sonst fehlt der Schluessel und die
     # Modellbasis bleibt bit-gleich.

@@ -128,6 +128,13 @@ Inhalts-Seed des bereits gebauten Contexts aus, sonst 0 -- nie mehr einen ID-See
   p = (1 + #{Replikate <= 0}) / (1 + B), also nie 0 (Untergrenze 1/401 = 0.0025). Die untere
   Konfidenzgrenze wird nur ausgewiesen, wenn alle Replikate auf derselben Ebene verglichen
   wurden. Bootstrap-Seed aus dem Validierungs-Seed (deterministisch).
+- **Stand v4 (HOUSE-FIRST-SIGNIFICANCE-001, CIO-Entscheid 2026-10-18, Engine `saa_resampled_v5`):**
+  der Entscheid faellt auf der Zielebene (Ziel-Fehlbetrag + Chance-Strafe + Soft-Preference),
+  NICHT mehr ueber den deterministischen Volatilitaets-Tiebreak (der fuehrte bei sicher
+  erreichten Zielen immer zu p = 0.0025 und Eckloesungen). In den Risikomass-Varianten
+  zusaetzlich Skalar-Test mit Materialitaetsschwelle 50 bps auf dem Risikomass. Herleitung und
+  Vorher/Nachher aller Modi: `docs/planning/2026-10-18-importance-sampling-ess.md`, Abschnitt 12.
+  Die Beschreibung v2 oben ist historisch.
 - Entscheid: `optimizer` (signifikant) / `house_matrix` (nicht signifikant oder identisch) /
   `optimizer_untested`. Begruendungszeile z.B. "Optimierer-Abweichung von der Hausmatrix ist
   statistisch nicht signifikant; Hausmatrix-Zielquote beibehalten. Gepaarter Bootstrap
