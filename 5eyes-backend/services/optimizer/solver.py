@@ -492,8 +492,14 @@ def _weights_bps_to_array(weights_bps: Mapping[str, int]) -> np.ndarray:
     return _trusted_weights_bps_to_array(parsed)
 
 
-def _simulate_context_wealth(context: OptimizerContext, w: np.ndarray) -> np.ndarray:
+def _simulate_context_wealth(
+    context: OptimizerContext,
+    w: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
+) -> np.ndarray:
     return simulate_wealth_paths(
+        portfolio_factors=portfolio_factors,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         weights=w,
         return_paths=context.return_paths,
@@ -536,7 +542,9 @@ def _annualized_twr_bps_per_path(
     if portfolio_factors is None:
         portfolio_factors = _portfolio_return_factors(context, w)
     safe_factors = np.maximum(portfolio_factors, 1e-12)
-    annualized = np.exp(np.mean(np.log(safe_factors), axis=1)) - 1.0
+    # In-place: gleiche Werte, ein Zwischen-Array weniger je Auswertung.
+    np.log(safe_factors, out=safe_factors)
+    annualized = np.exp(np.mean(safe_factors, axis=1)) - 1.0
     return annualized * 10000.0
 
 
@@ -902,8 +910,12 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
     contract = objective_contract_of(context)
-    wealth = _simulate_context_wealth(context, w)
+    # SAA-RESAMPLED-RUNTIME-001: Faktoren einmal ableiten und fuer Wealth-
+    # Simulation UND annualisierte Rendite verwenden (bitidentisch).
     portfolio_factors = _portfolio_return_factors(context, w)
+    wealth = _simulate_context_wealth(
+        context, w, portfolio_factors=portfolio_factors
+    )
     annualized_twr = _annualized_twr_bps_per_path(
         context, w, portfolio_factors=portfolio_factors
     )
@@ -950,8 +962,12 @@ def evaluate_weights(
     contract = objective_contract_of(context)
     w = _weights_bps_to_array(weights_bps)
     # Sprint U-P2 Fix C9: tax-aware Evaluation
-    wealth = _simulate_context_wealth(context, w)
+    # SAA-RESAMPLED-RUNTIME-001: Faktoren einmal ableiten und fuer Wealth-
+    # Simulation UND annualisierte Rendite verwenden (bitidentisch).
     portfolio_factors = _portfolio_return_factors(context, w)
+    wealth = _simulate_context_wealth(
+        context, w, portfolio_factors=portfolio_factors
+    )
     annualized_twr = _annualized_twr_bps_per_path(
         context, w, portfolio_factors=portfolio_factors
     )
