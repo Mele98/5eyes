@@ -509,6 +509,9 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     # die Drift-Erkennung jede bestehende Allokation als veraltet).
     if dumped.get("bandDeviationReason") is None:
         dumped.pop("bandDeviationReason", None)
+    # ESG-PREMIUM-CRITERIA-001: leeres tiltReasons nicht ausgeben (sonst Drift-Warnung je Altbestand).
+    if not dumped.get("tiltReasons"):
+        dumped.pop("tiltReasons", None)
     return dumped
 
 
@@ -1464,6 +1467,8 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_matches_constraints,
     _product_score,
     theme_screening_disclosure,
+    esg_policy_gap_hint,
+    default_catalog_theme_tags,
     _suitability_block_hint,
     _tenant_visible_products_query,
     _ter_coverage_bps,
@@ -1996,6 +2001,7 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
             ter_bps=ter_bps,
             sfdr_class=sfdr_class,
             esg_rating=esg_rating,
+            theme_tags=default_catalog_theme_tags(sub_asset_class),
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -2066,6 +2072,7 @@ def ensure_hedged_product_variants(db: Session) -> None:
             ter_bps=ter_bps,
             sfdr_class=sfdr_class,
             esg_rating=esg_rating,
+            theme_tags=default_catalog_theme_tags(sub_asset_class),
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -6752,16 +6759,21 @@ def generate_recommendation_run(
             suitability_block_hint = _suitability_block_hint(
                 products, sub["sub_asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
             )
+        # ESG-PREMIUM-CRITERIA-001: verletztes ESG-Kriterium benennen (Fallback + fail-closed).
+        esg_gap_hint = None if exact else esg_policy_gap_hint(
+            products, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
+        )
         candidates = exact
         if not candidates:
             candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
             used_fallback = bool(candidates)
         if not candidates:
-            warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")
+            warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden." + (f" {esg_gap_hint}." if esg_gap_hint else ""))
             missing_sub_classes.append({
                 "sub_asset_class": str(sub["sub_asset_class"]),
                 "asset_class": str(sub["asset_class"]),
                 "target_weight_bps": int(sub["target_weight_bps"]),
+                "esg_gap_hint": esg_gap_hint,
             })
             continue
         ranked = sorted(
@@ -6777,6 +6789,9 @@ def generate_recommendation_run(
             if suitability_block_hint:
                 rationale = rationale + f"; {suitability_block_hint}"
                 warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich. {suitability_block_hint}")
+            elif esg_gap_hint:
+                rationale = rationale + f"; {esg_gap_hint}"
+                warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Ersatz aus der Anlageklasse verwendet. {esg_gap_hint}.")
             else:
                 warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet.")
         if depot_bank:
@@ -6807,7 +6822,7 @@ def generate_recommendation_run(
         # exotische Sub-Class mit 0 Allokation). Alles darüber ist ein echter Fehler.
         if total_missing_bps > 50:
             details = ", ".join(
-                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%)"
+                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%" + (f"; {item['esg_gap_hint']}" if item.get("esg_gap_hint") else "") + ")"
                 for item in missing_sub_classes
             )
             raise ValueError(

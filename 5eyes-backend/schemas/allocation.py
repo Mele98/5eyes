@@ -24,7 +24,13 @@ from services.cma_validation import (
 # - services/portfolio_engine_payload.py (thematic_map + tilt_mode, ~Zeile 813-829)
 # - services/portfolio_engine.py:_bucket_key (Bucket-Aliase der Bands, ~Zeile 415-429)
 _VALID_TILT_KEYS = frozenset({"fossil", "defense", "tobacco", "alcohol", "gaming", "nuclear"})
-_VALID_TILT_VALUES = frozenset({"exclude", "underweight", "neutral", "overweight"})
+# ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): "allow" = "bewusst
+# zulassen" -- uebersteuert ein Negativ-Screening fuer dieses Thema und
+# verlangt eine dokumentierte Begruendung in tiltReasons[theme] (siehe
+# AllocationPreferencesPayload.validate_allow_reasons und
+# services/portfolio_engine_payload.py::effective_theme_screening).
+_VALID_TILT_VALUES = frozenset({"exclude", "underweight", "neutral", "allow", "overweight"})
+_TILT_REASON_MAX_LENGTH = 2000
 _VALID_BAND_KEYS = frozenset(
     {
         "equities",
@@ -904,6 +910,12 @@ class AllocationPreferencesPayload(BaseModel):
             raise ValueError("bandDeviationReason muss ein Text sein")
         return value
 
+    # ESG-PREMIUM-CRITERIA-001: Begruendung je Thema fuer "allow" (Pflicht)
+    # bzw. optional fuer andere bewusste Abweichungen. Leer = Key wird von
+    # services.portfolio_engine._normalize_preferences() nicht ausgegeben
+    # (Drift-Stabilitaet des gespeicherten preferences_json-Snapshots).
+    tiltReasons: dict = Field(default_factory=dict)
+
     @field_validator("policy")
     @classmethod
     def validate_policy(cls, value: dict) -> dict:
@@ -935,6 +947,45 @@ class AllocationPreferencesPayload(BaseModel):
                 allowed=_VALID_TILT_VALUES,
             )
         return value
+
+    @field_validator("tiltReasons")
+    @classmethod
+    def validate_tilt_reasons(cls, value: dict) -> dict:
+        for key, reason in value.items():
+            if key not in _VALID_TILT_KEYS:
+                raise ValueError(
+                    f"Unbekannter tiltReasons-Key '{key}' (erlaubt: {sorted(_VALID_TILT_KEYS)})"
+                )
+            if not isinstance(reason, str):
+                raise ValueError(f"tiltReasons.{key} muss ein Text sein")
+            if len(reason) > _TILT_REASON_MAX_LENGTH:
+                raise ValueError(
+                    f"tiltReasons.{key} ist zu lang (max. {_TILT_REASON_MAX_LENGTH} Zeichen)"
+                )
+        return value
+
+    @model_validator(mode="after")
+    def validate_allow_reasons(self):
+        """'Bewusst zulassen' ist eine dokumentationspflichtige Abweichung
+        (FIDLEG Art. 13 / Greenwashing-Schutz): ohne qualitativ ausreichende
+        Begruendung wird der Wert fail-closed abgelehnt -- gleiche Pruefung
+        wie bei jedem anderen Berater-Override."""
+        from services.override_reason_quality import (
+            OverrideReasonQualityError,
+            validate_override_reason_quality,
+        )
+
+        for key, mode in self.tilts.items():
+            if mode != "allow":
+                continue
+            try:
+                validate_override_reason_quality(self.tiltReasons.get(key))
+            except OverrideReasonQualityError as exc:
+                raise ValueError(
+                    f"Tilt '{key}' = 'allow' (bewusst zulassen) verlangt eine dokumentierte "
+                    f"Begruendung in tiltReasons.{key}: {exc}"
+                ) from exc
+        return self
 
     @field_validator("product")
     @classmethod

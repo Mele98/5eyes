@@ -675,22 +675,36 @@ def _make_preferences_section(preferences, styles) -> list:
     tilts = prefs.get("tilts") if isinstance(prefs.get("tilts"), dict) else {}
     bands = prefs.get("bands") if isinstance(prefs.get("bands"), dict) else {}
 
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 / ESG-PREMIUM-CRITERIA-001: alle
+    # ESG-Texte kommen aus denselben Konstanten/Funktionen, die die Engine
+    # fuer den Produktfilter nutzt (portfolio_engine_payload.
+    # _product_matches_constraints) -- Dokument == Engine.
+    from services.portfolio_engine_payload import (
+        ESG_POLICY_CRITERIA,
+        ESG_POLICY_LIQUIDITY_EXEMPTION,
+        THEME_DISPLAY_NAMES,
+        THEME_TILT_ALLOW,
+        effective_theme_screening,
+        esg_policy_criterion_label,
+        theme_look_through_disclosure,
+        theme_policy_deviations,
+    )
+
+    esg_labels = {
+        "none": "Keine ESG-Praeferenz",
+        "negative_screening": (
+            "Negativ-Screening (Themenprodukte der kontroversen Themen ausgeschlossen, "
+            "sofern nicht abweichend festgelegt)"
+        ),
+    }
+    esg_labels.update({
+        key: f"{esg_policy_criterion_label(key)}; {ESG_POLICY_LIQUIDITY_EXEMPTION}"
+        for key in ESG_POLICY_CRITERIA
+    })
+
     rows = [["Bereich", "Festgehaltene Praeferenz"]]
     rows.extend([
-        ["Nachhaltigkeit", _label(policy.get("esg"), {
-            "none": "Keine ESG-Praeferenz",
-            # ESG-THEME-EXCLUSION-EFFECTIVE-001: Label beschreibt, was die
-            # Engine tatsaechlich umsetzt (portfolio_engine_payload.
-            # _product_matches_constraints / effective_theme_screening).
-            "esg_integration": "ESG-Integration (nur Produkte nach SFDR Art. 8/9)",
-            "best_in_class": "Best-in-Class (nur Produkte nach SFDR Art. 8/9)",
-            "negative_screening": (
-                "Negativ-Screening (Themenprodukte der kontroversen Themen ausgeschlossen, "
-                "sofern nicht abweichend festgelegt)"
-            ),
-            "impact": "Impact Investing (nur Produkte nach SFDR Art. 8/9)",
-            "net_zero": "Paris-aligned / Net Zero (nur Produkte nach SFDR Art. 8/9)",
-        }, "Standard / keine gesonderte Vorgabe")],
+        ["Nachhaltigkeit", _label(policy.get("esg"), esg_labels, "Standard / keine gesonderte Vorgabe")],
         ["Anlageuniversum", _label(policy.get("universe"), {
             "standard": "Standard",
             "extended": "Erweitert",
@@ -739,27 +753,42 @@ def _make_preferences_section(preferences, styles) -> list:
     # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): die Themen-Zeilen
     # kommen aus derselben Funktion, die die Engine fuer den harten
     # Produktfilter nutzt -- inkl. der via negative_screening wirksamen
-    # Ausschluesse, die vorher im Dokument gar nicht als Restriktion
-    # erschienen. "untergewichten" ist bewusst mit seiner tatsaechlichen
+    # Ausschluesse. "untergewichten" ist bewusst mit seiner tatsaechlichen
     # Umsetzung beschriftet (kein Themenbaustein, kein Ersatzeinsatz).
-    from services.portfolio_engine_payload import (
-        THEME_DISPLAY_NAMES,
-        THEME_LOOK_THROUGH_DISCLOSURE,
-        effective_theme_screening,
-    )
-
-    screened_themes = effective_theme_screening({"tilts": tilts, "policy": policy})
+    theme_prefs = {"tilts": tilts, "policy": policy, "tiltReasons": prefs.get("tiltReasons")}
+    screened_themes = effective_theme_screening(theme_prefs)
+    deviations = theme_policy_deviations(theme_prefs)
     tilt_actions = {
         "exclude": "ausschliessen",
         "underweight": "untergewichten (kein Themenbaustein, nie als Ersatz)",
     }
     for key in THEME_DISPLAY_NAMES:
         mode = screened_themes.get(key) or tilts.get(key)
+        if key in deviations:
+            continue  # eigene Zeile "Abweichungen von der ESG-Policy"
         if mode == "overweight":
             restrictions.append(f"{THEME_DISPLAY_NAMES[key]} uebergewichten")
+        elif mode == THEME_TILT_ALLOW:
+            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} bewusst zugelassen")
         elif mode in tilt_actions:
             restrictions.append(f"{THEME_DISPLAY_NAMES[key]} {tilt_actions[mode]}")
     rows.append(["Restriktionen", "; ".join(restrictions) if restrictions else "Keine aktiven Restriktionen"])
+    # ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): "bewusst
+    # zulassen" (und Uebergewichten trotz Negativ-Screening) ist eine
+    # dokumentierte Abweichung von der ESG-Policy -- mit Begruendung, damit
+    # das Dokument nie einen Ausschluss behauptet, den die Engine bewusst
+    # nicht umsetzt.
+    if deviations:
+        deviation_texts = []
+        for key, item in deviations.items():
+            action = "bewusst zugelassen" if item["mode"] == THEME_TILT_ALLOW else "uebergewichtet"
+            text_ = f"{THEME_DISPLAY_NAMES[key]} {action}"
+            if item["reason"]:
+                text_ += f" -- Begruendung: {item['reason']}"
+            else:
+                text_ += " -- keine Begruendung erfasst"
+            deviation_texts.append(text_)
+        rows.append(["Abweichungen von der ESG-Policy", "; ".join(deviation_texts)])
 
     band_labels = []
     for key, override in bands.items():
@@ -825,7 +854,7 @@ def _make_preferences_section(preferences, styles) -> list:
                 _esc(
                     "Hinweis Themen-Screening: Ausgeschlossene und untergewichtete Themen "
                     "werden weder als eigener Themenbaustein noch als Ersatz fuer einen "
-                    "anderen Baustein umgesetzt. " + THEME_LOOK_THROUGH_DISCLOSURE
+                    "anderen Baustein umgesetzt. " + theme_look_through_disclosure(screened_themes)
                 ),
                 styles["body"],
             ),
