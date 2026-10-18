@@ -4816,6 +4816,15 @@ function _wireSollIstHover(){
       </div>
       <div class="frow">
         <div class="fg">
+          <label class="fl">Stammt aus Vorsorge-Position</label>
+          <select class="fsel" id="awi-linked-position">
+            <option value="">Keine (neues Vermögen)</option>
+          </select>
+          <div style="font-size:10px;color:var(--n5);line-height:1.4;margin-top:3px">Ist der Zufluss der Bezug einer erfassten Vorsorge (3a, Freizügigkeit, BVG-Kapital, Police), hier verknüpfen: die Position wird dann ab diesem Jahr ausgebucht und nicht automatisch nochmals bezogen.</div>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg">
           <label class="fl">Notiz</label>
           <input class="fi" id="awi-notes" placeholder="Optional...">
         </div>
@@ -5025,7 +5034,7 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Konto-/Depotnummer</label><input class="fi" id="maw-depot-account" placeholder="z.B. Kto. 12-345678-9"></div>
     <div class="fg"><label class="fl">Marktwert (CHF)</label><input class="fi" id="maw-depot-value" type="number" placeholder="500000"></div>
   </div>
-  <div style="padding:10px;background:var(--bg);border-radius:var(--r2);border:1px solid var(--b1);margin-bottom:8px">
+  <div id="aw-alloc-split" style="padding:10px;background:var(--bg);border-radius:var(--r2);border:1px solid var(--b1);margin-bottom:8px">
     <div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n5);margin-bottom:7px">Anlageklassen-Aufschlüsselung (%)</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:4px">
       <div><label class="fl" style="font-size:9px">Aktien</label><input class="fi" id="sc-akt" type="number" min="0" max="100" value="0" oninput="calcSCTotal()"></div>
@@ -5094,7 +5103,7 @@ function _wireSollIstHover(){
   <div class="frow">
     <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-pension-label" placeholder="z.B. PK Arbeitgeber AG, Säule 3a ZKB"></div>
     <div class="fg"><label class="fl">Vorsorgetyp</label>
-        <select class="fsel" id="maw-pension-type">
+        <select class="fsel" id="maw-pension-type" onchange="syncPensionVehicleFields()">
           <option value="BVG">Pensionskasse (BVG)</option>
           <option value="Säule 3a">Säule 3a (gebunden)</option>
           <option value="Freizügigkeit">Freizügigkeitskonto / -police</option>
@@ -5123,7 +5132,29 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">WEF-Bezug möglich?</label>
       <select class="fsel" id="maw-pension-wef"><option>Ja</option><option>Nein</option><option>Bereits bezogen</option></select>
     </div>
+    <div class="fg"><label class="fl">Anlageform</label>
+      <select class="fsel" id="maw-pension-vehicle" onchange="syncPensionVehicleFields()">
+        <option value="">Standard je Vorsorgetyp</option>
+        <option value="Konto">Konto (Zins)</option>
+        <option value="Wertschriften">Wertschriften / Depot</option>
+        <option value="Police">Police (Versicherung)</option>
+      </select>
+    </div>
   </div>
+  <div class="frow">
+    <div class="fg"><label class="fl">Zins / Rendite p.a. (%, nominal)</label><input class="fi" id="maw-pension-interest" type="number" step="0.01" placeholder="Standard: Konto 0 / Wertschriften 3 / BVG 0"></div>
+  </div>
+  <div class="frow">
+    <div class="fg"><label class="fl">Kapitalbezugssteuer CHF</label><input class="fi" id="maw-pension-tax-chf" type="number" min="0" placeholder="aus dem Steuerrechner des Kantons"></div>
+    <div class="fg"><label class="fl">oder Satz %</label><input class="fi" id="maw-pension-tax-pct" type="number" min="0" max="50" step="0.01" placeholder="Default 10 (defensiv)"></div>
+  </div>
+  <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Kapitalbezugssteuer aus dem Steuerrechner des Kantons erfassen (CHF-Betrag hat Vorrang vor dem Satz). Leer = defensiv 10 % (3a, Freizügigkeit, BVG-Kapital); 3b-Policen 0 %.</div>
+  <div class="frow" id="maw-pension-police-row" style="display:none">
+    <div class="fg"><label class="fl">Garantierter Ablaufwert (CHF)</label><input class="fi" id="maw-pension-maturity-value" type="number" placeholder="80000"></div>
+    <div class="fg"><label class="fl">Fälligkeit</label><input class="fi" id="maw-pension-maturity-date" type="date"></div>
+  </div>
+  <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Vorsorge wird nicht verwaltet, sondern fortgeschrieben (Konto 0 %, Wertschriften 3 %, BVG 0 % – überschreibbar; Police: Guthaben = Rückkaufswert, bei Fälligkeit der vertragliche Ablaufwert). 3a, Freizügigkeit und Policen werden beim Bezug („Verfügbar ab“, sonst Rentenalter) automatisch freies Vermögen. Eine Aufteilung nur erfassen, wenn sie bewusst ins Aktien-/Immobilien-Exposure zählen soll.</div>
+  <div id="aw-Vorsorge-split-host"></div>
 </div>
 
 <!-- ALTERNATIVE -->
@@ -6976,8 +7007,38 @@ function wealthScopePositions(scope){
   return items.filter(function(pos){return String(pos.assignment||'')!=='Verbindlichkeit';});
 }
 
+// VORSORGE-PROJECTION-001 (2026-10-18): externe Vorsorge wird nicht verwaltet,
+// sondern deterministisch fortgeschrieben (Spiegel von
+// services/portfolio_engine_pension_positions.py, Version
+// vorsorge-projektion-2026-10-18): Konto 0 %, Wertschriften 3 %, Police 0 %,
+// BVG 0 % -- jeweils durch pension_interest_rate_bps ueberschreibbar.
+function isExternalPensionPosition(pos){
+  return String(pos&&pos.position_type||'')==='Vorsorge'
+    &&String(pos&&pos.assignment||'')==='Anderes Vermögen'
+    &&!(pos&&pos.is_active===0);
+}
+function pensionProjectionRateBps(pos){
+  var recorded=pos?pos.pension_interest_rate_bps:null;
+  if(recorded!=null&&recorded!==''&&isFinite(Number(recorded)))return Number(recorded);
+  var vehicle=String(pos&&pos.pension_vehicle||'');
+  if(!vehicle){
+    var t=String(pos&&pos.pension_type||'');
+    if(t==='Säule 3a'||t==='Freizügigkeit')vehicle='Konto';
+    else if(t==='Säule 3b'||t==='Lebensversicherung')vehicle='Police';
+  }
+  if(vehicle==='Wertschriften')return 300;
+  return 0;
+}
+// Kapitalbezugssteuer ohne Erfassung: defensiv 10 % fuer 3a/FZ/BVG, sonst 0
+// (Spiegel von PENSION_LUMPSUM_TAX_DEFAULT_BPS, User-Entscheid 2026-10-18).
+function pensionLumpsumTaxDefaultBps(pos){
+  var t=String(pos&&pos.pension_type||'');
+  return (t==='Säule 3a'||t==='Freizügigkeit'||t==='BVG')?1000:0;
+}
 function inferPositionBucketMixBps(pos){
   var eq=0,bo=0,re=0,li=0,al=0;
+  // Externe Vorsorge: eigene Kategorie, nicht auf Anlageklassen verteilt.
+  if(isExternalPensionPosition(pos))return {equities:0,bonds:0,realEstate:0,liquidity:0,alternatives:0};
   var bpsSum=Number(pos&&pos.alloc_equities_bps||0)+Number(pos&&pos.alloc_bonds_bps||0)+Number(pos&&pos.alloc_real_estate_bps||0)+Number(pos&&pos.alloc_liquidity_bps||0)+Number(pos&&pos.alloc_alternatives_bps||0);
   if(bpsSum>0){
     eq=Number(pos&&pos.alloc_equities_bps||0);
@@ -7075,6 +7136,9 @@ function wealthProjectionInputs(scope,years){
     var posReturnBps=(Number(mix.equities||0)*returnMap.equities+Number(mix.bonds||0)*returnMap.bonds
       +Number(mix.realEstate||0)*returnMap.realEstate+Number(mix.liquidity||0)*returnMap.liquidity
       +Number(mix.alternatives||0)*returnMap.alternatives)/10000;
+    // VORSORGE-PROJECTION-001: Vorschau mit dem Fortschreibungssatz statt CMA-Mix.
+    var pensionRateBps=isExternalPensionPosition(pos)?pensionProjectionRateBps(pos):null;
+    if(pensionRateBps!=null)posReturnBps=pensionRateBps;
     if(String(pos&&pos.position_type||'')==='Immobilien'){
       sockelGrossRappen+=value;  // Immobilie = Sockel (nicht verzehrt)
       // Wertsteigerung p.a.: negative Annahmen bleiben sichtbar; nur <= -100%
@@ -7089,7 +7153,7 @@ function wealthProjectionInputs(scope,years){
     bucketRappen.realEstate+=Math.round(value*Number(mix.realEstate||0)/10000);
     bucketRappen.liquidity+=Math.round(value*Number(mix.liquidity||0)/10000);
     bucketRappen.alternatives+=Math.round(value*Number(mix.alternatives||0)/10000);
-    weightedReturnRappenBps+=Math.round(value*(
+    weightedReturnRappenBps+=pensionRateBps!=null?Math.round(value*pensionRateBps):Math.round(value*(
       Number(mix.equities||0)*returnMap.equities+
       Number(mix.bonds||0)*returnMap.bonds+
       Number(mix.realEstate||0)*returnMap.realEstate+
@@ -10152,6 +10216,16 @@ protokolliereEreignis=runtimeProtokolliereEreignis;
 </div>
 <script>
 // Subclass total calculator
+// VORSORGE-PROJECTION-001: Ablaufwert/Faelligkeit nur fuer Policen.
+function syncPensionVehicleFields(){
+  var vehicle=getInputValue('maw-pension-vehicle');
+  var type=getInputValue('maw-pension-type');
+  var isPolice=vehicle==='Police'||(!vehicle&&(type==='Säule 3b'||type==='Lebensversicherung'));
+  var row=document.getElementById('maw-pension-police-row');
+  if(row)row.style.display=isPolice?'':'none';
+  var taxPct=document.getElementById('maw-pension-tax-pct');
+  if(taxPct)taxPct.placeholder='Default '+(pensionLumpsumTaxDefaultBps({pension_type:type})/100)+(pensionLumpsumTaxDefaultBps({pension_type:type})?' (defensiv)':'');
+}
 function calcSCTotal(){
   var t=0;
   ['sc-akt','sc-obl','sc-imm','sc-liq','sc-alt'].forEach(function(id){
@@ -10553,6 +10627,16 @@ function protokolliereEreignis(){
       var el = document.getElementById('aw-' + s);
       if (el) el.style.display = (s === val) ? 'block' : 'none';
   });
+    // VORSORGE-PROJECTION-001: dieselbe Aufteilungs-Komponente fuer Depot
+    // und (optional) Vorsorge -- das DOM-Element wandert in die aktive Maske.
+    var split = document.getElementById('aw-alloc-split');
+    if (split) {
+      var splitHost = val === 'Vorsorge' ? document.getElementById('aw-Vorsorge-split-host')
+        : (val === 'Depot' ? document.getElementById('aw-Depot') : null);
+      if (splitHost && split.parentNode !== splitHost) splitHost.appendChild(split);
+      split.style.display = splitHost ? 'block' : 'none';
+    }
+    if (val === 'Vorsorge' && typeof syncPensionVehicleFields === 'function') syncPensionVehicleFields();
   // Auto-set Zuordnung type
     var typ = document.getElementById('maw-typ');
     if (!typ) return;
@@ -17801,6 +17885,7 @@ var liveClientLoadToken=0;
       'maw-liq-label','maw-liq-bank','maw-liq-value','maw-liq-rate','maw-liq-available',
       'maw-immo-label','maw-immo-address','maw-immo-value','maw-immo-valuation-date','maw-immo-rent','maw-immo-appreciation',
       'maw-pension-label','maw-pension-institution','maw-pension-value','maw-pension-rate','maw-pension-age','maw-pension-available',
+      'maw-pension-interest','maw-pension-maturity-value','maw-pension-maturity-date','maw-pension-tax-chf','maw-pension-tax-pct',
       'maw-alt-label','maw-alt-value','maw-alt-valuation-date','maw-alt-return','maw-alt-location',
       'maw-mortgage-label','maw-mortgage-bank','maw-mortgage-value','maw-mortgage-rate','maw-mortgage-maturity','maw-mortgage-amortization',
       'maw-note'
@@ -17816,6 +17901,7 @@ var liveClientLoadToken=0;
     setSelectValue('maw-pension-type','BVG');
     setSelectValue('maw-pension-payout','Rente');
     setSelectValue('maw-pension-wef','Ja');
+    setSelectValue('maw-pension-vehicle','');
     setSelectValue('maw-alt-subtype','Private Equity / Beteiligung');
     setSelectValue('maw-alt-liquidity','Liquide (< 30 Tage)');
     setSelectValue('maw-alt-valuation-method','Marktpreis');
@@ -17878,6 +17964,21 @@ var liveClientLoadToken=0;
       setInputValue('maw-pension-age',pos.pension_retirement_age==null?'':pos.pension_retirement_age);
       setSelectValue('maw-pension-payout',pos.pension_payout_form||'Rente');
       setSelectValue('maw-pension-wef',Number(pos.pension_wef_possible||0)?'Ja':'Nein');
+      // VORSORGE-PROJECTION-001: Fortschreibung, Bezugsdatum, optionale Aufteilung.
+      setSelectValue('maw-pension-vehicle',pos.pension_vehicle||'');
+      setInputValue('maw-pension-interest',formatInputPercent(pos.pension_interest_rate_bps));
+      setInputValue('maw-pension-maturity-value',formatInputCHF(pos.pension_maturity_value_rappen));
+      setInputValue('maw-pension-maturity-date',pos.pension_maturity_date||'');
+      setInputValue('maw-pension-available',pos.liquidity_available_from||'');
+      setInputValue('maw-pension-tax-chf',formatInputCHF(pos.pension_lumpsum_tax_rappen));
+      setInputValue('maw-pension-tax-pct',formatInputPercent(pos.pension_lumpsum_tax_bps));
+      setInputValue('sc-akt',Math.round(Number(pos.alloc_equities_bps||0)/100));
+      setInputValue('sc-obl',Math.round(Number(pos.alloc_bonds_bps||0)/100));
+      setInputValue('sc-imm',Math.round(Number(pos.alloc_real_estate_bps||0)/100));
+      setInputValue('sc-liq',Math.round(Number(pos.alloc_liquidity_bps||0)/100));
+      setInputValue('sc-alt',Math.round(Number(pos.alloc_alternatives_bps||0)/100));
+      calcSCTotal();
+      syncPensionVehicleFields();
     } else if(pos.position_type==='Alternative'||pos.position_type==='Custom'){
       setInputValue('maw-alt-label',pos.label||'');
       setSelectValue('maw-alt-subtype',pos.asset_subtype||'Private Equity / Beteiligung');
@@ -24359,6 +24460,24 @@ var currentInflowEditId=null;
 // Deutsche Labels fuer die 5 source_types (Backend-Werte exakt beibehalten).
 var INFLOW_SOURCE_LABELS={Erbschaft:'Erbschaft',Bonus:'Bonus',Saeule3b:'Säule 3b',Verkaufserloes:'Verkaufserlös',Andere:'Andere'};
 function inflowSourceLabel(v){return INFLOW_SOURCE_LABELS[String(v||'')]||String(v||'');}
+// VORSORGE-PROJECTION-001: Auswahl der externen Vorsorge-Positionen, aus denen
+// ein Zufluss stammen kann (Backend validiert dieselbe Regel).
+function populateInflowLinkedPositionOptions(selectedId){
+  var sel=document.getElementById('awi-linked-position');
+  if(!sel)return;
+  var list=(typeof currentWealthPositions!=='undefined'&&Array.isArray(currentWealthPositions))?currentWealthPositions:[];
+  var html='<option value="">Keine (neues Vermögen)</option>';
+  var found=false;
+  list.forEach(function(pos){
+    if(!isExternalPensionPosition(pos))return;
+    var id=String(pos.id||'');
+    if(id===String(selectedId||''))found=true;
+    html+='<option value="'+escapeHtml(id)+'">'+escapeHtml(String(pos.label||'Vorsorge')+(pos.pension_type?' ('+pos.pension_type+')':''))+'</option>';
+  });
+  if(selectedId&&!found)html+='<option value="'+escapeHtml(String(selectedId))+'">Verknüpfte Vorsorge-Position</option>';
+  sel.innerHTML=html;
+  sel.value=selectedId?String(selectedId):'';
+}
 function resetInflowModal(){
   currentInflowEditId=null;
   setInputValue('awi-label','');
@@ -24370,6 +24489,7 @@ function resetInflowModal(){
   setSelectValue('awi-frequency','einmalig');
   setInputValue('awi-duration','');
   setInputValue('awi-notes','');
+  populateInflowLinkedPositionOptions('');
   var btn=document.getElementById('btn-awi-save');
   if(btn){btn.textContent='Speichern';btn.disabled=false;}
   var err=document.getElementById('awi-error');
@@ -24405,6 +24525,7 @@ function openInflowEditor(inflowId){
   setSelectValue('awi-frequency',inflow.frequency||'einmalig');
   setInputValue('awi-duration',inflow.duration_years!=null?String(inflow.duration_years):'');
   setInputValue('awi-notes',inflow.notes||'');
+  populateInflowLinkedPositionOptions(inflow.linked_position_id||'');
   var btn=document.getElementById('btn-awi-save');
   if(btn){btn.textContent='Aktualisieren';btn.disabled=false;}
   var err=document.getElementById('awi-error');
@@ -24451,6 +24572,7 @@ async function saveInflow(){
   }
   var notes=(document.getElementById('awi-notes')||{value:''}).value.trim();
   if(notes)payload.notes=notes;
+  payload.linked_position_id=(document.getElementById('awi-linked-position')||{value:''}).value||null;
   var cid=getActiveClientId();
   if(!cid||isDemoClientId(cid)){
     showModalFeedback('awi-error',btn,'Bitte zuerst einen echten Mandanten auswählen.',true);
@@ -24942,9 +25064,14 @@ function buildWealthPositionPayload(cat,typ,note){
   var imm=parseFloat(getInputValue('sc-imm'))||0;
   var liq=parseFloat(getInputValue('sc-liq'))||0;
   var alt=parseFloat(getInputValue('sc-alt'))||0;
+  // VORSORGE-PROJECTION-001: Aufteilung nur fuer Depot und (optional) Vorsorge.
+  if(posType!=='Depot'&&posType!=='Vorsorge'){akt=0;obl=0;imm=0;liq=0;alt=0;}
   var tot=akt+obl+imm+liq+alt;
   if(posType==='Depot'&&tot>0&&Math.abs(tot-100)>0.5){
     throw new Error('Allokation muss 100% ergeben (aktuell: '+Math.round(tot)+'%). Bitte auf 100% aufteilen oder alle Felder auf 0 lassen (dann wird automatisch 60% Aktien / 25% Obligationen angenommen).');
+  }
+  if(posType==='Vorsorge'&&tot>0&&Math.abs(tot-100)>0.5){
+    throw new Error('Vorsorge-Aufteilung muss 100% ergeben (aktuell: '+Math.round(tot)+'%) oder ganz leer bleiben (dann zählt die Vorsorge nicht ins Anlage-Exposure).');
   }
   // CURRENCY-CLOBBER-001 (Audit-Finding, 2026-10-07): war fest auf 'CHF'
   // verdrahtet und ueberschrieb damit bei JEDEM Speichern (auch beim
@@ -25007,8 +25134,16 @@ function buildWealthPositionPayload(cat,typ,note){
     payload.pension_retirement_age=isFinite(retirementAge)?retirementAge:null;
     payload.pension_payout_form=getInputValue('maw-pension-payout')||null;
     payload.pension_wef_possible=getInputValue('maw-pension-wef')==='Ja';
-    var pensionAvailable=getInputValue('maw-pension-available');
-    if(pensionAvailable)noteParts.push('Verfügbar ab '+pensionAvailable);
+    // VORSORGE-PROJECTION-001: 'Verfügbar ab' ist das Bezugsdatum (vorher nur Notiz).
+    payload.liquidity_available_from=getInputValue('maw-pension-available')||null;
+    payload.pension_vehicle=getInputValue('maw-pension-vehicle')||null;
+    payload.pension_interest_rate_bps=parsePercentToBps(getInputValue('maw-pension-interest'));
+    var maturityValueRaw=getInputValue('maw-pension-maturity-value');
+    payload.pension_maturity_value_rappen=payload.pension_vehicle==='Police'&&maturityValueRaw!==''?parseCHF(maturityValueRaw):null;
+    payload.pension_maturity_date=payload.pension_vehicle==='Police'?(getInputValue('maw-pension-maturity-date')||null):null;
+    var taxChfRaw=getInputValue('maw-pension-tax-chf');
+    payload.pension_lumpsum_tax_rappen=taxChfRaw!==''?parseCHF(taxChfRaw):null;
+    payload.pension_lumpsum_tax_bps=parsePercentToBps(getInputValue('maw-pension-tax-pct'));
     if(getInputValue('maw-pension-wef')==='Bereits bezogen')noteParts.push('WEF bereits bezogen');
   } else if(posType==='Alternative'){
     payload.label=getInputValue('maw-alt-label').trim();

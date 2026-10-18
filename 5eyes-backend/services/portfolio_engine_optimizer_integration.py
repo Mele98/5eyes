@@ -216,6 +216,10 @@ def sensitivity_house_anchor_bps(
       getestet wurde (persistiert in der Modellbasis).
     * Eine Alt-Allokation ohne persistierten Anker liefert None; der Solver
       nimmt dann die target-Spalten der Hausmatrix-Zeile (im Audit sichtbar).
+
+    HOUSE-PRIOR-001 (Engine v6): derselbe Anker ist jetzt der Prior des
+    Optimierers und steht im Block ``house_prior``; v5-Allokationen (und
+    Risikomass-Varianten) fuehren ihn unter ``significance``.
     """
     if current_allocation is None:
         if not live_targets:
@@ -227,10 +231,16 @@ def sensitivity_house_anchor_bps(
         )
     except (TypeError, ValueError):
         return None
-    anchor = (
+    resampling = (
         ((stored.get("optimization_model_basis") or {}).get("resampling") or {})
-        .get("significance") or {}
-    ).get("house_anchor_bps") if isinstance(stored, dict) else None
+        if isinstance(stored, dict) else {}
+    )
+    anchor = None
+    for block_name in ("house_prior", "significance"):
+        block = resampling.get(block_name) if isinstance(resampling, dict) else None
+        if isinstance(block, dict) and block.get("house_anchor_bps"):
+            anchor = block.get("house_anchor_bps")
+            break
     if not isinstance(anchor, dict) or not anchor:
         return None
     if any(isinstance(v, bool) or not isinstance(v, int) for v in anchor.values()):
@@ -439,6 +449,14 @@ def _run_stochastic_optimizer_pass(
         mortality_kwargs = mortality_solver_kwargs_from_mandate(mandate)
     except MandateModelInputError as exc:
         raise OptimizerInputError(str(exc)) from exc
+    if mortality_kwargs:
+        # MORTALITY-HORIZON-P80-LS-001: Basis des Cutoffs offenlegen
+        # (Quantil, Paar/Einzelperson, fehlende Partnerdaten).
+        from services.mortality.horizon import mortality_planning_horizon_note
+
+        mortality_note = mortality_planning_horizon_note(mandate)
+        if mortality_note:
+            reasoning.append(mortality_note)
 
     # Sprint U-P2 Fix C9: tax-aware Solver — wenn das Mandat eine
     # tax_jurisdiction hat, wird das passende TaxRegime aufgeloest und

@@ -30,12 +30,20 @@ Methode (Michaud-artiges Bagging mit Common Random Numbers):
    Absicherung gegen numerische Randfaelle.
 4. Die Streuung je Bucket ueber die Bags (Standardabweichung in bps) wird als
    Stabilitaetskennzahl ausgewiesen.
-5. Signifikanztest gegen die Hausmatrix: auf dem UNABHAENGIGEN
-   Validierungswuerfel wird die resampelte Allokation mit der (auf
-   Zulaessigkeit projizierten) Hausmatrix-Zielquote GEPAART verglichen --
-   seit HOUSE-FIRST-SIGNIFICANCE-001 auf der Zielebene (Ziel-Fehlbetrag +
-   Chance-Strafe), in den Risikomass-Varianten zusaetzlich auf dem
-   Risikomass mit Materialitaetsschwelle. Ist die Verbesserung nicht
+5. Hausmatrix (seit HOUSE-PRIOR-001, Engine ``saa_resampled_v6``):
+   im Default-Modus ``goal_shortfall`` ist die (auf Zulaessigkeit
+   projizierte) Hausmatrix-Zielquote ein PRIOR in der Zielfunktion jedes
+   Bags (``house_prior.py``: ``kappa_H * (w - w_H)' Sigma (w - w_H)`` statt
+   des Tiebreaks ``w' Sigma w``); das projizierte Bag-Mittel ist das
+   Ergebnis, ohne Schalter. Der gepaarte Bootstrap auf dem UNABHAENGIGEN
+   Validierungswuerfel legt nur offen (Delta Zielebene, Konfidenzgrenzen,
+   Zielwahrscheinlichkeiten Haus vs. Ergebnis) und ist Sicherheitsnetz: ist
+   das Ergebnis auf der Zielebene signifikant SCHLECHTER als die Hausquote,
+   gilt die Hausquote.
+   In den Risikomass-Varianten und ohne projizierbaren Anker gilt weiter
+   die v5-Regel (HOUSE-FIRST-SIGNIFICANCE-001): Signifikanztest gegen die
+   Hausmatrix auf der Zielebene, in den Varianten zusaetzlich auf dem
+   Risikomass mit Materialitaetsschwelle; ist die Verbesserung nicht
    signifikant (bzw. nicht material), bleibt die Hausmatrix-Zielquote stehen.
 
 Wahl des Tests: Die Zielfunktion ist KEIN Mittelwert pfadweiser Verluste --
@@ -87,6 +95,12 @@ RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
 # 2-7 bps weniger Volatilitaet. In den Risikomass-Varianten entscheidet
 # zusaetzlich der Skalar (Risikomass + Chance-Strafe), aber nur mit
 # Materialitaet (``RISK_MEASURE_MATERIALITY``).
+#
+# Engine v6 (HOUSE-PRIOR-001, 2026-10-18): dieser Test entscheidet nur noch in
+# den Risikomass-Varianten (und ohne projizierbaren Anker); dort ist er
+# mathematisch unveraendert und behaelt deshalb seine Version. Im Default
+# ersetzt ihn die Offenlegung ``house_prior.HOUSE_PRIOR_DISCLOSURE_TEST_VERSION``
+# (``paired_bootstrap_disclosure_goal_level_v5``).
 SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_goal_level_v4"
 COMPARISON_SCALAR = "scalar"
 COMPARISON_GOAL_LEVEL = "goal_level"
@@ -379,6 +393,29 @@ _SIGNIFICANCE_BASIS_FIELDS = (
 )
 
 
+# HOUSE-PRIOR-001 (Engine v6): Prior-Audit des Default-Modus. Alles
+# deterministisch (Inhalts-Seed); kappa und Version gehoeren in die
+# Modellbasis, weil sie die Allokation bestimmen.
+_HOUSE_PRIOR_BASIS_FIELDS = (
+    "version",
+    "kappa",
+    "house_anchor_bps",
+    "house_anchor_projected_bps",
+    "candidate_bps",
+    "candidate_tracking_error_vs_house_bps",
+    "final_bps",
+    "tracking_error_vs_house_bps",
+    "final_prior_penalty",
+    "disclosure",
+    "goal_probabilities",
+    "validation_seed",
+    "validation_cube_hash",
+    "validation_n_paths",
+    "decision",
+    "reason",
+)
+
+
 def resampling_model_basis(resampling: dict | None) -> dict | None:
     """Deterministische Verdichtung des Resampling-Audits fuer die Modellbasis."""
     if not isinstance(resampling, dict) or not resampling.get("enabled"):
@@ -392,5 +429,12 @@ def resampling_model_basis(resampling: dict | None) -> dict | None:
             key: significance[key]
             for key in _SIGNIFICANCE_BASIS_FIELDS
             if key in significance
+        }
+    house_prior = resampling.get("house_prior")
+    if isinstance(house_prior, dict):
+        basis["house_prior"] = {
+            key: house_prior[key]
+            for key in _HOUSE_PRIOR_BASIS_FIELDS
+            if key in house_prior
         }
     return basis

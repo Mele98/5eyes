@@ -326,41 +326,35 @@ def test_material_goal_deficit_still_beats_the_variant():
 # ---------------------------------------------------------------------------
 
 
-def test_house_matrix_significance_compares_the_goal_level_not_the_tiebreak():
-    """HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): der gepaarte
-    Test gegen die Hausmatrix vergleicht die ZIELEBENE der Bag-Zielfunktion
-    (Ziel-Fehlbetrag + Chance-Strafe, + Soft-Preference) auf dem
-    Validierungs-Cube -- ohne den Volatilitaets-Tiebreak. Der Tiebreak ist
-    deterministisch; mit ihm war jede noch so kleine Varianzdifferenz
-    "signifikant" (p = 1/(B+1)). Im Solver bleibt er (Stetigkeit), er
-    entscheidet nur nicht mehr ueber Anker vs. Kandidat."""
+def test_house_prior_disclosure_compares_the_goal_level_not_the_prior_term():
+    """HOUSE-FIRST-SIGNIFICANCE-001 / HOUSE-PRIOR-001 (Engine v6): die
+    Offenlegung vergleicht die ZIELEBENE (Ziel-Fehlbetrag + Chance-Strafe, +
+    Soft-Preference) von Hausquote und Ergebnis auf dem Validierungs-Cube --
+    ohne den Prior-Term ``kappa_H * TE^2``, der deterministisch ist und im
+    Solver bleibt (Stetigkeit), aber nichts "beweist"."""
     import sys
     from pathlib import Path
 
     tests_root = Path(__file__).resolve().parent
     if str(tests_root) not in sys.path:
         sys.path.insert(0, str(tests_root))
-    from test_optimizer_context import _cma, _house_matrix, _pension_goal
+    from test_house_prior_shrinkage import _inputs
 
     from services.optimizer import solver as solver_module
     from services.optimizer.scenario_engine import BUCKET_ORDER
 
-    result = solver_module.run_solver(
-        cma=_cma(), goals=[_pension_goal()], house_matrix_row=_house_matrix(),
-        score_x10=70, advisory_wealth_rappen=500_000_00,
-        cashflow_series_rappen=[20_000_00] * 10, horizon_years=10,
-        n_paths=400, seed=20261018,
-    )
-    significance = result.resampling["significance"]
-    if significance.get("reason") == "identical_to_house_anchor":
-        pytest.skip("Kandidat = Anker; kein Test gelaufen.")
-    assert significance["test"] == "paired_bootstrap_one_sided_goal_level_v4"
-    assert significance["comparison"] == "goal_level"
-    assert significance["decision_level"] in {"goal_level"}
-    # Default-Modus: keine Risikomass-Ebene im Entscheid.
-    assert "risk_measure_test" not in significance
+    # Ehrgeiziges Sparziel (Referenzmandat D): das Ergebnis weicht ab.
+    inputs = {**_inputs("D_wachstum_sparen", 1.0), "n_paths": 400}
+    result = solver_module.run_solver(**inputs, seed=20261018)
+    block = result.resampling["house_prior"]
+    if block.get("reason") == "identical_to_house_anchor":
+        pytest.skip("Ergebnis = Anker; keine Offenlegung gelaufen.")
+    disclosure = block["disclosure"]
+    assert disclosure["test"] == "paired_bootstrap_disclosure_goal_level_v5"
 
-    validation_context, _seed, _hash = solver_module._build_validation_context(result.context)
+    validation_context, _seed, _hash = solver_module._build_validation_context(
+        solver_module._with_house_prior(result.context, block["house_anchor_projected_bps"])
+    )
 
     def levels(bps):
         w = np.array([bps[b] / 10000.0 for b in BUCKET_ORDER])
@@ -377,19 +371,20 @@ def test_house_matrix_significance_compares_the_goal_level_not_the_tiebreak():
             objective_mode="goal_shortfall",
             goal_weighting_mode=result.context.objective_contract.goal_weighting_mode,
             portfolio_return_factors=factors,
-            portfolio_variance=portfolio_variance_one_year(
-                w, validation_context.scenario_cov_bps2
+            portfolio_variance=solver_module._tiebreak_portfolio_variance(
+                validation_context, w
             ),
             penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
 
-    anchor_goal, anchor_tiebreak = levels(significance["house_anchor_projected_bps"])
-    candidate_goal, candidate_tiebreak = levels(significance["candidate_bps"])
-    assert significance["anchor_objective"] == pytest.approx(anchor_goal, rel=1e-12, abs=1e-15)
-    assert significance["candidate_objective"] == pytest.approx(candidate_goal, rel=1e-12, abs=1e-15)
-    assert significance["improvement"] == pytest.approx(
-        significance["anchor_objective"] - significance["candidate_objective"],
+    house_goal, house_prior_term = levels(block["house_anchor_projected_bps"])
+    final_goal, final_prior_term = levels(block["candidate_bps"])
+    assert disclosure["house_goal_level"] == pytest.approx(house_goal, rel=1e-12, abs=1e-15)
+    assert disclosure["final_goal_level"] == pytest.approx(final_goal, rel=1e-12, abs=1e-15)
+    assert disclosure["improvement"] == pytest.approx(
+        disclosure["house_goal_level"] - disclosure["final_goal_level"],
         rel=1e-12, abs=1e-15,
     )
-    # Der Tiebreak existiert weiterhin (Solver), steckt aber nicht im Vergleich.
-    assert anchor_tiebreak > 0.0 and candidate_tiebreak > 0.0
+    # Der Prior-Term existiert (Solver), steckt aber nicht im Vergleich: an
+    # der Hausquote ist er 0, am abweichenden Ergebnis positiv.
+    assert house_prior_term == 0.0 and final_prior_term > 0.0

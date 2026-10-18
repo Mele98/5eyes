@@ -1586,6 +1586,8 @@ export interface WealthInflowCreatePayload {
   value_mode?: 'nominal' | 'real';
   mandate_id?: string | null;
   notes?: string | null;
+  /** VORSORGE-PROJECTION-001: Zufluss ist der Bezug dieser Vorsorge-Position. */
+  linked_position_id?: string | null;
 }
 
 export type WealthInflowUpdatePayload = Partial<
@@ -1607,6 +1609,7 @@ export interface WealthInflowRecord {
   duration_years: number | null;
   value_mode: string;
   notes: string | null;
+  linked_position_id?: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;
