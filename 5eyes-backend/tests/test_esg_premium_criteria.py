@@ -851,10 +851,10 @@ def test_real_admin_fund_form_sends_esg_criteria_data():
 
 @pytest.mark.parametrize("policy", ["esg_integration", "best_in_class", "impact", "net_zero"])
 def test_pdf_esg_label_discloses_liquidity_exemption(policy):
-    """Die Engine nimmt Liquiditaet (Konto/Festgeld, ohne SFDR-Klasse) vom
-    Kriterium aus (test_liquidity_stays_exempt_from_esg_criteria). Ohne
-    diesen Hinweis behauptete das PDF z.B. 'nur Produkte nach SFDR Art. 9',
-    obwohl jedes Portfolio eine Liquiditaetsposition ohne SFDR-Klasse traegt."""
+    """Die Engine nimmt die gesamte Anlageklasse Liquiditaet vom Kriterium
+    aus (test_liquidity_stays_exempt_from_esg_criteria). Ohne diesen Hinweis
+    behauptete das PDF z.B. 'nur Produkte nach SFDR Art. 9', obwohl jedes
+    Portfolio eine Liquiditaetsposition traegt."""
     from services.portfolio_engine_payload import ESG_POLICY_LIQUIDITY_EXEMPTION
 
     text_ = _pdf_preferences_text({"policy": {"esg": policy}})
@@ -961,7 +961,9 @@ _ESG_CRITERIA_VOCABULARY = frozenset({
     # Policy-Namen
     "Best", "Class", "Impact", "Investing", "Integration", "Net", "Zero",
     # Liquiditaets-Ausnahme
-    "Liquiditaet", "Konto", "Festgeld", "Kriterium", "ausgenommen",
+    "Liquiditaet", "Konto", "Festgeld", "Geldmarktfonds", "Kriterium",
+    "ausgenommen", "die", "gesamte", "Anlageklasse", "und", "unabhaengig",
+    "deren",
     # Funktionswoerter
     "Produkte", "nur", "nach", "oder", "mit", "von", "vom", "der", "in",
     "ist", "sind", "nicht", "ohne", "allein", "genuegt", "mindestens",
@@ -990,3 +992,70 @@ def test_esg_criteria_texts_use_only_whitelisted_vocabulary(policy):
         unknown = set(re.findall(r"[A-Za-zÄÖÜäöüß]+", text_)) - _ESG_CRITERIA_VOCABULARY
         assert not unknown, (policy, sorted(unknown), text_)
     assert ESG_POLICY_CRITERIA[policy] in _pdf_esg_label(policy)
+
+
+# ---------------------------------------------------------------------------
+# 9. CIO-Entscheid 2026-10-18: Liquiditaets-Ausnahmetext == Code-Bedingung
+# ---------------------------------------------------------------------------
+
+
+_SFDR_POLICIES = ["esg_integration", "best_in_class", "impact", "net_zero"]
+
+
+def test_liquidity_exemption_text_and_matcher_share_one_asset_class_constant():
+    import inspect
+
+    import services.portfolio_engine_payload as payload
+
+    assert payload.ESG_POLICY_EXEMPT_ASSET_CLASS == "Liquiditaet"
+    assert f"gesamte Anlageklasse {payload.ESG_POLICY_EXEMPT_ASSET_CLASS}" in payload.ESG_POLICY_LIQUIDITY_EXEMPTION
+    source = inspect.getsource(payload._product_matches_constraints)
+    assert "asset_class != ESG_POLICY_EXEMPT_ASSET_CLASS" in source
+    assert 'asset_class != "Liquiditaet" and not product_meets_esg_policy' not in source
+
+
+@pytest.mark.parametrize("policy", _SFDR_POLICIES)
+@pytest.mark.parametrize("sub_asset_class,product_type,sfdr", [
+    ("Geldmarktfonds", "Fonds", "8"),   # Seed-Geldmarktfonds (SFDR Art. 8)
+    ("Geldmarktfonds", "Fonds", "6"),
+    ("Geldmarktfonds", "Fonds", None),
+    ("Kontoguthaben", "Cash", None),
+    ("Festgeld", "Cash", None),
+])
+def test_whole_liquidity_asset_class_is_exempt_as_the_text_states(policy, sub_asset_class, product_type, sfdr):
+    """Der Kundentext nennt Konto, Festgeld UND Geldmarktfonds unabhaengig von
+    der SFDR-Klasse -- genau das nimmt die Engine aus. Gegenprobe: ein Art.-6-
+    Produkt ausserhalb der Liquiditaet erfuellt das Kriterium nicht."""
+    from services.portfolio_engine_payload import ESG_POLICY_LIQUIDITY_EXEMPTION
+
+    liquid = _product(asset_class="Liquidität", sub_asset_class=sub_asset_class,
+                      product_type=product_type, sfdr_class=sfdr)
+    assert _product_matches_constraints(liquid, _prefs(policy={"esg": policy}), 8) is True
+    other = _product(asset_class="Obligationen", sub_asset_class="Obligationen CHF",
+                     product_type="ETF", sfdr_class="6")
+    assert _product_matches_constraints(other, _prefs(policy={"esg": policy}), 8) is False
+    named = {"Geldmarktfonds": "Geldmarktfonds", "Kontoguthaben": "Konto", "Festgeld": "Festgeld"}
+    assert named[sub_asset_class] in ESG_POLICY_LIQUIDITY_EXEMPTION
+    if sfdr:
+        assert "unabhaengig von deren SFDR-Klassifikation" in ESG_POLICY_LIQUIDITY_EXEMPTION
+
+
+def test_every_seed_liquidity_product_kind_is_named_in_exemption_text():
+    from services.portfolio_engine_payload import ESG_POLICY_LIQUIDITY_EXEMPTION
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(bind=engine)
+    SF = sessionmaker(bind=engine)
+    with SF() as s:
+        pe.ensure_default_products(s, jurisdiction="CH")
+        s.commit()
+        subs = {
+            str(p.sub_asset_class) for p in s.query(Product).all()
+            if pe._norm_text(p.asset_class) == "Liquiditaet"
+        }
+    engine.dispose()
+    assert subs
+    named = {"Geldmarktfonds": "Geldmarktfonds", "Kontoguthaben": "Konto", "Festgeld": "Festgeld"}
+    for sub in subs:
+        assert sub in named, sub
+        assert named[sub] in ESG_POLICY_LIQUIDITY_EXEMPTION

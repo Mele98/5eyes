@@ -755,8 +755,9 @@ FOSSIL_LOOK_THROUGH_THRESHOLD_BPS = 1000
 
 # ESG-PREMIUM-CRITERIA-001, Stufe 2: unterscheidbare, datengetriebene
 # Kriterien je ESG-Policy. Fehlende Daten -> Produkt fuer diese Policy NICHT
-# zulaessig (fail-closed). Liquiditaet bleibt ausgenommen (Konto/Festgeld
-# haben keine SFDR-Klassifikation).
+# zulaessig (fail-closed). Die GESAMTE Anlageklasse Liquiditaet bleibt
+# ausgenommen (ESG_POLICY_EXEMPT_ASSET_CLASS) -- inkl. Geldmarktfonds, auch
+# solche mit SFDR-Klassifikation.
 # - best_in_class (CIO-Entscheid 2026-10-18, konservativ gegen
 #   Greenwashing): nur die LEADER-Klasse der siebenstufigen Rating-Skala
 #   AAA-CCC (Product.esg_rating). Die Skala teilt sich in Leader (AAA, AA),
@@ -798,9 +799,17 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
 # Self-Review 2026-10-18: die Liquiditaets-Ausnahme (siehe
 # _product_matches_constraints) gehoert in jedes Kundendokument, das ein
 # Kriterium nennt -- sonst behauptet "nur Produkte nach SFDR Art. 9" mehr, als
-# die Engine umsetzt (Konto/Festgeld haben keine SFDR-Klasse).
+# die Engine umsetzt.
+# CIO-Entscheid 2026-10-18 (Review C3, Dokument != Engine): der Text
+# beschreibt EXAKT die Code-Bedingung -- ausgenommen ist die gesamte
+# Anlageklasse (Product.asset_class, normalisiert), also auch Geldmarktfonds
+# mit eigener SFDR-Klasse, nicht nur Konto/Festgeld ohne Klassifikation.
+# Text und Bedingung teilen sich ESG_POLICY_EXEMPT_ASSET_CLASS.
+ESG_POLICY_EXEMPT_ASSET_CLASS = "Liquiditaet"
 ESG_POLICY_LIQUIDITY_EXEMPTION = (
-    "Liquiditaet (Konto/Festgeld ohne SFDR-Klassifikation) ist vom Kriterium ausgenommen"
+    f"die gesamte Anlageklasse {ESG_POLICY_EXEMPT_ASSET_CLASS} (Konto, Festgeld "
+    "und Geldmarktfonds, unabhaengig von deren SFDR-Klassifikation) ist vom "
+    "Kriterium ausgenommen"
 )
 
 
@@ -1162,7 +1171,7 @@ def _product_matches_constraints(
     # (vorher bildeten alle vier identisch auf SFDR 8/9 ab -- "Impact" und
     # "Net Zero" versprachen damit mehr, als die Engine pruefte). Siehe
     # ESG_POLICY_CRITERIA / product_meets_esg_policy().
-    if asset_class != "Liquiditaet" and not product_meets_esg_policy(product, policy_prefs.get("esg")):
+    if asset_class != ESG_POLICY_EXEMPT_ASSET_CLASS and not product_meets_esg_policy(product, policy_prefs.get("esg")):
         return False
     return True
 
