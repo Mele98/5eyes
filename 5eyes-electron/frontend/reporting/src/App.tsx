@@ -12,26 +12,32 @@ import {
   isTypingInInput,
   sectionHref,
 } from '@/lib/sectionNavigation';
-import { Cover } from '@/pages/Cover';
-import { Disclaimer } from '@/pages/Disclaimer';
-import { Inhaltsverzeichnis } from '@/pages/Inhaltsverzeichnis';
-import { Ausgangslage } from '@/pages/Ausgangslage';
-import { Positionen } from '@/pages/Positionen';
-import { Pruefpunkte } from '@/pages/Pruefpunkte';
-import { Erkenntnisse } from '@/pages/Erkenntnisse';
-import { AssetAllocation } from '@/pages/AssetAllocation';
-import { Risikowaehrungen } from '@/pages/Risikowaehrungen';
-import { Branchen } from '@/pages/Branchen';
-import { Goals } from '@/pages/Goals';
-import { Risikoprofil } from '@/pages/Risikoprofil';
-import { BuildingBlocks } from '@/pages/BuildingBlocks';
-import { StatementPm } from '@/pages/StatementPm';
-import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
-import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
-import { Kostenausweis } from '@/pages/Kostenausweis';
-import { Compliance } from '@/pages/Compliance';
-import { Eignung } from '@/pages/Eignung';
-import { ProfilingPage } from '@/sections/profiling/ProfilingPage';
+// REPORT-CODE-SPLIT-001: Sektionen als eigene Chunks (siehe pages/lazySections.tsx).
+import {
+  LazyAssetAllocation as AssetAllocation,
+  LazyAusgangslage as Ausgangslage,
+  LazyBeratungsprotokoll as Beratungsprotokoll,
+  LazyBranchen as Branchen,
+  LazyBuildingBlocks as BuildingBlocks,
+  LazyCompliance as Compliance,
+  LazyCover as Cover,
+  LazyDisclaimer as Disclaimer,
+  LazyEignung as Eignung,
+  LazyErkenntnisse as Erkenntnisse,
+  LazyGoals as Goals,
+  LazyInhaltsverzeichnis as Inhaltsverzeichnis,
+  LazyKostenausweis as Kostenausweis,
+  LazyPositionen as Positionen,
+  LazyPruefpunkte as Pruefpunkte,
+  LazyRisikoprofil as Risikoprofil,
+  LazyRisikowaehrungen as Risikowaehrungen,
+  LazyStatementPm as StatementPm,
+  LazyWeiteresVorgehen as WeiteresVorgehen,
+  SectionSkeleton,
+  preloadSection,
+} from '@/pages/lazySections';
+const ProfilingPage = lazy(() =>
+  import('@/sections/profiling/ProfilingPage').then((m) => ({ default: m.ProfilingPage })));
 // Editor-Workflows lazy laden (U-56 Bundle-Budget): der Report-Viewer lädt den
 // Editor-Code nicht mit — jede Sektion wird als eigener Chunk on-demand geholt.
 const GoalsEditor = lazy(() =>
@@ -212,6 +218,10 @@ function Landing() {
 function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
   const { mandateId } = useParams<{ mandateId: string }>();
   const { state, data, error, reload } = useAdvisoryReport(mandateId);
+  // REPORT-CODE-SPLIT-001: Sektions-Chunk parallel zum Report-Fetch laden.
+  useEffect(() => {
+    preloadSection(sectionId);
+  }, [sectionId]);
 
   if (!mandateId) {
     return (
@@ -247,7 +257,9 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
         tabIndex={-1}
         aria-label={`Beratungsreport-Hauptinhalt: ${sectionId}`}
       >
-        {renderSection(sectionId, data, mandateId, reload)}
+        <Suspense fallback={<SectionSkeleton />}>
+          {renderSection(sectionId, data, mandateId, reload)}
+        </Suspense>
       </main>
       <KeyboardShortcuts mandateId={mandateId} activeSection={sectionId} />
     </div>
