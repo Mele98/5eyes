@@ -1,6 +1,16 @@
 /**
  * Sprint U-12 (Roadmap-Punkt 12): SVG-Wealth-Trajectory-Chart mit
- * p5/p75-Band, p50-Median-Linie und Goal-Markern.
+ * Quantil-Faecher, p50-Median-Linie und Goal-Markern.
+ *
+ * REPORT-FAN-CHART-BANDS-001 (2026-10-18): zwei SYMMETRISCHE Baender
+ * P10–P90 (zentrale 80 % der Pfade) und P25–P75 (zentrale 50 %), wie die
+ * P10/P90-Kennzahlen der App. Vorher: ein Band p5–p75, beschriftet als
+ * "90 %" -- tatsaechlich 70 % und asymmetrisch (unten 5 %, oben 25 %
+ * abgeschnitten). Liefert ein aelterer Payload kein p10/p25/p90, zeigt
+ * der Chart weiterhin p5–p75, aber korrekt als "70 %, asymmetrisch".
+ * Zielmarker oberhalb der Skala werden nicht mehr still an den Rand
+ * geklemmt: die Skala waechst bis GOAL_SCALE_CAP x Faecher-Maximum mit,
+ * darueber steht ein Randmarker mit Pfeil und exaktem Zielwert.
  *
  * Bewusst eine OWN-Komponente (kein recharts), weil:
  *  - Editorial-Stil mit klaren Schweizer-Farben (Petrol Akzent, Navy Ink)
@@ -12,18 +22,18 @@
  * Layout
  * ------
  *   ┌────────────────────────────────────────┐
- *   │ Y-Achse Labels (CHF compact)           │
- *   │     │   ╱p75 ━━━━━━━━━━━━━━━━━ p75    │
- *   │     │  ▓▓▓▓▓▓▓▓▓ Band (p5-p75)        │
+ *   │ Y-Achse Labels (CHF, runde Schritte)   │
+ *   │     │   ╱p90 ░░░░░░░░░░░░░░░ P10–P90  │
+ *   │     │  ▓▓▓▓▓▓▓▓▓ Band P25–P75         │
  *   │     │   ━━━━━━━━━ p50 (Median, dick)   │
- *   │     │   ╲p5  ━━━━━━━━━━━━━━━━━ p5    │
- *   │     │                                  │
+ *   │     │   ╲p10 ░░░░░░░░░░░░░░░          │
  *   │     ┼────┼────┼────┼────┼────┼─────── │
  *   │     2026 2030 2034 2038 2042 2046     │
  *   │     +Goal-Markers als vertikale Linien │
  *   └────────────────────────────────────────┘
  */
 import type { GoalEntry, MonteCarloPaths } from '@/api/types';
+import { formatChfRappen } from '@/lib/format';
 import { classifyGoals, type GoalAchievabilityStatus } from '@/lib/goalClassification';
 
 interface MonteCarloPathsChartProps {
@@ -34,24 +44,40 @@ interface MonteCarloPathsChartProps {
 // Layout-Konstanten — passt zu Editorial-Design-Tokens
 const WIDTH = 720;
 const HEIGHT = 320;
-const PADDING_LEFT = 70;
+// Platz fuer "CHF 12.25 Mio." (14 Zeichen x ~6.6px bei 11px Monospace)
+const PADDING_LEFT = 100;
 const PADDING_RIGHT = 24;
 const PADDING_TOP = 36;
 const PADDING_BOTTOM = 56;
 const PLOT_W = WIDTH - PADDING_LEFT - PADDING_RIGHT;
 const PLOT_H = HEIGHT - PADDING_TOP - PADDING_BOTTOM;
 
-// Farben — Petrol-Akzent + Status-Skala. Stimmen mit tailwind-Tokens ueberein.
+// Farben — Petrol-Akzent + Status-Skala.
 const COLOR_INK = '#1f2a3a';
 const COLOR_INK_MUTED = '#5a6577';
 const COLOR_INK_SUBTLE = '#8d97a8';
 const COLOR_RULE = '#d8dde6';
-const COLOR_BAND_FILL = 'rgba(46, 84, 119, 0.18)'; // Petrol-Akzent
+// Zwei verschachtelte Baender: aussen (P10–P90) heller, innen (P25–P75)
+// liegt darueber -- die Deckkraft addiert sich im Kernbereich sichtbar.
+const COLOR_BAND_OUTER_FILL = 'rgba(46, 84, 119, 0.12)'; // Petrol-Akzent
+const COLOR_BAND_INNER_FILL = 'rgba(46, 84, 119, 0.22)';
 const COLOR_P50 = '#2e5477';
 const COLOR_STATUS_GRUEN = '#4E6F58';
 const COLOR_STATUS_GELB = '#B59243';
 const COLOR_STATUS_ROT = '#9E4747';
 const COLOR_STATUS_NEUTRAL = '#5a6577';
+
+/**
+ * Zielwerte bis zu GOAL_SCALE_CAP x (oberer Faecherrand) erweitern die
+ * y-Skala; hoehere Ziele wuerden den Faecher zur Linie stauchen und
+ * bekommen stattdessen einen Randmarker (Pfeil + exakter Wert).
+ */
+export const GOAL_SCALE_CAP = 2;
+
+/** Hoechstens so viele y-Intervalle (=> hoechstens 5 Tick-Beschriftungen). */
+const MAX_Y_INTERVALS = 4;
+
+const TABULAR_NUMS = { fontVariantNumeric: 'tabular-nums' } as const;
 
 const STATUS_COLOR: Record<GoalAchievabilityStatus, string> = {
   erreichbar: COLOR_STATUS_GRUEN,
@@ -73,6 +99,7 @@ export function MonteCarloPathsChart({
 
   // Defensive: wenn die Daten nicht aligned sind, rendern wir nichts.
   // Die aufrufende Komponente sollte vorher pruefen, aber wir sind robust.
+  // p5/p50/p75 bleiben Pflicht: die Ziel-Klassifikation basiert darauf.
   const n = time_axis.length;
   if (n < 2 || p5.length !== n || p50.length !== n || p75.length !== n) {
     return null;
@@ -85,9 +112,20 @@ export function MonteCarloPathsChart({
     return null;
   }
 
-  // y-Range = [0, max(p75) * 1.05]. 0 als Untergrenze macht die Wachstums-
+  const fan = selectFanBands(paths, n);
+  if (fan === null) return null;
+
+  const classifications = classifyGoals(goals, paths);
+
+  // y-Range = [0, runde Obergrenze]. 0 als Untergrenze macht die Wachstums-
   // Geschichte anschaulich (vs. min(p5) das die Bandbreite klein wirken laesst).
-  const maxValue = Math.max(...p75) * 1.05;
+  // Ziele im Horizont bis GOAL_SCALE_CAP x Faecher-Maximum erweitern die Skala.
+  const fanMax = Math.max(...fan.outerHi, ...p50);
+  const goalTargetsInHorizon = classifications
+    .filter((c) => c.t_index !== null)
+    .map((c) => goals.find((g) => g.goal_id === c.goal_id)?.target_amount_rappen)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const { maxValue, step: yStep } = computeYScale(fanMax, goalTargetsInHorizon);
   const minValue = 0;
 
   const xFor = (i: number) => PADDING_LEFT + (i / (n - 1)) * PLOT_W;
@@ -96,30 +134,27 @@ export function MonteCarloPathsChart({
 
   // Polyline-Strings
   const p50Line = p50.map((v, i) => `${xFor(i)},${yFor(v)}`).join(' ');
+  const outerBandPath = bandPolygon(fan.outerLo, fan.outerHi, xFor, yFor);
+  const innerBandPath =
+    fan.innerLo && fan.innerHi
+      ? bandPolygon(fan.innerLo, fan.innerHi, xFor, yFor)
+      : null;
 
-  // Band (p5..p75): Polygon top=p75 forward, bottom=p5 backward
-  const bandTop = p75.map((v, i) => `${xFor(i)},${yFor(v)}`).join(' ');
-  const bandBottom = [...p5]
-    .map((v, i) => [xFor(i), yFor(v)] as const)
-    .reverse()
-    .map(([x, y]) => `${x},${y}`)
-    .join(' ');
-  const bandPath = `${bandTop} ${bandBottom}`;
-
-  // Y-Achse Ticks: 5 gleichmaessig
-  const yTickValues = Array.from({ length: 5 }, (_, k) =>
-    Math.round((maxValue / 4) * k),
+  // Y-Achse Ticks: Vielfache eines runden Schritts (1/2/2.5/5 x 10^k)
+  const yTickValues = Array.from(
+    { length: Math.round(maxValue / yStep) + 1 },
+    (_, k) => k * yStep,
   );
+  const formatYTick = makeYTickFormatter(maxValue, yStep);
   // X-Achse Ticks: maximal 6 Beschriftungen (sonst ueberfuellt)
   const xTickIndices = _spacedIndices(n, 6);
-
-  const classifications = classifyGoals(goals, paths);
+  const anyGoalAboveScale = goalTargetsInHorizon.some((v) => v > maxValue);
 
   return (
     <figure
       data-testid="mc-paths-chart"
       className="mt-section"
-      aria-label="Monte-Carlo-Pfade des Vermoegens mit Quantilen p5, p50 und p75"
+      aria-label={`Monte-Carlo-Pfade des Vermoegens mit Quantilen ${fan.quantileList}`}
     >
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -127,13 +162,12 @@ export function MonteCarloPathsChart({
         className="w-full h-auto"
       >
         <title>
-          Monte-Carlo Wealth-Pfade: Median (p50), 5%- und 75%-Quantil ueber{' '}
-          {paths.horizon_years ?? n - 1} Jahre.
+          {`Monte-Carlo Wealth-Pfade über ${paths.horizon_years ?? n - 1} Jahre: Median (P50), ${
+            fan.outerLegend
+          }${fan.innerLegend ? `, ${fan.innerLegend}` : ''}.`}
         </title>
         <desc>
-          {paths.n_paths ?? '?'} simulierte Pfade. Vermoegen-Trajektorie als
-          Konfidenz-Band p5-p75 mit hervorgehobener Median-Linie. Goal-Marker
-          zeigen Ziel-Zeitpunkt und -Wert.
+          {`${paths.n_paths ?? '?'} simulierte Pfade. Goal-Marker zeigen Ziel-Zeitpunkt und -Wert.`}
         </desc>
 
         {/* Y-Grid + Y-Labels */}
@@ -150,6 +184,7 @@ export function MonteCarloPathsChart({
                 strokeWidth={k === 0 ? 1 : 0.5}
               />
               <text
+                data-testid="mc-paths-y-tick"
                 x={PADDING_LEFT - 8}
                 y={y}
                 textAnchor="end"
@@ -157,20 +192,30 @@ export function MonteCarloPathsChart({
                 fontSize="11"
                 fontFamily="ui-monospace, SFMono-Regular, monospace"
                 fill={COLOR_INK_SUBTLE}
+                style={TABULAR_NUMS}
               >
-                {_formatCompactChf(v)}
+                {formatYTick(v)}
               </text>
             </g>
           );
         })}
 
-        {/* Band p5-p75 */}
+        {/* Aeusseres Band (P10–P90, bzw. Legacy p5–p75) */}
         <polygon
           data-testid="mc-paths-band"
-          points={bandPath}
-          fill={COLOR_BAND_FILL}
+          points={outerBandPath}
+          fill={COLOR_BAND_OUTER_FILL}
           stroke="none"
         />
+        {/* Inneres Band (P25–P75) */}
+        {innerBandPath !== null ? (
+          <polygon
+            data-testid="mc-paths-band-inner"
+            points={innerBandPath}
+            fill={COLOR_BAND_INNER_FILL}
+            stroke="none"
+          />
+        ) : null}
 
         {/* P50 Median */}
         <polyline
@@ -181,20 +226,26 @@ export function MonteCarloPathsChart({
           strokeWidth={1.8}
         />
 
-        {/* Goal-Marker: vertikale Linie + Status-Punkt */}
+        {/* Goal-Marker: vertikale Linie + Status-Punkt (bzw. Randmarker) */}
         {classifications.map((c) => {
           if (c.t_index === null) return null;
           const goal = goals.find((g) => g.goal_id === c.goal_id);
           if (!goal) return null;
           const x = xFor(c.t_index);
+          const aboveScale = goal.target_amount_rappen > maxValue;
           const yTarget = yFor(Math.min(goal.target_amount_rappen, maxValue));
           const status = c.status;
           const color = STATUS_COLOR[status];
+          // Labels am rechten Rand nach links ausrichten (sonst abgeschnitten)
+          const nearRightEdge = x > WIDTH - PADDING_RIGHT - 160;
+          const labelX = nearRightEdge ? x - 10 : x + 10;
+          const labelAnchor = nearRightEdge ? 'end' : 'start';
           return (
             <g
               key={`goal-${c.goal_id}`}
               data-testid={`goal-marker-${c.goal_id}`}
               data-status={status}
+              data-above-scale={aboveScale ? 'true' : 'false'}
             >
               <line
                 x1={x}
@@ -206,16 +257,38 @@ export function MonteCarloPathsChart({
                 strokeDasharray="3 3"
                 opacity={0.6}
               />
-              <circle cx={x} cy={yTarget} r={5} fill={color} />
+              {aboveScale ? (
+                // Randmarker: Ziel liegt oberhalb der Skala -> Pfeil nach
+                // oben + exakter Zielwert statt eines irrefuehrend am
+                // Rand "aufliegenden" Punkts.
+                <polygon
+                  data-testid={`goal-marker-arrow-${c.goal_id}`}
+                  points={`${x},${yTarget - 8} ${x - 6},${yTarget + 3} ${x + 6},${yTarget + 3}`}
+                  fill={color}
+                />
+              ) : (
+                <circle cx={x} cy={yTarget} r={5} fill={color} />
+              )}
               <text
-                x={x + 8}
-                y={yTarget - 6}
+                x={labelX}
+                y={aboveScale ? yTarget + 14 : yTarget - 6}
+                textAnchor={labelAnchor}
                 fontSize="10"
                 fontFamily="ui-sans-serif, system-ui, sans-serif"
                 fill={COLOR_INK}
                 fontWeight={600}
+                style={TABULAR_NUMS}
               >
                 {goal.label || goal.goal_id}
+                {aboveScale ? (
+                  <tspan
+                    data-testid={`goal-marker-value-${c.goal_id}`}
+                    fill={COLOR_INK_MUTED}
+                    fontWeight={400}
+                  >
+                    {` ▲ Ziel ${formatChfRappen(goal.target_amount_rappen)} (über Skala)`}
+                  </tspan>
+                ) : null}
               </text>
             </g>
           );
@@ -231,6 +304,7 @@ export function MonteCarloPathsChart({
             fontSize="11"
             fontFamily="ui-monospace, SFMono-Regular, monospace"
             fill={COLOR_INK_SUBTLE}
+            style={TABULAR_NUMS}
           >
             {time_axis[i]}
           </text>
@@ -260,21 +334,31 @@ export function MonteCarloPathsChart({
         data-testid="mc-paths-legend"
         className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-caption text-ink-muted"
       >
-        <span className="inline-flex items-center gap-2">
+        <span className="inline-flex items-center gap-2" data-testid="mc-paths-legend-outer">
           <span
             aria-hidden="true"
             className="inline-block h-2 w-3"
-            style={{ background: COLOR_BAND_FILL, border: `1px solid ${COLOR_P50}` }}
+            style={{ background: COLOR_BAND_OUTER_FILL, border: `1px solid ${COLOR_P50}` }}
           />
-          Band p5–p75 (90% des Pfade-Korridors)
+          {fan.outerLegend}
         </span>
+        {fan.innerLegend !== null ? (
+          <span className="inline-flex items-center gap-2" data-testid="mc-paths-legend-inner">
+            <span
+              aria-hidden="true"
+              className="inline-block h-2 w-3"
+              style={{ background: COLOR_BAND_INNER_FILL, border: `1px solid ${COLOR_P50}` }}
+            />
+            {fan.innerLegend}
+          </span>
+        ) : null}
         <span className="inline-flex items-center gap-2">
           <span
             aria-hidden="true"
             className="inline-block h-0.5 w-4"
             style={{ background: COLOR_P50 }}
           />
-          Median p50
+          Median (P50)
         </span>
         <span className="inline-flex items-center gap-2">
           <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ background: COLOR_STATUS_GRUEN }} />
@@ -288,22 +372,143 @@ export function MonteCarloPathsChart({
           <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full" style={{ background: COLOR_STATUS_ROT }} />
           Schwierig
         </span>
+        {anyGoalAboveScale ? (
+          <span className="inline-flex items-center gap-2" data-testid="mc-paths-legend-above-scale">
+            <span aria-hidden="true">▲</span>
+            Ziel über der Skala (Wert beschriftet)
+          </span>
+        ) : null}
       </figcaption>
     </figure>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Internals — exportiert nur fuer Tests (via __test_utils, falls noetig).
+// Internals — exportiert fuer Tests.
 // ---------------------------------------------------------------------------
 
-function _formatCompactChf(rappen: number): string {
-  if (rappen === 0) return 'CHF 0';
-  const value = Math.round(rappen / 100);
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000) return `CHF ${(value / 1_000_000).toFixed(1)} M`;
-  if (abs >= 1_000) return `CHF ${(value / 1_000).toFixed(0)} k`;
-  return `CHF ${value}`;
+interface FanBands {
+  outerLo: number[];
+  outerHi: number[];
+  innerLo: number[] | null;
+  innerHi: number[] | null;
+  outerLegend: string;
+  innerLegend: string | null;
+  quantileList: string;
+}
+
+/**
+ * Waehlt die Faecher-Baender. Bevorzugt P10–P90 + P25–P75 (symmetrisch,
+ * 80 % / 50 %). Fehlen p10/p25/p90 komplett (aelterer Payload), faellt der
+ * Chart auf p5–p75 zurueck -- korrekt beschriftet als 70 %, asymmetrisch.
+ * Sind sie nur teilweise oder fehlerhaft vorhanden: null (kein Chart),
+ * statt still ein anderes Band zu zeigen. Erwartet bereits validierte
+ * p5/p50/p75 der Laenge n.
+ */
+export function selectFanBands(paths: MonteCarloPaths, n: number): FanBands | null {
+  const p5 = paths.p5 ?? [];
+  const p75 = paths.p75 ?? [];
+  const p10 = paths.p10 ?? [];
+  const p25 = paths.p25 ?? [];
+  const p90 = paths.p90 ?? [];
+  const present = [p10, p25, p90].filter((a) => a.length > 0).length;
+  if (present === 0) {
+    return {
+      outerLo: p5,
+      outerHi: p75,
+      innerLo: null,
+      innerHi: null,
+      outerLegend: 'Bandbreite P5–P75 (70 % der Verläufe, asymmetrisch)',
+      innerLegend: null,
+      quantileList: 'P5, P50 und P75',
+    };
+  }
+  const valid = [p10, p25, p90].every(
+    (a) => a.length === n && a.every((v) => Number.isFinite(v)),
+  );
+  if (!valid) return null;
+  return {
+    outerLo: p10,
+    outerHi: p90,
+    innerLo: p25,
+    innerHi: p75,
+    outerLegend: 'Bandbreite P10–P90 (8 von 10 Verläufen)',
+    innerLegend: 'Kernbereich P25–P75 (5 von 10 Verläufen)',
+    quantileList: 'P10, P25, P50, P75 und P90',
+  };
+}
+
+function bandPolygon(
+  lo: number[],
+  hi: number[],
+  xFor: (i: number) => number,
+  yFor: (v: number) => number,
+): string {
+  // Polygon: oberer Rand vorwaerts, unterer Rand rueckwaerts
+  const top = hi.map((v, i) => `${xFor(i)},${yFor(v)}`);
+  const bottom = lo.map((v, i) => `${xFor(i)},${yFor(v)}`).reverse();
+  return [...top, ...bottom].join(' ');
+}
+
+/**
+ * Runde Achsenschritte 1/2/2.5/5 x 10^k: kleinster solcher Schritt >= raw.
+ */
+export function niceStep(raw: number): number {
+  if (!(raw > 0) || !Number.isFinite(raw)) return 1;
+  const exp = Math.floor(Math.log10(raw));
+  const base = 10 ** exp;
+  for (const m of [1, 2, 2.5, 5]) {
+    const candidate = m * base;
+    // Toleranz gegen Float-Rauschen (z.B. 3 * 0.1)
+    if (candidate >= raw * (1 - 1e-12)) return candidate;
+  }
+  return 10 * base;
+}
+
+/**
+ * y-Skala: Obergrenze = kleinstes Vielfaches eines runden Schritts, das
+ * 105 % von max(Faecher-Maximum, Ziele <= GOAL_SCALE_CAP x Faecher-Maximum)
+ * abdeckt; hoechstens MAX_Y_INTERVALS Intervalle.
+ */
+export function computeYScale(
+  fanMax: number,
+  goalTargets: number[],
+): { maxValue: number; step: number } {
+  const safeFanMax = fanMax > 0 && Number.isFinite(fanMax) ? fanMax : 1;
+  const cap = safeFanMax * GOAL_SCALE_CAP;
+  const inScaleGoals = goalTargets.filter((v) => v > 0 && v <= cap);
+  const top = Math.max(safeFanMax, ...inScaleGoals) * 1.05;
+  const step = niceStep(top / MAX_Y_INTERVALS);
+  const maxValue = Math.ceil(top / step - 1e-9) * step;
+  return { maxValue, step };
+}
+
+/**
+ * Achsenbeschriftung mit EINER festen Nachkommastellenzahl fuer die ganze
+ * Achse (keine springenden Stellen). Ab 1 Mio. CHF in "Mio." mit genau so
+ * vielen Stellen, wie der Schritt braucht (0.25 Mio. -> 2, 0.5 -> 1,
+ * 1 -> 0); darunter voller CHF-Betrag im Report-Format (Apostroph).
+ */
+export function makeYTickFormatter(
+  maxValueRappen: number,
+  stepRappen: number,
+): (rappen: number) => string {
+  const MIO_RAPPEN = 1_000_000 * 100;
+  if (maxValueRappen < MIO_RAPPEN) {
+    return (rappen) => formatChfRappen(rappen);
+  }
+  const stepMio = stepRappen / MIO_RAPPEN;
+  let decimals = 0;
+  while (
+    decimals < 3 &&
+    Math.abs(stepMio * 10 ** decimals - Math.round(stepMio * 10 ** decimals)) > 1e-9
+  ) {
+    decimals += 1;
+  }
+  return (rappen) => {
+    if (rappen === 0) return 'CHF 0';
+    return `CHF ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;
+  };
 }
 
 /**
