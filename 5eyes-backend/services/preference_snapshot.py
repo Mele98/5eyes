@@ -290,3 +290,41 @@ def enforce_products_against_allocation_snapshot(
     if violations:
         raise PreferenceConstraintViolationError(violations, context=context)
     return legacy_warning
+
+
+class ThemeGapDiagnosis:
+    """THEME-MISSINGNESS-001 (aus generate_recommendation_run ausgelagert):
+    Diagnose-Pool = eignungs-zulaessige Produkte, nur bei aktivem
+    Themen-Screening (einmal pro Lauf). ``hint(sub)`` benennt, ob ein leerer
+    Baustein NUR an fehlender Themen-Zuordnung scheitert;
+    ``raise_if_blocked`` -> 409 THEME_CLASSIFICATION_MISSING, auch unterhalb
+    der 50-bps-Toleranz (keine stille Lockerung)."""
+
+    def __init__(self, db, products, prefs, score_bucket, *, service_mode, jurisdiction, jurisdiction_ctx):
+        from services.portfolio_engine_payload import effective_theme_screening
+        from services.product_eligibility import is_eligible_candidate
+
+        self.prefs = prefs
+        self.score_bucket = score_bucket
+        self.jurisdiction_ctx = jurisdiction_ctx
+        self.pool = [
+            product for product in products
+            if is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
+        ] if effective_theme_screening(prefs) else []
+
+    def hint(self, sub: dict) -> str | None:
+        from services.portfolio_engine_payload import theme_classification_gap_hint
+
+        return theme_classification_gap_hint(
+            self.pool, sub["sub_asset_class"], sub["asset_class"], self.prefs, self.score_bucket,
+            jurisdiction_ctx=self.jurisdiction_ctx,
+        )
+
+    @staticmethod
+    def raise_if_blocked(missing_sub_classes: list[dict]) -> None:
+        theme_blocked = [item for item in missing_sub_classes if item.get("theme_gap_hint")]
+        if theme_blocked:
+            raise ThemeClassificationMissingError(theme_blocked, "Produktselektion unvollstaendig: " + "; ".join(
+                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%): {item['theme_gap_hint']}"
+                for item in theme_blocked
+            ) + ". Themen-Zuordnung im Produktkatalog pflegen oder ein klassifiziertes Produkt erfassen.")

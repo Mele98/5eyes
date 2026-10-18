@@ -39,6 +39,8 @@ ESG_DATA_FIELDS: tuple[str, ...] = (
 )
 
 
+# Seed-Liste = services/portfolio_engine.py::DEFAULT_CATALOG_PRODUCTS
+# (Modulkonstante, von ensure_default_products() genutzt; lazy importiert).
 @lru_cache(maxsize=1)
 def _seed_esg_values() -> dict[str, dict]:
     from services.portfolio_engine import DEFAULT_CATALOG_PRODUCTS

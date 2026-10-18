@@ -39,9 +39,10 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.esg_data_provenance import seed_unverified_run_warning
 from services.preference_snapshot import (
     INHERITED_PREFERENCES_NOTE,
-    ThemeClassificationMissingError,
+    ThemeGapDiagnosis,
     inherit_current_allocation_preferences,
     resolve_recommendation_preferences,
 )
@@ -1474,8 +1475,6 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_score,
     theme_screening_disclosure,
     esg_policy_gap_hint,
-    theme_classification_gap_hint,
-    effective_theme_screening,
     default_catalog_theme_tags,
     _suitability_block_hint,
     _tenant_visible_products_query,
@@ -1930,9 +1929,6 @@ HEDGED_PRODUCT_VARIANTS: list[tuple] = [
     ("iShares Developed Markets Property Yield CHF Hedged", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "CHF", 48, "8", "BBB"),
 ]
 
-
-# ESG-SEED-PROVENANCE-001: Modulkonstante, damit services/esg_data_provenance.py
-# Seed-Werte als unbelegt erkennen kann (keine Daten erfunden, nur markiert).
 DEFAULT_CATALOG_PRODUCTS: list[tuple] = [
     ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
     ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
@@ -1998,11 +1994,10 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     if active_ch_products:
         return
     now = _now()
-    defaults = list(DEFAULT_CATALOG_PRODUCTS)
-    _validate_default_products(defaults)
-    validate_default_product_market_coverage([name for name, *_ in defaults])
+    _validate_default_products(DEFAULT_CATALOG_PRODUCTS)
+    validate_default_product_market_coverage([name for name, *_ in DEFAULT_CATALOG_PRODUCTS])
     created = []
-    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in defaults:
+    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in DEFAULT_CATALOG_PRODUCTS:
         product = Product(
             id=new_uuid(),
             product_name=name,
@@ -6772,11 +6767,7 @@ def generate_recommendation_run(
         and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
     ]
 
-    # THEME-MISSINGNESS-001: Diagnose-Pool nur eignungs-zulaessiger Produkte (nur bei Themen-Screening).
-    theme_pool = [
-        product for product in products
-        if is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
-    ] if effective_theme_screening(prefs) else []
+    theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx)
     for sub in sub_allocations:
         exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
@@ -6789,9 +6780,7 @@ def generate_recommendation_run(
         esg_gap_hint = None if exact else esg_policy_gap_hint(
             products, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
         )
-        theme_gap_hint = None if exact else theme_classification_gap_hint(  # THEME-MISSINGNESS-001
-            theme_pool, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
-        )
+        theme_gap_hint = None if exact else theme_diag.hint(sub)  # THEME-MISSINGNESS-001
         candidates = exact
         if not candidates:
             candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
@@ -6848,13 +6837,7 @@ def generate_recommendation_run(
     # ohne dass der Berater es bemerkte. Jetzt: ValueError mit konkreter Liste.
     if missing_sub_classes:
         total_missing_bps = sum(item["target_weight_bps"] for item in missing_sub_classes)
-        # THEME-MISSINGNESS-001: unumsetzbar NUR wegen fehlender Themen-Zuordnung
-        # -> 409 mit Reason-Code, auch unterhalb der 50-bps-Toleranz (keine stille Lockerung).
-        theme_blocked = [item for item in missing_sub_classes if item.get("theme_gap_hint")]
-        if theme_blocked:
-            raise ThemeClassificationMissingError(theme_blocked, "Produktselektion unvollstaendig: " + "; ".join(
-                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%): {item['theme_gap_hint']}" for item in theme_blocked
-            ) + ". Themen-Zuordnung im Produktkatalog pflegen oder ein klassifiziertes Produkt erfassen.")
+        theme_diag.raise_if_blocked(missing_sub_classes)  # THEME-MISSINGNESS-001: 409 auch < 50 bps
         # Toleranz: bis 50 bps (0.5%) Lücke darf "still" durchlaufen (z.B. einzelne
         # exotische Sub-Class mit 0 Allokation). Alles darüber ist ein echter Fehler.
         if total_missing_bps > 50:
@@ -6872,10 +6855,7 @@ def generate_recommendation_run(
             )
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
-    from services.esg_data_provenance import seed_unverified_run_warning  # ESG-SEED-PROVENANCE-001
-    seed_warning = seed_unverified_run_warning(prefs, [entry["product"] for entry in aggregated_positions.values()])
-    if seed_warning:
-        warnings.append(seed_warning)
+    warnings.extend(w for w in [seed_unverified_run_warning(prefs, [e["product"] for e in aggregated_positions.values()])] if w)
 
     latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
     market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))
