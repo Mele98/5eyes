@@ -39,6 +39,11 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.preference_snapshot import (
+    INHERITED_PREFERENCES_NOTE,
+    inherit_current_allocation_preferences,
+    resolve_recommendation_preferences,
+)
 from services.goal_semantics import (
     GoalInputError,
     validate_active_goal_inputs as _validate_active_goal_inputs,
@@ -3072,6 +3077,8 @@ def generate_target_allocation(
     # Aufrufen hier ist er auch fuer direkte Service-Aufrufe wirksam.
     assessment = require_strategy_ready_assessment(db, mandate.id)
 
+    # PREF-CONTEXT-001: None = gleiche Praeferenzen wie die aktuelle TA (nie still Defaults).
+    preferences, inherited_preferences = inherit_current_allocation_preferences(db, mandate, preferences)
     prefs = _normalize_preferences(preferences)
     # Sprint B1: Mandanten-Default-Building-Blocks als Fallback in prefs.
     prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
@@ -3130,6 +3137,8 @@ def generate_target_allocation(
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",
         f"Das Risikoprofil deckelt die Risky Fraction auf {risk_budget_bps / 100:.0f}%.",
     ]
+    if inherited_preferences:
+        reasoning.append(INHERITED_PREFERENCES_NOTE)
     warnings: list[dict] = []
     # POLICY-ACTIVATION-COMPLETENESS-001: jede Bandgrenze, die die
     # Mandats-Policy gegen die Hausmatrix verschiebt, wird ausgewiesen. Eine
@@ -6555,7 +6564,7 @@ def generate_recommendation_run(
     # HEDGED_PRODUCT_VARIANTS sind CH-spezifische Sub-Asset-Class-Namen.
     if jurisdiction in (None, "CH"):
         ensure_hedged_product_variants(db)
-    prefs = _normalize_preferences(preferences)
+    _normalize_preferences(preferences)  # fail-fast Vokabular; wirksam: TA-Snapshot unten
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
     )
@@ -6643,6 +6652,8 @@ def generate_recommendation_run(
             )
         if assessment_overridden_after_allocation(allocation, assessment):  # RISK-OVERRIDE-STALENESS-001
             raise ValueError(OVERRIDE_AFTER_ALLOCATION_MESSAGE)
+        # PREF-CONTEXT-001: TA-Snapshot = einzige Praeferenzquelle (services/preference_snapshot.py).
+        preferences, legacy_snapshot_warning = resolve_recommendation_preferences(allocation, preferences, mandate)
         target_payload = build_target_payload_from_allocation(
             db=db,
             mandate=mandate,
@@ -6655,6 +6666,7 @@ def generate_recommendation_run(
     else:
         target_payload = generate_target_allocation(db=db, mandate=mandate, user_id=user_id, preferences=preferences)
         allocation = target_payload["target_allocation"]
+        preferences, legacy_snapshot_warning = _allocation_snapshot_preferences(allocation), None
         policy = db.query(OptimizerPolicy).filter(
             OptimizerPolicy.id == allocation.policy_id,
         ).one()
@@ -6719,7 +6731,8 @@ def generate_recommendation_run(
     sub_allocations = target_payload["sub_allocations"]
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
-    warnings = []
+    prefs = _normalize_preferences(preferences)
+    warnings = [legacy_snapshot_warning] if legacy_snapshot_warning else []
     # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): sobald ein Thema
     # ausgeschlossen/untergewichtet ist (direkt oder via negative_screening),
     # wird offengelegt, dass der Filter auf der Katalog-Klassifikation beruht

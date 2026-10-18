@@ -21528,6 +21528,11 @@ function allocationPreferencesFromStoredAllocation(result){
   }
   return collectAllocationPreferencesFromUI();
 }
+function recommendationPreferencesForStoredAllocation(result){
+  // PREF-CONTEXT-001: mit Praeferenz-Snapshot ist er serverseitig die einzige Quelle (null = Snapshot); ein abweichender UI-Stand wuerde mit 409 abgelehnt.
+  if(result&&result.target_allocation&&result.target_allocation.preferences_json)return null;
+  return allocationPreferencesFromStoredAllocation(result);
+}
 async function refreshPortfolioFromStoredState(){
   var mid=getActiveMandateId();
   if(!mid||isDemoMandateId(mid)){
@@ -21564,7 +21569,7 @@ async function refreshPortfolioFromStoredState(){
         return false;
       }
       updateStrategyStatus('Keine passende Portfolio-Empfehlung gefunden. Portfolio wird neu generiert...',false);
-      var recommendationPrefs=allocationPreferencesFromStoredAllocation(allocation);
+      var recommendationPrefs=recommendationPreferencesForStoredAllocation(allocation);
       var recommendationDepotBank=getInputValue('recipe-depot-bank')||'UBS AG Zurich';
       recommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:recommendationPrefs,target_allocation_id:allocationId,run_type:'Optimizer',depot_bank:recommendationDepotBank});
       if(String(mid)!==String(getActiveMandateId()||'')){
@@ -22754,7 +22759,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
           finalizeStrategyOutputs(currentAllocation,currentRecommendation,true,'Aktuelle Strategie geladen: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
           return true;
         }
-        var currentPrefs=collectAllocationPreferencesFromUI();
+        var currentPrefs=recommendationPreferencesForStoredAllocation(currentAllocation);
         var currentDepotBank=getInputValue('recipe-depot-bank')||'UBS AG Zürich';
         var hydratedRecommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:currentPrefs,target_allocation_id:currentAllocation.target_allocation.id,run_type:'Optimizer',depot_bank:currentDepotBank});
         finalizeStrategyOutputs(currentAllocation,hydratedRecommendation,true,'Aktuelle Soll-Allokation geladen, Empfehlung aktualisiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
