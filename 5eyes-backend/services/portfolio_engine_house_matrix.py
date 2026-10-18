@@ -2064,16 +2064,35 @@ def _apply_external_exposure_tilts(
 ) -> None:
     from services.portfolio_engine import _bps
 
+    # VORSORGE-PROJECTION-001 (2026-10-18): Vorsorge-Fortschreibung offenlegen
+    # -- auch bei manuellen Soll-Quoten, sie praegt die Gesamtvermoegens-Sicht.
+    for note in getattr(total_summary, "assumption_notes", ()) or ():
+        if note not in reasoning:
+            reasoning.append(note)
+
     if manual_target_override:
         return
 
-    external_real_estate_bps = _bps(total_summary.amounts_rappen["real_estate"], max(1, total_summary.total_rappen))
+    # VORSORGE-PROJECTION-001: externe Vorsorge (nicht verwaltet, eigene
+    # Kategorie) fliesst weder in Zaehler noch Nenner der Exposure-Quoten ein
+    # -- ausser der Berater hat bewusst eine Aufteilung erfasst.
+    pension_exposure = getattr(total_summary, "pension_exposure_amounts_rappen", None) or {}
+    exposure_amounts = {
+        key: int(total_summary.amounts_rappen.get(key, 0)) + int(pension_exposure.get(key, 0))
+        for key in total_summary.amounts_rappen
+    }
+    exposure_base = (
+        int(total_summary.total_rappen)
+        - int(getattr(total_summary, "pension_bound_rappen", 0) or 0)
+        + sum(int(value) for value in pension_exposure.values())
+    )
+    external_real_estate_bps = _bps(exposure_amounts["real_estate"], max(1, exposure_base))
     if external_real_estate_bps > 3000:
         reduction = min(500, int(round((external_real_estate_bps - 3000) * 0.25)))
         targets["real_estate"] = max(minimums["real_estate"], targets["real_estate"] - reduction)
         reasoning.append("Das hohe Immobilien-Exposure im Gesamtvermoegen reduziert den Immobilienanteil im Beratungsvermoegen.")
 
-    external_equity_bps = _bps(total_summary.amounts_rappen["equities"], max(1, total_summary.total_rappen))
+    external_equity_bps = _bps(exposure_amounts["equities"], max(1, exposure_base))
     if external_equity_bps > 5000:
         reduction = min(400, int(round((external_equity_bps - 5000) * 0.2)))
         # Sicherheits-Fix (2026-08-03): Boden UND Decke muessen die AKTUELLEN

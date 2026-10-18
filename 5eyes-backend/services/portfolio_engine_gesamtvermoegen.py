@@ -40,6 +40,9 @@ _TOTAL_FINANCIAL_BUCKETS = (
 )
 
 
+_PENSION_KEY = "pension_bound"
+
+
 def _total_financial_target_weights(target_weights_bps: dict) -> dict[str, int]:
     """Normalize the investable SAA once for display and all total paths."""
     raw = {
@@ -130,6 +133,10 @@ def _build_total_wealth_allocation(
     from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS, _bps
 
     amounts = {k: max(0, int(total_summary.amounts_rappen.get(k, 0))) for k in BUCKET_FIELDS}
+    # VORSORGE-PROJECTION-001 (2026-10-18): externe Vorsorge ist eine eigene,
+    # nicht verwaltete Kategorie "Vorsorge (gebunden)" -- wie das Fundament ein
+    # fixer Block in IST und SOLL, nie umgeschichtet.
+    pension_bound = max(0, int(getattr(total_summary, "pension_bound_rappen", 0) or 0))
     liabilities = max(0, int(total_liabilities_rappen or 0))
     other_liabilities = max(0, int(other_liabilities_rappen or 0))
     total_base = max(0, int(total_wealth_rappen or 0))
@@ -163,11 +170,18 @@ def _build_total_wealth_allocation(
         removable = min(liab_remaining, current_amounts[key])
         current_amounts[key] -= removable
         liab_remaining -= removable
+    # Gebundene Vorsorge wird nach den Finanz-Buckets, aber vor dem
+    # Fundament belastet (Fundament bleibt zuletzt, SCOPE-001-Garantie).
+    pension_charged = min(liab_remaining, pension_bound)
+    pension_in_net_wealth = pension_bound - pension_charged
+    liab_remaining -= pension_charged
     foundation_charged = min(liab_remaining, foundation_rappen)
     foundation_in_net_wealth = foundation_rappen - foundation_charged
     uncovered_liabilities = liab_remaining - foundation_charged
     current_amounts["real_estate"] += foundation_in_net_wealth
-    financial_base_rappen = max(0, total_base - foundation_in_net_wealth)
+    financial_base_rappen = max(
+        0, total_base - foundation_in_net_wealth - pension_in_net_wealth
+    )
 
     # SOLL (Ziel, total): the fixed foundation stays in place. The financial
     # part follows the full investable SAA, including listed real estate.
@@ -190,13 +204,17 @@ def _build_total_wealth_allocation(
         for k in BUCKET_FIELDS:
             target_amounts[k] = current_amounts[k]
 
+    if pension_bound > 0:
+        current_amounts[_PENSION_KEY] = pension_in_net_wealth
+        target_amounts[_PENSION_KEY] = pension_in_net_wealth
+
     def _weights(bucket_amounts: dict) -> dict[str, int]:
         # MATH-DISP-1: exakt 10'000 bps, sofern die Beträge die Basis exakt
         # zerlegen. Sonst (inkonsistente Eingaben / Basis 0 -> überall 0)
         # bisherige Einzelrundung, damit kein Fehler kaschiert wird.
         if total_base > 0 and sum(bucket_amounts.values()) == total_base:
             return _largest_remainder_bps(bucket_amounts, total_base)
-        return {k: _bps(bucket_amounts[k], total_base) for k in BUCKET_FIELDS}
+        return {k: _bps(bucket_amounts[k], total_base) for k in bucket_amounts}
 
     current_weights = _weights(current_amounts)
     target_weights = _weights(target_amounts)
@@ -218,7 +236,30 @@ def _build_total_wealth_allocation(
                 else int(current_amounts[key])
             ),
         })
+    if pension_bound > 0:
+        from services.portfolio_engine_pension_positions import PENSION_BOUND_LABEL
+
+        allocation.append({
+            "asset_class": PENSION_BOUND_LABEL,
+            "current_weight_bps": current_weights[_PENSION_KEY],
+            "target_weight_bps": target_weights[_PENSION_KEY],
+            "current_amount_rappen": int(pension_in_net_wealth),
+            "target_amount_rappen": int(pension_in_net_wealth),
+            "is_foundation": False,
+            "is_pension_bound": True,
+            "foundation_component_rappen": 0,
+            "investable_component_rappen": 0,
+        })
+    payload_extra = (
+        {
+            "pension_bound_rappen": int(pension_bound),
+            "pension_in_net_wealth_rappen": int(pension_in_net_wealth),
+        }
+        if pension_bound > 0
+        else {}
+    )
     return {
+        **payload_extra,
         "basis": "gesamtvermoegen",
         # Immobilie netto Hypothek (SCOPE-001-Vertrag, unverändert).
         "foundation_rappen": int(foundation_rappen),
