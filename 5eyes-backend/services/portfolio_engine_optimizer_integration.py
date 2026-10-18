@@ -748,6 +748,12 @@ def _synchronize_fallback_optimizer_result(
                 context, active_array
             ),
         )
+        # GOAL-REACHABILITY-SCREEN-001: dieselbe Offenlegung wie im Solver.
+        from services.optimizer.goal_reachability import annotate_rows
+
+        achievability = annotate_rows(
+            achievability, getattr(context, "goal_reachability", None)
+        )
         stress_evaluations = None
         try:
             from services.optimizer.stress_scenarios import (

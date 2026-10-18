@@ -130,8 +130,11 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     # Entscheid und Test sind vollstaendig dokumentiert.
     significance = resampling["significance"]
     assert significance["decision"] in {"optimizer", "house_matrix"}
-    assert significance["test"] == "paired_bootstrap_one_sided_lexicographic_v2"
-    assert significance["comparison"] in {"goal_level", "volatility_tiebreak"}
+    # HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): entschieden
+    # wird auf der Zielebene (Ziel-Fehlbetrag + Chance-Strafe), nicht ueber
+    # den deterministischen Volatilitaets-Tiebreak (v3 verglich den Skalar).
+    assert significance["test"] == "paired_bootstrap_one_sided_goal_level_v4"
+    assert significance["comparison"] == "goal_level"
     assert significance["p_value"] is not None
     assert resampling["final_weights_bps"] == result.weights_bps
     # Die publizierte Allokation erfuellt alle harten Constraints.
@@ -256,6 +259,58 @@ def test_insignificant_deviation_keeps_house_target(foundation, monkeypatch):
     )
 
 
+def test_risk_variants_take_no_more_risk_than_the_default_on_the_foundation(foundation):
+    """GOAL-REACHABILITY-SCREEN-001, CIO-Entscheid (b) 2026-10-18.
+
+    Regression: solange in ``min_volatility`` ein Ziel steuerte, dessen
+    Schwelle auf keiner zulaessigen Allokation erreichbar ist
+    (Einkommensbruecke, max ~54 % gegen tau 80 %), lieferte die Variante
+    73.7 % Aktien -- mehr als der Default (64.4 %) und die Hausmatrix.
+    Eine Risikomass-Variante darf nicht riskanter sein als der Default."""
+    from services.optimizer.drawdown_certification import validated_drawdown_evaluation
+    from services.optimizer.objective_contract import ObjectiveContractV1
+
+    goal_weighting = foundation["result"].context.objective_contract.goal_weighting_mode
+    results = {}
+    for mode in ("goal_shortfall", "min_volatility", "max_drawdown"):
+        results[mode] = run_solver(**{
+            **foundation["kwargs"],
+            "objective_contract": ObjectiveContractV1(
+                objective_mode=mode, goal_weighting_mode=goal_weighting,
+            ),
+        })
+    default = results["goal_shortfall"]
+    cov = np.asarray(default.context.scenario_cov_bps2, dtype=float) / 1e8
+
+    def _w(result):
+        return _weights(result) / 10000.0
+
+    def _vol(result):
+        w = _w(result)
+        return float(np.sqrt(w @ cov @ w))
+
+    equities = BUCKET_ORDER.index("equities")
+    assert _w(results["min_volatility"])[equities] <= _w(default)[equities] + 1e-12
+    assert _vol(results["min_volatility"]) <= _vol(default) + 1e-12
+
+    validation_context, validation_seed, _hash = solver_module._build_validation_context(
+        default.context
+    )
+
+    def _drawdown(result):
+        return validated_drawdown_evaluation(
+            validation_context, _w(result), validation_seed=validation_seed,
+        )["refined_mean_drawdown"]
+
+    assert _drawdown(results["max_drawdown"]) <= _drawdown(default) + 1e-12
+    # Die ausgenommenen Ziele sind offengelegt (Beraterhinweis).
+    for mode in ("min_volatility", "max_drawdown"):
+        screen = results[mode].goal_reachability
+        assert screen["objective_mode"] == mode
+        assert screen["penalty_exempt_goal_ids"]
+        assert any(line.startswith("Beraterhinweis: Ziel") for line in results[mode].reasoning)
+
+
 def test_sensitivity_tests_against_the_same_house_anchor_as_generate(foundation):
     """Generate und Goal-Sensitivity muessen gegen DENSELBEN Anker testen.
 
@@ -360,11 +415,18 @@ def test_paired_bootstrap_detects_only_real_improvements():
 # ---------------------------------------------------------------------------
 from dataclasses import replace as _replace  # noqa: E402
 
-from services.optimizer.resampling import lexicographic_improvement  # noqa: E402
+from services.optimizer.resampling import scalar_improvement, scalar_loss  # noqa: E402
 from services.optimizer.scenario_cache import scenario_inputs_seed_digest  # noqa: E402
 from services.optimizer.scenario_engine import ScenarioInputs  # noqa: E402
 from services.optimizer.solver import optimizer_content_seed  # noqa: E402
 
+# SIGNIFICANCE-SCALAR-ONLY-001 (2026-10-18): die Zwei-Stufen-Logik
+# (``lexicographic_improvement``), die diesen Defekt im Test umging, ist
+# entfernt. Seit OBJECTIVE-NORMALIZATION-001 ist der Tiebreak im Solver immer
+# aktiv; der Test vergleicht die stetige Skalar-Zielfunktion, und
+# Tupel-Verluste werden genau so summiert. Der gemessene Golden-Fall bleibt
+# als Regressionsfall: unter der stetigen Zielfunktion entscheidet er sich
+# auf jedem Wuerfel gleich.
 _GOLDEN_ANCHOR_GOAL_LEVEL = 8.110173291668927e-09
 _GOLDEN_ANCHOR_TIEBREAK = 2.187e4
 _GOLDEN_CANDIDATE_TIEBREAK = 1.420e4
@@ -373,9 +435,9 @@ _GOLDEN_CANDIDATE_TIEBREAK = 1.420e4
 def _one_path_shortfall_pair(*, candidate_tiebreak: float, bad_path: int = 0):
     """Nachbau des gemessenen Golden-Falls (Score 7, Validierungs-Cube 16.10.).
 
-    Anker (Hausmatrix): Fehlbetrag NUR auf Pfad ``bad_path`` (Stufe 1 =
-    8.1e-9, solange der Pfad in der Stichprobe liegt), Volatilitaetsterm
-    2.187e4. Kandidat: erfuellt alle Ziele, Volatilitaetsterm wie angegeben.
+    Anker (Hausmatrix): Fehlbetrag NUR auf Pfad ``bad_path`` (Ziel-Stufe
+    8.1e-9, solange der Pfad in der Stichprobe liegt), Tiebreak 2.187e4.
+    Kandidat: erfuellt alle Ziele, Tiebreak wie angegeben.
     """
     def loss_pair(idx):
         has_bad = True if idx is None else bool(np.any(idx == bad_path))
@@ -385,88 +447,63 @@ def _one_path_shortfall_pair(*, candidate_tiebreak: float, bad_path: int = 0):
     return loss_pair
 
 
-def test_scalar_difference_reproduces_the_phase_switch_defect():
-    """Pin des Defekts: die Skalar-Differenz bevorzugt die SCHLECHTERE Allokation."""
-    anchor, candidate = _one_path_shortfall_pair(
-        candidate_tiebreak=_GOLDEN_CANDIDATE_TIEBREAK
-    )(None)
-    anchor_scalar = anchor[0]  # Stufe 1 > 1e-12 -> kein Volatilitaetsterm
-    candidate_scalar = candidate[0] + candidate[1]  # Stufe 2 -> mit Term
-    old_improvement, _ = lexicographic_improvement(anchor_scalar, candidate_scalar)
-    assert old_improvement < -1.0e4  # alte Regel: Hausmatrix "deutlich besser"
+def test_tuple_losses_are_scored_as_the_solver_scalar():
+    """Tupel = Summe der Terme (Solver-Skalar), kein Stufen-Schalter."""
+    assert scalar_loss((1e-9, 2.0, 0.5)) == pytest.approx(2.5 + 1e-9)
+    assert scalar_loss(3.0) == 3.0
+    improvement, level = scalar_improvement((8e-9, 2.187e4), (0.0, 1.42e4))
+    assert level == "scalar"
+    assert improvement == pytest.approx(2.187e4 + 8e-9 - 1.42e4)
+    # Ein winziger Ziel-Fehlbetrag erspart keinen Tiebreak mehr (der alte
+    # Schalter wertete den Anker hier als 8e-9 und damit als "besser").
+    assert improvement > 0.0
 
-    improvement, level = lexicographic_improvement(anchor, candidate)
-    assert level == "goal_level" and improvement > 0.0
+
+def test_invalid_loss_forms_are_rejected():
+    with pytest.raises(TypeError):
+        scalar_loss((1.0,))
+    with pytest.raises(TypeError):
+        scalar_loss((1.0, 2.0, 3.0, 4.0))
+    with pytest.raises(TypeError):
+        scalar_improvement((1.0, 2.0), 3.0)
 
 
 @pytest.mark.parametrize("bad_path", [0, 7, 1999])
-def test_candidate_better_on_both_levels_is_significant_on_every_cube(bad_path):
-    """Kandidat besser auf Stufe 1 UND im Tiebreak -> signifikant, egal ob
-    der eine schlechte Pfad im Bootstrap-Sample liegt oder nicht."""
+def test_tuple_bootstrap_equals_scalar_bootstrap_on_every_cube(bad_path):
+    """Kandidat besser auf Ziel-Stufe UND Tiebreak -> signifikant, egal ob
+    der eine schlechte Pfad im Bootstrap-Sample liegt; Tupel- und
+    Skalar-Verluste liefern identische Statistiken."""
+    tuple_pair = _one_path_shortfall_pair(
+        candidate_tiebreak=_GOLDEN_CANDIDATE_TIEBREAK, bad_path=bad_path,
+    )
+
+    def summed_pair(idx):
+        anchor, candidate = tuple_pair(idx)
+        return sum(anchor), sum(candidate)
+
     stats = paired_bootstrap_improvement(
-        _one_path_shortfall_pair(
-            candidate_tiebreak=_GOLDEN_CANDIDATE_TIEBREAK, bad_path=bad_path,
-        ),
-        n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
+        tuple_pair, n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
+    )
+    reference = paired_bootstrap_improvement(
+        summed_pair, n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
     )
     assert stats["significant"] is True, stats
-    assert stats["comparison"] == "goal_level"
-    # Beide Ebenen kommen in den Replikationen vor (Pfad drin/nicht drin),
-    # der Entscheid haengt trotzdem nicht davon ab.
-    assert set(stats["replicate_comparisons"]) == {"goal_level", "volatility_tiebreak"}
-    # Ueber gemischte Ebenen gibt es kein sinnvolles Quantil.
-    assert stats["improvement_lower_bound"] is None
-
-
-def test_cube_without_the_bad_path_decides_the_same_way():
-    """Liegt der Pfad gar nicht im Validierungs-Cube, vergleicht schon die
-    Punktschaetzung im Tiebreak -- und kommt zum selben Entscheid."""
-    def loss_pair(idx):
-        return (0.0, _GOLDEN_ANCHOR_TIEBREAK), (0.0, _GOLDEN_CANDIDATE_TIEBREAK)
-
-    stats = paired_bootstrap_improvement(
-        loss_pair, n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
-    )
-    assert stats["comparison"] == "volatility_tiebreak"
-    assert stats["significant"] is True
+    assert stats["comparison"] == "scalar"
+    assert stats["replicate_comparisons"] == {"scalar": 400}
+    assert stats["improvement_lower_bound"] is not None
+    for key in ("improvement", "p_value", "improvement_lower_bound", "anchor_objective"):
+        assert stats[key] == pytest.approx(reference[key])
 
 
 def test_one_path_advantage_against_higher_volatility_is_not_significant():
     """Gegenprobe: erkauft der Kandidat den einen Pfad mit HOEHERER
-    Volatilitaet, ist das kein robuster Vorteil -> nicht signifikant."""
+    Volatilitaet, ist er unter der stetigen Zielfunktion schlechter."""
     stats = paired_bootstrap_improvement(
         _one_path_shortfall_pair(candidate_tiebreak=3.0e4),
         n_paths=2000, n_bootstrap=400, alpha=0.05, seed=11,
     )
-    assert stats["improvement"] > 0.0  # Punktschaetzung: Stufe 1 entscheidet
-    assert stats["significant"] is False, stats  # ~37 % der Replikationen dagegen
-
-
-def test_soft_preference_counts_on_both_levels_but_does_not_switch_level():
-    # Beide erfuellen die Ziele; die Praeferenz-Strafe zaehlt im Tiebreak mit.
-    improvement, level = lexicographic_improvement((0.0, 100.0, 50.0), (0.0, 120.0, 0.0))
-    assert level == "volatility_tiebreak" and improvement == pytest.approx(30.0)
-    # Praeferenz-Strafe > epsilon schaltet NICHT auf Stufe 1 um.
-    _, level = lexicographic_improvement((0.0, 1.0, 5.0), (0.0, 1.0, 0.0))
-    assert level == "volatility_tiebreak"
-    improvement, level = lexicographic_improvement((1e-6, 1.0, 0.0), (0.0, 9.0, 2e-6))
-    assert level == "goal_level" and improvement == pytest.approx(-1e-6)
-
-
-@pytest.mark.parametrize("relative", [1e-12, -1e-12])
-def test_lexicographic_decision_is_stable_under_float_noise(relative):
-    """1e-12-Stoerungen aller Terme kippen weder Ebene noch Vorzeichen."""
-    rng = np.random.default_rng(5)
-    for _ in range(200):
-        anchor = (float(rng.choice([0.0, rng.uniform(1e-9, 1e-3)])),
-                  float(rng.uniform(1e3, 3e4)), 0.0)
-        candidate = (float(rng.choice([0.0, rng.uniform(1e-9, 1e-3)])),
-                     float(rng.uniform(1e3, 3e4)), 0.0)
-        base, base_level = lexicographic_improvement(anchor, candidate)
-        noisy = tuple(v * (1.0 + relative) for v in anchor)
-        moved, moved_level = lexicographic_improvement(noisy, candidate)
-        assert moved_level == base_level
-        assert np.sign(moved) == np.sign(base)
+    assert stats["improvement"] < 0.0
+    assert stats["significant"] is False, stats
 
 
 def _realistic_inputs() -> ScenarioInputs:

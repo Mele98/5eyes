@@ -31,10 +31,12 @@ Methode (Michaud-artiges Bagging mit Common Random Numbers):
 4. Die Streuung je Bucket ueber die Bags (Standardabweichung in bps) wird als
    Stabilitaetskennzahl ausgewiesen.
 5. Signifikanztest gegen die Hausmatrix: auf dem UNABHAENGIGEN
-   Validierungswuerfel wird die Zielfunktion der resampelten Allokation mit
-   der (auf Zulaessigkeit projizierten) Hausmatrix-Zielquote GEPAART
-   verglichen. Ist die Verbesserung nicht signifikant, bleibt die
-   Hausmatrix-Zielquote stehen.
+   Validierungswuerfel wird die resampelte Allokation mit der (auf
+   Zulaessigkeit projizierten) Hausmatrix-Zielquote GEPAART verglichen --
+   seit HOUSE-FIRST-SIGNIFICANCE-001 auf der Zielebene (Ziel-Fehlbetrag +
+   Chance-Strafe), in den Risikomass-Varianten zusaetzlich auf dem
+   Risikomass mit Materialitaetsschwelle. Ist die Verbesserung nicht
+   signifikant (bzw. nicht material), bleibt die Hausmatrix-Zielquote stehen.
 
 Wahl des Tests: Die Zielfunktion ist KEIN Mittelwert pfadweiser Verluste --
 die Chance-Constraint-Strafe ist eine quadratische Funktion der
@@ -54,7 +56,7 @@ from typing import Callable
 
 import numpy as np
 
-from .importance_sampling import DEFAULT_TAIL_SHIFT_STRENGTH, build_shift_vector
+from .importance_sampling import IS_TOTAL_SHIFT_SIGMA, ess_requires_fallback
 from .scenario_engine import (
     N_BUCKETS,
     ScenarioInputs,
@@ -67,14 +69,48 @@ RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
 # Vergleich der zwei Zielfunktions-Stufen statt Differenz der Skalar-
 # Zielfunktion; Entscheid ueber den Vorzeichen-Anteil (p-Wert), siehe
 # ``lexicographic_improvement`` und ``paired_bootstrap_improvement``.
-SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_lexicographic_v2"
-# Gleiche Nulltoleranz wie der Stufe-2-Schalter in
-# ``objective.combined_objective_two_phase`` (epsilon=1e-12): "Stufe 1
-# erfuellt" bedeutet im Vergleich exakt dasselbe wie im Solver.
-GOAL_LEVEL_EPSILON = 1e-12
-COMPARISON_GOAL_LEVEL = "goal_level"
-COMPARISON_TIEBREAK = "volatility_tiebreak"
+# v3 (OBJECTIVE-NORMALIZATION-001, 2026-10-18): der Solver minimiert jetzt
+# eine STETIGE, Pareto-monotone Skalar-Zielfunktion (Tiebreak immer aktiv,
+# kein Stufen-Schalter). Der Produktionstest vergleicht deshalb wieder die
+# Skalar-Zielfunktion -- dieselbe Ordnung, nach der optimiert wurde; die
+# Differenz hat eine Einheit, die untere Konfidenzgrenze ist wieder
+# definiert. SIGNIFICANCE-SCALAR-ONLY-001 (2026-10-18): die Zwei-Stufen-
+# Logik (``lexicographic_improvement``) ist entfernt; Tupel-Verluste werden
+# wie im Solver summiert (``scalar_loss``).
+# v4 (HOUSE-FIRST-SIGNIFICANCE-001, 2026-10-18, CIO-Entscheid "Hausmatrix,
+# solange die Ziele mit ihr gleich sicher erreicht sind"): der Entscheid
+# Anker vs. Kandidat faellt auf der ZIELEBENE (Ziel-Fehlbetrag +
+# Chance-Strafe + Soft-Preference), nicht mehr auf dem Skalar inklusive
+# Volatilitaets-Tiebreak. Der Tiebreak ist deterministisch; auf Mandaten mit
+# sicher erreichten Zielen war jede Varianzdifferenz "signifikant"
+# (p = 1/(B+1) = 0.0025) und die Hausmatrix verlor gegen Eckloesungen mit
+# 2-7 bps weniger Volatilitaet. In den Risikomass-Varianten entscheidet
+# zusaetzlich der Skalar (Risikomass + Chance-Strafe), aber nur mit
+# Materialitaet (``RISK_MEASURE_MATERIALITY``).
+SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_goal_level_v4"
 COMPARISON_SCALAR = "scalar"
+COMPARISON_GOAL_LEVEL = "goal_level"
+COMPARISON_RISK_MEASURE = "goal_level_plus_risk_measure"
+
+# Materialitaetsschwelle der Risikomass-Varianten (HOUSE-FIRST-SIGNIFICANCE-001):
+# 50 bps auf dem Risikomass selbst (alle Varianten sind Renditeanteile:
+# Einperioden-Vola, mittlerer verfeinerter Max-Drawdown, Expected Shortfall
+# bzw. negative erwartete Rendite p.a.). Begruendung, Herleitung in
+# docs/planning/2026-10-18-importance-sampling-ess.md (Abschnitt
+# HOUSE-FIRST-SIGNIFICANCE-001):
+# * Schaetzfehler der Inputs: die relative Standardabweichung einer
+#   Vola-Schaetzung aus 20 Jahren Monatsdaten ist ~1/sqrt(2*240) = 4.6 %, bei
+#   8-12 % Portfolio-Vola also 35-55 bps. Kleinere Unterschiede sind von den
+#   CMA-Schaetzfehlern nicht unterscheidbar -- sie zu optimieren hiesse,
+#   Schaetzfehler zu optimieren (Michaud). Fuer Drawdown (~2-3x Vola) und
+#   erwartete Rendite (Standardfehler ~ sigma/sqrt(T), mehrere Prozentpunkte)
+#   ist dieselbe Schwelle relativ noch nachsichtiger.
+# * Die SAA wird in ganzen Prozent kommuniziert; eine Abweichung von der
+#   Hausmeinung (IC) braucht einen Effekt, den man dem Kunden in derselben
+#   Granularitaet zeigen kann.
+# * Gemessen: die verworfenen Eckloesungen brachten 2-7 bps Vola -- eine bis
+#   zwei Groessenordnungen unter der Schwelle.
+RISK_MEASURE_MATERIALITY = 0.005
 
 # Parameterwahl siehe docs/planning/2026-10-14-saa-stability-resampling.md.
 # Gemessen auf dem Fundament-Beispielmandat (10 Seed-Salze): die Streuung
@@ -159,7 +195,9 @@ def build_bag_paths(
     Szenario-Horizont und danach auf den Optimierungshorizont gekuerzt.
     """
     if importance_sampling:
-        shift = build_shift_vector(N_BUCKETS, strength=DEFAULT_TAIL_SHIFT_STRENGTH)
+        # IMPORTANCE-SAMPLING-ESS-001: dieselbe Proposal wie der Hauptwuerfel
+        # (defensive Mischung, horizont-skalierter Shift), Gewichte auf dem
+        # tatsaechlich verwendeten Jahres-Praefix.
         paths, weights = build_scenario_paths_with_weights(
             inputs,
             horizon_years=int(scenario_horizon_years),
@@ -167,9 +205,14 @@ def build_bag_paths(
             seed=int(seed),
             antithetic=True,
             use_importance_sampling=True,
-            is_shift_strength=float(np.max(np.abs(shift))),
+            is_shift_strength=IS_TOTAL_SHIFT_SIGMA,
+            weight_horizon_years=int(horizon_years),
         )
-    else:
+        if ess_requires_fallback(weights):
+            # Dieselbe Regel wie im Hauptwuerfel: unter der ESS-Schwelle
+            # rechnet dieser Bag mit Standard-MC.
+            importance_sampling = False
+    if not importance_sampling:
         paths = build_scenario_paths(
             inputs,
             horizon_years=int(scenario_horizon_years),
@@ -181,64 +224,37 @@ def build_bag_paths(
     return paths[:, : int(horizon_years), :], weights
 
 
-def lexicographic_improvement(
-    anchor,
-    candidate,
-    *,
-    epsilon: float = GOAL_LEVEL_EPSILON,
-) -> tuple[float, str]:
-    """Verbesserung ``anker - kandidat`` in der Logik der Zwei-Stufen-Zielfunktion.
+def scalar_loss(loss) -> float:
+    """Skalar-Zielfunktion eines Verlusts -- dieselbe, die der Solver minimiert.
 
-    Argumente sind entweder Skalare (Altvertrag: Differenz der Skalar-
-    Zielfunktion, Ebene ``scalar``) oder ``(goal_level, tiebreak[, additiv])``
-    aus ``objective.two_phase_objective_parts`` (plus optional der
-    Soft-Preference-Strafe, die wie im Solver auf jeder Ebene mitzaehlt).
+    Ein Skalar wird unveraendert uebernommen. Ein Tupel
+    ``(goal_level, tiebreak[, additiv])`` (Terme aus
+    ``objective.two_phase_objective_parts`` plus optional Soft-Preference)
+    wird SUMMIERT -- ohne Stufen-Schalter.
 
-    SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 (2026-10-17): Die Skalar-Zielfunktion
-    schaltet den Volatilitaetsterm PRO ALLOKATION zu, sobald deren Stufe 1
-    (Ziel-Fehlbetrag + Chance-Penalty) unter ``epsilon`` faellt. Als
-    Differenz zweier Allokationen ist sie damit nicht monoton: gemessen auf
-    dem CH-Golden-Mandat (Score 7) hatte die Hausmatrix-Zielquote auf EINEM
-    von 2'000 Validierungspfaden einen winzigen Fehlbetrag (Stufe 1 = 8.1e-9,
-    kein Volatilitaetsterm), der Kandidat erfuellte alle Ziele (Stufe 2,
-    Volatilitaetsterm 1.42e4) -- "Verbesserung" -14'204, Hausmatrix gewaehlt,
-    obwohl der Kandidat auf BEIDEN Stufen besser war. Ob dieser eine Pfad im
-    Wuerfel lag, entschied je nach Inhalts-Seed zwischen 60 % und 68 % Aktien.
-
-    Regel (dieselbe Prioritaet wie der Solver):
-    * Erfuellen BEIDE Stufe 1 (``goal_level < epsilon``), entscheidet der
-      Volatilitaetsterm (Ebene ``volatility_tiebreak``).
-    * Sonst entscheidet allein Stufe 1 (Ebene ``goal_level``); der
-      Volatilitaetsterm zaehlt fuer keine der beiden Allokationen.
+    SIGNIFICANCE-SCALAR-ONLY-001 (2026-10-18): hier stand bis dahin die
+    Zwei-Stufen-Logik von SAA-SIGNIFICANCE-LEXICOGRAPHIC-001
+    (``lexicographic_improvement`` und ``_objective_scalar``: Tiebreak nur,
+    wenn die Ziel-Stufe < 1e-12). Seit OBJECTIVE-NORMALIZATION-001 ist der
+    Tiebreak im Solver IMMER aktiv; ein Tupel-Verlust wurde hier also nach
+    einer ANDEREN Ordnung bewertet als die, nach der optimiert wird. Kein
+    Produktionspfad lieferte noch Tupel -- der Code war latent defekt und ist
+    entfernt. Ungueltige Formen werden abgelehnt.
     """
+    if isinstance(loss, (tuple, list)):
+        if len(loss) not in (2, 3):
+            raise TypeError(
+                "Tupel-Verlust muss (goal_level, tiebreak[, additiv]) sein."
+            )
+        return float(sum(float(term) for term in loss))
+    return float(loss)
+
+
+def scalar_improvement(anchor, candidate) -> tuple[float, str]:
+    """``L(anker) - L(kandidat)`` der Skalar-Zielfunktion (Ebene ``scalar``)."""
     if isinstance(anchor, (tuple, list)) != isinstance(candidate, (tuple, list)):
         raise TypeError("Anker und Kandidat muessen dieselbe Verlustform haben.")
-    if not isinstance(anchor, (tuple, list)):
-        return float(anchor) - float(candidate), COMPARISON_SCALAR
-    anchor_goal, anchor_tiebreak, anchor_extra = _loss_parts(anchor)
-    candidate_goal, candidate_tiebreak, candidate_extra = _loss_parts(candidate)
-    if anchor_goal < float(epsilon) and candidate_goal < float(epsilon):
-        return (
-            (anchor_goal + anchor_tiebreak + anchor_extra)
-            - (candidate_goal + candidate_tiebreak + candidate_extra),
-            COMPARISON_TIEBREAK,
-        )
-    return (
-        (anchor_goal + anchor_extra) - (candidate_goal + candidate_extra),
-        COMPARISON_GOAL_LEVEL,
-    )
-
-
-def _loss_parts(loss) -> tuple[float, float, float]:
-    """``(goal_level, tiebreak[, additiv])`` -> drei Floats.
-
-    Der optionale dritte Term (Soft-Preference-Strafe) liegt im Solver
-    ausserhalb des Stufen-Schalters und wird deshalb auf JEDER Ebene addiert,
-    entscheidet aber nicht ueber den Wechsel in Stufe 2.
-    """
-    goal_level, tiebreak = float(loss[0]), float(loss[1])
-    extra = float(loss[2]) if len(loss) > 2 else 0.0
-    return goal_level, tiebreak, extra
+    return scalar_loss(anchor) - scalar_loss(candidate), COMPARISON_SCALAR
 
 
 def paired_bootstrap_improvement(
@@ -259,27 +275,22 @@ def paired_bootstrap_improvement(
     p-Wert: Anteil der Replikationen ohne Verbesserung, mit der ueblichen
     (1 + k) / (1 + B)-Korrektur, damit nie p = 0 ausgewiesen wird.
 
-    ``loss_pair`` darf Skalare oder ``(goal_level, tiebreak)``-Paare liefern;
-    die Verbesserung je Replikation bildet ``lexicographic_improvement``.
+    ``loss_pair`` darf Skalare oder ``(goal_level, tiebreak[, additiv])``-
+    Tupel liefern; Tupel werden wie im Solver summiert (``scalar_loss``).
 
-    Entscheid (SAA-SIGNIFICANCE-LEXICOGRAPHIC-001): signifikant genau dann,
-    wenn die Punktschaetzung positiv ist UND ``p <= alpha``. Der Entscheid
-    haengt damit nur an Vorzeichen, nie an Betraegen -- noetig, weil
-    Replikationen auf verschiedenen Ebenen verglichen werden koennen (Stufe 1
-    in der einen, Volatilitaets-Tiebreak in der anderen) und ein Quantil
-    ueber Werte verschiedener Einheit interpolieren wuerde. Die untere
-    Konfidenzgrenze wird nur noch ausgewiesen, und nur wenn alle
-    Replikationen auf derselben Ebene verglichen wurden.
+    Entscheid: signifikant genau dann, wenn die Punktschaetzung positiv ist
+    UND ``p <= alpha``. Die untere Konfidenzgrenze ist das alpha-Quantil der
+    Replikationen (alle auf der Ebene ``scalar``).
     """
     anchor_full, candidate_full = loss_pair(None)
-    improvement, comparison = lexicographic_improvement(anchor_full, candidate_full)
+    improvement, comparison = scalar_improvement(anchor_full, candidate_full)
     rng = np.random.default_rng(int(seed))
     replicates = np.empty(int(n_bootstrap), dtype=np.float64)
     levels: dict[str, int] = {}
     for b in range(int(n_bootstrap)):
         idx = rng.integers(0, int(n_paths), size=int(n_paths))
         anchor_b, candidate_b = loss_pair(idx)
-        replicates[b], level = lexicographic_improvement(anchor_b, candidate_b)
+        replicates[b], level = scalar_improvement(anchor_b, candidate_b)
         levels[level] = levels.get(level, 0) + 1
     finite = replicates[np.isfinite(replicates)]
     block = {
@@ -311,13 +322,8 @@ def paired_bootstrap_improvement(
 
 
 def _objective_scalar(loss) -> float:
-    """Skalar-Zielfunktion fuer den Audit (wie ``combined_objective_two_phase``)."""
-    if not isinstance(loss, (tuple, list)):
-        return float(loss)
-    goal_level, tiebreak, extra = _loss_parts(loss)
-    if goal_level < GOAL_LEVEL_EPSILON:
-        return goal_level + tiebreak + extra
-    return goal_level + extra
+    """Skalar-Zielfunktion fuer den Audit (= ``scalar_loss``)."""
+    return scalar_loss(loss)
 
 
 # Felder des Resampling-Audits, die in die Modellbasis (und damit in
@@ -355,6 +361,10 @@ _SIGNIFICANCE_BASIS_FIELDS = (
     "improvement_lower_bound",
     "comparison",
     "replicate_comparisons",
+    # HOUSE-FIRST-SIGNIFICANCE-001: Entscheidungsebene und (nur Varianten)
+    # die Risikomass-Statistik mit Materialitaet.
+    "decision_level",
+    "risk_measure_test",
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: nur im Modus max_drawdown gesetzt
     # ("refined_brownian_bridge"); sonst fehlt der Schluessel und die
     # Modellbasis bleibt bit-gleich.
