@@ -30,6 +30,7 @@ from services.optimizer.constraints import (
     bands_from_house_matrix_row,
     build_constraint_set,
 )
+from services.optimizer.resampling import SINGLE_CUBE, bag_seeds
 from services.optimizer.scenario_engine import BUCKET_ORDER
 from services.optimizer.solver import (
     OptimizerResult,
@@ -456,9 +457,14 @@ def test_solver_hard_pension_more_conservative_than_maximierung():
     if result_pension.status == "fallback_house_matrix" or result_maxim.status == "fallback_house_matrix":
         pytest.skip("Vergleich nur fuer konvergierte stochastic Solver-Ergebnisse sinnvoll.")
 
-    # Hartes Pension-Goal sollte tendenziell weniger Aktien haben
-    eq_pension = result_pension.weights_bps["equities"]
-    eq_maxim = result_maxim.weights_bps["equities"]
+    # SAA-RESAMPLED-STABILITY-001: verglichen wird die OPTIMIERER-Allokation
+    # (Bag-Mittel), nicht die publizierte. Beim harten Pensionsziel ist die
+    # Verbesserung gegenueber der Hausmatrix auf diesen 300 Pfaden nicht
+    # signifikant (gemessen p ~ 0.11) -- publiziert wird dann bewusst die
+    # Hausmatrix-Zielquote (60 % Aktien). Die Richtung der ZIELFUNKTION, die
+    # dieser Test pinnt, steckt im Optimierer-Kandidaten.
+    eq_pension = result_pension.resampling["resampled_weights_bps"]["equities"]
+    eq_maxim = result_maxim.resampling["resampled_weights_bps"]["equities"]
     # Mindestens nicht mehr Aktien als bei Maximierung (Toleranz wegen
     # Multi-Start-Variabilitaet bei kleinen N)
     assert eq_pension <= eq_maxim + 500, (
@@ -487,6 +493,12 @@ def test_solver_audit_trace_populated():
 
 
 def test_solver_restart_results_include_stage9_audit_fields():
+    """Start-Diagnose der Kandidatenauswahl auf EINEM Wuerfel.
+
+    SAA-RESAMPLED-STABILITY-001: dieselbe Auswahl laeuft in jedem Bag; ihre
+    Start-Diagnose wird hier auf dem Einzelwuerfel-Pfad gepinnt (die
+    Bag-Zeilen des Produktionspfads prueft der Test direkt darunter).
+    """
     cma = _make_cma()
     house_matrix = _make_house_matrix_row()
     goal = _make_pension_goal()
@@ -494,7 +506,7 @@ def test_solver_restart_results_include_stage9_audit_fields():
     result = run_solver(
         cma=cma, goals=[goal], house_matrix_row=house_matrix, score_x10=70,
         advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[5_000_00] * 5,
-        horizon_years=5, n_paths=100, seed=42,
+        horizon_years=5, n_paths=100, seed=42, resampling=SINGLE_CUBE,
     )
 
     assert result.restart_results
@@ -512,6 +524,33 @@ def test_solver_restart_results_include_stage9_audit_fields():
         assert attempt["seed"] == 42
         assert isinstance(attempt["elapsed_ms"], int)
         assert attempt["elapsed_ms"] >= 0
+
+
+def test_resampled_restart_results_have_one_row_per_bag():
+    cma = _make_cma()
+    house_matrix = _make_house_matrix_row()
+    goal = _make_pension_goal()
+
+    result = run_solver(
+        cma=cma, goals=[goal], house_matrix_row=house_matrix, score_x10=70,
+        advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[5_000_00] * 5,
+        horizon_years=5, n_paths=100, seed=42,
+    )
+
+    n_bags = result.resampling["n_bags"]
+    assert len(result.restart_results) == n_bags
+    expected_seeds = bag_seeds(42, n_bags)
+    for idx, row in enumerate(result.restart_results, start=1):
+        assert row["attempt"] == idx and row["bag"] == idx
+        assert row["stage"] == "resampling_bag"
+        assert row["status"] in {"converged", "converged_robustified", "no_feasible_candidate"}
+        assert "reason" in row and "objective_value" in row
+        assert isinstance(row["feasible_candidate"], bool)
+        # Bags sind nie groesser als der Hauptwuerfel.
+        assert row["n_paths"] == min(100, result.resampling["bag_n_paths"])
+        assert row["n_starts"] <= result.n_starts_attempted
+        assert row["seed"] == expected_seeds[idx - 1]
+        assert isinstance(row["elapsed_ms"], int) and row["elapsed_ms"] >= 0
 
 
 def test_solver_restart_results_deterministic_except_elapsed_ms():

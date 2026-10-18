@@ -191,16 +191,19 @@ def test_production_seed_call_does_not_include_the_deltas() -> None:
     SOLL bei verschiedenen Argumenten verschiedene Seeds liefern. Der Defekt
     lag nie in der Hashfunktion, sondern in der Aufrufstelle.
 
-    Geprueft wird deshalb die Aufrufstelle selbst.
+    Geprueft wird deshalb die Aufrufstelle selbst. Seit
+    SAA-RESAMPLED-STABILITY-001 ist es der Inhalts-Seed
+    (``sensitivity_content_seed``) -- die Deltas duerfen auch dort nicht
+    hinein, und Datenbank-IDs (``target_goal.id``) ebensowenig.
     """
     source = (BACKEND_ROOT / "services" / "portfolio_engine.py").read_text(
         encoding="utf-8"
     )
-    marker = 'pinned_seed = deterministic_seed('
+    marker = 'pinned_seed = sensitivity_content_seed('
     assert marker in source
     call = source[source.index(marker) : source.index(marker) + 400]
     call = call[: call.index(")")]
-    for leaked in ("target_delta_pct", "horizon_delta_years"):
+    for leaked in ("target_delta_pct", "horizon_delta_years", ".id"):
         assert leaked not in call, (
             f"{leaked} ist wieder im Sensitivitaets-Seed -- jeder "
             "Slider-Schritt bekaeme einen eigenen Baseline-Szenarioraum: "

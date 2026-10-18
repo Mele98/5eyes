@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Iterable
 
 import numpy as np
@@ -221,12 +222,32 @@ def _positive_due_wealth_indices(
     counterfactual wealth paths; this helper intentionally does not invent an
     ordering or allocation rule from the aggregate series.
     """
+    return _positive_due_wealth_indices_cached(
+        tuple(liability.liability_path_rappen or ()),
+        int(n_wealth_columns),
+    )
+
+
+@lru_cache(maxsize=256)
+def _positive_due_wealth_indices_cached(
+    liability_path_rappen: tuple,
+    n_wealth_columns: int,
+) -> np.ndarray:
+    """Reine Funktion des Zahlungsplans (SAA-RESAMPLED-RUNTIME-001).
+
+    Die Zielfunktion fragt dieselben Indizes je Auswertung mehrfach ab (der
+    Solver wertet zehntausendfach aus); der Plan aendert sich dabei nie.
+    Das gecachte Array ist schreibgeschuetzt, damit kein Aufrufer den
+    geteilten Cache-Eintrag veraendern kann.
+    """
     indices = [
         path_index + 1
-        for path_index, amount in enumerate(liability.liability_path_rappen or ())
+        for path_index, amount in enumerate(liability_path_rappen)
         if float(amount or 0) > 0.0 and path_index + 1 < int(n_wealth_columns)
     ]
-    return np.asarray(indices, dtype=np.intp)
+    result = np.asarray(indices, dtype=np.intp)
+    result.setflags(write=False)
+    return result
 
 
 def scheduled_outside_wealth_horizon(
@@ -588,9 +609,13 @@ def chance_constraint_penalty(
         weight_sum = float(np.sum(weights_arr))
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
+        # SAA-RESAMPLED-RUNTIME-001: das ESS haengt nur an den Gewichten,
+        # nicht am Ziel -- einmal je Aufruf statt einmal je Ziel.
+        weighted_n_effective = effective_sample_size(weights_arr)
     else:
         weights_arr = None
         weight_sum = None
+        weighted_n_effective = None
     for goal in goal_liabilities:
         # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
         # 4.2 `W_joint_requested`/`P_joint_requested`): this aggregator must
@@ -622,7 +647,7 @@ def chance_constraint_penalty(
         if weights_arr is None:
             n_effective = float(n_paths)
         else:
-            n_effective = effective_sample_size(weights_arr)
+            n_effective = weighted_n_effective
         lower_bound = wilson_lower_bound(probability, n_effective)
         ess_sufficient = ess_is_sufficient(n_effective, n_paths)
 
@@ -958,6 +983,100 @@ def combined_objective_two_phase(
     Primaerterm selbst, und bei ``min_volatility`` wuerde er die Kennzahl
     doppelt zaehlen.
     """
+    goal_level, tiebreak, _in_phase_two = _two_phase_terms(
+        liabilities,
+        wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        primary_weight=primary_weight,
+        volatility_weight=volatility_weight,
+        lambda_chance=lambda_chance,
+        epsilon=epsilon,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        objective_mode=objective_mode,
+        goal_weighting_mode=goal_weighting_mode,
+        portfolio_return_factors=portfolio_return_factors,
+        always_compute_tiebreak=False,
+    )
+    return goal_level + tiebreak
+
+
+def two_phase_objective_parts(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    primary_weight: float = 1.0,
+    volatility_weight: float = 1e-12,
+    lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
+    epsilon: float = 1e-12,
+    weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+    objective_mode: str | None = None,
+    goal_weighting_mode: str | None = None,
+    portfolio_return_factors: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """Die beiden Stufen von ``combined_objective_two_phase`` GETRENNT.
+
+    Rueckgabe ``(goal_level, tiebreak)``: ``goal_level`` = Primaerterm +
+    Chance-Penalty (Stufe 1), ``tiebreak`` = skalierter Volatilitaetsterm
+    (Stufe 2, nur im Modus ``goal_shortfall``, sonst 0) -- hier IMMER
+    berechnet, unabhaengig davon, ob Stufe 1 unter ``epsilon`` liegt.
+
+    SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 (2026-10-17): wer ZWEI Allokationen
+    vergleicht, darf die Skalar-Zielfunktion nicht direkt subtrahieren. Der
+    Volatilitaetsterm wird dort pro Allokation nur zugeschaltet, wenn IHRE
+    Stufe 1 unter ``epsilon`` liegt; eine Allokation mit einem winzigen
+    Fehlbetrag auf einem einzigen Pfad (Stufe 1 = 8e-9) sparte damit ihren
+    ganzen Volatilitaetsterm (~1.4e4) und "schlug" eine Allokation, die
+    alle Ziele erfuellt UND weniger schwankt. Der Vergleich braucht deshalb
+    beide Stufen einzeln (siehe ``resampling.lexicographic_improvement``).
+    """
+    goal_level, tiebreak, _in_phase_two = _two_phase_terms(
+        liabilities,
+        wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        primary_weight=primary_weight,
+        volatility_weight=volatility_weight,
+        lambda_chance=lambda_chance,
+        epsilon=epsilon,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        objective_mode=objective_mode,
+        goal_weighting_mode=goal_weighting_mode,
+        portfolio_return_factors=portfolio_return_factors,
+        always_compute_tiebreak=True,
+    )
+    return goal_level, tiebreak
+
+
+def _two_phase_terms(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    primary_weight: float,
+    volatility_weight: float,
+    lambda_chance: float,
+    epsilon: float,
+    weights: np.ndarray | None,
+    annualized_return_bps_per_path: np.ndarray | None,
+    objective_mode: str | None,
+    goal_weighting_mode: str | None,
+    portfolio_return_factors: np.ndarray | None,
+    always_compute_tiebreak: bool,
+) -> tuple[float, float, bool]:
+    """Gemeinsamer Kern: ``(goal_level, tiebreak, in_phase_two)``.
+
+    Ohne ``always_compute_tiebreak`` ist ``tiebreak`` ausserhalb von
+    Stufe 2 exakt 0.0 -- damit bleibt ``combined_objective_two_phase``
+    bit-identisch zur frueheren Einzelformel
+    ``primary_weight * primary + chance + volatility_weight * vol``.
+    """
     from .objective_variants import (
         OBJECTIVE_GOAL_SHORTFALL,
         primary_objective,
@@ -1000,9 +1119,11 @@ def combined_objective_two_phase(
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
+    in_phase_two = bool(primary + chance < float(epsilon))
     vol = (
         volatility_objective(wealth_paths, weights=weights)
-        if is_goal_shortfall and primary + chance < float(epsilon)
+        if is_goal_shortfall and (in_phase_two or always_compute_tiebreak)
         else 0.0
     )
-    return primary_weight * primary + chance + volatility_weight * vol
+    goal_level = primary_weight * primary + chance
+    return goal_level, volatility_weight * vol, in_phase_two

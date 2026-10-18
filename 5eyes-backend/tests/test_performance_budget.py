@@ -103,9 +103,23 @@ _NOW = "2026-07-22T09:00:00.000Z"
 # (generate=6.138s, kombiniert=7.006s in einem Einzellauf) -- Budget daher
 # mit Sicherheitsabstand ueber dem real beobachteten CI-Wert gesetzt, nicht
 # nur 3x lokal:
-BUDGET_GENERATE_S = 9.0
+#
+# 2026-10-17-Nachtrag (SAA-RESAMPLED-STABILITY-001, PR #619): die SAA wird
+# jetzt per Resampled Efficiency bestimmt (40 Bags a 500 Pfade, je Bag die
+# volle Multi-Start-Auswahl) plus gepaartem Bootstrap gegen die Hausmatrix --
+# gewollte, im PR dokumentierte Mehrarbeit (Laufzeitbudget des PR: <= 3x).
+# Gemessen auf dem Dev-Rechner (Windows 11, 3 Laeufe, Threads=1, sonst idle):
+#   develop (ac93094):  generate 6.69s / 5.70s, kombiniert 4.75s / 4.69s
+#   PR #619:            generate 8.17s / 8.24s / 7.96s,
+#                       kombiniert 7.50s / 7.21s / 7.30s
+# (unter Parallellast lokal einmal 10.17s gemessen -> Budget 9.0 wurde schon
+# lokal gerissen). Der GitHub-Runner lief historisch bis ~2.5x langsamer als
+# lokal (6.138s vs. 2.46s, siehe oben); 2.5 x 8.24s = 20.6s. Budget daher
+# 24s fuer beide Wandzeit-Gates: weiterhin ~3x unter einer 10x-Regression
+# (~80s), aber nicht mehr unter der gewollten Resampling-Laufzeit.
+BUDGET_GENERATE_S = 24.0
 BUDGET_REPORT_S = 1.0
-BUDGET_COMBINED_S = 10.5
+BUDGET_COMBINED_S = 24.0
 
 
 class _QueryCounter:
