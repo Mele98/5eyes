@@ -11,6 +11,7 @@ from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
 from services.pdf.base import AnlagestrategieData, PDFContext
 from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import PAGE_SIZE
+from services.pdf.components.band_deviation import make_band_deviation_section
 from services.pdf.components.cover import make_cover_page, make_section_cover
 from services.pdf.components.effektives_portfolio import make_effektives_portfolio_section
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
@@ -410,6 +411,13 @@ def _build_anlagestrategie_flowables_template_order(
         ))
     else:
         empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+    # BAND-DEVIATION-REASON-REQUIRED-001: Abweichung vom Eignungsrahmen des
+    # Risikoprofils + dokumentierte Begruendung direkt bei den Bandbreiten.
+    flowables.extend(make_band_deviation_section(
+        data.band_house_deviations,
+        profile_label=data.band_house_profile,
+        reason=data.band_deviation_reason,
+    ))
     flowables.append(PageBreak())
 
     # 6 Vermoegensstruktur: Subanlageklassen und IST/SOLL-Visualisierung
@@ -671,11 +679,17 @@ def _make_preferences_section(preferences, styles) -> list:
     rows.extend([
         ["Nachhaltigkeit", _label(policy.get("esg"), {
             "none": "Keine ESG-Praeferenz",
-            "esg_integration": "ESG-Integration",
-            "best_in_class": "Best-in-Class",
-            "negative_screening": "Negativ-Screening",
-            "impact": "Impact Investing",
-            "net_zero": "Paris-aligned / Net Zero",
+            # ESG-THEME-EXCLUSION-EFFECTIVE-001: Label beschreibt, was die
+            # Engine tatsaechlich umsetzt (portfolio_engine_payload.
+            # _product_matches_constraints / effective_theme_screening).
+            "esg_integration": "ESG-Integration (nur Produkte nach SFDR Art. 8/9)",
+            "best_in_class": "Best-in-Class (nur Produkte nach SFDR Art. 8/9)",
+            "negative_screening": (
+                "Negativ-Screening (Themenprodukte der kontroversen Themen ausgeschlossen, "
+                "sofern nicht abweichend festgelegt)"
+            ),
+            "impact": "Impact Investing (nur Produkte nach SFDR Art. 8/9)",
+            "net_zero": "Paris-aligned / Net Zero (nur Produkte nach SFDR Art. 8/9)",
         }, "Standard / keine gesonderte Vorgabe")],
         ["Anlageuniversum", _label(policy.get("universe"), {
             "standard": "Standard",
@@ -722,22 +736,29 @@ def _make_preferences_section(preferences, styles) -> list:
     for key, label in geo_labels:
         if geo.get(key):
             restrictions.append(label)
-    tilt_names = {
-        "fossil": "Fossile Energie",
-        "defense": "Verteidigung",
-        "tobacco": "Tabak",
-        "alcohol": "Alkohol",
-        "gaming": "Gluecksspiel",
-        "nuclear": "Kernenergie",
-    }
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): die Themen-Zeilen
+    # kommen aus derselben Funktion, die die Engine fuer den harten
+    # Produktfilter nutzt -- inkl. der via negative_screening wirksamen
+    # Ausschluesse, die vorher im Dokument gar nicht als Restriktion
+    # erschienen. "untergewichten" ist bewusst mit seiner tatsaechlichen
+    # Umsetzung beschriftet (kein Themenbaustein, kein Ersatzeinsatz).
+    from services.portfolio_engine_payload import (
+        THEME_DISPLAY_NAMES,
+        THEME_LOOK_THROUGH_DISCLOSURE,
+        effective_theme_screening,
+    )
+
+    screened_themes = effective_theme_screening({"tilts": tilts, "policy": policy})
     tilt_actions = {
         "exclude": "ausschliessen",
-        "underweight": "untergewichten",
-        "overweight": "uebergewichten",
+        "underweight": "untergewichten (kein Themenbaustein, nie als Ersatz)",
     }
-    for key, mode in tilts.items():
-        if mode and mode != "neutral" and key in tilt_names:
-            restrictions.append(f"{tilt_names[key]} {tilt_actions.get(mode, mode)}")
+    for key in THEME_DISPLAY_NAMES:
+        mode = screened_themes.get(key) or tilts.get(key)
+        if mode == "overweight":
+            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} uebergewichten")
+        elif mode in tilt_actions:
+            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} {tilt_actions[mode]}")
     rows.append(["Restriktionen", "; ".join(restrictions) if restrictions else "Keine aktiven Restriktionen"])
 
     band_labels = []
@@ -796,6 +817,20 @@ def _make_preferences_section(preferences, styles) -> list:
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
 
+    screening_note = []
+    if screened_themes:
+        screening_note = [
+            Spacer(1, 2 * mm),
+            Paragraph(
+                _esc(
+                    "Hinweis Themen-Screening: Ausgeschlossene und untergewichtete Themen "
+                    "werden weder als eigener Themenbaustein noch als Ersatz fuer einen "
+                    "anderen Baustein umgesetzt. " + THEME_LOOK_THROUGH_DISCLOSURE
+                ),
+                styles["body"],
+            ),
+        ]
+
     return [
         Paragraph("Anlagepraeferenzen", styles["heading"]),
         Paragraph(
@@ -805,6 +840,7 @@ def _make_preferences_section(preferences, styles) -> list:
         ),
         Spacer(1, 4 * mm),
         table,
+        *screening_note,
     ]
 
 

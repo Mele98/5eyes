@@ -58,7 +58,13 @@ DEFAULT_N_PATHS = 1000
 DEFAULT_SEED = 0x1AD51_ADD15  # nicht-trivial, aber deterministisch
 
 # Quantile, die wir liefern. Reihenfolge bestimmt den Output-Key.
-QUANTILES = (5, 50, 75)
+# p5/p50/p75 speisen die Ziel-Klassifikation (Report + PDF). p10/p25/p90
+# (REPORT-FAN-CHART-BANDS-001) liefern die zwei SYMMETRISCHEN Faecher-Baender
+# des Reports: P10-P90 (zentrale 80 % der Pfade) und P25-P75 (zentrale
+# 50 %), konsistent mit den P10/P90-Kennzahlen der App. Das fruehere
+# Report-Band p5-p75 war asymmetrisch und deckte nur 70 % ab.
+QUANTILES = (5, 10, 25, 50, 75, 90)
+_QUANTILE_KEYS = tuple(f"p{q}" for q in QUANTILES)
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +107,7 @@ def compute_quantile_paths(
           "p5":  [rappen, rappen, ...],   # laenge horizon_years+1
           "p50": [rappen, ...],
           "p75": [rappen, ...],
+          "p10"/"p25"/"p90": [rappen, ...],  # Faecher-Baender (Report)
           "time_axis": ["2026", "2027", ..., "2041"],
           "n_paths": 1000,
           "seed": 0x1AD51ADD15,
@@ -185,9 +192,7 @@ def _data_pending_response(
     """Liefert das stabile Fallback-Schema. Caller setzt nur `note`."""
     return {
         "data_pending": True,
-        "p5": [],
-        "p50": [],
-        "p75": [],
+        **{key: [] for key in _QUANTILE_KEYS},
         "time_axis": [],
         "n_paths": 0,
         "seed": None,
@@ -429,7 +434,6 @@ def _compute_paths_core(
     # wealth_paths shape: (n_paths, horizon + 1) — wealth[:, 0] = initial
     pcts = np.percentile(wealth_paths, list(QUANTILES), axis=0)
     # pcts shape: (len(QUANTILES), horizon + 1)
-    p5, p50, p75 = pcts[0], pcts[1], pcts[2]
 
     from datetime import date
     base_year = date.today().year
@@ -437,9 +441,10 @@ def _compute_paths_core(
 
     return {
         "data_pending": False,
-        "p5": [int(round(v)) for v in p5.tolist()],
-        "p50": [int(round(v)) for v in p50.tolist()],
-        "p75": [int(round(v)) for v in p75.tolist()],
+        **{
+            key: [int(round(v)) for v in row.tolist()]
+            for key, row in zip(_QUANTILE_KEYS, pcts)
+        },
         "time_axis": time_axis,
         "n_paths": int(n_paths),
         "seed": int(seed),

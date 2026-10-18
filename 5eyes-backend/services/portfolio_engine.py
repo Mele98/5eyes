@@ -503,7 +503,13 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     validated = AllocationPreferencesPayload.model_validate(
         {} if preferences is None else preferences
     )
-    return validated.model_dump()
+    dumped = validated.model_dump()
+    # BAND-DEVIATION-REASON-REQUIRED-001: ein fehlendes Begruendungsfeld darf
+    # den persistierten Praeferenz-Snapshot nicht veraendern (sonst meldete
+    # die Drift-Erkennung jede bestehende Allokation als veraltet).
+    if dumped.get("bandDeviationReason") is None:
+        dumped.pop("bandDeviationReason", None)
+    return dumped
 
 
 def _allocation_snapshot_preferences(allocation: TargetAllocation | None) -> dict | None:
@@ -1262,6 +1268,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _apply_illiquid_cap,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
+    house_matrix_bands_payload,
     policy_band_clamp_notes,
     _building_block_risky_map,
     _building_block_rows_for_policy,
@@ -1456,6 +1463,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_is_structured,
     _product_matches_constraints,
     _product_score,
+    theme_screening_disclosure,
     _suitability_block_hint,
     _tenant_visible_products_query,
     _ter_coverage_bps,
@@ -4223,6 +4231,9 @@ def generate_target_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -6177,6 +6188,9 @@ def build_target_payload_from_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -6699,6 +6713,13 @@ def generate_recommendation_run(
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
     warnings = []
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): sobald ein Thema
+    # ausgeschlossen/untergewichtet ist (direkt oder via negative_screening),
+    # wird offengelegt, dass der Filter auf der Katalog-Klassifikation beruht
+    # und breite Indexprodukte nicht durchleuchtet werden.
+    theme_disclosure = theme_screening_disclosure(prefs)
+    if theme_disclosure:
+        warnings.append(theme_disclosure)
     positions_payload = []
     aggregated_positions: dict[str, dict] = {}
     # Sprint 14 Phase 4 F6: fehlende Sub-Klassen sammeln statt still continue
@@ -6794,7 +6815,8 @@ def generate_recommendation_run(
                 f"{len(missing_sub_classes)} Sub-Klassen ({details}). "
                 f"Gesamt-Luecke: {total_missing_bps/100:.1f}%. "
                 f"Bitte Produktuniversum erweitern oder Restriktionen "
-                f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG) lockern."
+                f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG, "
+                f"Themen-Ausschluss/-Untergewichtung) lockern."
             )
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
