@@ -121,8 +121,13 @@ def test_default_ui_preferences_generate_a_portfolio(session_factory):
                                    "realestateFunds": True, "altsGold": True}}
     with session_factory() as s:
         mandate = _seed_foundation(s)
-        ta = s.query(TargetAllocation).filter(
-            TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1).one()
+        # PREF-CONTEXT-001: wie im Classic-Flow wird die Strategie mit denselben
+        # UI-Praeferenzen berechnet, mit denen danach die Empfehlung laeuft --
+        # der TA-Snapshot ist die einzige Praeferenzquelle der Produktselektion.
+        ta = generate_target_allocation(
+            db=s, mandate=mandate, user_id="advisor-1", preferences=fe_default,
+        )["target_allocation"]
+        s.flush()
         result = generate_recommendation_run(
             db=s, mandate=mandate, user_id="advisor-1", preferences=fe_default,
             target_allocation_id=ta.id, run_type="Optimizer", depot_bank="UBS AG Zürich")
@@ -161,19 +166,15 @@ def test_low_risk_override_does_not_silently_violate_the_overridden_risk_profile
         assessment.override_reason = "Kundenseitig konservativer dokumentiert"
         s.commit()
 
+        # PREF-CONTEXT-001: Empfehlung aus dem TA-Snapshot (preferences=None);
+        # ein abweichender Request wuerde vorher mit PREFERENCE_SNAPSHOT_MISMATCH
+        # abgelehnt (tests/test_pref_context_snapshot.py).
         with pytest.raises(ValueError, match="Produktselektion unvollstaendig"):
             generate_recommendation_run(
                 db=s,
                 mandate=mandate,
                 user_id="advisor-1",
-                preferences={
-                    "policy": {"esg": "best_in_class", "homeBias": "ch_focus", "universe": "standard"},
-                    "tilts": {"tobacco": "overweight", "alcohol": "overweight", "gaming": "overweight"},
-                    "product": {"fundsOnly": False, "listedOnly": False, "noDerivatives": False, "noLeverage": False, "noStructured": False},
-                    "limits": {},
-                    "geo": {"chfOnly": False, "hedgingRequired": False, "noUsd": False},
-                    "assetClasses": {"altsGold": True, "equitiesLargeCap": True, "realestateFunds": True},
-                },
+                preferences=None,
                 target_allocation_id=ta.id,
                 run_type="Optimizer",
                 depot_bank="UBS AG ZÃ¼rich",

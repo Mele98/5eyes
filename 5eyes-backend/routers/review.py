@@ -58,6 +58,7 @@ from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.market_data.exceptions import RateLimitError
 from services.openfigi_client import preview_openfigi_mapping
+from services.preference_snapshot import PreferenceSnapshotMismatchError
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
     build_recommendation_payload_from_run,
@@ -3101,6 +3102,11 @@ def generate_recommendation_run_endpoint(
             run_type=body.run_type,
             depot_bank=body.depot_bank,
         )
+    except PreferenceSnapshotMismatchError as exc:
+        # PREF-CONTEXT-001: stabiler Reason-Code statt Freitext; kein Run persistiert.
+        db.rollback()
+        logger.warning("generate_recommendation_run rejected for mandate %s: %s", mandate_id, exc)
+        raise HTTPException(status_code=409, detail=exc.http_detail())
     except ValueError as exc:
         logger.warning("generate_recommendation_run failed for mandate %s: %s", mandate_id, exc)
         raise HTTPException(status_code=409, detail=str(exc))
