@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Iterable
 
 import numpy as np
@@ -221,12 +222,32 @@ def _positive_due_wealth_indices(
     counterfactual wealth paths; this helper intentionally does not invent an
     ordering or allocation rule from the aggregate series.
     """
+    return _positive_due_wealth_indices_cached(
+        tuple(liability.liability_path_rappen or ()),
+        int(n_wealth_columns),
+    )
+
+
+@lru_cache(maxsize=256)
+def _positive_due_wealth_indices_cached(
+    liability_path_rappen: tuple,
+    n_wealth_columns: int,
+) -> np.ndarray:
+    """Reine Funktion des Zahlungsplans (SAA-RESAMPLED-RUNTIME-001).
+
+    Die Zielfunktion fragt dieselben Indizes je Auswertung mehrfach ab (der
+    Solver wertet zehntausendfach aus); der Plan aendert sich dabei nie.
+    Das gecachte Array ist schreibgeschuetzt, damit kein Aufrufer den
+    geteilten Cache-Eintrag veraendern kann.
+    """
     indices = [
         path_index + 1
-        for path_index, amount in enumerate(liability.liability_path_rappen or ())
+        for path_index, amount in enumerate(liability_path_rappen)
         if float(amount or 0) > 0.0 and path_index + 1 < int(n_wealth_columns)
     ]
-    return np.asarray(indices, dtype=np.intp)
+    result = np.asarray(indices, dtype=np.intp)
+    result.setflags(write=False)
+    return result
 
 
 def scheduled_outside_wealth_horizon(
@@ -588,9 +609,13 @@ def chance_constraint_penalty(
         weight_sum = float(np.sum(weights_arr))
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
+        # SAA-RESAMPLED-RUNTIME-001: das ESS haengt nur an den Gewichten,
+        # nicht am Ziel -- einmal je Aufruf statt einmal je Ziel.
+        weighted_n_effective = effective_sample_size(weights_arr)
     else:
         weights_arr = None
         weight_sum = None
+        weighted_n_effective = None
     for goal in goal_liabilities:
         # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
         # 4.2 `W_joint_requested`/`P_joint_requested`): this aggregator must
@@ -622,7 +647,7 @@ def chance_constraint_penalty(
         if weights_arr is None:
             n_effective = float(n_paths)
         else:
-            n_effective = effective_sample_size(weights_arr)
+            n_effective = weighted_n_effective
         lower_bound = wilson_lower_bound(probability, n_effective)
         ess_sufficient = ess_is_sufficient(n_effective, n_paths)
 

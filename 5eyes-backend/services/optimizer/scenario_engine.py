@@ -514,6 +514,7 @@ def simulate_wealth_paths(
     death_year_index_per_path: np.ndarray | None = None,
     tax_mode: str = "median",
     tax_n_bins: int = 20,
+    portfolio_factors: np.ndarray | None = None,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
 
@@ -542,6 +543,16 @@ def simulate_wealth_paths(
         Konvention: death_year_index[p]=5 → Pfad p lebt in t=0..4 (cashflow
         aktiv), ab t=5 cashflow=0. Wachstum laeuft weiter (Erbschaft, aber
         keine weiteren Einnahmen/Ausgaben).
+
+    portfolio_factors: optional shape (n_paths, horizon) -- die bereits
+        abgeleiteten Jahres-Wachstumsfaktoren ``return_paths @ weights``
+        (``solver._portfolio_return_factors``). Reine Performance-Abkuerzung
+        fuer den Solver-Hotpath (SAA-RESAMPLED-RUNTIME-001): der Aufrufer
+        braucht dieselbe Groesse ohnehin fuer die annualisierte Rendite, und
+        die Ableitung erfolgt hier wie dort mit derselben einsum-Kontraktion
+        ueber die Buckets -- das Ergebnis ist bitidentisch zur bisherigen
+        Ableitung pro Jahr (Regressionstest
+        ``test_simulate_wealth_paths_fast_path_bit_identical``).
 
     Returns: (n_paths, horizon + 1) wealth array. wealth[:, 0] = initial,
     wealth[:, t+1] = wealth nach Wachstum (- Steuern wenn aktiv) + Cashflow
@@ -610,16 +621,40 @@ def simulate_wealth_paths(
             )
         dividend_yield_weighted_bps = float(np.dot(weights, dy))  # gewichteter bps
 
+    # Portfolio-Faktor pro Pfad und Jahr: gewichtete Summe der Asset-Returns.
+    # SAA-RESAMPLED-RUNTIME-001 (2026-10-18): einmal fuer alle Jahre statt
+    # einer einsum-Kontraktion je Jahr. Jedes Element ist dieselbe Summe ueber
+    # die 5 Buckets in derselben Reihenfolge -- bitidentisch, aber ohne
+    # ``horizon`` Python-/einsum-Aufrufe pro Zielfunktionsauswertung (der
+    # Solver wertet die Zielfunktion je Lauf zehntausendfach aus).
+    if portfolio_factors is None:
+        portfolio_factors = np.einsum("phb,b->ph", return_paths, weights)
+    else:
+        portfolio_factors = np.asarray(portfolio_factors, dtype=np.float64)
+        if portfolio_factors.shape != (n_paths, horizon):
+            raise ValueError(
+                "portfolio_factors must be shape "
+                f"({n_paths}, {horizon}), got {portfolio_factors.shape}"
+            )
+
+    if tax_regime is None:
+        return _simulate_wealth_paths_untaxed(
+            initial_wealth_rappen=initial_wealth_rappen,
+            portfolio_factors=portfolio_factors,
+            cashflow=cashflow,
+            liability=liability,
+            cashflow_per_path=cashflow_per_path,
+            liability_per_path=liability_per_path,
+        )
+
     wealth = np.empty((n_paths, horizon + 1), dtype=np.float64)
     wealth[:, 0] = float(initial_wealth_rappen)
 
     # Lazy-Import: vermeidet Zirkular-Dependency wenn TaxRegime services.tax nicht importiert ist
-    if tax_regime is not None:
-        from services.tax.base import TaxContext
+    from services.tax.base import TaxContext
 
     for t in range(horizon):
-        # Portfolio-Faktor pro Pfad: gewichtete Summe der Asset-Returns
-        portfolio_factor = np.einsum("pb,b->p", return_paths[:, t, :], weights)
+        portfolio_factor = portfolio_factors[:, t]
         prev = wealth[:, t]
         # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
         grown = np.where(prev > 0, prev * portfolio_factor, prev)
@@ -672,6 +707,56 @@ def simulate_wealth_paths(
             wealth[:, t + 1] = grown + cashflow[t] - liability[t]
 
     return wealth
+
+
+def _simulate_wealth_paths_untaxed(
+    *,
+    initial_wealth_rappen: int,
+    portfolio_factors: np.ndarray,
+    cashflow: np.ndarray,
+    liability: np.ndarray,
+    cashflow_per_path: np.ndarray | None,
+    liability_per_path: np.ndarray | None,
+) -> np.ndarray:
+    """Steuerfreier Kern von ``simulate_wealth_paths`` (SAA-RESAMPLED-RUNTIME-001).
+
+    Exakt dieselbe Rekursion wie die Steuer-Schleife ohne Steuerschritte:
+    ``grown = prev * f`` nur fuer ``prev > 0`` (sonst ``prev``), danach
+    ``(grown + cashflow) - liability`` -- gleiche Operationen in gleicher
+    Reihenfolge, daher bitidentisch. Gerechnet wird jahresweise auf
+    zusammenhaengenden Zeilen (Jahr x Pfad) statt auf gestrideten Spalten
+    und ohne Zwischen-Arrays je Jahr; zurueckgegeben wird wie bisher ein
+    C-zusammenhaengendes (n_paths, horizon + 1)-Array.
+    """
+    n_paths, horizon = portfolio_factors.shape
+    factors_by_year = np.ascontiguousarray(portfolio_factors.T)
+    wealth_by_year = np.empty((horizon + 1, n_paths), dtype=np.float64)
+    wealth_by_year[0] = float(initial_wealth_rappen)
+    if cashflow_per_path is not None:
+        cashflow_by_year = np.ascontiguousarray(cashflow_per_path.T)
+        liability_by_year = np.ascontiguousarray(liability_per_path.T)
+    else:
+        cashflow_by_year = None
+        liability_by_year = None
+    grown = np.empty(n_paths, dtype=np.float64)
+    positive = np.empty(n_paths, dtype=bool)
+    for t in range(horizon):
+        prev = wealth_by_year[t]
+        # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
+        np.greater(prev, 0, out=positive)
+        np.copyto(grown, prev)
+        np.multiply(prev, factors_by_year[t], out=grown, where=positive)
+        nxt = wealth_by_year[t + 1]
+        if cashflow_by_year is not None:
+            np.add(grown, cashflow_by_year[t], out=nxt)
+            np.subtract(nxt, liability_by_year[t], out=nxt)
+        else:
+            np.add(grown, cashflow[t], out=nxt)
+            # x - 0.0 == x bitgenau (auch fuer -0.0 und NaN): Jahre ohne
+            # Goal-Outflow sparen den Aufruf, ohne das Ergebnis zu aendern.
+            if liability[t] != 0.0:
+                np.subtract(nxt, liability[t], out=nxt)
+    return np.ascontiguousarray(wealth_by_year.T)
 
 
 # ============================================================================
