@@ -148,6 +148,32 @@ def _deviation_note(row: dict, profile_name: str, score_bucket: int) -> str:
     )
 
 
+def assert_manual_allocation_has_basis(
+    db: Session,
+    mandate: Mandate,
+    cma: CapitalMarketAssumption,
+) -> None:
+    """``_assert_allocation_has_basis`` auf denselben Eingaben wie Generate
+    (``_load_allocation_inputs``). Wirft ``ManualAllocationRejected`` mit der
+    unveraenderten deutschen Generate-Meldung ("Keine Vermögensbasis: ...")."""
+    from services.portfolio_engine import (
+        _assert_allocation_has_basis,
+        _load_allocation_inputs,
+    )
+
+    try:
+        inputs = _load_allocation_inputs(db, mandate, simulation_prefs={}, cma=cma)
+        _assert_allocation_has_basis(
+            int(inputs["advisory_wealth_rappen"]),
+            int(inputs["recurring_income_rappen"]),
+            int(inputs["recurring_expense_rappen"]),
+            int(inputs["capital_inflow_rappen"]),
+            int(inputs["capital_outflow_rappen"]),
+        )
+    except ValueError as exc:
+        raise ManualAllocationRejected(str(exc)) from exc
+
+
 def compute_live_allocation_anchors(
     db: Session,
     *,
@@ -268,6 +294,12 @@ def build_manual_target_allocation(
 
     jurisdiction = resolve_mandate_jurisdiction(mandate)
     universe = getattr(mandate, "investment_universe", None)
+    # MANUAL-SAVE-BASIS-001 (Owner-Entscheid 2026-10-14): dieselbe
+    # Datenbasis-Regel wie Generate und Sensitivitaet -- ohne
+    # Beratungsvermoegen UND ohne Cashflows keine Soll-Allokation, auch keine
+    # manuelle. Vor allen anderen fachlichen Pruefungen, damit ein leeres
+    # Mandat die ehrliche Meldung bekommt und nicht z.B. "Risikobudget".
+    assert_manual_allocation_has_basis(db, mandate, cma)
     try:
         score_bucket = _risk_score_bucket(assessment)
         house_matrix = _house_matrix_or_default(db, policy, score_bucket)

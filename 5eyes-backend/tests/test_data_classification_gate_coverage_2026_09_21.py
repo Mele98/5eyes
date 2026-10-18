@@ -177,6 +177,8 @@ def test_target_allocation_synthetic_allowed_when_gate_closed(orm_engine, monkey
 
     with Session(orm_engine) as session:
         advisor = session.get(User, "advisor-dcgate")
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(session, "client-dcgate")
         result = create_target_allocation(
             mandate_id,
             _target_payload_with_classification("policy-dcgate", "synthetic"),
