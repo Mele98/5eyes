@@ -67,10 +67,17 @@ RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
 # Vergleich der zwei Zielfunktions-Stufen statt Differenz der Skalar-
 # Zielfunktion; Entscheid ueber den Vorzeichen-Anteil (p-Wert), siehe
 # ``lexicographic_improvement`` und ``paired_bootstrap_improvement``.
-SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_lexicographic_v2"
-# Gleiche Nulltoleranz wie der Stufe-2-Schalter in
-# ``objective.combined_objective_two_phase`` (epsilon=1e-12): "Stufe 1
-# erfuellt" bedeutet im Vergleich exakt dasselbe wie im Solver.
+# v3 (OBJECTIVE-NORMALIZATION-001, 2026-10-18): der Solver minimiert jetzt
+# eine STETIGE, Pareto-monotone Skalar-Zielfunktion (Tiebreak immer aktiv,
+# kein Stufen-Schalter). Der Produktionstest vergleicht deshalb wieder die
+# Skalar-Zielfunktion -- dieselbe Ordnung, nach der optimiert wurde; die
+# Differenz hat eine Einheit, die untere Konfidenzgrenze ist wieder
+# definiert. ``lexicographic_improvement`` bleibt fuer Aufrufer, die
+# ausdruecklich die Zwei-Stufen-Logik vergleichen wollen.
+SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_scalar_v3"
+# Nulltoleranz der Zwei-Stufen-Logik in ``lexicographic_improvement`` (war
+# bis v2 identisch mit dem inzwischen entfernten Stufe-2-Schalter des
+# Solvers).
 GOAL_LEVEL_EPSILON = 1e-12
 COMPARISON_GOAL_LEVEL = "goal_level"
 COMPARISON_TIEBREAK = "volatility_tiebreak"

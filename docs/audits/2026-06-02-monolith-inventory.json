@@ -4124,7 +4124,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4691,
+      "line": 4676,
       "tag": "select",
       "value": "onDateGroupChange('acf-valid-from')"
     },
@@ -4140,7 +4140,7 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4699,
+      "line": 4700,
       "tag": "select",
       "value": "onDateGroupChange('acf-valid-until')"
     },
@@ -4148,7 +4148,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4700,
+      "line": 4685,
       "tag": "select",
       "value": "onDateGroupChange('acf-valid-until')"
     },
@@ -4164,7 +4164,7 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4927,
+      "line": 4928,
       "tag": "select",
       "value": "onDateGroupChange('nz-start-date')"
     },
@@ -4172,7 +4172,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4928,
+      "line": 4913,
       "tag": "select",
       "value": "onDateGroupChange('nz-start-date')"
     },
@@ -4188,7 +4188,7 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4936,
+      "line": 4937,
       "tag": "select",
       "value": "onDateGroupChange('nz-target-date')"
     },
@@ -4196,7 +4196,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4937,
+      "line": 4922,
       "tag": "select",
       "value": "onDateGroupChange('nz-target-date')"
     },
@@ -4333,6 +4333,14 @@
       "handler": "onchange",
       "id": "bt-res-annual",
       "line": 4438,
+      "tag": "input",
+      "value": "btRunBacktest()"
+    },
+    {
+      "class": "",
+      "handler": "onchange",
+      "id": "bt-res-daily",
+      "line": 4439,
       "tag": "input",
       "value": "btRunBacktest()"
     },
@@ -5644,7 +5652,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 4442,
+      "line": 4443,
       "tag": "button",
       "value": "btSetHorizonPreset('2000')"
     },
@@ -5652,7 +5660,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 4443,
+      "line": 4428,
       "tag": "button",
       "value": "btSetHorizonPreset('2008')"
     },
@@ -5972,7 +5980,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 5206,
+      "line": 5207,
       "tag": "button",
       "value": "cm('m-nt')"
     },
@@ -5988,7 +5996,7 @@
       "class": "mx",
       "handler": "onclick",
       "id": "",
-      "line": 5207,
+      "line": 5192,
       "tag": "button",
       "value": "cm('m-ap')"
     },
@@ -5996,7 +6004,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 5207,
+      "line": 5192,
       "tag": "button",
       "value": "cm('m-ap')"
     },
@@ -7824,6 +7832,24 @@
     },
     {
       "class": "",
+      "id": "aa-geo-hedging-required",
+      "line": 3710,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "aa-geo-no-em",
+      "line": 3709,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "aa-geo-no-usd",
+      "line": 3712,
+      "tag": "input"
+    },
+    {
+      "class": "",
       "id": "aa-goal-sollist",
       "line": 3544,
       "tag": "div"
@@ -7886,12 +7912,6 @@
       "class": "fi",
       "id": "aa-liquidity-max-illiquid",
       "line": 3717,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "aa-liquidity-max-illiquid",
-      "line": 3732,
       "tag": "input"
     },
     {
@@ -8334,6 +8354,12 @@
     },
     {
       "class": "fsel",
+      "id": "aa-tilt-nuclear",
+      "line": 3687,
+      "tag": "select"
+    },
+    {
+      "class": "fsel",
       "id": "aa-tilt-tobacco",
       "line": 3684,
       "tag": "select"
@@ -8394,12 +8420,6 @@
     },
     {
       "class": "",
-      "id": "ab-stress-diff",
-      "line": 4405,
-      "tag": "div"
-    },
-    {
-      "class": "",
       "id": "ab-warnings",
       "line": 4393,
       "tag": "div"
@@ -8456,36 +8476,6 @@
       "class": "",
       "id": "acf-error",
       "line": 4729,
-      "tag": "div"
-    },
-    {
-      "class": "fsel",
-      "id": "acf-cat",
-      "line": 4659,
-      "tag": "select"
-    },
-    {
-      "class": "fsel",
-      "id": "acf-cftype",
-      "line": 4646,
-      "tag": "select"
-    },
-    {
-      "class": "",
-      "id": "acf-date-hint",
-      "line": 4718,
-      "tag": "div"
-    },
-    {
-      "class": "fg",
-      "id": "acf-end-wrap",
-      "line": 4695,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "acf-error",
-      "line": 4744,
       "tag": "div"
     },
     {
@@ -9906,120 +9896,6 @@
     },
     {
       "class": "",
-      "id": "bt-drawdown-chart",
-      "line": 4552,
-      "tag": "div"
-    },
-    {
-      "class": "fi",
-      "id": "bt-end-year",
-      "line": 4435,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "bt-fallback-badge",
-      "line": 4424,
-      "tag": "div"
-    },
-    {
-      "class": "fi bt-fee-strategy",
-      "id": "bt-fee-advisory",
-      "line": 4473,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "bt-fee-benchmark",
-      "line": 4525,
-      "tag": "input"
-    },
-    {
-      "class": "fi bt-fee-strategy",
-      "id": "bt-fee-custody",
-      "line": 4469,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "bt-fee-strategy-sum",
-      "line": 4476,
-      "tag": "div"
-    },
-    {
-      "class": "fi bt-fee-strategy",
-      "id": "bt-fee-ter",
-      "line": 4465,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "bt-info",
-      "line": 4420,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "bt-meta",
-      "line": 4544,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "bt-metrics-table",
-      "line": 4556,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "bt-res-annual",
-      "line": 4453,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "bt-res-daily",
-      "line": 4454,
-      "tag": "input"
-    },
-    {
-      "class": "btn-p",
-      "id": "bt-run-btn",
-      "line": 4537,
-      "tag": "button"
-    },
-    {
-      "class": "",
-      "id": "bt-show-norebal",
-      "line": 4449,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "bt-show-rebal",
-      "line": 4448,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "bt-start-year",
-      "line": 4433,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "bt-status",
-      "line": 4540,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "bt-warnings",
-      "line": 4559,
-      "tag": "div"
-    },
-    {
-      "class": "",
       "id": "bt-wealth-chart",
       "line": 4533,
       "tag": "div"
@@ -10862,24 +10738,6 @@
       "class": "",
       "id": "dc-fc-esg",
       "line": 4320,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "dc-currency-list",
-      "line": 4318,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "dc-fc-duration",
-      "line": 4331,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "dc-fc-esg",
-      "line": 4335,
       "tag": "div"
     },
     {
@@ -11784,12 +11642,6 @@
     },
     {
       "class": "fi",
-      "id": "maw-liq-rate",
-      "line": 5059,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
       "id": "maw-liq-value",
       "line": 5041,
       "tag": "input"
@@ -11898,18 +11750,6 @@
     },
     {
       "class": "fsel",
-      "id": "maw-pension-payout",
-      "line": 5116,
-      "tag": "select"
-    },
-    {
-      "class": "fi",
-      "id": "maw-pension-rate",
-      "line": 5110,
-      "tag": "input"
-    },
-    {
-      "class": "fsel",
       "id": "maw-pension-type",
       "line": 5081,
       "tag": "select"
@@ -11981,18 +11821,6 @@
       "tag": "table"
     },
     {
-      "class": "",
-      "id": "method-drivers-block",
-      "line": 3641,
-      "tag": "details"
-    },
-    {
-      "class": "optimizer-table",
-      "id": "method-drivers-table",
-      "line": 3643,
-      "tag": "table"
-    },
-    {
       "class": "fi",
       "id": "ms-birth-year",
       "line": 4168,
@@ -12020,30 +11848,6 @@
       "class": "fi",
       "id": "ms-retirement-year",
       "line": 4184,
-      "tag": "input"
-    },
-    {
-      "class": "fsel",
-      "id": "ms-jurisdiction",
-      "line": 4173,
-      "tag": "select"
-    },
-    {
-      "class": "fi",
-      "id": "ms-life-expectancy-year",
-      "line": 4200,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "ms-report-sections",
-      "line": 4224,
-      "tag": "div"
-    },
-    {
-      "class": "fi",
-      "id": "ms-retirement-year",
-      "line": 4199,
       "tag": "input"
     },
     {
@@ -13518,54 +13322,6 @@
     },
     {
       "class": "",
-      "id": "sr-implementation-steps",
-      "line": 4047,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-implementation-sub",
-      "line": 4045,
-      "tag": "span"
-    },
-    {
-      "class": "cht",
-      "id": "sr-implementation-title",
-      "line": 4045,
-      "tag": "span"
-    },
-    {
-      "class": "",
-      "id": "sr-next-review",
-      "line": 3991,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-next-review-date",
-      "line": 4051,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-ovr-badge",
-      "line": 3975,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-pref-focus-chips",
-      "line": 4033,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-pref-restriction-chips",
-      "line": 4039,
-      "tag": "div"
-    },
-    {
-      "class": "",
       "id": "sr-proj-sub",
       "line": 3975,
       "tag": "div"
@@ -13646,42 +13402,6 @@
       "class": "",
       "id": "sr-strategy-name",
       "line": 4007,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-override",
-      "line": 4002,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-profile",
-      "line": 4001,
-      "tag": "div"
-    },
-    {
-      "class": "btn-g btn-sm",
-      "id": "sr-riskprofile-sign-btn",
-      "line": 3996,
-      "tag": "button"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-signature",
-      "line": 4010,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-signature-block",
-      "line": 4057,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-strategy-name",
-      "line": 4022,
       "tag": "div"
     },
     {
@@ -19936,13 +19656,6 @@
     {
       "class": "modal",
       "id": "",
-      "line": 5200,
-      "role": "",
-      "tag": "div"
-    },
-    {
-      "class": "modal",
-      "id": "",
       "line": 5201,
       "role": "",
       "tag": "div"
@@ -19950,7 +19663,21 @@
     {
       "class": "modal",
       "id": "",
+      "line": 5185,
+      "role": "",
+      "tag": "div"
+    },
+    {
+      "class": "modal",
+      "id": "",
       "line": 5186,
+      "role": "",
+      "tag": "div"
+    },
+    {
+      "class": "modal",
+      "id": "",
+      "line": 5189,
       "role": "",
       "tag": "div"
     },
@@ -19979,13 +19706,6 @@
       "class": "modal",
       "id": "",
       "line": 5207,
-      "role": "",
-      "tag": "div"
-    },
-    {
-      "class": "modal",
-      "id": "",
-      "line": 5208,
       "role": "",
       "tag": "div"
     },

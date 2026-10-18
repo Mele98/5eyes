@@ -1058,8 +1058,14 @@ def deterministic_seed(*parts) -> int:
 # v2 (2026-10-17): Seed float-robust (scenario_inputs_seed_digest) und
 # Goal-Daten relativ zum Bewertungsjahr (SAA-SEED-FLOAT-ROBUST-001);
 # Signifikanzentscheid lexikographisch (SAA-SIGNIFICANCE-LEXICOGRAPHIC-001).
+#
+# Engine v3 (2026-10-18, OBJECTIVE-NORMALIZATION-001): stetige, Pareto-
+# monotone Zielfunktion (Tiebreak immer aktiv, kein Stufen-Schalter) und
+# volumen-normierte, lineare Chance-Strafe statt 1e6 * Defizit^2. Der
+# Seed-Aufbau ist unveraendert (content_seed_v2); die Engine-Version geht
+# aber in den Seed ein -- neue Mathematik zieht bewusst neue Wuerfel.
 OPTIMIZER_SEED_SCHEME = "content_seed_v2"
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v2"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v3"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2679,10 +2685,14 @@ def _context_loss_pair_on_validation(
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
 
     def _loss(bundle, idx):
-        # SAA-SIGNIFICANCE-LEXICOGRAPHIC-001: die Stufen GETRENNT liefern,
-        # nicht die Skalar-Zielfunktion. Deren Stufe-2-Schalter wirkt pro
-        # Allokation; als Differenz zweier Allokationen ist sie nicht monoton
-        # (siehe resampling.lexicographic_improvement).
+        # OBJECTIVE-NORMALIZATION-001 (2026-10-18): wieder die SKALAR-
+        # Zielfunktion -- exakt die, die der Solver in jedem Bag minimiert.
+        # SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 musste hier die Stufen getrennt
+        # vergleichen, weil der Skalar wegen des Stufe-2-Schalters pro
+        # Allokation nicht monoton war. Der Schalter ist entfernt (Tiebreak
+        # immer aktiv), die Differenz zweier Skalare ist damit monoton und
+        # einheitlich -- ein Test gegen eine ANDERE Ordnung als die, nach der
+        # optimiert wurde, waere inkonsistent.
         wealth, factors, annualized, preference, drawdowns = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
@@ -2702,7 +2712,7 @@ def _context_loss_pair_on_validation(
                 float(np.mean(drawdowns)) if drawdowns is not None else None
             ),
         )
-        return (float(goal_level), float(tiebreak), float(preference))
+        return float(goal_level) + float(tiebreak) + float(preference)
 
     def loss_pair(idx):
         return _loss(prepared[0], idx), _loss(prepared[1], idx)
