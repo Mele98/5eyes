@@ -402,11 +402,16 @@ def _risk_assessment_has_documented_override(assessment: RiskAssessment) -> bool
         final_score = int(getattr(assessment, "final_score_x10", 0) or 0)
     except (TypeError, ValueError):
         return False
-    if _risk_override_profile_band(override_score) - _risk_override_profile_band(final_score) < 2:
-        return True
-    return bool(getattr(assessment, "override_client_confirmed", 0)) and bool(
-        getattr(assessment, "override_warning_delivered", 0)
+    from services.risk_assessment_semantics import (
+        _optional_capacity_score, override_documentation_requirements,
     )
+    needs_confirmation, needs_warning = override_documentation_requirements(
+        final_score_x10=final_score, override_score_x10=override_score,
+        risk_capacity_score_x10=_optional_capacity_score(assessment),
+    )
+    if needs_confirmation and not getattr(assessment, "override_client_confirmed", 0):
+        return False
+    return not needs_warning or bool(getattr(assessment, "override_warning_delivered", 0))
 
 
 def risk_assessment_ready_for_strategy(assessment: RiskAssessment | None) -> bool:
@@ -3470,6 +3475,7 @@ def generate_target_allocation(
             external_goal_funding_series_rappen
         ),
         mandate=mandate,  # Sprint 4 Phase 3: BFS-Mortalitaets-Felder
+        external_reserve_rappen=external_reserve_rappen,  # RESERVE-DOUBLE-COUNT-001
     )
     # Strikt: Tilts duerfen nur uebersprungen werden, wenn die Targets
     # tatsaechlich vom Solver ersetzt wurden (also nur im 'stochastic' Modus,
@@ -4687,7 +4693,8 @@ def evaluate_goal_sensitivity(
         bucket_risky_fractions_from_building_blocks,
         build_bounds,
     )
-    from services.optimizer.solver import deterministic_seed, run_solver
+    from services.optimizer.solver import run_solver, sensitivity_content_seed
+    from services.portfolio_engine_optimizer_integration import sensitivity_house_anchor_bps
 
     # Live counterfactual: current model inputs, but the active decision's
     # immutable sub-mix and hard constraints. This avoids silently changing
@@ -5065,10 +5072,7 @@ def evaluate_goal_sensitivity(
     except MandateModelInputError as exc:
         raise OptimizerInputError(str(exc)) from exc
 
-    # Pin den Seed: identisch fuer baseline + modified, damit Scenarios gleich
-    # sind und das objektive Delta nur vom Goal-Shift kommt.
     cma_id = getattr(cma, "id", "no-cma")
-    goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
     # GOAL-SENSITIVITY-COMMON-BASELINE-001, Teil 1 von 2: `target_delta_pct`
     # und `horizon_delta_years` standen hier mit in den Seed-Argumenten.
     # `deterministic_seed()` ist ein reiner SHA-256 ueber alle Positionen, also
@@ -5078,10 +5082,12 @@ def evaluate_goal_sensitivity(
     # enthielt damit Parametereffekt UND Szenario-Rauschen, untrennbar; eine
     # Verletzung von Common Random Numbers derselben Klasse wie OPT-1.
     # Verschiedene ZIELE bleiben getrennt, verschiedene SCHRITTE desselben
-    # Ziels teilen den Cube.
-    pinned_seed = deterministic_seed(
-        cma_id, goal_ids, score_x10, horizon, _OPTIMIZER_N_PATHS_DEFAULT,
-        "sensitivity", target_goal.id,
+    # Ziels teilen den Cube. SAA-RESAMPLED-STABILITY-001: Inhalts- statt ID-Seed; Anker wie Generate.
+    house_anchor = sensitivity_house_anchor_bps(current_allocation, live_targets if current_allocation is None else None)
+    pinned_seed = sensitivity_content_seed(
+        cma=cma, sub_allocations=sensitivity_sub_allocations, goals=goals, target_goal=target_goal,
+        score_x10=score_x10, horizon_years=horizon, scenario_horizon_years=projection_horizon,
+        n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
     )
 
     def _external_series_for_horizon(run_horizon: int) -> list[int]:
@@ -5326,7 +5332,7 @@ def evaluate_goal_sensitivity(
             # demselben Vertrag -- dieselbe Begruendung wie `pinned_seed` und
             # der gemeinsame Szenarioraum eine Zeile darueber. Ein Delta ist
             # nur zwischen zwei Laeufen derselben Mathematik definiert.
-            objective_contract=sensitivity_objective_contract,
+            objective_contract=sensitivity_objective_contract, house_anchor_bps=house_anchor,
             **sensitivity_mortality_kwargs,
             **sensitivity_tax_kwargs,
         )

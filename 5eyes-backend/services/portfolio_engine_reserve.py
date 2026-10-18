@@ -337,6 +337,37 @@ def _saa_internal_reserve_rappen(
     return int(reserve_needed_rappen)
 
 
+def _external_reserve_release_series(
+    external_reserve_rappen: int,
+    cashflow_series_rappen: list[int],
+    liability_path_rappen: list[int],
+) -> list[int]:
+    """RESERVE-DOUBLE-COUNT-001: Rueckbuchung der externen Reserve im Solver.
+
+    Die externe Reserve E wird vor dem Solver aus dem Beratungsvermoegen
+    herausgeloest (Start = A - E), ist aber Geld des Kunden, das genau fuer
+    die nahen Abfluesse (Nahziele, Cashflow-Defizite) gebildet wurde. Diese
+    Abfluesse stehen weiter voll als Liability/Cashflow im Solver. Ohne
+    Rueckbuchung waere E doppelt verbraucht. Hier fliesst E als Bargeld
+    (ohne Rendite, konservativ) chronologisch genau in den Jahren zurueck, in
+    denen Abfluesse faellig werden: release_t = min(Rest-E, Outflow_t) mit
+    Outflow_t = Liability_t + max(0, -Cashflow_t). Summe <= E; ein Rest ohne
+    zugehoerigen Abfluss (reiner Reserve-Floor) bleibt ausserhalb.
+    """
+    remaining = int(external_reserve_rappen or 0)
+    if remaining < 0:
+        raise ValueError("external_reserve_rappen must be >= 0")
+    horizon = len(cashflow_series_rappen)
+    release: list[int] = []
+    for t in range(horizon):
+        liability_t = int(liability_path_rappen[t]) if t < len(liability_path_rappen) else 0
+        outflow_t = max(0, liability_t) + max(0, -int(cashflow_series_rappen[t]))
+        amount = min(remaining, outflow_t)
+        remaining -= amount
+        release.append(amount)
+    return release
+
+
 def _compute_reserve_for_inputs(
     *,
     goals: list[Goal],

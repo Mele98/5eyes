@@ -1052,7 +1052,14 @@ def test_external_reserve_tax_remains_in_solver_cashflow_after_advisory_carve_ou
     # the solver dynamically replaces only 400k investable advisory wealth.
     # Tax on 100k carved-out reserve + 500k Other Wealth therefore remains.
     assert reporting_delta and set(reporting_delta) == {-400_000}
-    assert solver_delta == [-240_000] * len(reporting_delta)
+    # RESERVE-DOUBLE-COUNT-001: on top of the tax slice, the carved-out
+    # reserve re-enters the solver as cash in the years outflows fall due
+    # (never negative, at most once in total). Net of that release the tax
+    # contract is unchanged.
+    reserve_release = [delta + 240_000 for delta in solver_delta]
+    assert all(released >= 0 for released in reserve_release)
+    assert 0 < sum(reserve_release) <= external_reserve_rappen
+    assert len(solver_delta) == len(reporting_delta)
 
 
 def test_target_allocation_response_exposes_optimizer_audit_fields():
@@ -1665,10 +1672,17 @@ def test_fallback_analytics_are_recomputed_for_active_house_weights(
         "hardness": "primaer",
     }]
 
-    def _active_penalty(*_args, **_kwargs):
-        return 0.0, list(active_analytics)
+    def _active_publication(*_args, **_kwargs):
+        return list(active_analytics)
 
-    monkeypatch.setattr(objective_module, "chance_constraint_penalty", _active_penalty)
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die Fallback-Synchronisation
+    # publiziert ueber goal_attribution.publish_goal_achievability, nicht mehr
+    # ueber die interne Joint-Sicht der Chance-Penalty.
+    import services.optimizer.goal_attribution as goal_attribution_module
+
+    monkeypatch.setattr(
+        goal_attribution_module, "publish_goal_achievability", _active_publication,
+    )
 
     result = _generate(
         session_factory,

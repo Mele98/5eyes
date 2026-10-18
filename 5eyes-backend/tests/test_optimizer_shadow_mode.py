@@ -472,9 +472,23 @@ def test_shadow_comparison_objective_delta_consistent_with_milli_values(session_
         # Beide sind in milli (objective * 1000); Delta-Berechnung in Prozent
         # erfolgt im Engine vor der Rundung auf 2 Nachkommastellen.
         if active_milli != 0:
-            expected = round((shadow_milli - active_milli) / active_milli * 100.0, 2)
-            # Rundungspuffer von 1% wegen der mp-Rundung in _objective_to_milli
-            assert abs(delta_pct - expected) < 1.0
+            # HOUSE-FIRST-SIGNIFICANCE-001 (2026-10-18): der feste 1-%-Puffer
+            # galt nur fuer grosse Objectives. _objective_to_milli rundet auf
+            # +-0.5 milli; bei Objectives um 0.012 (= 12 milli, Shadow publiziert
+            # jetzt die projizierte Hausmatrix) sind das +-4 % je Wert --
+            # gemessen: beide 12 milli, echtes Delta -4.21 %. Geprueft wird
+            # deshalb, dass das Delta mit den gerundeten Werten VEREINBAR ist
+            # (Intervall aus den Rundungsgrenzen), statt gegen einen Punktwert.
+            a, s_ = float(active_milli), float(shadow_milli)
+            if abs(a) > 0.5:
+                bounds = [
+                    (sv - av) / av * 100.0
+                    for av in (a - 0.5, a + 0.5)
+                    for sv in (s_ - 0.5, s_ + 0.5)
+                ]
+                assert min(bounds) - 0.01 <= delta_pct <= max(bounds) + 0.01, (
+                    active_milli, shadow_milli, delta_pct,
+                )
 
 
 # ============================================================================

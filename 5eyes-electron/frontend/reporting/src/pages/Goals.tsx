@@ -57,9 +57,10 @@ export function Goals({ data }: GoalsProps) {
       nr={11}
       kicker="Zielbasierte Optimierung"
       title="Zielbasierte Optimierung"
-      subtitle="Erreichungswahrscheinlichkeit pro Mandant-Ziel mit gewichtetem Gesamt-Score."
+      subtitle="Zielerreichung nach Priorität je Ziel und Plan-Solvenz aller Ziele gemeinsam."
     >
       <AchievementScoreKpi scoreBps={data.goal_achievement_score_bps} />
+      <PlanSolvencyKpi plan={data.plan_solvency ?? null} />
 
       {hasRealPaths ? (
         <MonteCarloPathsChart paths={mc!} goals={goals} />
@@ -81,7 +82,7 @@ export function Goals({ data }: GoalsProps) {
                 <SortableTh column="type" sortConfig={sortConfig} onSort={handleSort}>Typ</SortableTh>
                 <SortableTh column="target" sortConfig={sortConfig} onSort={handleSort} align="right">Zielwert</SortableTh>
                 <SortableTh column="status" sortConfig={sortConfig} onSort={handleSort}>Status</SortableTh>
-                <SortableTh column="probability" sortConfig={sortConfig} onSort={handleSort} align="right">Wahrscheinlichkeit</SortableTh>
+                <SortableTh column="probability" sortConfig={sortConfig} onSort={handleSort} align="right">Zielerreichung nach Priorität</SortableTh>
               </tr>
             </thead>
             <tbody>
@@ -90,6 +91,13 @@ export function Goals({ data }: GoalsProps) {
               ))}
             </tbody>
           </table>
+          <p className="mt-3 text-caption text-ink-muted" data-testid="goals-scope-note">
+            <span className="font-semibold text-ink">Zielerreichung nach Priorität:</span>{' '}
+            Auf jedem simulierten Pfad werden die Ziele in der festgelegten
+            Rangfolge finanziert (Rang 1 zuerst). Ein Ziel gilt als erreicht,
+            wenn es nach allen höher priorisierten Zielen vollständig
+            finanziert ist.
+          </p>
         </section>
       )}
     </ReportPage>
@@ -161,7 +169,32 @@ function AchievementScoreKpi({ scoreBps }: { scoreBps: number | null | undefined
   );
 }
 
+/**
+ * GOAL-ACHIEVABILITY-ATTRIBUTION-001: der gemeinsame Planwert erscheint genau
+ * einmal und klar beschriftet — nie als Zielzeile.
+ */
+function PlanSolvencyKpi({ plan }: { plan: GoalBasedInvestingData['plan_solvency'] }) {
+  if (!plan) return null;
+  return (
+    <section
+      className="mt-4 border-l-4 border-rule bg-canvas-subtle px-6 py-4"
+      data-testid="plan-solvency-kpi"
+    >
+      <p className="text-micro uppercase tracking-widest text-ink-subtle">
+        {plan.label || 'Plan-Solvenz (alle Ziele gemeinsam)'}
+      </p>
+      <p className="mt-1 font-serif text-h2 text-ink">
+        {formatBpsAsPct(plan.probability_bps, { decimals: 0 })}
+      </p>
+      <p className="mt-1 text-caption text-ink-muted">
+        Anteil der simulierten Pfade, auf denen alle Ziele gemeinsam finanziert sind.
+      </p>
+    </section>
+  );
+}
+
 function GoalRow({ g }: { g: GoalEntry }) {
+  const legacy = g.evaluation_scope === 'legacy_aggregate_unknown';
   return (
     <tr className="border-b border-rule last:border-b-0">
       <td className="py-4 pr-4 align-top font-semibold text-ink">
@@ -174,7 +207,12 @@ function GoalRow({ g }: { g: GoalEntry }) {
         {g.target_amount_rappen ? formatChfRappen(g.target_amount_rappen) : '—'}
       </td>
       <td className="py-4 pr-4 align-top">
-        <GoalStatusPill status={g.status} />
+        {legacy ? (
+          // Altbewertung: gemeinsamer Planwert, keine Ampel.
+          <AmpelPill status="nicht_beurteilbar" label="Altbewertung" />
+        ) : (
+          <GoalStatusPill status={g.status} />
+        )}
       </td>
       <td className="py-4 text-right align-top font-mono text-ink">
         {formatBpsAsPct(g.probability_bps)}

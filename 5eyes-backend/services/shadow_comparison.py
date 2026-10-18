@@ -229,6 +229,9 @@ def _goal_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     unreachable = 0
     hard_unreachable = 0
     for row in rows:
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz ist kein Ziel.
+        if str(row.get("evaluation_scope") or "") == "joint_plan":
+            continue
         status = str(row.get("status") or "")
         hardness = _hardness_key(row.get("hardness"))
         if status == "erreichbar":

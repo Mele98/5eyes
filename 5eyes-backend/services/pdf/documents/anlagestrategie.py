@@ -17,6 +17,7 @@ from services.pdf.components.effektives_portfolio import make_effektives_portfol
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
 from services.pdf.components.goal_achievability import (
     make_goal_achievability_table,
+    make_plan_solvency_line,
     make_limiting_factor_line,
 )
 from services.pdf.components.header import make_wealtharchitekten_header
@@ -643,6 +644,10 @@ def _make_strategy_reasoning_section(data: AnlagestrategieData, styles) -> list:
         Paragraph("Strategie-Begründung", styles["heading"]),
         make_limiting_factor_line(limiting_factor),
         Spacer(1, 3 * mm),
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz einmal, darunter
+        # die Zielerreichung nach Prioritaet je Ziel.
+        make_plan_solvency_line(achievability),
+        Spacer(1, 2 * mm),
         make_goal_achievability_table(achievability),
     ]
 

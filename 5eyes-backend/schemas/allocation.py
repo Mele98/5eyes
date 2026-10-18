@@ -1551,6 +1551,10 @@ class OptimizerGoalDriverResponse(BaseModel):
     weighted_objective_contribution_decimal: Optional[str] = None
     weighted_objective_contribution_binary64_hex: Optional[str] = None
     rank: int
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001 (Reparaturvertrag Punkt 5): was der
+    # Beitrag ist -- der gewichtete Verlustterm dieses Ziels auf dem
+    # gemeinsamen Pfad, ausdruecklich KEIN marginaler/kausaler Zielanteil.
+    evaluation_scope: str = "weighted_loss_component_under_joint_path"
 
 
 class AllocationMethodCandidateResponse(BaseModel):

@@ -22,6 +22,9 @@ function makeGoal(overrides: Partial<GoalEntry> = {}): GoalEntry {
     status: overrides.status ?? '',
     outside_simulation_horizon:
       overrides.outside_simulation_horizon ?? false,
+    evaluation_scope: overrides.evaluation_scope ?? 'priority_funded',
+    funding_rank: overrides.funding_rank ?? null,
+    failure_event_id: overrides.failure_event_id ?? null,
   };
 }
 
