@@ -79,7 +79,16 @@ class StressResult:
     scenario_name: str
     end_wealth_rappen: int
     min_year_wealth_rappen: int  # tiefster Pfad-Wert (kann negativ sein = Lebensluecke)
-    max_drawdown_bps: int  # maximaler peak-to-trough relativer Verlust
+    # STRESS-SEMANTICS-001: peak-to-trough des FLUSSFREIEN Portfolio-Indexes
+    # (cumprod(weights @ factors)), immer in [0, 10000]. Frueher auf dem
+    # flussbehafteten Vermoegens-Pfad gerechnet -> Werte > 100 % moeglich.
+    max_drawdown_bps: int
+    # Flussfreie kumulierte Portfolio-Rendite ueber die Krisenjahre.
+    cumulative_return_bps: int = 0
+    # Gleicher Vermoegens-Lauf (gleiche Flows, gleiches Padding) OHNE Krise.
+    baseline_end_wealth_rappen: int = 0
+    # end_wealth - baseline_end_wealth = was die Krise selbst kostet.
+    crisis_impact_end_wealth_rappen: int = 0
 
 
 # ============================================================================
@@ -97,7 +106,10 @@ def _pad_stress_to_horizon(
     Stress-Szenarien sind typischerweise 3-5 Jahre. Wenn der Optimizer-
     Horizon laenger ist (z.B. 20J fuer Pension-Mandant), padded mit nominalen
     Returns - der Stress passiert in den ersten Jahren und danach laeuft
-    es flat weiter. Konservativ.
+    es flat weiter. Das Padding ist KEINE Renditeprognose: sein Effekt auf
+    End-/Min-Vermoegen wird in evaluate_stress_scenarios ueber eine
+    No-Crisis-Baseline mit identischem Padding herausgerechnet
+    (STRESS-SEMANTICS-001).
     """
     stress_years, n_buckets = stress_path.shape
     if stress_years >= horizon_years:
@@ -105,6 +117,26 @@ def _pad_stress_to_horizon(
     padded = np.full((horizon_years, n_buckets), pad_factor, dtype=np.float64)
     padded[:stress_years] = stress_path
     return padded
+
+
+def _portfolio_index_metrics(
+    weights: np.ndarray, crisis_path: np.ndarray
+) -> tuple[int, int]:
+    """Max-Drawdown + kumulierte Rendite des flussfreien Portfolio-Indexes.
+
+    Index_t = prod_{s<=t}(weights @ factors_s), Start 1.0 (= Peak zu t=0).
+    Ohne Cashflows/Ziel-Ausgaben: das ist die Standard-Definition des
+    Drawdowns einer Strategie. Returns (max_drawdown_bps in [0, 10000],
+    cumulative_return_bps).
+    """
+    growth = crisis_path @ weights
+    index = np.concatenate(([1.0], np.cumprod(growth)))
+    running_peak = np.maximum.accumulate(index)
+    drawdowns = np.where(running_peak > 0, (running_peak - index) / running_peak, 0.0)
+    max_dd_bps = int(round(float(np.max(drawdowns)) * 10000))
+    max_dd_bps = min(10000, max(0, max_dd_bps))
+    cumulative_bps = int(round((float(index[-1]) - 1.0) * 10000))
+    return max_dd_bps, cumulative_bps
 
 
 def evaluate_stress_scenarios(
@@ -118,45 +150,63 @@ def evaluate_stress_scenarios(
 ) -> dict[str, StressResult]:
     """Simuliert die Allocation in jedem Stress-Szenario, deterministisch.
 
-    Liefert dict[scenario_name, StressResult] mit end_wealth, min_year_wealth
-    (Lebensluecke-Detection), max_drawdown_bps. Nutzt simulate_wealth_paths
-    der Engine - ein einzelner Pfad pro Szenario, also (1, horizon, 5) shape.
+    Zwei getrennte Sichten (STRESS-SEMANTICS-001):
+
+    1. Portfolio-Sicht (flussfrei): ``max_drawdown_bps`` und
+       ``cumulative_return_bps`` aus dem Index cumprod(weights @ factors)
+       ueber die Krisenjahre. Unabhaengig von Vermoegen und Cashflows,
+       Drawdown immer in [0, 10000].
+
+    2. Vermoegens-Sicht (mit Kunden-Cashflows und Ziel-Ausgaben):
+       ``end_wealth_rappen`` / ``min_year_wealth_rappen`` (kann negativ
+       werden = Lebensluecke). Padding: der 3-5-jaehrige Krisenpfad wird mit
+       Faktor 1.0 (= 0 % nominal) auf ``horizon_years`` aufgefuellt -- es
+       werden bewusst KEINE Renditeannahmen fuer die Jahre nach der Krise
+       erfunden. Weil dieses Padding (zusammen mit den Entnahmen) End- und
+       Min-Vermoegen dominiert, wird derselbe Lauf zusaetzlich unter einer
+       Baseline OHNE Krise gerechnet (alle Jahre Faktor 1.0, gleiche Flows):
+       ``baseline_end_wealth_rappen``; ``crisis_impact_end_wealth_rappen`` =
+       end_wealth - baseline_end_wealth zeigt, was die Krise selbst kostet.
+
+    Nutzt simulate_wealth_paths der Engine - ein einzelner Pfad pro
+    Szenario, also (1, horizon, 5) shape.
     """
     weights = np.asarray(weights, dtype=np.float64).reshape(N_BUCKETS)
     horizon_years = max(1, int(horizon_years))
     if scenarios is None:
         scenarios = STRESS_SCENARIOS
 
-    results: dict[str, StressResult] = {}
-    for name, stress in scenarios.items():
-        path = _pad_stress_to_horizon(stress, horizon_years)
-        return_paths = path.reshape(1, horizon_years, N_BUCKETS)
+    def _simulate_end_and_min(path: np.ndarray) -> tuple[int, int]:
         wealth = simulate_wealth_paths(
             initial_wealth_rappen=initial_wealth_rappen,
             weights=weights,
-            return_paths=return_paths,
+            return_paths=path.reshape(1, horizon_years, N_BUCKETS),
             cashflow_series_rappen=cashflow_series_rappen,
             liability_path_rappen=liability_path_rappen,
         )[0]  # nur 1 path
-        end_wealth = int(round(wealth[-1]))
-        min_wealth = int(round(np.min(wealth)))
-        # max drawdown in bps (peak-to-trough relativ)
-        peak = float(initial_wealth_rappen)
-        max_dd_bps = 0
-        for value in wealth:
-            value = float(value)
-            if value > peak:
-                peak = value
-                continue
-            if peak > 0:
-                dd = int(round((peak - value) / peak * 10000))
-                if dd > max_dd_bps:
-                    max_dd_bps = dd
+        return int(round(wealth[-1])), int(round(np.min(wealth)))
+
+    # Baseline ohne Krise: identisches Padding (Faktor 1.0) ueber alle Jahre.
+    baseline_path = np.ones((horizon_years, N_BUCKETS), dtype=np.float64)
+    baseline_end, _baseline_min = _simulate_end_and_min(baseline_path)
+
+    results: dict[str, StressResult] = {}
+    for name, stress in scenarios.items():
+        stress = np.asarray(stress, dtype=np.float64)
+        path = _pad_stress_to_horizon(stress, horizon_years)
+        end_wealth, min_wealth = _simulate_end_and_min(path)
+        crisis_years = min(stress.shape[0], horizon_years)
+        max_dd_bps, cumulative_bps = _portfolio_index_metrics(
+            weights, path[:crisis_years]
+        )
         results[name] = StressResult(
             scenario_name=name,
             end_wealth_rappen=end_wealth,
             min_year_wealth_rappen=min_wealth,
             max_drawdown_bps=max_dd_bps,
+            cumulative_return_bps=cumulative_bps,
+            baseline_end_wealth_rappen=baseline_end,
+            crisis_impact_end_wealth_rappen=end_wealth - baseline_end,
         )
     return results
 
@@ -173,6 +223,9 @@ def stress_results_to_dict(results: dict[str, StressResult]) -> dict[str, dict]:
             "end_wealth_rappen": r.end_wealth_rappen,
             "min_year_wealth_rappen": r.min_year_wealth_rappen,
             "max_drawdown_bps": r.max_drawdown_bps,
+            "cumulative_return_bps": r.cumulative_return_bps,
+            "baseline_end_wealth_rappen": r.baseline_end_wealth_rappen,
+            "crisis_impact_end_wealth_rappen": r.crisis_impact_end_wealth_rappen,
         }
         for name, r in results.items()
     }

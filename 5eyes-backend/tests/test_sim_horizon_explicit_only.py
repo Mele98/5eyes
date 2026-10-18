@@ -61,6 +61,9 @@ _OPTIONAL_FUNCTIONS = (
     "readSimulationHorizonOverride",
     "setSimulationHorizonSelectValue",
     "applyMandateHorizonToSimulationFields",
+    # SIM-HORIZON-CONFIRM-001: Herkunfts-Markierung des Horizont-Werts.
+    "markSimulationHorizonExplicit",
+    "isSimulationHorizonExplicit",
 )
 
 

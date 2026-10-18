@@ -3425,6 +3425,14 @@ function _wireSollIstHover(){
         </div>
         <button class="btn-g" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
       </div>
+      <div id="al-sim-horizon-confirm-banner" class="strip strip-w" style="display:none">
+        <div>
+          <div class="st">Horizont bestätigen</div>
+          <div class="ss" id="al-sim-horizon-confirm-text">Der gespeicherte Prognose-Horizont stammt von vor der Umstellung auf «Auto» und ist nicht als Berater-Wahl belegt — bitte bestätigen oder ändern.</div>
+        </div>
+        <select class="fsel" id="al-sim-horizon-confirm-select" style="font-size:10px;max-width:220px" aria-label="Prognose-Horizont"></select>
+        <button class="btn-g" id="btn-sim-horizon-confirm" onclick="confirmSimHorizonFromBanner()">Bestätigen</button>
+      </div>
       <div class="pad">
         <div id="al-message-banner" class="al-banner-warning" style="display:none">
           <div class="al-banner-icon">!</div>
@@ -3581,9 +3589,9 @@ function _wireSollIstHover(){
                   <thead>
                     <tr style="background:var(--bg);border-bottom:1px solid var(--b1)">
                       <th style="padding:5px 8px;text-align:left">Szenario</th>
-                      <th style="padding:5px 8px;text-align:right">End-Vermögen</th>
-                      <th style="padding:5px 8px;text-align:right">Min-Vermögen</th>
-                      <th style="padding:5px 8px;text-align:right">Max DD</th>
+                      <th style="padding:5px 8px;text-align:right">Portfolio-Rendite kumuliert (Krisenjahre)</th>
+                      <th style="padding:5px 8px;text-align:right">Max. Drawdown (Portfolio)</th>
+                      <th style="padding:5px 8px;text-align:right">Krisen-Effekt auf End-Vermögen (CHF)</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -3676,8 +3684,8 @@ function _wireSollIstHover(){
             <div>
               <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Policy</div>
                 <div style="display:flex;flex-direction:column;gap:9px">
-                <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none" selected>Keine ESG-Präferenz</option><option value="best_in_class">Best-in-Class (SFDR 8/9 Filter aktiv)</option><option value="impact">Impact Investing (SFDR 9 Filter aktiv)</option><option value="net_zero">Paris-aligned / Net Zero (SFDR 8/9 Filter aktiv)</option><option value="esg_integration">ESG-Integration (Dokumentation, kein Filter)</option><option value="negative_screening">Negativ-Screening (Dokumentation, kein Filter)</option></select></div>
-                <div><label style="font-size:9px;color:var(--n4)">Anlageuniversum</label><select class="fsel" id="aa-policy-universe" style="font-size:10px"><option value="funds_only" selected>Nur Fonds / ETFs (Filter aktiv)</option><option value="listed_only">Nur kotierte Instrumente (Filter aktiv)</option><option value="standard">Standard (kein zusätzlicher Filter)</option><option value="extended">Erweitert inkl. Alternative (kein zusätzlicher Filter)</option></select></div>
+                <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none" selected>Keine ESG-Präferenz</option><option value="best_in_class">Best-in-Class (SFDR 8/9 Filter aktiv)</option><option value="impact">Impact Investing (SFDR 8/9 Filter aktiv)</option><option value="net_zero">Paris-aligned / Net Zero (SFDR 8/9 Filter aktiv)</option><option value="esg_integration">ESG-Integration (SFDR 8/9 Filter aktiv)</option><option value="negative_screening">Negativ-Screening (Themenprodukte unten ausgeschlossen, sofern nicht abweichend gewählt)</option></select></div>
+                <div><label style="font-size:9px;color:var(--n4)">Anlageuniversum</label><select class="fsel" id="aa-policy-universe" style="font-size:10px"><option value="funds_only" selected>Nur Fonds / ETFs (Filter aktiv)</option><option value="listed_only">Nur kotierte Instrumente (Filter aktiv)</option><option value="standard">Standard (kein Zusatzfilter; Checkboxen unter Produkt &amp; Struktur gelten)</option><option value="extended">Erweitert (kein Zusatzfilter; Checkboxen unter Produkt &amp; Struktur gelten)</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Heimmarkt-Präferenz</label><select class="fsel" id="aa-policy-home-bias" style="font-size:10px"><option value="ch_focus" selected>CH-Fokus bevorzugt (Score-Boost aktiv)</option><option value="none">Kein Heimmarkt-Bias</option><option value="europe_focus">Europa-Fokus (Dokumentation, kein Boost)</option><option value="global">Global neutral (Dokumentation, kein Boost)</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Währungsabsicherung</label><select class="fsel" id="aa-policy-hedging" style="font-size:10px"><option value="none" selected>Keine Vorgabe</option><option value="hedged">FX-gehedgt bevorzugt</option><option value="chf_only">Nur CHF-Instrumente</option><option value="risk_budget">Nur ausserhalb Risiko-Budget</option></select></div>
               </div>
@@ -3692,6 +3700,7 @@ function _wireSollIstHover(){
                 <label style="font-size:9px;color:var(--n6)">Glücksspiel</label><select class="fsel" id="aa-tilt-gaming" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral</option><option value="overweight">Übergewichten</option></select>
                 <label style="font-size:9px;color:var(--n6)">Kernenergie</label><select class="fsel" id="aa-tilt-nuclear" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral</option><option value="overweight">Übergewichten</option></select>
               </div>
+              <div id="aa-tilt-screening-note" style="font-size:8px;line-height:1.35;color:var(--n4);margin-top:5px">Ausschliessen: Themenprodukte werden nie ausgewählt. Untergewichten: kein eigener Themenbaustein und Themenprodukte werden nie als Ersatz für einen anderen Baustein ausgewählt (gleiche Produktwirkung wie Ausschliessen). Massgebend ist die Katalog-Klassifikation (Sub-Anlageklasse „Thema …“); breit diversifizierte Index-/Fondsprodukte werden nicht auf Themen-Exposure durchleuchtet.</div>
             </div>
             <div>
               <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Produkt & Struktur</div>
@@ -7573,15 +7582,20 @@ function buildQT(id){
   const prefs=loadAllocationPreferences();
   const activeBands=prefs&&prefs.bands?prefs.bands:{};
   allocationBandBaseline={};
-  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Nur Abweichungen von der Engine-Basis werden als Overrides ans Backend gesendet.</div><div style="display:grid;grid-template-columns:8px 1fr 42px 62px 62px 62px;gap:0;padding-bottom:4px;border-bottom:2px solid var(--b2);margin-bottom:2px;"><div></div><div style="font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);padding-left:6px">Asset-Klasse</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ist</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Min</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ziel</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Max</div></div>`+quoten.map(function(r,idx){
+  // BAND-OVERRIDE-ROUNDTRIP-001: gespeicherte Overrides sind die Wahrheit
+  // fuer unberuehrte Felder -- nie aus dem (bereits override-haltigen)
+  // Engine-Ergebnis zurueckgerechnet.
+  allocationBandStoredOverrides={};
+  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Gesendet werden bestehende Overrides plus die Felder, die Sie hier aendern; ein geleertes Feld hebt seinen Override auf, Zuruecksetzen hebt alle auf.</div><div style="display:grid;grid-template-columns:8px 1fr 42px 62px 62px 62px;gap:0;padding-bottom:4px;border-bottom:2px solid var(--b2);margin-bottom:2px;"><div></div><div style="font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);padding-left:6px">Asset-Klasse</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ist</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Min</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ziel</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Max</div></div>`+quoten.map(function(r,idx){
     var bucket=normalizeBandKey(r.key||r.n||('bucket_'+idx));
     var baseline={min_bps:Math.round(Number(r.min||0)*100),target_bps:Math.round(Number(r.ziel||0)*100),max_bps:Math.round(Number(r.max||0)*100)};
     allocationBandBaseline[bucket]=baseline;
-    var override=normalizeBandOverrideEntry(activeBands[bucket])||{};
+    var override=normalizeStoredBandOverride(activeBands[bucket])||{};
+    if(Object.keys(override).length)allocationBandStoredOverrides[bucket]=override;
     var minimum=override.min_bps!=null?override.min_bps:baseline.min_bps;
     var target=override.target_bps!=null?override.target_bps:baseline.target_bps;
     var maximum=override.max_bps!=null?override.max_bps:baseline.max_bps;
-    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${r.ist}%</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" value="${formatBandPercent(minimum)}"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" value="${formatBandPercent(target)}" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" value="${formatBandPercent(maximum)}"></div>`;
+    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${r.ist}%</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}"></div>`;
   }).join('');
   t.querySelectorAll('.qtinp').forEach(function(input){
     input.addEventListener('input',function(){
@@ -7592,7 +7606,78 @@ function buildQT(id){
       persistAllocationPreferences();
     });
   });
+  // BAND-DEVIATION-REASON-REQUIRED-001: Begruendungsfeld unter den Bandbreiten.
+  t.insertAdjacentHTML('beforeend',buildBandDeviationReasonBoxHtml(prefs));
+  t.querySelectorAll('.qtinp').forEach(function(input){
+    input.addEventListener('input',updateBandDeviationReasonBox);
+  });
+  var reasonInput=document.getElementById('aa-band-deviation-reason');
+  if(reasonInput){
+    reasonInput.addEventListener('input',function(){
+      markStrategyDirty('Begruendung der Bandbreiten-Abweichung geaendert: Strategie neu berechnen.');
+    });
+    reasonInput.addEventListener('change',function(){
+      persistAllocationPreferences();
+    });
+  }
   updateBandOverrideStatus(activeBands);
+  updateBandDeviationReasonBox();
+}
+// BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14): verlaesst
+// eine Mandatsbandbreite die Hausmatrix-Bandbreite des Risikoprofils, ist eine
+// dokumentierte Begruendung Pflicht (prefs.bandDeviationReason). Ohne sie
+// blockiert das Freigabe-Gate im Backend. Vergleichsbasis ist
+// house_matrix_bands aus dem Engine-Payload -- die Bucket-Bandbreite ist nach
+// einem Override bereits die Mandatsbandbreite.
+function currentHouseMatrixBands(){
+  var alloc=strategyState&&strategyState.allocation;
+  var bands=alloc&&alloc.house_matrix_bands;
+  return bands&&typeof bands==='object'?bands:null;
+}
+function bandHouseDeviationsFromModal(){
+  var house=currentHouseMatrixBands();
+  if(!house)return [];
+  var inputs=document.querySelectorAll('#qt-modal .qtinp[data-bucket][data-field]');
+  var values={};
+  inputs.forEach(function(input){
+    var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
+    var field=String(input.getAttribute('data-field')||'');
+    if(!values[bucket])values[bucket]={};
+    values[bucket][field]=parseBandPercentInput(input.value);
+  });
+  var deviations=[];
+  Object.keys(values).forEach(function(bucket){
+    var hb=house[bucket];
+    if(!hb)return;
+    var mn=values[bucket].min_bps, mx=values[bucket].max_bps;
+    var hmin=Number(hb.min_bps), hmax=Number(hb.max_bps);
+    if((mn!=null&&mn<hmin)||(mx!=null&&mx>hmax)){
+      deviations.push({bucket:bucket,label:({equities:'Aktien',bonds:'Obligationen',real_estate:'Immobilien',alternatives:'Alternative',liquidity:'Liquidität'})[bucket]||bucket,min:mn==null?hmin:mn,max:mx==null?hmax:mx,houseMin:hmin,houseMax:hmax});
+    }
+  });
+  return deviations;
+}
+function buildBandDeviationReasonBoxHtml(prefs){
+  var reason=prefs&&typeof prefs.bandDeviationReason==='string'?prefs.bandDeviationReason:'';
+  return '<div id="aa-band-deviation-box" style="display:none;margin-top:10px;padding:8px 10px;border:1px solid #c9a227;border-left:3px solid #8a6718;border-radius:var(--r);background:#fbf4df">'
+    +'<div style="font-size:10px;font-weight:600;color:#5c4510;margin-bottom:4px">Abweichung vom Eignungsrahmen des Risikoprofils</div>'
+    +'<div id="aa-band-deviation-list" style="font-size:10px;color:var(--n6);line-height:1.5;margin-bottom:6px"></div>'
+    +'<label for="aa-band-deviation-reason" style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4)">Begruendung (Pflicht, wird im Kundendokument ausgewiesen)</label>'
+    +'<textarea id="aa-band-deviation-reason" rows="3" maxlength="2000" style="width:100%;box-sizing:border-box;font-size:11px;margin-top:3px" placeholder="Warum verlaesst die Mandatsbandbreite den Rahmen des Risikoprofils? (mind. 20 Zeichen, keine Floskeln)">'+escapeHtml(reason)+'</textarea>'
+    +'<div style="font-size:9px;color:#8a6718;margin-top:3px">Ohne dokumentierte Begruendung ist die Freigabe der Empfehlung blockiert.</div>'
+    +'</div>';
+}
+function updateBandDeviationReasonBox(){
+  var box=document.getElementById('aa-band-deviation-box');
+  if(!box)return;
+  var deviations=bandHouseDeviationsFromModal();
+  box.style.display=deviations.length?'block':'none';
+  var list=document.getElementById('aa-band-deviation-list');
+  if(list){
+    list.innerHTML=deviations.map(function(d){
+      return escapeHtml(d.label)+': Mandatsband '+formatBandPercent(d.min)+'–'+formatBandPercent(d.max)+' ausserhalb Hausmatrix '+formatBandPercent(d.houseMin)+'–'+formatBandPercent(d.houseMax);
+    }).join('<br>');
+  }
 }
 function applyAllocationBandOverrides(){
   persistAllocationPreferences();
@@ -7604,6 +7689,7 @@ function applyAllocationBandOverrides(){
 function resetAllocationBandOverrides(){
   var prefs=mergeAllocationPreferences(buildDefaultAllocationPreferences(),loadAllocationPreferences());
   prefs.bands={};
+  delete prefs.bandDeviationReason;
   persistAllocationPreferences(prefs);
   buildQT('qt-modal');
   updateBandOverrideStatus({});
@@ -13549,7 +13635,7 @@ async function openDepotCheck(){
 }
 
 function dcRender(data, stress){
-  dcRenderBucketDrift(data.buckets || {});
+  dcRenderBucketDrift(data.buckets || {}, data);
   dcRenderExposureList('dc-country-list', data.country_exposure_bps || {});
   dcRenderExposureList('dc-sector-list', data.sector_exposure_bps || {});
   dcRenderExposureList('dc-currency-list', data.currency_exposure_bps || {});
@@ -13572,7 +13658,27 @@ function dcRender(data, stress){
   dcRenderWarnings(data.warnings || []);
 }
 
-function dcRenderBucketDrift(buckets){
+function dcRenderBucketDrift(buckets, data){
+  // STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid): veraltete Soll-Allokation ->
+  // keine alten Zielzahlen (SOLL/Drift/Band/Status), nur IST + Hinweis "neu berechnen".
+  if(data && data.soll_ausgeblendet){
+    var reason = data.target_allocation_inputs_stale
+      ? 'Vermögen, Cashflows oder Ziele haben sich seit der Berechnung geändert.'
+      : 'Sie basiert auf einem früheren, nicht mehr aktuellen Risikoprofil.';
+    var hidden = '<div id="dc-soll-hidden" role="alert" style="border:1px solid var(--neg);padding:8px 10px;margin-bottom:8px;font-size:10.5px">'
+      + '<div style="color:var(--neg);font-weight:600">Soll-Allokation veraltet &ndash; Strategie neu berechnen.</div>'
+      + '<div style="color:var(--n6);margin-top:2px">' + escapeHtml(reason) + ' Zielgewichte, Drift und Toleranzbänder werden bis zur Neuberechnung nicht angezeigt.</div></div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Bucket</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">IST</th></tr></thead><tbody>';
+    ['equities','bonds','real_estate','alternatives','liquidity'].forEach(function(key){
+      var hb = buckets[key] || {};
+      var hcolor = DC_BUCKET_COLORS[key] || '#5a6878';
+      hidden += '<tr><td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+hcolor+';border-radius:50%;margin-right:6px"></span>' + escapeHtml(hb.label || key) + '</td>'
+        + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + ((hb.ist_bps || 0)/100).toFixed(1) + '%</td></tr>';
+    });
+    hidden += '</tbody></table>';
+    document.getElementById('dc-bucket-drift').innerHTML = hidden;
+    return;
+  }
   var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
     + '<thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Bucket</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">IST</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">SOLL</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">Drift</th><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Toleranzband</th><th style="padding:5px;text-align:center;border:1px solid var(--b1)">Status</th></tr></thead><tbody>';
   ['equities','bonds','real_estate','alternatives','liquidity'].forEach(function(key){
@@ -15859,6 +15965,15 @@ function applyGoalDerivedRiskHorizon(force){
 // wertet jeden gesendeten Wert als Berater-Override, womit Lebenserwartung
 // (Mandat/BFS) und letzter Cashflow nie erreicht wurden. Der Simulationshorizont
 // steht jetzt auf "Auto", bis der Berater ihn selbst waehlt.
+function markSimulationHorizonExplicit(field,explicit){
+  if(!field)return;
+  field.__simHorizonExplicit=!!explicit;
+  try{if(field.dataset)field.dataset.horizonExplicit=explicit?'1':'';}catch(e){}
+}
+function isSimulationHorizonExplicit(){
+  var field=document.getElementById('aa-sim-horizon');
+  return !!(field&&field.__simHorizonExplicit===true);
+}
 function readSimulationHorizonOverride(){
   // null = Auto (kein Override senden). Eine explizite Wahl wird wie bisher nie
   // kuerzer als die (flache) Lebenserwartung gesendet, damit die SOLL/IST-
@@ -15870,7 +15985,7 @@ function readSimulationHorizonOverride(){
   var _l=_lifeExpectancyHorizonYears();
   return String(Math.min(120,(_l&&_l>_i)?_l:_i));
 }
-function setSimulationHorizonSelectValue(value){
+function setSimulationHorizonSelectValue(value,explicit){
   // Fehlender/leerer Wert -> Auto (auch beim Mandantenwechsel; vorher erbte der
   // Select den expliziten Wert des vorherigen Kunden). Ein gespeicherter Wert
   // ausserhalb der Optionsliste (z.B. 37) wird als Option ergaenzt, statt den
@@ -15879,6 +15994,10 @@ function setSimulationHorizonSelectValue(value){
   if(!field)return;
   var raw=value==null?'':String(value).trim();
   var years=parseInt(raw,10);
+  // SIM-HORIZON-CONFIRM-001: Herkunft des Werts am Feld merken. Nur eine
+  // ausdrueckliche Wahl (Change-Event, Banner-Bestaetigung, gespeichertes
+  // horizonExplicit) wird mit horizonExplicit=true gesendet.
+  markSimulationHorizonExplicit(field,!!explicit&&!!raw&&isFinite(years)&&years>=1);
   if(!raw||!isFinite(years)||years<1){field.value='';return;}
   var normalized=String(years);
   if(!Array.prototype.some.call(field.options,function(option){return String(option.value||'')===normalized;})){
@@ -18218,6 +18337,7 @@ function resetAdvisoryLogModal(){
 var allocationPreferencesCache={};
 var allocationPreferenceStoragePrefix='5eyes.allocprefs.';
 var allocationBandBaseline={};
+var allocationBandStoredOverrides={};
 function getAllocationPreferenceKey(){
   var mid=getActiveMandateId();
   if(mid)return 'mandate:'+mid;
@@ -18276,6 +18396,140 @@ function loadAllocationPreferences(){
   allocationPreferencesCache[key]=prefs;
   return prefs;
 }
+// SIM-HORIZON-CONFIRM-001 (CIO-Entscheid 2026-10-17): Bis SIM-HORIZON-ALWAYS-
+// EXPLICIT-001 (#611) schrieb der Monolith simulation.horizonYears IMMER (Select-
+// Default '10' bzw. flache Lebenserwartung). Ein so gespeicherter Wert ist KEINE
+// belegte Berater-Wahl -- wird aber auch NICHT automatisch migriert. Stattdessen
+// erscheint einmalig das Banner "Horizont bestaetigen" (Wert anzeigen, optional
+// aendern). Seit dieser Umstellung traegt jede ausdrueckliche Wahl
+// simulation.horizonExplicit=true; "vor der Umstellung" = horizonYears vorhanden
+// OHNE dieses Flag. Bestaetigung: Flag im editierbaren Store + (falls der Wert
+// der aktuellen Soll-Allokation entspricht) serverseitiger Vermerk
+// target_allocations.sim_horizon_confirmed_at. preferences_json selbst bleibt
+// unveraendert (Teil des allocation_context_hash).
+function simHorizonNeedsConfirmation(prefs){
+  var sim=prefs&&typeof prefs==='object'?prefs.simulation:null;
+  if(!sim||typeof sim!=='object')return false;
+  var raw=sim.horizonYears;
+  if(raw==null||String(raw).trim()==='')return false;
+  return sim.horizonExplicit!==true;
+}
+function simHorizonConfirmedOnServer(targetAllocation){
+  if(!targetAllocation||typeof targetAllocation!=='object')return false;
+  return !!(targetAllocation.sim_horizon_confirmed_at&&String(targetAllocation.sim_horizon_confirmed_at).trim());
+}
+function hydrateAllocationPreferencesFromServer(result){
+  // Sprint 14 Phase 4 F1: Praeferenzen aus persistierter Allocation hydratisieren
+  // (vorher nur localStorage). So sind die Tilts nach Geraete-/Browser-Wechsel
+  // konsistent mit der gespeicherten SAA, statt UI-Defaults zu zeigen.
+  var serverPrefsRaw=result&&result.target_allocation&&result.target_allocation.preferences_json;
+  if(!serverPrefsRaw)return false;
+  var serverPrefs=(typeof serverPrefsRaw==='string')?JSON.parse(serverPrefsRaw):serverPrefsRaw;
+  if(!serverPrefs||typeof serverPrefs!=='object')return false;
+  var key=getAllocationPreferenceKey();
+  var localPrefs=(function(){
+    try{
+      var raw=localStorage.getItem(allocationPreferenceStoragePrefix+key);
+      return raw?JSON.parse(raw):null;
+    }catch(e){return null;}
+  })();
+  // Wenn lokaler State leer ist oder dirty=false, dann Server-Prefs uebernehmen.
+  // Bei "dirty" UI-Edits NICHT ueberschreiben.
+  var shouldHydrate=!localPrefs||!strategyState.dirty;
+  if(!shouldHydrate)return false;
+  // mergeAllocationPreferences klont -- der Snapshot im result bleibt unveraendert.
+  var hydrated=mergeAllocationPreferences(buildDefaultAllocationPreferences(),serverPrefs);
+  // SIM-HORIZON-CONFIRM-001: serverseitig bestaetigter Alt-Horizont gilt als
+  // ausdrueckliche Wahl (Banner bleibt weg, auch auf anderen Geraeten).
+  if(simHorizonNeedsConfirmation(hydrated)&&simHorizonConfirmedOnServer(result.target_allocation)){
+    hydrated.simulation.horizonExplicit=true;
+  }
+  allocationPreferencesCache[key]=hydrated;
+  try{localStorage.setItem(allocationPreferenceStoragePrefix+key,JSON.stringify(hydrated));}catch(e){}
+  if(typeof applyAllocationPreferencesToUI==='function'){
+    applyAllocationPreferencesToUI(hydrated);
+  }
+  return true;
+}
+function renderSimHorizonConfirmBanner(){
+  var banner=document.getElementById('al-sim-horizon-confirm-banner');
+  if(!banner)return;
+  var prefs=loadAllocationPreferences();
+  if(!simHorizonNeedsConfirmation(prefs)){banner.style.display='none';return;}
+  var current=String(parseInt(String(prefs.simulation.horizonYears).trim(),10));
+  var text=document.getElementById('al-sim-horizon-confirm-text');
+  if(text)text.textContent='Gespeicherter Prognose-Horizont: '+current+' Jahre. Der Wert stammt von vor der Umstellung auf «Auto» (Lebenserwartung/letzter Cashflow) und ist nicht als Berater-Wahl belegt — bitte bestätigen oder ändern.';
+  var select=document.getElementById('al-sim-horizon-confirm-select');
+  if(select){
+    var values=[];
+    var source=document.getElementById('aa-sim-horizon');
+    if(source&&source.options)Array.prototype.forEach.call(source.options,function(option){
+      var v=String(option.value||'');if(v&&values.indexOf(v)<0)values.push(v);
+    });
+    if(!values.length)values=['7','10','12','15','20','25','30'];
+    if(values.indexOf(current)<0)values.push(current);
+    values.sort(function(a,b){return Number(a)-Number(b);});
+    select.innerHTML='';
+    var auto=document.createElement('option');
+    auto.value='';auto.textContent='Auto (Lebenserwartung/letzter Cashflow)';
+    select.appendChild(auto);
+    values.forEach(function(v){
+      var option=document.createElement('option');
+      option.value=v;option.textContent=v+' Jahre';
+      select.appendChild(option);
+    });
+    select.value=current;
+  }
+  banner.style.display='';
+}
+async function confirmSimHorizonFromBanner(){
+  var prefs=cloneJSON(loadAllocationPreferences());
+  if(!simHorizonNeedsConfirmation(prefs)){renderSimHorizonConfirmBanner();return {changed:false,serverConfirmed:false};}
+  var current=String(parseInt(String(prefs.simulation.horizonYears).trim(),10));
+  var select=document.getElementById('al-sim-horizon-confirm-select');
+  var chosen=select?String(select.value==null?current:select.value).trim():current;
+  var changed=chosen!==current;
+  if(!chosen){
+    // "Auto" gewaehlt: kein Override mehr -> Backend leitet den Horizont ab.
+    delete prefs.simulation.horizonYears;
+    delete prefs.simulation.horizonExplicit;
+  }else{
+    prefs.simulation.horizonYears=chosen;
+    prefs.simulation.horizonExplicit=true;
+  }
+  persistAllocationPreferences(prefs);
+  setSimulationHorizonSelectValue(prefs.simulation.horizonYears,!!chosen);
+  if(changed){
+    markStrategyDirty('Prognose-Horizont geändert: Strategie neu berechnen.');
+    renderSimHorizonConfirmBanner();
+    return {changed:true,serverConfirmed:false};
+  }
+  // Unveraenderter Wert: Bestaetigung serverseitig vermerken, sofern die
+  // aktuelle Soll-Allokation genau diesen Alt-Horizont gespeichert hat. Sonst
+  // reist das Flag mit der naechsten Berechnung in den Snapshot.
+  var serverConfirmed=false;
+  var ta=strategyState&&strategyState.allocation&&strategyState.allocation.target_allocation;
+  var mid=(typeof getActiveMandateId==='function')?getActiveMandateId():null;
+  if(ta&&mid&&!simHorizonConfirmedOnServer(ta)){
+    var snapshot=null;
+    try{snapshot=(typeof ta.preferences_json==='string')?JSON.parse(ta.preferences_json):ta.preferences_json;}catch(e){snapshot=null;}
+    if(simHorizonNeedsConfirmation(snapshot)&&String(parseInt(String(snapshot.simulation.horizonYears).trim(),10))===current){
+      try{
+        var response=await API.post('/mandates/'+mid+'/target-allocation/current/sim-horizon-confirmation',{horizon_years:parseInt(current,10)});
+        if(response&&response.sim_horizon_confirmed_at){
+          ta.sim_horizon_confirmed_at=response.sim_horizon_confirmed_at;
+          ta.sim_horizon_confirmed_by=response.sim_horizon_confirmed_by||null;
+          serverConfirmed=true;
+        }
+      }catch(e){
+        console.warn('Horizont-Bestaetigung konnte nicht gespeichert werden',e);
+        try{if(typeof showAppError==='function')showAppError('Horizont lokal bestätigt, serverseitig aber nicht gespeichert: '+((e&&e.message)||e));}catch(_e){}
+      }
+    }
+  }
+  renderSimHorizonConfirmBanner();
+  return {changed:false,serverConfirmed:serverConfirmed};
+}
 function cloneJSON(value){
   try{return JSON.parse(JSON.stringify(value||{}));}catch(e){return value||{};}
 }
@@ -18289,6 +18543,11 @@ function mergeAllocationPreferences(base,override){
       merged[section]={};
     }
   });
+  // BAND-DEVIATION-REASON-REQUIRED-001: Begruendung der Bandbreiten-Abweichung
+  // ist ein Top-Level-Text, kein Abschnitt -- explizit uebernehmen.
+  if(typeof incoming.bandDeviationReason==='string'){
+    merged.bandDeviationReason=incoming.bandDeviationReason;
+  }
   return merged;
 }
 function formatBandPercent(bps){
@@ -18334,30 +18593,66 @@ function normalizeBandKey(value){
 function collectBandOverridesFromModal(){
   var inputs=document.querySelectorAll('#qt-modal .qtinp[data-bucket][data-field]');
   if(!inputs.length)return null;
-  var collected={};
+  // BAND-OVERRIDE-ROUNDTRIP-001 (Assetallocation-Audit 2026-10-14): frueher
+  // galt das ENGINE-ERGEBNIS als "unveraendert"-Basis. Die Engine spiegelt
+  // einen angewendeten Override aber zurueck -- beim naechsten Oeffnen war er
+  // die Basis, wurde nicht mehr gesendet und ging still verloren. Ausserdem
+  // wurde jede Anzeige-Rundung (10.33 % -> "10.3%") als Aenderung gelesen und
+  // als harter Min/Ziel/Max-Override gesendet, und ein reines Max-Edit schickte
+  // das volle Triplet aus dem Ergebnis (-> 422). Jetzt: gespeicherte Overrides
+  // bleiben unberuehrt, gesendet wird nur, was im Editor tatsaechlich
+  // geaendert wurde (Vergleich gegen den gerenderten Text, nicht gegen bps).
+  var overrides={};
+  Object.keys(allocationBandStoredOverrides||{}).forEach(function(bucket){
+    overrides[bucket]=Object.assign({},allocationBandStoredOverrides[bucket]);
+  });
   inputs.forEach(function(input){
     var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
     var field=String(input.getAttribute('data-field')||'');
     if(!bucket||!field)return;
-    if(!collected[bucket])collected[bucket]={};
-    collected[bucket][field]=input.value;
+    var initial=input.getAttribute('data-initial');
+    var raw=String(input.value==null?'':input.value);
+    if(initial!=null&&raw.trim()===String(initial).trim())return;
+    if(!overrides[bucket])overrides[bucket]={};
+    if(!raw.trim()){
+      delete overrides[bucket][field];
+      return;
+    }
+    var parsed=parseBandPercentUserInput(raw);
+    if(parsed==null){
+      // Ungueltig (kein Prozentwert 0-100): nie still als bps uebernehmen.
+      if(input.style)input.style.borderColor='var(--err, #c0392b)';
+      return;
+    }
+    if(input.style)input.style.borderColor='';
+    overrides[bucket][field]=parsed;
   });
-  var overrides={};
-  Object.keys(collected).forEach(function(bucket){
-    var normalized=normalizeBandOverrideEntry(collected[bucket]);
-    var baseline=allocationBandBaseline[bucket]||{};
-    if(!normalized)return;
-    var minimum=normalized.min_bps==null?baseline.min_bps:normalized.min_bps;
-    var target=normalized.target_bps==null?baseline.target_bps:normalized.target_bps;
-    var maximum=normalized.max_bps==null?baseline.max_bps:normalized.max_bps;
-    if(minimum===baseline.min_bps&&target===baseline.target_bps&&maximum===baseline.max_bps)return;
-    overrides[bucket]={
-      min_bps:minimum,
-      target_bps:target,
-      max_bps:maximum,
-    };
+  Object.keys(overrides).forEach(function(bucket){
+    if(!Object.keys(overrides[bucket]).length)delete overrides[bucket];
   });
   return overrides;
+}
+function parseBandPercentUserInput(value){
+  // Eingabe im Editor ist IMMER Prozent (das Feld zeigt "70%"); 0..100.
+  var raw=String(value==null?'':value).replace('%','').replace(/'/g,'').replace(/\s+/g,'').replace(',','.').trim();
+  if(!raw)return null;
+  var numeric=Number(raw);
+  if(!isFinite(numeric)||numeric<0||numeric>100)return null;
+  return Math.round(numeric*100);
+}
+function normalizeStoredBandOverride(entry){
+  // Gespeicherte Overrides (prefs.bands, preferences_json) sind bps-Zahlen.
+  // Der Prozent-Parser las Zahlen <= 100 als Prozent: 100 bps (1 %) wurden
+  // zu 10'000 bps (100 %). Teil-Overrides bleiben Teil-Overrides.
+  if(!entry||typeof entry!=='object')return null;
+  var out={};
+  ['min_bps','target_bps','max_bps'].forEach(function(field){
+    var value=entry[field];
+    if(value==null||value==='')return;
+    var bps=(typeof value==='number')?Math.round(value):parseBandPercentInput(value);
+    if(bps!=null&&isFinite(bps))out[field]=bps;
+  });
+  return Object.keys(out).length?out:null;
 }
 function hasCanonicalBandBaseline(){
   return ['equities','bonds','real_estate','alternatives','liquidity'].every(function(key){
@@ -18366,7 +18661,7 @@ function hasCanonicalBandBaseline(){
 }
 function countBandOverrides(bands){
   return Object.keys(bands||{}).filter(function(key){
-    return !!normalizeBandOverrideEntry(bands[key]);
+    return !!normalizeStoredBandOverride(bands[key]);
   }).length;
 }
 function updateBandOverrideStatus(bands){
@@ -18815,6 +19110,7 @@ function renderAllocationPreferenceSummary(prefs){
   renderPreferenceChips('sr-pref-focus-chips',focus,'summary');
   renderPreferenceChips('sr-pref-restriction-chips',restrictions,'restriction');
   updateBandOverrideStatus(prefs.bands||{});
+  if(typeof renderSimHorizonConfirmBanner==='function')renderSimHorizonConfirmBanner();
 }
 function collectAllocationPreferencesFromUI(){
   var stored=loadAllocationPreferences();
@@ -18894,12 +19190,20 @@ function collectAllocationPreferencesFromUI(){
   // Wahl senden. Fehlt der Key, leitet das Backend den Horizont aus Mandats-
   // Lebenserwartung / BFS-Sterbetafel / letztem datierten Ziel ab.
   var simHorizonOverride=readSimulationHorizonOverride();
-  if(simHorizonOverride!=null)live.simulation.horizonYears=simHorizonOverride;
+  if(simHorizonOverride!=null){
+    live.simulation.horizonYears=simHorizonOverride;
+    // SIM-HORIZON-CONFIRM-001: nur eine ausdrueckliche Wahl markieren. Ein aus
+    // Alt-Daten (vor #611) hydratisierter Wert bleibt unmarkiert -> Banner.
+    if(isSimulationHorizonExplicit())live.simulation.horizonExplicit=true;
+  }
   prefs.simulation=live.simulation;
   prefs.assetClasses=live.assetClasses;
   var modal=document.getElementById('m-eq');
   var modalBands=(modal&&modal.classList.contains('open')&&hasCanonicalBandBaseline())?collectBandOverridesFromModal():null;
   prefs.bands=modalBands==null?(prefs.bands||{}):modalBands;
+  var reasonInput=document.getElementById('aa-band-deviation-reason');
+  if(reasonInput)prefs.bandDeviationReason=String(reasonInput.value||'').trim();
+  if(!prefs.bandDeviationReason)delete prefs.bandDeviationReason;
   return prefs;
 }
 function applyAllocationPreferencesToUI(prefs){
@@ -18927,7 +19231,7 @@ function applyAllocationPreferencesToUI(prefs){
   setCheckboxValue('aa-geo-hedging-required',prefs.geo&&prefs.geo.hedgingRequired);
   setCheckboxValue('aa-geo-chf-only',prefs.geo&&prefs.geo.chfOnly);
   setCheckboxValue('aa-geo-no-usd',prefs.geo&&prefs.geo.noUsd);
-  setSimulationHorizonSelectValue(prefs.simulation&&prefs.simulation.horizonYears);
+  setSimulationHorizonSelectValue(prefs.simulation&&prefs.simulation.horizonYears,!!(prefs.simulation&&prefs.simulation.horizonExplicit===true));
   setSelectValue('aa-sim-stress',prefs.simulation&&prefs.simulation.stressMultiplier);
   setSelectValue('aa-sim-rebalance',prefs.simulation&&prefs.simulation.rebalanceMode);
   setSelectValue('aa-sim-mc-runs',prefs.simulation&&prefs.simulation.monteCarloRuns);
@@ -18985,6 +19289,13 @@ function bindAllocationPreferenceControls(){
     '#aa-realestate-funds','#aa-realestate-direct','#aa-alts-gold','#aa-alts-liquid-alts','#aa-alts-hedge','#aa-alts-pe','#aa-alts-crypto',
     '#aa-liquidity-reserve-target'
   ];
+  // SIM-HORIZON-CONFIRM-001: eine Auswahl im Horizont-Select ist eine
+  // ausdrueckliche Berater-Wahl. Muss VOR dem generischen Persist-Listener
+  // registriert sein, damit dieser das Flag bereits mitnimmt.
+  var simHorizonField=document.getElementById('aa-sim-horizon');
+  if(simHorizonField){
+    simHorizonField.addEventListener('change',function(){markSimulationHorizonExplicit(simHorizonField,!!String(simHorizonField.value||'').trim());});
+  }
   document.querySelectorAll(selectors.join(',')).forEach(function(el){
     el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
     el.addEventListener('input',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
@@ -21806,34 +22117,9 @@ function applyAllocationEngineResult(result){
     return false;
   }
   strategyState.allocation=result;
-  // Sprint 14 Phase 4 F1: Praeferenzen aus persistierter Allocation hydratisieren
-  // (vorher nur localStorage). So sind die Tilts nach Geraete-/Browser-Wechsel
-  // konsistent mit der gespeicherten SAA, statt UI-Defaults zu zeigen.
+  // Hydration aus dem Server-Snapshot (inkl. SIM-HORIZON-LEGACY-MIGRATION-001).
   try {
-    var serverPrefsRaw = result && result.target_allocation && result.target_allocation.preferences_json;
-    if(serverPrefsRaw){
-      var serverPrefs = (typeof serverPrefsRaw === 'string') ? JSON.parse(serverPrefsRaw) : serverPrefsRaw;
-      if(serverPrefs && typeof serverPrefs === 'object'){
-        var key = getAllocationPreferenceKey();
-        var localPrefs = (function(){
-          try {
-            var raw = localStorage.getItem(allocationPreferenceStoragePrefix + key);
-            return raw ? JSON.parse(raw) : null;
-          } catch(e){ return null; }
-        })();
-        // Wenn lokaler State leer ist oder dirty=false, dann Server-Prefs uebernehmen.
-        // Bei "dirty" UI-Edits NICHT ueberschreiben.
-        var shouldHydrate = !localPrefs || !strategyState.dirty;
-        if(shouldHydrate){
-          var hydrated = mergeAllocationPreferences(buildDefaultAllocationPreferences(), serverPrefs);
-          allocationPreferencesCache[key] = hydrated;
-          try { localStorage.setItem(allocationPreferenceStoragePrefix + key, JSON.stringify(hydrated)); } catch(e){}
-          if(typeof applyAllocationPreferencesToUI === 'function'){
-            applyAllocationPreferencesToUI(hydrated);
-          }
-        }
-      }
-    }
+    hydrateAllocationPreferencesFromServer(result);
   } catch(e) { console.warn('preferences hydration failed', e); }
   TOTAL=Math.round((Number(result.advisory_wealth_rappen||0))/100);
   var colors={Aktien:'#1e4b8f',Obligationen:'#78601a',Immobilien:'#2c5080',Alternative:'#4a6080',Liquiditaet:'#166534'};
@@ -28730,23 +29016,35 @@ function renderStressTable(stressEvals){
     return;
   }
   block.style.display='';
+  // STRESS-SEMANTICS-001: Drawdown + kumulierte Rendite sind flussfreie
+  // Portfolio-Kennzahlen; der Vermoegens-Effekt ist die Differenz zum
+  // gleichen Verlauf ohne Krise. Aeltere persistierte Zeilen (ohne die neuen
+  // Felder bzw. mit dem alten, flussbehafteten Drawdown) zeigen "—".
+  function stressNum(v){
+    if(v===null||v===undefined||v===''){return null;}
+    var n=Number(v);
+    return isFinite(n)?n:null;
+  }
+  function stressSigned(n,txt){return (n>0?'+':(n<0?'-':''))+txt;}
   keys.forEach(function(name){
     var entry=stressEvals[name]||{};
-    var endR=Number(entry.end_wealth_rappen||0);
-    var minR=Number(entry.min_year_wealth_rappen||0);
-    var ddBps=Number(entry.max_drawdown_bps||0);
-    var rowHighlight=ddBps>5000?'background:rgba(220,53,69,0.08);':'';
-    var endChf=Math.round(endR/100);
-    var minChf=Math.round(minR/100);
-    var ddPct=(ddBps/100).toFixed(1);
+    var cumBps=stressNum(entry.cumulative_return_bps);
+    var impactR=stressNum(entry.crisis_impact_end_wealth_rappen);
+    // Ohne cumulative_return_bps stammt max_drawdown_bps aus der alten
+    // (flussbehafteten, bis >100 %) Berechnung -> nicht anzeigen.
+    var ddBps=cumBps===null?null:stressNum(entry.max_drawdown_bps);
+    var rowHighlight=(ddBps!==null&&ddBps>5000)?'background:rgba(220,53,69,0.08);':'';
+    var cumTxt=cumBps===null?'—':stressSigned(cumBps,(Math.abs(cumBps)/100).toFixed(1)+'%');
+    var ddTxt=ddBps===null?'—':(ddBps>0?'-':'')+(ddBps/100).toFixed(1)+'%';
+    var impactTxt=impactR===null?'—':stressSigned(Math.round(impactR/100),Math.abs(Math.round(impactR/100)).toLocaleString('de-CH'));
     var label=nameMap[name]||String(name);
     var tr=document.createElement('tr');
     tr.style.cssText='border-bottom:1px solid var(--b1);'+rowHighlight;
     tr.innerHTML=''
       +'<td style="padding:5px 8px">'+escapeHtml(label)+'</td>'
-      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+endChf.toLocaleString('de-CH')+'</td>'
-      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+minChf.toLocaleString('de-CH')+'</td>'
-      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">-'+ddPct+'%</td>';
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+escapeHtml(cumTxt)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+escapeHtml(ddTxt)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+escapeHtml(impactTxt)+'</td>';
     tbody.appendChild(tr);
   });
 }

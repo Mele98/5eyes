@@ -208,6 +208,16 @@ class AnlagestrategieData:
     """Sharpe-Ratio-Referenzsatz. Konvention identisch zum Frontend
     (aaShowProjection() _RF_BPS=80 = liquidity_return_bps-Konvention)."""
 
+    # ---- BAND-DEVIATION-REASON-REQUIRED-001 ----
+    band_house_deviations: list = field(default_factory=list)
+    """Buckets, deren Mandatsbandbreite die Hausmatrix-Bandbreite verlaesst:
+    dicts mit bucket, bucket_label, house_min_bps, house_max_bps,
+    mandate_min_bps, mandate_max_bps (advisor_band_house_deviations)."""
+    band_house_profile: str | None = None
+    """Hausmatrix-Profil, gegen das abgeglichen wurde."""
+    band_deviation_reason: str | None = None
+    """Dokumentierte Begruendung der Abweichung (bandDeviationReason)."""
+
 
 @dataclass(frozen=True)
 class VertragData:
@@ -242,6 +252,11 @@ class ContractSignoffData:
     consultation_summary: list = field(default_factory=list)
     final_recommendation: str | None = None
     client_acknowledgements: list[str] = field(default_factory=list)
+    # BAND-DEVIATION-REASON-REQUIRED-001: Abweichung vom Eignungsrahmen des
+    # Risikoprofils (Mandatsbandbreite ausserhalb der Hausmatrix) + Begruendung.
+    band_house_deviations: list = field(default_factory=list)
+    band_house_profile: str | None = None
+    band_deviation_reason: str | None = None
 
 
 @dataclass(frozen=True)

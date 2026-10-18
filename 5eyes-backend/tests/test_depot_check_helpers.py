@@ -111,6 +111,8 @@ def test_init_result_dict_has_all_top_level_keys():
         # einem aelteren, nicht mehr aktuellen Risikoprofil erstellt wurde.
         "target_allocation_stale",
         "target_allocation_inputs_stale",
+        # STALE-ALLOCATION-HIDE-TARGETS-001
+        "soll_ausgeblendet",
         "buckets",
         "country_exposure_bps",
         "sector_exposure_bps",

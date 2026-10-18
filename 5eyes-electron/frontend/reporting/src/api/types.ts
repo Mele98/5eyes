@@ -307,21 +307,31 @@ export interface ErkenntnisseData {
 export interface AssetAllocationItem {
   key: BucketKey;
   label: string;
-  ist_bps: number;
-  soll_bps: number;
-  drift_bps: number;
-  band_min_bps: number;
-  band_max_bps: number;
+  /** null nur bei soll_ausgeblendet + ist_basiert_auf_soll (IST = alte Empfehlung). */
+  ist_bps: number | null;
+  /** STALE-ALLOCATION-HIDE-TARGETS-001: null wenn soll_ausgeblendet. */
+  soll_bps: number | null;
+  drift_bps: number | null;
+  band_min_bps: number | null;
+  band_max_bps: number | null;
   in_band: boolean | null;
 }
 
 export interface AssetAllocationData {
   items: AssetAllocationItem[];
-  ist_bps: Record<string, number>;
-  soll_bps: Record<string, number>;
-  drift_bps: Record<string, number>;
+  ist_bps: Record<string, number> | null;
+  soll_bps: Record<string, number> | null;
+  drift_bps: Record<string, number> | null;
   ist_basiert_auf_soll: boolean;
   anmerkungen: string;
+  /** Soll-Allokation veraltet (Risikoprofil oder geaenderte Inputs). */
+  target_allocation_stale?: boolean;
+  /**
+   * STALE-ALLOCATION-HIDE-TARGETS-001: alte Zielzahlen sind im Payload
+   * genullt -- nur staleness_hinweis anzeigen, kein IST/SOLL-Chart.
+   */
+  soll_ausgeblendet?: boolean;
+  staleness_hinweis?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,18 +340,28 @@ export interface AssetAllocationData {
 
 export interface CurrencyItem {
   label: string;
-  ist_bps: number;
-  soll_bps: number;
-  drift_bps: number;
+  /** null nur bei soll_ausgeblendet + ist_basiert_auf_soll (IST = alte Empfehlung). */
+  ist_bps: number | null;
+  /** STALE-ALLOCATION-HIDE-TARGETS-001: null wenn soll_ausgeblendet. */
+  soll_bps: number | null;
+  drift_bps: number | null;
 }
 
 export interface RisikowaehrungenData {
   items: CurrencyItem[];
-  ist_bps: Record<string, number>;
-  soll_bps: Record<string, number>;
-  drift_bps: Record<string, number>;
+  ist_bps: Record<string, number> | null;
+  soll_bps: Record<string, number> | null;
+  drift_bps: Record<string, number> | null;
   ist_basiert_auf_soll: boolean;
   erklaerung: string;
+  /** Soll-Allokation veraltet (Risikoprofil oder geaenderte Inputs). */
+  target_allocation_stale?: boolean;
+  /**
+   * STALE-ALLOCATION-HIDE-TARGETS-001: SOLL-Exposures der alten Empfehlung
+   * sind genullt -- nur staleness_hinweis anzeigen, kein IST/SOLL-Chart.
+   */
+  soll_ausgeblendet?: boolean;
+  staleness_hinweis?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,20 +370,31 @@ export interface RisikowaehrungenData {
 
 export interface SectorItem {
   label: string;
-  ist_bps: number;
-  soll_bps: number;
-  drift_bps: number;
+  /** null nur bei soll_ausgeblendet + ist_basiert_auf_soll (IST = alte Empfehlung). */
+  ist_bps: number | null;
+  /** STALE-ALLOCATION-HIDE-TARGETS-001: null wenn soll_ausgeblendet. */
+  soll_bps: number | null;
+  drift_bps: number | null;
 }
 
 export interface BranchenData {
   items: SectorItem[];
-  ist_bps: Record<string, number>;
-  soll_bps: Record<string, number>;
-  drift_bps: Record<string, number>;
-  anteil_aktien_bps: number;
-  hinweis: string;
+  ist_bps: Record<string, number> | null;
+  soll_bps: Record<string, number> | null;
+  drift_bps: Record<string, number> | null;
+  /** null bei soll_ausgeblendet + ist_basiert_auf_soll (Aktienquote = alte Empfehlung). */
+  anteil_aktien_bps: number | null;
+  hinweis: string | null;
   ist_basiert_auf_soll: boolean;
   analyse: string;
+  /** Soll-Allokation veraltet (Risikoprofil oder geaenderte Inputs). */
+  target_allocation_stale?: boolean;
+  /**
+   * STALE-ALLOCATION-HIDE-TARGETS-001: SOLL-Exposures der alten Empfehlung
+   * sind genullt -- nur staleness_hinweis anzeigen, kein IST/SOLL-Chart.
+   */
+  soll_ausgeblendet?: boolean;
+  staleness_hinweis?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,9 +475,10 @@ export interface RisikoprofilierungData {
 export interface BuildingBlock {
   key: BucketKey;
   label: string;
-  target_bps: number;
-  band_min_bps: number;
-  band_max_bps: number;
+  /** STALE-ALLOCATION-HIDE-TARGETS-001: null wenn soll_ausgeblendet. */
+  target_bps: number | null;
+  band_min_bps: number | null;
+  band_max_bps: number | null;
 }
 
 export interface BuildingBlockConstraint {
@@ -464,6 +496,11 @@ export interface BuildingBlocksData {
   target_allocation_stale?: boolean;
   /** Hinweistext, gesetzt wenn target_allocation_stale. */
   staleness_hinweis?: string | null;
+  /**
+   * STALE-ALLOCATION-HIDE-TARGETS-001: Zielgewichte/Bandbreiten/Constraints
+   * sind genullt -- nur den Hinweis anzeigen, keine Tabelle.
+   */
+  soll_ausgeblendet?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,6 +1177,8 @@ export interface TargetAllocationCreatePayload {
   risky_fraction_bps?: number | null;
   based_on_assessment_id?: string | null;
   policy_id: string;
+  /** Pflicht beim manuellen Speichern (MANUAL-SAVE-DEADEND-001, FIDLEG Art. 13). */
+  override_reason?: string | null;
 }
 
 /** Response-Kernfelder (TargetAllocationResponse hat zusätzliche Audit-Felder). */
@@ -1152,6 +1191,8 @@ export interface TargetAllocationRecord extends TargetAllocationCreatePayload {
   set_at: string;
   created_at: string;
   updated_at: string;
+  /** Nur in der Antwort des manuellen Speicherns: Bandbreiten ausserhalb der Hausmatrix. */
+  manual_override_warnings?: string[];
 }
 
 /** Minimal getypte Teilmenge von TargetAllocationGenerateResponse. */

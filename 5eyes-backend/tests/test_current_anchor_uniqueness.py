@@ -387,22 +387,43 @@ def _seed_building_blocks(session, policy_id: str) -> None:
     never be used by the real engine Generate path either -- now fails fast.
     Give these bespoke test policies the same minimal, real BuildingBlock/
     HouseMatrix basis any usable production policy has (HouseMatrix covers
-    the full score range 1-10 so any risk-assessment bucket resolves)."""
+    the full score range 1-10 so any risk-assessment bucket resolves).
+
+    MANUAL-SAVE-DEADEND-001 (2026-10-14): der manuelle Speicherpfad baut
+    Sub-Allokationen und Bucket-Risikokoeffizienten jetzt wie Generate
+    (_build_sub_allocations + _enrich_sub_allocations_with_risk). Dafuer
+    braucht jede verwendete Sub-Asset-Klasse eine BuildingBlock-
+    Risikofraktion, und der Reload prueft das CMA-Sub-Universum gegen die
+    BuildingBlocks -- daher je Anlageklasse die realen CH-Sub-Klassen der
+    Standard-Policy (gleiche Koeffizienten pro Anlageklasse wie bisher)."""
     now = "2026-08-20T00:00:00Z"
+    rows = [
+        ("Aktien", 8000, (
+            "Aktien Schweiz", "Aktien Schweiz Small/Mid", "Aktien Europa",
+            "Aktien Global", "Aktien Schwellenlaender", "Thema Verteidigung",
+            "Thema Fossile Energie", "Thema Tabak", "Thema Alkohol",
+            "Thema Gluecksspiel", "Thema Kernenergie",
+        )),
+        ("Obligationen", 2500, (
+            "Obligationen CHF IG", "Obligationen Global Hedged",
+            "Obligationen High Yield", "Obligationen Emerging",
+        )),
+        ("Immobilien", 6000, ("Immobilien Schweiz", "Immobilien Global")),
+        ("Alternative", 6000, (
+            "Gold / Rohstoffe", "Liquid Alternatives", "Hedge Funds",
+            "Private Equity", "Krypto",
+        )),
+        ("Liquidität", 0, ("Geldmarktfonds", "Kontoguthaben", "Festgeld")),
+    ]
     session.add_all(
         BuildingBlock(
-            id=f"{policy_id}-bb-{idx}", policy_id=policy_id,
-            asset_class=asset_class, sub_asset_class=f"{asset_class} Standard",
+            id=f"{policy_id}-bb-{idx}-{sub_idx}", policy_id=policy_id,
+            asset_class=asset_class, sub_asset_class=sub_asset_class,
             universe="Standard", advisory=1, risky_fraction_bps=rf_bps,
             is_active=1, created_at=now, updated_at=now,
         )
-        for idx, (asset_class, rf_bps) in enumerate([
-            ("Aktien", 8000),
-            ("Obligationen", 2500),
-            ("Immobilien", 6000),
-            ("Alternative", 6000),
-            ("Liquidität", 0),
-        ])
+        for idx, (asset_class, rf_bps, sub_classes) in enumerate(rows)
+        for sub_idx, sub_asset_class in enumerate(sub_classes)
     )
     session.add(HouseMatrix(
         id=f"{policy_id}-hm-1", policy_id=policy_id,
@@ -499,6 +520,7 @@ def _target_payload(policy_id: str) -> TargetAllocationCreate:
         band_liquidity_min_bps=0,
         band_liquidity_max_bps=2000,
         policy_id=policy_id,
+        override_reason="Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     )
 
 
