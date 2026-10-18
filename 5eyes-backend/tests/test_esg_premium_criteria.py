@@ -957,9 +957,9 @@ _ESG_CRITERIA_VOCABULARY = frozenset({
     # Regulierung / Kennzahlen
     "SFDR", "Art", "EU", "PAB", "CTB", "ESG", "Rating", "Score", "Skala",
     "AAA", "AA", "CCC", "Leader", "Klasse", "Klassifikation", "Benchmark",
-    "Klima", "Paris", "aligned", "Climate", "Transition", "Pflicht", "beides",
-    # Policy-Namen
-    "Best", "Class", "Impact", "Investing", "Integration", "Net", "Zero",
+    "Klima", "Pflicht", "beides",
+    # Kunden-Label (CIO-Entscheid 2026-10-18: nur Kriterium, kein Claim-Name)
+    "Produktauswahl",
     # Liquiditaets-Ausnahme
     "Liquiditaet", "Konto", "Festgeld", "Geldmarktfonds", "Kriterium",
     "ausgenommen", "die", "gesamte", "Anlageklasse", "und", "unabhaengig",
@@ -969,11 +969,16 @@ _ESG_CRITERIA_VOCABULARY = frozenset({
     "ist", "sind", "nicht", "ohne", "allein", "genuegt", "mindestens",
     "zulaessig",
 })
+# Policy-Namen duerfen NUR im Berater-Label stehen (nie im Kundendokument).
+_ESG_POLICY_NAME_VOCABULARY = frozenset({
+    "ESG", "Integration", "Best", "in", "Class", "Impact", "Investing",
+    "Paris", "aligned", "Net", "Zero",
+})
 
 
 def _pdf_esg_label(policy: str) -> str:
     lines = _pdf_preferences_text({"policy": {"esg": policy}}).splitlines()
-    return lines[lines.index("Nachhaltigkeit") + 1]
+    return lines[lines.index("ESG-Vorgabe") + 1]
 
 
 @pytest.mark.parametrize("policy", ["esg_integration", "best_in_class", "impact", "net_zero"])
@@ -982,15 +987,20 @@ def test_esg_criteria_texts_use_only_whitelisted_vocabulary(policy):
     Vokabular; jedes unbekannte Wort ist ein Fehler."""
     import services.portfolio_engine_payload as payload
 
-    texts = [
+    customer_texts = [
         ESG_POLICY_CRITERIA[policy],
-        payload.esg_policy_criterion_label(policy),
+        payload.esg_policy_customer_label(policy),
         payload.ESG_POLICY_LIQUIDITY_EXEMPTION,
         _pdf_esg_label(policy),
     ]
-    for text_ in texts:
+    for text_ in customer_texts:
         unknown = set(re.findall(r"[A-Za-zÄÖÜäöüß]+", text_)) - _ESG_CRITERIA_VOCABULARY
         assert not unknown, (policy, sorted(unknown), text_)
+    advisor_label = payload.esg_policy_criterion_label(policy)
+    unknown = set(re.findall(r"[A-Za-zÄÖÜäöüß]+", advisor_label)) - (
+        _ESG_CRITERIA_VOCABULARY | _ESG_POLICY_NAME_VOCABULARY
+    )
+    assert not unknown, (policy, sorted(unknown), advisor_label)
     assert ESG_POLICY_CRITERIA[policy] in _pdf_esg_label(policy)
 
 
@@ -1059,3 +1069,63 @@ def test_every_seed_liquidity_product_kind_is_named_in_exemption_text():
     for sub in subs:
         assert sub in named, sub
         assert named[sub] in ESG_POLICY_LIQUIDITY_EXEMPTION
+
+
+# ---------------------------------------------------------------------------
+# 10. CIO-Entscheid 2026-10-18: Kundendokument nennt nur das Kriterium
+# ---------------------------------------------------------------------------
+
+
+def _claim_hits(text_: str) -> list[str]:
+    from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
+
+    lowered = text_.lower()
+    return [label for label in ESG_CUSTOMER_CLAIM_LABELS if label.lower() in lowered]
+
+
+def test_claim_label_guard_covers_every_policy_name():
+    """Jeder Berater-Policy-Name ist als Claim gesperrt -- ein neuer Name
+    ohne Waechter-Eintrag faellt hier auf."""
+    from services.portfolio_engine_payload import ESG_POLICY_NAMES
+
+    for name in ESG_POLICY_NAMES.values():
+        assert _claim_hits(name), name
+
+
+@pytest.mark.parametrize("policy", ["none", "negative_screening", *_SFDR_POLICIES])
+def test_customer_documents_contain_no_esg_claim_labels(policy):
+    """Anlagestrategie-PDF (Praeferenzabschnitt, inkl. Themen-Zeilen und
+    dokumentierter Abweichung) enthaelt keinen Claim-Namen."""
+    text_ = _pdf_preferences_text(_prefs(
+        policy={"esg": policy},
+        tilts={"fossil": "exclude", "tobacco": "allow", "alcohol": "underweight"},
+        tiltReasons={"tobacco": GOOD_REASON},
+    ))
+    assert "ESG-Vorgabe" in text_
+    assert not _claim_hits(text_), (policy, _claim_hits(text_), text_)
+
+
+@pytest.mark.parametrize("policy", _SFDR_POLICIES)
+def test_customer_label_states_only_the_checked_criterion(policy):
+    from services.portfolio_engine_payload import (
+        ESG_POLICY_LIQUIDITY_EXEMPTION,
+        ESG_POLICY_NAMES,
+        esg_policy_criterion_label,
+        esg_policy_customer_label,
+    )
+
+    customer = esg_policy_customer_label(policy)
+    assert customer == f"Kriterium der Produktauswahl: {ESG_POLICY_CRITERIA[policy]}"
+    assert ESG_POLICY_NAMES[policy] not in customer
+    for text_ in (customer, ESG_POLICY_CRITERIA[policy], ESG_POLICY_LIQUIDITY_EXEMPTION):
+        assert not _claim_hits(text_), (policy, text_)
+    assert _pdf_esg_label(policy) == f"{customer}; {ESG_POLICY_LIQUIDITY_EXEMPTION}"
+    # Berater-UI/-Hinweise duerfen Name + Kriterium zeigen.
+    assert esg_policy_criterion_label(policy) == f"{ESG_POLICY_NAMES[policy]} ({ESG_POLICY_CRITERIA[policy]})"
+
+
+def test_customer_label_is_none_without_sfdr_policy():
+    from services.portfolio_engine_payload import esg_policy_customer_label
+
+    for policy in ("none", "negative_screening", None, "unknown"):
+        assert esg_policy_customer_label(policy) is None

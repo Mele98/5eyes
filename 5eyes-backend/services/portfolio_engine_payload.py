@@ -814,10 +814,40 @@ ESG_POLICY_LIQUIDITY_EXEMPTION = (
 
 
 def esg_policy_criterion_label(policy: str | None) -> str | None:
-    """'<Name> (<exaktes Kriterium>)' fuer SFDR-gebundene Policies, sonst None."""
+    """BERATER-Label '<Name> (<exaktes Kriterium>)' fuer SFDR-gebundene
+    Policies, sonst None. Nie in Kundendokumenten verwenden -- dort
+    esg_policy_customer_label()."""
     if policy not in ESG_POLICY_CRITERIA:
         return None
     return f"{ESG_POLICY_NAMES[policy]} ({ESG_POLICY_CRITERIA[policy]})"
+
+
+# CIO-Entscheid 2026-10-18 (ESG-Architektur-Review C3/H1): Kundendokumente
+# nennen nur das technisch gepruefte KRITERIUM, nie einen Claim-Namen. Die
+# Policy-Namen (ESG_POLICY_NAMES) behaupten mehr, als die Daten belegen
+# ("Impact" = Wirkungsabsicht/-messung, "Best-in-Class" = Peer-Group-
+# Vergleich, "Net Zero" = Netto-Null-Ziel, "ESG-Integration" = institutsseitige
+# Risikointegration) -- geprueft wird jeweils nur ein Katalogfeld. Die
+# Berater-UI darf Name + Kriterium zeigen. Diese Liste ist der Waechter fuer
+# alle Kundentexte (Test: test_customer_documents_contain_no_esg_claim_labels).
+ESG_CUSTOMER_CLAIM_LABELS: tuple[str, ...] = (
+    "Impact",
+    "Net Zero",
+    "Net-Zero",
+    "Netto-Null",
+    "Paris-aligned",
+    "Best-in-Class",
+    "Best in Class",
+    "ESG-Integration",
+    "Nachhaltig",
+)
+
+
+def esg_policy_customer_label(policy: str | None) -> str | None:
+    """KUNDEN-Label: nur das gepruefte Kriterium, ohne Policy-Namen."""
+    if policy not in ESG_POLICY_CRITERIA:
+        return None
+    return f"Kriterium der Produktauswahl: {ESG_POLICY_CRITERIA[policy]}"
 
 
 def product_meets_esg_policy(product, policy: str | None) -> bool:

@@ -674,13 +674,16 @@ def _make_preferences_section(preferences, styles) -> list:
     # ESG-Texte kommen aus denselben Konstanten/Funktionen, die die Engine
     # fuer den Produktfilter nutzt (portfolio_engine_payload.
     # _product_matches_constraints) -- Dokument == Engine.
+    # CIO-Entscheid 2026-10-18: Kundendokument nennt nur das gepruefte
+    # Kriterium (esg_policy_customer_label), keine Claim-Namen wie
+    # "Impact Investing" oder "Net Zero"; Zeilentitel sachlich "ESG-Vorgabe".
     from services.portfolio_engine_payload import (
         ESG_POLICY_CRITERIA,
         ESG_POLICY_LIQUIDITY_EXEMPTION,
         THEME_DISPLAY_NAMES,
         THEME_TILT_ALLOW,
         effective_theme_screening,
-        esg_policy_criterion_label,
+        esg_policy_customer_label,
         theme_look_through_disclosure,
         theme_policy_deviations,
     )
@@ -693,13 +696,13 @@ def _make_preferences_section(preferences, styles) -> list:
         ),
     }
     esg_labels.update({
-        key: f"{esg_policy_criterion_label(key)}; {ESG_POLICY_LIQUIDITY_EXEMPTION}"
+        key: f"{esg_policy_customer_label(key)}; {ESG_POLICY_LIQUIDITY_EXEMPTION}"
         for key in ESG_POLICY_CRITERIA
     })
 
     rows = [["Bereich", "Festgehaltene Praeferenz"]]
     rows.extend([
-        ["Nachhaltigkeit", _label(policy.get("esg"), esg_labels, "Standard / keine gesonderte Vorgabe")],
+        ["ESG-Vorgabe", _label(policy.get("esg"), esg_labels, "Standard / keine gesonderte Vorgabe")],
         ["Anlageuniversum", _label(policy.get("universe"), {
             "standard": "Standard",
             "extended": "Erweitert",
