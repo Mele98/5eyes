@@ -47,6 +47,15 @@
     border-color: #2A3B52;
   }
 
+  /* REPORT-NUMBER-FORMAT-001: Zahlenspalten mit tabellarischen Ziffern,
+   * damit Werte untereinander stellengenau fluchten (Prozent/CHF-Spalten
+   * der AA-Sektionen nutzen font-mono bzw. rechtsbuendige Zellen). */
+  .font-mono,
+  td.text-right,
+  th.text-right {
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Tabellen: dünne Linien, ruhiges Padding (kein Excel-Look) */
   table {
     @apply w-full border-collapse;

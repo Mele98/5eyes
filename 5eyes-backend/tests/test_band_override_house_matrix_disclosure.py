@@ -110,7 +110,7 @@ def test_advisor_band_inside_house_band_is_not_flagged(session_factory, stochast
     assert not [r for r in result["reasoning"] if "Hausmatrix-Bandbreite" in r], result["reasoning"]
 
 
-def test_finalization_gate_warns_on_band_outside_house_matrix(session_factory):
+def test_finalization_gate_blocks_band_outside_house_matrix_without_reason(session_factory):
     adv, _cid, mid, aid = _seed_realistic_mandate(session_factory, "gate")
     prefs = {"bands": {"equities": {"min_bps": 7600, "max_bps": 8500}}}
     _generate(session_factory, mid, adv, prefs)
@@ -121,11 +121,13 @@ def test_finalization_gate_warns_on_band_outside_house_matrix(session_factory):
         run = db.query(RecommendationRun).filter(RecommendationRun.id == run_id).one()
         errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
 
-    flagged = [w for w in warnings if "Hausmatrix" in w and "Aktien" in w]
+    # BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14):
+    # ohne dokumentierte Begruendung ist die Abweichung jetzt ein BLOCKER.
+    # Mit Begruendung bleibt sie eine Warnung -- siehe
+    # tests/test_band_deviation_reason_required.py.
+    flagged = [e for e in errors if "Hausmatrix" in e and "Aktien" in e]
     assert flagged, (errors, warnings)
     assert "76.00" in flagged[0] and "75.00" in flagged[0], flagged
-    # Warnung, KEIN neuer Blocker: keine Fehlermeldung nennt die Hausmatrix.
-    assert not [e for e in errors if "Hausmatrix" in e], errors
 
 
 def test_finalization_gate_silent_without_band_deviation(session_factory):

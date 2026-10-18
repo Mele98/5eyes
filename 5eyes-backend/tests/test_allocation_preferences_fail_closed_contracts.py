@@ -55,6 +55,12 @@ TOP_LEVEL_KEYS = frozenset(
         "assetClasses",
         "bands",
         "simulation",
+        # BAND-DEVIATION-REASON-REQUIRED-001: Begruendung einer Abweichung
+        # der Mandatsbandbreite von der Hausmatrix (Text, kein Abschnitt).
+        "bandDeviationReason",
+        # ESG-PREMIUM-CRITERIA-001: Begruendungen je Thema ("allow" =
+        # bewusst zulassen verlangt eine, siehe tests/test_esg_premium_criteria.py).
+        "tiltReasons",
     }
 )
 
@@ -104,6 +110,7 @@ NESTED_KEYS = {
             "crisisStrength",
             "tailRisk",
             "cornishFisher",
+            "horizonExplicit",
         }
     ),
 }
@@ -200,6 +207,7 @@ COMPLETE_VALID_PREFERENCES = {
         "crisisStrength": 0.5,
         "tailRisk": False,
         "cornishFisher": True,
+        "horizonExplicit": True,
     },
 }
 
@@ -400,6 +408,8 @@ def test_all_existing_band_bucket_aliases_remain_accepted(bucket_alias):
         ('simulation', 'crisisStrength', 0.5),
         ('simulation', 'tailRisk', True),
         ('simulation', 'cornishFisher', 'on'),
+        ('simulation', 'horizonExplicit', True),
+        ('simulation', 'horizonExplicit', False),
         ('limits', 'singlePosition', ''),
         ('limits', 'singlePosition', '10%'),
         ('limits', 'singleIssuer', 20),
