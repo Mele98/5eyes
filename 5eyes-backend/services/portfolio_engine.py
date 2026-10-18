@@ -503,7 +503,13 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     validated = AllocationPreferencesPayload.model_validate(
         {} if preferences is None else preferences
     )
-    return validated.model_dump()
+    dumped = validated.model_dump()
+    # BAND-DEVIATION-REASON-REQUIRED-001: ein fehlendes Begruendungsfeld darf
+    # den persistierten Praeferenz-Snapshot nicht veraendern (sonst meldete
+    # die Drift-Erkennung jede bestehende Allokation als veraltet).
+    if dumped.get("bandDeviationReason") is None:
+        dumped.pop("bandDeviationReason", None)
+    return dumped
 
 
 def _allocation_snapshot_preferences(allocation: TargetAllocation | None) -> dict | None:
@@ -1262,6 +1268,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _apply_illiquid_cap,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
+    house_matrix_bands_payload,
     policy_band_clamp_notes,
     _building_block_risky_map,
     _building_block_rows_for_policy,
@@ -4092,26 +4099,12 @@ def generate_target_allocation(
         separators=(",", ":"),
         ensure_ascii=False,
     )
-    allocation_context_payload = {
-        "engine_version": "stochastic_core_v2",
-        "policy_id": str(policy.id),
-        "cma_id": str(cma.id),
-        "assessment_id": str(assessment.id),
-        "input_snapshot_hash": str(input_snapshot_hash),
-        "preferences_json": preferences_json_snapshot,
-        "targets_bps": {bucket: int(targets[bucket]) for bucket in BUCKET_FIELDS},
-        "sub_allocations": sub_allocations,
-        "effective_constraints": effective_constraints_payload,
-        "optimization_seed": optimizer_audit.get("optimization_seed"),
-    }
-    allocation_context_hash = hashlib.sha256(
-        json.dumps(
-            allocation_context_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    allocation_context_hash = allocation_context_hash_for(  # MANUAL-SAVE-DEADEND-001: eine Hash-Form fuer alle Schreibpfade
+        engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
+        input_snapshot_hash=input_snapshot_hash, preferences_json=preferences_json_snapshot, targets=targets,
+        sub_allocations=sub_allocations, effective_constraints=effective_constraints_payload,
+        optimization_seed=optimizer_audit.get("optimization_seed"),
+    )
 
     target_allocation = TargetAllocation(
         id=new_uuid(),
@@ -4238,6 +4231,9 @@ def generate_target_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -4302,6 +4298,7 @@ def generate_target_allocation(
 from services.portfolio_engine_allocation_integrity import (  # noqa: F401,E402
     _identical_previous_allocation,
     _verified_persisted_allocation_context,
+    allocation_context_hash_for,
 )
 
 
@@ -5432,7 +5429,9 @@ def build_target_payload_from_allocation(
     preferences: dict | None,
     *,
     input_snapshot_check_only: bool = False,
+    _live_anchor_probe: bool = False,
 ) -> dict:
+    """``_live_anchor_probe``: nur fuer manual_target_allocation.compute_live_allocation_anchors (MANUAL-SAVE-DEADEND-001)."""
     current_cma_for_drift = cma
     modern_context = int(
         getattr(allocation, "context_artifacts_required", 0) or 0
@@ -5697,14 +5696,18 @@ def build_target_payload_from_allocation(
         "alternatives": int(allocation.target_alternatives_bps),
         "liquidity": int(allocation.target_liquidity_bps),
     }
-    stored_sub_allocations, _stored_constraints = (
-        _verified_persisted_allocation_context(
-            allocation,
-            targets=targets,
-            minimums=minimums,
-            maximums=maximums,
+    if _live_anchor_probe:
+        stored_sub_allocations = json.loads(allocation.sub_allocations_json)
+        _stored_constraints = None
+    else:
+        stored_sub_allocations, _stored_constraints = (
+            _verified_persisted_allocation_context(
+                allocation,
+                targets=targets,
+                minimums=minimums,
+                maximums=maximums,
+            )
         )
-    )
     normalized_legacy_liquidity = False
     saa_liq_ceil_bps = min(
         int(maximums["liquidity"] or house_matrix.liq_max_bps or _SAA_LIQUIDITY_HARD_CAP_BPS),
@@ -5896,6 +5899,15 @@ def build_target_payload_from_allocation(
         wealth_inflows=rebuild_wealth_inflows,
         projection_context=current_projection_context,
     )
+    if _live_anchor_probe:
+        return {
+            "input_snapshot_hash": current_snapshot_hash,
+            "preferences_json": json.dumps(prefs, sort_keys=True, default=str),
+            "advisory_wealth_rappen": int(advisory_wealth_rappen),
+            "total_wealth_rappen": int(total_wealth_rappen),
+            "reserve_needed_rappen": int(reserve_needed_rappen),
+            "external_reserve_rappen": int(external_reserve_rappen),
+        }
     legacy_projection_context = dict(current_projection_context)
     legacy_projection_context.pop("fx_basis", None)
     current_projection_v3_snapshot_hash = _compute_input_snapshot_hash(
@@ -6176,6 +6188,9 @@ def build_target_payload_from_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,

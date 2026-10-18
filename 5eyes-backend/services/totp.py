@@ -38,14 +38,21 @@ def totp_at(secret_b32: str, timestamp: float | None = None,
     return _hotp(secret_b32, int(timestamp // period), digits)
 
 
-def verify(secret_b32: str, code: str, timestamp: float | None = None,
-           period: int = _PERIOD, window: int = 1) -> bool:
-    """Prueft `code` gegen das Secret im Zeitfenster +/-window Schritte (Drift-Toleranz)."""
+def match_counter(secret_b32: str, code: str, timestamp: float | None = None,
+                  period: int = _PERIOD, window: int = 1) -> int | None:
+    """Liefert den HOTP-Zeitschritt, zu dem `code` passt (im Fenster +/-window
+    Schritte um `timestamp`), oder None, wenn kein Fenster trifft.
+
+    SEC-TOTP-REPLAY-STEP (2026-10-18): der Anti-Replay-Guard im Login-Flow
+    muss den Zeitschritt des CODES kennen, nicht nur den Server-Zeitschritt
+    zum Pruefzeitpunkt -- sonst laesst die +/-1-Drift-Toleranz einen bereits
+    akzeptierten Code ein Fenster spaeter erneut durch (siehe
+    routers/auth.py::_totp_replay_check_and_record)."""
     if not secret_b32 or not code:
-        return False
+        return None
     code = str(code).strip()
     if len(code) != _DIGITS or not code.isdigit():
-        return False
+        return None
     if timestamp is None:
         timestamp = time.time()
     counter = int(timestamp // period)
@@ -60,8 +67,14 @@ def verify(secret_b32: str, code: str, timestamp: float | None = None,
         if counter + w < 0:
             continue
         if hmac.compare_digest(_hotp(secret_b32, counter + w), code):
-            return True
-    return False
+            return counter + w
+    return None
+
+
+def verify(secret_b32: str, code: str, timestamp: float | None = None,
+           period: int = _PERIOD, window: int = 1) -> bool:
+    """Prueft `code` gegen das Secret im Zeitfenster +/-window Schritte (Drift-Toleranz)."""
+    return match_counter(secret_b32, code, timestamp, period, window) is not None
 
 
 def provisioning_uri(secret_b32: str, account_name: str, issuer: str = "5eyes") -> str:

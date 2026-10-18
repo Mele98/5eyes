@@ -17,11 +17,13 @@ vi.mock('@/api/allocation', () => ({
 import {
   fetchCurrentAllocation,
   generateAllocation,
+  saveTargetAllocation,
 } from '@/api/allocation';
 import { AllocationEditor } from './AllocationEditor';
 
 const fetchMock = vi.mocked(fetchCurrentAllocation);
 const generateMock = vi.mocked(generateAllocation);
+const saveMock = vi.mocked(saveTargetAllocation);
 
 function makeRecord(overrides: Partial<TargetAllocationRecord> = {}): TargetAllocationRecord {
   return {
@@ -58,6 +60,7 @@ function makeRecord(overrides: Partial<TargetAllocationRecord> = {}): TargetAllo
 beforeEach(() => {
   fetchMock.mockReset();
   generateMock.mockReset();
+  saveMock.mockReset();
 });
 
 afterEach(() => {
@@ -108,5 +111,37 @@ describe('AllocationEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Optimizer-Vorschlag' }));
     expect(await screen.findByLabelText('Aktien Ziel in bps')).toHaveValue(5000);
     expect(generateMock).toHaveBeenCalledWith('m1');
+  });
+
+  it('verlangt eine Begründung vor dem Speichern (MANUAL-SAVE-DEADEND-001)', async () => {
+    fetchMock.mockResolvedValue(makeRecord());
+    render(<AllocationEditor mandateId="m1" />);
+    await screen.findByRole('table');
+    fireEvent.click(screen.getByRole('button', { name: 'SOLL-Allokation speichern' }));
+    expect(await screen.findByText(/Begründung der manuellen Anpassung erfassen/)).toBeInTheDocument();
+    expect(saveMock).not.toHaveBeenCalled();
+  });
+
+  it('sendet die Begründung mit und zeigt Hausmatrix-Warnungen an', async () => {
+    fetchMock.mockResolvedValue(makeRecord());
+    saveMock.mockResolvedValue(
+      makeRecord({
+        version: 2,
+        manual_override_warnings: ['Obligationen: manuelle Bandbreite ausserhalb der Hausmatrix'],
+      }),
+    );
+    render(<AllocationEditor mandateId="m1" />);
+    await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText(/Begründung der manuellen Anpassung/), {
+      target: { value: 'Kunde wünscht nach Gespräch eine defensivere Gewichtung.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'SOLL-Allokation speichern' }));
+    expect(await screen.findByText(/ausserhalb der Hausmatrix/)).toBeInTheDocument();
+    expect(saveMock).toHaveBeenCalledWith(
+      'm1',
+      expect.objectContaining({
+        override_reason: 'Kunde wünscht nach Gespräch eine defensivere Gewichtung.',
+      }),
+    );
   });
 });
