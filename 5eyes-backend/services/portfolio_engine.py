@@ -39,6 +39,11 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.preference_snapshot import (
+    INHERITED_PREFERENCES_NOTE,
+    inherit_current_allocation_preferences,
+    resolve_recommendation_preferences,
+)
 from services.goal_semantics import (
     GoalInputError,
     validate_active_goal_inputs as _validate_active_goal_inputs,
@@ -59,7 +64,6 @@ from services.wealth_cashflows import (
     mortgage_interest_adjustment_series,
 )
 from services.wealth_position_semantics import (
-    canonical_position_type,
     WealthPositionSemanticsError,
     is_direct_real_estate_position,
     is_external_wealth_assignment,
@@ -200,6 +204,10 @@ DEFAULT_REBALANCE_TRANSACTION_COST_BPS = 15
 class PortfolioSummary:
     amounts_rappen: dict[str, int]
     total_rappen: int
+    # VORSORGE-PROJECTION-001: siehe services/portfolio_engine_pension_positions.py
+    pension_bound_rappen: int = 0
+    pension_exposure_amounts_rappen: dict[str, int] | None = None
+    assumption_notes: tuple[str, ...] = ()
 
 
 @dataclass
@@ -641,39 +649,11 @@ def _risk_score_bucket(assessment: RiskAssessment) -> int:
     return risk_score_bucket_from_validated_score(score_x10)
 
 
-def _default_weights_for_position(position: WealthPosition) -> dict[str, int]:
-    canonical_type = canonical_position_type(position.position_type)
-    total = (
-        int(position.alloc_equities_bps or 0)
-        + int(position.alloc_bonds_bps or 0)
-        + int(position.alloc_real_estate_bps or 0)
-        + int(position.alloc_alternatives_bps or 0)
-        + int(position.alloc_liquidity_bps or 0)
-    )
-    if _norm_text(canonical_type) == "Depot" and total == 10000:
-        return {
-            "equities": int(position.alloc_equities_bps or 0),
-            "bonds": int(position.alloc_bonds_bps or 0),
-            "real_estate": int(position.alloc_real_estate_bps or 0),
-            "alternatives": int(position.alloc_alternatives_bps or 0),
-            "liquidity": int(position.alloc_liquidity_bps or 0),
-        }
-
-    mapping = {
-        "Depot": {"equities": 6000, "bonds": 2500, "real_estate": 0, "alternatives": 500, "liquidity": 1000},
-        "Liquiditaet": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 10000},
-        "Immobilien": {"equities": 0, "bonds": 0, "real_estate": 10000, "alternatives": 0, "liquidity": 0},
-        "Vorsorge": {"equities": 4500, "bonds": 4500, "real_estate": 0, "alternatives": 0, "liquidity": 1000},
-        "Alternative": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 10000, "liquidity": 0},
-        "Hypothek": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 0},
-        "Custom": {"equities": 5000, "bonds": 2000, "real_estate": 1000, "alternatives": 500, "liquidity": 1500},
-    }
-    if is_direct_real_estate_position(position.position_type):
-        return mapping["Immobilien"].copy()
-    return mapping.get(
-        _norm_text(canonical_type),
-        mapping["Custom"],
-    ).copy()
+from services.portfolio_engine_pension_positions import (  # noqa: E402 -- VORSORGE-PROJECTION-001
+    position_bucket_weights as _default_weights_for_position, summarize_positions as _summarize_positions,
+    external_pension_projection as _external_pension_projection, with_pension_payouts as _with_pension_payouts,
+    pension_foundation_keys, pension_series_for_horizon, with_pension_notes,
+)
 
 
 def _convert_position_value_to_target_currency(
@@ -958,6 +938,7 @@ def _build_external_foundation_projection(
     horizon_years: int,
     fx_source=None,
     target_currency: str = "CHF",
+    wealth_inflows: list | None = None, start_year: int | None = None, mandate=None,
 ) -> dict[str, list[int]]:
     """Project direct property and mortgage principal outside listed-RE CMA.
 
@@ -1057,6 +1038,10 @@ def _build_external_foundation_projection(
         "property_series_rappen": property_series,
         "liability_series_rappen": liability_series,
         "pledged_asset_series_rappen": pledged_asset_series,
+        **pension_foundation_keys(  # VORSORGE-PROJECTION-001
+            positions, wealth_inflows, start_year=start_year, horizon_years=horizon,
+            fx_source=fx_source, target_currency=target_currency, mandate=mandate,
+        ),
     }
 
 
@@ -1114,9 +1099,10 @@ def _build_external_goal_funding_series(
             "Die externe Foundation-Serie deckt den Optimizer-Horizont nicht "
             "vollstaendig ab."
         )
+    pension_series = pension_series_for_horizon(external_foundation_projection, required_length)
     gross_start = max(0, int(external_gross_assets_rappen or 0))
     property_start = max(0, int(property_series[0])) if property_series else 0
-    non_property_gross_start = max(0, gross_start - property_start)
+    non_property_gross_start = max(0, gross_start - property_start - pension_series[0])
     return [
         int(
             _external_assets_inflation_value(
@@ -1126,28 +1112,11 @@ def _build_external_goal_funding_series(
             )
             + int(property_series[year])
             + int(pledged_series[year])
+            + int(pension_series[year])
             - int(liability_series[year])
         )
         for year in range(required_length)
     ]
-
-
-def _summarize_positions(
-    positions: list[WealthPosition],
-    fx_source=None,
-    target_currency: str = "CHF",
-) -> PortfolioSummary:
-    amounts = {key: 0 for key in BUCKET_FIELDS}
-    total_rappen = 0
-    for pos in positions:
-        value_rappen = _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
-        if value_rappen <= 0:
-            continue
-        weights = _default_weights_for_position(pos)
-        total_rappen += value_rappen
-        for key in BUCKET_FIELDS:
-            amounts[key] += int(round(value_rappen * weights[key] / 10000))
-    return PortfolioSummary(amounts_rappen=amounts, total_rappen=total_rappen)
 
 
 def _unlocked_other_assets_rappen(
@@ -2269,6 +2238,11 @@ def _load_allocation_inputs(
         horizon_years=projection_years,
         fx_source=fx_source,
         target_currency=target_currency,
+        wealth_inflows=wealth_inflows, start_year=cashflow_totals["year"], mandate=mandate,
+    )
+    total_summary = with_pension_notes(  # VORSORGE-PROJECTION-001: Reasoning
+        total_summary, all_positions, wealth_inflows, start_year=cashflow_totals["year"],
+        horizon_years=projection_years, fx_source=fx_source, target_currency=target_currency, mandate=mandate,
     )
     # B1: Cashflow-Series respektieren is_inflation_linked + CMA-Inflations-Pfad.
     # AHV/Lohn/Miete (linked=1) wachsen jaehrlich; Bonus/Erbschaft (linked=0) bleiben nominal.
@@ -2354,6 +2328,7 @@ def _load_allocation_inputs(
     inflow_projection_series_rappen = _wealth_inflow_series_rappen(
         wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
     )
+    inflow_projection_series_rappen = _with_pension_payouts(inflow_projection_series_rappen, external_foundation_projection)
     if any(inflow_projection_series_rappen):
         cashflow_projection_series_rappen = [
             int(cf) + int(infl)
@@ -3081,6 +3056,8 @@ def generate_target_allocation(
     # Aufrufen hier ist er auch fuer direkte Service-Aufrufe wirksam.
     assessment = require_strategy_ready_assessment(db, mandate.id)
 
+    # PREF-CONTEXT-001: None = gleiche Praeferenzen wie die aktuelle TA (nie still Defaults).
+    preferences, inherited_preferences = inherit_current_allocation_preferences(db, mandate, preferences)
     prefs = _normalize_preferences(preferences)
     # Sprint B1: Mandanten-Default-Building-Blocks als Fallback in prefs.
     prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
@@ -3139,6 +3116,8 @@ def generate_target_allocation(
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",
         f"Das Risikoprofil deckelt die Risky Fraction auf {risk_budget_bps / 100:.0f}%.",
     ]
+    if inherited_preferences:
+        reasoning.append(INHERITED_PREFERENCES_NOTE)
     warnings: list[dict] = []
     # POLICY-ACTIVATION-COMPLETENESS-001: jede Bandgrenze, die die
     # Mandats-Policy gegen die Hausmatrix verschiebt, wird ausgewiesen. Eine
@@ -5077,6 +5056,7 @@ def evaluate_goal_sensitivity(
             horizon_years=run_horizon,
             fx_source=inputs.get("cashflow_fx_source"),
             target_currency=str(inputs.get("cashflow_target_currency") or "CHF"),
+            wealth_inflows=inputs.get("wealth_inflows"), start_year=cashflow_totals["year"], mandate=mandate,
         )
         return _build_external_goal_funding_series(
             external_gross_assets_rappen=max(
@@ -5578,12 +5558,6 @@ def build_target_payload_from_allocation(
     annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
     projection_horizon = _simulation_horizon_derivation(goals, mandate, assessment=assessment)
     projection_years = projection_horizon["years"]
-    external_foundation_projection = _build_external_foundation_projection(
-        all_positions,
-        horizon_years=projection_years,
-        fx_source=fx_source,
-        target_currency=target_currency,
-    )
     # B1: Cashflow-Series mit CMA-Inflations-Pfad (siehe _load_allocation_inputs).
     cf_inflation_series_bps = _inflation_path_series(cma, projection_years, cashflow_totals["year"])
     cashflow_projection_series_rappen = net_cashflow_series(
@@ -5630,9 +5604,13 @@ def build_target_payload_from_allocation(
         if active == 1:
             scoped_rebuild_inflows.append(inflow)
     rebuild_wealth_inflows = scoped_rebuild_inflows
-    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
-        rebuild_wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    external_foundation_projection = _build_external_foundation_projection(  # nach den Zufluessen
+        all_positions, horizon_years=projection_years, fx_source=fx_source, target_currency=target_currency,
+        wealth_inflows=rebuild_wealth_inflows, start_year=cashflow_totals["year"], mandate=mandate,
     )
+    inflow_projection_series_rappen = _with_pension_payouts(_wealth_inflow_series_rappen(
+        rebuild_wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    ), external_foundation_projection)
     # ebenso wie generate-Pfad: Inflows in cashflow_projection einrechnen
     if any(inflow_projection_series_rappen):
         cashflow_projection_series_rappen = [
@@ -6554,7 +6532,7 @@ def generate_recommendation_run(
     # HEDGED_PRODUCT_VARIANTS sind CH-spezifische Sub-Asset-Class-Namen.
     if jurisdiction in (None, "CH"):
         ensure_hedged_product_variants(db)
-    prefs = _normalize_preferences(preferences)
+    _normalize_preferences(preferences)  # fail-fast Vokabular; wirksam: TA-Snapshot unten
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
     )
@@ -6642,6 +6620,8 @@ def generate_recommendation_run(
             )
         if assessment_overridden_after_allocation(allocation, assessment):  # RISK-OVERRIDE-STALENESS-001
             raise ValueError(OVERRIDE_AFTER_ALLOCATION_MESSAGE)
+        # PREF-CONTEXT-001: TA-Snapshot = einzige Praeferenzquelle (services/preference_snapshot.py).
+        preferences, legacy_snapshot_warning = resolve_recommendation_preferences(allocation, preferences, mandate)
         target_payload = build_target_payload_from_allocation(
             db=db,
             mandate=mandate,
@@ -6654,6 +6634,7 @@ def generate_recommendation_run(
     else:
         target_payload = generate_target_allocation(db=db, mandate=mandate, user_id=user_id, preferences=preferences)
         allocation = target_payload["target_allocation"]
+        preferences, legacy_snapshot_warning = _allocation_snapshot_preferences(allocation), None
         policy = db.query(OptimizerPolicy).filter(
             OptimizerPolicy.id == allocation.policy_id,
         ).one()
@@ -6718,7 +6699,8 @@ def generate_recommendation_run(
     sub_allocations = target_payload["sub_allocations"]
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
-    warnings = []
+    prefs = _normalize_preferences(preferences)
+    warnings = [legacy_snapshot_warning] if legacy_snapshot_warning else []
     # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): sobald ein Thema
     # ausgeschlossen/untergewichtet ist (direkt oder via negative_screening),
     # wird offengelegt, dass der Filter auf der Katalog-Klassifikation beruht

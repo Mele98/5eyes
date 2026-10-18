@@ -368,4 +368,7 @@ def test_pdf_without_screening_has_no_screening_note():
 
 def test_pdf_esg_integration_label_states_sfdr_filter():
     text = _pdf_preferences_text({"policy": {"esg": "esg_integration"}})
-    assert "ESG-Integration (nur Produkte nach SFDR Art. 8 oder 9)" in text
+    # CIO-Entscheid 2026-10-18 (ESG-CLAIM-NEUTRAL-001): Kundendokument nennt
+    # nur das Kriterium, nicht den Policy-Namen "ESG-Integration".
+    assert "Kriterium der Produktauswahl: nur Produkte nach SFDR Art. 8 oder 9" in text
+    assert "ESG-Integration" not in text

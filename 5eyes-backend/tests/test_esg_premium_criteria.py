@@ -15,8 +15,9 @@ Baut auf ESG-THEME-EXCLUSION-EFFECTIVE-001 auf (harter Themen-Filter).
      esg_score_x10 >= 714). Fehlende Daten -> nicht zulaessig.
      (CIO-Entscheid 2026-10-18: nur die Leader-Klasse; "A" zaehlt nicht.)
    - impact: NUR SFDR Art. 9.
-   - net_zero: climate_benchmark in {PAB, CTB} PFLICHT; SFDR 9 allein
-     reicht nicht (CIO-Entscheid 2026-10-18).
+   - net_zero: SFDR 8/9 UND climate_benchmark in {PAB, CTB}, beides
+     PFLICHT; SFDR 9 allein reicht nicht, Art. 6 + Benchmark auch nicht
+     (CIO-Entscheide 2026-10-18).
    Leere Slots laufen in den fail-closed-Pfad, dessen Meldung jetzt das
    verletzte Kriterium UND die betroffene Sub-Anlageklasse nennt.
 3. Zweistufige Themen-Erkennung:
@@ -250,12 +251,17 @@ def test_documented_thresholds():
         ("impact", {"sfdr_class": "9"}, True),
         ("impact", {"sfdr_class": "8", "esg_rating": "AAA"}, False),
         ("impact", {"sfdr_class": "6"}, False),
-        # net_zero: EU-Klima-Benchmark PFLICHT, SFDR 9 allein reicht nicht
+        # net_zero: SFDR 8/9 UND EU-Klima-Benchmark, beides PFLICHT
         ("net_zero", {"sfdr_class": "9"}, False),
         ("net_zero", {"sfdr_class": "9", "climate_benchmark": None}, False),
         ("net_zero", {"sfdr_class": "9", "climate_benchmark": "PAB"}, True),
+        ("net_zero", {"sfdr_class": "9", "climate_benchmark": "CTB"}, True),
         ("net_zero", {"sfdr_class": "8", "climate_benchmark": "PAB"}, True),
-        ("net_zero", {"sfdr_class": "6", "climate_benchmark": "CTB"}, True),
+        ("net_zero", {"sfdr_class": "8", "climate_benchmark": " ctb "}, True),
+        # CIO-Entscheid 2026-10-18: Art. 6 + Transition-Benchmark ist KEIN Net Zero.
+        ("net_zero", {"sfdr_class": "6", "climate_benchmark": "CTB"}, False),
+        ("net_zero", {"sfdr_class": "6", "climate_benchmark": "PAB"}, False),
+        ("net_zero", {"sfdr_class": None, "climate_benchmark": "PAB"}, False),
         ("net_zero", {"sfdr_class": "8"}, False),
         ("net_zero", {"sfdr_class": "8", "climate_benchmark": "ESG"}, False),
     ],
@@ -535,9 +541,23 @@ def test_alembic_migration_adds_columns_as_single_head():
     downs = {_assigned(mod, "down_revision") for mod in modules.values()}
     heads = [name for name, rev in revisions.items() if rev not in downs]
     assert len(heads) == 1, heads
-    head_src = (BACKEND_ROOT / "alembic" / "versions" / heads[0]).read_text(encoding="utf-8")
-    assert "theme_tags" in head_src and "climate_benchmark" in head_src
-    assert "Thema Fossile Energie" in head_src  # Backfill
+    # Die ESG-Migration muss nicht der Head sein (spaetere Migrationen haengen
+    # sich an); sie muss genau einmal existieren und in der Kette liegen.
+    esg = [
+        name for name in modules
+        if "theme_tags" in (BACKEND_ROOT / "alembic" / "versions" / name).read_text(encoding="utf-8")
+        and "add_column" in (BACKEND_ROOT / "alembic" / "versions" / name).read_text(encoding="utf-8")
+    ]
+    assert len(esg) == 1, esg
+    esg_src = (BACKEND_ROOT / "alembic" / "versions" / esg[0]).read_text(encoding="utf-8")
+    assert "theme_tags" in esg_src and "climate_benchmark" in esg_src
+    assert "Thema Fossile Energie" in esg_src  # Backfill
+    chain, cursor = set(), revisions[heads[0]]
+    by_rev = {rev: name for name, rev in revisions.items()}
+    while cursor in by_rev:
+        chain.add(by_rev[cursor])
+        cursor = _assigned(modules[by_rev[cursor]], "down_revision")
+    assert esg[0] in chain
 
 
 def test_product_create_accepts_and_canonicalizes_theme_tags():
@@ -845,10 +865,10 @@ def test_real_admin_fund_form_sends_esg_criteria_data():
 
 @pytest.mark.parametrize("policy", ["esg_integration", "best_in_class", "impact", "net_zero"])
 def test_pdf_esg_label_discloses_liquidity_exemption(policy):
-    """Die Engine nimmt Liquiditaet (Konto/Festgeld, ohne SFDR-Klasse) vom
-    Kriterium aus (test_liquidity_stays_exempt_from_esg_criteria). Ohne
-    diesen Hinweis behauptete das PDF z.B. 'nur Produkte nach SFDR Art. 9',
-    obwohl jedes Portfolio eine Liquiditaetsposition ohne SFDR-Klasse traegt."""
+    """Die Engine nimmt die gesamte Anlageklasse Liquiditaet vom Kriterium
+    aus (test_liquidity_stays_exempt_from_esg_criteria). Ohne diesen Hinweis
+    behauptete das PDF z.B. 'nur Produkte nach SFDR Art. 9', obwohl jedes
+    Portfolio eine Liquiditaetsposition traegt."""
     from services.portfolio_engine_payload import ESG_POLICY_LIQUIDITY_EXEMPTION
 
     text_ = _pdf_preferences_text({"policy": {"esg": policy}})
@@ -921,6 +941,9 @@ def test_net_zero_criterion_text_requires_climate_benchmark():
     assert "PAB" in text_ and "CTB" in text_
     assert "SFDR Art. 9 oder" not in text_
     assert "SFDR Art. 9 allein genuegt nicht" in text_
+    # CIO-Entscheid 2026-10-18: Text nennt beide Pflichtbedingungen.
+    assert "nur Produkte nach SFDR Art. 8 oder 9 mit EU-Klima-Benchmark" in text_
+    assert "beides Pflicht" in text_
 
 
 @pytest.mark.parametrize("policy,fragment", [
@@ -948,21 +971,28 @@ _ESG_CRITERIA_VOCABULARY = frozenset({
     # Regulierung / Kennzahlen
     "SFDR", "Art", "EU", "PAB", "CTB", "ESG", "Rating", "Score", "Skala",
     "AAA", "AA", "CCC", "Leader", "Klasse", "Klassifikation", "Benchmark",
-    "Klima", "Paris", "aligned", "Climate", "Transition", "Pflicht",
-    # Policy-Namen
-    "Best", "Class", "Impact", "Investing", "Integration", "Net", "Zero",
+    "Klima", "Pflicht", "beides",
+    # Kunden-Label (CIO-Entscheid 2026-10-18: nur Kriterium, kein Claim-Name)
+    "Produktauswahl",
     # Liquiditaets-Ausnahme
-    "Liquiditaet", "Konto", "Festgeld", "Kriterium", "ausgenommen",
+    "Liquiditaet", "Konto", "Festgeld", "Geldmarktfonds", "Kriterium",
+    "ausgenommen", "die", "gesamte", "Anlageklasse", "und", "unabhaengig",
+    "deren",
     # Funktionswoerter
     "Produkte", "nur", "nach", "oder", "mit", "von", "vom", "der", "in",
     "ist", "sind", "nicht", "ohne", "allein", "genuegt", "mindestens",
     "zulaessig",
 })
+# Policy-Namen duerfen NUR im Berater-Label stehen (nie im Kundendokument).
+_ESG_POLICY_NAME_VOCABULARY = frozenset({
+    "ESG", "Integration", "Best", "in", "Class", "Impact", "Investing",
+    "Paris", "aligned", "Net", "Zero",
+})
 
 
 def _pdf_esg_label(policy: str) -> str:
     lines = _pdf_preferences_text({"policy": {"esg": policy}}).splitlines()
-    return lines[lines.index("Nachhaltigkeit") + 1]
+    return lines[lines.index("ESG-Vorgabe") + 1]
 
 
 @pytest.mark.parametrize("policy", ["esg_integration", "best_in_class", "impact", "net_zero"])
@@ -971,13 +1001,145 @@ def test_esg_criteria_texts_use_only_whitelisted_vocabulary(policy):
     Vokabular; jedes unbekannte Wort ist ein Fehler."""
     import services.portfolio_engine_payload as payload
 
-    texts = [
+    customer_texts = [
         ESG_POLICY_CRITERIA[policy],
-        payload.esg_policy_criterion_label(policy),
+        payload.esg_policy_customer_label(policy),
         payload.ESG_POLICY_LIQUIDITY_EXEMPTION,
         _pdf_esg_label(policy),
     ]
-    for text_ in texts:
+    for text_ in customer_texts:
         unknown = set(re.findall(r"[A-Za-zÄÖÜäöüß]+", text_)) - _ESG_CRITERIA_VOCABULARY
         assert not unknown, (policy, sorted(unknown), text_)
+    advisor_label = payload.esg_policy_criterion_label(policy)
+    unknown = set(re.findall(r"[A-Za-zÄÖÜäöüß]+", advisor_label)) - (
+        _ESG_CRITERIA_VOCABULARY | _ESG_POLICY_NAME_VOCABULARY
+    )
+    assert not unknown, (policy, sorted(unknown), advisor_label)
     assert ESG_POLICY_CRITERIA[policy] in _pdf_esg_label(policy)
+
+
+# ---------------------------------------------------------------------------
+# 9. CIO-Entscheid 2026-10-18: Liquiditaets-Ausnahmetext == Code-Bedingung
+# ---------------------------------------------------------------------------
+
+
+_SFDR_POLICIES = ["esg_integration", "best_in_class", "impact", "net_zero"]
+
+
+def test_liquidity_exemption_text_and_matcher_share_one_asset_class_constant():
+    import inspect
+
+    import services.portfolio_engine_payload as payload
+
+    assert payload.ESG_POLICY_EXEMPT_ASSET_CLASS == "Liquiditaet"
+    assert f"gesamte Anlageklasse {payload.ESG_POLICY_EXEMPT_ASSET_CLASS}" in payload.ESG_POLICY_LIQUIDITY_EXEMPTION
+    source = inspect.getsource(payload._product_matches_constraints)
+    assert "asset_class != ESG_POLICY_EXEMPT_ASSET_CLASS" in source
+    assert 'asset_class != "Liquiditaet" and not product_meets_esg_policy' not in source
+
+
+@pytest.mark.parametrize("policy", _SFDR_POLICIES)
+@pytest.mark.parametrize("sub_asset_class,product_type,sfdr", [
+    ("Geldmarktfonds", "Fonds", "8"),   # Seed-Geldmarktfonds (SFDR Art. 8)
+    ("Geldmarktfonds", "Fonds", "6"),
+    ("Geldmarktfonds", "Fonds", None),
+    ("Kontoguthaben", "Cash", None),
+    ("Festgeld", "Cash", None),
+])
+def test_whole_liquidity_asset_class_is_exempt_as_the_text_states(policy, sub_asset_class, product_type, sfdr):
+    """Der Kundentext nennt Konto, Festgeld UND Geldmarktfonds unabhaengig von
+    der SFDR-Klasse -- genau das nimmt die Engine aus. Gegenprobe: ein Art.-6-
+    Produkt ausserhalb der Liquiditaet erfuellt das Kriterium nicht."""
+    from services.portfolio_engine_payload import ESG_POLICY_LIQUIDITY_EXEMPTION
+
+    liquid = _product(asset_class="Liquidität", sub_asset_class=sub_asset_class,
+                      product_type=product_type, sfdr_class=sfdr)
+    assert _product_matches_constraints(liquid, _prefs(policy={"esg": policy}), 8) is True
+    other = _product(asset_class="Obligationen", sub_asset_class="Obligationen CHF",
+                     product_type="ETF", sfdr_class="6")
+    assert _product_matches_constraints(other, _prefs(policy={"esg": policy}), 8) is False
+    named = {"Geldmarktfonds": "Geldmarktfonds", "Kontoguthaben": "Konto", "Festgeld": "Festgeld"}
+    assert named[sub_asset_class] in ESG_POLICY_LIQUIDITY_EXEMPTION
+    if sfdr:
+        assert "unabhaengig von deren SFDR-Klassifikation" in ESG_POLICY_LIQUIDITY_EXEMPTION
+
+
+def test_every_seed_liquidity_product_kind_is_named_in_exemption_text():
+    from services.portfolio_engine_payload import ESG_POLICY_LIQUIDITY_EXEMPTION
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(bind=engine)
+    SF = sessionmaker(bind=engine)
+    with SF() as s:
+        pe.ensure_default_products(s, jurisdiction="CH")
+        s.commit()
+        subs = {
+            str(p.sub_asset_class) for p in s.query(Product).all()
+            if pe._norm_text(p.asset_class) == "Liquiditaet"
+        }
+    engine.dispose()
+    assert subs
+    named = {"Geldmarktfonds": "Geldmarktfonds", "Kontoguthaben": "Konto", "Festgeld": "Festgeld"}
+    for sub in subs:
+        assert sub in named, sub
+        assert named[sub] in ESG_POLICY_LIQUIDITY_EXEMPTION
+
+
+# ---------------------------------------------------------------------------
+# 10. CIO-Entscheid 2026-10-18: Kundendokument nennt nur das Kriterium
+# ---------------------------------------------------------------------------
+
+
+def _claim_hits(text_: str) -> list[str]:
+    from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
+
+    lowered = text_.lower()
+    return [label for label in ESG_CUSTOMER_CLAIM_LABELS if label.lower() in lowered]
+
+
+def test_claim_label_guard_covers_every_policy_name():
+    """Jeder Berater-Policy-Name ist als Claim gesperrt -- ein neuer Name
+    ohne Waechter-Eintrag faellt hier auf."""
+    from services.portfolio_engine_payload import ESG_POLICY_NAMES
+
+    for name in ESG_POLICY_NAMES.values():
+        assert _claim_hits(name), name
+
+
+@pytest.mark.parametrize("policy", ["none", "negative_screening", *_SFDR_POLICIES])
+def test_customer_documents_contain_no_esg_claim_labels(policy):
+    """Anlagestrategie-PDF (Praeferenzabschnitt, inkl. Themen-Zeilen und
+    dokumentierter Abweichung) enthaelt keinen Claim-Namen."""
+    text_ = _pdf_preferences_text(_prefs(
+        policy={"esg": policy},
+        tilts={"fossil": "exclude", "tobacco": "allow", "alcohol": "underweight"},
+        tiltReasons={"tobacco": GOOD_REASON},
+    ))
+    assert "ESG-Vorgabe" in text_
+    assert not _claim_hits(text_), (policy, _claim_hits(text_), text_)
+
+
+@pytest.mark.parametrize("policy", _SFDR_POLICIES)
+def test_customer_label_states_only_the_checked_criterion(policy):
+    from services.portfolio_engine_payload import (
+        ESG_POLICY_LIQUIDITY_EXEMPTION,
+        ESG_POLICY_NAMES,
+        esg_policy_criterion_label,
+        esg_policy_customer_label,
+    )
+
+    customer = esg_policy_customer_label(policy)
+    assert customer == f"Kriterium der Produktauswahl: {ESG_POLICY_CRITERIA[policy]}"
+    assert ESG_POLICY_NAMES[policy] not in customer
+    for text_ in (customer, ESG_POLICY_CRITERIA[policy], ESG_POLICY_LIQUIDITY_EXEMPTION):
+        assert not _claim_hits(text_), (policy, text_)
+    assert _pdf_esg_label(policy) == f"{customer}; {ESG_POLICY_LIQUIDITY_EXEMPTION}"
+    # Berater-UI/-Hinweise duerfen Name + Kriterium zeigen.
+    assert esg_policy_criterion_label(policy) == f"{ESG_POLICY_NAMES[policy]} ({ESG_POLICY_CRITERIA[policy]})"
+
+
+def test_customer_label_is_none_without_sfdr_policy():
+    from services.portfolio_engine_payload import esg_policy_customer_label
+
+    for policy in ("none", "negative_screening", None, "unknown"):
+        assert esg_policy_customer_label(policy) is None

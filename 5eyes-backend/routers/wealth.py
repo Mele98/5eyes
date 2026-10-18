@@ -795,6 +795,31 @@ def _validate_goal_link(client_id: str, data: dict, db: Session) -> None:
         )
 
 
+def _validate_inflow_position_link(client_id: str, linked_position_id, db: Session) -> None:
+    """VORSORGE-TRANSFER-001 (2026-10-18): ein Zufluss darf nur auf eine
+    aktive, externe Vorsorge-Position ("Anderes Vermögen") desselben Kunden
+    verweisen -- nur dort ist er eine Umbuchung innerhalb des Gesamtvermoegens.
+    Eine Beratungsvermoegens-Position wuerde im Beratungspfad selbst doppelt
+    zaehlen; jede andere Position ist kein Vorsorgebezug."""
+    if not linked_position_id:
+        return
+    from services.portfolio_engine_pension_positions import is_external_pension_position
+
+    position = db.query(WealthPosition).filter(
+        WealthPosition.id == linked_position_id,
+        WealthPosition.client_id == client_id,
+        WealthPosition.deleted_at.is_(None),
+    ).first()
+    if position is None or not is_external_pension_position(position):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Verknüpfte Position muss eine aktive Vorsorge-Position "
+                "(Anderes Vermögen) desselben Kunden sein."
+            ),
+        )
+
+
 # ── Wealth Positions ───────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/wealth-positions", response_model=list[WealthPositionResponse])
@@ -910,12 +935,13 @@ def update_wealth_position(
     if any(f in updates for f in _ALLOC_FIELDS):
         merged = {f: int(updates.get(f, getattr(wp, f, 0)) or 0) for f in _ALLOC_FIELDS}
         total = sum(merged.values())
-        if wp.position_type != "Depot" and total != 0:
+        # VORSORGE-EXPOSURE-001: auch Vorsorge darf eine Aufteilung tragen.
+        if wp.position_type not in ("Depot", "Vorsorge") and total != 0:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "alloc_*-Felder sind ausschliesslich für Depot-Positionen "
-                    "zulässig."
+                    "alloc_*-Felder sind ausschliesslich für Depot- und "
+                    "Vorsorge-Positionen zulässig."
                 ),
             )
         if total != 0 and total != 10000:
@@ -1426,6 +1452,7 @@ def create_wealth_inflow(
                 status_code=422,
                 detail="Mandat und Vermoegenszufluss muessen zum selben Client gehoeren.",
             )
+    _validate_inflow_position_link(client_id, body.linked_position_id, db)
     now = _now()
     inflow = WealthInflow(
         id=new_uuid(),
@@ -1475,6 +1502,8 @@ def update_wealth_inflow(
         WealthInflowCreate.model_validate(merged_state)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if payload.get("linked_position_id"):
+        _validate_inflow_position_link(inflow.client_id, payload["linked_position_id"], db)
     for key, value in payload.items():
         setattr(inflow, key, value)
     inflow.updated_at = _now()
