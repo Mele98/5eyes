@@ -588,6 +588,34 @@ def _combine_financial_and_foundation_series(
     ]
 
 
+def _pension_series(
+    projection: dict | None,
+    horizon_years: int,
+) -> list[int] | None:
+    """VORSORGE-PROJECTION-001: optionale deterministische Vorsorge-Serie.
+
+    Externe Vorsorge steht nicht in total_summary.amounts_rappen (eigene
+    Kategorie) und wird im Total-Pfad wie die Direktimmobilie als
+    deterministische Serie addiert -- bis zum Bezug, danach steckt sie als
+    Zufluss im Cashflow-Pfad."""
+    if not isinstance(projection, dict):
+        return None
+    series = projection.get("pension_series_rappen")
+    if series is None:
+        return None
+    expected_length = max(0, int(horizon_years)) + 1
+    if (
+        not isinstance(series, list)
+        or len(series) != expected_length
+        or any(type(value) is not int or value < 0 for value in series)
+    ):
+        raise ValueError(
+            "pension series must contain non-negative integer Rappen "
+            "covering the simulation horizon"
+        )
+    return list(series)
+
+
 def _build_simulation_payload(
     *,
     advisory_summary: PortfolioSummary,
@@ -709,6 +737,17 @@ def _build_simulation_payload(
             property_series, liability_series, pledged_asset_series = (
                 external_foundation
             )
+            # VORSORGE-PROJECTION-001: externe Vorsorge laeuft als
+            # deterministische Serie neben dem Finanzpfad (wie das verpfaendete
+            # 3a-Guthaben der indirekten Amortisation).
+            pension_series = _pension_series(
+                external_foundation_projection, horizon_years,
+            )
+            if pension_series is not None:
+                pledged_asset_series = [
+                    int(pledged) + int(pension)
+                    for pledged, pension in zip(pledged_asset_series, pension_series)
+                ]
             financial_summary = _total_financial_summary_without_direct_property(
                 total_summary,
                 property_series[0],
@@ -1488,6 +1527,17 @@ def _run_allocation_monte_carlo(
                 foundation_liability_series,
                 foundation_pledged_asset_series,
             ) = external_foundation
+            # VORSORGE-PROJECTION-001: siehe _build_simulation_payload.
+            pension_series = _pension_series(
+                external_foundation_projection, horizon_years,
+            )
+            if pension_series is not None:
+                foundation_pledged_asset_series = [
+                    int(pledged) + int(pension)
+                    for pledged, pension in zip(
+                        foundation_pledged_asset_series, pension_series,
+                    )
+                ]
             total_financial_summary = (
                 _total_financial_summary_without_direct_property(
                     total_summary,

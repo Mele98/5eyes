@@ -59,7 +59,6 @@ from services.wealth_cashflows import (
     mortgage_interest_adjustment_series,
 )
 from services.wealth_position_semantics import (
-    canonical_position_type,
     WealthPositionSemanticsError,
     is_direct_real_estate_position,
     is_external_wealth_assignment,
@@ -202,6 +201,10 @@ DEFAULT_REBALANCE_TRANSACTION_COST_BPS = 15
 class PortfolioSummary:
     amounts_rappen: dict[str, int]
     total_rappen: int
+    # VORSORGE-PROJECTION-001: siehe services/portfolio_engine_pension_positions.py
+    pension_bound_rappen: int = 0
+    pension_exposure_amounts_rappen: dict[str, int] | None = None
+    assumption_notes: tuple[str, ...] = ()
 
 
 @dataclass
@@ -643,39 +646,11 @@ def _risk_score_bucket(assessment: RiskAssessment) -> int:
     return risk_score_bucket_from_validated_score(score_x10)
 
 
-def _default_weights_for_position(position: WealthPosition) -> dict[str, int]:
-    canonical_type = canonical_position_type(position.position_type)
-    total = (
-        int(position.alloc_equities_bps or 0)
-        + int(position.alloc_bonds_bps or 0)
-        + int(position.alloc_real_estate_bps or 0)
-        + int(position.alloc_alternatives_bps or 0)
-        + int(position.alloc_liquidity_bps or 0)
-    )
-    if _norm_text(canonical_type) == "Depot" and total == 10000:
-        return {
-            "equities": int(position.alloc_equities_bps or 0),
-            "bonds": int(position.alloc_bonds_bps or 0),
-            "real_estate": int(position.alloc_real_estate_bps or 0),
-            "alternatives": int(position.alloc_alternatives_bps or 0),
-            "liquidity": int(position.alloc_liquidity_bps or 0),
-        }
-
-    mapping = {
-        "Depot": {"equities": 6000, "bonds": 2500, "real_estate": 0, "alternatives": 500, "liquidity": 1000},
-        "Liquiditaet": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 10000},
-        "Immobilien": {"equities": 0, "bonds": 0, "real_estate": 10000, "alternatives": 0, "liquidity": 0},
-        "Vorsorge": {"equities": 4500, "bonds": 4500, "real_estate": 0, "alternatives": 0, "liquidity": 1000},
-        "Alternative": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 10000, "liquidity": 0},
-        "Hypothek": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 0},
-        "Custom": {"equities": 5000, "bonds": 2000, "real_estate": 1000, "alternatives": 500, "liquidity": 1500},
-    }
-    if is_direct_real_estate_position(position.position_type):
-        return mapping["Immobilien"].copy()
-    return mapping.get(
-        _norm_text(canonical_type),
-        mapping["Custom"],
-    ).copy()
+from services.portfolio_engine_pension_positions import (  # noqa: E402 -- VORSORGE-PROJECTION-001
+    position_bucket_weights as _default_weights_for_position, summarize_positions as _summarize_positions,
+    external_pension_projection as _external_pension_projection, with_pension_payouts as _with_pension_payouts,
+    pension_foundation_keys, pension_series_for_horizon, with_pension_notes,
+)
 
 
 def _convert_position_value_to_target_currency(
@@ -960,6 +935,7 @@ def _build_external_foundation_projection(
     horizon_years: int,
     fx_source=None,
     target_currency: str = "CHF",
+    wealth_inflows: list | None = None, start_year: int | None = None, mandate=None,
 ) -> dict[str, list[int]]:
     """Project direct property and mortgage principal outside listed-RE CMA.
 
@@ -1059,6 +1035,10 @@ def _build_external_foundation_projection(
         "property_series_rappen": property_series,
         "liability_series_rappen": liability_series,
         "pledged_asset_series_rappen": pledged_asset_series,
+        **pension_foundation_keys(  # VORSORGE-PROJECTION-001
+            positions, wealth_inflows, start_year=start_year, horizon_years=horizon,
+            fx_source=fx_source, target_currency=target_currency, mandate=mandate,
+        ),
     }
 
 
@@ -1116,9 +1096,10 @@ def _build_external_goal_funding_series(
             "Die externe Foundation-Serie deckt den Optimizer-Horizont nicht "
             "vollstaendig ab."
         )
+    pension_series = pension_series_for_horizon(external_foundation_projection, required_length)
     gross_start = max(0, int(external_gross_assets_rappen or 0))
     property_start = max(0, int(property_series[0])) if property_series else 0
-    non_property_gross_start = max(0, gross_start - property_start)
+    non_property_gross_start = max(0, gross_start - property_start - pension_series[0])
     return [
         int(
             _external_assets_inflation_value(
@@ -1128,28 +1109,11 @@ def _build_external_goal_funding_series(
             )
             + int(property_series[year])
             + int(pledged_series[year])
+            + int(pension_series[year])
             - int(liability_series[year])
         )
         for year in range(required_length)
     ]
-
-
-def _summarize_positions(
-    positions: list[WealthPosition],
-    fx_source=None,
-    target_currency: str = "CHF",
-) -> PortfolioSummary:
-    amounts = {key: 0 for key in BUCKET_FIELDS}
-    total_rappen = 0
-    for pos in positions:
-        value_rappen = _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
-        if value_rappen <= 0:
-            continue
-        weights = _default_weights_for_position(pos)
-        total_rappen += value_rappen
-        for key in BUCKET_FIELDS:
-            amounts[key] += int(round(value_rappen * weights[key] / 10000))
-    return PortfolioSummary(amounts_rappen=amounts, total_rappen=total_rappen)
 
 
 def _unlocked_other_assets_rappen(
@@ -2267,6 +2231,11 @@ def _load_allocation_inputs(
         horizon_years=projection_years,
         fx_source=fx_source,
         target_currency=target_currency,
+        wealth_inflows=wealth_inflows, start_year=cashflow_totals["year"], mandate=mandate,
+    )
+    total_summary = with_pension_notes(  # VORSORGE-PROJECTION-001: Reasoning
+        total_summary, all_positions, wealth_inflows, start_year=cashflow_totals["year"],
+        horizon_years=projection_years, fx_source=fx_source, target_currency=target_currency, mandate=mandate,
     )
     # B1: Cashflow-Series respektieren is_inflation_linked + CMA-Inflations-Pfad.
     # AHV/Lohn/Miete (linked=1) wachsen jaehrlich; Bonus/Erbschaft (linked=0) bleiben nominal.
@@ -2352,6 +2321,7 @@ def _load_allocation_inputs(
     inflow_projection_series_rappen = _wealth_inflow_series_rappen(
         wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
     )
+    inflow_projection_series_rappen = _with_pension_payouts(inflow_projection_series_rappen, external_foundation_projection)
     if any(inflow_projection_series_rappen):
         cashflow_projection_series_rappen = [
             int(cf) + int(infl)
@@ -5087,6 +5057,7 @@ def evaluate_goal_sensitivity(
             horizon_years=run_horizon,
             fx_source=inputs.get("cashflow_fx_source"),
             target_currency=str(inputs.get("cashflow_target_currency") or "CHF"),
+            wealth_inflows=inputs.get("wealth_inflows"), start_year=cashflow_totals["year"], mandate=mandate,
         )
         return _build_external_goal_funding_series(
             external_gross_assets_rappen=max(
@@ -5587,12 +5558,6 @@ def build_target_payload_from_allocation(
     capital_net_cashflow_rappen = capital_inflow_rappen - capital_outflow_rappen
     annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
     projection_years = _simulation_horizon_years(prefs["simulation"], goals, mandate)
-    external_foundation_projection = _build_external_foundation_projection(
-        all_positions,
-        horizon_years=projection_years,
-        fx_source=fx_source,
-        target_currency=target_currency,
-    )
     # B1: Cashflow-Series mit CMA-Inflations-Pfad (siehe _load_allocation_inputs).
     cf_inflation_series_bps = _inflation_path_series(cma, projection_years, cashflow_totals["year"])
     cashflow_projection_series_rappen = net_cashflow_series(
@@ -5639,9 +5604,13 @@ def build_target_payload_from_allocation(
         if active == 1:
             scoped_rebuild_inflows.append(inflow)
     rebuild_wealth_inflows = scoped_rebuild_inflows
-    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
-        rebuild_wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    external_foundation_projection = _build_external_foundation_projection(  # nach den Zufluessen
+        all_positions, horizon_years=projection_years, fx_source=fx_source, target_currency=target_currency,
+        wealth_inflows=rebuild_wealth_inflows, start_year=cashflow_totals["year"], mandate=mandate,
     )
+    inflow_projection_series_rappen = _with_pension_payouts(_wealth_inflow_series_rappen(
+        rebuild_wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    ), external_foundation_projection)
     # ebenso wie generate-Pfad: Inflows in cashflow_projection einrechnen
     if any(inflow_projection_series_rappen):
         cashflow_projection_series_rappen = [

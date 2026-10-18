@@ -336,6 +336,14 @@ def ensure_runtime_columns() -> None:
         # erwartet int, nicht NULL).
         'wealth_positions': [
             ('property_rental_inflation_linked', 'INTEGER', 0),
+            # VORSORGE-PROJECTION-001 (2026-10-18): siehe models/wealth.py.
+            # Alle NULL = Defaults je Anlageform (unveraendert erfassbar).
+            ('pension_vehicle', 'TEXT'),
+            ('pension_interest_rate_bps', 'INTEGER'),
+            ('pension_maturity_value_rappen', 'INTEGER'),
+            ('pension_maturity_date', 'TEXT'),
+            ('pension_lumpsum_tax_rappen', 'INTEGER'),
+            ('pension_lumpsum_tax_bps', 'INTEGER'),
         ],
         # A2-Smoke-Test-Fund (2026-07-22): 'target_allocations' hatte einen
         # DOPPELTEN Dict-Key in diesem Literal (hier + weiter unten). In Python
@@ -515,6 +523,12 @@ def ensure_runtime_columns() -> None:
             # wird abgeleitet (services/goal_lifecycle.py). Alt-DBs bekommen die
             # Spalte hier, frische Installationen aus dem Bootstrap-DDL.
             ('lifecycle_decision', 'TEXT'),
+        ],
+        # VORSORGE-TRANSFER-001 (2026-10-18): siehe models/wealth.py::
+        # WealthInflow.linked_position_id. NULL = Zufluss ist neues Vermoegen
+        # (unveraendertes Verhalten fuer Bestandszeilen).
+        'wealth_inflows': [
+            ('linked_position_id', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),

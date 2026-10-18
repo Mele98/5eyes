@@ -36,6 +36,14 @@ class WealthPosition(Base):
     pension_retirement_age = Column(Integer)
     pension_payout_form = Column(String)
     pension_wef_possible = Column(Integer, nullable=False, default=0)
+    # VORSORGE-PROJECTION-001 (2026-10-18): deterministische Fortschreibung,
+    # siehe services/portfolio_engine_pension_positions.py.
+    pension_vehicle = Column(String)  # 'Konto' | 'Wertschriften' | 'Police'
+    pension_interest_rate_bps = Column(Integer)  # nominal p.a.; NULL = Default
+    pension_maturity_value_rappen = Column(Integer)  # garantierter Ablaufwert
+    pension_maturity_date = Column(String)  # ISO, Faelligkeit der Police
+    pension_lumpsum_tax_rappen = Column(Integer)  # Kapitalbezugssteuer CHF (Vorrang)
+    pension_lumpsum_tax_bps = Column(Integer)  # oder Satz; beides NULL = Default
     mortgage_bank = Column(String)
     mortgage_type = Column(String)
     mortgage_interest_rate_bps = Column(Integer)
@@ -126,6 +134,12 @@ class WealthInflow(Base):
     duration_years = Column(Integer)  # bei recurring
     value_mode = Column(String, nullable=False, default="nominal")  # 'nominal' | 'real'
     notes = Column(String)
+    # VORSORGE-TRANSFER-001 (2026-10-18): optionaler Verweis auf die externe
+    # Vorsorge-Position, aus der dieser Zufluss stammt (Kapitalbezug 2./3a-
+    # Saeule/Freizuegigkeit). Dann ist der Zufluss eine Umbuchung innerhalb
+    # des Gesamtvermoegens: die Position wird ab dem Bezugsjahr ausgebucht
+    # (services/portfolio_engine_pension_positions.py). NULL = neues Vermoegen.
+    linked_position_id = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
