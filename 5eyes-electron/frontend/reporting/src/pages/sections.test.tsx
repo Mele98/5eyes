@@ -421,6 +421,29 @@ describe('Section 11: Goals', () => {
     expect(screen.getByTestId('goal-marker-g2')).toBeInTheDocument();
   });
 
+  it('GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz genau einmal, Spalte nach Priorität', () => {
+    render(withRouter(<Goals data={makeGoals()} />));
+    const kpi = screen.getByTestId('plan-solvency-kpi');
+    expect(kpi).toHaveTextContent('Plan-Solvenz (alle Ziele gemeinsam)');
+    expect(kpi).toHaveTextContent('46 %');
+    expect(screen.getAllByText('Plan-Solvenz (alle Ziele gemeinsam)')).toHaveLength(1);
+    expect(screen.getByText('Zielerreichung nach Priorität')).toBeInTheDocument();
+    expect(screen.queryByText('Wahrscheinlichkeit')).not.toBeInTheDocument();
+  });
+
+  it('GOAL-ACHIEVABILITY-ATTRIBUTION-001: ohne Planwert keine Plan-Solvenz-Karte', () => {
+    render(withRouter(<Goals data={{ ...makeGoals(), plan_solvency: null }} />));
+    expect(screen.queryByTestId('plan-solvency-kpi')).not.toBeInTheDocument();
+  });
+
+  it('GOAL-ACHIEVABILITY-ATTRIBUTION-001: Altbewertung ohne Scope trägt keine Ampel', () => {
+    const data = makeGoals();
+    data.goals = [{ ...data.goals[0], evaluation_scope: 'legacy_aggregate_unknown' }];
+    render(withRouter(<Goals data={data} />));
+    expect(screen.getByText('Altbewertung')).toBeInTheDocument();
+    expect(screen.queryByText('Erreichbar')).not.toBeInTheDocument();
+  });
+
   it('U-12: Goal jenseits Horizont hat KEINEN Marker', () => {
     const data = makeGoalsWithPaths();
     // Pension (g1): target_date 2042-09-18, time_axis endet 2041 -> beyond

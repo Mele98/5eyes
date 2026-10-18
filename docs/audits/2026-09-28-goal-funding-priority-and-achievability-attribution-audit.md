@@ -835,3 +835,26 @@ Die drei neuen P1 sind mathematisch reproduziert, produktionsrelevant und durch
 269 grüne Bestandstests nicht abgedeckt. Reale Goal-Achievability-, Konflikt-
 und Hauptzielclaims bleiben bis zur vollständigen Umsetzung des
 Reparaturvertrags gesperrt.
+
+## Umsetzungsstand `GOAL-ACHIEVABILITY-ATTRIBUTION-001` (Nachtrag 2026-10-14)
+
+Owner-Entscheid umgesetzt auf Branch `feat/goal-attribution-and-dd-certification`
+(`services/optimizer/goal_attribution.py`). Dies ist ein Bewertungs- und
+Publikationsvertrag; die Chance-Penalty und der Shortfall-Term der
+Zielfunktion sind unverändert.
+
+| Vertragspunkt | Stand |
+|---|---|
+| 1 diskriminierter `evaluation_scope` | erfüllt: `priority_funded` (je Ziel) und `joint_plan` (genau eine Zeile); `marginal_counterfactual` nicht umgesetzt (nicht beauftragt). |
+| 2 keine Probability ohne Scope | erfüllt für neue Läufe; Altzeilen werden beim Lesen zu `legacy_aggregate_unknown` und tragen in Bericht, PDF, Classic UI und React keine Ampel; Score und Zielkompatibilität werden für Altbewertungen nicht beurteilt. |
+| 3 Funding-Ledger je Ziel | erfüllt: kumulativer Rang-Scope `S_r = {h | rank(h) <= r}` auf denselben realisierten Renditen (keine zweite Ziehung, kein Lookahead). Gleichrang = gemeinsamer Scope; Härte wirkt nicht auf die Finanzierungsreihenfolge; keine Vorausreservierung für Vermögensschwellen. Policy `rank_cumulative_scope_v1` je Zeile persistiert. |
+| 4 eine Plan-Solvenz-Zeile | erfüllt; Label „Plan-Solvenz (alle Ziele gemeinsam)“, Schwelle = strengste Zielschwelle. |
+| 5 Goal-Driver benannt | erfüllt: `evaluation_scope = weighted_loss_component_under_joint_path` auf jedem Driver. |
+| 6 Konflikt-Deduplikation | erfüllt: typisierte `failure_event_id` (erstes Insolvenzjahr des Funding-Pfads bzw. eigene Zielschwelle); `classify_limiting_factor` → `gemeinsamer_engpass`, Meldung `CONFLICT_SHARED_BOTTLENECK`. |
+| 7 Persistenz-Bindung | teilweise: Scope, Policy-Version, Rang und Event je Zeile in `goal_achievability_json`; Resultathash/Signatur-Bindung nicht Teil dieses Pakets. |
+| 8 Kanalparität | API, Classic UI, React, Anlagestrategie- und Beratungsbericht-PDF verwenden dieselben Labels. |
+
+Weiter rot (xfail, mit präzisem Grund): `test_goal_achievability_attribution_shared_aggregate_path`
+(prüft den unveränderten Verlustterm der Zielfunktion) und
+`test_risk_matrix_conflict_shared_cause_double_counted` (in sich widersprüchlich).
+`GOAL-RANK-HARDNESS-ROUNDTRIP-001` ist nicht Teil dieses Pakets.
