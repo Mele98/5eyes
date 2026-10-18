@@ -397,11 +397,16 @@ def _risk_assessment_has_documented_override(assessment: RiskAssessment) -> bool
         final_score = int(getattr(assessment, "final_score_x10", 0) or 0)
     except (TypeError, ValueError):
         return False
-    if _risk_override_profile_band(override_score) - _risk_override_profile_band(final_score) < 2:
-        return True
-    return bool(getattr(assessment, "override_client_confirmed", 0)) and bool(
-        getattr(assessment, "override_warning_delivered", 0)
+    from services.risk_assessment_semantics import (
+        _optional_capacity_score, override_documentation_requirements,
     )
+    needs_confirmation, needs_warning = override_documentation_requirements(
+        final_score_x10=final_score, override_score_x10=override_score,
+        risk_capacity_score_x10=_optional_capacity_score(assessment),
+    )
+    if needs_confirmation and not getattr(assessment, "override_client_confirmed", 0):
+        return False
+    return not needs_warning or bool(getattr(assessment, "override_warning_delivered", 0))
 
 
 def risk_assessment_ready_for_strategy(assessment: RiskAssessment | None) -> bool:
