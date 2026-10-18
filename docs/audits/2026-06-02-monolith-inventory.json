@@ -4124,7 +4124,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4676,
+      "line": 4691,
       "tag": "select",
       "value": "onDateGroupChange('acf-valid-from')"
     },
@@ -4164,20 +4164,12 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4685,
+      "line": 4927,
       "tag": "select",
-      "value": "onDateGroupChange('acf-valid-until')"
+      "value": "onDateGroupChange('nz-start-date')"
     },
     {
       "class": "fsel dg-month",
-      "handler": "onchange",
-      "id": "",
-      "line": 4685,
-      "tag": "select",
-      "value": "onDateGroupChange('acf-valid-until')"
-    },
-    {
-      "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
       "line": 4928,
@@ -4196,7 +4188,7 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4922,
+      "line": 4936,
       "tag": "select",
       "value": "onDateGroupChange('nz-target-date')"
     },
@@ -4204,7 +4196,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4922,
+      "line": 4937,
       "tag": "select",
       "value": "onDateGroupChange('nz-target-date')"
     },
@@ -5652,7 +5644,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 4428,
+      "line": 4442,
       "tag": "button",
       "value": "btSetHorizonPreset('2000')"
     },
@@ -5660,7 +5652,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 4428,
+      "line": 4443,
       "tag": "button",
       "value": "btSetHorizonPreset('2008')"
     },
@@ -5980,7 +5972,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 5192,
+      "line": 5206,
       "tag": "button",
       "value": "cm('m-nt')"
     },
@@ -5996,7 +5988,7 @@
       "class": "mx",
       "handler": "onclick",
       "id": "",
-      "line": 5192,
+      "line": 5207,
       "tag": "button",
       "value": "cm('m-ap')"
     },
@@ -6004,7 +5996,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 5192,
+      "line": 5207,
       "tag": "button",
       "value": "cm('m-ap')"
     },
@@ -6222,31 +6214,7 @@
       "id": "",
       "line": 10384,
       "tag": "button",
-      "value": "cm('m-edit-hypo')"
-    },
-    {
-      "class": "btn",
-      "handler": "onclick",
-      "id": "",
-      "line": 10371,
-      "tag": "button",
-      "value": "cm('m-edit-hypo')"
-    },
-    {
-      "class": "",
-      "handler": "onclick",
-      "id": "",
-      "line": 10372,
-      "tag": "button",
-      "value": "cm('m-edit-hypo')"
-    },
-    {
-      "class": "btn-p",
-      "handler": "onclick",
-      "id": "",
-      "line": 10373,
-      "tag": "button",
-      "value": "cm('m-edit-hypo')"
+      "value": "cm('m-edit-immo')"
     },
     {
       "class": "mx",
@@ -8360,18 +8328,6 @@
     },
     {
       "class": "fsel",
-      "id": "aa-tilt-nuclear",
-      "line": 3687,
-      "tag": "select"
-    },
-    {
-      "class": "fsel",
-      "id": "aa-tilt-nuclear",
-      "line": 3687,
-      "tag": "select"
-    },
-    {
-      "class": "fsel",
       "id": "aa-tilt-tobacco",
       "line": 3699,
       "tag": "select"
@@ -9782,12 +9738,6 @@
     },
     {
       "class": "",
-      "id": "bt-bm-sum",
-      "line": 4490,
-      "tag": "div"
-    },
-    {
-      "class": "",
       "id": "bt-bm-top-controls",
       "line": 4492,
       "tag": "div"
@@ -10792,12 +10742,6 @@
       "class": "",
       "id": "dc-status",
       "line": 4299,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "dc-status",
-      "line": 4283,
       "tag": "div"
     },
     {
@@ -13011,13 +12955,13 @@
     {
       "class": "sb-az",
       "id": "sb-az",
-      "line": 2880,
+      "line": 2882,
       "tag": "div"
     },
     {
       "class": "sb-scroll",
       "id": "sbl",
-      "line": 2881,
+      "line": 2883,
       "tag": "div"
     },
     {
@@ -13119,31 +13063,31 @@
     {
       "class": "sd-archive-search",
       "id": "sd-archive-search",
-      "line": 2951,
+      "line": 2953,
       "tag": "input"
     },
     {
       "class": "sd-archive-type-filter",
       "id": "sd-archive-type-filter",
-      "line": 2952,
+      "line": 2954,
       "tag": "div"
     },
     {
       "class": "cni",
       "id": "sd-completeness-label",
-      "line": 2959,
+      "line": 2961,
       "tag": "span"
     },
     {
       "class": "",
       "id": "sd-output-hub",
-      "line": 2954,
+      "line": 2956,
       "tag": "div"
     },
     {
       "class": "",
       "id": "sd-pref-summary",
-      "line": 2933,
+      "line": 2935,
       "tag": "div"
     },
     {
@@ -13436,156 +13380,6 @@
     },
     {
       "class": "",
-      "id": "sr-goal-score",
-      "line": 3969,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-goal-sub",
-      "line": 3970,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-horizon",
-      "line": 4008,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-implementation-steps",
-      "line": 4032,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-implementation-sub",
-      "line": 4030,
-      "tag": "span"
-    },
-    {
-      "class": "cht",
-      "id": "sr-implementation-title",
-      "line": 4030,
-      "tag": "span"
-    },
-    {
-      "class": "",
-      "id": "sr-next-review",
-      "line": 3976,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-next-review-date",
-      "line": 4036,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-ovr-badge",
-      "line": 3960,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-pref-focus-chips",
-      "line": 4018,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-pref-restriction-chips",
-      "line": 4024,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-proj-sub",
-      "line": 3975,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-proj-wealth",
-      "line": 3974,
-      "tag": "div"
-    },
-    {
-      "class": "btn-g",
-      "id": "sr-recipe-print",
-      "line": 4030,
-      "tag": "button"
-    },
-    {
-      "class": "",
-      "id": "sr-risk-profile",
-      "line": 3959,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-risk-score",
-      "line": 3958,
-      "tag": "div"
-    },
-    {
-      "class": "card",
-      "id": "sr-riskprofile-card",
-      "line": 3980,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-hint",
-      "line": 3998,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-meta",
-      "line": 3991,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-override",
-      "line": 3987,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-profile",
-      "line": 3986,
-      "tag": "div"
-    },
-    {
-      "class": "btn-g btn-sm",
-      "id": "sr-riskprofile-sign-btn",
-      "line": 3981,
-      "tag": "button"
-    },
-    {
-      "class": "",
-      "id": "sr-riskprofile-signature",
-      "line": 3995,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-signature-block",
-      "line": 4042,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "sr-strategy-name",
-      "line": 4007,
-      "tag": "div"
-    },
-    {
-      "class": "",
       "id": "sr-wealth",
       "line": 3980,
       "tag": "div"
@@ -13834,11 +13628,6 @@
       "declaration": "function",
       "line": 19762,
       "name": "_horizonBirthYear"
-    },
-    {
-      "declaration": "var",
-      "line": 21878,
-      "name": "_lastRappen"
     },
     {
       "declaration": "function",
@@ -20005,7 +19794,7 @@
     {
       "class": "modal",
       "id": "",
-      "line": 5193,
+      "line": 5208,
       "role": "",
       "tag": "div"
     },
