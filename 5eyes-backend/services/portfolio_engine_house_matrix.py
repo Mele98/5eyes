@@ -486,16 +486,24 @@ def house_band_deviation_note(
     )
 
 
-def house_band_deviation_notes_for_allocation(
+def house_band_deviation_disclosure_for_allocation(
     db: Session,
     allocation,
     assessment,
     policy: OptimizerPolicy,
-) -> list[str]:
-    """Freigabe-Gate (F-BAND-1): rekonstruiert aus dem persistierten
-    Praeferenz-Snapshot der Soll-Allokation, ob eine Mandatsbandbreite die
-    Hausmatrix-Bandbreite des Risikoprofils verlaesst. Liefert Hinweistexte,
-    keine Fehler -- die Abweichung ist erlaubt, nur nicht still.
+) -> dict:
+    """BAND-DEVIATION-REASON-REQUIRED-001: eine Quelle fuer Freigabe-Gate
+    und Kundendokumente.
+
+    Liest den persistierten Praeferenz-Snapshot der Soll-Allokation (nie die
+    Live-Praeferenzen) und liefert:
+
+    - ``deviations``: strukturierte Abweichungen je Bucket
+      (``advisor_band_house_deviations``),
+    - ``notes``: Berater-Hinweistexte (``house_band_deviation_note``),
+    - ``profile`` / ``score_bucket``: Hausmatrix-Profil des Ankers,
+    - ``reason``: die dokumentierte Begruendung (``bandDeviationReason``)
+      oder ``None``.
     """
     from services.portfolio_engine import (
         _allocation_snapshot_preferences,
@@ -505,19 +513,49 @@ def house_band_deviation_notes_for_allocation(
 
     prefs = _allocation_snapshot_preferences(allocation) or {}
     bands = prefs.get("bands") if isinstance(prefs, dict) else None
+    raw_reason = prefs.get("bandDeviationReason") if isinstance(prefs, dict) else None
+    reason = str(raw_reason).strip() if isinstance(raw_reason, str) and raw_reason.strip() else None
+    empty = {
+        "deviations": [],
+        "notes": [],
+        "profile": None,
+        "score_bucket": None,
+        "reason": reason,
+    }
     if not bands:
-        return []
+        return empty
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     _targets, house_minimums, house_maximums = _baseline_target_bands(house_matrix, policy)
-    return [
-        house_band_deviation_note(
-            deviation,
-            house_profile=house_matrix.profile_name,
-            score_bucket=score_bucket,
-        )
-        for deviation in advisor_band_house_deviations(bands, house_minimums, house_maximums)
-    ]
+    deviations = advisor_band_house_deviations(bands, house_minimums, house_maximums)
+    return {
+        "deviations": deviations,
+        "notes": [
+            house_band_deviation_note(
+                deviation,
+                house_profile=house_matrix.profile_name,
+                score_bucket=score_bucket,
+            )
+            for deviation in deviations
+        ],
+        "profile": house_matrix.profile_name,
+        "score_bucket": score_bucket,
+        "reason": reason,
+    }
+
+
+def house_matrix_bands_payload(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> dict:
+    """BAND-DEVIATION-REASON-REQUIRED-001: die (policy-bereinigte)
+    Hausmatrix-Bandbreite je Bucket fuer den Bandbreiten-Editor. Die
+    Bucket-Bandbreite im Payload ist nach einem Override bereits die
+    Mandatsbandbreite und taugt daher nicht als Vergleichsbasis."""
+    from services.portfolio_engine import BUCKET_FIELDS
+
+    _targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    return {
+        key: {"min_bps": int(minimums[key]), "max_bps": int(maximums[key])}
+        for key in BUCKET_FIELDS
+    }
 
 
 def _apply_band_min_max_overrides(

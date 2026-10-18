@@ -374,29 +374,48 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
                 f"{exc}"
             )
     if allocation and assessment and policy:
-        # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): eine Mandatsbandbreite
-        # ausserhalb der Hausmatrix-Bandbreite des Risikoprofils ist erlaubt,
-        # darf aber nicht unbemerkt freigegeben werden. Bewusst nur WARNUNG,
-        # kein neuer Blocker -- ob eine dokumentierte Begruendung Pflicht
-        # wird, ist eine Produktentscheidung.
+        # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1) +
+        # BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14):
+        # eine Mandatsbandbreite ausserhalb der Hausmatrix-Bandbreite des
+        # Risikoprofils bleibt erlaubt, braucht aber eine dokumentierte
+        # Begruendung im Praeferenz-Snapshot der Soll-Allokation
+        # (``bandDeviationReason``). Ohne tragfaehige Begruendung ist die
+        # Freigabe BLOCKIERT -- Fehler, keine Warnung.
+        from services.override_reason_quality import (
+            OverrideReasonQualityError,
+            validate_override_reason_quality,
+        )
         from services.portfolio_engine_house_matrix import (
-            house_band_deviation_notes_for_allocation,
+            house_band_deviation_disclosure_for_allocation,
         )
 
         try:
-            band_notes = house_band_deviation_notes_for_allocation(
+            band_disclosure = house_band_deviation_disclosure_for_allocation(
                 db, allocation, assessment, policy,
             )
         except ValueError as exc:
-            band_notes = [
-                "Abgleich der Mandatsbandbreiten mit der Hausmatrix war nicht "
-                f"moeglich: {exc}"
-            ]
-        for note in band_notes:
-            warnings.append(
-                f"{note} Abweichung vom Eignungsrahmen vor der Freigabe "
-                "begruenden und mit dem Kunden besprechen."
+            band_disclosure = None
+            errors.append(
+                "Abweichung vom Eignungsrahmen des Risikoprofils: Abgleich der "
+                f"Mandatsbandbreiten mit der Hausmatrix war nicht moeglich: {exc}"
             )
+        if band_disclosure and band_disclosure["notes"]:
+            notes_text = " ".join(band_disclosure["notes"])
+            reason = band_disclosure["reason"]
+            try:
+                validate_override_reason_quality(reason)
+            except OverrideReasonQualityError as exc:
+                errors.append(
+                    "Abweichung vom Eignungsrahmen des Risikoprofils ohne "
+                    f"tragfaehige Begruendung: {notes_text} Bitte im "
+                    "Bandbreiten-Editor eine dokumentierte Begruendung erfassen "
+                    f"und die Strategie neu berechnen ({exc})."
+                )
+            else:
+                warnings.append(
+                    f"Abweichung vom Eignungsrahmen des Risikoprofils: {notes_text} "
+                    f"Dokumentierte Begruendung: {reason}"
+                )
     positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
     if not positions:
         errors.append("Empfehlung enthaelt keine Positionen.")

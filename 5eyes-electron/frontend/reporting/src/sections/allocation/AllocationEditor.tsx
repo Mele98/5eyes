@@ -48,6 +48,10 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [metrics, setMetrics] = useState<GenerateMetrics | null>(null);
+  // MANUAL-SAVE-DEADEND-001: jede manuelle Speicherung braucht eine
+  // Begründung (Backend prüft Qualität, FIDLEG Art. 13).
+  const [reason, setReason] = useState('');
+  const [saveWarnings, setSaveWarnings] = useState<string[]>([]);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -107,21 +111,28 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
   async function onSave() {
     if (!draft || !record) return;
     const validationErrors = validateAllocation(draft);
+    if (reason.trim().length === 0) {
+      validationErrors.push('Bitte die Begründung der manuellen Anpassung erfassen.');
+    }
     if (validationErrors.length > 0) {
       setErrors(validationErrors);
       return;
     }
     setSaving(true);
     setErrors([]);
+    setSaveWarnings([]);
     setStatusMsg('');
     try {
       const payload = buildTargetAllocationPayload(draft, record.policy_id, {
         based_on_assessment_id: record.based_on_assessment_id,
         risky_fraction_bps: record.risky_fraction_bps,
+        override_reason: reason.trim(),
       });
       const saved = await saveTargetAllocation(mandateId, payload);
       setRecord(saved);
       setDraft(draftFromRecord(saved));
+      setSaveWarnings(saved.manual_override_warnings ?? []);
+      setReason('');
       setStatusMsg(`SOLL-Allokation gespeichert (Version ${saved.version}).`);
     } catch (err) {
       setErrors([err instanceof ApiError ? err.detail : 'Speichern fehlgeschlagen.']);
@@ -232,6 +243,25 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
               {bpsToPct(metrics.risky_fraction_total_bps)}
               {metrics.limiting_factor ? ` · limitierend: ${metrics.limiting_factor}` : ''}
             </p>
+          )}
+
+          <label className="mt-block block text-caption text-ink-subtle" htmlFor="allocation-override-reason">
+            Begründung der manuellen Anpassung (Pflicht)
+          </label>
+          <textarea
+            id="allocation-override-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            className="mt-1 w-full rounded border border-rule bg-canvas px-2 py-1 text-body text-ink"
+          />
+
+          {saveWarnings.length > 0 && (
+            <ul className="mt-block list-disc rounded border border-rule p-3 pl-8 text-caption text-ink-muted">
+              {saveWarnings.map((msg, idx) => (
+                <li key={idx}>{msg}</li>
+              ))}
+            </ul>
           )}
 
           {errors.length > 0 && (

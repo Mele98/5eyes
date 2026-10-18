@@ -85,7 +85,11 @@ export function validateAllocation(draft: AllocationDraft): string[] {
 export function buildTargetAllocationPayload(
   draft: AllocationDraft,
   policyId: string,
-  extra: { risky_fraction_bps?: number | null; based_on_assessment_id?: string | null } = {},
+  extra: {
+    risky_fraction_bps?: number | null;
+    based_on_assessment_id?: string | null;
+    override_reason?: string | null;
+  } = {},
 ): TargetAllocationCreatePayload {
   return {
     target_equities_bps: draft.equities.target,
@@ -106,6 +110,7 @@ export function buildTargetAllocationPayload(
     risky_fraction_bps: extra.risky_fraction_bps ?? null,
     based_on_assessment_id: extra.based_on_assessment_id ?? null,
     policy_id: policyId,
+    override_reason: extra.override_reason ?? null,
   };
 }
 
