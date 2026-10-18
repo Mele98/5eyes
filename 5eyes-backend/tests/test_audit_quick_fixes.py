@@ -317,6 +317,7 @@ def test_f4_create_target_allocation_without_assessment_returns_409(
         "band_real_estate_min_bps": 500, "band_real_estate_max_bps": 1500,
         "band_alternatives_min_bps": 300, "band_alternatives_max_bps": 800,
         "band_liquidity_min_bps": 200, "band_liquidity_max_bps": 800,
+        "override_reason": "Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     }
     resp = auth_client.post(f"/mandates/{mid}/target-allocation", json=payload)
     assert resp.status_code == 409, resp.text
@@ -348,6 +349,7 @@ def test_f4_create_target_allocation_with_assessment_succeeds(
         "band_real_estate_min_bps": 500, "band_real_estate_max_bps": 1500,
         "band_alternatives_min_bps": 300, "band_alternatives_max_bps": 800,
         "band_liquidity_min_bps": 200, "band_liquidity_max_bps": 800,
+        "override_reason": "Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     }
     resp = auth_client.post(f"/mandates/{mid}/target-allocation", json=payload)
     assert resp.status_code == 201, resp.text
