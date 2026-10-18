@@ -381,6 +381,9 @@ class RisikoprofilData:
     override_reason: str | None = None
     override_client_confirmed: bool | None = None
     override_warning_delivered: bool | None = None
+    # RISK-CAPACITY-PLAUSIBILITY-001: neutraler Berater-Satz, wenn die
+    # Fragebogen-Angaben den erfassten Finanzdaten widersprechen.
+    capacity_plausibility_note: str = ""
 
 
 @dataclass(frozen=True)

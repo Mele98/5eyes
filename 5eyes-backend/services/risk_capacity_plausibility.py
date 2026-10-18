@@ -1,0 +1,836 @@
+"""Plausibilitaetspruefung der Risikofaehigkeit gegen die erfassten Finanzdaten.
+
+RISK-CAPACITY-PLAUSIBILITY-001 (Variablen-Audit 2026-10-18, P0).
+
+Die Risikofaehigkeit stammt ausschliesslich aus dem Fragebogen (Fragen 3, 5,
+6, 7 und 8; ``services/risk_scoring.py``). Sie wurde bisher nie gegen das
+gehalten, was in der App strukturiert erfasst ist (Vermoegenspositionen,
+Hypotheken/Verbindlichkeiten, Cashflows, Ziele). Ein Kunde konnte "hohe
+Risikofaehigkeit" angeben, obwohl er laut erfassten Daten hohe Schulden, ein
+negatives Budget oder grosse Nahziele hat.
+
+Dieses Modul ist bewusst KEIN neuer Score:
+
+* es aendert das Risikoprofil NIE (der Fragebogen bleibt nach §2 die einzige
+  Quelle; Profil = MIN(Faehigkeit, Bereitschaft) bleibt unveraendert);
+* es blockiert die Strategie NICHT;
+* es meldet einen Widerspruch mit Reason-Code ``RISK_CAPACITY_INCONSISTENT``
+  und konkreter Begruendung. Der Berater entscheidet: Fragebogen korrigieren
+  oder das Profil per Override nach unten setzen (User-Regel: "immer den
+  tieferen Wert").
+
+Pruefrichtung: es wird ausschliesslich ein UEBERschaetzen der Risikofaehigkeit
+gemeldet (Angabe guenstiger als die Daten). Eine guenstigere Datenlage als
+angegeben ist konservativ und kein Befund.
+
+Robustheit: Die erfassten Daten sind oft unvollstaendig (nicht jede Ausgabe
+ist als Cashflow erfasst). Jede Regel ist darum so formuliert, dass fehlende
+Daten den Befund abschwaechen statt ihn zu erfinden -- z.B. gilt das frei
+verfuegbare Vermoegen als OBERGRENZE (alle nicht gebundenen Positionen), die
+Sparquote als Obergrenze (Brutto- statt Nettoeinkommen). Wo eine Regel ohne
+Daten nicht pruefbar ist, wird das explizit als "nicht pruefbar" ausgewiesen,
+nie still als "konsistent".
+
+Alle Schwellen sind CIO-Defaults, Compliance zu bestaetigen (siehe
+``THRESHOLDS``); sie sind versioniert (``PLAUSIBILITY_RULES_VERSION``), damit
+ein Audit-Eintrag nachvollziehbar bleibt, wenn die Schwellen spaeter geaendert
+werden.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Any
+
+from services.risk_scoring import (
+    CAPACITY_BAND,
+    HORIZON_YEARS,
+    canonicalize_horizon_label,
+)
+
+logger = logging.getLogger(__name__)
+
+REASON_CODE = "RISK_CAPACITY_INCONSISTENT"
+PLAUSIBILITY_RULES_VERSION = "RCP-2026-10-18.v1"
+
+STATUS_CONSISTENT = "consistent"
+STATUS_INCONSISTENT = "inconsistent"
+STATUS_NOT_EVALUABLE = "not_evaluable"
+
+# Pruef-IDs (stabil fuer UI/Audit/Tests).
+CHECK_INCOME = "INCOME_ABOVE_RECORDED"
+CHECK_OBLIGATIONS = "OBLIGATIONS_BELOW_RECORDED"
+CHECK_FREE_WEALTH = "FREE_WEALTH_ABOVE_RECORDED"
+CHECK_SAVINGS = "SAVINGS_RATE_ABOVE_RECORDED"
+CHECK_LEVERAGE = "LEVERAGE_HIGH"
+CHECK_NEAR_TERM_GOALS = "NEAR_TERM_GOALS_HIGH"
+
+CHECK_SHORT_LABELS = {
+    CHECK_INCOME: "Frage 3 Einkommen",
+    CHECK_OBLIGATIONS: "Frage 5 Verpflichtungen",
+    CHECK_FREE_WEALTH: "Frage 6 freies Vermögen",
+    CHECK_SAVINGS: "Frage 7 Sparquote",
+    CHECK_LEVERAGE: "Verschuldung",
+    CHECK_NEAR_TERM_GOALS: "Nahziele",
+}
+
+# ---------------------------------------------------------------------------
+# Antwort-Baender des Fragebogens (§2, 1:1 aus 5eyes_v2.html, CHF).
+# (untere Grenze, obere Grenze | None = offen). Index = Antwortposition.
+# ---------------------------------------------------------------------------
+INCOME_BANDS_CHF_MONTH: tuple[tuple[int, int | None], ...] = (
+    (0, 6_000), (6_000, 9_000), (9_000, 12_000), (12_000, 20_000), (20_000, None),
+)
+OBLIGATION_BANDS_CHF_MONTH: tuple[tuple[int, int | None], ...] = (
+    (0, 3_000), (3_000, 5_000), (5_000, 8_000), (8_000, 12_000), (12_000, None),
+)
+FREE_WEALTH_BANDS_CHF: tuple[tuple[int, int | None], ...] = (
+    (0, 100_000), (100_000, 250_000), (250_000, 1_000_000),
+    (1_000_000, 2_000_000), (2_000_000, None),
+)
+SAVINGS_RATE_BANDS_PCT: tuple[tuple[int, int | None], ...] = (
+    (0, 0), (1, 10), (10, 25), (25, 50), (50, None),
+)
+# Punkte je Antwortposition (identisch zu RISK_*_POINTS im Monolithen).
+INCOME_POINTS = (0, 1, 2, 3, 4)
+OBLIGATION_POINTS = (4, 3, 2, 1, 0)
+WEALTH_POINTS = (0, 3, 6, 9, 12)
+SAVINGS_POINTS = (0, 3, 6, 9, 12)
+
+# ---------------------------------------------------------------------------
+# Schwellen -- CIO-Default, Compliance zu bestaetigen.
+# ---------------------------------------------------------------------------
+THRESHOLDS: dict[str, Any] = {
+    # Toleranz fuer Brutto/Netto, Rundung und Erfassungszeitpunkt: gemeldet
+    # wird erst, wenn der erfasste Wert die Bandgrenze um mehr als 10 % verfehlt.
+    "income_tolerance_ratio": 0.10,
+    "obligation_tolerance_ratio": 0.10,
+    "free_wealth_tolerance_ratio": 0.10,
+    # Sparquote: Toleranz in Prozentpunkten; ein negatives Budget bei einer
+    # angegebenen Sparquote > 0 % ist immer ein Befund.
+    "savings_rate_tolerance_pp": 5.0,
+    # Verschuldungsgrad = Verbindlichkeiten / Brutto-Vermoegen. 2/3 entspricht
+    # der ueblichen Belehnungsgrenze der 1. Hypothek: darueber ist ein
+    # wesentlicher Teil des Vermoegens fremdfinanziert.
+    "leverage_ratio_max": 2 / 3,
+    # Nahziele: Kapitalbedarf aus Zielen, die innerhalb von 3 Jahren faellig
+    # werden, im Verhaeltnis zum liquiden Vermoegen.
+    "near_term_goal_years": 3,
+    "near_term_goal_share_max": 0.50,
+    # Strukturregeln (Verschuldung, Nahziele) melden nur, wenn der Fragebogen
+    # mindestens eine mittlere Risikofaehigkeit (Band "Ausgewogen" = 3 von 5)
+    # bzw. einen langen Horizont (>= 6 Jahre) ausweist -- sonst steht die
+    # Angabe nicht im Widerspruch zur Datenlage.
+    "structural_min_capacity_band": 3,
+    "structural_min_horizon_years": 6,
+}
+
+_FREQUENCY_PER_YEAR = {
+    "monatlich": 12,
+    "quartalsweise": 4,
+    "halbjährlich": 2,
+    "jährlich": 1,
+}
+
+
+# ---------------------------------------------------------------------------
+# Datenstrukturen
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DeclaredCapacity:
+    """Die fuer die Pruefung relevanten Fragebogen-Angaben."""
+
+    income_band: int | None
+    obligations_band: int | None
+    free_wealth_band: int | None
+    savings_band: int | None
+    capacity_band: int | None
+    horizon_years: int | None
+    capacity_score_x10: int | None = None
+    willingness_score_x10: int | None = None
+    final_score_x10: int | None = None
+    is_overridden: bool = False
+    override_score_x10: int | None = None
+
+
+@dataclass(frozen=True)
+class RecordedFinancials:
+    """Erfasste Finanzdaten, alle Betraege in CHF-Rappen."""
+
+    gross_income_monthly_rappen: int = 0
+    recurring_expense_monthly_rappen: int = 0
+    liquid_assets_rappen: int = 0
+    gross_assets_rappen: int = 0
+    direct_property_rappen: int = 0
+    mortgage_liabilities_rappen: int = 0
+    other_liabilities_rappen: int = 0
+    near_term_goal_need_rappen: int = 0
+    position_count: int = 0
+    # nur vom Berater erfasste (nicht aus Positionen abgeleitete) Cashflows
+    income_cashflow_count: int = 0
+    expense_cashflow_count: int = 0
+    near_term_goal_labels: tuple[str, ...] = field(default_factory=tuple)
+
+
+# ---------------------------------------------------------------------------
+# Hilfsfunktionen
+# ---------------------------------------------------------------------------
+
+def _band_from_points(points: Any, mapping: tuple[int, ...]) -> int | None:
+    """Antwortposition aus Punkten; None wenn die Punkte keiner Antwort entsprechen.
+
+    Die API akzeptiert z.B. fuer Frage 6 jede Ganzzahl 0..12; nur die Werte
+    der Antwortoptionen sind eindeutig einer Bandbreite zuzuordnen. Alles
+    andere ist "nicht pruefbar", nie eine geratene Bandbreite.
+    """
+    if isinstance(points, bool) or not isinstance(points, int):
+        return None
+    try:
+        return mapping.index(points)
+    except ValueError:
+        return None
+
+
+def _chf(rappen: int | float) -> str:
+    amount = int(round(float(rappen) / 100.0))
+    sign = "-" if amount < 0 else ""
+    return f"CHF {sign}{abs(amount):,}".replace(",", "'")
+
+
+def _band_label_chf(band: tuple[int, int | None], suffix: str = "") -> str:
+    low, high = band
+    if high is None:
+        return f"über {_chf(low * 100)}{suffix}"
+    if low == 0:
+        return f"bis {_chf(high * 100)}{suffix}"
+    return f"{_chf(low * 100)} bis {_chf(high * 100)}{suffix}"
+
+
+def _band_label_pct(band: tuple[int, int | None]) -> str:
+    low, high = band
+    if high is None:
+        return f"über {low} %"
+    if low == high:
+        return f"{low} %"
+    return f"{low} bis {high} %"
+
+
+def declared_capacity_from_assessment(assessment: Any) -> DeclaredCapacity:
+    """Fragebogen-Angaben aus einer RiskAssessment-Zeile (ORM oder Double)."""
+    horizon_label = canonicalize_horizon_label(
+        getattr(assessment, "investment_horizon_label", "") or ""
+    )
+    horizon_years = HORIZON_YEARS.get(horizon_label)
+    cap_profile = str(getattr(assessment, "risk_capacity_profile", "") or "").strip()
+
+    def _opt_int(name: str) -> int | None:
+        value = getattr(assessment, name, None)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
+
+    return DeclaredCapacity(
+        income_band=_band_from_points(getattr(assessment, "q_income_points", None), INCOME_POINTS),
+        obligations_band=_band_from_points(
+            getattr(assessment, "q_obligations_points", None), OBLIGATION_POINTS
+        ),
+        free_wealth_band=_band_from_points(getattr(assessment, "q_wealth_points", None), WEALTH_POINTS),
+        savings_band=_band_from_points(getattr(assessment, "q_savings_points", None), SAVINGS_POINTS),
+        capacity_band=CAPACITY_BAND.get(cap_profile),
+        horizon_years=horizon_years,
+        capacity_score_x10=_opt_int("risk_capacity_score_x10"),
+        willingness_score_x10=_opt_int("risk_willingness_score_x10"),
+        final_score_x10=_opt_int("final_score_x10"),
+        is_overridden=bool(getattr(assessment, "is_overridden", 0) or 0),
+        override_score_x10=_opt_int("override_score_x10"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Kern: reine Regelpruefung (ohne DB)
+# ---------------------------------------------------------------------------
+
+def assess_plausibility(
+    declared: DeclaredCapacity,
+    recorded: RecordedFinancials,
+) -> dict:
+    """Vergleicht Fragebogen-Angaben mit erfassten Daten. Aendert nichts."""
+    findings: list[dict] = []
+    not_evaluable: list[dict] = []
+    t = THRESHOLDS
+
+    def skip(check: str, question: int | None, reason: str) -> None:
+        not_evaluable.append({"check": check, "question_number": question, "reason": reason})
+
+    # R1 -- Frage 3: regelmaessiges Bruttoeinkommen pro Monat.
+    income = int(recorded.gross_income_monthly_rappen)
+    if declared.income_band is None:
+        skip(CHECK_INCOME, 3, "Antwort zu Frage 3 ist keiner Antwortoption zuzuordnen.")
+    elif declared.income_band > 0:
+        band = INCOME_BANDS_CHF_MONTH[declared.income_band]
+        if income <= 0 or recorded.income_cashflow_count <= 0:
+            skip(CHECK_INCOME, 3, "Keine laufenden Einnahmen als Cashflow erfasst.")
+        else:
+            limit = band[0] * 100 * (1 - t["income_tolerance_ratio"])
+            if income < limit:
+                findings.append({
+                    "check": CHECK_INCOME,
+                    "question_number": 3,
+                    "declared": _band_label_chf(band, " pro Monat"),
+                    "recorded": f"{_chf(income)} pro Monat",
+                    "message": (
+                        f"Frage 3 (Einkommen): angegeben {_band_label_chf(band, ' pro Monat')}, "
+                        f"erfasste laufende Einnahmen {_chf(income)} pro Monat."
+                    ),
+                })
+
+    # R2 -- Frage 5: finanzielle Verpflichtungen pro Monat (invers bewertet).
+    expense = int(recorded.recurring_expense_monthly_rappen)
+    if declared.obligations_band is None:
+        skip(CHECK_OBLIGATIONS, 5, "Antwort zu Frage 5 ist keiner Antwortoption zuzuordnen.")
+    else:
+        band = OBLIGATION_BANDS_CHF_MONTH[declared.obligations_band]
+        if band[1] is not None:
+            limit = band[1] * 100 * (1 + t["obligation_tolerance_ratio"])
+            if expense > limit:
+                findings.append({
+                    "check": CHECK_OBLIGATIONS,
+                    "question_number": 5,
+                    "declared": _band_label_chf(band, " pro Monat"),
+                    "recorded": f"{_chf(expense)} pro Monat",
+                    "message": (
+                        f"Frage 5 (Verpflichtungen): angegeben {_band_label_chf(band, ' pro Monat')}, "
+                        f"erfasste laufende Ausgaben inkl. Hypothekarzins und Amortisation "
+                        f"{_chf(expense)} pro Monat."
+                    ),
+                })
+
+    # R3 -- Frage 6: frei verfuegbares Vermoegen (Obergrenze aus den Daten).
+    free_wealth_upper = (
+        int(recorded.liquid_assets_rappen)
+        - int(recorded.other_liabilities_rappen)
+        - max(0, int(recorded.mortgage_liabilities_rappen) - int(recorded.direct_property_rappen))
+        - int(recorded.near_term_goal_need_rappen)
+    )
+    if declared.free_wealth_band is None:
+        skip(CHECK_FREE_WEALTH, 6, "Antwort zu Frage 6 ist keiner Antwortoption zuzuordnen.")
+    elif declared.free_wealth_band > 0:
+        band = FREE_WEALTH_BANDS_CHF[declared.free_wealth_band]
+        if recorded.position_count <= 0:
+            skip(CHECK_FREE_WEALTH, 6, "Keine Vermögenspositionen erfasst.")
+        else:
+            limit = band[0] * 100 * (1 - t["free_wealth_tolerance_ratio"])
+            if free_wealth_upper < limit:
+                findings.append({
+                    "check": CHECK_FREE_WEALTH,
+                    "question_number": 6,
+                    "declared": _band_label_chf(band),
+                    "recorded": _chf(free_wealth_upper),
+                    "message": (
+                        f"Frage 6 (frei verfügbares Vermögen): angegeben {_band_label_chf(band)}, "
+                        f"aus den erfassten Daten höchstens {_chf(free_wealth_upper)} "
+                        "(liquide Positionen abzüglich Schulden und Ziele der nächsten "
+                        f"{t['near_term_goal_years']} Jahre; Vorsorge und Immobilien nicht frei verfügbar)."
+                    ),
+                })
+
+    # R4 -- Frage 7: Sparquote (Obergrenze: Brutto-Einnahmen minus Ausgaben).
+    if declared.savings_band is None:
+        skip(CHECK_SAVINGS, 7, "Antwort zu Frage 7 ist keiner Antwortoption zuzuordnen.")
+    elif declared.savings_band > 0:
+        band = SAVINGS_RATE_BANDS_PCT[declared.savings_band]
+        if income <= 0 or recorded.income_cashflow_count <= 0:
+            skip(CHECK_SAVINGS, 7, "Keine laufenden Einnahmen als Cashflow erfasst.")
+        else:
+            rate_pct = (income - expense) / income * 100.0
+            limit_pct = max(0.0, band[0] - t["savings_rate_tolerance_pp"])
+            if rate_pct < limit_pct:
+                findings.append({
+                    "check": CHECK_SAVINGS,
+                    "question_number": 7,
+                    "declared": _band_label_pct(band),
+                    "recorded": f"{rate_pct:.0f} %",
+                    "message": (
+                        f"Frage 7 (Sparquote): angegeben {_band_label_pct(band)}, "
+                        f"aus den erfassten laufenden Cashflows höchstens {rate_pct:.0f} % "
+                        f"(Einnahmen {_chf(income)}, Ausgaben {_chf(expense)} pro Monat)."
+                    ),
+                })
+
+    structural = (
+        (declared.capacity_band is not None
+         and declared.capacity_band >= t["structural_min_capacity_band"])
+        or (declared.horizon_years is not None
+            and declared.horizon_years >= t["structural_min_horizon_years"])
+    )
+    capacity_label = _capacity_label(declared)
+
+    # R5 -- Verschuldungsgrad.
+    liabilities = int(recorded.mortgage_liabilities_rappen) + int(recorded.other_liabilities_rappen)
+    gross_assets = int(recorded.gross_assets_rappen)
+    if liabilities > 0 and structural:
+        ratio = (liabilities / gross_assets) if gross_assets > 0 else float("inf")
+        if ratio > t["leverage_ratio_max"]:
+            ratio_text = "über 100 %" if ratio == float("inf") else f"{ratio * 100:.0f} %"
+            findings.append({
+                "check": CHECK_LEVERAGE,
+                "question_number": None,
+                "declared": capacity_label,
+                "recorded": ratio_text,
+                "message": (
+                    f"Verschuldung: Verbindlichkeiten {_chf(liabilities)} entsprechen "
+                    f"{ratio_text} des erfassten Brutto-Vermögens ({_chf(gross_assets)}); "
+                    f"der Fragebogen weist {capacity_label} aus."
+                ),
+            })
+
+    # R6 -- Nahziele im Verhaeltnis zum liquiden Vermoegen.
+    need = int(recorded.near_term_goal_need_rappen)
+    liquid = int(recorded.liquid_assets_rappen)
+    if need > 0 and structural:
+        share = (need / liquid) if liquid > 0 else float("inf")
+        if share >= t["near_term_goal_share_max"]:
+            share_text = "über 100 %" if share == float("inf") else f"{share * 100:.0f} %"
+            labels = ", ".join(f"«{label}»" for label in recorded.near_term_goal_labels[:3])
+            findings.append({
+                "check": CHECK_NEAR_TERM_GOALS,
+                "question_number": 8,
+                "declared": capacity_label,
+                "recorded": share_text,
+                "message": (
+                    f"Nahziele: in den nächsten {t['near_term_goal_years']} Jahren werden "
+                    f"{_chf(need)} benötigt ({share_text} des liquiden Vermögens"
+                    + (f"; {labels}" if labels else "")
+                    + f"); der Fragebogen weist {capacity_label} aus."
+                ),
+            })
+
+    status = STATUS_INCONSISTENT if findings else (
+        STATUS_NOT_EVALUABLE if _nothing_evaluable(not_evaluable) else STATUS_CONSISTENT
+    )
+    result = {
+        "version": PLAUSIBILITY_RULES_VERSION,
+        "status": status,
+        "reason_code": REASON_CODE if findings else None,
+        "findings": findings,
+        "not_evaluable": not_evaluable,
+        "capacity_binding": _capacity_binding(declared),
+        "override_down": _override_down(declared),
+        "thresholds": dict(THRESHOLDS),
+        "data_basis": {
+            "currency": "CHF",
+            "gross_income_monthly_rappen": income,
+            "recurring_expense_monthly_rappen": expense,
+            "liquid_assets_rappen": liquid,
+            "gross_assets_rappen": gross_assets,
+            "liabilities_rappen": liabilities,
+            "free_wealth_upper_bound_rappen": free_wealth_upper,
+            "near_term_goal_need_rappen": need,
+        },
+    }
+    result["advisor_text"] = advisor_summary_text(result)
+    return result
+
+
+def _nothing_evaluable(not_evaluable: list[dict]) -> bool:
+    checks = {row["check"] for row in not_evaluable}
+    return {CHECK_INCOME, CHECK_FREE_WEALTH, CHECK_SAVINGS} <= checks
+
+
+def _capacity_label(declared: DeclaredCapacity) -> str:
+    for name, band in CAPACITY_BAND.items():
+        if band == declared.capacity_band:
+            return f"die Risikofähigkeit «{name}»"
+    return "eine nicht dokumentierte Risikofähigkeit"
+
+
+def _capacity_binding(declared: DeclaredCapacity) -> bool | None:
+    if declared.capacity_score_x10 is None or declared.willingness_score_x10 is None:
+        return None
+    return declared.capacity_score_x10 <= declared.willingness_score_x10
+
+
+def _override_down(declared: DeclaredCapacity) -> bool:
+    return bool(
+        declared.is_overridden
+        and declared.override_score_x10 is not None
+        and declared.final_score_x10 is not None
+        and declared.override_score_x10 < declared.final_score_x10
+    )
+
+
+def advisor_summary_text(result: dict) -> str:
+    """Neutraler Berater-Satz (UI, Strategie-Reasoning)."""
+    findings = result.get("findings") or []
+    if not findings:
+        return ""
+    count = len(findings)
+    topics = "; ".join(
+        CHECK_SHORT_LABELS.get(str(f.get("check")), str(f.get("check"))) for f in findings
+    )
+    text = (
+        f"Plausibilitätsprüfung Risikofähigkeit ({REASON_CODE}): "
+        f"{count} Fragebogen-Angabe{'n' if count != 1 else ''} "
+        f"{'weichen' if count != 1 else 'weicht'} von den erfassten Finanzdaten ab "
+        f"({topics}). Das Risikoprofil wurde nicht automatisch geändert."
+    )
+    if result.get("override_down"):
+        text += " Ein Override nach unten ist dokumentiert."
+    else:
+        text += (
+            " Bitte den Fragebogen korrigieren oder das Profil per Override "
+            "nach unten dokumentieren."
+        )
+    if result.get("capacity_binding") is False:
+        text += (
+            " Hinweis: derzeit ist die Risikobereitschaft bindend; der "
+            "Widerspruch verändert das berechnete Profil nicht."
+        )
+    return text
+
+
+def strategy_reasoning_lines(result: dict | None) -> list[str]:
+    """Reasoning-Zeilen fuer die Strategie (leer, wenn kein Widerspruch)."""
+    if not result or result.get("status") != STATUS_INCONSISTENT:
+        return []
+    lines = [result.get("advisor_text") or advisor_summary_text(result)]
+    lines.extend(str(f.get("message") or "") for f in result.get("findings") or [])
+    return [line for line in lines if line]
+
+
+def attach_to_strategy_payload(payload: dict, result: dict | None) -> dict:
+    """Haengt das Pruefergebnis an eine Strategie-Antwort (Reasoning + Feld)."""
+    payload["risk_capacity_plausibility"] = result
+    lines = strategy_reasoning_lines(result)
+    if lines:
+        reasoning = [
+            line for line in list(payload.get("reasoning") or []) if line not in lines
+        ]
+        # Zusammenfassung zuoberst (UI zeigt nur die ersten Reasoning-Punkte),
+        # Einzelbefunde am Ende.
+        payload["reasoning"] = [lines[0]] + reasoning + lines[1:]
+    return payload
+
+
+# PDF Risikoprofil (Berater-Teil): bewusst ein einziger neutraler Satz ohne
+# Betraege und ohne Aussage ueber die Verlusttragfaehigkeit des Kunden.
+PDF_ADVISOR_NOTE = (
+    "Plausibilitätsprüfung (Beraterhinweis): Einzelne Angaben zur "
+    "Risikofähigkeit weichen von den in der Beratung erfassten Finanzdaten ab. "
+    "Das Risikoprofil wurde dadurch nicht automatisch verändert."
+)
+
+
+def pdf_advisor_note(result: dict | None) -> str:
+    if not result or result.get("status") != STATUS_INCONSISTENT:
+        return ""
+    return PDF_ADVISOR_NOTE
+
+
+# ---------------------------------------------------------------------------
+# Datenbasis aus der DB
+# ---------------------------------------------------------------------------
+
+def _parse_iso_date(value: Any) -> date | None:
+    raw = str(value or "").strip()[:10]
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _add_years(anchor: date, years: int) -> date:
+    try:
+        return anchor.replace(year=anchor.year + years)
+    except ValueError:  # 29. Februar
+        return anchor.replace(year=anchor.year + years, day=28)
+
+
+def _months_between(start: date, end: date) -> int:
+    if end < start:
+        return 0
+    return (end.year - start.year) * 12 + (end.month - start.month) + 1
+
+
+def _fx_to_chf(amount_rappen: int, currency: Any, fx_source) -> int:
+    amount = int(amount_rappen or 0)
+    cur = str(currency or "CHF").upper().strip() or "CHF"
+    if amount == 0 or cur == "CHF":
+        return amount
+    rate = float(fx_source.cross_rate(cur, "CHF"))
+    if not rate > 0:
+        raise ValueError(f"Ungueltige FX-Rate {cur}->CHF.")
+    return int(round(amount * rate))
+
+
+def _included(row: Any) -> bool:
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: is_included=0 fliesst in keine Berechnung ein.
+    value = getattr(row, "is_included", 1)
+    return value is None or int(value) == 1
+
+
+def _active_today(cf: Any, today: date) -> bool:
+    start = _parse_iso_date(getattr(cf, "valid_from", None))
+    end = _parse_iso_date(getattr(cf, "valid_until", None))
+    if start and start > today:
+        return False
+    if end and end < today:
+        return False
+    return True
+
+
+def _goal_need_within_window(goal: Any, today: date, window_end: date) -> int:
+    """Kapitalbedarf eines Ausgaben-Ziels im Fenster [heute, window_end] (Basiswaehrung)."""
+    from services.cashflow_timeline import normalize_frequency
+
+    goal_type = str(getattr(goal, "goal_type", "") or "").strip().lower()
+    goal_type = goal_type.replace("ä", "ae").replace(" ", "_")
+    amount = int(getattr(goal, "target_amount_rappen", 0) or 0)
+    if amount <= 0:
+        return 0
+    start = _parse_iso_date(getattr(goal, "start_date", None))
+    target = _parse_iso_date(getattr(goal, "target_date", None))
+    horizon = getattr(goal, "horizon_years", None)
+    if goal_type == "einmalige_ausgabe":
+        due = target
+        if due is None and isinstance(horizon, int) and not isinstance(horizon, bool):
+            due = _add_years(start or today, horizon)
+        if due is None:
+            return 0
+        # Ueberfaellige, noch aktive Ziele gelten als sofort faellig.
+        return amount if due <= window_end else 0
+    if goal_type in {"wiederkehrende_ausgabe", "pensionsausgabe"}:
+        per_year = _FREQUENCY_PER_YEAR.get(normalize_frequency(getattr(goal, "frequency", None)))
+        if not per_year:
+            return 0
+        stream_start = start
+        if stream_start is None and isinstance(horizon, int) and not isinstance(horizon, bool):
+            stream_start = _add_years(today, horizon)
+        stream_start = max(stream_start or today, today)
+        stream_end = target if (target and not int(getattr(goal, "is_ongoing", 0) or 0)) else None
+        effective_end = min(stream_end or window_end, window_end)
+        months = _months_between(stream_start, effective_end)
+        return int(round(amount * per_year * months / 12.0))
+    return 0
+
+
+def load_recorded_financials(db, mandate, *, today: date | None = None) -> RecordedFinancials:
+    """Liest die erfassten Daten des Mandats (read-only) und rechnet in CHF.
+
+    Wirft ValueError, wenn die Daten nicht eindeutig umrechenbar sind (z.B.
+    fehlende FX-Rate) -- der Aufrufer weist das als "nicht pruefbar" aus.
+    """
+    from models.wealth import Cashflow, Goal, WealthPosition
+    from services.currency.fx_rates import FXRateSource
+    from services.wealth_cashflows import derive_wealth_cashflows
+    from services.wealth_position_semantics import (
+        canonical_position_type,
+        is_direct_real_estate_position,
+        is_liability_assignment,
+        is_mortgage_position,
+    )
+    from services.cashflow_timeline import normalize_frequency, normalize_nature
+
+    today = today or date.today()
+    fx_source = FXRateSource.from_db_for_model(db)
+    base_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF")
+
+    positions = [
+        pos for pos in db.query(WealthPosition).filter(
+            WealthPosition.client_id == mandate.client_id,
+            WealthPosition.deleted_at.is_(None),
+        ).all()
+        if int(getattr(pos, "is_active", 1) or 0) == 1
+    ]
+    liquid = gross = prop = mortgages = other_liab = 0
+    for pos in positions:
+        value = abs(_fx_to_chf(getattr(pos, "current_value_rappen", 0), pos.currency, fx_source))
+        ptype = getattr(pos, "position_type", "")
+        if is_mortgage_position(ptype):
+            mortgages += value
+        elif is_liability_assignment(getattr(pos, "assignment", "")):
+            other_liab += value
+        else:
+            gross += value
+            if is_direct_real_estate_position(ptype):
+                prop += value
+            elif canonical_position_type(ptype) != "Vorsorge":
+                liquid += value
+
+    cashflows = [
+        cf for cf in db.query(Cashflow).filter(
+            Cashflow.client_id == mandate.client_id,
+            Cashflow.deleted_at.is_(None),
+        ).all()
+        if int(getattr(cf, "is_active", 1) or 0) == 1
+        and _included(cf)
+    ]
+    cashflows = list(cashflows) + list(derive_wealth_cashflows(positions))
+    income_monthly = expense_monthly = 0.0
+    income_count = expense_count = 0
+    for cf in cashflows:
+        frequency = normalize_frequency(getattr(cf, "frequency", None))
+        if normalize_nature(getattr(cf, "nature", None), frequency) == "einmalig":
+            continue
+        per_year = _FREQUENCY_PER_YEAR.get(frequency)
+        if not per_year or not _active_today(cf, today):
+            continue
+        cf_type = str(getattr(cf, "cashflow_type", "") or "")
+        amount = int(getattr(cf, "amount_rappen", 0) or 0)
+        # Aus Positionen abgeleitete Posten (Zins, Miete, Hypothekarzins)
+        # zaehlen zum Betrag, belegen aber nicht, dass das Einkommen erfasst ist.
+        derived = int(getattr(cf, "is_derived", 0) or 0) == 1
+        if cf_type == "Income":
+            gross_amount = getattr(cf, "gross_amount_rappen", None)
+            if isinstance(gross_amount, int) and not isinstance(gross_amount, bool):
+                amount = max(amount, gross_amount)
+            income_monthly += _fx_to_chf(amount, cf.currency, fx_source) * per_year / 12.0
+            income_count += 0 if derived else 1
+        elif cf_type == "Expense":
+            expense_monthly += _fx_to_chf(amount, cf.currency, fx_source) * per_year / 12.0
+            expense_count += 0 if derived else 1
+
+    window_end = _add_years(today, int(THRESHOLDS["near_term_goal_years"]))
+    need = 0
+    labels: list[str] = []
+    for goal in db.query(Goal).filter(
+        Goal.mandate_id == mandate.id,
+        Goal.deleted_at.is_(None),
+    ).order_by(Goal.rank.asc()).all():
+        if int(getattr(goal, "is_active", 1) or 0) != 1:
+            continue
+        if not _included(goal):
+            continue
+        goal_need = _goal_need_within_window(goal, today, window_end)
+        if goal_need > 0:
+            need += _fx_to_chf(goal_need, base_currency, fx_source)
+            labels.append(str(getattr(goal, "label", "") or "Ziel"))
+
+    return RecordedFinancials(
+        gross_income_monthly_rappen=int(round(income_monthly)),
+        recurring_expense_monthly_rappen=int(round(expense_monthly)),
+        liquid_assets_rappen=liquid,
+        gross_assets_rappen=gross,
+        direct_property_rappen=prop,
+        mortgage_liabilities_rappen=mortgages,
+        other_liabilities_rappen=other_liab,
+        near_term_goal_need_rappen=need,
+        position_count=len(positions),
+        income_cashflow_count=income_count,
+        expense_cashflow_count=expense_count,
+        near_term_goal_labels=tuple(labels),
+    )
+
+
+def evaluate_mandate(db, mandate, assessment, *, today: date | None = None) -> dict:
+    """Pruefung fuer ein Mandat. Fehler in der Datenbasis -> "nicht pruefbar"."""
+    if assessment is None:
+        return _not_evaluable_result("Kein aktuelles Risikoprofil vorhanden.")
+    declared = declared_capacity_from_assessment(assessment)
+    try:
+        recorded = load_recorded_financials(db, mandate, today=today)
+    except ValueError as exc:
+        return _not_evaluable_result(f"Erfasste Daten nicht auswertbar: {exc}")
+    result = assess_plausibility(declared, recorded)
+    result["risk_assessment_id"] = getattr(assessment, "id", None)
+    return result
+
+
+def evaluate_mandate_safely(db, mandate, assessment, *, today: date | None = None) -> dict:
+    """Wie evaluate_mandate, faengt aber jeden Fehler ab.
+
+    Die Pruefung ist ein Hinweis-Layer: ein Programmfehler darf weder das
+    Speichern des Risikoprofils noch die Strategie verhindern. Er wird
+    geloggt und als "nicht pruefbar" sichtbar gemacht, nie als "konsistent".
+    """
+    try:
+        return evaluate_mandate(db, mandate, assessment, today=today)
+    except Exception as exc:  # noqa: BLE001 -- Hinweis-Layer, siehe Docstring
+        logger.exception(
+            "Risk-capacity plausibility failed for mandate %s",
+            getattr(mandate, "id", "?"),
+        )
+        return _not_evaluable_result(f"Prüfung fehlgeschlagen: {type(exc).__name__}")
+
+
+def _not_evaluable_result(reason: str) -> dict:
+    return {
+        "version": PLAUSIBILITY_RULES_VERSION,
+        "status": STATUS_NOT_EVALUABLE,
+        "reason_code": None,
+        "findings": [],
+        "not_evaluable": [{"check": "ALL", "question_number": None, "reason": reason}],
+        "capacity_binding": None,
+        "override_down": False,
+        "thresholds": dict(THRESHOLDS),
+        "data_basis": {},
+        "advisor_text": "",
+    }
+
+
+def audit_payload(result: dict) -> str:
+    """Kompakter Audit-Wert: Version, Reason-Code, Pruef-IDs (keine Betraege)."""
+    return json.dumps(
+        {
+            "version": result.get("version"),
+            "reason_code": result.get("reason_code"),
+            "checks": [f.get("check") for f in result.get("findings") or []],
+            "override_down": bool(result.get("override_down")),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def audit_if_inconsistent(
+    db,
+    result: dict,
+    *,
+    user,
+    table_name: str,
+    record_id: str,
+    mandate,
+    ip_address: str | None = None,
+) -> bool:
+    """Schreibt einen Audit-Log-Eintrag, wenn ein Widerspruch vorliegt."""
+    if not result or result.get("status") != STATUS_INCONSISTENT:
+        return False
+    from services.audit import log
+
+    log(
+        db,
+        user_id=user.id,
+        user_name=user.full_name,
+        table_name=table_name,
+        record_id=record_id,
+        action="CREATE",
+        field_name="risk_capacity_plausibility",
+        new_value=audit_payload(result),
+        mandate_id=getattr(mandate, "id", None),
+        client_id=getattr(mandate, "client_id", None),
+        ip_address=ip_address,
+    )
+    return True
+
+
+__all__ = [
+    "REASON_CODE",
+    "PLAUSIBILITY_RULES_VERSION",
+    "THRESHOLDS",
+    "DeclaredCapacity",
+    "RecordedFinancials",
+    "assess_plausibility",
+    "declared_capacity_from_assessment",
+    "load_recorded_financials",
+    "evaluate_mandate",
+    "evaluate_mandate_safely",
+    "strategy_reasoning_lines",
+    "attach_to_strategy_payload",
+    "pdf_advisor_note",
+    "audit_if_inconsistent",
+]
