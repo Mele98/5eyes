@@ -216,6 +216,10 @@ def sensitivity_house_anchor_bps(
       getestet wurde (persistiert in der Modellbasis).
     * Eine Alt-Allokation ohne persistierten Anker liefert None; der Solver
       nimmt dann die target-Spalten der Hausmatrix-Zeile (im Audit sichtbar).
+
+    HOUSE-PRIOR-001 (Engine v6): derselbe Anker ist jetzt der Prior des
+    Optimierers und steht im Block ``house_prior``; v5-Allokationen (und
+    Risikomass-Varianten) fuehren ihn unter ``significance``.
     """
     if current_allocation is None:
         if not live_targets:
@@ -227,10 +231,16 @@ def sensitivity_house_anchor_bps(
         )
     except (TypeError, ValueError):
         return None
-    anchor = (
+    resampling = (
         ((stored.get("optimization_model_basis") or {}).get("resampling") or {})
-        .get("significance") or {}
-    ).get("house_anchor_bps") if isinstance(stored, dict) else None
+        if isinstance(stored, dict) else {}
+    )
+    anchor = None
+    for block_name in ("house_prior", "significance"):
+        block = resampling.get(block_name) if isinstance(resampling, dict) else None
+        if isinstance(block, dict) and block.get("house_anchor_bps"):
+            anchor = block.get("house_anchor_bps")
+            break
     if not isinstance(anchor, dict) or not anchor:
         return None
     if any(isinstance(v, bool) or not isinstance(v, int) for v in anchor.values()):
@@ -339,6 +349,8 @@ def _run_stochastic_optimizer_pass(
     # of "the advisor explicitly asked for this"). None/empty means no
     # Target Intent at all.
     preferred_target_bps: dict[str, int] | None = None,
+    # RESERVE-DOUBLE-COUNT-001: vor dem Solver herausgeloeste externe Reserve.
+    external_reserve_rappen: int = 0,
 ):
     """Solver in Shadow- oder Stochastic-Modus aufrufen.
 
@@ -451,6 +463,44 @@ def _run_stochastic_optimizer_pass(
     # an run_solver durchgereicht. Backwards-Compat: kein Feld → None
     # → simulate_wealth_paths laeuft tax-naiv (wie vorher).
     tax_kwargs = _build_tax_solver_kwargs(mandate)
+
+    # RESERVE-DOUBLE-COUNT-001: die externe Reserve ist aus dem Startvermoegen
+    # entfernt, die Abfluesse, fuer die sie gebildet wurde, bleiben aber voll im
+    # Solver. Sie fliesst deshalb als Bargeld genau im Faelligkeitsjahr dieser
+    # Abfluesse zurueck (jede CHF genau einmal, keine Rendite darauf).
+    if int(external_reserve_rappen or 0) > 0:
+        from services.optimizer.goal_liabilities import (
+            aggregate_liability_path,
+            goals_to_liabilities,
+        )
+        from services.portfolio_engine_reserve import (
+            _external_reserve_release_series,
+        )
+
+        padded_cashflows = (
+            [int(v) for v in cashflow_projection_series_rappen] + [0] * horizon
+        )[:horizon]
+        reserve_liability_path = aggregate_liability_path(
+            goals_to_liabilities(
+                list(goals),
+                horizon_years=horizon,
+                inflation_series_bps=inflation_series_bps,
+                external_wealth_rappen=max(0, int(external_wealth_rappen or 0)),
+                external_wealth_series_rappen=(
+                    list(external_wealth_series_rappen)[: horizon + 1] or None
+                    if external_wealth_series_rappen is not None
+                    else None
+                ),
+            ),
+            horizon,
+        )
+        reserve_release = _external_reserve_release_series(
+            int(external_reserve_rappen), padded_cashflows, reserve_liability_path
+        )
+        cashflow_projection_series_rappen = [
+            value + released
+            for value, released in zip(padded_cashflows, reserve_release)
+        ]
 
     optimizer_context = None
     try:

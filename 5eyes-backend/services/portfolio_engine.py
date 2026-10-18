@@ -3466,6 +3466,7 @@ def generate_target_allocation(
             external_goal_funding_series_rappen
         ),
         mandate=mandate,  # Sprint 4 Phase 3: BFS-Mortalitaets-Felder
+        external_reserve_rappen=external_reserve_rappen,  # RESERVE-DOUBLE-COUNT-001
     )
     # Strikt: Tilts duerfen nur uebersprungen werden, wenn die Targets
     # tatsaechlich vom Solver ersetzt wurden (also nur im 'stochastic' Modus,

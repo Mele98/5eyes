@@ -127,15 +127,17 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     assert resampling["n_bags_succeeded"] >= DEFAULT_RESAMPLING.n_bags // 2
     assert set(resampling["dispersion_bps"]) == set(BUCKET_ORDER)
     assert resampling["content_seed"] == result.seed
-    # Entscheid und Test sind vollstaendig dokumentiert.
-    significance = resampling["significance"]
-    assert significance["decision"] in {"optimizer", "house_matrix"}
-    # HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): entschieden
-    # wird auf der Zielebene (Ziel-Fehlbetrag + Chance-Strafe), nicht ueber
-    # den deterministischen Volatilitaets-Tiebreak (v3 verglich den Skalar).
-    assert significance["test"] == "paired_bootstrap_one_sided_goal_level_v4"
-    assert significance["comparison"] == "goal_level"
-    assert significance["p_value"] is not None
+    # HOUSE-PRIOR-001 (Engine v6): im Default ist die Hausmatrix Prior des
+    # Optimierers; der Bootstrap ist Offenlegung + Sicherheitsnetz.
+    assert resampling["engine_version"] == "saa_resampled_v6"
+    assert "significance" not in resampling
+    house_prior = resampling["house_prior"]
+    assert house_prior["decision"] in {"house_prior", "house_prior_guard"}
+    assert house_prior["kappa"] == 300.0
+    if house_prior["reason"] != "identical_to_house_anchor":
+        disclosure = house_prior["disclosure"]
+        assert disclosure["test"] == "paired_bootstrap_disclosure_goal_level_v5"
+        assert disclosure["p_value_worse"] is not None
     assert resampling["final_weights_bps"] == result.weights_bps
     # Die publizierte Allokation erfuellt alle harten Constraints.
     evaluation = evaluate_weights(result.context, dict(result.weights_bps))
@@ -148,7 +150,8 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     stored = json.loads(foundation["allocation"].effective_constraints_json)
     basis = stored["optimization_model_basis"]["resampling"]
     assert basis["dispersion_bps"] == resampling["dispersion_bps"]
-    assert basis["significance"]["decision"] == significance["decision"]
+    assert basis["house_prior"]["decision"] == house_prior["decision"]
+    assert basis["house_prior"]["kappa"] == 300.0
     assert "elapsed_ms" not in basis and "bags" not in basis
 
 
@@ -221,42 +224,39 @@ def test_seed_does_not_depend_on_database_ids(foundation):
         ), bucket
 
 
-def test_insignificant_deviation_keeps_house_target(foundation, monkeypatch):
-    """Ist die Verbesserung nicht signifikant, gilt die (projizierte) Hausmatrix.
+def test_safety_net_publishes_the_projected_house_target(foundation, monkeypatch):
+    """HOUSE-PRIOR-001: ist das Ergebnis auf der Zielebene signifikant
+    SCHLECHTER als die Hausquote, gilt die (projizierte) Hausquote.
 
-    Die Statistik selbst testet `test_paired_bootstrap_detects_only_real_
-    improvements`; hier geht es um die Verdrahtung des Entscheids. Ein
-    "kleiner" Abstand zum Optimum reicht dafuer NICHT: gepaart auf denselben
-    Pfaden ist auch eine 10-bps-Verschiebung oft signifikant (gemessen) --
-    Signifikanz ist keine Materialitaet.
+    Die Statistik selbst testet test_house_prior_shrinkage; hier geht es um
+    die Verdrahtung mit dem echten Fundament-Mandat und einem Anker, der
+    projiziert werden muss.
     """
-    real_test = solver_module.paired_bootstrap_improvement
+    real_disclosure = solver_module.paired_bootstrap_disclosure
 
-    def _not_significant(loss_pair, **kwargs):
-        stats = real_test(loss_pair, **kwargs)
-        return {**stats, "improvement_lower_bound": -1.0, "p_value": 0.31,
-                "significant": False}
+    def _worse(loss_pair, **kwargs):
+        stats = real_disclosure(loss_pair, **kwargs)
+        return {**stats, "improvement": -1.0, "p_value_worse": 0.0025,
+                "significantly_worse": True}
 
-    monkeypatch.setattr(solver_module, "paired_bootstrap_improvement", _not_significant)
+    monkeypatch.setattr(solver_module, "paired_bootstrap_disclosure", _worse)
     anchor = {"equities": 6000, "bonds": 2000, "real_estate": 1000,
               "alternatives": 600, "liquidity": 400}
     result = run_solver(**{**foundation["kwargs"], "house_anchor_bps": anchor})
-    significance = result.resampling["significance"]
-    assert significance["significant"] is False
-    assert result.resampling["decision"] == "house_matrix"
-    projected = significance["house_anchor_projected_bps"]
+    block = result.resampling["house_prior"]
+    assert block["house_anchor_bps"] == anchor
+    projected = block["house_anchor_projected_bps"]
     # Der Anker wird auf die harten Constraints projiziert (hier: die
     # Reserve-Untergrenze fixiert die Liquiditaet), nicht roh uebernommen.
     assert projected["liquidity"] == foundation["result"].weights_bps["liquidity"]
+    if block["reason"] == "identical_to_house_anchor":
+        pytest.skip("Ergebnis = Anker; kein Sicherheitsnetz noetig.")
+    assert block["decision"] == "house_prior_guard"
+    assert result.resampling["decision"] == "house_prior_guard"
     assert result.weights_bps == projected
     assert evaluate_weights(result.context, dict(result.weights_bps)).feasible
     assert result.status == "converged"
-    assert any(
-        "Optimierer-Abweichung von der Hausmatrix ist statistisch nicht "
-        "signifikant; Hausmatrix-Zielquote beibehalten" in line
-        and "p = 0.3100" in line
-        for line in result.reasoning
-    )
+    assert any("Sicherheitsnetz" in line for line in result.reasoning)
 
 
 def test_risk_variants_take_no_more_risk_than_the_default_on_the_foundation(foundation):
@@ -330,13 +330,18 @@ def test_sensitivity_tests_against_the_same_house_anchor_as_generate(foundation)
     allocation = pe._current_target_allocation_or_none(session, mandate.id)
     stored = json.loads(allocation.effective_constraints_json)
     persisted_anchor = stored["optimization_model_basis"]["resampling"][
-        "significance"
+        "house_prior"
     ]["house_anchor_bps"]
     assert sensitivity_house_anchor_bps(allocation, None) == persisted_anchor
     # Ohne aktive Allokation: die live (wie Generate) aufgebaute Zielquote.
     live = {"equities": 6000, "bonds": 2000, "real_estate": 1000,
             "alternatives": 600, "liquidity": 400}
     assert sensitivity_house_anchor_bps(None, live) == live
+    # v5-Allokation: Anker unter "significance" (Fallback bleibt lesbar).
+    v5 = type("V5", (), {"effective_constraints_json": json.dumps({
+        "optimization_model_basis": {"resampling": {"significance": {
+            "house_anchor_bps": live}}}})})()
+    assert sensitivity_house_anchor_bps(v5, None) == live
     # Alt-Allokation ohne persistierten Anker: kein erfundener Anker.
     legacy = type("Legacy", (), {"effective_constraints_json": "{}"})()
     assert sensitivity_house_anchor_bps(legacy, None) is None

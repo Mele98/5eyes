@@ -15,6 +15,14 @@ Chance-Strafe); in den Risikomass-Varianten zusaetzlich auf dem Risikomass,
 aber nur mit Materialitaetsschwelle (50 bps).
 
 Messung: docs/planning/2026-10-18-importance-sampling-ess.md.
+
+HOUSE-PRIOR-001 (Engine ``saa_resampled_v6``, CIO-Entscheid 2026-10-18): im
+Default-Modus ist die Hausmatrix jetzt ein Prior IM Optimierer
+(``kappa_H * (w - w_H)' Sigma (w - w_H)``), kein Schalter mehr. Die
+Default-Faelle unten pruefen deshalb die Offenlegung und das Sicherheitsnetz
+(``solver._house_prior_disclosure``); die Varianten-Faelle pruefen die
+unveraenderte v5-Regel. Siehe tests/test_house_prior_shrinkage.py und
+docs/planning/2026-10-18-house-prior-v6.md.
 """
 from __future__ import annotations
 
@@ -115,52 +123,97 @@ def _decide(monkeypatch, context, *, mode, anchor_goal, candidate_goal,
     )
 
 
-def test_reproducer_goals_met_lower_variance_keeps_house_matrix(monkeypatch, small_context):
-    """Rot vor dem Fix: beide erfuellen alle Ziele (Zielebene 0), der
-    Kandidat hat nur den kleineren Tiebreak -> frueher p = 0.0025 und
-    "optimizer". Jetzt: Hausmatrix."""
-    zero = np.zeros(N_PATHS)
-    sig = _decide(
-        monkeypatch, small_context, mode="goal_shortfall",
-        anchor_goal=zero, candidate_goal=zero,
-        anchor_risk=2.187e-2, candidate_risk=2.180e-2,
+def _disclose(monkeypatch, context, *, anchor_goal, candidate_goal):
+    """Offenlegung des Default-Modus (HOUSE-PRIOR-001) mit vorgegebenen
+    Pfad-Verlusten der Zielebene (Risikoebene = Prior-Term, hier egal)."""
+
+    def _fake_components(validation_context, anchor_w, candidate_w, *, validation_seed=None):
+        def pair(idx):
+            sel = slice(None) if idx is None else idx
+            return (
+                (float(np.mean(anchor_goal[sel])), 0.0),
+                (float(np.mean(candidate_goal[sel])), 1.0e-4),
+            )
+        return pair
+
+    monkeypatch.setattr(
+        solver_module, "_context_loss_components_on_validation", _fake_components,
     )
-    assert sig["decision"] == "house_matrix", sig
-    assert sig["reason"] == "goal_improvement_not_significant"
-    assert sig["improvement"] == 0.0
-    assert sig["significant"] is False
-    assert sig["comparison"] == "goal_level"
+    validation = (replace(context, n_paths=N_PATHS), 4242, "cube-hash")
+    monkeypatch.setattr(solver_module, "_build_validation_context", lambda ctx: validation)
+    monkeypatch.setattr(solver_module, "_validation_goal_rows", lambda vc, w, seed: [])
+    anchor_bps, _reason = solver_module._project_house_anchor(context, ANCHOR)
+    candidate_bps, _reason = solver_module._project_house_anchor(context, CANDIDATE)
+    assert anchor_bps != candidate_bps
+    prior_context = solver_module._with_house_prior(context, anchor_bps)
+    return solver_module._house_prior_disclosure(
+        prior_context,
+        candidate_bps=candidate_bps,
+        house_anchor_bps=ANCHOR,
+        anchor_projected_bps=anchor_bps,
+        config=DEFAULT_RESAMPLING,
+    ), anchor_bps, candidate_bps
 
 
-def test_unmet_goals_still_choose_a_significantly_better_optimizer(monkeypatch, small_context):
-    """Ziele mit der Hausmatrix NICHT sicher erreicht und der Kandidat ist
-    auf der Zielebene signifikant besser -> Optimierer, auch wenn er die
-    hoehere Volatilitaet hat (die Ziele gehen vor)."""
+def test_reproducer_goals_met_is_decided_by_the_prior_not_a_switch(monkeypatch, small_context):
+    """v5-Reproducer (beide erfuellen alle Ziele, Kandidat nur mit kleinerer
+    Varianz): in v6 gibt es keinen Varianz-Tiebreak mehr, der den Kandidaten
+    von der Hausquote wegziehen koennte -- und die Offenlegung entscheidet
+    nicht. Gleiche Zielebene ist NICHT signifikant schlechter -> kein
+    Sicherheitsnetz."""
+    zero = np.zeros(N_PATHS)
+    block, _anchor, candidate = _disclose(
+        monkeypatch, small_context, anchor_goal=zero, candidate_goal=zero,
+    )
+    assert block["decision"] == "house_prior", block
+    assert block["reason"] == "not_significantly_worse_than_house"
+    assert block["final_bps"] == candidate
+    disclosure = block["disclosure"]
+    assert disclosure["improvement"] == 0.0
+    assert disclosure["significantly_worse"] is False
+
+
+def test_unmet_goals_better_result_is_disclosed_with_its_statistics(monkeypatch, small_context):
     rng = np.random.default_rng(7)
     anchor_goal = np.where(rng.random(N_PATHS) < 0.30, 1.0, 0.0)
     candidate_goal = np.where(rng.random(N_PATHS) < 0.10, 1.0, 0.0)
-    sig = _decide(
-        monkeypatch, small_context, mode="goal_shortfall",
-        anchor_goal=anchor_goal, candidate_goal=candidate_goal,
-        anchor_risk=1.0e-2, candidate_risk=1.5e-2,
+    block, _anchor, candidate = _disclose(
+        monkeypatch, small_context, anchor_goal=anchor_goal, candidate_goal=candidate_goal,
     )
-    assert sig["decision"] == "optimizer", sig
-    assert sig["reason"] == "significant_goal_improvement"
-    assert sig["p_value"] <= 0.05
+    assert block["decision"] == "house_prior"
+    assert block["final_bps"] == candidate
+    disclosure = block["disclosure"]
+    assert disclosure["improvement"] > 0.0
+    assert disclosure["p_value_better"] <= 0.05
+    assert disclosure["improvement_lower_bound"] > 0.0
 
 
-def test_unmet_goals_with_noise_only_keep_house_matrix(monkeypatch, small_context):
-    """Gegenprobe: gleiche Zielerreichung bis auf einen einzelnen Pfad
-    (der gemessene Golden-Fall 8.1e-9) ist nicht signifikant."""
-    anchor_goal = np.zeros(N_PATHS)
-    anchor_goal[17] = 8.110173291668927e-09 * N_PATHS
-    sig = _decide(
-        monkeypatch, small_context, mode="goal_shortfall",
-        anchor_goal=anchor_goal, candidate_goal=np.zeros(N_PATHS),
-        anchor_risk=2.187e-2, candidate_risk=1.420e-2,
+def test_significantly_worse_result_triggers_the_safety_net(monkeypatch, small_context):
+    rng = np.random.default_rng(13)
+    anchor_goal = np.where(rng.random(N_PATHS) < 0.10, 1.0, 0.0)
+    candidate_goal = np.where(rng.random(N_PATHS) < 0.30, 1.0, 0.0)
+    block, anchor, _candidate = _disclose(
+        monkeypatch, small_context, anchor_goal=anchor_goal, candidate_goal=candidate_goal,
     )
-    assert sig["decision"] == "house_matrix", sig
-    assert sig["p_value"] > 0.05
+    assert block["decision"] == "house_prior_guard", block
+    assert block["reason"] == "significantly_worse_than_house"
+    assert block["final_bps"] == anchor
+    assert block["tracking_error_vs_house_bps"] == 0.0
+    assert block["disclosure"]["p_value_worse"] <= 0.05
+
+
+def test_noise_only_difference_does_not_trigger_the_safety_net(monkeypatch, small_context):
+    """Gegenprobe: Unterschied auf einem einzelnen Pfad ist nicht signifikant
+    schlechter -> Ergebnis bleibt (kein Schalter)."""
+    candidate_goal = np.zeros(N_PATHS)
+    candidate_goal[17] = 8.110173291668927e-09 * N_PATHS
+    block, _anchor, candidate = _disclose(
+        monkeypatch, small_context, anchor_goal=np.zeros(N_PATHS),
+        candidate_goal=candidate_goal,
+    )
+    assert block["decision"] == "house_prior"
+    assert block["final_bps"] == candidate
+    assert block["disclosure"]["p_value_worse"] > 0.05
 
 
 @pytest.mark.parametrize("mode", ["min_volatility", "max_drawdown", "cvar_return", "max_return"])
@@ -286,25 +339,28 @@ def golden_score5(tmp_path_factory):
 def test_golden_mandate_with_certain_goals_publishes_the_house_matrix(golden_score5):
     """Reproducer (rot vor HOUSE-FIRST-SIGNIFICANCE-001): Score 5 lieferte
     40/45/5/7/3 statt der Hausmatrix 48/35/10/5/2 mit p = 0.0025, obwohl
-    beide Allokationen alle Ziele mit p = 1 erreichen."""
+    beide Allokationen alle Ziele mit p = 1 erreichen.
+
+    HOUSE-PRIOR-001 (v6): mit sicher erreichten Zielen ist der Gradient der
+    Zielebene 0 -- das Optimum des Priors ist exakt die Hausquote, ohne
+    Schalter (Tracking Error 0)."""
     result = golden_score5["result"]
-    significance = result.resampling["significance"]
+    block = result.resampling["house_prior"]
     rows = [row for row in result.goal_achievability]
     assert rows and all(float(row["probability"]) == 1.0 for row in rows), rows
-    assert significance["decision"] == "house_matrix", significance
-    assert significance["reason"] in {
-        "goal_improvement_not_significant", "identical_to_house_anchor",
-    }
-    assert result.resampling["decision"] == "house_matrix"
-    assert result.weights_bps == significance["house_anchor_projected_bps"]
+    assert block["decision"] == "house_prior", block
+    assert block["reason"] == "identical_to_house_anchor"
+    assert block["tracking_error_vs_house_bps"] == 0.0
+    assert result.resampling["decision"] == "house_prior"
+    assert result.weights_bps == block["house_anchor_projected_bps"]
     target = golden_score5["generated"]["target_allocation"]
     assert [
         target.target_equities_bps, target.target_bonds_bps,
         target.target_real_estate_bps, target.target_alternatives_bps,
         target.target_liquidity_bps,
-    ] == [significance["house_anchor_projected_bps"][b] for b in BUCKET_ORDER]
+    ] == [block["house_anchor_projected_bps"][b] for b in BUCKET_ORDER]
     assert any(
-        "Hausmatrix-Zielquote beibehalten" in line
-        and "Vergleich auf der Zielebene" in line
+        "Hausmatrix als Anker des Optimierers" in line
+        and "Hausmatrix-Zielquote beibehalten" in line
         for line in result.reasoning
     )
