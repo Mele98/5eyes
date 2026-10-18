@@ -212,6 +212,8 @@ def test_manual_target_allocation_post_always_409s_in_stochastic_mode(
         policy_id = s.query(OptimizerPolicy).filter(
             OptimizerPolicy.is_current == 1
         ).first().id
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(s, cid)
 
     resp = auth_client.post(
         f"/mandates/{mid}/target-allocation",

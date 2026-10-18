@@ -591,6 +591,8 @@ def test_target_allocation_direct_create_invalidates_cache(http_client, session_
         # FABRICATION-001) -- a bare policy with neither would fail fast just
         # like it would on the real engine Generate path.
         _seed_building_blocks(db, "policy-cache-test")
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(db, seeded["client_id"])
 
     client.get(f"/mandates/{mid}/advisory-report")
     stats_before = get_cache_stats()
