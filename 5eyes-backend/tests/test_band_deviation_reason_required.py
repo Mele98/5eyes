@@ -244,8 +244,12 @@ def test_contract_signoff_pdf_without_deviation_has_no_section():
 def test_anlagestrategie_data_carries_deviation_and_reason(session_factory, monkeypatch):
     from routers.pdf_reports import _build_anlagestrategie_data, _build_contract_signoff_data
 
-    adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, "br-pdf")
+    adv, _cid, mid, aid = _seed_realistic_mandate(session_factory, "br-pdf")
     _generate(session_factory, mid, adv, {"bands": OUTSIDE_BANDS, "bandDeviationReason": GOOD_REASON})
+    # Der Beratungsentscheid verlangt seit COST-RUN-RESOLVER-001 (#621) eine
+    # aktuelle Produktempfehlung zur aktuellen Soll-Allokation -- wie im echten
+    # Ablauf (SAA -> Portfolio -> Beratungsentscheid).
+    _draft_run_with_position(session_factory, mid, aid, adv)
     with session_factory() as db:
         mandate = db.query(Mandate).filter(Mandate.id == mid).one()
         data = _build_anlagestrategie_data(mandate, db)
