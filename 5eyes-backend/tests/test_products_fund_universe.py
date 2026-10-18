@@ -663,7 +663,9 @@ def test_csv_template_download_has_expected_headers(session_factory):
         "isin,symbol,ter_bps,sfdr_class,esg_rating,liquidity_tier,"
         "suitability_profile_from,suitability_profile_to,suitability_service_modes,"
         "suitability_prohibited,suitability_requires_appropriateness,"
-        "suitability_requires_override,suitability_max_position_bps"
+        "suitability_requires_override,suitability_max_position_bps,"
+        # ESG-PREMIUM-CRITERIA-001: ESG-Kriterien-Daten am Ende angehaengt.
+        "esg_score_x10,climate_benchmark,theme_tags"
     )
 
 

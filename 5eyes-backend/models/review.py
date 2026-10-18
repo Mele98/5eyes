@@ -275,6 +275,18 @@ class Product(Base):
     credit_rating = Column(String)           # 'AAA','AA','A','BBB','BB','B','CCC','NR'
     esg_score_x10 = Column(Integer)          # 0-1000 = 0.0-100.0 (numerischer Score)
     liquidity_tier = Column(String)          # 'daily','weekly','monthly','illiquid'
+    # ESG-PREMIUM-CRITERIA-001 (2026-10-14): EU-Klima-Benchmark des Produkts
+    # ('PAB' = Paris-aligned, 'CTB' = Climate Transition, sonst NULL) --
+    # Pflicht-Kriterium der ESG-Policy net_zero (PAB/CTB; SFDR 9 allein
+    # reicht nicht, CIO-Entscheid 2026-10-18).
+    climate_benchmark = Column(String)
+    # ESG-PREMIUM-CRITERIA-001: JSON-Liste von Themen-Keys
+    # (fossil/defense/tobacco/alcohol/gaming/nuclear), z.B. '["fossil"]'.
+    # Ein Produkt ist Themenprodukt, wenn seine Sub-Anlageklasse "Thema X"
+    # ist ODER theme_tags X enthaelt (siehe services/portfolio_engine_payload.
+    # py::product_theme_keys). Backfill fuer "Thema X"-Produkte: database.py
+    # ensure_runtime_columns() + Alembic d7c3e9a2f5b1.
+    theme_tags = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

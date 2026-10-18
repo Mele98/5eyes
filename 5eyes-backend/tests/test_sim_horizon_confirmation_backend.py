@@ -304,8 +304,14 @@ def _alembic_cfg(db_url: str):
 def test_alembic_single_head_is_confirmation_revision():
     from alembic.script import ScriptDirectory
 
-    heads = ScriptDirectory.from_config(_alembic_cfg("sqlite://")).get_heads()
-    assert heads == [_MIGRATION_REVISION]
+    script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
+    heads = script.get_heads()
+    # Genau ein Head; spaetere Revisionen (z.B. d7c3e9a2f5b1, ESG-PREMIUM-
+    # CRITERIA-001) duerfen darauf aufbauen, solange die Bestaetigungs-
+    # Revision in der linearen Kette bleibt.
+    assert len(heads) == 1, heads
+    chain = {rev.revision for rev in script.walk_revisions("base", heads[0])}
+    assert _MIGRATION_REVISION in chain
 
 
 def _ta_columns(db_url: str) -> set[str]:
