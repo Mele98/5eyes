@@ -27,6 +27,38 @@ _PROFILE_BAND = {
 }
 
 
+def override_documentation_requirements(
+    *,
+    final_score_x10: int,
+    override_score_x10: int,
+    risk_capacity_score_x10: int | None,
+) -> tuple[bool, bool]:
+    """(Kundenbestaetigung noetig, Warnhinweis noetig) fuer einen Override.
+
+    RISK-OVERRIDE-CLIENT-WISH-001 (CIO-Entscheid 2026-10-18): das Profil ist
+    MIN(Risikofaehigkeit, Risikobereitschaft); nach oben wird nur auf
+    ausdruecklichen Kundenwunsch uebersteuert. Darum:
+
+    * nach unten (oder gleich): Begruendung genuegt;
+    * JEDER Override nach oben: dokumentierte Kundenbestaetigung;
+    * zusaetzlich Warnhinweis, wenn der Override die objektive
+      Risikofaehigkeit uebersteigt (dann traegt der Kunde Verluste, die er
+      laut eigener Finanzlage nicht tragen kann), wenn sie unbekannt ist
+      (fail-closed) oder wenn er >= 2 Profilbaender nach oben geht.
+    """
+    if override_score_x10 <= final_score_x10:
+        return False, False
+    upward_bands = (
+        _PROFILE_BAND[profile_for_score_x10(override_score_x10)]
+        - _PROFILE_BAND[profile_for_score_x10(final_score_x10)]
+    )
+    beyond_capacity = (
+        risk_capacity_score_x10 is None
+        or override_score_x10 > risk_capacity_score_x10
+    )
+    return True, beyond_capacity or upward_bands >= 2
+
+
 def _parse_iso_timestamp(value: Any):
     from datetime import datetime
 
@@ -371,16 +403,30 @@ def validate_risk_assessment_model_input(
     except ValueError as exc:
         raise RiskAssessmentInputError(str(exc)) from exc
 
-    upward_bands = (
-        _PROFILE_BAND[expected_override_profile]
-        - _PROFILE_BAND[expected_final_profile]
+    needs_confirmation, needs_warning = override_documentation_requirements(
+        final_score_x10=final_score,
+        override_score_x10=override_score,
+        risk_capacity_score_x10=_optional_capacity_score(assessment),
     )
-    if upward_bands >= 2 and (confirmed != 1 or warned != 1):
+    if needs_confirmation and confirmed != 1:
         raise RiskAssessmentInputError(
-            "Ein Override um mindestens zwei Profilbaender nach oben "
-            "erfordert Kundenbestaetigung und dokumentierten Warnhinweis."
+            "Ein Override nach oben erfordert die dokumentierte "
+            "Bestaetigung des ausdruecklichen Kundenwunsches."
+        )
+    if needs_warning and warned != 1:
+        raise RiskAssessmentInputError(
+            "Ein Override ueber die Risikofaehigkeit oder um mindestens zwei "
+            "Profilbaender nach oben erfordert einen dokumentierten "
+            "Warnhinweis."
         )
     return override_score
+
+
+def _optional_capacity_score(assessment: Any) -> int | None:
+    value = getattr(assessment, "risk_capacity_score_x10", None)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 0 <= value <= 100 else None
 
 
 def risk_score_bucket_from_validated_score(score_x10: int) -> int:
