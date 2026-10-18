@@ -11,6 +11,7 @@ from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
 from services.pdf.base import AnlagestrategieData, PDFContext
 from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import PAGE_SIZE
+from services.pdf.components.band_deviation import make_band_deviation_section
 from services.pdf.components.cover import make_cover_page, make_section_cover
 from services.pdf.components.effektives_portfolio import make_effektives_portfolio_section
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
@@ -410,6 +411,13 @@ def _build_anlagestrategie_flowables_template_order(
         ))
     else:
         empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+    # BAND-DEVIATION-REASON-REQUIRED-001: Abweichung vom Eignungsrahmen des
+    # Risikoprofils + dokumentierte Begruendung direkt bei den Bandbreiten.
+    flowables.extend(make_band_deviation_section(
+        data.band_house_deviations,
+        profile_label=data.band_house_profile,
+        reason=data.band_deviation_reason,
+    ))
     flowables.append(PageBreak())
 
     # 6 Vermoegensstruktur: Subanlageklassen und IST/SOLL-Visualisierung
@@ -667,16 +675,36 @@ def _make_preferences_section(preferences, styles) -> list:
     tilts = prefs.get("tilts") if isinstance(prefs.get("tilts"), dict) else {}
     bands = prefs.get("bands") if isinstance(prefs.get("bands"), dict) else {}
 
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 / ESG-PREMIUM-CRITERIA-001: alle
+    # ESG-Texte kommen aus denselben Konstanten/Funktionen, die die Engine
+    # fuer den Produktfilter nutzt (portfolio_engine_payload.
+    # _product_matches_constraints) -- Dokument == Engine.
+    from services.portfolio_engine_payload import (
+        ESG_POLICY_CRITERIA,
+        ESG_POLICY_LIQUIDITY_EXEMPTION,
+        THEME_DISPLAY_NAMES,
+        THEME_TILT_ALLOW,
+        effective_theme_screening,
+        esg_policy_criterion_label,
+        theme_look_through_disclosure,
+        theme_policy_deviations,
+    )
+
+    esg_labels = {
+        "none": "Keine ESG-Praeferenz",
+        "negative_screening": (
+            "Negativ-Screening (Themenprodukte der kontroversen Themen ausgeschlossen, "
+            "sofern nicht abweichend festgelegt)"
+        ),
+    }
+    esg_labels.update({
+        key: f"{esg_policy_criterion_label(key)}; {ESG_POLICY_LIQUIDITY_EXEMPTION}"
+        for key in ESG_POLICY_CRITERIA
+    })
+
     rows = [["Bereich", "Festgehaltene Praeferenz"]]
     rows.extend([
-        ["Nachhaltigkeit", _label(policy.get("esg"), {
-            "none": "Keine ESG-Praeferenz",
-            "esg_integration": "ESG-Integration",
-            "best_in_class": "Best-in-Class",
-            "negative_screening": "Negativ-Screening",
-            "impact": "Impact Investing",
-            "net_zero": "Paris-aligned / Net Zero",
-        }, "Standard / keine gesonderte Vorgabe")],
+        ["Nachhaltigkeit", _label(policy.get("esg"), esg_labels, "Standard / keine gesonderte Vorgabe")],
         ["Anlageuniversum", _label(policy.get("universe"), {
             "standard": "Standard",
             "extended": "Erweitert",
@@ -722,23 +750,45 @@ def _make_preferences_section(preferences, styles) -> list:
     for key, label in geo_labels:
         if geo.get(key):
             restrictions.append(label)
-    tilt_names = {
-        "fossil": "Fossile Energie",
-        "defense": "Verteidigung",
-        "tobacco": "Tabak",
-        "alcohol": "Alkohol",
-        "gaming": "Gluecksspiel",
-        "nuclear": "Kernenergie",
-    }
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): die Themen-Zeilen
+    # kommen aus derselben Funktion, die die Engine fuer den harten
+    # Produktfilter nutzt -- inkl. der via negative_screening wirksamen
+    # Ausschluesse. "untergewichten" ist bewusst mit seiner tatsaechlichen
+    # Umsetzung beschriftet (kein Themenbaustein, kein Ersatzeinsatz).
+    theme_prefs = {"tilts": tilts, "policy": policy, "tiltReasons": prefs.get("tiltReasons")}
+    screened_themes = effective_theme_screening(theme_prefs)
+    deviations = theme_policy_deviations(theme_prefs)
     tilt_actions = {
         "exclude": "ausschliessen",
-        "underweight": "untergewichten",
-        "overweight": "uebergewichten",
+        "underweight": "untergewichten (kein Themenbaustein, nie als Ersatz)",
     }
-    for key, mode in tilts.items():
-        if mode and mode != "neutral" and key in tilt_names:
-            restrictions.append(f"{tilt_names[key]} {tilt_actions.get(mode, mode)}")
+    for key in THEME_DISPLAY_NAMES:
+        mode = screened_themes.get(key) or tilts.get(key)
+        if key in deviations:
+            continue  # eigene Zeile "Abweichungen von der ESG-Policy"
+        if mode == "overweight":
+            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} uebergewichten")
+        elif mode == THEME_TILT_ALLOW:
+            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} bewusst zugelassen")
+        elif mode in tilt_actions:
+            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} {tilt_actions[mode]}")
     rows.append(["Restriktionen", "; ".join(restrictions) if restrictions else "Keine aktiven Restriktionen"])
+    # ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): "bewusst
+    # zulassen" (und Uebergewichten trotz Negativ-Screening) ist eine
+    # dokumentierte Abweichung von der ESG-Policy -- mit Begruendung, damit
+    # das Dokument nie einen Ausschluss behauptet, den die Engine bewusst
+    # nicht umsetzt.
+    if deviations:
+        deviation_texts = []
+        for key, item in deviations.items():
+            action = "bewusst zugelassen" if item["mode"] == THEME_TILT_ALLOW else "uebergewichtet"
+            text_ = f"{THEME_DISPLAY_NAMES[key]} {action}"
+            if item["reason"]:
+                text_ += f" -- Begruendung: {item['reason']}"
+            else:
+                text_ += " -- keine Begruendung erfasst"
+            deviation_texts.append(text_)
+        rows.append(["Abweichungen von der ESG-Policy", "; ".join(deviation_texts)])
 
     band_labels = []
     for key, override in bands.items():
@@ -796,6 +846,20 @@ def _make_preferences_section(preferences, styles) -> list:
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
 
+    screening_note = []
+    if screened_themes:
+        screening_note = [
+            Spacer(1, 2 * mm),
+            Paragraph(
+                _esc(
+                    "Hinweis Themen-Screening: Ausgeschlossene und untergewichtete Themen "
+                    "werden weder als eigener Themenbaustein noch als Ersatz fuer einen "
+                    "anderen Baustein umgesetzt. " + theme_look_through_disclosure(screened_themes)
+                ),
+                styles["body"],
+            ),
+        ]
+
     return [
         Paragraph("Anlagepraeferenzen", styles["heading"]),
         Paragraph(
@@ -805,6 +869,7 @@ def _make_preferences_section(preferences, styles) -> list:
         ),
         Spacer(1, 4 * mm),
         table,
+        *screening_note,
     ]
 
 

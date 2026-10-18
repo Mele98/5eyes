@@ -699,9 +699,13 @@ def chance_constraint_penalty(
         weight_sum = float(np.sum(weights_arr))
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
+        # SAA-RESAMPLED-RUNTIME-001: das ESS haengt nur an den Gewichten,
+        # nicht am Ziel -- einmal je Aufruf statt einmal je Ziel.
+        weighted_n_effective = effective_sample_size(weights_arr)
     else:
         weights_arr = None
         weight_sum = None
+        weighted_n_effective = None
     for goal in goal_liabilities:
         # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
         # 4.2 `W_joint_requested`/`P_joint_requested`): the chance-constraint

@@ -374,29 +374,48 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
                 f"{exc}"
             )
     if allocation and assessment and policy:
-        # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): eine Mandatsbandbreite
-        # ausserhalb der Hausmatrix-Bandbreite des Risikoprofils ist erlaubt,
-        # darf aber nicht unbemerkt freigegeben werden. Bewusst nur WARNUNG,
-        # kein neuer Blocker -- ob eine dokumentierte Begruendung Pflicht
-        # wird, ist eine Produktentscheidung.
+        # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1) +
+        # BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14):
+        # eine Mandatsbandbreite ausserhalb der Hausmatrix-Bandbreite des
+        # Risikoprofils bleibt erlaubt, braucht aber eine dokumentierte
+        # Begruendung im Praeferenz-Snapshot der Soll-Allokation
+        # (``bandDeviationReason``). Ohne tragfaehige Begruendung ist die
+        # Freigabe BLOCKIERT -- Fehler, keine Warnung.
+        from services.override_reason_quality import (
+            OverrideReasonQualityError,
+            validate_override_reason_quality,
+        )
         from services.portfolio_engine_house_matrix import (
-            house_band_deviation_notes_for_allocation,
+            house_band_deviation_disclosure_for_allocation,
         )
 
         try:
-            band_notes = house_band_deviation_notes_for_allocation(
+            band_disclosure = house_band_deviation_disclosure_for_allocation(
                 db, allocation, assessment, policy,
             )
         except ValueError as exc:
-            band_notes = [
-                "Abgleich der Mandatsbandbreiten mit der Hausmatrix war nicht "
-                f"moeglich: {exc}"
-            ]
-        for note in band_notes:
-            warnings.append(
-                f"{note} Abweichung vom Eignungsrahmen vor der Freigabe "
-                "begruenden und mit dem Kunden besprechen."
+            band_disclosure = None
+            errors.append(
+                "Abweichung vom Eignungsrahmen des Risikoprofils: Abgleich der "
+                f"Mandatsbandbreiten mit der Hausmatrix war nicht moeglich: {exc}"
             )
+        if band_disclosure and band_disclosure["notes"]:
+            notes_text = " ".join(band_disclosure["notes"])
+            reason = band_disclosure["reason"]
+            try:
+                validate_override_reason_quality(reason)
+            except OverrideReasonQualityError as exc:
+                errors.append(
+                    "Abweichung vom Eignungsrahmen des Risikoprofils ohne "
+                    f"tragfaehige Begruendung: {notes_text} Bitte im "
+                    "Bandbreiten-Editor eine dokumentierte Begruendung erfassen "
+                    f"und die Strategie neu berechnen ({exc})."
+                )
+            else:
+                warnings.append(
+                    f"Abweichung vom Eignungsrahmen des Risikoprofils: {notes_text} "
+                    f"Dokumentierte Begruendung: {reason}"
+                )
     positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
     if not positions:
         errors.append("Empfehlung enthaelt keine Positionen.")
@@ -2037,6 +2056,11 @@ _PRODUCT_IMPORT_CSV_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
     "suitability_prohibited", "suitability_requires_appropriateness",
     "suitability_requires_override", "suitability_max_position_bps",
+    # ESG-PREMIUM-CRITERIA-001 (2026-10-14): Daten fuer die ESG-Policy-
+    # Kriterien (best_in_class: esg_score_x10; net_zero: climate_benchmark)
+    # und die Themen-Zuordnung (theme_tags, Semikolon-getrennt). Am Ende
+    # angehaengt, damit bestehende Dateien spaltengleich bleiben.
+    "esg_score_x10", "climate_benchmark", "theme_tags",
 )
 _PRODUCT_IMPORT_SUITABILITY_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
@@ -2298,12 +2322,14 @@ def download_products_csv_template(
     example_listed = (
         "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
         "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily,"
-        "4,10,investment_advice;portfolio_management,false,false,false,2500"
+        "4,10,investment_advice;portfolio_management,false,false,false,2500,"
+        "720,PAB,"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
         "Private Equity,CHF,,,150,,,illiquid,"
-        "7,10,investment_advice;portfolio_management,false,true,false,4000"
+        "7,10,investment_advice;portfolio_management,false,true,false,4000,"
+        ",,"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(
@@ -2311,6 +2337,9 @@ def download_products_csv_template(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=fondsuniversum-import-vorlage.csv"},
     )
+
+
+_PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
 
 
 @products_router.put("/{product_id}", response_model=ProductResponse)
@@ -2331,6 +2360,14 @@ def update_product(
     """
     product = _get_product_or_404(product_id, db, current_user)
     payload = body.model_dump(exclude_none=True)
+    # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
+    # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
+    # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt
+    # galt weiter als net_zero-zulaessig, obwohl der Nachweis entfallen ist.
+    # Nicht gesendete Felder bleiben unveraendert (model_fields_set).
+    for field in _PRODUCT_CLEARABLE_ESG_FIELDS:
+        if field in body.model_fields_set and getattr(body, field) is None:
+            payload[field] = None
     if not payload:
         return product
     for field, value in payload.items():

@@ -13,7 +13,6 @@ import math
 from numbers import Real
 from typing import Any, Iterable, Mapping
 
-from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 
@@ -217,70 +216,116 @@ _ONE_TIME_RATE_KEYS = (
 # zu verwenden waere die falsche Richtung: ein abgelehnter Entwurf ist keine
 # Empfehlung, und ein ersetzter Lauf ist nicht der aktuelle Stand. Existieren
 # nur solche, antwortet die Funktion `_pending_payload` mit Begruendung.
-_COST_SOURCE_STATUS_PRIORITY = ("Final", "Draft")
+# COST-RUN-RESOLVER-001: die Rangfolge wird jetzt von
+# services/recommendation_run_resolver.py durchgesetzt (zusaetzlich gebunden
+# an die aktuelle TargetAllocation); hier nur noch als Alias dokumentiert.
+from services.recommendation_run_resolver import (  # noqa: E402
+    RESOLVABLE_STATUS_PRIORITY as _COST_SOURCE_STATUS_PRIORITY,
+)
 
 
-def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
+_CURRENT_TA_UNSET: Any = object()
+
+
+def _current_target_allocation_id(db: Session, mandate: Any) -> tuple[Any, str | None]:
+    """ID der AKTUELLEN TargetAllocation (wie routers.pdf_reports.
+    _latest_target_allocation). Rueckgabe ``(id, fehlergrund)``."""
+    from models.allocation import TargetAllocation
+
+    rows = (
+        db.query(TargetAllocation.id)
+        .filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        )
+        .order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc())
+        .limit(2)
+        .all()
+    )
+    if len(rows) > 1:
+        return None, (
+            "Mehrere aktuelle Soll-Allokationen gefunden; der Kostenausweis "
+            "kann erst nach Bereinigung des Strategie-Stands erstellt werden."
+        )
+    return (rows[0][0] if rows else None), None
+
+
+def build_cost_disclosure(
+    db: Session,
+    mandate: Any,
+    *,
+    target_allocation_id: Any = _CURRENT_TA_UNSET,
+) -> dict[str, Any]:
     """Build a stable ex-ante cost payload for one mandate.
 
-    The latest recommendation is the primary source because it freezes the fee
-    assumptions used when the portfolio was generated. The current policy is a
-    fallback only when the run does not contain a fee snapshot.
+    COST-RUN-RESOLVER-001: der Quelllauf ist der Lauf der AKTUELLEN
+    TargetAllocation (``resolve_current_recommendation_run``: Final, sonst
+    Draft, gebunden an die aktuelle TA) -- dieselbe Regel wie Anlagestrategie-,
+    Portfolio-PDF und Beratungsentscheid. Dessen eingefrorener Nachweis
+    (COST-CONTEXT-001b) bleibt pro Lauf. Ohne aktuellen Lauf: expliziter
+    Zustand "keine aktuelle Produktempfehlung", nie die Zahlen eines Laufs
+    einer ueberholten Allokation.
+
+    ``target_allocation_id`` erlaubt Aufrufern mit bereits geladener
+    aktueller TA (Advisory-Report-Cache), die TA-Abfrage zu sparen.
     """
     from models.review import RecommendationRun
+    from services.recommendation_run_resolver import (
+        NO_CURRENT_RECOMMENDATION_MARKER,
+        resolve_current_recommendation_run,
+    )
 
     currency = str(getattr(mandate, "base_currency", None) or "CHF").upper().strip() or "CHF"
 
-    # COST-CONTEXT-001a: nach RANGFOLGE, nicht nach Datum (siehe
-    # _COST_SOURCE_STATUS_PRIORITY).
-    #
-    # Die Rangfolge steht im ORDER BY, nicht in einer Python-Schleife ueber
-    # die Status. Eine Schleife haette pro Status eine eigene Abfrage
-    # gebraucht -- der N+1-Guard `test_specific_tables_are_queried_at_most_
-    # twice` hat genau das gefangen (RECOMMENDATION_RUNS 5 statt <=3). So
-    # bleibt es EINE Abfrage, also so viele wie vor dieser Aenderung.
-    # Der Rang steht im ORDER BY und es wird NICHT nach Status gefiltert:
-    # damit beantwortet EINE Abfrage beide Fragen -- welcher Lauf traegt den
-    # Ausweis, und (falls keiner) ob ueberhaupt Laeufe existieren. Eine
-    # Schleife ueber die Status oder eine zweite Diagnose-Abfrage haette den
-    # Abfragezaehler erhoeht; der N+1-Guard `test_specific_tables_are_
-    # queried_at_most_twice` hat genau das gefangen (RECOMMENDATION_RUNS 5
-    # bzw. 4 statt <=3). So bleibt es bei einer Abfrage, also so vielen wie
-    # vor dieser Aenderung.
-    status_rank = case(
-        *(
-            (RecommendationRun.result_status == status, rank)
-            for rank, status in enumerate(_COST_SOURCE_STATUS_PRIORITY)
-        ),
-        else_=len(_COST_SOURCE_STATUS_PRIORITY),
-    )
-    best_run = (
-        db.query(RecommendationRun)
-        .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(status_rank, RecommendationRun.created_at.desc())
-        .first()
-    )
+    if target_allocation_id is _CURRENT_TA_UNSET:
+        target_allocation_id, ta_problem = _current_target_allocation_id(db, mandate)
+        if ta_problem is not None:
+            return _pending_payload(ta_problem, currency=currency)
+
+    # COST-CONTEXT-001a bleibt als Rangfolge erhalten (Final vor Draft,
+    # Rejected/Superseded nie) -- sie steckt jetzt im gemeinsamen Resolver,
+    # zusaetzlich gebunden an die aktuelle TA. Eine Abfrage, wie vorher
+    # (N+1-Guard `test_specific_tables_are_queried_at_most_twice`).
+    best_run = resolve_current_recommendation_run(db, mandate.id, target_allocation_id)
 
     if best_run is None:
-        return _pending_payload(
-            "Noch keine Portfolioempfehlung vorhanden; ein konkreter "
-            "Ex-ante-Kostenausweis kann noch nicht berechnet werden.",
-            currency=currency,
+        # Diagnose nur im Pending-Pfad (kein Einfluss auf den Normalfall):
+        # "gar kein Lauf" und "Laeufe vorhanden, aber keiner taugt" sind
+        # verschiedene Lagen, die der Berater unterscheiden muss.
+        latest_any = (
+            db.query(RecommendationRun)
+            .filter(RecommendationRun.mandate_id == mandate.id)
+            .order_by(RecommendationRun.created_at.desc())
+            .first()
         )
-
-    best_status = str(getattr(best_run, "result_status", "") or "")
-    if best_status not in _COST_SOURCE_STATUS_PRIORITY:
-        # Der bestplatzierte Lauf traegt keinen Rang -- also gibt es weder
-        # einen freigegebenen noch einen in Arbeit. Das von "gar kein Lauf"
-        # zu unterscheiden ist wichtig: hier GIBT es Laeufe, sie taugen nur
-        # nicht als Grundlage, und der Berater muss wissen welcher Zustand
-        # ihn blockiert.
+        if latest_any is None:
+            return _pending_payload(
+                "Noch keine Portfolioempfehlung vorhanden "
+                f"({NO_CURRENT_RECOMMENDATION_MARKER}); ein konkreter "
+                "Ex-ante-Kostenausweis kann noch nicht berechnet werden.",
+                currency=currency,
+            )
+        latest_status = str(getattr(latest_any, "result_status", "") or "")
+        bound_to_current = bool(target_allocation_id) and (
+            str(getattr(latest_any, "target_allocation_id", "") or "")
+            == str(target_allocation_id)
+        )
+        if bound_to_current:
+            detail = (
+                f"letzter Status: {latest_status or 'unbekannt'}. Ein "
+                "abgelehnter oder ersetzter Lauf ist keine Grundlage für den "
+                "Kostenausweis"
+            )
+        else:
+            detail = (
+                f"letzter Lauf (Status: {latest_status or 'unbekannt'}) gehört "
+                "zu einer überholten Soll-Allokation. Seine Kosten passen nicht "
+                "zur aktuellen Strategie"
+            )
         return _pending_payload(
-            "Für dieses Mandat liegt kein freigegebener oder in Arbeit "
-            f"befindlicher Empfehlungslauf vor (letzter Status: "
-            f"{best_status or 'unbekannt'}). Ein abgelehnter oder ersetzter "
-            "Lauf ist keine Grundlage für den Kostenausweis -- Strategie neu "
-            "berechnen und finalisieren.",
+            f"Zur aktuellen Soll-Allokation liegt {NO_CURRENT_RECOMMENDATION_MARKER} "
+            f"vor ({detail}) -- Strategie neu berechnen und finalisieren.",
             currency=currency,
         )
 

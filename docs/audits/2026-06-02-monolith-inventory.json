@@ -4124,7 +4124,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4675,
+      "line": 4691,
       "tag": "select",
       "value": "onDateGroupChange('acf-valid-from')"
     },
@@ -4140,7 +4140,7 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4683,
+      "line": 4699,
       "tag": "select",
       "value": "onDateGroupChange('acf-valid-until')"
     },
@@ -4148,7 +4148,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4684,
+      "line": 4700,
       "tag": "select",
       "value": "onDateGroupChange('acf-valid-until')"
     },
@@ -4164,7 +4164,7 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4911,
+      "line": 4927,
       "tag": "select",
       "value": "onDateGroupChange('nz-start-date')"
     },
@@ -4172,7 +4172,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4912,
+      "line": 4928,
       "tag": "select",
       "value": "onDateGroupChange('nz-start-date')"
     },
@@ -4188,7 +4188,7 @@
       "class": "fsel dg-year",
       "handler": "onchange",
       "id": "",
-      "line": 4920,
+      "line": 4936,
       "tag": "select",
       "value": "onDateGroupChange('nz-target-date')"
     },
@@ -4196,7 +4196,7 @@
       "class": "fsel dg-month",
       "handler": "onchange",
       "id": "",
-      "line": 4921,
+      "line": 4937,
       "tag": "select",
       "value": "onDateGroupChange('nz-target-date')"
     },
@@ -4212,7 +4212,7 @@
       "class": "",
       "handler": "onchange",
       "id": "aa-horizon-age",
-      "line": 3471,
+      "line": 3481,
       "tag": "input",
       "value": "applyIstHorizonAge(this.value)"
     },
@@ -4220,7 +4220,7 @@
       "class": "",
       "handler": "onchange",
       "id": "aa-horizon-endyear",
-      "line": 3472,
+      "line": 3482,
       "tag": "input",
       "value": "applyAaHorizonEndYear(this.value)"
     },
@@ -4228,7 +4228,7 @@
       "class": "",
       "handler": "onchange",
       "id": "aa-horizon-mode",
-      "line": 3465,
+      "line": 3475,
       "tag": "select",
       "value": "setAaHorizonMode(this.value)"
     },
@@ -4236,7 +4236,7 @@
       "class": "",
       "handler": "onchange",
       "id": "aa-horizon-years",
-      "line": 3473,
+      "line": 3483,
       "tag": "input",
       "value": "applyIstHorizonOverride(this.value)"
     },
@@ -4348,7 +4348,7 @@
       "class": "",
       "handler": "onchange",
       "id": "cf-horizon-date",
-      "line": 3358,
+      "line": 3360,
       "tag": "input",
       "value": "applyIstHorizonDate(this.value)"
     },
@@ -4356,7 +4356,7 @@
       "class": "",
       "handler": "onchange",
       "id": "cf-horizon-mode",
-      "line": 3348,
+      "line": 3350,
       "tag": "select",
       "value": "setHorizonInputMode(this.value)"
     },
@@ -4364,7 +4364,7 @@
       "class": "",
       "handler": "onchange",
       "id": "cf-horizon-override",
-      "line": 3354,
+      "line": 3356,
       "tag": "input",
       "value": "applyIstHorizonOverride(this.value)"
     },
@@ -4372,7 +4372,7 @@
       "class": "",
       "handler": "onchange",
       "id": "cf-indexation-toggle",
-      "line": 3372,
+      "line": 3374,
       "tag": "input",
       "value": "applyCashflowIndexation(this.checked)"
     },
@@ -4444,7 +4444,7 @@
       "class": "",
       "handler": "onchange",
       "id": "rp-institutional-voluntary-toggle",
-      "line": 3018,
+      "line": 3020,
       "tag": "input",
       "value": "toggleInstitutionalVoluntaryQuestionnaire(this.checked)"
     },
@@ -4628,7 +4628,7 @@
       "class": "client active",
       "handler": "onclick",
       "id": "",
-      "line": 2882,
+      "line": 2884,
       "tag": "div",
       "value": "selC(this);loadPersona('HH-001')"
     },
@@ -4636,7 +4636,7 @@
       "class": "client",
       "handler": "onclick",
       "id": "",
-      "line": 2886,
+      "line": 2888,
       "tag": "div",
       "value": "selC(this);loadPersona('HH-002')"
     },
@@ -4644,7 +4644,7 @@
       "class": "client",
       "handler": "onclick",
       "id": "",
-      "line": 2890,
+      "line": 2892,
       "tag": "div",
       "value": "selC(this);loadPersona('HH-003')"
     },
@@ -4652,7 +4652,7 @@
       "class": "sb-add",
       "handler": "onclick",
       "id": "",
-      "line": 2894,
+      "line": 2896,
       "tag": "button",
       "value": "om('m-nc')"
     },
@@ -4660,7 +4660,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 2901,
+      "line": 2903,
       "tag": "button",
       "value": "go('vg')"
     },
@@ -4668,7 +4668,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 2901,
+      "line": 2903,
       "tag": "button",
       "value": "openStammdatenModal()"
     },
@@ -4676,7 +4676,7 @@
       "class": "btn btn-sm",
       "handler": "onclick",
       "id": "",
-      "line": 2904,
+      "line": 2906,
       "tag": "button",
       "value": "om('m-aw')"
     },
@@ -4684,7 +4684,7 @@
       "class": "btn-ico e",
       "handler": "onclick",
       "id": "",
-      "line": 2908,
+      "line": 2910,
       "tag": "button",
       "value": "om('m-edit-depot')"
     },
@@ -4692,7 +4692,7 @@
       "class": "btn-ico e",
       "handler": "onclick",
       "id": "",
-      "line": 2916,
+      "line": 2918,
       "tag": "button",
       "value": "om('m-edit-custom')"
     },
@@ -4700,7 +4700,7 @@
       "class": "btn-ico e",
       "handler": "onclick",
       "id": "",
-      "line": 2919,
+      "line": 2921,
       "tag": "button",
       "value": "om('m-edit-hypo')"
     },
@@ -4708,7 +4708,7 @@
       "class": "btn btn-sm",
       "handler": "onclick",
       "id": "",
-      "line": 2929,
+      "line": 2931,
       "tag": "button",
       "value": "openStammdatenModal()"
     },
@@ -4716,7 +4716,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 2935,
+      "line": 2937,
       "tag": "button",
       "value": "go('al')"
     },
@@ -4724,7 +4724,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 2959,
+      "line": 2961,
       "tag": "button",
       "value": "go('vg')"
     },
@@ -4732,7 +4732,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 2964,
+      "line": 2966,
       "tag": "button",
       "value": "go('cf')"
     },
@@ -4740,7 +4740,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 2964,
+      "line": 2966,
       "tag": "button",
       "value": "om('m-aw')"
     },
@@ -4748,7 +4748,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 2968,
+      "line": 2970,
       "tag": "button",
       "value": "go('cf')"
     },
@@ -4756,7 +4756,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 2968,
+      "line": 2970,
       "tag": "button",
       "value": "go('sd')"
     },
@@ -4764,7 +4764,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 2973,
+      "line": 2975,
       "tag": "button",
       "value": "go('rp')"
     },
@@ -4772,7 +4772,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 2973,
+      "line": 2975,
       "tag": "button",
       "value": "om('m-nz')"
     },
@@ -4780,7 +4780,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 2973,
+      "line": 2975,
       "tag": "button",
       "value": "openNewCashflow('Expense')"
     },
@@ -4788,7 +4788,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 2973,
+      "line": 2975,
       "tag": "button",
       "value": "openNewCashflow('Income')"
     },
@@ -4796,7 +4796,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 3004,
+      "line": 3006,
       "tag": "button",
       "value": "go('rp')"
     },
@@ -4804,7 +4804,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3004,
+      "line": 3006,
       "tag": "button",
       "value": "go('vg')"
     },
@@ -4812,7 +4812,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 3009,
+      "line": 3011,
       "tag": "button",
       "value": "goFromRiskProfileToAllocation()"
     },
@@ -4820,7 +4820,7 @@
       "class": "rtab active",
       "handler": "onclick",
       "id": "",
-      "line": 3036,
+      "line": 3038,
       "tag": "div",
       "value": "switchRTab(this,'r-ke')"
     },
@@ -4828,7 +4828,7 @@
       "class": "rtab",
       "handler": "onclick",
       "id": "",
-      "line": 3037,
+      "line": 3039,
       "tag": "div",
       "value": "switchRTab(this,'r-rf')"
     },
@@ -4836,7 +4836,7 @@
       "class": "rtab",
       "handler": "onclick",
       "id": "",
-      "line": 3038,
+      "line": 3040,
       "tag": "div",
       "value": "switchRTab(this,'r-rb')"
     },
@@ -4844,7 +4844,7 @@
       "class": "btn-g",
       "handler": "onclick",
       "id": "",
-      "line": 3051,
+      "line": 3053,
       "tag": "button",
       "value": "confirmPresumedKnowledgeExperience()"
     },
@@ -4852,25 +4852,9 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3052,
+      "line": 3054,
       "tag": "button",
       "value": "toggleKeManualDetails()"
-    },
-    {
-      "class": "qopt",
-      "handler": "onclick",
-      "id": "",
-      "line": 3136,
-      "tag": "div",
-      "value": "sq(this,'rf-income')"
-    },
-    {
-      "class": "qopt",
-      "handler": "onclick",
-      "id": "",
-      "line": 3137,
-      "tag": "div",
-      "value": "sq(this,'rf-income')"
     },
     {
       "class": "qopt",
@@ -4897,20 +4881,20 @@
       "value": "sq(this,'rf-income')"
     },
     {
-      "class": "qcb",
+      "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3153,
+      "line": 3141,
       "tag": "div",
-      "value": "this.classList.toggle('sel');riskAssessmentUiDirty=true;"
+      "value": "sq(this,'rf-income')"
     },
     {
-      "class": "qcb",
+      "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3154,
+      "line": 3142,
       "tag": "div",
-      "value": "this.classList.toggle('sel');riskAssessmentUiDirty=true;"
+      "value": "sq(this,'rf-income')"
     },
     {
       "class": "qcb",
@@ -4937,20 +4921,20 @@
       "value": "this.classList.toggle('sel');riskAssessmentUiDirty=true;"
     },
     {
-      "class": "qopt",
+      "class": "qcb",
       "handler": "onclick",
       "id": "",
-      "line": 3170,
+      "line": 3158,
       "tag": "div",
-      "value": "sq(this,'rf-oblig')"
+      "value": "this.classList.toggle('sel');riskAssessmentUiDirty=true;"
     },
     {
-      "class": "qopt",
+      "class": "qcb",
       "handler": "onclick",
       "id": "",
-      "line": 3171,
+      "line": 3159,
       "tag": "div",
-      "value": "sq(this,'rf-oblig')"
+      "value": "this.classList.toggle('sel');riskAssessmentUiDirty=true;"
     },
     {
       "class": "qopt",
@@ -4980,17 +4964,17 @@
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3185,
+      "line": 3175,
       "tag": "div",
-      "value": "sq(this,'rf-wealth')"
+      "value": "sq(this,'rf-oblig')"
     },
     {
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3186,
+      "line": 3176,
       "tag": "div",
-      "value": "sq(this,'rf-wealth')"
+      "value": "sq(this,'rf-oblig')"
     },
     {
       "class": "qopt",
@@ -5020,17 +5004,17 @@
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3200,
+      "line": 3190,
       "tag": "div",
-      "value": "sq(this,'rf-savings')"
+      "value": "sq(this,'rf-wealth')"
     },
     {
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3201,
+      "line": 3191,
       "tag": "div",
-      "value": "sq(this,'rf-savings')"
+      "value": "sq(this,'rf-wealth')"
     },
     {
       "class": "qopt",
@@ -5060,17 +5044,17 @@
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3217,
+      "line": 3205,
       "tag": "div",
-      "value": "sq(this,'rf-horizon')"
+      "value": "sq(this,'rf-savings')"
     },
     {
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3218,
+      "line": 3206,
       "tag": "div",
-      "value": "sq(this,'rf-horizon')"
+      "value": "sq(this,'rf-savings')"
     },
     {
       "class": "qopt",
@@ -5108,17 +5092,17 @@
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3233,
+      "line": 3223,
       "tag": "div",
-      "value": "sq(this,'q9')"
+      "value": "sq(this,'rf-horizon')"
     },
     {
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3234,
+      "line": 3224,
       "tag": "div",
-      "value": "sq(this,'q9')"
+      "value": "sq(this,'rf-horizon')"
     },
     {
       "class": "qopt",
@@ -5140,17 +5124,17 @@
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3242,
+      "line": 3237,
       "tag": "div",
-      "value": "sq(this,'q10')"
+      "value": "sq(this,'q9')"
     },
     {
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3243,
+      "line": 3238,
       "tag": "div",
-      "value": "sq(this,'q10')"
+      "value": "sq(this,'q9')"
     },
     {
       "class": "qopt",
@@ -5172,17 +5156,17 @@
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3251,
+      "line": 3246,
       "tag": "div",
-      "value": "sq(this,'q11')"
+      "value": "sq(this,'q10')"
     },
     {
       "class": "qopt",
       "handler": "onclick",
       "id": "",
-      "line": 3252,
+      "line": 3247,
       "tag": "div",
-      "value": "sq(this,'q11')"
+      "value": "sq(this,'q10')"
     },
     {
       "class": "qopt",
@@ -5201,10 +5185,26 @@
       "value": "sq(this,'q11')"
     },
     {
+      "class": "qopt",
+      "handler": "onclick",
+      "id": "",
+      "line": 3255,
+      "tag": "div",
+      "value": "sq(this,'q11')"
+    },
+    {
+      "class": "qopt",
+      "handler": "onclick",
+      "id": "",
+      "line": 3256,
+      "tag": "div",
+      "value": "sq(this,'q11')"
+    },
+    {
       "class": "",
       "handler": "onclick",
       "id": "",
-      "line": 3274,
+      "line": 3276,
       "tag": "button",
       "value": "openOverrideModal()"
     },
@@ -5212,7 +5212,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 3283,
+      "line": 3285,
       "tag": "button",
       "value": "go('al')"
     },
@@ -5220,7 +5220,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3283,
+      "line": 3285,
       "tag": "button",
       "value": "go('cf')"
     },
@@ -5228,7 +5228,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 3290,
+      "line": 3292,
       "tag": "button",
       "value": "go('rp')"
     },
@@ -5236,7 +5236,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3290,
+      "line": 3292,
       "tag": "button",
       "value": "om('m-rep')"
     },
@@ -5244,7 +5244,7 @@
       "class": "kpi",
       "handler": "onclick",
       "id": "",
-      "line": 3293,
+      "line": 3295,
       "tag": "div",
       "value": "go('vg')"
     },
@@ -5252,7 +5252,7 @@
       "class": "kpi",
       "handler": "onclick",
       "id": "",
-      "line": 3294,
+      "line": 3296,
       "tag": "div",
       "value": "go('cf')"
     },
@@ -5260,7 +5260,7 @@
       "class": "kpi",
       "handler": "onclick",
       "id": "",
-      "line": 3295,
+      "line": 3297,
       "tag": "div",
       "value": "go('cf')"
     },
@@ -5268,7 +5268,7 @@
       "class": "btn-p btn-sm",
       "handler": "onclick",
       "id": "",
-      "line": 3301,
+      "line": 3303,
       "tag": "button",
       "value": "openNewCashflow('Income')"
     },
@@ -5276,7 +5276,7 @@
       "class": "btn-p btn-sm",
       "handler": "onclick",
       "id": "",
-      "line": 3312,
+      "line": 3314,
       "tag": "button",
       "value": "openNewInflow()"
     },
@@ -5284,7 +5284,7 @@
       "class": "btn-p btn-sm",
       "handler": "onclick",
       "id": "",
-      "line": 3320,
+      "line": 3322,
       "tag": "button",
       "value": "openNewCashflow('Expense')"
     },
@@ -5292,7 +5292,7 @@
       "class": "btn-p btn-sm",
       "handler": "onclick",
       "id": "",
-      "line": 3329,
+      "line": 3331,
       "tag": "button",
       "value": "om('m-nz')"
     },
@@ -5300,7 +5300,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3363,
+      "line": 3365,
       "tag": "button",
       "value": "resetIstHorizonOverride()"
     },
@@ -5308,7 +5308,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3413,
+      "line": 3415,
       "tag": "button",
       "value": "go('cf')"
     },
@@ -5316,7 +5316,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 3413,
+      "line": 3415,
       "tag": "button",
       "value": "go('rp')"
     },
@@ -5324,7 +5324,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "openAllocationEngineModal();this.closest('details').removeAttribute('open')"
     },
@@ -5332,7 +5332,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "openMandateSettingsModal();this.closest('details').removeAttribute('open')"
     },
@@ -5340,7 +5340,7 @@
       "class": "btn-g",
       "handler": "onclick",
       "id": "",
-      "line": 3424,
+      "line": 3426,
       "tag": "button",
       "value": "calculateInvestmentStrategy()"
     },
@@ -5348,7 +5348,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 3458,
+      "line": 3468,
       "tag": "button",
       "value": "openSollIstCompare()"
     },
@@ -5356,7 +5356,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 3474,
+      "line": 3484,
       "tag": "button",
       "value": "saveAaHorizon()"
     },
@@ -5644,7 +5644,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 4426,
+      "line": 4442,
       "tag": "button",
       "value": "btSetHorizonPreset('2000')"
     },
@@ -5652,7 +5652,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 4427,
+      "line": 4443,
       "tag": "button",
       "value": "btSetHorizonPreset('2008')"
     },
@@ -5972,7 +5972,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 5190,
+      "line": 5206,
       "tag": "button",
       "value": "cm('m-nt')"
     },
@@ -5988,7 +5988,7 @@
       "class": "mx",
       "handler": "onclick",
       "id": "",
-      "line": 5191,
+      "line": 5207,
       "tag": "button",
       "value": "cm('m-ap')"
     },
@@ -5996,7 +5996,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 5191,
+      "line": 5207,
       "tag": "button",
       "value": "cm('m-ap')"
     },
@@ -6708,7 +6708,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-aa-backtest",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "openStrategyBacktest();this.closest('details').removeAttribute('open')"
     },
@@ -6716,7 +6716,7 @@
       "class": "btn-g",
       "handler": "onclick",
       "id": "btn-aa-calc",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "calculateInvestmentStrategy()"
     },
@@ -6724,7 +6724,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-aa-metrics-toggle",
-      "line": 3458,
+      "line": 3468,
       "tag": "button",
       "value": "toggleAaProjectionDetails()"
     },
@@ -6732,7 +6732,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-aa-params-open",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "openAllocationParametersModal();this.closest('details').removeAttribute('open')"
     },
@@ -6740,7 +6740,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-aa-pdf",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "downloadServerPdf('assetallocation')"
     },
@@ -6748,7 +6748,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-aa-pref-open",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "openAllocationPreferencesModal()"
     },
@@ -6948,7 +6948,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-al-react-editor",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "openAllocationEditor();this.closest('details').removeAttribute('open')"
     },
@@ -6996,7 +6996,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-cf-cashflow-react-editor",
-      "line": 2973,
+      "line": 2975,
       "tag": "button",
       "value": "openCashflowEditor();this.closest('details').removeAttribute('open')"
     },
@@ -7004,7 +7004,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-cf-goals-react-editor",
-      "line": 2973,
+      "line": 2975,
       "tag": "button",
       "value": "openGoalsEditor();this.closest('details').removeAttribute('open')"
     },
@@ -7012,7 +7012,7 @@
       "class": "btn-g",
       "handler": "onclick",
       "id": "btn-cf-save-state",
-      "line": 3004,
+      "line": 3006,
       "tag": "button",
       "value": "saveCashflowsAndRefreshCurrentPath()"
     },
@@ -7036,7 +7036,7 @@
       "class": "sb-btn",
       "handler": "onclick",
       "id": "btn-crm-react-editor",
-      "line": 2877,
+      "line": 2879,
       "tag": "button",
       "value": "openCrmEditor()"
     },
@@ -7260,7 +7260,7 @@
       "class": "btn-p aa-commit-action",
       "handler": "onclick",
       "id": "btn-portfolio-umsetzen",
-      "line": 3418,
+      "line": 3420,
       "tag": "button",
       "value": "openPortfolioUmsetzenModal()"
     },
@@ -7300,7 +7300,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-rp-react-editor",
-      "line": 3009,
+      "line": 3011,
       "tag": "button",
       "value": "openProfilingEditor();this.closest('details').removeAttribute('open')"
     },
@@ -7308,7 +7308,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-rp-server-pdf",
-      "line": 3009,
+      "line": 3011,
       "tag": "button",
       "value": "downloadServerPdf('risikoprofil');this.closest('details').removeAttribute('open')"
     },
@@ -7316,7 +7316,7 @@
       "class": "btn-g",
       "handler": "onclick",
       "id": "btn-save-riskprofile",
-      "line": 3009,
+      "line": 3011,
       "tag": "button",
       "value": "saveRiskProfile()"
     },
@@ -7332,7 +7332,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-sd-crm-react-editor",
-      "line": 2901,
+      "line": 2903,
       "tag": "button",
       "value": "openCrmEditorForClient();this.closest('details').removeAttribute('open')"
     },
@@ -7340,9 +7340,17 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-sd-mandate-react-editor",
-      "line": 2901,
+      "line": 2903,
       "tag": "button",
       "value": "openMandateEditor();this.closest('details').removeAttribute('open')"
+    },
+    {
+      "class": "btn-g",
+      "handler": "onclick",
+      "id": "btn-sim-horizon-confirm",
+      "line": 3434,
+      "tag": "button",
+      "value": "confirmSimHorizonFromBanner()"
     },
     {
       "class": "t-btn",
@@ -7364,7 +7372,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-vg-wealthinflow-react-editor",
-      "line": 2964,
+      "line": 2966,
       "tag": "button",
       "value": "openWealthInflowEditor();this.closest('details').removeAttribute('open')"
     },
@@ -7380,7 +7388,7 @@
       "class": "sb-btn",
       "handler": "onclick",
       "id": "pb",
-      "line": 2876,
+      "line": 2878,
       "tag": "button",
       "value": "toggleP()"
     },
@@ -7444,7 +7452,7 @@
       "class": "",
       "handler": "oninput",
       "id": "client-search",
-      "line": 2879,
+      "line": 2881,
       "tag": "input",
       "value": "filterClientRegister(this.value)"
     },
@@ -7580,7 +7588,7 @@
       "class": "sd-archive-search",
       "handler": "oninput",
       "id": "sd-archive-search",
-      "line": 2951,
+      "line": 2953,
       "tag": "input",
       "value": "onSdArchiveFilterChange()"
     },
@@ -7709,7 +7717,7 @@
     {
       "class": "action-list",
       "id": "aa-action-list",
-      "line": 3537,
+      "line": 3552,
       "tag": "div"
     },
     {
@@ -7763,19 +7771,19 @@
     {
       "class": "",
       "id": "aa-compare-chart-col",
-      "line": 3484,
+      "line": 3495,
       "tag": "div"
     },
     {
       "class": "",
       "id": "aa-compare-wrap",
-      "line": 3460,
+      "line": 3470,
       "tag": "div"
     },
     {
       "class": "chart-lg",
       "id": "aa-current-chart-wrap",
-      "line": 3490,
+      "line": 3501,
       "tag": "div"
     },
     {
@@ -7817,43 +7825,49 @@
     {
       "class": "",
       "id": "aa-goal-sollist",
-      "line": 3529,
+      "line": 3544,
       "tag": "div"
     },
     {
       "class": "",
       "id": "aa-horizon-age",
-      "line": 3471,
+      "line": 3481,
       "tag": "input"
     },
     {
       "class": "",
       "id": "aa-horizon-bar",
-      "line": 3463,
+      "line": 3473,
       "tag": "div"
     },
     {
       "class": "",
       "id": "aa-horizon-eff",
-      "line": 3475,
+      "line": 3485,
       "tag": "span"
     },
     {
       "class": "",
       "id": "aa-horizon-endyear",
-      "line": 3472,
+      "line": 3482,
       "tag": "input"
     },
     {
       "class": "",
       "id": "aa-horizon-mode",
-      "line": 3465,
+      "line": 3475,
       "tag": "select"
     },
     {
       "class": "",
+      "id": "aa-horizon-sim-end",
+      "line": 3486,
+      "tag": "span"
+    },
+    {
+      "class": "",
       "id": "aa-horizon-years",
-      "line": 3473,
+      "line": 3483,
       "tag": "input"
     },
     {
@@ -7876,6 +7890,12 @@
     },
     {
       "class": "fi",
+      "id": "aa-liquidity-max-illiquid",
+      "line": 3732,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
       "id": "aa-liquidity-min-reserve",
       "line": 3716,
       "tag": "input"
@@ -7889,7 +7909,7 @@
     {
       "class": "chart-lg",
       "id": "aa-opt-chart-wrap",
-      "line": 3482,
+      "line": 3493,
       "tag": "div"
     },
     {
@@ -7991,181 +8011,205 @@
     {
       "class": "",
       "id": "aa-proj-benchmark-note",
-      "line": 3461,
+      "line": 3471,
       "tag": "div"
     },
     {
       "class": "",
       "id": "aa-proj-cagr",
-      "line": 3510,
+      "line": 3522,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-chart-grid",
-      "line": 3478,
+      "line": 3489,
       "tag": "div"
     },
     {
       "class": "",
       "id": "aa-proj-current-cagr",
-      "line": 3510,
+      "line": 3522,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-current-cvar95",
-      "line": 3516,
+      "line": 3528,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-current-depletion",
-      "line": 3519,
+      "line": 3531,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-current-drawdown",
-      "line": 3517,
+      "line": 3529,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-current-lossprob",
-      "line": 3518,
+      "line": 3530,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-current-median",
-      "line": 3506,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-current-p10",
-      "line": 3508,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-current-p50-return",
-      "line": 3509,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-current-p90",
-      "line": 3507,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-current-sharpe",
-      "line": 3511,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-current-var95",
-      "line": 3515,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-current-vol",
-      "line": 3514,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-cvar95",
-      "line": 3516,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-delta-value",
-      "line": 3525,
-      "tag": "span"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-depletion",
-      "line": 3519,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-drawdown",
-      "line": 3517,
-      "tag": "td"
-    },
-    {
-      "class": "",
-      "id": "aa-proj-lossprob",
       "line": 3518,
       "tag": "td"
     },
     {
       "class": "",
+      "id": "aa-proj-current-p10",
+      "line": 3520,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-current-p50-return",
+      "line": 3521,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-current-p90",
+      "line": 3519,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-current-sharpe",
+      "line": 3523,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-current-var95",
+      "line": 3527,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-current-vol",
+      "line": 3526,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-cvar95",
+      "line": 3528,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-delta-label",
+      "line": 3537,
+      "tag": "span"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-delta-value",
+      "line": 3538,
+      "tag": "span"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-depletion",
+      "line": 3531,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-drawdown",
+      "line": 3529,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-lbl-median",
+      "line": 3518,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-lbl-p10",
+      "line": 3520,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-lbl-p90",
+      "line": 3519,
+      "tag": "td"
+    },
+    {
+      "class": "",
+      "id": "aa-proj-lossprob",
+      "line": 3530,
+      "tag": "td"
+    },
+    {
+      "class": "",
       "id": "aa-proj-median",
-      "line": 3506,
+      "line": 3518,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-metrics",
-      "line": 3494,
+      "line": 3506,
       "tag": "div"
     },
     {
       "class": "",
       "id": "aa-proj-p10",
-      "line": 3508,
+      "line": 3520,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-p50-return",
-      "line": 3509,
+      "line": 3521,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-p90",
-      "line": 3507,
+      "line": 3519,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-runway-current",
-      "line": 3512,
+      "line": 3524,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-runway-target",
-      "line": 3512,
+      "line": 3524,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-sharpe",
-      "line": 3511,
+      "line": 3523,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-var95",
-      "line": 3515,
+      "line": 3527,
       "tag": "td"
     },
     {
       "class": "",
       "id": "aa-proj-vol",
-      "line": 3514,
+      "line": 3526,
       "tag": "td"
     },
     {
@@ -8241,6 +8285,48 @@
       "tag": "select"
     },
     {
+      "class": "fi aa-tilt-reason",
+      "id": "aa-tilt-reason-alcohol",
+      "line": 3699,
+      "tag": "input"
+    },
+    {
+      "class": "fi aa-tilt-reason",
+      "id": "aa-tilt-reason-defense",
+      "line": 3697,
+      "tag": "input"
+    },
+    {
+      "class": "fi aa-tilt-reason",
+      "id": "aa-tilt-reason-fossil",
+      "line": 3696,
+      "tag": "input"
+    },
+    {
+      "class": "fi aa-tilt-reason",
+      "id": "aa-tilt-reason-gaming",
+      "line": 3700,
+      "tag": "input"
+    },
+    {
+      "class": "fi aa-tilt-reason",
+      "id": "aa-tilt-reason-nuclear",
+      "line": 3701,
+      "tag": "input"
+    },
+    {
+      "class": "fi aa-tilt-reason",
+      "id": "aa-tilt-reason-tobacco",
+      "line": 3698,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "aa-tilt-screening-note",
+      "line": 3703,
+      "tag": "div"
+    },
+    {
       "class": "fsel",
       "id": "aa-tilt-nuclear",
       "line": 3687,
@@ -8308,6 +8394,12 @@
     },
     {
       "class": "",
+      "id": "ab-stress-diff",
+      "line": 4405,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "ab-warnings",
       "line": 4393,
       "tag": "div"
@@ -8315,7 +8407,7 @@
     {
       "class": "cbody",
       "id": "abfluss-rows",
-      "line": 3321,
+      "line": 3323,
       "tag": "div"
     },
     {
@@ -8364,6 +8456,36 @@
       "class": "",
       "id": "acf-error",
       "line": 4729,
+      "tag": "div"
+    },
+    {
+      "class": "fsel",
+      "id": "acf-cat",
+      "line": 4659,
+      "tag": "select"
+    },
+    {
+      "class": "fsel",
+      "id": "acf-cftype",
+      "line": 4646,
+      "tag": "select"
+    },
+    {
+      "class": "",
+      "id": "acf-date-hint",
+      "line": 4718,
+      "tag": "div"
+    },
+    {
+      "class": "fg",
+      "id": "acf-end-wrap",
+      "line": 4695,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "acf-error",
+      "line": 4744,
       "tag": "div"
     },
     {
@@ -9077,7 +9199,7 @@
     {
       "class": "strip strip-w",
       "id": "al-dirty-banner",
-      "line": 3419,
+      "line": 3421,
       "tag": "div"
     },
     {
@@ -9089,7 +9211,7 @@
     {
       "class": "al-banner-warning",
       "id": "al-message-banner",
-      "line": 3427,
+      "line": 3437,
       "tag": "div"
     },
     {
@@ -9101,7 +9223,7 @@
     {
       "class": "card",
       "id": "al-optimizer-panel",
-      "line": 3545,
+      "line": 3560,
       "tag": "div"
     },
     {
@@ -9123,6 +9245,24 @@
       "tag": "input"
     },
     {
+      "class": "strip strip-w",
+      "id": "al-sim-horizon-confirm-banner",
+      "line": 3428,
+      "tag": "div"
+    },
+    {
+      "class": "fsel",
+      "id": "al-sim-horizon-confirm-select",
+      "line": 3433,
+      "tag": "select"
+    },
+    {
+      "class": "ss",
+      "id": "al-sim-horizon-confirm-text",
+      "line": 3431,
+      "tag": "div"
+    },
+    {
       "class": "",
       "id": "al-table",
       "line": 26927,
@@ -9131,13 +9271,13 @@
     {
       "class": "",
       "id": "alert-count",
-      "line": 2875,
+      "line": 2877,
       "tag": "span"
     },
     {
       "class": "alloc-donut-subline",
       "id": "alloc-rein-context",
-      "line": 3446,
+      "line": 3456,
       "tag": "div"
     },
     {
@@ -9353,13 +9493,13 @@
     {
       "class": "",
       "id": "asset-view",
-      "line": 2905,
+      "line": 2907,
       "tag": "div"
     },
     {
       "class": "",
       "id": "at",
-      "line": 3452,
+      "line": 3462,
       "tag": "div"
     },
     {
@@ -9766,6 +9906,120 @@
     },
     {
       "class": "",
+      "id": "bt-drawdown-chart",
+      "line": 4552,
+      "tag": "div"
+    },
+    {
+      "class": "fi",
+      "id": "bt-end-year",
+      "line": 4435,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "bt-fallback-badge",
+      "line": 4424,
+      "tag": "div"
+    },
+    {
+      "class": "fi bt-fee-strategy",
+      "id": "bt-fee-advisory",
+      "line": 4473,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "bt-fee-benchmark",
+      "line": 4525,
+      "tag": "input"
+    },
+    {
+      "class": "fi bt-fee-strategy",
+      "id": "bt-fee-custody",
+      "line": 4469,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "bt-fee-strategy-sum",
+      "line": 4476,
+      "tag": "div"
+    },
+    {
+      "class": "fi bt-fee-strategy",
+      "id": "bt-fee-ter",
+      "line": 4465,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "bt-info",
+      "line": 4420,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "bt-meta",
+      "line": 4544,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "bt-metrics-table",
+      "line": 4556,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "bt-res-annual",
+      "line": 4453,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "bt-res-daily",
+      "line": 4454,
+      "tag": "input"
+    },
+    {
+      "class": "btn-p",
+      "id": "bt-run-btn",
+      "line": 4537,
+      "tag": "button"
+    },
+    {
+      "class": "",
+      "id": "bt-show-norebal",
+      "line": 4449,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "bt-show-rebal",
+      "line": 4448,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "bt-start-year",
+      "line": 4433,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "bt-status",
+      "line": 4540,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "bt-warnings",
+      "line": 4559,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "bt-wealth-chart",
       "line": 4533,
       "tag": "div"
@@ -9785,37 +10039,37 @@
     {
       "class": "btn",
       "id": "btn-aa-backtest",
-      "line": 3418,
+      "line": 3420,
       "tag": "button"
     },
     {
       "class": "btn-g",
       "id": "btn-aa-calc",
-      "line": 3418,
+      "line": 3420,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-aa-metrics-toggle",
-      "line": 3458,
+      "line": 3468,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-aa-params-open",
-      "line": 3418,
+      "line": 3420,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-aa-pdf",
-      "line": 3418,
+      "line": 3420,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-aa-pref-open",
-      "line": 3418,
+      "line": 3420,
       "tag": "button"
     },
     {
@@ -9965,7 +10219,7 @@
     {
       "class": "btn",
       "id": "btn-al-react-editor",
-      "line": 3418,
+      "line": 3420,
       "tag": "button"
     },
     {
@@ -10001,19 +10255,19 @@
     {
       "class": "btn",
       "id": "btn-cf-cashflow-react-editor",
-      "line": 2973,
+      "line": 2975,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-cf-goals-react-editor",
-      "line": 2973,
+      "line": 2975,
       "tag": "button"
     },
     {
       "class": "btn-g",
       "id": "btn-cf-save-state",
-      "line": 3004,
+      "line": 3006,
       "tag": "button"
     },
     {
@@ -10031,7 +10285,7 @@
     {
       "class": "sb-btn",
       "id": "btn-crm-react-editor",
-      "line": 2877,
+      "line": 2879,
       "tag": "button"
     },
     {
@@ -10199,7 +10453,7 @@
     {
       "class": "btn-p aa-commit-action",
       "id": "btn-portfolio-umsetzen",
-      "line": 3418,
+      "line": 3420,
       "tag": "button"
     },
     {
@@ -10229,19 +10483,19 @@
     {
       "class": "btn",
       "id": "btn-rp-react-editor",
-      "line": 3009,
+      "line": 3011,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-rp-server-pdf",
-      "line": 3009,
+      "line": 3011,
       "tag": "button"
     },
     {
       "class": "btn-g",
       "id": "btn-save-riskprofile",
-      "line": 3009,
+      "line": 3011,
       "tag": "button"
     },
     {
@@ -10253,13 +10507,19 @@
     {
       "class": "btn",
       "id": "btn-sd-crm-react-editor",
-      "line": 2901,
+      "line": 2903,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-sd-mandate-react-editor",
-      "line": 2901,
+      "line": 2903,
+      "tag": "button"
+    },
+    {
+      "class": "btn-g",
+      "id": "btn-sim-horizon-confirm",
+      "line": 3434,
       "tag": "button"
     },
     {
@@ -10277,7 +10537,7 @@
     {
       "class": "btn",
       "id": "btn-vg-wealthinflow-react-editor",
-      "line": 2964,
+      "line": 2966,
       "tag": "button"
     },
     {
@@ -10319,163 +10579,163 @@
     {
       "class": "",
       "id": "cf-cashflow-hud-slot",
-      "line": 2983,
+      "line": 2985,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cf-combined-template",
-      "line": 3289,
+      "line": 3291,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cf-dupe-hint",
-      "line": 3299,
+      "line": 3301,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cf-goals-projection",
-      "line": 2982,
+      "line": 2984,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cf-horizon-date",
-      "line": 3358,
+      "line": 3360,
       "tag": "input"
     },
     {
       "class": "",
       "id": "cf-horizon-eff",
-      "line": 3362,
+      "line": 3364,
       "tag": "span"
     },
     {
       "class": "",
       "id": "cf-horizon-mode",
-      "line": 3348,
+      "line": 3350,
       "tag": "select"
     },
     {
       "class": "",
       "id": "cf-horizon-override",
-      "line": 3354,
+      "line": 3356,
       "tag": "input"
     },
     {
       "class": "",
       "id": "cf-indexation-toggle",
-      "line": 3372,
+      "line": 3374,
       "tag": "input"
     },
     {
       "class": "cf-ist-panel",
       "id": "cf-ist-panel",
-      "line": 2977,
+      "line": 2979,
       "tag": "section"
     },
     {
       "class": "",
       "id": "cf-projection",
-      "line": 3326,
+      "line": 3328,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cf-risk-context-summary",
-      "line": 3410,
+      "line": 3412,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cf-save-status",
-      "line": 3002,
+      "line": 3004,
       "tag": "div"
     },
     {
       "class": "cf-summary-value negative",
       "id": "cf-summary-expense",
-      "line": 2992,
+      "line": 2994,
       "tag": "div"
     },
     {
       "class": "cf-summary-label",
       "id": "cf-summary-expense-label",
-      "line": 2991,
+      "line": 2993,
       "tag": "div"
     },
     {
       "class": "cf-summary-meta",
       "id": "cf-summary-expense-meta",
-      "line": 2993,
+      "line": 2995,
       "tag": "div"
     },
     {
       "class": "cf-summary-value positive",
       "id": "cf-summary-income",
-      "line": 2987,
+      "line": 2989,
       "tag": "div"
     },
     {
       "class": "cf-summary-label",
       "id": "cf-summary-income-label",
-      "line": 2986,
+      "line": 2988,
       "tag": "div"
     },
     {
       "class": "cf-summary-meta",
       "id": "cf-summary-income-meta",
-      "line": 2988,
+      "line": 2990,
       "tag": "div"
     },
     {
       "class": "cf-summary-value",
       "id": "cf-summary-net",
-      "line": 2997,
+      "line": 2999,
       "tag": "div"
     },
     {
       "class": "cf-summary-label",
       "id": "cf-summary-net-label",
-      "line": 2996,
+      "line": 2998,
       "tag": "div"
     },
     {
       "class": "cf-summary-meta",
       "id": "cf-summary-net-meta",
-      "line": 2998,
+      "line": 3000,
       "tag": "div"
     },
     {
       "class": "",
       "id": "ch-aa-current",
-      "line": 3490,
+      "line": 3501,
       "tag": "canvas"
     },
     {
       "class": "",
       "id": "ch-dn",
-      "line": 3438,
+      "line": 3448,
       "tag": "canvas"
     },
     {
       "class": "sr-only sr-only-table",
       "id": "ch-dn-table",
-      "line": 3440,
+      "line": 3450,
       "tag": "table"
     },
     {
       "class": "",
       "id": "ch-ist",
-      "line": 3380,
+      "line": 3382,
       "tag": "canvas"
     },
     {
       "class": "",
       "id": "ch-opt",
-      "line": 3482,
+      "line": 3493,
       "tag": "canvas"
     },
     {
@@ -10517,7 +10777,7 @@
     {
       "class": "",
       "id": "client-search",
-      "line": 2879,
+      "line": 2881,
       "tag": "input"
     },
     {
@@ -10606,6 +10866,24 @@
     },
     {
       "class": "",
+      "id": "dc-currency-list",
+      "line": 4318,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "dc-fc-duration",
+      "line": 4331,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "dc-fc-esg",
+      "line": 4335,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "dc-fc-hhi",
       "line": 4324,
       "tag": "div"
@@ -10661,7 +10939,7 @@
     {
       "class": "alloc-legend",
       "id": "dnleg",
-      "line": 3439,
+      "line": 3449,
       "tag": "div"
     },
     {
@@ -10913,13 +11191,13 @@
     {
       "class": "psg",
       "id": "hh-grid",
-      "line": 2929,
+      "line": 2931,
       "tag": "div"
     },
     {
       "class": "cbody",
       "id": "inflow-rows",
-      "line": 3313,
+      "line": 3315,
       "tag": "div"
     },
     {
@@ -10955,19 +11233,19 @@
     {
       "class": "kv",
       "id": "kpi-cashflow",
-      "line": 3295,
+      "line": 3297,
       "tag": "div"
     },
     {
       "class": "kv",
       "id": "kpi-goal-progress",
-      "line": 3294,
+      "line": 3296,
       "tag": "div"
     },
     {
       "class": "kv",
       "id": "kpi-reinvermoegen",
-      "line": 3293,
+      "line": 3295,
       "tag": "div"
     },
     {
@@ -11506,6 +11784,12 @@
     },
     {
       "class": "fi",
+      "id": "maw-liq-rate",
+      "line": 5059,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
       "id": "maw-liq-value",
       "line": 5041,
       "tag": "input"
@@ -11614,6 +11898,18 @@
     },
     {
       "class": "fsel",
+      "id": "maw-pension-payout",
+      "line": 5116,
+      "tag": "select"
+    },
+    {
+      "class": "fi",
+      "id": "maw-pension-rate",
+      "line": 5110,
+      "tag": "input"
+    },
+    {
+      "class": "fsel",
       "id": "maw-pension-type",
       "line": 5081,
       "tag": "select"
@@ -11685,6 +11981,18 @@
       "tag": "table"
     },
     {
+      "class": "",
+      "id": "method-drivers-block",
+      "line": 3641,
+      "tag": "details"
+    },
+    {
+      "class": "optimizer-table",
+      "id": "method-drivers-table",
+      "line": 3643,
+      "tag": "table"
+    },
+    {
       "class": "fi",
       "id": "ms-birth-year",
       "line": 4168,
@@ -11712,6 +12020,30 @@
       "class": "fi",
       "id": "ms-retirement-year",
       "line": 4184,
+      "tag": "input"
+    },
+    {
+      "class": "fsel",
+      "id": "ms-jurisdiction",
+      "line": 4173,
+      "tag": "select"
+    },
+    {
+      "class": "fi",
+      "id": "ms-life-expectancy-year",
+      "line": 4200,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "ms-report-sections",
+      "line": 4224,
+      "tag": "div"
+    },
+    {
+      "class": "fi",
+      "id": "ms-retirement-year",
+      "line": 4199,
       "tag": "input"
     },
     {
@@ -12131,7 +12463,7 @@
     {
       "class": "",
       "id": "opt-achievability-block",
-      "line": 3557,
+      "line": 3572,
       "tag": "details"
     },
     {
@@ -12149,13 +12481,13 @@
     {
       "class": "",
       "id": "opt-fallback-banner",
-      "line": 3552,
+      "line": 3567,
       "tag": "div"
     },
     {
       "class": "rv-limiting-badge",
       "id": "opt-limiting-factor-badge",
-      "line": 3548,
+      "line": 3563,
       "tag": "span"
     },
     {
@@ -12167,13 +12499,13 @@
     {
       "class": "",
       "id": "opt-reasoning-block",
-      "line": 3553,
+      "line": 3568,
       "tag": "details"
     },
     {
       "class": "",
       "id": "opt-reasoning-list",
-      "line": 3555,
+      "line": 3570,
       "tag": "ul"
     },
     {
@@ -12191,7 +12523,7 @@
     {
       "class": "opt-pill",
       "id": "opt-status-pill",
-      "line": 3549,
+      "line": 3564,
       "tag": "span"
     },
     {
@@ -12257,25 +12589,25 @@
     {
       "class": "override-badge",
       "id": "overr-badge",
-      "line": 3276,
+      "line": 3278,
       "tag": "div"
     },
     {
       "class": "",
       "id": "overr-val",
-      "line": 3276,
+      "line": 3278,
       "tag": "span"
     },
     {
       "class": "page",
       "id": "page-al",
-      "line": 3417,
+      "line": 3419,
       "tag": "div"
     },
     {
       "class": "page",
       "id": "page-cf",
-      "line": 2972,
+      "line": 2974,
       "tag": "div"
     },
     {
@@ -12287,7 +12619,7 @@
     {
       "class": "page",
       "id": "page-rp",
-      "line": 3008,
+      "line": 3010,
       "tag": "div"
     },
     {
@@ -12299,19 +12631,19 @@
     {
       "class": "page",
       "id": "page-sd",
-      "line": 2900,
+      "line": 2902,
       "tag": "div"
     },
     {
       "class": "page",
       "id": "page-vg",
-      "line": 2963,
+      "line": 2965,
       "tag": "div"
     },
     {
       "class": "sb-btn",
       "id": "pb",
-      "line": 2876,
+      "line": 2878,
       "tag": "button"
     },
     {
@@ -12337,6 +12669,18 @@
       "id": "pf-error",
       "line": 27112,
       "tag": "div"
+    },
+    {
+      "class": "fsel",
+      "id": "pf-esg-rating",
+      "line": 27532,
+      "tag": "select"
+    },
+    {
+      "class": "fi",
+      "id": "pf-esg-score",
+      "line": 27533,
+      "tag": "input"
     },
     {
       "class": "admin-section-title",
@@ -12405,10 +12749,34 @@
       "tag": "div"
     },
     {
+      "class": "fsel",
+      "id": "pf-sfdr",
+      "line": 27531,
+      "tag": "select"
+    },
+    {
       "class": "fi",
       "id": "pf-sub-asset-class",
       "line": 27100,
       "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "pf-suit-from",
+      "line": 27528,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "pf-suit-to",
+      "line": 27528,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "pf-suit-wrap",
+      "line": 27528,
+      "tag": "div"
     },
     {
       "class": "fi",
@@ -12575,19 +12943,19 @@
     {
       "class": "rpanel active",
       "id": "r-ke",
-      "line": 3042,
+      "line": 3044,
       "tag": "div"
     },
     {
       "class": "rpanel",
       "id": "r-rb",
-      "line": 3229,
+      "line": 3231,
       "tag": "div"
     },
     {
       "class": "rpanel",
       "id": "r-rf",
-      "line": 3127,
+      "line": 3129,
       "tag": "div"
     },
     {
@@ -12605,49 +12973,49 @@
     {
       "class": "res-p",
       "id": "res-pname",
-      "line": 3271,
+      "line": 3273,
       "tag": "div"
     },
     {
       "class": "",
       "id": "rp-institutional-banner",
-      "line": 3014,
+      "line": 3016,
       "tag": "div"
     },
     {
       "class": "",
       "id": "rp-institutional-voluntary-toggle",
-      "line": 3018,
+      "line": 3020,
       "tag": "input"
     },
     {
       "class": "",
       "id": "rp-ke-confirmed-hint",
-      "line": 3053,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "rp-ke-presumed-notice",
-      "line": 3049,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "rp-ke-tables-wrap",
       "line": 3055,
       "tag": "div"
     },
     {
       "class": "",
+      "id": "rp-ke-presumed-notice",
+      "line": 3051,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "rp-ke-tables-wrap",
+      "line": 3057,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "rp-professional-banner",
-      "line": 3022,
+      "line": 3024,
       "tag": "div"
     },
     {
       "class": "card",
       "id": "rp-questionnaire-card",
-      "line": 3028,
+      "line": 3030,
       "tag": "div"
     },
     {
@@ -13150,6 +13518,54 @@
     },
     {
       "class": "",
+      "id": "sr-implementation-steps",
+      "line": 4047,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-implementation-sub",
+      "line": 4045,
+      "tag": "span"
+    },
+    {
+      "class": "cht",
+      "id": "sr-implementation-title",
+      "line": 4045,
+      "tag": "span"
+    },
+    {
+      "class": "",
+      "id": "sr-next-review",
+      "line": 3991,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-next-review-date",
+      "line": 4051,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-ovr-badge",
+      "line": 3975,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-pref-focus-chips",
+      "line": 4033,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-pref-restriction-chips",
+      "line": 4039,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "sr-proj-sub",
       "line": 3975,
       "tag": "div"
@@ -13234,6 +13650,42 @@
     },
     {
       "class": "",
+      "id": "sr-riskprofile-override",
+      "line": 4002,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-riskprofile-profile",
+      "line": 4001,
+      "tag": "div"
+    },
+    {
+      "class": "btn-g btn-sm",
+      "id": "sr-riskprofile-sign-btn",
+      "line": 3996,
+      "tag": "button"
+    },
+    {
+      "class": "",
+      "id": "sr-riskprofile-signature",
+      "line": 4010,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-signature-block",
+      "line": 4057,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "sr-strategy-name",
+      "line": 4022,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "sr-wealth",
       "line": 3964,
       "tag": "div"
@@ -13283,49 +13735,49 @@
     {
       "class": "",
       "id": "ub-cagr-ist",
-      "line": 3384,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "ub-cagr-opt",
-      "line": 3385,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "ub-delta-terminal",
       "line": 3386,
       "tag": "div"
     },
     {
       "class": "",
+      "id": "ub-cagr-opt",
+      "line": 3387,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "ub-delta-terminal",
+      "line": 3388,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "ub-ist-terminal",
-      "line": 3382,
+      "line": 3384,
       "tag": "div"
     },
     {
       "class": "",
       "id": "ub-opt-terminal",
-      "line": 3383,
+      "line": 3385,
       "tag": "div"
     },
     {
       "class": "",
       "id": "ub-projection-note",
-      "line": 3379,
+      "line": 3381,
       "tag": "div"
     },
     {
       "class": "",
       "id": "ub-return-beratung",
-      "line": 3393,
+      "line": 3395,
       "tag": "strong"
     },
     {
       "class": "",
       "id": "ub-return-rein",
-      "line": 3392,
+      "line": 3394,
       "tag": "strong"
     },
     {
@@ -13361,13 +13813,13 @@
     {
       "class": "cbody",
       "id": "zl",
-      "line": 3330,
+      "line": 3332,
       "tag": "div"
     },
     {
       "class": "cbody",
       "id": "zufluss-rows",
-      "line": 3302,
+      "line": 3304,
       "tag": "div"
     }
   ],
@@ -13445,7 +13897,7 @@
     },
     {
       "declaration": "var",
-      "line": 2798,
+      "line": 2800,
       "name": "_fillSollIstTable"
     },
     {
@@ -13455,7 +13907,7 @@
     },
     {
       "declaration": "var",
-      "line": 2790,
+      "line": 2792,
       "name": "_fmtEndK"
     },
     {
@@ -13500,7 +13952,7 @@
     },
     {
       "declaration": "var",
-      "line": 2774,
+      "line": 2776,
       "name": "_mainLast"
     },
     {
@@ -13610,7 +14062,7 @@
     },
     {
       "declaration": "function",
-      "line": 2854,
+      "line": 2856,
       "name": "_wireSollIstHover"
     },
     {
@@ -15150,7 +15602,7 @@
     },
     {
       "declaration": "function",
-      "line": 2813,
+      "line": 2815,
       "name": "closeSollIstCompare"
     },
     {
@@ -15810,7 +16262,7 @@
     },
     {
       "declaration": "function",
-      "line": 2822,
+      "line": 2824,
       "name": "exportSollIstComparePng"
     },
     {
@@ -17067,6 +17519,11 @@
       "declaration": "function",
       "line": 9001,
       "name": "page"
+    },
+    {
+      "declaration": "var",
+      "line": 20879,
+      "name": "paint"
     },
     {
       "declaration": "function",
@@ -19129,6 +19586,11 @@
       "name": "twoTables"
     },
     {
+      "declaration": "var",
+      "line": 20843,
+      "name": "upTo"
+    },
+    {
       "declaration": "function",
       "line": 10066,
       "name": "updOv"
@@ -19287,6 +19749,11 @@
       "declaration": "function",
       "line": 26425,
       "name": "wireStammdatenHorizonAutofill"
+    },
+    {
+      "declaration": "var",
+      "line": 20842,
+      "name": "withRes"
     },
     {
       "declaration": "function",
@@ -19469,14 +19936,14 @@
     {
       "class": "modal",
       "id": "",
-      "line": 5184,
+      "line": 5200,
       "role": "",
       "tag": "div"
     },
     {
       "class": "modal",
       "id": "",
-      "line": 5185,
+      "line": 5201,
       "role": "",
       "tag": "div"
     },
@@ -19497,28 +19964,28 @@
     {
       "class": "modal",
       "id": "",
-      "line": 5189,
+      "line": 5205,
       "role": "",
       "tag": "div"
     },
     {
       "class": "modal",
       "id": "",
-      "line": 5190,
+      "line": 5206,
       "role": "",
       "tag": "div"
     },
     {
       "class": "modal",
       "id": "",
-      "line": 5191,
+      "line": 5207,
       "role": "",
       "tag": "div"
     },
     {
       "class": "modal",
       "id": "",
-      "line": 5192,
+      "line": 5208,
       "role": "",
       "tag": "div"
     },
@@ -20147,7 +20614,7 @@
     {
       "class": "cf-ist-panel",
       "id": "cf-ist-panel",
-      "line": 2977,
+      "line": 2979,
       "tag": "section"
     },
     {

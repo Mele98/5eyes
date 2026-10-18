@@ -802,6 +802,54 @@ def _validate_credit_rating(value: Optional[str]) -> Optional[str]:
     return value
 
 
+# ESG-PREMIUM-CRITERIA-001 (2026-10-14): Katalogfelder fuer die
+# datengetriebenen ESG-Kriterien. Vokabular bewusst hier dupliziert (schemas/
+# bleibt Leaf-Schicht), synchron mit services/portfolio_engine_payload.py
+# (THEME_SUB_ASSET_CLASSES, CLIMATE_BENCHMARKS) -- per Test gepinnt.
+_THEME_TAG_KEYS = ("fossil", "defense", "tobacco", "alcohol", "gaming", "nuclear")
+_CLIMATE_BENCHMARKS = ("PAB", "CTB")
+
+
+def _normalize_theme_tags(value: Any) -> Optional[str]:
+    """Akzeptiert eine Liste, einen JSON-Listen-String oder (CSV) einen
+    Semikolon-/Komma-getrennten String; speichert kanonisch als sortierte,
+    deduplizierte JSON-Liste. Unbekannte Keys -> Fehler (ein Tippfehler darf
+    keinen Ausschluss stillschweigend wirkungslos machen)."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw.startswith("["):
+            try:
+                value = json.loads(raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"theme_tags ist kein gueltiges JSON: {exc}") from exc
+        else:
+            value = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("theme_tags muss eine Liste von Themen-Keys sein")
+    tags = []
+    for item in value:
+        if not isinstance(item, str) or item.strip() not in _THEME_TAG_KEYS:
+            raise ValueError(
+                f"theme_tags: unbekannter Themen-Key {item!r} (erlaubt: {list(_THEME_TAG_KEYS)})"
+            )
+        tags.append(item.strip())
+    return json.dumps(sorted(set(tags)))
+
+
+def _normalize_climate_benchmark(value: Optional[str]) -> Optional[str]:
+    if value is None or str(value).strip() == "":
+        return None
+    normalized = str(value).strip().upper()
+    if normalized not in _CLIMATE_BENCHMARKS:
+        raise ValueError(
+            f"climate_benchmark muss einer von {_CLIMATE_BENCHMARKS} sein "
+            f"(EU Paris-aligned / Climate Transition Benchmark), ist {value!r}"
+        )
+    return normalized
+
+
 class ProductCreate(BaseModel):
     isin: Optional[str] = None
     symbol: Optional[str] = None
@@ -833,6 +881,10 @@ class ProductCreate(BaseModel):
     credit_rating: Optional[str] = None
     esg_score_x10: Optional[int] = Field(default=None, ge=0, le=1000)
     liquidity_tier: Optional[str] = None
+    # ESG-PREMIUM-CRITERIA-001: 'PAB'/'CTB' (net_zero-Kriterium) und
+    # Themen-Tags (Liste von Keys; gespeichert als JSON-Liste).
+    climate_benchmark: Optional[str] = None
+    theme_tags: Optional[str] = None
     # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): ein Custom-Produkt ohne
     # jede Risikoband-Einstufung wird von generate_recommendation_run()
     # fail-closed als `indeterminate` behandelt und nie ausgewaehlt (siehe
@@ -865,6 +917,16 @@ class ProductCreate(BaseModel):
     @classmethod
     def _validate_credit_rating_field(cls, v):
         return _validate_credit_rating(v)
+
+    @field_validator("climate_benchmark", mode="before")
+    @classmethod
+    def _validate_climate_benchmark_field(cls, v):
+        return _normalize_climate_benchmark(v)
+
+    @field_validator("theme_tags", mode="before")
+    @classmethod
+    def _validate_theme_tags_field(cls, v):
+        return _normalize_theme_tags(v)
 
     @model_validator(mode="after")
     def _validate_suitability_band(self):
@@ -901,6 +963,10 @@ class ProductUpdate(BaseModel):
     credit_rating: Optional[str] = None
     esg_score_x10: Optional[int] = Field(default=None, ge=0, le=1000)
     liquidity_tier: Optional[str] = None
+    # ESG-PREMIUM-CRITERIA-001: siehe ProductCreate. theme_tags=[] leert die
+    # Tags explizit (exclude_none im Router laesst None unveraendert).
+    climate_benchmark: Optional[str] = None
+    theme_tags: Optional[str] = None
     # 2026-09-05 (PROD-DOMAIN-001): war Optional[int] ohne jede Schranke --
     # is_active ist auf Product ein 0/1-Flag (models/review.py Column,
     # nullable=False, default=1), kein beliebiger Integer.
@@ -920,6 +986,16 @@ class ProductUpdate(BaseModel):
     @classmethod
     def _validate_credit_rating_field(cls, v):
         return _validate_credit_rating(v)
+
+    @field_validator("climate_benchmark", mode="before")
+    @classmethod
+    def _validate_climate_benchmark_field(cls, v):
+        return _normalize_climate_benchmark(v)
+
+    @field_validator("theme_tags", mode="before")
+    @classmethod
+    def _validate_theme_tags_field(cls, v):
+        return _normalize_theme_tags(v)
 
 
 class ProductResponse(BaseResponse):
@@ -956,6 +1032,8 @@ class ProductResponse(BaseResponse):
     credit_rating: Optional[str] = None
     esg_score_x10: Optional[int] = None
     liquidity_tier: Optional[str] = None
+    climate_benchmark: Optional[str] = None
+    theme_tags: Optional[list[str]] = None
     is_active: int
     # 2026-08-05 (Fondsuniversum): NULL = globaler/geteilter Katalog,
     # gesetzt = privater Fonds dieses Tenants (server-derived, siehe
@@ -963,6 +1041,20 @@ class ProductResponse(BaseResponse):
     tenant_id: Optional[str] = None
     created_at: str
     updated_at: str
+
+    @field_validator("theme_tags", mode="before")
+    @classmethod
+    def _parse_theme_tags(cls, v):
+        """DB speichert eine JSON-Liste; die API liefert eine echte Liste.
+        Kaputte Legacy-Werte werden nicht erfunden, sondern als None
+        ausgegeben (die Engine klassifiziert sie ebenfalls nicht)."""
+        if v is None or isinstance(v, list):
+            return v
+        try:
+            parsed = json.loads(str(v))
+        except (TypeError, ValueError):
+            return None
+        return [str(item) for item in parsed] if isinstance(parsed, list) else None
 
 
 class ProductBulkImportRequest(BaseModel):

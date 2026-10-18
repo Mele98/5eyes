@@ -60,9 +60,23 @@ def test_build_asset_allocation_no_note_when_not_stale():
 
 def test_build_asset_allocation_stale_note_survives_advisor_override():
     """Der Staleness-Hinweis darf nicht durch eine vom Berater gepflegte
-    Anmerkung verdeckt werden."""
+    Anmerkung verdeckt werden.
+
+    STALE-ALLOCATION-HIDE-TARGETS-001 (Owner-Entscheid 2026-10-14): bei
+    veralteter Soll-Allokation wird NUR noch der Hinweis gezeigt -- die
+    Berater-Anmerkung bezieht sich auf die alten Zielgewichte und wird
+    ausgeblendet (sie bleibt gespeichert und erscheint wieder, sobald die
+    Strategie neu berechnet ist)."""
     notes = MagicMock()
     notes.aa_anmerkungen = "Alles nach Plan."
     result = _build_asset_allocation(_dc(target_allocation_stale=True), notes=notes)
     assert "Risikoprofil" in result["anmerkungen"]
-    assert "Alles nach Plan." in result["anmerkungen"]
+    assert "Alles nach Plan." not in result["anmerkungen"]
+    assert result["soll_ausgeblendet"] is True
+
+
+def test_build_asset_allocation_advisor_override_shown_when_not_stale():
+    notes = MagicMock()
+    notes.aa_anmerkungen = "Alles nach Plan."
+    result = _build_asset_allocation(_dc(target_allocation_stale=False), notes=notes)
+    assert result["anmerkungen"] == "Alles nach Plan."

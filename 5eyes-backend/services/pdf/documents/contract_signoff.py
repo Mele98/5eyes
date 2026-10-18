@@ -6,6 +6,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.base import ContractSignoffData, PDFContext
+from services.pdf.components.band_deviation import make_band_deviation_section
 from services.pdf.components.depotcheck_soll import (
     make_sub_allocation_table,
     make_summary_text,
@@ -84,6 +85,13 @@ def build_contract_signoff_flowables(
         data.advisory_wealth_rappen,
         ctx.base_currency,
     ))
+    # BAND-DEVIATION-REASON-REQUIRED-001: der Kunde bestaetigt die Abweichung
+    # vom Eignungsrahmen des Risikoprofils samt Begruendung mit.
+    flowables.extend(make_band_deviation_section(
+        data.band_house_deviations,
+        profile_label=data.band_house_profile,
+        reason=data.band_deviation_reason,
+    ))
     flowables.append(PageBreak())
 
     _start_page(flowables, ctx, data, advisory_label, "Subanlageklassen und Ausrichtung")
@@ -116,7 +124,15 @@ def build_contract_signoff_flowables(
         make_paragraph_styles()["body"],
     ))
     flowables.append(Spacer(1, 4 * mm))
-    for item in data.client_acknowledgements or _default_acknowledgements():
+    acknowledgements = list(data.client_acknowledgements or _default_acknowledgements())
+    if data.band_house_deviations and not data.client_acknowledgements:
+        acknowledgements.insert(2, (
+            "Die Abweichung vom Eignungsrahmen des Risikoprofils (vereinbarte "
+            "Bandbreiten ausserhalb des Rahmens des Risikoprofils) und ihre "
+            "dokumentierte Begruendung wurden erlaeutert und vom Kunden bewusst "
+            "bestaetigt."
+        ))
+    for item in acknowledgements:
         flowables.append(_acknowledgement_row(item))
         flowables.append(Spacer(1, 2 * mm))
     flowables.append(PageBreak())

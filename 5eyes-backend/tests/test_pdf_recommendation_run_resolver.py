@@ -85,10 +85,11 @@ def test_strategy_and_signoff_pdf_do_not_use_run_of_superseded_allocation(sessio
         )
         assert strategy.recommendation_status == "keine aktuelle Produktempfehlung"
 
-        signoff = pdf._build_contract_signoff_data(mandate, s)
-        assert signoff.sub_allocations == [], (
-            "Beratungsentscheid zeigt Sub-Allokation aus einem veralteten Run"
-        )
+        # COST-RUN-RESOLVER-001: Beratungsentscheid ohne aktuellen Run wird
+        # blockiert (ValueError -> 409), statt eine leere bzw. veraltete
+        # Sub-Allokation zur Unterschrift vorzulegen.
+        with pytest.raises(ValueError, match="keine aktuelle Produktempfehlung"):
+            pdf._build_contract_signoff_data(mandate, s)
 
 
 def test_depotcheck_and_advisory_report_do_not_fall_back_to_stale_run(session_factory):
