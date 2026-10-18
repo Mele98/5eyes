@@ -58,7 +58,24 @@ Solver-Rechnung), um genau diese Divergenz-Bugklasse zu vermeiden.
 from __future__ import annotations
 
 from datetime import date as _date
-from typing import Any
+from typing import Any, Sequence
+
+
+# MORTALITY-HORIZON-P80-LS-001 (CIO-Entscheid 2026-10-18), Version
+# "2026-10-18.v1": Planungshorizont bei aktivierter Mortalitaets-Simulation
+# (Mandate.use_mortality_simulation) = 80-%-Quantil der Lebensdauer, d.h.
+# kleinstes t mit S(t) <= 1 - 0.80 = 0.20 -- nur 20 % der Personen (bzw.
+# Paare) leben laenger als der Plan. Vorher: Median (50 % leben laenger), fuer
+# einen Vermoegensverzehr die falsche, langlebigkeits-unterschaetzende
+# Richtung. Bei einem Paar gilt das Quantil fuer den Tod der
+# LETZTVERSTERBENDEN Person (joint-life last-survivor). Eine Aenderung dieses
+# Werts ist ein Methodik-Entscheid (CIO/Data-Owner) und verlangt eine neue
+# Version. Ein mandats-individuelles Quantil-Feld gibt es nicht; der
+# Berater-Override bleibt Mandate.life_expectancy_year (absolutes Jahr).
+# Ist die Mortalitaets-Simulation AUS, bleibt der bisherige Median-Pfad
+# (inkl. "max der Einzel-Mediane" fuer Paare) unveraendert.
+MORTALITY_PLANNING_QUANTILE: float = 0.80
+MORTALITY_PLANNING_QUANTILE_VERSION: str = "2026-10-18.v1"
 
 
 def mandate_reference_year(mandate) -> int:
@@ -144,6 +161,10 @@ def expected_death_year_offset_from_mandate(
         ist das Ergebnis das SPAETERE der beiden Sterbejahre (Haushalts-
         Horizont -- das Geld muss fuer den laenger lebenden Partner
         reichen, identische Semantik zu services.planning_horizon).
+        NUR bei Mandate.use_mortality_simulation AUS. Ist sie AN, gilt
+        stattdessen MORTALITY_PLANNING_QUANTILE (80 %) der Lebensdauer, fuer
+        Paare joint-life last-survivor, Partner auch via mandate.client
+        (MORTALITY-HORIZON-P80-LS-001).
     Sonst: None (kein Cutoff -- konservativ unbefristeter Horizont).
 
     reference_year defaultet auf mandate_reference_year(mandate) wenn nicht
@@ -170,6 +191,17 @@ def expected_death_year_offset_from_mandate(
     jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
     if jurisdiction != "CH":
         return None
+
+    if mortality_simulation_enabled(mandate):
+        # MORTALITY-HORIZON-P80-LS-001: aktiviertes Feature -> 80-%-Quantil,
+        # Paar als last survivor. Der Partner wird auch ohne explizites
+        # `client`-Argument ueber mandate.client gelesen, damit Solver-Cutoff
+        # (mandate_model_inputs), Report-Marker (portfolio_engine_payload) und
+        # Projektionshorizont (portfolio_engine_mc_simulation) identisch sind.
+        return _planning_quantile_offset(
+            mandate, reference_year=reference_year,
+            client=_resolve_client(mandate, client),
+        )
 
     fallback_birth_year = getattr(mandate, "client_birth_year", None)
     fallback_sex = getattr(mandate, "client_sex", None)
@@ -202,6 +234,180 @@ def expected_death_year_offset_from_mandate(
                 offsets.append(partner_offset)
 
     return max(offsets) if offsets else None
+
+
+def mortality_simulation_enabled(mandate) -> bool:
+    """True nur fuer den exakt persistierten Ein-Wert (1/True), identisch zur
+    True-Branch von services.mandate_model_inputs._feature_enabled. Alles
+    andere behaelt das unveraenderte Legacy-Verhalten; die fail-closed-
+    Validierung ungueltiger Werte bleibt in mandate_model_inputs."""
+    value = getattr(mandate, "use_mortality_simulation", 0)
+    return value is True or (type(value) is int and value == 1)
+
+
+def _resolve_client(mandate, client: Any) -> Any:
+    return client if client is not None else getattr(mandate, "client", None)
+
+
+def person_survival_curve(current_age: int, sex: str) -> list[float]:
+    """Diskrete Ueberlebensfunktion S(t), t = 0..(max_age - current_age + 1).
+
+    S(0) = 1, S(t) = prod_{k<t} (1 - q(current_age + k)). Der letzte Punkt
+    liegt nach der Schluss-Tafel (q(max_age) = 1) und ist damit 0 -- jedes
+    Quantil existiert also innerhalb der Kurve."""
+    from services.mortality.bfs import BFS_2020_2022
+
+    max_age = int(BFS_2020_2022.max_age)
+    age = max(0, min(int(current_age), max_age))
+    survival = [1.0]
+    for k in range(max_age - age + 1):
+        q = float(BFS_2020_2022.qx(age + k, sex))
+        survival.append(survival[-1] * max(0.0, 1.0 - q))
+    return survival
+
+
+def last_survivor_survival(curves: Sequence[Sequence[float]]) -> list[float]:
+    """Joint-life last-survivor: P(mindestens eine Person lebt in t).
+
+    S_LS(t) = 1 - prod_i (1 - S_i(t)). ANNAHME: die Sterblichkeiten der
+    Personen sind UNABHAENGIG (je Person die BFS-Periodentafel ihres
+    Geschlechts; keine Paar-Abhaengigkeit wie gemeinsamer Lebensstil oder
+    erhoehte Sterblichkeit nach Verwitwung modelliert). Kuerzere Kurven
+    werden nach ihrem Ende mit 0 fortgesetzt."""
+    if not curves:
+        return []
+    length = max(len(curve) for curve in curves)
+    combined: list[float] = []
+    for t in range(length):
+        p_all_dead = 1.0
+        for curve in curves:
+            s = float(curve[t]) if t < len(curve) else 0.0
+            p_all_dead *= 1.0 - s
+        combined.append(1.0 - p_all_dead)
+    return combined
+
+
+def quantile_offset_from_survival(
+    survival: Sequence[float], quantile: float = MORTALITY_PLANNING_QUANTILE,
+) -> int:
+    """Kleinstes t >= 1 mit S(t) <= 1 - quantile (Quantil der Lebensdauer).
+
+    Erreicht die Kurve die Schwelle nie, ist das Ergebnis len(survival) --
+    das erste Jahr nach dem letzten tabellierten Punkt (konservativ lang)."""
+    threshold = 1.0 - float(quantile)
+    for t in range(1, len(survival)):
+        if float(survival[t]) <= threshold + 1e-12:
+            return t
+    return max(1, len(survival))
+
+
+def _planning_persons(
+    mandate, *, reference_year: int, client: Any,
+) -> tuple[list[tuple[int, str]], bool]:
+    """(Personen als (Alter, Geschlecht), partner_incomplete).
+
+    partner_incomplete: es gibt Hinweise auf einen Partner (Name, Anrede oder
+    Geburtsdatum), aber Geburtsjahr oder Geschlecht fehlen. Der Horizont
+    faellt dann auf die Einzelperson zurueck (CIO-Entscheid) und das
+    Reasoning sagt es (mortality_planning_horizon_note)."""
+    persons: list[tuple[int, str]] = []
+    primary_birth_year, primary_sex = _person_birth_year_and_sex(
+        date_of_birth=getattr(client, "date_of_birth", None) if client is not None else None,
+        salutation=getattr(client, "salutation", None) if client is not None else None,
+        fallback_birth_year=getattr(mandate, "client_birth_year", None),
+        fallback_sex=getattr(mandate, "client_sex", None),
+    )
+    if primary_birth_year is not None and primary_sex is not None:
+        persons.append((max(0, reference_year - primary_birth_year), primary_sex))
+
+    partner_incomplete = False
+    if client is not None:
+        partner_birth_year, partner_sex = _person_birth_year_and_sex(
+            date_of_birth=getattr(client, "partner_date_of_birth", None),
+            salutation=getattr(client, "partner_salutation", None),
+            fallback_birth_year=None,
+            fallback_sex=None,
+        )
+        if partner_birth_year is not None and partner_sex is not None:
+            persons.append((max(0, reference_year - partner_birth_year), partner_sex))
+        else:
+            partner_incomplete = any(
+                str(getattr(client, field, None) or "").strip()
+                for field in (
+                    "partner_date_of_birth", "partner_salutation",
+                    "partner_first_name", "partner_last_name",
+                )
+            )
+    return persons, partner_incomplete
+
+
+def _planning_quantile_offset(
+    mandate, *, reference_year: int, client: Any,
+) -> int | None:
+    persons, _ = _planning_persons(
+        mandate, reference_year=reference_year, client=client,
+    )
+    if not persons:
+        return None
+    curves = [person_survival_curve(age, sex) for age, sex in persons]
+    return quantile_offset_from_survival(
+        last_survivor_survival(curves), MORTALITY_PLANNING_QUANTILE,
+    )
+
+
+def mortality_planning_horizon_note(
+    mandate, *, reference_year: int | None = None, client: Any = None,
+) -> str | None:
+    """Erklaerender Reasoning-Satz zum Mortalitaets-Horizont, oder None wenn
+    die Mortalitaets-Simulation nicht aktiv ist (kein Cutoff, kein Hinweis)."""
+    if not mortality_simulation_enabled(mandate):
+        return None
+    if reference_year is None:
+        reference_year = mandate_reference_year(mandate)
+    client = _resolve_client(mandate, client)
+    offset = expected_death_year_offset_from_mandate(
+        mandate, reference_year=reference_year, client=client,
+    )
+    consequence = (
+        "Cashflows und Ausgabenziele enden danach; Vermoegensziele werden "
+        "weiter bewertet."
+    )
+    if offset is None:
+        return (
+            "Mortalitaets-Horizont: keine Sterbetafel anwendbar -- kein "
+            "Cutoff (unbefristeter Horizont)."
+        )
+    end_year = reference_year + offset
+    life_expectancy_year = int(getattr(mandate, "life_expectancy_year", 0) or 0)
+    if life_expectancy_year and life_expectancy_year > reference_year:
+        return (
+            f"Mortalitaets-Horizont bis {end_year}: Berater-Vorgabe "
+            f"(Mandat-Lebenserwartung). {consequence}"
+        )
+    quantile_pct = int(round(MORTALITY_PLANNING_QUANTILE * 100))
+    persons, partner_incomplete = _planning_persons(
+        mandate, reference_year=reference_year, client=client,
+    )
+    if len(persons) >= 2:
+        basis = (
+            f"{quantile_pct}-%-Quantil bis zum Tod der Letztversterbenden "
+            "Person des Paares (BFS 2020-2022, Unabhaengigkeitsannahme "
+            "zwischen den beiden Sterblichkeiten)"
+        )
+    else:
+        basis = (
+            f"{quantile_pct}-%-Quantil der Lebensdauer, Einzelperson "
+            "(BFS 2020-2022)"
+        )
+        if partner_incomplete:
+            basis += (
+                "; Partner erfasst, aber ohne vollstaendiges Geburtsdatum/"
+                "Anrede -- Horizont ohne Partner gerechnet"
+            )
+    return (
+        f"Mortalitaets-Horizont bis {end_year}: {basis} "
+        f"[{MORTALITY_PLANNING_QUANTILE_VERSION}]. {consequence}"
+    )
 
 
 def life_expectancy_year_from_mandate(

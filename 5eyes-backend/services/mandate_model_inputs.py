@@ -141,9 +141,14 @@ def mortality_solver_kwargs_from_mandate(mandate) -> dict:
         field_name="use_mortality_simulation",
     ):
         return {}
+    # MORTALITY-HORIZON-P80-LS-001: Partner (mandate.client) wird explizit
+    # durchgereicht -- vorher fehlte `client`, der Cutoff endete beim Ehepaar
+    # mit dem Tod des Hauptkunden statt der letztversterbenden Person.
     from services.mortality.horizon import expected_death_year_offset_from_mandate
     try:
-        offset_years = expected_death_year_offset_from_mandate(mandate)
+        offset_years = expected_death_year_offset_from_mandate(
+            mandate, client=getattr(mandate, "client", None),
+        )
     except Exception as exc:
         raise MandateModelInputError(
             "Activated mortality simulation could not resolve a death-year "

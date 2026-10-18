@@ -437,6 +437,14 @@ def _run_stochastic_optimizer_pass(
         mortality_kwargs = mortality_solver_kwargs_from_mandate(mandate)
     except MandateModelInputError as exc:
         raise OptimizerInputError(str(exc)) from exc
+    if mortality_kwargs:
+        # MORTALITY-HORIZON-P80-LS-001: Basis des Cutoffs offenlegen
+        # (Quantil, Paar/Einzelperson, fehlende Partnerdaten).
+        from services.mortality.horizon import mortality_planning_horizon_note
+
+        mortality_note = mortality_planning_horizon_note(mandate)
+        if mortality_note:
+            reasoning.append(mortality_note)
 
     # Sprint U-P2 Fix C9: tax-aware Solver — wenn das Mandat eine
     # tax_jurisdiction hat, wird das passende TaxRegime aufgeloest und
