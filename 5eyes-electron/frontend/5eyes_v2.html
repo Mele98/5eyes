@@ -10033,9 +10033,16 @@ protokolliereEreignis=runtimeProtokolliereEreignis;
         <textarea class="fi" id="ov-reason" rows="2" placeholder="Kunde wünscht explizit höheres Risiko..." style="resize:none;min-height:55px"></textarea>
         <div id="ov-error" style="display:none;font-size:10px;color:var(--neg);margin-top:4px">Bitte Begründung erfassen (FIDLEG-Pflicht).</div>
       </div></div>
+      <div id="ov-wish-block" style="display:none;margin:8px 0;padding:10px 12px;background:var(--n1);border:1px solid var(--n2);border-radius:var(--r)">
+        <div style="font-size:11px;font-weight:600;color:var(--n8);margin-bottom:6px">Override nach oben: nur auf ausdrücklichen Kundenwunsch</div>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+          <input type="checkbox" id="ov-wish-confirm" style="margin-top:2px" onchange="updOvWarnBtn()">
+          <span style="font-size:11px;color:var(--n6)">Der Kunde wünscht diese höhere Risikostufe ausdrücklich; sein Wunsch ist dokumentiert.</span>
+        </label>
+      </div>
       <div id="ov-warn-block" style="display:none;margin:8px 0;padding:10px 12px;background:rgba(201,68,68,0.10);border:1px solid rgba(201,68,68,0.4);border-radius:var(--r)">
-        <div style="font-size:11px;font-weight:600;color:var(--neg);margin-bottom:6px">&#9888; FIDLEG-Warnung: Erhebliche Profil-Überschreitung</div>
-        <div style="font-size:11px;color:var(--n6);margin-bottom:8px">Das neue Profil liegt 2 oder mehr Risikostufen über dem berechneten Profil. Der Kunde muss ausdrücklich auf das erhöhte Verlustrisiko hingewiesen werden (FIDLEG Art. 9 Abs. 2).</div>
+        <div style="font-size:11px;font-weight:600;color:var(--neg);margin-bottom:6px">&#9888; FIDLEG-Warnung: Profil über Risikofähigkeit oder erheblich erhöht</div>
+        <div style="font-size:11px;color:var(--n6);margin-bottom:8px">Das neue Profil übersteigt die Risikofähigkeit des Kunden (seine finanzielle Verlusttragfähigkeit) oder liegt 2 oder mehr Risikostufen über dem berechneten Profil. Der Kunde muss ausdrücklich auf das erhöhte Verlustrisiko hingewiesen werden.</div>
         <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
           <input type="checkbox" id="ov-warn-confirm" style="margin-top:2px" onchange="updOvWarnBtn()">
           <span style="font-size:11px;color:var(--n6)">Ich bestätige, dass ich den Kunden über das erhöhte Risiko informiert habe und der Kunde schriftlich zugestimmt hat.</span>
@@ -10156,27 +10163,39 @@ function calcSCTotal(){
 // Override modal
 var _pnames=['','Kapitalschutz','Kapitalschutz','Defensiv','Defensiv','Ausgewogen','Ausgewogen','Wachstumsorientiert','Wachstumsorientiert','Dynamisch','Aktien'];
 var _bandOf=[0,0,0,1,1,2,2,3,3,4,5];
+// RISK-OVERRIDE-CLIENT-WISH-001: Spiegel von
+// services.risk_assessment_semantics.override_documentation_requirements().
+function riskOverrideRequirements(overrideScoreX10, risk){
+  var finalX10=Number(risk&&risk.final_score_x10||0);
+  var ov=Number(overrideScoreX10||0);
+  if(!(ov>finalX10))return {confirm:false,warn:false};
+  var cap=risk&&risk.risk_capacity_score_x10!=null?Number(risk.risk_capacity_score_x10):null;
+  var bands=riskOverrideProfileBand(ov)-riskOverrideProfileBand(finalX10);
+  return {confirm:true,warn:cap==null||!isFinite(cap)||ov>cap||bands>=2};
+}
 function updOv(v){
   var d=document.getElementById('ov-disp');var n=document.getElementById('ov-name');
   if(d)d.textContent=v+'/10'; if(n)n.textContent=_pnames[parseInt(v)]||'';
   var risk=currentRiskAssessmentForOverride(getActiveMandateId());
-  var computedScore=risk?Math.round(Number(risk.final_score_x10||0)/10):0;
-  var newScore=parseInt(v)||1;
-  var delta=_bandOf[newScore]-_bandOf[Math.max(1,Math.min(10,computedScore))];
+  var req=riskOverrideRequirements((parseInt(v)||1)*10,risk);
+  var ib=document.getElementById('ov-wish-block');
+  var ic=document.getElementById('ov-wish-confirm');
   var wb=document.getElementById('ov-warn-block');
   var wc=document.getElementById('ov-warn-confirm');
-  if(wb){wb.style.display=delta>=2?'block':'none';}
-  if(wc&&delta<2){wc.checked=false;}
+  if(ib){ib.style.display=req.confirm?'block':'none';}
+  if(ic&&!req.confirm){ic.checked=false;}
+  if(wb){wb.style.display=req.warn?'block':'none';}
+  if(wc&&!req.warn){wc.checked=false;}
   updOvWarnBtn();
 }
 function updOvWarnBtn(){
   var v=parseInt((document.getElementById('ov-sl')||{value:7}).value)||7;
   var risk=currentRiskAssessmentForOverride(getActiveMandateId());
-  var computedScore=risk?Math.round(Number(risk.final_score_x10||0)/10):0;
-  var delta=_bandOf[v]-_bandOf[Math.max(1,Math.min(10,computedScore))];
+  var req=riskOverrideRequirements(v*10,risk);
+  var ic=document.getElementById('ov-wish-confirm');
   var wc=document.getElementById('ov-warn-confirm');
   var btn=document.querySelector('#m-overr .btn-g');
-  if(btn){btn.disabled=(delta>=2&&(!wc||!wc.checked));}
+  if(btn){btn.disabled=(req.confirm&&(!ic||!ic.checked))||(req.warn&&(!wc||!wc.checked));}
 }
 async function openOverrideModal(){
   var mid=getActiveMandateId();
@@ -10204,6 +10223,8 @@ async function openOverrideModal(){
   var er=document.getElementById('ov-error');if(er)er.style.display='none';
   var wb=document.getElementById('ov-warn-block');if(wb)wb.style.display='none';
   var wc=document.getElementById('ov-warn-confirm');if(wc)wc.checked=false;
+  var ib=document.getElementById('ov-wish-block');if(ib)ib.style.display='none';
+  var ic=document.getElementById('ov-wish-confirm');if(ic)ic.checked=false;
   if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
   updOv(score);
   om('m-overr');
@@ -10253,13 +10274,13 @@ async function applyOv(){
   if(btn){btn.disabled=true;btn.textContent='Speichern...';}
   try{
     var risk2=riskForOverride||currentRiskAssessmentForOverride(mid);
-    var computedScore2=risk2?Math.round(Number(risk2.final_score_x10||0)/10):0;
-    var delta2=_bandOf[v]-_bandOf[Math.max(1,Math.min(10,computedScore2))];
+    var req2=riskOverrideRequirements(v*10,risk2);
+    var ic2=document.getElementById('ov-wish-confirm');
     var wc2=document.getElementById('ov-warn-confirm');
-    var warnConfirmed=delta2>=2?(wc2&&wc2.checked):false;
     var saved=await API.post('/mandates/'+mid+'/risk-assessments/'+raId+'/override',{
       override_score_x10:v*10,override_profile:n,override_reason:reason,
-      override_client_confirmed:warnConfirmed,override_warning_delivered:warnConfirmed
+      override_client_confirmed:req2.confirm?!!(ic2&&ic2.checked):false,
+      override_warning_delivered:req2.warn?!!(wc2&&wc2.checked):false
     });
     strategyState.currentRisk=saved;
     strategyState.risk=riskAssessmentReadyForStrategy(saved, mid)?saved:null;
@@ -23246,9 +23267,9 @@ function riskOverrideProfileBand(scoreX10){
 function riskAssessmentHasDocumentedOverride(risk){
   if(!risk||!Number(risk.is_overridden||0)||risk.override_score_x10==null)return false;
   if(!String(risk.override_reason||'').trim())return false;
-  var delta=riskOverrideProfileBand(Number(risk.override_score_x10||0))-riskOverrideProfileBand(Number(risk.final_score_x10||0));
-  if(delta<2)return true;
-  return !!Number(risk.override_client_confirmed||0)&&!!Number(risk.override_warning_delivered||0);
+  var req=riskOverrideRequirements(Number(risk.override_score_x10||0),risk);
+  if(req.confirm&&!Number(risk.override_client_confirmed||0))return false;
+  return !req.warn||!!Number(risk.override_warning_delivered||0);
 }
 function riskAssessmentReadyForStrategy(risk, mandateId){
   return riskBelongsToMandate(risk, mandateId)&&(riskAssessmentHasDocumentedOverride(risk)||riskAssessmentHasRequiredAnswers(risk));
