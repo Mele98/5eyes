@@ -328,19 +328,33 @@ def test_generate_target_allocation_within_time_budget(session_factory):
 def test_compute_advisory_report_within_time_budget(session_factory):
     """compute_advisory_report() fuer dasselbe realistische Mandat muss
     innerhalb von BUDGET_REPORT_S laufen. Grobe 10x-Regressions-Bremse."""
-    with session_factory() as s:
-        mandate, _client, advisor = _seed_realistic_mandate_for_perf(s)
-        s.commit()
-        # Strategie zuerst laufen lassen, damit der Report eine echte
-        # TargetAllocation/Simulation vorfindet (realistischer Pfad).
-        generate_target_allocation(s, mandate, advisor.id, preferences=None)
-        s.commit()
+    # PERF-BUDGET-BEST-OF-3 (2026-10-18): Die Einzelmessung flakte auf
+    # geteilten CI-Runnern (PR #628, Run auf ddabf81: 1.246s), lokal
+    # 0.25-0.27s auf demselben Stand -> Lastspitze, keine Regression.
+    # Standard fuer Wanduhr-Budgets: bestes von 3 Laeufen. Jeder Lauf misst
+    # den KALTEN Pfad: eigenes, frisch geseedetes Mandat (neue IDs) und
+    # frische Session -- ein zweiter Report fuer DASSELBE Mandat ist durch
+    # prozessweite Caches ~10x schneller und wuerde das Budget schoenen.
+    # Das Budget selbst bleibt unveraendert.
+    timings = []
+    for _ in range(3):
+        with session_factory() as s:
+            mandate, _client, advisor = _seed_realistic_mandate_for_perf(s)
+            s.commit()
+            # Strategie zuerst laufen lassen, damit der Report eine echte
+            # TargetAllocation/Simulation vorfindet (realistischer Pfad).
+            generate_target_allocation(s, mandate, advisor.id, preferences=None)
+            s.commit()
+            mandate_id, advisor_id = mandate.id, advisor.id
+        with session_factory() as s:
+            mandate = s.get(Mandate, mandate_id)
+            advisor = s.get(User, advisor_id)
+            start = time.perf_counter()
+            report = compute_advisory_report(s, mandate, advisor=advisor)
+            timings.append(time.perf_counter() - start)
+    elapsed = min(timings)
 
-        start = time.perf_counter()
-        report = compute_advisory_report(s, mandate, advisor=advisor)
-        elapsed = time.perf_counter() - start
-
-    print(f"\n[perf] compute_advisory_report: {elapsed:.4f}s")
+    print(f"\n[perf] compute_advisory_report: best {elapsed:.4f}s of {[round(t, 4) for t in timings]}")
     assert report["schema_version"] == 2
     assert elapsed < BUDGET_REPORT_S, (
         f"compute_advisory_report() dauerte {elapsed:.3f}s — "
