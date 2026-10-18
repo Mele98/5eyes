@@ -142,6 +142,44 @@ byte-identisch, Score 5 Default weicht um 1 bps (Obl/Immo) bzw. CHF 50 in
 einem Umsetzungsschritt ab -- weit innerhalb _BPS_TOLERANCE/_RAPPEN_TOLERANCE.
 Eingefroren ist die Haswell-Fassung (CI-Kernel). Begruendung:
 docs/planning/2026-10-18-objective-normalization.md.
+
+Nachtrag (2026-10-18, IMPORTANCE-SAMPLING-ESS-001 +
+TIEBREAK-PORTFOLIO-VARIANCE-001, Engine ``saa_resampled_v4``): alle sechs
+Fixtures neu eingefroren. Importance Sampling als defensive Mischung mit
+horizont-skaliertem Shift (Kish-ESS des Hauptwuerfels 14-85 -> ~1'650 von
+2'000 Pfaden) und Tiebreak ``kappa * w' Sigma w`` (kappa = 1) statt
+``Var(W_T)/W0^2``. Die Bag-Streuung faellt auf 0 (alle 40 Bags landen auf
+derselben Bandecke). Aktien/Obl/Immo/Alt/Liq in bps, erw. Rendite/Vola:
+Score 3 0/8824/0/676/500 -> 0/8700/0/800/500 (206/342 -> 205/341);
+Score 5 4000/4453/567/680/300 -> 4000/4500/503/697/300 (398/647 -> 396/645);
+Score 5 global 4000/4445/622/636/297 -> 4000/4500/500/700/300 (410/671 -> 407/668);
+Score 5 CHF/EM 4000/4379/600/721/300 -> 4000/4500/500/700/300 (410/686 -> 408/682);
+Score 7 6000/2312/678/810/200 -> 6000/2500/536/764/200 (489/959 -> 486/951);
+Score 9 7500/1387/389/524/200 -> 7500/1500/300/500/200 (551/1174 -> 550/1169).
+Unter OPENBLAS_CORETYPE=Haswell UND =Nehalem erzeugt: alle sechs Dateien
+byte-identisch. Begruendung:
+docs/planning/2026-10-18-importance-sampling-ess.md.
+
+Nachtrag (2026-10-18, HOUSE-FIRST-SIGNIFICANCE-001, Engine
+``saa_resampled_v5``): alle sechs Fixtures neu eingefroren, weil sich die
+Methode bewusst geaendert hat (CIO-Entscheid "Hausmatrix, solange die Ziele
+mit ihr gleich sicher erreicht sind"). Auf allen sechs Mandaten erreichen
+Hausmatrix und Optimierer alle Ziele mit p = 1; der Signifikanztest
+entschied bisher allein ueber den deterministischen Varianz-Tiebreak
+(p = 0.0025) fuer Eckloesungen. Jetzt entscheidet er auf der Zielebene
+(Ziel-Fehlbetrag + Chance-Strafe) -> nicht signifikant -> Hausmatrix.
+Aktien/Obl/Immo/Alt/Liq in bps, erw. Rendite/Vola:
+Score 3 0/8700/0/800/500 -> 0/9500/0/300/200 (205/341 -> 214/362);
+Score 5 4000/4500/503/697/300 -> 4800/3500/1000/500/200 (396/645 -> 446/776);
+Score 5 global 4000/4500/500/700/300 -> 4800/3500/1000/500/200 (407/668 -> 459/804);
+Score 5 CHF/EM 4000/4500/500/700/300 -> 4800/3500/1000/500/200 (408/682 -> 460/821);
+Score 7 6000/2500/536/764/200 -> 6800/1600/800/600/200 (486/951 -> 529/1081);
+Score 9 7500/1500/300/500/200 -> 7900/800/700/400/200 (550/1169 -> 577/1245).
+Unter OPENBLAS_CORETYPE=Haswell UND =Nehalem (OMP/OPENBLAS/MKL_NUM_THREADS=1)
+erzeugt: alle sechs Dateien byte-identisch (die publizierte Quote ist die
+projizierte Hausmatrix-Zielquote, kein SLSQP-Konvergenzpunkt); eingefroren
+ist die Haswell-Fassung (CI-Kernel). Begruendung und Vorher/Nachher aller
+Modi: docs/planning/2026-10-18-importance-sampling-ess.md.
 """
 from __future__ import annotations
 

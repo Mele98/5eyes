@@ -409,23 +409,39 @@ def test_resampled_significance_uses_the_refined_drawdown(resampled_max_drawdown
     }
     anchor = by_bps[tuple(sorted(significance["house_anchor_projected_bps"].items()))]
     candidate = by_bps[tuple(sorted(significance["candidate_bps"].items()))]
-    assert significance["anchor_objective"] == pytest.approx(
+    # HOUSE-FIRST-SIGNIFICANCE-001 (2026-10-18): die Top-Level-Statistik ist
+    # die ZIELEBENE (Chance-Strafe + Soft-Preference) ...
+    for stats_key, entry in (("anchor_objective", anchor), ("candidate_objective", candidate)):
+        assert significance[stats_key] == pytest.approx(
+            entry["chance_penalty"] + entry["preference_penalty"], rel=1e-12, abs=1e-15
+        )
+    # ... der Skalar mit dem verfeinerten Drawdown (= validated_objective des
+    # Reranks) steht im Risikomass-Test, sofern die Zielebene nicht schon
+    # entschieden hat.
+    from services.optimizer.resampling import resampling_model_basis
+
+    basis = resampling_model_basis(result.resampling)
+    assert basis["significance"]["drawdown_measure"] == "refined_brownian_bridge"
+    risk = significance.get("risk_measure_test")
+    if risk is None:
+        assert significance["reason"] == "significant_goal_improvement"
+        return
+    assert basis["significance"]["risk_measure_test"] == risk
+    assert risk["anchor_objective"] == pytest.approx(
         anchor["validated_objective"], rel=1e-12, abs=1e-15
     )
-    assert significance["candidate_objective"] == pytest.approx(
+    assert risk["candidate_objective"] == pytest.approx(
         candidate["validated_objective"], rel=1e-12, abs=1e-15
+    )
+    assert risk["anchor_risk_measure"] == pytest.approx(
+        anchor["refined_mean_drawdown"], rel=1e-12
     )
     # Der verfeinerte Drawdown liegt ueber dem Jahresgitter -- haette der
     # Test den Proxy benutzt, laege anchor_objective darunter.
     assert anchor["refined_mean_drawdown"] > anchor["annual_grid_mean_drawdown"]
     # Konsistenz: Rangfolge im Rerank == Vorzeichen der Punktschaetzung.
     anchor_ahead = anchor["validated_rank"] < candidate["validated_rank"]
-    assert anchor_ahead == (significance["improvement"] <= 0.0)
-    # Im Audit/Modellbasis ausgewiesen.
-    from services.optimizer.resampling import resampling_model_basis
-
-    basis = resampling_model_basis(result.resampling)
-    assert basis["significance"]["drawdown_measure"] == "refined_brownian_bridge"
+    assert anchor_ahead == (risk["improvement"] <= 0.0)
 
 
 def test_default_mode_significance_keeps_its_model_basis(monkeypatch):

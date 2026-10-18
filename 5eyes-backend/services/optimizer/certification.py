@@ -105,6 +105,23 @@ def wilson_lower_bound(
     return min(1.0, max(0.0, lower))
 
 
+def wilson_upper_bound(
+    p_hat: float,
+    n_effective: float,
+    *,
+    z: float = WILSON_Z_ONE_SIDED_95,
+) -> float:
+    """Einseitige obere Wilson-Grenze (Spiegelung der unteren an 1 - p).
+
+    GOAL-REACHABILITY-SCREEN-001: "unerreichbar" heisst, dass selbst die
+    obere Grenze der guenstigsten gepruften Allokation unter tau liegt.
+    Ohne Evidenz (``n_effective <= 0``) ist die Grenze 1.
+    """
+    if float(n_effective) <= 0.0:
+        return 1.0
+    return 1.0 - wilson_lower_bound(1.0 - float(p_hat), n_effective, z=z)
+
+
 def ess_is_sufficient(n_effective: float, n_paths: int) -> bool:
     """Ob das ESS fuer eine belastbare Zertifizierung ausreicht.
 

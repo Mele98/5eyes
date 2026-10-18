@@ -31,28 +31,53 @@ ungewichteten Sample-Mean.
 
 - Sum-of-weights / N ~= 1.0 (asymptotisch, MC-Fehler O(1/sqrt(N)))
 - Gewichtete Mean-Estimator unverzerrt: E[f * w] = E_{original}[f]
-- Bei f(Z) := 1{Z < -3} (Tail-Indikator) reduziert sich die Varianz
-  des Estimators um 5-50x je nach Shift-Magnitude
+- Bei Tail-Indikatoren reduziert sich die Varianz des Estimators; mit der
+  defensiven Mischung (siehe Defaults) gemessen 2.4x fuer ein 5 %-Ereignis
+  des Aktienfaktors, analytisch 1.06-2.1x fuer Zielfehlschlaege von 5-20 %
 - Bei Symmetric f wie Mean(Z) bleibt Estimator unverzerrt aber liefert
   keine Varianz-Reduktion (Standard-MC ist hier optimal)
 
-## Defaults
+## Defaults (IMPORTANCE-SAMPLING-ESS-001, 2026-10-18)
 
-Aus Methodik-Schulung Slide 19 (Skew/Kurt-Modelle) wissen wir, dass die
-kritischen Tails fuer goal-based Allocation in den Aktien-Renditen liegen.
-Default-Shift trifft daher den Aktien-Bucket. MC-2 (2026-06-29): der Shift-Index
-wird aus der KANONISCHEN scenario_engine.BUCKET_ORDER abgeleitet
-(equities, bonds, real_estate, alternatives, liquidity) — also Index 0 — und
-NICHT mehr als [2,3] hartcodiert (das traf in der realen Reihenfolge
-real_estate+alternatives statt der Aktien und biaste den falschen Tail).
+Bis 2026-10-18 wurde der Shift ``mu = -0.5`` auf den Aktienfaktor in JEDEM
+Jahr angewandt. Die Log-Likelihood-Ratio ist dann eine Summe von T
+unabhaengigen Termen, ``E_q[w^2] = exp(T |mu|^2)`` und die Kish-ESS-Quote
+``ESS/N ~ exp(-T/4)`` -- bei T = 31 (Fundament-Mandat) 4e-4, gemessen 7 von
+2'000 Pfaden, Einzelpfade mit bis zu 33 % der Gewichtsmasse. Gleichzeitig lag
+der Endwert des Aktienfaktors um ``0.5 * sqrt(T)`` Standardabweichungen
+verschoben (T = 31: 2.8 sigma) -- weit jenseits jeder Zielgrenze.
 
-    mu[BUCKET_ORDER.index("equities")] = -shift_strength
+Jetzt (Herleitung: docs/planning/2026-10-18-importance-sampling-ess.md):
 
-mit shift_strength = 0.5 (entspricht 0.5 Standard-Deviationen Shift,
-moderat genug um Bias-Variance-Tradeoff im sweet spot zu halten).
+1. **Horizont-skalierter Shift.** Gesamtbudget ``c`` (in Standardabweichungen
+   des KUMULIERTEN Aktienfaktors), pro Jahr ``mu_t = c / sqrt(T)``. Damit ist
+   ``sum_t |mu_t|^2 = c^2`` horizontunabhaengig und der kumulierte Faktor
+   ``sum_t Z_t / sqrt(T)`` um genau ``c`` verschoben -- der Shift in der
+   Richtung, auf die das Endvermoegen reagiert. ``c = 1.0``.
+2. **Defensive Mischung (Hesterberg 1995; Owen/Zhou 2000).** Proposal
+   ``alpha * p + (1 - alpha) * q`` mit deterministisch verteilten Komponenten
+   (Balance-Heuristik, Veach/Guibas), Gewicht
+   ``w = p / (alpha p + (1 - alpha) q) = 1 / (alpha + (1 - alpha) q/p)``.
+   Damit ``w <= 1/alpha`` PFADWEISE und ``ESS >= alpha * sum(w)``
+   deterministisch. ``alpha = 0.5``.
+3. **Selbstnormierte Schaetzer** ``sum(f w) / sum(w)`` ueberall (bestehend);
+   Kish-ESS geht als ``n`` in die Wilson-Grenze (``certification.py``).
+4. **ESS-Fallback.** Liegt die Kish-ESS eines Wuerfels unter
+   ``IS_ESS_FALLBACK_FRACTION * N``, rechnet der Lauf mit Standard-MC und
+   weist den Grund im Audit aus (mit 2. praktisch unerreichbar, aber die
+   Sicherung gehoert zur Methode, nicht zum Parameter).
 
-Opt-in via Config-Flag `mc_importance_sampling_enabled` in config.py.
-Default: False (Phase 5 ist optional laut Spec).
+Analytisch (Aktienfaktor-Ladung rho in {0.6, 0.9}, Zielfehlschlag-
+Wahrscheinlichkeit P in {5 %, 20 %}): ESS/N = 0.83, Varianz-Gewinn gegenueber
+Standard-MC 1.06x bis 2.1x, Anteil Pfade im Fehlschlag-Bereich 5 % -> 10-14 %,
+20 % -> 30-36 %. Alt (T = 31): Varianz-Effizienz 0.002x.
+
+Der Shift trifft den Aktien-Bucket. MC-2 (2026-06-29): der Index wird aus der
+KANONISCHEN scenario_engine.BUCKET_ORDER abgeleitet (Index 0), nicht
+hartcodiert.
+
+Aktivierung: ``decide_is_for_context`` (Auto bei konservativem Profil,
+Decumulation oder hartem Ziel; Force-On via ``mc_importance_sampling_enabled``).
 """
 from __future__ import annotations
 
@@ -62,13 +87,25 @@ from typing import Optional
 import numpy as np
 
 
-# Default-Shift-Vector in der KANONISCHEN BUCKET_ORDER
-# (equities, bonds, real_estate, alternatives, liquidity): nur der Aktien-Bucket
-# (Index 0) wird um -0.5 (halbe Standard-Deviation) negativ geshiftet
-# (= mehr Drawdown-Szenarien). MC-2-Fix: vorher [0,0,-0.5,-0.5,0], was
-# real_estate+alternatives traf statt der Aktien.
-DEFAULT_TAIL_SHIFT_VECTOR = np.array([-0.5, 0.0, 0.0, 0.0, 0.0])
-DEFAULT_TAIL_SHIFT_STRENGTH = 0.5  # einheitenlose Standard-Deviation-Multiplikator
+# IMPORTANCE-SAMPLING-ESS-001: Gesamt-Shift-Budget ``c`` in Standard-
+# abweichungen des KUMULIERTEN Aktienfaktors (pro Jahr ``c / sqrt(T)``).
+# Kalibrierung (Doku Abschnitt 2): ESS/N der Mischung 0.83 bei c = 1.0 und
+# alpha = 0.5; der Varianz-Gewinn fuer Zielfehlschlag-Wahrscheinlichkeiten
+# von 5-20 % ist im ganzen Raster >= 1 (bei c >= 1.25 faellt er fuer
+# schwach aktienlastige Portfolios unter 1, bei c <= 0.5 bleibt der
+# Tail-Gewinn klein).
+IS_TOTAL_SHIFT_SIGMA = 1.0
+# Defensiver Mischungsanteil der Nominalverteilung: Gewichte <= 1/alpha = 2.
+IS_DEFENSIVE_MIXTURE_ALPHA = 0.5
+# Unter dieser Kish-ESS-Quote rechnet ein Wuerfel mit Standard-MC.
+IS_ESS_FALLBACK_FRACTION = 0.30
+IS_SCHEME_VERSION = "is_defensive_mixture_horizon_scaled_v1"
+
+# Rueckwaertskompatible Namen: der Default-Shift-VEKTOR ist das Gesamtbudget
+# (Norm ``c``) in Richtung des Aktien-Buckets; die Verteilung auf die Jahre
+# uebernimmt ``per_year_shift_profile``.
+DEFAULT_TAIL_SHIFT_STRENGTH = IS_TOTAL_SHIFT_SIGMA
+DEFAULT_TAIL_SHIFT_VECTOR = np.array([-IS_TOTAL_SHIFT_SIGMA, 0.0, 0.0, 0.0, 0.0])
 
 
 @dataclass(frozen=True)
@@ -96,44 +133,123 @@ class ImportanceSamplingResult:
     shift_vector: np.ndarray
 
 
+def _shift_profile(shift: np.ndarray, horizon_years: int) -> np.ndarray:
+    """(B,) -> konstant ueber die Jahre (Altvertrag); (T, B) unveraendert."""
+    shift = np.asarray(shift, dtype=np.float64)
+    if shift.ndim == 1:
+        return np.broadcast_to(shift, (int(horizon_years), shift.shape[0]))
+    if shift.shape[0] != int(horizon_years):
+        raise ValueError(
+            f"shift profile has {shift.shape[0]} years, samples have {horizon_years}"
+        )
+    return shift
+
+
 def compute_likelihood_weights(
-    z_uncorrelated: np.ndarray,
-    shift_vector: np.ndarray,
+    x: np.ndarray,
+    shift: np.ndarray,
+    *,
+    mixture_alpha: float = 0.0,
 ) -> np.ndarray:
-    """Likelihood-Ratio fuer Mean-Shift Importance Sampling.
+    """Likelihood-Ratio ``p(x) / m(x)`` je Pfad.
 
     Parameters
     ----------
-    z_uncorrelated : np.ndarray
-        Shape (n_paths, horizon_years, n_buckets) — die *unkorrelierten*
-        Standard-Normals BEVOR Cholesky-Multiplikation. Diese sind die
-        eigentlichen Quellen-Zufallszahlen, an denen die Likelihood
-        gemessen wird.
-    shift_vector : np.ndarray
-        Shape (n_buckets,) — der angewandte Mean-Shift pro Bucket.
+    x : np.ndarray
+        Shape (n_paths, horizon_years, n_buckets) -- die TATSAECHLICH
+        gezogenen unkorrelierten Standard-Normals (Proposal-Stichprobe, vor
+        Cholesky). Nominal ``p = N(0, I)``.
+    shift : np.ndarray
+        Mittelwert der geshifteten Komponente ``q = N(mu, I)``: Shape
+        ``(n_buckets,)`` (in jedem Jahr derselbe Shift, Altvertrag) oder
+        ``(horizon_years, n_buckets)`` (Profil je Jahr, siehe
+        ``per_year_shift_profile``).
+    mixture_alpha : float
+        Anteil der Nominalkomponente in der Proposal ``m = alpha p +
+        (1 - alpha) q``. ``0`` = reiner Mean-Shift (Altvertrag):
+        ``w = exp(-sum_t mu_t x_t + 0.5 sum_t |mu_t|^2)``.
 
     Returns
     -------
     np.ndarray
-        Shape (n_paths,) — w_i = exp(-mu^T sum_t Z_it - 0.5 * T * |mu|^2)
-
-        Note: wir berechnen ueber alle Jahre + alle Buckets aggregiert,
-        weil jeder Jahres-Schritt unabhaengig geshiftet wird. Die finale
-        Likelihood ueber den vollen Pfad ist das Produkt der Jahres-
-        Likelihoods, das wir per Summen in den Exponenten berechnen.
+        Shape (n_paths,). Mit ``l = log q/p = sum_t mu_t x_t - 0.5 sum_t |mu_t|^2``
+        ist ``w = 1 / (alpha + (1 - alpha) exp(l))``, im Log-Raum stabil
+        berechnet. Fuer alpha > 0 gilt ``0 < w <= 1/alpha`` je Pfad.
     """
-    # Sum von Z * shift_vector ueber Bucket-Achse → (n_paths, horizon_years)
-    z_dot_mu = np.einsum("phb,b->ph", z_uncorrelated, shift_vector)
-    # Summe ueber Jahre → (n_paths,)
-    cum_z_dot_mu = z_dot_mu.sum(axis=1)
-    # |mu|^2 * horizon (gleicher Shift jedes Jahr)
-    horizon_years = int(z_uncorrelated.shape[1])
-    mu_sq_norm = float(np.dot(shift_vector, shift_vector))
-    # Likelihood-Ratio per (z aus proposal N(mu, I), gewichtet gegen target N(0, I)):
-    # p(z)/q(z) = exp(-z²/2) / exp(-(z-mu)²/2) = exp(-z·mu + |mu|²/2)
-    # Multi-step (T years, IID): w = exp(-Σ_t z_t·mu + T·|mu|²/2)
-    log_weights = -cum_z_dot_mu + 0.5 * horizon_years * mu_sq_norm
-    return np.exp(log_weights)
+    x = np.asarray(x, dtype=np.float64)
+    profile = _shift_profile(shift, int(x.shape[1]))
+    log_q_over_p = (
+        np.einsum("phb,hb->p", x, profile)
+        - 0.5 * float(np.sum(profile * profile))
+    )
+    alpha = float(mixture_alpha)
+    if not 0.0 <= alpha < 1.0:
+        raise ValueError("mixture_alpha must lie in [0, 1).")
+    if alpha == 0.0:
+        return np.exp(-log_q_over_p)
+    log_mix = np.logaddexp(np.log(alpha), np.log1p(-alpha) + log_q_over_p)
+    return np.exp(-log_mix)
+
+
+def per_year_shift_profile(
+    shift_vector: np.ndarray,
+    horizon_years: int,
+) -> np.ndarray:
+    """Gesamt-Shift ``shift_vector`` (Norm = Budget c) gleichmaessig auf T Jahre.
+
+    ``mu_t = shift_vector / sqrt(T)``: der kumulierte, standardisierte Faktor
+    ``sum_t Z_t / sqrt(T)`` ist um genau ``shift_vector`` verschoben und
+    ``sum_t |mu_t|^2 = |shift_vector|^2`` haengt nicht von T ab -- die
+    Gewichtsvarianz ist horizontunabhaengig (IMPORTANCE-SAMPLING-ESS-001).
+    """
+    horizon_years = int(max(1, horizon_years))
+    vector = np.asarray(shift_vector, dtype=np.float64).reshape(-1)
+    per_year = vector / np.sqrt(float(horizon_years))
+    return np.tile(per_year, (horizon_years, 1))
+
+
+def mixture_shifted_mask(n_paths: int, mixture_alpha: float) -> np.ndarray:
+    """Deterministische Komponentenzuordnung der defensiven Mischung.
+
+    Pfad ``i`` stammt aus der geshifteten Komponente, wenn
+    ``floor((i+1)(1-alpha)) > floor(i (1-alpha))`` -- gleichmaessig verteilt
+    (bei alpha = 0.5 abwechselnd), damit jedes Praefix der Pfade dieselbe
+    Mischung enthaelt. Mit festen Komponentenanteilen ist das
+    Balance-Heuristik-Gewicht ``p / (alpha p + (1-alpha) q)`` unverzerrt
+    (Veach/Guibas 1995; Owen/Zhou 2000) und hat kleinere Varianz als eine
+    zufaellige Komponentenwahl.
+    """
+    n_paths = int(max(0, n_paths))
+    share = 1.0 - float(mixture_alpha)
+    index = np.arange(n_paths, dtype=np.float64)
+    return np.floor((index + 1.0) * share + 1e-12) > np.floor(index * share + 1e-12)
+
+
+def importance_sampling_diagnostics(weights: np.ndarray | None) -> dict:
+    """Kish-ESS und Gewichtskonzentration eines Wuerfels (fuer das Audit)."""
+    if weights is None:
+        return {"ess": None, "ess_fraction": None, "max_weight_share": None}
+    from .certification import effective_sample_size
+
+    arr = np.asarray(weights, dtype=np.float64).reshape(-1)
+    total = float(np.sum(arr))
+    ess = float(effective_sample_size(arr))
+    return {
+        "ess": ess,
+        "ess_fraction": ess / float(arr.size) if arr.size else 0.0,
+        "max_weight_share": float(np.max(arr)) / total if total > 0 else None,
+        "max_weight_normalized": (
+            float(np.max(arr)) * float(arr.size) / total if total > 0 else None
+        ),
+    }
+
+
+def ess_requires_fallback(weights: np.ndarray | None) -> bool:
+    """True, wenn die Kish-ESS unter ``IS_ESS_FALLBACK_FRACTION * N`` liegt."""
+    if weights is None:
+        return False
+    diag = importance_sampling_diagnostics(weights)
+    return float(diag["ess_fraction"] or 0.0) < IS_ESS_FALLBACK_FRACTION
 
 
 def apply_mean_shift(

@@ -257,8 +257,17 @@ def build_scenario_paths_with_weights_cached(
     antithetic: bool = True,
     shift_vector: np.ndarray | None = None,
     cache: ScenarioCache | None = None,
+    mixture_alpha: float | None = None,
+    weight_horizon_years: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Sprint P1 (2026-06-06): IS-aware cached scenario paths.
+
+    IMPORTANCE-SAMPLING-ESS-001: ``shift_vector`` ist das GESAMT-Shift-Budget
+    (Norm c, auf die Jahre verteilt mit ``1/sqrt(horizon_years)``);
+    ``mixture_alpha`` der Nominal-Anteil der defensiven Mischung;
+    ``weight_horizon_years`` der tatsaechlich verwendete Jahres-Praefix
+    (Gewichte = Likelihood-Ratio dieser Marginale). Alle drei plus die
+    IS-Schema-Version stehen im Cache-Key.
 
     Wie build_scenario_paths_cached, aber returnt zusaetzlich die
     Likelihood-Ratio-Gewichte fuer Mean-Shift Importance Sampling.
@@ -300,18 +309,23 @@ def build_scenario_paths_with_weights_cached(
     # IS-aktiv: shift_vector als tuple zur Hash-Stabilitaet. Der
     # Inputs-Digest ist hier aus demselben Grund Teil des Keys wie im
     # STD-Pfad (SCENARIO-CACHE-EFFECTIVE-INPUT-001).
-    shift_tuple = tuple(float(x) for x in np.asarray(shift_vector).reshape(-1))
+    from .importance_sampling import IS_DEFENSIVE_MIXTURE_ALPHA, IS_SCHEME_VERSION
+
+    shift_arr = np.asarray(shift_vector, dtype=np.float64).reshape(-1)
+    shift_tuple = tuple(float(x) for x in shift_arr)
+    alpha = IS_DEFENSIVE_MIXTURE_ALPHA if mixture_alpha is None else float(mixture_alpha)
+    weight_horizon = (
+        int(horizon_years) if weight_horizon_years is None else int(weight_horizon_years)
+    )
     key = (
         "IS", str(cma_id), RETURN_MOMENT_MODEL_VERSION,
         int(horizon_years), int(n_paths), int(seed),
         bool(antithetic), shift_tuple,
         scenario_inputs_digest(inputs),
+        IS_SCHEME_VERSION, alpha, weight_horizon,
     )
     cached = cache.get(key)
     if cached is not None:
-        # Cache speichert paths + weights als (n_paths, horizon+1, 5)-Trick:
-        # letzter Year-Slot hat weights im 0-ten Bucket
-        # Saubere Variante: cache speichert tuple
         return cached  # cached ist tuple (paths, weights)
 
     paths, weights = build_scenario_paths_with_weights(
@@ -321,9 +335,12 @@ def build_scenario_paths_with_weights_cached(
         seed=seed,
         antithetic=antithetic,
         use_importance_sampling=True,
-        is_shift_strength=float(np.max(np.abs(shift_vector))),
+        is_shift_strength=float(np.linalg.norm(shift_arr)),
+        is_mixture_alpha=alpha,
+        weight_horizon_years=weight_horizon,
     )
-    # Note: build_scenario_paths_with_weights derives shift_vector internally
-    # mit default-target-indices. Wir trauen dem default und cachen das Ergebnis.
+    # Note: build_scenario_paths_with_weights leitet die Shift-RICHTUNG aus
+    # den Default-Target-Indizes (Aktien) ab; ``shift_vector`` liefert das
+    # Budget (Norm).
     cache.put(key, (paths, weights))
     return paths, weights

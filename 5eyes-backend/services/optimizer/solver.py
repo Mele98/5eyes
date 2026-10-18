@@ -71,6 +71,7 @@ from .goal_attribution import publish_goal_achievability
 from .objective import (
     chance_constraint_penalty,
     combined_objective_two_phase,
+    portfolio_variance_one_year,
     two_phase_objective_parts,
 )
 from .objective_contract import (
@@ -79,12 +80,17 @@ from .objective_contract import (
     resolve_objective_contract,
 )
 from .objective_variants import (
+    OBJECTIVE_GOAL_SHORTFALL,
     OBJECTIVE_MAX_DRAWDOWN,
     ObjectiveDomainError,
+    primary_objective,
     refined_drawdown_check_for_winner,
 )
 from .resampling import (
+    COMPARISON_GOAL_LEVEL,
+    COMPARISON_RISK_MEASURE,
     DEFAULT_RESAMPLING,
+    RISK_MEASURE_MATERIALITY,
     MIN_SUCCESSFUL_BAG_SHARE,
     RESAMPLING_SCHEME_VERSION,
     ResamplingConfig,
@@ -99,10 +105,20 @@ from .scenario_cache import (
     scenario_inputs_digest,
     scenario_inputs_seed_digest,
 )
+from .goal_reachability import (
+    annotate_rows as annotate_reachability_rows,
+    goal_reachability_screen,
+    reachability_reasoning,
+)
 from .importance_sampling import (
-    DEFAULT_TAIL_SHIFT_STRENGTH,
+    IS_DEFENSIVE_MIXTURE_ALPHA,
+    IS_ESS_FALLBACK_FRACTION,
+    IS_SCHEME_VERSION,
+    IS_TOTAL_SHIFT_SIGMA,
     build_shift_vector,
     decide_is_for_context,
+    ess_requires_fallback,
+    importance_sampling_diagnostics,
     make_default_weights,
 )
 from .scenario_engine import (
@@ -186,6 +202,13 @@ class OptimizerResult:
     # (nur Modus max_drawdown; sonst None). Siehe
     # services/optimizer/drawdown_certification.py.
     drawdown_certification: dict | None = None
+    # IMPORTANCE-SAMPLING-ESS-001: Audit des Importance Samplings des
+    # Hauptwuerfels (siehe OptimizerContext.importance_sampling_audit).
+    importance_sampling: dict | None = None
+    # GOAL-REACHABILITY-SCREEN-001: Pruefung, ob jedes Ziel auf IRGENDEINER
+    # zulaessigen Allokation erreichbar ist (siehe
+    # OptimizerContext.goal_reachability).
+    goal_reachability: dict | None = None
     # Exact owned run-context snapshot used by the solver. compare=False is
     # essential because OptimizerContext contains NumPy arrays whose equality
     # is not scalar-valued. The context is intentionally not persisted as JSON;
@@ -419,6 +442,21 @@ class OptimizerContext:
     # zurueckzufallen -- ein Lauf ohne eingefrorene Mathematik hat keinen
     # Nachweis darueber, was er gerechnet hat.
     objective_contract: "ObjectiveContractV1 | None" = None
+    # IMPORTANCE-SAMPLING-ESS-001 (2026-10-18): Audit des Importance
+    # Samplings dieses Wuerfels (Entscheid, Proposal-Parameter, Kish-ESS,
+    # Gewichtskonzentration, ggf. Fallback-Grund). None nur bei manuell
+    # gebauten Contexts.
+    importance_sampling_audit: dict | None = None
+    # GOAL-REACHABILITY-SCREEN-001 (2026-10-18): je Ziel mit Ziel-Untergrenze
+    # die hoechste Erfolgswahrscheinlichkeit ueber die Pruefmenge zulaessiger
+    # Allokationen (Ecken des Bandbreiten-Simplex, zulaessig projiziert, plus
+    # Bandmitte) auf dem nominalen Validierungswuerfel. None, wenn nicht
+    # geprueft (keine ScenarioInputs).
+    goal_reachability: dict | None = None
+    # Ziele, deren Chance-Strafe in DIESEM Lauf nicht steuert: nur in den
+    # Risikomass-Varianten und nur fuer auf der ganzen Pruefmenge
+    # unerreichbare Ziele (siehe ``_goal_reachability_screen``).
+    penalty_exempt_goal_ids: frozenset = frozenset()
 
 
 @dataclass(frozen=True)
@@ -783,11 +821,19 @@ def build_optimizer_context(
         has_hart_goal=has_hart_goal,
         is_retired=bool(is_retired),
     )
+    is_audit: dict = {
+        "decision_active": bool(is_active),
+        "decision_reason": str(is_reason),
+        "scheme": IS_SCHEME_VERSION,
+    }
     try:
         if is_active:
+            # IMPORTANCE-SAMPLING-ESS-001: Gesamt-Shift-Budget c (auf die
+            # Jahre des gezogenen Horizonts verteilt), defensive Mischung,
+            # Gewichte auf dem Optimierungshorizont.
             shift_vec = build_shift_vector(
                 N_BUCKETS,
-                strength=DEFAULT_TAIL_SHIFT_STRENGTH,
+                strength=IS_TOTAL_SHIFT_SIGMA,
             )
             return_paths, scenario_weights = build_scenario_paths_with_weights_cached(
                 inputs,
@@ -796,7 +842,34 @@ def build_optimizer_context(
                 n_paths=n_paths,
                 seed=seed,
                 shift_vector=shift_vec,
+                mixture_alpha=IS_DEFENSIVE_MIXTURE_ALPHA,
+                weight_horizon_years=int(horizon_years),
             )
+            diagnostics = importance_sampling_diagnostics(scenario_weights)
+            is_audit.update({
+                "total_shift_sigma": IS_TOTAL_SHIFT_SIGMA,
+                "per_year_shift_sigma": IS_TOTAL_SHIFT_SIGMA / float(
+                    np.sqrt(float(common_scenario_horizon))
+                ),
+                "mixture_alpha": IS_DEFENSIVE_MIXTURE_ALPHA,
+                "max_weight_bound": 1.0 / IS_DEFENSIVE_MIXTURE_ALPHA,
+                "weight_horizon_years": int(horizon_years),
+                "ess_fallback_fraction": IS_ESS_FALLBACK_FRACTION,
+                **diagnostics,
+            })
+            if ess_requires_fallback(scenario_weights):
+                # Unter der ESS-Schwelle traegt die Gewichtung keine
+                # belastbare Aussage mehr: Standard-MC statt eines Schaetzers,
+                # der auf wenigen Pfaden ruht. Grund im Audit.
+                is_audit["fallback"] = "ess_below_threshold"
+                scenario_weights = None
+                return_paths = build_scenario_paths_cached(
+                    inputs,
+                    cma_id=cma_id_for_cache,
+                    horizon_years=common_scenario_horizon,
+                    n_paths=n_paths,
+                    seed=seed,
+                )
         else:
             return_paths = build_scenario_paths_cached(
                 inputs,
@@ -808,6 +881,7 @@ def build_optimizer_context(
             scenario_weights = None  # uniform sample-mean
     except ReturnMomentError as exc:
         raise OptimizerInputError(str(exc)) from exc
+    is_audit["active"] = scenario_weights is not None
     # Same seed is not enough when NumPy draws arrays with different horizon
     # shapes: later paths get a different flattened RNG offset. Drawing both
     # paired runs at the common max horizon and slicing here makes every path's
@@ -846,7 +920,7 @@ def build_optimizer_context(
             )
             death_indices = np.full(int(n_paths), fixed_index, dtype=np.int32)
 
-    return OptimizerContext(
+    context = OptimizerContext(
         cma_id=cma_id_for_cache,
         seed=int(seed),
         horizon_years=int(horizon_years),
@@ -872,6 +946,7 @@ def build_optimizer_context(
         scenario_inputs=inputs,
         # Sprint P1 (2026-06-06): IS-Likelihood-Weights
         scenario_weights=scenario_weights,
+        importance_sampling_audit=is_audit,
         mortality_death_year_index_per_path=death_indices,
         # Sprint U-P2 Fix C9: tax-aware Felder
         tax_regime=tax_regime,
@@ -898,6 +973,28 @@ def build_optimizer_context(
             else resolve_objective_contract()
         ),
     )
+    # GOAL-REACHABILITY-SCREEN-001: einmal je Context (deterministisch:
+    # Validierungswuerfel des Inhalts-Seeds). Bags, Signifikanztest und
+    # Drawdown-Rerank erben Ergebnis und Ausnahme ueber den Context.
+    screen = goal_reachability_screen(context)
+    if screen is None:
+        return context
+    return replace(
+        context,
+        goal_reachability=screen,
+        penalty_exempt_goal_ids=frozenset(screen["penalty_exempt_goal_ids"]),
+    )
+
+
+def _tiebreak_portfolio_variance(
+    context: OptimizerContext, w: np.ndarray,
+) -> float | None:
+    """TIEBREAK-PORTFOLIO-VARIANCE-001: ``w' Sigma w`` aus der CMA-Kovarianz
+    des Contexts (None, falls ein manuell gebauter Context keine hat)."""
+    cov = context.scenario_cov_bps2
+    if cov is None:
+        return None
+    return portfolio_variance_one_year(w, cov)
 
 
 def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
@@ -936,6 +1033,8 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         # auf den cashflow-neutralen Faktoren, nicht auf `wealth` -- sonst
         # wuerde geplanter Verzehr als Marktrisiko bewertet.
         portfolio_return_factors=portfolio_factors,
+        portfolio_variance=_tiebreak_portfolio_variance(context, w),
+        penalty_exempt_goal_ids=context.penalty_exempt_goal_ids,
     ))
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
     # Soft-Preference Target Intent must actually influence the optimization,
@@ -991,6 +1090,8 @@ def evaluate_weights(
         goal_weighting_mode=contract.goal_weighting_mode,
         portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
+        portfolio_variance=_tiebreak_portfolio_variance(context, w),
+        penalty_exempt_goal_ids=context.penalty_exempt_goal_ids,
     )
     # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as
     # `_objective_from_array`, so `evaluate_weights(ctx, result.weights_bps)
@@ -1064,8 +1165,23 @@ def deterministic_seed(*parts) -> int:
 # volumen-normierte, lineare Chance-Strafe statt 1e6 * Defizit^2. Der
 # Seed-Aufbau ist unveraendert (content_seed_v2); die Engine-Version geht
 # aber in den Seed ein -- neue Mathematik zieht bewusst neue Wuerfel.
+#
+# Engine v4 (2026-10-18, IMPORTANCE-SAMPLING-ESS-001 +
+# TIEBREAK-PORTFOLIO-VARIANCE-001 + GOAL-REACHABILITY-SCREEN-001): Importance
+# Sampling als defensive Mischung mit horizont-skaliertem Shift (ESS/N ~0.83
+# statt ~exp(-T/4)), Tiebreak kappa * w' Sigma w statt Var(W_T)/W0^2, und
+# in den Risikomass-Varianten keine Chance-Strafe fuer Ziele, die auf keiner
+# zulaessigen Allokation erreichbar sind.
+#
+# Engine v5 (2026-10-18, HOUSE-FIRST-SIGNIFICANCE-001, CIO-Entscheid
+# "Hausmatrix, solange die Ziele mit ihr gleich sicher erreicht sind"): der
+# Signifikanztest gegen die Hausmatrix entscheidet auf der Zielebene
+# (Ziel-Fehlbetrag + Chance-Strafe), nicht mehr ueber den deterministischen
+# Volatilitaets-Tiebreak; Risikomass-Varianten zusaetzlich nur mit
+# Materialitaetsschwelle (50 bps). Neue Wuerfel, weil die Version in den
+# Seed eingeht.
 OPTIMIZER_SEED_SCHEME = "content_seed_v2"
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v3"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v5"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2190,6 +2306,10 @@ def _house_midpoint_fallback_result(
         "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
         "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
     ] + list(context.bounds_collapse_warnings) + list(extra_reasoning or [])
+    fallback_reasoning.extend(reachability_reasoning(context.goal_reachability))
+    goal_achievability = annotate_reachability_rows(
+        goal_achievability, context.goal_reachability,
+    )
     if fallback_preference_deviation is not None:
         # CERT-ALLOCATION-INTENT-001 (spec Sec. 8): a Soft Preference is
         # never silently promoted to an exactly-active value just because
@@ -2223,8 +2343,107 @@ def _house_midpoint_fallback_result(
         restart_results=tuple(attempt_summaries),
         preference_deviation_bps=fallback_preference_deviation,
         resampling=resampling_payload,
+        importance_sampling=context.importance_sampling_audit,
+        goal_reachability=context.goal_reachability,
         context=context,
     )
+
+
+def _constraint_violation(
+    w: np.ndarray, constraints: list[dict],
+) -> float:
+    return float(sum(
+        max(0.0, -float(cons["fun"](w)))
+        for cons in constraints
+        if cons.get("type") == "ineq"
+    ))
+
+
+def _repair_rounded_bps(
+    weights_bps: dict[str, int],
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    *,
+    max_steps: int = 20,
+) -> dict[str, int] | None:
+    """BPS-ROUNDING-ON-ACTIVE-CONSTRAINT-001 (2026-10-18).
+
+    Liegt ein kontinuierlich zulaessiger Punkt GENAU auf einer linearen
+    Nebenbedingung (Risikobudget mit nicht-ganzzahligen Risikoanteilen), kann
+    die bps-Rundung sie um Bruchteile eines bps verletzen (gemessen: -5e-6
+    am Referenzmandat M1). Mit dem Varianz-Tiebreak (w' Sigma w) landen
+    ziel-sichere Mandate systematisch auf solchen Flaechen. Reparatur:
+    greedy je 1 bps zwischen zwei Buckets verschieben (Bandbreiten
+    eingehalten, Summe bleibt 10'000), jeweils die Verschiebung mit der
+    kleinsten Restverletzung, bis zulaessig. None, wenn das nicht in
+    ``max_steps`` Schritten gelingt (dann bleibt der Status
+    ``diverged_infeasible``).
+    """
+    current = [int(weights_bps[bucket]) for bucket in BUCKET_ORDER]
+    lo = [int(round(b[0] * 10000.0)) for b in bounds]
+    hi = [int(round(b[1] * 10000.0)) for b in bounds]
+    n = len(current)
+    if any(not lo[k] <= current[k] <= hi[k] for k in range(n)) or sum(current) != 10000:
+        # Nur fuer Verletzungen linearer Ungleichungen gedacht: eine
+        # Bandbreiten- oder Summenverletzung der Rundung ist ein anderer
+        # Defekt und bleibt sichtbar (Status diverged_infeasible).
+        return None
+    for _step in range(int(max_steps)):
+        best: tuple[float, list[int]] | None = None
+        for i in range(n):
+            if current[i] - 1 < lo[i]:
+                continue
+            for j in range(n):
+                if i == j or current[j] + 1 > hi[j]:
+                    continue
+                trial = list(current)
+                trial[i] -= 1
+                trial[j] += 1
+                violation = _constraint_violation(
+                    np.array(trial, dtype=np.float64) / 10000.0, constraints,
+                )
+                if best is None or violation < best[0]:
+                    best = (violation, trial)
+        if best is None:
+            return None
+        current = best[1]
+        candidate = np.array(current, dtype=np.float64) / 10000.0
+        ok, _reasons = is_feasible(candidate, bounds=bounds, constraints=constraints)
+        if ok:
+            return {bucket: current[k] for k, bucket in enumerate(BUCKET_ORDER)}
+    return None
+
+
+def _importance_sampling_reasoning(context: OptimizerContext) -> str:
+    """Audit-Zeile zum Importance Sampling (IMPORTANCE-SAMPLING-ESS-001).
+
+    Die Praefixe "Importance Sampling AKTIV/INAKTIV" sind Vertrag
+    (advisory_report._detect_is_status_from_reasoning).
+    """
+    audit = context.importance_sampling_audit or {}
+    if context.scenario_weights is not None:
+        ess = audit.get("ess")
+        ess_text = (
+            f" Kish-ESS {float(ess):.0f} von {int(context.n_paths)} Pfaden "
+            f"({100.0 * float(audit.get('ess_fraction') or 0.0):.0f} %), "
+            f"Gewichte <= {float(audit.get('max_weight_bound') or 0.0):.1f}."
+            if ess is not None
+            else ""
+        )
+        return (
+            "Importance Sampling AKTIV (Tail-Schutz fuer Shortfall-Berechnung; "
+            "defensive Mischung, horizont-skalierter Aktien-Shift). "
+            "Achievability-Wahrscheinlichkeiten sind likelihood-ratio-gewichtet "
+            "und selbstnormiert." + ess_text
+        )
+    if audit.get("fallback"):
+        return (
+            "Importance Sampling INAKTIV (Standard-MC, uniformer Sample-Mean): "
+            f"Kish-ESS {float(audit.get('ess') or 0.0):.0f} unter der Schwelle "
+            f"{100.0 * float(audit.get('ess_fallback_fraction') or 0.0):.0f} % "
+            "der Pfade -- Rueckfall auf Standard-MC."
+        )
+    return "Importance Sampling INAKTIV (Standard-MC, uniformer Sample-Mean)."
 
 
 def _finalize_solver_result(
@@ -2272,6 +2491,12 @@ def _finalize_solver_result(
         bounds=bounds,
         constraints=scipy_constraints,
     )
+    if continuous_feasible and not rounded_feasible:
+        repaired = _repair_rounded_bps(weights_bps, bounds, scipy_constraints)
+        if repaired is not None:
+            weights_bps = repaired
+            rounded_w = _trusted_weights_bps_to_array(weights_bps)
+            rounded_feasible, rounded_violation_reasons = True, []
 
     # The integer-bps allocation is the product returned to the engine. A
     # continuous SLSQP point is therefore not allowed to retain a converged
@@ -2352,15 +2577,11 @@ def _finalize_solver_result(
                           f"{n_starts} multi-starts.")
     reasoning.extend(extra_reasoning or [])
     # Sprint P1 (2026-06-06): IS-Status im Audit-Trail
-    if context.scenario_weights is not None:
-        reasoning.append(
-            "Importance Sampling AKTIV (Tail-Schutz fuer Shortfall-Berechnung). "
-            "Achievability-Wahrscheinlichkeiten sind likelihood-ratio-gewichtet."
-        )
-    else:
-        reasoning.append(
-            "Importance Sampling INAKTIV (Standard-MC, uniformer Sample-Mean)."
-        )
+    reasoning.append(_importance_sampling_reasoning(context))
+    reasoning.extend(reachability_reasoning(context.goal_reachability))
+    goal_achievability = annotate_reachability_rows(
+        goal_achievability, context.goal_reachability,
+    )
     # OPTIMIZER-OBJECTIVE-VARIANTS-001: der Modus `max_drawdown` optimiert auf
     # dem JAHRESGITTER -- die Bruecken-Verfeinerung aus DRAWDOWN-TIME-GRID-001
     # in jeder SLSQP-Iteration waere unbezahlbar. Das Jahresgitter
@@ -2487,6 +2708,8 @@ def _finalize_solver_result(
         validation_n_paths=validation_n_paths_used,
         resampling=resampling_payload,
         drawdown_certification=drawdown_certification,
+        importance_sampling=context.importance_sampling_audit,
+        goal_reachability=context.goal_reachability,
         context=context,
     )
 
@@ -2632,21 +2855,34 @@ def _bag_context(
     )
 
 
-def _context_loss_pair_on_validation(
+def _context_loss_components_on_validation(
     validation_context: OptimizerContext,
     anchor_w: np.ndarray,
     candidate_w: np.ndarray,
     *,
     validation_seed: int | None = None,
 ):
-    """Liefert ``loss_pair(idx)`` fuer den gepaarten Bootstrap.
+    """Liefert ``component_pair(idx)`` fuer den gepaarten Bootstrap.
 
-    Vermoegenspfade, Faktoren und Jahresrenditen werden EINMAL je Allokation
-    auf dem Validierungs-Cube simuliert; jede Replikation wertet dieselbe
-    Zielfunktion wie ``evaluate_weights`` (Vertrag des Laufs, Soft-Preference
-    inklusive) auf derselben Pfadauswahl fuer beide Allokationen aus.
+    Je Allokation das Paar ``(zielebene, risikoebene)`` auf der Pfadauswahl
+    ``idx`` (None = alle Pfade); ihre Summe ist exakt die Skalar-Zielfunktion
+    der Bags (Vertrag des Laufs, Soft-Preference inklusive):
+
+    * ``zielebene`` -- die ZIELERREICHUNG: im Default Ziel-Fehlbetrag L(w) +
+      Chance-Strafe, in den Varianten die Chance-Strafe; jeweils plus
+      Soft-Preference-Strafe (explizite Berater-Vorgabe, keine
+      Schaetzgroesse).
+    * ``risikoebene`` -- im Default der Tiebreak ``kappa * w' Sigma w``, in
+      den Varianten das Risikomass selbst (Primaerterm).
+
+    HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): der
+    Signifikanztest gegen die Hausmatrix entscheidet auf der Zielebene; die
+    Risikoebene zaehlt nur in den Varianten und nur mit Materialitaet
+    (``_significance_vs_house_anchor``). Vermoegenspfade, Faktoren und
+    Jahresrenditen werden EINMAL je Allokation simuliert.
     """
     contract = objective_contract_of(validation_context)
+    is_default = contract.objective_mode == OBJECTIVE_GOAL_SHORTFALL
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 (CIO-Entscheid 2026-10-18): im
     # Modus max_drawdown vergleicht der Signifikanztest mit dem VERFEINERTEN
     # Drawdown (Brownsche Bruecke, Bruecken-Seed = Validierungs-Seed) statt
@@ -2680,51 +2916,83 @@ def _context_loss_pair_on_validation(
             if refined_drawdown
             else None
         )
-        return wealth, factors, annualized, float(preference), drawdowns
+        variance = _tiebreak_portfolio_variance(validation_context, w)
+        return wealth, factors, annualized, float(preference), drawdowns, variance
 
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
 
-    def _loss(bundle, idx):
-        # OBJECTIVE-NORMALIZATION-001 (2026-10-18): wieder die SKALAR-
-        # Zielfunktion -- exakt die, die der Solver in jedem Bag minimiert.
-        # SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 musste hier die Stufen getrennt
-        # vergleichen, weil der Skalar wegen des Stufe-2-Schalters pro
-        # Allokation nicht monoton war. Der Schalter ist entfernt (Tiebreak
-        # immer aktiv), die Differenz zweier Skalare ist damit monoton und
-        # einheitlich -- ein Test gegen eine ANDERE Ordnung als die, nach der
-        # optimiert wurde, waere inkonsistent.
-        wealth, factors, annualized, preference, drawdowns = bundle
+    def _components(bundle, idx) -> tuple[float, float]:
+        wealth, factors, annualized, preference, drawdowns, variance = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
             if drawdowns is not None:
                 drawdowns = drawdowns[idx]
+        primary_override, primary_weight = None, 1.0
+        if not is_default:
+            # Varianten: das Risikomass einmal rechnen und als Override mit
+            # Gewicht 0 durchreichen -> die Zielebene ist exakt die
+            # Chance-Strafe, ohne den Primaerterm doppelt zu berechnen.
+            primary_override = (
+                float(np.mean(drawdowns))
+                if drawdowns is not None
+                else primary_objective(
+                    contract.objective_mode,
+                    goal_shortfall_value=0.0,
+                    portfolio_return_factors=factors,
+                    weights=None,
+                )
+            )
+            primary_weight = 0.0
         goal_level, tiebreak = two_phase_objective_parts(
             validation_context.liabilities,
             wealth,
             initial_wealth_rappen=validation_context.advisory_wealth_rappen,
             horizon_years=validation_context.horizon_years,
+            primary_weight=primary_weight,
             weights=None,
             annualized_return_bps_per_path=annualized,
             objective_mode=contract.objective_mode,
             goal_weighting_mode=contract.goal_weighting_mode,
             portfolio_return_factors=factors,
-            primary_value_override=(
-                float(np.mean(drawdowns)) if drawdowns is not None else None
-            ),
+            primary_value_override=primary_override,
+            portfolio_variance=variance,
+            penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
-        return float(goal_level) + float(tiebreak) + float(preference)
+        risk_level = float(tiebreak) if is_default else float(primary_override)
+        return float(goal_level) + float(preference), risk_level
 
-    def loss_pair(idx):
-        return _loss(prepared[0], idx), _loss(prepared[1], idx)
+    def component_pair(idx):
+        return _components(prepared[0], idx), _components(prepared[1], idx)
 
-    return loss_pair
+    return component_pair
+
+
+def _rounded_bps_with_repair(
+    w: np.ndarray,
+    context: OptimizerContext,
+) -> dict[str, int]:
+    """bps-Rundung; verletzt sie eine aktive lineare Nebenbedingung, die
+    1-bps-Reparatur (``_repair_rounded_bps``). Gelingt die nicht, bleibt die
+    einfache Rundung (der Aufrufer prueft die Zulaessigkeit selbst)."""
+    weights_bps = _weights_to_bps_dict(w, bounds=context.bounds)
+    ok, _violations = is_feasible(
+        _trusted_weights_bps_to_array(weights_bps),
+        bounds=context.bounds,
+        constraints=context.scipy_constraints,
+    )
+    if ok:
+        return weights_bps
+    repaired = _repair_rounded_bps(
+        weights_bps, context.bounds, context.scipy_constraints,
+    )
+    return repaired if repaired is not None else weights_bps
 
 
 def _bps_dict_for_feasible_point(
     w: np.ndarray,
     context: OptimizerContext,
 ) -> dict[str, int] | None:
-    weights_bps = _weights_to_bps_dict(w, bounds=context.bounds)
+    weights_bps = _rounded_bps_with_repair(w, context)
     ok, _violations = is_feasible(
         _trusted_weights_bps_to_array(weights_bps),
         bounds=context.bounds,
@@ -2771,15 +3039,34 @@ def _significance_vs_house_anchor(
     config: ResamplingConfig,
     validation: tuple[OptimizerContext, int, str] | None = None,
 ) -> dict:
-    """Test: verbessert die resampelte Allokation die Zielfunktion signifikant
-    gegenueber der (zulaessig projizierten) Hausmatrix-Zielquote?
+    """Test: ist die resampelte Allokation der (zulaessig projizierten)
+    Hausmatrix-Zielquote signifikant UEBERLEGEN?
+
+    HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): "Hausmatrix,
+    solange die Ziele mit ihr gleich sicher erreicht sind."
+
+    1. Zielebene (alle Modi): gepaarter Bootstrap der Verbesserung von
+       Ziel-Fehlbetrag + Chance-Strafe (+ Soft-Preference). Signifikant ->
+       Optimierer. Der Volatilitaets-Tiebreak zaehlt hier NICHT: er ist
+       deterministisch (``kappa * w' Sigma w``), jede noch so kleine
+       Differenz waere "signifikant" (p = 1/(B+1)) -- so entstanden
+       Eckloesungen auf Schaetzfehlern der Korrelation. Im Solver bleibt er
+       (Stetigkeit/Monotonie), er entscheidet nur nicht ueber Anker vs.
+       Kandidat.
+    2. Nur in den Varianten (Risikomass = Zweck): Skalar-Zielfunktion
+       (Risikomass + Chance-Strafe + Preference) signifikant UND
+       Risikomass-Verbesserung auf dem Validierungs-Cube
+       >= ``RISK_MEASURE_MATERIALITY`` -> Optimierer.
 
     Entscheid ``decision``:
-    * ``optimizer``  -- signifikante Verbesserung, Optimierer-Allokation gilt.
-    * ``house_matrix`` -- nicht signifikant, Hausmatrix-Zielquote gilt.
+    * ``optimizer``  -- (1) oder (2) erfuellt, Optimierer-Allokation gilt.
+    * ``house_matrix`` -- weder noch, Hausmatrix-Zielquote gilt.
     * ``optimizer_untested`` -- kein Test moeglich (kein Anker, keine
       zulaessige Projektion, kein Validierungs-Cube, Test abgeschaltet);
       die Optimierer-Allokation gilt, der Grund steht in ``reason``.
+
+    Die Top-Level-Statistik (``p_value``, ``improvement`` ...) ist immer die
+    der Zielebene; die Varianten-Statistik steht in ``risk_measure_test``.
     """
     block: dict = {
         "test": None,
@@ -2810,34 +3097,75 @@ def _significance_vs_house_anchor(
             "reason": "no_validation_cube",
         }
     validation_context, validation_seed, cube_hash = validation
-    if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+    objective_mode = objective_contract_of(context).objective_mode
+    if objective_mode == OBJECTIVE_MAX_DRAWDOWN:
         # Nur in diesem Modus gesetzt: Default-Laeufe behalten ihre
         # Modellbasis (und damit ihren allocation_context_hash) bit-gleich.
         block["drawdown_measure"] = "refined_brownian_bridge"
-    loss_pair = _context_loss_pair_on_validation(
+    component_pair = _context_loss_components_on_validation(
         validation_context,
         _trusted_weights_bps_to_array(anchor_bps),
         _trusted_weights_bps_to_array(candidate_bps),
         validation_seed=int(validation_seed),
     )
-    stats = paired_bootstrap_improvement(
-        loss_pair,
+    bootstrap_kwargs = dict(
         n_paths=int(validation_context.n_paths),
         n_bootstrap=int(config.n_bootstrap),
         alpha=float(config.significance_alpha),
         seed=bootstrap_seed(validation_seed),
     )
-    return {
+    goal_stats = paired_bootstrap_improvement(
+        lambda idx: tuple(parts[0] for parts in component_pair(idx)),
+        **bootstrap_kwargs,
+    )
+    result = {
         **block,
-        **stats,
+        **goal_stats,
+        "comparison": COMPARISON_GOAL_LEVEL,
+        "decision_level": COMPARISON_GOAL_LEVEL,
         "validation_seed": int(validation_seed),
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
-        "decision": "optimizer" if stats["significant"] else "house_matrix",
+    }
+    if goal_stats["significant"]:
+        return {**result, "decision": "optimizer",
+                "reason": "significant_goal_improvement"}
+    if objective_mode == OBJECTIVE_GOAL_SHORTFALL:
+        return {**result, "decision": "house_matrix",
+                "reason": "goal_improvement_not_significant"}
+
+    (_anchor_goal, anchor_risk), (_cand_goal, candidate_risk) = component_pair(None)
+    risk_improvement = float(anchor_risk) - float(candidate_risk)
+    material = bool(risk_improvement >= RISK_MEASURE_MATERIALITY)
+    risk_stats = paired_bootstrap_improvement(
+        lambda idx: tuple(sum(parts) for parts in component_pair(idx)),
+        **bootstrap_kwargs,
+    )
+    result["risk_measure_test"] = {
+        **{
+            key: risk_stats.get(key)
+            for key in ("improvement", "improvement_lower_bound", "p_value",
+                        "anchor_objective", "candidate_objective")
+        },
+        "comparison": COMPARISON_RISK_MEASURE,
+        "anchor_risk_measure": float(anchor_risk),
+        "candidate_risk_measure": float(candidate_risk),
+        "risk_improvement": risk_improvement,
+        "materiality_threshold": float(RISK_MEASURE_MATERIALITY),
+        "material": material,
+        "significant": bool(risk_stats["significant"]),
+    }
+    if risk_stats["significant"] and material:
+        return {**result, "decision": "optimizer", "significant": True,
+                "decision_level": COMPARISON_RISK_MEASURE,
+                "reason": "significant_material_risk_improvement"}
+    return {
+        **result,
+        "decision": "house_matrix",
         "reason": (
-            "significant_improvement"
-            if stats["significant"]
-            else "improvement_not_significant"
+            "risk_improvement_not_material"
+            if risk_stats["significant"]
+            else "risk_improvement_not_significant"
         ),
     }
 
@@ -2874,10 +3202,23 @@ def _run_resampled_solver(
     bag_summaries: list[dict] = []
     robustified_bags = 0
     ga_bags = 0
+    bag_ess_fractions: list[float] = []
+    bag_is_fallbacks = 0
     for index, bag_seed in enumerate(seeds):
         bag_started = time.perf_counter()
+        bag_ctx = _bag_context(context, seed=bag_seed, n_paths=bag_n_paths)
+        if context.scenario_weights is not None:
+            if bag_ctx.scenario_weights is None:
+                bag_is_fallbacks += 1
+                bag_ess_fractions.append(1.0)
+            else:
+                bag_ess_fractions.append(float(
+                    importance_sampling_diagnostics(bag_ctx.scenario_weights)[
+                        "ess_fraction"
+                    ]
+                ))
         selection = _select_cube_candidate(
-            _bag_context(context, seed=bag_seed, n_paths=bag_n_paths),
+            bag_ctx,
             max_iter=max_iter,
             ftol=ftol,
         )
@@ -2945,6 +3286,14 @@ def _run_resampled_solver(
         "bag_n_paths": bag_n_paths,
         "bags": bag_summaries,
     }
+    if bag_ess_fractions:
+        # IMPORTANCE-SAMPLING-ESS-001: Kish-ESS-Quote der Bag-Wuerfel
+        # (Standard-MC-Rueckfaelle zaehlen mit 1.0 und separat).
+        payload["importance_sampling_bags"] = {
+            "ess_fraction_min": round(float(np.min(bag_ess_fractions)), 4),
+            "ess_fraction_median": round(float(np.median(bag_ess_fractions)), 4),
+            "n_fallback_standard_mc": int(bag_is_fallbacks),
+        }
     aggregate_selection = _CubeSelection(
         weights=None,
         objective=float("inf"),
@@ -3007,7 +3356,7 @@ def _run_resampled_solver(
     payload["projection_distance_bps"] = round(
         float(np.sqrt(np.sum((projected - mean_w) ** 2))) * 10000.0, 4
     )
-    candidate_bps = _weights_to_bps_dict(projected, bounds=context.bounds)
+    candidate_bps = _rounded_bps_with_repair(projected, context)
     payload["resampled_weights_bps"] = dict(candidate_bps)
 
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 unter Resampling (CIO-Entscheid
@@ -3027,7 +3376,7 @@ def _run_resampled_solver(
             validation=validation,
         )
         if certified_w is not None:
-            candidate_bps = _weights_to_bps_dict(certified_w, bounds=context.bounds)
+            candidate_bps = _rounded_bps_with_repair(certified_w, context)
 
     significance = _significance_vs_house_anchor(
         context,
@@ -3055,6 +3404,13 @@ def _run_resampled_solver(
             reasoning.append(
                 "Optimierer-Allokation ist identisch mit der Hausmatrix-Zielquote; "
                 "Hausmatrix-Zielquote beibehalten."
+            )
+        elif significance.get("reason") == "risk_improvement_not_material":
+            reasoning.append(
+                "Optimierer-Abweichung von der Hausmatrix ist nicht material "
+                "(Risikomass-Verbesserung unter der Materialitaetsschwelle, Ziele "
+                "nicht signifikant sicherer erreicht); Hausmatrix-Zielquote "
+                "beibehalten. " + _significance_sentence(significance)
             )
         else:
             reasoning.append(
@@ -3099,19 +3455,30 @@ def _significance_sentence(significance: Mapping) -> str:
         f"alpha={alpha:.0%}) auf dem unabhaengigen Validierungs-Cube "
         f"({significance.get('validation_n_paths')} Pfade):"
     ]
+    if significance.get("comparison") == "goal_level":
+        parts.append(
+            "Vergleich auf der Zielebene (Ziel-Fehlbetrag + Chance-Strafe); "
+            "die Volatilitaet allein begruendet keine Abweichung"
+        )
     if improvement is not None:
-        parts.append(f"Verbesserung der Zielfunktion {float(improvement):.6e}")
+        parts.append(f"Verbesserung der Zielebene {float(improvement):.6e}")
     if lower is not None:
         parts.append(
             f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
         )
-    comparison = significance.get("comparison")
-    if comparison == "volatility_tiebreak":
-        parts.append("Vergleich: beide erfuellen die Ziele, Volatilitaet entscheidet")
-    elif comparison == "goal_level":
-        parts.append("Vergleich: Ziel-Fehlbetrag und Chance-Constraints")
     if p_value is not None:
         parts.append(f"p = {float(p_value):.4f}")
+    risk = significance.get("risk_measure_test")
+    if isinstance(risk, Mapping):
+        risk_p = risk.get("p_value")
+        parts.append(
+            "Risikomass "
+            f"{float(risk.get('anchor_risk_measure') or 0.0) * 100:.2f} % "
+            f"(Hausmatrix) vs {float(risk.get('candidate_risk_measure') or 0.0) * 100:.2f} % "
+            f"(Optimierer), Verbesserung {float(risk.get('risk_improvement') or 0.0) * 10000:.1f} bps "
+            f"gegen Materialitaetsschwelle {float(risk.get('materiality_threshold') or 0.0) * 10000:.0f} bps"
+            + (f", p = {float(risk_p):.4f}" if risk_p is not None else "")
+        )
     return " ".join(parts[:1]) + " " + ", ".join(parts[1:]) + "."
 
 
