@@ -54,7 +54,16 @@ def _run(scenario_js: str) -> dict:
         "function formatBandPercent(", "function normalizeBandOverrideEntry(",
         "function collectBandOverridesFromModal(", "function buildQT(",
     ]
-    optional = ["function normalizeStoredBandOverride(", "function parseBandPercentUserInput("]
+    # Optional: helpers that only exist once neighbouring features are merged.
+    # BAND-DEVIATION-REASON-REQUIRED-001 (#623) appends a reason box to the same
+    # modal from inside buildQT(); its real code runs here too (not stubbed), so
+    # the roundtrip contract is verified against the combined editor.
+    optional = [
+        "function normalizeStoredBandOverride(", "function parseBandPercentUserInput(",
+        "function currentHouseMatrixBands(", "function bandHouseDeviationsFromModal(",
+        "function buildBandDeviationReasonBoxHtml(", "function updateBandDeviationReasonBox(",
+        "function escapeHtml(",
+    ]
     fns = [_function(src, n) for n in names]
     fns += [_function(src, n) for n in optional if n in src]
     harness = r"""
@@ -73,6 +82,7 @@ function deriveQuotenFromAllocation(a){
 var strategyState={allocation:null};
 // Minimal DOM: buildQT writes innerHTML; we parse the generated <input>s.
 var container={_html:'',set innerHTML(v){this._html=v;INPUTS=parseInputs(v);},get innerHTML(){return this._html;},
+  insertAdjacentHTML:function(pos,html){this._html+=html;},
   querySelectorAll:function(){return INPUTS;}};
 function parseInputs(html){
   var out=[];var re=/<input class="qtinp"([^>]*)>/g;var m;
@@ -84,7 +94,9 @@ function parseInputs(html){
   }
   return out;
 }
-var document={getElementById:function(){return container;},
+// Only the modal itself is modelled; auxiliary nodes (e.g. the band
+// deviation reason box) are absent, so their code takes its no-DOM path.
+var document={getElementById:function(id){return id==='qt-modal'?container:null;},
   querySelectorAll:function(sel){return INPUTS;}};
 function setInput(bucket,field,value){
   INPUTS.forEach(function(i){if(i.getAttribute('data-bucket')===bucket&&i.getAttribute('data-field')===field)i.value=value;});
