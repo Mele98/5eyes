@@ -307,6 +307,14 @@ def _capture_sensitivity_solver_calls(monkeypatch) -> list[dict]:
     return calls
 
 
+def _without_reserve_release(call: dict, ledger: dict) -> list[int]:
+    """RESERVE-FUNDING-LEDGER-001: Solver-Cashflows abzueglich der
+    Reserve-Rueckbuchung des eigenen Goal-Set-Ledgers (Gegenlauf kompiliert
+    seinen eigenen Ledger, z.B. wird eine vorgezogene Pension reservewirksam)."""
+    release = list(ledger["release_series_rappen"])
+    return [int(v) - int(r) for v, r in zip(call["cashflow_series_rappen"], release)]
+
+
 def _captured_goal(call: dict, goal_id: str) -> dict:
     return next(goal for goal in call["goals"] if goal["id"] == goal_id)
 
@@ -520,9 +528,11 @@ def test_sensitivity_open_ended_pension_negative_shift_preserves_stream_duration
     assert sum(
         value > 0 for value in modified_liability["liability_path_rappen"]
     ) == 5
-    assert modified["cashflow_series_rappen"] == baseline[
-        "cashflow_series_rappen"
-    ][: modified["horizon_years"]]
+    assert _without_reserve_release(
+        modified, out["modified_reserve_funding_ledger"]
+    ) == _without_reserve_release(
+        baseline, out["baseline_reserve_funding_ledger"]
+    )[: modified["horizon_years"]]
     assert out["solver_horizon_years_new"] == 8
 
 
@@ -551,7 +561,7 @@ def test_sensitivity_open_ended_negative_shift_respects_unaffected_goal_floor(
     with session_factory() as session:
         mandate = session.query(Mandate).filter(Mandate.id == mid).one()
         persisted_pension = session.query(Goal).filter(Goal.id == gid).one()
-        evaluate_goal_sensitivity(
+        out = evaluate_goal_sensitivity(
             db=session,
             mandate=mandate,
             user_id=advisor_id,
@@ -612,9 +622,11 @@ def test_sensitivity_open_ended_negative_shift_respects_unaffected_goal_floor(
     assert sum(
         value > 0 for value in modified_liability["liability_path_rappen"]
     ) == 6
-    assert baseline["cashflow_series_rappen"] == modified[
-        "cashflow_series_rappen"
-    ]
+    assert _without_reserve_release(
+        baseline, out["baseline_reserve_funding_ledger"]
+    ) == _without_reserve_release(
+        modified, out["modified_reserve_funding_ledger"]
+    )
 
     baseline_wealth_goal = _captured_goal(baseline, wealth_goal_id)
     modified_wealth_goal = _captured_goal(modified, wealth_goal_id)

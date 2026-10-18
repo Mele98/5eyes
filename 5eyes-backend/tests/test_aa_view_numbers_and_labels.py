@@ -165,6 +165,7 @@ _CHART_FNS = (
     "simulationPayload",
     "monteCarloPayload",
     "simulationSeriesK",
+    "aaReserveSockelRappen",
     "upgradeFanChartWithMonteCarlo",
     "upgradeCurrentAaChartWithMonteCarlo",
 )
@@ -217,6 +218,7 @@ _TABLE_FNS = (
     "simulationCagrBps",
     "aaProjectionHorizonCut",
     "aaSeriesValueAt",
+    "aaReserveSockelRappen",
     "renderAaProjectionEndValues",
 )
 
@@ -290,6 +292,22 @@ def test_reserve_sockel_added_to_soll_end_values_and_growth():
     assert out["curMedian"] == "CHF 1.30 Mio."  # IST ohne Aufschlag
     # (1.7/1.2)^(1/10)-1 = 3.54 %
     assert out["cagr"] == "3.54%"
+
+
+def test_reserve_sockel_not_added_twice_for_economic_basis_payloads():
+    """RESERVE-FUNDING-LEDGER-001: enthaelt der SOLL-Pfad das Reservekonto
+    bereits (reserve_accounting_basis), darf die Reserve nicht nochmals
+    aufgeschlagen werden."""
+    out = _run(
+        _TABLE_FNS,
+        _MC_RESULT_JS
+        + "result.external_reserve_rappen=20000000;"
+        + "result.monte_carlo.reserve_accounting_basis='economic_total_incl_external_reserve_v1';"
+        + "__override=10;" + _READ_TABLE_JS,
+    )
+    assert out["median"] == "CHF 1.50 Mio."
+    assert out["p90"] == "CHF 1.80 Mio."
+    assert out["p10"] == "CHF 1.20 Mio."
 
 
 def test_median_difference_is_neutral_and_labelled_as_difference_of_medians():

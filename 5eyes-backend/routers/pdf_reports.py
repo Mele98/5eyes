@@ -795,7 +795,12 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             # Frontend konsistente Anzeige wieder dazu addieren (siehe
             # aaShowProjection() in 5eyes_v2.html). IST hat dieses Konzept
             # nicht (keine SOLL-Strategie-Reserve-Ausklammerung).
-            reserve_rappen = int(engine_payload.get("external_reserve_rappen", 0) or 0)
+            # RESERVE-FUNDING-LEDGER-001: neue Payloads enthalten das
+            # Reservekonto bereits im SOLL-Pfad -- dann NICHT erneut aufschlagen.
+            reserve_rappen = (
+                0 if mc.get("reserve_accounting_basis")
+                else int(engine_payload.get("external_reserve_rappen", 0) or 0)
+            )
 
             def _last(series_key: str, add_reserve: bool = False) -> int | None:
                 series = mc.get(series_key)

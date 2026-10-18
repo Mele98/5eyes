@@ -2498,6 +2498,7 @@ from services.portfolio_engine_optimizer_integration import (  # noqa: F401,E402
     _optimizer_audit_fields,
     _optimizer_status_is_converged,
     sensitivity_delta_availability,
+    sensitivity_canonical_scalar as _canonical_scalar,
     _persist_optimizer_run,
     _run_stochastic_optimizer_pass,
     _synchronize_fallback_optimizer_result,
@@ -2950,6 +2951,10 @@ from services.portfolio_engine_reserve import (  # noqa: F401,E402
     PENSION_PILLARS,
     PENSION_PILLAR_STATE_FUNDED,
 )
+from services.reserve_funding_ledger import (  # noqa: E402
+    compile_goal_set_funding,
+    compile_reserve_funding_ledger_for_inputs,
+)
 
 
 def _target_allocation_reserve_warnings(allocation, *, external_reserve_rappen):
@@ -3203,6 +3208,13 @@ def generate_target_allocation(
             horizon_years=len(cashflow_projection_series_rappen),
         )
     )
+    reserve_ledger = compile_reserve_funding_ledger_for_inputs(  # RESERVE-FUNDING-LEDGER-001
+        reserve_inputs=inputs, goals=goals, reserve_needed_rappen=reserve_needed_rappen,
+        external_reserve_rappen=external_reserve_rappen, inflation_series_bps=goal_inflation_series_bps,
+        solver_cashflow_series_rappen=optimizer_cashflow_projection_series_rappen,
+        external_wealth_rappen=max(0, int(total_wealth_rappen) - int(advisory_wealth_rappen)),
+        external_wealth_series_rappen=external_goal_funding_series_rappen,
+    )
     # Phase 4 / V3 Sprint 1: Stochastic Optimizer.
     # Modi:
     # - 'stochastic': Solver konvergiert -> ersetzt House-Matrix-Default-Targets;
@@ -3436,7 +3448,7 @@ def generate_target_allocation(
             external_goal_funding_series_rappen
         ),
         mandate=mandate,  # Sprint 4 Phase 3: BFS-Mortalitaets-Felder
-        external_reserve_rappen=external_reserve_rappen,  # RESERVE-DOUBLE-COUNT-001
+        reserve_ledger=reserve_ledger,  # RESERVE-FUNDING-LEDGER-001
     )
     # Strikt: Tilts duerfen nur uebersprungen werden, wenn die Targets
     # tatsaechlich vom Solver ersetzt wurden (also nur im 'stochastic' Modus,
@@ -3768,6 +3780,7 @@ def generate_target_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     goal_analysis = _build_goal_analysis(
         goals=goals,
@@ -3786,6 +3799,7 @@ def generate_target_allocation(
         total_path_series_rappen=simulation[
             "total_mix_target_series_rappen"
         ],
+        reserve_ledger=reserve_ledger,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
@@ -3807,6 +3821,7 @@ def generate_target_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     # RISK-FALLBACK-CONTEXT-001: EIN Wert fuer die Methode, die diese
     # Allokation erzeugt hat -- er geht sowohl in die Modellbasis hier als
@@ -4236,6 +4251,7 @@ def generate_target_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
+        "reserve_funding_ledger": reserve_ledger.to_dict(),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
@@ -4735,7 +4751,6 @@ def evaluate_goal_sensitivity(
     sensitivity_prefs = _merge_mandate_defaults_into_prefs(
         sensitivity_prefs, mandate
     )
-    sensitivity_external_reserve: int
     if current_allocation is None:
         # There is no immutable allocation artifact to reuse yet. Build the
         # exact stochastic candidate context used by Generate instead of
@@ -4771,6 +4786,7 @@ def evaluate_goal_sensitivity(
         live_saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(
             live_maximums["liquidity"]
         )
+        sensitivity_reserve_ceiling_bps = live_saa_liquidity_ceiling_bps
         live_reserve_needed, sensitivity_external_reserve = (
             _apply_goal_and_reserve_tilts(
                 targets=live_targets,
@@ -4946,35 +4962,9 @@ def evaluate_goal_sensitivity(
         # RESERVE-CEILING-001: das persistierte Liquiditaetsband ist bereits
         # um den Reserve-Floor geliftet (Nenner I statt A) und taugt nicht als
         # Ceiling; rekonstruiert wird der Wert, den Generate beim Split sah.
-        sensitivity_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(
+        sensitivity_reserve_ceiling_bps = _saa_liquidity_ceiling_bps(
             _pre_reserve_liquidity_max_bps(
                 house_matrix, policy, sensitivity_prefs["bands"]
-            )
-        )
-        _sensitivity_reserve_needed, sensitivity_external_reserve = (
-            _compute_reserve_for_inputs(
-                goals=goals,
-                limits_prefs=sensitivity_prefs["limits"],
-                asset_class_prefs=sensitivity_prefs["assetClasses"],
-                recurring_net_cashflow_rappen=int(
-                    inputs["recurring_net_cashflow_rappen"]
-                ),
-                recurring_cashflow_projection_series_rappen=list(
-                    inputs["recurring_cashflow_projection_series_rappen"]
-                ),
-                advisory_wealth_rappen=int(
-                    inputs["advisory_wealth_rappen"]
-                ),
-                saa_liquidity_ceiling_bps=(
-                    sensitivity_liquidity_ceiling_bps
-                ),
-                reasoning=None,
-                unlocked_other_assets_rappen=int(
-                    inputs.get("unlocked_other_assets_rappen") or 0
-                ),
-                inflow_projection_series_rappen=list(
-                    inputs.get("inflow_projection_series_rappen") or []
-                ),
             )
         )
         if sensitivity_effective_bounds is None:
@@ -4984,10 +4974,6 @@ def evaluate_goal_sensitivity(
             rf_per_bucket = bucket_risky_fractions_from_building_blocks(
                 building_blocks_rows
             )
-    advisory_wealth_rappen = _investable_advisory_wealth_rappen(
-        int(inputs["advisory_wealth_rappen"]),
-        sensitivity_external_reserve,
-    )
     sensitivity_external_wealth = max(
         0,
         int(inputs["total_wealth_rappen"])
@@ -4996,11 +4982,14 @@ def evaluate_goal_sensitivity(
     initially_replaced_sensitivity_tax = list(
         inputs.get("optimizer_replaced_tax_projection_series_rappen") or []
     )
-    if initially_replaced_sensitivity_tax:
+
+    def _rebased_cashflows(start_wealth: int) -> list[int]:
+        if not initially_replaced_sensitivity_tax:
+            return list(cashflow_projection_series_rappen)
         effective_sensitivity_tax = _project_estimated_wealth_tax_cashflow(
             mandate,
             _tax_removal_wealth_basis_rappen(
-                advisory_wealth_rappen, int(inputs["total_wealth_rappen"])
+                start_wealth, int(inputs["total_wealth_rappen"])
             ),
             len(cashflow_projection_series_rappen),
             start_year=cashflow_totals["year"],
@@ -5010,7 +4999,7 @@ def evaluate_goal_sensitivity(
             fx_source=inputs.get("cashflow_fx_source"),
             target_currency=str(inputs.get("cashflow_target_currency") or "CHF"),
         )
-        cashflow_projection_series_rappen = [
+        return [
             int(current) + int(initial_tax) - int(effective_tax)
             for current, initial_tax, effective_tax in zip(
                 cashflow_projection_series_rappen,
@@ -5018,6 +5007,17 @@ def evaluate_goal_sensitivity(
                 effective_sensitivity_tax,
             )
         ]
+
+    def _funding(context_goals: list, *, run_horizon: int, external_series: list[int]):
+        # RESERVE-FUNDING-LEDGER-001: je Goal-Set eigene Reserve, eigenes
+        # A - E und eigener Release-Ledger (Gegenlauf erbt nichts).
+        return compile_goal_set_funding(
+            reserve_inputs=inputs, goals=context_goals, limits_prefs=sensitivity_prefs["limits"],
+            asset_class_prefs=sensitivity_prefs["assetClasses"], rebase_cashflows=_rebased_cashflows,
+            saa_liquidity_ceiling_bps=sensitivity_reserve_ceiling_bps, run_horizon=run_horizon,
+            inflation_series_bps=inflation_series_bps, external_wealth_rappen=sensitivity_external_wealth,
+            external_wealth_series_rappen=external_series,
+        )
 
     sensitivity_tax_kwargs = _build_tax_solver_kwargs(mandate)
     from services.mandate_model_inputs import (
@@ -5094,38 +5094,6 @@ def evaluate_goal_sensitivity(
     baseline_external_series = _cached_external_series(horizon)
     modified_external_series = _cached_external_series(modified_run_horizon)
 
-    def _canonical_scalar(value):
-        if value is None or isinstance(value, (str, int, bool)):
-            return value
-        if isinstance(value, float):
-            if not math.isfinite(value):
-                raise ValueError(
-                    "Sensitivity-Modellkontext enthaelt NaN/Infinity."
-                )
-            return value
-        if isinstance(value, (date, datetime)):
-            return value.isoformat()
-        if isinstance(value, dict):
-            return {
-                str(key): _canonical_scalar(item)
-                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-            }
-        if isinstance(value, (list, tuple)):
-            return [_canonical_scalar(item) for item in value]
-        if hasattr(value, "tolist"):
-            return _canonical_scalar(value.tolist())
-        state = getattr(value, "__dict__", None)
-        if isinstance(state, dict):
-            return {
-                "class": f"{type(value).__module__}.{type(value).__qualname__}",
-                "state": _canonical_scalar({
-                    key: item
-                    for key, item in state.items()
-                    if not str(key).startswith("_")
-                }),
-            }
-        return str(value)
-
     # CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001:
     # same binding as _build_allocation_model_basis -- the sensitivity
     # model_input_hash must change when the goal-weighting mode changes,
@@ -5200,9 +5168,11 @@ def evaluate_goal_sensitivity(
         *,
         run_horizon: int,
         external_series: list[int],
+        funding,
     ) -> str:
         payload = {
-            "version": "sensitivity_live_context_v3_complete",
+            "version": "sensitivity_live_context_v4_reserve_ledger",
+            "reserve_funding_ledger_hash": funding.ledger.contract_hash,
             "goal_weighting_mode": sensitivity_goal_weighting_mode,
             # OPTIMIZER-OBJECTIVE-VARIANTS-001: der Primaerterm aendert die
             # Solver-Mathematik, gehoert also wie die Gewichtung in den Hash.
@@ -5216,12 +5186,9 @@ def evaluate_goal_sensitivity(
             "horizon_years": int(run_horizon),
             "n_paths": int(_OPTIMIZER_N_PATHS_DEFAULT),
             "score_x10": int(score_x10),
-            "advisory_wealth_rappen": int(advisory_wealth_rappen),
+            "advisory_wealth_rappen": int(funding.start_wealth_rappen),
             "external_wealth_rappen": int(sensitivity_external_wealth),
-            "cashflow_series_rappen": [
-                int(value)
-                for value in cashflow_projection_series_rappen[:run_horizon]
-            ],
+            "cashflow_series_rappen": list(funding.cashflow_series_rappen),
             "inflation_series_bps": [
                 int(value) for value in inflation_series_bps[:run_horizon]
             ],
@@ -5253,15 +5220,21 @@ def evaluate_goal_sensitivity(
             ).encode("utf-8")
         ).hexdigest()
 
+    baseline_funding = _funding(goals, run_horizon=horizon, external_series=baseline_external_series)
+    modified_funding = _funding(
+        modified_goals, run_horizon=modified_run_horizon, external_series=modified_external_series
+    )
     baseline_model_input_hash = _model_input_hash(
         goals,
         run_horizon=horizon,
         external_series=baseline_external_series,
+        funding=baseline_funding,
     )
     modified_model_input_hash = _model_input_hash(
         modified_goals,
         run_horizon=modified_run_horizon,
         external_series=modified_external_series,
+        funding=modified_funding,
     )
 
     def _solve(
@@ -5269,16 +5242,15 @@ def evaluate_goal_sensitivity(
         *,
         run_horizon: int,
         external_series: list[int],
+        funding,
     ):
         return run_solver(
             cma=cma,
             goals=context_goals,
             house_matrix_row=house_matrix,
             score_x10=score_x10,
-            advisory_wealth_rappen=advisory_wealth_rappen,
-            cashflow_series_rappen=(
-                cashflow_projection_series_rappen[:run_horizon]
-            ),
+            advisory_wealth_rappen=funding.start_wealth_rappen,
+            cashflow_series_rappen=list(funding.cashflow_series_rappen),
             external_wealth_rappen=sensitivity_external_wealth,
             external_wealth_series_rappen=external_series,
             horizon_years=run_horizon,
@@ -5303,11 +5275,13 @@ def evaluate_goal_sensitivity(
         goals,
         run_horizon=horizon,
         external_series=baseline_external_series,
+        funding=baseline_funding,
     )
     modified_result = _solve(
         modified_goals,
         run_horizon=modified_run_horizon,
         external_series=modified_external_series,
+        funding=modified_funding,
     )
 
     def _obj_milli(value: float) -> int | None:
@@ -5375,6 +5349,8 @@ def evaluate_goal_sensitivity(
         "live_model_input_hash": baseline_model_input_hash,
         "baseline_model_input_hash": baseline_model_input_hash,
         "modified_model_input_hash": modified_model_input_hash,
+        "baseline_reserve_funding_ledger": baseline_funding.ledger.to_dict(),
+        "modified_reserve_funding_ledger": modified_funding.ledger.to_dict(),
         "scenario_pairing_basis": (
             "same_seed_same_max_horizon_cube_exact_path_prefix_v1"
         ),
@@ -5849,6 +5825,16 @@ def build_target_payload_from_allocation(
             )
         ]
 
+    reserve_ledger = compile_reserve_funding_ledger_for_inputs(  # RESERVE-FUNDING-LEDGER-001
+        reserve_inputs={"recurring_net_cashflow_rappen": recurring_net_cashflow_rappen,
+                        "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
+                        "inflow_projection_series_rappen": inflow_projection_series_rappen},
+        goals=goals, reserve_needed_rappen=reserve_needed_rappen, external_reserve_rappen=external_reserve_rappen,
+        solver_cashflow_series_rappen=rebuild_optimizer_cashflow_projection_series_rappen,
+        inflation_series_bps=goal_inflation_series_bps,
+        external_wealth_rappen=max(0, int(total_wealth_rappen) - int(advisory_wealth_rappen)),
+        external_wealth_series_rappen=external_goal_funding_series_rappen,
+    )
     # A persisted allocation owns its targets.  Reporting, however, is rebuilt
     # from the live database.  Therefore the input anchor must be checked
     # *before* any deterministic or stochastic analysis is produced; otherwise
@@ -5970,6 +5956,7 @@ def build_target_payload_from_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     goal_analysis = _build_goal_analysis(
         goals=goals,
@@ -5988,6 +5975,7 @@ def build_target_payload_from_allocation(
         total_path_series_rappen=simulation[
             "total_mix_target_series_rappen"
         ],
+        reserve_ledger=reserve_ledger,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
@@ -6009,6 +5997,7 @@ def build_target_payload_from_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     stored_optimizer_mode = str(
         getattr(allocation, "optimization_method", None) or "house_matrix"
@@ -6192,6 +6181,7 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
+        "reserve_funding_ledger": reserve_ledger.to_dict(),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),

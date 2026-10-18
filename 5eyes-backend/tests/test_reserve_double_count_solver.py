@@ -151,3 +151,24 @@ def test_release_series_is_chronological_capped_and_conservative():
     assert _external_reserve_release_series(50_000, [5, 5], [0, 0]) == [0, 0]
     with pytest.raises(ValueError):
         _external_reserve_release_series(-1, cf, liab)
+
+
+def test_generate_publishes_the_ledger_the_solver_consumed(session_factory, advisor_user, monkeypatch):
+    """RESERVE-FUNDING-LEDGER-001: Solver, Reporting und Payload teilen EINEN Ledger."""
+    from services.reserve_funding_ledger import RESERVE_ACCOUNTING_BASIS
+
+    result, captured = _generate_capturing_solver_context(session_factory, advisor_user, monkeypatch)
+    ledger = result["reserve_funding_ledger"]
+    assert ledger["total_external_rappen"] == int(result["external_reserve_rappen"]) > 0
+    context = captured["context"]
+    horizon = len(context.cashflow_series_rappen)
+    engine_cf = (captured["engine_cashflows"] + [0] * horizon)[:horizon]
+    solver_release = [int(s) - int(e) for s, e in zip(context.cashflow_series_rappen, engine_cf)]
+    assert solver_release == list(ledger["release_series_rappen"])[:horizon]
+    # Ein-Ziel-Fall: die Release-Tranche ist an genau dieses Ziel gebunden.
+    assert {r["destination_id"] for r in ledger["releases"]} == {"goal-1"}
+    # Reporting: IST und SOLL starten auf derselben wirtschaftlichen Basis A.
+    mc = result["monte_carlo"]
+    assert mc["reserve_accounting_basis"] == RESERVE_ACCOUNTING_BASIS
+    assert mc["target_p50_series_rappen"][0] == mc["current_p50_series_rappen"][0] == A_CHF * CHF
+    assert result["simulation"]["target_mix_series_rappen"][0] == A_CHF * CHF
