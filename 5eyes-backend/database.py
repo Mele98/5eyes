@@ -392,7 +392,8 @@ def ensure_runtime_columns() -> None:
             ('mc_max_drawdown_bps', 'INTEGER'),
             ('mc_var_95_bps', 'INTEGER'),
             # SIM-HORIZON-CONFIRM-001 (2026-10-17): Berater-Bestaetigung eines
-            # vor SIM-HORIZON-ALWAYS-EXPLICIT-001 gespeicherten Horizonts.
+            # vor SIM-HORIZON-ALWAYS-EXPLICIT-001 gespeicherten Horizonts. Seit
+            # SIM-HORIZON-FROM-RISK-PROFILE-001 ungenutzt; Spalten bleiben.
             ('sim_horizon_confirmed_at', 'TEXT'),
             ('sim_horizon_confirmed_by', 'TEXT'),
         ],

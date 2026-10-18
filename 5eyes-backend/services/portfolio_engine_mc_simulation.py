@@ -59,7 +59,7 @@ Cluster etabliert.
 
 Zirkular-Import-Haertung (identisches Muster zu den Schritten 1-4): Funktionen,
 die Konstanten/Helfer aus `services.portfolio_engine` selbst brauchen
-(`BUCKET_FIELDS`, `BUCKET_LABELS`, `_bps`, `DEFAULT_SIMULATION_HORIZON_YEARS`,
+(`BUCKET_FIELDS`, `BUCKET_LABELS`, `_bps`,
 `DEFAULT_SIMULATION_STRESS_MULTIPLIER`, `DEFAULT_REBALANCE_TRANSACTION_COST_
 BPS`, `ALLOWED_SIMULATION_REBALANCE_MODES`, `DEFAULT_MONTE_CARLO_SIMULATIONS`,
 `_norm_text`, `_parse_iso_date`, `_goal_projection_years`, `_annualize_goal_
@@ -166,43 +166,160 @@ def dated_goal_calendar_buckets(goal) -> int:
     return max(candidates)
 
 
-def _simulation_horizon_years(
-    simulation_prefs: dict | None,
+# SIM-HORIZON-FROM-RISK-PROFILE-001 (CIO-Entscheid 2026-10-18): der Prognose-
+# Horizont ist keine Berater-Einstellung mehr. Er wird fuer Solver, Report-MC
+# und Zielanalyse EINHEITLICH hergeleitet als
+#     max(10, Anlagehorizont des aktuellen Risikoprofils,
+#         letztes datiertes Ziel, Lebenserwartung)
+# ``simulation.horizonYears`` / ``horizonExplicit`` aus den Praeferenzen werden
+# ignoriert (das Schema verwirft sie, siehe schemas/allocation.py).
+#
+# Untergrenze 10 Jahre (geprueft, bewusst beibehalten): fachlich wuerde die
+# technische Mindestdauer von 7 Jahren genuegen, weil jede Strategie ein
+# strategy-ready Risikoprofil verlangt und damit immer ein belegter Horizont
+# vorliegt. Der stochastische Solver rechnet aber mit max(10, Projektions-
+# laenge) Jahren (portfolio_engine_optimizer_integration) und verlangt, dass
+# alle Projektionsreihen (u.a. external_wealth_series_rappen) diesen Horizont
+# abdecken -- eine kuerzere Projektion bricht den Solver-Vertrag
+# (OptimizerInputError). Solver-, Report- und Zielanalyse-Horizont bleiben nur
+# mit derselben Untergrenze deckungsgleich. Eine Senkung auf 7 ist ein eigener
+# Methodik-Entscheid (Solver-Horizont, verschiebt alle Optimierungen).
+SIMULATION_HORIZON_MIN_YEARS = 10
+
+_HORIZON_SOURCE_ORDER = ("risk_profile", "goals", "life_expectancy")
+_HORIZON_SOURCE_LABELS = {
+    "risk_profile": "dem Anlagehorizont des Risikoprofils",
+    "goals": "dem letzten datierten Ziel",
+    "life_expectancy": "der Lebenserwartung",
+    "minimum": f"der Mindestdauer von {SIMULATION_HORIZON_MIN_YEARS} Jahren",
+}
+
+
+def _assessment_horizon_years(assessment) -> int:
+    """Anlagehorizont (Jahre) eines Risikoprofils; 0 = nicht bekannt."""
+    if assessment is None:
+        return 0
+    raw = getattr(assessment, "investment_horizon_years", None)
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+        return min(120, raw)
+    # Defensiv: Jahreszahl fehlt/ungueltig -> aus dem kanonischen Label.
+    from services.risk_scoring import HORIZON_YEARS, canonicalize_horizon_label
+
+    label = canonicalize_horizon_label(
+        str(getattr(assessment, "investment_horizon_label", "") or "")
+    )
+    return int(HORIZON_YEARS.get(label, 0))
+
+
+def _risk_profile_horizon_years(mandate) -> int:
+    """Anlagehorizont des AKTUELLEN Risikoprofils des Mandats (0 = keins).
+
+    Liest ueber die Session des Mandats; ein nicht gemapptes Objekt
+    (Test-Double) hat kein Risikoprofil.
+    """
+    if mandate is None:
+        return 0
+    from sqlalchemy.orm import object_session
+    from sqlalchemy.orm.exc import UnmappedInstanceError
+
+    try:
+        session = object_session(mandate)
+    except UnmappedInstanceError:
+        return 0
+    if session is None:
+        return 0
+    from services.portfolio_engine import _current_risk_assessment_or_none
+
+    return _assessment_horizon_years(
+        _current_risk_assessment_or_none(session, mandate.id)
+    )
+
+
+def _join_horizon_sources(labels: list[str]) -> str:
+    if len(labels) <= 1:
+        return "".join(labels)
+    return ", ".join(labels[:-1]) + " und " + labels[-1]
+
+
+_ASSESSMENT_FROM_MANDATE = object()
+
+
+def _simulation_horizon_derivation(
     goals: list[Goal],
     mandate: Mandate | None = None,
-) -> int:
-    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
-    from services.portfolio_engine import DEFAULT_SIMULATION_HORIZON_YEARS
+    *,
+    fixed_years: int | None = None,
+    assessment=_ASSESSMENT_FROM_MANDATE,
+) -> dict:
+    """Prognosehorizont samt bestimmender Groesse (fuer Reasoning/Report).
 
-    raw = (simulation_prefs or {}).get("horizonYears")
-    has_explicit_override = raw not in (None, "", False)
-    try:
-        requested = int(str(raw).strip()) if has_explicit_override else DEFAULT_SIMULATION_HORIZON_YEARS
-    except (TypeError, ValueError):
-        requested = DEFAULT_SIMULATION_HORIZON_YEARS
-        has_explicit_override = False
-
+    ``fixed_years`` ist ausschliesslich fuer interne Laeufe gedacht, die einen
+    gemeinsamen Szenario-Horizont brauchen (Ziel-Sensitivitaet); Zielhorizonte
+    werden auch dann nicht abgeschnitten. Berater-Praeferenzen fliessen nie ein.
+    ``assessment``: Risikoprofil-Anker des Aufrufers (z.B. der Payload-Reload
+    einer gespeicherten Allokation); ohne Angabe das aktuelle des Mandats.
+    """
     # A dated liability must never be truncated merely because horizon_years
     # was left NULL. This is especially important for pension/recurring goals,
     # where target_date is the final due year rather than optional metadata.
     goal_horizon = max(
         (dated_goal_calendar_buckets(goal) for goal in goals), default=0
     )
-
-    # Ein expliziter Berater-Horizont hat Vorrang vor der automatischen
-    # Lebenserwartung. Zielhorizonte werden dennoch nicht abgeschnitten.
-    if has_explicit_override:
-        return max(7, requested, goal_horizon)
-
+    if fixed_years is not None:
+        years = max(SIMULATION_HORIZON_MIN_YEARS, int(fixed_years), goal_horizon)
+        return {
+            "years": years,
+            "sources": ["fixed"],
+            "components": {"fixed": int(fixed_years), "goals": goal_horizon},
+            "sentence": f"Prognosehorizont {years} Jahre (gemeinsamer Szenario-Horizont).",
+        }
     # Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-Vereinheitlichung):
-    # planning_horizon.life_expectancy_year_for() (flach, Geburtsjahr+
-    # Konstante) durch die genauere BFS-2020-2022-Sterbetafel (alters-
-    # bedingt) ersetzt, siehe Kontrollrunde-2026-09-21-Analyse.
+    # BFS-2020-2022-Sterbetafel (altersbedingt) bzw. Mandats-Override.
     life_year = life_expectancy_year_from_mandate(
         mandate, client=getattr(mandate, "client", None),
     )
     life_horizon = max(0, life_year - date.today().year + 1) if life_year else 0
-    return max(7, requested, goal_horizon, life_horizon)
+    components = {
+        "risk_profile": (
+            _risk_profile_horizon_years(mandate)
+            if assessment is _ASSESSMENT_FROM_MANDATE
+            else _assessment_horizon_years(assessment)
+        ),
+        "goals": goal_horizon,
+        "life_expectancy": life_horizon,
+    }
+    years = max(SIMULATION_HORIZON_MIN_YEARS, *components.values())
+    sources = [key for key in _HORIZON_SOURCE_ORDER if components[key] == years]
+    if not sources:
+        sources = ["minimum"]
+    labels = [_HORIZON_SOURCE_LABELS[key] for key in sources]
+    return {
+        "years": years,
+        "sources": sources,
+        "components": components,
+        "sentence": (
+            f"Prognosehorizont {years} Jahre, hergeleitet aus "
+            f"{_join_horizon_sources(labels)}."
+        ),
+    }
+
+
+def _simulation_horizon_years(
+    simulation_prefs: dict | None,
+    goals: list[Goal],
+    mandate: Mandate | None = None,
+    *,
+    fixed_years: int | None = None,
+) -> int:
+    """Prognosehorizont in Jahren -- siehe ``_simulation_horizon_derivation``.
+
+    ``simulation_prefs`` bleibt nur aus Signatur-Kompatibilitaet erhalten:
+    ein darin enthaltenes ``horizonYears`` wird bewusst NICHT ausgewertet.
+    """
+    del simulation_prefs  # SIM-HORIZON-FROM-RISK-PROFILE-001
+    return int(
+        _simulation_horizon_derivation(goals, mandate, fixed_years=fixed_years)["years"]
+    )
 
 
 def _simulation_stress_multiplier(simulation_prefs: dict | None) -> float:

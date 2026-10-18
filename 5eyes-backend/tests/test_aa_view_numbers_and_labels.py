@@ -336,7 +336,8 @@ def test_two_horizon_controls_are_named_distinctly():
     bar = html[html.index('id="aa-horizon-bar"'):html.index('id="aa-horizon-mode"')]
     assert ">Grafik-Ausschnitt<" in bar
     assert ">Prognose-Horizont<" not in bar
-    sim = html[html.index('id="aa-simulation-card"'):html.index('id="aa-sim-horizon"')]
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: Anzeige statt Auswahl.
+    sim = html[html.index('id="aa-simulation-card"'):html.index('id="aa-sim-horizon-info"')]
     assert "Prognose-Horizont (Simulation)" in sim
     # Bestehende Zusicherung (test_frontend_aa_horizon_control) bleibt erhalten.
     assert "ändert nur die Grafik-Länge, nicht die Renditen" in html

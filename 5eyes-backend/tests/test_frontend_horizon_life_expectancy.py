@@ -43,13 +43,13 @@ def test_cashflow_horizon_falls_back_to_life_expectancy():
 
 def test_simulation_horizon_reaches_life_expectancy():
     html = _html()
-    # Sim-Horizont (SOLL/IST-Vergleich) zieht die Lebenserwartung als Untergrenze:
-    # horizonYears = max(eingestellter Wert, Lebenserwartung-Horizont) -- seit
-    # SIM-HORIZON-ALWAYS-EXPLICIT-001 nur noch, wenn der Berater explizit einen
-    # Wert gewaehlt hat; "Auto" sendet keinen Key (Backend: Mandat/BFS/Ziele).
-    # Verhaltenstest: tests/test_sim_horizon_explicit_only.py.
-    assert "var _l=_lifeExpectancyHorizonYears();" in html
-    assert "return String(Math.min(120,(_l&&_l>_i)?_l:_i));" in html
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: der Sim-Horizont (SOLL/IST-Vergleich)
+    # wird nicht mehr im Monolithen gesetzt; das Backend leitet ihn her
+    # (max(7, Risikoprofil, Ziele, Lebenserwartung)). Der Monolith sendet
+    # keinen horizonYears-Key mehr -- Verhaltenstest:
+    # tests/test_sim_horizon_frontend_no_preference.py.
+    assert "readSimulationHorizonOverride" not in html
+    assert "stripLegacySimulationHorizon(live);" in html
 
 
 def test_compare_axis_never_shorter_than_data():

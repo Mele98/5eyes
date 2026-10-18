@@ -82,7 +82,7 @@ def test_goal_liability_and_monte_carlo_share_calendar_horizon_contract() -> Non
 
     for goal in (exact_goal, over_goal):
         liability = goal_to_liability(goal, horizon_years=20)
-        horizon = _simulation_horizon_years({"horizonYears": 7}, [goal], None)
+        horizon = _simulation_horizon_years({}, [goal], None)
 
         assert liability.target_year_index == expected_bucket
         # Der Horizont muss den Bucket des Ziels enthalten -- sonst ist die
