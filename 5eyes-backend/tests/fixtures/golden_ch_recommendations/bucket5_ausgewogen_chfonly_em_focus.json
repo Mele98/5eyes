@@ -48,7 +48,7 @@
       "ter_bps": 52
     },
     {
-      "asset_class": "Liquidität",
+      "asset_class": "Liquidit\u00e4t",
       "currency": "CHF",
       "product_name": "UBS Geldmarktfonds CHF",
       "provider": "UBS",
@@ -57,8 +57,8 @@
         "Geldmarktfonds"
       ],
       "sub_asset_class": "Geldmarktfonds",
-      "target_amount_rappen": 1000000,
-      "target_weight_bps": 200,
+      "target_amount_rappen": 1500000,
+      "target_weight_bps": 300,
       "ter_bps": 8
     },
     {
@@ -197,7 +197,7 @@
       "asset_class": "Liquiditaet",
       "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
       "sub_asset_class": "Geldmarktfonds",
-      "target_weight_bps": 200
+      "target_weight_bps": 300
     },
     {
       "asset_class": "Obligationen",
@@ -242,7 +242,7 @@
     "external_reserve_rappen": 0,
     "house_matrix_profile": "Ausgewogen",
     "investable_advisory_wealth_rappen": 50000000,
-    "limiting_factor": "liquiditaetsreserve",
+    "limiting_factor": "bandbreite",
     "optimization_method": "stochastic",
     "optimization_status": "converged",
     "reserve_needed_rappen": 0,
