@@ -769,8 +769,9 @@ FOSSIL_LOOK_THROUGH_THRESHOLD_BPS = 1000
 
 # ESG-PREMIUM-CRITERIA-001, Stufe 2: unterscheidbare, datengetriebene
 # Kriterien je ESG-Policy. Fehlende Daten -> Produkt fuer diese Policy NICHT
-# zulaessig (fail-closed). Liquiditaet bleibt ausgenommen (Konto/Festgeld
-# haben keine SFDR-Klassifikation).
+# zulaessig (fail-closed). Die GESAMTE Anlageklasse Liquiditaet bleibt
+# ausgenommen (ESG_POLICY_EXEMPT_ASSET_CLASS) -- inkl. Geldmarktfonds, auch
+# solche mit SFDR-Klassifikation.
 # - best_in_class (CIO-Entscheid 2026-10-18, konservativ gegen
 #   Greenwashing): nur die LEADER-Klasse der siebenstufigen Rating-Skala
 #   AAA-CCC (Product.esg_rating). Die Skala teilt sich in Leader (AAA, AA),
@@ -779,11 +780,12 @@ FOSSIL_LOOK_THROUGH_THRESHOLD_BPS = 1000
 #   Product.esg_score_x10 (Skala 0-1000 = 0.0-100.0, siehe models/review.py)
 #   ab der Untergrenze der Leader-Klasse: auf der 0-10-Skala der
 #   Rating-Systematik liegt AA ab 7.143 (= 10 * 5/7), also hier >= 714.
-# - net_zero (CIO-Entscheid 2026-10-18): EU-Klima-Benchmark nach
-#   Verordnung (EU) 2019/2089 -- Paris-aligned Benchmark (PAB) / Climate
-#   Transition Benchmark (CTB), Katalogfeld Product.climate_benchmark -- ist
-#   PFLICHT. SFDR Art. 9 allein belegt kein Netto-Null-Ziel und reicht
-#   nicht.
+# - net_zero (CIO-Entscheide 2026-10-18): SFDR Art. 8 oder 9 UND
+#   EU-Klima-Benchmark nach Verordnung (EU) 2019/2089 -- Paris-aligned
+#   Benchmark (PAB) / Climate Transition Benchmark (CTB), Katalogfeld
+#   Product.climate_benchmark. Beides PFLICHT: SFDR Art. 9 allein belegt
+#   kein Netto-Null-Ziel, und ein Benchmark-Produkt nach SFDR Art. 6 (oder
+#   ohne Klassifikation) ist keine Klima-Anlage im Sinne dieser Policy.
 ESG_BEST_IN_CLASS_RATINGS: tuple[str, ...] = ("AAA", "AA")
 ESG_BEST_IN_CLASS_MIN_SCORE_X10 = 714
 CLIMATE_BENCHMARKS: tuple[str, ...] = ("PAB", "CTB")
@@ -802,8 +804,8 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
     ),
     "impact": "nur Produkte nach SFDR Art. 9",
     "net_zero": (
-        "nur Produkte mit EU-Klima-Benchmark (Paris-aligned PAB oder Climate "
-        "Transition CTB, Pflicht); SFDR Art. 9 allein genuegt nicht"
+        "nur Produkte nach SFDR Art. 8 oder 9 mit EU-Klima-Benchmark PAB oder "
+        "CTB (beides Pflicht); SFDR Art. 9 allein genuegt nicht"
     ),
 }
 
@@ -811,17 +813,55 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
 # Self-Review 2026-10-18: die Liquiditaets-Ausnahme (siehe
 # _product_matches_constraints) gehoert in jedes Kundendokument, das ein
 # Kriterium nennt -- sonst behauptet "nur Produkte nach SFDR Art. 9" mehr, als
-# die Engine umsetzt (Konto/Festgeld haben keine SFDR-Klasse).
+# die Engine umsetzt.
+# CIO-Entscheid 2026-10-18 (Review C3, Dokument != Engine): der Text
+# beschreibt EXAKT die Code-Bedingung -- ausgenommen ist die gesamte
+# Anlageklasse (Product.asset_class, normalisiert), also auch Geldmarktfonds
+# mit eigener SFDR-Klasse, nicht nur Konto/Festgeld ohne Klassifikation.
+# Text und Bedingung teilen sich ESG_POLICY_EXEMPT_ASSET_CLASS.
+ESG_POLICY_EXEMPT_ASSET_CLASS = "Liquiditaet"
 ESG_POLICY_LIQUIDITY_EXEMPTION = (
-    "Liquiditaet (Konto/Festgeld ohne SFDR-Klassifikation) ist vom Kriterium ausgenommen"
+    f"die gesamte Anlageklasse {ESG_POLICY_EXEMPT_ASSET_CLASS} (Konto, Festgeld "
+    "und Geldmarktfonds, unabhaengig von deren SFDR-Klassifikation) ist vom "
+    "Kriterium ausgenommen"
 )
 
 
 def esg_policy_criterion_label(policy: str | None) -> str | None:
-    """'<Name> (<exaktes Kriterium>)' fuer SFDR-gebundene Policies, sonst None."""
+    """BERATER-Label '<Name> (<exaktes Kriterium>)' fuer SFDR-gebundene
+    Policies, sonst None. Nie in Kundendokumenten verwenden -- dort
+    esg_policy_customer_label()."""
     if policy not in ESG_POLICY_CRITERIA:
         return None
     return f"{ESG_POLICY_NAMES[policy]} ({ESG_POLICY_CRITERIA[policy]})"
+
+
+# CIO-Entscheid 2026-10-18 (ESG-Architektur-Review C3/H1): Kundendokumente
+# nennen nur das technisch gepruefte KRITERIUM, nie einen Claim-Namen. Die
+# Policy-Namen (ESG_POLICY_NAMES) behaupten mehr, als die Daten belegen
+# ("Impact" = Wirkungsabsicht/-messung, "Best-in-Class" = Peer-Group-
+# Vergleich, "Net Zero" = Netto-Null-Ziel, "ESG-Integration" = institutsseitige
+# Risikointegration) -- geprueft wird jeweils nur ein Katalogfeld. Die
+# Berater-UI darf Name + Kriterium zeigen. Diese Liste ist der Waechter fuer
+# alle Kundentexte (Test: test_customer_documents_contain_no_esg_claim_labels).
+ESG_CUSTOMER_CLAIM_LABELS: tuple[str, ...] = (
+    "Impact",
+    "Net Zero",
+    "Net-Zero",
+    "Netto-Null",
+    "Paris-aligned",
+    "Best-in-Class",
+    "Best in Class",
+    "ESG-Integration",
+    "Nachhaltig",
+)
+
+
+def esg_policy_customer_label(policy: str | None) -> str | None:
+    """KUNDEN-Label: nur das gepruefte Kriterium, ohne Policy-Namen."""
+    if policy not in ESG_POLICY_CRITERIA:
+        return None
+    return f"Kriterium der Produktauswahl: {ESG_POLICY_CRITERIA[policy]}"
 
 
 def product_meets_esg_policy(product, policy: str | None) -> bool:
@@ -850,7 +890,7 @@ def product_meets_esg_policy(product, policy: str | None) -> bool:
         return sfdr == "9"
     if policy == "net_zero":
         benchmark = str(getattr(product, "climate_benchmark", None) or "").strip().upper()
-        return benchmark in CLIMATE_BENCHMARKS
+        return sfdr in ("8", "9") and benchmark in CLIMATE_BENCHMARKS
     return False  # pragma: no cover -- alle Keys oben abgedeckt
 
 
@@ -1175,7 +1215,7 @@ def _product_matches_constraints(
     # (vorher bildeten alle vier identisch auf SFDR 8/9 ab -- "Impact" und
     # "Net Zero" versprachen damit mehr, als die Engine pruefte). Siehe
     # ESG_POLICY_CRITERIA / product_meets_esg_policy().
-    if asset_class != "Liquiditaet" and not product_meets_esg_policy(product, policy_prefs.get("esg")):
+    if asset_class != ESG_POLICY_EXEMPT_ASSET_CLASS and not product_meets_esg_policy(product, policy_prefs.get("esg")):
         return False
     return True
 
