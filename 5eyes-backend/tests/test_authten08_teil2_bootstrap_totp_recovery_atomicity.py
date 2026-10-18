@@ -194,7 +194,8 @@ def test_concurrent_totp_login_with_same_code_exactly_one_wins(session_factory):
     SF = session_factory
     secret = totp.generate_secret()
     _seed_totp_user(SF, "totp-race-1", "pw12345678", secret)
-    code = totp.totp_at(secret, time.time())
+    code_t = time.time()
+    code = totp.totp_at(secret, code_t)
 
     barrier = threading.Barrier(2)
     results: list = []
@@ -226,9 +227,10 @@ def test_concurrent_totp_login_with_same_code_exactly_one_wins(session_factory):
 
     with SF() as db:
         row = db.query(User).filter_by(id="totp-race-1").first()
-        expected_counter = int(time.time() // totp._PERIOD)
+        # SEC-TOTP-REPLAY-STEP: gespeichert wird der Zeitschritt des CODES.
+        expected_counter = int(code_t // totp._PERIOD)
         assert row.totp_last_counter is not None
-        # Zaehler ist genau einmal auf den aktuellen Zeitschritt gesetzt --
+        # Zaehler ist genau einmal auf den Code-Zeitschritt gesetzt --
         # kein zweiter Login hat ihn nochmal (unnoetig) ueberschrieben.
         assert int(row.totp_last_counter) == expected_counter
 

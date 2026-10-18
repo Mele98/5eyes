@@ -223,7 +223,7 @@ def test_core_returns_stable_schema(session_factory):
             seed=42,
         )
     expected_keys = {
-        "data_pending", "p5", "p50", "p75", "time_axis",
+        "data_pending", "p5", "p10", "p25", "p50", "p75", "p90", "time_axis",
         "n_paths", "seed", "horizon_years", "initial_wealth_rappen", "note",
     }
     assert set(result.keys()) == expected_keys
@@ -231,6 +231,9 @@ def test_core_returns_stable_schema(session_factory):
     assert len(result["p5"]) == 11  # horizon + 1
     assert len(result["p50"]) == 11
     assert len(result["p75"]) == 11
+    assert len(result["p10"]) == 11
+    assert len(result["p25"]) == 11
+    assert len(result["p90"]) == 11
     assert len(result["time_axis"]) == 11
 
 
@@ -250,9 +253,70 @@ def test_core_quantiles_are_monotonic(session_factory):
             n_paths=500,
             seed=42,
         )
+    order = ("p5", "p10", "p25", "p50", "p75", "p90")
     for t in range(len(result["p5"])):
-        assert result["p5"][t] <= result["p50"][t], f"p5 > p50 at t={t}"
-        assert result["p50"][t] <= result["p75"][t], f"p50 > p75 at t={t}"
+        for lo, hi in zip(order, order[1:]):
+            assert result[lo][t] <= result[hi][t], f"{lo} > {hi} at t={t}"
+
+
+def test_core_fan_quantiles_match_exact_order_statistics(session_factory, monkeypatch):
+    """REPORT-FAN-CHART-BANDS-001: p10/p25/p90 sind exakt die
+    Perzentile der simulierten Vermoegenspfade (lineare Interpolation),
+    nicht geschaetzt oder aus p5/p75 abgeleitet.
+
+    Orakel unabhaengig von numpy: die Engine-Pfade werden durch eine
+    Matrix mit den Werten 0, 1000, ..., 1'000'000 (1001 Pfade, jede
+    Spalte t um t*7 verschoben) ersetzt. Fuer 1001 gleichabstaendige
+    Werte liegt das q-Perzentil exakt bei q*10'000 (+ Shift) -- damit ist
+    p10 = 100'000, p25 = 250'000, p90 = 900'000 ohne Rundungsfrage.
+    Das Band p10-p90 enthaelt dann exakt 801 von 1001 Pfaden (80 %),
+    p25-p75 exakt 501 (50 %).
+    """
+    import services.optimizer.scenario_engine as se
+
+    n, horizon = 1001, 4
+    base = np.arange(n, dtype=np.float64) * 1000.0
+    fake = np.stack([base + 7.0 * t for t in range(horizon + 1)], axis=1)
+    # Reihenfolge der Pfade darf keine Rolle spielen
+    fake = fake[np.random.default_rng(3).permutation(n)]
+    monkeypatch.setattr(se, "simulate_wealth_paths", lambda **_: fake)
+
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        cma = _seed_cma(s, advisor)
+        s.commit()
+        result = _compute_paths_core(
+            initial_wealth_rappen=1,
+            horizon_years=horizon,
+            weights=np.array([0.4, 0.35, 0.1, 0.1, 0.05]),
+            cma=cma,
+            cashflow_series=[0] * horizon,
+            n_paths=n,
+            seed=1,
+        )
+    for t in range(horizon + 1):
+        shift = 7 * t
+        assert result["p5"][t] == 50_000 + shift
+        assert result["p10"][t] == 100_000 + shift
+        assert result["p25"][t] == 250_000 + shift
+        assert result["p50"][t] == 500_000 + shift
+        assert result["p75"][t] == 750_000 + shift
+        assert result["p90"][t] == 900_000 + shift
+        col = fake[:, t]
+        inner80 = np.sum((col >= result["p10"][t]) & (col <= result["p90"][t]))
+        inner50 = np.sum((col >= result["p25"][t]) & (col <= result["p75"][t]))
+        assert inner80 == 801
+        assert inner50 == 501
+
+
+def test_data_pending_response_has_empty_arrays_for_every_quantile():
+    """Fallback-Schema enthaelt alle Quantil-Keys als leere Listen, damit
+    Konsumenten keine KeyErrors/undefined-Laengen sehen."""
+    from services.monte_carlo_paths import _data_pending_response
+
+    fail = _data_pending_response(10, 0)
+    for key in ("p5", "p10", "p25", "p50", "p75", "p90"):
+        assert fail[key] == []
 
 
 def test_core_is_deterministic_with_same_seed(session_factory):

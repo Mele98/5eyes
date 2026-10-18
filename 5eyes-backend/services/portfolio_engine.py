@@ -503,7 +503,16 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     validated = AllocationPreferencesPayload.model_validate(
         {} if preferences is None else preferences
     )
-    return validated.model_dump()
+    dumped = validated.model_dump()
+    # BAND-DEVIATION-REASON-REQUIRED-001: ein fehlendes Begruendungsfeld darf
+    # den persistierten Praeferenz-Snapshot nicht veraendern (sonst meldete
+    # die Drift-Erkennung jede bestehende Allokation als veraltet).
+    if dumped.get("bandDeviationReason") is None:
+        dumped.pop("bandDeviationReason", None)
+    # ESG-PREMIUM-CRITERIA-001: leeres tiltReasons nicht ausgeben (sonst Drift-Warnung je Altbestand).
+    if not dumped.get("tiltReasons"):
+        dumped.pop("tiltReasons", None)
+    return dumped
 
 
 def _allocation_snapshot_preferences(allocation: TargetAllocation | None) -> dict | None:
@@ -1262,6 +1271,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _apply_illiquid_cap,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
+    house_matrix_bands_payload,
     policy_band_clamp_notes,
     _building_block_risky_map,
     _building_block_rows_for_policy,
@@ -1456,6 +1466,9 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_is_structured,
     _product_matches_constraints,
     _product_score,
+    theme_screening_disclosure,
+    esg_policy_gap_hint,
+    default_catalog_theme_tags,
     _suitability_block_hint,
     _tenant_visible_products_query,
     _ter_coverage_bps,
@@ -1988,6 +2001,7 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
             ter_bps=ter_bps,
             sfdr_class=sfdr_class,
             esg_rating=esg_rating,
+            theme_tags=default_catalog_theme_tags(sub_asset_class),
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -2058,6 +2072,7 @@ def ensure_hedged_product_variants(db: Session) -> None:
             ter_bps=ter_bps,
             sfdr_class=sfdr_class,
             esg_rating=esg_rating,
+            theme_tags=default_catalog_theme_tags(sub_asset_class),
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -4091,26 +4106,12 @@ def generate_target_allocation(
         separators=(",", ":"),
         ensure_ascii=False,
     )
-    allocation_context_payload = {
-        "engine_version": "stochastic_core_v2",
-        "policy_id": str(policy.id),
-        "cma_id": str(cma.id),
-        "assessment_id": str(assessment.id),
-        "input_snapshot_hash": str(input_snapshot_hash),
-        "preferences_json": preferences_json_snapshot,
-        "targets_bps": {bucket: int(targets[bucket]) for bucket in BUCKET_FIELDS},
-        "sub_allocations": sub_allocations,
-        "effective_constraints": effective_constraints_payload,
-        "optimization_seed": optimizer_audit.get("optimization_seed"),
-    }
-    allocation_context_hash = hashlib.sha256(
-        json.dumps(
-            allocation_context_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    allocation_context_hash = allocation_context_hash_for(  # MANUAL-SAVE-DEADEND-001: eine Hash-Form fuer alle Schreibpfade
+        engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
+        input_snapshot_hash=input_snapshot_hash, preferences_json=preferences_json_snapshot, targets=targets,
+        sub_allocations=sub_allocations, effective_constraints=effective_constraints_payload,
+        optimization_seed=optimizer_audit.get("optimization_seed"),
+    )
 
     target_allocation = TargetAllocation(
         id=new_uuid(),
@@ -4237,6 +4238,9 @@ def generate_target_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -4301,6 +4305,7 @@ def generate_target_allocation(
 from services.portfolio_engine_allocation_integrity import (  # noqa: F401,E402
     _identical_previous_allocation,
     _verified_persisted_allocation_context,
+    allocation_context_hash_for,
 )
 
 
@@ -5431,7 +5436,9 @@ def build_target_payload_from_allocation(
     preferences: dict | None,
     *,
     input_snapshot_check_only: bool = False,
+    _live_anchor_probe: bool = False,
 ) -> dict:
+    """``_live_anchor_probe``: nur fuer manual_target_allocation.compute_live_allocation_anchors (MANUAL-SAVE-DEADEND-001)."""
     current_cma_for_drift = cma
     modern_context = int(
         getattr(allocation, "context_artifacts_required", 0) or 0
@@ -5696,14 +5703,18 @@ def build_target_payload_from_allocation(
         "alternatives": int(allocation.target_alternatives_bps),
         "liquidity": int(allocation.target_liquidity_bps),
     }
-    stored_sub_allocations, _stored_constraints = (
-        _verified_persisted_allocation_context(
-            allocation,
-            targets=targets,
-            minimums=minimums,
-            maximums=maximums,
+    if _live_anchor_probe:
+        stored_sub_allocations = json.loads(allocation.sub_allocations_json)
+        _stored_constraints = None
+    else:
+        stored_sub_allocations, _stored_constraints = (
+            _verified_persisted_allocation_context(
+                allocation,
+                targets=targets,
+                minimums=minimums,
+                maximums=maximums,
+            )
         )
-    )
     normalized_legacy_liquidity = False
     saa_liq_ceil_bps = min(
         int(maximums["liquidity"] or house_matrix.liq_max_bps or _SAA_LIQUIDITY_HARD_CAP_BPS),
@@ -5895,6 +5906,15 @@ def build_target_payload_from_allocation(
         wealth_inflows=rebuild_wealth_inflows,
         projection_context=current_projection_context,
     )
+    if _live_anchor_probe:
+        return {
+            "input_snapshot_hash": current_snapshot_hash,
+            "preferences_json": json.dumps(prefs, sort_keys=True, default=str),
+            "advisory_wealth_rappen": int(advisory_wealth_rappen),
+            "total_wealth_rappen": int(total_wealth_rappen),
+            "reserve_needed_rappen": int(reserve_needed_rappen),
+            "external_reserve_rappen": int(external_reserve_rappen),
+        }
     legacy_projection_context = dict(current_projection_context)
     legacy_projection_context.pop("fx_basis", None)
     current_projection_v3_snapshot_hash = _compute_input_snapshot_hash(
@@ -6175,6 +6195,9 @@ def build_target_payload_from_allocation(
         "capital_market_assumptions": cma,
         "risk_assessment": assessment,
         "house_matrix_profile": house_matrix.profile_name,
+        # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
+        # Begruendungsfeld im Bandbreiten-Editor.
+        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -6697,6 +6720,13 @@ def generate_recommendation_run(
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
     warnings = []
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): sobald ein Thema
+    # ausgeschlossen/untergewichtet ist (direkt oder via negative_screening),
+    # wird offengelegt, dass der Filter auf der Katalog-Klassifikation beruht
+    # und breite Indexprodukte nicht durchleuchtet werden.
+    theme_disclosure = theme_screening_disclosure(prefs)
+    if theme_disclosure:
+        warnings.append(theme_disclosure)
     positions_payload = []
     aggregated_positions: dict[str, dict] = {}
     # Sprint 14 Phase 4 F6: fehlende Sub-Klassen sammeln statt still continue
@@ -6729,16 +6759,21 @@ def generate_recommendation_run(
             suitability_block_hint = _suitability_block_hint(
                 products, sub["sub_asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
             )
+        # ESG-PREMIUM-CRITERIA-001: verletztes ESG-Kriterium benennen (Fallback + fail-closed).
+        esg_gap_hint = None if exact else esg_policy_gap_hint(
+            products, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
+        )
         candidates = exact
         if not candidates:
             candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
             used_fallback = bool(candidates)
         if not candidates:
-            warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")
+            warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden." + (f" {esg_gap_hint}." if esg_gap_hint else ""))
             missing_sub_classes.append({
                 "sub_asset_class": str(sub["sub_asset_class"]),
                 "asset_class": str(sub["asset_class"]),
                 "target_weight_bps": int(sub["target_weight_bps"]),
+                "esg_gap_hint": esg_gap_hint,
             })
             continue
         ranked = sorted(
@@ -6754,6 +6789,9 @@ def generate_recommendation_run(
             if suitability_block_hint:
                 rationale = rationale + f"; {suitability_block_hint}"
                 warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich. {suitability_block_hint}")
+            elif esg_gap_hint:
+                rationale = rationale + f"; {esg_gap_hint}"
+                warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Ersatz aus der Anlageklasse verwendet. {esg_gap_hint}.")
             else:
                 warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet.")
         if depot_bank:
@@ -6784,7 +6822,7 @@ def generate_recommendation_run(
         # exotische Sub-Class mit 0 Allokation). Alles darüber ist ein echter Fehler.
         if total_missing_bps > 50:
             details = ", ".join(
-                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%)"
+                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%" + (f"; {item['esg_gap_hint']}" if item.get("esg_gap_hint") else "") + ")"
                 for item in missing_sub_classes
             )
             raise ValueError(
@@ -6792,7 +6830,8 @@ def generate_recommendation_run(
                 f"{len(missing_sub_classes)} Sub-Klassen ({details}). "
                 f"Gesamt-Luecke: {total_missing_bps/100:.1f}%. "
                 f"Bitte Produktuniversum erweitern oder Restriktionen "
-                f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG) lockern."
+                f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG, "
+                f"Themen-Ausschluss/-Untergewichtung) lockern."
             )
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)

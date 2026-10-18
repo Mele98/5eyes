@@ -139,20 +139,40 @@ def test_totp_next_time_step_code_still_accepted(client, session_factory, monkey
     assert second.status_code == 200
 
 
+# FLAKE-TOTP-BOUNDARY (2026-10-18): der Test nahm base_t = time.time() (echte
+# Uhr) und spulte fuer den Replay auf base_t + 31 vor. Lag base_t in den
+# letzten Sekunde eines 30s-Zeitschritts N (Offset >= 29s, ~1/30 der Laeufe),
+# landete base_t + 31 in Schritt N+2 -- ausserhalb der +/-1-Toleranz. Der Code
+# war dann schlicht abgelaufen, verify() lehnte ihn ab und die Antwort war
+# korrekt "2FA-Code falsch" statt der erwarteten Replay-Meldung (CI-Run
+# 39077084567). Jetzt wird die Zeit fuer BEIDE Requests eingefroren und der
+# Replay-Zeitpunkt deterministisch in Schritt N+1 gelegt, fuer jeden Offset im
+# Fenster -- inklusive der frueher fehlschlagenden Offsets >= 29s.
+_WINDOW_OFFSETS = [0.0, 0.001, 1.0, 14.5, 28.999, 29.0, 29.5, 29.999]
+
+
+def _window_anchor() -> int:
+    """Start eines realen 30s-Zeitschritts (nahe 'jetzt', damit Token-
+    Zeitstempel plausibel bleiben) -- deterministischer Bezugspunkt."""
+    return (int(time.time()) // totp._PERIOD) * totp._PERIOD
+
+
+@pytest.mark.parametrize("offset", _WINDOW_OFFSETS)
 def test_totp_same_code_rejected_across_window_boundary_within_tolerance(
-    client, session_factory, monkeypatch,
+    client, session_factory, monkeypatch, offset,
 ):
     """SEC-TOTP-REPLAY-WINDOW (2026-09-15): reproduziert die Luecke direkt.
     Ein Code, der fuer Zeitschritt N generiert wurde, ist dank der +/-1-Drift-
     Toleranz in services/totp.py::verify() bei Server-Zeitschritt N+1 immer
     noch kryptografisch gueltig. Vorher liess die reine Zaehler-Monotonie
     (last(N) < N+1) den woertlich IDENTISCHEN Code in diesem Fall faelschlich
-    ein zweites Mal durch. Jetzt muss der sha256-Hash-Vergleich das verhindern
-    -- derselbe Code bleibt abgelehnt, unabhaengig vom fortgeschrittenen
-    Zeitfenster."""
+    ein zweites Mal durch. Derselbe Code muss abgelehnt bleiben, unabhaengig
+    vom fortgeschrittenen Zeitfenster."""
     secret = totp.generate_secret()
     _seed_user(session_factory, "auth06-u5", "pw", secret)
-    base_t = time.time()
+    base_t = _window_anchor() + offset
+    step_n = int(base_t // totp._PERIOD)
+    monkeypatch.setattr(time, "time", lambda: base_t)
     code = totp.totp_at(secret, base_t)
 
     first = client.post("/auth/login", json={
@@ -160,9 +180,13 @@ def test_totp_same_code_rejected_across_window_boundary_within_tolerance(
     })
     assert first.status_code == 200
 
-    future_t = base_t + 31  # naechster Zeitschritt, aber noch innerhalb der
-    # +/-1-Drift-Toleranz von services/totp.py::verify() -- der ALTE Code
-    # besteht dort weiterhin (w=-1 trifft counter N wieder).
+    # Replay-Zeitpunkt: gleicher Offset, aber genau ein Zeitschritt spaeter
+    # (N+1) -- nie N+2, egal wo im Fenster base_t lag.
+    future_t = base_t + totp._PERIOD
+    assert int(future_t // totp._PERIOD) == step_n + 1
+    # Positivkontrolle: der Code ist bei N+1 kryptografisch NOCH gueltig --
+    # sonst waere ein 401 "falsch" kein Beleg fuer den Replay-Guard.
+    assert totp.verify(secret, code, future_t) is True
     monkeypatch.setattr(time, "time", lambda: future_t)
 
     replay = client.post("/auth/login", json={
@@ -170,6 +194,59 @@ def test_totp_same_code_rejected_across_window_boundary_within_tolerance(
     })
     assert replay.status_code == 401
     assert "verwendet" in replay.json()["detail"]
+
+
+def test_totp_replay_rejected_after_intervening_login_with_clock_skew(
+    client, session_factory, monkeypatch,
+):
+    """SEC-TOTP-REPLAY-STEP (2026-10-18): der Guard speicherte den Server-
+    Zeitschritt statt des Code-Zeitschritts. Szenario (Client-Uhr ~30s vor):
+    Code X (Schritt s) wird bei Server-Schritt s-1 akzeptiert, ein anderer
+    Code Y bei Server-Schritt s, dann wird X bei Server-Schritt s+1 erneut
+    vorgelegt -- X ist dort dank w=-1 noch gueltig, last(s) < s+1 und
+    Hash(X) != Hash(Y). Vor dem Fix: 200 (Replay ging durch)."""
+    secret = totp.generate_secret()
+    _seed_user(session_factory, "auth06-u6", "pw", secret)
+    s = _window_anchor() // totp._PERIOD
+    code_x = totp._hotp(secret, s)
+    code_y = totp._hotp(secret, s + 1)
+    assert code_x != code_y
+
+    def _login_at(step, code):
+        t = step * totp._PERIOD + 10
+        monkeypatch.setattr(time, "time", lambda: t)
+        return client.post("/auth/login", json={
+            "username": "auth06-u6", "password": "pw", "totp_code": code,
+        })
+
+    assert _login_at(s - 1, code_x).status_code == 200
+    assert _login_at(s, code_y).status_code == 200
+    # Positivkontrolle: X ist bei Server-Schritt s+1 kryptografisch gueltig.
+    assert totp.verify(secret, code_x, (s + 1) * totp._PERIOD + 10) is True
+    replay = _login_at(s + 1, code_x)
+    assert replay.status_code == 401
+    assert "verwendet" in replay.json()["detail"]
+
+
+def test_totp_fresh_next_step_code_accepted_within_same_server_step(
+    client, session_factory, monkeypatch,
+):
+    """SEC-TOTP-REPLAY-STEP Nebeneffekt: ein neuer, nie benutzter Code des
+    naechsten Schritts (Authenticator schon umgesprungen, Server-Uhr noch
+    nicht) wurde vorher als 'bereits verwendet' verworfen, weil der Server-
+    Zeitschritt sich nicht geaendert hatte. Massgeblich ist der Code-Schritt."""
+    secret = totp.generate_secret()
+    _seed_user(session_factory, "auth06-u7", "pw", secret)
+    t = _window_anchor() + 20
+    s = int(t // totp._PERIOD)
+    monkeypatch.setattr(time, "time", lambda: t)
+    assert client.post("/auth/login", json={
+        "username": "auth06-u7", "password": "pw", "totp_code": totp._hotp(secret, s),
+    }).status_code == 200
+    r = client.post("/auth/login", json={
+        "username": "auth06-u7", "password": "pw", "totp_code": totp._hotp(secret, s + 1),
+    })
+    assert r.status_code == 200
 
 
 def test_recovery_code_login_unaffected_by_totp_replay_guard(client, session_factory):

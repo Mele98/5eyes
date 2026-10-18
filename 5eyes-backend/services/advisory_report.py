@@ -1903,16 +1903,40 @@ def _build_asset_allocation(
     # nicht versehentlich durch eine gepflegte Anmerkung verdeckt wird.
     target_allocation_stale = bool(dc.get("target_allocation_stale"))
     if target_allocation_stale:
-        anmerkungen = (
-            _stale_allocation_hinweis(dc) + " " + str(anmerkungen or "")
-        ).strip()
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (Owner-Entscheid 2026-10-14):
+        # die alten Zielzahlen werden NICHT mehr neben dem Hinweis gezeigt,
+        # sondern ausgeblendet. Auto-Drift-Text und Berater-Anmerkung
+        # beziehen sich auf genau diese alten Ziele -> nur der Hinweis.
+        hinweis = _stale_allocation_hinweis(dc) + " Strategie neu berechnen."
+        hide_ist = bool(ist_basiert_auf_soll)  # IST = alte Empfehlungswerte
+        for it in items:
+            it["soll_bps"] = None
+            it["drift_bps"] = None
+            it["band_min_bps"] = None
+            it["band_max_bps"] = None
+            it["in_band"] = None
+            if hide_ist:
+                it["ist_bps"] = None
+        return {
+            "items": items,
+            "ist_bps": None if hide_ist else ist_bps,
+            "soll_bps": None,
+            "drift_bps": None,
+            "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+            "target_allocation_stale": True,
+            "soll_ausgeblendet": True,
+            "staleness_hinweis": hinweis,
+            "anmerkungen": hinweis,
+        }
     return {
         "items": items,
         "ist_bps": ist_bps,
         "soll_bps": soll_bps,
         "drift_bps": drift_bps,
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
-        "target_allocation_stale": target_allocation_stale,
+        "target_allocation_stale": False,
+        "soll_ausgeblendet": False,
+        "staleness_hinweis": None,
         "anmerkungen": anmerkungen,
     }
 
@@ -1945,6 +1969,23 @@ def _build_risikowaehrungen(
             "soll_bps": s,
             "drift_bps": i - s,
         })
+    if dc.get("target_allocation_stale"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid, Nachtrag
+        # Sektion 9): die SOLL-Waehrungs-Exposures stammen aus der alten
+        # Empfehlung -> ausblenden wie Sektion 8, nur der Hinweis.
+        hinweis = _stale_allocation_hinweis(dc) + " Strategie neu berechnen."
+        _hide_stale_exposure_items(items)
+        return {
+            "items": items,
+            "ist_bps": None,
+            "soll_bps": None,
+            "drift_bps": None,
+            "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+            "target_allocation_stale": True,
+            "soll_ausgeblendet": True,
+            "staleness_hinweis": hinweis,
+            "erklaerung": hinweis,
+        }
     default_erkl = _default_erklaerung_waehrungen(items)
     erklaerung = _override_or_default(
         getattr(notes, "waehrungen_erklaerung", None) if notes is not None else None,
@@ -1956,8 +1997,25 @@ def _build_risikowaehrungen(
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
         "drift_bps": {it["label"]: it["drift_bps"] for it in items},
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+        "target_allocation_stale": False,
+        "soll_ausgeblendet": False,
+        "staleness_hinweis": None,
         "erklaerung": erklaerung,
     }
+
+
+def _hide_stale_exposure_items(items: list[dict[str, Any]]) -> None:
+    """STALE-ALLOCATION-HIDE-TARGETS-001 (Sektion 9/10): nullt IST, SOLL
+    und Drift je Item. Anders als in Sektion 8 auch den IST: die Waehrungs-
+    und Sektor-Exposures werden ueber die RecommendationPositions der
+    Empfehlung zur veralteten Allokation aggregiert, und fehlende Ist-
+    Betraege fuellt der Depot-Check mit deren target_amount auf -- der
+    Report-Flag ist_basiert_auf_soll erkennt das nicht in jedem Pfad
+    (client_facing loest den Run anders auf als der Depot-Check)."""
+    for it in items:
+        it["ist_bps"] = None
+        it["soll_bps"] = None
+        it["drift_bps"] = None
 
 
 def _build_branchen(
@@ -2007,6 +2065,26 @@ def _build_branchen(
             "soll_bps": other_soll,
             "drift_bps": other_ist - other_soll,
         })
+    if dc.get("target_allocation_stale"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid, Nachtrag
+        # Sektion 10): Sektor-Exposures der alten Empfehlung ausblenden,
+        # inkl. Aktienanteil ("basiert auf X % Aktien-Allokation"), der aus
+        # denselben Empfehlungspositionen stammt.
+        hinweis = _stale_allocation_hinweis(dc) + " Strategie neu berechnen."
+        _hide_stale_exposure_items(items)
+        return {
+            "items": items,
+            "ist_bps": None,
+            "soll_bps": None,
+            "drift_bps": None,
+            "anteil_aktien_bps": None,
+            "hinweis": None,
+            "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+            "target_allocation_stale": True,
+            "soll_ausgeblendet": True,
+            "staleness_hinweis": hinweis,
+            "analyse": hinweis,
+        }
     default_analyse = _default_analyse_branchen(items)
     analyse = _override_or_default(
         getattr(notes, "branchen_analyse", None) if notes is not None else None,
@@ -2020,6 +2098,9 @@ def _build_branchen(
         "anteil_aktien_bps": anteil_aktien_bps,
         "hinweis": _sector_basis_note(anteil_aktien_bps),
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+        "target_allocation_stale": False,
+        "soll_ausgeblendet": False,
+        "staleness_hinweis": None,
         "analyse": analyse,
     }
 
@@ -2435,15 +2516,26 @@ def _build_building_blocks(
     # (Depot-Check-Flag, deckt Risikoprofil UND geaenderte Inputs ab) --
     # sonst praesentierte der Report hier die alten Zielgewichte als aktuell.
     target_allocation_stale = bool(ta is not None and (dc or {}).get("target_allocation_stale"))
+    constraints = _default_isaa_constraints(ta)
+    if target_allocation_stale:
+        # STALE-ALLOCATION-HIDE-TARGETS-001: alte Zielgewichte, Bandbreiten
+        # und die Risikoquote der veralteten TA werden ausgeblendet; nur der
+        # Hinweis bleibt.
+        for b in blocks:
+            b["target_bps"] = None
+            b["band_min_bps"] = None
+            b["band_max_bps"] = None
+        constraints = []
     return {
         "blocks": blocks,
         "target_allocation_stale": target_allocation_stale,
+        "soll_ausgeblendet": target_allocation_stale,
         "staleness_hinweis": (
             _stale_allocation_hinweis(dc or {}) + " Strategie neu berechnen."
             if target_allocation_stale
             else None
         ),
-        "constraints": _default_isaa_constraints(ta),
+        "constraints": constraints,
         "methodologie": (
             "Die Portfolio-Konstruktion folgt einer institutionellen "
             "Strategic-Asset-Allocation-Logik (iSAA): Allokation auf "
@@ -3360,7 +3452,12 @@ def _build_cost_disclosure_section(db: Session, mandate: Mandate) -> dict[str, A
     fail-closed gegen Import-/Schema-Fehler (degraded, NIE stille 0-Kosten)."""
     try:
         from services.cost_disclosure import build_cost_disclosure
-        return build_cost_disclosure(db, mandate)
+        # COST-RUN-RESOLVER-001: aktuelle TA aus dem Aggregator-Cache, damit
+        # der Kostenausweis keine eigene TA-Abfrage braucht (N+1-Guard).
+        current_ta = _cached_current_ta(db, mandate)
+        return build_cost_disclosure(
+            db, mandate, target_allocation_id=getattr(current_ta, "id", None)
+        )
     except Exception:  # noqa: BLE001
         return {
             "available": False,

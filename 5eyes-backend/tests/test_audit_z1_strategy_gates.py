@@ -161,6 +161,7 @@ def _ta_body(policy_id, **overrides):
         band_real_estate_min_bps=500, band_real_estate_max_bps=1500,
         band_alternatives_min_bps=300, band_alternatives_max_bps=800,
         band_liquidity_min_bps=200, band_liquidity_max_bps=800,
+        override_reason="Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     )
     base.update(overrides)
     return base
@@ -207,6 +208,8 @@ def test_c2_create_target_allocation_happy_path_returns_201(
     aid = _add_assessment(session_factory, mid, advisor.id)
     with session_factory() as s:
         policy_id = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first().id
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(s, cid)
     resp = auth_client.post(f"/mandates/{mid}/target-allocation", json=_ta_body(policy_id))
     assert resp.status_code == 201, resp.text
     body = resp.json()

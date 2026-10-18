@@ -2398,10 +2398,18 @@ def _finalize_solver_result(
             horizon_years=horizon_years,
         )
         stress_evals = stress_results_to_dict(stress_results)
+        # STRESS-SEMANTICS-001: Drawdown/kumulierte Rendite sind flussfreie
+        # Portfolio-Kennzahlen; der Vermoegens-Effekt wird als Differenz zur
+        # No-Crisis-Baseline (gleiche Flows, gleiches 0%-Padding) ausgewiesen,
+        # nicht als absolutes End-Vermoegen (das vom Padding dominiert ist).
         for name, r in stress_results.items():
             reasoning.append(
-                f"Stress '{name}': End-Vermoegen {r.end_wealth_rappen // 100:,} CHF, "
-                f"Max Drawdown {r.max_drawdown_bps / 100:.1f}%."
+                f"Stress '{name}': Portfolio kumuliert "
+                f"{r.cumulative_return_bps / 100:+.1f}%, "
+                f"Max. Drawdown (Portfolio) {r.max_drawdown_bps / 100:.1f}%, "
+                "Krisen-Effekt auf End-Vermoegen "
+                f"{r.crisis_impact_end_wealth_rappen / 100:+,.0f} CHF "
+                "(vs. gleicher Verlauf ohne Krise)."
             )
     except Exception as exc:  # noqa: BLE001
         # Stress-Eval ist nice-to-have - kein Solver-Crash deswegen
