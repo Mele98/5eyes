@@ -24,8 +24,10 @@ def _make_assessment(
     override_client_confirmed=0,
     override_warning_delivered=0,
     with_schema_markers=True,
+    risk_capacity_score_x10=None,
 ):
     ra = MagicMock()
+    ra.risk_capacity_score_x10 = risk_capacity_score_x10
     ra.is_overridden = is_overridden
     ra.override_score_x10 = override_score_x10
     ra.final_score_x10 = final_score_x10
@@ -199,14 +201,84 @@ def test_large_upward_override_without_warning_is_not_strategy_ready():
     assert risk_assessment_ready_for_strategy(ra) is False
 
 
-def test_small_or_downward_override_with_reason_is_strategy_ready():
+def test_downward_override_with_reason_is_strategy_ready():
+    ra = _make_assessment(
+        is_overridden=1,
+        override_score_x10=30,
+        final_score_x10=50,
+        override_reason=VALID_OVERRIDE_REASON,
+    )
+    assert risk_assessment_ready_for_strategy(ra) is True
+
+
+def test_small_upward_override_without_client_wish_is_not_strategy_ready():
+    """RISK-OVERRIDE-CLIENT-WISH-001: nach oben nur auf ausdruecklichen
+    Kundenwunsch -- vorher genuegte bei < 2 Profilbaendern die Begruendung."""
     ra = _make_assessment(
         is_overridden=1,
         override_score_x10=70,
         final_score_x10=50,
         override_reason=VALID_OVERRIDE_REASON,
+        risk_capacity_score_x10=80,
+    )
+    assert risk_assessment_ready_for_strategy(ra) is False
+
+
+def test_small_upward_override_within_capacity_with_client_wish_is_ready():
+    """Nur die Bereitschaft wird uebertroffen (Faehigkeit 80 >= 70):
+    Kundenbestaetigung genuegt, kein Warnhinweis noetig."""
+    ra = _make_assessment(
+        is_overridden=1,
+        override_score_x10=70,
+        final_score_x10=50,
+        override_reason=VALID_OVERRIDE_REASON,
+        override_client_confirmed=1,
+        risk_capacity_score_x10=80,
     )
     assert risk_assessment_ready_for_strategy(ra) is True
+
+
+@pytest.mark.parametrize("capacity", [50, 60, None])
+def test_upward_override_beyond_or_unknown_capacity_needs_warning(capacity):
+    """Ueber der objektiven Risikofaehigkeit (oder unbekannt -> fail-closed)
+    reicht der Kundenwunsch allein nicht: der Warnhinweis muss dokumentiert
+    sein -- auch bei nur einem Profilband."""
+    base = dict(
+        is_overridden=1,
+        override_score_x10=70,
+        final_score_x10=50,
+        override_reason=VALID_OVERRIDE_REASON,
+        override_client_confirmed=1,
+        risk_capacity_score_x10=capacity,
+    )
+    assert risk_assessment_ready_for_strategy(_make_assessment(**base)) is False
+    assert risk_assessment_ready_for_strategy(
+        _make_assessment(**base, override_warning_delivered=1)
+    ) is True
+
+
+def test_engine_gate_and_domain_validation_agree_on_override_rules():
+    """Strategie-Gate (portfolio_engine) und Domain-Validierung
+    (risk_assessment_semantics) duerfen nie auseinanderlaufen: beide nutzen
+    override_documentation_requirements()."""
+    from services.risk_assessment_semantics import (
+        override_documentation_requirements,
+    )
+
+    for final in range(0, 101, 5):
+        for override in range(10, 101, 5):
+            for capacity in (None, 0, 30, 50, 70, 100):
+                needs_conf, needs_warn = override_documentation_requirements(
+                    final_score_x10=final,
+                    override_score_x10=override,
+                    risk_capacity_score_x10=capacity,
+                )
+                if override <= final:
+                    assert (needs_conf, needs_warn) == (False, False)
+                else:
+                    assert needs_conf is True
+                    if capacity is None or override > capacity:
+                        assert needs_warn is True
 
 
 @pytest.mark.parametrize("score_x10,expected_profile", [
