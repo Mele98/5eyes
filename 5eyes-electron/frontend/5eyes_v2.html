@@ -3574,9 +3574,9 @@ function _wireSollIstHover(){
                   <thead>
                     <tr style="background:var(--bg);border-bottom:1px solid var(--b1)">
                       <th style="padding:5px 8px;text-align:left">Szenario</th>
-                      <th style="padding:5px 8px;text-align:right">End-Vermögen</th>
-                      <th style="padding:5px 8px;text-align:right">Min-Vermögen</th>
-                      <th style="padding:5px 8px;text-align:right">Max DD</th>
+                      <th style="padding:5px 8px;text-align:right">Portfolio-Rendite kumuliert (Krisenjahre)</th>
+                      <th style="padding:5px 8px;text-align:right">Max. Drawdown (Portfolio)</th>
+                      <th style="padding:5px 8px;text-align:right">Krisen-Effekt auf End-Vermögen (CHF)</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -28748,23 +28748,35 @@ function renderStressTable(stressEvals){
     return;
   }
   block.style.display='';
+  // STRESS-SEMANTICS-001: Drawdown + kumulierte Rendite sind flussfreie
+  // Portfolio-Kennzahlen; der Vermoegens-Effekt ist die Differenz zum
+  // gleichen Verlauf ohne Krise. Aeltere persistierte Zeilen (ohne die neuen
+  // Felder bzw. mit dem alten, flussbehafteten Drawdown) zeigen "—".
+  function stressNum(v){
+    if(v===null||v===undefined||v===''){return null;}
+    var n=Number(v);
+    return isFinite(n)?n:null;
+  }
+  function stressSigned(n,txt){return (n>0?'+':(n<0?'-':''))+txt;}
   keys.forEach(function(name){
     var entry=stressEvals[name]||{};
-    var endR=Number(entry.end_wealth_rappen||0);
-    var minR=Number(entry.min_year_wealth_rappen||0);
-    var ddBps=Number(entry.max_drawdown_bps||0);
-    var rowHighlight=ddBps>5000?'background:rgba(220,53,69,0.08);':'';
-    var endChf=Math.round(endR/100);
-    var minChf=Math.round(minR/100);
-    var ddPct=(ddBps/100).toFixed(1);
+    var cumBps=stressNum(entry.cumulative_return_bps);
+    var impactR=stressNum(entry.crisis_impact_end_wealth_rappen);
+    // Ohne cumulative_return_bps stammt max_drawdown_bps aus der alten
+    // (flussbehafteten, bis >100 %) Berechnung -> nicht anzeigen.
+    var ddBps=cumBps===null?null:stressNum(entry.max_drawdown_bps);
+    var rowHighlight=(ddBps!==null&&ddBps>5000)?'background:rgba(220,53,69,0.08);':'';
+    var cumTxt=cumBps===null?'—':stressSigned(cumBps,(Math.abs(cumBps)/100).toFixed(1)+'%');
+    var ddTxt=ddBps===null?'—':(ddBps>0?'-':'')+(ddBps/100).toFixed(1)+'%';
+    var impactTxt=impactR===null?'—':stressSigned(Math.round(impactR/100),Math.abs(Math.round(impactR/100)).toLocaleString('de-CH'));
     var label=nameMap[name]||String(name);
     var tr=document.createElement('tr');
     tr.style.cssText='border-bottom:1px solid var(--b1);'+rowHighlight;
     tr.innerHTML=''
       +'<td style="padding:5px 8px">'+escapeHtml(label)+'</td>'
-      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+endChf.toLocaleString('de-CH')+'</td>'
-      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+minChf.toLocaleString('de-CH')+'</td>'
-      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">-'+ddPct+'%</td>';
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+escapeHtml(cumTxt)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+escapeHtml(ddTxt)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+escapeHtml(impactTxt)+'</td>';
     tbody.appendChild(tr);
   });
 }
