@@ -765,11 +765,12 @@ FOSSIL_LOOK_THROUGH_THRESHOLD_BPS = 1000
 #   Product.esg_score_x10 (Skala 0-1000 = 0.0-100.0, siehe models/review.py)
 #   ab der Untergrenze der Leader-Klasse: auf der 0-10-Skala der
 #   Rating-Systematik liegt AA ab 7.143 (= 10 * 5/7), also hier >= 714.
-# - net_zero (CIO-Entscheid 2026-10-18): EU-Klima-Benchmark nach
-#   Verordnung (EU) 2019/2089 -- Paris-aligned Benchmark (PAB) / Climate
-#   Transition Benchmark (CTB), Katalogfeld Product.climate_benchmark -- ist
-#   PFLICHT. SFDR Art. 9 allein belegt kein Netto-Null-Ziel und reicht
-#   nicht.
+# - net_zero (CIO-Entscheide 2026-10-18): SFDR Art. 8 oder 9 UND
+#   EU-Klima-Benchmark nach Verordnung (EU) 2019/2089 -- Paris-aligned
+#   Benchmark (PAB) / Climate Transition Benchmark (CTB), Katalogfeld
+#   Product.climate_benchmark. Beides PFLICHT: SFDR Art. 9 allein belegt
+#   kein Netto-Null-Ziel, und ein Benchmark-Produkt nach SFDR Art. 6 (oder
+#   ohne Klassifikation) ist keine Klima-Anlage im Sinne dieser Policy.
 ESG_BEST_IN_CLASS_RATINGS: tuple[str, ...] = ("AAA", "AA")
 ESG_BEST_IN_CLASS_MIN_SCORE_X10 = 714
 CLIMATE_BENCHMARKS: tuple[str, ...] = ("PAB", "CTB")
@@ -788,8 +789,8 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
     ),
     "impact": "nur Produkte nach SFDR Art. 9",
     "net_zero": (
-        "nur Produkte mit EU-Klima-Benchmark (Paris-aligned PAB oder Climate "
-        "Transition CTB, Pflicht); SFDR Art. 9 allein genuegt nicht"
+        "nur Produkte nach SFDR Art. 8 oder 9 mit EU-Klima-Benchmark PAB oder "
+        "CTB (beides Pflicht); SFDR Art. 9 allein genuegt nicht"
     ),
 }
 
@@ -836,7 +837,7 @@ def product_meets_esg_policy(product, policy: str | None) -> bool:
         return sfdr == "9"
     if policy == "net_zero":
         benchmark = str(getattr(product, "climate_benchmark", None) or "").strip().upper()
-        return benchmark in CLIMATE_BENCHMARKS
+        return sfdr in ("8", "9") and benchmark in CLIMATE_BENCHMARKS
     return False  # pragma: no cover -- alle Keys oben abgedeckt
 
 

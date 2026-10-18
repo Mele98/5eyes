@@ -15,8 +15,9 @@ Baut auf ESG-THEME-EXCLUSION-EFFECTIVE-001 auf (harter Themen-Filter).
      esg_score_x10 >= 714). Fehlende Daten -> nicht zulaessig.
      (CIO-Entscheid 2026-10-18: nur die Leader-Klasse; "A" zaehlt nicht.)
    - impact: NUR SFDR Art. 9.
-   - net_zero: climate_benchmark in {PAB, CTB} PFLICHT; SFDR 9 allein
-     reicht nicht (CIO-Entscheid 2026-10-18).
+   - net_zero: SFDR 8/9 UND climate_benchmark in {PAB, CTB}, beides
+     PFLICHT; SFDR 9 allein reicht nicht, Art. 6 + Benchmark auch nicht
+     (CIO-Entscheide 2026-10-18).
    Leere Slots laufen in den fail-closed-Pfad, dessen Meldung jetzt das
    verletzte Kriterium UND die betroffene Sub-Anlageklasse nennt.
 3. Zweistufige Themen-Erkennung:
@@ -250,12 +251,17 @@ def test_documented_thresholds():
         ("impact", {"sfdr_class": "9"}, True),
         ("impact", {"sfdr_class": "8", "esg_rating": "AAA"}, False),
         ("impact", {"sfdr_class": "6"}, False),
-        # net_zero: EU-Klima-Benchmark PFLICHT, SFDR 9 allein reicht nicht
+        # net_zero: SFDR 8/9 UND EU-Klima-Benchmark, beides PFLICHT
         ("net_zero", {"sfdr_class": "9"}, False),
         ("net_zero", {"sfdr_class": "9", "climate_benchmark": None}, False),
         ("net_zero", {"sfdr_class": "9", "climate_benchmark": "PAB"}, True),
+        ("net_zero", {"sfdr_class": "9", "climate_benchmark": "CTB"}, True),
         ("net_zero", {"sfdr_class": "8", "climate_benchmark": "PAB"}, True),
-        ("net_zero", {"sfdr_class": "6", "climate_benchmark": "CTB"}, True),
+        ("net_zero", {"sfdr_class": "8", "climate_benchmark": " ctb "}, True),
+        # CIO-Entscheid 2026-10-18: Art. 6 + Transition-Benchmark ist KEIN Net Zero.
+        ("net_zero", {"sfdr_class": "6", "climate_benchmark": "CTB"}, False),
+        ("net_zero", {"sfdr_class": "6", "climate_benchmark": "PAB"}, False),
+        ("net_zero", {"sfdr_class": None, "climate_benchmark": "PAB"}, False),
         ("net_zero", {"sfdr_class": "8"}, False),
         ("net_zero", {"sfdr_class": "8", "climate_benchmark": "ESG"}, False),
     ],
@@ -921,6 +927,9 @@ def test_net_zero_criterion_text_requires_climate_benchmark():
     assert "PAB" in text_ and "CTB" in text_
     assert "SFDR Art. 9 oder" not in text_
     assert "SFDR Art. 9 allein genuegt nicht" in text_
+    # CIO-Entscheid 2026-10-18: Text nennt beide Pflichtbedingungen.
+    assert "nur Produkte nach SFDR Art. 8 oder 9 mit EU-Klima-Benchmark" in text_
+    assert "beides Pflicht" in text_
 
 
 @pytest.mark.parametrize("policy,fragment", [
@@ -948,7 +957,7 @@ _ESG_CRITERIA_VOCABULARY = frozenset({
     # Regulierung / Kennzahlen
     "SFDR", "Art", "EU", "PAB", "CTB", "ESG", "Rating", "Score", "Skala",
     "AAA", "AA", "CCC", "Leader", "Klasse", "Klassifikation", "Benchmark",
-    "Klima", "Paris", "aligned", "Climate", "Transition", "Pflicht",
+    "Klima", "Paris", "aligned", "Climate", "Transition", "Pflicht", "beides",
     # Policy-Namen
     "Best", "Class", "Impact", "Investing", "Integration", "Net", "Zero",
     # Liquiditaets-Ausnahme
