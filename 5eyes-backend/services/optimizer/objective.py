@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Iterable
 
 import numpy as np
@@ -221,12 +222,32 @@ def _positive_due_wealth_indices(
     counterfactual wealth paths; this helper intentionally does not invent an
     ordering or allocation rule from the aggregate series.
     """
+    return _positive_due_wealth_indices_cached(
+        tuple(liability.liability_path_rappen or ()),
+        int(n_wealth_columns),
+    )
+
+
+@lru_cache(maxsize=256)
+def _positive_due_wealth_indices_cached(
+    liability_path_rappen: tuple,
+    n_wealth_columns: int,
+) -> np.ndarray:
+    """Reine Funktion des Zahlungsplans (SAA-RESAMPLED-RUNTIME-001).
+
+    Die Zielfunktion fragt dieselben Indizes je Auswertung mehrfach ab (der
+    Solver wertet zehntausendfach aus); der Plan aendert sich dabei nie.
+    Das gecachte Array ist schreibgeschuetzt, damit kein Aufrufer den
+    geteilten Cache-Eintrag veraendern kann.
+    """
     indices = [
         path_index + 1
-        for path_index, amount in enumerate(liability.liability_path_rappen or ())
+        for path_index, amount in enumerate(liability_path_rappen)
         if float(amount or 0) > 0.0 and path_index + 1 < int(n_wealth_columns)
     ]
-    return np.asarray(indices, dtype=np.intp)
+    result = np.asarray(indices, dtype=np.intp)
+    result.setflags(write=False)
+    return result
 
 
 def scheduled_outside_wealth_horizon(
@@ -530,6 +551,96 @@ def goal_probability_per_path(
     )
 
 
+def certify_success_indicator(
+    per_path: np.ndarray,
+    *,
+    tau: float,
+    weights_arr: np.ndarray | None,
+    weight_sum: float | None,
+    validation_seed: int | None,
+    outside_horizon: bool = False,
+) -> dict:
+    """Schaetzer + Zertifizierung fuer EINEN 0/1-Erfolgsindikator je Pfad.
+
+    Einzige Implementierung der Statuskette erreichbar / knapp /
+    nicht_erreichbar / unreliable / ausserhalb_horizont. Herausgeloest aus
+    ``chance_constraint_penalty`` (GOAL-ACHIEVABILITY-ATTRIBUTION-001), damit
+    die publizierte priorisierte Zielerreichung und die Plan-Solvenz
+    (``services/optimizer/goal_attribution.py``) exakt dieselbe
+    Zertifizierungsregel verwenden wie die Chance-Penalty -- zwei Kopien
+    dieser Kette waeren genau die Divergenzklasse, die die
+    MC-Paritaetsbefunde ausgeloest hat. Rein strukturell: fuer die Penalty
+    entstehen bit-identische Werte.
+    """
+    if per_path.size == 0:
+        probability = 0.0
+    elif weights_arr is None:
+        probability = float(np.mean(per_path))
+    else:
+        probability = float(
+            np.sum(per_path.astype(np.float64) * weights_arr) / weight_sum
+        )
+
+    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001: schaetzer-bewusste
+    # Zertifizierung statt roher Punktschaetzer -- siehe
+    # services/optimizer/certification.py.
+    n_paths = int(per_path.size)
+    if weights_arr is None:
+        n_effective = float(n_paths)
+    else:
+        n_effective = effective_sample_size(weights_arr)
+    lower_bound = wilson_lower_bound(probability, n_effective)
+    ess_sufficient = ess_is_sufficient(n_effective, n_paths)
+
+    if outside_horizon:
+        # GOAL-OUTSIDE-HORIZON-001: `_goal_probability_core()` liefert fuer
+        # ein Ziel ohne Faelligkeit im Horizont `np.ones(...)`, also
+        # probability = 1.0. Die Zahl folgt dem MC-Kanal, der denselben
+        # Zustand schon so meldet (`portfolio_engine_mc_simulation.py`:
+        # `success_rate_pct = 0` plus `outside_simulation_horizon = True`
+        # plus Notiz). Genau der WIDERSPRUCH zwischen den beiden Kanaelen
+        # war der Befund: derselbe Zustand, hier 100 %, dort 0 %. Parity ist
+        # der Gewinn, nicht die Zahl -- 0 ist eine durch die Offenlegung
+        # getragene Konvention, keine Messung. Der eigene Status verhindert,
+        # dass ein Konsument daraus "nicht erreichbar" liest.
+        probability = 0.0
+        lower_bound = 0.0
+        status = "ausserhalb_horizont"
+    elif ess_sufficient and lower_bound >= tau:
+        status = "erreichbar"
+    elif not ess_sufficient and probability >= TAU_UNREACHABLE:
+        # Zu wenig unabhaengige Evidenz (z.B. degenerierte IS-Gewichtung),
+        # UND der Punktschaetzer deutet in Richtung erreichbar: dann laesst
+        # sich die Frage nicht beantworten -> nicht beurteilbar.
+        #
+        # Das Gate blockiert bewusst nur die ZERTIFIZIERUNG, nicht jede
+        # Aussage: liegt der Punktschaetzer klar unter der Schwelle, ist
+        # "nicht erreichbar" auch bei kleiner Stichprobe die korrekte und
+        # nuetzliche Antwort -- ein sicherer Negativbefund ist nicht
+        # unzuverlaessig, nur negativ.
+        status = "unreliable"
+    elif probability >= TAU_UNREACHABLE:
+        status = "knapp"
+    else:
+        status = "nicht_erreichbar"
+
+    verdict = reliability_verdict(
+        probability=probability,
+        lower_bound=lower_bound,
+        tau=tau,
+        ess_sufficient=ess_sufficient,
+        validation_seed=validation_seed,
+        outside_horizon=outside_horizon,
+    )
+    return {
+        "probability": probability,
+        "lower_confidence_bound": lower_bound,
+        "effective_sample_size": n_effective,
+        "status": status,
+        "reliability_verdict": verdict,
+    }
+
+
 def chance_constraint_penalty(
     wealth_paths: np.ndarray,
     goal_liabilities: list[GoalLiability],
@@ -588,95 +699,54 @@ def chance_constraint_penalty(
         weight_sum = float(np.sum(weights_arr))
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
+        # SAA-RESAMPLED-RUNTIME-001: das ESS haengt nur an den Gewichten,
+        # nicht am Ziel -- einmal je Aufruf statt einmal je Ziel.
+        weighted_n_effective = effective_sample_size(weights_arr)
     else:
         weights_arr = None
         weight_sum = None
+        weighted_n_effective = None
     for goal in goal_liabilities:
         # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
-        # 4.2 `W_joint_requested`/`P_joint_requested`): this aggregator must
-        # keep publishing today's shared-aggregate achievability so existing
-        # callers (and the chance-constraint term feeding the SLSQP
-        # objective) are unaffected by GOAL-FUNDING-PRIORITY-001's fix. The
-        # priority-protected per-goal view lives in the public
-        # `goal_probability_per_path()` above; a future solver-level Scope
-        # evaluator (Spec Phase B/C) is expected to call that directly per
-        # rank-ordered scope rather than through this joint aggregator.
+        # 4.2 `W_joint_requested`/`P_joint_requested`): the chance-constraint
+        # term feeding the SLSQP objective is unchanged by
+        # GOAL-FUNDING-PRIORITY-001 and GOAL-ACHIEVABILITY-ATTRIBUTION-001.
+        #
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001 (2026-10-14): the rows returned
+        # here are the PENALTY's internal per-goal view of the joint path and
+        # are NOT published any more. Every publication point (solver
+        # result, validation cube, House fallback) uses
+        # `services.optimizer.goal_attribution.publish_goal_achievability`,
+        # which emits priority-funded goal rows plus exactly ONE joint-plan
+        # row. The rows are tagged with their own scope so that an
+        # accidental publication is recognisable as non-individual evidence.
         per_path = _goal_probability_core(
             wealth_paths,
             goal,
             initial_value_rappen,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
         )
-        if per_path.size == 0:
-            probability = 0.0
-        elif weights_arr is None:
-            probability = float(np.mean(per_path))
-        else:
-            probability = float(np.sum(per_path.astype(np.float64) * weights_arr) / weight_sum)
         tau = _default_tau_x100(goal) / 10000.0
-
-        # OPTIMIZER-POST-SELECTION-CERTIFICATION-001: schaetzer-bewusste
-        # Zertifizierung statt roher Punktschaetzer -- siehe
-        # services/optimizer/certification.py.
-        n_paths = int(per_path.size)
-        if weights_arr is None:
-            n_effective = float(n_paths)
-        else:
-            n_effective = effective_sample_size(weights_arr)
-        lower_bound = wilson_lower_bound(probability, n_effective)
-        ess_sufficient = ess_is_sufficient(n_effective, n_paths)
-
-        # GOAL-OUTSIDE-HORIZON-001: VOR der Statuskette und vor dem Verdikt.
-        # `_goal_probability_core()` liefert fuer ein Ziel ohne Faelligkeit im
-        # Horizont `np.ones(...)`, also probability = 1.0 -- und eine spaetere
-        # Korrektur haette das Verdikt schon mit dieser erfundenen Eins
-        # berechnet.
+        # GOAL-OUTSIDE-HORIZON-001: VOR der Statuskette und vor dem Verdikt
+        # (Begruendung in `certify_success_indicator`).
         outside_horizon = goal.target_kind in (
             "cashflow_in_year", "outflow_stream",
         ) and scheduled_outside_wealth_horizon(
             goal, n_wealth_columns=wealth_paths.shape[1]
         )
-        if outside_horizon:
-            # Die Zahl folgt dem MC-Kanal, der denselben Zustand schon so
-            # meldet (`portfolio_engine_mc_simulation.py`:
-            # `success_rate_pct = 0` plus `outside_simulation_horizon = True`
-            # plus Notiz). Genau der WIDERSPRUCH zwischen den beiden Kanaelen
-            # war der Befund: derselbe Zustand, hier 100 %, dort 0 %. Parity
-            # ist der Gewinn, nicht die Zahl -- 0 ist eine durch die
-            # Offenlegung getragene Konvention, keine Messung. Der eigene
-            # Status verhindert, dass ein Konsument daraus "nicht erreichbar"
-            # liest.
-            probability = 0.0
-            lower_bound = 0.0
-            status = "ausserhalb_horizont"
-        elif ess_sufficient and lower_bound >= tau:
-            status = "erreichbar"
-        elif not ess_sufficient and probability >= TAU_UNREACHABLE:
-            # Zu wenig unabhaengige Evidenz (z.B. degenerierte IS-Gewichtung),
-            # UND der Punktschaetzer deutet in Richtung erreichbar: dann
-            # laesst sich die Frage nicht beantworten -> nicht beurteilbar.
-            #
-            # Das Gate blockiert bewusst nur die ZERTIFIZIERUNG, nicht jede
-            # Aussage: liegt der Punktschaetzer klar unter der Schwelle, ist
-            # "nicht erreichbar" auch bei kleiner Stichprobe die korrekte und
-            # nuetzliche Antwort -- ein sicherer Negativbefund ist nicht
-            # unzuverlaessig, nur negativ. Wuerde das Gate auch den abdecken,
-            # bekaeme ein offensichtlich unerreichbares Ziel ein
-            # "nicht beurteilbar" statt einer klaren Absage.
-            status = "unreliable"
-        elif probability >= TAU_UNREACHABLE:
-            status = "knapp"
-        else:
-            status = "nicht_erreichbar"
-
-        verdict = reliability_verdict(
-            probability=probability,
-            lower_bound=lower_bound,
+        estimate = certify_success_indicator(
+            per_path,
             tau=tau,
-            ess_sufficient=ess_sufficient,
+            weights_arr=weights_arr,
+            weight_sum=weight_sum,
             validation_seed=validation_seed,
             outside_horizon=outside_horizon,
         )
+        probability = estimate["probability"]
+        lower_bound = estimate["lower_confidence_bound"]
+        n_effective = estimate["effective_sample_size"]
+        status = estimate["status"]
+        verdict = estimate["reliability_verdict"]
 
         hardness = _hardness_key(getattr(goal, "hardness_key", None))
         applies_penalty = hardness in _PRIMARY_HARDNESS_KEYS and goal.target_kind != "maximize"
@@ -711,6 +781,7 @@ def chance_constraint_penalty(
             # Gleicher Feldname wie im MC-Kanal, damit ein Konsument beide
             # Strecken gleich lesen kann.
             "outside_simulation_horizon": outside_horizon,
+            "evaluation_scope": "joint_path_chance_penalty",
         })
     return float(penalty), achievability
 
@@ -958,6 +1029,110 @@ def combined_objective_two_phase(
     Primaerterm selbst, und bei ``min_volatility`` wuerde er die Kennzahl
     doppelt zaehlen.
     """
+    goal_level, tiebreak, _in_phase_two = _two_phase_terms(
+        liabilities,
+        wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        primary_weight=primary_weight,
+        volatility_weight=volatility_weight,
+        lambda_chance=lambda_chance,
+        epsilon=epsilon,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        objective_mode=objective_mode,
+        goal_weighting_mode=goal_weighting_mode,
+        portfolio_return_factors=portfolio_return_factors,
+        always_compute_tiebreak=False,
+    )
+    return goal_level + tiebreak
+
+
+def two_phase_objective_parts(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    primary_weight: float = 1.0,
+    volatility_weight: float = 1e-12,
+    lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
+    epsilon: float = 1e-12,
+    weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+    objective_mode: str | None = None,
+    goal_weighting_mode: str | None = None,
+    portfolio_return_factors: np.ndarray | None = None,
+    primary_value_override: float | None = None,
+) -> tuple[float, float]:
+    """Die beiden Stufen von ``combined_objective_two_phase`` GETRENNT.
+
+    Rueckgabe ``(goal_level, tiebreak)``: ``goal_level`` = Primaerterm +
+    Chance-Penalty (Stufe 1), ``tiebreak`` = skalierter Volatilitaetsterm
+    (Stufe 2, nur im Modus ``goal_shortfall``, sonst 0) -- hier IMMER
+    berechnet, unabhaengig davon, ob Stufe 1 unter ``epsilon`` liegt.
+
+    SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 (2026-10-17): wer ZWEI Allokationen
+    vergleicht, darf die Skalar-Zielfunktion nicht direkt subtrahieren. Der
+    Volatilitaetsterm wird dort pro Allokation nur zugeschaltet, wenn IHRE
+    Stufe 1 unter ``epsilon`` liegt; eine Allokation mit einem winzigen
+    Fehlbetrag auf einem einzigen Pfad (Stufe 1 = 8e-9) sparte damit ihren
+    ganzen Volatilitaetsterm (~1.4e4) und "schlug" eine Allokation, die
+    alle Ziele erfuellt UND weniger schwankt. Der Vergleich braucht deshalb
+    beide Stufen einzeln (siehe ``resampling.lexicographic_improvement``).
+
+    ``primary_value_override`` (OPTIMIZER-DRAWDOWN-CERTIFICATION-001,
+    2026-10-18): ersetzt den Primaerterm durch einen extern gemessenen Wert --
+    im Modus ``max_drawdown`` der verfeinerte mittlere Max-Drawdown
+    (Brownsche Bruecke) statt des Jahresgitter-Proxy. Chance-Penalty und
+    Stufen-Logik bleiben dieselben; so gibt es fuer die Chance-Penalty genau
+    EINE Implementierung, egal mit welchem Drawdown-Mass verglichen wird.
+    """
+    goal_level, tiebreak, _in_phase_two = _two_phase_terms(
+        liabilities,
+        wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        primary_weight=primary_weight,
+        volatility_weight=volatility_weight,
+        lambda_chance=lambda_chance,
+        epsilon=epsilon,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        objective_mode=objective_mode,
+        goal_weighting_mode=goal_weighting_mode,
+        portfolio_return_factors=portfolio_return_factors,
+        always_compute_tiebreak=True,
+        primary_value_override=primary_value_override,
+    )
+    return goal_level, tiebreak
+
+
+def _two_phase_terms(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    primary_weight: float,
+    volatility_weight: float,
+    lambda_chance: float,
+    epsilon: float,
+    weights: np.ndarray | None,
+    annualized_return_bps_per_path: np.ndarray | None,
+    objective_mode: str | None,
+    goal_weighting_mode: str | None,
+    portfolio_return_factors: np.ndarray | None,
+    always_compute_tiebreak: bool,
+    primary_value_override: float | None = None,
+) -> tuple[float, float, bool]:
+    """Gemeinsamer Kern: ``(goal_level, tiebreak, in_phase_two)``.
+
+    Ohne ``always_compute_tiebreak`` ist ``tiebreak`` ausserhalb von
+    Stufe 2 exakt 0.0 -- damit bleibt ``combined_objective_two_phase``
+    bit-identisch zur frueheren Einzelformel
+    ``primary_weight * primary + chance + volatility_weight * vol``.
+    """
     from .objective_variants import (
         OBJECTIVE_GOAL_SHORTFALL,
         primary_objective,
@@ -981,11 +1156,15 @@ def combined_objective_two_phase(
         if is_goal_shortfall
         else 0.0
     )
-    primary = primary_objective(
-        mode,
-        goal_shortfall_value=goal_shortfall_value,
-        portfolio_return_factors=portfolio_return_factors,
-        weights=weights,
+    primary = (
+        float(primary_value_override)
+        if primary_value_override is not None
+        else primary_objective(
+            mode,
+            goal_shortfall_value=goal_shortfall_value,
+            portfolio_return_factors=portfolio_return_factors,
+            weights=weights,
+        )
     )
     chance, _achievability = chance_constraint_penalty(
         wealth_paths,
@@ -1000,9 +1179,11 @@ def combined_objective_two_phase(
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
+    in_phase_two = bool(primary + chance < float(epsilon))
     vol = (
         volatility_objective(wealth_paths, weights=weights)
-        if is_goal_shortfall and primary + chance < float(epsilon)
+        if is_goal_shortfall and (in_phase_two or always_compute_tiebreak)
         else 0.0
     )
-    return primary_weight * primary + chance + volatility_weight * vol
+    goal_level = primary_weight * primary + chance
+    return goal_level, volatility_weight * vol, in_phase_two

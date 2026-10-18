@@ -12,11 +12,11 @@
     "score_x10": 50
   },
   "implementation_steps": [
-    "Liquiditaet reduzieren: ca. CHF 90'000",
-    "Obligationen aufbauen: ca. CHF 62'500",
-    "Aktien aufbauen: ca. CHF 37'500",
-    "Alternative reduzieren: ca. CHF 35'000",
-    "Immobilien aufbauen: ca. CHF 25'000"
+    "Liquiditaet reduzieren: ca. CHF 87'500",
+    "Obligationen aufbauen: ca. CHF 47'250",
+    "Immobilien aufbauen: ca. CHF 44'500",
+    "Alternative reduzieren: ca. CHF 30'900",
+    "Aktien aufbauen: ca. CHF 26'650"
   ],
   "positions": [
     {
@@ -29,8 +29,8 @@
         "Obligationen CHF IG"
       ],
       "sub_asset_class": "Obligationen CHF IG",
-      "target_amount_rappen": 12985000,
-      "target_weight_bps": 2597,
+      "target_amount_rappen": 12055000,
+      "target_weight_bps": 2411,
       "ter_bps": 32
     },
     {
@@ -43,12 +43,12 @@
         "Immobilien Schweiz"
       ],
       "sub_asset_class": "Immobilien Schweiz",
-      "target_amount_rappen": 2000000,
-      "target_weight_bps": 400,
+      "target_amount_rappen": 3560000,
+      "target_weight_bps": 712,
       "ter_bps": 52
     },
     {
-      "asset_class": "Liquidität",
+      "asset_class": "Liquidit\u00e4t",
       "currency": "CHF",
       "product_name": "UBS Geldmarktfonds CHF",
       "provider": "UBS",
@@ -57,8 +57,8 @@
         "Geldmarktfonds"
       ],
       "sub_asset_class": "Geldmarktfonds",
-      "target_amount_rappen": 1000000,
-      "target_weight_bps": 200,
+      "target_amount_rappen": 1250000,
+      "target_weight_bps": 250,
       "ter_bps": 8
     },
     {
@@ -71,8 +71,8 @@
         "Aktien Europa"
       ],
       "sub_asset_class": "Aktien Europa",
-      "target_amount_rappen": 3565000,
-      "target_weight_bps": 713,
+      "target_amount_rappen": 3400000,
+      "target_weight_bps": 680,
       "ter_bps": 22
     },
     {
@@ -85,8 +85,8 @@
         "Gold / Rohstoffe"
       ],
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_amount_rappen": 1500000,
-      "target_weight_bps": 300,
+      "target_amount_rappen": 1910000,
+      "target_weight_bps": 382,
       "ter_bps": 40
     },
     {
@@ -99,8 +99,8 @@
         "Aktien Global"
       ],
       "sub_asset_class": "Aktien Global",
-      "target_amount_rappen": 9500000,
-      "target_weight_bps": 1900,
+      "target_amount_rappen": 9065000,
+      "target_weight_bps": 1813,
       "ter_bps": 30
     },
     {
@@ -114,8 +114,8 @@
         "Aktien Schwellenlaender"
       ],
       "sub_asset_class": "Aktien Schweiz",
-      "target_amount_rappen": 10685000,
-      "target_weight_bps": 2137,
+      "target_amount_rappen": 10200000,
+      "target_weight_bps": 2040,
       "ter_bps": 10
     },
     {
@@ -128,8 +128,8 @@
         "Immobilien Global"
       ],
       "sub_asset_class": "Immobilien Global",
-      "target_amount_rappen": 500000,
-      "target_weight_bps": 100,
+      "target_amount_rappen": 890000,
+      "target_weight_bps": 178,
       "ter_bps": 48
     },
     {
@@ -142,8 +142,8 @@
         "Obligationen Global Hedged"
       ],
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_amount_rappen": 8265000,
-      "target_weight_bps": 1653,
+      "target_amount_rappen": 7670000,
+      "target_weight_bps": 1534,
       "ter_bps": 10
     }
   ],
@@ -155,61 +155,61 @@
       "asset_class": "Aktien",
       "rationale": "Europa-Diversifikation",
       "sub_asset_class": "Aktien Europa",
-      "target_weight_bps": 713
+      "target_weight_bps": 680
     },
     {
       "asset_class": "Aktien",
       "rationale": "Globaler Kernbaustein",
       "sub_asset_class": "Aktien Global",
-      "target_weight_bps": 1900
+      "target_weight_bps": 1813
     },
     {
       "asset_class": "Aktien",
       "rationale": "Heimmarkt-Anker",
       "sub_asset_class": "Aktien Schweiz",
-      "target_weight_bps": 950
+      "target_weight_bps": 907
     },
     {
       "asset_class": "Aktien",
       "rationale": "Mandatierter EM-Fokus",
       "sub_asset_class": "Aktien Schwellenlaender",
-      "target_weight_bps": 1187
+      "target_weight_bps": 1133
     },
     {
       "asset_class": "Alternative",
       "rationale": "Standardbaustein fuer Alternative Anlagen",
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_weight_bps": 300
+      "target_weight_bps": 382
     },
     {
       "asset_class": "Immobilien",
       "rationale": "Ergaenzende Diversifikation",
       "sub_asset_class": "Immobilien Global",
-      "target_weight_bps": 100
+      "target_weight_bps": 178
     },
     {
       "asset_class": "Immobilien",
       "rationale": "Schweizer Immobilienfokus",
       "sub_asset_class": "Immobilien Schweiz",
-      "target_weight_bps": 400
+      "target_weight_bps": 712
     },
     {
       "asset_class": "Liquiditaet",
       "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
       "sub_asset_class": "Geldmarktfonds",
-      "target_weight_bps": 200
+      "target_weight_bps": 250
     },
     {
       "asset_class": "Obligationen",
       "rationale": "Langfristiger CHF-Kern",
       "sub_asset_class": "Obligationen CHF IG",
-      "target_weight_bps": 2597
+      "target_weight_bps": 2411
     },
     {
       "asset_class": "Obligationen",
       "rationale": "Globale Diversifikation",
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_weight_bps": 1653
+      "target_weight_bps": 1534
     }
   ],
   "target_allocation": {
@@ -237,32 +237,32 @@
       ]
     },
     "engine_version": "stochastic_core_v2",
-    "expected_return_bps": 449,
-    "expected_volatility_bps": 787,
+    "expected_return_bps": 445,
+    "expected_volatility_bps": 770,
     "external_reserve_rappen": 0,
     "house_matrix_profile": "Ausgewogen",
     "investable_advisory_wealth_rappen": 50000000,
-    "limiting_factor": "liquiditaetsreserve",
+    "limiting_factor": "bandbreite",
     "optimization_method": "stochastic",
     "optimization_status": "converged",
     "reserve_needed_rappen": 0,
-    "risky_fraction_bps": 5385,
+    "risky_fraction_bps": 5414,
     "score_bucket": 5,
     "targets_bps": {
-      "alternatives": 300,
-      "bonds": 4250,
-      "equities": 4750,
-      "liquidity": 200,
-      "real_estate": 500
+      "alternatives": 382,
+      "bonds": 3945,
+      "equities": 4533,
+      "liquidity": 250,
+      "real_estate": 890
     }
   },
   "target_allocation_warnings": [],
   "totals": {
     "advisory_wealth_rappen": 50000000,
-    "average_ter_bps": 23,
+    "average_ter_bps": 25,
     "average_ter_coverage_bps": 10000,
-    "expected_return_bps": 449,
-    "expected_volatility_bps": 787,
+    "expected_return_bps": 445,
+    "expected_volatility_bps": 770,
     "investable_advisory_wealth_rappen": 50000000,
     "missing_ter_positions_count": 0,
     "sum_target_amount_rappen": 50000000,

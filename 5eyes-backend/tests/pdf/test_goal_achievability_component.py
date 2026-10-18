@@ -112,7 +112,8 @@ def test_achievability_table_has_header_plus_one_row_per_goal():
 def test_achievability_table_header_has_expected_columns():
     table = make_goal_achievability_table(_sample_achievability())
     header = table._cellvalues[0]
-    assert header == ["Ziel", "Typ", "Hardness", "Wahrscheinlichkeit", "Status"]
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die Spalte traegt ihren Scope.
+    assert header == ["Ziel", "Typ", "Hardness", "Zielerreichung nach Priorität", "Status"]
 
 
 def test_achievability_table_empty_list_renders_placeholder_row():

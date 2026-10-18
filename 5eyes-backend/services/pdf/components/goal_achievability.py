@@ -49,6 +49,9 @@ LIMITING_FACTOR_LABELS: dict[str, str] = {
     "liquiditaetsreserve": "Liquiditätsreserve ist bindend",
     "bandbreite": "Innerhalb der Profil-Bandbreiten",
     "zielkonflikt": "Zielkonflikt zwischen mehreren primären Zielen",
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: mehrere bindende Ziele scheitern am
+    # SELBEN Engpass -- ein Konflikt, nicht mehrere.
+    "gemeinsamer_engpass": "Gemeinsamer Engpass mehrerer Ziele (ein Konflikt)",
     "solver_konvergenz": "Bandbreiten-Mittelwert (Optimierer-Fallback)",
 }
 
@@ -98,6 +101,9 @@ _STATUS_DISPLAY: dict[str, tuple[str, str]] = {
     # sondern das Eingestaendnis, dass sie in diesem Horizont nicht gemessen
     # wurde -- deshalb neutral-grau und ausserhalb der Ampel.
     "ausserhalb_horizont": ("ausserhalb Horizont", "#475569"),
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Altbewertung ohne Scope -- ein
+    # gemeinsamer Planwert je Zeile, keine zielindividuelle Aussage.
+    "legacy_aggregate_unknown": ("Altbewertung", "#475569"),
 }
 
 # Ziel-Typ-Anzeige (technische Goal-Type-Werte -> Berater-Sprache).
@@ -162,6 +168,7 @@ _AMPEL_STATUS_COLORS: dict[str, str] = {
     # oder roter Balken wuerde eine Bewertung suggerieren, die in diesem
     # Horizont nicht stattgefunden hat.
     "ausserhalb_horizont": "#64748b",
+    "legacy_aggregate_unknown": "#64748b",
 }
 _AMPEL_BG_COLOR = "#e2e8f0"  # neutral hellgrau (tailwind slate-200)
 _AMPEL_BORDER_COLOR = "#cbd5e1"  # slate-300
@@ -236,6 +243,38 @@ def _status_cell(status: str | None) -> str:
     return f'<font color="{color}"><b>{_esc(label)}</b></font>'
 
 
+PRIORITY_COLUMN_LABEL = "Zielerreichung nach Priorität"
+
+
+def make_plan_solvency_line(achievability: Iterable[Mapping]) -> Paragraph:
+    """GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz genau EINMAL.
+
+    Liest die eine ``joint_plan``-Zeile; ohne sie (Altbewertung, keine
+    bewertbaren Ziele) bleibt der Absatz leer statt einen Wert zu erfinden.
+    """
+    from services.optimizer.goal_attribution import (
+        PLAN_SOLVENCY_LABEL,
+        split_goal_achievability,
+    )
+
+    styles = make_paragraph_styles()
+    style = styles.get("small_muted") or styles.get("body")
+    _goal_rows, plan_row = split_goal_achievability(list(achievability or []))
+    if not plan_row:
+        return Paragraph("", style)
+    return Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="10" color="#0f172a">'
+        f'<b>{_esc(PLAN_SOLVENCY_LABEL)}:</b> {_esc(_prob_cell(plan_row.get("probability")))}'
+        f'</font>'
+        f'<font name="{FONT_DEFAULT}" size="8" color="#475569"><br/>'
+        f'Anteil der simulierten Pfade, auf denen alle Ziele gemeinsam finanziert sind. '
+        f'Die Spalte &laquo;{_esc(PRIORITY_COLUMN_LABEL)}&raquo; zeigt je Ziel, ob es nach '
+        f'allen höher priorisierten Zielen vollständig finanziert ist (Rang 1 zuerst).'
+        f'</font>',
+        style,
+    )
+
+
 def make_goal_achievability_table(achievability: Iterable[Mapping]) -> Table:
     """Returns Table mit Ziel | Typ | Hardness | Wahrscheinlichkeit | Status.
 
@@ -247,8 +286,15 @@ def make_goal_achievability_table(achievability: Iterable[Mapping]) -> Table:
     Leere achievability -> Tabelle mit Hinweistext (keine Goals = nichts zu
     zeigen, aber kein Render-Bruch).
     """
-    achievability_list = list(achievability or [])
-    rows = [["Ziel", "Typ", "Hardness", "Wahrscheinlichkeit", "Status"]]
+    from services.optimizer.goal_attribution import (
+        EVALUATION_SCOPE_LEGACY,
+        split_goal_achievability,
+    )
+
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: nur Zielzeilen (nach Rang), die
+    # Plan-Solvenz steht separat (make_plan_solvency_line).
+    achievability_list, _plan_row = split_goal_achievability(list(achievability or []))
+    rows = [["Ziel", "Typ", "Hardness", PRIORITY_COLUMN_LABEL, "Status"]]
 
     if not achievability_list:
         rows.append([
@@ -269,10 +315,14 @@ def make_goal_achievability_table(achievability: Iterable[Mapping]) -> Table:
             hardness = _norm_hardness(goal.get("hardness"))
             # Sprint C1 (2026-06-07): Ampel-Balken statt nur Prozent-Text.
             # Visuelle Schnellerfassung (3eyes-Style-UX-Restoration).
+            display_status = goal.get("status")
+            if goal.get("evaluation_scope") == EVALUATION_SCOPE_LEGACY:
+                # Altbewertung: Wert unbekannter Semantik -> neutral, keine Ampel.
+                display_status = EVALUATION_SCOPE_LEGACY
             prob_bar = _probability_bar_drawing(
-                goal.get("probability"), goal.get("status"),
+                goal.get("probability"), display_status,
             )
-            status = _status_cell(goal.get("status"))
+            status = _status_cell(display_status)
             cell_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
             rows.append([
                 Paragraph(_esc(label), cell_style),

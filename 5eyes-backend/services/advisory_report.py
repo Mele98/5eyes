@@ -820,23 +820,69 @@ def _build_wealth_summary(
     }
 
 
+def _load_goal_achievability_view(ta) -> tuple[list[dict], dict | None]:
+    """GOAL-ACHIEVABILITY-ATTRIBUTION-001: (Zielzeilen, Plan-Solvenz) aus
+    ``TargetAllocation.goal_achievability_json``.
+
+    Einzige Lesestelle dieses Moduls. Die Plan-Solvenz-Zeile
+    (``evaluation_scope=joint_plan``) ist kein Ziel; Zeilen ohne Scope sind
+    Altbewertungen (``legacy_aggregate_unknown``) -- gemeinsame Aggregatwerte
+    unbekannter Semantik, die keine individuelle Ampel tragen duerfen.
+    """
+    import json
+
+    from services.optimizer.goal_attribution import split_goal_achievability
+
+    raw = getattr(ta, "goal_achievability_json", None) if ta is not None else None
+    if not raw:
+        return [], None
+    try:
+        parsed = json.loads(raw) or []
+    except (TypeError, ValueError):
+        return [], None
+    if not isinstance(parsed, list):
+        return [], None
+    return split_goal_achievability(parsed)
+
+
+def _plan_solvency_payload(plan_row: dict | None) -> dict[str, Any] | None:
+    """Plan-Solvenz fuer Bericht/React: genau ein Wert, klar beschriftet."""
+    from services.optimizer.goal_attribution import PLAN_SOLVENCY_LABEL
+
+    if not plan_row:
+        return None
+    try:
+        probability = float(plan_row.get("probability", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    goal_ids = plan_row.get("goal_ids") or []
+    return {
+        "label": PLAN_SOLVENCY_LABEL,
+        "evaluation_scope": "joint_plan",
+        "probability_bps": int(round(probability * 10000)),
+        "status": str(plan_row.get("status", "") or ""),
+        "goal_count": len(goal_ids) if isinstance(goal_ids, list) else 0,
+        "failure_event_id": plan_row.get("failure_event_id"),
+    }
+
+
 def _compute_goal_achievement_score_bps(db: Session, mandate: Mandate) -> int | None:
     """AR-2: einzige Quelle für den Zielerreichungs-Score (gewichteter Mittelwert der
     Goal-Wahrscheinlichkeiten aus goal_achievability_json, weight_bps-gewichtet bzw.
     gleichgewichtet). Genutzt von _build_key_metrics (Karte) UND der Goal-Based-Sektion,
     damit beide denselben Wert zeigen. None = keine TA/keine bewertbaren Goals → Karte '—'.
     """
-    import json
+    from services.optimizer.goal_attribution import is_individual_goal_row
 
     ta = _cached_current_ta(db, mandate)
-    if ta is None or not getattr(ta, "goal_achievability_json", None):
-        return None
-    try:
-        parsed = json.loads(ta.goal_achievability_json) or []
-    except (TypeError, ValueError):
-        return None
-    rows = [r for r in parsed if isinstance(r, dict)] if isinstance(parsed, list) else []
+    rows, _plan_row = _load_goal_achievability_view(ta)
     if not rows:
+        return None
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: der Score mittelt ZIELINDIVIDUELLE
+    # Werte. Altbewertungen ohne Scope sind gemeinsame Aggregatwerte -- ein
+    # daraus gemittelter "Zielerreichungs-Score" waere genau die Fehlaussage
+    # des Befunds. Dann lieber kein Wert bis zur Neuberechnung.
+    if not all(is_individual_goal_row(r) for r in rows):
         return None
     goal_by_id = {str(g.id): g for g in _cached_active_goals(db, mandate)}
     weighted_sum = 0.0
@@ -1763,7 +1809,8 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     U-18: nutzt _cached_current_ta (kein eigener DB-Roundtrip).
     """
-    import json
+    from services.optimizer.goal_attribution import is_individual_goal_row
+
     ta = _cached_current_ta(db, mandate)
     if ta is None or not getattr(ta, "goal_achievability_json", None):
         return _verdict(
@@ -1771,14 +1818,21 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
             "Keine Zielerreichungs-Daten verfügbar.",
             "Anlagestrategie mit stochastischer Engine berechnen.",
         )
-    try:
-        rows = json.loads(ta.goal_achievability_json) or []
-    except (TypeError, ValueError):
-        rows = []
-    if not isinstance(rows, list) or not rows:
+    rows, _plan_row = _load_goal_achievability_view(ta)
+    if not rows:
         return _verdict(
             "Zielkompatibilität", "nicht_beurteilbar",
             "Zielerreichungs-Daten leer oder ungültig.",
+            "Anlagestrategie neu berechnen.",
+        )
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: eine Altbewertung ohne Scope ist ein
+    # gemeinsamer Planwert je Zeile -- sie kann ein hartes Ziel rot melden,
+    # obwohl ein tiefer priorisiertes Ziel die Ursache ist (Audit, Wirkung 5).
+    if not all(is_individual_goal_row(r) for r in rows):
+        return _verdict(
+            "Zielkompatibilität", "nicht_beurteilbar",
+            "Die gespeicherte Zielerreichung stammt aus einer Altbewertung "
+            "ohne Zuordnung nach Priorität.",
             "Anlagestrategie neu berechnen.",
         )
     # AR-1: Engine (services/optimizer/objective.py:_PRIMARY_HARDNESS_KEYS) behandelt
@@ -2216,17 +2270,11 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
 
     U-18: TA + Goals aus call-scoped Cache.
     """
-    import json
-
     ta = _cached_current_ta(db, mandate)
-    rows: list[dict[str, Any]] = []
-    if ta is not None and getattr(ta, "goal_achievability_json", None):
-        try:
-            parsed = json.loads(ta.goal_achievability_json) or []
-            if isinstance(parsed, list):
-                rows = [r for r in parsed if isinstance(r, dict)]
-        except (TypeError, ValueError):
-            rows = []
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Zielzeilen (priorisiert) und die
+    # EINE Plan-Solvenz getrennt -- der gemeinsame Wert wird nie als
+    # Zielzeile ausgegeben.
+    rows, plan_row = _load_goal_achievability_view(ta)
 
     # Goal-Metadaten ergänzen (Label, Ziel-Datum) aus Goal-Tabelle, falls
     # die persistierte JSON-Zeile keinen Namen mitbringt.
@@ -2253,10 +2301,14 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 # Rueckgabeformen auseinander, laeuft ein Konsument genau im
                 # Datenlueckenfall in einen KeyError.
                 "outside_simulation_horizon": False,
+                "evaluation_scope": "data_pending",
+                "funding_rank": None,
+                "failure_event_id": None,
             })
         return {
             "goals": goals,
             "goal_achievement_score_bps": 0,
+            "plan_solvency": None,
             "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
         }
 
@@ -2296,6 +2348,16 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             "outside_simulation_horizon": bool(
                 r.get("outside_simulation_horizon") or False
             ),
+            # GOAL-ACHIEVABILITY-ATTRIBUTION-001: was die Zahl bedeutet.
+            # `priority_funded` = Zielerreichung nach Prioritaet;
+            # `legacy_aggregate_unknown` = Altbewertung, keine Ampel.
+            "evaluation_scope": str(r.get("evaluation_scope") or ""),
+            "funding_rank": (
+                int(r["funding_rank"])
+                if isinstance(r.get("funding_rank"), int)
+                else None
+            ),
+            "failure_event_id": r.get("failure_event_id"),
         })
     # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
     # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
@@ -2305,6 +2367,9 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
     return {
         "goals": goals,
         "goal_achievement_score_bps": goal_achievement_score_bps,
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz (alle Ziele
+        # gemeinsam) genau EINMAL, nie als Zielzeile.
+        "plan_solvency": _plan_solvency_payload(plan_row),
         # U-11 (2026-05-31): echte Monte-Carlo-Pfade via stochastische
         # Engine (services.optimizer.scenario_engine). Bei fehlender TA /
         # CMA / Beratungsvermoegen faellt die Funktion auf data_pending=True

@@ -71,6 +71,40 @@ def scenario_inputs_digest(inputs: ScenarioInputs) -> str:
     return hasher.hexdigest()
 
 
+# SAA-SEED-FLOAT-ROBUST-001 (2026-10-17): Digest NUR fuer den Inhalts-Seed.
+#
+# Der Cache-Key oben MUSS bit-exakt sein (andere Inputs -> anderer Wuerfel).
+# Fuer den Seed waere bit-exakt dagegen ein Defekt: sigma (gewichtete
+# Sub-Klassen) und die Cholesky-Zerlegung entstehen aus BLAS/LAPACK- und
+# libm-Aufrufen, deren letzte Bits je Plattform/Kernel abweichen duerfen. Ein
+# einziges abweichendes Bit zoege einen VOELLIG anderen Inhalts-Seed und damit
+# andere Bag-Wuerfel -- das Ergebnis hinge von der Maschine ab. Gerundet wird
+# weit unterhalb jeder wirtschaftlichen Bedeutung (0.001 bps bzw. 1e-8 in der
+# Korrelationsstruktur) und weit oberhalb von Float-Rauschen (~1e-13 relativ).
+_SEED_DIGEST_DECIMALS = {
+    "mu_bps": 3,
+    "sigma_bps": 3,
+    "skew_bps": 3,
+    "excess_kurt_bps": 3,
+    "cholesky": 8,
+}
+
+
+def scenario_inputs_seed_digest(inputs: ScenarioInputs) -> str:
+    """Float-robuster Digest der ScenarioInputs fuer den Inhalts-Seed."""
+    hasher = hashlib.sha256()
+    hasher.update(b"seed-digest-v1")
+    for field_name in _INPUT_DIGEST_FIELDS:
+        array = np.ascontiguousarray(getattr(inputs, field_name), dtype=np.float64)
+        # ``+ 0.0`` normalisiert -0.0 (z.B. round(-1e-15)) auf +0.0, sonst
+        # unterschieden sich zwei wirtschaftlich gleiche Nullen im Byte-Muster.
+        rounded = np.round(array, _SEED_DIGEST_DECIMALS[field_name]) + 0.0
+        hasher.update(field_name.encode("utf-8"))
+        hasher.update(repr(array.shape).encode("utf-8"))
+        hasher.update(rounded.tobytes())
+    return hasher.hexdigest()
+
+
 # ============================================================================
 # Cache-Klasse
 # ============================================================================
