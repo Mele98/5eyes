@@ -516,21 +516,23 @@ def _assert_published_contract(rows):
     assert EVALUATION_SCOPE_PRIORITY_FUNDED in scopes, scopes
 
 
-def test_insignificant_house_fallback_publishes_the_goal_attribution_contract(monkeypatch):
-    """CIO-Entscheid 3: nicht signifikant -> Hausmatrix; die publizierte
-    Zielerreichung folgt dem Vertrag priority_funded + genau eine joint_plan-
-    Zeile, nicht der internen Joint-Sicht der Chance-Penalty."""
-    real_test = solver_module.paired_bootstrap_improvement
+def test_house_prior_safety_net_publishes_the_goal_attribution_contract(monkeypatch):
+    """CIO-Entscheid 3 (seit HOUSE-PRIOR-001, Engine v6: Sicherheitsnetz statt
+    Signifikanzschalter): faellt die Hausquote, publiziert die Zielerreichung
+    den Vertrag priority_funded + genau eine joint_plan-Zeile, nicht die
+    interne Joint-Sicht der Chance-Penalty."""
+    real_disclosure = solver_module.paired_bootstrap_disclosure
 
-    def _not_significant(loss_pair, **kwargs):
-        stats = real_test(loss_pair, **kwargs)
-        return {**stats, "p_value": 0.5, "significant": False}
+    def _worse(loss_pair, **kwargs):
+        stats = real_disclosure(loss_pair, **kwargs)
+        return {**stats, "significantly_worse": True}
 
-    monkeypatch.setattr(solver_module, "paired_bootstrap_improvement", _not_significant)
+    monkeypatch.setattr(solver_module, "paired_bootstrap_disclosure", _worse)
     result = _solve(monkeypatch, mode=OBJECTIVE_GOAL_SHORTFALL)
-    significance = result.resampling["significance"]
-    assert result.resampling["decision"] == "house_matrix", significance
-    assert result.weights_bps == significance["house_anchor_projected_bps"]
+    block = result.resampling["house_prior"]
+    if block["reason"] != "identical_to_house_anchor":
+        assert result.resampling["decision"] == "house_prior_guard", block
+    assert result.weights_bps == block["house_anchor_projected_bps"]
     _assert_published_contract(result.goal_achievability)
 
 

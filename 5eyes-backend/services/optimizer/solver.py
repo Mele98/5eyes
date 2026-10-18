@@ -68,6 +68,22 @@ from .drawdown_certification import (
     refined_primary_per_path,
 )
 from .goal_attribution import publish_goal_achievability
+from .house_prior import (
+    DECISION_HOUSE_PRIOR,
+    DECISION_HOUSE_PRIOR_GUARD,
+    HOUSE_PRIOR_KAPPA,
+    HOUSE_PRIOR_VERSION,
+    REASON_GUARD,
+    REASON_IDENTICAL,
+    REASON_NO_VALIDATION,
+    REASON_NOT_WORSE,
+    REASON_TEST_DISABLED,
+    goal_probability_rows,
+    house_prior_penalty,
+    house_prior_sentence,
+    paired_bootstrap_disclosure,
+    tracking_error_bps,
+)
 from .objective import (
     chance_constraint_penalty,
     combined_objective_two_phase,
@@ -447,6 +463,16 @@ class OptimizerContext:
     # Gewichtskonzentration, ggf. Fallback-Grund). None nur bei manuell
     # gebauten Contexts.
     importance_sampling_audit: dict | None = None
+    # HOUSE-PRIOR-001 (Engine saa_resampled_v6): zulaessig projizierte
+    # Hausmatrix-Zielquote als Prior des Optimierers (read-only, wie
+    # scenario_cov_bps2). Gesetzt nur im Resampling-Pfad des Default-Modus
+    # ``goal_shortfall`` mit projizierbarem Anker; dann ersetzt
+    # ``house_prior_kappa * (w - w_H)' Sigma (w - w_H)`` den Tiebreak
+    # ``w' Sigma w`` (siehe ``_tiebreak_portfolio_variance``). Bags,
+    # Validierungswuerfel und ``evaluate_weights(result.context, ...)`` erben
+    # ihn ueber ``replace`` -- eine Zielfunktion fuer alle Konsumenten.
+    house_prior_weights: np.ndarray | None = None
+    house_prior_kappa: float = HOUSE_PRIOR_KAPPA
     # GOAL-REACHABILITY-SCREEN-001 (2026-10-18): je Ziel mit Ziel-Untergrenze
     # die hoechste Erfolgswahrscheinlichkeit ueber die Pruefmenge zulaessiger
     # Allokationen (Ecken des Bandbreiten-Simplex, zulaessig projiziert, plus
@@ -990,10 +1016,19 @@ def _tiebreak_portfolio_variance(
     context: OptimizerContext, w: np.ndarray,
 ) -> float | None:
     """TIEBREAK-PORTFOLIO-VARIANCE-001: ``w' Sigma w`` aus der CMA-Kovarianz
-    des Contexts (None, falls ein manuell gebauter Context keine hat)."""
+    des Contexts (None, falls ein manuell gebauter Context keine hat).
+
+    HOUSE-PRIOR-001 (Engine v6): traegt der Context einen Hausmatrix-Prior,
+    ist der Term ``kappa_H * (w - w_H)' Sigma (w - w_H)`` (Tracking-Error-
+    Varianz zur Hausquote) statt ``w' Sigma w``. Ohne Anker bleibt v5."""
     cov = context.scenario_cov_bps2
     if cov is None:
         return None
+    house = context.house_prior_weights
+    if house is not None:
+        return house_prior_penalty(
+            w, house, cov, kappa=float(context.house_prior_kappa),
+        )
     return portfolio_variance_one_year(w, cov)
 
 
@@ -1180,8 +1215,19 @@ def deterministic_seed(*parts) -> int:
 # Volatilitaets-Tiebreak; Risikomass-Varianten zusaetzlich nur mit
 # Materialitaetsschwelle (50 bps). Neue Wuerfel, weil die Version in den
 # Seed eingeht.
+#
+# Engine v6 (2026-10-18, HOUSE-PRIOR-001, CIO-Entscheid): die Hausmatrix ist
+# ein Prior IM Optimierer statt eines binaeren Schalters dahinter. Je Bag
+# ``argmin G(w) + P_pref(w) + kappa_H (w - w_H)' Sigma (w - w_H)`` mit
+# kappa_H = 300 (services/optimizer/house_prior.py); der Tiebreak
+# ``w' Sigma w`` entfaellt im Default, wenn ein Anker vorliegt. Der
+# gepaarte Bootstrap bleibt nur zur Offenlegung plus Sicherheitsnetz (Final
+# signifikant SCHLECHTER als die Hausquote -> Hausquote). v5 sprang bei +1 %
+# Zielbetrag um bis zu 20.9 pp Turnover; v6 <= 4 pp. Risikomass-Varianten
+# und Laeufe ohne Anker unveraendert v5-Regel. Bewusst neue Wuerfel (die
+# Version geht in den Seed).
 OPTIMIZER_SEED_SCHEME = "content_seed_v2"
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v5"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v6"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -3180,9 +3226,11 @@ def _run_resampled_solver(
     advisory_wealth_rappen: int,
     cashflow_series_rappen: Iterable[int],
 ) -> OptimizerResult:
-    """Resampled Efficiency (Michaud-Bagging) + Signifikanztest gegen die Hausmatrix.
+    """Resampled Efficiency (Michaud-Bagging) mit Hausmatrix-Prior (Default)
+    bzw. Signifikanztest gegen die Hausmatrix (Varianten, kein Anker).
 
-    Siehe services/optimizer/resampling.py fuer Methode und Parameterwahl.
+    Siehe services/optimizer/resampling.py fuer Methode und Parameterwahl und
+    services/optimizer/house_prior.py fuer den Prior (HOUSE-PRIOR-001).
     """
     started = time.perf_counter()
     if context.scenario_inputs is None:
@@ -3190,6 +3238,23 @@ def _run_resampled_solver(
             "Resampling braucht die ScenarioInputs des Contexts, um Bag-Wuerfel "
             "derselben Verteilung zu ziehen."
         )
+    # HOUSE-PRIOR-001: im Default-Modus mit projizierbarem Anker tragen ALLE
+    # Bags und der Validierungswuerfel der Offenlegung den Prior (eine
+    # Zielfunktion fuer Optimierung und Offenlegung). Der Abschluss
+    # (``result.context``, ``result.objective_value``) bleibt bewusst auf dem
+    # Aufrufer-Context: Objekt-Identitaet fuer Aktivierungsvalidierung,
+    # Explainability und Shadow-Vergleich, und
+    # ``evaluate_weights(ctx, result.weights_bps).objective_value ==
+    # result.objective_value`` fuer jeden aus denselben Inputs gebauten
+    # Context. Der Prior-Term steht separat im Audit (``final_prior_penalty``).
+    caller_context = context
+    house_prior_anchor_bps: dict[str, int] | None = None
+    if objective_contract_of(context).objective_mode == OBJECTIVE_GOAL_SHORTFALL:
+        house_prior_anchor_bps, _anchor_reason = _project_house_anchor(
+            context, house_anchor_bps,
+        )
+        if house_prior_anchor_bps is not None:
+            context = _with_house_prior(context, house_prior_anchor_bps)
     n_bags = int(config.n_bags)
     # Nie mehr Pfade je Bag als der Hauptwuerfel hat: der Hauptwuerfel ist die
     # Referenzgroesse des Laufs (Tests mit kleinen Wuerfeln bleiben klein).
@@ -3378,6 +3443,43 @@ def _run_resampled_solver(
         if certified_w is not None:
             candidate_bps = _rounded_bps_with_repair(certified_w, context)
 
+    reasoning: list[str] = []
+    max_dispersion_pp = float(np.max(dispersion)) * 100.0
+    max_standard_error_pp = max_dispersion_pp / float(np.sqrt(n_succeeded))
+    reasoning.append(
+        f"Resampled Efficiency: {n_succeeded} von {n_bags} Bags a "
+        f"{bag_n_paths} Pfaden (Inhalts-Seed, Common Random Numbers) gemittelt; "
+        f"Streuung je Bucket ueber die Bags max. {max_dispersion_pp:.1f} pp, "
+        f"Standardfehler der Quote max. {max_standard_error_pp:.2f} pp."
+    )
+    if house_prior_anchor_bps is not None:
+        # HOUSE-PRIOR-001: kein Schalter -- das (projizierte) Bag-Mittel IST
+        # das Ergebnis; der Bootstrap legt nur offen und faengt als
+        # Sicherheitsnetz ein signifikant schlechteres Ergebnis ab.
+        house_prior = _house_prior_disclosure(
+            context,
+            candidate_bps=candidate_bps,
+            house_anchor_bps=house_anchor_bps,
+            anchor_projected_bps=house_prior_anchor_bps,
+            config=config,
+        )
+        payload["house_prior"] = house_prior
+        payload["decision"] = house_prior["decision"]
+        final_bps = dict(house_prior["final_bps"])
+        reasoning.append(house_prior_sentence(house_prior))
+        payload["final_weights_bps"] = dict(final_bps)
+        payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
+        return _finalize_solver_result(
+            caller_context,
+            selection=aggregate_selection,
+            weights=_trusted_weights_bps_to_array(final_bps),
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_series_rappen,
+            extra_reasoning=reasoning,
+            resampling_payload=payload,
+            drawdown_certification=drawdown_certification,
+        )
+
     significance = _significance_vs_house_anchor(
         context,
         candidate_bps=candidate_bps,
@@ -3388,16 +3490,6 @@ def _run_resampled_solver(
     payload["significance"] = significance
     decision = significance["decision"]
     payload["decision"] = decision
-
-    reasoning: list[str] = []
-    max_dispersion_pp = float(np.max(dispersion)) * 100.0
-    max_standard_error_pp = max_dispersion_pp / float(np.sqrt(n_succeeded))
-    reasoning.append(
-        f"Resampled Efficiency: {n_succeeded} von {n_bags} Bags a "
-        f"{bag_n_paths} Pfaden (Inhalts-Seed, Common Random Numbers) gemittelt; "
-        f"Streuung je Bucket ueber die Bags max. {max_dispersion_pp:.1f} pp, "
-        f"Standardfehler der Quote max. {max_standard_error_pp:.2f} pp."
-    )
     if decision == "house_matrix":
         final_bps = dict(significance["house_anchor_projected_bps"])
         if significance.get("reason") == "identical_to_house_anchor":
@@ -3443,6 +3535,122 @@ def _run_resampled_solver(
         resampling_payload=payload,
         drawdown_certification=drawdown_certification,
     )
+
+
+def _with_house_prior(
+    context: OptimizerContext,
+    anchor_projected_bps: Mapping[str, int],
+) -> OptimizerContext:
+    """Context mit Hausmatrix-Prior (HOUSE-PRIOR-001); Anker read-only."""
+    house = _trusted_weights_bps_to_array(dict(anchor_projected_bps)).copy()
+    house.setflags(write=False)
+    return replace(
+        context, house_prior_weights=house, house_prior_kappa=HOUSE_PRIOR_KAPPA,
+    )
+
+
+def _validation_goal_rows(
+    validation_context: OptimizerContext,
+    w: np.ndarray,
+    validation_seed: int,
+) -> list[dict]:
+    wealth = _simulate_context_wealth(validation_context, w)
+    return publish_goal_achievability(
+        wealth,
+        validation_context.liabilities,
+        validation_context.advisory_wealth_rappen,
+        weights=None,
+        annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+            validation_context, w
+        ),
+        validation_seed=int(validation_seed),
+    )
+
+
+def _house_prior_disclosure(
+    context: OptimizerContext,
+    *,
+    candidate_bps: dict[str, int],
+    house_anchor_bps: Mapping[str, int] | None,
+    anchor_projected_bps: dict[str, int],
+    config: ResamplingConfig,
+) -> dict:
+    """Offenlegung + Sicherheitsnetz des Hausmatrix-Priors (HOUSE-PRIOR-001).
+
+    ``candidate_bps`` ist das projizierte, gerundete Bag-Mittel unter dem
+    Prior. Ausgewiesen: kappa, Anker (roh/projiziert), Tracking Error zur
+    Hausquote, Delta Zielebene Haus vs. Ergebnis mit gepaartem Bootstrap
+    auf dem unabhaengigen Validierungswuerfel und die Zielwahrscheinlichkeit
+    je Ziel fuer beide. Einziger Entscheid: ist das Ergebnis auf der
+    Zielebene einseitig signifikant SCHLECHTER als die Hausquote, wird die
+    Hausquote publiziert (``house_prior_guard``).
+    """
+    house_w = np.asarray(context.house_prior_weights, dtype=np.float64)
+    candidate_w = _trusted_weights_bps_to_array(candidate_bps)
+    cov = context.scenario_cov_bps2
+    block: dict = {
+        "version": HOUSE_PRIOR_VERSION,
+        "kappa": float(context.house_prior_kappa),
+        "house_anchor_bps": dict(house_anchor_bps) if house_anchor_bps else None,
+        "house_anchor_projected_bps": dict(anchor_projected_bps),
+        "candidate_bps": dict(candidate_bps),
+        "candidate_tracking_error_vs_house_bps": round(
+            tracking_error_bps(candidate_w, house_w, cov), 4
+        ),
+        "disclosure": None,
+        "goal_probabilities": None,
+    }
+
+    def _done(decision: str, reason: str, final_bps: dict[str, int]) -> dict:
+        final_w = _trusted_weights_bps_to_array(final_bps)
+        return {
+            **block,
+            "decision": decision,
+            "reason": reason,
+            "final_bps": dict(final_bps),
+            "tracking_error_vs_house_bps": round(
+                tracking_error_bps(final_w, house_w, cov), 4
+            ),
+            # Prior-Term des publizierten Ergebnisses (kappa_H * TE^2); im
+            # result.objective_value steht stattdessen der v5-Audit-Skalar
+            # des Aufrufer-Contexts (siehe _run_resampled_solver).
+            "final_prior_penalty": float(house_prior_penalty(
+                final_w, house_w, cov, kappa=float(context.house_prior_kappa),
+            )),
+        }
+
+    if candidate_bps == anchor_projected_bps:
+        return _done(DECISION_HOUSE_PRIOR, REASON_IDENTICAL, candidate_bps)
+    if not config.significance_test:
+        return _done(DECISION_HOUSE_PRIOR, REASON_TEST_DISABLED, candidate_bps)
+    validation = _build_validation_context(context)
+    if validation is None:
+        return _done(DECISION_HOUSE_PRIOR, REASON_NO_VALIDATION, candidate_bps)
+    validation_context, validation_seed, cube_hash = validation
+    component_pair = _context_loss_components_on_validation(
+        validation_context, house_w, candidate_w,
+        validation_seed=int(validation_seed),
+    )
+    disclosure = paired_bootstrap_disclosure(
+        lambda idx: tuple(parts[0] for parts in component_pair(idx)),
+        n_paths=int(validation_context.n_paths),
+        n_bootstrap=int(config.n_bootstrap),
+        alpha=float(config.significance_alpha),
+        seed=bootstrap_seed(validation_seed),
+    )
+    block.update({
+        "disclosure": disclosure,
+        "goal_probabilities": goal_probability_rows(
+            _validation_goal_rows(validation_context, house_w, validation_seed),
+            _validation_goal_rows(validation_context, candidate_w, validation_seed),
+        ),
+        "validation_seed": int(validation_seed),
+        "validation_cube_hash": cube_hash,
+        "validation_n_paths": int(validation_context.n_paths),
+    })
+    if disclosure["significantly_worse"]:
+        return _done(DECISION_HOUSE_PRIOR_GUARD, REASON_GUARD, anchor_projected_bps)
+    return _done(DECISION_HOUSE_PRIOR, REASON_NOT_WORSE, candidate_bps)
 
 
 def _significance_sentence(significance: Mapping) -> str:
