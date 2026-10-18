@@ -327,16 +327,70 @@ def _unreachable_id(ctx) -> str:
     return next(str(l.goal_id) for l in ctx.liabilities if l.label == "Unerreichbar")
 
 
-def test_unreachable_goal_is_disclosed_but_steers_in_default_mode():
+def test_unreachable_goal_does_not_steer_the_default_mode_either():
+    """CIO-Entscheid 2026-10-18: auch im Default ``goal_shortfall`` steuert
+    ein praktisch unerreichbares Ziel weder Chance-Strafe noch Primaerterm
+    (kein zusaetzliches Risiko fuer ein aussichtsloses Ziel)."""
+    from services.optimizer.goal_reachability import UNREACHABLE_TAU_FRACTION
+    from services.optimizer.objective import shortfall_objective
+    from services.optimizer.scenario_engine import BUCKET_ORDER
+    from services.optimizer.solver import (
+        _objective_from_array,
+        _simulate_context_wealth,
+        _weights_to_bps_dict,
+        evaluate_weights,
+    )
+
     ctx = _screen_context("goal_shortfall")
     screen = ctx.goal_reachability
     gid = _unreachable_id(ctx)
     assert screen["unreachable_goal_ids"] == [gid]
     row = next(r for r in screen["goals"] if r["goal_id"] == gid)
-    assert row["reachable"] is False and row["max_upper_bound"] < row["tau"]
+    assert row["reachable"] is False
+    assert row["max_upper_bound"] < UNREACHABLE_TAU_FRACTION * row["tau"]
     assert screen["n_candidates_evaluated"] == screen["n_candidates"] >= 5
-    # Default: nur offenlegen.
-    assert ctx.penalty_exempt_goal_ids == frozenset()
+    assert ctx.penalty_exempt_goal_ids == frozenset({gid})
+
+    w = np.array([0.6, 0.3, 0.05, 0.03, 0.02])
+    wealth = _simulate_context_wealth(ctx, w)
+    kwargs = dict(
+        initial_wealth_rappen=ctx.advisory_wealth_rappen,
+        horizon_years=ctx.horizon_years, weights=ctx.scenario_weights,
+    )
+    reachable_only = [l for l in ctx.liabilities if str(l.goal_id) != gid]
+    assert shortfall_objective(
+        ctx.liabilities, wealth, excluded_goal_ids={gid}, **kwargs
+    ) == pytest.approx(shortfall_objective(reachable_only, wealth, **kwargs))
+    assert shortfall_objective(ctx.liabilities, wealth, **kwargs) > shortfall_objective(
+        reachable_only, wealth, **kwargs
+    )
+    bps = _weights_to_bps_dict(w, bounds=ctx.bounds)
+    w_rounded = np.array([bps[b] / 10000.0 for b in BUCKET_ORDER])
+    assert evaluate_weights(ctx, bps).objective_value == pytest.approx(
+        _objective_from_array(ctx, w_rounded), rel=1e-12
+    )
+
+
+@pytest.mark.parametrize("success_share,reachable", [(0.54, True), (0.05, False)])
+def test_half_tau_threshold_keeps_decision_relevant_goals_steering(
+    monkeypatch, success_share, reachable,
+):
+    """Schwelle tau/2: ein Ziel mit max. 54 % gegen tau = 80 % (Fundament:
+    Einkommensbruecke) bleibt entscheidungsrelevant und steuert weiter; ein
+    Ziel mit max. 5 % (Familienvermoegen) nicht."""
+    from services.optimizer import objective as objective_module
+    from services.optimizer.goal_reachability import goal_reachability_screen
+
+    ctx = _screen_context("goal_shortfall")
+    n = int(ctx.n_paths)
+
+    def _constant_success(wealth, goal, *_args, **_kwargs):
+        return (np.arange(wealth.shape[0]) < int(round(success_share * n))).astype(np.int8)
+
+    monkeypatch.setattr(objective_module, "_goal_probability_core", _constant_success)
+    screen = goal_reachability_screen(ctx)
+    assert all(row["reachable"] is reachable for row in screen["goals"])
+    assert bool(screen["penalty_exempt_goal_ids"]) is (not reachable)
 
 
 @pytest.mark.parametrize("mode", ["max_drawdown", "min_volatility"])
@@ -456,4 +510,7 @@ def test_reachability_is_published_on_goal_rows(monkeypatch):
     assert result.goal_reachability is not None
     rows = {r["label"]: r for r in result.goal_achievability if r.get("goal_id")}
     assert rows["Unerreichbar"]["feasible_set_reachable"] is False
-    assert any("auf keiner zulaessigen Allokation" in line for line in result.reasoning)
+    hints = [line for line in result.reasoning if line.startswith("Beraterhinweis: Ziel 'Unerreichbar'")]
+    assert len(hints) == 1
+    assert "mit ausreichender Sicherheit erreichbar" in hints[0]
+    assert "Ziel mit dem Kunden ueberpruefen (Betrag, Termin, Prioritaet)" in hints[0]

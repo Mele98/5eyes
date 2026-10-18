@@ -72,15 +72,10 @@ RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
 # kein Stufen-Schalter). Der Produktionstest vergleicht deshalb wieder die
 # Skalar-Zielfunktion -- dieselbe Ordnung, nach der optimiert wurde; die
 # Differenz hat eine Einheit, die untere Konfidenzgrenze ist wieder
-# definiert. ``lexicographic_improvement`` bleibt fuer Aufrufer, die
-# ausdruecklich die Zwei-Stufen-Logik vergleichen wollen.
+# definiert. SIGNIFICANCE-SCALAR-ONLY-001 (2026-10-18): die Zwei-Stufen-
+# Logik (``lexicographic_improvement``) ist entfernt; Tupel-Verluste werden
+# wie im Solver summiert (``scalar_loss``).
 SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_scalar_v3"
-# Nulltoleranz der Zwei-Stufen-Logik in ``lexicographic_improvement`` (war
-# bis v2 identisch mit dem inzwischen entfernten Stufe-2-Schalter des
-# Solvers).
-GOAL_LEVEL_EPSILON = 1e-12
-COMPARISON_GOAL_LEVEL = "goal_level"
-COMPARISON_TIEBREAK = "volatility_tiebreak"
 COMPARISON_SCALAR = "scalar"
 
 # Parameterwahl siehe docs/planning/2026-10-14-saa-stability-resampling.md.
@@ -195,64 +190,37 @@ def build_bag_paths(
     return paths[:, : int(horizon_years), :], weights
 
 
-def lexicographic_improvement(
-    anchor,
-    candidate,
-    *,
-    epsilon: float = GOAL_LEVEL_EPSILON,
-) -> tuple[float, str]:
-    """Verbesserung ``anker - kandidat`` in der Logik der Zwei-Stufen-Zielfunktion.
+def scalar_loss(loss) -> float:
+    """Skalar-Zielfunktion eines Verlusts -- dieselbe, die der Solver minimiert.
 
-    Argumente sind entweder Skalare (Altvertrag: Differenz der Skalar-
-    Zielfunktion, Ebene ``scalar``) oder ``(goal_level, tiebreak[, additiv])``
-    aus ``objective.two_phase_objective_parts`` (plus optional der
-    Soft-Preference-Strafe, die wie im Solver auf jeder Ebene mitzaehlt).
+    Ein Skalar wird unveraendert uebernommen. Ein Tupel
+    ``(goal_level, tiebreak[, additiv])`` (Terme aus
+    ``objective.two_phase_objective_parts`` plus optional Soft-Preference)
+    wird SUMMIERT -- ohne Stufen-Schalter.
 
-    SAA-SIGNIFICANCE-LEXICOGRAPHIC-001 (2026-10-17): Die Skalar-Zielfunktion
-    schaltet den Volatilitaetsterm PRO ALLOKATION zu, sobald deren Stufe 1
-    (Ziel-Fehlbetrag + Chance-Penalty) unter ``epsilon`` faellt. Als
-    Differenz zweier Allokationen ist sie damit nicht monoton: gemessen auf
-    dem CH-Golden-Mandat (Score 7) hatte die Hausmatrix-Zielquote auf EINEM
-    von 2'000 Validierungspfaden einen winzigen Fehlbetrag (Stufe 1 = 8.1e-9,
-    kein Volatilitaetsterm), der Kandidat erfuellte alle Ziele (Stufe 2,
-    Volatilitaetsterm 1.42e4) -- "Verbesserung" -14'204, Hausmatrix gewaehlt,
-    obwohl der Kandidat auf BEIDEN Stufen besser war. Ob dieser eine Pfad im
-    Wuerfel lag, entschied je nach Inhalts-Seed zwischen 60 % und 68 % Aktien.
-
-    Regel (dieselbe Prioritaet wie der Solver):
-    * Erfuellen BEIDE Stufe 1 (``goal_level < epsilon``), entscheidet der
-      Volatilitaetsterm (Ebene ``volatility_tiebreak``).
-    * Sonst entscheidet allein Stufe 1 (Ebene ``goal_level``); der
-      Volatilitaetsterm zaehlt fuer keine der beiden Allokationen.
+    SIGNIFICANCE-SCALAR-ONLY-001 (2026-10-18): hier stand bis dahin die
+    Zwei-Stufen-Logik von SAA-SIGNIFICANCE-LEXICOGRAPHIC-001
+    (``lexicographic_improvement`` und ``_objective_scalar``: Tiebreak nur,
+    wenn die Ziel-Stufe < 1e-12). Seit OBJECTIVE-NORMALIZATION-001 ist der
+    Tiebreak im Solver IMMER aktiv; ein Tupel-Verlust wurde hier also nach
+    einer ANDEREN Ordnung bewertet als die, nach der optimiert wird. Kein
+    Produktionspfad lieferte noch Tupel -- der Code war latent defekt und ist
+    entfernt. Ungueltige Formen werden abgelehnt.
     """
+    if isinstance(loss, (tuple, list)):
+        if len(loss) not in (2, 3):
+            raise TypeError(
+                "Tupel-Verlust muss (goal_level, tiebreak[, additiv]) sein."
+            )
+        return float(sum(float(term) for term in loss))
+    return float(loss)
+
+
+def scalar_improvement(anchor, candidate) -> tuple[float, str]:
+    """``L(anker) - L(kandidat)`` der Skalar-Zielfunktion (Ebene ``scalar``)."""
     if isinstance(anchor, (tuple, list)) != isinstance(candidate, (tuple, list)):
         raise TypeError("Anker und Kandidat muessen dieselbe Verlustform haben.")
-    if not isinstance(anchor, (tuple, list)):
-        return float(anchor) - float(candidate), COMPARISON_SCALAR
-    anchor_goal, anchor_tiebreak, anchor_extra = _loss_parts(anchor)
-    candidate_goal, candidate_tiebreak, candidate_extra = _loss_parts(candidate)
-    if anchor_goal < float(epsilon) and candidate_goal < float(epsilon):
-        return (
-            (anchor_goal + anchor_tiebreak + anchor_extra)
-            - (candidate_goal + candidate_tiebreak + candidate_extra),
-            COMPARISON_TIEBREAK,
-        )
-    return (
-        (anchor_goal + anchor_extra) - (candidate_goal + candidate_extra),
-        COMPARISON_GOAL_LEVEL,
-    )
-
-
-def _loss_parts(loss) -> tuple[float, float, float]:
-    """``(goal_level, tiebreak[, additiv])`` -> drei Floats.
-
-    Der optionale dritte Term (Soft-Preference-Strafe) liegt im Solver
-    ausserhalb des Stufen-Schalters und wird deshalb auf JEDER Ebene addiert,
-    entscheidet aber nicht ueber den Wechsel in Stufe 2.
-    """
-    goal_level, tiebreak = float(loss[0]), float(loss[1])
-    extra = float(loss[2]) if len(loss) > 2 else 0.0
-    return goal_level, tiebreak, extra
+    return scalar_loss(anchor) - scalar_loss(candidate), COMPARISON_SCALAR
 
 
 def paired_bootstrap_improvement(
@@ -273,27 +241,22 @@ def paired_bootstrap_improvement(
     p-Wert: Anteil der Replikationen ohne Verbesserung, mit der ueblichen
     (1 + k) / (1 + B)-Korrektur, damit nie p = 0 ausgewiesen wird.
 
-    ``loss_pair`` darf Skalare oder ``(goal_level, tiebreak)``-Paare liefern;
-    die Verbesserung je Replikation bildet ``lexicographic_improvement``.
+    ``loss_pair`` darf Skalare oder ``(goal_level, tiebreak[, additiv])``-
+    Tupel liefern; Tupel werden wie im Solver summiert (``scalar_loss``).
 
-    Entscheid (SAA-SIGNIFICANCE-LEXICOGRAPHIC-001): signifikant genau dann,
-    wenn die Punktschaetzung positiv ist UND ``p <= alpha``. Der Entscheid
-    haengt damit nur an Vorzeichen, nie an Betraegen -- noetig, weil
-    Replikationen auf verschiedenen Ebenen verglichen werden koennen (Stufe 1
-    in der einen, Volatilitaets-Tiebreak in der anderen) und ein Quantil
-    ueber Werte verschiedener Einheit interpolieren wuerde. Die untere
-    Konfidenzgrenze wird nur noch ausgewiesen, und nur wenn alle
-    Replikationen auf derselben Ebene verglichen wurden.
+    Entscheid: signifikant genau dann, wenn die Punktschaetzung positiv ist
+    UND ``p <= alpha``. Die untere Konfidenzgrenze ist das alpha-Quantil der
+    Replikationen (alle auf der Ebene ``scalar``).
     """
     anchor_full, candidate_full = loss_pair(None)
-    improvement, comparison = lexicographic_improvement(anchor_full, candidate_full)
+    improvement, comparison = scalar_improvement(anchor_full, candidate_full)
     rng = np.random.default_rng(int(seed))
     replicates = np.empty(int(n_bootstrap), dtype=np.float64)
     levels: dict[str, int] = {}
     for b in range(int(n_bootstrap)):
         idx = rng.integers(0, int(n_paths), size=int(n_paths))
         anchor_b, candidate_b = loss_pair(idx)
-        replicates[b], level = lexicographic_improvement(anchor_b, candidate_b)
+        replicates[b], level = scalar_improvement(anchor_b, candidate_b)
         levels[level] = levels.get(level, 0) + 1
     finite = replicates[np.isfinite(replicates)]
     block = {
@@ -325,13 +288,8 @@ def paired_bootstrap_improvement(
 
 
 def _objective_scalar(loss) -> float:
-    """Skalar-Zielfunktion fuer den Audit (wie ``combined_objective_two_phase``)."""
-    if not isinstance(loss, (tuple, list)):
-        return float(loss)
-    goal_level, tiebreak, extra = _loss_parts(loss)
-    if goal_level < GOAL_LEVEL_EPSILON:
-        return goal_level + tiebreak + extra
-    return goal_level + extra
+    """Skalar-Zielfunktion fuer den Audit (= ``scalar_loss``)."""
+    return scalar_loss(loss)
 
 
 # Felder des Resampling-Audits, die in die Modellbasis (und damit in

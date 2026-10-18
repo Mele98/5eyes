@@ -25,32 +25,37 @@ Bewertet wird auf dem NOMINALEN, unabhaengigen Validierungswuerfel (kein
 Importance Sampling, eigener Seed) mit genau der Erfolgsdefinition der
 Chance-Strafe (``_goal_probability_core``, gemeinsamer Pfad). Ein Ziel mit
 Ziel-Untergrenze (Haertegrad hart/primaer, nicht ``maximize``, nicht
-ausserhalb des Horizonts) heisst **unerreichbar**, wenn
+ausserhalb des Horizonts) heisst **praktisch unerreichbar**, wenn
 
-    max_{w in K}  UB_95(p_hat_g(w), N)  <  tau_g
+    max_{w in K}  UB_95(p_hat_g(w), N)  <  UNREACHABLE_TAU_FRACTION * tau_g
 
--- selbst die obere einseitige 95 %-Wilson-Grenze der guenstigsten
-gepruften Allokation liegt unter der Schwelle. Die Pruefmenge ist eine
-Ueberdeckung, kein Beweis: das Maximum einer Erfolgswahrscheinlichkeit kann
-im Inneren liegen. Die Obergrenze statt des Punktschaetzers und die
-Multi-Start-Punkte (die das Innere abdecken) halten die Regel konservativ:
-im Zweifel gilt ein Ziel als erreichbar und steuert weiter.
+mit ``UNREACHABLE_TAU_FRACTION = 0.5`` (CIO-Entscheid 2026-10-18): selbst
+die obere einseitige 95 %-Wilson-Grenze der guenstigsten gepruften
+Allokation erreicht nicht die HALBE geforderte Sicherheit. Ein Ziel, das
+mehr als die halbe Sicherheit erreichen kann (Fundament: Einkommensbruecke,
+max 54 % gegen tau 80 %), bleibt entscheidungsrelevant und steuert weiter;
+nur praktisch aussichtslose Ziele (Familienvermoegen 2035, max ~5 %) werden
+ausgenommen. Die Pruefmenge ist eine Ueberdeckung, kein Beweis: das Maximum
+kann im Inneren liegen. Obergrenze statt Punktschaetzer, die halbe Schwelle
+und die Multi-Start-Punkte (die das Innere abdecken) halten die Regel
+konservativ: im Zweifel steuert ein Ziel weiter.
 
-Wirkung
--------
-* Risikomass-Varianten (``max_drawdown``, ``min_volatility``,
-  ``cvar_return``, ``max_return``): die Chance-Strafe unerreichbarer Ziele
-  entfaellt (``OptimizerContext.penalty_exempt_goal_ids``) -- in Bags,
-  Signifikanztest und Drawdown-Rerank gleichermassen (ein Context, eine
-  Zielfunktion).
-* Default ``goal_shortfall``: nur Offenlegung. Dort ist die Strafe eines
-  unerreichbaren Ziels nicht entscheidungsfremd: Primaerterm (Fehlbetrag)
-  und Strafe ziehen in dieselbe Richtung (mehr Erfolgswahrscheinlichkeit),
-  und die Methodik priorisiert Ziele vor Risiko. Mathematisch zwingend ist
-  eine Aenderung dort nicht.
-* Offenlegung in jedem Modus: ``OptimizerResult.goal_reachability``, eine
-  Audit-Zeile je unerreichbarem Ziel und ``feasible_set_reachable`` auf den
-  publizierten Zielzeilen.
+Wirkung (JEDER Modus, CIO-Entscheid 2026-10-18)
+------------------------------------------------
+* Ein praktisch unerreichbares Ziel steuert weder die Chance-Strafe noch
+  (Modus ``goal_shortfall``) den Primaerterm
+  (``OptimizerContext.penalty_exempt_goal_ids``). Begruendung: sein
+  Fehlbetrag bleibt auf JEDER zulaessigen Allokation bestehen; als Zielterm
+  wuerde er die Allokation nur in mehr Risiko treiben ("Hoffen auf ein
+  Wunder") -- gegen den Kapitalschutz und auf Kosten der erreichbaren Ziele.
+  Gemessen auf dem Fundament-Mandat dominierte es den Primaerterm
+  (Z/W0 = 2.68).
+* Bags, Signifikanztest und Drawdown-Rerank erben die Ausnahme ueber den
+  Context (eine Zielfunktion).
+* Offenlegung: ``OptimizerResult.goal_reachability``, ein Beraterhinweis je
+  Ziel im Reasoning ("Ziel mit dem Kunden ueberpruefen") und
+  ``feasible_set_reachable`` auf den publizierten Zeilen der geprueften
+  Ziele. Die Zielwahrscheinlichkeit selbst wird weiter publiziert.
 """
 from __future__ import annotations
 
@@ -60,7 +65,11 @@ import numpy as np
 
 from .certification import wilson_upper_bound
 
-GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v1"
+GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v2"
+# Ein Ziel gilt als praktisch unerreichbar, wenn die obere 95 %-Grenze seiner
+# besten zulaessigen Erfolgswahrscheinlichkeit unter diesem Anteil seiner
+# geforderten Sicherheit tau liegt (CIO-Entscheid 2026-10-18).
+UNREACHABLE_TAU_FRACTION = 0.5
 
 
 def _box_simplex_vertices(bounds) -> list[np.ndarray]:
@@ -139,7 +148,6 @@ def goal_reachability_screen(context) -> dict | None:
     from . import solver as _solver
     from .objective import _default_tau_x100, _goal_probability_core
     from .objective_contract import objective_contract_of
-    from .objective_variants import OBJECTIVE_GOAL_SHORTFALL
 
     goals = _screened_goals(context, int(context.horizon_years) + 1)
     if not goals:
@@ -185,12 +193,12 @@ def goal_reachability_screen(context) -> dict | None:
                     int(round(x * 10000.0)) for x in np.asarray(w, dtype=np.float64)
                 ]
             row["max_upper_bound"] = max(row["max_upper_bound"], upper)
-            if upper >= row["tau"]:
+            if upper >= UNREACHABLE_TAU_FRACTION * row["tau"]:
                 row["reachable"] = True
 
     unreachable = sorted(gid for gid, row in state.items() if not row["reachable"])
     mode = objective_contract_of(context).objective_mode
-    exempt = [] if mode == OBJECTIVE_GOAL_SHORTFALL else list(unreachable)
+    exempt = list(unreachable)
     return {
         "version": GOAL_REACHABILITY_SCREEN_VERSION,
         "objective_mode": mode,
@@ -199,6 +207,7 @@ def goal_reachability_screen(context) -> dict | None:
         "validation_n_paths": n_paths,
         "n_candidates": len(candidates),
         "n_candidates_evaluated": evaluated,
+        "unreachable_tau_fraction": UNREACHABLE_TAU_FRACTION,
         "goals": [
             {
                 "goal_id": gid,
@@ -217,27 +226,22 @@ def goal_reachability_screen(context) -> dict | None:
 
 
 def reachability_reasoning(screen: dict | None) -> list[str]:
-    """Eine Audit-Zeile je unerreichbarem Ziel."""
+    """Beraterhinweis je praktisch unerreichbarem Ziel."""
     if not screen or not screen.get("unreachable_goal_ids"):
         return []
     lines = []
-    exempt = set(screen.get("penalty_exempt_goal_ids") or ())
     for row in screen.get("goals") or ():
         if row.get("reachable"):
             continue
         lines.append(
-            f"Ziel '{row['label']}' ist auf keiner zulaessigen Allokation "
-            f"erreichbar: hoechste Erfolgswahrscheinlichkeit "
-            f"{100.0 * float(row['max_probability']):.1f} % (obere 95 %-Grenze "
-            f"{100.0 * float(row['max_upper_bound']):.1f} %) gegen die "
-            f"Ziel-Untergrenze {100.0 * float(row['tau']):.0f} % "
-            f"({int(screen['n_candidates_evaluated'])} gepruefte zulaessige "
-            "Allokationen, Validierungswuerfel). "
-            + (
-                "Die Risikomass-Variante optimiert ohne dessen Chance-Strafe."
-                if row["goal_id"] in exempt
-                else "Offengelegt; die Zielfunktion bleibt unveraendert."
-            )
+            "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist mit keiner "
+            "zulaessigen Allokation mit ausreichender Sicherheit erreichbar (max. "
+            f"{100.0 * float(row['max_probability']):.1f} %, obere 95 %-Grenze "
+            f"{100.0 * float(row['max_upper_bound']):.1f} %, gefordert "
+            f"{100.0 * float(row['tau']):.0f} %). Ziel mit dem Kunden "
+            "ueberpruefen (Betrag, Termin, Prioritaet). Die Allokation wird "
+            "nicht auf dieses Ziel optimiert (kein zusaetzliches Risiko fuer "
+            "ein aussichtsloses Ziel)."
         )
     return lines
 

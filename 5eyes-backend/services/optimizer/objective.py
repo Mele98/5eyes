@@ -709,10 +709,10 @@ def chance_constraint_penalty(
     """Return chance-constraint penalty and per-goal achievability rows.
 
     ``penalty_exempt_goal_ids`` (GOAL-REACHABILITY-SCREEN-001): Ziele, deren
-    Strafe NICHT in den Wert eingeht. Der Solver setzt sie nur in den
-    Risikomass-Varianten und nur fuer Ziele, die auf keiner zulaessigen
-    Allokation erreichbar sind (``solver._goal_reachability_screen``); die
-    Zeile wird trotzdem gebildet und als ``penalty_exempt`` markiert.
+    Strafe NICHT in den Wert eingeht -- in jedem Modus die praktisch
+    unerreichbaren Ziele (``goal_reachability.goal_reachability_screen``,
+    Schwelle tau/2); die Zeile wird trotzdem gebildet und als
+    ``penalty_exempt`` markiert.
 
     Parameters
     ----------
@@ -844,11 +844,10 @@ def chance_constraint_penalty(
             applies_penalty = False
         penalty_exempt = applies_penalty and str(goal.goal_id) in exempt_ids
         if penalty_exempt:
-            # GOAL-REACHABILITY-SCREEN-001: ein Ziel, das auf KEINER
-            # zulaessigen Allokation erreichbar ist, kann zwischen zulaessigen
-            # Allokationen nichts entscheiden, was der Primaerterm der
-            # Risikomass-Variante nicht besser entscheidet -- sein Defizit
-            # bleibt auf jeder Allokation, nur sein Rauschen wuerde steuern.
+            # GOAL-REACHABILITY-SCREEN-001: ein praktisch unerreichbares
+            # Ziel (nicht einmal die halbe geforderte Sicherheit auf irgendeiner
+            # zulaessigen Allokation) steuert nicht -- sein Defizit bleibt auf
+            # jeder Allokation, es wuerde nur in mehr Risiko treiben.
             applies_penalty = False
         if applies_penalty:
             # Strafe an der unteren Grenze, nicht am Punktschaetzer (siehe
@@ -892,8 +891,13 @@ def shortfall_objective(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     goal_weighting_mode: str | None = None,
+    excluded_goal_ids: frozenset | set | tuple = frozenset(),
 ) -> float:
     """Primaere Objective L(w): gewichteter dimensionsloser MSE-Shortfall.
+
+    ``excluded_goal_ids`` (GOAL-REACHABILITY-SCREEN-001): praktisch
+    unerreichbare Ziele gehen nicht in L(w) ein -- ihr Fehlbetrag bleibt auf
+    jeder zulaessigen Allokation und wuerde nur in mehr Risiko treiben.
 
     Jeder Rappen-Fehlbetrag wird vor dem Quadrieren durch die gemeinsame
     Context-Skala ``max(1, initial_wealth_rappen)`` geteilt. Damit bleibt die
@@ -939,7 +943,10 @@ def shortfall_objective(
         weight_sum = float(np.sum(weights_arr))
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
+    excluded = frozenset(str(goal_id) for goal_id in (excluded_goal_ids or ()))
     for liab in liabilities:
+        if str(liab.goal_id) in excluded:
+            continue
         h_weight = _effective_hardness_weight(liab.hardness_key, goal_weighting_mode)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
         per_path = shortfall_squared_per_path(
@@ -1235,6 +1242,7 @@ def two_phase_objective_parts(
             weights=weights,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
             goal_weighting_mode=goal_weighting_mode,
+            excluded_goal_ids=penalty_exempt_goal_ids,
         )
         if is_goal_shortfall
         else 0.0

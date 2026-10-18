@@ -113,15 +113,17 @@ Kalibrierung (40 Bags × 7 Mandate, `goal_shortfall`, neue IS-Würfel):
 
 **κ = 1**: der kleinste Wert, bei dem kein Mandat mehr in 40/40 Bags am Startpunkt klebt (Defensiv-Mandat: w'Σw ≈ 0.0012, der Unterschied über das Band liegt unter SLSQP-`ftol` = 1e-6, solange κ < 1); eine Dekade unter der ersten messbaren Ziel-Erosion auf dem Konfliktmandat (κ = 10: −1.3 pp Aktien; κ = 1 und 3: −0.2 pp, unter dem Standardfehler des Bag-Mittels von 0.7 pp). Ab κ = 1 sind die Golden-Allokationen identisch zu κ = 100 – das Tiebreak-Minimum innerhalb der Bänder ist erreicht.
 
-## 5. Unerreichbare Ziele (CIO-Entscheid 3, `goal_reachability.py`)
+## 5. Praktisch unerreichbare Ziele (CIO-Entscheide 3 und Nachtrag 2026-10-18, `goal_reachability.py`)
 
-Definition: Prüfmenge K = Ecken des Bandbreiten-Simplex (höchstens ein Bucket strikt zwischen seinen Grenzen; verletzt eine Ecke weitere harte Nebenbedingungen, euklidisch zulässig projiziert) ∪ Multi-Start-Punkte des Solvers. Bewertung auf dem **nominalen** Validierungswürfel (kein IS, unabhängiger Seed) mit der Erfolgsdefinition der Chance-Strafe. Ein Ziel mit Untergrenze ist **unerreichbar**, wenn `max_{w∈K} UB₉₅(p̂(w), N) < τ` (einseitige obere Wilson-Grenze). K ist eine Überdeckung, kein Beweis (ein Maximum kann im Inneren liegen); Obergrenze und Multi-Start-Punkte halten die Regel konservativ – im Zweifel steuert ein Ziel weiter. Einmal je Context berechnet; Bags, Signifikanztest und Drawdown-Rerank erben Ergebnis und Ausnahme über den Context (eine Zielfunktion). Kosten: 0.02–0.05 s je Context (frühes Ende, sobald alle Ziele erreichbar sind).
+Definition: Prüfmenge K = Ecken des Bandbreiten-Simplex (höchstens ein Bucket strikt zwischen seinen Grenzen; verletzt eine Ecke weitere harte Nebenbedingungen, euklidisch zulässig projiziert) ∪ Multi-Start-Punkte des Solvers. Bewertung auf dem **nominalen** Validierungswürfel (kein IS, unabhängiger Seed) mit der Erfolgsdefinition der Chance-Strafe. Ein Ziel mit Untergrenze ist **praktisch unerreichbar**, wenn
 
-* Risikomass-Varianten: Chance-Strafe unerreichbarer Ziele entfällt (`penalty_exempt_goal_ids`; Zeile bleibt, `penalty_exempt: true`).
-* Default `goal_shortfall`: nur Offenlegung. Nicht mathematisch zwingend: Primärterm und Strafe ziehen dort in dieselbe Richtung (mehr Erfolgswahrscheinlichkeit), und die Methodik stellt Ziele vor Risiko.
-* Offenlegung in jedem Modus: `OptimizerResult.goal_reachability`, Reasoning-Zeile je Ziel, `feasible_set_reachable` auf den publizierten Zeilen der geprüften Ziele (auch im House-Matrix-Fallback der Produktionsgrenze).
+    max_{w∈K} UB₉₅(p̂(w), N) < UNREACHABLE_TAU_FRACTION · τ,   UNREACHABLE_TAU_FRACTION = 0.5.
 
-Ergebnis: Golden-Mandate – alle Ziele erreichbar (geprüft nach 1 Kandidaten). Fundament – „Familienvermögen 2035“ (max p 4.95 %, UB 5.8 %) und „Einkommensbrücke Pension“ (max p 54.0 %, UB 55.8 %) unerreichbar gegen τ = 80 % (15 geprüfte Allokationen); „Eigenmittel Ferienhaus“ erreichbar.
+Begründung der Schwelle τ/2 (CIO): Ein Ziel, das mehr als die halbe geforderte Sicherheit erreichen kann, bleibt entscheidungsrelevant und steuert weiter (Fundament: Einkommensbrücke, max ≈ 54 % gegen τ = 80 %); nur praktisch aussichtslose Ziele (Familienvermögen 2035, max ≈ 5 %) werden ausgenommen. K ist eine Überdeckung, kein Beweis (ein Maximum kann im Inneren liegen); obere Grenze, halbe Schwelle und Multi-Start-Punkte halten die Regel konservativ. Einmal je Context berechnet (0.02–0.05 s; frühes Ende, sobald jedes Ziel die Schwelle erreicht – `max_probability` eines erreichbaren Ziels ist daher die beste bis dahin geprüfte, nicht zwingend das Maximum).
+
+Wirkung in **jedem** Modus (CIO-Nachtrag 4): ein praktisch unerreichbares Ziel steuert weder die Chance-Strafe noch (Default `goal_shortfall`) den Primärterm L(w) – sein Fehlbetrag bleibt auf jeder zulässigen Allokation, als Zielterm würde es nur in mehr Risiko treiben („Hoffen auf ein Wunder“, gegen den Kapitalschutz). Es wird weiter simuliert und publiziert. Offenlegung: `OptimizerResult.goal_reachability`, je Ziel ein Beraterhinweis im Reasoning („Beraterhinweis: Ziel 'X' ist mit keiner zulässigen Allokation mit ausreichender Sicherheit erreichbar (max. Y %, …). Ziel mit dem Kunden überprüfen (Betrag, Termin, Priorität). …“) und `feasible_set_reachable` auf den publizierten Zeilen der geprüften Ziele (auch im House-Matrix-Fallback der Produktionsgrenze). Bags, Signifikanztest und Drawdown-Rerank erben die Ausnahme über den Context (eine Zielfunktion).
+
+Ergebnis: Golden-Mandate – alle Ziele erreichbar (nach 1 Kandidaten). Fundament – „Familienvermögen 2035“ (max 5.2 %, UB < 40 %) praktisch unerreichbar und ausgenommen; „Einkommensbrücke Pension“ (≈ 49–54 %) und „Eigenmittel Ferienhaus“ steuern weiter.
 
 ## 6. Nebenbefund: bps-Rundung auf aktiver Nebenbedingung (BPS-ROUNDING-ON-ACTIVE-CONSTRAINT-001)
 
@@ -143,9 +145,9 @@ Werte in % (Aktien/Obl./Immo/Alt./Liq.), erw. Rendite/Vola in bps, Entscheid in 
 | Score 5 CHF/EM | goal_shortfall | 40.0/43.8/6.0/7.2/3.0 (opt.) | 40.0/45.0/5.0/7.0/3.0 (opt.) | 410/686 → 408/682 | 283 → 0 |
 | Score 7 | goal_shortfall | 60.0/23.1/6.8/8.1/2.0 (opt.) | 60.0/25.0/5.4/7.6/2.0 (opt.) | 489/959 → 486/951 | 372 → 0 |
 | Score 9 | goal_shortfall | 75.0/13.9/3.9/5.2/2.0 (opt.) | 75.0/15.0/3.0/5.0/2.0 (opt.) | 551/1174 → 550/1169 | 257 → 0 |
-| Fundament | goal_shortfall | 66.0/11.0/17.5/3.0/2.5 (opt.) | 68.8/11.8/13.9/3.0/2.5 (opt.) | 543/1081 → 548/1108 | 474 → 634 |
-| Fundament | max_drawdown | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | 60.0/25.0/9.5/3.0/2.5 (**opt.**, p = 0.0025) | 524/1070 → 499/952 | 193 → 0 |
-| Fundament | min_volatility | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | 60.0/25.0/5.1/7.4/2.5 (**opt.**, p = 0.0025) | 524/1070 → 485/950 | 470 → 23 |
+| Fundament | goal_shortfall | 66.0/11.0/17.5/3.0/2.5 (opt.) | 64.4/10.1/20.0/3.0/2.5 (opt., p = 0.0025) | 543/1081 → 542/1067 | 474 → **16** |
+| Fundament | max_drawdown | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | 61.0/23.7/9.8/3.0/2.5 (**opt.**, p = 0.0025) | 524/1070 → 504/968 | 193 → 274 |
+| Fundament | min_volatility | 67.5/17.0/7.0/6.0/2.5 (**Hausmatrix**) | **73.7**/15.2/5.3/3.3/2.5 (**opt.**, p = 0.0025) | 524/1070 → 550/1152 | 470 → 205 |
 | Golden (alle) | max_drawdown / min_volatility | Änderungen ≤ 1.7 pp je Bucket, Aktien unverändert | | | ≤ 54 |
 
 Fundament, Zielwahrscheinlichkeiten (Validierungswürfel) vorher → nachher:
@@ -153,12 +155,17 @@ Fundament, Zielwahrscheinlichkeiten (Validierungswürfel) vorher → nachher:
 | Ziel | goal_shortfall | max_drawdown | min_volatility |
 |---|---|---|---|
 | Eigenmittel Ferienhaus 2028 (τ 80 %, erreichbar) | 100 → 100 % | 100 → 100 % | 100 → 100 % |
-| Familienvermögen 2035 (τ 80 %, **unerreichbar**) | 5.9 → 7.3 % | 5.3 → 4.0 % | 5.3 → 3.5 % |
-| Einkommensbrücke Pension (τ 80 %, **unerreichbar**) | 52.5 → 51.8 % | 49.5 → 48.4 % | 49.5 → 46.1 % |
-| Mindestrendite Advisory (keine Untergrenze) | 59.6 → 59.4 % | 55.3 → 51.2 % | 55.3 → 48.3 % |
-| Plan-Solvenz (alle Ziele gemeinsam) | 3.2 → 3.9 % | 2.6 → 1.5 % | 2.6 → 1.4 % |
+| Familienvermögen 2035 (τ 80 %, **praktisch unerreichbar**, ausgenommen) | 5.9 → 6.7 % | 5.3 → 4.2 % | 5.3 → 7.5 % |
+| Einkommensbrücke Pension (τ 80 %, über τ/2, steuert) | 52.5 → 51.6 % | 49.5 → 48.5 % | 49.5 → 51.7 % |
+| Mindestrendite Advisory (keine Untergrenze) | 59.6 → 59.0 % | 55.3 → 51.9 % | 55.3 → 58.1 % |
+| Plan-Solvenz (alle Ziele gemeinsam) | 3.2 → 3.2 % | 2.6 → 1.8 % | 2.6 → 4.3 % |
 
-Lesart: Auf den Golden-Mandaten verschwindet die Bag-Streuung (2–4 pp → 0): alle 40 Bags finden dieselbe Bandecke, weil der Tiebreak pfadfrei ist und die Chance-Strafe nicht mehr am ESS-Artefakt hängt. Auf dem Fundament wirken die Risikomass-Varianten jetzt in ihre Richtung (60 % Aktien = Bandunterkante statt Hausmatrix 67.5 %; Vola −1.2 pp); bezahlt wird mit 1–3 pp Wahrscheinlichkeit zweier Ziele, die auf keiner zulässigen Allokation erreichbar sind. Im Default-Modus bleibt das Fundament unruhig (Bag-σ 6.3 pp Immobilien): dort dominiert der Fehlbetrag des unerreichbaren Familienvermögen-Ziels (Z/W0 = 2.68) den Primärterm auf einem flachen Plateau – unverändert per CIO-Entscheid (nur Offenlegung).
+Lesart: Auf den Golden-Mandaten verschwindet die Bag-Streuung (2–4 pp → 0): alle 40 Bags finden dieselbe Bandecke, weil der Tiebreak pfadfrei ist und die Chance-Strafe nicht mehr am ESS-Artefakt hängt (Golden-Allokationen durch den Nachtrag unverändert, alle Ziele erreichbar).
+
+Fundament (nach CIO-Nachtrag, Schwelle τ/2, auch im Default):
+* **Default:** Ohne das aussichtslose Familienvermögen-Ziel im Primärterm verschwindet das flache Plateau: Bag-σ 474 bps (v3) → 634 bps (v4 vor Nachtrag) → **16 bps**. Allokation 64.4/10.1/20.0/3.0/2.5, Vola 10.81 → 10.67 %, Zielwahrscheinlichkeiten praktisch unverändert (Familienvermögen 6.7 %, Einkommensbrücke 51.6 %, Ferienhaus 100 %).
+* **max_drawdown:** 61 % Aktien statt Hausmatrix 67.5 %; Vola 9.68 %.
+* **min_volatility:** **73.7 % Aktien** – mehr als Default und Hausmatrix. Ursache: die Einkommensbrücke steuert wieder (über τ/2); ihr Defizit `τ − LB ≈ 0.3` mal `(Z/W0)² ≈ 1` kostet ~0.3, der gesamte Volatilitätsterm liegt bei ~0.1. Die Variante tauscht damit Volatilität gegen Erfolgswahrscheinlichkeit dieses Ziels (46.1 → 51.7 %) – Ziele vor Risiko, wie entschieden, aber im Ergebnis für eine „Minimum-Volatilität“-Variante kontraintuitiv. Siehe Owner-Frage 3.
 
 ## 9. Golden-Fixtures
 
@@ -166,13 +173,16 @@ Alle sechs neu eingefroren (Engine `saa_resampled_v4`), erzeugt mit `OMP/OPENBLA
 
 ## 10. Tests und Budgets
 
-* Neu `tests/test_importance_sampling_ess.py` (22 Tests): Unverzerrtheit gegen Lognormal (T = 5/20/40), ESS/N ≥ 0.75 für T = 5…40, Kollaps des alten Shifts (ESS/N < 0.05), Gewichte ≤ 1/α und ESS ≥ α Σw, Mischungs-Präfixe, Tail-Abdeckung 15.5 %, Varianzreduktion, Gewichte der Marginale + CRN, ESS im Audit und in der Wilson-Grenze, ESS-Rückfall, Erreichbarkeits-Screen (Default offenlegen, Varianten ausnehmen, eine Zielfunktion über Bag/Evaluate/Validierung/Rerank), Strafausnahme, Publikation, Rundungs-Reparatur.
+* Neu `tests/test_importance_sampling_ess.py` (24 Tests): Unverzerrtheit gegen Lognormal (T = 5/20/40), ESS/N ≥ 0.75 für T = 5…40, Kollaps des alten Shifts (ESS/N < 0.05), Gewichte ≤ 1/α und ESS ≥ α Σw, Mischungs-Präfixe, Tail-Abdeckung 15.5 %, Varianzreduktion, Gewichte der Marginale + CRN, ESS im Audit und in der Wilson-Grenze, ESS-Rückfall, Erreichbarkeits-Screen (Ausnahme in jedem Modus inkl. Primärterm, Schwelle τ/2 mit 54 %/5 %-Fall, Beraterhinweis, eine Zielfunktion über Bag/Evaluate/Validierung/Rerank), Strafausnahme, Publikation, Rundungs-Reparatur.
+* SIGNIFICANCE-SCALAR-ONLY-001: die Zwei-Stufen-Logik in `resampling.py` (`lexicographic_improvement`, Stufen-Schalter in `_objective_scalar`) ist entfernt. Tupel-Verluste werden wie im Solver summiert (`scalar_loss`), ungültige Formen abgelehnt; Tests in `test_saa_resampled_stability.py` umgestellt (Tupel- = Skalar-Bootstrap, Golden-Fall entscheidet auf jedem Würfel gleich, Ablehnung ungültiger Formen).
 * Angepasst: Tiebreak-Tests in `test_objective_normalization.py` (Monotonie-Property, Stetigkeit, Reproducer, Signifikanz-Skalar; neu: Tiebreak = κ w'Σw und mittelwertunabhängig), `test_optimizer_objective_constraints.py`, `test_optimizer_objective_dimensionless.py`.
 * Performance-Budget: `generate_target_allocation` 4.6 s (Budget 24 s). `services/portfolio_engine.py` unverändert 6'979 Zeilen (≤ 7'100).
 
-## 11. Offene Owner-Fragen
+## 11. Owner-Entscheide (CIO, 2026-10-18) und verbleibende Frage
 
-1. **Kish-ESS in der Wilson-Grenze ist für Tail-Ziele konservativ.** Sie rechnet mit n ≈ 0.83 N, obwohl der IS-Schätzer für Fehlschlag-Wahrscheinlichkeiten von 5–20 % 1.1–2.4× genauer ist als Standard-MC. Eine indikatorspezifische effektive Stichprobe (`n_f = p(1−p)/Var̂(p̂)`) würde den Gewinn gutschreiben, ist aber bei wenigen Fehlschlag-Pfaden selbst instabil. Beibehalten (CIO-Vorgabe) – Entscheid nötig, ob das so bleiben soll.
-2. **Lohnt Auto-IS überhaupt?** Auf allen sieben Mandaten sind die Ziele keine Tail-Ereignisse (p = 1.000 bzw. 0.02/0.5); dort ist das reparierte IS neutral. Alternative: Standard-MC mit mehr Pfaden für die Auto-IS-Mandate.
-3. **Schwelle „unerreichbar“ in den Varianten.** Die Einkommensbrücke (max 54 % gegen τ 80 %) gilt als unerreichbar und steuert in `max_drawdown`/`min_volatility` nicht mehr – ihre Wahrscheinlichkeit sinkt um 1–3 pp. Option: Ausnahme nur bei `UB < τ/2` o. ä., damit „fast erreichbare“ Ziele weiter steuern.
-4. **Default-Modus beim Fundament:** Das unerreichbare Familienvermögen-Ziel dominiert den Primärterm; die Bag-Streuung bleibt bei 6 pp. Ob ein unerreichbares Ziel im Default-Modus z. B. auf sein erreichbares Maximum gekappt oder als Beratungshinweis statt als Optimierungsziel geführt werden soll, ist eine Methodik-Entscheidung (umgesetzt: nur Offenlegung).
+1. **Wilson mit Kish-ESS bleibt.** Die Grenze rechnet mit n ≈ 0.83 N, obwohl der IS-Schätzer für Fehlschlag-Wahrscheinlichkeiten von 5–20 % 1.1–2.4× genauer ist. Bewusst konservativ: eine indikatorspezifische effektive Stichprobe `p(1−p)/Var̂(p̂)` wäre bei wenigen Fehlschlag-Pfaden selbst instabil (p̂ = 1 ⇒ Varianzschätzung 0 ⇒ n = ∞), und eine Zertifizierung darf nicht an einer instabilen Gutschrift hängen. Kosten: die Grenze liegt bei p = 1 bei 0.9984 statt 0.9986.
+2. **Auto-IS bleibt.** Mit ESS/N = 0.83, Gewichten ≤ 2 und Varianzgewinn ≥ 1 im ganzen Kalibrierungsraster ist es auch dort unschädlich, wo die Ziele keine Tail-Ereignisse sind, und hilft, wo sie es sind (5–20 % Fehlschlag: 1.1–2.4×).
+3. **Schwelle „praktisch unerreichbar“ = max UB₉₅ < τ/2** (`UNREACHABLE_TAU_FRACTION`), Abschnitt 5.
+4. **Auch im Default steuern praktisch unerreichbare Ziele weder Strafe noch Primärterm**; Beraterhinweis im Ergebnis. Fundament Default: Bag-σ 634 → 16 bps (Abschnitt 8).
+
+Verbleibende Frage: In `min_volatility` liefert das Fundament jetzt 73.7 % Aktien (mehr als Default 64.4 % und Hausmatrix 67.5 %), weil die Einkommensbrücke (≈ 50 % gegen τ 80 %, über τ/2) die Variante dominiert. Das folgt konsequent aus „Ziele vor Risiko“ plus τ/2, ist für eine „Minimum-Volatilität“-Variante aber erklärungsbedürftig. Optionen: so lassen (offenlegen), oder in den Risikomass-Varianten nur Ziele steuern lassen, deren Schwelle auf einer zulässigen Allokation erreichbar ist (UB ≥ τ).
