@@ -376,6 +376,10 @@ def ensure_runtime_columns() -> None:
             ('mc_exp_return_bps', 'INTEGER'),
             ('mc_max_drawdown_bps', 'INTEGER'),
             ('mc_var_95_bps', 'INTEGER'),
+            # SIM-HORIZON-CONFIRM-001 (2026-10-17): Berater-Bestaetigung eines
+            # vor SIM-HORIZON-ALWAYS-EXPLICIT-001 gespeicherten Horizonts.
+            ('sim_horizon_confirmed_at', 'TEXT'),
+            ('sim_horizon_confirmed_by', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),

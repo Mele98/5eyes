@@ -89,6 +89,10 @@ _VALID_SIMULATION_KEYS = frozenset(
         "crisisStrength",
         "tailRisk",
         "cornishFisher",
+        # SIM-HORIZON-CONFIRM-001: true = horizonYears ist eine ausdrueckliche
+        # Berater-Wahl (nach SIM-HORIZON-ALWAYS-EXPLICIT-001 bzw. bestaetigt).
+        # Rein dokumentarisch -- die Engine liest nur horizonYears.
+        "horizonExplicit",
     }
 )
 
@@ -365,6 +369,9 @@ class TargetAllocationResponse(BaseResponse):
     stress_evaluations_json: Optional[str] = None
     # Phase 6.2: persistierter Solver-Reasoning-Trace (JSON-Liste).
     optimizer_reasoning_json: Optional[str] = None
+    # SIM-HORIZON-CONFIRM-001: Berater-Bestaetigung eines Alt-Horizonts.
+    sim_horizon_confirmed_at: Optional[str] = None
+    sim_horizon_confirmed_by: Optional[str] = None
     # V3 Sprint 2.1: Verknuepfung zur optimizer_runs-Zeile (nur stochastic-Modus
     # mit converged Solver). NULL bei house_matrix oder shadow_stochastic.
     optimization_run_id: Optional[str] = None
@@ -1012,7 +1019,9 @@ class AllocationPreferencesPayload(BaseModel):
                 raise ValueError(
                     f"Unbekannter Simulation-Key '{key}' (erlaubt: {sorted(_VALID_SIMULATION_KEYS)})"
                 )
-            if key == "horizonYears":
+            if key == "horizonExplicit":
+                _validate_strict_bool(section="simulation", key=key, value=item)
+            elif key == "horizonYears":
                 _validate_integer_range(
                     section="simulation",
                     key=key,
@@ -1096,6 +1105,23 @@ class BuildingBlockResponse(BaseResponse):
 
 class TargetAllocationGenerateRequest(BaseModel):
     preferences: Optional[AllocationPreferencesPayload] = None
+
+
+class SimHorizonConfirmationRequest(BaseModel):
+    """SIM-HORIZON-CONFIRM-001: der Berater bestaetigt den im Snapshot der
+    AKTUELLEN Soll-Allokation gespeicherten Horizont. `horizon_years` muss
+    dem Snapshot entsprechen (Schutz gegen Bestaetigung eines anderen Werts
+    als des angezeigten, z.B. nach paralleler Neuberechnung)."""
+
+    horizon_years: int = Field(ge=1, le=120)
+
+
+class SimHorizonConfirmationResponse(BaseModel):
+    target_allocation_id: str
+    horizon_years: int
+    sim_horizon_confirmed_at: str
+    sim_horizon_confirmed_by: Optional[str] = None
+    already_confirmed: bool = False
 
 
 # Phase 6: Sensitivity-Analyse fuer ein einzelnes Goal.
