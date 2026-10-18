@@ -183,7 +183,8 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
             "liegt ausserhalb der Hausmatrix-Bandbreite {house_min} % bis {house_max} % "
             "des Risikoprofils «{profile_label}» (Score {score_bucket}). Die Allokation "
             "kann damit den Eignungsrahmen des Risikoprofils verlassen. Abweichung im "
-            "Beratungsgespräch begründen und dokumentieren."
+            "Beratungsgespräch begründen und im Bandbreiten-Editor dokumentieren — "
+            "ohne dokumentierte Begründung ist die Freigabe blockiert."
         ),
         "body_client": (
             "Für {bucket_label} wurde mit Ihnen eine Bandbreite vereinbart, die vom "

@@ -55,6 +55,9 @@ TOP_LEVEL_KEYS = frozenset(
         "assetClasses",
         "bands",
         "simulation",
+        # BAND-DEVIATION-REASON-REQUIRED-001: Begruendung einer Abweichung
+        # der Mandatsbandbreite von der Hausmatrix (Text, kein Abschnitt).
+        "bandDeviationReason",
     }
 )
 
