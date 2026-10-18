@@ -180,6 +180,7 @@ def _valid_ta_body(policy_id, based_on_assessment_id, **overrides):
         band_real_estate_min_bps=500, band_real_estate_max_bps=1500,
         band_alternatives_min_bps=300, band_alternatives_max_bps=800,
         band_liquidity_min_bps=200, band_liquidity_max_bps=800,
+        override_reason="Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     )
     base.update(overrides)
     return base
@@ -211,6 +212,8 @@ def test_manual_target_allocation_post_always_409s_in_stochastic_mode(
         policy_id = s.query(OptimizerPolicy).filter(
             OptimizerPolicy.is_current == 1
         ).first().id
+        from manual_save_basis import seed_advisory_basis  # MANUAL-SAVE-REQUIRES-BASIS-001
+        seed_advisory_basis(s, cid)
 
     resp = auth_client.post(
         f"/mandates/{mid}/target-allocation",

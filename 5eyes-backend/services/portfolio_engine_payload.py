@@ -109,6 +109,8 @@ dritte Zeichenkette `'"current_goal_analysis"'` bleibt dagegen unberuehrt
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -119,6 +121,8 @@ from models.review import Product, ProductUniverseEntry
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import future_value_with_cashflow_series, normalize_frequency
+
+logger = logging.getLogger(__name__)
 
 
 _GOAL_HARDNESS_MULTIPLIER_BPS = {
@@ -703,6 +707,373 @@ def _build_bucket_response(
     return bucket_response
 
 
+# ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): Klassifikation der
+# sechs "Kontroverse Exposures"-Themen. Einzige Quelle fuer Filter
+# (_product_matches_constraints), Score (_product_score), Run-Warnung und
+# PDF-Text -- die Labels sind dieselben, die
+# portfolio_engine_house_matrix._build_sub_allocations() fuer Overweight-
+# Themenbausteine verwendet.
+THEME_SUB_ASSET_CLASSES: dict[str, str] = {
+    "fossil": "Thema Fossile Energie",
+    "defense": "Thema Verteidigung",
+    "tobacco": "Thema Tabak",
+    "alcohol": "Thema Alkohol",
+    "gaming": "Thema Gluecksspiel",
+    "nuclear": "Thema Kernenergie",
+}
+THEME_DISPLAY_NAMES: dict[str, str] = {
+    "fossil": "Fossile Energie",
+    "defense": "Verteidigung",
+    "tobacco": "Tabak",
+    "alcohol": "Alkohol",
+    "gaming": "Gluecksspiel",
+    "nuclear": "Kernenergie",
+}
+_THEME_KEY_BY_SUB_ASSET_CLASS = {label: key for key, label in THEME_SUB_ASSET_CLASSES.items()}
+SCREENING_TILT_MODES = frozenset({"exclude", "underweight"})
+# ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): vierter Zustand
+# "allow" = "bewusst zulassen". Uebersteuert das Negativ-Screening fuer
+# dieses Thema; Pflicht-Begruendung in prefs["tiltReasons"][theme] (siehe
+# schemas/allocation.py::AllocationPreferencesPayload) und im
+# Anlagestrategie-PDF als dokumentierte Abweichung ausgewiesen.
+THEME_TILT_ALLOW = "allow"
+
+# ESG-PREMIUM-CRITERIA-001, Stufe 3b: Look-through NUR fuer Fossile Energie.
+# Fossile Energie ist (naeherungsweise) ein ganzer GICS-Sektor ("Energy",
+# Schluesselschreibweise wie in services/product_exposures.py und in
+# Product.sector_exposure_json). Tabak, Alkohol, Gluecksspiel, Verteidigung
+# und Kernenergie sind Sub-Industrien innerhalb breiterer Sektoren (Consumer
+# Staples, Consumer Discretionary, Industrials, Utilities) und aus der
+# Sektor-Aufschluesselung NICHT ableitbar -- dafuer gibt es bewusst keinen
+# Look-through (er waere erfunden). Schwelle 10 % (1000 bps, strikt groesser):
+# breite Kernindizes liegen deutlich darunter (Welt ~4.5 %, Europa/EM ~6 %,
+# Schweiz ~0.5 %), ein Energie-Sektor- oder Rohstoff-ETF deutlich
+# darueber. Nur GEPFLEGTE Produktdaten zaehlen, nie der Sub-Klassen-Proxy aus
+# services/product_exposures.py (das ist eine Schaetzung, keine Produktdaten).
+FOSSIL_LOOK_THROUGH_SECTOR = "Energy"
+FOSSIL_LOOK_THROUGH_THRESHOLD_BPS = 1000
+
+# ESG-PREMIUM-CRITERIA-001, Stufe 2: unterscheidbare, datengetriebene
+# Kriterien je ESG-Policy. Fehlende Daten -> Produkt fuer diese Policy NICHT
+# zulaessig (fail-closed). Liquiditaet bleibt ausgenommen (Konto/Festgeld
+# haben keine SFDR-Klassifikation).
+# - best_in_class (CIO-Entscheid 2026-10-18, konservativ gegen
+#   Greenwashing): nur die LEADER-Klasse der siebenstufigen Rating-Skala
+#   AAA-CCC (Product.esg_rating). Die Skala teilt sich in Leader (AAA, AA),
+#   Durchschnitt (A, BBB, BB) und Nachzuegler (B, CCC); "A" ist damit
+#   Durchschnitt und KEIN Best-in-Class. Alternativ der numerische Score
+#   Product.esg_score_x10 (Skala 0-1000 = 0.0-100.0, siehe models/review.py)
+#   ab der Untergrenze der Leader-Klasse: auf der 0-10-Skala der
+#   Rating-Systematik liegt AA ab 7.143 (= 10 * 5/7), also hier >= 714.
+# - net_zero (CIO-Entscheid 2026-10-18): EU-Klima-Benchmark nach
+#   Verordnung (EU) 2019/2089 -- Paris-aligned Benchmark (PAB) / Climate
+#   Transition Benchmark (CTB), Katalogfeld Product.climate_benchmark -- ist
+#   PFLICHT. SFDR Art. 9 allein belegt kein Netto-Null-Ziel und reicht
+#   nicht.
+ESG_BEST_IN_CLASS_RATINGS: tuple[str, ...] = ("AAA", "AA")
+ESG_BEST_IN_CLASS_MIN_SCORE_X10 = 714
+CLIMATE_BENCHMARKS: tuple[str, ...] = ("PAB", "CTB")
+ESG_POLICY_NAMES: dict[str, str] = {
+    "esg_integration": "ESG-Integration",
+    "best_in_class": "Best-in-Class",
+    "impact": "Impact Investing",
+    "net_zero": "Paris-aligned / Net Zero",
+}
+ESG_POLICY_CRITERIA: dict[str, str] = {
+    "esg_integration": "nur Produkte nach SFDR Art. 8 oder 9",
+    "best_in_class": (
+        "nur Produkte nach SFDR Art. 8 oder 9 mit ESG-Rating AAA oder AA "
+        "(Leader-Klasse der Rating-Skala AAA-CCC) oder ESG-Score von "
+        "mindestens 71.4/100; Produkte ohne Rating/Score sind nicht zulaessig"
+    ),
+    "impact": "nur Produkte nach SFDR Art. 9",
+    "net_zero": (
+        "nur Produkte mit EU-Klima-Benchmark (Paris-aligned PAB oder Climate "
+        "Transition CTB, Pflicht); SFDR Art. 9 allein genuegt nicht"
+    ),
+}
+
+
+# Self-Review 2026-10-18: die Liquiditaets-Ausnahme (siehe
+# _product_matches_constraints) gehoert in jedes Kundendokument, das ein
+# Kriterium nennt -- sonst behauptet "nur Produkte nach SFDR Art. 9" mehr, als
+# die Engine umsetzt (Konto/Festgeld haben keine SFDR-Klasse).
+ESG_POLICY_LIQUIDITY_EXEMPTION = (
+    "Liquiditaet (Konto/Festgeld ohne SFDR-Klassifikation) ist vom Kriterium ausgenommen"
+)
+
+
+def esg_policy_criterion_label(policy: str | None) -> str | None:
+    """'<Name> (<exaktes Kriterium>)' fuer SFDR-gebundene Policies, sonst None."""
+    if policy not in ESG_POLICY_CRITERIA:
+        return None
+    return f"{ESG_POLICY_NAMES[policy]} ({ESG_POLICY_CRITERIA[policy]})"
+
+
+def product_meets_esg_policy(product, policy: str | None) -> bool:
+    """ESG-PREMIUM-CRITERIA-001: prueft das Produkt gegen das Kriterium der
+    ESG-Policy (ohne Liquiditaets-Ausnahme -- die liegt beim Aufrufer).
+    Policies ohne Produktkriterium ("none", "negative_screening", None)
+    lassen jedes Produkt zu."""
+    if policy not in ESG_POLICY_CRITERIA:
+        return True
+    sfdr = str(getattr(product, "sfdr_class", None) or "").strip()
+    if policy == "esg_integration":
+        return sfdr in ("8", "9")
+    if policy == "best_in_class":
+        if sfdr not in ("8", "9"):
+            return False
+        rating = str(getattr(product, "esg_rating", None) or "").strip().upper()
+        if rating in ESG_BEST_IN_CLASS_RATINGS:
+            return True
+        score = getattr(product, "esg_score_x10", None)
+        return (
+            isinstance(score, int)
+            and not isinstance(score, bool)
+            and score >= ESG_BEST_IN_CLASS_MIN_SCORE_X10
+        )
+    if policy == "impact":
+        return sfdr == "9"
+    if policy == "net_zero":
+        benchmark = str(getattr(product, "climate_benchmark", None) or "").strip().upper()
+        return benchmark in CLIMATE_BENCHMARKS
+    return False  # pragma: no cover -- alle Keys oben abgedeckt
+
+
+def parse_theme_tags(raw) -> frozenset[str]:
+    """Liest Product.theme_tags (JSON-Liste von Themen-Keys). Unbekannte Keys
+    und kaputte Legacy-Werte klassifizieren nichts (neue Daten werden am
+    Schema-Rand validiert, siehe schemas/review.py)."""
+    if raw is None or raw == "":
+        return frozenset()
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        values = list(raw)
+    else:
+        try:
+            values = json.loads(str(raw))
+        except (TypeError, ValueError):
+            logger.warning("Product.theme_tags ist kein gueltiges JSON: %r", raw)
+            return frozenset()
+        if not isinstance(values, list):
+            return frozenset()
+    return frozenset(
+        str(value).strip() for value in values
+        if str(value).strip() in THEME_SUB_ASSET_CLASSES
+    )
+
+
+def _maintained_energy_share_bps(product) -> int | None:
+    """Gepflegter GICS-'Energy'-Anteil aus Product.sector_exposure_json, None
+    wenn keine (gueltigen) Sektordaten gepflegt sind. Bewusst KEIN Proxy."""
+    raw = getattr(product, "sector_exposure_json", None)
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict) or not parsed:
+        return None
+    total = 0
+    for key, value in parsed.items():
+        if str(key).strip().lower() == FOSSIL_LOOK_THROUGH_SECTOR.lower():
+            try:
+                total += int(value)
+            except (TypeError, ValueError):
+                return None
+    return total
+
+
+def product_theme_keys(product) -> frozenset[str]:
+    """ESG-PREMIUM-CRITERIA-001: alle Themen, denen das Produkt zugeordnet ist.
+
+    1. eigene Sub-Anlageklasse "Thema X" (nicht der angefragte Slot),
+    2. Katalogfeld theme_tags,
+    3. Look-through Fossile Energie: gepflegter GICS-Sektoranteil "Energy"
+       > FOSSIL_LOOK_THROUGH_THRESHOLD_BPS.
+    """
+    keys = set(parse_theme_tags(getattr(product, "theme_tags", None)))
+    by_sub = product_theme_key(product)
+    if by_sub:
+        keys.add(by_sub)
+    energy = _maintained_energy_share_bps(product)
+    if energy is not None and energy > FOSSIL_LOOK_THROUGH_THRESHOLD_BPS:
+        keys.add("fossil")
+    return frozenset(keys)
+
+
+def product_theme_key(product) -> str | None:
+    """Themen-Key aus der eigenen Sub-Anlageklasse des Produkts (nicht aus dem
+    angefragten Slot)."""
+    return _THEME_KEY_BY_SUB_ASSET_CLASS.get(str(getattr(product, "sub_asset_class", None) or "").strip())
+
+
+def default_catalog_theme_tags(sub_asset_class: str | None) -> str | None:
+    """ESG-PREMIUM-CRITERIA-001: Themenprodukte des Seed-Katalogs tragen ihren
+    Themen-Tag explizit (gleiche Regel wie der Backfill in database.py /
+    Alembic d7c3e9a2f5b1). Andere Produkte: NULL (= nicht gepflegt)."""
+    key = _THEME_KEY_BY_SUB_ASSET_CLASS.get(str(sub_asset_class or "").strip())
+    return json.dumps([key]) if key else None
+
+
+def effective_theme_screening(prefs: dict | None) -> dict[str, str]:
+    """ESG-THEME-EXCLUSION-EFFECTIVE-001: liefert {theme_key: mode} fuer alle
+    Themen, deren Produkte NICHT empfohlen werden duerfen (mode "exclude"
+    oder "underweight").
+
+    Semantik:
+    - "exclude": Themenprodukte werden nie ausgewaehlt -- weder in einem
+      Themenbaustein noch als Ersatz/Fallback fuer einen anderen Slot.
+    - "underweight": kein eigener Themenbaustein (ein solcher entsteht ohnehin
+      nur bei "overweight") UND Themenprodukte werden nie als Ersatz/Fallback
+      fuer einen anderen Slot ausgewaehlt. Produktwirkung damit identisch zu
+      "exclude"; das abweichende Label bleibt im Dokument erhalten.
+    - "neutral" (UI-Default) und "Key fehlt" sind gleichbedeutend: das Thema
+      folgt der ESG-Policy, bei policy.esg == "negative_screening" also
+      "exclude" (die Monolith-UI sendet immer alle sechs Tilts).
+    - "allow" (ESG-PREMIUM-CRITERIA-001): bewusst zugelassen, uebersteuert
+      das Negativ-Screening (dokumentierte Begruendung Pflicht, siehe
+      theme_policy_deviations()). Ohne Negativ-Screening wie "neutral".
+    - "overweight" uebersteuert das Negativ-Screening ebenfalls (bestehender
+      Vertrag) und wird im PDF als Abweichung ausgewiesen.
+    """
+    prefs = prefs if isinstance(prefs, dict) else {}
+    tilts = prefs.get("tilts") if isinstance(prefs.get("tilts"), dict) else {}
+    policy = prefs.get("policy") if isinstance(prefs.get("policy"), dict) else {}
+    negative_screening = policy.get("esg") == "negative_screening"
+    screened: dict[str, str] = {}
+    for key in THEME_SUB_ASSET_CLASSES:
+        mode = tilts.get(key)
+        if mode in (None, "neutral") and negative_screening:
+            mode = "exclude"
+        if mode in SCREENING_TILT_MODES:
+            screened[key] = mode
+    return screened
+
+
+def theme_policy_deviations(prefs: dict | None) -> dict[str, dict]:
+    """ESG-PREMIUM-CRITERIA-001: {theme_key: {"mode", "reason"}} fuer alle
+    bewusst getroffenen Abweichungen vom Themen-Ausschluss:
+    - "allow" immer (Begruendung ist Pflicht, Schema-validiert),
+    - "overweight" nur, wenn die ESG-Policy Negativ-Screening ist (dann
+      weicht der Tilt vom Policy-Ausschluss ab). Eine Begruendung ist hier
+      optional, damit bereits persistierte Praeferenzen gueltig bleiben."""
+    prefs = prefs if isinstance(prefs, dict) else {}
+    tilts = prefs.get("tilts") if isinstance(prefs.get("tilts"), dict) else {}
+    policy = prefs.get("policy") if isinstance(prefs.get("policy"), dict) else {}
+    reasons = prefs.get("tiltReasons") if isinstance(prefs.get("tiltReasons"), dict) else {}
+    negative_screening = policy.get("esg") == "negative_screening"
+    deviations: dict[str, dict] = {}
+    for key in THEME_SUB_ASSET_CLASSES:
+        mode = tilts.get(key)
+        if mode == THEME_TILT_ALLOW or (mode == "overweight" and negative_screening):
+            reason = reasons.get(key)
+            deviations[key] = {
+                "mode": mode,
+                "reason": reason.strip() if isinstance(reason, str) and reason.strip() else None,
+            }
+    return deviations
+
+
+def theme_look_through_disclosure(theme_keys) -> str:
+    """Themenspezifische Offenlegung, was der Themenfilter erfasst."""
+    selected = set(theme_keys or ())
+    keys = [key for key in THEME_SUB_ASSET_CLASSES if key in selected]
+    parts = []
+    if "fossil" in keys:
+        parts.append(
+            "Fossile Energie: Themenprodukte sowie Fonds mit Energie-Sektoranteil > 10 % "
+            "(GICS 'Energy' gemaess gepflegter Sektor-Aufschluesselung) ausgeschlossen "
+            "(Look-through); Produkte ohne gepflegte Sektordaten werden nicht durchleuchtet."
+        )
+    others = [THEME_DISPLAY_NAMES[key] for key in keys if key != "fossil"]
+    if others:
+        parts.append(
+            ", ".join(others) + ": nur als Themenprodukt klassifizierte Produkte "
+            "(Sub-Anlageklasse 'Thema ...' oder Themen-Tag im Produktkatalog); kein "
+            "Look-through, da diese Themen Sub-Industrien und aus Sektordaten nicht "
+            "ableitbar sind -- breit diversifizierte Index- und Fondsprodukte werden "
+            "nicht durchleuchtet und koennen Titel dieser Themen enthalten."
+        )
+    return " ".join(parts)
+
+
+def theme_screening_disclosure(prefs: dict | None) -> str | None:
+    """Run-Warnung/Offenlegung, sobald mindestens ein Thema gescreent wird
+    oder bewusst vom Themen-Ausschluss abgewichen wurde."""
+    screened = effective_theme_screening(prefs)
+    deviations = theme_policy_deviations(prefs)
+    if not screened and not deviations:
+        return None
+    sentences = []
+    if screened:
+        parts = [
+            f"{THEME_DISPLAY_NAMES[key]} ({'ausgeschlossen' if mode == 'exclude' else 'untergewichtet'})"
+            for key, mode in screened.items()
+        ]
+        sentences.append(
+            "Themen-Screening aktiv: " + ", ".join(parts) + ". Ausgeschlossene und "
+            "untergewichtete Themen werden weder als Themenbaustein noch als Ersatz "
+            "fuer einen anderen Baustein umgesetzt. " + theme_look_through_disclosure(screened)
+        )
+    if deviations:
+        labels = [
+            THEME_DISPLAY_NAMES[key]
+            + (" bewusst zugelassen" if item["mode"] == THEME_TILT_ALLOW else " uebergewichtet")
+            for key, item in deviations.items()
+        ]
+        sentences.append(
+            "Dokumentierte Abweichung vom Themen-Ausschluss: " + ", ".join(labels) + "."
+        )
+    return " ".join(sentences)
+
+
+def esg_policy_gap_hint(
+    products: list,
+    sub_asset_class: str,
+    asset_class: str,
+    prefs: dict,
+    score_bucket: int,
+    *,
+    jurisdiction_ctx: dict | None = None,
+) -> str | None:
+    """ESG-PREMIUM-CRITERIA-001: erklaert, wenn das ESG-Policy-Kriterium der
+    Grund ist, dass ein Slot leer bleibt -- nennt das exakte Kriterium und
+    wie viele sonst zulaessige Produkte der Sub-Anlage- bzw. Anlageklasse es
+    erfuellen. None, wenn keine SFDR-gebundene Policy aktiv ist oder es
+    ohnehin keine sonst zulaessigen Produkte gibt (reine Katalogluecke)."""
+    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
+    from services.portfolio_engine import _norm_text
+
+    prefs = prefs if isinstance(prefs, dict) else {}
+    policy_prefs = prefs.get("policy") if isinstance(prefs.get("policy"), dict) else {}
+    policy = policy_prefs.get("esg")
+    if policy not in ESG_POLICY_CRITERIA:
+        return None
+    relaxed = {**prefs, "policy": {**policy_prefs, "esg": "none"}}
+    otherwise_ok = [
+        product for product in products
+        if _product_matches_constraints(product, relaxed, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
+    ]
+    in_sub = [p for p in otherwise_ok if str(p.sub_asset_class or "") == str(sub_asset_class)]
+    in_class = [p for p in otherwise_ok if _norm_text(p.asset_class) == _norm_text(asset_class)]
+    sub_ok = sum(1 for p in in_sub if product_meets_esg_policy(p, policy))
+    class_ok = sum(1 for p in in_class if product_meets_esg_policy(p, policy))
+    # Das Kriterium ist nur dann DER Grund, wenn es sonst zulaessige Produkte
+    # der exakten Sub-Anlageklasse ausschliesst -- oder, falls es dort gar
+    # keine gibt, den Anlageklassen-Ersatz vollstaendig verhindert.
+    blocks_exact = bool(in_sub) and sub_ok == 0
+    blocks_fallback = not in_sub and bool(in_class) and class_ok == 0
+    if not (blocks_exact or blocks_fallback):
+        return None
+    return (
+        f"ESG-Kriterium {esg_policy_criterion_label(policy)} erfuellt von "
+        f"{sub_ok} von {len(in_sub)} Produkten der Sub-Anlageklasse {sub_asset_class}, "
+        f"die alle uebrigen Mandatsrestriktionen erfuellen, und {class_ok} von "
+        f"{len(in_class)} der Anlageklasse {asset_class}"
+    )
+
+
 def _product_matches_constraints(
     product: Product,
     prefs: dict,
@@ -770,12 +1141,28 @@ def _product_matches_constraints(
     # ichtigung von E/S-Merkmalen ohne volles Impact-Mandat) ist inhaltlich
     # am naechsten an SFDR Art. 8 -- behandelt wie die bestehenden drei Werte,
     # die bereits identisch auf denselben SFDR-8/9-Gate abgebildet sind.
-    if (
-        policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero", "esg_integration")
-        and asset_class != "Liquiditaet"
-    ):
-        if str(product.sfdr_class or "") not in ("8", "9"):
-            return False
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): harter Filter auf
+    # der Produkt-Klassifikation. Vorher nur ein Score-Malus, der am
+    # angefragten SLOT hing -- ein ausgeschlossenes Themenprodukt wurde als
+    # Anlageklassen-Fallback fuer z.B. "Aktien Global" normal ausgewaehlt
+    # (live reproduziert: fossil=exclude -> 60% "Energy Select Sector ETF").
+    # Weil dieser Filter VOR exact- und Fallback-Kandidatenbildung in
+    # generate_recommendation_run() greift, gilt er fuer jeden Slot; ein Slot
+    # ohne verbleibendes Produkt laeuft in den bestehenden fail-closed-Pfad
+    # (missing_sub_classes -> ValueError "Produktselektion unvollstaendig").
+    # ESG-PREMIUM-CRITERIA-001: Themen-Zuordnung zweistufig (Sub-Anlageklasse
+    # / theme_tags + Fossil-Look-through ueber gepflegte Sektordaten), siehe
+    # product_theme_keys().
+    screened = effective_theme_screening(prefs)
+    if screened and not screened.keys().isdisjoint(product_theme_keys(product)):
+        return False
+    # ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): jede SFDR-
+    # gebundene Policy hat jetzt ihr EIGENES, datengetriebenes Kriterium
+    # (vorher bildeten alle vier identisch auf SFDR 8/9 ab -- "Impact" und
+    # "Net Zero" versprachen damit mehr, als die Engine pruefte). Siehe
+    # ESG_POLICY_CRITERIA / product_meets_esg_policy().
+    if asset_class != "Liquiditaet" and not product_meets_esg_policy(product, policy_prefs.get("esg")):
+        return False
     return True
 
 
@@ -913,34 +1300,22 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
         score += 20
     if str(product.sfdr_class or "") in ("8", "9"):
         score += 25
-    thematic_map = {
-        "Thema Fossile Energie": "fossil",
-        "Thema Verteidigung": "defense",
-        "Thema Tabak": "tobacco",
-        "Thema Alkohol": "alcohol",
-        "Thema Gluecksspiel": "gaming",
-        "Thema Kernenergie": "nuclear",
-    }
-    thematic_key = thematic_map.get(sub_asset_class)
-    if thematic_key:
-        # ESG-POLICY-PARTIAL-NOOP-001 (Kontrollrunde 2026-09-27, User-Entscheid):
-        # "negative_screening" war ein gueltiger, im PDF sichtbarer Policy-
-        # Wert ohne jede Wirkung auf die Produktauswahl. Negative Screening
-        # ist konzeptionell kein SFDR-Artikel, sondern ein Sektor-Ausschluss
-        # -- dafuer existiert bereits dieses Themen-Tilt-System. Fachlicher
-        # Default (User-Entscheid): "negative_screening" setzt alle 6 Themen
-        # auf "exclude", AUSSER der Berater hat fuer dieses Thema bereits
-        # explizit einen abweichenden Tilt gesetzt -- ein expliziter Berater-
-        # Entscheid geht dem Policy-Default immer vor, nie umgekehrt.
-        tilt_mode = tilts.get(thematic_key)
-        if tilt_mode is None and policy_prefs.get("esg") == "negative_screening":
-            tilt_mode = "exclude"
-        if tilt_mode == "exclude":
-            return -10000
-        if tilt_mode == "underweight":
-            score -= 150
-        if tilt_mode == "overweight":
-            score += 250
+    # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): Ausschluss /
+    # Untergewichtung haengt an der EIGENEN Sub-Anlageklasse des Produkts
+    # (gleiche Regel wie der harte Filter in _product_matches_constraints;
+    # hier nur Defense in Depth fuer Aufrufer, die den Filter umgehen).
+    # Vorher hing er am angefragten Slot und war damit unerreichbar, weil ein
+    # Slot "Thema X" nur bei "overweight" existiert. Siehe
+    # effective_theme_screening() fuer die negative_screening-Semantik.
+    screened = effective_theme_screening(prefs)
+    if screened and not screened.keys().isdisjoint(product_theme_keys(product)):
+        return -10000
+    # Der Overweight-Bonus bleibt bewusst SLOT-gebunden: nur im eigenen
+    # Themenbaustein "Thema X" bevorzugt, nie als Ersatz fuer einen
+    # Kernbaustein hochgestuft.
+    slot_theme = _THEME_KEY_BY_SUB_ASSET_CLASS.get(str(sub_asset_class or ""))
+    if slot_theme and tilts.get(slot_theme) == "overweight":
+        score += 250
     return score
 
 

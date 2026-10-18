@@ -113,6 +113,7 @@ def _manual_house_matrix_payload(policy_id: str) -> TargetAllocationCreate:
         band_liquidity_min_bps=0,
         band_liquidity_max_bps=2000,
         policy_id=policy_id,
+        override_reason="Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     )
 
 

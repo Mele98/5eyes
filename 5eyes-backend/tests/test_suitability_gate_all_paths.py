@@ -80,6 +80,7 @@ def _target_allocation_body() -> TargetAllocationCreate:
         band_alternatives_min_bps=0, band_alternatives_max_bps=2000,
         band_liquidity_min_bps=0, band_liquidity_max_bps=2000,
         policy_id="placeholder",
+        override_reason="Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     )
 
 

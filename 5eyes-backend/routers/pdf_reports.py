@@ -503,6 +503,17 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         preferences=None,
     )
 
+    # BAND-DEVIATION-REASON-REQUIRED-001: Abweichung vom Eignungsrahmen des
+    # Risikoprofils aus dem persistierten Praeferenz-Snapshot -- dieselbe
+    # Quelle wie das Freigabe-Gate. Fail-closed (ValueError -> 409).
+    from services.portfolio_engine_house_matrix import (
+        house_band_deviation_disclosure_for_allocation,
+    )
+
+    band_disclosure = house_band_deviation_disclosure_for_allocation(
+        db, ta_obj, assessment_obj, policy,
+    )
+
     # ---- CMA-Werte aus Engine-Payload (echtes √(w'Σw) via _portfolio_volatility_bps) ----
     if not isinstance(engine_payload, dict):
         raise ValueError(
@@ -878,6 +889,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         current_annualized_return_p50_bps=current_cagr_bps,
         target_volatility_1y_bps=target_vol_1y_bps,
         current_volatility_1y_bps=current_vol_1y_bps,
+        band_house_deviations=list(band_disclosure["deviations"]),
+        band_house_profile=band_disclosure["profile"],
+        band_deviation_reason=band_disclosure["reason"],
     )
 
 
@@ -1386,6 +1400,18 @@ def _build_contract_signoff_data(
     db: Session,
 ) -> ContractSignoffData:
     strategy = _build_anlagestrategie_data(mandate, db)
+    # COST-RUN-RESOLVER-001: der Beratungsentscheid ist das Dokument, das der
+    # Kunde UNTERSCHREIBT. Ohne Empfehlungslauf der aktuellen Allokation
+    # haette er eine leere Produkttabelle (und keinen Kostenbezug) zur
+    # Unterschrift vorgelegt -- blockieren (409 via get_contract_signoff_pdf),
+    # statt ein unvollstaendiges Dokument zu rendern.
+    if strategy.recommendation_status == NO_CURRENT_RECOMMENDATION_MARKER:
+        raise ValueError(
+            "Beratungsentscheid kann nicht erstellt werden: zur aktuellen "
+            f"Soll-Allokation liegt {NO_CURRENT_RECOMMENDATION_MARKER} vor. "
+            "Bitte zuerst die Produktempfehlung (Portfolio) fuer die aktuelle "
+            "Allokation generieren."
+        )
     protocol = _build_protokoll_data(mandate, db)
     ta = _latest_target_allocation(mandate, db)
     method = str(getattr(ta, "optimization_method", "") or "").strip() or None
@@ -1413,6 +1439,9 @@ def _build_contract_signoff_data(
         portfolio_orientation=orientation,
         consultation_summary=list(protocol.entries or []),
         final_recommendation=protocol.latest_recommendation_summary,
+        band_house_deviations=list(strategy.band_house_deviations or []),
+        band_house_profile=strategy.band_house_profile,
+        band_deviation_reason=strategy.band_deviation_reason,
     )
 
 
@@ -1645,6 +1674,24 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
     from services.depot_check import compute_depot_check
 
     dc = compute_depot_check(db, mandate) or {}
+    if dc.get("soll_ausgeblendet"):
+        # STALE-ALLOCATION-HIDE-TARGETS-001: ein Depot-Check-PDF ist ein
+        # Soll/Ist-Vergleich. Bei veralteter Soll-Allokation gibt es keine
+        # gueltigen Zielzahlen -- blockieren (409) statt alte Ziele zu drucken.
+        if dc.get("target_allocation_inputs_stale"):
+            grund = (
+                "Vermoegen, Cashflows oder Ziele haben sich seit der "
+                "Berechnung geaendert"
+            )
+        else:
+            grund = (
+                "sie basiert auf einem frueheren, nicht mehr aktuellen "
+                "Risikoprofil"
+            )
+        raise ValueError(
+            f"Depot-Check kann nicht erstellt werden: die Soll-Allokation ist "
+            f"veraltet ({grund}). Bitte Strategie neu berechnen."
+        )
     sr = compute_stress_replays(db, mandate) or {}
     fc = dc.get("fund_characteristics") or {}
     strategy = _build_anlagestrategie_data(mandate, db)

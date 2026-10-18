@@ -54,6 +54,9 @@ _REQUIRED_FUNCTIONS = (
     "_lifeExpectancyHorizonYears",
     "collectAllocationPreferencesFromUI",
     "applyAllocationPreferencesToUI",
+    # ESG-PREMIUM-CRITERIA-001: von collect/apply aufgerufene Begruendungs-Helfer.
+    "collectTiltReasonsFromUI",
+    "syncTiltReasonVisibility",
 )
 # ... und optionale (Fix-Helfer bzw. die entfernte Mandats-Sync-Funktion).
 # Fehlen sie, wird der Test NICHT an der Extraktion rot, sondern am Verhalten.
@@ -61,6 +64,9 @@ _OPTIONAL_FUNCTIONS = (
     "readSimulationHorizonOverride",
     "setSimulationHorizonSelectValue",
     "applyMandateHorizonToSimulationFields",
+    # SIM-HORIZON-CONFIRM-001: Herkunfts-Markierung des Horizont-Werts.
+    "markSimulationHorizonExplicit",
+    "isSimulationHorizonExplicit",
 )
 
 
