@@ -180,6 +180,7 @@ def _valid_ta_body(policy_id, based_on_assessment_id, **overrides):
         band_real_estate_min_bps=500, band_real_estate_max_bps=1500,
         band_alternatives_min_bps=300, band_alternatives_max_bps=800,
         band_liquidity_min_bps=200, band_liquidity_max_bps=800,
+        override_reason="Kunde wuenscht nach Beratungsgespraech eine angepasste Gewichtung der Anlageklassen.",
     )
     base.update(overrides)
     return base

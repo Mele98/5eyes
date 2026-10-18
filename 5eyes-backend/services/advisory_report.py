@@ -3360,7 +3360,12 @@ def _build_cost_disclosure_section(db: Session, mandate: Mandate) -> dict[str, A
     fail-closed gegen Import-/Schema-Fehler (degraded, NIE stille 0-Kosten)."""
     try:
         from services.cost_disclosure import build_cost_disclosure
-        return build_cost_disclosure(db, mandate)
+        # COST-RUN-RESOLVER-001: aktuelle TA aus dem Aggregator-Cache, damit
+        # der Kostenausweis keine eigene TA-Abfrage braucht (N+1-Guard).
+        current_ta = _cached_current_ta(db, mandate)
+        return build_cost_disclosure(
+            db, mandate, target_allocation_id=getattr(current_ta, "id", None)
+        )
     except Exception:  # noqa: BLE001
         return {
             "available": False,
