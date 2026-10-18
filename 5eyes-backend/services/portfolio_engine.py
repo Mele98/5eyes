@@ -41,6 +41,7 @@ from services.allocation_messages import WARN_FALLBACK, classify_messages, forma
 from services.calendar_horizon import add_calendar_years, calendar_years_until
 from services.preference_snapshot import (
     INHERITED_PREFERENCES_NOTE,
+    ThemeClassificationMissingError,
     inherit_current_allocation_preferences,
     resolve_recommendation_preferences,
 )
@@ -1473,6 +1474,8 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_score,
     theme_screening_disclosure,
     esg_policy_gap_hint,
+    theme_classification_gap_hint,
+    effective_theme_screening,
     default_catalog_theme_tags,
     _suitability_block_hint,
     _tenant_visible_products_query,
@@ -1928,6 +1931,38 @@ HEDGED_PRODUCT_VARIANTS: list[tuple] = [
 ]
 
 
+# ESG-SEED-PROVENANCE-001: Modulkonstante, damit services/esg_data_provenance.py
+# Seed-Werte als unbelegt erkennen kann (keine Daten erfunden, nur markiert).
+DEFAULT_CATALOG_PRODUCTS: list[tuple] = [
+    ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
+    ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
+    ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
+    ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
+    ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
+    ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
+    ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
+    ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
+    ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
+    ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
+    ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
+    ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
+    ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
+    ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
+    ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
+    ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
+    ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
+    ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
+    ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
+    ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
+    ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
+    ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
+    *HEDGED_PRODUCT_VARIANTS,
+    ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
+    ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
+    ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
+]
+
+
 def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): der bestehende CH-
     Fondskatalog-Seed wird NUR fuer jurisdiction in (None, "CH") ausgefuehrt
@@ -1963,34 +1998,7 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     if active_ch_products:
         return
     now = _now()
-    defaults = [
-        ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
-        ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
-        ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
-        ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
-        ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
-        ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
-        ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
-        ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
-        ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
-        ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
-        ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
-        ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
-        ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
-        ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
-        ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
-        ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
-        ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
-        ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
-        ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
-        ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
-        ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
-        ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
-        *HEDGED_PRODUCT_VARIANTS,
-        ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
-        ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
-        ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
-    ]
+    defaults = list(DEFAULT_CATALOG_PRODUCTS)
     _validate_default_products(defaults)
     validate_default_product_market_coverage([name for name, *_ in defaults])
     created = []
@@ -6764,6 +6772,11 @@ def generate_recommendation_run(
         and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
     ]
 
+    # THEME-MISSINGNESS-001: Diagnose-Pool nur eignungs-zulaessiger Produkte (nur bei Themen-Screening).
+    theme_pool = [
+        product for product in products
+        if is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
+    ] if effective_theme_screening(prefs) else []
     for sub in sub_allocations:
         exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
@@ -6776,6 +6789,9 @@ def generate_recommendation_run(
         esg_gap_hint = None if exact else esg_policy_gap_hint(
             products, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
         )
+        theme_gap_hint = None if exact else theme_classification_gap_hint(  # THEME-MISSINGNESS-001
+            theme_pool, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
+        )
         candidates = exact
         if not candidates:
             candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
@@ -6786,7 +6802,8 @@ def generate_recommendation_run(
                 "sub_asset_class": str(sub["sub_asset_class"]),
                 "asset_class": str(sub["asset_class"]),
                 "target_weight_bps": int(sub["target_weight_bps"]),
-                "esg_gap_hint": esg_gap_hint,
+                "esg_gap_hint": esg_gap_hint or theme_gap_hint,
+                "theme_gap_hint": theme_gap_hint,
             })
             continue
         ranked = sorted(
@@ -6831,6 +6848,13 @@ def generate_recommendation_run(
     # ohne dass der Berater es bemerkte. Jetzt: ValueError mit konkreter Liste.
     if missing_sub_classes:
         total_missing_bps = sum(item["target_weight_bps"] for item in missing_sub_classes)
+        # THEME-MISSINGNESS-001: unumsetzbar NUR wegen fehlender Themen-Zuordnung
+        # -> 409 mit Reason-Code, auch unterhalb der 50-bps-Toleranz (keine stille Lockerung).
+        theme_blocked = [item for item in missing_sub_classes if item.get("theme_gap_hint")]
+        if theme_blocked:
+            raise ThemeClassificationMissingError(theme_blocked, "Produktselektion unvollstaendig: " + "; ".join(
+                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%): {item['theme_gap_hint']}" for item in theme_blocked
+            ) + ". Themen-Zuordnung im Produktkatalog pflegen oder ein klassifiziertes Produkt erfassen.")
         # Toleranz: bis 50 bps (0.5%) Lücke darf "still" durchlaufen (z.B. einzelne
         # exotische Sub-Class mit 0 Allokation). Alles darüber ist ein echter Fehler.
         if total_missing_bps > 50:
@@ -6848,6 +6872,10 @@ def generate_recommendation_run(
             )
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
+    from services.esg_data_provenance import seed_unverified_run_warning  # ESG-SEED-PROVENANCE-001
+    seed_warning = seed_unverified_run_warning(prefs, [entry["product"] for entry in aggregated_positions.values()])
+    if seed_warning:
+        warnings.append(seed_warning)
 
     latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
     market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))
