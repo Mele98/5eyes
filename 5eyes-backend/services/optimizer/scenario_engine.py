@@ -313,28 +313,39 @@ def build_scenario_paths_with_weights(
     seed: int,
     antithetic: bool = True,
     use_importance_sampling: bool = False,
-    is_shift_strength: float = 0.5,
+    is_shift_strength: float | None = None,
+    is_mixture_alpha: float | None = None,
+    weight_horizon_years: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Liefert Pfade + Likelihood-Weights (Phase 5b Stochastic-Optimizer-Spec).
 
     Wenn use_importance_sampling=False, identisch zu build_scenario_paths()
     + weights = ones(n_paths) (trivialer Estimator).
 
-    Wenn use_importance_sampling=True, biased die Sampling-Verteilung in
-    die Tail-Region (default: negativer Equity-Shift), und gibt
-    Likelihood-Ratio-Weights pro Pfad. Downstream-Objective muss die
-    gewichtete Erwartung berechnen statt der ungewichteten Sample-Mean.
+    Wenn use_importance_sampling=True (IMPORTANCE-SAMPLING-ESS-001): defensive
+    Mischung aus Nominalverteilung (Anteil ``is_mixture_alpha``) und einer
+    Komponente mit horizont-skaliertem Mean-Shift auf den Aktienfaktor
+    (Gesamtbudget ``is_shift_strength`` Standardabweichungen des
+    KUMULIERTEN Faktors, pro Jahr ``/ sqrt(horizon_years)``). Siehe
+    importance_sampling.py.
 
     Parameters
     ----------
     inputs, horizon_years, n_paths, seed, antithetic
-        Wie in build_scenario_paths().
+        Wie in build_scenario_paths(). ``horizon_years`` ist der gezogene
+        (gemeinsame Szenario-)Horizont; der Shift wird darauf verteilt.
     use_importance_sampling : bool
-        Default False. Wenn True, aktiviert Mean-Shift-IS mit Default-Shift
-        (Equity-Buckets nach negativ, siehe importance_sampling.py).
-    is_shift_strength : float
-        Shift-Magnitude in Standard-Deviationen. Nur relevant wenn
-        use_importance_sampling=True. Typisch 0.3-1.0. Default 0.5.
+        Default False.
+    is_shift_strength : float | None
+        Gesamt-Shift-Budget c. None = ``IS_TOTAL_SHIFT_SIGMA``.
+    is_mixture_alpha : float | None
+        Nominal-Anteil der Mischung. None = ``IS_DEFENSIVE_MIXTURE_ALPHA``.
+    weight_horizon_years : int | None
+        Anzahl der fuehrenden Jahre, die der Aufrufer tatsaechlich verwendet
+        (Optimierungshorizont; Pfade werden danach gekuerzt). Die Gewichte
+        sind die Likelihood-Ratio der MARGINALE dieser Jahre -- korrekt fuer
+        die gekuerzten Pfade und ohne die Varianz der verworfenen Jahre.
+        None = alle gezogenen Jahre.
 
     Returns
     -------
@@ -346,14 +357,17 @@ def build_scenario_paths_with_weights(
     Notes
     -----
     Antithetic + Importance Sampling werden NICHT kombiniert. Wenn IS aktiv,
-    wird antithetic intern auf False gesetzt (Mean-Shift biased die Stichprobe
-    asymmetrisch, antithetic-Spiegelung wuerde das aufheben).
+    wird antithetic intern auf False gesetzt (die geshiftete Komponente ist
+    asymmetrisch, eine Spiegelung wuerde sie aufheben).
     """
     from .importance_sampling import (
-        apply_mean_shift,
+        IS_DEFENSIVE_MIXTURE_ALPHA,
+        IS_TOTAL_SHIFT_SIGMA,
         build_shift_vector,
         compute_likelihood_weights,
         make_default_weights,
+        mixture_shifted_mask,
+        per_year_shift_profile,
     )
 
     n_paths = int(max(1, n_paths))
@@ -368,29 +382,35 @@ def build_scenario_paths_with_weights(
         )
         return paths, make_default_weights(n_paths)
 
-    # IS-Pfad: antithetic deaktivieren (siehe Notes), Pfade mit Mean-Shift
     horizon_years = int(max(1, horizon_years))
+    strength = IS_TOTAL_SHIFT_SIGMA if is_shift_strength is None else float(is_shift_strength)
+    alpha = IS_DEFENSIVE_MIXTURE_ALPHA if is_mixture_alpha is None else float(is_mixture_alpha)
+    weight_horizon = (
+        horizon_years
+        if weight_horizon_years is None
+        else int(min(max(1, int(weight_horizon_years)), horizon_years))
+    )
     rng = np.random.default_rng(np.uint64(seed))
     z_uncorrelated = rng.standard_normal(size=(n_paths, horizon_years, N_BUCKETS))
 
-    shift_vector = build_shift_vector(N_BUCKETS, strength=float(is_shift_strength))
-    z_shifted = apply_mean_shift(z_uncorrelated, shift_vector)
-    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): compute_likelihood_weights() braucht
-    # die tatsaechlich gezogene PROPOSAL-Stichprobe (z_shifted ~ N(shift_vector, I)),
-    # nicht das rohe z_uncorrelated ~ N(0, I) davor -- w(x) = exp(-mu·x + 0.5|mu|^2)
-    # ist als Funktion des SAMPLES x definiert, nicht des Pre-Shift-Werts. Numerisch
-    # verifiziert: mit z_uncorrelated war mean(w) ~3.5 statt ~1.0 (default shift,
-    # horizon=5) -- ein globaler exp(|mu|^2*T)-Bias-Faktor. Fuer alle bestehenden
-    # Konsumenten (shortfall_/chance_/volatility_objective) folgenlos, weil die
-    # Normalisierung Sum(f*w)/Sum(w) jede globale Konstante exakt herauskuerzt --
-    # aber das dokumentierte Invariant E[w]=1 (siehe importance_sampling.py-Docstring
-    # + test_likelihood_weights_sum_to_n_asymptotically) gilt am Call-Site erst mit
-    # diesem Fix tatsaechlich.
-    weights = compute_likelihood_weights(z_shifted, shift_vector)
+    profile = per_year_shift_profile(
+        build_shift_vector(N_BUCKETS, strength=strength), horizon_years,
+    )
+    shifted = mixture_shifted_mask(n_paths, alpha)
+    # Proposal-Stichprobe: Nominalkomponente unveraendert, geshiftete
+    # Komponente um das Jahresprofil verschoben.
+    x = z_uncorrelated + shifted[:, None, None] * profile[None, :, :]
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit) gilt weiter: die Gewichte sind
+    # eine Funktion der TATSAECHLICH gezogenen Stichprobe x, nicht des
+    # Pre-Shift-Werts. Balance-Heuristik: JEDER Pfad (beider Komponenten)
+    # bekommt p(x) / (alpha p(x) + (1-alpha) q(x)).
+    weights = compute_likelihood_weights(
+        x[:, :weight_horizon, :], profile[:weight_horizon], mixture_alpha=alpha,
+    )
 
     # Cholesky + Cornish-Fisher + Itô-Korrektur — gleiche Pipeline wie
-    # build_scenario_paths, aber auf den geshifteten Z
-    z_corr = np.einsum("phb,kb->phk", z_shifted, inputs.cholesky)
+    # build_scenario_paths, aber auf der Proposal-Stichprobe
+    z_corr = np.einsum("phb,kb->phk", x, inputs.cholesky)
     skew = inputs.skew_bps / 10_000.0
     kurt = inputs.excess_kurt_bps / 10_000.0
     z_cf = cornish_fisher_array(z_corr, skew, kurt)
@@ -514,6 +534,7 @@ def simulate_wealth_paths(
     death_year_index_per_path: np.ndarray | None = None,
     tax_mode: str = "median",
     tax_n_bins: int = 20,
+    portfolio_factors: np.ndarray | None = None,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
 
@@ -542,6 +563,16 @@ def simulate_wealth_paths(
         Konvention: death_year_index[p]=5 → Pfad p lebt in t=0..4 (cashflow
         aktiv), ab t=5 cashflow=0. Wachstum laeuft weiter (Erbschaft, aber
         keine weiteren Einnahmen/Ausgaben).
+
+    portfolio_factors: optional shape (n_paths, horizon) -- die bereits
+        abgeleiteten Jahres-Wachstumsfaktoren ``return_paths @ weights``
+        (``solver._portfolio_return_factors``). Reine Performance-Abkuerzung
+        fuer den Solver-Hotpath (SAA-RESAMPLED-RUNTIME-001): der Aufrufer
+        braucht dieselbe Groesse ohnehin fuer die annualisierte Rendite, und
+        die Ableitung erfolgt hier wie dort mit derselben einsum-Kontraktion
+        ueber die Buckets -- das Ergebnis ist bitidentisch zur bisherigen
+        Ableitung pro Jahr (Regressionstest
+        ``test_simulate_wealth_paths_fast_path_bit_identical``).
 
     Returns: (n_paths, horizon + 1) wealth array. wealth[:, 0] = initial,
     wealth[:, t+1] = wealth nach Wachstum (- Steuern wenn aktiv) + Cashflow
@@ -610,16 +641,40 @@ def simulate_wealth_paths(
             )
         dividend_yield_weighted_bps = float(np.dot(weights, dy))  # gewichteter bps
 
+    # Portfolio-Faktor pro Pfad und Jahr: gewichtete Summe der Asset-Returns.
+    # SAA-RESAMPLED-RUNTIME-001 (2026-10-18): einmal fuer alle Jahre statt
+    # einer einsum-Kontraktion je Jahr. Jedes Element ist dieselbe Summe ueber
+    # die 5 Buckets in derselben Reihenfolge -- bitidentisch, aber ohne
+    # ``horizon`` Python-/einsum-Aufrufe pro Zielfunktionsauswertung (der
+    # Solver wertet die Zielfunktion je Lauf zehntausendfach aus).
+    if portfolio_factors is None:
+        portfolio_factors = np.einsum("phb,b->ph", return_paths, weights)
+    else:
+        portfolio_factors = np.asarray(portfolio_factors, dtype=np.float64)
+        if portfolio_factors.shape != (n_paths, horizon):
+            raise ValueError(
+                "portfolio_factors must be shape "
+                f"({n_paths}, {horizon}), got {portfolio_factors.shape}"
+            )
+
+    if tax_regime is None:
+        return _simulate_wealth_paths_untaxed(
+            initial_wealth_rappen=initial_wealth_rappen,
+            portfolio_factors=portfolio_factors,
+            cashflow=cashflow,
+            liability=liability,
+            cashflow_per_path=cashflow_per_path,
+            liability_per_path=liability_per_path,
+        )
+
     wealth = np.empty((n_paths, horizon + 1), dtype=np.float64)
     wealth[:, 0] = float(initial_wealth_rappen)
 
     # Lazy-Import: vermeidet Zirkular-Dependency wenn TaxRegime services.tax nicht importiert ist
-    if tax_regime is not None:
-        from services.tax.base import TaxContext
+    from services.tax.base import TaxContext
 
     for t in range(horizon):
-        # Portfolio-Faktor pro Pfad: gewichtete Summe der Asset-Returns
-        portfolio_factor = np.einsum("pb,b->p", return_paths[:, t, :], weights)
+        portfolio_factor = portfolio_factors[:, t]
         prev = wealth[:, t]
         # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
         grown = np.where(prev > 0, prev * portfolio_factor, prev)
@@ -672,6 +727,56 @@ def simulate_wealth_paths(
             wealth[:, t + 1] = grown + cashflow[t] - liability[t]
 
     return wealth
+
+
+def _simulate_wealth_paths_untaxed(
+    *,
+    initial_wealth_rappen: int,
+    portfolio_factors: np.ndarray,
+    cashflow: np.ndarray,
+    liability: np.ndarray,
+    cashflow_per_path: np.ndarray | None,
+    liability_per_path: np.ndarray | None,
+) -> np.ndarray:
+    """Steuerfreier Kern von ``simulate_wealth_paths`` (SAA-RESAMPLED-RUNTIME-001).
+
+    Exakt dieselbe Rekursion wie die Steuer-Schleife ohne Steuerschritte:
+    ``grown = prev * f`` nur fuer ``prev > 0`` (sonst ``prev``), danach
+    ``(grown + cashflow) - liability`` -- gleiche Operationen in gleicher
+    Reihenfolge, daher bitidentisch. Gerechnet wird jahresweise auf
+    zusammenhaengenden Zeilen (Jahr x Pfad) statt auf gestrideten Spalten
+    und ohne Zwischen-Arrays je Jahr; zurueckgegeben wird wie bisher ein
+    C-zusammenhaengendes (n_paths, horizon + 1)-Array.
+    """
+    n_paths, horizon = portfolio_factors.shape
+    factors_by_year = np.ascontiguousarray(portfolio_factors.T)
+    wealth_by_year = np.empty((horizon + 1, n_paths), dtype=np.float64)
+    wealth_by_year[0] = float(initial_wealth_rappen)
+    if cashflow_per_path is not None:
+        cashflow_by_year = np.ascontiguousarray(cashflow_per_path.T)
+        liability_by_year = np.ascontiguousarray(liability_per_path.T)
+    else:
+        cashflow_by_year = None
+        liability_by_year = None
+    grown = np.empty(n_paths, dtype=np.float64)
+    positive = np.empty(n_paths, dtype=bool)
+    for t in range(horizon):
+        prev = wealth_by_year[t]
+        # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
+        np.greater(prev, 0, out=positive)
+        np.copyto(grown, prev)
+        np.multiply(prev, factors_by_year[t], out=grown, where=positive)
+        nxt = wealth_by_year[t + 1]
+        if cashflow_by_year is not None:
+            np.add(grown, cashflow_by_year[t], out=nxt)
+            np.subtract(nxt, liability_by_year[t], out=nxt)
+        else:
+            np.add(grown, cashflow[t], out=nxt)
+            # x - 0.0 == x bitgenau (auch fuer -0.0 und NaN): Jahre ohne
+            # Goal-Outflow sparen den Aufruf, ohne das Ergebnis zu aendern.
+            if liability[t] != 0.0:
+                np.subtract(nxt, liability[t], out=nxt)
+    return np.ascontiguousarray(wealth_by_year.T)
 
 
 # ============================================================================

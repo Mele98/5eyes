@@ -126,16 +126,26 @@ def test_build_context_with_explicit_seed_is_deterministic():
     assert a.bounds == b.bounds
 
 
-def test_build_context_seed_none_uses_deterministic_seed():
-    expected = deterministic_seed(
-        "cma-ctx",
-        "goal-pension-ctx",
-        70,
-        10,
-        500,
-    )
+def test_build_context_seed_none_uses_content_seed_not_database_ids():
+    """SAA-RESAMPLED-STABILITY-001: ohne expliziten Seed bestimmt der
+    WIRTSCHAFTLICHE Inhalt den Seed -- nie `cma.id` oder Goal-IDs.
+
+    Vorher: deterministic_seed(cma_id, goal_ids, score, horizon, n_paths);
+    ein identisch neu erfasstes Ziel (neue UUID) zog einen anderen Wuerfel
+    und damit auf flachen Optima eine andere SAA.
+    """
     ctx = _ctx(seed=None)
-    assert ctx.seed == expected
+    renamed_goal = SimpleNamespace(**{**vars(_pension_goal()), "id": "goal-neu-erfasst"})
+    same_content = _ctx(seed=None, cma=_cma(id="cma-andere-id"), goals=[renamed_goal])
+    assert same_content.seed == ctx.seed
+    np.testing.assert_array_equal(same_content.return_paths, ctx.return_paths)
+
+    changed_goal = SimpleNamespace(**{**vars(_pension_goal()), "target_amount_rappen": 25_000_00})
+    assert _ctx(seed=None, goals=[changed_goal]).seed != ctx.seed
+    assert _ctx(seed=None, cma=_cma(equity_ch_return_bps=600)).seed != ctx.seed
+    assert _ctx(seed=None, score_x10=60).seed != ctx.seed
+    # Die alte ID-basierte Konstruktion ist nicht mehr der Seed.
+    assert ctx.seed != deterministic_seed("cma-ctx", "goal-pension-ctx", 70, 10, 500)
 
 
 def test_build_context_different_seeds_produce_different_paths():

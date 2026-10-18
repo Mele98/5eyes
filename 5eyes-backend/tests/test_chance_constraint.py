@@ -79,7 +79,11 @@ def test_chance_penalty_zero_when_all_paths_reach_target():
     assert rows[0]["status"] == "erreichbar"
 
 
-def test_chance_penalty_full_shortfall_matches_lambda_tau_squared():
+def test_chance_penalty_full_shortfall_matches_tau_times_relative_volume_squared():
+    """OBJECTIVE-NORMALIZATION-001 (2026-10-18): hiess
+    ``..._matches_lambda_tau_squared`` und pinnte ``1e6 * tau^2 = 6.4e5`` --
+    5-7 Groessenordnungen ueber jedem anderen Term der Zielfunktion. Jetzt
+    linear im Defizit mal (Zielvolumen / W0)^2; hier Ziel = W0, also tau."""
     wealth_paths = np.full((2000, 11), 50_000_00, dtype=np.float64)
     penalty, rows = chance_constraint_penalty(
         wealth_paths,
@@ -88,7 +92,7 @@ def test_chance_penalty_full_shortfall_matches_lambda_tau_squared():
     )
     assert rows[0]["probability"] == pytest.approx(0.0)
     assert rows[0]["status"] == "nicht_erreichbar"
-    assert penalty == pytest.approx(1_000_000.0 * 0.8 * 0.8)
+    assert penalty == pytest.approx(0.8 * (100_000_00 / 100_000_00) ** 2)
 
 
 def test_exact_tau_boundary_is_not_certified_and_carries_penalty():
@@ -121,7 +125,8 @@ def test_exact_tau_boundary_is_not_certified_and_carries_penalty():
     assert rows[0]["reliability_verdict"] == "uncertain_finite_sample"
 
     expected_shortfall = 0.8 - expected_lower_bound
-    assert penalty == pytest.approx(1_000_000.0 * expected_shortfall ** 2)
+    # OBJECTIVE-NORMALIZATION-001: linear im Defizit, Zielvolumen = W0.
+    assert penalty == pytest.approx(expected_shortfall * 1.0)
     assert penalty > 0.0
 
 

@@ -247,6 +247,8 @@ def _build_drivers_payload_like_production(
                 contribution_binary64_hex
             ),
             "rank": rank,
+            # GOAL-ACHIEVABILITY-ATTRIBUTION-001: wie die Produktion.
+            "evaluation_scope": "weighted_loss_component_under_joint_path",
         })
     return drivers_payload
 
