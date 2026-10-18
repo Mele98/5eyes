@@ -9,6 +9,7 @@ import type { RisikowaehrungenData } from '@/api/types';
 import { BarChartIstSoll } from '@/components/BarChartIstSoll';
 import { EditorialNote, ReportPage } from '@/components/ReportPage';
 import { SingleFieldEditWrapper } from '@/components/SectionEditWrapper';
+import { StaleTargetsNotice, toBarChartItems } from '@/pages/AssetAllocation';
 
 interface RisikowaehrungenProps {
   data: RisikowaehrungenData;
@@ -39,14 +40,22 @@ export function Risikowaehrungen({
         />
       }
     >
-      {data.ist_basiert_auf_soll ? <DataBasisBanner /> : null}
+      {data.soll_ausgeblendet ? (
+        // STALE-ALLOCATION-HIDE-TARGETS-001: veraltete Soll-Allokation ->
+        // keine SOLL-Exposures der alten Empfehlung, nur der Hinweis.
+        <StaleTargetsNotice hinweis={data.staleness_hinweis || data.erklaerung} />
+      ) : (
+        <>
+          {data.ist_basiert_auf_soll ? <DataBasisBanner /> : null}
 
-      <div className="grid gap-block lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <section className="border border-rule bg-canvas-panel p-5">
-          <BarChartIstSoll items={data.items} />
-        </section>
-        <EditorialNote title="Einordnung" body={data.erklaerung} />
-      </div>
+          <div className="grid gap-block lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+            <section className="border border-rule bg-canvas-panel p-5">
+              <BarChartIstSoll items={toBarChartItems(data.items)} />
+            </section>
+            <EditorialNote title="Einordnung" body={data.erklaerung} />
+          </div>
+        </>
+      )}
     </ReportPage>
   );
 }
