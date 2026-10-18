@@ -36,6 +36,7 @@ from services.portfolio_engine import (
     risk_assessment_ready_for_strategy,
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
+from services.risk_capacity_plausibility import audit_if_inconsistent, evaluate_mandate_safely
 from services.risk_assessment_semantics import (
     _optional_capacity_score,
     override_documentation_requirements,
@@ -167,6 +168,25 @@ def get_current_risk_assessment(
     if not ra:
         raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
     return ra
+
+
+@router.get("/mandates/{mandate_id}/risk-capacity-plausibility")
+def get_risk_capacity_plausibility(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """RISK-CAPACITY-PLAUSIBILITY-001: Fragebogen-Angaben zur Risikofaehigkeit
+    gegen die erfassten Finanzdaten. Reiner Hinweis -- aendert das Profil nicht,
+    blockiert nichts."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        ra = _current_risk_assessment_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not ra:
+        raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
+    return evaluate_mandate_safely(db, mandate, ra)
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments", response_model=RiskAssessmentResponse, status_code=201)
@@ -323,6 +343,13 @@ def create_risk_assessment(
             table_name="risk_assessments", record_id=ra.id, action="CREATE",
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=_extract_client_ip(request))
+        # RISK-CAPACITY-PLAUSIBILITY-001: Widerspruch Fragebogen <-> erfasste
+        # Finanzdaten wird protokolliert (aendert das Profil nicht).
+        audit_if_inconsistent(
+            db, evaluate_mandate_safely(db, mandate, ra),
+            user=current_user, table_name="risk_assessments", record_id=ra.id,
+            mandate=mandate, ip_address=_extract_client_ip(request),
+        )
         db.commit()
     except IntegrityError:
         db.rollback()

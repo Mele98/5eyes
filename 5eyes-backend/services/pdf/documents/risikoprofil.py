@@ -53,10 +53,13 @@ def build_risikoprofil_flowables(
         instruments_knowledge=data.knowledge_instruments,
     ))
 
-    if data.suitability_note:
+    if data.suitability_note or data.capacity_plausibility_note:
         flowables.append(Spacer(1, 5 * mm))
         flowables.append(_section_title("Beraterdokumentation"))
-        flowables.append(Paragraph(_esc(data.suitability_note), styles["body"]))
+        if data.suitability_note:
+            flowables.append(Paragraph(_esc(data.suitability_note), styles["body"]))
+        if data.capacity_plausibility_note:
+            flowables.append(Paragraph(_esc(data.capacity_plausibility_note), styles["body"]))
 
     flowables.append(Spacer(1, 6 * mm))
     flowables.append(_section_title("Rechtlicher Hinweis"))
