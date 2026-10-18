@@ -71,6 +71,40 @@ def scenario_inputs_digest(inputs: ScenarioInputs) -> str:
     return hasher.hexdigest()
 
 
+# SAA-SEED-FLOAT-ROBUST-001 (2026-10-17): Digest NUR fuer den Inhalts-Seed.
+#
+# Der Cache-Key oben MUSS bit-exakt sein (andere Inputs -> anderer Wuerfel).
+# Fuer den Seed waere bit-exakt dagegen ein Defekt: sigma (gewichtete
+# Sub-Klassen) und die Cholesky-Zerlegung entstehen aus BLAS/LAPACK- und
+# libm-Aufrufen, deren letzte Bits je Plattform/Kernel abweichen duerfen. Ein
+# einziges abweichendes Bit zoege einen VOELLIG anderen Inhalts-Seed und damit
+# andere Bag-Wuerfel -- das Ergebnis hinge von der Maschine ab. Gerundet wird
+# weit unterhalb jeder wirtschaftlichen Bedeutung (0.001 bps bzw. 1e-8 in der
+# Korrelationsstruktur) und weit oberhalb von Float-Rauschen (~1e-13 relativ).
+_SEED_DIGEST_DECIMALS = {
+    "mu_bps": 3,
+    "sigma_bps": 3,
+    "skew_bps": 3,
+    "excess_kurt_bps": 3,
+    "cholesky": 8,
+}
+
+
+def scenario_inputs_seed_digest(inputs: ScenarioInputs) -> str:
+    """Float-robuster Digest der ScenarioInputs fuer den Inhalts-Seed."""
+    hasher = hashlib.sha256()
+    hasher.update(b"seed-digest-v1")
+    for field_name in _INPUT_DIGEST_FIELDS:
+        array = np.ascontiguousarray(getattr(inputs, field_name), dtype=np.float64)
+        # ``+ 0.0`` normalisiert -0.0 (z.B. round(-1e-15)) auf +0.0, sonst
+        # unterschieden sich zwei wirtschaftlich gleiche Nullen im Byte-Muster.
+        rounded = np.round(array, _SEED_DIGEST_DECIMALS[field_name]) + 0.0
+        hasher.update(field_name.encode("utf-8"))
+        hasher.update(repr(array.shape).encode("utf-8"))
+        hasher.update(rounded.tobytes())
+    return hasher.hexdigest()
+
+
 # ============================================================================
 # Cache-Klasse
 # ============================================================================
@@ -223,8 +257,17 @@ def build_scenario_paths_with_weights_cached(
     antithetic: bool = True,
     shift_vector: np.ndarray | None = None,
     cache: ScenarioCache | None = None,
+    mixture_alpha: float | None = None,
+    weight_horizon_years: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Sprint P1 (2026-06-06): IS-aware cached scenario paths.
+
+    IMPORTANCE-SAMPLING-ESS-001: ``shift_vector`` ist das GESAMT-Shift-Budget
+    (Norm c, auf die Jahre verteilt mit ``1/sqrt(horizon_years)``);
+    ``mixture_alpha`` der Nominal-Anteil der defensiven Mischung;
+    ``weight_horizon_years`` der tatsaechlich verwendete Jahres-Praefix
+    (Gewichte = Likelihood-Ratio dieser Marginale). Alle drei plus die
+    IS-Schema-Version stehen im Cache-Key.
 
     Wie build_scenario_paths_cached, aber returnt zusaetzlich die
     Likelihood-Ratio-Gewichte fuer Mean-Shift Importance Sampling.
@@ -266,18 +309,23 @@ def build_scenario_paths_with_weights_cached(
     # IS-aktiv: shift_vector als tuple zur Hash-Stabilitaet. Der
     # Inputs-Digest ist hier aus demselben Grund Teil des Keys wie im
     # STD-Pfad (SCENARIO-CACHE-EFFECTIVE-INPUT-001).
-    shift_tuple = tuple(float(x) for x in np.asarray(shift_vector).reshape(-1))
+    from .importance_sampling import IS_DEFENSIVE_MIXTURE_ALPHA, IS_SCHEME_VERSION
+
+    shift_arr = np.asarray(shift_vector, dtype=np.float64).reshape(-1)
+    shift_tuple = tuple(float(x) for x in shift_arr)
+    alpha = IS_DEFENSIVE_MIXTURE_ALPHA if mixture_alpha is None else float(mixture_alpha)
+    weight_horizon = (
+        int(horizon_years) if weight_horizon_years is None else int(weight_horizon_years)
+    )
     key = (
         "IS", str(cma_id), RETURN_MOMENT_MODEL_VERSION,
         int(horizon_years), int(n_paths), int(seed),
         bool(antithetic), shift_tuple,
         scenario_inputs_digest(inputs),
+        IS_SCHEME_VERSION, alpha, weight_horizon,
     )
     cached = cache.get(key)
     if cached is not None:
-        # Cache speichert paths + weights als (n_paths, horizon+1, 5)-Trick:
-        # letzter Year-Slot hat weights im 0-ten Bucket
-        # Saubere Variante: cache speichert tuple
         return cached  # cached ist tuple (paths, weights)
 
     paths, weights = build_scenario_paths_with_weights(
@@ -287,9 +335,12 @@ def build_scenario_paths_with_weights_cached(
         seed=seed,
         antithetic=antithetic,
         use_importance_sampling=True,
-        is_shift_strength=float(np.max(np.abs(shift_vector))),
+        is_shift_strength=float(np.linalg.norm(shift_arr)),
+        is_mixture_alpha=alpha,
+        weight_horizon_years=weight_horizon,
     )
-    # Note: build_scenario_paths_with_weights derives shift_vector internally
-    # mit default-target-indices. Wir trauen dem default und cachen das Ergebnis.
+    # Note: build_scenario_paths_with_weights leitet die Shift-RICHTUNG aus
+    # den Default-Target-Indizes (Aktien) ab; ``shift_vector`` liefert das
+    # Budget (Norm).
     cache.put(key, (paths, weights))
     return paths, weights

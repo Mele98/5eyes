@@ -1442,7 +1442,8 @@ def test_goal_based_investing_aggregates_persisted_achievability(session_factory
         ))
         json_payload = json.dumps([
             {"goal_id": goal_id_1, "label": "Hauskauf",
-             "probability": 0.85, "status": "erreichbar", "hardness": "Hart"},
+             "probability": 0.85, "status": "erreichbar", "hardness": "Hart",
+             "evaluation_scope": "priority_funded"},
         ])
         _make_ta_with_goals(
             s, mandate_id=mandate.id, advisor_id=advisor.id,
@@ -2352,7 +2353,8 @@ def test_ar1_primaer_unreachable_goal_flags_rot(session_factory):
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([
             {"goal_id": "g1", "label": "Rente", "probability": 0.10,
-             "status": "nicht_erreichbar", "hardness": "primär"},
+             "status": "nicht_erreichbar", "hardness": "primär",
+             "evaluation_scope": "priority_funded"},
         ])
         _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
                             goal_achievability_json=payload)
@@ -2370,7 +2372,8 @@ def test_ar1_hart_unreachable_goal_still_rot(session_factory):
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([
             {"goal_id": "g1", "label": "Haus", "probability": 0.05,
-             "status": "nicht_erreichbar", "hardness": "hart"},
+             "status": "nicht_erreichbar", "hardness": "hart",
+             "evaluation_scope": "priority_funded"},
         ])
         _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
                             goal_achievability_json=payload)
@@ -2386,7 +2389,8 @@ def test_ar1_opportunistic_unreachable_not_rot(session_factory):
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([
             {"goal_id": "g1", "label": "Boot", "probability": 0.10,
-             "status": "nicht_erreichbar", "hardness": "opportunistisch"},
+             "status": "nicht_erreichbar", "hardness": "opportunistisch",
+             "evaluation_scope": "priority_funded"},
         ])
         _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
                             goal_achievability_json=payload)
@@ -2403,7 +2407,8 @@ def test_ar2_key_metric_zielerreichung_matches_goal_section(session_factory):
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([
             {"goal_id": "g1", "label": "Rente", "probability": 0.72,
-             "status": "erreichbar", "hardness": "primär"},
+             "status": "erreichbar", "hardness": "primär",
+             "evaluation_scope": "priority_funded"},
         ])
         _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
                             goal_achievability_json=payload)
@@ -2465,3 +2470,84 @@ def test_ar3_all_mapped_keeps_five_groups(session_factory):
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     assert len(report["positionen"]["groups"]) == 5
+
+
+# ---------------------------------------------------------------------------
+# GOAL-ACHIEVABILITY-ATTRIBUTION-001 (2026-10-14): Plan-Solvenz einmal,
+# Zielzeilen nach Prioritaet, Altbewertungen ohne Ampel
+# ---------------------------------------------------------------------------
+
+
+def _scoped_payload(goal_id: str) -> str:
+    import json
+    return json.dumps([
+        {"goal_id": goal_id, "label": "Hauskauf", "probability": 0.9,
+         "status": "erreichbar", "hardness": "Hart",
+         "evaluation_scope": "priority_funded", "funding_rank": 1,
+         "failure_event_id": "liquiditaetsengpass-jahr-3"},
+        {"goal_id": None, "label": "Plan-Solvenz (alle Ziele gemeinsam)",
+         "target_kind": "joint_plan", "probability": 0.41,
+         "status": "nicht_erreichbar", "hardness": None,
+         "evaluation_scope": "joint_plan", "goal_ids": [goal_id, "other"],
+         "failure_event_id": "liquiditaetsengpass-jahr-3"},
+    ])
+
+
+def test_goal_section_separates_plan_solvency_from_goal_rows(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        goal_id = str(uuid.uuid4())
+        s.add(Goal(
+            id=goal_id, mandate_id=mandate.id, client_id=client.id,
+            goal_family="Vermoegen", goal_type="Vermoegensziel",
+            label="Hauskauf", rank=1, weight_bps=6000,
+            goal_scope="Beratungsvermögen", value_mode="real",
+            target_wealth_rappen=500_000_00, frequency="einmalig",
+            target_date="2032-06-01", is_ongoing=0, hardness="Hart",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=_scoped_payload(goal_id))
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    gbi = report["goal_based_investing"]
+    # Die Planzeile ist KEIN Ziel.
+    assert [g["goal_id"] for g in gbi["goals"]] == [goal_id]
+    goal = gbi["goals"][0]
+    assert goal["evaluation_scope"] == "priority_funded"
+    assert goal["funding_rank"] == 1
+    assert goal["failure_event_id"] == "liquiditaetsengpass-jahr-3"
+    assert goal["probability_bps"] == 9000
+    plan = gbi["plan_solvency"]
+    assert plan == {
+        "label": "Plan-Solvenz (alle Ziele gemeinsam)",
+        "evaluation_scope": "joint_plan",
+        "probability_bps": 4100,
+        "status": "nicht_erreichbar",
+        "goal_count": 2,
+        "failure_event_id": "liquiditaetsengpass-jahr-3",
+    }
+    # Der Score mittelt nur Zielzeilen, nicht den Planwert.
+    assert gbi["goal_achievement_score_bps"] == 9000
+
+
+def test_legacy_rows_without_scope_are_quarantined_in_the_report(session_factory):
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        payload = json.dumps([
+            {"goal_id": "g1", "label": "Rente", "probability": 0.10,
+             "status": "nicht_erreichbar", "hardness": "hart"},
+        ])
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=payload)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    # Kein rotes Urteil und kein Score aus einem gemeinsamen Altwert.
+    check = _ziel_check(report)
+    assert check["bewertung"] == "nicht_beurteilbar"
+    assert "Altbewertung" in check["beurteilung"]
+    assert report["ausgangslage"]["key_metrics"]["zielerreichung_bps"] is None
+    gbi = report["goal_based_investing"]
+    assert gbi["goals"][0]["evaluation_scope"] == "legacy_aggregate_unknown"
+    assert gbi["plan_solvency"] is None

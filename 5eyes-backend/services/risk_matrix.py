@@ -102,15 +102,13 @@ def _conflict_cause_signature(row: Mapping) -> object | None:
     """Best-effort dedup signature for a `nicht_erreichbar` achievability row.
 
     GOAL-ACHIEVABILITY-ATTRIBUTION-001 (CERT-GOAL-FUNDING-001), Spec Sec. 5.5:
-    a shared failure event must be deduplicated by typed cause fields
-    (``cause_kind``/``scope_id``/``first_failure_year``/resource pool), not by
-    free display text. The current `chance_constraint_penalty()` achievability
-    row shape (goal_id/label/target_kind/probability/tau/status/hardness) does
-    not yet carry those typed fields end-to-end (Phase D/E persistence +
-    solver wiring is tracked separately, see PR description) -- but callers
-    that already attach descriptive attribution keys (``due_year``,
-    ``shortfall_source``, or an explicit ``failure_event_id``) onto a row get
-    real deduplication today. Rows without any such key are, conservatively,
+    a shared failure event must be deduplicated by typed cause fields, not by
+    free display text. Since 2026-10-14 every published optimizer row carries
+    a typed ``failure_event_id`` (first insolvency year of the goal's
+    priority-funded funding path, or the goal's own threshold), produced by
+    ``services.optimizer.goal_attribution.publish_goal_achievability``.
+    Callers that attach the older descriptive keys (``due_year`` +
+    ``shortfall_source``) are still honoured. Rows without any such key are, conservatively,
     treated as their OWN independent cause (today's exact behaviour) so no
     legacy caller silently gets merged into a shared-cause event it never
     declared.
@@ -139,7 +137,10 @@ def classify_limiting_factor(
         return "solver_konvergenz"
     nicht_erreicht = [
         row for row in (achievability or [])
-        if row.get("status") == "nicht_erreichbar"
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die eine Plan-Solvenz-Zeile ist
+        # kein Ziel und darf nie als zusaetzlicher Zielkonflikt zaehlen.
+        if str(row.get("evaluation_scope") or "") != "joint_plan"
+        and row.get("status") == "nicht_erreichbar"
         and _hardness_key(row.get("hardness")) in ("hart", "primär")
     ]
     if len(nicht_erreicht) >= 2:

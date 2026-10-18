@@ -25,12 +25,22 @@ die Ziele des Mandats aufgibt. Die Zielfunktion ist deshalb immer
 
     primaerterm(modus) + chance_penalty(ziele)
 
-und die Chance-Penalty ist mit ``LAMBDA_CHANCE_DEFAULT = 1e6`` um Groessen-
-ordnungen dominanter als jeder Primaerterm -- sie wirkt als nahezu harte
-Nebenbedingung. Eine Variante verschiebt also, welche Allokation unter den
-ziel-zulaessigen die beste ist, nicht ob die Ziele ueberhaupt zaehlen. Das ist
-der Unterschied zu einem freien Menue von Zielfunktionen: eine Risikomass-
-Optimierung ohne Ziel-Untergrenze waere ein Eignungsrisiko.
+und die Chance-Penalty ist so gewichtet, dass ein MATERIELLES Zieldefizit
+mehr kostet als der ganze Wertebereich jedes Primaerterms. Eine Variante
+verschiebt also, welche Allokation unter den ziel-zulaessigen die beste ist,
+nicht ob die Ziele ueberhaupt zaehlen. Das ist der Unterschied zu einem freien
+Menue von Zielfunktionen: eine Risikomass-Optimierung ohne Ziel-Untergrenze
+waere ein Eignungsrisiko.
+
+OBJECTIVE-NORMALIZATION-001 (2026-10-18): bis dahin war die Penalty
+``1e6 * Defizit^2`` -- "um Groessenordnungen dominanter als jeder
+Primaerterm". Das war zu viel des Guten: auch ein statistisch bedeutungsloses
+Defizit von wenigen Pfaden ueberstimmte den ganzen Primaerterm. Gemessen auf
+dem Fundament-Mandat (Strafe 1.1e6 gegen Drawdown 0.26) lieferten
+``max_drawdown`` und ``min_volatility`` 67.9 % bzw. 70.3 % Aktien -- MEHR als
+der Default (67.3 %). Jetzt ist die Strafe linear im Defizit mal
+``(Zielvolumen / W0)^2``, also in derselben Einheit wie L(w) und die
+Varianten (siehe ``objective.chance_constraint_penalty``).
 
 **2. Jeder Primaerterm ist dimensionslos und in derselben Groessenordnung.**
 
@@ -550,6 +560,39 @@ def primary_objective(
     raise ObjectiveModeError(f"Objective-Modus {resolved!r} ist nicht implementiert.")
 
 
+def refined_drawdowns_per_path(
+    portfolio_return_factors: np.ndarray,
+    *,
+    seed: int,
+):
+    """Verfeinerter Max-Drawdown JE PFAD (Anteil) plus die Verfeinerung selbst.
+
+    Einzige Stelle, die cashflow-neutrale Faktoren in Jahres-Indexpfade
+    uebersetzt und die Brueckenverfeinerung aufruft -- sowohl
+    ``refined_drawdown_check_for_winner`` (Mittelwert) als auch der gepaarte
+    Signifikanztest gegen die Hausmatrix (OPTIMIZER-DRAWDOWN-CERTIFICATION-001,
+    der pfadweise Werte fuer die Bootstrap-Replikationen braucht) lesen von
+    hier. Der Brueckenstrom haengt nur am Seed und an der Pfadzahl: zwei
+    Allokationen auf demselben Cube mit demselben Seed sehen dasselbe
+    Bruecken-Rauschen (Common Random Numbers).
+
+    Returns ``(refined, annual_grid, refinement)`` mit ``refined`` und
+    ``annual_grid`` als Arrays (pfade,) in Anteilen.
+    """
+    from services.drawdown_refinement import refine_max_drawdowns
+
+    factors = np.asarray(portfolio_return_factors, dtype=np.float64)
+    # OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: eigener Eingang, eigene
+    # Pruefung (kein stilles Klemmen auf 1e-12).
+    _require_valid_growth_factors(factors)
+    index = np.cumprod(factors, axis=1)
+    ones = np.ones((index.shape[0], 1), dtype=np.float64)
+    annual_paths = np.concatenate([ones, index], axis=1)
+    refinement = refine_max_drawdowns(annual_paths, seed=int(seed))
+    refined_values = np.asarray(refinement.refined_bps, dtype=np.float64) / 10000.0
+    return refined_values, _annual_grid_max_drawdowns(factors), refinement
+
+
 def refined_drawdown_check_for_winner(
     portfolio_return_factors: np.ndarray,
     *,
@@ -566,23 +609,14 @@ def refined_drawdown_check_for_winner(
     Trennung von "worauf optimiert wurde" und "was zertifiziert wird" wie beim
     unabhaengigen Validierungs-Cube.
     """
-    # Lazy Import: drawdown_refinement haengt an numpy, nicht am Optimizer.
-    from services.drawdown_refinement import refine_max_drawdowns
-
-    factors = np.asarray(portfolio_return_factors, dtype=np.float64)
-    # OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: eigener Eingang, eigene
-    # Pruefung. Hier wurde ebenfalls still auf 1e-12 geklemmt -- in der
-    # Funktion, die die Proxy-Verzerrung des GEWINNERS in den Audit-Trail
-    # schreibt. Ein geklemmter Faktor haette dort eine erfundene
-    # Unterschaetzung ausgewiesen.
-    _require_valid_growth_factors(factors)
-    index = np.cumprod(factors, axis=1)
-    ones = np.ones((index.shape[0], 1), dtype=np.float64)
-    annual_paths = np.concatenate([ones, index], axis=1)
-
-    coarse = weighted_mean(_annual_grid_max_drawdowns(factors), weights)
-    refinement = refine_max_drawdowns(annual_paths, seed=int(seed))
-    refined_values = np.asarray(refinement.refined_bps, dtype=np.float64) / 10000.0
+    # OPTIMIZER-OBJECTIVE-DOMAIN-FAIL-CLOSED-001: Pruefung der Faktoren in
+    # `refined_drawdowns_per_path` -- hier wurde frueher still auf 1e-12
+    # geklemmt; ein geklemmter Faktor haette eine erfundene Unterschaetzung
+    # ausgewiesen.
+    refined_values, annual_values, refinement = refined_drawdowns_per_path(
+        portfolio_return_factors, seed=int(seed),
+    )
+    coarse = weighted_mean(annual_values, weights)
     refined = weighted_mean(refined_values, weights)
     return {
         "annual_grid_mean_drawdown": float(coarse),

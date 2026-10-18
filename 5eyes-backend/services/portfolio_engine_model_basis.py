@@ -314,6 +314,18 @@ def _build_allocation_model_basis(
     optimization_basis["objective"] = objective_basis(
         run_contract.objective_mode if run_contract is not None else None
     )
+    # SAA-RESAMPLED-STABILITY-001: Stabilitaets-Audit des Resamplings
+    # (Bags, Streuung je Bucket, Signifikanztest gegen die Hausmatrix,
+    # Entscheid). Additiv und nur in der FRISCHEN stochastischen Basis --
+    # eine zurueckgespielte Basis (unten) bleibt wortgetreu.
+    if has_stochastic_basis:
+        from services.optimizer.resampling import resampling_model_basis
+
+        resampling_basis = resampling_model_basis(
+            getattr(optimizer_result, "resampling", None)
+        )
+        if resampling_basis is not None:
+            optimization_basis["resampling"] = resampling_basis
     if stored_optimization_basis is not None:
         if not isinstance(stored_optimization_basis, dict):
             raise ValueError(

@@ -25,6 +25,10 @@ OK_COMFORTABLE = "OK_COMFORTABLE"
 OK_TIGHT = "OK_TIGHT"
 CONFLICT_PROFILE_LIMITS = "CONFLICT_PROFILE_LIMITS"
 CONFLICT_GOAL_INCOMPATIBLE = "CONFLICT_GOAL_INCOMPATIBLE"
+# GOAL-ACHIEVABILITY-ATTRIBUTION-001: mehrere bindende Ziele scheitern am
+# SELBEN Engpass (gleiche failure_event_id) -- das ist EIN Konflikt, kein
+# Mehrzielkonflikt zwischen unabhaengigen Ursachen.
+CONFLICT_SHARED_BOTTLENECK = "CONFLICT_SHARED_BOTTLENECK"
 CONFLICT_DATA_INSUFFICIENT = "CONFLICT_DATA_INSUFFICIENT"
 WARN_FALLBACK = "WARN_FALLBACK"
 WARN_OVERRIDE = "WARN_OVERRIDE"
@@ -36,6 +40,7 @@ ALL_CODES: tuple[str, ...] = (
     OK_TIGHT,
     CONFLICT_PROFILE_LIMITS,
     CONFLICT_GOAL_INCOMPATIBLE,
+    CONFLICT_SHARED_BOTTLENECK,
     CONFLICT_DATA_INSUFFICIENT,
     WARN_FALLBACK,
     WARN_OVERRIDE,
@@ -119,6 +124,21 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
             "gemeinsam priorisieren, was Ihnen wichtiger ist."
         ),
         "actions": ("prioritize_goals", "adjust_goal"),
+    },
+    CONFLICT_SHARED_BOTTLENECK: {
+        "severity": SEVERITY_CONFLICT,
+        "title": "Gemeinsamer Engpass",
+        "body_advisor": (
+            "Die Ziele {goal_list} scheitern am selben Engpass ({event_label}). "
+            "Es handelt sich um EINEN Konflikt, nicht um mehrere unabhängige: "
+            "Wird der Engpass behoben (Zielbetrag, Zeitpunkt, Sparrate oder "
+            "Priorität), verbessern sich alle betroffenen Ziele gemeinsam."
+        ),
+        "body_client": (
+            "Mehrere Ihrer Ziele hängen am selben finanziellen Engpass. Wenn wir "
+            "diesen einen Punkt gemeinsam lösen, profitieren alle betroffenen Ziele."
+        ),
+        "actions": ("prioritize_goals", "adjust_goal", "increase_savings"),
     },
     CONFLICT_DATA_INSUFFICIENT: {
         "severity": SEVERITY_CONFLICT,
@@ -299,9 +319,13 @@ def classify_messages(
             reason=_get(assessment, "override_reason") or "dokumentiert",
         ))
 
+    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die Plan-Solvenz-Zeile
+    # (evaluation_scope=joint_plan) ist kein Ziel und erzeugt keine
+    # Zielmeldung.
     priority_rows = [
         row for row in (list(achievability or []))
-        if _hardness_key(row.get("hardness")) in ("hart", "primaer")
+        if str(row.get("evaluation_scope") or "") != "joint_plan"
+        and _hardness_key(row.get("hardness")) in ("hart", "primaer")
     ]
     if not priority_rows:
         return _dedupe_messages(messages)
@@ -315,7 +339,19 @@ def classify_messages(
         if str(row.get("status") or "") == "knapp"
     ]
 
-    if len(not_reachable) >= 2:
+    shared_event = _single_shared_failure_event(not_reachable)
+    if len(not_reachable) >= 2 and shared_event is not None:
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: alle nicht erreichbaren
+        # bindenden Ziele tragen dieselbe typisierte Ursache -> genau EINE
+        # Konfliktmeldung, die alle betroffenen Ziele nennt.
+        worst = _sort_by_probability(not_reachable)
+        messages.append(format_message(
+            CONFLICT_SHARED_BOTTLENECK,
+            goal_list=", ".join(f"«{_goal_label(row)}»" for row in worst),
+            event_label=_failure_event_label(shared_event),
+            goal_id=worst[0].get("goal_id"),
+        ))
+    elif len(not_reachable) >= 2:
         worst = _sort_by_probability(not_reachable)
         messages.append(format_message(
             CONFLICT_GOAL_INCOMPATIBLE,
@@ -351,6 +387,27 @@ def classify_messages(
         messages.append(format_message(OK_COMFORTABLE))
 
     return _dedupe_messages(messages)
+
+
+def _single_shared_failure_event(rows: list[dict]) -> str | None:
+    """Gemeinsame typisierte Ursache ALLER Zeilen, sonst None.
+
+    Nur ``failure_event_id`` zaehlt (vom Optimizer typisiert, siehe
+    services/optimizer/goal_attribution.py). Zeilen ohne Ursache -- etwa
+    Altbewertungen -- gelten konservativ als je eigene Ursache.
+    """
+    events = {str(row.get("failure_event_id") or "") for row in rows}
+    if len(events) == 1:
+        event = next(iter(events))
+        return event or None
+    return None
+
+
+def _failure_event_label(event_id: str) -> str:
+    prefix = "liquiditaetsengpass-jahr-"
+    if event_id.startswith(prefix):
+        return f"Liquiditätsengpass im Planjahr {event_id[len(prefix):]}"
+    return "gemeinsame Zielschwelle"
 
 
 def _get(obj: Any, name: str, default: Any = None) -> Any:
