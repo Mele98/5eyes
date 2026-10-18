@@ -19,7 +19,7 @@ Jetzt, fuer jede aktive EXTERNE Vorsorge-Position ("Anderes Vermoegen"):
    deterministisch (wir verwalten sie nicht).
 2. Fortschreibung NOMINAL mit dem erfassten Satz (pension_interest_rate_bps),
    sonst mit dem Default je Anlageform (benannte, versionierte Konstanten,
-   User-Entscheid). Police: Rueckkaufswert heute -> garantierter Ablaufwert
+   User-Entscheid). Police: Rueckkaufswert heute -> vertraglicher Ablaufwert
    bei Faelligkeit (geometrisch interpoliert).
 3. Bezug: 3a, Freizuegigkeit und Policen werden beim Bezug GENAU EINMAL
    freies Vermoegen (Zufluss im Cashflow-Pfad, nach Kapitalbezugssteuer: pro
@@ -328,7 +328,7 @@ def build_pension_projection(
         rate, rate_is_default = pension_rate_bps(position)
         vehicle = pension_vehicle(position)
         if vehicle == "Police" and getattr(position, "pension_maturity_value_rappen", None):
-            growth_text = "Rückkaufswert heute, garantierter Ablaufwert bei Fälligkeit"
+            growth_text = "Rückkaufswert heute, vertraglicher Ablaufwert bei Fälligkeit"
         else:
             growth_text = (
                 f"nominal {rate / 100:.2f} % p.a."

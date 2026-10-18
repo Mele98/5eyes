@@ -535,9 +535,23 @@ def test_alembic_migration_adds_columns_as_single_head():
     downs = {_assigned(mod, "down_revision") for mod in modules.values()}
     heads = [name for name, rev in revisions.items() if rev not in downs]
     assert len(heads) == 1, heads
-    head_src = (BACKEND_ROOT / "alembic" / "versions" / heads[0]).read_text(encoding="utf-8")
-    assert "theme_tags" in head_src and "climate_benchmark" in head_src
-    assert "Thema Fossile Energie" in head_src  # Backfill
+    # Die ESG-Migration muss nicht der Head sein (spaetere Migrationen haengen
+    # sich an); sie muss genau einmal existieren und in der Kette liegen.
+    esg = [
+        name for name in modules
+        if "theme_tags" in (BACKEND_ROOT / "alembic" / "versions" / name).read_text(encoding="utf-8")
+        and "add_column" in (BACKEND_ROOT / "alembic" / "versions" / name).read_text(encoding="utf-8")
+    ]
+    assert len(esg) == 1, esg
+    esg_src = (BACKEND_ROOT / "alembic" / "versions" / esg[0]).read_text(encoding="utf-8")
+    assert "theme_tags" in esg_src and "climate_benchmark" in esg_src
+    assert "Thema Fossile Energie" in esg_src  # Backfill
+    chain, cursor = set(), revisions[heads[0]]
+    by_rev = {rev: name for name, rev in revisions.items()}
+    while cursor in by_rev:
+        chain.add(by_rev[cursor])
+        cursor = _assigned(modules[by_rev[cursor]], "down_revision")
+    assert esg[0] in chain
 
 
 def test_product_create_accepts_and_canonicalizes_theme_tags():
