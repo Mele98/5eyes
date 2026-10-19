@@ -637,3 +637,297 @@ def test_monolith_refreshes_after_load_save_and_override():
     assert "renderRiskCapacityPlausibility(null)" in _js_function("loadCurrentRiskAssessment")
     override_block = HTML.split("/risk-assessments/'+raId+'/override'", 1)[1][:900]
     assert "refreshRiskCapacityPlausibility(mid)" in override_block
+
+
+# ---------------------------------------------------------------------------
+# RISK-CAPACITY-COVERAGE-001 (Codex-Review PR #647, 2026-10-19):
+# regelweise Datenabdeckung und Vorausfenster fuer Verpflichtungen.
+# Uebernimmt den Gegenvertrag docs/audits/reproducers/
+# test_2026_10_19_pr647_risk_capacity_plausibility_adversarial.py
+# (Assertions unveraendert, zusaetzlich verschaerft).
+# ---------------------------------------------------------------------------
+
+def _declared_high_capacity(**overrides) -> DeclaredCapacity:
+    return _declared(obligations_band=0, **overrides)  # Frage 5: bis CHF 3'000
+
+
+def _skipped(result: dict) -> set[str]:
+    return {row["check"] for row in result["not_evaluable"]}
+
+
+def test_missing_expense_coverage_is_not_certified_consistent():
+    """Keine Ausgabenzeile = unbekannte Verpflichtungen, nicht verifizierte Null."""
+    recorded = RecordedFinancials(
+        gross_income_monthly_rappen=15_000 * CHF,
+        recurring_expense_monthly_rappen=0,
+        liquid_assets_rappen=1_500_000 * CHF,
+        gross_assets_rappen=1_500_000 * CHF,
+        position_count=1,
+        income_cashflow_count=1,
+        expense_cashflow_count=0,
+    )
+    result = assess_plausibility(_declared_high_capacity(), recorded)
+
+    assert result["status"] != "consistent"
+    assert result["status"] == "partial"
+    assert {CHECK_OBLIGATIONS, CHECK_SAVINGS} <= _skipped(result)
+    assert result["reason_code"] is None
+    assert result["coverage"][CHECK_OBLIGATIONS] == "missing"
+    assert result["coverage"][CHECK_SAVINGS] == "missing"
+    assert result["coverage"][CHECK_INCOME] == "recorded"
+    # Hinweis-Layer bleibt still: kein Banner/PDF/Reasoning fuer "partial".
+    assert strategy_reasoning_lines(result) == []
+    assert pdf_advisor_note(result) == ""
+
+
+def test_derived_only_expenses_below_limit_are_not_evaluable():
+    # Nur abgeleiteter Hypothekarzins (CHF 1'000), keine erfasste Ausgabe:
+    # Betrag ist eine Untergrenze, belegt aber keine Haushaltsabdeckung.
+    result = assess_plausibility(
+        _declared_high_capacity(),
+        _recorded(recurring_expense_monthly_rappen=1_000 * CHF, expense_cashflow_count=0),
+    )
+    assert result["status"] == "partial"
+    assert {CHECK_OBLIGATIONS, CHECK_SAVINGS} <= _skipped(result)
+    assert result["coverage"][CHECK_OBLIGATIONS] == "derived_only"
+    assert result["data_basis"]["recurring_expense_monthly_rappen"] == 1_000 * CHF
+
+
+def test_derived_only_expenses_above_limit_still_flag_as_lower_bound():
+    # Einweg-Logik: schon die Untergrenze widerspricht der Angabe -> Befund.
+    result = assess_plausibility(
+        _declared_high_capacity(),
+        _recorded(gross_income_monthly_rappen=10_000 * CHF,
+                  recurring_expense_monthly_rappen=9_000 * CHF, expense_cashflow_count=0),
+    )
+    assert result["status"] == "inconsistent"
+    assert {CHECK_OBLIGATIONS, CHECK_SAVINGS} <= _checks(result)
+    assert not ({CHECK_OBLIGATIONS, CHECK_SAVINGS} & _skipped(result))
+
+
+def test_ambiguous_answer_makes_overall_status_partial_not_consistent():
+    result = assess_plausibility(_declared(free_wealth_band=None), _recorded())
+    assert result["findings"] == []
+    assert result["status"] == "partial"
+    assert result["coverage"][CHECK_FREE_WEALTH] == "answer_unmapped"
+
+
+def test_full_coverage_remains_consistent():
+    result = assess_plausibility(_declared(), _recorded())
+    assert result["status"] == "consistent"
+    assert result["not_evaluable"] == []
+    assert result["coverage"][CHECK_OBLIGATIONS] == "recorded"
+
+
+def test_forward_window_is_versioned_cio_default():
+    assert THRESHOLDS["obligation_forward_window_months"] == 12
+    assert PLAUSIBILITY_RULES_VERSION == "RCP-2026-10-19.v2"
+
+
+def _load(session_factory, rows, *, today=TODAY):
+    with session_factory() as session:
+        _seed(session)
+        session.add_all(rows)
+        session.commit()
+        return load_recorded_financials(session, session.get(Mandate, "m-rcp"), today=today)
+
+
+def test_recorded_near_term_future_expense_participates_in_capacity_check(session_factory):
+    """Frage 5 umfasst ausdruecklich kuenftig absehbare Verpflichtungen."""
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("known-future-obligation", "Expense", 13_000, valid_from="2026-11-01"),
+        _position("depot", "Depot", "Beratungsvermögen", 1_500_000),
+    ])
+    result = assess_plausibility(_declared_high_capacity(), recorded)
+
+    assert recorded.recurring_expense_monthly_rappen == 13_000 * CHF
+    assert recorded.current_expense_monthly_rappen == 0
+    assert recorded.peak_expense_from == "2026-11-01"
+    assert recorded.expense_cashflow_count == 1
+    assert {CHECK_OBLIGATIONS, CHECK_SAVINGS} <= _checks(result)
+    message = next(f for f in result["findings"] if f["check"] == CHECK_OBLIGATIONS)["message"]
+    assert "CHF 13'000" in message and "11.2026" in message
+
+
+def test_obligation_outside_forward_window_is_documented_not_counted(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("living", "Expense", 2_000),
+        _cashflow("far-future", "Expense", 13_000, valid_from="2027-10-19"),  # 1 Tag zu spaet
+        _position("depot", "Depot", "Beratungsvermögen", 1_500_000),
+    ])
+    assert recorded.recurring_expense_monthly_rappen == 2_000 * CHF
+    assert recorded.outside_window_expense_count == 1
+    result = assess_plausibility(_declared_high_capacity(), recorded)
+    assert CHECK_OBLIGATIONS not in _checks(result)
+    assert result["data_basis"]["outside_window_expense_count"] == 1
+
+
+def test_forward_window_end_day_is_inclusive(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("edge", "Expense", 13_000, valid_from="2027-10-18"),  # genau +12 Monate
+    ])
+    assert recorded.recurring_expense_monthly_rappen == 13_000 * CHF
+    assert recorded.outside_window_expense_count == 0
+
+
+def test_time_profile_takes_peak_month_not_sum_of_sequential_obligations(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("old-loan", "Expense", 5_000, valid_until="2026-11-30"),
+        _cashflow("new-loan", "Expense", 6_000, valid_from="2026-12-01"),
+        _cashflow("overlap", "Expense", 1_000, valid_from="2027-03-01", valid_until="2027-03-31"),
+    ])
+    # Okt/Nov 5'000, Dez-Feb 6'000, Maerz 7'000 -> Peak 7'000 (nicht 12'000).
+    assert recorded.recurring_expense_monthly_rappen == 7_000 * CHF
+    assert recorded.current_expense_monthly_rappen == 5_000 * CHF
+    assert recorded.peak_expense_from == "2027-03-01"
+
+
+def test_expense_ended_before_today_is_not_counted(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("ended", "Expense", 9_000, valid_until="2026-10-17"),
+        _cashflow("ends-today", "Expense", 2_000, valid_until="2026-10-18"),  # inklusiv
+    ])
+    assert recorded.recurring_expense_monthly_rappen == 2_000 * CHF
+    assert recorded.expense_cashflow_count == 1
+
+
+def test_short_intra_month_future_obligation_is_seen(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("short", "Expense", 4_000, valid_from="2027-01-10", valid_until="2027-01-20"),
+    ])
+    assert recorded.recurring_expense_monthly_rappen == 4_000 * CHF
+
+
+def test_future_annual_obligation_uses_monthly_equivalent(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("school-fee", "Expense", 24_000, frequency="jährlich", valid_from="2027-08-01"),
+    ])
+    assert recorded.recurring_expense_monthly_rappen == 2_000 * CHF
+
+
+def test_future_income_is_not_credited(session_factory):
+    # Einweg-Logik: kuenftiges Einkommen entlastet die Pruefung nicht.
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 5_000),
+        _cashflow("future-raise", "Income", 10_000, valid_from="2026-11-01"),
+        _cashflow("living", "Expense", 2_000),
+    ])
+    assert recorded.gross_income_monthly_rappen == 5_000 * CHF
+    assert recorded.income_cashflow_count == 1
+
+
+def test_leap_day_valuation_date_window(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000),
+        _cashflow("in", "Expense", 3_000, valid_from="2029-02-28"),
+        _cashflow("out", "Expense", 9_000, valid_from="2029-03-01"),
+    ], today=date(2028, 2, 29))
+    assert recorded.recurring_expense_monthly_rappen == 3_000 * CHF
+    assert recorded.outside_window_expense_count == 1
+
+
+def test_no_expense_rows_end_to_end_is_partial_via_endpoint(session_factory):
+    from routers.profiling import create_risk_assessment, get_risk_capacity_plausibility
+
+    with session_factory() as session:
+        advisor = _seed(session)
+        session.add_all([
+            _cashflow("salary", "Income", 15_000),
+            _position("depot", "Depot", "Beratungsvermögen", 1_500_000),
+        ])
+        session.commit()
+        create_risk_assessment(
+            mandate_id="m-rcp", body=_risk_body(), request=_FakeRequest(), db=session,
+            current_user=advisor,
+        )
+        result = get_risk_capacity_plausibility(mandate_id="m-rcp", db=session, current_user=advisor)
+        assert result["status"] == "partial"
+        assert {CHECK_OBLIGATIONS, CHECK_SAVINGS} <= _skipped(result)
+        # kein Widerspruch -> kein Audit-Eintrag (unveraendertes Verhalten)
+        assert _plausibility_audit_rows(session) == []
+
+
+# ---------------------------------------------------------------------------
+# CIO-Entscheid 2026-10-19: Einkommen im Vorausfenster konservativ werten.
+# F3/F7 nutzen das TIEFSTE Monatseinkommen im 12-Monats-Fenster; die Sparquote
+# wird je Monatssegment aus Einkommen und Belastung DESSELBEN Monats gebildet.
+# ---------------------------------------------------------------------------
+
+def test_income_drop_within_window_uses_lowest_month(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000, valid_until="2027-02-28"),
+        _cashflow("pension", "Income", 5_000),
+        _cashflow("living", "Expense", 4_500),
+    ])
+    assert recorded.current_income_monthly_rappen == 20_000 * CHF
+    assert recorded.gross_income_monthly_rappen == 5_000 * CHF
+    assert recorded.income_min_from == "2027-03-01"
+    result = assess_plausibility(_declared(), recorded)
+    income = next(f for f in result["findings"] if f["check"] == CHECK_INCOME)
+    assert "ab 03.2027 sinkt das erfasste Einkommen auf CHF 5'000" in income["message"]
+    savings = next(f for f in result["findings"] if f["check"] == CHECK_SAVINGS)
+    assert savings["recorded"] == "10 %"
+    assert "ungünstigster Monat ab 03.2027" in savings["message"]
+
+
+@pytest.mark.parametrize("until", ["2027-10-19", "2027-10-18"])  # nach / genau Fensterende (inklusiv)
+def test_income_drop_outside_window_is_not_counted(session_factory, until):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000, valid_until=until),
+        _cashflow("living", "Expense", 4_000),
+    ])
+    assert recorded.gross_income_monthly_rappen == 15_000 * CHF
+    result = assess_plausibility(_declared(), recorded)
+    assert CHECK_INCOME not in _checks(result)
+    assert CHECK_SAVINGS not in _checks(result)
+
+
+def test_multiple_incomes_dropping_at_different_months(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("a", "Income", 6_000, valid_until="2026-12-31"),
+        _cashflow("b", "Income", 4_000, valid_until="2027-05-31"),
+        _cashflow("c", "Income", 3_000),
+        _cashflow("future", "Income", 9_000, valid_from="2027-06-01"),  # zaehlt nie
+        _cashflow("living", "Expense", 1_000),
+    ])
+    assert recorded.current_income_monthly_rappen == 13_000 * CHF
+    assert recorded.gross_income_monthly_rappen == 3_000 * CHF
+    assert recorded.income_min_from == "2027-06-01"
+    assert recorded.income_cashflow_count == 3
+
+
+def test_savings_worst_month_pairs_income_and_expense_of_same_month(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 5_000, valid_until="2027-02-28"),
+        _cashflow("base", "Income", 10_000),
+        _cashflow("living", "Expense", 2_000),
+        _cashflow("one-month", "Expense", 8_000, valid_from="2026-11-01", valid_until="2026-11-30"),
+    ])
+    # Nov: 15'000 / 10'000 -> 33 %; ab Maerz: 10'000 / 2'000 -> 80 %.
+    # Falsch kombiniert (Min-Einkommen + Max-Belastung) waere 0 %.
+    assert recorded.savings_worst_from == "2026-11-01"
+    assert recorded.savings_worst_income_monthly_rappen == 15_000 * CHF
+    assert recorded.savings_worst_expense_monthly_rappen == 10_000 * CHF
+    result = assess_plausibility(_declared(income_band=2, obligations_band=4), recorded)
+    assert CHECK_SAVINGS not in _checks(result)
+    assert CHECK_INCOME not in _checks(result)
+
+
+def test_all_income_ending_in_window_is_a_finding_not_a_skip(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000, valid_until="2027-01-31"),
+        _cashflow("living", "Expense", 2_000),
+    ])
+    assert recorded.gross_income_monthly_rappen == 0
+    result = assess_plausibility(_declared(), recorded)
+    assert {CHECK_INCOME, CHECK_SAVINGS} <= _checks(result)
+    assert not ({CHECK_INCOME, CHECK_SAVINGS} & _skipped(result))
+    income = next(f for f in result["findings"] if f["check"] == CHECK_INCOME)
+    assert "ab 02.2027 sinkt das erfasste Einkommen auf CHF 0" in income["message"]
