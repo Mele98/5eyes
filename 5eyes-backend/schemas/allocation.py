@@ -86,7 +86,6 @@ _VALID_ASSET_CLASS_KEYS = frozenset(
 )
 _VALID_SIMULATION_KEYS = frozenset(
     {
-        "horizonYears",
         "stressMultiplier",
         "rebalanceMode",
         "monteCarloRuns",
@@ -95,12 +94,33 @@ _VALID_SIMULATION_KEYS = frozenset(
         "crisisStrength",
         "tailRisk",
         "cornishFisher",
-        # SIM-HORIZON-CONFIRM-001: true = horizonYears ist eine ausdrueckliche
-        # Berater-Wahl (nach SIM-HORIZON-ALWAYS-EXPLICIT-001 bzw. bestaetigt).
-        # Rein dokumentarisch -- die Engine liest nur horizonYears.
-        "horizonExplicit",
     }
 )
+# SIM-HORIZON-FROM-RISK-PROFILE-001 (CIO-Entscheid 2026-10-18): der Prognose-
+# Horizont wird aus Risikoprofil, Zielen und Lebenserwartung hergeleitet und ist
+# keine Praeferenz mehr. Alt-Snapshots/-Clients senden diese Keys noch: sie
+# werden OHNE Validierung verworfen (kein Crash auf Altwerten, nie persistiert).
+IGNORED_LEGACY_SIMULATION_KEYS = frozenset({"horizonYears", "horizonExplicit"})
+
+
+def preferences_json_without_ignored_keys(raw: str | None) -> str | None:
+    """Gespeicherten Praeferenz-Snapshot (json.dumps(..., sort_keys=True))
+    ohne ignorierte Alt-Keys -- fuer den Drift-Vergleich mit dem normalisierten
+    Live-Stand. Unveraendert, wenn nichts zu entfernen ist oder kein JSON."""
+    import json
+
+    try:
+        parsed = json.loads(raw) if raw else None
+    except (TypeError, ValueError):
+        return raw
+    simulation = parsed.get("simulation") if isinstance(parsed, dict) else None
+    if not isinstance(simulation, dict) or not (
+        IGNORED_LEGACY_SIMULATION_KEYS & simulation.keys()
+    ):
+        return raw
+    for key in IGNORED_LEGACY_SIMULATION_KEYS:
+        simulation.pop(key, None)
+    return json.dumps(parsed, sort_keys=True, default=str)
 
 _VALID_POLICY_VALUES = {
     "esg": frozenset(
@@ -375,9 +395,6 @@ class TargetAllocationResponse(BaseResponse):
     stress_evaluations_json: Optional[str] = None
     # Phase 6.2: persistierter Solver-Reasoning-Trace (JSON-Liste).
     optimizer_reasoning_json: Optional[str] = None
-    # SIM-HORIZON-CONFIRM-001: Berater-Bestaetigung eines Alt-Horizonts.
-    sim_horizon_confirmed_at: Optional[str] = None
-    sim_horizon_confirmed_by: Optional[str] = None
     # V3 Sprint 2.1: Verknuepfung zur optimizer_runs-Zeile (nur stochastic-Modus
     # mit converged Solver). NULL bei house_matrix oder shadow_stochastic.
     optimization_run_id: Optional[str] = None
@@ -1079,22 +1096,17 @@ class AllocationPreferencesPayload(BaseModel):
     @field_validator("simulation")
     @classmethod
     def validate_simulation(cls, value: dict) -> dict:
+        value = {
+            key: item
+            for key, item in value.items()
+            if key not in IGNORED_LEGACY_SIMULATION_KEYS
+        }
         for key, item in value.items():
             if key not in _VALID_SIMULATION_KEYS:
                 raise ValueError(
                     f"Unbekannter Simulation-Key '{key}' (erlaubt: {sorted(_VALID_SIMULATION_KEYS)})"
                 )
-            if key == "horizonExplicit":
-                _validate_strict_bool(section="simulation", key=key, value=item)
-            elif key == "horizonYears":
-                _validate_integer_range(
-                    section="simulation",
-                    key=key,
-                    value=item,
-                    minimum=1,
-                    maximum=120,
-                )
-            elif key == "stressMultiplier":
+            if key == "stressMultiplier":
                 _validate_number_range(
                     section="simulation",
                     key=key,
@@ -1170,23 +1182,6 @@ class BuildingBlockResponse(BaseResponse):
 
 class TargetAllocationGenerateRequest(BaseModel):
     preferences: Optional[AllocationPreferencesPayload] = None
-
-
-class SimHorizonConfirmationRequest(BaseModel):
-    """SIM-HORIZON-CONFIRM-001: der Berater bestaetigt den im Snapshot der
-    AKTUELLEN Soll-Allokation gespeicherten Horizont. `horizon_years` muss
-    dem Snapshot entsprechen (Schutz gegen Bestaetigung eines anderen Werts
-    als des angezeigten, z.B. nach paralleler Neuberechnung)."""
-
-    horizon_years: int = Field(ge=1, le=120)
-
-
-class SimHorizonConfirmationResponse(BaseModel):
-    target_allocation_id: str
-    horizon_years: int
-    sim_horizon_confirmed_at: str
-    sim_horizon_confirmed_by: Optional[str] = None
-    already_confirmed: bool = False
 
 
 # Phase 6: Sensitivity-Analyse fuer ein einzelnes Goal.
@@ -1653,6 +1648,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     capital_market_assumption_set: Optional[str] = None
     capital_market_source: Optional[str] = None
     reasoning: list[str]
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: hergeleiteter Prognosehorizont
+    # {years, sources, components, sentence} -- reine Anzeige, nicht editierbar.
+    projection_horizon: Optional[dict] = None
     buckets: list[AllocationBucketResponse]
     sub_allocations: list[AllocationSubBucketResponse]
     asset_class_assumptions: list[AssetClassAssumptionResponse]
