@@ -288,8 +288,8 @@ RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     """CREATE TABLE IF NOT EXISTS risk_override_decisions (
     id                           TEXT PRIMARY KEY,
     schema_version               TEXT NOT NULL DEFAULT 'RiskOverrideDecisionV1',
-    assessment_id                TEXT NOT NULL REFERENCES risk_assessments(id),
-    mandate_id                   TEXT NOT NULL REFERENCES mandates(id),
+    assessment_id                TEXT NOT NULL,
+    mandate_id                   TEXT NOT NULL,
     client_id                    TEXT,
     assessment_version           INTEGER NOT NULL,
     sequence_no                  INTEGER NOT NULL CHECK(sequence_no >= 1),

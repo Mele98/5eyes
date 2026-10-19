@@ -168,3 +168,28 @@ def test_bootstrap_triggers_block_mutation(tmp_path, statement):
         conn.commit()
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             conn.execute(statement)
+
+
+def test_decision_table_has_no_hard_fk_to_assessments_or_mandates(tmp_path):
+    """CIO-Entscheid 2026-10-19: Muster audit_log -- nur der Akteur verweist
+    per FK auf users; assessment_id/mandate_id sind indizierte Spalten,
+    damit Foundation-/Demo-Purges die Decisions stehen lassen koennen. Gilt
+    fuer Bootstrap-DDL, Runtime-Patch-DDL und Alembic."""
+    import database as db_module
+    from alembic import command
+
+    fresh = tmp_path / "fk_fresh.db"
+    db_module.bootstrap_sqlite_schema(db_path=fresh, schema_path=SCHEMA_FILE)
+    migrated = tmp_path / "fk_alembic.db"
+    command.upgrade(_alembic_cfg(f"sqlite:///{migrated}"), "head")
+    patched = tmp_path / "fk_patch.db"
+    with sqlite3.connect(str(patched)) as conn:
+        for ddl in db_module.RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL:
+            conn.execute(ddl)
+    for db_path in (fresh, migrated, patched):
+        with sqlite3.connect(str(db_path)) as conn:
+            targets = {row[2] for row in conn.execute(
+                "PRAGMA foreign_key_list(risk_override_decisions)"
+            )}
+        assert targets == {"users"}, (db_path.name, targets)
+    assert {fk.column.table.name for fk in RiskOverrideDecision.__table__.foreign_keys} == {"users"}

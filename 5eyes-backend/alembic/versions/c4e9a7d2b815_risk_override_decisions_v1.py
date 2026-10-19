@@ -75,8 +75,8 @@ def upgrade() -> None:
         sa.Column("rules_version", sa.String(), nullable=False),
         sa.Column("decision_hash", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.String(), nullable=False),
-        sa.ForeignKeyConstraint(["assessment_id"], ["risk_assessments.id"]),
-        sa.ForeignKeyConstraint(["mandate_id"], ["mandates.id"]),
+        # CIO-Entscheid 2026-10-19: wie audit_log kein FK auf
+        # risk_assessments/mandates (Purge-fest; Decisions bleiben stehen).
         sa.ForeignKeyConstraint(["actor_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )

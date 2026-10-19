@@ -129,6 +129,9 @@ class RiskOverrideDecision(Base):
     Entscheidungen dadurch nicht rueckwirkend um -- und ein SHA-256 ueber den
     kanonischen Snapshot (services/risk_override_decision.py).
 
+    Kein FK auf risk_assessments/mandates (Muster audit_log), damit der
+    Foundation-/Demo-Purge funktioniert und die Zeilen danach stehen bleiben.
+
     (assessment_id, sequence_no) ist eindeutig: zwei parallele Appends auf
     denselben Stand koennen nicht beide gewinnen.
     """
@@ -146,8 +149,12 @@ class RiskOverrideDecision(Base):
 
     id = Column(String, primary_key=True)
     schema_version = Column(String, nullable=False, default="RiskOverrideDecisionV1")
-    assessment_id = Column(String, ForeignKey("risk_assessments.id"), nullable=False)
-    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
+    # CIO-Entscheid 2026-10-19: wie audit_log KEIN harter Fremdschluessel auf
+    # risk_assessments/mandates -- die Referenz ist eine indizierte Spalte.
+    # Ein Foundation-/Demo-Purge loescht Assessment und Mandat, die Decision-
+    # Zeilen bleiben als unveraenderlicher Nachweis stehen (wie audit_log).
+    assessment_id = Column(String, nullable=False)
+    mandate_id = Column(String, nullable=False)
     client_id = Column(String)
     assessment_version = Column(Integer, nullable=False)
     sequence_no = Column(Integer, nullable=False)

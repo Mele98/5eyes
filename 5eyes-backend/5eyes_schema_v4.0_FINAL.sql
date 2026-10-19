@@ -343,13 +343,15 @@ CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessmen
 -- RiskOverrideDecisionV1 -- append-only, gehashter Nachweis JEDER Override-
 -- Entscheidung (Basis, Anfrage, effektive Requirements, Regelversion).
 -- KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger verboten.
+-- Wie audit_log KEIN FK auf risk_assessments/mandates: ein Foundation-/Demo-
+-- Purge loescht Assessment und Mandat, die Decisions bleiben als Nachweis.
 -- Identisch zu database.py::RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL.
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS risk_override_decisions (
     id                           TEXT PRIMARY KEY,
     schema_version               TEXT NOT NULL DEFAULT 'RiskOverrideDecisionV1',
-    assessment_id                TEXT NOT NULL REFERENCES risk_assessments(id),
-    mandate_id                   TEXT NOT NULL REFERENCES mandates(id),
+    assessment_id                TEXT NOT NULL,  -- bewusst ohne FK (Muster audit_log, Purge-fest)
+    mandate_id                   TEXT NOT NULL,  -- bewusst ohne FK (Muster audit_log, Purge-fest)
     client_id                    TEXT,
     assessment_version           INTEGER NOT NULL,
     sequence_no                  INTEGER NOT NULL CHECK(sequence_no >= 1),
