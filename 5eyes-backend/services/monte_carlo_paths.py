@@ -79,6 +79,8 @@ def compute_quantile_paths(
     horizon_years: int,
     n_paths: int = DEFAULT_N_PATHS,
     seed: int = DEFAULT_SEED,
+    cma: Any = None,
+    death_year_index: int | None = None,
 ) -> dict[str, Any]:
     """Berechnet Monte-Carlo Wealth-Pfade mit Quantilen.
 
@@ -98,6 +100,18 @@ def compute_quantile_paths(
         Anzahl MC-Pfade. Default 1000 — Trade-off Stabilitaet vs Latenz.
     seed
         PCG64-Seed fuer Reproduzierbarkeit. Default DEFAULT_SEED.
+    cma
+        Optional explizite CMA. Default (None): die in der Soll-Allokation
+        verankerte Snapshot-CMA (``resolve_allocation_cma``) -- NIE still die
+        global aktuelle CMA (MC-CONTEXT-001).
+    death_year_index
+        Optionaler Mortalitaets-Cutoff-Index (siehe
+        ``report_mc_death_year_index``). None = Feature aus = keine
+        Mortalitaets-Transformation, identisch zum Solver (MORT-CHANNEL-001).
+
+    Staleness (Risikoprofil-/Input-Anker) prueft der Aufrufer vorab mit
+    ``services.report_projection_gate`` -- siehe
+    ``services.advisory_report._build_monte_carlo_paths_section``.
 
     Returns
     -------
@@ -147,14 +161,10 @@ def compute_quantile_paths(
             ),
         }
 
-    cma = _load_current_cma(db)
     if cma is None:
-        return fail | {
-            "note": (
-                "Keine Kapitalmarkt-Annahmen hinterlegt — bitte zuerst "
-                "im Admin-Bereich die CMA setzen."
-            ),
-        }
+        cma, cma_note = resolve_allocation_cma(db, ta)
+        if cma is None:
+            return fail | {"projection_status": "blocked", "note": cma_note}
 
     weights = _weights_from_ta(ta)
     if not np.isclose(weights.sum(), 1.0, atol=0.01):
@@ -178,7 +188,63 @@ def compute_quantile_paths(
         cashflow_series=cashflow_series,
         n_paths=int(n_paths),
         seed=int(seed),
+        death_year_index=death_year_index,
     )
+
+
+def report_mc_death_year_index(
+    offset_years: int | None, *, horizon_years: int,
+) -> int | None:
+    """MORT-CHANNEL-001: Mortalitaets-Cutoff in Index-Form, exakt nach der
+    Solver-Konvention (``services.optimizer.solver``:
+    ``np.clip(mortality_fixed_offset_years, 1, horizon_years)``). None bleibt
+    None -- Feature aus heisst keine Transformation."""
+    if offset_years is None:
+        return None
+    return int(np.clip(int(offset_years), 1, int(horizon_years)))
+
+
+def resolve_allocation_cma(db: Session, ta: Any) -> tuple[Any, str]:
+    """MC-CONTEXT-001: die CMA, auf der die Soll-Allokation berechnet wurde.
+
+    Frueher lud die Report-MC die global AKTUELLE CMA -- nach einem CMA-
+    Update rechnete sie die alten Gewichte also mit neuen Annahmen, ohne
+    Hinweis. Jetzt gilt derselbe Snapshot-Anker wie im kanonischen Payload
+    (``build_target_payload_from_allocation``):
+
+    * Anker vorhanden -> genau diese CMA; ist sie geloescht/fehlt sie,
+      wird blockiert (keine Ersatzannahmen).
+    * kein Anker (Altbestand) -> blockiert (Legacy-Quarantaene): eine Kurve
+      mit aktuellen Ersatzannahmen saehe wie ein Beleg der Allokation aus,
+      ist es aber nicht.
+
+    Rueckgabe ``(cma, "")`` oder ``(None, Berater-Hinweis)``.
+    """
+    from models.allocation import CapitalMarketAssumption
+
+    cma_id = str(getattr(ta, "capital_market_assumptions_id", "") or "").strip()
+    if not cma_id:
+        return None, (
+            "Die Soll-Allokation ist mit keinen Kapitalmarkt-Annahmen "
+            "verankert (Altbestand). Eine Prognose mit aktuellen "
+            "Ersatzannahmen waere kein Beleg dieser Strategie. Bitte "
+            "Strategie neu berechnen."
+        )
+    cma = (
+        db.query(CapitalMarketAssumption)
+        .filter(
+            CapitalMarketAssumption.id == cma_id,
+            CapitalMarketAssumption.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if cma is None:
+        return None, (
+            "Die von der Soll-Allokation referenzierten Kapitalmarkt-Annahmen "
+            "sind nicht mehr verfuegbar; eine Prognose mit Ersatzannahmen ist "
+            "unzulaessig. Bitte Strategie neu berechnen."
+        )
+    return cma, ""
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +265,8 @@ def _data_pending_response(
         "horizon_years": int(horizon_years or 0),
         "initial_wealth_rappen": int(initial_wealth_rappen or 0),
         "note": "",
+        # MC-CONTEXT-001: current | stale | blocked | data_pending.
+        "projection_status": "data_pending",
     }
 
 
@@ -219,33 +287,6 @@ def _load_current_ta(db: Session, mandate: Mandate) -> Any:
             )
             .first()
         )
-
-
-def _load_current_cma(db: Session) -> Any:
-    """Lookup der aktuellen Capital Market Assumption.
-
-    CMA ist global (nicht per-Mandat), daher nicht im Aggregator-Cache.
-    Wir cachen sie pro compute()-Aufruf via db.info — wenn keine
-    Aggregator-Session aktiv ist, faellt die Query direkt durch.
-    """
-    from models.allocation import CapitalMarketAssumption
-
-    # Cache-aware: wenn der Aggregator-Cache aktiv ist, dort einhaengen.
-    cache = db.info.get("_advisory_aggregator_call_cache")
-    if cache is not None and "current_cma" in cache:
-        return cache["current_cma"]
-
-    cma = (
-        db.query(CapitalMarketAssumption)
-        .filter(
-            CapitalMarketAssumption.is_current == 1,
-            CapitalMarketAssumption.deleted_at.is_(None),
-        )
-        .first()
-    )
-    if cache is not None:
-        cache["current_cma"] = cma
-    return cma
 
 
 def _weights_from_ta(ta) -> np.ndarray:
@@ -374,8 +415,12 @@ def _compute_paths_core(
     n_paths: int,
     seed: int,
     sub_allocations: list[dict] | None = None,
+    death_year_index: int | None = None,
 ) -> dict[str, Any]:
-    """Reine Engine-Schicht — keine DB-Zugriffe. Direkt testbar."""
+    """Reine Engine-Schicht — keine DB-Zugriffe. Direkt testbar.
+
+    ``death_year_index`` (MORT-CHANNEL-001): None = keine Mortalitaets-
+    Transformation; sonst fuer alle Pfade identischer Cutoff wie im Solver."""
     from services.optimizer.scenario_engine import (
         build_scenario_paths,
         scenario_inputs_from_cma,
@@ -430,6 +475,11 @@ def _compute_paths_core(
         weights=weights,
         return_paths=return_paths,
         cashflow_series_rappen=cashflow_series,
+        death_year_index_per_path=(
+            None
+            if death_year_index is None
+            else np.full(int(n_paths), int(death_year_index), dtype=np.int32)
+        ),
     )
     # wealth_paths shape: (n_paths, horizon + 1) — wealth[:, 0] = initial
     pcts = np.percentile(wealth_paths, list(QUANTILES), axis=0)
