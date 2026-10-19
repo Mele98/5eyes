@@ -151,6 +151,37 @@ def _cached_current_ta(db: Session, mandate: Mandate) -> Any:
     )
 
 
+def _cached_projection_gate(db: Session, mandate: Mandate) -> Any:
+    """MC-CONTEXT-001 (Codex-Review PR #645): EIN Staleness-Urteil fuer alle
+    Sektionen, die Werte der Soll-Allokation projizieren (Sektion 4 Key-
+    Metrics, 7 Zielkompatibilitaet, 11 Zielerreichung + Monte-Carlo-Pfade,
+    17 Stress-Replay). Nutzt den im Aggregator bereits berechneten
+    Depot-Check (dieselbe Regel wie Sektionen 7/8/13), sonst eigene Pruefung.
+    Siehe services/report_projection_gate.py."""
+    from services.report_projection_gate import resolve_report_projection_gate
+
+    def _factory():
+        cache = db.info.get(_CACHE_KEY) or {}
+        return resolve_report_projection_gate(
+            db, mandate, _cached_current_ta(db, mandate),
+            depot_check=cache.get("_depot_check"),
+        )
+
+    return _aggregator_cache_get(db, ("projection_gate", mandate.id), _factory)
+
+
+def _allocation_projection_hidden(db: Session, mandate: Mandate) -> bool:
+    """True, wenn PERSISTIERTE Projektionen der Soll-Allokation (Zielerreichung,
+    MC-KPIs, Stress-Replay der Soll-Gewichte) fail-closed ausgeblendet werden
+    muessen: exakt die Depot-Check-Regel der Sektionen 7/8/13 (Risikoprofil-
+    oder Input-Drift). ``blocked`` (Anker nicht pruefbar, z.B. kein
+    Risikoprofil) betrifft nur die LIVE-Neuberechnung der MC-Pfade -- die
+    persistierten Werte bleiben dort wie Sektion 8 sichtbar."""
+    from services.report_projection_gate import STATUS_STALE
+
+    return _cached_projection_gate(db, mandate).status == STATUS_STALE
+
+
 def _cached_current_ra_is_current(db: Session, mandate: Mandate) -> Any:
     """U-18: einmal pro compute() statt 4x (Sektionen 4, 7, 12, 25), gecached.
 
@@ -331,6 +362,11 @@ def _compute_advisory_report_inner(
     # (Erkenntnisse-Ampel, Asset Allocation, Währungen, Branchen).
     from services.depot_check import compute_depot_check
     dc = compute_depot_check(db, mandate) or {}
+    # MC-CONTEXT-001: Projektionssektionen (4/7/11/17) urteilen ueber
+    # _cached_projection_gate mit GENAU diesem Depot-Check-Ergebnis.
+    _call_cache = db.info.get(_CACHE_KEY)
+    if _call_cache is not None:
+        _call_cache["_depot_check"] = dc
     # PROVISORIK-WARNBANNER-JSON-001 (Kontrollrunde 2026-09-27): dieselbe
     # Provisorik-Gate-Logik, die im PDF-Export laengst ein sichtbares
     # "PROVISORISCH -- NICHT IC-FREIGEGEBEN"-Banner erzeugt, war im
@@ -874,6 +910,10 @@ def _compute_goal_achievement_score_bps(db: Session, mandate: Mandate) -> int | 
     """
     from services.optimizer.goal_attribution import is_individual_goal_row
 
+    # MC-CONTEXT-001: Zielerreichung einer veralteten Allokation ist keine
+    # aktuelle Aussage -> kein Score (Karte und Sektion 11 zeigen '—').
+    if _allocation_projection_hidden(db, mandate):
+        return None
     ta = _cached_current_ta(db, mandate)
     rows, _plan_row = _load_goal_achievability_view(ta)
     if not rows:
@@ -910,7 +950,10 @@ def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
     U-18: TA aus call-scoped Cache.
     """
     ta = _cached_current_ta(db, mandate)
-    if ta is None:
+    # MC-CONTEXT-001: Risikoquote und MC-KPIs einer veralteten Soll-Allokation
+    # werden wie deren Zielgewichte (STALE-ALLOCATION-HIDE-TARGETS-001)
+    # ausgeblendet -- nie als aktuelle Kennzahl.
+    if ta is None or _allocation_projection_hidden(db, mandate):
         return {
             "risky_fraction_bps": None,
             "zielerreichung_bps": None,
@@ -1812,6 +1855,14 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
     from services.optimizer.goal_attribution import is_individual_goal_row
 
     ta = _cached_current_ta(db, mandate)
+    gate = _cached_projection_gate(db, mandate)
+    if ta is not None and _allocation_projection_hidden(db, mandate):
+        # MC-CONTEXT-001: keine Ampel aus einer veralteten Zielerreichung.
+        return _verdict(
+            "Zielkompatibilität", "nicht_beurteilbar",
+            gate.note,
+            "Strategie neu berechnen.",
+        )
     if ta is None or not getattr(ta, "goal_achievability_json", None):
         return _verdict(
             "Zielkompatibilität", "nicht_beurteilbar",
@@ -2310,6 +2361,7 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             "goal_achievement_score_bps": 0,
             "plan_solvency": None,
             "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
+            **_goal_section_staleness(db, mandate),
         }
 
     for r in rows:
@@ -2363,6 +2415,21 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
     # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
     _score = _compute_goal_achievement_score_bps(db, mandate)
     goal_achievement_score_bps = _score if _score is not None else 0
+    staleness = _goal_section_staleness(db, mandate)
+    if staleness["target_allocation_stale"]:
+        # MC-CONTEXT-001: die gespeicherte Zielerreichung gehoert zu einer
+        # veralteten Soll-Allokation (anderes Risikoprofil / andere Inputs /
+        # anderer Horizont) -> Zeilen bleiben sichtbar, Wahrscheinlichkeiten
+        # und Ampeln nicht.
+        for goal in goals:
+            goal.update(
+                probability_bps=None,
+                status="data_pending",
+                evaluation_scope="data_pending",
+                outside_simulation_horizon=False,
+                failure_event_id=None,
+            )
+        plan_row = None
 
     return {
         "goals": goals,
@@ -2375,6 +2442,17 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
         # CMA / Beratungsvermoegen faellt die Funktion auf data_pending=True
         # mit klarer Begruendung zurueck — UI rendert dann Platzhalter.
         "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
+        **staleness,
+    }
+
+
+def _goal_section_staleness(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """MC-CONTEXT-001: Staleness-Felder der Sektion 11 (Form wie Sektion 8/13)."""
+    gate = _cached_projection_gate(db, mandate)
+    hidden = _allocation_projection_hidden(db, mandate)
+    return {
+        "target_allocation_stale": hidden,
+        "staleness_hinweis": gate.note if hidden else None,
     }
 
 
@@ -2388,8 +2466,24 @@ def _build_monte_carlo_paths_section(
     in der Pipeline (z.B. defekte CMA, kein TA) gibt das innere Modul
     ein stabiles data_pending=True-Schema zurueck — wir reichen das
     1:1 durch.
+
+    MC-CONTEXT-001 (Codex-Review PR #645): vorher wurden die Gewichte der
+    gespeicherten Soll-Allokation auch dann projiziert, wenn der kanonische
+    Payload sie bereits verweigert (neues Risikoprofil, geaenderte Inputs)
+    -- unter dem NEUEN Horizont und mit der global aktuellen CMA. Jetzt:
+    derselbe Preflight (services.report_projection_gate), bei Drift leere
+    Quantile + ``projection_status`` stale/blocked + Hinweis "Strategie neu
+    berechnen"; die CMA ist die Snapshot-CMA der Allokation.
+
+    MORT-CHANNEL-001: Mortalitaets-Cutoff aus demselben Resolver wie der
+    Solver; Feature aus -> ``mortality_mode="disabled"``, kein Cutoff.
     """
-    from services.monte_carlo_paths import compute_quantile_paths
+    from services.monte_carlo_paths import (
+        _data_pending_response,
+        compute_quantile_paths,
+        report_mc_death_year_index,
+    )
+    from services.mortality.horizon import resolve_mortality_cutoff
     from services.portfolio_engine_mc_simulation import (
         _simulation_horizon_derivation,
     )
@@ -2407,13 +2501,44 @@ def _build_monte_carlo_paths_section(
         ],
         mandate,
     )
+    horizon_years = int(horizon["years"])
+    unavailable = {
+        "horizon_note": horizon["sentence"],
+        "mortality_mode": None,
+        "mortality_cutoff_year_index": None,
+    }
+    gate = _cached_projection_gate(db, mandate)
+    if gate.is_stale_or_blocked:
+        return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
+            "note": gate.note,
+            "projection_status": gate.status,
+        }
+    try:
+        mortality_mode, offset_years = resolve_mortality_cutoff(mandate)
+    except Exception:  # noqa: BLE001 - aktiviertes Feature: Solver waere fail-closed
+        return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
+            "note": (
+                "Die Mortalitaets-Simulation ist aktiviert, aber die Angaben "
+                "zu Geburtsjahr/Geschlecht sind unvollstaendig. Bitte Angaben "
+                "ergaenzen und Strategie neu berechnen."
+            ),
+            "projection_status": "blocked",
+        }
+    death_year_index = report_mc_death_year_index(
+        offset_years, horizon_years=horizon_years,
+    )
     result = compute_quantile_paths(
         db,
         mandate,
         initial_wealth_rappen=initial_wealth,
-        horizon_years=int(horizon["years"]),
+        horizon_years=horizon_years,
+        death_year_index=death_year_index,
     )
+    if not result.get("data_pending"):
+        result["projection_status"] = "current"
     result["horizon_note"] = horizon["sentence"]
+    result["mortality_mode"] = mortality_mode
+    result["mortality_cutoff_year_index"] = death_year_index
     return result
 
 
@@ -3024,6 +3149,16 @@ def _build_stress_replay(db: Session, mandate: Mandate) -> dict[str, Any]:
     report-tauglich fail-soft: der Bericht bleibt erzeugbar, der Abschnitt
     zeigt dann einen Hinweis statt einer Tabelle.
     """
+    gate = _cached_projection_gate(db, mandate)
+    if _allocation_projection_hidden(db, mandate):
+        # MC-CONTEXT-001: Stress-Replays projizieren die Gewichte der
+        # Soll-Allokation -- bei veralteter Allokation keine Szenariozahlen.
+        return {
+            "data_pending": True,
+            "note": gate.note,
+            "weights_bps": {},
+            "scenarios": [],
+        }
     try:
         from services.backtest_stress import compute_stress_replays
 

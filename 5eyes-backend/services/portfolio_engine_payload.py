@@ -438,10 +438,16 @@ def _expected_death_year_offset_from_mandate(mandate) -> int | None:
     "kein Cutoff" zurueck (konservativ fuer eine reine Chart-Markierung) --
     der Solver-Pfad tut das NICHT mehr (fail-closed fuer ein aktiviertes,
     bereits validiertes Feature), siehe horizon.py-Docstring.
+
+    MORT-CHANNEL-001 (Codex-Review PR #644, Vertrag 2): bei ausgeschalteter
+    Mortalitaets-Simulation hat der Solver KEINEN Cutoff -- hier wurde
+    trotzdem der BFS-Median angewandt (zwei Modelle fuer denselben
+    Mandatszustand). Jetzt entscheidet ``resolve_mortality_cutoff`` einmal
+    fuer alle Consumer: ``disabled`` -> None.
     """
-    from services.mortality.horizon import expected_death_year_offset_from_mandate
+    from services.mortality.horizon import resolve_mortality_cutoff
     try:
-        return expected_death_year_offset_from_mandate(mandate)
+        return resolve_mortality_cutoff(mandate)[1]
     except Exception:
         return None
 
