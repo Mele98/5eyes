@@ -215,6 +215,32 @@ def test_stress_evaluations_none_in_house_matrix_mode(session_factory, monkeypat
 # ============================================================================
 
 
+def _use_short_risk_profile_horizon(session, mandate_id: str) -> None:
+    """SIM-HORIZON-FROM-RISK-PROFILE-001: der Prognosehorizont enthaelt seit
+    2026-10-18 den Anlagehorizont des Risikoprofils (Fixture: "Mehr als 12
+    Jahre" = 15). Diese Tests pruefen die Laufhorizont-Mechanik eines
+    verschobenen Ziels; damit das Ziel (bzw. die Solver-Mindestdauer 10) den
+    Lauf bestimmt wie bisher, wird ein kurzer Risikoprofil-Horizont gesetzt."""
+    from tests.risk_fixture_helpers import derive_current_risk_fields
+
+    ra = session.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+    ).one()
+    # Selbstkonsistent neu hergeleitet (Score passt zum Horizont-Label).
+    for field, value in derive_current_risk_fields(
+        q_income_points=ra.q_income_points,
+        q_obligations_points=ra.q_obligations_points,
+        q_savings_points=ra.q_savings_points,
+        q_wealth_points=ra.q_wealth_points,
+        investment_horizon_label="6 bis 7 Jahre",
+        q_investment_goal_points=ra.q_investment_goal_points,
+        q_risk_preference_points=ra.q_risk_preference_points,
+        q_risk_behavior_points=ra.q_risk_behavior_points,
+    ).items():
+        setattr(ra, field, value)
+
+
 def _capture_sensitivity_solver_calls(monkeypatch) -> list[dict]:
     """Replace the expensive solver and retain immutable call snapshots."""
     import services.optimizer.solver as optimizer_solver
@@ -467,6 +493,7 @@ def test_sensitivity_open_ended_pension_negative_shift_preserves_stream_duration
         suffix="open-ended-pension-negative",
     )
     with session_factory() as session:
+        _use_short_risk_profile_horizon(session, mid)
         goal = session.query(Goal).filter(Goal.id == gid).one()
         goal.target_date = None
         goal.is_ongoing = 1
@@ -546,6 +573,7 @@ def test_sensitivity_open_ended_negative_shift_respects_unaffected_goal_floor(
         suffix="open-ended-negative-multi-goal",
     )
     with session_factory() as session:
+        _use_short_risk_profile_horizon(session, mid)
         pension = session.query(Goal).filter(Goal.id == gid).one()
         pension.target_date = None
         pension.is_ongoing = 1
@@ -847,6 +875,7 @@ def test_sensitivity_shifts_target_date_only_goal_horizon(
     )
 
     with session_factory() as session:
+        _use_short_risk_profile_horizon(session, mid)
         pension = session.query(Goal).filter(Goal.id == pension_goal_id).one()
         pension.is_active = 0
         goal = session.query(Goal).filter(

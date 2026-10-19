@@ -99,9 +99,11 @@ NESTED_KEYS = {
             "liquidityReserveTarget",
         }
     ),
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: horizonYears/horizonExplicit werden
+    # angenommen, aber verworfen (siehe COMPLETE_VALID_PREFERENCES und
+    # test_legacy_simulation_horizon_keys_are_accepted_and_dropped).
     "simulation": frozenset(
         {
-            "horizonYears",
             "stressMultiplier",
             "rebalanceMode",
             "monteCarloRuns",
@@ -110,7 +112,6 @@ NESTED_KEYS = {
             "crisisStrength",
             "tailRisk",
             "cornishFisher",
-            "horizonExplicit",
         }
     ),
 }
@@ -195,6 +196,7 @@ COMPLETE_VALID_PREFERENCES = {
         "liquidity": {"min_bps": 500, "target_bps": 1000, "max_bps": 2500},
     },
     "simulation": {
+        # Alt-Keys (vor SIM-HORIZON-FROM-RISK-PROFILE-001): angenommen, verworfen.
         "horizonYears": "25",
         "stressMultiplier": "1.5",
         "rebalanceMode": "bands",
@@ -396,8 +398,6 @@ def test_all_existing_band_bucket_aliases_remain_accepted(bucket_alias):
         *(('simulation', 'rebalanceMode', value) for value in (
             'band', 'bands', 'calendar', 'jaehrlich', 'none', 'off', 'aus',
         )),
-        ('simulation', 'horizonYears', 25),
-        ('simulation', 'horizonYears', '25'),
         ('simulation', 'stressMultiplier', 1.5),
         ('simulation', 'stressMultiplier', '1.5'),
         ('simulation', 'monteCarloRuns', 750),
@@ -408,8 +408,6 @@ def test_all_existing_band_bucket_aliases_remain_accepted(bucket_alias):
         ('simulation', 'crisisStrength', 0.5),
         ('simulation', 'tailRisk', True),
         ('simulation', 'cornishFisher', 'on'),
-        ('simulation', 'horizonExplicit', True),
-        ('simulation', 'horizonExplicit', False),
         ('limits', 'singlePosition', ''),
         ('limits', 'singlePosition', '10%'),
         ('limits', 'singleIssuer', 20),
@@ -422,6 +420,29 @@ def test_existing_value_spellings_and_input_types_remain_accepted(section, key, 
         {section: {key: value}}
     ).model_dump()
     assert parsed[section][key] == value
+
+
+@pytest.mark.parametrize(
+    "legacy",
+    [
+        {"horizonYears": 25},
+        {"horizonYears": "25"},
+        {"horizonYears": 0},
+        {"horizonYears": "kaputt"},
+        {"horizonYears": None},
+        {"horizonExplicit": True},
+        {"horizonExplicit": "yes"},
+        {"horizonYears": "10", "horizonExplicit": False},
+    ],
+)
+def test_legacy_simulation_horizon_keys_are_accepted_and_dropped(legacy):
+    """SIM-HORIZON-FROM-RISK-PROFILE-001: der Prognose-Horizont ist keine
+    Praeferenz mehr. Alt-Snapshots duerfen nicht crashen (auch mit Werten,
+    die frueher abgelehnt worden waeren), und die Keys werden nie persistiert."""
+    parsed = AllocationPreferencesPayload.model_validate(
+        {"simulation": {**legacy, "stressMultiplier": "1.0"}}
+    ).model_dump()
+    assert parsed["simulation"] == {"stressMultiplier": "1.0"}
 
 
 @pytest.mark.parametrize(
@@ -493,11 +514,6 @@ def test_existing_value_spellings_and_input_types_remain_accepted(section, key, 
             {"bands": {"equities": {"max_bps": "5000"}}},
             "max_bps",
             id="band-bps-string",
-        ),
-        pytest.param(
-            {"simulation": {"horizonYears": 0}},
-            "horizonYears",
-            id="horizon-range",
         ),
         pytest.param(
             {"simulation": {"stressMultiplier": "NaN"}},

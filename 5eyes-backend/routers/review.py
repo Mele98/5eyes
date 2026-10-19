@@ -58,9 +58,13 @@ from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.market_data.exceptions import RateLimitError
 from services.openfigi_client import preview_openfigi_mapping
-from services.preference_snapshot import PreferenceSnapshotMismatchError
+from services.preference_snapshot import (
+    ReasonCodedConflictError,
+    enforce_products_against_allocation_snapshot,
+)
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
+    _risk_score_bucket,
     build_recommendation_payload_from_run,
     build_target_payload_from_allocation,
     generate_recommendation_run,
@@ -168,6 +172,41 @@ def _get_product_or_404(product_id: str, db: Session, current_user: User | None 
             if product_tid != str(user_tid).strip():
                 raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
     return product
+
+
+def _enforce_run_preferences(
+    db: Session, mandate: Mandate, run: RecommendationRun, *, context: str, products=None,
+) -> str | None:
+    """ESG-P0-3: Positionen (bzw. ``products`` = [(position_id, Product)]) des
+    Runs gegen den Praeferenz-Snapshot seiner TA pruefen. Verstoss -> 409 mit
+    Reason-Code und betroffenen Positionen; Legacy-TA -> Warnung (Rueckgabe)."""
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.id == run.target_allocation_id,
+        TargetAllocation.mandate_id == mandate.id,
+    ).first() if run.target_allocation_id else None
+    if allocation is None:
+        return None  # Finalisierung meldet die fehlende TA bereits als Fehler.
+    if products is None:
+        positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
+        by_id = {
+            product.id: product for product in db.query(Product).filter(
+                Product.id.in_([p.product_id for p in positions if p.product_id])
+            ).all()
+        } if positions else {}
+        products = [(p.id, by_id[p.product_id]) for p in positions if p.product_id in by_id]
+    assessment = db.query(RiskAssessment).filter(RiskAssessment.id == run.assessment_id).first() if run.assessment_id else None
+    try:
+        return enforce_products_against_allocation_snapshot(
+            db, mandate, allocation, products,
+            score_bucket=_risk_score_bucket(assessment) if assessment else 0, context=context,
+        )
+    except ReasonCodedConflictError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=exc.http_detail()) from exc
+    except ValueError as exc:
+        # Beschaedigter Snapshot o.ae.: fail-closed statt ungeprueft.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
@@ -3102,8 +3141,9 @@ def generate_recommendation_run_endpoint(
             run_type=body.run_type,
             depot_bank=body.depot_bank,
         )
-    except PreferenceSnapshotMismatchError as exc:
-        # PREF-CONTEXT-001: stabiler Reason-Code statt Freitext; kein Run persistiert.
+    except ReasonCodedConflictError as exc:
+        # PREF-CONTEXT-001 / THEME-MISSINGNESS-001: stabiler Reason-Code statt
+        # Freitext; kein Run persistiert.
         db.rollback()
         logger.warning("generate_recommendation_run rejected for mandate %s: %s", mandate_id, exc)
         raise HTTPException(status_code=409, detail=exc.http_detail())
@@ -3226,6 +3266,12 @@ def finalize_recommendation(
     errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
+    # die Auto-Selektion gegen den Praeferenz-Snapshot der TA geprueft --
+    # erfasst manuelle Positionen und nachtraeglich geaenderte Produktdaten.
+    legacy_warning = _enforce_run_preferences(db, mandate, run, context="finalization")
+    if legacy_warning:
+        warnings.append(legacy_warning)
     db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
         RecommendationRun.result_status == "Final",
@@ -3288,6 +3334,12 @@ def add_position(
     if run.result_status in ("Final", "Superseded"):
         raise HTTPException(status_code=400, detail="Finalisierte oder abgeloeste Runs können nicht mehr geändert werden")
     product = _get_product_or_404(body.product_id, db, current_user)
+    # PREF-MANUAL-001 (ESG-P0-3): manuelles Hinzufuegen = derselbe Matcher wie
+    # die Auto-Selektion gegen den TA-Snapshot; Verstoss -> 409, nichts gespeichert.
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    legacy_warning = _enforce_run_preferences(
+        db, mandate, run, context="manual_position", products=[(None, product)],
+    )
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
@@ -3297,10 +3349,11 @@ def add_position(
     db.add(pos)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_positions", record_id=pos.id, action="CREATE",
-        mandate_id=mandate_id)
+        mandate_id=mandate_id, new_value=legacy_warning)
     db.commit()
     db.refresh(pos)
-    return pos
+    response = RecommendationPositionResponse.model_validate(pos)
+    return response.model_copy(update={"warnings": [legacy_warning] if legacy_warning else []})
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────

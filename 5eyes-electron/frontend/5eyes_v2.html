@@ -3270,6 +3270,14 @@ function _wireSollIstHover(){
                   <div class="rdim"><div class="rdl">Risikobereitschaft</div><div class="rsc"><div class="rs on"></div><div class="rs on"></div><div class="rs on"></div><div class="rs"></div><div class="rs"></div></div><div class="rval">Mittel (3/5)</div><div class="rsub">Wachstum, keine Extremrisiken</div></div>
                   <div class="rdim"><div class="rdl">Notwendigkeit</div><div class="rsc"><div class="rs on"></div><div class="rs on"></div><div class="rs on"></div><div class="rs"></div><div class="rs"></div></div><div class="rval">Mittel (3/5)</div><div class="rsub">2.5% real ohne Extremrisiko</div></div>
                 </div>
+                <!-- RISK-CAPACITY-PLAUSIBILITY-001: Fragebogen vs. erfasste Finanzdaten (Hinweis, aendert nichts) -->
+                <div id="rp-capacity-plausibility" class="al-banner-warning" style="display:none;margin-top:10px" data-reason-code="">
+                  <div class="al-banner-icon">!</div>
+                  <div class="al-banner-content">
+                    <div class="al-banner-title"></div>
+                    <div class="al-banner-body"></div>
+                  </div>
+                </div>
                 <div class="resbox"><div class="res-t">Empfohlene Anlagestrategie</div><div class="res-p" id="res-pname">Growth – Wachstum</div><div class="res-d">Risikoklasse <strong>«Wachstumsorientiert»</strong>. Erhöhtes Kapitalwachstum, erhöhtes Risiko. Horizont min. 8 Jahre. <strong>Risikobereitschaft bindend</strong> – Soll-Aktienquote max. 45%.</div>
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:space-between;">
   <span style="font-size:10px;color:var(--n5)">Berechneter Score: <strong style="color:var(--n8)">7/10</strong></span>
@@ -3425,14 +3433,6 @@ function _wireSollIstHover(){
         </div>
         <button class="btn-g" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
       </div>
-      <div id="al-sim-horizon-confirm-banner" class="strip strip-w" style="display:none">
-        <div>
-          <div class="st">Horizont bestätigen</div>
-          <div class="ss" id="al-sim-horizon-confirm-text">Der gespeicherte Prognose-Horizont stammt von vor der Umstellung auf «Auto» und ist nicht als Berater-Wahl belegt — bitte bestätigen oder ändern.</div>
-        </div>
-        <select class="fsel" id="al-sim-horizon-confirm-select" style="font-size:10px;max-width:220px" aria-label="Prognose-Horizont"></select>
-        <button class="btn-g" id="btn-sim-horizon-confirm" onclick="confirmSimHorizonFromBanner()">Bestätigen</button>
-      </div>
       <div class="pad">
         <div id="al-message-banner" class="al-banner-warning" style="display:none">
           <div class="al-banner-icon">!</div>
@@ -3471,7 +3471,7 @@ function _wireSollIstHover(){
                 <div id="aa-proj-benchmark-note" style="font-size:10px;color:var(--n6);background:var(--bg);border:1px solid rgba(90,104,120,0.12);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;line-height:1.5">Berater-Sicht: SOLL-Strategie gegen die heutige IST-Situation (aktueller Mix des Beratungsverm&ouml;gens). Der Mehrwert entsteht v.a. dadurch, dass heute brachliegende Cash-Positionen investiert werden. Vergleich &amp; Delta folgen im Review.</div>
               </div>
               <div id="aa-horizon-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding:7px 10px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);font-size:10px">
-                <span style="font-weight:600;color:var(--n6)" title="Steuert nur, bis zu welchem Jahr Grafik und Endwerte der Kennzahlen angezeigt werden. Wie weit die Simulation rechnet, legt Parameter › Prognose-Horizont (Simulation) fest.">Grafik-Ausschnitt</span>
+                <span style="font-weight:600;color:var(--n6)" title="Steuert nur, bis zu welchem Jahr Grafik und Endwerte der Kennzahlen angezeigt werden. Wie weit die Simulation rechnet, wird aus Risikoprofil, Zielen und Lebenserwartung hergeleitet.">Grafik-Ausschnitt</span>
                 <select id="aa-horizon-mode" onchange="setAaHorizonMode(this.value)" style="font-size:10px">
                   <option value="auto">Auto (bis Lebensende)</option>
                   <option value="age">bis Alter</option>
@@ -3738,25 +3738,12 @@ function _wireSollIstHover(){
       </div>
 
       <div class="card" id="aa-simulation-card" style="display:none;margin:0 24px 12px">
-        <div class="chd"><span class="cht">Simulation & Rebalancing</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Prognose-Horizont, Volatilitäts-Szenario und Rebalancing-Modus für die Berechnung</span></div>
+        <div class="chd"><span class="cht">Simulation & Rebalancing</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Volatilitäts-Szenario und Rebalancing-Modus für die Berechnung</span></div>
         <div class="cbody">
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
             <div>
-              <label style="font-size:9px;color:var(--n4)" title="Wie weit die Simulation rechnet (wirkt auf Strategie und Kennzahlen). Der Grafik-Ausschnitt bei der SOLL-Prognose ändert nur die Anzeige.">Prognose-Horizont (Simulation)</label>
-              <select class="fsel" id="aa-sim-horizon" style="font-size:10px" title="Auto: Horizont bis Lebenserwartung bzw. letzter Cashflow (Mandatseinstellung/BFS-Sterbetafel). Ein Jahreswert ist ein expliziter Berater-Override.">
-                <option value="" selected>Auto (Lebenserwartung/letzter Cashflow)</option>
-                <option value="7">7 Jahre</option>
-                <option value="10">10 Jahre</option>
-                <option value="12">12 Jahre</option>
-                <option value="15">15 Jahre</option>
-                <option value="20">20 Jahre</option>
-                <option value="25">25 Jahre</option>
-                <option value="30">30 Jahre</option>
-                <option value="35">35 Jahre</option>
-                <option value="40">40 Jahre</option>
-                <option value="45">45 Jahre</option>
-                <option value="50">50 Jahre</option>
-              </select>
+              <label style="font-size:9px;color:var(--n4)">Prognose-Horizont (Simulation)</label>
+              <div id="aa-sim-horizon-info" style="font-size:10px;color:var(--n6);padding-top:4px">Wird aus Risikoprofil, Zielen und Lebenserwartung hergeleitet</div>
             </div>
             <div>
               <label style="font-size:9px;color:var(--n4)">Volatilitäts-Szenario</label>
@@ -5400,6 +5387,10 @@ const API = {
         const parsed = JSON.parse(txt);
         if (parsed && typeof parsed === 'object' && parsed.detail) {
           if (typeof parsed.detail === 'string') detail = parsed.detail;
+          else if (parsed.detail.reason_code && parsed.detail.message) {
+            // ESG-P0-3/P0-5: strukturierte 409 (reason_code/message/positions).
+            detail = parsed.detail.message + ' [' + parsed.detail.reason_code + ']';
+          }
           else if (Array.isArray(parsed.detail)) {
             detail = parsed.detail.map(function(item){
               if (item && typeof item === 'object') return item.msg || item.message || JSON.stringify(item);
@@ -10359,6 +10350,7 @@ async function applyOv(){
     strategyState.currentRisk=saved;
     strategyState.risk=riskAssessmentReadyForStrategy(saved, mid)?saved:null;
     renderRiskSummary(saved);
+    refreshRiskCapacityPlausibility(mid);
     markStrategyDirty('Risikoprofil überschrieben: Strategie neu berechnen.', true);
     if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
     cm('m-overr');
@@ -12290,6 +12282,13 @@ function adminRenderFundSearchTable(products){
     var origin = p.tenant_id
       ? '<span class="tag ta" title="Nur fuer Ihre Verwaltung sichtbar">Eigener Fonds</span>'
       : '<span class="tag tn">Global</span>';
+    // ESG-SEED-PROVENANCE-001: Provenienz der ESG-Angaben sichtbar machen
+    // (Seed-Werte ohne Quelle/Stichtag gelten als unbelegt).
+    if (p.esg_data_status === 'seed_unverified') {
+      origin += ' <span class="tag ta" title="ESG-Angaben (' + escapeHtml((p.esg_data_seed_fields || []).join(', ')) + ') sind Ausgangswerte des Standardkatalogs ohne Quelle/Stichtag. Kundendokumente bestaetigen darauf kein ESG-Kriterium.">ESG-Daten unbelegt</span>';
+    } else if (p.esg_data_status === 'maintained_no_source') {
+      origin += ' <span class="tag tn" title="ESG-Angaben gepflegt; Quelle/Stichtag werden im Katalog nicht erfasst.">ESG ohne Quellenangabe</span>';
+    }
     var isActive = p.is_active === undefined || p.is_active === null || !!Number(p.is_active);
     var pid = escapeHtml(String(p.id || ''));
     html += '<tr' + (isActive ? '' : ' style="opacity:.55"') + '>'
@@ -16150,55 +16149,32 @@ function applyGoalDerivedRiskHorizon(force){
   }
   prefillRiskCapacityFromCashflows();
 }
-// SIM-HORIZON-ALWAYS-EXPLICIT-001 (2026-10-14): die fruehere Mandats-Sync-Funktion
-// (applyMandateHorizonToSimulationFields) ist entfernt. Sie schrieb beim Oeffnen
-// des Parameter-Modals bzw. nach dem Stammdaten-Speichern den Anlagehorizont
-// (i.d.R. bis Pensionierung) als EXPLIZITEN Wert in #aa-sim-horizon -- das Backend
-// wertet jeden gesendeten Wert als Berater-Override, womit Lebenserwartung
-// (Mandat/BFS) und letzter Cashflow nie erreicht wurden. Der Simulationshorizont
-// steht jetzt auf "Auto", bis der Berater ihn selbst waehlt.
-function markSimulationHorizonExplicit(field,explicit){
-  if(!field)return;
-  field.__simHorizonExplicit=!!explicit;
-  try{if(field.dataset)field.dataset.horizonExplicit=explicit?'1':'';}catch(e){}
+// SIM-HORIZON-FROM-RISK-PROFILE-001 (CIO-Entscheid 2026-10-18): der Prognose-
+// Horizont ist KEINE Berater-Einstellung mehr. Das Backend leitet ihn aus dem
+// Anlagehorizont des Risikoprofils, den Zielen und der Lebenserwartung her
+// (max, mind. 10 Jahre). Horizont-Select, Banner "Horizont bestaetigen" und
+// simulation.horizonYears/horizonExplicit sind entfernt; Alt-Werte aus
+// gespeicherten Praeferenzen werden beim Laden verworfen.
+var LEGACY_SIMULATION_HORIZON_KEYS=['horizonYears','horizonExplicit'];
+function stripLegacySimulationHorizon(prefs){
+  var sim=prefs&&typeof prefs==='object'?prefs.simulation:null;
+  if(sim&&typeof sim==='object')LEGACY_SIMULATION_HORIZON_KEYS.forEach(function(key){delete sim[key];});
+  return prefs;
 }
-function isSimulationHorizonExplicit(){
-  var field=document.getElementById('aa-sim-horizon');
-  return !!(field&&field.__simHorizonExplicit===true);
-}
-function readSimulationHorizonOverride(){
-  // null = Auto (kein Override senden). Eine explizite Wahl wird wie bisher nie
-  // kuerzer als die (flache) Lebenserwartung gesendet, damit die SOLL/IST-
-  // Vergleichs-X-Achse bis ans Lebensende reicht (2026-06-15, Bug: Achse ~2036).
-  var raw=String(getInputValue('aa-sim-horizon')||'').trim();
-  if(!raw)return null;
-  var _i=parseInt(raw,10);
-  if(!isFinite(_i)||_i<1)return null;
-  var _l=_lifeExpectancyHorizonYears();
-  return String(Math.min(120,(_l&&_l>_i)?_l:_i));
-}
-function setSimulationHorizonSelectValue(value,explicit){
-  // Fehlender/leerer Wert -> Auto (auch beim Mandantenwechsel; vorher erbte der
-  // Select den expliziten Wert des vorherigen Kunden). Ein gespeicherter Wert
-  // ausserhalb der Optionsliste (z.B. 37) wird als Option ergaenzt, statt den
-  // Select leer erscheinen zu lassen.
-  var field=document.getElementById('aa-sim-horizon');
-  if(!field)return;
-  var raw=value==null?'':String(value).trim();
-  var years=parseInt(raw,10);
-  // SIM-HORIZON-CONFIRM-001: Herkunft des Werts am Feld merken. Nur eine
-  // ausdrueckliche Wahl (Change-Event, Banner-Bestaetigung, gespeichertes
-  // horizonExplicit) wird mit horizonExplicit=true gesendet.
-  markSimulationHorizonExplicit(field,!!explicit&&!!raw&&isFinite(years)&&years>=1);
-  if(!raw||!isFinite(years)||years<1){field.value='';return;}
-  var normalized=String(years);
-  if(!Array.prototype.some.call(field.options,function(option){return String(option.value||'')===normalized;})){
-    var dynamic=document.createElement('option');
-    dynamic.value=normalized;
-    dynamic.textContent=normalized+' Jahre';
-    field.appendChild(dynamic);
+function renderSimulationHorizonInfo(result){
+  // Ruhige, nicht editierbare Anzeige des hergeleiteten Horizonts.
+  var el=document.getElementById('aa-sim-horizon-info');
+  if(!el)return;
+  var info=result&&result.projection_horizon&&typeof result.projection_horizon==='object'?result.projection_horizon:null;
+  var sim=simulationPayload(result);
+  var years=parseInt(String((info&&info.years)||(sim&&sim.horizon_years)||''),10);
+  if(!isFinite(years)||years<1){
+    el.textContent='Wird aus Risikoprofil, Zielen und Lebenserwartung hergeleitet';
+    el.title='';
+    return;
   }
-  field.value=normalized;
+  el.textContent='Prognosehorizont: '+years+' Jahre (aus Risikoprofil, Zielen und Lebenserwartung)';
+  el.title=(info&&info.sentence)?String(info.sentence):'';
 }
 
 function mapSurplusPoints(monthlyIncomeChf, monthlyObligationsChf){
@@ -16824,6 +16800,49 @@ function toggleAaProjectionDetails(){
     if(charts&&charts.aaCurrent)charts.aaCurrent.resize();
   },80);
 }
+// RISK-CAPACITY-PLAUSIBILITY-001: Die Risikofaehigkeit stammt nur aus dem
+// Fragebogen. Das Backend gleicht sie mit den erfassten Finanzdaten ab
+// (GET /mandates/{id}/risk-capacity-plausibility). Reiner Berater-Hinweis:
+// das Profil wird nie automatisch geaendert, die Strategie nicht blockiert.
+function renderRiskCapacityPlausibility(result){
+  var box=document.getElementById('rp-capacity-plausibility');
+  if(!box)return;
+  var findings=(result&&result.status==='inconsistent'&&Array.isArray(result.findings))?result.findings:[];
+  if(!findings.length){
+    box.style.display='none';
+    box.dataset.reasonCode='';
+    return;
+  }
+  box.dataset.reasonCode=String(result.reason_code||'');
+  var title=box.querySelector('.al-banner-title');
+  var body=box.querySelector('.al-banner-body');
+  if(title)title.textContent=result.override_down
+    ?'Risikofähigkeit: Abweichung zu den erfassten Daten (Override nach unten dokumentiert)'
+    :'Risikofähigkeit: Angaben widersprechen den erfassten Finanzdaten';
+  if(body){
+    body.innerHTML=escapeHtml(result.advisor_text||'')
+      +'<ul style="margin:4px 0 0 14px;padding:0">'
+      +findings.map(function(f){return '<li>'+escapeHtml(f&&f.message||'')+'</li>';}).join('')
+      +'</ul>';
+  }
+  box.style.display='flex';
+}
+async function refreshRiskCapacityPlausibility(mid){
+  var requested=String(mid||'');
+  if(!requested||isDemoMandateId(requested)){
+    renderRiskCapacityPlausibility(null);
+    return null;
+  }
+  try{
+    var res=await API.get('/mandates/'+requested+'/risk-capacity-plausibility');
+    if(String(getActiveMandateId()||'')!==requested)return null;
+    renderRiskCapacityPlausibility(res);
+    return res;
+  }catch(e){
+    if(String(getActiveMandateId()||'')===requested)renderRiskCapacityPlausibility(null);
+    return null;
+  }
+}
 function calcRiskScore() {
   var result = buildRiskAssessmentPayloadFromUI();
   if(!result){
@@ -16862,6 +16881,7 @@ async function saveRiskProfile() {
       _riskScoreResult = savedWithRaw;
       hydrateRiskQuestionnaire(saved || null);
       renderRiskSummary(savedWithRaw);
+      refreshRiskCapacityPlausibility(mandateId);
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Gespeichert';
@@ -18606,28 +18626,6 @@ function loadAllocationPreferences(){
   allocationPreferencesCache[key]=prefs;
   return prefs;
 }
-// SIM-HORIZON-CONFIRM-001 (CIO-Entscheid 2026-10-17): Bis SIM-HORIZON-ALWAYS-
-// EXPLICIT-001 (#611) schrieb der Monolith simulation.horizonYears IMMER (Select-
-// Default '10' bzw. flache Lebenserwartung). Ein so gespeicherter Wert ist KEINE
-// belegte Berater-Wahl -- wird aber auch NICHT automatisch migriert. Stattdessen
-// erscheint einmalig das Banner "Horizont bestaetigen" (Wert anzeigen, optional
-// aendern). Seit dieser Umstellung traegt jede ausdrueckliche Wahl
-// simulation.horizonExplicit=true; "vor der Umstellung" = horizonYears vorhanden
-// OHNE dieses Flag. Bestaetigung: Flag im editierbaren Store + (falls der Wert
-// der aktuellen Soll-Allokation entspricht) serverseitiger Vermerk
-// target_allocations.sim_horizon_confirmed_at. preferences_json selbst bleibt
-// unveraendert (Teil des allocation_context_hash).
-function simHorizonNeedsConfirmation(prefs){
-  var sim=prefs&&typeof prefs==='object'?prefs.simulation:null;
-  if(!sim||typeof sim!=='object')return false;
-  var raw=sim.horizonYears;
-  if(raw==null||String(raw).trim()==='')return false;
-  return sim.horizonExplicit!==true;
-}
-function simHorizonConfirmedOnServer(targetAllocation){
-  if(!targetAllocation||typeof targetAllocation!=='object')return false;
-  return !!(targetAllocation.sim_horizon_confirmed_at&&String(targetAllocation.sim_horizon_confirmed_at).trim());
-}
 function hydrateAllocationPreferencesFromServer(result){
   // Sprint 14 Phase 4 F1: Praeferenzen aus persistierter Allocation hydratisieren
   // (vorher nur localStorage). So sind die Tilts nach Geraete-/Browser-Wechsel
@@ -18648,97 +18646,14 @@ function hydrateAllocationPreferencesFromServer(result){
   var shouldHydrate=!localPrefs||!strategyState.dirty;
   if(!shouldHydrate)return false;
   // mergeAllocationPreferences klont -- der Snapshot im result bleibt unveraendert.
+  // mergeAllocationPreferences verwirft Alt-Horizontwerte (SIM-HORIZON-FROM-RISK-PROFILE-001).
   var hydrated=mergeAllocationPreferences(buildDefaultAllocationPreferences(),serverPrefs);
-  // SIM-HORIZON-CONFIRM-001: serverseitig bestaetigter Alt-Horizont gilt als
-  // ausdrueckliche Wahl (Banner bleibt weg, auch auf anderen Geraeten).
-  if(simHorizonNeedsConfirmation(hydrated)&&simHorizonConfirmedOnServer(result.target_allocation)){
-    hydrated.simulation.horizonExplicit=true;
-  }
   allocationPreferencesCache[key]=hydrated;
   try{localStorage.setItem(allocationPreferenceStoragePrefix+key,JSON.stringify(hydrated));}catch(e){}
   if(typeof applyAllocationPreferencesToUI==='function'){
     applyAllocationPreferencesToUI(hydrated);
   }
   return true;
-}
-function renderSimHorizonConfirmBanner(){
-  var banner=document.getElementById('al-sim-horizon-confirm-banner');
-  if(!banner)return;
-  var prefs=loadAllocationPreferences();
-  if(!simHorizonNeedsConfirmation(prefs)){banner.style.display='none';return;}
-  var current=String(parseInt(String(prefs.simulation.horizonYears).trim(),10));
-  var text=document.getElementById('al-sim-horizon-confirm-text');
-  if(text)text.textContent='Gespeicherter Prognose-Horizont: '+current+' Jahre. Der Wert stammt von vor der Umstellung auf «Auto» (Lebenserwartung/letzter Cashflow) und ist nicht als Berater-Wahl belegt — bitte bestätigen oder ändern.';
-  var select=document.getElementById('al-sim-horizon-confirm-select');
-  if(select){
-    var values=[];
-    var source=document.getElementById('aa-sim-horizon');
-    if(source&&source.options)Array.prototype.forEach.call(source.options,function(option){
-      var v=String(option.value||'');if(v&&values.indexOf(v)<0)values.push(v);
-    });
-    if(!values.length)values=['7','10','12','15','20','25','30'];
-    if(values.indexOf(current)<0)values.push(current);
-    values.sort(function(a,b){return Number(a)-Number(b);});
-    select.innerHTML='';
-    var auto=document.createElement('option');
-    auto.value='';auto.textContent='Auto (Lebenserwartung/letzter Cashflow)';
-    select.appendChild(auto);
-    values.forEach(function(v){
-      var option=document.createElement('option');
-      option.value=v;option.textContent=v+' Jahre';
-      select.appendChild(option);
-    });
-    select.value=current;
-  }
-  banner.style.display='';
-}
-async function confirmSimHorizonFromBanner(){
-  var prefs=cloneJSON(loadAllocationPreferences());
-  if(!simHorizonNeedsConfirmation(prefs)){renderSimHorizonConfirmBanner();return {changed:false,serverConfirmed:false};}
-  var current=String(parseInt(String(prefs.simulation.horizonYears).trim(),10));
-  var select=document.getElementById('al-sim-horizon-confirm-select');
-  var chosen=select?String(select.value==null?current:select.value).trim():current;
-  var changed=chosen!==current;
-  if(!chosen){
-    // "Auto" gewaehlt: kein Override mehr -> Backend leitet den Horizont ab.
-    delete prefs.simulation.horizonYears;
-    delete prefs.simulation.horizonExplicit;
-  }else{
-    prefs.simulation.horizonYears=chosen;
-    prefs.simulation.horizonExplicit=true;
-  }
-  persistAllocationPreferences(prefs);
-  setSimulationHorizonSelectValue(prefs.simulation.horizonYears,!!chosen);
-  if(changed){
-    markStrategyDirty('Prognose-Horizont geändert: Strategie neu berechnen.');
-    renderSimHorizonConfirmBanner();
-    return {changed:true,serverConfirmed:false};
-  }
-  // Unveraenderter Wert: Bestaetigung serverseitig vermerken, sofern die
-  // aktuelle Soll-Allokation genau diesen Alt-Horizont gespeichert hat. Sonst
-  // reist das Flag mit der naechsten Berechnung in den Snapshot.
-  var serverConfirmed=false;
-  var ta=strategyState&&strategyState.allocation&&strategyState.allocation.target_allocation;
-  var mid=(typeof getActiveMandateId==='function')?getActiveMandateId():null;
-  if(ta&&mid&&!simHorizonConfirmedOnServer(ta)){
-    var snapshot=null;
-    try{snapshot=(typeof ta.preferences_json==='string')?JSON.parse(ta.preferences_json):ta.preferences_json;}catch(e){snapshot=null;}
-    if(simHorizonNeedsConfirmation(snapshot)&&String(parseInt(String(snapshot.simulation.horizonYears).trim(),10))===current){
-      try{
-        var response=await API.post('/mandates/'+mid+'/target-allocation/current/sim-horizon-confirmation',{horizon_years:parseInt(current,10)});
-        if(response&&response.sim_horizon_confirmed_at){
-          ta.sim_horizon_confirmed_at=response.sim_horizon_confirmed_at;
-          ta.sim_horizon_confirmed_by=response.sim_horizon_confirmed_by||null;
-          serverConfirmed=true;
-        }
-      }catch(e){
-        console.warn('Horizont-Bestaetigung konnte nicht gespeichert werden',e);
-        try{if(typeof showAppError==='function')showAppError('Horizont lokal bestätigt, serverseitig aber nicht gespeichert: '+((e&&e.message)||e));}catch(_e){}
-      }
-    }
-  }
-  renderSimHorizonConfirmBanner();
-  return {changed:false,serverConfirmed:serverConfirmed};
 }
 function cloneJSON(value){
   try{return JSON.parse(JSON.stringify(value||{}));}catch(e){return value||{};}
@@ -18758,7 +18673,7 @@ function mergeAllocationPreferences(base,override){
   if(typeof incoming.bandDeviationReason==='string'){
     merged.bandDeviationReason=incoming.bandDeviationReason;
   }
-  return merged;
+  return stripLegacySimulationHorizon(merged);
 }
 function formatBandPercent(bps){
   var pct=Number(bps||0)/100;
@@ -19294,7 +19209,7 @@ function renderAllocationPreferenceSummary(prefs){
     'Immobilien: '+(prefs.assetClasses.realestateMarket||'Schweiz'),
     'Alternative: '+(altPrefs.length?altPrefs.join(' + '):'keine Schwerpunkte'),
     'Liquidität: '+(prefs.assetClasses.liquidityInstrument||'Geldmarktfonds'),
-    'Simulation: '+((prefs.simulation&&prefs.simulation.horizonYears)?String(prefs.simulation.horizonYears)+' J':'Auto (Lebenserwartung)')+' / '
+    'Simulation: '
       +(prefs.simulation&&prefs.simulation.rebalanceMode==='calendar'?'jaehrlich':(prefs.simulation&&prefs.simulation.rebalanceMode==='none'?'ohne Rebalancing':'bei Bandbruch'))
       +' / Stress '+String((prefs.simulation&&prefs.simulation.stressMultiplier)||'1.0')+'x'
       +' / MC '+String((prefs.simulation&&prefs.simulation.monteCarloRuns)||'750')
@@ -19320,7 +19235,6 @@ function renderAllocationPreferenceSummary(prefs){
   renderPreferenceChips('sr-pref-focus-chips',focus,'summary');
   renderPreferenceChips('sr-pref-restriction-chips',restrictions,'restriction');
   updateBandOverrideStatus(prefs.bands||{});
-  if(typeof renderSimHorizonConfirmBanner==='function')renderSimHorizonConfirmBanner();
 }
 function collectAllocationPreferencesFromUI(){
   var stored=loadAllocationPreferences();
@@ -19400,16 +19314,8 @@ function collectAllocationPreferencesFromUI(){
   prefs.product=live.product;
   prefs.limits=live.limits;
   prefs.geo=live.geo;
-  // SIM-HORIZON-ALWAYS-EXPLICIT-001: horizonYears NUR bei expliziter Berater-
-  // Wahl senden. Fehlt der Key, leitet das Backend den Horizont aus Mandats-
-  // Lebenserwartung / BFS-Sterbetafel / letztem datierten Ziel ab.
-  var simHorizonOverride=readSimulationHorizonOverride();
-  if(simHorizonOverride!=null){
-    live.simulation.horizonYears=simHorizonOverride;
-    // SIM-HORIZON-CONFIRM-001: nur eine ausdrueckliche Wahl markieren. Ein aus
-    // Alt-Daten (vor #611) hydratisierter Wert bleibt unmarkiert -> Banner.
-    if(isSimulationHorizonExplicit())live.simulation.horizonExplicit=true;
-  }
+  // SIM-HORIZON-FROM-RISK-PROFILE-001: kein Prognose-Horizont in den Praeferenzen.
+  stripLegacySimulationHorizon(live);
   prefs.simulation=live.simulation;
   prefs.assetClasses=live.assetClasses;
   var modal=document.getElementById('m-eq');
@@ -19468,7 +19374,6 @@ function applyAllocationPreferencesToUI(prefs){
   setCheckboxValue('aa-geo-hedging-required',prefs.geo&&prefs.geo.hedgingRequired);
   setCheckboxValue('aa-geo-chf-only',prefs.geo&&prefs.geo.chfOnly);
   setCheckboxValue('aa-geo-no-usd',prefs.geo&&prefs.geo.noUsd);
-  setSimulationHorizonSelectValue(prefs.simulation&&prefs.simulation.horizonYears,!!(prefs.simulation&&prefs.simulation.horizonExplicit===true));
   setSelectValue('aa-sim-stress',prefs.simulation&&prefs.simulation.stressMultiplier);
   setSelectValue('aa-sim-rebalance',prefs.simulation&&prefs.simulation.rebalanceMode);
   setSelectValue('aa-sim-mc-runs',prefs.simulation&&prefs.simulation.monteCarloRuns);
@@ -19522,18 +19427,11 @@ function bindAllocationPreferenceControls(){
     '#aa-product-no-derivatives','#aa-product-no-leverage','#aa-product-no-structured','#aa-product-listed-only','#aa-product-funds-only',
     '#aa-limit-single-position','#aa-limit-single-issuer','#aa-liquidity-min-reserve','#aa-liquidity-max-illiquid',
     '#aa-geo-no-em','#aa-geo-hedging-required','#aa-geo-chf-only','#aa-geo-no-usd',
-    '#aa-sim-horizon','#aa-sim-stress','#aa-sim-rebalance','#aa-sim-mc-runs',
+    '#aa-sim-stress','#aa-sim-rebalance','#aa-sim-mc-runs',
     '#aa-equities-large-cap','#aa-equities-smid','#aa-bonds-investment-grade','#aa-bonds-high-yield','#aa-bonds-emerging',
     '#aa-realestate-funds','#aa-realestate-direct','#aa-alts-gold','#aa-alts-liquid-alts','#aa-alts-hedge','#aa-alts-pe','#aa-alts-crypto',
     '#aa-liquidity-reserve-target'
   ];
-  // SIM-HORIZON-CONFIRM-001: eine Auswahl im Horizont-Select ist eine
-  // ausdrueckliche Berater-Wahl. Muss VOR dem generischen Persist-Listener
-  // registriert sein, damit dieser das Flag bereits mitnimmt.
-  var simHorizonField=document.getElementById('aa-sim-horizon');
-  if(simHorizonField){
-    simHorizonField.addEventListener('change',function(){markSimulationHorizonExplicit(simHorizonField,!!String(simHorizonField.value||'').trim());});
-  }
   document.querySelectorAll(selectors.join(',')).forEach(function(el){
     el.addEventListener('change',function(){syncTiltReasonVisibility();persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
     el.addEventListener('input',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
@@ -20017,9 +19915,6 @@ function projectionHorizonYears(result,preferredYears){
   if(cfProj&&Array.isArray(cfProj.years)&&cfProj.years.length>1)return cfProj.years.length;
   var range=currentMandateHorizonRange();
   if(range&&range.years)return Math.max(1,range.years);
-  var field=document.getElementById('aa-sim-horizon');
-  var fieldYears=parseInt(field&&field.value||'10',10);
-  if(isFinite(fieldYears)&&fieldYears>0)return fieldYears;
   var contributionSeries=result&&Array.isArray(result.cashflow_projection_series_rappen)?result.cashflow_projection_series_rappen:[];
   if(contributionSeries.length)return contributionSeries.length;
   return 10;
@@ -21271,6 +21166,7 @@ function invalidateStrategyOutputs(){
   refreshBaselineChartFromClientDataForced();
   renderActionCards([]);
   renderEngineRuntimePanels(null);
+  renderSimulationHorizonInfo(null);
   buildAT();
   buildQT('qt-modal');
   syncAllocationPendingViews();
@@ -22069,6 +21965,7 @@ function renderStrategySummary(){
   var totalChf=Math.round((Number(allocation.total_wealth_rappen||0))/100);
   var sim=simulationPayload(allocation);
   var projectedRappen=simulationTerminalRappen(allocation,'target_mix_series_rappen',7);
+  renderSimulationHorizonInfo(allocation);
   var scoredGoals=allocation.goal_analysis||[];
   var scoreWeightTotal=scoredGoals.reduce(function(sum,item){return sum+Math.max(1,Number(item.weight_bps||0));},0);
   var avgGoalScore=scoreWeightTotal
@@ -22768,6 +22665,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
       if(requestedMandateId&&String(getActiveMandateId()||'')!==requestedMandateId)return null;
       hydrateRiskQuestionnaire(null);
       renderRiskSummary(null);
+      renderRiskCapacityPlausibility(null);
       if(typeof calcRiskScore==='function')calcRiskScore();
     }
     return null;
@@ -22783,6 +22681,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
       if(requestedMandateId&&String(getActiveMandateId()||'')!==requestedMandateId)return risk || null;
       hydrateRiskQuestionnaire(risk || null);
       renderRiskSummary(readyRisk ? (risk || null) : null);
+      refreshRiskCapacityPlausibility(requestedMandateId||getActiveMandateId());
       if(readyRisk){
         clearRiskSaveFeedback();
       }else if(riskBelongsToMandate(risk || null, requestedMandateId||getActiveMandateId())){
@@ -22800,6 +22699,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
         if(requestedMandateId&&String(getActiveMandateId()||'')!==requestedMandateId)return null;
         hydrateRiskQuestionnaire(null);
         renderRiskSummary(null);
+        renderRiskCapacityPlausibility(null);
         if(typeof calcRiskScore==='function')calcRiskScore();
       }
       return null;

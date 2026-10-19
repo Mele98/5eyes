@@ -39,8 +39,10 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.esg_data_provenance import seed_unverified_run_warning
 from services.preference_snapshot import (
     INHERITED_PREFERENCES_NOTE,
+    ThemeGapDiagnosis,
     inherit_current_allocation_preferences,
     resolve_recommendation_preferences,
 )
@@ -74,7 +76,6 @@ from services.wealth_position_semantics import (
     require_supported_position_assignment,
 )
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
-from services.mortality.horizon import life_expectancy_year_from_mandate
 from services.jurisdiction.de_seed import (
     DE_DEFAULT_BONDS_DURATION,
     DE_DEFAULT_EQUITIES_GEO,
@@ -190,7 +191,6 @@ ASSET_LIQUIDITY_PROFILES = {
     "alternatives": "heterogen / teils illiquide",
     "liquidity": "taeglich verfuegbar",
 }
-DEFAULT_SIMULATION_HORIZON_YEARS = 10
 DEFAULT_SIMULATION_STRESS_MULTIPLIER = 1.0
 # Sprint U-P1 Fix C4: Default-Sample erhoeht von 750 auf 2500. Bei N=750
 # liegt der Standardfehler des 5%-Quantils (VaR/CVaR) bei ca. ±1.5 %-Pkt;
@@ -1573,6 +1573,7 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
     _sequence_of_returns_depletion,
     _simulate_bucket_path,
     _simulation_crisis_strength,
+    _simulation_horizon_derivation,
     _simulation_horizon_years,
     _simulation_rebalance_mode,
     _simulation_stress_multiplier,
@@ -1896,6 +1897,35 @@ HEDGED_PRODUCT_VARIANTS: list[tuple] = [
     ("iShares Developed Markets Property Yield CHF Hedged", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "CHF", 48, "8", "BBB"),
 ]
 
+DEFAULT_CATALOG_PRODUCTS: list[tuple] = [
+    ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
+    ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
+    ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
+    ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
+    ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
+    ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
+    ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
+    ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
+    ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
+    ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
+    ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
+    ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
+    ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
+    ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
+    ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
+    ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
+    ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
+    ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
+    ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
+    ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
+    ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
+    ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
+    *HEDGED_PRODUCT_VARIANTS,
+    ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
+    ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
+    ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
+]
+
 
 def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): der bestehende CH-
@@ -1932,38 +1962,10 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     if active_ch_products:
         return
     now = _now()
-    defaults = [
-        ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
-        ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
-        ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
-        ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
-        ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
-        ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
-        ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
-        ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
-        ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
-        ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
-        ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
-        ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
-        ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
-        ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
-        ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
-        ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
-        ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
-        ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
-        ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
-        ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
-        ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
-        ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
-        *HEDGED_PRODUCT_VARIANTS,
-        ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
-        ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
-        ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
-    ]
-    _validate_default_products(defaults)
-    validate_default_product_market_coverage([name for name, *_ in defaults])
+    _validate_default_products(DEFAULT_CATALOG_PRODUCTS)
+    validate_default_product_market_coverage([name for name, *_ in DEFAULT_CATALOG_PRODUCTS])
     created = []
-    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in defaults:
+    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in DEFAULT_CATALOG_PRODUCTS:
         product = Product(
             id=new_uuid(),
             product_name=name,
@@ -2130,6 +2132,7 @@ def _load_allocation_inputs(
     mandate: Mandate,
     simulation_prefs: dict,
     cma: CapitalMarketAssumption | None = None,
+    horizon_years_override: int | None = None,
 ) -> dict:
     # One model-owned FX basis for positions, cashflows and projections.
     # Empty reference data uses the explicit versioned default; malformed,
@@ -2230,7 +2233,9 @@ def _load_allocation_inputs(
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
     )
-    projection_years = _simulation_horizon_years(simulation_prefs, goals, mandate)
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: Horizont aus Risikoprofil/Zielen/Lebenserwartung.
+    projection_horizon = _simulation_horizon_derivation(goals, mandate, fixed_years=horizon_years_override)
+    projection_years = projection_horizon["years"]
     external_foundation_projection = _build_external_foundation_projection(
         all_positions,
         horizon_years=projection_years,
@@ -2438,6 +2443,7 @@ def _load_allocation_inputs(
         "inflow_projection_series_rappen": inflow_projection_series_rappen,
         # Sprint B2: Anderes-Vermoegen-Schloss-Pool (Reserve-Reduktion).
         "unlocked_other_assets_rappen": unlocked_other_assets_rappen,
+        "projection_horizon": projection_horizon,
     }
 
 
@@ -2899,8 +2905,9 @@ def _strategy_drift_warnings(
             "Soll-Allokation geaendert. Strategie neu berechnen, damit Reserve, Targets "
             "und Pfadsimulation auf den aktuellen Inputs basieren."
         )
-    # Preferences-Drift
-    stored_prefs = getattr(allocation, "preferences_json", None)
+    # Preferences-Drift (ohne verworfene Alt-Keys, SIM-HORIZON-FROM-RISK-PROFILE-001)
+    from schemas.allocation import preferences_json_without_ignored_keys
+    stored_prefs = preferences_json_without_ignored_keys(getattr(allocation, "preferences_json", None))
     if stored_prefs and current_preferences_json and stored_prefs != current_preferences_json:
         msgs.append(
             "Hinweis: Mandatspraeferenzen (Bandbreiten, Tilts, Geo, Reserve-Vorgabe) "
@@ -3865,6 +3872,7 @@ def generate_target_allocation(
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
+    reasoning.append(inputs["projection_horizon"]["sentence"])
 
     # Race-Hardening: pessimistic Lock, damit parallele
     # generate_target_allocation-Calls keine doppelten is_current=1 Records
@@ -4277,6 +4285,7 @@ def generate_target_allocation(
         "capital_market_assumption_set": cma.assumption_set_name,
         "capital_market_source": cma.source,
         "reasoning": reasoning,
+        "projection_horizon": inputs["projection_horizon"],
         "buckets": bucket_response,
         "sub_allocations": sub_allocations,
         "asset_class_assumptions": asset_class_assumptions,
@@ -4524,29 +4533,12 @@ def evaluate_goal_sensitivity(
             ),
             default=1,
         )
-        # Recompute only genuinely independent model floors. Calling
-        # _simulation_horizon_years without an explicit override would add
-        # the generic 10-year default again. For a negative shift of the
-        # very goal that established that default, this would move the start
-        # while pinning the end and invent extra pension payments. The
-        # implementation minimum (7 years) and an explicit/lifecycle-derived
-        # life-expectancy end remain real independent floors; unaffected goals
-        # are already represented by unaffected_goal_horizon above.
-        # Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-
-        # Vereinheitlichung): planning_horizon.life_expectancy_year_for()
-        # (flach, Geburtsjahr+Konstante) durch die genauere BFS-2020-2022-
-        # Sterbetafel (alters-bedingt) ersetzt -- vermeidet den bis zu
-        # 6-Jahre-Unterschied, siehe Kontrollrunde-2026-09-21-Analyse. Reiner
-        # interner Modell-Floor, nicht direkt client-sichtbar.
-        life_year = life_expectancy_year_from_mandate(
-            mandate, client=getattr(mandate, "client", None),
-        )
-        life_horizon = (
-            max(0, int(life_year) - date.today().year + 1)
-            if life_year is not None
-            else 0
-        )
-        unaffected_model_horizon = max(7, int(life_horizon))
+        # Independent model floors: 7 years and the life-expectancy end from the
+        # SAME derivation as the main run. Neither the 10-year solver minimum
+        # nor the risk-profile horizon: both are generic run lengths that would
+        # stretch the shifted goal's open-ended stream (invented payments).
+        life = _simulation_horizon_derivation([], mandate)["components"]["life_expectancy"]
+        unaffected_model_horizon = max(7, int(life))
         modified_run_horizon = max(
             1,
             int(modified_goal_horizon),
@@ -4613,7 +4605,8 @@ def evaluate_goal_sensitivity(
         inputs = _load_allocation_inputs(
             db,
             mandate,
-            simulation_prefs={"horizonYears": projection_horizon},
+            simulation_prefs={},
+            horizon_years_override=projection_horizon,
             cma=cma,
         )
         goals = inputs["goals"]
@@ -5542,7 +5535,8 @@ def build_target_payload_from_allocation(
     recurring_net_cashflow_rappen = recurring_income_rappen - recurring_expense_rappen
     capital_net_cashflow_rappen = capital_inflow_rappen - capital_outflow_rappen
     annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
-    projection_years = _simulation_horizon_years(prefs["simulation"], goals, mandate)
+    projection_horizon = _simulation_horizon_derivation(goals, mandate, assessment=assessment)
+    projection_years = projection_horizon["years"]
     # B1: Cashflow-Series mit CMA-Inflations-Pfad (siehe _load_allocation_inputs).
     cf_inflation_series_bps = _inflation_path_series(cma, projection_years, cashflow_totals["year"])
     cashflow_projection_series_rappen = net_cashflow_series(
@@ -6209,6 +6203,7 @@ def build_target_payload_from_allocation(
             [
                 "Verwendet die bestehende aktuelle Soll-Allokation.",
                 "Die Projektion wird zusaetzlich ueber normalverteilte Jahresrenditen als Pfadsimulation verdichtet.",
+                projection_horizon["sentence"],
             ]
             + (
                 [
@@ -6225,6 +6220,7 @@ def build_target_payload_from_allocation(
             # Reserve, Legacy-Anker). Konsolidiert ehemalige inline F2-/F3-Logik.
             + drift_warnings
         ),
+        "projection_horizon": projection_horizon,
         "buckets": bucket_response,
         "sub_allocations": sub_allocations,
         "asset_class_assumptions": asset_class_assumptions,
@@ -6729,6 +6725,7 @@ def generate_recommendation_run(
         and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
     ]
 
+    theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx)
     for sub in sub_allocations:
         exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
@@ -6741,6 +6738,7 @@ def generate_recommendation_run(
         esg_gap_hint = None if exact else esg_policy_gap_hint(
             products, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
         )
+        theme_gap_hint = None if exact else theme_diag.hint(sub)  # THEME-MISSINGNESS-001
         candidates = exact
         if not candidates:
             candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
@@ -6751,7 +6749,8 @@ def generate_recommendation_run(
                 "sub_asset_class": str(sub["sub_asset_class"]),
                 "asset_class": str(sub["asset_class"]),
                 "target_weight_bps": int(sub["target_weight_bps"]),
-                "esg_gap_hint": esg_gap_hint,
+                "esg_gap_hint": esg_gap_hint or theme_gap_hint,
+                "theme_gap_hint": theme_gap_hint,
             })
             continue
         ranked = sorted(
@@ -6796,6 +6795,7 @@ def generate_recommendation_run(
     # ohne dass der Berater es bemerkte. Jetzt: ValueError mit konkreter Liste.
     if missing_sub_classes:
         total_missing_bps = sum(item["target_weight_bps"] for item in missing_sub_classes)
+        theme_diag.raise_if_blocked(missing_sub_classes)  # THEME-MISSINGNESS-001: 409 auch < 50 bps
         # Toleranz: bis 50 bps (0.5%) Lücke darf "still" durchlaufen (z.B. einzelne
         # exotische Sub-Class mit 0 Allokation). Alles darüber ist ein echter Fehler.
         if total_missing_bps > 50:
@@ -6813,6 +6813,7 @@ def generate_recommendation_run(
             )
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
+    warnings.extend(w for w in [seed_unverified_run_warning(prefs, [e["product"] for e in aggregated_positions.values()])] if w)
 
     latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
     market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))
