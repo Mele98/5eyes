@@ -351,8 +351,14 @@ def _external_reserve_release_series(
     Rueckbuchung waere E doppelt verbraucht. Hier fliesst E als Bargeld
     (ohne Rendite, konservativ) chronologisch genau in den Jahren zurueck, in
     denen Abfluesse faellig werden: release_t = min(Rest-E, Outflow_t) mit
-    Outflow_t = Liability_t + max(0, -Cashflow_t). Summe <= E; ein Rest ohne
-    zugehoerigen Abfluss (reiner Reserve-Floor) bleibt ausserhalb.
+    Outflow_t = Liability_t + max(0, -Cashflow_t). Summe <= E.
+
+    RESERVE-FUNDING-LEDGER-001: Das ist nur noch das Release-Primitiv EINER
+    quellengebundenen Tranche. Mit aggregiertem E aufgerufen wuerde es einen
+    reinen Policy-Floor in jeden sachfremden spaeteren Abfluss umetikettieren
+    (Codex-Review PR #638). Produktionscode ruft es ausschliesslich ueber
+    ``services.reserve_funding_ledger.compile_reserve_funding_ledger`` auf --
+    je Tranche mit genau den Abfluessen ihrer eigenen Quelle.
     """
     remaining = int(external_reserve_rappen or 0)
     if remaining < 0:
@@ -380,6 +386,7 @@ def _compute_reserve_for_inputs(
     reasoning: list[str] | None = None,
     unlocked_other_assets_rappen: int = 0,
     inflow_projection_series_rappen: list[int] | None = None,
+    need_breakdown: dict | None = None,
 ) -> tuple[int, int]:
     """C7 StrategyContext: Single Source of Truth fuer Reserve-Berechnung.
 
@@ -390,6 +397,11 @@ def _compute_reserve_for_inputs(
 
     ``reasoning`` ist optional: wenn vorhanden, werden Erklaerungstexte
     fuer den Berater angehaengt; sonst nur Zahlen berechnet.
+
+    RESERVE-FUNDING-LEDGER-001: ``need_breakdown`` (optional, wird befuellt)
+    legt die Herkunft des Bedarfs offen -- ``cashflow_deficit_rappen`` und
+    ``goal_needs`` [(goal, Betrag)] --, damit der Reserve-Ledger dieselbe
+    Herleitung nutzt statt einer zweiten (services/reserve_funding_ledger.py).
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -455,6 +467,7 @@ def _compute_reserve_for_inputs(
     # Unterreservierung). Floor-Kandidaten (manuelle/Liquiditaets-Reserve,
     # Cashflow-Shortfall) bleiben max()-kombiniert.
     goal_reserve_sum: int = 0
+    goal_needs: list = []
     for goal in goals:
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
@@ -491,6 +504,7 @@ def _compute_reserve_for_inputs(
                 reserve_amount = int(round(target_amount * factor))
                 if reserve_amount > 0:
                     goal_reserve_sum += reserve_amount
+                    goal_needs.append((goal, reserve_amount))
                     if reasoning is not None:
                         reasoning.append(
                             f"Das Ziel '{goal.label}' (in {years}J) traegt zu {factor*100:.0f}% "
@@ -501,6 +515,7 @@ def _compute_reserve_for_inputs(
                 reserve_amount = int(round(target_amount * factor))
                 if reserve_amount > 0:
                     goal_reserve_sum += reserve_amount
+                    goal_needs.append((goal, reserve_amount))
                     if reasoning is not None:
                         bucket = _time_bucket_label(years)
                         reasoning.append(
@@ -510,10 +525,12 @@ def _compute_reserve_for_inputs(
             else:
                 if years <= 3:
                     goal_reserve_sum += target_amount
+                    goal_needs.append((goal, target_amount))
                     if reasoning is not None:
                         reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
                 elif years <= 7:
                     goal_reserve_sum += int(round(target_amount * 0.5))
+                    goal_needs.append((goal, int(round(target_amount * 0.5))))
 
     # 2026-08-07 (CEO/CFO/CIO-Audit, RES-1-Nachtrag): der Cashflow-
     # Liquiditaetsbedarf (aus geloggten laufenden Ein-/Ausgaben) und der
@@ -526,6 +543,9 @@ def _compute_reserve_for_inputs(
     # Mindestbetrag, kein zusaetzlicher Geldabfluss) bleiben max()-kombiniert
     # gegen den kombinierten Bedarf.
     computed_liquidity_need = cashflow_liquidity_component + goal_reserve_sum
+    if need_breakdown is not None:
+        need_breakdown["cashflow_deficit_rappen"] = int(cashflow_liquidity_component)
+        need_breakdown["goal_needs"] = [(g, int(a)) for g, a in goal_needs if int(a) > 0]
     if computed_liquidity_need > 0:
         reserve_candidates.append(computed_liquidity_need)
     reserve_needed_rappen = max(reserve_candidates)

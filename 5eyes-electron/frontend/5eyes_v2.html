@@ -20764,6 +20764,9 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
   charts.aaCurrent.update();
   syncAaProjectionAxisScales();
 }
+// RESERVE-FUNDING-LEDGER-001: neue Backend-Payloads (reserve_accounting_basis) fuehren die
+// externe Reserve als Reservekonto bereits im SOLL-Pfad -- dann kein zweiter Aufschlag.
+function aaReserveSockelRappen(result,mc){if(mc&&mc.reserve_accounting_basis)return 0;return Number((result&&result.external_reserve_rappen)||0);}
 function upgradeFanChartWithMonteCarlo(result){
   if(!charts.opt||!charts.opt.data)return;
   var mc=monteCarloPayload(result);
@@ -20783,7 +20786,7 @@ function upgradeFanChartWithMonteCarlo(result){
   // WICHTIG: Reserve in RAPPEN auf die Serie addieren und ERST DANN einmal runden
   // (simulationSeriesK), sonst entsteht durch doppeltes Runden ein ±1k-Versatz zur
   // IST-Kurve (investierbar + Reserve = volles Vermögen, exakt deckungsgleich mit IST).
-  var _reserveR=Number((result&&result.external_reserve_rappen)||0);
+  var _reserveR=aaReserveSockelRappen(result,mc);
   var _withSockel=function(s){return (Array.isArray(s)?s:[]).map(function(v){return Number(v||0)+_reserveR;});};
   var _prep=function(s){var k=simulationSeriesK(_reserveR>0?_withSockel(s):s);return (k.length>_hCut)?k.slice(0,_hCut):k;};
   var p90=_prep(mc.target_p90_series_rappen);
@@ -20893,7 +20896,7 @@ function renderAaProjectionEndValues(result){
   var lastYear=labels.length?String(labels[labels.length-1]):'';
   // Liquiditaetsreserve-Sockel konsistent zur SOLL-Kurve auf die SOLL-Werte
   // aufschlagen (Backend rechnet sie aus dem Startkapital heraus).
-  var res=Math.round(Number(result&&result.external_reserve_rappen||0));
+  var res=Math.round(aaReserveSockelRappen(result,mc));
   var withRes=function(arr){return (Array.isArray(arr)?arr:[]).map(function(v){return Number(v||0)+res;});};
   var upTo=function(arr){return (Array.isArray(arr)?arr:[]).slice(0,Math.max(1,cut));};
   var tMedSeries=mc?withRes(mc.target_p50_series_rappen):(sim?(sim.target_mix_series_rappen||[]).map(Number):[]);

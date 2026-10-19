@@ -803,7 +803,11 @@ def test_build_simulation_payload_uses_target_start_value_without_changing_curre
     )
 
     assert simulation["current_mix_series_rappen"][0] == 1000000
-    assert simulation["target_mix_series_rappen"][0] == 800000
+    # RESERVE-FUNDING-LEDGER-001 (Codex-Vertrag 3): der SOLL-Strategiepfad
+    # startet weiterhin auf 800k, der herausgeloeste Rest bleibt aber als
+    # Reservekonto Kundengeld -> SOLL-Ausweis = 800k + 200k = IST-Basis.
+    assert simulation["target_mix_series_rappen"][0] == 1000000
+    assert simulation["external_reserve_balance_series_rappen"][0] == 200000
 
 
 def test_run_allocation_monte_carlo_uses_target_start_value_for_target_path_and_downside_baseline(monkeypatch):
@@ -865,5 +869,7 @@ def test_run_allocation_monte_carlo_uses_target_start_value_for_target_path_and_
     )
 
     assert result["current_p50_series_rappen"][0] == 1000000
-    assert result["target_p50_series_rappen"][0] == 800000
+    # RESERVE-FUNDING-LEDGER-001: siehe Simulations-Test oben (gleiche Basis).
+    assert result["target_p50_series_rappen"][0] == 1000000
+    assert result["external_reserve_balance_series_rappen"][0] == 200000
     assert result["target_downside_probability_pct"] == 0
