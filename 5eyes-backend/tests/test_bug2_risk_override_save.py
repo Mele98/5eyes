@@ -323,6 +323,10 @@ def test_re_override_aktualisiert_felder(auth_client, advisor_user, session_fact
             "override_score_x10": 80,
             "override_profile": "Wachstumsorientiert",
             "override_reason": VALID_REASON + " Update mit aktualisierter Begruendung.",
+            # RISK-OVERRIDE-WRITE-BOUNDARY-001: Override nach oben nur mit
+            # dokumentiertem Kundenwunsch (+ Warnung ueber der Faehigkeit).
+            "override_client_confirmed": True,
+            "override_warning_delivered": True,
         },
     )
     assert r2.status_code == 200, r2.text

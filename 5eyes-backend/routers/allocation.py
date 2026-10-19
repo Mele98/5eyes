@@ -73,6 +73,11 @@ from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
+from services.risk_capacity_plausibility import (
+    attach_to_strategy_payload,
+    audit_if_inconsistent,
+    evaluate_mandate_safely,
+)
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
@@ -210,7 +215,7 @@ def get_current_allocation_payload(
     # → silent Drift wenn CMA-Update zwischen Generate und Reload. Drift-Warning
     # in _strategy_drift_warnings macht die Differenz weiterhin sichtbar.
     try:
-        return build_target_payload_from_allocation(
+        payload = build_target_payload_from_allocation(
             db=db,
             mandate=mandate,
             allocation=ta,
@@ -218,6 +223,10 @@ def get_current_allocation_payload(
             cma=current_cma,
             assessment=assessment,
             preferences=None,
+        )
+        # RISK-CAPACITY-PLAUSIBILITY-001: live gegen die aktuellen Daten.
+        return attach_to_strategy_payload(
+            payload, evaluate_mandate_safely(db, mandate, assessment),
         )
     except ValueError as exc:
         # Invalid legacy/raw position semantics and persisted-context integrity
@@ -682,6 +691,15 @@ def generate_target_allocation_endpoint(
                 table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
+            # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
+            # keine Profilaenderung, kein Blockieren.
+            plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
+            attach_to_strategy_payload(result, plausibility)
+            audit_if_inconsistent(
+                db, plausibility, user=current_user, table_name="target_allocations",
+                record_id=result["target_allocation"].id, mandate=mandate,
+                ip_address=_extract_client_ip(request),
+            )
             db.commit()
         except IntegrityError:
             db.rollback()
