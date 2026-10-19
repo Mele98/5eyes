@@ -101,6 +101,9 @@ export interface RiskOverride {
   override_client_confirmed?: boolean;
   override_warning_delivered?: boolean;
   override_warning_document_id?: string | null;
+  /** RISK-OVERRIDE-WRITE-BOUNDARY-001: optionale Optimistic-Concurrency-Werte (409 bei Abweichung). */
+  expected_assessment_version?: number;
+  expected_override_decision_id?: string | null;
 }
 
 export interface RiskAssessmentAnswer {
@@ -142,6 +145,9 @@ export interface RiskAssessment {
   override_reason?: string | null;
   override_client_confirmed?: number | null;
   override_warning_delivered?: number | null;
+  /** Pointer auf die wirksame append-only RiskOverrideDecisionV1. */
+  override_decision_id?: string | null;
+  override_decision_hash?: string | null;
   assessed_at: string;
   assessed_by: string;
   created_at: string;
@@ -486,6 +492,18 @@ export interface MonteCarloPaths {
   seed?: number | null;
   horizon_years?: number;
   initial_wealth_rappen?: number;
+  /**
+   * MC-CONTEXT-001: `current` = Projektion der aktuellen, gueltigen
+   * Soll-Allokation; `stale`/`blocked` = Allokation veraltet bzw. nicht
+   * pruefbar (keine Kurve, `note` nennt "Strategie neu berechnen");
+   * `data_pending` = Daten fehlen.
+   */
+  projection_status?: 'current' | 'stale' | 'blocked' | 'data_pending';
+  /** SIM-HORIZON-FROM-RISK-PROFILE-001: bestimmende Groesse des Horizonts. */
+  horizon_note?: string;
+  /** MORT-CHANNEL-001: `disabled` = kein Mortalitaets-Cutoff (wie Solver). */
+  mortality_mode?: 'disabled' | 'fixed_override' | 'planning_quantile' | null;
+  mortality_cutoff_year_index?: number | null;
 }
 
 export interface GoalBasedInvestingData {
@@ -495,6 +513,9 @@ export interface GoalBasedInvestingData {
   /** GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz, null ohne Bewertung. */
   plan_solvency: PlanSolvency | null;
   monte_carlo_paths: MonteCarloPaths;
+  /** MC-CONTEXT-001: Zielerreichung gehoert zu einer veralteten Allokation. */
+  target_allocation_stale?: boolean;
+  staleness_hinweis?: string | null;
 }
 
 // ---------------------------------------------------------------------------

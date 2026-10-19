@@ -38,7 +38,7 @@ const GLOBALS_CSS = join(__dirname, '..', 'styles', 'globals.css');
 
 /** Alle Prozentangaben im gerenderten Text (inkl. Varianten ohne Leerzeichen). */
 function percentTokens(text: string): string[] {
-  return text.match(/[+-]?\d+(?:\.\d+)?\s?%/g) ?? [];
+  return text.match(/[+\-\u2212]?\d+(?:\.\d+)?\s?%/g) ?? [];
 }
 
 describe('AA-Sektionen: einheitliches Prozentformat', () => {
@@ -56,7 +56,8 @@ describe('AA-Sektionen: einheitliches Prozentformat', () => {
     );
     const tokens = percentTokens(container.textContent ?? '');
     expect(tokens.length).toBeGreaterThanOrEqual(6);
-    for (const t of tokens) expect(t).toMatch(/^[+-]?\d+\.\d %$/);
+    // AA-UX-FORMAT-001: geschuetztes Leerzeichen vor %, Minus U+2212.
+    for (const t of tokens) expect(t).toMatch(/^[+\u2212]?\d+\.\d\u00a0%$/);
   });
 
   it('Sektion 13: Ziel- und Bandbreitenspalten mit 1 Nachkommastelle und " %"', () => {
@@ -69,7 +70,7 @@ describe('AA-Sektionen: einheitliches Prozentformat', () => {
     expect(cells.length).toBeGreaterThan(0);
     for (const cell of cells) {
       for (const t of percentTokens(cell.textContent ?? '')) {
-        expect(t).toMatch(/^[+-]?\d+\.\d %$/);
+        expect(t).toMatch(/^[+\u2212]?\d+\.\d\u00a0%$/);
       }
     }
   });

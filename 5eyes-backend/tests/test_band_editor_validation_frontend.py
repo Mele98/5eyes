@@ -58,6 +58,9 @@ def _run(edits: dict, stored: dict | None = None) -> dict:
         _function(src, n)
         for n in (
             "function normalizeBandKey(",
+            "function normalizeNumberInputCH(",
+            "function fmtNumber(",
+            "function fmtPct(",
             "function parseBandPercentInput(",
             "function formatBandPercent(",
             "function parseBandPercentUserInput(",
@@ -161,7 +164,7 @@ def test_non_percent_or_out_of_range_input_blocks(raw):
 def test_minimums_above_100_percent_block():
     out = _run({"equities": {"min_bps": "60%", "max_bps": "75%"}, "bonds": {"min_bps": "40%"}})
     assert out["valid"] is False
-    assert any("mehr als 100%" in m for m in out["globalErrors"])
+    assert any("mehr als 100 %" in m for m in out["globalErrors"])
     assert out["fieldErrors"]["equities"]["min_bps"] is True
     _assert_matches_engine(out)
 
@@ -173,7 +176,7 @@ def test_all_five_targets_must_sum_to_exactly_100():
     out = _run(edits)
     assert out["allTargetsExplicit"] is True
     assert out["valid"] is False
-    assert any("genau 100%" in m for m in out["globalErrors"])
+    assert any("genau 100 %" in m for m in out["globalErrors"])
     _assert_matches_engine(out)
 
     edits["bonds"]["target_bps"] = "26%"  # Summe 100 %
@@ -236,6 +239,9 @@ def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict
         _function(src, n)
         for n in (
             "function normalizeBandKey(",
+            "function normalizeNumberInputCH(",
+            "function fmtNumber(",
+            "function fmtPct(",
             "function parseBandPercentInput(",
             "function formatBandPercent(",
             "function parseBandPercentUserInput(",
@@ -342,7 +348,7 @@ def test_manual_save_uses_same_validator_and_posts_exact_bps_body():
     [
         # Teilvorgabe ist fuer "Neu berechnen" gueltig, fuer die manuelle
         # Speicherung nicht: Summe der Ziele muss 100 % sein.
-        ({"equities": {"target_bps": "65%"}}, GOOD_REASON, "genau 100%"),
+        ({"equities": {"target_bps": "65%"}}, GOOD_REASON, "genau 100 %"),
         # Gemeinsamer Validator sperrt (Min ueber Hausmatrix-Max).
         ({"equities": {"min_bps": "80%"}}, GOOD_REASON, "markierten Felder"),
         ({}, "zu kurz", "Begründung fehlt oder ist zu kurz"),
@@ -377,3 +383,36 @@ def test_manual_save_is_a_separate_secondary_action_in_the_one_editor():
     # Primaer-Aktion des Modals bleibt "Neu berechnen" (applyAllocationBandOverrides).
     assert '<button class="btn-p" onclick="refreshStrategyData(true)">Neu berechnen</button>' in src
     assert "primary.setAttribute('onclick','applyAllocationBandOverrides()')" in src
+
+
+def test_band_percent_parser_accepts_format_helper_output_and_both_apostrophes():
+    """AA-UX-FORMAT-001 (#658) + Befund 15: was fmtPct anzeigt, ist wieder
+    eingebbar; Tausender-Apostroph gerade (U+0027) und typografisch (U+2019)."""
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available to execute extracted JS")
+    src = HTML_PATH.read_text(encoding="utf-8")
+    fns = [
+        _function(src, n)
+        for n in (
+            "function normalizeNumberInputCH(",
+            "function fmtNumber(",
+            "function fmtPct(",
+            "function parseBandPercentUserInput(",
+        )
+    ]
+    script = "\n".join(fns) + "\n" + (
+        "console.log(JSON.stringify(["
+        "parseBandPercentUserInput(fmtPct(4550,1)),"
+        "parseBandPercentUserInput('12,5 %'),"
+        "parseBandPercentUserInput(\"1'00\"),"
+        "parseBandPercentUserInput('1\\u201900'),"
+        "parseBandPercentUserInput('1\\u2019000'),"
+        "parseBandPercentUserInput('\\u22125')]));"
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
+        fh.write(script)
+        path = fh.name
+    res = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8", timeout=30)
+    Path(path).unlink(missing_ok=True)
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout.strip()) == [4550, 1250, 10000, 10000, None, None]

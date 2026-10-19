@@ -236,6 +236,50 @@ def expected_death_year_offset_from_mandate(
     return max(offsets) if offsets else None
 
 
+MORTALITY_MODE_DISABLED = "disabled"
+MORTALITY_MODE_FIXED_OVERRIDE = "fixed_override"
+MORTALITY_MODE_PLANNING_QUANTILE = "planning_quantile"
+
+
+def resolve_mortality_cutoff(
+    mandate, *, reference_year: int | None = None, client: Any = None,
+) -> tuple[str, int | None]:
+    """MORT-CHANNEL-001 (Codex-Review PR #644, Vertrag 2): EINE Entscheidung
+    ueber den Mortalitaets-Cutoff fuer alle Consumer.
+
+    Rueckgabe ``(mode, offset_years)``:
+
+    * ``("disabled", None)`` -- Mortalitaets-Simulation aus. Der Solver
+      (``mortality_solver_kwargs_from_mandate`` -> ``{}``) wendet dann KEINE
+      Todesmaske an; deterministische Zielanalyse, Report-MC, API und PDF
+      duerfen deshalb ebenfalls keinen Cutoff anwenden -- auch nicht den
+      BFS-Median oder einen gepflegten ``life_expectancy_year``. Frueher
+      schnitt die Report-Zielanalyse hier am Median ab (zwei Modelle fuer
+      denselben Mandatszustand).
+    * ``("fixed_override", n)`` -- aktiviert, Berater-Vorgabe
+      ``life_expectancy_year``.
+    * ``("planning_quantile", n | None)`` -- aktiviert, 80-%-Quantil /
+      Last-Survivor (MORTALITY-HORIZON-P80-LS-001).
+
+    Der Offset ist exakt der Wert, den der Solver als
+    ``mortality_fixed_offset_years`` erhaelt (gleicher Resolver, Partner via
+    ``mandate.client``). Fehler propagieren (Solver-Semantik); Report-
+    Aufrufer fangen sie selbst.
+    """
+    if not mortality_simulation_enabled(mandate):
+        return MORTALITY_MODE_DISABLED, None
+    if reference_year is None:
+        reference_year = mandate_reference_year(mandate)
+    offset = expected_death_year_offset_from_mandate(
+        mandate, reference_year=reference_year,
+        client=_resolve_client(mandate, client),
+    )
+    life_expectancy_year = int(getattr(mandate, "life_expectancy_year", 0) or 0)
+    if life_expectancy_year and life_expectancy_year > reference_year:
+        return MORTALITY_MODE_FIXED_OVERRIDE, offset
+    return MORTALITY_MODE_PLANNING_QUANTILE, offset
+
+
 def mortality_simulation_enabled(mandate) -> bool:
     """True nur fuer den exakt persistierten Ein-Wert (1/True), identisch zur
     True-Branch von services.mandate_model_inputs._feature_enabled. Alles

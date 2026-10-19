@@ -48,6 +48,17 @@ body{font-family:var(--f-s);}
   /* Chart.js kennt keine CSS-Variablen zur Laufzeit -> Farben werden beim
      Chart-Aufbau per getComputedStyle ausgelesen (siehe initCharts/_sollistOptions). */
   --chart-axis:#7a8299; --chart-grid:rgba(15,30,52,0.05);
+  /* AA-UX-COLORS-001: Anlageklassen-Farben (gespiegelt in reporting/src/design/
+     tokens.ts -> assetClass; JS-Spiegel AC_COLORS weiter unten). Navy/Gold/
+     Terrakotta/Oliv/Grau/Aubergine: Helligkeitsstufen statt sechs Blautoene,
+     damit die Klassen auch bei Rot-Gruen-Schwaeche unterscheidbar bleiben.
+     KEIN Gruen: Gruen ist ausschliesslich "besser als IST" (--pos).
+     Terrakotta bewusst dunkler als #8A5A3C (Audit-Vorschlag), weil dieser bei
+     Protanopie praktisch identisch mit Oliv ist (dE 3.3 -> 9.7). */
+  --ac-eq:#1F3A5F; --ac-bd:#B39455; --ac-re:#7A4A2E; --ac-alt:#5E6B45; --ac-liq:#8E97A8; --ac-oth:#6B4E71;
+  /* SOLL-Strategie = Brand-Akzent Gold (dunkle Stufe, Text-tauglich: 5.0:1 auf
+     Weiss, 4.6:1 auf --bg). IST bleibt neutral (--n6). */
+  --soll:#8A6A1F; --soll-line:rgba(138,106,31,0.24); --soll-wash:rgba(138,106,31,0.05); --soll-lt:#FAF3E0;
 }
 /* Roadmap #74: Dark-Mode-Theme. Gleiche Systematik wie oben (n0-n9 Neutrals,
    g0-g5 Gold-Akzente, pos/neg/warn Signalfarben), aber mit invertierter
@@ -66,6 +77,10 @@ body{font-family:var(--f-s);}
   --surface:#101b2c; --bg:#070d16; --bg2:#0c1524;
   --b1:rgba(226,236,247,0.09); --b2:rgba(226,236,247,0.18);
   --chart-axis:#7d93b8; --chart-grid:rgba(226,236,247,0.10);
+  /* AA-UX-COLORS-001: Dark = HSL-Helligkeit +18 Punkte; Aktien +20, damit die
+     Flaeche auf --surface die 3:1-Grafik-Schwelle erreicht (3.3:1). */
+  --ac-eq:#3D6DB0; --ac-bd:#CFBC94; --ac-re:#BA7349; --ac-alt:#8EA06C; --ac-liq:#C2C7D0; --ac-oth:#9B79A2;
+  --soll:#D9B869; --soll-line:rgba(217,184,105,0.30); --soll-wash:rgba(217,184,105,0.06); --soll-lt:#261D0E;
 }
 /* HUD-Polish (2026-08-02): Wealthmanagement/Consulting-"Maske". Elemente,
    die nur in der Wealthmanagement-Ansicht sichtbar sind (laufende Depot-
@@ -359,6 +374,11 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 /* TAGS */
 .tag{font-size:9px;font-weight:500;padding:2px 6px;border-radius:2px;white-space:nowrap;display:inline-block;}
 .tg{background:var(--pos-lt);color:var(--pos);}
+.tsoll{background:var(--soll-lt);color:var(--soll);}
+/* AA-UX-FORMAT-001: Zahlenzellen mit Tabellenziffern (gleich breite Ziffern ->
+   Spalten stehen ruhig); .num zusaetzlich rechtsbuendig. */
+table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"]{font-variant-numeric:tabular-nums;}
+.num{text-align:right;}
 .tr2{background:var(--neg-lt);color:var(--neg);}
 .ta{background:var(--warn-lt);color:var(--warn);}
 .tn{background:var(--bg2);color:var(--n5);}
@@ -2711,8 +2731,8 @@ async function doResetConfirm(){
   <div id="m-sollist-delta" style="display:none;font-size:13px;font-weight:700;color:var(--n7);background:var(--bg);border:1px solid var(--b1);border-radius:8px;padding:8px 12px;margin:0 4px 8px"></div>
   <div style="font-size:11px;color:var(--n6);padding:0 4px 8px;line-height:1.5">Gleiche Achsen, gleicher Horizont. Fahre über eine Kurve — die andere Grafik zeigt zeitgleich das günstige, mittlere und ungünstige Szenario desselben Jahres. In 8 von 10 simulierten Verläufen liegt das Vermögen zwischen P10 und P90; keine Garantie.</div>
   <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:0">
-    <div style="display:flex;flex-direction:column;border:1px solid rgba(22,101,52,0.18);border-radius:8px;padding:8px 10px;background:rgba(22,101,52,0.04);min-height:0">
-      <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">SOLL — optimierte Strategie <span class="tag tg">Ziel</span></div>
+    <div style="display:flex;flex-direction:column;border:1px solid var(--soll-line);border-radius:8px;padding:8px 10px;background:var(--soll-wash);min-height:0">
+      <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">SOLL — optimierte Strategie <span class="tag tsoll">Ziel</span></div>
       <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-soll" role="img" aria-label="SOLL-Strategie: Vermögensentwicklung mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)"></canvas></div>
       <table id="ch-sollist-soll-table" class="sr-only sr-only-table">
         <caption>SOLL-Strategie: Vermögensentwicklung (Günstiges Szenario (P90), Mittleres Szenario (Median), Ungünstiges Szenario (P10)) nach Jahr</caption>
@@ -2744,7 +2764,7 @@ function _sollistOptions(){
     elements:{point:{radius:0,hoverRadius:5,hitRadius:26}},
     scales:{
       x:{grid:{display:false},ticks:{font:{size:10},color:chartAxisColor()}},
-      y:{grid:{color:chartGridColor()},ticks:{font:{size:10},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
+      y:{grid:{color:chartGridColor()},ticks:{font:{size:10},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';var a=Math.abs(n),sg=n<0?'\u2212':'';if(a>=1000){var m=a/1000;return sg+(m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio.';}return sg+Math.round(a)+'k';}}}
     }
   };
 }
@@ -2813,7 +2833,7 @@ function _renderSollIstCompare(){
         box.style.display='';
         box.style.color='var(--n7)';
         box.style.background='var(--bg)';
-        box.innerHTML='Differenz der Median-Endwerte SOLL − IST bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';
+        box.innerHTML='Differenz der Median-Endwerte SOLL − IST bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+fmtLocaleCH(Math.abs(deltaChf))+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';
       } else if(box){ box.style.display='none'; }
       // Roadmap #105: aria-label mit dem tatsaechlichen Endwert (mittleres Szenario)
       // fuellen -- ein statisches Label kann den Zahlenwert nicht abbilden.
@@ -2866,11 +2886,11 @@ function exportSollIstComparePng(){
     ctx.fillText('Vermögensentwicklung: SOLL vs. IST'+(name?(' — '+name):''), pad, 32);
     var dbox=document.getElementById('m-sollist-delta');
     if(dbox&&dbox.style.display!=='none'&&(dbox.textContent||'').trim()){
-      ctx.fillStyle='#166534'; ctx.font='600 14px Arial';
+      ctx.fillStyle='#334155'; ctx.font='600 14px Arial';
       ctx.fillText(dbox.textContent.trim(), pad, 54);
     }
     ctx.font='bold 14px Arial';
-    ctx.fillStyle='#166534'; ctx.fillText('SOLL — optimierte Strategie', pad, headH+16);
+    ctx.fillStyle=sollColor(null,true); ctx.fillText('SOLL — optimierte Strategie', pad, headH+16);
     ctx.fillStyle='#475569'; ctx.fillText('IST — heutiger Mix', pad+cs.width+gap, headH+16);
     var y=headH+labH;
     ctx.drawImage(cs, pad, y);
@@ -3516,8 +3536,8 @@ function _wireSollIstHover(){
                 <span style="color:var(--n4);margin-left:auto">ändert nur die Grafik-Länge, nicht die Renditen</span>
               </div>
               <div id="aa-proj-chart-grid" style="margin-bottom:10px;grid-template-columns:1fr">
-                <div style="border:1px solid rgba(22,101,52,0.16);border-radius:var(--r2);padding:10px 11px;background:rgba(22,101,52,0.04)">
-                  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">Optimierte Zielallokation</span><span class="tag tg">Ziel</span></div>
+                <div style="border:1px solid var(--soll-line);border-radius:var(--r2);padding:10px 11px;background:var(--soll-wash)">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">Optimierte Zielallokation</span><span class="tag tsoll">Ziel</span></div>
                   <div style="font-size:10px;color:var(--n5);line-height:1.45;margin-bottom:8px">Hier bleibt der echte Zielpfad der Soll-Strategie. Laufende Cashflows sowie einmalige Kapitalereignisse fliessen in die Prognose ein; Vergleich, Mehrwert und Abweichung folgen im Review.</div>
                   <div class="chart-lg" id="aa-opt-chart-wrap" style="height:390px"><canvas id="ch-opt" role="img" aria-label="SOLL-Prognose der optimierten Strategie mit Günstiges Szenario (P90), Mittleres Szenario (Median) und Ungünstiges Szenario (P10)"></canvas></div>
                 </div>
@@ -3539,7 +3559,7 @@ function _wireSollIstHover(){
                     <thead>
                       <tr style="border-bottom:1px solid var(--b1)">
                         <th style="text-align:left;padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600">Kennzahl</th>
-                        <th style="text-align:right;padding:6px 8px;font-size:10px;color:rgb(22,101,52);font-weight:700">SOLL — Strategie</th>
+                        <th style="text-align:right;padding:6px 8px;font-size:10px;color:var(--soll);font-weight:700">SOLL — Strategie</th>
                         <th style="text-align:right;padding:6px 8px;font-size:10px;color:var(--n6);font-weight:700">IST — heutiger Mix</th>
                       </tr>
                     </thead>
@@ -5973,7 +5993,7 @@ async function loadClientById(clientId) {
       if (wealthRes.status === 'fulfilled' && wealthRes.value) {
         const w = wealthRes.value;
         currentWealthSummary = clientScopedSummary((w||{}), c.id);
-        const fmtK = v => 'CHF ' + Math.round(Number(v)||0).toLocaleString('de-CH');
+        const fmtK = v => 'CHF ' + fmtLocaleCH(Math.round(Number(v)||0));
         const kRV = document.getElementById('kpi-reinvermoegen');
         if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
         const kBV = document.getElementById('kpi-beratungsvermoegen');
@@ -6000,7 +6020,7 @@ async function loadClientById(clientId) {
       if (cashflowRes.status === 'fulfilled' && cashflowRes.value) {
         const cf = cashflowRes.value;
         const kCF = document.getElementById('kpi-cashflow');
-        if (kCF) kCF.textContent = 'CHF ' + Math.round(cf.surplus_chf).toLocaleString('de-CH');
+        if (kCF) kCF.textContent = 'CHF ' + fmtLocaleCH(Math.round(cf.surplus_chf));
       }
       // 2026-06-17: Cashflow-Liste SOFORT rendern — unabhaengig von der langsameren
       // Risiko-/Strategie-Hydration darunter (und vor deren stale-guard). Sonst blieb
@@ -6574,6 +6594,60 @@ function initPresentationModeFromLogin(){
     updatePresentationModeToggleLabel();
   }
 }
+// AA-UX-COLORS-001: Anlageklassen- und SOLL-Farben. Quelle der Wahrheit sind
+// die CSS-Tokens --ac-* / --soll (:root + [data-theme=dark]); AC_COLORS*
+// spiegeln sie fuer Canvas/Chart.js (kennt keine CSS-Variablen) und fuer
+// Druck-/PDF-Fenster ohne Stylesheet (dort immer die Hellwerte, Papier ist
+// weiss). Gleichlauf CSS <-> JS <-> reporting/src/design/tokens.ts prueft
+// tests/test_monolith_asset_class_colors.py.
+var AC_COLORS={eq:'#1F3A5F',bd:'#B39455',re:'#7A4A2E',alt:'#5E6B45',liq:'#8E97A8',oth:'#6B4E71'};
+var AC_COLORS_DARK={eq:'#3D6DB0',bd:'#CFBC94',re:'#BA7349',alt:'#8EA06C',liq:'#C2C7D0',oth:'#9B79A2'};
+// Engine-Keys (Aktien/Obligationen/...), Depot-Check-Keys (equities/bonds/...)
+// und Anzeigenamen ("Alternative / Gold", "Liquiditätsreserve") -> eq|bd|re|alt|liq|oth.
+// Private Equity VOR "equit" pruefen (sonst landet PE bei Aktien).
+function assetClassKey(label){
+  var k=String(label||'').toLowerCase();
+  if(k==='eq'||k==='bd'||k==='re'||k==='alt'||k==='liq'||k==='oth')return k;
+  if(k.indexOf('private equity')>=0||k.indexOf('private_equity')>=0)return 'alt';
+  if(k.indexOf('aktie')>=0||k.indexOf('equit')>=0)return 'eq';
+  if(k.indexOf('oblig')>=0||k.indexOf('anleihe')>=0||k.indexOf('bond')>=0)return 'bd';
+  if(k.indexOf('immob')>=0||k.indexOf('real_estate')>=0||k.indexOf('realestate')>=0)return 're';
+  if(k.indexOf('liquid')>=0||k.indexOf('cash')>=0)return 'liq';
+  if(k.indexOf('altern')>=0||k.indexOf('gold')>=0||k.indexOf('edelmetall')>=0)return 'alt';
+  return 'oth';
+}
+function _acIsDarkTheme(){
+  try{ return document.documentElement.dataset.theme==='dark'; }catch(e){ return false; }
+}
+// HTML im Hauptfenster: CSS-Variable -> folgt dem Theme ohne Neuaufbau.
+function assetClassCssVar(label){ return 'var(--ac-'+assetClassKey(label)+')'; }
+// Canvas/Chart.js: aufgeloester Farbwert des aktuellen Themes.
+function assetClassColor(label){
+  var key=assetClassKey(label);
+  return (_acIsDarkTheme()?AC_COLORS_DARK:AC_COLORS)[key];
+}
+// Druck/PDF (eigenes Fenster, weisses Papier): immer Hellwert.
+function assetClassPrintColor(label){ return AC_COLORS[assetClassKey(label)]; }
+// Textfarbe AUF einer Klassenflaeche (WCAG AA >= 4.5:1): Weiss auf den dunklen
+// Tokens, Navy-Tinte auf Gold/Grau (hell) bzw. tiefste Navy-Tinte (#0A1524) auf
+// allen Dark-Tokens ausser Aktien (Terrakotta-dark braucht die dunklere Tinte).
+function assetClassTextOn(label,print){
+  var key=assetClassKey(label);
+  if(!print&&_acIsDarkTheme())return key==='eq'?'#FFFFFF':'#0A1524';
+  return (key==='bd'||key==='liq')?'#0F1E34':'#FFFFFF';
+}
+// SOLL-Strategie = Brand-Akzent Gold (= --soll); optional mit Alpha (Baender/
+// Flaechen). Werte bewusst lokal (keine Globals), damit die Funktion auch
+// isoliert (Node-Contract-Tests) lauffaehig ist.
+function sollColor(alpha,print){
+  var hex=(!print&&_acIsDarkTheme())?'#D9B869':'#8A6A1F';
+  return alpha==null?hex:hexWithAlpha(hex,alpha);
+}
+function hexWithAlpha(hex,alpha){
+  var h=String(hex||'').replace('#','');
+  if(h.length!==6)return hex;
+  return 'rgba('+parseInt(h.slice(0,2),16)+','+parseInt(h.slice(2,4),16)+','+parseInt(h.slice(4,6),16)+','+alpha+')';
+}
 // Chart.js rendert auf <canvas> und kennt daher keine CSS-Variablen -- Farben
 // muessen als aufgeloeste Strings uebergeben werden. --chart-axis/--chart-grid
 // haben KEINE verschachtelten var()-Referenzen (anders als z.B. --text-muted),
@@ -6592,8 +6666,9 @@ function chartGridColor(){
 }
 // Best-effort Recolor bereits gezeichneter Charts bei Theme-Wechsel (ohne
 // Neuaufbau/Neu-Navigation). Grenzen bewusst klein gehalten (kein Over-
-// Engineering): nur Achsen-/Gridfarbe, keine Serienfarben (die sind
-// Datenfarben, nicht Theme-Farben, und bleiben bewusst unveraendert).
+// Engineering): Achsen-/Gridfarbe sowie die Token-Farben mit Dark-Variante
+// (SOLL-Serien, Anlageklassen-Donut, AA-UX-COLORS-001). Uebrige Serienfarben
+// bleiben unveraendert.
 function refreshThemedChartColors(){
   if(typeof charts==='undefined'||!charts)return;
   var axisColor=chartAxisColor(), gridColor=chartGridColor();
@@ -6606,8 +6681,20 @@ function refreshThemedChartColors(){
       if(scale.ticks)scale.ticks.color=axisColor;
       if(scale.grid&&('color' in scale.grid))scale.grid.color=gridColor;
     });
+    // AA-UX-COLORS-001: SOLL-Serien (markiert mit _sollTone) und Anlageklassen-
+    // Donut folgen dem Theme -- das sind Bedeutungsfarben mit Dark-Variante.
+    (ch.data&&Array.isArray(ch.data.datasets)?ch.data.datasets:[]).forEach(function(ds){
+      if(ds&&ds._sollTone){
+        ds.borderColor=sollColor(ds._sollTone.border);
+        ds.backgroundColor=ds._sollTone.bg==null?'transparent':sollColor(ds._sollTone.bg);
+      }
+    });
     try{ ch.update(); }catch(e){}
   });
+  try{
+    if(Array.isArray(alloc))alloc.forEach(function(r){ if(r&&assetClassKey(r.n)!=='oth')r.c=assetClassColor(r.n); });
+    if(typeof syncAllocationDonutFromStrategyState==='function')syncAllocationDonutFromStrategyState();
+  }catch(e){}
 }
 function initPrefSummaryText(){
   var prefSummary=document.getElementById('sd-pref-summary');
@@ -6914,25 +7001,25 @@ function setupCashflowDragList(containerId,type){
 
 // DATA
 let alloc=[
-  {n:'Liquiditätsreserve',c:'#166534',ist:5,soll:7,chf:142500},
-  {n:'Aktien (global+CH)',c:'#1e4b8f',ist:53,soll:45,chf:1510500},
-  {n:'Anleihen / Defensiv',c:'#78601a',ist:10,soll:15,chf:285000},
-  {n:'Immobilien (ind.)',c:'#2c5080',ist:8,soll:8,chf:228000},
-  {n:'Alternative / Gold',c:'#4a6080',ist:6,soll:6,chf:171000},
-  {n:'Private Equity',c:'#5a2d8b',ist:6,soll:7,chf:171000},
-  {n:'Externe Mandate',c:'#5a6878',ist:2,soll:2,chf:57000},
+  {n:'Liquiditätsreserve',c:assetClassColor('liq'),ist:5,soll:7,chf:142500},
+  {n:'Aktien (global+CH)',c:assetClassColor('eq'),ist:53,soll:45,chf:1510500},
+  {n:'Anleihen / Defensiv',c:assetClassColor('bd'),ist:10,soll:15,chf:285000},
+  {n:'Immobilien (ind.)',c:assetClassColor('re'),ist:8,soll:8,chf:228000},
+  {n:'Alternative / Gold',c:assetClassColor('alt'),ist:6,soll:6,chf:171000},
+  {n:'Private Equity',c:assetClassColor('alt'),ist:6,soll:7,chf:171000},
+  {n:'Externe Mandate',c:assetClassColor('oth'),ist:2,soll:2,chf:57000},
 ];
 let TOTAL=2848000;
 let quoten=[
-  {n:'Liquiditätsreserve',c:'#166534',ist:5,min:5,ziel:7,max:10},
-  {n:'Aktien Schweiz',c:'#1a1f2e',ist:18,min:10,ziel:15,max:25},
-  {n:'Aktien Global',c:'#1e4b8f',ist:35,min:25,ziel:30,max:40},
-  {n:'Obligationen CHF',c:'#78601a',ist:6,min:8,ziel:10,max:15},
-  {n:'Obligationen Global',c:'#a08030',ist:4,min:3,ziel:5,max:8},
-  {n:'Immobilien (ind.)',c:'#2c5080',ist:8,min:5,ziel:8,max:12},
-  {n:'Alternative / Gold',c:'#4a6080',ist:6,min:3,ziel:6,max:10},
-  {n:'Private Equity',c:'#5a2d8b',ist:6,min:0,ziel:7,max:15},
-  {n:'Externe Mandate',c:'#5a6878',ist:2,min:0,ziel:2,max:5},
+  {n:'Liquiditätsreserve',c:assetClassColor('liq'),ist:5,min:5,ziel:7,max:10},
+  {n:'Aktien Schweiz',c:assetClassColor('eq'),ist:18,min:10,ziel:15,max:25},
+  {n:'Aktien Global',c:assetClassColor('eq'),ist:35,min:25,ziel:30,max:40},
+  {n:'Obligationen CHF',c:assetClassColor('bd'),ist:6,min:8,ziel:10,max:15},
+  {n:'Obligationen Global',c:assetClassColor('bd'),ist:4,min:3,ziel:5,max:8},
+  {n:'Immobilien (ind.)',c:assetClassColor('re'),ist:8,min:5,ziel:8,max:12},
+  {n:'Alternative / Gold',c:assetClassColor('alt'),ist:6,min:3,ziel:6,max:10},
+  {n:'Private Equity',c:assetClassColor('alt'),ist:6,min:0,ziel:7,max:15},
+  {n:'Externe Mandate',c:assetClassColor('oth'),ist:2,min:0,ziel:2,max:5},
 ];
 const budget=[
   {cat:'Wohnen',items:[{n:'Miete / Nebenkosten',m:0}]},
@@ -7644,10 +7731,9 @@ function syncAllocationPendingViews(){
 }
 
 function deriveQuotenFromAllocation(allocation){
-  var colors={Aktien:'#1e4b8f',Obligationen:'#78601a',Immobilien:'#2c5080',Alternative:'#4a6080',Liquiditaet:'#166534'};
   return ((allocation&&allocation.buckets)||[]).map(function(bucket){
     var key=String(bucket.asset_class||'');
-    return {key:normalizeBandKey(key),n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,min:Number(bucket.band_min_bps||0)/100,ziel:Number(bucket.target_weight_bps||0)/100,max:Number(bucket.band_max_bps||0)/100};
+    return {key:normalizeBandKey(key),n:assetDisplayName(key),c:assetClassCssVar(key),ist:Number(bucket.current_weight_bps||0)/100,min:Number(bucket.band_min_bps||0)/100,ziel:Number(bucket.target_weight_bps||0)/100,max:Number(bucket.band_max_bps||0)/100};
   });
 }
 function buildQT(id){
@@ -7685,7 +7771,7 @@ function buildQT(id){
     // BAND-EDITOR-VALIDATION-001: Eingabe in Prozent (Wert traegt das "%"),
     // beschriftet je Feld; Fehler/Hinweise erscheinen direkt unter der Zeile.
     var errId='qt-msg-'+bucket;
-    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${r.ist}%</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}" aria-label="${r.n} Minimum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" aria-label="${r.n} Ziel in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}" aria-label="${r.n} Maximum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"></div><div class="qtmsg" id="${errId}" data-band-msg="${bucket}" aria-live="polite" hidden></div>`;
+    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${fmtPct(Number(r.ist||0)*100,1)}</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}" aria-label="${r.n} Minimum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" aria-label="${r.n} Ziel in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}" aria-label="${r.n} Maximum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"></div><div class="qtmsg" id="${errId}" data-band-msg="${bucket}" aria-live="polite" hidden></div>`;
   }).join('')+'<div id="qt-band-summary" class="qtsum" aria-live="polite"></div>';
   t.querySelectorAll('.qtinp').forEach(function(input){
     input.addEventListener('input',function(){
@@ -7776,7 +7862,7 @@ function computeBandEditorValidation(){
     var parsed=raw?parseBandPercentUserInput(raw):null;
     if(raw&&parsed==null&&!unchanged){
       formatOk=false;
-      fieldError(bucket,field,(BAND_EDITOR_FIELD_LABELS[field]||field)+': bitte einen Prozentwert zwischen 0 und 100 eingeben (z. B. 12.5%).');
+      fieldError(bucket,field,(BAND_EDITOR_FIELD_LABELS[field]||field)+': bitte einen Prozentwert zwischen 0 und 100 eingeben (z. B. 12.5 %).');
     }
     rows[bucket].shown[field]=parsed;
   });
@@ -7796,8 +7882,8 @@ function computeBandEditorValidation(){
     if(ov.target_bps!=null)explicitTargets+=1;
     if(!formatOk)return;
     if(mn>mx){
-      var mnTxt=formatBandPercent(mn)+(minFromAdvisor?'':' (Hausmatrix)');
-      var mxTxt=formatBandPercent(mx)+(maxFromAdvisor?'':' (Hausmatrix)');
+      var mnTxt=fmtPct(mn,1)+(minFromAdvisor?'':' (Hausmatrix)');
+      var mxTxt=fmtPct(mx,1)+(maxFromAdvisor?'':' (Hausmatrix)');
       var msg='Minimum '+mnTxt+' liegt über dem Maximum '+mxTxt+'.';
       if(minFromAdvisor)fieldError(bucket,'min_bps',msg);
       if(maxFromAdvisor)fieldError(bucket,'max_bps',msg);
@@ -7806,17 +7892,17 @@ function computeBandEditorValidation(){
     }
     if(ov.target_bps!=null){
       var tg=Number(ov.target_bps);
-      if(tg<mn||tg>mx)fieldError(bucket,'target_bps','Ziel '+formatBandPercent(tg)+' muss zwischen Minimum '+formatBandPercent(mn)+' und Maximum '+formatBandPercent(mx)+' liegen.');
+      if(tg<mn||tg>mx)fieldError(bucket,'target_bps','Ziel '+fmtPct(tg,1)+' muss zwischen Minimum '+fmtPct(mn,1)+' und Maximum '+fmtPct(mx,1)+' liegen.');
     }else if(shownTarget!=null&&(shownTarget<mn||shownTarget>mx)&&(minFromAdvisor||maxFromAdvisor)){
       if(!result.rowHints[bucket])result.rowHints[bucket]=[];
-      result.rowHints[bucket].push('Das bisherige Ziel '+formatBandPercent(shownTarget)+' liegt ausserhalb der neuen Bandbreite; die Berechnung legt es innerhalb '+formatBandPercent(mn)+'–'+formatBandPercent(mx)+' fest.');
+      result.rowHints[bucket].push('Das bisherige Ziel '+fmtPct(shownTarget,1)+' liegt ausserhalb der neuen Bandbreite; die Berechnung legt es innerhalb '+fmtPct(mn,1)+'–'+fmtPct(mx,1)+' fest.');
     }
   });
   result.targetSum=targetSumKnown?targetSum:null;
   result.allTargetsExplicit=explicitTargets===BAND_EDITOR_BUCKETS.length;
   if(formatOk&&result.minSum>10000){
     result.valid=false;
-    result.globalErrors.push('Die Mindestquoten ergeben zusammen '+formatBandPercent(result.minSum)+' und damit mehr als 100%. Bitte Minima senken.');
+    result.globalErrors.push('Die Mindestquoten ergeben zusammen '+fmtPct(result.minSum,1)+' und damit mehr als 100 %. Bitte Minima senken.');
     Object.keys(rows).forEach(function(bucket){
       if(rows[bucket].minFromAdvisor&&rows[bucket].effMin>0)fieldError(bucket,'min_bps',null);
     });
@@ -7826,7 +7912,7 @@ function computeBandEditorValidation(){
     Object.keys(overrides).forEach(function(bucket){if(overrides[bucket].target_bps!=null)explicitSum+=Number(overrides[bucket].target_bps);});
     if(explicitSum!==10000){
       result.valid=false;
-      result.globalErrors.push('Alle Ziele sind vorgegeben und müssen zusammen genau 100% ergeben (aktuell '+formatBandPercent(explicitSum)+').');
+      result.globalErrors.push('Alle Ziele sind vorgegeben und müssen zusammen genau 100 % ergeben (aktuell '+fmtPct(explicitSum,1)+').');
       Object.keys(rows).forEach(function(bucket){fieldError(bucket,'target_bps',null);});
     }
   }
@@ -7861,13 +7947,13 @@ function renderBandEditorValidation(result){
     if(result.targetSum==null){
       parts.push('Summe Ziel: —');
     }else if(result.targetSum===10000){
-      parts.push('Summe Ziel: <span class="ok">'+escapeHtml(formatBandPercent(result.targetSum))+' ✓</span>');
+      parts.push('Summe Ziel: <span class="ok">'+escapeHtml(fmtPct(result.targetSum,1))+' ✓</span>');
     }else if(result.allTargetsExplicit){
-      parts.push('Summe Ziel: <span class="bad">'+escapeHtml(formatBandPercent(result.targetSum))+' – muss 100% ergeben</span>');
+      parts.push('Summe Ziel: <span class="bad">'+escapeHtml(fmtPct(result.targetSum,1))+' – muss 100 % ergeben</span>');
     }else{
-      parts.push('Summe der angezeigten Ziele: '+escapeHtml(formatBandPercent(result.targetSum))+'. Nicht vorgegebene Ziele gleicht die Berechnung auf 100% aus.');
+      parts.push('Summe der angezeigten Ziele: '+escapeHtml(fmtPct(result.targetSum,1))+'. Nicht vorgegebene Ziele gleicht die Berechnung auf 100 % aus.');
     }
-    parts.push('Summe Minima: '+(result.minSum>10000?'<span class="bad">'+escapeHtml(formatBandPercent(result.minSum))+'</span>':escapeHtml(formatBandPercent(result.minSum)))+' (höchstens 100%)');
+    parts.push('Summe Minima: '+(result.minSum>10000?'<span class="bad">'+escapeHtml(fmtPct(result.minSum,1))+'</span>':escapeHtml(fmtPct(result.minSum,1)))+' (höchstens 100 %)');
     var html='<div>'+parts.join(' · ')+'</div>';
     result.globalErrors.forEach(function(m){html+='<div class="bad">'+escapeHtml(m)+'</div>';});
     if(!result.valid)html+='<div class="bad">Bitte die markierten Felder korrigieren – ungültige Werte werden nicht übernommen.</div>';
@@ -7900,7 +7986,7 @@ var MANUAL_TARGET_REASON_MIN_LENGTH=20;
 function buildManualTargetSaveBoxHtml(){
   return '<div id="aa-manual-save-box" class="qtmanual">'
     +'<div class="qtmanual-title">Manuelle Soll-Allokation (ohne Optimierung)</div>'
-    +'<div class="qtmanual-copy">Speichert die oben stehenden Ziele und Bandbreiten unverändert als neue Soll-Allokation – ohne Optimierer-Lauf. Die Ziele müssen zusammen genau 100% ergeben und je innerhalb von Minimum und Maximum liegen.</div>'
+    +'<div class="qtmanual-copy">Speichert die oben stehenden Ziele und Bandbreiten unverändert als neue Soll-Allokation – ohne Optimierer-Lauf. Die Ziele müssen zusammen genau 100 % ergeben und je innerhalb von Minimum und Maximum liegen.</div>'
     +'<label for="aa-manual-save-reason" class="qtmanual-label">Begründung der manuellen Soll-Allokation (Pflicht, mind. '+MANUAL_TARGET_REASON_MIN_LENGTH+' Zeichen)</label>'
     +'<textarea id="aa-manual-save-reason" rows="2" maxlength="2000" class="qtmanual-reason" placeholder="Warum wird die Soll-Allokation manuell festgelegt? (z. B. Kundenwunsch nach Gespräch vom …)"></textarea>'
     +'<div id="aa-manual-save-status" class="qtmanual-status" aria-live="polite"></div>'
@@ -7940,10 +8026,10 @@ function computeManualTargetSaveValidation(baseResult){
       var v=values[bucket];
       total+=v.target_bps;
       var label=({equities:'Aktien',bonds:'Obligationen',real_estate:'Immobilien',alternatives:'Alternative',liquidity:'Liquidität'})[bucket];
-      if(v.min_bps>v.max_bps)result.errors.push(label+': Minimum '+formatBandPercent(v.min_bps)+' liegt über dem Maximum '+formatBandPercent(v.max_bps)+'.');
-      else if(v.target_bps<v.min_bps||v.target_bps>v.max_bps)result.errors.push(label+': Ziel '+formatBandPercent(v.target_bps)+' muss zwischen Minimum '+formatBandPercent(v.min_bps)+' und Maximum '+formatBandPercent(v.max_bps)+' liegen.');
+      if(v.min_bps>v.max_bps)result.errors.push(label+': Minimum '+fmtPct(v.min_bps,1)+' liegt über dem Maximum '+fmtPct(v.max_bps,1)+'.');
+      else if(v.target_bps<v.min_bps||v.target_bps>v.max_bps)result.errors.push(label+': Ziel '+fmtPct(v.target_bps,1)+' muss zwischen Minimum '+fmtPct(v.min_bps,1)+' und Maximum '+fmtPct(v.max_bps,1)+' liegen.');
     });
-    if(total!==10000)result.errors.push('Die Ziele müssen für die manuelle Speicherung zusammen genau 100% ergeben (aktuell '+formatBandPercent(total)+').');
+    if(total!==10000)result.errors.push('Die Ziele müssen für die manuelle Speicherung zusammen genau 100 % ergeben (aktuell '+fmtPct(total,1)+').');
   }
   var reasonEl=document.getElementById('aa-manual-save-reason');
   var reason=String(reasonEl&&reasonEl.value||'').trim();
@@ -8168,11 +8254,11 @@ function buildEngineSummaryCards(result, sim, mc){
     {label:'Risky Fraction',value:formatBpsPercent(result.risky_fraction_total_bps||0),sub:'Headroom '+formatBpsPercent(result.risky_fraction_headroom_bps||0)},
     {label:'Liquiditaetsbedarf',value:formatRappen(result.reserve_needed_rappen||0),sub:'Laufend '+formatRappen(result.recurring_net_cashflow_rappen!=null?result.recurring_net_cashflow_rappen:result.annual_net_cashflow_rappen||0)+' · Kapital '+formatRappen(result.capital_net_cashflow_rappen||0)},
     {label:'Beratungsvermögen',value:formatCompactCHF(advisoryChf),sub:totalChf?Math.round(advisoryChf/Math.max(1,totalChf)*100)+'% des Gesamtvermögens':'Kein Gesamtvermögen'},
-    {label:'Rendite / Vol',value:((Number(result.expected_return_bps||0)/100).toFixed(2))+'% / '+((Number(result.expected_volatility_bps||0)/100).toFixed(2))+'%',sub:'7J-Projektion auf Advisory-Basis'},
+    {label:'Rendite / Vol',value:(fmtPct(Number(result.expected_return_bps||0),1))+' / '+(fmtPct(Number(result.expected_volatility_bps||0),1)),sub:'7J-Projektion auf Advisory-Basis'},
     {label:'Aktiengewicht',value:formatBpsPercent((result.asset_class_risky_weights_bps||{}).equities||0),sub:'Hinterlegte Risky Fraction Aktien'},
     {label:'Rebalancing',value:rebalanceCount?String(rebalanceCount)+' Event(s)':'Im Band',sub:sim?('Modus '+String(sim.rebalance_mode||'bands')):'Noch keine Simulation'},
-    {label:'Monte Carlo',value:mc?(String(mc.simulations||0)+' Pfade'):'n/a',sub:mc?('P50 '+((Number(mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'% p.a.'):'Noch keine Pfadsimulation'},
-    {label:'Downside',value:mc?(String(mc.target_downside_probability_pct||0)+'%'):'n/a',sub:'Anteil Zielpfade unter Startwert'}
+    {label:'Monte Carlo',value:mc?(String(mc.simulations||0)+' Pfade'):'n/a',sub:mc?('P50 '+(fmtPct(Number(mc.target_annualized_return_p50_bps||0),1))+' p.a.'):'Noch keine Pfadsimulation'},
+    {label:'Downside',value:mc?fmtProbPct(mc.target_downside_probability_pct||0):'n/a',sub:'Anteil Zielpfade unter Startwert'}
   ];
 }
 function buildMarketRuntimeHtml(result){
@@ -8232,14 +8318,14 @@ function buildLiveSummaryHtml(live){
 }
 function buildAssetClassAssumptionHtml(items){
   return (items||[]).map(function(item){
-    return '<div style="display:grid;grid-template-columns:1fr 56px 56px 56px 72px 72px;gap:8px;align-items:center;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.asset_class||'Asset-Klasse')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.liquidity_profile||'')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatBpsPercent(item.current_weight_bps||0)+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatBpsPercent(item.target_weight_bps||0)+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatBpsPercent(item.risky_fraction_bps||0)+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+((Number(item.expected_return_bps||0)/100).toFixed(2))+'%</div><div style="font-size:10px;color:var(--n7);text-align:right">'+((Number(item.expected_volatility_bps||0)/100).toFixed(2))+'%</div></div>';
+    return '<div style="display:grid;grid-template-columns:1fr 56px 56px 56px 72px 72px;gap:8px;align-items:center;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.asset_class||'Asset-Klasse')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.liquidity_profile||'')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatBpsPercent(item.current_weight_bps||0)+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatBpsPercent(item.target_weight_bps||0)+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatBpsPercent(item.risky_fraction_bps||0)+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+(fmtPct(Number(item.expected_return_bps||0),1))+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+(fmtPct(Number(item.expected_volatility_bps||0),1))+'</div></div>';
   }).join('')||engineRuntimeInfoBox('Noch keine Asset-Class-Annahmen berechnet.');
 }
 function buildSubAssetClassAssumptionHtml(items){
   var rows=Array.isArray(items)?items:[];
   if(!rows.length)return '';
   return '<div style="margin-top:10px"><div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Sub-Anlageklassen</div><div style="display:flex;flex-direction:column;gap:5px">'+rows.map(function(item){
-    return '<div style="display:grid;grid-template-columns:1.2fr 72px 72px 88px;gap:8px;align-items:center;padding:6px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:10px;font-weight:600;color:var(--n8)">'+escapeHtml(item.sub_asset_class||'Subanlageklasse')+'</div><div style="font-size:9px;color:var(--n5);margin-top:2px">'+escapeHtml(item.asset_class||'Anlageklasse')+' / '+escapeHtml(item.source||'CMA')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+((Number(item.expected_return_bps||0)/100).toFixed(2))+'%</div><div style="font-size:10px;color:var(--n7);text-align:right">'+((Number(item.expected_volatility_bps||0)/100).toFixed(2))+'%</div><div style="font-size:10px;color:var(--n5);text-align:right">Sub-CMA</div></div>';
+    return '<div style="display:grid;grid-template-columns:1.2fr 72px 72px 88px;gap:8px;align-items:center;padding:6px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:10px;font-weight:600;color:var(--n8)">'+escapeHtml(item.sub_asset_class||'Subanlageklasse')+'</div><div style="font-size:9px;color:var(--n5);margin-top:2px">'+escapeHtml(item.asset_class||'Anlageklasse')+' / '+escapeHtml(item.source||'CMA')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+(fmtPct(Number(item.expected_return_bps||0),1))+'</div><div style="font-size:10px;color:var(--n7);text-align:right">'+(fmtPct(Number(item.expected_volatility_bps||0),1))+'</div><div style="font-size:10px;color:var(--n5);text-align:right">Sub-CMA</div></div>';
   }).join('')+'</div></div>';
 }
 function buildSimulationEventsHtml(sim){
@@ -8262,7 +8348,7 @@ function buildMonteCarloSummaryHtml(mc){
   return renderEngineRuntimeDetailList([
     'Pfade: '+String(mc.simulations||0)+' / Seed '+String(mc.seed||'n/a')+' / Horizont '+String(mc.horizon_years||0)+' Jahre',
     'Terminalband Soll: P10 '+formatRappen(mcTargetP10)+' / P50 '+formatRappen(mcTargetP50)+' / P90 '+formatRappen(mcTargetP90),
-    'P50-Rendite: '+((Number(mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'% p.a. / Downside '+String(mc.target_downside_probability_pct||0)+'%',
+    'P50-Rendite: '+(fmtPct(Number(mc.target_annualized_return_p50_bps||0),1))+' p.a. / Downside '+fmtProbPct(mc.target_downside_probability_pct||0),
     '1J Risiko: VaR 95 '+formatRiskLossBps(mc.target_var_95_1y_bps)+' / CVaR 95 '+formatRiskLossBps(mc.target_cvar_95_1y_bps)+' / Verlust-Wkeit '+formatProbabilityPct(mc.target_loss_probability_1y_pct),
     'Max Drawdown: P50 '+formatRiskLossBps(mc.target_max_drawdown_p50_bps)+' / Stress P95 '+formatRiskLossBps(mc.target_max_drawdown_p95_bps),
     'Methodik: Umsetzungsprojektion ('+dynamics+', '+tail+'); getrennt von der Allokationsentscheidung.'
@@ -8404,8 +8490,8 @@ function rvBuildAllocationStory(result,riskAssessment){
   var profile=(riskAssessment&&riskAssessment.final_profile)||result.house_matrix_profile||'dokumentiertes Profil';
   var maxRisky=Number(allocationMetaValue(result,'risk_budget_bps_at_generation')||0);
   var realRisky=Number(allocationMetaValue(result,'risky_fraction_bps_at_generation')||0);
-  var maxTxt=maxRisky?((maxRisky/100).toFixed(0)+'%'):'n/a';
-  var realTxt=realRisky?((realRisky/100).toFixed(0)+'%'):'n/a';
+  var maxTxt=maxRisky?fmtPct(maxRisky,0):'n/a';
+  var realTxt=realRisky?fmtPct(realRisky,0):'n/a';
   if(factor==='risikoprofil')return 'Die Allokation sch\u00f6pft das Risikobudget des Profils "'+profile+'" (max. '+maxTxt+') bewusst aus. Effektiv risikobehaftet: '+realTxt+'.';
   if(factor==='liquiditaetsreserve')return 'Die Liquidit\u00e4tsreserve wirkt als Untergrenze. Der Optimierer h\u00e4lt den Mindestanteil sicherer Anlagen ein; effektiv risikobehaftet: '+realTxt+'.';
   if(factor==='bandbreite')return 'Die Allokation liegt innerhalb der Profilbandbreiten. Risikoprofil "'+profile+'" ist nicht bindend; effektiv risikobehaftet: '+realTxt+'.';
@@ -8436,7 +8522,7 @@ function renderOptimizerAchievability(result){
     return '<tr data-scope="'+escapeHtml(legacy?'legacy_aggregate_unknown':'priority_funded')+'">'
       +'<td>'+escapeHtml(goalAchievabilityLabel(row))+'</td>'
       +'<td>'+escapeHtml(hardnessDisplay(row.hardness))+'</td>'
-      +'<td>'+escapeHtml(Math.round(prob*100)+'%')+'</td>'
+      +'<td class="num">'+escapeHtml(fmtProbPct(prob*100))+'</td>'
       +'<td>'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</td>'
       +'</tr>';
   }).join('');
@@ -8551,7 +8637,7 @@ function buildAT(){
       var rowHtml='<button type="button" class="ar"'+rowAttrs+' style="width:100%;border:none;background:#fff;padding:0;cursor:'+(subRows.length?'pointer':'default')+';text-align:inherit;border-radius:var(--r);box-shadow:0 10px 24px rgba(15,23,42,0.04);grid-template-columns:8px 1.6fr 88px">'+
         '<div class="ad" style="background:'+r.c+'"></div>'+
         '<div class="an"><div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;background:var(--bg);border:1px solid var(--b1);font-size:11px;color:var(--n6)">'+(subRows.length?(isExpanded?'v':'>'):'')+'</span><span>'+escapeHtml(String(r.n||''))+'</span></div>'+(subRows.length?('<div style="display:flex;align-items:center;gap:8px;margin-top:3px;padding-left:26px"><span style="font-size:9px;color:var(--n4)">'+String(subRows.length)+' Subanlageklassen</span><span style="font-size:9px;color:var(--g4);font-weight:600">'+(isExpanded?'Subanlagen ausblenden':'Subanlagen anzeigen')+'</span></div>'):'')+'</div>'+
-        '<div style="text-align:right"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em">Soll</div><div class="as" style="margin-top:2px">'+escapeHtml(Number(r.soll||0).toFixed(1)+'%')+'</div></div>'+
+        '<div style="text-align:right"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em">Soll</div><div class="as" style="margin-top:2px">'+escapeHtml(fmtPct(Number(r.soll||0)*100,1))+'</div></div>'+
         '</button>';
       var subHtml=isExpanded&&subRows.length?subRows.map(function(item){
         return '<div class="ar" style="display:grid;grid-template-columns:6px 1.6fr 72px;gap:10px;align-items:center;background:linear-gradient(180deg,rgba(250,252,255,0.95),rgba(245,248,252,0.95));border-radius:var(--r);border:1px solid var(--b1);margin-left:18px;padding:8px 10px">'+
@@ -8577,7 +8663,7 @@ function buildDLegend(){
     el.innerHTML=alloc.map(function(r){
       var targetChf=Number(r.chfTarget||0);
       if(!(targetChf>0))targetChf=Math.round(TOTAL*Number(r.soll||0)/100);
-      return '<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:'+r.c+';"></div><span class="alloc-legend-name">'+escapeHtml(String(r.n||''))+'</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">'+escapeHtml(Number(r.soll||0).toFixed(1)+'%')+'</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(targetChf))+'</span></div></div>';
+      return '<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:'+r.c+';"></div><span class="alloc-legend-name">'+escapeHtml(String(r.n||''))+'</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">'+escapeHtml(fmtPct(Number(r.soll||0)*100,1))+'</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(targetChf))+'</span></div></div>';
     }).join('');
   }
   var dcv=document.querySelector('.dcv');
@@ -8609,7 +8695,7 @@ function syncAllocationDonutFromStrategyState(){
       var _rein=Number(_a.total_wealth_rappen||_ta.total_base_rappen||0);
       var _found=Number(_ta.foundation_rappen||0);
       var _ber=Number(_a.advisory_wealth_rappen||0);
-      var _f=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+      var _f=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
       _rc.innerHTML='Reinvermögen (gesamt): <strong>'+_f(_rein)+'</strong>'
         +(_found>0?' · davon Eigenheim-Fundament '+_f(_found):'')
         +'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>';
@@ -8633,9 +8719,9 @@ function syncAllocationDonutFromStrategyState(){
         if(!(_amt>0))_amt=Math.round(TOTAL*_pct/100);
         return {name:String(r.n||''),pct:_pct,amt:_amt};
       });
-      if(_dnCanvas)_dnCanvas.setAttribute('aria-label','SOLL-Allokation: '+_rows.map(function(r){return r.name+' '+r.pct.toFixed(1)+'%';}).join(', '));
+      if(_dnCanvas)_dnCanvas.setAttribute('aria-label','SOLL-Allokation: '+_rows.map(function(r){return r.name+' '+fmtPct(r.pct*100,1);}).join(', '));
       if(_dnTableBody)_dnTableBody.innerHTML=_rows.map(function(r){
-        return '<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.pct.toFixed(1))+'</td><td>'+escapeHtml(Math.round(r.amt).toLocaleString('de-CH'))+'</td></tr>';
+        return '<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.pct.toFixed(1))+'</td><td>'+escapeHtml(fmtLocaleCH(Math.round(r.amt)))+'</td></tr>';
       }).join('');
     }else{
       if(_dnCanvas)_dnCanvas.setAttribute('aria-label','SOLL-Allokation: noch keine Strategie berechnet');
@@ -8690,7 +8776,7 @@ function initCharts(){
         // 2026-07-01: autoSkip + maxTicksLimit -> bei langen Horizonten (bis ~100
         // Jahre) nur ~12 horizontale Jahres-Ticks statt ~100 rotierte/gequetschte.
         x:{grid:{display:false},ticks:{font:{size:9},color:chartAxisColor(),autoSkip:true,maxRotation:0,maxTicksLimit:12}},
-        y:{grid:{color:chartGridColor()},ticks:{font:{size:9},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
+        y:{grid:{color:chartGridColor()},ticks:{font:{size:9},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';var a=Math.abs(n),sg=n<0?'\u2212':'';if(a>=1000){var m=a/1000;return sg+(m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio.';}return sg+Math.round(a)+'k';}}}
       }
     };
   };
@@ -8774,7 +8860,7 @@ function initCharts(){
       data:{
         labels:yr,
         datasets:[
-          {label:'Optimierte Strategie',data:opt,borderColor:'rgb(22,101,52)',backgroundColor:'rgba(22,101,52,0.07)',borderWidth:2,pointRadius:0,fill:true,tension:0.22,stepped:false}
+          {label:'Optimierte Strategie',data:opt,borderColor:sollColor(),backgroundColor:sollColor(0.07),_sollTone:{border:null,bg:0.07},borderWidth:2,pointRadius:0,fill:true,tension:0.22,stepped:false}
         ]
       },
       options:wealthLineOptions(true)
@@ -8814,7 +8900,7 @@ var portfolioTechnicalExpandedRows = {};
 var currentCashflowEditId = null;
 var currentGoalEditId = null;
 
-function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.round(n).toLocaleString('de-CH');}
+function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+fmtLocaleCH(Math.round(n));}
 
   function loadPersona(pid){
     const p=PERSONAS.find(x=>x.id===pid);
@@ -9164,15 +9250,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     ? recommendation.positions
     : (Array.isArray(currentPortfolioPositions)?currentPortfolioPositions:[]);
   // Bucket color
-  function bucketColor(ac){
-    var k=String(ac||'').toLowerCase();
-    if(k.indexOf('aktien')>=0)return '#1e4b8f';
-    if(k.indexOf('oblig')>=0)return '#78601a';
-    if(k.indexOf('immob')>=0)return '#2c5080';
-    if(k.indexOf('altern')>=0)return '#4a6080';
-    if(k.indexOf('liquid')>=0)return '#166534';
-    return '#5a6878';
-  }
+  function bucketColor(ac){ return assetClassPrintColor(ac); }
   // Goal achievement color
   function goalColor(score){
     return Number(score||0)>=70?'#166534':(Number(score||0)>=45?'#92400e':'#991b1b');
@@ -9185,7 +9263,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:4px">Vertraulich · Erstellt am '+escapeHtml(today)+'</div></div>'
     +'<div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,0.7);font-weight:500">'+escapeHtml(reportSubject)+'</div>'
     +'<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px">'+escapeHtml(mandateLabel)+'</div>'
-    +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">CHF '+advisoryChf.toLocaleString('de-CH')+'</span></div>':'')
+    +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">CHF '+fmtLocaleCH(advisoryChf)+'</span></div>':'')
     +'</div></div></div>';
   // Section 1b: Kenntnisse & Erfahrungen (Eignungspruefung Seite 1)
   var keHtml='';
@@ -9242,7 +9320,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
       +'<td style="padding:8px 12px;font-size:11px;font-weight:600;color:#0f172a;text-align:right">'+pct+'%</td>'
       +'<td style="padding:8px 12px;"><div style="height:8px;background:#e2e8f0;border-radius:4px;width:100%"><div style="height:100%;width:'+barPct+'%;background:'+color+';border-radius:4px"></div></div></td>'
       +'<td style="padding:8px 12px;font-size:10px;color:#64748b;text-align:center">'+bandMin+'% – '+bandMax+'%</td>'
-      +(amtChf?'<td style="padding:8px 12px;font-size:11px;color:#334155;text-align:right">CHF '+amtChf.toLocaleString('de-CH')+'</td>':'<td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right">—</td>')
+      +(amtChf?'<td style="padding:8px 12px;font-size:11px;color:#334155;text-align:right">CHF '+fmtLocaleCH(amtChf)+'</td>':'<td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right">—</td>')
       +'</tr>';
   }).join('');
   var totalAmtChf=advisoryChf;
@@ -9257,7 +9335,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">Betrag</th>'
     +'</tr></thead>'
     +'<tbody>'+allocTableRows+'</tbody>'
-    +(totalAmtChf?'<tfoot><tr style="border-top:2px solid #e2e8f0"><td colspan="4" style="padding:8px 12px;font-size:10px;font-weight:600;color:#334155">Total Beratungsvermögen</td><td style="padding:8px 12px;font-size:11px;font-weight:700;color:#0f172a;text-align:right">CHF '+totalAmtChf.toLocaleString('de-CH')+'</td></tr></tfoot>':'')
+    +(totalAmtChf?'<tfoot><tr style="border-top:2px solid #e2e8f0"><td colspan="4" style="padding:8px 12px;font-size:10px;font-weight:600;color:#334155">Total Beratungsvermögen</td><td style="padding:8px 12px;font-size:11px;font-weight:700;color:#0f172a;text-align:right">CHF '+fmtLocaleCH(totalAmtChf)+'</td></tr></tfoot>':'')
     +'</table></div>':'';
   // Section 4: Portfolio implementation
   function reportPositionAmountRappen(row){
@@ -9312,7 +9390,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
           +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:right">'+escapeHtml(formatBpsPercent(weightBps))+'</td>'
           +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:right">'+escapeHtml(formatRappen(amount))+'</td>'
           +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:center">'+escapeHtml(currency)+'</td>'
-          +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:right">'+(ter/100).toFixed(2)+'%</td>'
+          +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:right">'+fmtPct(ter,2)+'</td>'
           +'</tr>';
       }).join('');
       return '<div style="page-break-inside:avoid;margin-top:12px">'
@@ -9335,7 +9413,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
       +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">'
       +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Produkte</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+String(portfolioPositions.length)+'</div></div>'
       +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Zielvolumen</div><div style="font-size:16px;font-weight:700;color:#0f172a">'+escapeHtml(formatRappen(totalPortfolioRappen))+'</div></div>'
-      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Gewichtete TER</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+(weightedTerBps/100).toFixed(2)+'%</div></div>'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Gewichtete TER</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+fmtPct(weightedTerBps,2)+'</div></div>'
       +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Währungen</div><div style="font-size:16px;font-weight:700;color:#0f172a">'+escapeHtml(Object.keys(currencyMap).join(', ')||'CHF')+'</div></div>'
       +'</div>'
       +'<div style="font-size:9px;color:#64748b;line-height:1.55;margin-bottom:8px">Das Portfolio ist die konkrete Umsetzung der Soll-Allokation in Produktbausteine. Detailbestände und spätere Live-Drift werden im Review nachgeführt.</div>'
@@ -9350,19 +9428,19 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
   // Section 4: MC Risk indicators
   var mcHtml='';
   if(expectedReturnBps||expectedVolBps){
-    var retPct=(expectedReturnBps/100).toFixed(2);
-    var volPct=(expectedVolBps/100).toFixed(2);
-    var maxDDPct=sim&&sim.max_drawdown_bps!=null?((sim.max_drawdown_bps||0)/100).toFixed(1):null;
-    var varPct=sim&&sim.var_95_bps!=null?((sim.var_95_bps||0)/100).toFixed(1):null;
+    var retPct=fmtPct(expectedReturnBps,1);
+    var volPct=fmtPct(expectedVolBps,1);
+    var maxDDPct=sim&&sim.max_drawdown_bps!=null?fmtPct(sim.max_drawdown_bps||0,1):null;
+    var varPct=sim&&sim.var_95_bps!=null?fmtPct(sim.var_95_bps||0,1):null;
     var cagrBps=sim?simulationCagrBps(sim.target_mix_series_rappen):null;
     mcHtml='<div style="margin-bottom:22px">'
       +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:14px">Risikoindiktatoren & Prognose (Monte Carlo)</div>'
       +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">'
-      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Erwartete Rendite</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+retPct+'%</div><div style="font-size:9px;color:#64748b">p.a. (langfristig)</div></div>'
-      +(cagrBps!==null?'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Median CAGR</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+(cagrBps/100).toFixed(2)+'%</div><div style="font-size:9px;color:#64748b">geometrisch</div></div>':'')
-      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Volatilität</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+volPct+'%</div><div style="font-size:9px;color:#64748b">p.a. annualisiert</div></div>'
-      +(maxDDPct?'<div style="background:#fef9f0;border:1px solid #fde68a;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Max. Drawdown</div><div style="font-size:18px;font-weight:700;color:#92400e">'+maxDDPct+'%</div><div style="font-size:9px;color:#64748b">historisch</div></div>':'')
-      +(varPct?'<div style="background:#fff5f5;border:1px solid #fecaca;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">VaR 95%</div><div style="font-size:18px;font-weight:700;color:#991b1b">'+varPct+'%</div><div style="font-size:9px;color:#64748b">1-Jahres-Risiko</div></div>':'')
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Erwartete Rendite</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+retPct+'</div><div style="font-size:9px;color:#64748b">p.a. (langfristig)</div></div>'
+      +(cagrBps!==null?'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Median CAGR</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+fmtPct(cagrBps,1)+'</div><div style="font-size:9px;color:#64748b">geometrisch</div></div>':'')
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Volatilität</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+volPct+'</div><div style="font-size:9px;color:#64748b">p.a. annualisiert</div></div>'
+      +(maxDDPct?'<div style="background:#fef9f0;border:1px solid #fde68a;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Max. Drawdown</div><div style="font-size:18px;font-weight:700;color:#92400e">'+maxDDPct+'</div><div style="font-size:9px;color:#64748b">historisch</div></div>':'')
+      +(varPct?'<div style="background:#fff5f5;border:1px solid #fecaca;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">VaR 95%</div><div style="font-size:18px;font-weight:700;color:#991b1b">'+varPct+'</div><div style="font-size:9px;color:#64748b">1-Jahres-Risiko</div></div>':'')
       +'</div></div>';
   }
   // Section 5: Ziele
@@ -9453,10 +9531,10 @@ function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,
   function money(rappen){
     var n=Math.round(Number(rappen||0));
     var sign=n<0?'−':'';
-    return sign+'CHF '+Math.round(Math.abs(n)/100).toLocaleString('de-CH');
+    return sign+'CHF '+fmtLocaleCH(Math.round(Math.abs(n)/100));
   }
   function moneyChf(chf){
-    return 'CHF '+Math.round(Number(chf||0)).toLocaleString('de-CH');
+    return 'CHF '+fmtLocaleCH(Math.round(Number(chf||0)));
   }
   function pct(bps){
     return formatBpsPercent(Math.round(Number(bps||0)));
@@ -9613,15 +9691,7 @@ function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,
       return reportRow(cells,row.total);
     });
   }
-  function colorForLabel(label){
-    var k=String(label||'').toLowerCase();
-    if(k.indexOf('aktien')>=0)return '#1d4ed8';
-    if(k.indexOf('oblig')>=0)return '#8a6b16';
-    if(k.indexOf('immob')>=0)return '#0f766e';
-    if(k.indexOf('altern')>=0||k.indexOf('gold')>=0)return '#6d5f3f';
-    if(k.indexOf('liquid')>=0||k.indexOf('cash')>=0)return '#166534';
-    return '#64748b';
-  }
+  function colorForLabel(label){ return assetClassPrintColor(label); }
   function donut(rows){
     var source=(rows||[]).filter(function(row){return !row.total&&Number(row.bps||0)>0;});
     if(!source.length)return '<div class="sl-donut-empty">Keine Daten</div>';
@@ -9756,15 +9826,15 @@ function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,
     return reportRow([goal.label||'Ziel',goal.goal_type||goal.category||'Ziel','',goal.frequency||'—',dateRange(goal.start_date,goal.target_date),strategyGoalTargetText(goal)]);
   });
   var targetMetrics=[
-    reportRow(['Erwartete Rendite',allocation&&allocation.expected_return_bps!=null?((Number(allocation.expected_return_bps||0)/100).toFixed(2)+'%'):'n/a']),
-    reportRow(['Median Rendite (CAGR)',sim&&Array.isArray(sim.target_mix_series_rappen)?((simulationCagrBps(sim.target_mix_series_rappen)/100).toFixed(2)+'%'):'n/a']),
-    reportRow(['Volatilität',allocation&&allocation.expected_volatility_bps!=null?((Number(allocation.expected_volatility_bps||0)/100).toFixed(2)+'%'):'n/a']),
+    reportRow(['Erwartete Rendite',allocation&&allocation.expected_return_bps!=null?(fmtPct(Number(allocation.expected_return_bps||0),1)):'n/a']),
+    reportRow(['Median Rendite (CAGR)',sim&&Array.isArray(sim.target_mix_series_rappen)?(fmtPct(simulationCagrBps(sim.target_mix_series_rappen),1)):'n/a']),
+    reportRow(['Volatilität',allocation&&allocation.expected_volatility_bps!=null?(fmtPct(Number(allocation.expected_volatility_bps||0),1)):'n/a']),
     reportRow(['Max. Drawdown',sim&&sim.target_max_drawdown_p50_bps!=null?formatRiskLossBps(sim.target_max_drawdown_p50_bps):'n/a']),
     reportRow(['VaR',sim&&sim.target_var_95_1y_bps!=null?formatRiskLossBps(sim.target_var_95_1y_bps):'n/a'])
   ];
   var currentProjection=null; try{currentProjection=wealthProjectionInputs('advisory');}catch(e){}
   var currentMetrics=[
-    reportRow(['Erwartete Rendite',currentProjection&&currentProjection.expectedReturnBps?((Number(currentProjection.expectedReturnBps||0)/100).toFixed(2)+'%'):'n/a']),
+    reportRow(['Erwartete Rendite',currentProjection&&currentProjection.expectedReturnBps?(fmtPct(Number(currentProjection.expectedReturnBps||0),1)):'n/a']),
     reportRow(['Median Rendite (CAGR)','n/a']),
     reportRow(['Volatilität','n/a']),
     reportRow(['Max. Drawdown','n/a']),
@@ -11041,7 +11111,7 @@ function adminAsNumber(value, fallback) {
 }
 
 function adminFormatCount(value) {
-  return String(adminAsNumber(value, 0).toLocaleString('de-CH'));
+  return String(fmtLocaleCH(adminAsNumber(value, 0)));
 }
 
 function adminFormatDateTime(value) {
@@ -13619,13 +13689,16 @@ async function adminPolicyActivate(){
 // ====================================================================
 // Sprint U-P14 (2026-05-20): Depot-Check Frontend
 // ====================================================================
-function dcFmtPct(bps){ return (Number(bps||0)/100).toFixed(1) + '%'; }
-function dcFmtCHF(rappen){ return (Number(rappen||0)/100).toLocaleString('de-CH', {maximumFractionDigits: 0}) + ' CHF'; }
+function dcFmtPct(bps){ return fmtPct(Number(bps||0),1); }
+function dcFmtCHF(rappen){ return fmtLocaleCH((Number(rappen||0)/100),{maximumFractionDigits: 0}) + ' CHF'; }
+// AA-UX-COLORS-001: Klassen-Tokens (CSS-Variablen, folgen dem Theme). Die
+// generische Reihe (Waehrungen/Regionen) nutzt dieselben Tokens plus Gold-/
+// Navy-Toene -- bewusst ohne Gruen (Gruen = "besser als IST") und ohne Rot.
 var DC_BUCKET_COLORS = {
-  equities: '#1e4b8f', bonds: '#78601a', real_estate: '#2c5080',
-  alternatives: '#4a6080', liquidity: '#166534',
+  equities: 'var(--ac-eq)', bonds: 'var(--ac-bd)', real_estate: 'var(--ac-re)',
+  alternatives: 'var(--ac-alt)', liquidity: 'var(--ac-liq)',
 };
-var DC_GENERIC_COLORS = ['#1e4b8f','#78601a','#166534','#2c5080','#4a6080','#92400e','#7f1d1d','#365314','#1e3a8a','#581c87'];
+var DC_GENERIC_COLORS = ['var(--ac-eq)','var(--ac-bd)','var(--ac-re)','var(--ac-alt)','var(--ac-liq)','var(--ac-oth)','var(--n4)','var(--g5)','var(--n2)','var(--g3)'];
 
 // Sprint U-P22.6 / Bug-#6 (2026-06-07): Token-Handoff zur Reporting-Sub-App.
 // Oeffnet die institutionelle Advisory-Report-React-App in einem neuen
@@ -13922,7 +13995,7 @@ function renderCostDisclosure(data){
           // COST-RENDER-SEMANTICS-001 (2/4): rate_bps=null (z.B. eine
           // absolute, nicht-prozentuale Retrozession) ist KEIN offengelegter
           // 0.00%-Satz -- Number(null||0) wuerde das faelschlich behaupten.
-          var rate=(item.rate_bps==null)?'—':(Number(item.rate_bps)/100).toFixed(2)+'%';
+          var rate=(item.rate_bps==null)?'—':fmtPct(Number(item.rate_bps),2);
           var amount=_formatRappenChf(item.amount_rappen, currency);
           // COST-RENDER-SEMANTICS-001 (3/4): Turnus ist ein vom Backend
           // bereits lokalisierter Text (einmalig/jaehrlich/monatlich/
@@ -14012,7 +14085,7 @@ async function downloadCostDisclosurePdf(){
 function _formatRappenChf(rappen, currency){
   var unit=String(currency||'CHF').toUpperCase().trim()||'CHF';
   var v=Number(rappen||0)/100;
-  try{ return unit+' '+v.toLocaleString('de-CH',{maximumFractionDigits:0}); }
+  try{ return unit+' '+fmtLocaleCH(v,{maximumFractionDigits:0}); }
   catch(e){ return unit+' '+Math.round(v); }
 }
 
@@ -14177,7 +14250,7 @@ function dcRender(data, stress){
 
   // Fund-Charakteristika
   var fc = data.fund_characteristics || {};
-  document.getElementById('dc-fc-ter').textContent = fc.weighted_ter_bps ? (fc.weighted_ter_bps/100).toFixed(2) + '%' : '—';
+  document.getElementById('dc-fc-ter').textContent = fc.weighted_ter_bps ? fmtPct(fc.weighted_ter_bps,2)  : '—';
   document.getElementById('dc-fc-duration').textContent = fc.weighted_duration_years_x10 ? (fc.weighted_duration_years_x10/10).toFixed(1) + ' J' : '—';
   document.getElementById('dc-fc-esg').textContent = fc.weighted_esg_score_x10 ? (fc.weighted_esg_score_x10/10).toFixed(1) + ' / 100' : '—';
   document.getElementById('dc-fc-hhi').textContent = hhi.top_positions || 0;
@@ -14201,9 +14274,9 @@ function dcRenderBucketDrift(buckets, data){
       + '<table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Bucket</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">IST</th></tr></thead><tbody>';
     ['equities','bonds','real_estate','alternatives','liquidity'].forEach(function(key){
       var hb = buckets[key] || {};
-      var hcolor = DC_BUCKET_COLORS[key] || '#5a6878';
+      var hcolor = DC_BUCKET_COLORS[key] || 'var(--ac-oth)';
       hidden += '<tr><td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+hcolor+';border-radius:50%;margin-right:6px"></span>' + escapeHtml(hb.label || key) + '</td>'
-        + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + ((hb.ist_bps || 0)/100).toFixed(1) + '%</td></tr>';
+        + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + fmtPct(hb.ist_bps || 0, 1) + '</td></tr>';
     });
     hidden += '</tbody></table>';
     document.getElementById('dc-bucket-drift').innerHTML = hidden;
@@ -14216,17 +14289,17 @@ function dcRenderBucketDrift(buckets, data){
     var ist = (b.ist_bps || 0)/100;
     var soll = (b.soll_bps || 0)/100;
     var drift = (b.drift_bps || 0)/100;
-    var bandText = (b.band_min_bps != null && b.band_max_bps != null) ? (b.band_min_bps/100).toFixed(1) + '% – ' + (b.band_max_bps/100).toFixed(1) + '%' : '—';
+    var bandText = (b.band_min_bps != null && b.band_max_bps != null) ? fmtPct(b.band_min_bps, 1) + ' – ' + fmtPct(b.band_max_bps, 1) : '—';
     var statusBadge;
     if(b.in_band === true) statusBadge = '<span style="color:var(--pos)">✓ im Band</span>';
     else if(b.in_band === false) statusBadge = '<span style="color:var(--neg);font-weight:600">✗ ausserhalb</span>';
     else statusBadge = '<span style="color:var(--n5)">—</span>';
-    var color = DC_BUCKET_COLORS[key] || '#5a6878';
+    var color = DC_BUCKET_COLORS[key] || 'var(--ac-oth)';
     html += '<tr>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + escapeHtml(b.label || key) + '</td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + ist.toFixed(1) + '%</td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + soll.toFixed(1) + '%</td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+(Math.abs(drift)>2 ? 'var(--neg)' : 'var(--n6)')+'">' + (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + fmtPct(ist*100, 1) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + fmtPct(soll*100, 1) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+(Math.abs(drift)>2 ? 'var(--neg)' : 'var(--n6)')+'">' + fmtSignedPct(drift*100, 1) + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);font-size:9.5px;color:var(--n6)">' + bandText + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:center">' + statusBadge + '</td>'
       + '</tr>';
@@ -14270,7 +14343,7 @@ function dcRenderTopPositions(positions){
       + '<td style="padding:4px;border:1px solid var(--b1);font-size:9.5px;color:var(--n6)">'+escapeHtml(p.asset_class)+(p.sub_asset_class?' · '+escapeHtml(p.sub_asset_class):'')+'</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right">' + dcFmtCHF(p.amount_rappen) + '</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;font-weight:600">' + dcFmtPct(p.weight_bps) + '</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)">' + (p.ter_bps ? (p.ter_bps/100).toFixed(2)+'%' : '—') + '</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)">' + (p.ter_bps ? fmtPct(p.ter_bps,2) : '—') + '</td>'
       + '</tr>';
   });
   html += '</tbody></table>';
@@ -14309,8 +14382,8 @@ function dcRenderStressReplays(stress){
     html += '<tr>'
       + '<td style="padding:4px;border:1px solid var(--b1);font-weight:600">'+escapeHtml(s.label)+'</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);color:var(--n6);font-size:9.5px">'+escapeHtml(s.period)+'</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:'+(ret<0?'var(--neg)':'var(--pos)')+';font-weight:600">'+(ret>=0?'+':'')+ret.toFixed(1)+'%</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--neg);font-weight:600">-'+dd.toFixed(1)+'%</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:'+(ret<0?'var(--neg)':'var(--pos)')+';font-weight:600">'+fmtSignedPct(ret*100,1)+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--neg);font-weight:600">'+fmtPct(-Math.abs(dd*100),1)+'</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)">'+(s.recovery_months ? s.recovery_months + ' Mt.' : '—')+'</td>'
       + '</tr>';
   });
@@ -14453,29 +14526,29 @@ function abMetricBox(label, aValue, bValue, deltaText, deltaColor){
 function abRenderRiskMetrics(a, b, diff){
   var el = document.getElementById('ab-risk-metrics');
   if(!el) return;
-  var ret_a = ((a.expected_return_bps||0)/100).toFixed(2) + '%';
-  var ret_b = ((b.expected_return_bps||0)/100).toFixed(2) + '%';
+  var ret_a = fmtPct((a.expected_return_bps||0),1) ;
+  var ret_b = fmtPct((b.expected_return_bps||0),1) ;
   var dRet = (diff.delta_expected_return_bps||0);
-  var dRetText = (dRet>=0?'+':'') + (dRet/100).toFixed(2) + '%';
+  var dRetText = fmtSignedPct(dRet, 1);
   var dRetColor = dRet>0 ? 'var(--pos)' : (dRet<0 ? 'var(--neg)' : 'var(--n5)');
 
-  var vol_a = ((a.expected_volatility_bps||0)/100).toFixed(2) + '%';
-  var vol_b = ((b.expected_volatility_bps||0)/100).toFixed(2) + '%';
+  var vol_a = fmtPct((a.expected_volatility_bps||0),1) ;
+  var vol_b = fmtPct((b.expected_volatility_bps||0),1) ;
   var dVol = (diff.delta_expected_volatility_bps||0);
-  var dVolText = (dVol>=0?'+':'') + (dVol/100).toFixed(2) + '%';
+  var dVolText = fmtSignedPct(dVol, 1);
   // Niedrigere Vola = positiv
   var dVolColor = dVol<0 ? 'var(--pos)' : (dVol>0 ? 'var(--neg)' : 'var(--n5)');
 
-  var sh_a = ((a.sharpe_ratio_x100||0)/100).toFixed(2);
-  var sh_b = ((b.sharpe_ratio_x100||0)/100).toFixed(2);
+  var sh_a = fmtSharpe((a.sharpe_ratio_x100||0)/100);
+  var sh_b = fmtSharpe((b.sharpe_ratio_x100||0)/100);
   var dSh = (diff.delta_sharpe_ratio_x100||0);
-  var dShText = (dSh>=0?'+':'') + (dSh/100).toFixed(2);
+  var dShText = (dSh>0&&fmtSharpe(dSh/100)!=='0.00'?'+':'') + fmtSharpe(dSh/100);
   var dShColor = dSh>0 ? 'var(--pos)' : (dSh<0 ? 'var(--neg)' : 'var(--n5)');
 
-  var ter_a = ((a.expected_ter_bps||0)/100).toFixed(2) + '%';
-  var ter_b = ((b.expected_ter_bps||0)/100).toFixed(2) + '%';
+  var ter_a = fmtPct((a.expected_ter_bps||0),2) ;
+  var ter_b = fmtPct((b.expected_ter_bps||0),2) ;
   var dTer = (diff.delta_expected_ter_bps||0);
-  var dTerText = (dTer>=0?'+':'') + (dTer/100).toFixed(2) + '%';
+  var dTerText = fmtSignedPct(dTer, 2);
   // Niedrigere TER = positiv
   var dTerColor = dTer<0 ? 'var(--pos)' : (dTer>0 ? 'var(--neg)' : 'var(--n5)');
 
@@ -14499,12 +14572,12 @@ function abRenderBucketsDiff(buckets){
     + '</tr></thead><tbody>';
   AB_BUCKET_KEYS.forEach(function(key){
     var b = buckets[key] || {};
-    var a_pct = ((b.a_bps||0)/100).toFixed(1) + '%';
-    var b_pct = ((b.b_bps||0)/100).toFixed(1) + '%';
+    var a_pct = fmtPct(b.a_bps||0, 1);
+    var b_pct = fmtPct(b.b_bps||0, 1);
     var delta = (b.delta_bps||0);
-    var dText = (delta>=0?'+':'') + (delta/100).toFixed(1) + '%';
+    var dText = fmtSignedPct(delta, 1);
     var dColor = Math.abs(delta) >= 200 ? 'var(--neg)' : 'var(--n6)';
-    var color = (DC_BUCKET_COLORS && DC_BUCKET_COLORS[key]) || '#5a6878';
+    var color = (DC_BUCKET_COLORS && DC_BUCKET_COLORS[key]) || 'var(--ac-oth)';
     html += '<tr>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + escapeHtml(b.label || AB_BUCKET_LABELS[key] || key) + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + a_pct + '</td>'
@@ -14547,11 +14620,11 @@ function abRenderStressDiff(scenarios){
     var dDDColor = dDD<0 ? 'var(--pos)' : (dDD>0 ? 'var(--neg)' : 'var(--n5)');
     html += '<tr>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1)"><div style="font-weight:600">' + escapeHtml(s.label||'') + '</div><div style="font-size:9.5px;color:var(--n5)">' + escapeHtml(s.period||'') + '</div></td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+aCumColor+'">' + (aCum>=0?'+':'') + (aCum/100).toFixed(1) + '%</td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+bCumColor+'">' + (bCum>=0?'+':'') + (bCum/100).toFixed(1) + '%</td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dCumColor+'">' + (dCum>=0?'+':'') + (dCum/100).toFixed(1) + '%</td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)">-' + (aDD/100).toFixed(1) + '%</td>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)">-' + (bDD/100).toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+aCumColor+'">' + fmtSignedPct(aCum, 1) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+bCumColor+'">' + fmtSignedPct(bCum, 1) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dCumColor+'">' + fmtSignedPct(dCum, 1) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)">' + fmtPct(-Math.abs(aDD), 1) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)">' + fmtPct(-Math.abs(bDD), 1) + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dDDColor+'">' + (dDD>=0?'+':'') + (dDD/100).toFixed(1) + 'pp</td>'
       + '</tr>';
   });
@@ -14578,13 +14651,9 @@ function abRenderWarnings(warnings){
 
 var BT_LAST_RESULT = null;  // letztes Backtest-Resultat (für Re-Render bei Toggle)
 
-function btFormatCHF(rappen){ return (Number(rappen||0)/100).toLocaleString('de-CH', {maximumFractionDigits: 0}) + ' CHF'; }
-function btFormatPctBps(bps, decimals){ var d = decimals==null?1:decimals; return (Number(bps||0)/100).toFixed(d) + '%'; }
-function btSignedPctBps(bps, decimals){
-  var d = decimals==null?1:decimals;
-  var n = Number(bps||0)/100;
-  return (n>=0?'+':'') + n.toFixed(d) + '%';
-}
+function btFormatCHF(rappen){ return fmtLocaleCH((Number(rappen||0)/100),{maximumFractionDigits: 0}) + ' CHF'; }
+function btFormatPctBps(bps, decimals){ return fmtPct(Number(bps||0), decimals==null?1:decimals); }
+function btSignedPctBps(bps, decimals){ return fmtSignedPct(Number(bps||0), decimals==null?1:decimals); }
 
 async function openStrategyBacktest(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
@@ -14826,7 +14895,7 @@ function btUpdateFeeSum(){
   var el = document.getElementById('bt-fee-strategy-sum');
   if(!el) return;
   el.textContent = fees.strategy > 0
-    ? 'Total Strategie ' + (fees.strategy / 100).toFixed(2) + '% p.a.'
+    ? 'Total Strategie ' + fmtPct(fees.strategy,2) + ' p.a.'
     : '';
 }
 function btResetFees(){
@@ -14955,8 +15024,8 @@ function btRender(data){
     var feeNote = '';
     if(stratFee > 0 || bmFee > 0){
       var parts = [];
-      if(stratFee > 0) parts.push('Strategie -' + (stratFee/100).toFixed(2) + '%');
-      if(bmFee > 0) parts.push('Benchmark -' + (bmFee/100).toFixed(2) + '%');
+      if(stratFee > 0) parts.push('Strategie ' + fmtPct(-stratFee, 2));
+      if(bmFee > 0) parts.push('Benchmark ' + fmtPct(-bmFee, 2));
       feeNote = ' · <b>Netto p.a.</b> (' + parts.join(', ') + ')';
     }
     // Phase 4: Meta-Info Sub-Asset-Benchmark
@@ -14991,28 +15060,28 @@ function btRender(data){
   var ddSeries = [];
 
   if(showRebal){
-    wealthSeries.push({label:'SOLL (Rebal)', color:'#1e4b8f', dash:false,
+    wealthSeries.push({label:'SOLL (Rebal)', color:sollColor(), dash:false,
       data: data.soll.rebalanced.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
-    ddSeries.push({label:'SOLL (Rebal)', color:'#1e4b8f', dash:false,
+    ddSeries.push({label:'SOLL (Rebal)', color:sollColor(), dash:false,
       data: data.soll.rebalanced.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
   }
   if(showNoRebal){
-    wealthSeries.push({label:'SOLL (Buy&Hold)', color:'#1e4b8f', dash:true,
+    wealthSeries.push({label:'SOLL (Buy&Hold)', color:sollColor(), dash:true,
       data: data.soll.no_rebalance.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
-    ddSeries.push({label:'SOLL (Buy&Hold)', color:'#1e4b8f', dash:true,
+    ddSeries.push({label:'SOLL (Buy&Hold)', color:sollColor(), dash:true,
       data: data.soll.no_rebalance.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
   }
   if(data.benchmark){
     if(showRebal){
-      wealthSeries.push({label:'Benchmark (Rebal)', color:'#92400e', dash:false,
+      wealthSeries.push({label:'Benchmark (Rebal)', color:btBenchmarkColor(), dash:false,
         data: data.benchmark.rebalanced.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
-      ddSeries.push({label:'Benchmark (Rebal)', color:'#92400e', dash:false,
+      ddSeries.push({label:'Benchmark (Rebal)', color:btBenchmarkColor(), dash:false,
         data: data.benchmark.rebalanced.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
     }
     if(showNoRebal){
-      wealthSeries.push({label:'Benchmark (Buy&Hold)', color:'#92400e', dash:true,
+      wealthSeries.push({label:'Benchmark (Buy&Hold)', color:btBenchmarkColor(), dash:true,
         data: data.benchmark.no_rebalance.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
-      ddSeries.push({label:'Benchmark (Buy&Hold)', color:'#92400e', dash:true,
+      ddSeries.push({label:'Benchmark (Buy&Hold)', color:btBenchmarkColor(), dash:true,
         data: data.benchmark.no_rebalance.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
     }
   }
@@ -15021,13 +15090,13 @@ function btRender(data){
     height: 240, yFormat: function(v){ return btFormatCHF(v).replace(' CHF',''); },
     yMin: null, yMax: null,
     tipFormat: function(v){ return btFormatCHF(v); },
-    tipDeltaFormat: function(diff, base){ var pct = base ? (diff/base*100) : 0; return (diff>=0?'+':'') + pct.toFixed(1) + '%'; },
+    tipDeltaFormat: function(diff, base){ var pct = base ? (diff/base*100) : 0; return fmtSignedPct(pct*100, 1); },
   });
   btRenderLineChart(document.getElementById('bt-drawdown-chart'), ddSeries, {
-    height: 140, yFormat: function(v){ return (v/100).toFixed(0) + '%'; },
+    height: 140, yFormat: function(v){ return fmtPct(v, 0); },
     yMin: null, yMax: 0, fillBelow: true, isDrawdown: true,
-    tipFormat: function(v){ return (v/100).toFixed(1) + '%'; },
-    tipDeltaFormat: function(diff){ return (diff>=0?'+':'') + (diff/100).toFixed(1) + ' pp'; },
+    tipFormat: function(v){ return fmtPct(v, 1); },
+    tipDeltaFormat: function(diff){ return (diff>0&&Math.abs(diff)>=5?'+':'') + fmtNumber(diff/100, 1) + ' pp'; },
   });
 
   btRenderMetricsTable(data, showRebal, showNoRebal);
@@ -15036,18 +15105,18 @@ function btRender(data){
 
 function btRenderMetricsTable(data, showRebal, showNoRebal){
   var cols = [];
-  if(showRebal) cols.push({key:'soll_rebal', label:'SOLL Rebal', color:'#1e4b8f', metrics: data.soll.rebalanced.metrics});
-  if(showNoRebal) cols.push({key:'soll_norebal', label:'SOLL Buy&Hold', color:'#1e4b8f', dash:true, metrics: data.soll.no_rebalance.metrics});
+  if(showRebal) cols.push({key:'soll_rebal', label:'SOLL Rebal', color:sollColor(), metrics: data.soll.rebalanced.metrics});
+  if(showNoRebal) cols.push({key:'soll_norebal', label:'SOLL Buy&Hold', color:sollColor(), dash:true, metrics: data.soll.no_rebalance.metrics});
   if(data.benchmark){
-    if(showRebal) cols.push({key:'bm_rebal', label:'Benchmark Rebal', color:'#92400e', metrics: data.benchmark.rebalanced.metrics});
-    if(showNoRebal) cols.push({key:'bm_norebal', label:'Benchmark Buy&Hold', color:'#92400e', dash:true, metrics: data.benchmark.no_rebalance.metrics});
+    if(showRebal) cols.push({key:'bm_rebal', label:'Benchmark Rebal', color:btBenchmarkColor(), metrics: data.benchmark.rebalanced.metrics});
+    if(showNoRebal) cols.push({key:'bm_norebal', label:'Benchmark Buy&Hold', color:btBenchmarkColor(), dash:true, metrics: data.benchmark.no_rebalance.metrics});
   }
   var rows = [
     {label:'Total-Return',  fn: function(m){ return btSignedPctBps(m.total_return_bps); }, hi:'pos_neg'},
-    {label:'CAGR (annualisiert)', fn: function(m){ return btSignedPctBps(m.cagr_bps, 2); }, hi:'pos_neg'},
-    {label:'Volatilität (annualisiert)', fn: function(m){ return btFormatPctBps(m.vol_bps, 2); }},
-    {label:'Sharpe-Ratio', fn: function(m){ return (m.sharpe_x100/100).toFixed(2); }},
-    {label:'Max Drawdown', fn: function(m){ return '-' + btFormatPctBps(m.max_drawdown_bps, 1); }, neg:true},
+    {label:'CAGR (annualisiert)', fn: function(m){ return btSignedPctBps(m.cagr_bps, 1); }, hi:'pos_neg'},
+    {label:'Volatilität (annualisiert)', fn: function(m){ return btFormatPctBps(m.vol_bps, 1); }},
+    {label:'Sharpe-Ratio', fn: function(m){ return fmtSharpe(m.sharpe_x100/100); }},
+    {label:'Max Drawdown', fn: function(m){ return fmtPct(-Math.abs(Number(m.max_drawdown_bps||0)), 1); }, neg:true},
     {label:'Bestes Jahr', fn: function(m){ return btSignedPctBps(m.best_year_bps) + (m.best_year_label ? ' (' + m.best_year_label + ')' : ''); }, hi:'pos'},
     {label:'Schlechtestes Jahr', fn: function(m){ return btSignedPctBps(m.worst_year_bps) + (m.worst_year_label ? ' (' + m.worst_year_label + ')' : ''); }, hi:'neg'},
     {label:'Win-Rate', fn: function(m){ return btFormatPctBps(m.win_rate_x100, 0) + ' (' + m.positive_years + '/' + m.years_count + ')'; }},
@@ -15129,6 +15198,10 @@ function btRenderWarnings(warnings){
 // ============================================================================
 // SVG-Line-Chart (kein external dep). Pflegt eine konsistente x/y-Skala.
 // ============================================================================
+// AA-UX-COLORS-001: SOLL = Brand-Gold (sollColor), Benchmark = kuehles Schiefer-
+// grau -- vorher Navy vs. Braun, jetzt Gold vs. Grau (auch bei Farbschwaeche
+// klar getrennt; Gruen bleibt "besser als IST" vorbehalten).
+function btBenchmarkColor(){ return _acIsDarkTheme()?'#9AA6B8':'#5A6878'; }
 function btRenderLineChart(container, series, opts){
   opts = opts || {};
   container.innerHTML = '';
@@ -15480,7 +15553,7 @@ function renderAdminAssetClassPriceStatus(payload) {
   if (summaryEl) {
     summaryEl.innerHTML = adminPill(complete ? 'vollständig' : 'Lücken', complete ? 'ok' : 'warn')
       + '<span style="margin-left:8px">' + loaded + ' von ' + keys.length + ' Anlageklassen mit Tagesdaten. '
-      + totalPoints.toLocaleString('de-CH') + ' Datenpunkte insgesamt.</span>';
+      + fmtLocaleCH(totalPoints) + ' Datenpunkte insgesamt.</span>';
   }
   if (gridEl) {
     gridEl.innerHTML = keys.map(function(ac) {
@@ -15491,7 +15564,7 @@ function renderAdminAssetClassPriceStatus(payload) {
       var last = formatAdminAssetClassPriceDate(row.last);
       return '<div class="admin-metric-panel">'
         + '<div class="admin-metric-label">' + escapeHtml(adminAssetClassPriceLabel(ac)) + '</div>'
-        + '<div class="admin-metric-value">' + (hasData ? points.toLocaleString('de-CH') : '0') + '</div>'
+        + '<div class="admin-metric-value">' + (hasData ? fmtLocaleCH(points) : '0') + '</div>'
         + '<div class="admin-metric-meta">' + escapeHtml(first) + ' bis ' + escapeHtml(last) + '</div>'
         + '</div>';
     }).join('');
@@ -15544,8 +15617,8 @@ async function backfillAdminAssetClassPrices() {
     });
     renderAdminAssetClassPriceStatus(res);
     var s = (res && res.summary) || {rows_written:0, rows_skipped:0, error_count:0};
-    var msg = 'Daily-Backfill abgeschlossen: ' + (s.rows_written || 0).toLocaleString('de-CH') + ' Tagespunkte geschrieben';
-    if (s.rows_skipped) msg += ', ' + Number(s.rows_skipped || 0).toLocaleString('de-CH') + ' übersprungen';
+    var msg = 'Daily-Backfill abgeschlossen: ' + fmtLocaleCH((s.rows_written || 0)) + ' Tagespunkte geschrieben';
+    if (s.rows_skipped) msg += ', ' + fmtLocaleCH(Number(s.rows_skipped || 0)) + ' übersprungen';
     if (s.error_count) msg += ', ' + s.error_count + ' Fehler';
     if (res && res.errors && res.errors.length) {
       var sample = res.errors.slice(0,3).map(function(e){
@@ -16381,10 +16454,10 @@ function prefillRiskCapacityFromCashflows(){
     else if(type==='Expense')annualObligationsChf+=annualized;
   });
   if(incomeLooksDefault&&annualIncomeChf>0){
-    setInputValue('rp-income-annual','CHF '+Math.round(annualIncomeChf).toLocaleString('de-CH'));
+    setInputValue('rp-income-annual','CHF '+fmtLocaleCH(Math.round(annualIncomeChf)));
   }
   if(obligationsLooksDefault&&annualObligationsChf>0){
-    setInputValue('rp-obligations-annual','CHF '+Math.round(annualObligationsChf).toLocaleString('de-CH'));
+    setInputValue('rp-obligations-annual','CHF '+fmtLocaleCH(Math.round(annualObligationsChf)));
   }
   if((incomeLooksDefault&&annualIncomeChf>0)||(obligationsLooksDefault&&annualObligationsChf>0)){
     if(typeof calcRiskScore==='function')calcRiskScore();
@@ -16672,14 +16745,14 @@ function parseRiskAnnualInput(label){
   if(mj){
     var raw = mj[1].trim().replace(/^CHF\s*/i, '');
     var rappen = parseCHF(raw);
-    if(rappen > 0) return 'CHF ' + Math.round(rappen / 100).toLocaleString('de-CH');
+    if(rappen > 0) return 'CHF ' + fmtLocaleCH(Math.round(rappen / 100));
   }
   // Fallback: first standalone CHF number (strip prefix before parsing)
-  var m2 = s.match(/CHF\s*([\d'.,]+)/);
+  var m2 = s.match(/CHF\s*([\d'\u2019.,]+)/);
   if(!m2) return '';
   var rappen2 = parseCHF(m2[1]);
   if(!rappen2) return '';
-  return 'CHF ' + Math.round(rappen2 / 100).toLocaleString('de-CH');
+  return 'CHF ' + fmtLocaleCH(Math.round(rappen2 / 100));
 }
 
 function parseRiskIncomeOrigins(label){
@@ -18051,11 +18124,11 @@ function parseApiError(e,fallback){
   return String((e&&e.detail)||(e&&e.message)||fallback||'?');
 }
 function parseCHF(s){
-  var c=String(s||0).replace(/^CHF\s*/i,'').replace(/['\s]/g,'').replace(',','.');
+  var c=normalizeNumberInputCH(String(s||0).replace(/^CHF\s*/i,'')).replace(',','.');
   return Math.round((parseFloat(c)||0)*100);
 }
 function parseUnitsMilli(value){
-  var raw=String(value||'').replace(/['\s]/g,'').replace(',','.').trim();
+  var raw=normalizeNumberInputCH(value||'').replace(',','.').trim();
   if(!raw)return null;
   var units=parseFloat(raw);
   if(!isFinite(units)||units<0)return null;
@@ -18065,7 +18138,7 @@ function formatUnitsInput(value){
   if(value==null||value==='')return '';
   var units=Number(value)/1000;
   if(!isFinite(units))return '';
-  return units.toLocaleString('de-CH',{minimumFractionDigits:0,maximumFractionDigits:3});
+  return fmtLocaleCH(units,{minimumFractionDigits:0,maximumFractionDigits:3});
 }
 function parsePercentToBps(value){
   var raw=String(value||'').replace('%','').replace(',','.').trim();
@@ -18754,7 +18827,7 @@ function resetAdvisoryLogModal(){
         + '<div style="padding:10px 11px;border-radius:var(--r2);border:1px solid var(--b1);background:#fff">'
           + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--n4)">Split Bruttovermögen</span><span style="font-size:10px;color:var(--n5)">Beratung vs. Rest</span></div>'
           + '<div style="height:12px;border-radius:999px;overflow:hidden;background:var(--bg2);display:flex">'
-            + '<div style="width:'+String(advisoryPct)+'%;background:linear-gradient(90deg,#166534 0%,#2d7a46 100%)"></div>'
+            + '<div style="width:'+String(advisoryPct)+'%;background:var(--n6)"></div>'
             + '<div style="width:'+String(otherPct)+'%;background:linear-gradient(90deg,#c9a84c 0%,#d6ba67 100%)"></div>'
           + '</div>'
           + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">'
@@ -18796,11 +18869,11 @@ function resetAdvisoryLogModal(){
       var _pLi=Math.round(Number(advisoryProjection.bucketWeightsBps.liquidity||0))/100;
       var _pAl=Math.round(Number(advisoryProjection.bucketWeightsBps.alternatives||0))/100;
       alloc=[
-        {n:'Aktien (global+CH)',c:'#1e4b8f',ist:_pEq,soll:_pEq,chf:Math.round(TOTAL*_pEq/100)},
-        {n:'Anleihen / Defensiv',c:'#78601a',ist:_pBo,soll:_pBo,chf:Math.round(TOTAL*_pBo/100)},
-        {n:'Immobilien (ind.)',c:'#2c5080',ist:_pRe,soll:_pRe,chf:Math.round(TOTAL*_pRe/100)},
-        {n:'Liquiditätsreserve',c:'#166534',ist:_pLi,soll:_pLi,chf:Math.round(TOTAL*_pLi/100)},
-        {n:'Alternative / Gold',c:'#4a6080',ist:_pAl,soll:_pAl,chf:Math.round(TOTAL*_pAl/100)},
+        {n:'Aktien (global+CH)',c:assetClassColor('eq'),ist:_pEq,soll:_pEq,chf:Math.round(TOTAL*_pEq/100)},
+        {n:'Anleihen / Defensiv',c:assetClassColor('bd'),ist:_pBo,soll:_pBo,chf:Math.round(TOTAL*_pBo/100)},
+        {n:'Immobilien (ind.)',c:assetClassColor('re'),ist:_pRe,soll:_pRe,chf:Math.round(TOTAL*_pRe/100)},
+        {n:'Liquiditätsreserve',c:assetClassColor('liq'),ist:_pLi,soll:_pLi,chf:Math.round(TOTAL*_pLi/100)},
+        {n:'Alternative / Gold',c:assetClassColor('alt'),ist:_pAl,soll:_pAl,chf:Math.round(TOTAL*_pAl/100)},
       ].filter(function(r){return r.ist>0;});
       if(alloc.length===0)alloc=[{n:'Nicht klassifiziert',c:'#9ca3af',ist:100,soll:100,chf:TOTAL}];
       // Soll-Werte aus aktiver Strategie übernehmen (verhindert, dass IST-Reload die SOLL-Werte überschreibt)
@@ -19021,7 +19094,7 @@ function formatBandPercent(bps){
 }
 function parseBandPercentInput(value){
   if(typeof value==='number'&&isFinite(value))return Math.round(Math.abs(value)>100?value:value*100);
-  var raw=String(value||'').replace('%','').replace(/'/g,'').replace(/\s+/g,'').replace(',','.').trim();
+  var raw=normalizeNumberInputCH(String(value||'').replace('%','')).replace(',','.').trim();
   if(!raw)return null;
   var numeric=Number(raw);
   if(!isFinite(numeric))return null;
@@ -19099,7 +19172,7 @@ function collectBandOverridesFromModal(){
 }
 function parseBandPercentUserInput(value){
   // Eingabe im Editor ist IMMER Prozent (das Feld zeigt "70%"); 0..100.
-  var raw=String(value==null?'':value).replace('%','').replace(/'/g,'').replace(/\s+/g,'').replace(',','.').trim();
+  var raw=normalizeNumberInputCH(String(value==null?'':value).replace('%','')).replace(',','.').trim();
   if(!raw)return null;
   var numeric=Number(raw);
   if(!isFinite(numeric)||numeric<0||numeric>100)return null;
@@ -19816,34 +19889,90 @@ function setText(id,text){
   var el=document.getElementById(id);
   if(el)el.textContent=text;
 }
+// AA-UX-FORMAT-001: EIN Zahlenformat-Vertrag fuer App und Report. Identische
+// Regeln in reporting/src/lib/format.ts; Vertragstest:
+// tests/test_monolith_number_format_contract.py (fuehrt beide Implementierungen
+// mit denselben Faellen aus).
+//  - Prozent fmtPct(bps,d=1): feste Nachkommastellen (keine springenden
+//    Stellen in einer Spalte), Dezimalpunkt wie de-CH, geschuetztes Leerzeichen
+//    vor "%": 1234 bps -> "12.3 %", 1200 -> "12.0 %".
+//  - Minus immer U+2212 ("−"), nie Bindestrich; Plus nur bei fmtSignedPct;
+//    ein auf 0 gerundeter Wert traegt kein Vorzeichen.
+//  - Wahrscheinlichkeiten ganzzahlig (fmtProbPct), Sharpe 2 Stellen (fmtSharpe).
+//  - Rendite/Volatilitaet/CAGR aus der Simulation: 1 Nachkommastelle (0.01 %
+//    waere Scheingenauigkeit). Kosten (TER) bleiben bewusst 2 Stellen.
+//  - CHF kompakt immer "Mio." (formatCompactCHF).
+//  - Zahlenzellen: tabular-nums + rechtsbuendig (CSS .num / Tabellen-Regel).
+// AA-UX-FORMAT-001 / CIO-Entscheid 2026-10-19: Tausendertrennung IMMER
+// gerades Apostroph U+0027 ("CHF 1'250'000") -- robust in PDF/CSV/Excel und
+// identisch mit den Backend-PDFs. toLocaleString('de-CH') liefert je nach ICU
+// U+2019 (typografisches Apostroph); dieser zentrale Helfer normalisiert das
+// und setzt ein Minus als U+2212. Alle Zahlen-toLocaleString laufen hierueber.
+function fmtLocaleCH(value,opts){
+  var n=Number(value);
+  if(!isFinite(n))n=0;
+  return n.toLocaleString('de-CH',opts).replace(/[\u2019\u02BC]/g,"'").replace(/^-/,'\u2212');
+}
+// Gegenstueck fuer Eingaben: akzeptiert ' UND ' (U+2019/U+02BC) als
+// Tausendertrennung, Leerzeichen und U+2212 als Minus.
+function normalizeNumberInputCH(value){
+  return String(value==null?'':value).replace(/['\u2019\u02BC\s]/g,'').replace(/\u2212/g,'-');
+}
+function fmtNumber(value,d){
+  if(value===null||value===undefined||value==='')return '—';
+  var n=Number(value);
+  if(!isFinite(n))return '—';
+  var digits=(d==null)?0:d;
+  var fixed=Math.abs(n).toFixed(digits);
+  var parts=fixed.split('.');
+  parts[0]=parts[0].replace(/\B(?=(\d{3})+(?!\d))/g,"'");
+  return ((n<0&&Number(fixed)!==0)?'\u2212':'')+parts.join('.');
+}
+function fmtPct(bps,d){
+  if(bps===null||bps===undefined||bps==='')return '—';
+  var n=Number(bps);
+  if(!isFinite(n))return '—';
+  return fmtNumber(n/100,(d==null)?1:d)+'\u00a0%';
+}
+function fmtSignedPct(bps,d){
+  var core=fmtPct(bps,d);
+  if(core==='—')return core;
+  var digits=(d==null)?1:d;
+  var rounded=Number((Math.abs(Number(bps))/100).toFixed(digits));
+  return (Number(bps)>0&&rounded!==0)?('+'+core):core;
+}
+function fmtProbPct(pct){
+  if(pct===null||pct===undefined||pct==='')return '—';
+  var n=Number(pct);
+  if(!isFinite(n))return '—';
+  return fmtNumber(Math.round(n),0)+'\u00a0%';
+}
+function fmtSharpe(x){ return fmtNumber(x,2); }
 function formatBpsPercent(bps){
-  var n=Number(bps||0)/100;
-  return (Math.abs(n-Math.round(n))<0.05?Math.round(n):n.toFixed(1))+'%';
+  return fmtPct(Number(bps||0),1);
 }
 function formatRiskLossBps(bps){
   if(bps===null||bps===undefined||bps==='')return 'n/a';
   var loss=Math.max(0,Math.round(Number(bps||0)));
-  if(loss<=0)return '0%';
-  return '-'+formatBpsPercent(loss);
+  return fmtPct(-loss,1);
 }
 function formatProbabilityPct(value){
   if(value===null||value===undefined||value==='')return 'n/a';
-  return String(Math.max(0,Math.round(Number(value||0))))+'%';
+  return fmtProbPct(Math.max(0,Math.round(Number(value||0))));
 }
 function formatRappen(rappen){
-  return 'CHF '+Math.round((Number(rappen)||0)/100).toLocaleString('de-CH');
+  var chf=Math.round((Number(rappen)||0)/100);
+  return 'CHF '+(chf<0?'\u2212':'')+fmtLocaleCH(Math.abs(chf));
 }
 function formatSignedBpsPercent(bps){
   if(bps===null||bps===undefined||bps==='')return 'n/a';
-  var n=Math.round(Number(bps||0));
-  if(!n)return '0%';
-  return (n>0?'+':'-')+formatBpsPercent(Math.abs(n));
+  return fmtSignedPct(Math.round(Number(bps||0)),1);
 }
 function formatSignedRappen(rappen){
   if(rappen===null||rappen===undefined||rappen==='')return 'n/a';
   var n=Math.round(Number(rappen||0));
   if(!n)return 'CHF 0';
-  return (n>0?'+':'-')+'CHF '+Math.round(Math.abs(n)/100).toLocaleString('de-CH');
+  return (n>0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.round(Math.abs(n)/100));
 }
 function recurringCashflowLabel(netRappen){
   var net=Number(netRappen||0);
@@ -19876,19 +20005,19 @@ function projectionCashflowNarrative(recurringNetRappen,capitalNetRappen,horizon
 }
 function formatUnitsMilli(value){
   if(value===null||value===undefined||value==='')return 'n/a';
-  return (Number(value||0)/1000).toLocaleString('de-CH',{minimumFractionDigits:0,maximumFractionDigits:3});
+  return fmtLocaleCH((Number(value||0)/1000),{minimumFractionDigits:0,maximumFractionDigits:3});
 }
 // AA-UX-NUMBERS-001: CH-Konvention -- Apostroph = Tausendertrenner, Punkt =
 // Dezimalzeichen. Vorher wurde der Dezimalpunkt durch einen Apostroph ersetzt
 // ("CHF 2'85 Mio" fuer 2'850'000 -- fuer Schweizer Leser falsch lesbar).
-// Gruppierung kommt wie bei allen anderen Formatern aus toLocaleString('de-CH').
+// Gruppierung ueber fmtLocaleCH(): immer gerades Apostroph U+0027.
 function formatCompactCHFAmount(chf){
   var n=Number(chf||0);
   if(!isFinite(n))n=0;
   var a=Math.abs(n);
   var sign=(n<0&&Math.round(a)>0)?'−':'';
-  if(a>=1000000)return sign+(a/1000000).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' Mio.';
-  return sign+Math.round(a).toLocaleString('de-CH');
+  if(a>=1000000)return sign+fmtLocaleCH((a/1000000),{minimumFractionDigits:2,maximumFractionDigits:2})+' Mio.';
+  return sign+fmtLocaleCH(Math.round(a));
 }
 function formatCompactCHF(chf){
   return 'CHF '+formatCompactCHFAmount(chf);
@@ -20587,7 +20716,7 @@ function renderCurrentWealthOnlyProjectionSummary(projection){
   var horizonLabel=(safeProjection.labels&&safeProjection.labels.length)?String(safeProjection.labels[safeProjection.labels.length-1]):String((new Date()).getFullYear()+10);
   setText('ub-ist-terminal',formatCompactCHF(Number(safeProjection.projectedRappen||0)/100));
   setText('ub-opt-terminal','—');
-  setText('ub-cagr-ist',((Number(safeProjection.expectedReturnBps||safeProjection.cagrBps||0))/100).toFixed(2)+'%');
+  setText('ub-cagr-ist',fmtPct((Number(safeProjection.expectedReturnBps||safeProjection.cagrBps||0)),1));
   setText('ub-cagr-opt','—');
   setText('ub-delta-terminal','—');
   var note=document.getElementById('ub-projection-note');
@@ -20646,9 +20775,9 @@ function renderOverviewProjectionSummary(config){
   var tone=deltaChf>=0?'var(--pos)':'var(--warn)';
   setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));
   setText('ub-opt-terminal',formatCompactCHF(targetProjectedRappen/100));
-  setText('ub-cagr-ist',((currentMixReturnBps||currentCagrBps||0)/100).toFixed(2)+'%');
-  setText('ub-cagr-opt',((targetCagrBps||0)/100).toFixed(2)+'%');
-  setText('ub-delta-terminal',(deltaChf>=0?'+':'-')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH'));
+  setText('ub-cagr-ist',fmtPct((currentMixReturnBps||currentCagrBps||0),1));
+  setText('ub-cagr-opt',fmtPct((targetCagrBps||0),1));
+  setText('ub-delta-terminal',(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf)));
   var note=document.getElementById('ub-projection-note');
   if(note){
     note.style.color='var(--n6)';
@@ -20662,7 +20791,7 @@ function renderOverviewProjectionSummary(config){
     var value=overviewKpi.querySelector('.kv');
     var sub=overviewKpi.querySelector('.ks');
     if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
-    if(value)value.textContent=(deltaChf>=0?'+':'-')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH');
+    if(value)value.textContent=(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf));
     if(sub)sub.innerHTML='<span style="color:'+tone+'">'+(deltaChf>=0?'Verbesserte Situation ueber Ist':'Ist liegt ueber Zielpfad')+'</span>';
   }
 }
@@ -20678,14 +20807,14 @@ function updateAllocationProjectionComparison(config){
   var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
   setText('aa-proj-current-wealth',formatCompactCHF(currentProjectedRappen/100));
   setText('aa-proj-target-wealth',formatCompactCHF(targetProjectedRappen/100));
-  setText('aa-proj-current-metric',((currentMixReturnBps||0)/100).toFixed(2)+'%');
-  setText('aa-proj-target-metric',((targetCagrBps||0)/100).toFixed(2)+'%');
-  setText('aa-proj-current-sub','Beratungsvermögen heute im aktuellen Mix mit '+((currentMixReturnBps||0)/100).toFixed(2)+'% p.a.; Netto-Cashflow '+formatSignedRappen(currentAnnualNetCashflowRappen)+' additiv bis '+horizonLabel);
+  setText('aa-proj-current-metric',fmtPct((currentMixReturnBps||0),1));
+  setText('aa-proj-target-metric',fmtPct((targetCagrBps||0),1));
+  setText('aa-proj-current-sub','Beratungsvermögen heute im aktuellen Mix mit '+fmtPct((currentMixReturnBps||0),1)+' p.a.; Netto-Cashflow '+formatSignedRappen(currentAnnualNetCashflowRappen)+' additiv bis '+horizonLabel);
   setText('aa-proj-target-sub','Soll-Allokation für das Beratungsvermögen inkl. Rebalancing und Transaktionskosten bis '+horizonLabel);
-  setText('aa-proj-current-sub','Beratungsvermoegen heute im aktuellen Mix mit '+((currentMixReturnBps||0)/100).toFixed(2)+'% p.a.; '+projectionCashflowNarrative(currentRecurringNetCashflowRappen,currentCapitalNetCashflowRappen,horizonLabel));
+  setText('aa-proj-current-sub','Beratungsvermoegen heute im aktuellen Mix mit '+fmtPct((currentMixReturnBps||0),1)+' p.a.; '+projectionCashflowNarrative(currentRecurringNetCashflowRappen,currentCapitalNetCashflowRappen,horizonLabel));
   var deltaEl=document.getElementById('aa-proj-compare-delta');
   if(deltaEl){
-    deltaEl.textContent='Vergleich bis '+horizonLabel+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' Mehrwert durch zielbasiertes Investieren nach Rebalancing-Kosten.';
+    deltaEl.textContent='Vergleich bis '+horizonLabel+': '+(deltaChf>=0?'+':'−')+'CHF '+fmtLocaleCH(Math.abs(deltaChf))+' Mehrwert durch zielbasiertes Investieren nach Rebalancing-Kosten.';
     deltaEl.style.color=deltaChf>=0?'var(--pos)':'var(--warn)';
     deltaEl.style.background=deltaChf>=0?'rgba(22,101,52,0.05)':'rgba(146,64,14,0.07)';
     deltaEl.style.borderColor=deltaChf>=0?'rgba(22,101,52,0.14)':'rgba(146,64,14,0.14)';
@@ -20905,8 +21034,9 @@ function updateProjectionChartsFromSimulation(result){
       charts.ist.data.datasets[1]={
         label:'Verbesserte Situation (SOLL)',
         data:__istImproved,
-        borderColor:'rgb(22,101,52)',
-        backgroundColor:'rgba(22,101,52,0.06)',
+        borderColor:sollColor(),
+        backgroundColor:sollColor(0.06),
+        _sollTone:{border:null,bg:0.06},
         borderWidth:2,
         borderDash:[5,4],
         pointRadius:0,
@@ -20940,8 +21070,9 @@ function updateProjectionChartsFromSimulation(result){
       charts.aaCurrent.data.datasets[1]={
         label:'Optimierte Zielallokation (SOLL)',
         data:targetSeries,
-        borderColor:'rgba(22,101,52,0.85)',
-        backgroundColor:'rgba(22,101,52,0.05)',
+        borderColor:sollColor(0.85),
+        backgroundColor:sollColor(0.05),
+        _sollTone:{border:0.85,bg:0.05},
         borderWidth:1.5,
         borderDash:[5,4],
         pointRadius:0,
@@ -21137,11 +21268,11 @@ function upgradeFanChartWithMonteCarlo(result){
   var deterministic=_prep(sim&&sim.target_mix_series_rappen);
   var componentSeries=resultCashflowProjectionComponentSeries(result,Math.max(0,labels.length-1),labels);
   var eventPointRadius=[0];
-  var eventPointBackground=['rgb(15,72,38)'];
+  var eventPointBackground=[sollColor()];
   componentSeries.forEach(function(item){
     var capitalNet=Number(item&&item.capitalNetRappen||0);
     eventPointRadius.push(capitalNet!==0?4:0);
-    eventPointBackground.push(capitalNet>0?'rgb(22,101,52)':(capitalNet<0?'rgb(139,30,30)':'rgb(15,72,38)'));
+    eventPointBackground.push(capitalNet>0?'rgb(22,101,52)':(capitalNet<0?'rgb(139,30,30)':sollColor()));
   });
   if(!p90.length||!p10.length)return;
   // 2026-06-14: IDENTISCHE Struktur wie die IST-Grafik — P90/Median/P10
@@ -21154,8 +21285,9 @@ function upgradeFanChartWithMonteCarlo(result){
       label:aaScenarioLabel('p90'),
       scenarioKey:'p90',
       data:p90,
-      borderColor:'rgba(22,101,52,0.30)',
-      backgroundColor:'rgba(22,101,52,0.10)',
+      borderColor:sollColor(0.30),
+      backgroundColor:sollColor(0.10),
+      _sollTone:{border:0.30,bg:0.10},
       borderWidth:1,
       borderDash:[3,3],
       pointRadius:0,
@@ -21166,8 +21298,9 @@ function upgradeFanChartWithMonteCarlo(result){
       label:aaScenarioLabel('p50'),
       scenarioKey:'p50',
       data:mainData,
-      borderColor:'rgb(15,72,38)',
-      backgroundColor:'rgba(22,101,52,0.10)',
+      borderColor:sollColor(),
+      backgroundColor:sollColor(0.10),
+      _sollTone:{border:null,bg:0.10},
       borderWidth:3,
       pointRadius:eventPointRadius,
       pointHoverRadius:4,
@@ -21182,8 +21315,9 @@ function upgradeFanChartWithMonteCarlo(result){
       label:aaScenarioLabel('p10'),
       scenarioKey:'p10',
       data:p10,
-      borderColor:'rgba(22,101,52,0.30)',
+      borderColor:sollColor(0.30),
       backgroundColor:'transparent',
+      _sollTone:{border:0.30,bg:null},
       borderWidth:1,
       borderDash:[3,3],
       pointRadius:0,
@@ -21261,8 +21395,8 @@ function renderAaProjectionEndValues(result){
   setText('aa-proj-current-p90',cP90?formatCompactCHF(cP90/100):'—');
   setText('aa-proj-p10',tP10?formatCompactCHF(tP10/100):'—');
   setText('aa-proj-current-p10',cP10?formatCompactCHF(cP10/100):'—');
-  setText('aa-proj-cagr',tCagr==null?'—':((tCagr/100).toFixed(2)+'%'));
-  setText('aa-proj-current-cagr',cCagr==null?'—':((cCagr/100).toFixed(2)+'%'));
+  setText('aa-proj-cagr',tCagr==null?'—':(fmtPct(tCagr,1)));
+  setText('aa-proj-current-cagr',cCagr==null?'—':(fmtPct(cCagr,1)));
   setText('aa-proj-delta-label','Differenz der Median-Endwerte SOLL − IST'+(year?(' '+year):''));
   var deltaEl=document.getElementById('aa-proj-delta-value');
   if(deltaEl){
@@ -22265,7 +22399,7 @@ function renderPortfolioSections(positions){
       var metaBits=[];
       if(row.sub_asset_class)metaBits.push(String(row.sub_asset_class));
       if(row.currency)metaBits.push(String(row.currency));
-      metaBits.push('TER '+((Number(row.ter_bps||0))/100).toFixed(2)+'%');
+      metaBits.push('TER '+fmtPct((Number(row.ter_bps||0)),2));
       var symbolLabel=row.symbol?String(row.symbol)+(row.exchange_code?(' / '+String(row.exchange_code)):''):'n/a';
       var lookupLabel=row.lookup_mode==='proxy'
         ? 'Proxy '+String(row.lookup_symbol||'')
@@ -22295,7 +22429,7 @@ function renderPortfolioSections(positions){
         + '<div class="prow-detail"><div class="pdetail-grid">'
         + '<div class="pdetail-item"><strong>Soll-Anteil</strong><div class="pdetail-bars"><div class="pdetail-bar"><span>Soll</span><div class="pdetail-track"><div class="pdetail-fill" style="width:'+String(targetBarPct)+'%;background:var(--g4)"></div></div><span>'+escapeHtml(formatBpsPercent(targetWeightBps))+'</span></div></div></div>'
         + '<div class="pdetail-item"><strong>Zielbetrag</strong>'+escapeHtml(formatRappen(displayAmountRappen))+'</div>'
-        + '<div class="pdetail-item"><strong>Kosten</strong>TER p.a.: '+escapeHtml(((Number(row.ter_bps||0))/100).toFixed(2))+'%<br>Kosten auf Zielvolumen: '+escapeHtml(formatRappen(Math.round(displayAmountRappen*Number(row.ter_bps||0)/10000)))+' p.a.</div>'
+        + '<div class="pdetail-item"><strong>Kosten</strong>TER p.a.: '+escapeHtml(fmtPct((Number(row.ter_bps||0)),2))+'<br>Kosten auf Zielvolumen: '+escapeHtml(formatRappen(Math.round(displayAmountRappen*Number(row.ter_bps||0)/10000)))+' p.a.</div>'
         + '</div>'
         + '<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn" type="button" onclick="event.stopPropagation();togglePortfolioTechnicalDetail(decodeURIComponent(\''+encodeURIComponent(rowKey)+'\'))">'+(techExpanded?'Technische Details ausblenden':'Technische Details anzeigen')+'</button></div>'
         + (techExpanded
@@ -22527,7 +22661,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   setText('sr-horizon',activeRisk&&activeRisk.investment_horizon_years?(activeRisk.investment_horizon_years+' Jahre'):(sim&&sim.horizon_years?(sim.horizon_years+' Jahre'):'Langfristig'));
   var bars=document.getElementById('sr-allocation-bars');
   if(bars){
-    function srAcColor(ac){var k=String(ac||'').toLowerCase();if(k.indexOf('aktien')>=0)return '#1e4b8f';if(k.indexOf('oblig')>=0)return '#78601a';if(k.indexOf('immob')>=0)return '#2c5080';if(k.indexOf('altern')>=0)return '#4a6080';if(k.indexOf('liquid')>=0)return '#166534';return '#5a6878';}
+    function srAcColor(ac){return assetClassCssVar(ac);}
     bars.innerHTML=(activeAllocation.buckets||[]).map(function(bucket){
       var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));
       var targetValue=formatRappen(Number(bucket.target_amount_rappen||0));
@@ -22637,8 +22771,8 @@ function renderGoalAchievementSollIst(result){
   var ist=(result&&Array.isArray(result.current_goal_analysis))?result.current_goal_analysis:[];
   if(!soll.length||!ist.length){ el.style.display='none'; el.innerHTML=''; return; }
   var istById={}; ist.forEach(function(g){ if(g&&g.goal_id!=null) istById[String(g.goal_id)]=g; });
-  var pct=function(v){ var n=Number(v); return isFinite(n)?(Math.max(0,Math.min(100,Math.round(n)))+'%'):'—'; };
-  var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+Math.round(n/100).toLocaleString('de-CH')):'—'; };
+  var pct=function(v){ var n=Number(v); return isFinite(n)?fmtProbPct(Math.max(0,Math.min(100,Math.round(n)))):'—'; };
+  var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+fmtLocaleCH(Math.round(n/100))):'—'; };
   var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
   var rows=soll.map(function(g){
     var i=istById[String(g.goal_id)]||{};
@@ -22654,7 +22788,7 @@ function renderGoalAchievementSollIst(result){
     +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Zielerreichung je Ziel — SOLL vs IST (Median; Fehlbetrag pessimistisch)</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:11px"><thead>'
     +'<tr style="border-bottom:1px solid var(--b1)"><th style="text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Ziel</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:rgb(22,101,52)">SOLL</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--soll)">SOLL</th>'
     +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)">IST</th>'
     +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Fehlbetrag S/I</th></tr>'
     +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table></div>';
@@ -22672,10 +22806,9 @@ function applyAllocationEngineResult(result){
     hydrateAllocationPreferencesFromServer(result);
   } catch(e) { console.warn('preferences hydration failed', e); }
   TOTAL=Math.round((Number(result.advisory_wealth_rappen||0))/100);
-  var colors={Aktien:'#1e4b8f',Obligationen:'#78601a',Immobilien:'#2c5080',Alternative:'#4a6080',Liquiditaet:'#166534'};
   alloc=(result.buckets||[]).map(function(bucket){
     var key=String(bucket.asset_class||'');
-    return {n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100),chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)};
+    return {n:assetDisplayName(key),c:assetClassColor(key),ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100),chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)};
   });
   quoten=deriveQuotenFromAllocation(result);
   buildAT();buildQT('qt-modal');syncAllocationDonutFromStrategyState();
@@ -22749,10 +22882,10 @@ function applyAllocationEngineResult(result){
   });
   // 3eyes-Paritaet: zwei Renditesaetze — Reinvermoegen (gesamt, optimiert) vs.
   // Beratungsvermoegen (der Teil, auf den die Optimierung wirkt).
-  setText('ub-return-rein',((Number(totalImprovedProjection.cagrBps||0)/100).toFixed(2))+'%');
-  setText('ub-return-beratung',((Number(advisoryCagrBps||0)/100).toFixed(2))+'%');
-  setText('aa-proj-p50-return',((Number(mc&&mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'%');
-  setText('aa-proj-current-p50-return',((Number(mc&&mc.current_annualized_return_p50_bps||0)/100).toFixed(2))+'%');
+  setText('ub-return-rein',(fmtPct(Number(totalImprovedProjection.cagrBps||0),1)));
+  setText('ub-return-beratung',(fmtPct(Number(advisoryCagrBps||0),1)));
+  setText('aa-proj-p50-return',(fmtPct(Number(mc&&mc.target_annualized_return_p50_bps||0),1)));
+  setText('aa-proj-current-p50-return',(fmtPct(Number(mc&&mc.current_annualized_return_p50_bps||0),1)));
   setText('aa-proj-runway-target',projectionRunwayLabel(mc&&mc.target_p50_series_rappen,mc&&mc.year_labels));
   setText('aa-proj-runway-current',projectionRunwayLabel(mc&&mc.current_p50_series_rappen,mc&&mc.year_labels));
   // AA-UX-NUMBERS-001: Endwerte (Median/P90/P10, inkl. Reserve-Sockel),
@@ -22763,8 +22896,8 @@ function applyAllocationEngineResult(result){
   // Volatilität = MC-1J-Streuung (target/current_volatility_1y_bps) für saubere
   // Vergleichbarkeit; Fallback auf analytische Mix-Vola wenn (alt) nicht vorhanden.
   var _tVol=mc&&mc.target_volatility_1y_bps!=null?mc.target_volatility_1y_bps:result.expected_volatility_bps;
-  setText('aa-proj-vol',((Number(_tVol||0)/100).toFixed(2))+'%');
-  setText('aa-proj-current-vol',((Number(mc&&mc.current_volatility_1y_bps||0)/100).toFixed(2))+'%');
+  setText('aa-proj-vol',(fmtPct(Number(_tVol||0),1)));
+  setText('aa-proj-current-vol',(fmtPct(Number(mc&&mc.current_volatility_1y_bps||0),1)));
   setText('aa-proj-var95',formatRiskLossBps(mc&&mc.target_var_95_1y_bps));
   setText('aa-proj-current-var95',formatRiskLossBps(mc&&mc.current_var_95_1y_bps));
   setText('aa-proj-cvar95',formatRiskLossBps(mc&&mc.target_cvar_95_1y_bps));
@@ -22783,8 +22916,8 @@ function applyAllocationEngineResult(result){
     if(pct===null||pct===undefined||pct==='')return 'n/a';
     var p=Number(pct);
     if(!isFinite(p))return 'n/a';
-    if(p<=0)return '0%';
-    return String(Math.round(p))+'%'+(year?(' (ab '+year+')'):'');
+    if(p<=0)return fmtProbPct(0);
+    return fmtProbPct(p)+(year?(' (ab '+year+')'):'');
   };
   setText('aa-proj-depletion',_fmtDepletion(mc&&mc.target_depletion_probability_pct, mc&&mc.target_depletion_median_year));
   setText('aa-proj-current-depletion',_fmtDepletion(mc&&mc.current_depletion_probability_pct, mc&&mc.current_depletion_median_year));
@@ -22795,8 +22928,8 @@ function applyAllocationEngineResult(result){
   var _sharpe=function(retBps,volBps){var r=Number(retBps),v=Number(volBps);return (isFinite(r)&&isFinite(v)&&v>0)?((r-_RF_BPS)/v):null;};
   var _shT=_sharpe(mc&&mc.target_annualized_return_p50_bps,_tVol);
   var _shC=_sharpe(mc&&mc.current_annualized_return_p50_bps,mc&&mc.current_volatility_1y_bps);
-  setText('aa-proj-sharpe', _shT==null?'—':_shT.toFixed(2));
-  setText('aa-proj-current-sharpe', _shC==null?'—':_shC.toFixed(2));
+  setText('aa-proj-sharpe', _shT==null?'—':fmtSharpe(_shT));
+  setText('aa-proj-current-sharpe', _shC==null?'—':fmtSharpe(_shC));
   // 2026-06-14 (#98): SOLL-Zelle einfärben — grün=besser als IST, warn=schlechter.
   // Ertrag: höher=besser; Risiko: tiefer=besser. Gleichstand/fehlend -> neutral.
   var _colorBetter=function(id,sollVal,istVal,higherBetter){
@@ -22844,7 +22977,7 @@ function applyRecommendationEngineResult(result){
   setText('po-price-quality',priceQuality.label);
   setText('po-price-quality-sub',priceQuality.sub);
   setText('po-position-count',String((result.positions||[]).length));
-  setText('po-average-ter',((Number(result.average_ter_bps||0)/100).toFixed(2))+'%');
+  setText('po-average-ter',(fmtPct(Number(result.average_ter_bps||0),2)));
   var priceQualityEl=document.getElementById('po-price-quality');
   if(priceQualityEl)priceQualityEl.style.color=priceQuality.color||'#d4b06a';
   renderPortfolioRebalancingSummary(live,result,result.positions||[]);
@@ -22894,7 +23027,7 @@ function openTradeList(){
   var fmtDelta=function(rappen){
     var chf=Math.round(Math.abs(rappen||0)/100);
     var sign=(rappen||0)<0?'\u2212':'+';
-    if(chf>=1000000)return sign+'CHF\u00a0'+(chf/1000000).toFixed(2).replace('.',"'")+'\u00a0Mio.';
+    if(chf>=1000000)return sign+'CHF\u00a0'+formatCompactCHFAmount(chf);
     if(chf>=1000)return sign+'CHF\u00a0'+Math.round(chf/1000)+'k';
     return sign+'CHF\u00a0'+chf;
   };
@@ -24512,7 +24645,7 @@ function updateCashflowsAndGoalsKpis(summary){
     var label=cashflowCard.querySelector('.kl');
     var sub=cashflowCard.querySelector('.ks');
     if(label)label.textContent=recurringCashflowLabelWithPeriod(net);
-    if(cashflowValue)cashflowValue.textContent=(net>=0?'+':'\u2212')+'CHF '+Math.abs(Math.round(net/100)).toLocaleString('de-CH');
+    if(cashflowValue)cashflowValue.textContent=(net>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(Math.round(net/100)));
     if(sub)sub.innerHTML=savingsRate==null?'<span class="a">Kapital netto '+formatSignedRappen(capitalNet)+'</span>':'<span class="'+(savingsRate>=0?'g':'a')+'">Sparquote '+Math.max(-999,savingsRate)+'% | Kapital '+formatSignedRappen(capitalNet)+'</span>';
   }
   if(cashflowCard){
@@ -24751,7 +24884,7 @@ async function saveCashflow(){
       var row=document.createElement('div');row.className='cf-row';row.dataset.cfid='local-'+Date.now();
       var detailLabel=cashflowTimingLabel({frequency:payload.frequency,valid_from:validFrom,valid_until:validUntil,timing_precision:payload.timing_precision,notes:cat,gross_amount_rappen:payload.gross_amount_rappen,tax_amount_rappen:payload.tax_amount_rappen});
       row.innerHTML='<div class="cfn"><div class="cfna">'+escapeHtml(label)+'</div><div class="cfnd">'+escapeHtml(detailLabel)+' (Demo)</div></div>'+
-        '<div class="cfa '+(isInc?'ci':'co')+'">'+(isInc?'+':'−')+'CHF '+parseFloat(amount).toLocaleString('de-CH')+'</div>'+
+        '<div class="cfa '+(isInc?'ci':'co')+'">'+(isInc?'+':'−')+'CHF '+fmtLocaleCH(parseFloat(amount))+'</div>'+
         '<div><button class="btn-ico" onclick="dcf(this)">&#10005;</button></div>';
       var tot=rows.querySelector('.cft');if(tot)rows.insertBefore(row,tot);else rows.appendChild(row);
       setupCashflowDragList(isInc?'zufluss-rows':'abfluss-rows',isInc?'Income':'Expense');
@@ -24955,7 +25088,7 @@ async function refreshInflowsUI(cid){
     if(String(cid)!==String(currentClientId||''))return;
     if(!Array.isArray(items))items=(items&&items.items)||[];
     currentInflows=Array.isArray(items)?items.slice():[];
-    var fmtR=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+    var fmtR=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
     if(!host)return;
     if(!currentInflows.length){
       host.innerHTML=journeyEmptyHint('Noch keine erwarteten Vermögenszuflüsse. Erfassen Sie z.B. eine Erbschaft, einen Bonus oder einen Verkaufserlös.');
@@ -24990,7 +25123,7 @@ function buildWealthInflowMarkers(labels){
   if(!Array.isArray(labels)||!labels.length)return [];
   var inflows=(typeof currentInflows!=='undefined'&&Array.isArray(currentInflows))?currentInflows:[];
   if(!inflows.length)return [];
-  var fmtR=function(r){return Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+  var fmtR=function(r){return fmtLocaleCH(Math.round(Number(r||0)/100));};
   var markers=[];
   inflows.forEach(function(inflow){
     if(!inflow)return;
@@ -25114,7 +25247,7 @@ async function refreshCashflowsUI(cid){
     currentCashflowProjection=projection&&Array.isArray(projection.years)?clientScopedProjection(projection,cid):null;
     // Sprint 2026-06-09: Override-Input nach Client-Switch synchronisieren
     try { syncIstHorizonOverrideInput(); } catch(e) {}
-    var fmt=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+    var fmt=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
     // Mandanten-Trennung: NUR aus dem client-gescopten currentCashflows rendern
     // (nicht aus rohem items), damit selbst bei einem theoretischen Endpoint-Leak
     // keine fremden Cashflows in dieser Klienten-Ansicht erscheinen.
@@ -25359,7 +25492,7 @@ function renderCashflowProjection(data) {
   var currentNet = currentIncome - currentExpense;
   var fmtHud = function(rappen) {
     var chf = Math.round(Math.abs(Number(rappen || 0)) / 100);
-    return 'CHF ' + chf.toLocaleString('de-CH');
+    return 'CHF ' + fmtLocaleCH(chf);
   };
   var statusLabel = currentNet > 0 ? 'Sparquote' : (currentNet < 0 ? 'Verm\u00f6gensverzehr' : 'Ausgeglichen');
   var statusTone = currentNet > 0 ? 'var(--pos)' : (currentNet < 0 ? 'var(--neg)' : 'var(--n6)');
@@ -25561,7 +25694,7 @@ async function refreshWealthUI(cid){
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
       var d=summaryRes.value;
       currentWealthSummary=clientScopedSummary((d||{}),cid);
-      var fmt=function(v){return 'CHF '+Math.round(v).toLocaleString('de-CH');};
+      var fmt=function(v){return 'CHF '+fmtLocaleCH(Math.round(v));};
       var k=document.getElementById('kpi-reinvermoegen');
       if(k)k.textContent=fmt(d.net_worth_chf||0);
       var k2=document.getElementById('kpi-beratungsvermoegen');
@@ -25603,7 +25736,7 @@ function getDecisionChoiceMeta(choice, bucket) {
   var rebalRoundedChf = rebalAmtChf ? Math.round(rebalAmtChf / 5000) * 5000 : null;
   var fmtChf = function(v) {
     if (v == null) return null;
-    if (v >= 1000000) return 'CHF ' + (v/1000000).toFixed(1).replace('.0','') + ' Mio.';
+    if (v >= 1000000) return 'CHF ' + formatCompactCHFAmount(v);
     if (v >= 1000)    return 'CHF ' + Math.round(v/1000) + 'k';
     return 'CHF ' + v;
   };
@@ -26546,7 +26679,7 @@ function renderReviewGoalAchievability(result){
     return '<div class="rv-goal-list-item" data-scope="'+escapeHtml(legacy?'legacy_aggregate_unknown':'priority_funded')+'">'
       +'<div style="color:'+badge.color+';font-size:15px;line-height:1">'+badge.icon+'</div>'
       +'<div><div class="rv-goal-list-label">'+escapeHtml(goalAchievabilityLabel(row))+'</div><div class="rv-goal-list-meta">'+escapeHtml(hardnessDisplay(row.hardness))+(legacy?'':' \u00b7 '+escapeHtml(PRIORITY_FUNDED_LABEL))+'</div></div>'
-      +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right">'+escapeHtml(Math.round(prob*100)+'%')+'</div>'
+      +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right">'+escapeHtml(fmtProbPct(prob*100))+'</div>'
       +'<span class="tag '+badge.tag+'">'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</span>'
       +'</div>';
   }).join('');
@@ -26597,7 +26730,7 @@ function renderReviewCockpit(state){
     var mainLegacy=prob!=null&&goalAchievabilityIsLegacy(main);
     var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:(mainLegacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob));
     if(labelEl)labelEl.textContent=goalAchievabilityLabel(main);
-    if(probEl)probEl.textContent=prob==null?'—':Math.round(prob*100)+'%';
+    if(probEl)probEl.textContent=prob==null?'—':fmtProbPct(prob*100);
     if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;}
     if(statusEl){statusEl.className='tag '+badge.tag;statusEl.textContent=badge.label;}
     if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' · '+(mainLegacy?'Altbewertung ohne Priorit\u00e4tszuordnung \u2013 Strategie neu berechnen':(PRIORITY_FUNDED_LABEL+(main.tau!=null?(' · Zielniveau '+Math.round(Number(main.tau||0)*100)+'%'):'')));
@@ -26628,7 +26761,7 @@ function _rvHeroCommonChips(allocation,rows,violated,tight){
   var chips=[];
   if(rows.length)chips.push(String(rows.length-violated.length-tight.length)+'/'+String(rows.length)+' Anlageklassen im Band');
   var retBps=allocation?Number(allocation.expected_return_bps||0):0;
-  if(retBps)chips.push('Rendite p.a. '+((retBps/100).toFixed(1))+'%');
+  if(retBps)chips.push('Rendite p.a. '+fmtPct(retBps,1));
   var projRappen=allocation?simulationTerminalRappen(allocation,'target_mix_series_rappen',7):0;
   if(projRappen>0)chips.push('Prognose '+formatCompactCHF(projRappen/100));
   return chips;
@@ -28690,7 +28823,7 @@ function updateGoalDerivedDiagnostics(){
     var target=Number(parseCHF(getInputValue('nz-amount'))||0)/100;
     if(!(target>0)){hintEl.textContent='';return;}
     var required=Math.pow(target/Math.max(1,initial),1/horizon)-1;
-    hintEl.innerHTML='<strong>'+escapeHtml((required*100).toFixed(2))+'% p.a.</strong> notwendige Rendite als rechnerische Kennzahl, keine Zusage.';
+    hintEl.innerHTML='<strong>'+escapeHtml(fmtPct(required*10000,1))+' p.a.</strong> notwendige Rendite als rechnerische Kennzahl, keine Zusage.';
   }else if(isRecurringGoalType(type)){
     var streamAmount=Number(parseCHF(getInputValue('nz-amount'))||0)/100;
     var dur=parseFloat(getInputValue('nz-horizon').replace(',','.'))||0;
@@ -29650,7 +29783,7 @@ function renderStressTable(stressEvals){
     var n=Number(v);
     return isFinite(n)?n:null;
   }
-  function stressSigned(n,txt){return (n>0?'+':(n<0?'-':''))+txt;}
+  function stressSigned(n,txt){return (n>0?'+':(n<0?'\u2212':''))+txt;}
   keys.forEach(function(name){
     var entry=stressEvals[name]||{};
     var cumBps=stressNum(entry.cumulative_return_bps);
@@ -29659,9 +29792,9 @@ function renderStressTable(stressEvals){
     // (flussbehafteten, bis >100 %) Berechnung -> nicht anzeigen.
     var ddBps=cumBps===null?null:stressNum(entry.max_drawdown_bps);
     var rowHighlight=(ddBps!==null&&ddBps>5000)?'background:rgba(220,53,69,0.08);':'';
-    var cumTxt=cumBps===null?'—':stressSigned(cumBps,(Math.abs(cumBps)/100).toFixed(1)+'%');
-    var ddTxt=ddBps===null?'—':(ddBps>0?'-':'')+(ddBps/100).toFixed(1)+'%';
-    var impactTxt=impactR===null?'—':stressSigned(Math.round(impactR/100),Math.abs(Math.round(impactR/100)).toLocaleString('de-CH'));
+    var cumTxt=cumBps===null?'—':stressSigned(cumBps,fmtPct(Math.abs(cumBps),1));
+    var ddTxt=ddBps===null?'—':fmtPct(-Math.abs(ddBps),1);
+    var impactTxt=impactR===null?'—':stressSigned(Math.round(impactR/100),fmtLocaleCH(Math.abs(Math.round(impactR/100))));
     var label=nameMap[name]||String(name);
     var tr=document.createElement('tr');
     tr.style.cssText='border-bottom:1px solid var(--b1);'+rowHighlight;
@@ -29730,10 +29863,10 @@ function runSensitivityCall(btn){
     var msg;
     var amtRappen=body.target_amount_rappen_new;
     if(amtRappen==null&&body.target_return_bps_new!=null){
-      msg='Neues Renditeziel: '+(Number(body.target_return_bps_new)/100).toFixed(2)+'% p.a.';
+      msg='Neues Renditeziel: '+fmtPct(Number(body.target_return_bps_new),2)+' p.a.';
     }else{
       var newAmt=Math.round(Number(amtRappen||0)/100);
-      msg='Neuer Zielwert: CHF '+newAmt.toLocaleString('de-CH');
+      msg='Neuer Zielwert: CHF '+fmtLocaleCH(newAmt);
     }
     if(dPct!=null){
       var sign=Number(dPct)>=0?'+':'';
@@ -29789,8 +29922,8 @@ function renderActionCards(reasoning){
       if(cashflowInfo.coveragePct!=null)reserveBody+=' Die laufenden Einkommen decken rund '+cashflowInfo.coveragePct+'% der Ausgaben.';
       if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporaer: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen);}).join(' und ')+'.';
       reserveBody+=' Die strategische Liquiditaet im Mandat bleibt bei '+liqTarget+'.';
-      if(externalReserve>0)reserveBody+=' Zusaetzlich werden CHF '+externalReserve.toLocaleString('de-CH')+' als separate Reserve ausserhalb des Mandats empfohlen.';
-      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund CHF '+reserveNeeded.toLocaleString('de-CH')+'.';
+      if(externalReserve>0)reserveBody+=' Zusaetzlich werden CHF '+fmtLocaleCH(externalReserve)+' als separate Reserve ausserhalb des Mandats empfohlen.';
+      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund CHF '+fmtLocaleCH(reserveNeeded)+'.';
       if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: IST '+currentRunway+', SOLL '+targetRunway+'.';
       if(runwayDeltaYears!=null&&runwayDeltaYears>0)reserveBody+=' Die Strategie gewinnt im Median rund '+runwayDeltaYears+' Jahre Zeit.';
       else if(runwayDeltaYears!=null&&runwayDeltaYears===0&&targetRunway!=='-')reserveBody+=' Wichtig: Die Strategie puffert den Entnahmepfad, verlaengert die Reichweite in diesem Setup aber nicht wesentlich. Fuer mehr Reichweite braucht es weniger Entnahme, mehr Vermoegen oder zusaetzliche Einkommen.';
@@ -29806,8 +29939,8 @@ function renderActionCards(reasoning){
     pushCard('Ziele & Timing','Relevant','ta',goalBody,Number(primaryGoal.achievement_score||0)<45?'warn':'good');
   }
   if(allocation){
-    var expectedReturn=((Number(allocation.expected_return_bps||0))/100).toFixed(2)+'%';
-    var expectedVol=((Number(allocation.expected_volatility_bps||0))/100).toFixed(2)+'%';
+    var expectedReturn=fmtPct((Number(allocation.expected_return_bps||0)),1);
+    var expectedVol=fmtPct((Number(allocation.expected_volatility_bps||0)),1);
     var varText=formatRiskLossBps(mc&&mc.target_var_95_1y_bps);
     var ddText=formatRiskLossBps(mc&&mc.target_max_drawdown_p50_bps);
     var riskBody='Die Strategie rechnet langfristig mit rund '+expectedReturn+' p.a. bei einer Volatilitaet von '+expectedVol+'. In einem schwachen Jahr liegt der modellierte VaR 95% bei '+varText+', der mediane Max Drawdown bei '+ddText+'.';
@@ -29961,26 +30094,20 @@ function reviewImplementationHotspots(recommendation){
 }
 function reviewAllocationPortraitHtml(rows){
   if(!rows||!rows.length)return '';
-  function getColor(key){
-    var k=String(key||'').toLowerCase();
-    if(k.indexOf('aktien')>=0)return '#1e4b8f';
-    if(k.indexOf('oblig')>=0)return '#78601a';
-    if(k.indexOf('immob')>=0)return '#2c5080';
-    if(k.indexOf('altern')>=0)return '#4a6080';
-    if(k.indexOf('liquid')>=0)return '#166534';
-    return '#5a6878';
-  }
+  function getColor(key){ return assetClassCssVar(key); }
   var totalIst=rows.reduce(function(s,r){return s+Math.max(0,Number(r.currentWeightBps||0));},0)||10000;
   var totalSoll=rows.reduce(function(s,r){return s+Math.max(0,Number(r.targetWeightBps||0));},0)||10000;
-  function seg(bps,total,color,label){
+  // AA-UX-COLORS-001: Textfarbe je Klassenflaeche (WCAG AA), nicht pauschal Weiss
+  // (Weiss auf Gold/Grau waere < 3:1).
+  function seg(bps,total,key,label){
     var pct=Math.max(0,bps/total*100);
     if(pct<0.3)return '';
-    return '<div style="width:'+pct.toFixed(2)+'%;background:'+color+';display:flex;align-items:center;justify-content:center;overflow:hidden" title="'+escapeHtml(label)+': '+escapeHtml(formatBpsPercent(bps))+'">'
-      +(pct>=9?'<span style="font-size:8px;color:rgba(255,255,255,0.92);font-weight:700;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.3)">'+escapeHtml(formatBpsPercent(bps))+'</span>':'')
+    return '<div style="width:'+pct.toFixed(2)+'%;background:'+getColor(key)+';display:flex;align-items:center;justify-content:center;overflow:hidden" title="'+escapeHtml(label)+': '+escapeHtml(formatBpsPercent(bps))+'">'
+      +(pct>=9?'<span style="font-size:8px;color:'+assetClassTextOn(key)+';font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums">'+escapeHtml(formatBpsPercent(bps))+'</span>':'')
       +'</div>';
   }
-  var sollBar=rows.map(function(r){return seg(Math.max(0,Number(r.targetWeightBps||0)),totalSoll,getColor(r.assetKey),r.assetClass);}).join('');
-  var istBar=rows.map(function(r){return seg(Math.max(0,Number(r.currentWeightBps||0)),totalIst,getColor(r.assetKey),r.assetClass);}).join('');
+  var sollBar=rows.map(function(r){return seg(Math.max(0,Number(r.targetWeightBps||0)),totalSoll,r.assetKey,r.assetClass);}).join('');
+  var istBar=rows.map(function(r){return seg(Math.max(0,Number(r.currentWeightBps||0)),totalIst,r.assetKey,r.assetClass);}).join('');
   var legend=rows.map(function(r){
     var meta=r.meta;
     var hasIssue=meta&&meta.tagClass&&meta.tagClass!=='tg';
@@ -30045,7 +30172,7 @@ renderStrategySummary=function(){
   // Update allocation bars with asset class colors
   var srBars=document.getElementById('sr-allocation-bars');
   if(srBars&&allocation){
-    function srAcColor2(ac){var k=String(ac||'').toLowerCase();if(k.indexOf('aktien')>=0)return '#1e4b8f';if(k.indexOf('oblig')>=0)return '#78601a';if(k.indexOf('immob')>=0)return '#2c5080';if(k.indexOf('altern')>=0)return '#4a6080';if(k.indexOf('liquid')>=0)return '#166534';return '#5a6878';}
+    function srAcColor2(ac){return assetClassCssVar(ac);}
     srBars.innerHTML=(allocation.buckets||[]).map(function(bucket){
       var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));
       var targetValue=formatRappen(Number(bucket.target_amount_rappen||0));

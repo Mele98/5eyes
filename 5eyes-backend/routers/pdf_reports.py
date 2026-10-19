@@ -1001,6 +1001,9 @@ def get_risikoprofil_pdf(
     override_reason = None
     override_client_confirmed = None
     override_warning_delivered = None
+    override_decision_id = None
+    override_decision_hash = None
+    override_decision_verified = None
     knowledge_services: dict[str, bool] = {}
     knowledge_instruments: dict[str, bool] = {}
     risk_answers: list = []
@@ -1066,6 +1069,13 @@ def get_risikoprofil_pdf(
                 override_reason = str(getattr(ra, "override_reason", "") or "").strip() or None
                 override_client_confirmed = bool(getattr(ra, "override_client_confirmed", 0))
                 override_warning_delivered = bool(getattr(ra, "override_warning_delivered", 0))
+                # RISK-OVERRIDE-WRITE-BOUNDARY-001: Decision-ID/-Hash + Pruefung.
+                from services.risk_override_decision import resolve_assessment_decision
+                (
+                    override_decision_id,
+                    override_decision_hash,
+                    override_decision_verified,
+                ) = resolve_assessment_decision(db, ra)
                 suitability_note = "Berater-Override wurde dokumentiert."
                 if override_reason:
                     suitability_note += f" Begruendung: {override_reason}"
@@ -1121,6 +1131,9 @@ def get_risikoprofil_pdf(
         override_reason=override_reason,
         override_client_confirmed=override_client_confirmed,
         override_warning_delivered=override_warning_delivered,
+        override_decision_id=override_decision_id,
+        override_decision_hash=override_decision_hash,
+        override_decision_verified=override_decision_verified,
         capacity_plausibility_note=capacity_plausibility_note,
     )
 
