@@ -254,8 +254,20 @@ def test_3b_police_with_recorded_tax_is_taxed():
 # ---------------------------------------------------------------------------
 
 
-def test_linked_manual_inflow_is_transfer_neutral():
-    bvg = _pension(pension_type="BVG", current_value_rappen=300_000, liquidity_available_from=None)
+@pytest.mark.parametrize(
+    ("recorded_tax_rappen", "after_payout"),
+    [
+        # steuerfreier Bezug: reine Umbuchung, Gesamtvermoegen unveraendert
+        (0, 400_000),
+        # PENSION-TRANSFER-LEDGER-001: auch der VERKNUEPFTE Bezug traegt die
+        # Kapitalbezugssteuer der Position (Default 10 % fuer BVG) -- das
+        # Gesamtvermoegen sinkt um genau die Steuer, nie um mehr/weniger.
+        (None, 370_000),
+    ],
+)
+def test_linked_manual_inflow_is_transfer_neutral(recorded_tax_rappen, after_payout):
+    bvg = _pension(pension_type="BVG", current_value_rappen=300_000, liquidity_available_from=None,
+                   pension_lumpsum_tax_rappen=recorded_tax_rappen)
     positions = [_cash(), bvg]
     inflows = [_inflow()]
     cashflows, foundation = _cashflows(positions, inflows)
@@ -264,15 +276,19 @@ def test_linked_manual_inflow_is_transfer_neutral():
         total_summary=_total_summary(positions), foundation=foundation,
     )
     # develop: [400k, 400k, 400k, 700k, 700k, 700k]
-    assert result["total_mix_current_series_rappen"] == [400_000] * 6
-    assert result["total_mix_target_series_rappen"] == [400_000] * 6
+    assert result["total_mix_current_series_rappen"] == [400_000] * 3 + [after_payout] * 3
+    assert result["total_mix_target_series_rappen"] == [400_000] * 3 + [after_payout] * 3
 
 
 def test_linked_manual_inflow_suppresses_automatic_payout():
     pos = _pension()  # automatischer Bezug waere START+2
     inflows = [_inflow(amount_rappen=95_000, expected_year=START + 1)]
     foundation = _foundation([pos], inflows)
-    assert foundation["pension_payout_series_rappen"] == [0] * H
+    # PENSION-TRANSFER-LEDGER-001: der Bezug laeuft ueber den Ledger im Jahr
+    # des verknuepften Zuflusses (netto nach 10 % Default-Steuer); der frei
+    # erfasste Betrag (95'000) wird ersetzt, der Auto-Bezug START+2 entfaellt.
+    assert foundation["pension_payout_series_rappen"] == [0, 90_000, 0, 0, 0]
+    assert foundation["pension_linked_inflow_replacement_series_rappen"] == [0, 95_000, 0, 0, 0]
     assert foundation["pension_series_rappen"] == [100_000, 100_000, 0, 0, 0, 0]
 
 

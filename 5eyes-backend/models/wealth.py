@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -121,6 +121,21 @@ class WealthInflow(Base):
     - FE-Visualisierung als gruener Marker
     """
     __tablename__ = "wealth_inflows"
+    # PENSION-TRANSFER-LEDGER-001 (2026-10-19): hoechstens ein aktiver, nicht
+    # geloeschter Zufluss je Vorsorge-Quelle (Vollbezug genau einmal). Der
+    # Router prueft vorab per SELECT; der partielle Unique-Index haelt auch
+    # bei parallelen Writes. Gleiche Definition: database.py
+    # (_SQLITE_CURRENT_ANCHOR_INDEXES, Runtime-Patch) und
+    # alembic/versions/a6d2e8f4c1b9_*.py (Postgres).
+    __table_args__ = (
+        Index(
+            "ux_wealth_inflow_one_active_pension_link",
+            "linked_position_id",
+            unique=True,
+            sqlite_where=text("linked_position_id IS NOT NULL AND is_active = 1 AND deleted_at IS NULL"),
+            postgresql_where=text("linked_position_id IS NOT NULL AND is_active = 1 AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     client_id = Column(String, ForeignKey("clients.id"), nullable=False)

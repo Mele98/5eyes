@@ -659,6 +659,20 @@ class WealthInflowCreate(BaseModel):
                 )
             if self.duration_years is not None:
                 raise ValueError("is_recurring=0 erlaubt keine duration_years")
+        if self.linked_position_id:
+            # PENSION-TRANSFER-LEDGER-001: Vollbezugsmodell -- ein verknuepfter
+            # Zufluss ist genau EIN nominaler Kapitalbezug (422 statt still
+            # mehrfach gebuchtem Kapital).
+            from services.pension_transfer_ledger import linked_transfer_violation
+
+            violation = linked_transfer_violation(
+                is_recurring=self.is_recurring,
+                frequency=self.frequency,
+                duration_years=self.duration_years,
+                value_mode=self.value_mode,
+            )
+            if violation:
+                raise ValueError(violation)
         return self
 
 
