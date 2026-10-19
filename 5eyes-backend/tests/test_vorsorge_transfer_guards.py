@@ -5,7 +5,8 @@ docs/audits/reproducers/test_2026_10_18_vorsorge_transfer_ledger_pr642_adversari
 (Codex-Branch) als regulaere Tests und ergaenzt die Pflichtregressionen:
 
 1. Quelle mit aktivem verknuepftem Zufluss kann nicht deaktiviert, geloescht
-   oder semantisch umtypisiert werden (409, reason_code).
+   oder semantisch umtypisiert werden (422 wie der Hypotheken-Guard,
+   reason_code PENSION_SOURCE_LINKED; CIO-Entscheid 2026-10-19).
 2. linked => einmalig + nominal (422).
 3. hoechstens ein aktiver Link je Quelle (422; DB-Partial-Unique-Index haelt
    auch, wenn der applikationsseitige Precheck umgangen wird).
@@ -14,14 +15,12 @@ docs/audits/reproducers/test_2026_10_18_vorsorge_transfer_ledger_pr642_adversari
    gebunden. Link vor dem Bewertungsjahr, Orphan, Mehrfach- und
    Ratenlinks in Bestandsdaten sind fail-closed.
 5. PensionTransferLedgerV1: Brutto = Steuer + Netto auf den Rappen,
-   Restbestand 0 (Vollbezug), Steuer pro Position auch beim verknuepften
-   Bezug, horizontinvarianter Hash, getrennte Zeilen je Quelle; die
-   Netto-Bezuege des Ledgers sind die EINZIGE Basis der Zufluss-Serie.
-
-Statuscode-Hinweis: der Codex-Reproducer erwartet fuer Deactivate/Delete der
-Quelle 422; der Auftrag verlangt 409 mit Reason-Code (Konflikt mit dem
-Zustand eines anderen Datensatzes, nicht ein ungueltiger Payload). Beide
-Varianten blockieren; hier wird 409 festgeschrieben.
+   Restbestand 0 (Vollbezug), horizontinvarianter Hash, getrennte Zeilen je
+   Quelle; die Netto-Bezuege des Ledgers sind die EINZIGE Basis der
+   Zufluss-Serie. Betragsregel (CIO-Entscheid 2026-10-19): beim
+   verknuepften Bezug ist der erfasste Betrag der massgebende Nettobezug
+   (Steuer enthalten, Differenz zur Hochrechnung = implizite Steuer, Hinweis
+   ab 5 % Abweichung); die Positionssteuer gilt nur fuer den Auto-Bezug.
 """
 from __future__ import annotations
 
@@ -153,7 +152,7 @@ def test_linked_source_cannot_be_deactivated_while_inflow_is_active(auth_client,
     response = auth_client.put(
         f"/clients/{client_id}/wealth-positions/{position_id}", json={"is_active": False},
     )
-    assert response.status_code == 409, response.text
+    assert response.status_code == 422, response.text
     assert _reason(response) == "PENSION_SOURCE_LINKED"
     assert "Kapitalbezug 3a" in response.json()["detail"]["message"]
     listed = auth_client.get(f"/clients/{client_id}/wealth-positions").json()
@@ -163,7 +162,7 @@ def test_linked_source_cannot_be_deactivated_while_inflow_is_active(auth_client,
 def test_linked_source_cannot_be_deleted_while_inflow_is_active(auth_client, advisor_user):
     client_id, position_id, _ = _linked_pair(auth_client, advisor_user, "DELETE")
     response = auth_client.delete(f"/clients/{client_id}/wealth-positions/{position_id}")
-    assert response.status_code == 409, response.text
+    assert response.status_code == 422, response.text
     assert _reason(response) == "PENSION_SOURCE_LINKED"
     listed = auth_client.get(f"/clients/{client_id}/wealth-positions").json()
     assert [p["id"] for p in listed] == [position_id]
@@ -175,7 +174,7 @@ def test_linked_source_cannot_be_deleted_while_inflow_is_active(auth_client, adv
 def test_linked_source_cannot_be_retyped_out_of_link_contract(auth_client, advisor_user, update):
     client_id, position_id, _ = _linked_pair(auth_client, advisor_user, "RETYPE")
     response = auth_client.put(f"/clients/{client_id}/wealth-positions/{position_id}", json=update)
-    assert response.status_code == 409, response.text
+    assert response.status_code == 422, response.text
     assert _reason(response) == "PENSION_SOURCE_LINKED"
 
 
@@ -485,21 +484,43 @@ def test_duplicate_or_recurring_links_in_legacy_data_are_fail_closed():
     assert len(projection.ledger.rows) == 1
 
 
-def test_linked_full_payout_reconciles_gross_tax_net_on_the_rappen():
-    position = _position(pension_vehicle="Wertschriften", pension_interest_rate_bps=None)
+def test_linked_full_payout_books_recorded_net_and_discloses_implicit_tax():
+    position = _position(pension_vehicle="Wertschriften", pension_interest_rate_bps=None,
+                         pension_lumpsum_tax_bps=300)  # gilt NICHT fuer den verknuepften Bezug
     inflow = _linked(expected_year=2028, amount_rappen=9_999_999)
     projection = _project([position], [inflow])
     (row,) = projection.ledger.rows
+    projected = round(10_000_000 * 1.03 ** 3)
     assert row.transfer_mode == "full"
     assert row.opening_bound_balance_rappen == 10_000_000
-    assert row.gross_withdrawal_rappen == round(10_000_000 * 1.03 ** 3)
-    assert row.lumpsum_tax_rappen == round(row.gross_withdrawal_rappen * 0.10)  # Steuer pro Position, Default
+    assert row.projected_bound_balance_rappen == projected
+    assert row.gross_withdrawal_rappen == projected
+    assert row.net_advisory_inflow_rappen == 9_999_999  # erfasster Betrag ist massgebend
+    assert row.lumpsum_tax_rappen == projected - 9_999_999  # implizite Steuer/Abweichung
+    assert row.tax_source == "im_erfassten_netto_enthalten"
     assert row.gross_withdrawal_rappen == row.lumpsum_tax_rappen + row.net_advisory_inflow_rappen
     assert row.closing_bound_balance_rappen == 0
-    assert row.recorded_inflow_amount_rappen == 9_999_999
-    assert projection.payout_series_rappen == [0, 0, row.net_advisory_inflow_rappen, 0, 0]
+    assert projection.payout_series_rappen == [0, 0, 9_999_999, 0, 0]
     assert projection.linked_replacement_series_rappen == [0, 0, 9_999_999, 0, 0]
-    assert any("weicht" in note for note in projection.notes)
+    # 9'999'999 vs. Hochrechnung 10'927'270 - 3 % = 10'599'452 -> 5.7 % Abweichung
+    assert any("weicht" in note and "implizite Steuer" in note for note in projection.notes)
+
+
+def test_linked_payout_within_five_percent_gives_no_hint():
+    position = _position()  # Konto 0 %, Default-Steuer 10 % -> erwartet 9'000'000
+    projection = _project([position], [_linked(expected_year=2028, amount_rappen=8_700_000)])
+    assert not any("weicht" in note or "höher als" in note for note in projection.notes)
+    (row,) = projection.ledger.rows
+    assert row.net_advisory_inflow_rappen == 8_700_000 and row.lumpsum_tax_rappen == 1_300_000
+
+
+def test_linked_payout_above_projection_has_zero_tax_and_hint():
+    projection = _project([_position()], [_linked(expected_year=2028, amount_rappen=10_500_000)])
+    (row,) = projection.ledger.rows
+    assert row.projected_bound_balance_rappen == 10_000_000
+    assert row.net_advisory_inflow_rappen == row.gross_withdrawal_rappen == 10_500_000
+    assert row.lumpsum_tax_rappen == 0
+    assert any("höher als Hochrechnung" in note for note in projection.notes)
 
 
 def test_inflow_series_consumer_uses_ledger_net_not_recorded_amount():
@@ -516,28 +537,33 @@ def test_inflow_series_consumer_uses_ledger_net_not_recorded_amount():
         [position], inflows, start_year=START, horizon_years=HORIZON,
     )
     combined = with_pension_payouts(raw, foundation)
-    # Bezug genau einmal, netto nach erfasster Steuer; der frei erfasste
-    # Zuflussbetrag erfindet kein Vermoegen.
-    assert combined == [0, 1_000, 10_000_000 - 500_000, 0, 0]
+    # Bezug genau einmal, mit dem erfassten Nettobetrag (CIO-Entscheid);
+    # die Positionssteuer gilt nicht fuer den verknuepften Bezug.
+    assert combined == [0, 1_000, 12_345_678, 0, 0]
+    # Roh-Konsumenten (Cashflow-Tab, Report-Reserve) sehen fuer den
+    # verknuepften Bezug denselben Betrag wie der Ledger.
+    assert raw == combined
 
 
 def test_multiple_sources_in_same_year_stay_separate_ledger_rows():
     a = _position(id="pa", label="3a A", pension_lumpsum_tax_rappen=300_000)
     b = _position(id="pb", label="FZ B", pension_type="Freizügigkeit", current_value_rappen=5_000_000,
                   pension_lumpsum_tax_bps=500)
-    projection = _project([a, b], [_linked(position_id="pb", expected_year=2028, id="ib")])
+    projection = _project([a, b], [_linked(position_id="pb", expected_year=2028, id="ib",
+                                           amount_rappen=4_600_000)])
     rows = {row.source_position_id: row for row in projection.ledger.rows}
     assert set(rows) == {"pa", "pb"}
     assert rows["pa"].origin == "auto" and rows["pb"].origin == "linked_inflow"
     assert rows["pa"].lumpsum_tax_rappen == 300_000 and rows["pa"].tax_source == "erfasst_betrag"
-    assert rows["pb"].lumpsum_tax_rappen == 250_000 and rows["pb"].tax_source == "erfasst_satz"
-    assert projection.payout_series_rappen[2] == (10_000_000 - 300_000) + (5_000_000 - 250_000)
+    assert rows["pb"].lumpsum_tax_rappen == 400_000
+    assert rows["pb"].tax_source == "im_erfassten_netto_enthalten"
+    assert projection.payout_series_rappen[2] == (10_000_000 - 300_000) + 4_600_000
 
 
 def test_ledger_identity_hash_binds_transfer_and_policy():
     base = _project([_position()], [_linked(expected_year=2028)])
     again = _project([_position()], [_linked(expected_year=2028)])
-    taxed = _project([_position(pension_lumpsum_tax_bps=500)], [_linked(expected_year=2028)])
+    taxed = _project([_position()], [_linked(expected_year=2028, amount_rappen=9_000_000)])
     moved = _project([_position()], [_linked(expected_year=2029)])
     assert base.ledger.version == PENSION_TRANSFER_LEDGER_VERSION
     assert base.ledger.policy_version.startswith("vorsorge-projektion-")

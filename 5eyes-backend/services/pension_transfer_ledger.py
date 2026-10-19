@@ -15,9 +15,18 @@ verknuepfter Zufluss fail-closed einmalig und nominal.
 
 Der Ledger ist die EINZIGE Basis der Consumer im Engine-Pfad:
 - ``payout_series_rappen`` (Netto in freies Vermoegen) fuer die Zufluss-Serie,
-- ``linked_replacement_series_rappen`` ersetzt den frei erfassten Betrag des
-  verknuepften Zuflusses (der Zufluss bestimmt nur das JAHR des Bezugs),
+- ``linked_replacement_series_rappen`` ersetzt die Materialisierung des
+  verknuepften Zuflusses in der allgemeinen Zufluss-Serie durch die
+  Ledger-Zeile (kein Doppelbezug),
 - Reasoning-Saetze werden aus den Zeilen formuliert.
+
+Betragsregel (CIO-Entscheid 2026-10-19):
+- automatischer Bezug: Brutto = fortgeschriebener Wert, Steuer = erfasste
+  Positionssteuer (CHF vor %, sonst Default), Netto = Brutto - Steuer;
+- verknuepfter Bezug: Netto = vom Berater erfasster Betrag (Steuer darin
+  enthalten), Brutto = fortgeschriebener Wert, Steuer := Brutto - Netto
+  (implizit). Netto > Brutto -> Steuer 0, Brutto = Netto, Hinweis
+  "Bezug hoeher als Hochrechnung".
 
 Herkunft der Zeile: ``linked_inflow`` (Berater hat den Bezug als Zufluss mit
 linked_position_id erfasst; hat IMMER Vorrang, auch wenn er hinter dem
@@ -88,6 +97,8 @@ class PensionTransferRow:
     payout_offset: int
     within_horizon: bool
     opening_bound_balance_rappen: int
+    # fortgeschriebener Wert der Quelle im Bezugsjahr (vor Bezug)
+    projected_bound_balance_rappen: int
     gross_withdrawal_rappen: int
     lumpsum_tax_rappen: int
     tax_source: str
@@ -103,7 +114,8 @@ class PensionTransferRow:
                 REASON_TRANSFER_NOT_ONE_TIME, "Nur Vollbezug (Restbestand 0) ist modelliert.",
             )
         amounts = (
-            self.opening_bound_balance_rappen, self.gross_withdrawal_rappen,
+            self.opening_bound_balance_rappen, self.projected_bound_balance_rappen,
+            self.gross_withdrawal_rappen,
             self.lumpsum_tax_rappen, self.net_advisory_inflow_rappen,
         )
         if any(type(value) is not int or value < 0 for value in amounts):

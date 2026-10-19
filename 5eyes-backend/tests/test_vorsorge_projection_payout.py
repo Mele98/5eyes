@@ -255,26 +255,27 @@ def test_3b_police_with_recorded_tax_is_taxed():
 
 
 @pytest.mark.parametrize(
-    ("recorded_tax_rappen", "after_payout"),
+    ("recorded_tax_rappen", "inflow_amount", "after_payout"),
     [
-        # steuerfreier Bezug: reine Umbuchung, Gesamtvermoegen unveraendert
-        (0, 400_000),
-        # PENSION-TRANSFER-LEDGER-001: auch der VERKNUEPFTE Bezug traegt die
-        # Kapitalbezugssteuer der Position (Default 10 % fuer BVG) -- das
-        # Gesamtvermoegen sinkt um genau die Steuer, nie um mehr/weniger.
-        (None, 370_000),
+        # Erfasster Betrag = fortgeschriebener Wert: reine Umbuchung.
+        (None, 300_000, 400_000),
+        # CIO-Entscheid 2026-10-19: beim VERKNUEPFTEN Bezug fliesst genau der
+        # erfasste (Netto-)Betrag, unabhaengig von der Positionssteuer; das
+        # Gesamtvermoegen sinkt um genau die implizite Steuer (300k - 270k).
+        (0, 270_000, 370_000),
     ],
 )
-def test_linked_manual_inflow_is_transfer_neutral(recorded_tax_rappen, after_payout):
+def test_linked_manual_inflow_is_transfer_neutral(recorded_tax_rappen, inflow_amount, after_payout):
     bvg = _pension(pension_type="BVG", current_value_rappen=300_000, liquidity_available_from=None,
                    pension_lumpsum_tax_rappen=recorded_tax_rappen)
     positions = [_cash(), bvg]
-    inflows = [_inflow()]
+    inflows = [_inflow(amount_rappen=inflow_amount)]
     cashflows, foundation = _cashflows(positions, inflows)
     result = _deterministic(
         cma=_zero_cma(), cashflows=cashflows,
         total_summary=_total_summary(positions), foundation=foundation,
     )
+    assert cashflows == [0, 0, inflow_amount, 0, 0]  # genau der erfasste Betrag
     # develop: [400k, 400k, 400k, 700k, 700k, 700k]
     assert result["total_mix_current_series_rappen"] == [400_000] * 3 + [after_payout] * 3
     assert result["total_mix_target_series_rappen"] == [400_000] * 3 + [after_payout] * 3
@@ -285,9 +286,9 @@ def test_linked_manual_inflow_suppresses_automatic_payout():
     inflows = [_inflow(amount_rappen=95_000, expected_year=START + 1)]
     foundation = _foundation([pos], inflows)
     # PENSION-TRANSFER-LEDGER-001: der Bezug laeuft ueber den Ledger im Jahr
-    # des verknuepften Zuflusses (netto nach 10 % Default-Steuer); der frei
-    # erfasste Betrag (95'000) wird ersetzt, der Auto-Bezug START+2 entfaellt.
-    assert foundation["pension_payout_series_rappen"] == [0, 90_000, 0, 0, 0]
+    # des verknuepften Zuflusses mit dem erfassten Nettobetrag (95'000, CIO-
+    # Entscheid); der Auto-Bezug START+2 entfaellt.
+    assert foundation["pension_payout_series_rappen"] == [0, 95_000, 0, 0, 0]
     assert foundation["pension_linked_inflow_replacement_series_rappen"] == [0, 95_000, 0, 0, 0]
     assert foundation["pension_series_rappen"] == [100_000, 100_000, 0, 0, 0, 0]
 

@@ -34,9 +34,11 @@ Jetzt, fuer jede aktive EXTERNE Vorsorge-Position ("Anderes Vermoegen"):
    wird ab dem Jahr dieses Zuflusses ausgebucht (keine Doppelzaehlung).
    PENSION-TRANSFER-LEDGER-001 (2026-10-19): jeder Bezug (verknuepft oder
    automatisch) ist eine Zeile in PensionTransferLedgerV1
-   (services/pension_transfer_ledger.py) -- Brutto = Wert im Bezugsjahr,
-   Steuer pro Position, Netto ins freie Vermoegen; der frei erfasste Betrag
-   des verknuepften Zuflusses wird durch das Ledger-Netto ersetzt. Ein Link
+   (services/pension_transfer_ledger.py). Automatisch: Brutto = Wert im
+   Bezugsjahr, Steuer pro Position, Netto = Brutto - Steuer. Verknuepft
+   (CIO-Entscheid 2026-10-19): der erfasste Betrag ist der massgebende
+   Nettobezug (Steuer enthalten), die Differenz zum fortgeschriebenen Wert
+   ist implizite Steuer/Abweichung (Hinweis ab 5 %). Ein Link
    hinter dem Horizont hat trotzdem Vorrang (Quelle bleibt bis Horizontende
    gebunden). Raten-/Mehrfach-/Orphan-Links und Links vor dem Bewertungsjahr
    sind fail-closed (PensionTransferLedgerError).
@@ -359,13 +361,38 @@ def _active_links_by_source(wealth_inflows, pension_ids: set[str], start_year: i
     return linked, unlinked
 
 
+# CIO-Entscheid 2026-10-19: beim VERKNUEPFTEN Bezug ist der vom Berater
+# erfasste Betrag massgebend (Nettobezug, Kapitalbezugssteuer darin bereits
+# enthalten -- "der Kunde gibt uns die Informationen"). Die Positionssteuer
+# gilt nur fuer den AUTOMATISCHEN Bezug. Weicht der erfasste Betrag um mehr als
+# diese Toleranz von "fortgeschriebener Wert minus Positionssteuer" ab, wird
+# das im Reasoning offengelegt (kein Fehler).
+LINKED_TRANSFER_DEVIATION_HINT_BPS = 500
+LINKED_TAX_SOURCE = "im_erfassten_netto_enthalten"
+
+
 def _transfer_row(position, *, label, type_key, value, payout_year, origin, link,
                   start_year, horizon, target_currency) -> PensionTransferRow:
-    """Eine Ledger-Zeile (Vollbezug). Brutto = Wert der Position im Bezugsjahr
-    (Pfad bis zum Bezug unabhaengig vom Horizont -> horizontinvariant)."""
+    """Eine Ledger-Zeile (Vollbezug). Pfad bis zum Bezug unabhaengig vom
+    Horizont -> horizontinvariant.
+
+    auto:   Brutto = fortgeschriebener Wert, Steuer = Positionssteuer,
+            Netto = Brutto - Steuer.
+    linked: Netto = erfasster Zuflussbetrag; Brutto = fortgeschriebener Wert;
+            Steuer := Brutto - Netto (implizite Steuer/Abweichung). Liegt der
+            erfasste Betrag ueber der Hochrechnung, ist Steuer 0 und Brutto
+            = Netto (Geldidentitaet auf den Rappen bleibt erzwungen)."""
     offset = payout_year - start_year
-    gross = int(round(_value_path(position, value, offset + 1, start_year)[offset + 1]))
-    tax, tax_source, _text = pension_lumpsum_tax_detail(position, gross)
+    projected = int(round(_value_path(position, value, offset + 1, start_year)[offset + 1]))
+    recorded = int(getattr(link, "amount_rappen", 0) or 0) if link is not None else None
+    if origin == "linked_inflow":
+        net = recorded
+        gross = max(projected, net)
+        tax, tax_source = gross - net, LINKED_TAX_SOURCE
+    else:
+        gross = projected
+        tax, tax_source, _text = pension_lumpsum_tax_detail(position, gross)
+        net = gross - tax
     position_currency = str(getattr(position, "currency", None) or target_currency).upper()
     return PensionTransferRow(
         source_position_id=str(getattr(position, "id", "") or ""),
@@ -378,14 +405,13 @@ def _transfer_row(position, *, label, type_key, value, payout_year, origin, link
         payout_offset=offset,
         within_horizon=offset < horizon,
         opening_bound_balance_rappen=value,
+        projected_bound_balance_rappen=projected,
         gross_withdrawal_rappen=gross,
         lumpsum_tax_rappen=tax,
         tax_source=tax_source,
-        net_advisory_inflow_rappen=gross - tax,
+        net_advisory_inflow_rappen=net,
         closing_bound_balance_rappen=0,
-        recorded_inflow_amount_rappen=(
-            int(getattr(link, "amount_rappen", 0) or 0) if link is not None else None
-        ),
+        recorded_inflow_amount_rappen=recorded,
         currency=target_currency,
         fx_basis=(
             target_currency if position_currency == target_currency
@@ -396,7 +422,12 @@ def _transfer_row(position, *, label, type_key, value, payout_year, origin, link
 
 def _row_notes(position, row: PensionTransferRow, origin_text: str) -> tuple[str, list[str]]:
     """(Bezugs-Satz fuer die Positionsnotiz, Zusatznotizen) -- aus der Zeile."""
-    _tax, _source, tax_text = pension_lumpsum_tax_detail(position, row.gross_withdrawal_rappen)
+    if row.origin == "linked_inflow":
+        tax_text = (
+            f"Kapitalbezugssteuer im erfassten Nettobetrag enthalten (implizit {_chf(row.lumpsum_tax_rappen)})"
+        )
+    else:
+        _tax, _source, tax_text = pension_lumpsum_tax_detail(position, row.gross_withdrawal_rappen)
     if not row.within_horizon:
         text = (
             f"Kapitalbezug {row.payout_year} ({origin_text}) liegt ausserhalb des "
@@ -409,15 +440,26 @@ def _row_notes(position, row: PensionTransferRow, origin_text: str) -> tuple[str
             + f" -> {_chf(row.net_advisory_inflow_rappen)} freies Vermögen"
         )
     extra: list[str] = []
-    recorded = row.recorded_inflow_amount_rappen
-    if recorded is not None and recorded not in (row.gross_withdrawal_rappen, row.net_advisory_inflow_rappen):
-        extra.append(
-            f"Vorsorge '{row.source_label}': erfasster Zuflussbetrag {_chf(recorded)} weicht vom "
-            f"fortgeschriebenen Bezug ab (brutto {_chf(row.gross_withdrawal_rappen)}, Steuer "
-            f"{_chf(row.lumpsum_tax_rappen)}, netto {_chf(row.net_advisory_inflow_rappen)}). "
-            "Massgebend ist der fortgeschriebene Wert; bitte Wert/Satz/Steuer der Position "
-            "oder den Zufluss bereinigen."
-        )
+    if row.origin == "linked_inflow":
+        projected = row.projected_bound_balance_rappen
+        position_tax, _source, _text = pension_lumpsum_tax_detail(position, projected)
+        expected_net = projected - position_tax
+        recorded = row.net_advisory_inflow_rappen
+        if recorded > projected:
+            extra.append(
+                f"Vorsorge '{row.source_label}': Bezug höher als Hochrechnung – erfasster "
+                f"Nettobezug {_chf(recorded)} liegt über dem fortgeschriebenen Wert "
+                f"{_chf(projected)}. Massgebend ist der erfasste Betrag; bitte Wert/Satz der "
+                "Position prüfen."
+            )
+        elif abs(recorded - expected_net) * 10000 > LINKED_TRANSFER_DEVIATION_HINT_BPS * max(1, expected_net):
+            extra.append(
+                f"Vorsorge '{row.source_label}': erfasster Nettobezug {_chf(recorded)} weicht um "
+                f"mehr als {LINKED_TRANSFER_DEVIATION_HINT_BPS / 100:g} % von der Hochrechnung ab "
+                f"(fortgeschrieben {_chf(projected)} abzüglich Positionssteuer {_chf(position_tax)} "
+                f"= {_chf(expected_net)}). Massgebend ist der erfasste Betrag; die Differenz "
+                f"({_chf(row.lumpsum_tax_rappen)}) ist als implizite Steuer/Abweichung ausgewiesen."
+            )
     return text, extra
 
 

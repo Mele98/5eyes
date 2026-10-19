@@ -825,7 +825,8 @@ def _validate_inflow_position_link(client_id: str, linked_position_id, db: Sessi
 # Ein verknuepfter Zufluss IST der (einmalige) Vollbezug seiner Vorsorge-Quelle.
 # Der Link wird deshalb in BEIDE Richtungen geschuetzt: die Quelle kann nicht
 # deaktiviert/geloescht/umtypisiert werden, solange ein aktiver Link besteht
-# (409, sonst wuerde der Zufluss still zu neuem Vermoegen), und je Quelle gibt
+# (422 wie der Hypotheken-Guard, sonst wuerde der Zufluss still zu neuem
+# Vermoegen), und je Quelle gibt
 # es hoechstens einen aktiven Link (422; DB-Partial-Unique-Index als Backstop).
 
 
@@ -872,7 +873,7 @@ def _block_if_pension_source_has_active_transfer(
         action = "gelöscht"
     labels = ", ".join(sorted({f"'{i.label or i.id}' ({i.expected_year})" for i in linked}))
     raise HTTPException(
-        status_code=409,
+        status_code=422,
         detail={
             "reason_code": REASON_SOURCE_LINKED,
             "message": (
