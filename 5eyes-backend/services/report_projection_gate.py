@@ -83,6 +83,8 @@ def resolve_report_projection_gate(
     allocation: Any,
     *,
     depot_check: Mapping[str, Any] | None = None,
+    assessment: Any = None,
+    assessment_preloaded: bool = False,
 ) -> ProjectionGate:
     """Urteilt einmal, ob Werte der aktuellen Soll-Allokation projiziert
     werden duerfen.
@@ -100,10 +102,14 @@ def resolve_report_projection_gate(
         target_allocation_predates_current_assessment,
     )
 
-    try:
-        assessment = _current_risk_assessment_or_none(db, mandate.id)
-    except ValueError:
-        assessment = None
+    # ``assessment_preloaded``: der Report hat das aktuelle Risikoprofil bereits
+    # einmal (gecacht, is_current=1 + nicht geloescht) geladen -- keine zweite
+    # Query (Aggregator-N+1-Budget, test_aggregator_n1_baseline).
+    if not assessment_preloaded:
+        try:
+            assessment = _current_risk_assessment_or_none(db, mandate.id)
+        except ValueError:
+            assessment = None
     if assessment is None:
         return ProjectionGate(STATUS_BLOCKED, "no_assessment", _NOTE_NO_ASSESSMENT)
 

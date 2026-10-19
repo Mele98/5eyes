@@ -165,6 +165,8 @@ def _cached_projection_gate(db: Session, mandate: Mandate) -> Any:
         return resolve_report_projection_gate(
             db, mandate, _cached_current_ta(db, mandate),
             depot_check=cache.get("_depot_check"),
+            assessment=_cached_current_ra_is_current(db, mandate),
+            assessment_preloaded=True,
         )
 
     return _aggregator_cache_get(db, ("projection_gate", mandate.id), _factory)
