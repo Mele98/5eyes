@@ -161,6 +161,10 @@ var result={
 """
 
 _CHART_FNS = (
+    # AA-UX-COLORS-001: SOLL-Serien in Brand-Gold (sollColor + Helfer).
+    "_acIsDarkTheme",
+    "hexWithAlpha",
+    "sollColor",
     "aaScenarioLabel",
     "simulationPayload",
     "monteCarloPayload",
@@ -210,6 +214,9 @@ def test_fan_footnote_present():
 # ---------------------------------------------------------------------------
 
 _TABLE_FNS = (
+    # AA-UX-FORMAT-001: gemeinsamer Zahlenformat-Vertrag.
+    "fmtNumber",
+    "fmtPct",
     "formatCompactCHFAmount",
     "formatCompactCHF",
     "setText",
@@ -271,12 +278,13 @@ def test_growth_row_compares_same_quantity_for_soll_and_ist():
     +90k/Jahr) darf die SOLL-Zelle NICHT mehr speisen."""
     out = _run(_TABLE_FNS, _MC_RESULT_JS + "__override=null;" + _READ_TABLE_JS)
     # CAGR SOLL-Median: (2.5)^(1/30)-1 = 3.10 %; IST-Median: (1.9)^(1/30)-1 = 2.16 %
-    assert out["cagr"] == "3.10%"
-    assert out["curCagr"] == "2.16%"
+    # AA-UX-FORMAT-001: 1 Nachkommastelle (keine Scheingenauigkeit), NBSP vor %.
+    assert out["cagr"] == "3.1\u00a0%"
+    assert out["curCagr"] == "2.2\u00a0%"
     out10 = _run(_TABLE_FNS, _MC_RESULT_JS + "__override=10;" + _READ_TABLE_JS)
     # (1.5)^(1/10)-1 = 4.14 %; (1.3)^(1/10)-1 = 2.66 %
-    assert out10["cagr"] == "4.14%"
-    assert out10["curCagr"] == "2.66%"
+    assert out10["cagr"] == "4.1\u00a0%"
+    assert out10["curCagr"] == "2.7\u00a0%"
 
 
 def test_reserve_sockel_added_to_soll_end_values_and_growth():
@@ -291,7 +299,7 @@ def test_reserve_sockel_added_to_soll_end_values_and_growth():
     assert out["p10"] == "CHF 1.40 Mio."
     assert out["curMedian"] == "CHF 1.30 Mio."  # IST ohne Aufschlag
     # (1.7/1.2)^(1/10)-1 = 3.54 %
-    assert out["cagr"] == "3.54%"
+    assert out["cagr"] == "3.5\u00a0%"
 
 
 def test_reserve_sockel_not_added_twice_for_economic_basis_payloads():

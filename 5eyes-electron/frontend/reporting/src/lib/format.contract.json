@@ -1,0 +1,38 @@
+{
+  "_doc": "AA-UX-FORMAT-001: gemeinsamer Zahlenformat-Vertrag. Jede Zeile [Funktion, Argumente, erwartete Ausgabe] wird gegen reporting/src/lib/format.ts (format.test.ts) UND gegen die gleichnamigen Monolith-Funktionen in 5eyes_v2.html (5eyes-backend/tests/test_monolith_number_format_contract.py) ausgefuehrt.",
+  "cases": [
+    ["fmtPct", [1234], "12.3 %"],
+    ["fmtPct", [1200], "12.0 %"],
+    ["fmtPct", [840], "8.4 %"],
+    ["fmtPct", [0], "0.0 %"],
+    ["fmtPct", [-1200], "−12.0 %"],
+    ["fmtPct", [-4], "0.0 %"],
+    ["fmtPct", [1234, 2], "12.34 %"],
+    ["fmtPct", [1250, 0], "13 %"],
+    ["fmtPct", [null], "—"],
+    ["fmtPct", [125000], "1'250.0 %"],
+    ["fmtSignedPct", [450], "+4.5 %"],
+    ["fmtSignedPct", [-1000], "−10.0 %"],
+    ["fmtSignedPct", [0], "0.0 %"],
+    ["fmtSignedPct", [4], "0.0 %"],
+    ["fmtSignedPct", [-4], "0.0 %"],
+    ["fmtSignedPct", [234, 2], "+2.34 %"],
+    ["fmtSignedPct", [null], "—"],
+    ["fmtProbPct", [73.4], "73 %"],
+    ["fmtProbPct", [99.6], "100 %"],
+    ["fmtProbPct", [0], "0 %"],
+    ["fmtProbPct", [null], "—"],
+    ["fmtSharpe", [0.456], "0.46"],
+    ["fmtSharpe", [-0.2], "−0.20"],
+    ["fmtSharpe", [-0.001], "0.00"],
+    ["fmtSharpe", [null], "—"],
+    ["fmtNumber", [-1234567.4, 0], "−1'234'567"],
+    ["fmtNumber", [2.5, 1], "2.5"]
+  ],
+  "compact_chf_cases": [
+    [2850000, "CHF 2.85 Mio."],
+    [12500000, "CHF 12.50 Mio."],
+    [1000000, "CHF 1.00 Mio."],
+    [-2850000, "CHF −2.85 Mio."]
+  ]
+}

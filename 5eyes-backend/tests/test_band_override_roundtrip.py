@@ -63,6 +63,8 @@ def _run(scenario_js: str) -> dict:
         "function currentHouseMatrixBands(", "function bandHouseDeviationsFromModal(",
         "function buildBandDeviationReasonBoxHtml(", "function updateBandDeviationReasonBox(",
         "function escapeHtml(",
+        # AA-UX-FORMAT-001: Band-Editor-IST ueber den gemeinsamen Formatter.
+        "function fmtNumber(", "function fmtPct(",
     ]
     fns = [_function(src, n) for n in names]
     fns += [_function(src, n) for n in optional if n in src]

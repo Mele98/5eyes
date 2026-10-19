@@ -3,7 +3,9 @@
  *
  * Editorial-Stil mit dünnen, gleichlangen Bar-Spuren:
  * - IST in Ink (Design-Token `chartPalette.ist`)
- * - SOLL in Petrol-Akzent (Design-Token `chartPalette.soll`)
+ * - SOLL im Brand-Gold (Design-Token `soll`, AA-UX-COLORS-001 -- gleiche
+ *   SOLL-Farbe wie die App; Grün bleibt „besser als IST“ vorbehalten)
+ * - Asset Allocation (showBands): Farbmarke je Anlageklasse (`assetClass`)
  * - Drift rechts in monospace, tabellarische Ziffern
  * - Optional Toleranzbänder hinter dem SOLL-Bar (Gold-Subtle)
  *
@@ -18,7 +20,18 @@
  * Wiederverwendet in Sektion 8 (Asset Allocation), 9 (Risikowährungen),
  * 10 (Branchen) — alle drei haben identische Daten-Form.
  */
+import { assetClassKey, type AssetClassKey } from '@/design/tokens';
 import { formatBpsAsPct, formatBpsSignedPct } from '@/lib/format';
+
+/** Vollständige Klassennamen (Tailwind-JIT sieht nur Literale). */
+const ASSET_CLASS_SWATCH: Record<AssetClassKey, string> = {
+  eq: 'bg-ac-eq dark:bg-ac-eq-dark',
+  bd: 'bg-ac-bd dark:bg-ac-bd-dark',
+  re: 'bg-ac-re dark:bg-ac-re-dark',
+  alt: 'bg-ac-alt dark:bg-ac-alt-dark',
+  liq: 'bg-ac-liq dark:bg-ac-liq-dark',
+  oth: 'bg-ac-oth dark:bg-ac-oth-dark',
+};
 
 export interface BarChartItem {
   label: string;
@@ -131,7 +144,17 @@ function BarRow({ item, showBands, driftThresholdBps }: BarRowProps) {
       data-testid={`bar-row-${item.label}`}
       data-band-status={status ?? 'none'}
     >
-      <div className="text-caption font-semibold text-ink">{item.label}</div>
+      <div className="flex items-center gap-2 text-caption font-semibold text-ink">
+        {showBands ? (
+          <span
+            aria-hidden="true"
+            data-testid="bar-swatch"
+            data-asset-class={assetClassKey(item.label)}
+            className={`inline-block h-2 w-2 shrink-0 rounded-sm ${ASSET_CLASS_SWATCH[assetClassKey(item.label)]}`}
+          />
+        ) : null}
+        <span>{item.label}</span>
+      </div>
 
       <div className="space-y-2">
         <Track
@@ -143,7 +166,7 @@ function BarRow({ item, showBands, driftThresholdBps }: BarRowProps) {
         <Track
           label={`SOLL ${formatBpsAsPct(item.soll_bps)}${bandText}`}
           fillPct={sollPct}
-          fillClass="bg-accent dark:bg-accent-subtle"
+          fillClass="bg-soll dark:bg-soll-dark"
           testId="bar-soll-fill"
           bandStartPct={showBands && bandMin != null ? bandMin : null}
           bandSpanPct={showBands && bandSpan != null ? bandSpan : null}

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { chartPalette, colors } from '@/design/tokens';
+import { assetClassKey, chartPalette, colors, soll as sollToken } from '@/design/tokens';
 import { BarChartIstSoll, bandStatus } from './BarChartIstSoll';
 
 describe('BarChartIstSoll', () => {
@@ -36,7 +36,9 @@ describe('BarChartIstSoll', () => {
 
   it('rendert Drift mit Vorzeichen', () => {
     render(<BarChartIstSoll items={items} />);
-    expect(screen.getByText('-10.0 %')).toBeInTheDocument();
+    // AA-UX-FORMAT-001: Minus ist U+2212, nie Bindestrich.
+    expect(screen.getByText('\u221210.0 %')).toBeInTheDocument();
+    expect(screen.queryByText('-10.0 %')).toBeNull();
     expect(screen.getByText('+10.0 %')).toBeInTheDocument();
   });
 
@@ -135,17 +137,20 @@ describe('BarChartIstSoll — Drift-Farbe nach Bandbreite (REPORT-DRIFT-BAND-COL
 });
 
 describe('BarChartIstSoll — Design-Tokens und Zahlenformat', () => {
-  it('IST = Ink, SOLL = Akzent (chartPalette.ist / chartPalette.soll)', () => {
-    // Token-Vertrag: IST ist Ink, SOLL ist Akzent
+  it('IST = Ink, SOLL = Brand-Gold (chartPalette.ist / chartPalette.soll)', () => {
+    // AA-UX-COLORS-001: SOLL traegt den Brand-Akzent Gold wie in der App,
+    // nicht mehr Petrol (gruenlich) -- Gruen bleibt "besser als IST".
     expect(chartPalette.ist).toBe(colors.ink.DEFAULT);
-    expect(chartPalette.soll).toBe(colors.accent.DEFAULT);
+    expect(chartPalette.soll).toBe(sollToken.DEFAULT);
+    expect(sollToken.DEFAULT).toBe('#8A6A1F');
     render(<BarChartIstSoll items={[AKTIEN]} />);
     const ist = screen.getByTestId('bar-ist-fill');
     const soll = screen.getByTestId('bar-soll-fill');
     expect(ist.className.split(/\s+/)).toContain('bg-ink');
     expect(ist.className.split(/\s+/)).not.toContain('bg-accent');
-    expect(soll.className.split(/\s+/)).toContain('bg-accent');
-    expect(soll.className.split(/\s+/)).not.toContain('bg-accent-subtle');
+    expect(soll.className.split(/\s+/)).toContain('bg-soll');
+    expect(soll.className.split(/\s+/)).toContain('dark:bg-soll-dark');
+    expect(soll.className).not.toMatch(/bg-accent/);
   });
 
   it('Zahlen in tabellarischen Ziffern, Drift mit fester Nachkommastelle', () => {
@@ -154,8 +159,37 @@ describe('BarChartIstSoll — Design-Tokens und Zahlenformat', () => {
       { label: 'B', ist_bps: 1234, soll_bps: 1000, drift_bps: 234 },
     ]} />);
     const drifts = screen.getAllByTestId('bar-drift');
-    expect(drifts.map((d) => d.textContent)).toEqual(['-8.0 %', '+2.3 %']);
+    expect(drifts.map((d) => d.textContent)).toEqual(['\u22128.0\u00a0%', '+2.3\u00a0%']);
     for (const d of drifts) expect(d.closest('.tabular-nums')).not.toBeNull();
     expect(screen.getByText('IST 12.0 %', { normalizer: (t) => t.replace(/\s+/g, ' ') }).className).toMatch(/tabular-nums/);
+  });
+});
+
+describe('BarChartIstSoll — Anlageklassen-Farbmarke (AA-UX-COLORS-001)', () => {
+  it('Asset Allocation (showBands): jede Zeile traegt die Klassenfarbe aus den Tokens', () => {
+    render(<BarChartIstSoll showBands items={[
+      { label: 'Aktien', ist_bps: 3000, soll_bps: 3000, drift_bps: 0 },
+      { label: 'Obligationen', ist_bps: 3000, soll_bps: 3000, drift_bps: 0 },
+      { label: 'Immobilien', ist_bps: 1000, soll_bps: 1000, drift_bps: 0 },
+      { label: 'Alternative', ist_bps: 1000, soll_bps: 1000, drift_bps: 0 },
+      { label: 'Liquidität', ist_bps: 2000, soll_bps: 2000, drift_bps: 0 },
+    ]} />);
+    const swatches = screen.getAllByTestId('bar-swatch');
+    expect(swatches.map((s) => s.getAttribute('data-asset-class'))).toEqual(['eq', 'bd', 're', 'alt', 'liq']);
+    expect(swatches[0]!.className).toContain('bg-ac-eq');
+    expect(swatches[0]!.className).toContain('dark:bg-ac-eq-dark');
+  });
+
+  it('FX/Branchen (ohne showBands): keine Klassenfarbe', () => {
+    render(<BarChartIstSoll items={[{ label: 'USD', ist_bps: 1000, soll_bps: 1000, drift_bps: 0 }]} />);
+    expect(screen.queryByTestId('bar-swatch')).toBeNull();
+  });
+
+  it('assetClassKey: Private Equity ist Alternative, nicht Aktien', () => {
+    expect(assetClassKey('Private Equity')).toBe('alt');
+    expect(assetClassKey('equities')).toBe('eq');
+    expect(assetClassKey('Alternative / Gold')).toBe('alt');
+    expect(assetClassKey('Liquiditaet')).toBe('liq');
+    expect(assetClassKey('Externe Mandate')).toBe('oth');
   });
 });
