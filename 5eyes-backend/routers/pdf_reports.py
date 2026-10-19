@@ -1008,6 +1008,7 @@ def get_risikoprofil_pdf(
             ) or None
     except Exception as exc:
         logger.warning("Risikoprofil PDF advisory wealth load failed: %s", exc)
+    ra = None
     try:
         from models.profiling import RiskAssessment, RiskAssessmentAnswer
         ra_query = (
@@ -1089,6 +1090,14 @@ def get_risikoprofil_pdf(
             "PDF data-load section failed for mandate %s: %s",
             getattr(mandate, "id", "?"), exc,
         )
+    capacity_plausibility_note = ""
+    if ra is not None and int(getattr(ra, "is_current", 0) or 0) == 1:
+        from services.risk_capacity_plausibility import (
+            evaluate_mandate_safely, pdf_advisor_note,
+        )
+        capacity_plausibility_note = pdf_advisor_note(
+            evaluate_mandate_safely(db, mandate, ra)
+        )
 
     risk_data = RisikoprofilData(
         risk_profile_label=risk_label,
@@ -1107,6 +1116,7 @@ def get_risikoprofil_pdf(
         override_reason=override_reason,
         override_client_confirmed=override_client_confirmed,
         override_warning_delivered=override_warning_delivered,
+        capacity_plausibility_note=capacity_plausibility_note,
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)

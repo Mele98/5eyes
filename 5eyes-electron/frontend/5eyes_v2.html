@@ -3270,6 +3270,14 @@ function _wireSollIstHover(){
                   <div class="rdim"><div class="rdl">Risikobereitschaft</div><div class="rsc"><div class="rs on"></div><div class="rs on"></div><div class="rs on"></div><div class="rs"></div><div class="rs"></div></div><div class="rval">Mittel (3/5)</div><div class="rsub">Wachstum, keine Extremrisiken</div></div>
                   <div class="rdim"><div class="rdl">Notwendigkeit</div><div class="rsc"><div class="rs on"></div><div class="rs on"></div><div class="rs on"></div><div class="rs"></div><div class="rs"></div></div><div class="rval">Mittel (3/5)</div><div class="rsub">2.5% real ohne Extremrisiko</div></div>
                 </div>
+                <!-- RISK-CAPACITY-PLAUSIBILITY-001: Fragebogen vs. erfasste Finanzdaten (Hinweis, aendert nichts) -->
+                <div id="rp-capacity-plausibility" class="al-banner-warning" style="display:none;margin-top:10px" data-reason-code="">
+                  <div class="al-banner-icon">!</div>
+                  <div class="al-banner-content">
+                    <div class="al-banner-title"></div>
+                    <div class="al-banner-body"></div>
+                  </div>
+                </div>
                 <div class="resbox"><div class="res-t">Empfohlene Anlagestrategie</div><div class="res-p" id="res-pname">Growth – Wachstum</div><div class="res-d">Risikoklasse <strong>«Wachstumsorientiert»</strong>. Erhöhtes Kapitalwachstum, erhöhtes Risiko. Horizont min. 8 Jahre. <strong>Risikobereitschaft bindend</strong> – Soll-Aktienquote max. 45%.</div>
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:space-between;">
   <span style="font-size:10px;color:var(--n5)">Berechneter Score: <strong style="color:var(--n8)">7/10</strong></span>
@@ -10363,6 +10371,7 @@ async function applyOv(){
     strategyState.currentRisk=saved;
     strategyState.risk=riskAssessmentReadyForStrategy(saved, mid)?saved:null;
     renderRiskSummary(saved);
+    refreshRiskCapacityPlausibility(mid);
     markStrategyDirty('Risikoprofil überschrieben: Strategie neu berechnen.', true);
     if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
     cm('m-overr');
@@ -16835,6 +16844,49 @@ function toggleAaProjectionDetails(){
     if(charts&&charts.aaCurrent)charts.aaCurrent.resize();
   },80);
 }
+// RISK-CAPACITY-PLAUSIBILITY-001: Die Risikofaehigkeit stammt nur aus dem
+// Fragebogen. Das Backend gleicht sie mit den erfassten Finanzdaten ab
+// (GET /mandates/{id}/risk-capacity-plausibility). Reiner Berater-Hinweis:
+// das Profil wird nie automatisch geaendert, die Strategie nicht blockiert.
+function renderRiskCapacityPlausibility(result){
+  var box=document.getElementById('rp-capacity-plausibility');
+  if(!box)return;
+  var findings=(result&&result.status==='inconsistent'&&Array.isArray(result.findings))?result.findings:[];
+  if(!findings.length){
+    box.style.display='none';
+    box.dataset.reasonCode='';
+    return;
+  }
+  box.dataset.reasonCode=String(result.reason_code||'');
+  var title=box.querySelector('.al-banner-title');
+  var body=box.querySelector('.al-banner-body');
+  if(title)title.textContent=result.override_down
+    ?'Risikofähigkeit: Abweichung zu den erfassten Daten (Override nach unten dokumentiert)'
+    :'Risikofähigkeit: Angaben widersprechen den erfassten Finanzdaten';
+  if(body){
+    body.innerHTML=escapeHtml(result.advisor_text||'')
+      +'<ul style="margin:4px 0 0 14px;padding:0">'
+      +findings.map(function(f){return '<li>'+escapeHtml(f&&f.message||'')+'</li>';}).join('')
+      +'</ul>';
+  }
+  box.style.display='flex';
+}
+async function refreshRiskCapacityPlausibility(mid){
+  var requested=String(mid||'');
+  if(!requested||isDemoMandateId(requested)){
+    renderRiskCapacityPlausibility(null);
+    return null;
+  }
+  try{
+    var res=await API.get('/mandates/'+requested+'/risk-capacity-plausibility');
+    if(String(getActiveMandateId()||'')!==requested)return null;
+    renderRiskCapacityPlausibility(res);
+    return res;
+  }catch(e){
+    if(String(getActiveMandateId()||'')===requested)renderRiskCapacityPlausibility(null);
+    return null;
+  }
+}
 function calcRiskScore() {
   var result = buildRiskAssessmentPayloadFromUI();
   if(!result){
@@ -16873,6 +16925,7 @@ async function saveRiskProfile() {
       _riskScoreResult = savedWithRaw;
       hydrateRiskQuestionnaire(saved || null);
       renderRiskSummary(savedWithRaw);
+      refreshRiskCapacityPlausibility(mandateId);
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Gespeichert';
@@ -22776,6 +22829,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
       if(requestedMandateId&&String(getActiveMandateId()||'')!==requestedMandateId)return null;
       hydrateRiskQuestionnaire(null);
       renderRiskSummary(null);
+      renderRiskCapacityPlausibility(null);
       if(typeof calcRiskScore==='function')calcRiskScore();
     }
     return null;
@@ -22791,6 +22845,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
       if(requestedMandateId&&String(getActiveMandateId()||'')!==requestedMandateId)return risk || null;
       hydrateRiskQuestionnaire(risk || null);
       renderRiskSummary(readyRisk ? (risk || null) : null);
+      refreshRiskCapacityPlausibility(requestedMandateId||getActiveMandateId());
       if(readyRisk){
         clearRiskSaveFeedback();
       }else if(riskBelongsToMandate(risk || null, requestedMandateId||getActiveMandateId())){
@@ -22808,6 +22863,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
         if(requestedMandateId&&String(getActiveMandateId()||'')!==requestedMandateId)return null;
         hydrateRiskQuestionnaire(null);
         renderRiskSummary(null);
+        renderRiskCapacityPlausibility(null);
         if(typeof calcRiskScore==='function')calcRiskScore();
       }
       return null;
