@@ -22,7 +22,9 @@ Stand BAND-EDITOR-SINGLE-001 (UX-Audit Befund 15, 2026-10-19): der Monolith
 fuehrt genau EINEN Bandbreiten-Editor (Modal "Soll-Quoten & Bandbreiten").
 Der Einstieg "Editor (Beta)" in der Asset-Allokation ist entfernt,
 openAllocationEditor() oeffnet dasselbe Modal. Die React-Route bleibt
-bestehen und arbeitet ebenfalls in Prozent.
+bestehen und arbeitet ebenfalls in Prozent. Die manuelle SOLL-Speicherung
+(POST /target-allocation) ist als Sekundaer-Aktion im selben Modal
+erreichbar (CIO-Review #656).
 """
 from pathlib import Path
 import re
@@ -129,6 +131,20 @@ def test_asset_allocation_section_offers_exactly_one_band_editor_entry():
     # ... sondern genau der eine Bandbreiten-Editor (Modal m-eq).
     assert al_header.count("openAllocationEngineModal()") == 1
     assert "calculateInvestmentStrategy()" in al_header
+
+
+def test_manual_target_save_stays_reachable_from_the_single_editor():
+    """CIO-Review #656: die manuelle SOLL-Speicherung (POST
+    /mandates/{id}/target-allocation, frueher nur im React-Editor) bleibt im
+    EINEN Bandbreiten-Editor des Monolithen erreichbar -- gleicher Endpunkt
+    wie saveTargetAllocation() im React-API-Client."""
+    html = _read(HTML_PATH)
+    allocation_api = _read(ALLOCATION_API_PATH)
+
+    save_fn = html.split("async function saveManualTargetAllocationFromModal(){", 1)[1].split("\n}\n", 1)[0]
+    assert "API.post('/mandates/'+encodeURIComponent(mid)+'/target-allocation',payload)" in save_fn
+    assert "export async function saveTargetAllocation(" in allocation_api
+    assert "buildManualTargetSaveBoxHtml()" in html
 
 
 def test_react_allocation_api_client_calls_same_generate_and_sensitivity_endpoints_as_html_monolith():
