@@ -185,3 +185,57 @@ Wenn eine Anlage- oder Vorsorgestiftung die Software nutzt, ist Vorsorgevermöge
 - Datenmodell: die Vorsorge-Position eines Haushalts könnte auf ein solches Mandat verweisen.
   Dann ist sie nicht „gebunden", sondern Teil eines anderen, verwalteten Mandats, und die
   Gesamtvermögens-Sicht des Haushalts zeigt dessen SOLL.
+
+## 6. Transfer-Ledger und Guards (PENSION-TRANSFER-LEDGER-001, 2026-10-19)
+
+Folgefix zum Codex-Review von PR #642
+(`docs/audits/2026-10-18-vorsorge-transfer-ledger-pr642-current-review.md` auf dem Codex-Branch).
+
+**Ledger.** `services/pension_transfer_ledger.py::PensionTransferLedgerV1` hält pro Quelle mit Bezug
+eine Zeile mit diesen Feldern: Quelle, Herkunft (`linked_inflow` | `auto`), Bezugsjahr,
+Eröffnungsbestand, fortgeschriebener Wert im Bezugsjahr, Brutto, Kapitalbezugssteuer mit Quelle,
+Netto ins freie Vermögen, Restbestand (0), Zielwährung, FX-Basis, Bewertungsjahr, Policy-Version und
+SHA-256-Hash. Die Invariante Brutto = Steuer + Netto gilt auf den Rappen, der Restbestand ist 0.
+
+**Betragsregel (CIO-Entscheid 2026-10-19).**
+- *Automatischer Bezug:* Brutto ist der fortgeschriebene Wert. Die Steuer ist die Positionssteuer
+  (CHF vor %, sonst Default 10 % bzw. 0 % für 3b). Netto = Brutto − Steuer.
+- *Verknüpfter Bezug:* Massgebend ist der vom Berater erfasste Betrag. Er gilt als Nettobezug, die
+  Steuer ist darin enthalten (Steuerquelle `im_erfassten_netto_enthalten`). Brutto ist der
+  fortgeschriebene Wert, Steuer := Brutto − Netto und wird als implizite Steuer/Abweichung offengelegt.
+  - Liegt Netto über Brutto, ist die Steuer 0 und Brutto = Netto. Das Reasoning zeigt dann den Hinweis
+    „Bezug höher als Hochrechnung“.
+  - Weicht der erfasste Betrag um mehr als 5 % vom fortgeschriebenen Wert minus Positionssteuer ab,
+    erscheint ebenfalls ein Hinweis. Ein Fehler ist das nicht.
+
+Die Netto-Serie des Ledgers ist die einzige Basis für die Vorsorge-Zuflüsse im Engine-Pfad. Für
+verknüpfte Bezüge ersetzt sie die Materialisierung in der allgemeinen Zufluss-Serie, sodass nichts
+doppelt gebucht wird. Auch die Reasoning-Sätze stammen aus den Ledger-Zeilen.
+
+**Horizont.** Ein aktiver Link hat immer Vorrang vor der Auto-Regel. Liegt er hinter dem Horizont,
+bleibt die Quelle bis Horizontende gebunden, und es gibt keinen früheren Auto-Bezug. Ledger-Zeilen und
+Hash hängen nicht vom Horizont ab, nur `within_horizon` ändert sich.
+
+**Fail-closed.** Die API antwortet so:
+- Deaktivieren, Löschen oder Umklassifizieren der Quelle bei aktivem Link: 422 `PENSION_SOURCE_LINKED`
+  (wie der Hypotheken-Guard).
+- Verknüpfter Zufluss, der wiederkehrend oder real ist: 422.
+- Zweiter aktiver Link auf dieselbe Quelle: 422 `PENSION_SOURCE_ALREADY_LINKED`. Abgesichert ist das
+  zusätzlich durch den partiellen Unique-Index `ux_wealth_inflow_one_active_pension_link`, und zwar im
+  Model (Bootstrap), im SQLite-Runtime-Patch und in Alembic `a6d2e8f4c1b9`.
+
+Die Engine meldet für Bestandsdaten `PensionTransferLedgerError` bei Orphan-Link, Mehrfach-Link,
+Raten- oder Real-Link und bei einem Link vor dem Bewertungsjahr.
+
+**Bewusst nicht umgesetzt:**
+- **Teil- und Ratenbezug.** Das bräuchte einen persistierten Restbestand je Rate, also
+  `transfer_mode='partial'`, mit Summe der Bruttoentnahmen plus Schlussbestand ≤ fortgeschriebener
+  Kapitalstock. Bis dahin lehnen API und Engine solche Links ab, statt die Checks zu lockern.
+- **Echter FK mit RESTRICT auf `linked_position_id`.** Das scheitert an Soft-Delete. Ersatz sind die
+  symmetrischen Router-Guards und der Engine-Orphan-Check.
+- **Ledger im API-Payload und PDF.** Die Dateien sind durch parallele PRs belegt. Gebunden ist der
+  Ledger trotzdem, und zwar über die Foundation-Serien im Projection-Context-Hash.
+- **Cashflow-Tab (`routers/clients.py`) und Reserve-Neuberechnung im Advisory-Report.** Beide nutzen
+  die Roh-Zuflüsse. Für verknüpfte Bezüge ist der Betrag dank der Betragsregel identisch mit dem
+  Ledger-Netto. Offen bleibt, dass beide Ansichten den automatischen Bezug nicht zeigen. Das ist ein
+  Folgepunkt.
