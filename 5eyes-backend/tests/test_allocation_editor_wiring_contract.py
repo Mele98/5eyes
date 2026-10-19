@@ -18,11 +18,11 @@ Backend-Endpunkte im React-API-Client oder die Wiring-Funktion
 (openAllocationEditor) im Monolithen auseinander, ohne dass die jeweils
 andere Seite mitgezogen wird, schlaegt er fehl (Silent-Drift-Schutz).
 
-Stand dieser PR: das Wiring (openAllocationEditor()-Funktion +
-btn-al-react-editor-Button im page-al-Header) ist noch NICHT in
-5eyes_v2.html eingebaut (mehrere Agenten arbeiten parallel an dieser Datei --
-direkte Edits wuerden kollidieren). Die wiring-bezogenen Tests unten sind
-deshalb bewusst rot, bis jemand die Bruecke ergaenzt.
+Stand BAND-EDITOR-SINGLE-001 (UX-Audit Befund 15, 2026-10-19): der Monolith
+fuehrt genau EINEN Bandbreiten-Editor (Modal "Soll-Quoten & Bandbreiten").
+Der Einstieg "Editor (Beta)" in der Asset-Allokation ist entfernt,
+openAllocationEditor() oeffnet dasselbe Modal. Die React-Route bleibt
+bestehen und arbeitet ebenfalls in Prozent.
 """
 from pathlib import Path
 import re
@@ -87,7 +87,12 @@ def test_allocation_editor_route_component_mounts_editor_not_readonly_view():
     assert "<AllocationEditor mandateId={mandateId} />" in route_fn_block
 
 
-def test_html_bridge_opens_exact_same_route_the_react_router_exposes():
+def test_html_allocation_editor_entry_redirects_to_the_single_band_editor():
+    """BAND-EDITOR-SINGLE-001 (UX-Audit Befund 15): es gibt genau EINEN
+    Bandbreiten-Editor im Monolithen (Modal "Soll-Quoten & Bandbreiten", in
+    Prozent, mit Live-Validierung). Der fruehere zweite Einstieg (React-Editor
+    in Basispunkten, neuer Browser-Tab) ist umgeleitet: openAllocationEditor()
+    oeffnet dasselbe Modal statt der React-Route."""
     html = _read(HTML_PATH)
 
     assert "async function openAllocationEditor(){" in html
@@ -95,38 +100,34 @@ def test_html_bridge_opens_exact_same_route_the_react_router_exposes():
         "async function openAllocationEditor(){", 1
     )[1].split("\n}\n", 1)[0]
 
-    assert HTML_WIRING_PATH_SEGMENT in bridge_fn
-    # Die Bruecke muss ueber /mandates/{id}/... adressieren, exakt wie die
-    # React-Route /mandates/:mandateId/allocation-editor es erwartet.
-    assert "/mandates/" in bridge_fn
-    assert "resolveReportingAppUrl(path)" in bridge_fn
+    assert "openAllocationEngineModal()" in bridge_fn
+    assert HTML_WIRING_PATH_SEGMENT not in bridge_fn
+    assert "resolveReportingAppUrl" not in bridge_fn
 
 
 def test_html_bridge_reuses_same_token_handoff_as_other_editor_bridges():
     html = _read(HTML_PATH)
 
     assert "async function resolveReportingAppUrl(path){" in html
-    # openReportingApp (Advisory-Report), openProfilingEditor UND
-    # openAllocationEditor muessen sich dieselbe Token-/Base-URL-Aufloesung
-    # teilen -- keine dritte, evtl. driftende Kopie der Handoff-Logik.
-    # 2026-08-02 (Integration): 9 Editor-Bridges teilen sich diese Funktion
-    # (openReportingApp, openProfilingEditor, openGoalsEditor,
-    # openCashflowEditor, openAllocationEditor, openMandateEditor,
-    # openCrmEditor, openCrmEditorForClient, openWealthInflowEditor).
-    assert html.count("await resolveReportingAppUrl(path)") == 9
+    # Die verbleibenden Editor-Bridges teilen sich dieselbe Token-/Base-URL-
+    # Aufloesung (openReportingApp, openProfilingEditor, openGoalsEditor,
+    # openCashflowEditor, openMandateEditor, openCrmEditor,
+    # openCrmEditorForClient, openWealthInflowEditor). openAllocationEditor
+    # gehoert seit BAND-EDITOR-SINGLE-001 nicht mehr dazu.
+    assert html.count("await resolveReportingAppUrl(path)") == 8
 
 
-def test_allocation_editor_entry_point_is_reachable_from_asset_allocation_section():
+def test_asset_allocation_section_offers_exactly_one_band_editor_entry():
     html = _read(HTML_PATH)
     al_header = html.split('<div id="page-al" class="page">', 1)[1].split(
         '<div id="al-dirty-banner"', 1
     )[0]
 
-    assert 'id="btn-al-react-editor"' in al_header
-    assert "openAllocationEditor()" in al_header
-    # Inline-Strategie-Berechnung bleibt in dieser Migrationsphase aktiv
-    # (Zwei-Stack-Uebergang gemaess ADR-008) -- keine Fachlogik-Sektion wird
-    # entfernt.
+    # Kein zweiter Editor-Einstieg mehr in der Asset-Allokation ...
+    assert 'id="btn-al-react-editor"' not in al_header
+    assert "openAllocationEditor()" not in al_header
+    # ... sondern genau der eine Bandbreiten-Editor (Modal m-eq).
+    assert al_header.count("openAllocationEngineModal()") == 1
     assert "calculateInvestmentStrategy()" in al_header
 
 

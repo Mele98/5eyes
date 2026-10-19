@@ -72,8 +72,8 @@ describe('AllocationEditor', () => {
     fetchMock.mockResolvedValue(makeRecord());
     render(<AllocationEditor mandateId="m1" />);
     expect(await screen.findByRole('table', { name: 'SOLL-Allokation pro Anlageklasse' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Aktien Ziel in bps')).toHaveValue(4000);
-    expect(screen.getByLabelText('Liquidität Max in bps')).toHaveValue(2000);
+    expect(screen.getByLabelText('Aktien Ziel in %')).toHaveValue('40.0');
+    expect(screen.getByLabelText('Liquidität Maximum in %')).toHaveValue('20.0');
   });
 
   it('zeigt einen Empty-State bei 404 (keine SOLL)', async () => {
@@ -109,7 +109,7 @@ describe('AllocationEditor', () => {
     render(<AllocationEditor mandateId="m1" />);
     await screen.findByText(/Noch keine SOLL-Allokation/);
     fireEvent.click(screen.getByRole('button', { name: 'Optimizer-Vorschlag' }));
-    expect(await screen.findByLabelText('Aktien Ziel in bps')).toHaveValue(5000);
+    expect(await screen.findByLabelText('Aktien Ziel in %')).toHaveValue('50.0');
     expect(generateMock).toHaveBeenCalledWith('m1');
   });
 
@@ -143,5 +143,38 @@ describe('AllocationEditor', () => {
         override_reason: 'Kunde wünscht nach Gespräch eine defensivere Gewichtung.',
       }),
     );
+  });
+
+  it('rechnet Prozent-Eingaben in bps um und sendet bps (UX-Audit Befund 15)', async () => {
+    fetchMock.mockResolvedValue(makeRecord());
+    saveMock.mockResolvedValue(makeRecord({ version: 2 }));
+    render(<AllocationEditor mandateId="m1" />);
+    await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText('Aktien Ziel in %'), { target: { value: '35,5' } });
+    fireEvent.change(screen.getByLabelText('Obligationen Ziel in %'), { target: { value: '34.5' } });
+    fireEvent.change(screen.getByLabelText(/Begründung der manuellen Anpassung/), {
+      target: { value: 'Kunde wünscht nach Gespräch eine defensivere Gewichtung.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'SOLL-Allokation speichern' }));
+    expect(saveMock).toHaveBeenCalledWith(
+      'm1',
+      expect.objectContaining({ target_equities_bps: 3550, target_bonds_bps: 3450 }),
+    );
+  });
+
+  it('zeigt Fehler direkt am Feld und sperrt Speichern bis gültig', async () => {
+    fetchMock.mockResolvedValue(makeRecord());
+    render(<AllocationEditor mandateId="m1" />);
+    await screen.findByRole('table');
+    const save = screen.getByRole('button', { name: 'SOLL-Allokation speichern' });
+    expect(save).toBeEnabled();
+    const minField = screen.getByLabelText('Aktien Minimum in %');
+    fireEvent.change(minField, { target: { value: '60' } });
+    expect(minField).toHaveAttribute('aria-invalid', 'true');
+    expect(minField).toHaveAccessibleDescription(/Minimum 60.0 % liegt über dem Maximum 50.0 %/);
+    expect(save).toBeDisabled();
+    fireEvent.change(minField, { target: { value: '30' } });
+    expect(minField).toHaveAttribute('aria-invalid', 'false');
+    expect(save).toBeEnabled();
   });
 });

@@ -195,7 +195,6 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 /* STRIP */
 .strip{padding:9px 24px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid var(--b1);}
 .strip-e{background:var(--neg-lt);}
-.strip-w{background:var(--warn-lt);}
 .st{font-size:11px;font-weight:600;color:var(--n8);margin-bottom:1px;}
 .ss{font-size:10px;color:var(--n5);}
 
@@ -313,6 +312,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .al-banner-title{font-size:11px;font-weight:700;color:var(--n8);margin-bottom:2px;}
 .al-banner-body{font-size:10px;color:var(--n6);line-height:1.55;}
 .al-banner-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+.al-dirty-banner{align-items:center;}
+.al-dirty-banner .al-banner-content{flex:1 1 auto;min-width:0;}
+.al-dirty-banner-action{flex:0 0 auto;}
+/* STALE-RESULT-DISPLAY-001: veraltete Ergebnisse gedimmt + Stand-Badge je Karte */
+#page-al.aa-stale .alloc-top-grid>.card>:not(.aa-stale-badge),
+#page-al.aa-stale .g2>.card:not(#al-planning-card)>:not(.aa-stale-badge){opacity:.5;filter:grayscale(.6);transition:opacity .2s ease,filter .2s ease;}
+.aa-stale-badge{display:flex;justify-content:flex-end;align-self:stretch;padding:6px 10px 0;}
+.aa-stale-badge span{font-size:10px;font-weight:600;color:var(--n8);background:var(--warn-lt);border:1px solid var(--warn);border-radius:999px;padding:2px 8px;white-space:nowrap;}
 .al-banner-actions span{font-size:9px;color:var(--n5);background:rgba(255,255,255,.55);border:1px solid rgba(15,30,52,.08);border-radius:999px;padding:2px 7px;}
 .m-acf-field{display:block;}
 .m-acf-derived{margin-top:6px;font-size:11px;color:var(--n5);line-height:1.5;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:7px 9px;}
@@ -1059,6 +1066,18 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .qti{font-size:11px;color:var(--n4);text-align:right;}
 .qtinp{width:56px;text-align:right;border:1px solid var(--b1);border-radius:2px;padding:3px 5px;font-family:var(--f-s);font-size:11px;color:var(--n8);background:var(--bg);outline:none;}
 .qtinp:focus{border-color:var(--g4);}
+.qtr>.qtinp{justify-self:end;}
+.qtinp.is-invalid{border-color:var(--neg)!important;background:var(--neg-lt);}
+.qth{padding:0 0 4px;border-bottom:2px solid var(--b2);margin-bottom:2px;}
+.qth>div{font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);text-align:right;}
+.qth>.qth-l{text-align:left;padding-left:6px;}
+.qtmsg{font-size:10px;line-height:1.45;padding:3px 0 5px 15px;border-bottom:1px solid var(--b1);}
+.qtmsg[hidden]{display:none;}
+.qtmsg-e{display:block;color:var(--neg);font-weight:600;}
+.qtmsg-h{display:block;color:var(--n5);}
+.qtsum{font-size:10px;line-height:1.5;margin-top:8px;padding:6px 8px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);color:var(--n6);}
+.qtsum .ok{color:var(--pos);font-weight:600;}
+.qtsum .bad{color:var(--neg);font-weight:600;}
 /* dcv dcl for donut center */
 .dcv{font-family:var(--f-d);font-size:14px;color:var(--n8);text-align:center;line-height:1.2;}
 .dcl{font-size:8px;color:var(--n4);letter-spacing:0.05em;text-transform:uppercase;}
@@ -3425,15 +3444,16 @@ function _wireSollIstHover(){
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalität, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button><button class="btn" id="btn-al-react-editor" onclick="openAllocationEditor();this.closest('details').removeAttribute('open')" title="Asset-Allokation-Editor (React, Beta)">Editor (Beta)</button></div></details></div></div>
-      <div id="al-dirty-banner" class="strip strip-w" style="display:none">
-        <div>
-          <div class="st">Strategie veraltet</div>
-          <div class="ss">Stammdaten, Cashflows, Ziele oder Risikoprofil haben sich geändert — bitte «Anlagestrategie berechnen» klicken.</div>
-        </div>
-        <button class="btn-g" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
-      </div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalität, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
       <div class="pad">
+      <div id="al-dirty-banner" class="al-banner-warning al-dirty-banner" role="status" aria-live="polite" style="display:none">
+        <div class="al-banner-icon">!</div>
+        <div class="al-banner-content">
+          <div class="al-banner-title">Strategie veraltet</div>
+          <div class="al-banner-body" id="al-dirty-banner-body">Eingaben haben sich seit der letzten Berechnung geändert — bitte «Anlagestrategie berechnen» klicken.</div>
+        </div>
+        <button class="btn-g al-dirty-banner-action" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
+      </div>
         <div id="al-message-banner" class="al-banner-warning" style="display:none">
           <div class="al-banner-icon">!</div>
           <div class="al-banner-content">
@@ -5887,6 +5907,7 @@ async function loadClientById(clientId) {
   }catch(_ldErr){}
   currentReviewState = {triggers:[],logs:[],documents:[],conflicts:[],suitability:[],allocation:null,recommendation:null};
   strategyState={allocation:null,recommendation:null,activeMandateId:null,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null,pendingAllocation:null,pendingRecommendation:null,deferVisualApply:false};
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   hydrateRiskQuestionnaire(null);
   renderRiskSummary(null);
   resetCurrentProjectionCharts();
@@ -5931,6 +5952,7 @@ async function loadClientById(clientId) {
         currentMandateData = activeMandate || null;
       }
       strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null,pendingAllocation:null,pendingRecommendation:null,deferVisualApply:false};
+      if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
       renderEngineRuntimePanels(null);
       renderPortfolioSections([]);
       syncAllocationPendingViews();
@@ -7642,7 +7664,7 @@ function buildQT(id){
   // fuer unberuehrte Felder -- nie aus dem (bereits override-haltigen)
   // Engine-Ergebnis zurueckgerechnet.
   allocationBandStoredOverrides={};
-  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Gesendet werden bestehende Overrides plus die Felder, die Sie hier aendern; ein geleertes Feld hebt seinen Override auf, Zuruecksetzen hebt alle auf.</div><div style="display:grid;grid-template-columns:8px 1fr 42px 62px 62px 62px;gap:0;padding-bottom:4px;border-bottom:2px solid var(--b2);margin-bottom:2px;"><div></div><div style="font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);padding-left:6px">Asset-Klasse</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ist</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Min</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ziel</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Max</div></div>`+quoten.map(function(r,idx){
+  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Gesendet werden bestehende Overrides plus die Felder, die Sie hier aendern; ein geleertes Feld hebt seinen Override auf, Zuruecksetzen hebt alle auf.</div><div class="qtr qth" aria-hidden="true"><div></div><div class="qth-l">Asset-Klasse</div><div>Ist</div><div>Min</div><div>Ziel</div><div>Max</div></div>`+quoten.map(function(r,idx){
     var bucket=normalizeBandKey(r.key||r.n||('bucket_'+idx));
     var baseline={min_bps:Math.round(Number(r.min||0)*100),target_bps:Math.round(Number(r.ziel||0)*100),max_bps:Math.round(Number(r.max||0)*100)};
     allocationBandBaseline[bucket]=baseline;
@@ -7651,14 +7673,23 @@ function buildQT(id){
     var minimum=override.min_bps!=null?override.min_bps:baseline.min_bps;
     var target=override.target_bps!=null?override.target_bps:baseline.target_bps;
     var maximum=override.max_bps!=null?override.max_bps:baseline.max_bps;
-    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${r.ist}%</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}"></div>`;
-  }).join('');
+    // BAND-EDITOR-VALIDATION-001: Eingabe in Prozent (Wert traegt das "%"),
+    // beschriftet je Feld; Fehler/Hinweise erscheinen direkt unter der Zeile.
+    var errId='qt-msg-'+bucket;
+    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${r.ist}%</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}" aria-label="${r.n} Minimum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" aria-label="${r.n} Ziel in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}" aria-label="${r.n} Maximum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"></div><div class="qtmsg" id="${errId}" data-band-msg="${bucket}" aria-live="polite" hidden></div>`;
+  }).join('')+'<div id="qt-band-summary" class="qtsum" aria-live="polite"></div>';
   t.querySelectorAll('.qtinp').forEach(function(input){
     input.addEventListener('input',function(){
+      // BAND-EDITOR-VALIDATION-001: Live-Pruefung; ungueltige Eingaben werden
+      // weder uebernommen noch als Strategie-Aenderung gemeldet.
+      var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
+      if(!check.valid)return;
       updateBandOverrideStatus(collectBandOverridesFromModal()||{});
       markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.');
     });
     input.addEventListener('change',function(){
+      var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
+      if(!check.valid)return;
       persistAllocationPreferences();
     });
   });
@@ -7678,6 +7709,163 @@ function buildQT(id){
   }
   updateBandOverrideStatus(activeBands);
   updateBandDeviationReasonBox();
+  if(typeof validateBandEditorModal==='function')validateBandEditorModal();
+}
+// BAND-EDITOR-VALIDATION-001 (UX-Audit Befund 15): Live-Validierung des
+// Bandbreiten-Editors. Die Regeln sind die des Backends, nicht neu erfunden:
+//  R1 Feld = Prozent 0..100 (schemas/allocation.py AllocationBandOverridePayload
+//     ge=0/le=10000 bps; parseBandPercentUserInput).
+//  R2 Min <= Max je Klasse; eine nicht gesetzte Grenze ist die Hausmatrix-
+//     Grenze des Risikoprofils (_apply_band_preferences: Bounds beim Eintritt
+//     = house_matrix_bands, ein Override ersetzt nur das gesendete Feld).
+//  R3 ein vorgegebenes Ziel liegt in [Min, Max] (Schema validate_band_order +
+//     _apply_band_preferences explicit_target_buckets).
+//  R4 Summe der Mindestquoten <= 100 % (_raise_if_band_envelope_infeasible).
+//  R5 sind ALLE fuenf Ziele vorgegeben, ergeben sie genau 100 %
+//     (_apply_band_preferences); Teilvorgaben gleicht die Engine aus.
+// Abweichungen von der Hausmatrix sind erlaubt, verlangen aber die
+// Pflichtbegruendung (BAND-DEVIATION-REASON-REQUIRED-001, Freigabe-Gate).
+var BAND_EDITOR_BUCKETS=['equities','bonds','real_estate','alternatives','liquidity'];
+var BAND_EDITOR_FIELD_LABELS={min_bps:'Minimum',target_bps:'Ziel',max_bps:'Maximum'};
+function computeBandEditorValidation(){
+  var result={valid:true,inputs:[],fieldErrors:{},rowErrors:{},rowHints:{},globalErrors:[],targetSum:null,minSum:0,allTargetsExplicit:false,active:false};
+  var inputs=document.querySelectorAll('#qt-modal .qtinp[data-bucket][data-field]');
+  if(!inputs||!inputs.length)return result;
+  result.active=true;
+  var house=(typeof currentHouseMatrixBands==='function'?currentHouseMatrixBands():null)||{};
+  var overrides=collectBandOverridesFromModal()||{};
+  var rows={};
+  var formatOk=true;
+  function fieldError(bucket,field,msg){
+    result.valid=false;
+    if(!result.fieldErrors[bucket])result.fieldErrors[bucket]={};
+    result.fieldErrors[bucket][field]=true;
+    if(msg){
+      if(!result.rowErrors[bucket])result.rowErrors[bucket]=[];
+      if(result.rowErrors[bucket].indexOf(msg)<0)result.rowErrors[bucket].push(msg);
+    }
+  }
+  inputs.forEach(function(input){
+    var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
+    var field=String(input.getAttribute('data-field')||'');
+    if(!bucket||!field)return;
+    result.inputs.push(input);
+    if(!rows[bucket])rows[bucket]={shown:{}};
+    var raw=String(input.value==null?'':input.value).trim();
+    var initial=input.getAttribute('data-initial');
+    var unchanged=initial!=null&&raw===String(initial).trim();
+    var parsed=raw?parseBandPercentUserInput(raw):null;
+    if(raw&&parsed==null&&!unchanged){
+      formatOk=false;
+      fieldError(bucket,field,(BAND_EDITOR_FIELD_LABELS[field]||field)+': bitte einen Prozentwert zwischen 0 und 100 eingeben (z. B. 12.5%).');
+    }
+    rows[bucket].shown[field]=parsed;
+  });
+  var targetSum=0, targetSumKnown=true, explicitTargets=0;
+  Object.keys(rows).forEach(function(bucket){
+    var ov=overrides[bucket]||{};
+    var hb=house[bucket]||{};
+    var base=(allocationBandBaseline&&allocationBandBaseline[bucket])||{};
+    var minFromAdvisor=ov.min_bps!=null, maxFromAdvisor=ov.max_bps!=null;
+    var mn=minFromAdvisor?Number(ov.min_bps):(hb.min_bps!=null?Number(hb.min_bps):Number(base.min_bps||0));
+    var mx=maxFromAdvisor?Number(ov.max_bps):(hb.max_bps!=null?Number(hb.max_bps):Number(base.max_bps||0));
+    rows[bucket].effMin=mn;
+    rows[bucket].minFromAdvisor=minFromAdvisor;
+    result.minSum+=mn;
+    var shownTarget=rows[bucket].shown.target_bps;
+    if(shownTarget==null)targetSumKnown=false;else targetSum+=shownTarget;
+    if(ov.target_bps!=null)explicitTargets+=1;
+    if(!formatOk)return;
+    if(mn>mx){
+      var mnTxt=formatBandPercent(mn)+(minFromAdvisor?'':' (Hausmatrix)');
+      var mxTxt=formatBandPercent(mx)+(maxFromAdvisor?'':' (Hausmatrix)');
+      var msg='Minimum '+mnTxt+' liegt über dem Maximum '+mxTxt+'.';
+      if(minFromAdvisor)fieldError(bucket,'min_bps',msg);
+      if(maxFromAdvisor)fieldError(bucket,'max_bps',msg);
+      if(!minFromAdvisor&&!maxFromAdvisor)fieldError(bucket,'min_bps',msg);
+      return;
+    }
+    if(ov.target_bps!=null){
+      var tg=Number(ov.target_bps);
+      if(tg<mn||tg>mx)fieldError(bucket,'target_bps','Ziel '+formatBandPercent(tg)+' muss zwischen Minimum '+formatBandPercent(mn)+' und Maximum '+formatBandPercent(mx)+' liegen.');
+    }else if(shownTarget!=null&&(shownTarget<mn||shownTarget>mx)&&(minFromAdvisor||maxFromAdvisor)){
+      if(!result.rowHints[bucket])result.rowHints[bucket]=[];
+      result.rowHints[bucket].push('Das bisherige Ziel '+formatBandPercent(shownTarget)+' liegt ausserhalb der neuen Bandbreite; die Berechnung legt es innerhalb '+formatBandPercent(mn)+'–'+formatBandPercent(mx)+' fest.');
+    }
+  });
+  result.targetSum=targetSumKnown?targetSum:null;
+  result.allTargetsExplicit=explicitTargets===BAND_EDITOR_BUCKETS.length;
+  if(formatOk&&result.minSum>10000){
+    result.valid=false;
+    result.globalErrors.push('Die Mindestquoten ergeben zusammen '+formatBandPercent(result.minSum)+' und damit mehr als 100%. Bitte Minima senken.');
+    Object.keys(rows).forEach(function(bucket){
+      if(rows[bucket].minFromAdvisor&&rows[bucket].effMin>0)fieldError(bucket,'min_bps',null);
+    });
+  }
+  if(formatOk&&result.allTargetsExplicit){
+    var explicitSum=0;
+    Object.keys(overrides).forEach(function(bucket){if(overrides[bucket].target_bps!=null)explicitSum+=Number(overrides[bucket].target_bps);});
+    if(explicitSum!==10000){
+      result.valid=false;
+      result.globalErrors.push('Alle Ziele sind vorgegeben und müssen zusammen genau 100% ergeben (aktuell '+formatBandPercent(explicitSum)+').');
+      Object.keys(rows).forEach(function(bucket){fieldError(bucket,'target_bps',null);});
+    }
+  }
+  return result;
+}
+function renderBandEditorValidation(result){
+  var modal=document.getElementById('m-eq');
+  var primary=modal&&modal.querySelector('.mfooter .btn-p');
+  if(!result||!result.active){
+    if(primary){primary.disabled=false;primary.title='';}
+    return;
+  }
+  result.inputs.forEach(function(input){
+    var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
+    var field=String(input.getAttribute('data-field')||'');
+    var bad=!!(result.fieldErrors[bucket]&&result.fieldErrors[bucket][field]);
+    if(input.classList)input.classList.toggle('is-invalid',bad);
+    if(input.setAttribute)input.setAttribute('aria-invalid',bad?'true':'false');
+  });
+  BAND_EDITOR_BUCKETS.forEach(function(bucket){
+    var box=document.getElementById('qt-msg-'+bucket);
+    if(!box)return;
+    var errs=result.rowErrors[bucket]||[];
+    var hints=result.rowHints[bucket]||[];
+    box.innerHTML=errs.map(function(m){return '<span class="qtmsg-e">'+escapeHtml(m)+'</span>';}).join('')
+      +hints.map(function(m){return '<span class="qtmsg-h">'+escapeHtml(m)+'</span>';}).join('');
+    box.hidden=!(errs.length||hints.length);
+  });
+  var sum=document.getElementById('qt-band-summary');
+  if(sum){
+    var parts=[];
+    if(result.targetSum==null){
+      parts.push('Summe Ziel: —');
+    }else if(result.targetSum===10000){
+      parts.push('Summe Ziel: <span class="ok">'+escapeHtml(formatBandPercent(result.targetSum))+' ✓</span>');
+    }else if(result.allTargetsExplicit){
+      parts.push('Summe Ziel: <span class="bad">'+escapeHtml(formatBandPercent(result.targetSum))+' – muss 100% ergeben</span>');
+    }else{
+      parts.push('Summe der angezeigten Ziele: '+escapeHtml(formatBandPercent(result.targetSum))+'. Nicht vorgegebene Ziele gleicht die Berechnung auf 100% aus.');
+    }
+    parts.push('Summe Minima: '+(result.minSum>10000?'<span class="bad">'+escapeHtml(formatBandPercent(result.minSum))+'</span>':escapeHtml(formatBandPercent(result.minSum)))+' (höchstens 100%)');
+    var html='<div>'+parts.join(' · ')+'</div>';
+    result.globalErrors.forEach(function(m){html+='<div class="bad">'+escapeHtml(m)+'</div>';});
+    if(!result.valid)html+='<div class="bad">Bitte die markierten Felder korrigieren – ungültige Werte werden nicht übernommen.</div>';
+    sum.innerHTML=html;
+  }
+  if(primary){
+    primary.disabled=!result.valid;
+    primary.title=result.valid?'':'Bandbreiten ungültig – bitte zuerst die markierten Felder korrigieren.';
+  }
+}
+function validateBandEditorModal(){
+  var result=computeBandEditorValidation();
+  renderBandEditorValidation(result);
+  return result;
+}
+function bandEditorIsValid(){
+  return computeBandEditorValidation().valid;
 }
 // BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14): verlaesst
 // eine Mandatsbandbreite die Hausmatrix-Bandbreite des Risikoprofils, ist eine
@@ -7736,6 +7924,13 @@ function updateBandDeviationReasonBox(){
   }
 }
 function applyAllocationBandOverrides(){
+  // BAND-EDITOR-VALIDATION-001: Uebernahme gesperrt, bis alle Felder gueltig sind.
+  var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
+  if(!check.valid){
+    var firstBad=document.querySelector('#qt-modal .qtinp.is-invalid');
+    if(firstBad&&firstBad.focus)firstBad.focus();
+    return false;
+  }
   persistAllocationPreferences();
   buildQT('qt-modal');
   updateBandOverrideStatus(collectBandOverridesFromModal()||{});
@@ -8478,6 +8673,7 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.ro
     currentCashflows=[];
     riskHorizonTouched=false;
     strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null};
+    if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
     renderEngineRuntimePanels(null);
     renderPortfolioSections([]);
     currentWealthPositions=[];
@@ -13391,24 +13587,12 @@ async function openCashflowEditor(){
   window.open(url, '_blank', 'noopener');
 }
 
-// Roadmap #67 / ADR-008 Track 2: Migration Asset-Allocation-Editor.
-// Oeffnet den neuen React-Allocation-Editor (Schema-First-Migration) in einem
-// neuen Browser-Tab statt der Inline-HTML-Sektion. Der Editor ruft exakt
-// dieselben Backend-Endpunkte auf wie die Inline-Sektion (POST
-// /mandates/{id}/target-allocation/generate, .../sensitivity) -- keine
-// Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
-// Uebergangs-Strategie gemaess ADR-008 Track 2: die Inline-Sektion bleibt
-// vorerst aktiv (Zwei-Stack-Betrieb), bis die React-Seite im Alltag erprobt ist.
+// BAND-EDITOR-SINGLE-001 (UX-Audit Befund 15): es gibt genau EINEN
+// Bandbreiten-Editor -- das Modal "Soll-Quoten & Bandbreiten" (Prozent,
+// Live-Validierung). Der zweite Einstieg (React-Editor in Basispunkten) ist
+// aus der Asset-Allokation entfernt; Altaufrufe landen im selben Editor.
 async function openAllocationEditor(){
-  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
-  if(!mid){
-    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
-    return;
-  }
-  var path = '/mandates/' + encodeURIComponent(mid) + '/allocation-editor';
-  var url = await resolveReportingAppUrl(path);
-  window.open(url, '_blank', 'noopener');
+  return openAllocationEngineModal();
 }
 
 // ADR-008 Track 2 / Roadmap #65: Migration Mandate-Edit.
@@ -17191,6 +17375,7 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   if (phS) phS.textContent = firstName + ' ' + lastName + ' \u00b7 ' + mType + ' \u00b7 Neu angelegt';
 
   strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null};
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   hydrateRiskQuestionnaire(null);
   renderRiskSummary(null);
   renderEngineRuntimePanels(null);
@@ -19319,7 +19504,9 @@ function collectAllocationPreferencesFromUI(){
   prefs.simulation=live.simulation;
   prefs.assetClasses=live.assetClasses;
   var modal=document.getElementById('m-eq');
-  var modalBands=(modal&&modal.classList.contains('open')&&hasCanonicalBandBaseline())?collectBandOverridesFromModal():null;
+  // BAND-EDITOR-VALIDATION-001: ein ungueltiger Editor-Stand wird nie
+  // uebernommen; dann gelten die zuletzt gueltig gespeicherten Bandbreiten.
+  var modalBands=(modal&&modal.classList.contains('open')&&hasCanonicalBandBaseline()&&(typeof bandEditorIsValid!=='function'||bandEditorIsValid()))?collectBandOverridesFromModal():null;
   prefs.bands=modalBands==null?(prefs.bands||{}):modalBands;
   var reasonInput=document.getElementById('aa-band-deviation-reason');
   if(reasonInput)prefs.bandDeviationReason=String(reasonInput.value||'').trim();
@@ -21182,6 +21369,67 @@ function invalidateStrategyOutputs(){
   setText('po-average-ter','—');
   clearStrategySummaryForDirtyState();
   syncPortfolioUmsetzenButtonVisibility();
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
+}
+
+// STALE-RESULT-DISPLAY-001 (UX-Audit Befund 12): solange die Strategie nach
+// einer Eingabeaenderung nicht neu berechnet wurde, duerfen die sichtbaren
+// Ergebnisse nicht gueltig aussehen. Ergebnis-Karten werden gedimmt und tragen
+// ein Badge "Stand: <Zeitpunkt der Berechnung> – nicht mehr aktuell"; das
+// Banner zeigt die konkrete Aenderungsmeldung. Reine Darstellung -- keine
+// Zahl wird veraendert oder ausgeblendet (das macht invalidateStrategyOutputs).
+var STRATEGY_STALE_DEFAULT_NOTICE='Eingaben haben sich seit der letzten Berechnung geändert — bitte «Anlagestrategie berechnen» klicken.';
+function strategyResultStampMs(){
+  var a=strategyState&&strategyState.allocation;
+  var ta=a&&(a.target_allocation||a);
+  var raw=ta&&(ta.set_at||ta.created_at);
+  if(raw){
+    var iso=String(raw);
+    // Server-Zeitstempel sind UTC; ohne Zonenangabe nicht als Lokalzeit lesen.
+    if(/T\d{2}:\d{2}/.test(iso)&&!/(Z|[+-]\d{2}:?\d{2})$/.test(iso))iso+='Z';
+    var ms=Date.parse(iso);
+    if(isFinite(ms))return ms;
+  }
+  var local=Number(strategyState&&strategyState.lastGeneratedAt||0);
+  return local>0?local:null;
+}
+function strategyStaleBadgeText(){
+  var ms=strategyResultStampMs();
+  if(ms==null)return 'Stand unbekannt – nicht mehr aktuell';
+  var d=new Date(ms);
+  var stamp=d.toLocaleDateString('de-CH',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
+  return 'Stand: '+stamp+' – nicht mehr aktuell';
+}
+function syncStrategyStaleView(){
+  var notice=(strategyState&&strategyState.dirty&&strategyState.staleNotice)?String(strategyState.staleNotice):'';
+  var banner=document.getElementById('al-dirty-banner');
+  if(banner){
+    banner.style.display=notice?'flex':'none';
+    var body=document.getElementById('al-dirty-banner-body');
+    if(body&&notice)body.textContent=notice;
+  }
+  var page=document.getElementById('page-al');
+  if(!page)return;
+  var stale=!!notice&&hasVisibleStrategyOutputs();
+  page.classList.toggle('aa-stale',stale);
+  var label=stale?strategyStaleBadgeText():'';
+  page.querySelectorAll('.alloc-top-grid>.card, .g2>.card:not(#al-planning-card)').forEach(function(card){
+    var badge=null;
+    for(var i=0;i<card.children.length;i++){
+      if(card.children[i].classList.contains('aa-stale-badge')){badge=card.children[i];break;}
+    }
+    if(!stale){
+      if(badge)badge.remove();
+      return;
+    }
+    if(!badge){
+      badge=document.createElement('div');
+      badge.className='aa-stale-badge';
+      badge.innerHTML='<span></span>';
+      card.insertBefore(badge,card.firstChild);
+    }
+    badge.firstChild.textContent=label;
+  });
 }
 
 function hasVisibleStrategyOutputs(){
@@ -21199,9 +21447,9 @@ function finalizeStrategyOutputs(allocationResult,recommendationResult,wantsReco
   if(wantsRecommendation&&recommendationResult)applyRecommendationEngineResult(recommendationResult);
   strategyState.lastGeneratedAt=Date.now();
   strategyState.dirty=false;
+  strategyState.staleNotice=null;
   syncPortfolioUmsetzenButtonVisibility();
-  var dirtyBanner=document.getElementById('al-dirty-banner');
-  if(dirtyBanner)dirtyBanner.style.display='none';
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   if(statusMessage)updateStrategyStatus(statusMessage,false);
 }
 
@@ -21222,8 +21470,11 @@ function markStrategyDirty(message,invalidateOutputs){
   if(invalidateOutputs&&!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
   syncPortfolioUmsetzenButtonVisibility();
   if(message)updateStrategyStatus(message,false);
-  var dirtyBanner=document.getElementById('al-dirty-banner');
-  if(dirtyBanner)dirtyBanner.style.display='';
+  // STALE-RESULT-DISPLAY-001: der Bannertext ist die konkrete Meldung des
+  // Aufrufers (Bandbreiten, Praeferenzen, Risikoprofil, ...), nicht ein
+  // statischer Sammeltext.
+  strategyState.staleNotice=message||(typeof STRATEGY_STALE_DEFAULT_NOTICE==='string'?STRATEGY_STALE_DEFAULT_NOTICE:'Eingaben geändert: Strategie neu berechnen.');
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   // Auto-Recompute mit Debounce: falls aktiviert, wird nach Aenderungen
   // verzoegert neu gerechnet. Der Default bleibt manuell, damit die sichtbare
   // SOLL-Prognose stabil bleibt, bis der Berater bewusst neu berechnet.
@@ -22213,6 +22464,7 @@ async function loadSrPage(){
     if(allocation)strategyState.allocation=allocation;
     if(recommendation)strategyState.recommendation=recommendation;
     else if(allocation)strategyState.recommendation=null;
+    if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
     renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers);
     renderSrImplementationDecision(null);
   }catch(e){
