@@ -572,6 +572,60 @@ def test_compute_returns_data_pending_when_no_cma(session_factory):
     assert "Kapitalmarkt-Annahmen" in result["note"]
 
 
+def test_compute_blocks_legacy_ta_without_cma_anchor_instead_of_current_cma(session_factory):
+    """MC-CONTEXT-001: eine Alt-Allokation ohne CMA-Anker wird NICHT still mit
+    der global aktuellen CMA projiziert (Legacy-Quarantaene)."""
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        client, mandate = _seed_client_with_mandate(s, advisor)
+        _seed_ta(s, mandate, advisor)
+        _seed_cma(s, advisor)  # aktuelle CMA existiert -- darf nicht greifen
+        _seed_wealth_and_cashflows(s, client)
+        s.commit()
+        result = compute_quantile_paths(
+            s, mandate,
+            initial_wealth_rappen=50_000_000,
+            horizon_years=15,
+        )
+    assert result["data_pending"] is True
+    assert result["projection_status"] == "blocked"
+    assert result["p50"] == []
+    assert "Strategie neu berechnen" in result["note"]
+
+
+def test_compute_uses_allocation_snapshot_cma_not_current_cma(session_factory):
+    """MC-CONTEXT-001: Snapshot-CMA der Allokation, auch wenn inzwischen eine
+    andere CMA aktuell ist."""
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        client, mandate = _seed_client_with_mandate(s, advisor)
+        ta = _seed_ta(s, mandate, advisor)
+        snapshot = _seed_cma(s, advisor)
+        ta.capital_market_assumptions_id = snapshot.id
+        _seed_wealth_and_cashflows(s, client)
+        s.commit()
+        before = compute_quantile_paths(
+            s, mandate, initial_wealth_rappen=50_000_000, horizon_years=15, n_paths=300,
+        )
+        snapshot.is_current = 0
+        s.flush()
+        newer = _seed_cma(s, advisor)
+        newer.version = 2
+        newer.equity_ch_return_bps = 1500
+        newer.equity_intl_return_bps = 1500
+        s.commit()
+        after = compute_quantile_paths(
+            s, mandate, initial_wealth_rappen=50_000_000, horizon_years=15, n_paths=300,
+        )
+        explicit_newer = compute_quantile_paths(
+            s, mandate, initial_wealth_rappen=50_000_000, horizon_years=15, n_paths=300,
+            cma=newer,
+        )
+    assert after["p50"] == before["p50"]
+    # Positivkontrolle: die neue CMA haette die Kurve sichtbar veraendert.
+    assert explicit_newer["p50"] != before["p50"]
+
+
 def test_compute_returns_data_pending_when_no_wealth(session_factory):
     """initial_wealth=0 -> data_pending=True. Sub-App rendert Platzhalter."""
     with session_factory() as s:
@@ -594,8 +648,8 @@ def test_compute_happy_path_returns_quantile_arrays(session_factory):
     with session_factory() as s:
         advisor = _seed_advisor(s)
         client, mandate = _seed_client_with_mandate(s, advisor)
-        _seed_ta(s, mandate, advisor)
-        _seed_cma(s, advisor)
+        ta = _seed_ta(s, mandate, advisor)
+        ta.capital_market_assumptions_id = _seed_cma(s, advisor).id
         _seed_wealth_and_cashflows(s, client)
         s.commit()
         result = compute_quantile_paths(
@@ -620,8 +674,8 @@ def test_compute_uses_default_n_paths_and_seed_when_unspecified(session_factory)
     with session_factory() as s:
         advisor = _seed_advisor(s)
         client, mandate = _seed_client_with_mandate(s, advisor)
-        _seed_ta(s, mandate, advisor)
-        _seed_cma(s, advisor)
+        ta = _seed_ta(s, mandate, advisor)
+        ta.capital_market_assumptions_id = _seed_cma(s, advisor).id
         _seed_wealth_and_cashflows(s, client)
         s.commit()
         result = compute_quantile_paths(
@@ -643,8 +697,9 @@ def test_compute_end_to_end_wires_sub_allocations_json_from_ta(session_factory):
     with session_factory() as s:
         advisor = _seed_advisor(s)
         client, mandate = _seed_client_with_mandate(s, advisor)
-        _seed_ta(s, mandate, advisor)
-        _seed_cma(s, advisor)
+        ta = _seed_ta(s, mandate, advisor)
+        cma_id = _seed_cma(s, advisor).id
+        ta.capital_market_assumptions_id = cma_id
         _seed_wealth_and_cashflows(s, client)
         s.commit()
         baseline = compute_quantile_paths(
@@ -660,6 +715,7 @@ def test_compute_end_to_end_wires_sub_allocations_json_from_ta(session_factory):
         # zweite anzulegen.
         existing_policy = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
         ta = _seed_ta(s, mandate, advisor, policy=existing_policy)
+        ta.capital_market_assumptions_id = cma_id
         ta.sub_allocations_json = json.dumps([
             {"asset_class": "Aktien", "sub_asset_class": "Aktien Schwellenlaender", "target_weight_bps": 10000},
         ])
