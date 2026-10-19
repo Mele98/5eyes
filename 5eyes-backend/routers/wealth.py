@@ -2,6 +2,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
@@ -820,6 +821,109 @@ def _validate_inflow_position_link(client_id: str, linked_position_id, db: Sessi
         )
 
 
+# ── PENSION-TRANSFER-LEDGER-001 (2026-10-19): Transfer-Guards ──────────────────
+# Ein verknuepfter Zufluss IST der (einmalige) Vollbezug seiner Vorsorge-Quelle.
+# Der Link wird deshalb in BEIDE Richtungen geschuetzt: die Quelle kann nicht
+# deaktiviert/geloescht/umtypisiert werden, solange ein aktiver Link besteht
+# (422 wie der Hypotheken-Guard, sonst wuerde der Zufluss still zu neuem
+# Vermoegen), und je Quelle gibt
+# es hoechstens einen aktiven Link (422; DB-Partial-Unique-Index als Backstop).
+
+
+def _active_inflows_linked_to_position(
+    position_id: str, client_id: str, db: Session, *, exclude_inflow_id: str | None = None,
+) -> list:
+    query = db.query(WealthInflow).filter(
+        WealthInflow.linked_position_id == position_id,
+        WealthInflow.client_id == client_id,
+        WealthInflow.is_active == 1,
+        WealthInflow.deleted_at.is_(None),
+    )
+    if exclude_inflow_id:
+        query = query.filter(WealthInflow.id != exclude_inflow_id)
+    return query.all()
+
+
+def _block_if_pension_source_has_active_transfer(
+    wp: WealthPosition, client_id: str, db: Session, *, updates: dict | None = None,
+) -> None:
+    """updates=None -> Loeschen. Sonst blockieren Deaktivieren und jede
+    Aenderung, nach der die Position keine aktive externe Vorsorge mehr ist.
+    Wert, Satz, Steuer, Label bleiben editierbar (fliessen in den Ledger)."""
+    from types import SimpleNamespace
+
+    from services.pension_transfer_ledger import REASON_SOURCE_LINKED
+    from services.portfolio_engine_pension_positions import is_external_pension_position
+
+    linked = _active_inflows_linked_to_position(wp.id, client_id, db)
+    if not linked:
+        return
+    if updates is not None:
+        deactivating = "is_active" in updates and not updates["is_active"]
+        merged = SimpleNamespace(
+            position_type=updates.get("position_type", wp.position_type),
+            assignment=updates.get("assignment", wp.assignment),
+            is_active=1,
+            deleted_at=None,
+        )
+        if not deactivating and is_external_pension_position(merged):
+            return
+        action = "deaktiviert" if deactivating else "umklassifiziert"
+    else:
+        action = "gelöscht"
+    labels = ", ".join(sorted({f"'{i.label or i.id}' ({i.expected_year})" for i in linked}))
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "reason_code": REASON_SOURCE_LINKED,
+            "message": (
+                f"Vorsorge-Position kann nicht {action} werden: sie ist mit dem "
+                f"Kapitalbezug {labels} verknüpft. Bitte zuerst diesen Vermögenszufluss "
+                "löschen, deaktivieren oder die Verknüpfung entfernen."
+            ),
+        },
+    )
+
+
+def _already_linked_detail() -> dict:
+    from services.pension_transfer_ledger import REASON_SOURCE_ALREADY_LINKED
+
+    return {
+        "reason_code": REASON_SOURCE_ALREADY_LINKED,
+        "message": (
+            "Diese Vorsorge-Position ist bereits mit einem aktiven Kapitalbezug "
+            "verknüpft. Ein Vollbezug wird genau einmal gebucht – bitte den "
+            "bestehenden Zufluss bearbeiten statt einen zweiten zu verknüpfen."
+        ),
+    }
+
+
+def _block_if_pension_source_already_linked(
+    client_id: str, linked_position_id, db: Session, *, exclude_inflow_id: str | None = None,
+) -> None:
+    if not linked_position_id:
+        return
+    if _active_inflows_linked_to_position(
+        linked_position_id, client_id, db, exclude_inflow_id=exclude_inflow_id,
+    ):
+        raise HTTPException(status_code=422, detail=_already_linked_detail())
+
+
+def _commit_inflow_or_422(db: Session) -> None:
+    """Concurrency-Backstop: verletzt ein paralleler Write den partiellen
+    Unique-Index, wird das als derselbe fachliche 422 gemeldet (kein 500)."""
+    from services.pension_transfer_ledger import ACTIVE_LINK_INDEX_NAME
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        message = str(getattr(exc, "orig", exc))
+        if ACTIVE_LINK_INDEX_NAME in message or "wealth_inflows.linked_position_id" in message:
+            raise HTTPException(status_code=422, detail=_already_linked_detail()) from exc
+        raise
+
+
 # ── Wealth Positions ───────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/wealth-positions", response_model=list[WealthPositionResponse])
@@ -960,6 +1064,7 @@ def update_wealth_position(
         and int(getattr(wp, "is_active", 1) or 0) == 1
     ):
         _block_if_property_has_active_linked_mortgages(wp, client_id, db)
+    _block_if_pension_source_has_active_transfer(wp, client_id, db, updates=updates)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -990,6 +1095,7 @@ def delete_wealth_position(
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
     _block_if_property_has_active_linked_mortgages(wp, client_id, db)
+    _block_if_pension_source_has_active_transfer(wp, client_id, db)
     wp.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_positions", record_id=wp_id, action="DELETE",
@@ -1453,6 +1559,7 @@ def create_wealth_inflow(
                 detail="Mandat und Vermoegenszufluss muessen zum selben Client gehoeren.",
             )
     _validate_inflow_position_link(client_id, body.linked_position_id, db)
+    _block_if_pension_source_already_linked(client_id, body.linked_position_id, db)
     now = _now()
     inflow = WealthInflow(
         id=new_uuid(),
@@ -1465,7 +1572,7 @@ def create_wealth_inflow(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_inflows", record_id=inflow.id, action="CREATE",
         client_id=client_id, mandate_id=body.mandate_id)
-    db.commit()
+    _commit_inflow_or_422(db)
     db.refresh(inflow)
     _invalidate_advisory_cache_for_client(client_id, db)
     return inflow
@@ -1502,15 +1609,23 @@ def update_wealth_inflow(
         WealthInflowCreate.model_validate(merged_state)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if payload.get("linked_position_id"):
-        _validate_inflow_position_link(inflow.client_id, payload["linked_position_id"], db)
+    # PENSION-TRANSFER-LEDGER-001: der Link wird am GEMERGTEN Zustand
+    # geprueft -- auch Reaktivieren eines alten Links und Re-Link eines
+    # anderen Zuflusses duerfen keinen zweiten aktiven Bezug erzeugen.
+    merged_link = merged_state.get("linked_position_id")
+    merged_active = int(payload.get("is_active", inflow.is_active) or 0) == 1
+    if merged_link and merged_active:
+        _validate_inflow_position_link(inflow.client_id, merged_link, db)
+        _block_if_pension_source_already_linked(
+            inflow.client_id, merged_link, db, exclude_inflow_id=inflow.id,
+        )
     for key, value in payload.items():
         setattr(inflow, key, value)
     inflow.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_inflows", record_id=inflow.id, action="UPDATE",
         client_id=inflow.client_id, mandate_id=inflow.mandate_id)
-    db.commit()
+    _commit_inflow_or_422(db)
     db.refresh(inflow)
     _invalidate_advisory_cache_for_client(inflow.client_id, db)
     return inflow
