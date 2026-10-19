@@ -554,7 +554,7 @@ def test_variant_significance_without_validation_cube_keeps_house_matrix(monkeyp
 def test_result_context_and_objective_are_the_prior_decision_objective(monkeypatch):
     monkeypatch.setenv("OPTIMIZER_OBJECTIVE", OBJECTIVE_GOAL_SHORTFALL)
     result = run_solver(**_kwargs(), resampling=SMALL)
-    assert result.resampling["engine_version"] == "saa_resampled_v8"
+    assert result.resampling["engine_version"] == "saa_resampled_v9_reach"
     prior = result.resampling.get("house_prior")
     assert prior is not None
     assert result.context.house_prior_weights is not None

@@ -219,6 +219,17 @@ Hausmatrix): Score 7 6800/1600/800/600/200 -> 6734/1674/810/582/200
 Risikoanteil 69.17 -> 68.36 %). Nachweis der Ursache: mit Haertegrad-Teiler
 1 statt 10 (Experiment) ergeben beide exakt die bisherigen Fixtures.
 Begruendung: docs/planning/2026-10-18-maximize-goal-and-hardness.md.
+
+Nachtrag (2026-10-19, GOAL-REACHABILITY-CERTIFICATE-001, Engine
+``saa_resampled_v9_reach``): Herabstufung nur noch bei zertifizierter
+Unerreichbarkeit. Unter Haswell UND Nehalem neu erzeugt, byte-identisch.
+Mit dem v8-Seed (Version erzwungen, Experiment) sind ALLE sechs Fixtures
+byte-identisch zu v8 -- die neue Logik aendert hier nichts (kein Golden-
+Mandat hat ein Screen-Miss-Ziel). Geaendert nur durch den neuen Wuerfel
+(die Engine-Version geht in den Inhalts-Seed): Score 7 6734/1674/810/582/200
+-> 6764/1641/809/586/200 (526/1071 -> 528/1076 bps), Score 9
+7799/959/670/372/200 -> 7783/977/685/355/200 (572/1227 -> 572/1225 bps);
+Score 3/5 unveraendert.
 """
 from __future__ import annotations
 
