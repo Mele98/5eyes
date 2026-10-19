@@ -126,7 +126,7 @@ def _liability(kind: str, *, hardness: str = "primaer", target: int = 0,
 def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     result, context = _run([], 10, key="no_goals_10")
     resampling = result.resampling
-    assert resampling["engine_version"] == "saa_resampled_v8"
+    assert resampling["engine_version"] == "saa_resampled_v9"
     contract = resampling["objective_contract"]
     assert contract["objective_contract_version"] == "objective-contract-v2"
     assert contract["goal_weighting_mode"] == "hardness"

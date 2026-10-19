@@ -159,6 +159,7 @@ def _override_documentation(data: RisikoprofilData, styles) -> Table:
             "Warnhinweis",
             "Zugestellt" if data.override_warning_delivered else "Noch nicht dokumentiert",
         ],
+        ["Override-Entscheid", _decision_reference_text(data)],
     ]
     table = Table(
         [[Paragraph(_esc(str(left)), styles["body"]), Paragraph(_esc(str(right)), styles["body"])]
@@ -178,6 +179,21 @@ def _override_documentation(data: RisikoprofilData, styles) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
+
+
+def _decision_reference_text(data: RisikoprofilData) -> str:
+    """RISK-OVERRIDE-WRITE-BOUNDARY-001: Decision-ID + voller SHA-256 und das
+    Ergebnis der Hash-Pruefung -- ein Abweichen wird sichtbar, nie still."""
+    if not data.override_decision_id:
+        return "Kein Decision-Nachweis (Altbestand vor RiskOverrideDecisionV1)"
+    status = (
+        "Hash verifiziert"
+        if data.override_decision_verified
+        else "Hash NICHT verifiziert -- Decision-Nachweis pruefen"
+    )
+    return (
+        f"{data.override_decision_id} · SHA-256 {data.override_decision_hash or '-'} · {status}"
+    )
 
 
 def _section_title(text: str):

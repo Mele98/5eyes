@@ -10,6 +10,7 @@
  * Ziel: Der Berater bekommt die gleiche Feld-Isolation clientseitig gemeldet,
  * die das Backend hart erzwingt — Fehler werden vor dem POST sichtbar.
  */
+import { formatApiErrorDetail } from '@/api/client';
 import type {
   GoalCreatePayload,
   GoalFamily,
@@ -217,20 +218,6 @@ export function buildGoalPayload(input: GoalFormInput): GoalCreatePayload {
  *  - Objekt mit `.msg` → dessen msg
  */
 export function formatGoalError(detail: unknown): string {
-  if (typeof detail === 'string') {
-    return detail;
-  }
-  if (Array.isArray(detail)) {
-    const parts = detail.map((item) => {
-      if (item && typeof item === 'object' && 'msg' in item) {
-        return String((item as { msg: unknown }).msg);
-      }
-      return String(item);
-    });
-    return parts.join('; ');
-  }
-  if (detail && typeof detail === 'object' && 'msg' in detail) {
-    return String((detail as { msg: unknown }).msg);
-  }
-  return 'Unbekannter Fehler beim Speichern des Ziels.';
+  // Delegiert an den zentralen Formatter (api/client.ts).
+  return formatApiErrorDetail(detail, 'Unbekannter Fehler beim Speichern des Ziels.');
 }

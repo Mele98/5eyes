@@ -209,7 +209,20 @@ def test_override_audit_log_eintrag(auth_client, advisor_user, session_factory):
         # Mind. ein Eintrag fuer Override (field_name='override')
         override_entries = [e for e in log_entries if e.field_name == "override"]
         assert len(override_entries) >= 1
-        assert override_entries[0].new_value == "Wachstumsorientiert"
+        # RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund B: new_value ist jetzt
+        # der replaybare RiskOverrideDecisionV1-Snapshot statt nur der
+        # Profilname -- und verweist auf die Decision, auf die das
+        # Assessment zeigt.
+        import json
+
+        from models.profiling import RiskAssessment
+
+        snapshot = json.loads(override_entries[0].new_value)
+        assert snapshot["requested_profile"] == "Wachstumsorientiert"
+        assert snapshot["requested_score_x10"] == 70
+        ra = db.get(RiskAssessment, ra_id)
+        assert snapshot["decision_id"] == ra.override_decision_id
+        assert snapshot["decision_hash"] == ra.override_decision_hash
 
 
 def test_override_reason_zu_kurz_422(auth_client, advisor_user):

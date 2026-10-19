@@ -1097,9 +1097,9 @@ def build_optimizer_context(
     # GOAL-HIERARCHY-002 / DEMOTED-GOAL-WEIGHT-001: herabgestufte Ziele auf
     # der Liability markieren (Wunschziel-Gewicht in jedem Modus, nicht
     # Stufe 1). Bags/Validierung erben die Markierung ueber ``replace``.
-    demoted = frozenset(
-        str(g) for g in (screen.get("not_found_reachable_goal_ids") or ())
-    )
+    # GOAL-REACHABILITY-CERTIFICATE-001 (Engine v9): nur ZERTIFIZIERT
+    # unerreichbare Ziele, nie ein blosser Screen-Miss.
+    demoted = frozenset(str(g) for g in (screen.get("demoted_goal_ids") or ()))
     liabilities = [
         replace(liab, demoted=True) if str(liab.goal_id) in demoted else liab
         for liab in context.liabilities
@@ -1180,18 +1180,22 @@ def _protected_level_from_inputs(
 
 
 def _demoted_goal_ids(context: OptimizerContext) -> frozenset:
-    """GOAL-HIERARCHY-002 (CIO-Review #650): Ziele, die der Screen auf seiner
-    Pruefmenge nicht mit der Mindestsicherheit erreichbar fand (Default:
-    obere 95-%-Grenze < tau/2). Sie bleiben mit vollem Fehlbetrag in der
-    Zielfunktion (kein Ausnehmen, Codex "CHF 0 != CHF 900"), werden aber
-    unabhaengig vom Haertegrad in Stufe 2 herabgestuft -- ein aussichtsloses
-    Ziel darf erreichbare Stufe-1-Ziele nicht verdraengen."""
+    """GOAL-HIERARCHY-002 (CIO-Review #650) + GOAL-REACHABILITY-CERTIFICATE-001
+    (Engine v9, Codex-Befund 2026-10-19): Ziele, deren Unerreichbarkeit
+    ZERTIFIZIERT ist -- die Maximierung ihrer Erfolgswahrscheinlichkeit ueber
+    die zulaessige Menge erreicht auf dem Screening-Wuerfel nicht einmal eine
+    obere 95-%-Grenze von tau/2 (``goal_reachability.certify_goal_
+    reachability``). Sie bleiben mit vollem Fehlbetrag in der Zielfunktion
+    (Codex "CHF 0 != CHF 900"), werden aber unabhaengig vom Haertegrad in
+    Stufe 2 herabgestuft. Ein blosser Screen-Miss
+    (``not_found_reachable_goal_ids``) ist reine Offenlegung und stuft nie
+    herab."""
     screen = getattr(context, "goal_reachability", None) or {}
-    return frozenset(str(g) for g in (screen.get("not_found_reachable_goal_ids") or ()))
+    return frozenset(str(g) for g in (screen.get("demoted_goal_ids") or ()))
 
 
 def _stage1_liabilities(context: OptimizerContext) -> list:
-    """Stufe-1-Ziele: hart/primaer, im Horizont, vom Screen erreichbar gefunden."""
+    """Stufe-1-Ziele: hart/primaer, im Horizont, nicht zertifiziert unerreichbar."""
     demoted = _demoted_goal_ids(context)
     n_cols = int(context.horizon_years) + 1
     return [
@@ -1395,7 +1399,15 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # auf der Pruefmenge unerreichbare Ziele als Wunschziel (0.2, Volumen auf W0
 # gedeckelt); ObjectiveContractV2. Doku: docs/planning/2026-10-18-maximize-
 # goal-and-hardness.md. Bewusst neue Wuerfel (die Version geht in den Seed).
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v8"
+#
+# v9 (2026-10-19, GOAL-REACHABILITY-CERTIFICATE-001, CIO-Entscheid
+# nach Codex-Befund zu #650): herabgestuft (Wunschziel, nicht Stufe 1) wird
+# nur noch ein ZERTIFIZIERT unerreichbares Ziel -- Maximierung seiner
+# geglaetteten Erfolgswahrscheinlichkeit ueber die zulaessige Menge
+# (Multi-Start: alle Screen-Kandidaten + Zentrum), obere Wilson-Grenze
+# (Kish-ESS) des Optimums < tau/2 auf dem Screening-Wuerfel. (Die
+# Priority-Replay-Arbeit folgt als v10.)
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v9"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
