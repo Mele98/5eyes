@@ -2390,16 +2390,31 @@ def _build_monte_carlo_paths_section(
     1:1 durch.
     """
     from services.monte_carlo_paths import compute_quantile_paths
+    from services.portfolio_engine_mc_simulation import (
+        _simulation_horizon_derivation,
+    )
 
     client = _load_client_or_raise(db, mandate)
     initial_wealth = _compute_beratungsvermoegen_rappen(db, client)
-    horizon = _derive_investment_horizon(mandate, client, db)
-    return compute_quantile_paths(
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: derselbe Prognosehorizont wie Solver
+    # und Zielanalyse (Risikoprofil / Ziele / Lebenserwartung) statt des
+    # frueheren Pensionierungs-Horizonts.
+    horizon = _simulation_horizon_derivation(
+        [
+            goal
+            for goal in _cached_active_goals(db, mandate)
+            if getattr(goal, "deleted_at", None) is None
+        ],
+        mandate,
+    )
+    result = compute_quantile_paths(
         db,
         mandate,
         initial_wealth_rappen=initial_wealth,
-        horizon_years=horizon,
+        horizon_years=int(horizon["years"]),
     )
+    result["horizon_note"] = horizon["sentence"]
+    return result
 
 
 def _compute_beratungsvermoegen_rappen(db: Session, client: Client) -> int:
