@@ -55,6 +55,15 @@ from .scenario_engine import simulate_wealth_paths
 PRIORITY_SCOPE_POLICY_VERSION = "direct_crn_replay_per_rank_v1"
 
 
+# Vorbereitete Scope-Eingaben je Plan-Signatur (Inhalt der Cashflows, des
+# gemeinsamen Liability-Pfads und der Freigaben). Reine Performance im
+# Solver-Hotpath (je Auswertung ein neuer Replay-Kontext), keine Semantik.
+_PREPARED_SCOPES: dict = {}
+# Scope-Schluessel und Batch-Pruefung je Liability-Liste (Identitaet, die
+# Liste wird im Eintrag gehalten) und (Freigaben, gemeinsamer Pfad).
+_BATCH_KEYS: dict = {}
+
+
 class PriorityScopeUnavailableError(ValueError):
     """Ein Prioritaets-Scope weicht vom gemeinsamen Pfad ab, aber es fehlt
     der Replay-Kontext, um ihn direkt zu simulieren."""
@@ -111,6 +120,58 @@ class ScopeReplayInputs:
                     cashflow[index] -= int(released)
         return cashflow
 
+    def prepare_scope(
+        self,
+        liability_path_rappen: Sequence[int],
+        excluded_release_goal_ids: Iterable[str],
+    ) -> tuple[np.ndarray, np.ndarray, int]:
+        """``(Cashflow, Liability, erstes abweichendes Jahr)`` eines Scopes.
+
+        Reine Funktion der eingefrorenen Plan-Inputs (Cashflows, gemeinsamer
+        Liability-Pfad, Freigaben, Horizont) -- im Solver je Kontext einmal
+        berechnet und danach wiederverwendet (Cache nach Inhalt).
+        """
+        horizon = int(np.asarray(self.return_paths).shape[1])
+        excluded = tuple(sorted(str(g) for g in excluded_release_goal_ids))
+        key = (tuple(int(v) for v in liability_path_rappen), excluded)
+        signature = (
+            horizon,
+            tuple(int(v) for v in self.cashflow_series_rappen),
+            None if self.joint_liability_path_rappen is None
+            else tuple(int(v) for v in self.joint_liability_path_rappen),
+            self.goal_reserve_release_series_rappen,
+        )
+        cache = _PREPARED_SCOPES.get(signature)
+        if cache is None:
+            if len(_PREPARED_SCOPES) >= 64:
+                _PREPARED_SCOPES.pop(next(iter(_PREPARED_SCOPES)))
+            cache = _PREPARED_SCOPES[signature] = {}
+        hit = cache.get(key)
+        if hit is not None:
+            return hit
+
+        def _padded(values) -> np.ndarray:
+            out = np.zeros(horizon, dtype=np.float64)
+            arr = np.asarray(list(values or ()), dtype=np.float64)
+            n = min(horizon, arr.size)
+            out[:n] = arr[:n]
+            return out
+
+        cashflow = _padded(self._scope_cashflow(excluded))
+        liability = _padded(key[0])
+        if self.joint_liability_path_rappen is None:
+            divergence = 0
+        else:
+            differs = (cashflow != _padded(self.cashflow_series_rappen)) | (
+                liability != _padded(self.joint_liability_path_rappen)
+            )
+            divergence = int(np.argmax(differs)) if differs.any() else horizon
+        cashflow.setflags(write=False)
+        liability.setflags(write=False)
+        prepared = (cashflow, liability, divergence)
+        cache[key] = prepared
+        return prepared
+
     def simulate_many(
         self,
         scopes: Sequence[tuple[Sequence[int], Iterable[str]]],
@@ -153,20 +214,8 @@ class ScopeReplayInputs:
                 )
             alive_by_year = np.arange(horizon, dtype=np.int32)[:, None] < death_idx[None, :]
 
-        def _padded(values) -> np.ndarray:
-            out = np.zeros(horizon, dtype=np.float64)
-            arr = np.asarray(list(values or ()), dtype=np.float64)
-            n = min(horizon, arr.size)
-            out[:n] = arr[:n]
-            return out
-
-        joint_cf = _padded(self.cashflow_series_rappen)
-        joint_liab = (
-            None if self.joint_liability_path_rappen is None
-            else _padded(self.joint_liability_path_rappen)
-        )
         joint_by_year = None
-        if joint is not None and joint_liab is not None:
+        if joint is not None and self.joint_liability_path_rappen is not None:
             joint_arr = np.asarray(joint, dtype=np.float64)
             if joint_arr.shape == (n_paths, horizon + 1):
                 joint_by_year = joint_arr.T
@@ -175,13 +224,11 @@ class ScopeReplayInputs:
         grown = np.empty(n_paths, dtype=np.float64)
         positive = np.empty(n_paths, dtype=bool)
         for path, excluded in scopes:
-            cashflow = _padded(self._scope_cashflow(excluded))
-            liability = _padded(path)
+            cashflow, liability, divergence = self.prepare_scope(path, excluded)
             wealth_by_year = np.empty((horizon + 1, n_paths), dtype=np.float64)
             start = 0
             if joint_by_year is not None:
-                differs = (cashflow != joint_cf) | (liability != joint_liab)
-                start = int(np.argmax(differs)) if differs.any() else horizon
+                start = divergence
                 wealth_by_year[: start + 1] = joint_by_year[: start + 1]
             else:
                 wealth_by_year[0] = float(self.initial_wealth_rappen)
@@ -242,6 +289,29 @@ class PriorityScopeWealth:
     replay: ScopeReplayInputs | None = None
     _cache: dict = field(default_factory=dict, repr=False)
     _keys: dict = field(default_factory=dict, repr=False)
+    _checked: set = field(default_factory=set, repr=False)
+
+    def __post_init__(self) -> None:
+        # Schluessel und Batch-Pruefung je (Liability-Liste, Freigaben,
+        # gemeinsamer Pfad) nur einmal -- im Solver entsteht je Auswertung ein
+        # neues Objekt fuer denselben Batch.
+        if self.replay is None:
+            return
+        signature = (
+            self.replay.goal_reserve_release_series_rappen,
+            None if self.replay.joint_liability_path_rappen is None
+            else tuple(self.replay.joint_liability_path_rappen),
+        )
+        entry = _BATCH_KEYS.get(id(self.liabilities))
+        if entry is not None and entry[0] is self.liabilities and entry[1] == signature:
+            self._keys = entry[2]
+            self._checked = entry[3]
+            return
+        if len(_BATCH_KEYS) >= 64:
+            _BATCH_KEYS.pop(next(iter(_BATCH_KEYS)))
+        _BATCH_KEYS[id(self.liabilities)] = (
+            self.liabilities, signature, self._keys, self._checked,
+        )
 
     @property
     def replay_count(self) -> int:
@@ -279,6 +349,8 @@ class PriorityScopeWealth:
         })
 
     def _check_batch(self, goal: GoalLiability, replay: ScopeReplayInputs) -> None:
+        if id(goal) in self._checked:
+            return
         joint_path = _as_int_tuple(goal.joint_liability_path_rappen)
         bound = replay.joint_liability_path_rappen
         if bound is not None:
@@ -288,6 +360,7 @@ class PriorityScopeWealth:
                     f"Ziel {goal.goal_id!r} stammt aus einem anderen Liability-"
                     "Batch als der gemeinsame Pfad (joint_liability_path weicht ab)."
                 )
+        self._checked.add(id(goal))
 
     def for_goal(self, goal: GoalLiability) -> np.ndarray:
         """Der fuer ``goal`` massgebliche Vermoegenspfad."""
@@ -339,7 +412,7 @@ class PriorityScopeWealth:
             joint=self.joint[index], liabilities=self.liabilities, replay=None,
         )
         subset._cache = {key: value[index] for key, value in self._cache.items()}
-        subset._keys = dict(self._keys)
+        subset._keys = self._keys
         return subset
 
     def verify_joint_parity(self) -> None:

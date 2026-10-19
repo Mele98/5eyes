@@ -710,8 +710,10 @@ def _context_scope_wealth(
         portfolio_factors=portfolio_factors,
         goal_reserve_release_series_rappen=context.reserve_goal_release_series_rappen,
     )
+    # ``context.liabilities`` selbst (nicht kopiert): Scope-Schluessel und
+    # Batch-Pruefung werden je Liste einmal berechnet (priority_scope).
     return PriorityScopeWealth(
-        joint=wealth, liabilities=list(context.liabilities), replay=replay,
+        joint=wealth, liabilities=context.liabilities, replay=replay,
     )
 
 
