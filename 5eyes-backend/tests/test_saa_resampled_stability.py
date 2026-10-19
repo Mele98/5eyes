@@ -124,20 +124,28 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     resampling = result.resampling
     assert resampling["enabled"] is True
     assert resampling["n_bags"] == DEFAULT_RESAMPLING.n_bags
-    assert resampling["n_bags_succeeded"] >= DEFAULT_RESAMPLING.n_bags // 2
+    # RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 (Engine v7): Mindestquote 90 %.
+    assert resampling["n_bags_succeeded"] >= 0.9 * DEFAULT_RESAMPLING.n_bags
+    assert resampling["min_successful_bag_share"] == 0.9
+    assert set(resampling["conditional_bag_mean_standard_error_bps"]) == set(BUCKET_ORDER)
+    assert set(resampling["missingness_sensitivity_bps"]) == set(BUCKET_ORDER)
     assert set(resampling["dispersion_bps"]) == set(BUCKET_ORDER)
     assert resampling["content_seed"] == result.seed
     # HOUSE-PRIOR-001 (Engine v6): im Default ist die Hausmatrix Prior des
     # Optimierers; der Bootstrap ist Offenlegung + Sicherheitsnetz.
-    assert resampling["engine_version"] == "saa_resampled_v7"
+    assert resampling["engine_version"] == "saa_resampled_v8"
     assert "significance" not in resampling
     house_prior = resampling["house_prior"]
     assert house_prior["decision"] in {"house_prior", "house_prior_guard"}
     assert house_prior["kappa"] == 300.0
-    if house_prior["reason"] != "identical_to_house_anchor":
+    if house_prior["reason"] not in {
+        "identical_to_house_anchor", "within_solver_tolerance_of_house_anchor",
+    }:
         disclosure = house_prior["disclosure"]
-        assert disclosure["test"] == "paired_bootstrap_disclosure_goal_level_v5"
+        assert disclosure["test"] == "paired_unit_bootstrap_disclosure_goal_level_v6"
+        assert disclosure["sampling_unit"] == "antithetic_pair"
         assert disclosure["p_value_worse"] is not None
+        assert disclosure["null_hypothesis"]["p_value_worse"]
     assert resampling["final_weights_bps"] == result.weights_bps
     # Die publizierte Allokation erfuellt alle harten Constraints.
     evaluation = evaluate_weights(result.context, dict(result.weights_bps))
@@ -249,7 +257,7 @@ def test_safety_net_publishes_the_projected_house_target(foundation, monkeypatch
     # Der Anker wird auf die harten Constraints projiziert (hier: die
     # Reserve-Untergrenze fixiert die Liquiditaet), nicht roh uebernommen.
     assert projected["liquidity"] == foundation["result"].weights_bps["liquidity"]
-    if block["reason"] == "identical_to_house_anchor":
+    if block["reason"] in {"identical_to_house_anchor", "within_solver_tolerance_of_house_anchor"}:
         pytest.skip("Ergebnis = Anker; kein Sicherheitsnetz noetig.")
     assert block["decision"] == "house_prior_guard"
     assert result.resampling["decision"] == "house_prior_guard"

@@ -20,9 +20,18 @@ riskantere Allokationen. Die bisherige Nachrechnung
 
 **Verfahren (Drawdown-Rerank).** Alle zulaessigen Multi-Start-Finalisten
 werden in ihrer gerundeten bps-Form (genau der Allokation, die publiziert
-wuerde) auf dem unabhaengigen Validierungs-Cube
-(``solver._build_validation_context``, derselbe Cube wie die
-Zielerreichungs-Nachzertifizierung) bewertet:
+wuerde) auf dem AUSWAHL-Wuerfel
+(``solver._build_selection_validation_context``) bewertet.
+
+DRAWDOWN-HOLDOUT-REUSE-001 (Engine ``saa_resampled_v7``): bis v6 war das
+derselbe Wuerfel wie Signifikanztest und Zielerreichungs-Nachzertifizierung
+-- der beste von mehreren Kandidaten wurde auf genau der Stichprobe
+getestet, auf der er gewonnen hatte (Post-Selection-Inferenz, Winner's
+Curse). Jetzt gilt die Drei-Rollen-Architektur: Bags erzeugen Kandidaten,
+der Auswahl-Wuerfel friert genau einen Challenger ein, der getrennte finale
+Holdout (``solver.CUBE_ROLE_FINAL``) testet nur noch diesen gegen den Anker
+und liefert die publizierte Zielerreichung. Die Rerank-Kennzahlen hier sind
+SELEKTIONSSCHAETZUNGEN, keine unabhaengige Zertifizierung:
 
     validiertes Objective = verfeinerter mittlerer Max-Drawdown
                           + Chance-Penalty
@@ -31,8 +40,8 @@ Zielerreichungs-Nachzertifizierung) bewertet:
 Das ist exakt die Zielfunktion des Modus ``max_drawdown``
 (``combined_objective_two_phase``: Primaerterm + Chance-Penalty, kein
 Vol-Term in den Varianten; ``_objective_from_array``: + Soft-Preference), nur
-mit dem genauen Mass statt des Jahresgitter-Proxy und auf selektionsfreien,
-ungewichteten Pfaden. Gewinner ist das Minimum; numerischer Gleichstand
+mit dem genauen Mass statt des Jahresgitter-Proxy und auf vom Training
+getrennten, ungewichteten Pfaden. Gewinner ist das Minimum; numerischer Gleichstand
 (relative Toleranz ``1e-12``) entscheidet die Trainingsreihenfolge. Alles ist
 deterministisch: der Validierungs-Cube und der Brueckenstrom sind aus dem
 Lauf-Seed abgeleitet.
@@ -53,14 +62,15 @@ sind:
   zusammengefasst),
 * der zulaessig projizierte Hausmatrix-Anker.
 
-Alle werden auf dem gemeinsamen Validierungs-Cube mit dem verfeinerten
-Drawdown bewertet. Der beste Nicht-Anker-Kandidat geht in den gepaarten
-Signifikanztest gegen den Anker, der im Modus ``max_drawdown`` ebenfalls das
-verfeinerte Mass verwendet (``refined_primary_per_path``). Weil Rerank und
-Test dieselbe Zielfunktion auf demselben Cube auswerten, ist ihre
-Punktschaetzung identisch: rankt der Rerank den Anker vorne, ist die
-Verbesserung <= 0 und der Test faellt auf die Hausmatrix -- die beiden
-Entscheide koennen sich nicht widersprechen.
+Alle werden auf dem Auswahl-Wuerfel mit dem verfeinerten Drawdown bewertet.
+Der beste Nicht-Anker-Kandidat wird eingefroren und geht in den gepaarten
+Signifikanztest gegen den Anker auf dem FINALEN Holdout, der im Modus
+``max_drawdown`` ebenfalls das verfeinerte Mass verwendet
+(``refined_primary_per_path``). Weil der Holdout an der Auswahl nicht
+beteiligt war, ist dieser Test frei von der Auswahl ueber die (bis zu drei)
+Kandidaten; eine Multiple-Selection-Korrektur entfaellt, weil auf dem
+Holdout genau ein Challenger getestet wird. Rerank und Test koennen sich
+deshalb widersprechen (Auswahl-Wuerfel-Rauschen) -- dann gilt der Test.
 
 Dieses Modul haelt die Logik bewusst ausserhalb von ``solver.py``: der Solver
 ruft nur ``certify_drawdown_candidates``, ``certify_resampled_candidates``,
@@ -227,13 +237,16 @@ def certify_drawdown_candidates(
     des validierten Gewinners -- oder None, wenn nicht zertifiziert werden
     konnte; dann bleibt der Trainingsgewinner und ``audit["reason"]`` sagt
     warum.
+
+    ``validation`` ist der AUSWAHL-Wuerfel (Default:
+    ``solver._build_selection_validation_context``), nie der finale Holdout.
     """
     from . import solver as _solver
     from .constraints import is_feasible
     from .scenario_engine import BUCKET_ORDER
 
     if validation is None:
-        validation = _solver._build_validation_context(context)
+        validation = _solver._build_selection_validation_context(context)
     if validation is None:
         return None, _not_certified(
             "no_independent_validation_cube", candidate_pool=candidate_pool,
@@ -303,6 +316,10 @@ def certify_drawdown_candidates(
         "candidate_pool": candidate_pool,
         "certified": True,
         "reason": "validation_cube_rerank",
+        # DRAWDOWN-HOLDOUT-REUSE-001: Rerank-Kennzahlen sind Selektions-
+        # schaetzungen auf dem Auswahl-Wuerfel, nicht die Zertifizierung.
+        "cube_role": "selection",
+        "selection_free": False,
         "validation_seed": int(validation_seed),
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
@@ -341,9 +358,10 @@ def certify_resampled_candidates(
 
     Kandidaten: projiziertes Bag-Mittel (Trainingsgewinner), rohes Bag-Mittel
     und der bereits zulaessig projizierte Hausmatrix-Anker
-    (``house_anchor_bps``; None = kein Anker) -- alle auf dem gemeinsamen
-    Validierungs-Cube ``validation`` (derselbe Cube wie Signifikanztest und
-    Zielerreichungs-Nachzertifizierung) mit dem verfeinerten Drawdown.
+    (``house_anchor_bps``; None = kein Anker) -- alle auf dem AUSWAHL-Wuerfel
+    ``validation`` mit dem verfeinerten Drawdown. Signifikanztest und
+    Zielerreichung laufen danach auf dem getrennten finalen Holdout
+    (DRAWDOWN-HOLDOUT-REUSE-001).
 
     Returns ``(gewichte, audit)``: ``gewichte`` ist der beste
     NICHT-Anker-Kandidat -- er geht in den Signifikanztest gegen den Anker,
@@ -446,12 +464,12 @@ def drawdown_certification_reasoning(
     lines = [
         "Zielfunktion max_drawdown: optimiert auf dem Jahresgitter (Proxy). "
         + pool_text
-        + "unabhaengigen Validierungs-Cube "
-        f"(Seed {audit.get('validation_seed')}, {audit.get('validation_n_paths')} "
+        + "Auswahl-Wuerfel (getrennt vom finalen Holdout; "
+        f"Seed {audit.get('validation_seed')}, {audit.get('validation_n_paths')} "
         "Pfade) mit verfeinertem Drawdown "
         f"({audit.get('sub_steps_per_year')} Teilschritte/Jahr, "
         f"{audit.get('model_version')}) neu bewertet und gerankt.",
-        "Trainingsgewinner auf dem Validierungs-Cube: "
+        "Trainingsgewinner auf dem Auswahl-Wuerfel (Selektionsschaetzung): "
         f"{float(training.get('refined_mean_drawdown', 0.0)) * 100:.2f}% "
         "mittlerer Max-Drawdown verfeinert vs "
         f"{float(training.get('annual_grid_mean_drawdown', 0.0)) * 100:.2f}% "
@@ -469,7 +487,8 @@ def drawdown_certification_reasoning(
         else:
             anchor_text = f"Hausmatrix-Anker validiert auf Rang {int(anchor_rank) + 1}"
         lines.append(
-            f"{anchor_text}; in den Signifikanztest gegen die Hausmatrix geht "
+            f"{anchor_text}; eingefroren und in den Signifikanztest gegen die "
+            "Hausmatrix auf dem finalen Holdout geht "
             f"{audit.get('significance_candidate_label') or 'kein separater Kandidat'} "
             "(verfeinertes Drawdown-Mass)."
         )

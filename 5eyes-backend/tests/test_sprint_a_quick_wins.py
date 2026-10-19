@@ -372,9 +372,11 @@ def test_a3_life_expectancy_extends_horizon(session_factory):
 
 
 def test_a3_no_mandate_uses_default(session_factory):
-    """Ohne mandate-Parameter weiterhin alter Default."""
+    """Ohne mandate-Parameter: nur die Mindestdauer (Solver-Mindesthorizont)."""
+    from services.portfolio_engine_mc_simulation import SIMULATION_HORIZON_MIN_YEARS
+
     h = pe._simulation_horizon_years({}, [], None)
-    assert h == pe.DEFAULT_SIMULATION_HORIZON_YEARS
+    assert h == SIMULATION_HORIZON_MIN_YEARS == 10
 
 
 # ============================================================================

@@ -100,23 +100,32 @@ def test_simulation_horizon_de_mandate_falls_back_to_generic_floor():
     Jurisdiktions-Pruefung und wandte die CH-Konstanten (83/85) blind auch
     auf DE/AT-Mandate an -- fachlich falsch. Nach dem Swap liefert ein DE-
     Mandat keinen Lebenserwartungs-Floor mehr (None -> 0), der generische
-    7-Jahre-Minimum bleibt die einzige Untergrenze."""
-    from services.portfolio_engine import DEFAULT_SIMULATION_HORIZON_YEARS
+    7-Jahre-Minimum bleibt die einzige Untergrenze.
+
+    SIM-HORIZON-FROM-RISK-PROFILE-001 (2026-10-18): die 10-Jahres-Untergrenze
+    heisst jetzt SIMULATION_HORIZON_MIN_YEARS (Solver-Mindesthorizont);
+    ohne Risikoprofil, Ziele und Lebenserwartung greift nur sie."""
+    from services.portfolio_engine_mc_simulation import SIMULATION_HORIZON_MIN_YEARS
 
     client = _client(date_of_birth="1960-03-20", salutation="Herr")
     mandate = _mandate(client, opened_at="2026-01-01", jurisdiction="DE")
-    assert _simulation_horizon_years({}, [], mandate) == max(7, DEFAULT_SIMULATION_HORIZON_YEARS)
+    assert SIMULATION_HORIZON_MIN_YEARS == 10
+    assert _simulation_horizon_years({}, [], mandate) == SIMULATION_HORIZON_MIN_YEARS
 
 
-def test_explicit_simulation_horizon_has_priority_over_life_default():
+def test_preference_horizon_is_ignored_life_default_applies():
+    """SIM-HORIZON-FROM-RISK-PROFILE-001: ein (Alt-)Praeferenz-Horizont wirkt
+    nicht mehr -- frueher hatte "12" Vorrang vor der Lebenserwartung."""
     client = _client(date_of_birth="1990-03-20", salutation="Frau")
     mandate = _mandate(client)
-    assert _simulation_horizon_years({"horizonYears": "12"}, [], mandate) == 12
+    auto = _simulation_horizon_years({}, [], mandate)
+    assert auto > 12
+    assert _simulation_horizon_years({"horizonYears": "12"}, [], mandate) == auto
 
 
 def test_dated_pension_goal_extends_horizon_even_without_horizon_years():
-    """Ein datiertes Pensionsziel verlaengert den Horizont ueber den
-    Berater-Slider hinaus, auch ohne eigenes horizon_years.
+    """Ein datiertes Pensionsziel verlaengert den Horizont ueber die
+    Mindestdauer hinaus, auch ohne eigenes horizon_years.
 
     ERGAENZT am 2026-10-11 (ADR-2): der Mock trug vorher nur drei Felder und
     KEINEN goal_type -- er war damit gar kein Pensionsziel, obwohl der Test
@@ -138,6 +147,6 @@ def test_dated_pension_goal_extends_horizon_even_without_horizon_years():
         frequency="jährlich",
         target_amount_rappen=24_000_00,
     )
-    horizon = _simulation_horizon_years({"horizonYears": "12"}, [goal], None)
+    horizon = _simulation_horizon_years({}, [goal], None)
     assert horizon == future_year - date.today().year + 1
     assert horizon >= 30

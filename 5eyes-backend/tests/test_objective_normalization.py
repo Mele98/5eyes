@@ -347,10 +347,10 @@ def test_house_prior_disclosure_compares_the_goal_level_not_the_prior_term():
     inputs = {**_inputs("D_wachstum_sparen", 1.0), "n_paths": 400}
     result = solver_module.run_solver(**inputs, seed=20261018)
     block = result.resampling["house_prior"]
-    if block.get("reason") == "identical_to_house_anchor":
+    if block.get("reason") in {"identical_to_house_anchor", "within_solver_tolerance_of_house_anchor"}:
         pytest.skip("Ergebnis = Anker; keine Offenlegung gelaufen.")
     disclosure = block["disclosure"]
-    assert disclosure["test"] == "paired_bootstrap_disclosure_goal_level_v5"
+    assert disclosure["test"] == "paired_unit_bootstrap_disclosure_goal_level_v6"
 
     validation_context, _seed, _hash = solver_module._build_validation_context(
         solver_module._with_house_prior(result.context, block["house_anchor_projected_bps"])

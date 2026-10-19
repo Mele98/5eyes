@@ -305,6 +305,36 @@ def build_scenario_paths(
     return return_factors
 
 
+SAMPLING_UNIT_ANTITHETIC_PAIR = "antithetic_pair"
+SAMPLING_UNIT_PATH = "path"
+
+
+def sampling_unit_ids(n_paths: int, *, antithetic: bool) -> np.ndarray:
+    """Unabhaengige Stichprobeneinheit je Pfad (RESAMPLING-ANTITHETIC-BOOTSTRAP-001).
+
+    Expliziter Layout-Vertrag zu ``build_scenario_paths``: bei
+    ``antithetic=True`` liegen die ``half = ceil(n/2)`` Basispfade in den
+    Zeilen ``0..half-1`` und ihre gespiegelten Partner in ``half..n-1``;
+    Pfad ``i`` und Pfad ``i + half`` sind EINE Einheit (dieselbe Ziehung
+    ``Z``). Bei ungerader Pfadzahl hat der letzte Basispfad (``half-1``)
+    keinen Partner -- er ist eine eigene Einheit mit einem Mitglied.
+
+    Ohne Antithetics ist jeder Pfad seine eigene Einheit.
+
+    Ein Bootstrap muss EINHEITEN ziehen, nicht Zeilen: nichtlineare
+    Portfolio-Verlustdifferenzen zweier Partnerpfade koennen positiv
+    korreliert sein; Zeilen-Resampling behandelt dann ``2m`` abhaengige
+    Beobachtungen wie ``2m`` unabhaengige und unterschaetzt die Streuung.
+    """
+    n_paths = int(max(1, n_paths))
+    if not antithetic:
+        return np.arange(n_paths, dtype=np.int64)
+    half = (n_paths + 1) // 2
+    ids = np.arange(n_paths, dtype=np.int64)
+    ids[half:] -= half
+    return ids
+
+
 def build_scenario_paths_with_weights(
     inputs: ScenarioInputs,
     *,

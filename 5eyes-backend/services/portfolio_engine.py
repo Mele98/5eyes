@@ -39,8 +39,10 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.esg_data_provenance import seed_unverified_run_warning
 from services.preference_snapshot import (
     INHERITED_PREFERENCES_NOTE,
+    ThemeGapDiagnosis,
     inherit_current_allocation_preferences,
     resolve_recommendation_preferences,
 )
@@ -74,7 +76,6 @@ from services.wealth_position_semantics import (
     require_supported_position_assignment,
 )
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
-from services.mortality.horizon import life_expectancy_year_from_mandate
 from services.jurisdiction.de_seed import (
     DE_DEFAULT_BONDS_DURATION,
     DE_DEFAULT_EQUITIES_GEO,
@@ -190,7 +191,6 @@ ASSET_LIQUIDITY_PROFILES = {
     "alternatives": "heterogen / teils illiquide",
     "liquidity": "taeglich verfuegbar",
 }
-DEFAULT_SIMULATION_HORIZON_YEARS = 10
 DEFAULT_SIMULATION_STRESS_MULTIPLIER = 1.0
 # Sprint U-P1 Fix C4: Default-Sample erhoeht von 750 auf 2500. Bei N=750
 # liegt der Standardfehler des 5%-Quantils (VaR/CVaR) bei ca. ±1.5 %-Pkt;
@@ -1573,6 +1573,7 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
     _sequence_of_returns_depletion,
     _simulate_bucket_path,
     _simulation_crisis_strength,
+    _simulation_horizon_derivation,
     _simulation_horizon_years,
     _simulation_rebalance_mode,
     _simulation_stress_multiplier,
@@ -1896,6 +1897,35 @@ HEDGED_PRODUCT_VARIANTS: list[tuple] = [
     ("iShares Developed Markets Property Yield CHF Hedged", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "CHF", 48, "8", "BBB"),
 ]
 
+DEFAULT_CATALOG_PRODUCTS: list[tuple] = [
+    ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
+    ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
+    ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
+    ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
+    ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
+    ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
+    ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
+    ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
+    ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
+    ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
+    ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
+    ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
+    ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
+    ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
+    ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
+    ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
+    ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
+    ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
+    ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
+    ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
+    ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
+    ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
+    *HEDGED_PRODUCT_VARIANTS,
+    ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
+    ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
+    ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
+]
+
 
 def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): der bestehende CH-
@@ -1932,38 +1962,10 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     if active_ch_products:
         return
     now = _now()
-    defaults = [
-        ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
-        ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
-        ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
-        ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
-        ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
-        ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
-        ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
-        ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
-        ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
-        ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
-        ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
-        ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
-        ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
-        ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
-        ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
-        ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
-        ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
-        ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
-        ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
-        ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
-        ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
-        ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
-        *HEDGED_PRODUCT_VARIANTS,
-        ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
-        ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
-        ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
-    ]
-    _validate_default_products(defaults)
-    validate_default_product_market_coverage([name for name, *_ in defaults])
+    _validate_default_products(DEFAULT_CATALOG_PRODUCTS)
+    validate_default_product_market_coverage([name for name, *_ in DEFAULT_CATALOG_PRODUCTS])
     created = []
-    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in defaults:
+    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in DEFAULT_CATALOG_PRODUCTS:
         product = Product(
             id=new_uuid(),
             product_name=name,
@@ -2130,6 +2132,7 @@ def _load_allocation_inputs(
     mandate: Mandate,
     simulation_prefs: dict,
     cma: CapitalMarketAssumption | None = None,
+    horizon_years_override: int | None = None,
 ) -> dict:
     # One model-owned FX basis for positions, cashflows and projections.
     # Empty reference data uses the explicit versioned default; malformed,
@@ -2230,7 +2233,9 @@ def _load_allocation_inputs(
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
     )
-    projection_years = _simulation_horizon_years(simulation_prefs, goals, mandate)
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: Horizont aus Risikoprofil/Zielen/Lebenserwartung.
+    projection_horizon = _simulation_horizon_derivation(goals, mandate, fixed_years=horizon_years_override)
+    projection_years = projection_horizon["years"]
     external_foundation_projection = _build_external_foundation_projection(
         all_positions,
         horizon_years=projection_years,
@@ -2438,6 +2443,7 @@ def _load_allocation_inputs(
         "inflow_projection_series_rappen": inflow_projection_series_rappen,
         # Sprint B2: Anderes-Vermoegen-Schloss-Pool (Reserve-Reduktion).
         "unlocked_other_assets_rappen": unlocked_other_assets_rappen,
+        "projection_horizon": projection_horizon,
     }
 
 
@@ -2503,6 +2509,7 @@ from services.portfolio_engine_optimizer_integration import (  # noqa: F401,E402
     _optimizer_audit_fields,
     _optimizer_status_is_converged,
     sensitivity_delta_availability,
+    sensitivity_canonical_scalar as _canonical_scalar,
     _persist_optimizer_run,
     _run_stochastic_optimizer_pass,
     _synchronize_fallback_optimizer_result,
@@ -2898,8 +2905,9 @@ def _strategy_drift_warnings(
             "Soll-Allokation geaendert. Strategie neu berechnen, damit Reserve, Targets "
             "und Pfadsimulation auf den aktuellen Inputs basieren."
         )
-    # Preferences-Drift
-    stored_prefs = getattr(allocation, "preferences_json", None)
+    # Preferences-Drift (ohne verworfene Alt-Keys, SIM-HORIZON-FROM-RISK-PROFILE-001)
+    from schemas.allocation import preferences_json_without_ignored_keys
+    stored_prefs = preferences_json_without_ignored_keys(getattr(allocation, "preferences_json", None))
     if stored_prefs and current_preferences_json and stored_prefs != current_preferences_json:
         msgs.append(
             "Hinweis: Mandatspraeferenzen (Bandbreiten, Tilts, Geo, Reserve-Vorgabe) "
@@ -2954,6 +2962,10 @@ from services.portfolio_engine_reserve import (  # noqa: F401,E402
     _time_bucket_reserve_factor,
     PENSION_PILLARS,
     PENSION_PILLAR_STATE_FUNDED,
+)
+from services.reserve_funding_ledger import (  # noqa: E402
+    compile_goal_set_funding,
+    compile_reserve_funding_ledger_for_inputs,
 )
 
 
@@ -3212,6 +3224,13 @@ def generate_target_allocation(
             horizon_years=len(cashflow_projection_series_rappen),
         )
     )
+    reserve_ledger = compile_reserve_funding_ledger_for_inputs(  # RESERVE-FUNDING-LEDGER-001
+        reserve_inputs=inputs, goals=goals, reserve_needed_rappen=reserve_needed_rappen,
+        external_reserve_rappen=external_reserve_rappen, inflation_series_bps=goal_inflation_series_bps,
+        solver_cashflow_series_rappen=optimizer_cashflow_projection_series_rappen,
+        external_wealth_rappen=max(0, int(total_wealth_rappen) - int(advisory_wealth_rappen)),
+        external_wealth_series_rappen=external_goal_funding_series_rappen,
+    )
     # Phase 4 / V3 Sprint 1: Stochastic Optimizer.
     # Modi:
     # - 'stochastic': Solver konvergiert -> ersetzt House-Matrix-Default-Targets;
@@ -3445,7 +3464,7 @@ def generate_target_allocation(
             external_goal_funding_series_rappen
         ),
         mandate=mandate,  # Sprint 4 Phase 3: BFS-Mortalitaets-Felder
-        external_reserve_rappen=external_reserve_rappen,  # RESERVE-DOUBLE-COUNT-001
+        reserve_ledger=reserve_ledger,  # RESERVE-FUNDING-LEDGER-001
     )
     # Strikt: Tilts duerfen nur uebersprungen werden, wenn die Targets
     # tatsaechlich vom Solver ersetzt wurden (also nur im 'stochastic' Modus,
@@ -3777,6 +3796,7 @@ def generate_target_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     goal_analysis = _build_goal_analysis(
         goals=goals,
@@ -3795,6 +3815,7 @@ def generate_target_allocation(
         total_path_series_rappen=simulation[
             "total_mix_target_series_rappen"
         ],
+        reserve_ledger=reserve_ledger,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
@@ -3816,6 +3837,7 @@ def generate_target_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     # RISK-FALLBACK-CONTEXT-001: EIN Wert fuer die Methode, die diese
     # Allokation erzeugt hat -- er geht sowohl in die Modellbasis hier als
@@ -3850,6 +3872,7 @@ def generate_target_allocation(
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
+    reasoning.append(inputs["projection_horizon"]["sentence"])
 
     # Race-Hardening: pessimistic Lock, damit parallele
     # generate_target_allocation-Calls keine doppelten is_current=1 Records
@@ -4245,6 +4268,7 @@ def generate_target_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
+        "reserve_funding_ledger": reserve_ledger.to_dict(),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
@@ -4261,6 +4285,7 @@ def generate_target_allocation(
         "capital_market_assumption_set": cma.assumption_set_name,
         "capital_market_source": cma.source,
         "reasoning": reasoning,
+        "projection_horizon": inputs["projection_horizon"],
         "buckets": bucket_response,
         "sub_allocations": sub_allocations,
         "asset_class_assumptions": asset_class_assumptions,
@@ -4508,29 +4533,12 @@ def evaluate_goal_sensitivity(
             ),
             default=1,
         )
-        # Recompute only genuinely independent model floors. Calling
-        # _simulation_horizon_years without an explicit override would add
-        # the generic 10-year default again. For a negative shift of the
-        # very goal that established that default, this would move the start
-        # while pinning the end and invent extra pension payments. The
-        # implementation minimum (7 years) and an explicit/lifecycle-derived
-        # life-expectancy end remain real independent floors; unaffected goals
-        # are already represented by unaffected_goal_horizon above.
-        # Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-
-        # Vereinheitlichung): planning_horizon.life_expectancy_year_for()
-        # (flach, Geburtsjahr+Konstante) durch die genauere BFS-2020-2022-
-        # Sterbetafel (alters-bedingt) ersetzt -- vermeidet den bis zu
-        # 6-Jahre-Unterschied, siehe Kontrollrunde-2026-09-21-Analyse. Reiner
-        # interner Modell-Floor, nicht direkt client-sichtbar.
-        life_year = life_expectancy_year_from_mandate(
-            mandate, client=getattr(mandate, "client", None),
-        )
-        life_horizon = (
-            max(0, int(life_year) - date.today().year + 1)
-            if life_year is not None
-            else 0
-        )
-        unaffected_model_horizon = max(7, int(life_horizon))
+        # Independent model floors: 7 years and the life-expectancy end from the
+        # SAME derivation as the main run. Neither the 10-year solver minimum
+        # nor the risk-profile horizon: both are generic run lengths that would
+        # stretch the shifted goal's open-ended stream (invented payments).
+        life = _simulation_horizon_derivation([], mandate)["components"]["life_expectancy"]
+        unaffected_model_horizon = max(7, int(life))
         modified_run_horizon = max(
             1,
             int(modified_goal_horizon),
@@ -4597,7 +4605,8 @@ def evaluate_goal_sensitivity(
         inputs = _load_allocation_inputs(
             db,
             mandate,
-            simulation_prefs={"horizonYears": projection_horizon},
+            simulation_prefs={},
+            horizon_years_override=projection_horizon,
             cma=cma,
         )
         goals = inputs["goals"]
@@ -4744,7 +4753,6 @@ def evaluate_goal_sensitivity(
     sensitivity_prefs = _merge_mandate_defaults_into_prefs(
         sensitivity_prefs, mandate
     )
-    sensitivity_external_reserve: int
     if current_allocation is None:
         # There is no immutable allocation artifact to reuse yet. Build the
         # exact stochastic candidate context used by Generate instead of
@@ -4780,6 +4788,7 @@ def evaluate_goal_sensitivity(
         live_saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(
             live_maximums["liquidity"]
         )
+        sensitivity_reserve_ceiling_bps = live_saa_liquidity_ceiling_bps
         live_reserve_needed, sensitivity_external_reserve = (
             _apply_goal_and_reserve_tilts(
                 targets=live_targets,
@@ -4955,35 +4964,9 @@ def evaluate_goal_sensitivity(
         # RESERVE-CEILING-001: das persistierte Liquiditaetsband ist bereits
         # um den Reserve-Floor geliftet (Nenner I statt A) und taugt nicht als
         # Ceiling; rekonstruiert wird der Wert, den Generate beim Split sah.
-        sensitivity_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(
+        sensitivity_reserve_ceiling_bps = _saa_liquidity_ceiling_bps(
             _pre_reserve_liquidity_max_bps(
                 house_matrix, policy, sensitivity_prefs["bands"]
-            )
-        )
-        _sensitivity_reserve_needed, sensitivity_external_reserve = (
-            _compute_reserve_for_inputs(
-                goals=goals,
-                limits_prefs=sensitivity_prefs["limits"],
-                asset_class_prefs=sensitivity_prefs["assetClasses"],
-                recurring_net_cashflow_rappen=int(
-                    inputs["recurring_net_cashflow_rappen"]
-                ),
-                recurring_cashflow_projection_series_rappen=list(
-                    inputs["recurring_cashflow_projection_series_rappen"]
-                ),
-                advisory_wealth_rappen=int(
-                    inputs["advisory_wealth_rappen"]
-                ),
-                saa_liquidity_ceiling_bps=(
-                    sensitivity_liquidity_ceiling_bps
-                ),
-                reasoning=None,
-                unlocked_other_assets_rappen=int(
-                    inputs.get("unlocked_other_assets_rappen") or 0
-                ),
-                inflow_projection_series_rappen=list(
-                    inputs.get("inflow_projection_series_rappen") or []
-                ),
             )
         )
         if sensitivity_effective_bounds is None:
@@ -4993,10 +4976,6 @@ def evaluate_goal_sensitivity(
             rf_per_bucket = bucket_risky_fractions_from_building_blocks(
                 building_blocks_rows
             )
-    advisory_wealth_rappen = _investable_advisory_wealth_rappen(
-        int(inputs["advisory_wealth_rappen"]),
-        sensitivity_external_reserve,
-    )
     sensitivity_external_wealth = max(
         0,
         int(inputs["total_wealth_rappen"])
@@ -5005,11 +4984,14 @@ def evaluate_goal_sensitivity(
     initially_replaced_sensitivity_tax = list(
         inputs.get("optimizer_replaced_tax_projection_series_rappen") or []
     )
-    if initially_replaced_sensitivity_tax:
+
+    def _rebased_cashflows(start_wealth: int) -> list[int]:
+        if not initially_replaced_sensitivity_tax:
+            return list(cashflow_projection_series_rappen)
         effective_sensitivity_tax = _project_estimated_wealth_tax_cashflow(
             mandate,
             _tax_removal_wealth_basis_rappen(
-                advisory_wealth_rappen, int(inputs["total_wealth_rappen"])
+                start_wealth, int(inputs["total_wealth_rappen"])
             ),
             len(cashflow_projection_series_rappen),
             start_year=cashflow_totals["year"],
@@ -5019,7 +5001,7 @@ def evaluate_goal_sensitivity(
             fx_source=inputs.get("cashflow_fx_source"),
             target_currency=str(inputs.get("cashflow_target_currency") or "CHF"),
         )
-        cashflow_projection_series_rappen = [
+        return [
             int(current) + int(initial_tax) - int(effective_tax)
             for current, initial_tax, effective_tax in zip(
                 cashflow_projection_series_rappen,
@@ -5027,6 +5009,17 @@ def evaluate_goal_sensitivity(
                 effective_sensitivity_tax,
             )
         ]
+
+    def _funding(context_goals: list, *, run_horizon: int, external_series: list[int]):
+        # RESERVE-FUNDING-LEDGER-001: je Goal-Set eigene Reserve, eigenes
+        # A - E und eigener Release-Ledger (Gegenlauf erbt nichts).
+        return compile_goal_set_funding(
+            reserve_inputs=inputs, goals=context_goals, limits_prefs=sensitivity_prefs["limits"],
+            asset_class_prefs=sensitivity_prefs["assetClasses"], rebase_cashflows=_rebased_cashflows,
+            saa_liquidity_ceiling_bps=sensitivity_reserve_ceiling_bps, run_horizon=run_horizon,
+            inflation_series_bps=inflation_series_bps, external_wealth_rappen=sensitivity_external_wealth,
+            external_wealth_series_rappen=external_series,
+        )
 
     sensitivity_tax_kwargs = _build_tax_solver_kwargs(mandate)
     from services.mandate_model_inputs import (
@@ -5103,38 +5096,6 @@ def evaluate_goal_sensitivity(
     baseline_external_series = _cached_external_series(horizon)
     modified_external_series = _cached_external_series(modified_run_horizon)
 
-    def _canonical_scalar(value):
-        if value is None or isinstance(value, (str, int, bool)):
-            return value
-        if isinstance(value, float):
-            if not math.isfinite(value):
-                raise ValueError(
-                    "Sensitivity-Modellkontext enthaelt NaN/Infinity."
-                )
-            return value
-        if isinstance(value, (date, datetime)):
-            return value.isoformat()
-        if isinstance(value, dict):
-            return {
-                str(key): _canonical_scalar(item)
-                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-            }
-        if isinstance(value, (list, tuple)):
-            return [_canonical_scalar(item) for item in value]
-        if hasattr(value, "tolist"):
-            return _canonical_scalar(value.tolist())
-        state = getattr(value, "__dict__", None)
-        if isinstance(state, dict):
-            return {
-                "class": f"{type(value).__module__}.{type(value).__qualname__}",
-                "state": _canonical_scalar({
-                    key: item
-                    for key, item in state.items()
-                    if not str(key).startswith("_")
-                }),
-            }
-        return str(value)
-
     # CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001:
     # same binding as _build_allocation_model_basis -- the sensitivity
     # model_input_hash must change when the goal-weighting mode changes,
@@ -5209,9 +5170,11 @@ def evaluate_goal_sensitivity(
         *,
         run_horizon: int,
         external_series: list[int],
+        funding,
     ) -> str:
         payload = {
-            "version": "sensitivity_live_context_v3_complete",
+            "version": "sensitivity_live_context_v4_reserve_ledger",
+            "reserve_funding_ledger_hash": funding.ledger.contract_hash,
             "goal_weighting_mode": sensitivity_goal_weighting_mode,
             # OPTIMIZER-OBJECTIVE-VARIANTS-001: der Primaerterm aendert die
             # Solver-Mathematik, gehoert also wie die Gewichtung in den Hash.
@@ -5225,12 +5188,9 @@ def evaluate_goal_sensitivity(
             "horizon_years": int(run_horizon),
             "n_paths": int(_OPTIMIZER_N_PATHS_DEFAULT),
             "score_x10": int(score_x10),
-            "advisory_wealth_rappen": int(advisory_wealth_rappen),
+            "advisory_wealth_rappen": int(funding.start_wealth_rappen),
             "external_wealth_rappen": int(sensitivity_external_wealth),
-            "cashflow_series_rappen": [
-                int(value)
-                for value in cashflow_projection_series_rappen[:run_horizon]
-            ],
+            "cashflow_series_rappen": list(funding.cashflow_series_rappen),
             "inflation_series_bps": [
                 int(value) for value in inflation_series_bps[:run_horizon]
             ],
@@ -5262,15 +5222,21 @@ def evaluate_goal_sensitivity(
             ).encode("utf-8")
         ).hexdigest()
 
+    baseline_funding = _funding(goals, run_horizon=horizon, external_series=baseline_external_series)
+    modified_funding = _funding(
+        modified_goals, run_horizon=modified_run_horizon, external_series=modified_external_series
+    )
     baseline_model_input_hash = _model_input_hash(
         goals,
         run_horizon=horizon,
         external_series=baseline_external_series,
+        funding=baseline_funding,
     )
     modified_model_input_hash = _model_input_hash(
         modified_goals,
         run_horizon=modified_run_horizon,
         external_series=modified_external_series,
+        funding=modified_funding,
     )
 
     def _solve(
@@ -5278,16 +5244,15 @@ def evaluate_goal_sensitivity(
         *,
         run_horizon: int,
         external_series: list[int],
+        funding,
     ):
         return run_solver(
             cma=cma,
             goals=context_goals,
             house_matrix_row=house_matrix,
             score_x10=score_x10,
-            advisory_wealth_rappen=advisory_wealth_rappen,
-            cashflow_series_rappen=(
-                cashflow_projection_series_rappen[:run_horizon]
-            ),
+            advisory_wealth_rappen=funding.start_wealth_rappen,
+            cashflow_series_rappen=list(funding.cashflow_series_rappen),
             external_wealth_rappen=sensitivity_external_wealth,
             external_wealth_series_rappen=external_series,
             horizon_years=run_horizon,
@@ -5312,11 +5277,13 @@ def evaluate_goal_sensitivity(
         goals,
         run_horizon=horizon,
         external_series=baseline_external_series,
+        funding=baseline_funding,
     )
     modified_result = _solve(
         modified_goals,
         run_horizon=modified_run_horizon,
         external_series=modified_external_series,
+        funding=modified_funding,
     )
 
     def _obj_milli(value: float) -> int | None:
@@ -5384,6 +5351,8 @@ def evaluate_goal_sensitivity(
         "live_model_input_hash": baseline_model_input_hash,
         "baseline_model_input_hash": baseline_model_input_hash,
         "modified_model_input_hash": modified_model_input_hash,
+        "baseline_reserve_funding_ledger": baseline_funding.ledger.to_dict(),
+        "modified_reserve_funding_ledger": modified_funding.ledger.to_dict(),
         "scenario_pairing_basis": (
             "same_seed_same_max_horizon_cube_exact_path_prefix_v1"
         ),
@@ -5566,7 +5535,8 @@ def build_target_payload_from_allocation(
     recurring_net_cashflow_rappen = recurring_income_rappen - recurring_expense_rappen
     capital_net_cashflow_rappen = capital_inflow_rappen - capital_outflow_rappen
     annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
-    projection_years = _simulation_horizon_years(prefs["simulation"], goals, mandate)
+    projection_horizon = _simulation_horizon_derivation(goals, mandate, assessment=assessment)
+    projection_years = projection_horizon["years"]
     # B1: Cashflow-Series mit CMA-Inflations-Pfad (siehe _load_allocation_inputs).
     cf_inflation_series_bps = _inflation_path_series(cma, projection_years, cashflow_totals["year"])
     cashflow_projection_series_rappen = net_cashflow_series(
@@ -5858,6 +5828,16 @@ def build_target_payload_from_allocation(
             )
         ]
 
+    reserve_ledger = compile_reserve_funding_ledger_for_inputs(  # RESERVE-FUNDING-LEDGER-001
+        reserve_inputs={"recurring_net_cashflow_rappen": recurring_net_cashflow_rappen,
+                        "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
+                        "inflow_projection_series_rappen": inflow_projection_series_rappen},
+        goals=goals, reserve_needed_rappen=reserve_needed_rappen, external_reserve_rappen=external_reserve_rappen,
+        solver_cashflow_series_rappen=rebuild_optimizer_cashflow_projection_series_rappen,
+        inflation_series_bps=goal_inflation_series_bps,
+        external_wealth_rappen=max(0, int(total_wealth_rappen) - int(advisory_wealth_rappen)),
+        external_wealth_series_rappen=external_goal_funding_series_rappen,
+    )
     # A persisted allocation owns its targets.  Reporting, however, is rebuilt
     # from the live database.  Therefore the input anchor must be checked
     # *before* any deterministic or stochastic analysis is produced; otherwise
@@ -5979,6 +5959,7 @@ def build_target_payload_from_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     goal_analysis = _build_goal_analysis(
         goals=goals,
@@ -5997,6 +5978,7 @@ def build_target_payload_from_allocation(
         total_path_series_rappen=simulation[
             "total_mix_target_series_rappen"
         ],
+        reserve_ledger=reserve_ledger,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
@@ -6018,6 +6000,7 @@ def build_target_payload_from_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
         external_foundation_projection=external_foundation_projection,
+        reserve_release_series_rappen=reserve_ledger.release_series_rappen,
     )
     stored_optimizer_mode = str(
         getattr(allocation, "optimization_method", None) or "house_matrix"
@@ -6201,6 +6184,7 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
+        "reserve_funding_ledger": reserve_ledger.to_dict(),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
@@ -6219,6 +6203,7 @@ def build_target_payload_from_allocation(
             [
                 "Verwendet die bestehende aktuelle Soll-Allokation.",
                 "Die Projektion wird zusaetzlich ueber normalverteilte Jahresrenditen als Pfadsimulation verdichtet.",
+                projection_horizon["sentence"],
             ]
             + (
                 [
@@ -6235,6 +6220,7 @@ def build_target_payload_from_allocation(
             # Reserve, Legacy-Anker). Konsolidiert ehemalige inline F2-/F3-Logik.
             + drift_warnings
         ),
+        "projection_horizon": projection_horizon,
         "buckets": bucket_response,
         "sub_allocations": sub_allocations,
         "asset_class_assumptions": asset_class_assumptions,
@@ -6739,6 +6725,7 @@ def generate_recommendation_run(
         and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
     ]
 
+    theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx)
     for sub in sub_allocations:
         exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
@@ -6751,6 +6738,7 @@ def generate_recommendation_run(
         esg_gap_hint = None if exact else esg_policy_gap_hint(
             products, sub["sub_asset_class"], sub["asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
         )
+        theme_gap_hint = None if exact else theme_diag.hint(sub)  # THEME-MISSINGNESS-001
         candidates = exact
         if not candidates:
             candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
@@ -6761,7 +6749,8 @@ def generate_recommendation_run(
                 "sub_asset_class": str(sub["sub_asset_class"]),
                 "asset_class": str(sub["asset_class"]),
                 "target_weight_bps": int(sub["target_weight_bps"]),
-                "esg_gap_hint": esg_gap_hint,
+                "esg_gap_hint": esg_gap_hint or theme_gap_hint,
+                "theme_gap_hint": theme_gap_hint,
             })
             continue
         ranked = sorted(
@@ -6806,6 +6795,7 @@ def generate_recommendation_run(
     # ohne dass der Berater es bemerkte. Jetzt: ValueError mit konkreter Liste.
     if missing_sub_classes:
         total_missing_bps = sum(item["target_weight_bps"] for item in missing_sub_classes)
+        theme_diag.raise_if_blocked(missing_sub_classes)  # THEME-MISSINGNESS-001: 409 auch < 50 bps
         # Toleranz: bis 50 bps (0.5%) Lücke darf "still" durchlaufen (z.B. einzelne
         # exotische Sub-Class mit 0 Allokation). Alles darüber ist ein echter Fehler.
         if total_missing_bps > 50:
@@ -6823,6 +6813,7 @@ def generate_recommendation_run(
             )
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
+    warnings.extend(w for w in [seed_unverified_run_warning(prefs, [e["product"] for e in aggregated_positions.values()])] if w)
 
     latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
     market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))

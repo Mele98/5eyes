@@ -1,0 +1,163 @@
+
+=== Sweep Inhalts-Seed (Produktion): Sprung bei +1 % Zielbetrag (pp, Turnover = 1/2 L1) ===
+A_ausg_spar: decisions OOOOOOOOOOOOOOOOOOOOOOHHHHHHHOHHHHHHHHHOO
+  a        maxTO  16.0  meanTO 1.08  #TO>2pp  8  maxdEq  14.2  OOS-goal 0.2614 (vs a +0.00000)  world-goal 0.4282 (+0.00000)  P_oos 81.86%  P_world 78.64%
+  b_eb     maxTO  15.4  meanTO 2.01  #TO>2pp 18  maxdEq  13.6  OOS-goal 0.2615 (vs a +0.00008)  world-goal 0.4283 (+0.00008)  P_oos 81.86%  P_world 78.60%
+  b_prob   maxTO   9.0  meanTO 2.21  #TO>2pp 20  maxdEq   7.6  OOS-goal 0.2597 (vs a -0.00173)  world-goal 0.4263 (-0.00195)  P_oos 81.92%  P_world 78.70%
+  d_0.001  maxTO  17.8  meanTO 1.27  #TO>2pp  7  maxdEq  15.8  OOS-goal 0.2616 (vs a +0.00019)  world-goal 0.4369 (+0.00865)  P_oos 81.57%  P_world 77.90%
+  d_0.005  maxTO   3.1  meanTO 0.15  #TO>2pp  2  maxdEq   0.2  OOS-goal 0.2628 (vs a +0.00142)  world-goal 0.4385 (+0.01031)  P_oos 81.58%  P_world 77.90%
+  c_100    maxTO   2.3  meanTO 0.47  #TO>2pp  2  maxdEq   1.3  OOS-goal 0.2469 (vs a -0.01455)  world-goal 0.4272 (-0.00099)  P_oos 82.03%  P_world 78.27%
+  c_1000   maxTO   1.6  meanTO 0.37  #TO>2pp  0  maxdEq   0.4  OOS-goal 0.2451 (vs a -0.01627)  world-goal 0.4261 (-0.00213)  P_oos 82.02%  P_world 78.30%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.2633 (vs a +0.00192)  world-goal 0.4389 (+0.01066)  P_oos 81.57%  P_world 77.89%
+  opt      maxTO   4.2  meanTO 1.38  #TO>2pp 14  maxdEq   4.2  OOS-goal 0.2596 (vs a -0.00178)  world-goal 0.4256 (-0.00262)  P_oos 81.92%  P_world 78.70%
+B_kons_entn: decisions HHHHHHHHHHHHHHHHHOOOHHHHOHOHHHOHOOOHOOOHH
+  a        maxTO   3.0  meanTO 0.38  #TO>2pp  2  maxdEq   1.4  OOS-goal 0.0145 (vs a +0.00000)  world-goal 0.0259 (+0.00000)  P_oos 80.24%  P_world 79.20%
+  b_eb     maxTO   2.0  meanTO 0.28  #TO>2pp  0  maxdEq   0.9  OOS-goal 0.0145 (vs a +0.00001)  world-goal 0.0259 (-0.00002)  P_oos 80.25%  P_world 79.21%
+  b_prob   maxTO   2.7  meanTO 0.63  #TO>2pp  6  maxdEq   1.3  OOS-goal 0.0144 (vs a -0.00006)  world-goal 0.0259 (-0.00004)  P_oos 80.24%  P_world 79.21%
+  d_0.001  maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0146 (vs a +0.00015)  world-goal 0.0260 (+0.00008)  P_oos 80.20%  P_world 79.17%
+  d_0.005  maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0146 (vs a +0.00015)  world-goal 0.0260 (+0.00008)  P_oos 80.20%  P_world 79.17%
+  c_100    maxTO   0.5  meanTO 0.13  #TO>2pp  0  maxdEq   0.3  OOS-goal 0.0143 (vs a -0.00023)  world-goal 0.0256 (-0.00032)  P_oos 80.38%  P_world 79.35%
+  c_1000   maxTO   0.1  meanTO 0.04  #TO>2pp  0  maxdEq   0.1  OOS-goal 0.0145 (vs a -0.00001)  world-goal 0.0259 (-0.00004)  P_oos 80.27%  P_world 79.23%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0146 (vs a +0.00015)  world-goal 0.0260 (+0.00008)  P_oos 80.20%  P_world 79.17%
+  opt      maxTO   1.0  meanTO 0.29  #TO>2pp  0  maxdEq   0.6  OOS-goal 0.0144 (vs a -0.00011)  world-goal 0.0260 (+0.00009)  P_oos 80.08%  P_world 79.04%
+C_wachs_entn: decisions HHHHHHHHHHHHOHHOOHOOOOOOOOOOOOOOOOOOOOOOO
+  a        maxTO   6.2  meanTO 0.85  #TO>2pp  5  maxdEq   6.2  OOS-goal 0.2570 (vs a +0.00000)  world-goal 0.3155 (+0.00000)  P_oos 60.95%  P_world 60.97%
+  b_eb     maxTO   7.5  meanTO 0.95  #TO>2pp  6  maxdEq   6.2  OOS-goal 0.2573 (vs a +0.00032)  world-goal 0.3154 (-0.00005)  P_oos 60.90%  P_world 60.95%
+  b_prob   maxTO   9.4  meanTO 1.25  #TO>2pp  6  maxdEq   7.8  OOS-goal 0.2566 (vs a -0.00038)  world-goal 0.3148 (-0.00069)  P_oos 60.97%  P_world 61.02%
+  d_0.001  maxTO   6.2  meanTO 0.85  #TO>2pp  5  maxdEq   6.2  OOS-goal 0.2570 (vs a +0.00000)  world-goal 0.3155 (+0.00000)  P_oos 60.95%  P_world 60.97%
+  d_0.005  maxTO   7.9  meanTO 1.05  #TO>2pp  5  maxdEq   7.9  OOS-goal 0.2579 (vs a +0.00093)  world-goal 0.3157 (+0.00022)  P_oos 60.82%  P_world 60.89%
+  c_100    maxTO   1.8  meanTO 0.51  #TO>2pp  0  maxdEq   1.8  OOS-goal 0.2450 (vs a -0.01198)  world-goal 0.3092 (-0.00625)  P_oos 61.78%  P_world 61.44%
+  c_1000   maxTO   0.4  meanTO 0.15  #TO>2pp  0  maxdEq   0.1  OOS-goal 0.2637 (vs a +0.00672)  world-goal 0.3169 (+0.00145)  P_oos 60.16%  P_world 60.46%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.2690 (vs a +0.01202)  world-goal 0.3197 (+0.00421)  P_oos 59.75%  P_world 60.20%
+  opt      maxTO   4.4  meanTO 1.05  #TO>2pp  4  maxdEq   4.4  OOS-goal 0.2564 (vs a -0.00057)  world-goal 0.3137 (-0.00174)  P_oos 60.94%  P_world 61.06%
+D_wachs_spar: decisions OOOOOOOOOOOOHOHHHHHOOOOOOOOOOOOOOOOOOOOOO
+  a        maxTO  15.4  meanTO 1.58  #TO>2pp  7  maxdEq  13.0  OOS-goal 2.6555 (vs a +0.00000)  world-goal 3.7756 (+0.00000)  P_oos 66.54%  P_world 60.83%
+  b_eb     maxTO  17.8  meanTO 1.64  #TO>2pp  8  maxdEq  14.9  OOS-goal 2.6609 (vs a +0.00545)  world-goal 3.7893 (+0.01365)  P_oos 66.42%  P_world 60.67%
+  b_prob   maxTO   6.6  meanTO 1.09  #TO>2pp  8  maxdEq   5.1  OOS-goal 2.6537 (vs a -0.00178)  world-goal 3.7716 (-0.00403)  P_oos 66.55%  P_world 60.87%
+  d_0.001  maxTO  15.4  meanTO 1.58  #TO>2pp  7  maxdEq  13.0  OOS-goal 2.6555 (vs a +0.00000)  world-goal 3.7756 (+0.00000)  P_oos 66.54%  P_world 60.83%
+  d_0.005  maxTO  17.9  meanTO 1.49  #TO>2pp  6  maxdEq  15.0  OOS-goal 2.6566 (vs a +0.00115)  world-goal 3.7911 (+0.01551)  P_oos 66.37%  P_world 60.60%
+  c_100    maxTO   2.6  meanTO 0.56  #TO>2pp  1  maxdEq   2.6  OOS-goal 2.4486 (vs a -0.20684)  world-goal 3.6776 (-0.09799)  P_oos 67.49%  P_world 61.24%
+  c_1000   maxTO   2.9  meanTO 0.70  #TO>2pp  1  maxdEq   1.2  OOS-goal 2.4898 (vs a -0.16569)  world-goal 3.7046 (-0.07098)  P_oos 67.21%  P_world 61.04%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 2.8774 (vs a +0.22192)  world-goal 3.9740 (+0.19838)  P_oos 64.78%  P_world 59.17%
+  opt      maxTO   4.8  meanTO 1.01  #TO>2pp  8  maxdEq   3.7  OOS-goal 2.6532 (vs a -0.00224)  world-goal 3.7694 (-0.00619)  P_oos 66.55%  P_world 60.89%
+E_ausg_entn: decisions OOOOOOOOOOOOOOOOHOOOOOOHHHHHHHHHHHHHHHOHH
+  a        maxTO  20.9  meanTO 2.10  #TO>2pp  9  maxdEq  15.8  OOS-goal 0.0058 (vs a +0.00000)  world-goal 0.0396 (+0.00000)  P_oos 82.96%  P_world 72.92%
+  b_eb     maxTO  20.5  meanTO 2.18  #TO>2pp 10  maxdEq  15.5  OOS-goal 0.0058 (vs a +0.00000)  world-goal 0.0395 (-0.00010)  P_oos 83.10%  P_world 73.00%
+  b_prob   maxTO  11.4  meanTO 1.99  #TO>2pp 12  maxdEq   9.0  OOS-goal 0.0058 (vs a -0.00004)  world-goal 0.0394 (-0.00022)  P_oos 82.94%  P_world 72.96%
+  d_0.001  maxTO   8.1  meanTO 0.40  #TO>2pp  2  maxdEq   4.6  OOS-goal 0.0061 (vs a +0.00022)  world-goal 0.0399 (+0.00029)  P_oos 83.91%  P_world 73.27%
+  d_0.005  maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0061 (vs a +0.00023)  world-goal 0.0399 (+0.00036)  P_oos 83.91%  P_world 73.26%
+  c_100    maxTO   0.3  meanTO 0.08  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0054 (vs a -0.00045)  world-goal 0.0390 (-0.00061)  P_oos 84.22%  P_world 73.62%
+  c_1000   maxTO   0.4  meanTO 0.08  #TO>2pp  0  maxdEq   0.1  OOS-goal 0.0057 (vs a -0.00011)  world-goal 0.0395 (-0.00003)  P_oos 84.04%  P_world 73.40%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0061 (vs a +0.00023)  world-goal 0.0399 (+0.00036)  P_oos 83.91%  P_world 73.26%
+  opt      maxTO   5.2  meanTO 1.43  #TO>2pp 13  maxdEq   5.0  OOS-goal 0.0059 (vs a +0.00008)  world-goal 0.0385 (-0.00102)  P_oos 82.66%  P_world 73.03%
+
+--- Aggregat Inhalts-Seed (Produktion) (Mittel ueber Mandate) ---
+  a        maxTO(max)  20.9  maxTO(mean)  12.3  meanTO 1.20  #TO>2pp  31  dOOS +0.00000  dWorld +0.00000  P_oos 74.51%  P_world 70.51%
+  b_eb     maxTO(max)  20.5  maxTO(mean)  12.6  meanTO 1.41  #TO>2pp  42  dOOS +0.00117  dWorld +0.00271  P_oos 74.51%  P_world 70.49%
+  b_prob   maxTO(max)  11.4  maxTO(mean)   7.8  meanTO 1.44  #TO>2pp  52  dOOS -0.00080  dWorld -0.00139  P_oos 74.52%  P_world 70.55%
+  d_0.001  maxTO(max)  17.8  maxTO(mean)   9.5  meanTO 0.82  #TO>2pp  21  dOOS +0.00011  dWorld +0.00180  P_oos 74.64%  P_world 70.43%
+  d_0.005  maxTO(max)  17.9  maxTO(mean)   5.8  meanTO 0.54  #TO>2pp  13  dOOS +0.00078  dWorld +0.00530  P_oos 74.58%  P_world 70.37%
+  c_100    maxTO(max)   2.6  maxTO(mean)   1.5  meanTO 0.35  #TO>2pp   3  dOOS -0.04681  dWorld -0.02123  P_oos 75.18%  P_world 70.78%
+  c_1000   maxTO(max)   2.9  maxTO(mean)   1.1  meanTO 0.27  #TO>2pp   1  dOOS -0.03507  dWorld -0.01435  P_oos 74.74%  P_world 70.48%
+  house    maxTO(max)   0.0  maxTO(mean)   0.0  meanTO 0.00  #TO>2pp   0  dOOS +0.04725  dWorld +0.04274  P_oos 74.04%  P_world 69.94%
+  opt      maxTO(max)   5.2  maxTO(mean)   3.9  meanTO 1.03  #TO>2pp  39  dOOS -0.00093  dWorld -0.00230  P_oos 74.43%  P_world 70.54%
+
+=== Sweep fester Seed (CRN): Sprung bei +1 % Zielbetrag (pp, Turnover = 1/2 L1) ===
+A_ausg_spar: decisions OOOOOOOOOOOOOOOOOOOOOOOHHHHHHHHHHHHHHHOOH
+  a        maxTO  16.6  meanTO 1.07  #TO>2pp  8  maxdEq  14.4  OOS-goal 0.2618 (vs a +0.00000)  world-goal 0.4276 (+0.00000)  P_oos 81.89%  P_world 78.67%
+  b_eb     maxTO  16.4  meanTO 1.27  #TO>2pp 11  maxdEq  14.8  OOS-goal 0.2615 (vs a -0.00031)  world-goal 0.4282 (+0.00056)  P_oos 81.88%  P_world 78.63%
+  b_prob   maxTO   8.1  meanTO 1.49  #TO>2pp 12  maxdEq   6.8  OOS-goal 0.2607 (vs a -0.00111)  world-goal 0.4264 (-0.00118)  P_oos 81.92%  P_world 78.71%
+  d_0.001  maxTO  17.6  meanTO 1.13  #TO>2pp  5  maxdEq  15.5  OOS-goal 0.2621 (vs a +0.00026)  world-goal 0.4374 (+0.00975)  P_oos 81.58%  P_world 77.91%
+  d_0.005  maxTO   3.7  meanTO 0.21  #TO>2pp  2  maxdEq   0.8  OOS-goal 0.2622 (vs a +0.00033)  world-goal 0.4382 (+0.01056)  P_oos 81.59%  P_world 77.91%
+  c_100    maxTO   2.9  meanTO 0.47  #TO>2pp  2  maxdEq   1.7  OOS-goal 0.2468 (vs a -0.01506)  world-goal 0.4271 (-0.00054)  P_oos 82.03%  P_world 78.28%
+  c_1000   maxTO   1.5  meanTO 0.33  #TO>2pp  0  maxdEq   0.6  OOS-goal 0.2453 (vs a -0.01659)  world-goal 0.4262 (-0.00140)  P_oos 82.02%  P_world 78.29%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.2633 (vs a +0.00148)  world-goal 0.4389 (+0.01124)  P_oos 81.57%  P_world 77.89%
+  opt      maxTO   4.3  meanTO 1.31  #TO>2pp 12  maxdEq   4.3  OOS-goal 0.2588 (vs a -0.00301)  world-goal 0.4245 (-0.00314)  P_oos 81.97%  P_world 78.75%
+B_kons_entn: decisions HHHHHHHHHHHHHHHHHHHHHOHHOOOHHOHOOOHHOOHHO
+  a        maxTO   1.3  meanTO 0.28  #TO>2pp  0  maxdEq   0.5  OOS-goal 0.0145 (vs a +0.00000)  world-goal 0.0259 (+0.00000)  P_oos 80.26%  P_world 79.23%
+  b_eb     maxTO   0.8  meanTO 0.19  #TO>2pp  0  maxdEq   0.4  OOS-goal 0.0145 (vs a +0.00003)  world-goal 0.0259 (+0.00001)  P_oos 80.25%  P_world 79.22%
+  b_prob   maxTO   1.0  meanTO 0.28  #TO>2pp  0  maxdEq   0.5  OOS-goal 0.0144 (vs a -0.00005)  world-goal 0.0258 (-0.00004)  P_oos 80.27%  P_world 79.24%
+  d_0.001  maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0146 (vs a +0.00016)  world-goal 0.0260 (+0.00012)  P_oos 80.20%  P_world 79.17%
+  d_0.005  maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0146 (vs a +0.00016)  world-goal 0.0260 (+0.00012)  P_oos 80.20%  P_world 79.17%
+  c_100    maxTO   0.4  meanTO 0.09  #TO>2pp  0  maxdEq   0.3  OOS-goal 0.0143 (vs a -0.00022)  world-goal 0.0256 (-0.00027)  P_oos 80.38%  P_world 79.35%
+  c_1000   maxTO   0.2  meanTO 0.05  #TO>2pp  0  maxdEq   0.1  OOS-goal 0.0145 (vs a -0.00001)  world-goal 0.0259 (+0.00000)  P_oos 80.27%  P_world 79.23%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0146 (vs a +0.00016)  world-goal 0.0260 (+0.00012)  P_oos 80.20%  P_world 79.17%
+  opt      maxTO   0.8  meanTO 0.22  #TO>2pp  0  maxdEq   0.5  OOS-goal 0.0144 (vs a -0.00011)  world-goal 0.0260 (+0.00013)  P_oos 80.07%  P_world 79.04%
+C_wachs_entn: decisions HHOOOHHOHHOHHHOOOOOOOOOOOOOOOOOOOOOOOOOOO
+  a        maxTO  11.4  meanTO 1.35  #TO>2pp  7  maxdEq   9.6  OOS-goal 0.2565 (vs a +0.00000)  world-goal 0.3147 (+0.00000)  P_oos 60.97%  P_world 61.02%
+  b_eb     maxTO   6.6  meanTO 1.06  #TO>2pp  7  maxdEq   5.8  OOS-goal 0.2569 (vs a +0.00034)  world-goal 0.3148 (+0.00003)  P_oos 60.93%  P_world 60.99%
+  b_prob   maxTO   7.5  meanTO 0.94  #TO>2pp  6  maxdEq   6.6  OOS-goal 0.2563 (vs a -0.00022)  world-goal 0.3142 (-0.00057)  P_oos 60.98%  P_world 61.05%
+  d_0.001  maxTO   5.8  meanTO 0.60  #TO>2pp  3  maxdEq   5.1  OOS-goal 0.2568 (vs a +0.00027)  world-goal 0.3153 (+0.00060)  P_oos 60.97%  P_world 60.99%
+  d_0.005  maxTO   7.0  meanTO 0.30  #TO>2pp  1  maxdEq   7.0  OOS-goal 0.2581 (vs a +0.00155)  world-goal 0.3157 (+0.00098)  P_oos 60.79%  P_world 60.87%
+  c_100    maxTO   0.8  meanTO 0.41  #TO>2pp  0  maxdEq   0.8  OOS-goal 0.2452 (vs a -0.01128)  world-goal 0.3094 (-0.00537)  P_oos 61.76%  P_world 61.42%
+  c_1000   maxTO   0.5  meanTO 0.14  #TO>2pp  0  maxdEq   0.1  OOS-goal 0.2635 (vs a +0.00699)  world-goal 0.3168 (+0.00206)  P_oos 60.18%  P_world 60.47%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.2690 (vs a +0.01252)  world-goal 0.3197 (+0.00496)  P_oos 59.75%  P_world 60.20%
+  opt      maxTO   3.2  meanTO 0.67  #TO>2pp  3  maxdEq   3.2  OOS-goal 0.2562 (vs a -0.00034)  world-goal 0.3137 (-0.00098)  P_oos 60.97%  P_world 61.07%
+D_wachs_spar: decisions OOOOOOOOOOOHHHHHHOOHOOOOOOOOOOOOOOOOOOOOO
+  a        maxTO  17.3  meanTO 1.30  #TO>2pp  7  maxdEq  14.8  OOS-goal 2.6571 (vs a +0.00000)  world-goal 3.7807 (+0.00000)  P_oos 66.51%  P_world 60.78%
+  b_eb     maxTO  15.3  meanTO 1.96  #TO>2pp  8  maxdEq  13.2  OOS-goal 2.6608 (vs a +0.00371)  world-goal 3.7912 (+0.01051)  P_oos 66.42%  P_world 60.66%
+  b_prob   maxTO  10.2  meanTO 1.39  #TO>2pp  8  maxdEq   8.8  OOS-goal 2.6540 (vs a -0.00311)  world-goal 3.7769 (-0.00377)  P_oos 66.54%  P_world 60.81%
+  d_0.001  maxTO  17.3  meanTO 1.30  #TO>2pp  7  maxdEq  14.8  OOS-goal 2.6571 (vs a +0.00000)  world-goal 3.7807 (+0.00000)  P_oos 66.51%  P_world 60.78%
+  d_0.005  maxTO  18.0  meanTO 1.73  #TO>2pp  8  maxdEq  15.0  OOS-goal 2.6575 (vs a +0.00042)  world-goal 3.7944 (+0.01374)  P_oos 66.35%  P_world 60.57%
+  c_100    maxTO   2.5  meanTO 0.57  #TO>2pp  1  maxdEq   2.0  OOS-goal 2.4495 (vs a -0.20760)  world-goal 3.6795 (-0.10117)  P_oos 67.48%  P_world 61.23%
+  c_1000   maxTO   2.3  meanTO 0.68  #TO>2pp  1  maxdEq   1.4  OOS-goal 2.4905 (vs a -0.16664)  world-goal 3.7067 (-0.07400)  P_oos 67.20%  P_world 61.02%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 2.8774 (vs a +0.22027)  world-goal 3.9740 (+0.19331)  P_oos 64.78%  P_world 59.17%
+  opt      maxTO   4.5  meanTO 0.96  #TO>2pp  7  maxdEq   4.5  OOS-goal 2.6521 (vs a -0.00502)  world-goal 3.7696 (-0.01105)  P_oos 66.55%  P_world 60.88%
+E_ausg_entn: decisions OOOOOOOOOOOOOOOOOOOOOHHHHHHHHHHHHHHHHHHHH
+  a        maxTO  13.7  meanTO 0.68  #TO>2pp  3  maxdEq  13.8  OOS-goal 0.0059 (vs a +0.00000)  world-goal 0.0396 (+0.00000)  P_oos 83.01%  P_world 72.93%
+  b_eb     maxTO   9.0  meanTO 0.66  #TO>2pp  4  maxdEq   9.0  OOS-goal 0.0059 (vs a +0.00001)  world-goal 0.0396 (-0.00005)  P_oos 83.13%  P_world 72.99%
+  b_prob   maxTO   5.2  meanTO 0.69  #TO>2pp  7  maxdEq   5.2  OOS-goal 0.0058 (vs a -0.00002)  world-goal 0.0395 (-0.00012)  P_oos 82.99%  P_world 72.96%
+  d_0.001  maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0061 (vs a +0.00021)  world-goal 0.0399 (+0.00028)  P_oos 83.91%  P_world 73.26%
+  d_0.005  maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0061 (vs a +0.00021)  world-goal 0.0399 (+0.00028)  P_oos 83.91%  P_world 73.26%
+  c_100    maxTO   0.2  meanTO 0.08  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0054 (vs a -0.00047)  world-goal 0.0390 (-0.00070)  P_oos 84.22%  P_world 73.62%
+  c_1000   maxTO   0.4  meanTO 0.07  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0057 (vs a -0.00015)  world-goal 0.0395 (-0.00013)  P_oos 84.05%  P_world 73.40%
+  house    maxTO   0.0  meanTO 0.00  #TO>2pp  0  maxdEq   0.0  OOS-goal 0.0061 (vs a +0.00021)  world-goal 0.0399 (+0.00028)  P_oos 83.91%  P_world 73.26%
+  opt      maxTO   2.9  meanTO 1.00  #TO>2pp  5  maxdEq   2.9  OOS-goal 0.0058 (vs a -0.00005)  world-goal 0.0384 (-0.00121)  P_oos 82.77%  P_world 73.11%
+
+--- Aggregat fester Seed (CRN) (Mittel ueber Mandate) ---
+  a        maxTO(max)  17.3  maxTO(mean)  12.1  meanTO 0.94  #TO>2pp  25  dOOS +0.00000  dWorld +0.00000  P_oos 74.53%  P_world 70.53%
+  b_eb     maxTO(max)  16.4  maxTO(mean)   9.6  meanTO 1.03  #TO>2pp  30  dOOS +0.00076  dWorld +0.00221  P_oos 74.52%  P_world 70.50%
+  b_prob   maxTO(max)  10.2  maxTO(mean)   6.4  meanTO 0.96  #TO>2pp  33  dOOS -0.00090  dWorld -0.00114  P_oos 74.54%  P_world 70.55%
+  d_0.001  maxTO(max)  17.6  maxTO(mean)   8.1  meanTO 0.60  #TO>2pp  15  dOOS +0.00018  dWorld +0.00215  P_oos 74.64%  P_world 70.42%
+  d_0.005  maxTO(max)  18.0  maxTO(mean)   5.7  meanTO 0.45  #TO>2pp  11  dOOS +0.00053  dWorld +0.00513  P_oos 74.57%  P_world 70.36%
+  c_100    maxTO(max)   2.9  maxTO(mean)   1.4  meanTO 0.32  #TO>2pp   3  dOOS -0.04693  dWorld -0.02161  P_oos 75.18%  P_world 70.78%
+  c_1000   maxTO(max)   2.3  maxTO(mean)   1.0  meanTO 0.25  #TO>2pp   1  dOOS -0.03528  dWorld -0.01469  P_oos 74.74%  P_world 70.48%
+  house    maxTO(max)   0.0  maxTO(mean)   0.0  meanTO 0.00  #TO>2pp   0  dOOS +0.04693  dWorld +0.04198  P_oos 74.04%  P_world 69.94%
+  opt      maxTO(max)   4.5  maxTO(mean)   3.1  meanTO 0.83  #TO>2pp  27  dOOS -0.00170  dWorld -0.00325  P_oos 74.47%  P_world 70.57%
+
+=== Seed-Stabilitaet: 6 Seeds je (Mandat, Skala); Std Aktien (pp), mittl. paarweiser Turnover (pp) ===
+A_ausg_spar 0.90 [OOOOOO] | a  0.0/ 0.0 | b_eb  0.0/ 0.1 | b_prob  0.0/ 0.0 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.0/ 0.0 | c_1000  0.0/ 0.0 | house  0.0/ 0.0 | opt  0.0/ 0.0
+A_ausg_spar 1.00 [OOOOOO] | a  0.1/ 0.5 | b_eb  0.1/ 0.5 | b_prob  0.1/ 0.5 | d_0.001  8.2/ 9.6 | d_0.005  0.0/ 0.0 | c_100  0.0/ 0.0 | c_1000  0.0/ 0.1 | house  0.0/ 0.0 | opt  0.1/ 0.5
+A_ausg_spar 1.10 [HHHHHH] | a  0.0/ 0.0 | b_eb  0.0/ 0.1 | b_prob  0.6/ 2.0 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.2/ 0.5 | c_1000  0.2/ 0.8 | house  0.0/ 0.0 | opt  1.1/ 1.5
+B_kons_entn 0.90 [HHHHHH] | a  0.0/ 0.0 | b_eb  0.1/ 0.1 | b_prob  0.6/ 1.0 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.0/ 0.0 | c_1000  0.0/ 0.0 | house  0.0/ 0.0 | opt  0.1/ 0.2
+B_kons_entn 1.00 [OOHHHO] | a  0.3/ 1.0 | b_eb  0.0/ 0.0 | b_prob  0.3/ 0.8 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.1/ 0.1 | c_1000  0.0/ 0.0 | house  0.0/ 0.0 | opt  0.2/ 0.4
+B_kons_entn 1.10 [HHHHOH] | a  0.1/ 0.2 | b_eb  0.1/ 0.3 | b_prob  0.1/ 0.3 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.1/ 0.2 | c_1000  0.0/ 0.1 | house  0.0/ 0.0 | opt  0.1/ 0.3
+C_wachs_entn 0.90 [HHHOHO] | a  0.9/ 1.5 | b_eb  0.6/ 1.0 | b_prob  0.8/ 1.5 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.4/ 0.6 | c_1000  0.0/ 0.1 | house  0.0/ 0.0 | opt  0.7/ 0.8
+C_wachs_entn 1.00 [OOOOOO] | a  0.5/ 0.6 | b_eb  0.5/ 0.6 | b_prob  0.5/ 0.6 | d_0.001  0.5/ 0.6 | d_0.005  2.7/ 2.6 | c_100  0.5/ 0.6 | c_1000  0.0/ 0.1 | house  0.0/ 0.0 | opt  0.5/ 0.6
+C_wachs_entn 1.10 [OOOOOO] | a  0.4/ 0.5 | b_eb  0.5/ 0.6 | b_prob  0.4/ 0.5 | d_0.001  0.4/ 0.5 | d_0.005  0.4/ 0.5 | c_100  0.3/ 0.4 | c_1000  0.0/ 0.2 | house  0.0/ 0.0 | opt  0.4/ 0.5
+D_wachs_spar 0.90 [OOHOHO] | a  7.4/ 9.2 | b_eb  5.6/ 7.3 | b_prob  4.3/ 5.3 | d_0.001  7.4/ 9.2 | d_0.005  7.4/ 9.2 | c_100  0.6/ 0.9 | c_1000  0.1/ 0.5 | house  0.0/ 0.0 | opt  0.4/ 0.7
+D_wachs_spar 1.00 [OOOHOO] | a  2.6/ 2.3 | b_eb  0.9/ 1.2 | b_prob  0.5/ 0.6 | d_0.001  2.6/ 2.3 | d_0.005  2.6/ 2.3 | c_100  0.4/ 0.5 | c_1000  0.6/ 1.1 | house  0.0/ 0.0 | opt  0.3/ 0.3
+D_wachs_spar 1.10 [OOOOOO] | a  0.2/ 0.2 | b_eb  0.2/ 0.2 | b_prob  0.2/ 0.2 | d_0.001  0.2/ 0.2 | d_0.005  0.2/ 0.2 | c_100  0.1/ 0.2 | c_1000  0.4/ 0.5 | house  0.0/ 0.0 | opt  0.2/ 0.2
+E_ausg_entn 0.90 [OOOOOO] | a  0.0/ 0.1 | b_eb  0.0/ 0.2 | b_prob  0.0/ 0.1 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.0/ 0.0 | c_1000  0.0/ 0.0 | house  0.0/ 0.0 | opt  0.0/ 0.1
+E_ausg_entn 1.00 [OOOOOO] | a  0.5/ 1.2 | b_eb  1.2/ 1.9 | b_prob  0.6/ 1.3 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.0/ 0.0 | c_1000  0.0/ 0.0 | house  0.0/ 0.0 | opt  0.5/ 1.2
+E_ausg_entn 1.10 [HHHHHH] | a  0.0/ 0.0 | b_eb  0.0/ 0.0 | b_prob  0.3/ 0.3 | d_0.001  0.0/ 0.0 | d_0.005  0.0/ 0.0 | c_100  0.0/ 0.1 | c_1000  0.0/ 0.1 | house  0.0/ 0.0 | opt  0.6/ 0.9
+--- Aggregat Seeds ---
+  a        sdEq mean 0.86 max 7.42  pairTO mean 1.16 max 9.21  OOS-goal 0.5326  world-goal 0.8608
+  b_eb     sdEq mean 0.65 max 5.56  pairTO mean 0.94 max 7.34  OOS-goal 0.5335  world-goal 0.8619
+  b_prob   sdEq mean 0.61 max 4.32  pairTO mean 1.00 max 5.26  OOS-goal 0.5306  world-goal 0.8585
+  d_0.001  sdEq mean 1.29 max 8.17  pairTO mean 1.49 max 9.58  OOS-goal 0.5328  world-goal 0.8636
+  d_0.005  sdEq mean 0.89 max 7.42  pairTO mean 0.99 max 9.21  OOS-goal 0.5329  world-goal 0.8643
+  c_100    sdEq mean 0.19 max 0.62  pairTO mean 0.28 max 0.87  OOS-goal 0.4901  world-goal 0.8383
+  c_1000   sdEq mean 0.09 max 0.58  pairTO mean 0.25 max 1.11  OOS-goal 0.5015  world-goal 0.8441
+  house    sdEq mean 0.00 max 0.00  pairTO mean 0.00 max 0.00  OOS-goal 0.5714  world-goal 0.8935
+  opt      sdEq mean 0.35 max 1.15  pairTO mean 0.56 max 1.54  OOS-goal 0.5291  world-goal 0.8564
+
+=== Laufzeit elapsed_ms (unter Parallel-Last gemessen) ===
+  elapsed_ms_a: median 5142  p95 18209  max 43435
+  elapsed_ms_c_100: median 4674  p95 20462  max 51972
+  elapsed_ms_c_1000: median 5056  p95 12716  max 25638
+
+=== lambda-Verteilung (b) ===
+  eb: n 500  =0: 173  in (0,1): 327  =1: 0
+  prob: n 500  =0: 93  in (0,1): 181  =1: 226
+  unzulaessige Mischpunkte nach Rundung+Reparatur: 0

@@ -194,20 +194,31 @@ Error 0, Entscheid ``house_prior`` /
 ``identical_to_house_anchor``). Begruendung:
 docs/planning/2026-10-18-house-prior-v6.md.
 
+Nachtrag (2026-10-18, Engine ``saa_resampled_v7``, Statistik-Vertraege):
+Einheiten-Bootstrap, nullzentrierte p-Werte, B = 999, getrennte Auswahl-/
+Final-Wuerfel, Survivor-Schwelle 90 %, Ridge-Prior-Metrik; neue Version im
+Seed. Alle sechs Fixtures UNVERAENDERT gegen die neue Engine gruen, keine
+Datei geaendert. Fachlich erwartet: die Ziele bleiben mit der Hausquote
+sicher erreicht; das Optimum des (Ridge-)Priors ist weiter die projizierte
+Hausquote. Eine Restabweichung des SLSQP-Mittels von <= 1 bp je Bucket
+(Solver-Toleranz, ``within_solver_tolerance_of_house_anchor``) publiziert
+ebenfalls exakt den Anker. Begruendung:
+docs/planning/2026-10-18-resampling-statistics-contracts-v7.md.
+
 Nachtrag (2026-10-19, MAXIMIZE-GOAL-001 / GOAL-HARDNESS-DEFAULT-001 /
-GOAL-HIERARCHY-001, Engine ``saa_resampled_v7``): Haertegrad standardmaessig,
-harte/primaere Ziele als Stufe 1 (Zielschutz-Schranke G1* + eps, eps = z *
-SE(Haus - Stufe-1) / h_max). Unter OPENBLAS_CORETYPE=Haswell UND =Nehalem
-(OMP/OPENBLAS/MKL_NUM_THREADS=1) neu erzeugt, beide Laeufe byte-identisch:
-vier Fixtures unveraendert (Score 3, alle drei Score-5-Varianten: Hausquote
-liegt innerhalb der Schranke). Geaendert, weil die Pension HART ist (h = 10:
+GOAL-HIERARCHY-001/-002, Engine ``saa_resampled_v8``, auf v7 #649): Haertegrad
+standardmaessig, erreichbare harte/primaere Ziele als Stufe 1
+(Zielschutz-Schranke G1* + eps, eps = z * SE(Haus - Stufe-1) / h_max). Unter
+OPENBLAS_CORETYPE=Haswell UND =Nehalem (OMP/OPENBLAS/MKL_NUM_THREADS=1) neu
+erzeugt, beide Laeufe byte-identisch: vier Fixtures unveraendert (Score 3,
+alle drei Score-5-Varianten). Geaendert, weil die Pension HART ist (h = 10:
 nur ein Zehntel des Monte-Carlo-Rauschens als Erosion zugunsten der
-Hausmatrix): Score 7 6800/1600/800/600/200 -> 6792/1609/797/602/200
-(529/1081 -> 528/1080 bps), Score 9 7900/800/700/400/200 ->
-7807/916/707/370/200 (577/1245 -> 573/1230 bps, Risikoanteil 69.17 ->
-68.51 %): in einzelnen Bags hat die Hausquote Fehlbetragspfade der harten
-Pension, die die Schranke verletzen; die Allokation wird dort geringfuegig
-defensiver. Begruendung: docs/planning/2026-10-18-maximize-goal-and-hardness.md.
+Hausmatrix): Score 7 6800/1600/800/600/200 -> 6734/1674/810/582/200
+(529/1081 -> 526/1071 bps, Risikoanteil 64.65 -> 64.22 %), Score 9
+7900/800/700/400/200 -> 7799/959/670/372/200 (577/1245 -> 572/1227 bps,
+Risikoanteil 69.17 -> 68.36 %). Nachweis der Ursache: mit Haertegrad-Teiler
+1 statt 10 (Experiment) ergeben beide exakt die bisherigen Fixtures.
+Begruendung: docs/planning/2026-10-18-maximize-goal-and-hardness.md.
 """
 from __future__ import annotations
 

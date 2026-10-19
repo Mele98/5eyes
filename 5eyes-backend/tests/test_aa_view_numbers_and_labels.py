@@ -165,6 +165,7 @@ _CHART_FNS = (
     "simulationPayload",
     "monteCarloPayload",
     "simulationSeriesK",
+    "aaReserveSockelRappen",
     "upgradeFanChartWithMonteCarlo",
     "upgradeCurrentAaChartWithMonteCarlo",
 )
@@ -217,6 +218,7 @@ _TABLE_FNS = (
     "simulationCagrBps",
     "aaProjectionHorizonCut",
     "aaSeriesValueAt",
+    "aaReserveSockelRappen",
     "renderAaProjectionEndValues",
 )
 
@@ -292,6 +294,22 @@ def test_reserve_sockel_added_to_soll_end_values_and_growth():
     assert out["cagr"] == "3.54%"
 
 
+def test_reserve_sockel_not_added_twice_for_economic_basis_payloads():
+    """RESERVE-FUNDING-LEDGER-001: enthaelt der SOLL-Pfad das Reservekonto
+    bereits (reserve_accounting_basis), darf die Reserve nicht nochmals
+    aufgeschlagen werden."""
+    out = _run(
+        _TABLE_FNS,
+        _MC_RESULT_JS
+        + "result.external_reserve_rappen=20000000;"
+        + "result.monte_carlo.reserve_accounting_basis='economic_total_incl_external_reserve_v1';"
+        + "__override=10;" + _READ_TABLE_JS,
+    )
+    assert out["median"] == "CHF 1.50 Mio."
+    assert out["p90"] == "CHF 1.80 Mio."
+    assert out["p10"] == "CHF 1.20 Mio."
+
+
 def test_median_difference_is_neutral_and_labelled_as_difference_of_medians():
     out = _run(_TABLE_FNS, _MC_RESULT_JS + "__override=null;" + _READ_TABLE_JS)
     assert out["delta"] == "+" + out["r600"]
@@ -336,7 +354,8 @@ def test_two_horizon_controls_are_named_distinctly():
     bar = html[html.index('id="aa-horizon-bar"'):html.index('id="aa-horizon-mode"')]
     assert ">Grafik-Ausschnitt<" in bar
     assert ">Prognose-Horizont<" not in bar
-    sim = html[html.index('id="aa-simulation-card"'):html.index('id="aa-sim-horizon"')]
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: Anzeige statt Auswahl.
+    sim = html[html.index('id="aa-simulation-card"'):html.index('id="aa-sim-horizon-info"')]
     assert "Prognose-Horizont (Simulation)" in sim
     # Bestehende Zusicherung (test_frontend_aa_horizon_control) bleibt erhalten.
     assert "ändert nur die Grafik-Länge, nicht die Renditen" in html

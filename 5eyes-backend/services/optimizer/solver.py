@@ -70,11 +70,14 @@ from .drawdown_certification import (
 from .goal_attribution import publish_goal_achievability
 from .house_prior import (
     DECISION_HOUSE_PRIOR,
+    DECISION_HOUSE_PRIOR_FAIL_CLOSED,
     DECISION_HOUSE_PRIOR_GUARD,
+    HOUSE_ANCHOR_NUMERICAL_TOLERANCE_BPS,
     HOUSE_PRIOR_KAPPA,
     HOUSE_PRIOR_VERSION,
     REASON_GUARD,
     REASON_IDENTICAL,
+    REASON_WITHIN_TOLERANCE,
     REASON_NO_VALIDATION,
     REASON_NOT_WORSE,
     REASON_TEST_DISABLED,
@@ -82,6 +85,7 @@ from .house_prior import (
     house_prior_penalty,
     house_prior_sentence,
     paired_bootstrap_disclosure,
+    prior_metric_audit,
     tracking_error_bps,
 )
 from .objective import (
@@ -116,12 +120,19 @@ from .resampling import (
     DEFAULT_RESAMPLING,
     RISK_MEASURE_MATERIALITY,
     MIN_SUCCESSFUL_BAG_SHARE,
+    MISSINGNESS_STRESS_SIGMAS,
     RESAMPLING_SCHEME_VERSION,
     ResamplingConfig,
+    _domain_seed,
     bag_seeds,
     bootstrap_seed,
     build_bag_paths,
     paired_bootstrap_improvement,
+)
+from .scenario_engine import (
+    SAMPLING_UNIT_ANTITHETIC_PAIR,
+    SAMPLING_UNIT_PATH,
+    sampling_unit_ids as scenario_sampling_unit_ids,
 )
 from .scenario_cache import (
     build_scenario_paths_cached,
@@ -257,22 +268,61 @@ class OptimizerResult:
 # oder 2 wuerde bei benachbarten Mandats-Seeds Ueberlappungen riskieren.
 VALIDATION_SEED_OFFSET = 1_000_003
 
+# DRAWDOWN-HOLDOUT-REUSE-001 (Engine saa_resampled_v7): Drei-Rollen-Architektur.
+#
+#   Training/Bag-Wuerfel  -> Kandidatenerzeugung
+#   Auswahl-Wuerfel       -> genau einen Challenger einfrieren (nur Rerank)
+#   finaler Holdout       -> Challenger vs. Anker + Zielerreichung, KEINE
+#                            weitere Auswahl
+#
+# Der finale Holdout behaelt den bisherigen Seed (Inhalts-Seed +
+# VALIDATION_SEED_OFFSET); der Auswahl-Wuerfel ist domaenensepariert aus dem
+# Inhalts-Seed abgeleitet (SHA-256, wie die Bag-Seeds) -- er kann weder mit
+# dem Holdout noch mit einem Bag zusammenfallen. Weitere Konsumenten (z.B.
+# ein Screen vor der Optimierung) bekommen eine EIGENE Rolle statt einen der
+# beiden Wuerfel mitzubenutzen.
+CUBE_ROLE_FINAL = "final_certification"
+CUBE_ROLE_SELECTION = "selection"
+CUBE_ROLE_REACHABILITY_SCREEN = "reachability_screen"
+_CUBE_ROLE_SEED_DOMAINS = {
+    CUBE_ROLE_SELECTION: "saa-validation-selection-v1",
+    CUBE_ROLE_REACHABILITY_SCREEN: "saa-validation-reachability-screen-v1",
+}
+# Validierungswuerfel sind immer antithetisch (kein Importance Sampling).
+# Einzige Quelle fuer Bau UND Stichprobeneinheit des Bootstraps
+# (RESAMPLING-ANTITHETIC-BOOTSTRAP-001).
+VALIDATION_CUBE_ANTITHETIC = True
+
+
+def _validation_seed_for_role(content_seed: int, role: str) -> int:
+    if role == CUBE_ROLE_FINAL:
+        return int(content_seed) + VALIDATION_SEED_OFFSET
+    try:
+        domain = _CUBE_ROLE_SEED_DOMAINS[role]
+    except KeyError as exc:
+        raise ValueError(f"Unbekannte Wuerfel-Rolle: {role!r}") from exc
+    return _domain_seed(domain, int(content_seed))
+
 
 def _build_validation_context(
     context: "OptimizerContext",
+    *,
+    role: str = CUBE_ROLE_FINAL,
 ) -> tuple["OptimizerContext", int, str] | None:
     """Unabhaengiger Validierungs-Cube (gleiche Verteilung, anderer Seed).
 
-    Einzige Konstruktion dieses Cubes: die Nachzertifizierung der
-    Zielerreichung UND der Signifikanztest gegen die Hausmatrix
-    (SAA-RESAMPLED-STABILITY-001) bewerten auf exakt demselben Cube.
+    ``role=CUBE_ROLE_FINAL`` (Default) ist der finale Holdout: auf ihm
+    laufen NUR noch der Test des eingefrorenen Challengers gegen den Anker
+    und die Zielerreichungs-Nachzertifizierung -- keine Auswahl.
+    ``role=CUBE_ROLE_SELECTION`` ist der getrennte Auswahl-Wuerfel des
+    Drawdown-Reranks. Seeds und Hashes der Rollen sind verschieden.
     None, wenn keine ScenarioInputs vorliegen oder der Cube nicht gebaut
     werden kann.
     """
     inputs = getattr(context, "scenario_inputs", None)
     if inputs is None:
         return None
-    validation_seed = int(context.seed) + VALIDATION_SEED_OFFSET
+    validation_seed = _validation_seed_for_role(int(context.seed), role)
     scenario_horizon = int(
         getattr(context, "scenario_horizon_years", None) or context.horizon_years
     )
@@ -282,7 +332,7 @@ def _build_validation_context(
             horizon_years=scenario_horizon,
             n_paths=int(context.n_paths),
             seed=validation_seed,
-            antithetic=True,
+            antithetic=VALIDATION_CUBE_ANTITHETIC,
         )
     except (ReturnMomentError, ValueError):
         return None
@@ -297,17 +347,47 @@ def _build_validation_context(
     # Inputs-Digest mit anderem Seed ist ein anderer Cube. Wuerde hier nur
     # der Inputs-Digest stehen, waeren Trainings- und Validierungs-Cube
     # nicht unterscheidbar -- genau die Verwechslung, die dieser Anker
-    # ausschliessen soll.
+    # ausschliessen soll. Rolle und Stichprobeneinheit sind mitgebunden.
     cube_hash = hashlib.sha256(
         "|".join([
             scenario_inputs_digest(inputs),
             str(scenario_horizon),
             str(int(context.n_paths)),
             str(validation_seed),
-            "antithetic=True",
+            f"antithetic={VALIDATION_CUBE_ANTITHETIC}",
+            f"role={role}",
+            f"sampling_unit={SAMPLING_UNIT_ANTITHETIC_PAIR}",
         ]).encode("utf-8")
     ).hexdigest()
     return validation_context, validation_seed, cube_hash
+
+
+def _build_selection_validation_context(
+    context: "OptimizerContext",
+) -> tuple["OptimizerContext", int, str] | None:
+    """Auswahl-Wuerfel (DRAWDOWN-HOLDOUT-REUSE-001), getrennt vom Holdout."""
+    return _build_validation_context(context, role=CUBE_ROLE_SELECTION)
+
+
+def _validation_sampling_units(
+    validation_context: "OptimizerContext",
+) -> tuple[np.ndarray, str]:
+    """Stichprobeneinheiten eines Validierungswuerfels fuer den Bootstrap.
+
+    RESAMPLING-ANTITHETIC-BOOTSTRAP-001: Partnerpfade (i, i + ceil(n/2))
+    bilden EINE unabhaengige Einheit (Layout-Vertrag
+    ``scenario_engine.sampling_unit_ids``).
+    """
+    n_paths = int(validation_context.n_paths)
+    ids = scenario_sampling_unit_ids(
+        n_paths, antithetic=VALIDATION_CUBE_ANTITHETIC,
+    )
+    name = (
+        SAMPLING_UNIT_ANTITHETIC_PAIR
+        if VALIDATION_CUBE_ANTITHETIC
+        else SAMPLING_UNIT_PATH
+    )
+    return ids, name
 
 
 def _certify_on_independent_validation_cube(
@@ -328,7 +408,9 @@ def _certify_on_independent_validation_cube(
     Dieser Schritt baut einen zweiten Cube mit identischer Verteilung aber
     anderem Seed und bewertet NUR den bereits gewaehlten Gewinner darauf
     neu. Weil die Auswahl nicht von diesem Cube abhing, ist die Schaetzung
-    darauf selektionsfrei.
+    darauf selektionsfrei -- vorausgesetzt, kein vorgelagerter Schritt hat
+    auf diesem Cube ausgewaehlt: der Drawdown-Rerank nutzt deshalb den
+    getrennten Auswahl-Wuerfel (``CUBE_ROLE_SELECTION``).
 
     Returns ``(achievability, validation_seed, validation_cube_hash,
     validation_n_paths)``. Ohne verwertbare ScenarioInputs im Context wird
@@ -1301,13 +1383,19 @@ def deterministic_seed(*parts) -> int:
 # und Laeufe ohne Anker unveraendert v5-Regel. Bewusst neue Wuerfel (die
 # Version geht in den Seed).
 OPTIMIZER_SEED_SCHEME = "content_seed_v2"
-# saa_resampled_v7 (MAXIMIZE-GOAL-001 + GOAL-HARDNESS-DEFAULT-001, CIO-
-# Entscheid 2026-10-18): Ziel "Maximierung" wirkt als Log-Wachstumsterm in G
-# (vorher Fehlbetrag 0 -> exakt die Hausquote); der Haertegrad wirkt
-# standardmaessig auf Fehlbetrag UND Chance-Strafe (vorher Default "equal":
-# hart == primaer). Doku: docs/planning/2026-10-18-maximize-goal-and-
-# hardness.md. Bewusst neue Wuerfel (die Version geht in den Seed).
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v7"
+# v7 (2026-10-18, Statistik-Vertraege): Einheiten-Bootstrap ueber
+# antithetische Paare, nullzentrierte p-Werte, getrennte Auswahl-/Final-
+# Wuerfel (max_drawdown), Survivor-Schwelle 90 %, Ridge-Prior-Metrik,
+# fail-closed ohne Validierungswuerfel, Prior-Context im Ergebnis.
+#
+# v8 (2026-10-19, MAXIMIZE-GOAL-001 + GOAL-HARDNESS-DEFAULT-001 +
+# GOAL-HIERARCHY-001/-002 + DEMOTED-GOAL-WEIGHT-001, CIO-Entscheide): Ziel
+# "Maximierung" als Log-Wachstumsterm; Haertegrad standardmaessig;
+# erreichbare harte/primaere Ziele als Stufe 1 (Schranke G1* + eps);
+# auf der Pruefmenge unerreichbare Ziele als Wunschziel (0.2, Volumen auf W0
+# gedeckelt); ObjectiveContractV2. Doku: docs/planning/2026-10-18-maximize-
+# goal-and-hardness.md. Bewusst neue Wuerfel (die Version geht in den Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v8"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2097,10 +2185,14 @@ def run_solver(
         # Auswahl folgt dem validierten Objective.
         drawdown_certification: dict | None = None
         if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+            # DRAWDOWN-HOLDOUT-REUSE-001: gerankt wird auf dem Auswahl-
+            # Wuerfel; die Zielerreichung des Gewinners zertifiziert danach
+            # der getrennte finale Holdout (_finalize_solver_result).
             certified_w, drawdown_certification = certify_drawdown_candidates(
                 context,
                 winner_weights=np.asarray(weights, dtype=np.float64),
                 candidates=selection.finalists,
+                validation=_build_selection_validation_context(context),
             )
             if certified_w is not None:
                 weights = certified_w
@@ -2703,6 +2795,13 @@ def _select_cube_candidate_core(
             or bool(getattr(candidate["result"], "success", False))
         ],
     )
+
+
+def _contract_evidence(context: OptimizerContext) -> dict | None:
+    """Nachweis-Block des Lauf-Vertrags (ObjectiveContractV2) fuer Audit und
+    Modellbasis; None, wenn ein (Test-)Vertrag keinen Nachweis liefert."""
+    as_evidence = getattr(objective_contract_of(context), "as_evidence", None)
+    return as_evidence() if callable(as_evidence) else None
 
 
 def _goal_protection_audit(
@@ -3538,9 +3637,16 @@ def _significance_vs_house_anchor(
     Entscheid ``decision``:
     * ``optimizer``  -- (1) oder (2) erfuellt, Optimierer-Allokation gilt.
     * ``house_matrix`` -- weder noch, Hausmatrix-Zielquote gilt.
-    * ``optimizer_untested`` -- kein Test moeglich (kein Anker, keine
-      zulaessige Projektion, kein Validierungs-Cube, Test abgeschaltet);
-      die Optimierer-Allokation gilt, der Grund steht in ``reason``.
+    * ``optimizer_untested`` -- kein Test moeglich, weil es keinen
+      zulaessigen Anker gibt (kein Anker, keine zulaessige Projektion) oder
+      der Test abgeschaltet ist; die Optimierer-Allokation gilt, der Grund
+      steht in ``reason``.
+    * ``house_matrix`` mit ``reason="no_validation_cube"`` -- Anker vorhanden,
+      aber kein finaler Validierungswuerfel: fail-closed auf die Hausquote
+      (OPTIMIZER-POST-SELECTION-CERTIFICATION-001, v7).
+
+    ``validation`` ist der FINALE Holdout (``CUBE_ROLE_FINAL``); gezogen wird
+    ueber antithetische Paare (``_validation_sampling_units``).
 
     Die Top-Level-Statistik (``p_value``, ``improvement`` ...) ist immer die
     der Zielebene; die Varianten-Statistik steht in ``risk_measure_test``.
@@ -3568,12 +3674,15 @@ def _significance_vs_house_anchor(
     if validation is None:
         validation = _build_validation_context(context)
     if validation is None:
+        # Fail-closed: ohne Holdout ist die Abweichung unzertifiziert.
         return {
             **block,
-            "decision": "optimizer_untested",
+            "decision": "house_matrix",
             "reason": "no_validation_cube",
+            "significant": False,
         }
     validation_context, validation_seed, cube_hash = validation
+    unit_ids, unit_name = _validation_sampling_units(validation_context)
     objective_mode = objective_contract_of(context).objective_mode
     if objective_mode == OBJECTIVE_MAX_DRAWDOWN:
         # Nur in diesem Modus gesetzt: Default-Laeufe behalten ihre
@@ -3590,6 +3699,8 @@ def _significance_vs_house_anchor(
         n_bootstrap=int(config.n_bootstrap),
         alpha=float(config.significance_alpha),
         seed=bootstrap_seed(validation_seed),
+        sampling_unit_ids=unit_ids,
+        sampling_unit=unit_name,
     )
     goal_stats = paired_bootstrap_improvement(
         lambda idx: tuple(parts[0] for parts in component_pair(idx)),
@@ -3600,6 +3711,7 @@ def _significance_vs_house_anchor(
         **goal_stats,
         "comparison": COMPARISON_GOAL_LEVEL,
         "decision_level": COMPARISON_GOAL_LEVEL,
+        "cube_role": CUBE_ROLE_FINAL,
         "validation_seed": int(validation_seed),
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
@@ -3622,7 +3734,9 @@ def _significance_vs_house_anchor(
         **{
             key: risk_stats.get(key)
             for key in ("improvement", "improvement_lower_bound", "p_value",
-                        "anchor_objective", "candidate_objective")
+                        "bootstrap_tail_fraction", "null_hypothesis",
+                        "p_value_calibration", "anchor_objective",
+                        "candidate_objective")
         },
         "comparison": COMPARISON_RISK_MEASURE,
         "anchor_risk_measure": float(anchor_risk),
@@ -3671,14 +3785,14 @@ def _run_resampled_solver(
         )
     # HOUSE-PRIOR-001: im Default-Modus mit projizierbarem Anker tragen ALLE
     # Bags und der Validierungswuerfel der Offenlegung den Prior (eine
-    # Zielfunktion fuer Optimierung und Offenlegung). Der Abschluss
-    # (``result.context``, ``result.objective_value``) bleibt bewusst auf dem
-    # Aufrufer-Context: Objekt-Identitaet fuer Aktivierungsvalidierung,
-    # Explainability und Shadow-Vergleich, und
-    # ``evaluate_weights(ctx, result.weights_bps).objective_value ==
-    # result.objective_value`` fuer jeden aus denselben Inputs gebauten
-    # Context. Der Prior-Term steht separat im Audit (``final_prior_penalty``).
-    caller_context = context
+    # Zielfunktion fuer Optimierung und Offenlegung).
+    # HOUSE-PRIOR-DECISION-OBJECTIVE-IDENTITY-001 (Engine v7): auch der
+    # Abschluss laeuft auf dem Prior-Context. ``result.context`` und
+    # ``result.objective_value`` (= G + P_pref + kappa_H * TE_M^2) sind damit
+    # dieselbe Zielfunktion, unter der die Bags selektiert wurden;
+    # ``evaluate_weights(result.context, result.weights_bps).objective_value ==
+    # result.objective_value``. Ein ohne Prior gebauter Context bewertet
+    # bewusst eine ANDERE Zielfunktion (v5-Tiebreak w' Sigma w).
     house_prior_anchor_bps: dict[str, int] | None = None
     if objective_contract_of(context).objective_mode == OBJECTIVE_GOAL_SHORTFALL:
         house_prior_anchor_bps, _anchor_reason = _project_house_anchor(
@@ -3779,7 +3893,7 @@ def _run_resampled_solver(
         "engine_version": OPTIMIZER_ENGINE_VERSION,
         # ObjectiveContractV2 (Engine v7): alle Koeffizienten, Scopes und
         # Policy-Versionen dieses Laufs samt Hash (Audit und Modellbasis).
-        "objective_contract": objective_contract_of(context).as_evidence(),
+        "objective_contract": _contract_evidence(context),
         "content_seed": int(context.seed),
         "n_bags": n_bags,
         "n_bags_succeeded": n_succeeded,
@@ -3809,15 +3923,23 @@ def _run_resampled_solver(
         accepted_feasible_non_success=robustified_bags > 0,
         robustification_derisked=False,
     )
-    if n_succeeded < max(1, int(np.ceil(MIN_SUCCESSFUL_BAG_SHARE * n_bags))):
+    # RESAMPLING-SUCCESS-SURVIVOR-BIAS-001: Mindestquote (Herleitung bei
+    # MIN_SUCCESSFUL_BAG_SHARE). Darunter fail-closed, KEIN Mittel publiziert.
+    min_successful = max(1, int(np.ceil(MIN_SUCCESSFUL_BAG_SHARE * n_bags - 1e-9)))
+    payload["min_successful_bag_share"] = float(MIN_SUCCESSFUL_BAG_SHARE)
+    if n_succeeded < min_successful:
         payload["decision"] = "fallback_house_matrix"
+        payload["reason"] = "insufficient_successful_bags"
         payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
         return _house_midpoint_fallback_result(
             context,
             aggregate_selection,
             extra_reasoning=[
                 f"Resampling: nur {n_succeeded} von {n_bags} Bags lieferten eine "
-                "zulaessige Allokation -- kein belastbarer Mittelwert."
+                f"zulaessige Allokation (Mindestquote "
+                f"{MIN_SUCCESSFUL_BAG_SHARE:.0%} = {min_successful}) -- ein "
+                "Mittel nur der erfolgreichen Bags waere bei nicht zufaelligem "
+                "Ausfall verzerrt; kein Mittelwert publiziert."
             ],
             resampling_payload=payload,
         )
@@ -3835,10 +3957,24 @@ def _run_resampled_solver(
         bucket: round(float(dispersion[i]) * 10000.0, 2)
         for i, bucket in enumerate(BUCKET_ORDER)
     }
-    # Standardfehler des Bag-Mittels: die erwartete Streuung der
-    # publizierten Quote, wenn nur der Monte-Carlo-Zufall variiert.
-    payload["standard_error_bps"] = {
+    # Standardfehler des Bag-Mittels, BEDINGT auf die erfolgreichen Bags
+    # (RESAMPLING-SUCCESS-SURVIVOR-BIAS-001): die Streuung der publizierten
+    # Quote, wenn nur der Monte-Carlo-Zufall variiert. Er enthaelt weder die
+    # Unsicherheit durch Bag-Ausfall noch Projektion oder Hausmatrix-Gate.
+    payload["conditional_bag_mean_standard_error_bps"] = {
         bucket: round(float(dispersion[i]) * 10000.0 / float(np.sqrt(n_succeeded)), 2)
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    # Sensitivitaetsschranke fuer nicht zufaelligen Ausfall: liegen die
+    # fehlenden Bags bis zu MISSINGNESS_STRESS_SIGMAS Bag-Standardabweichungen
+    # neben dem Mittel, verschiebt das die Quote um hoechstens
+    # f * k * sigma_bag (f = Ausfallanteil). 0 bei vollstaendigem Lauf.
+    missing_share = float(n_bags - n_succeeded) / float(n_bags)
+    payload["missingness_sensitivity_bps"] = {
+        bucket: round(
+            missing_share * MISSINGNESS_STRESS_SIGMAS * float(dispersion[i]) * 10000.0,
+            2,
+        )
         for i, bucket in enumerate(BUCKET_ORDER)
     }
 
@@ -3863,22 +3999,27 @@ def _run_resampled_solver(
 
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 unter Resampling (CIO-Entscheid
     # 2026-10-18): Modus max_drawdown -> {projiziertes Bag-Mittel, rohes
-    # Bag-Mittel, Hausmatrix-Anker} auf dem gemeinsamen Validierungs-Cube mit
-    # dem verfeinerten Drawdown ranken; der beste Nicht-Anker-Kandidat geht
-    # in den Signifikanztest (der dasselbe Mass verwendet).
+    # Bag-Mittel, Hausmatrix-Anker} mit dem verfeinerten Drawdown ranken; der
+    # beste Nicht-Anker-Kandidat geht in den Signifikanztest (der dasselbe
+    # Mass verwendet).
+    # DRAWDOWN-HOLDOUT-REUSE-001 (Engine v7): gerankt wird auf dem
+    # AUSWAHL-Wuerfel. Danach ist der Challenger eingefroren; Test gegen die
+    # Hausmatrix und Zielerreichung laufen auf dem getrennten FINALEN
+    # Holdout, auf dem nichts mehr ausgewaehlt wird.
     drawdown_certification: dict | None = None
-    validation = None
+    final_validation = None
     if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
-        validation = _build_validation_context(context)
+        selection_validation = _build_selection_validation_context(context)
         certified_w, drawdown_certification = certify_resampled_candidates(
             context,
             projected_mean=projected,
             raw_mean=mean_w,
             house_anchor_bps=_project_house_anchor(context, house_anchor_bps)[0],
-            validation=validation,
+            validation=selection_validation,
         )
         if certified_w is not None:
             candidate_bps = _rounded_bps_with_repair(certified_w, context)
+        final_validation = _build_validation_context(context)
 
     reasoning: list[str] = []
     max_dispersion_pp = float(np.max(dispersion)) * 100.0
@@ -3887,7 +4028,8 @@ def _run_resampled_solver(
         f"Resampled Efficiency: {n_succeeded} von {n_bags} Bags a "
         f"{bag_n_paths} Pfaden (Inhalts-Seed, Common Random Numbers) gemittelt; "
         f"Streuung je Bucket ueber die Bags max. {max_dispersion_pp:.1f} pp, "
-        f"Standardfehler der Quote max. {max_standard_error_pp:.2f} pp."
+        f"Standardfehler der Quote (bedingt auf die erfolgreichen Bags) max. "
+        f"{max_standard_error_pp:.2f} pp."
     )
     if house_prior_anchor_bps is not None:
         # HOUSE-PRIOR-001: kein Schalter -- das (projizierte) Bag-Mittel IST
@@ -3907,7 +4049,7 @@ def _run_resampled_solver(
         payload["final_weights_bps"] = dict(final_bps)
         payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
         return _finalize_solver_result(
-            caller_context,
+            context,
             selection=aggregate_selection,
             weights=_trusted_weights_bps_to_array(final_bps),
             advisory_wealth_rappen=advisory_wealth_rappen,
@@ -3922,8 +4064,14 @@ def _run_resampled_solver(
         candidate_bps=candidate_bps,
         house_anchor_bps=house_anchor_bps,
         config=config,
-        validation=validation,
+        validation=final_validation,
     )
+    if drawdown_certification is not None and drawdown_certification.get("certified"):
+        # Beide Rollen offenlegen: Auswahl-Wuerfel != finaler Holdout.
+        significance["selection_seed"] = drawdown_certification.get("validation_seed")
+        significance["selection_cube_hash"] = drawdown_certification.get(
+            "validation_cube_hash"
+        )
     payload["significance"] = significance
     decision = significance["decision"]
     payload["decision"] = decision
@@ -3933,6 +4081,12 @@ def _run_resampled_solver(
             reasoning.append(
                 "Optimierer-Allokation ist identisch mit der Hausmatrix-Zielquote; "
                 "Hausmatrix-Zielquote beibehalten."
+            )
+        elif significance.get("reason") == "no_validation_cube":
+            reasoning.append(
+                "Finaler Validierungswuerfel nicht verfuegbar: die "
+                "Optimierer-Abweichung ist nicht zertifiziert; "
+                "Hausmatrix-Zielquote beibehalten (fail-closed)."
             )
         elif significance.get("reason") == "risk_improvement_not_material":
             reasoning.append(
@@ -4028,6 +4182,7 @@ def _house_prior_disclosure(
     block: dict = {
         "version": HOUSE_PRIOR_VERSION,
         "kappa": float(context.house_prior_kappa),
+        "prior_metric": prior_metric_audit(cov),
         "house_anchor_bps": dict(house_anchor_bps) if house_anchor_bps else None,
         "house_anchor_projected_bps": dict(anchor_projected_bps),
         "candidate_bps": dict(candidate_bps),
@@ -4048,9 +4203,9 @@ def _house_prior_disclosure(
             "tracking_error_vs_house_bps": round(
                 tracking_error_bps(final_w, house_w, cov), 4
             ),
-            # Prior-Term des publizierten Ergebnisses (kappa_H * TE^2); im
-            # result.objective_value steht stattdessen der v5-Audit-Skalar
-            # des Aufrufer-Contexts (siehe _run_resampled_solver).
+            # Prior-Term des publizierten Ergebnisses (kappa_H * TE_M^2);
+            # seit v7 Bestandteil von result.objective_value (der Abschluss
+            # laeuft auf dem Prior-Context, siehe _run_resampled_solver).
             "final_prior_penalty": float(house_prior_penalty(
                 final_w, house_w, cov, kappa=float(context.house_prior_kappa),
             )),
@@ -4058,12 +4213,27 @@ def _house_prior_disclosure(
 
     if candidate_bps == anchor_projected_bps:
         return _done(DECISION_HOUSE_PRIOR, REASON_IDENTICAL, candidate_bps)
+    if max(
+        abs(int(candidate_bps[bucket]) - int(anchor_projected_bps[bucket]))
+        for bucket in BUCKET_ORDER
+    ) <= HOUSE_ANCHOR_NUMERICAL_TOLERANCE_BPS:
+        return _done(
+            DECISION_HOUSE_PRIOR, REASON_WITHIN_TOLERANCE, dict(anchor_projected_bps),
+        )
     if not config.significance_test:
         return _done(DECISION_HOUSE_PRIOR, REASON_TEST_DISABLED, candidate_bps)
     validation = _build_validation_context(context)
     if validation is None:
-        return _done(DECISION_HOUSE_PRIOR, REASON_NO_VALIDATION, candidate_bps)
+        # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (v7): ohne finalen
+        # Holdout ist das Ergebnis nicht zertifiziert -> projizierte
+        # Hausquote (fail-closed), nicht der Kandidat.
+        return _done(
+            DECISION_HOUSE_PRIOR_FAIL_CLOSED,
+            REASON_NO_VALIDATION,
+            dict(anchor_projected_bps),
+        )
     validation_context, validation_seed, cube_hash = validation
+    unit_ids, unit_name = _validation_sampling_units(validation_context)
     component_pair = _context_loss_components_on_validation(
         validation_context, house_w, candidate_w,
         validation_seed=int(validation_seed),
@@ -4074,6 +4244,8 @@ def _house_prior_disclosure(
         n_bootstrap=int(config.n_bootstrap),
         alpha=float(config.significance_alpha),
         seed=bootstrap_seed(validation_seed),
+        sampling_unit_ids=unit_ids,
+        sampling_unit=unit_name,
     )
     block.update({
         "disclosure": disclosure,
@@ -4081,6 +4253,7 @@ def _house_prior_disclosure(
             _validation_goal_rows(validation_context, house_w, validation_seed),
             _validation_goal_rows(validation_context, candidate_w, validation_seed),
         ),
+        "cube_role": CUBE_ROLE_FINAL,
         "validation_seed": int(validation_seed),
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
@@ -4095,10 +4268,16 @@ def _significance_sentence(significance: Mapping) -> str:
     lower = significance.get("improvement_lower_bound")
     improvement = significance.get("improvement")
     alpha = float(significance.get("alpha") or 0.05)
+    units = significance.get("n_independent_units")
+    unit_text = (
+        f", {units} unabhaengige Einheiten ({significance.get('sampling_unit')})"
+        if units is not None
+        else ""
+    )
     parts = [
         f"Gepaarter Bootstrap (B={significance.get('n_bootstrap')}, einseitig, "
-        f"alpha={alpha:.0%}) auf dem unabhaengigen Validierungs-Cube "
-        f"({significance.get('validation_n_paths')} Pfade):"
+        f"alpha={alpha:.0%}{unit_text}) auf dem finalen, unabhaengigen "
+        f"Validierungs-Cube ({significance.get('validation_n_paths')} Pfade):"
     ]
     if significance.get("comparison") == "goal_level":
         parts.append(
@@ -4112,7 +4291,10 @@ def _significance_sentence(significance: Mapping) -> str:
             f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
         )
     if p_value is not None:
-        parts.append(f"p = {float(p_value):.4f}")
+        parts.append(
+            f"p = {float(p_value):.4f} (H0: keine Verbesserung, "
+            "nullzentrierter Bootstrap)"
+        )
     risk = significance.get("risk_measure_test")
     if isinstance(risk, Mapping):
         risk_p = risk.get("p_value")

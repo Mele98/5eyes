@@ -458,6 +458,7 @@ def _build_goal_analysis(
     expected_death_year_offset: int | None = None,
     advisory_path_series_rappen: list[int] | None = None,
     total_path_series_rappen: list[int] | None = None,
+    reserve_ledger=None,
 ) -> list[dict]:
     """Sprint U-P5 Fix H12: expected_death_year_offset (Years from today)
     schneidet die contribution_series so dass keine Cashflows nach dem
@@ -465,6 +466,12 @@ def _build_goal_analysis(
     Vorher: Goal-Analyse sah komplette Cashflow-Series ohne Mortality-Cutoff
     — AHV-Goal mit langer Laufzeit floss komplett in projected obwohl der
     Mandant statistisch in t=15 stirbt.
+
+    RESERVE-FUNDING-LEDGER-001: ``advisory_wealth_rappen`` ist der
+    investierbare Teil A - E. Mit ``reserve_ledger`` fliesst die externe
+    Reserve gemaess Ledger-Release (dieselbe Serie wie Solver/MC) in die
+    Projektion zurueck; der nicht freigegebene Rest bleibt als Bargeld
+    Kundenvermoegen. Ohne Ledger: Altverhalten (nur A - E).
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -477,7 +484,10 @@ def _build_goal_analysis(
 
     analysis = []
     # #83 Gesamtvermoegen-Scope: externe Assets = Gesamt- minus Beratungsvermoegen.
-    external_wealth_rappen = max(0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0))
+    reserve_external = int(reserve_ledger.total_external_rappen) if reserve_ledger is not None else 0
+    external_wealth_rappen = max(
+        0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0) - reserve_external
+    )
     for goal in sorted(goals, key=lambda g: (int(g.rank or 999), g.label or "")):
         years = _goal_projection_years(goal)
         # B4: Default werden Goals gegen advisory_wealth bewertet, weil die
@@ -499,11 +509,15 @@ def _build_goal_analysis(
             cutoff = min(projection_years, int(expected_death_year_offset))
             for idx in range(cutoff, len(contribution_series)):
                 contribution_series[idx] = 0
+        reserve_release = (
+            reserve_ledger.release_prefix(projection_years) if reserve_ledger is not None
+            else [0] * projection_years
+        )
         projected_rappen = future_value_with_cashflow_series(
             investable_base,
-            contribution_series,
+            [int(value) + released for value, released in zip(contribution_series, reserve_release)],
             expected_return_bps,
-        )
+        ) + max(0, reserve_external - sum(reserve_release))
         target_rappen = 0
         goal_type = _norm_text(goal.goal_type)
         hardness_key = _goal_hardness_key(goal)
@@ -948,6 +962,86 @@ def product_theme_key(product) -> str | None:
     return _THEME_KEY_BY_SUB_ASSET_CLASS.get(str(getattr(product, "sub_asset_class", None) or "").strip())
 
 
+# THEME-MISSINGNESS-001 (CIO-Entscheid 2026-10-18, ESG-Review C4/F P0-5):
+# fehlende Themenklassifikation gilt bei einem Themen-Ausschluss NICHT mehr
+# als "nicht betroffen" (fail-closed). Ausgenommen: die Anlageklasse
+# Liquiditaet (ESG_POLICY_EXEMPT_ASSET_CLASS) und kollektive Anlagen --
+# dieselben Produkttypen, die "nur Fonds/ETFs" (fundsOnly) zulaesst. Fuer sie
+# gilt die woertliche Offenlegung "breit diversifizierte Index- und
+# Fondsprodukte werden nicht durchleuchtet" (theme_look_through_disclosure).
+THEME_SCREENING_COLLECTIVE_PRODUCT_TYPES: tuple[str, ...] = ("ETF", "Fonds", "Immobilienfonds")
+
+
+def _theme_tags_maintained(product) -> bool:
+    """True, wenn theme_tags eine gueltige JSON-Liste ist (auch ``[]`` =
+    bewusst "keinem Thema zugeordnet"). NULL/kaputt = nicht gepflegt."""
+    raw = getattr(product, "theme_tags", None)
+    if raw is None:
+        return False
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        return True
+    try:
+        return isinstance(json.loads(str(raw)), list)
+    except (TypeError, ValueError):
+        return False
+
+
+def product_theme_classification_missing(product, screened_keys) -> bool:
+    """THEME-MISSINGNESS-001: True, wenn das Produkt fuer mindestens ein
+    gescreentes Thema NICHT klassifiziert ist und keine Ausnahme greift.
+
+    Klassifiziert ist ein Produkt fuer Thema T, wenn
+    - theme_tags gepflegt ist (gueltige Liste, auch leer), oder
+    - seine Sub-Anlageklasse ein Themenbaustein "Thema X" ist, oder
+    - T == fossil und gepflegte Sektordaten vorliegen (Look-through).
+    """
+    from services.portfolio_engine import _norm_text
+
+    keys = set(screened_keys or ())
+    if not keys:
+        return False
+    if _norm_text(getattr(product, "asset_class", None)) == ESG_POLICY_EXEMPT_ASSET_CLASS:
+        return False
+    if str(getattr(product, "product_type", None) or "").strip() in THEME_SCREENING_COLLECTIVE_PRODUCT_TYPES:
+        return False
+    if _theme_tags_maintained(product) or product_theme_key(product):
+        return False
+    if keys == {"fossil"} and _maintained_energy_share_bps(product) is not None:
+        return False
+    return True
+
+
+def theme_classification_gap_hint(
+    products: list, sub_asset_class: str, asset_class: str, prefs: dict, score_bucket: int,
+    *, jurisdiction_ctx: dict | None = None,
+) -> str | None:
+    """Benennt, wenn ein Baustein NUR wegen fehlender Themenklassifikation
+    unumsetzbar ist (gleicher Matcher, nur die Missingness-Regel aus)."""
+    from services.portfolio_engine import _norm_text
+
+    if not effective_theme_screening(prefs):
+        return None
+    blocked = [
+        product for product in products
+        if (
+            str(product.sub_asset_class or "") == str(sub_asset_class)
+            or _norm_text(product.asset_class) == _norm_text(asset_class)
+        )
+        and not _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
+        and _product_matches_constraints(
+            product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
+            enforce_theme_classification=False,
+        )
+    ]
+    if not blocked:
+        return None
+    names = ", ".join(sorted({str(p.product_name) for p in blocked})[:5])
+    return (
+        f"{len(blocked)} sonst zulaessige(s) Produkt(e) ohne Themen-Zuordnung "
+        f"bei aktivem Themen-Ausschluss nicht verwendbar ({names})"
+    )
+
+
 def default_catalog_theme_tags(sub_asset_class: str | None) -> str | None:
     """ESG-PREMIUM-CRITERIA-001: Themenprodukte des Seed-Katalogs tragen ihren
     Themen-Tag explizit (gleiche Regel wie der Backfill in database.py /
@@ -1035,6 +1129,12 @@ def theme_look_through_disclosure(theme_keys) -> str:
             "ableitbar sind -- breit diversifizierte Index- und Fondsprodukte werden "
             "nicht durchleuchtet und koennen Titel dieser Themen enthalten."
         )
+    if parts:
+        # THEME-MISSINGNESS-001: die fail-closed-Regel gehoert in den Text.
+        parts.append(
+            "Andere Produkte (z.B. Einzeltitel) ohne Themen-Zuordnung im "
+            "Produktkatalog werden nicht ausgewaehlt."
+        )
     return " ".join(parts)
 
 
@@ -1120,6 +1220,7 @@ def _product_matches_constraints(
     score_bucket: int,
     *,
     jurisdiction_ctx: dict | None = None,
+    enforce_theme_classification: bool = True,
 ) -> bool:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): jurisdiction_ctx (siehe
     _resolve_jurisdiction_context()) parametrisiert die chf_only-/Hedging-
@@ -1195,6 +1296,10 @@ def _product_matches_constraints(
     # product_theme_keys().
     screened = effective_theme_screening(prefs)
     if screened and not screened.keys().isdisjoint(product_theme_keys(product)):
+        return False
+    # THEME-MISSINGNESS-001: fehlende Klassifikation != "nicht betroffen".
+    # enforce_theme_classification=False nur fuer den Diagnose-Hinweis.
+    if enforce_theme_classification and screened and product_theme_classification_missing(product, screened):
         return False
     # ESG-PREMIUM-CRITERIA-001 (Owner-Entscheid 2026-10-14): jede SFDR-
     # gebundene Policy hat jetzt ihr EIGENES, datengetriebenes Kriterium

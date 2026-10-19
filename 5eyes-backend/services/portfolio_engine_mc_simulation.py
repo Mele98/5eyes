@@ -59,7 +59,7 @@ Cluster etabliert.
 
 Zirkular-Import-Haertung (identisches Muster zu den Schritten 1-4): Funktionen,
 die Konstanten/Helfer aus `services.portfolio_engine` selbst brauchen
-(`BUCKET_FIELDS`, `BUCKET_LABELS`, `_bps`, `DEFAULT_SIMULATION_HORIZON_YEARS`,
+(`BUCKET_FIELDS`, `BUCKET_LABELS`, `_bps`,
 `DEFAULT_SIMULATION_STRESS_MULTIPLIER`, `DEFAULT_REBALANCE_TRANSACTION_COST_
 BPS`, `ALLOWED_SIMULATION_REBALANCE_MODES`, `DEFAULT_MONTE_CARLO_SIMULATIONS`,
 `_norm_text`, `_parse_iso_date`, `_goal_projection_years`, `_annualize_goal_
@@ -106,6 +106,7 @@ from services.drawdown_refinement import (
     refine_max_drawdowns,
 )
 from services.mortality.horizon import life_expectancy_year_from_mandate
+from services.reserve_funding_ledger import RESERVE_ACCOUNTING_BASIS
 from services.return_moments import (
     arithmetic_moments_to_log_parameters,
     bounded_cornish_fisher,
@@ -166,43 +167,160 @@ def dated_goal_calendar_buckets(goal) -> int:
     return max(candidates)
 
 
-def _simulation_horizon_years(
-    simulation_prefs: dict | None,
+# SIM-HORIZON-FROM-RISK-PROFILE-001 (CIO-Entscheid 2026-10-18): der Prognose-
+# Horizont ist keine Berater-Einstellung mehr. Er wird fuer Solver, Report-MC
+# und Zielanalyse EINHEITLICH hergeleitet als
+#     max(10, Anlagehorizont des aktuellen Risikoprofils,
+#         letztes datiertes Ziel, Lebenserwartung)
+# ``simulation.horizonYears`` / ``horizonExplicit`` aus den Praeferenzen werden
+# ignoriert (das Schema verwirft sie, siehe schemas/allocation.py).
+#
+# Untergrenze 10 Jahre (geprueft, bewusst beibehalten): fachlich wuerde die
+# technische Mindestdauer von 7 Jahren genuegen, weil jede Strategie ein
+# strategy-ready Risikoprofil verlangt und damit immer ein belegter Horizont
+# vorliegt. Der stochastische Solver rechnet aber mit max(10, Projektions-
+# laenge) Jahren (portfolio_engine_optimizer_integration) und verlangt, dass
+# alle Projektionsreihen (u.a. external_wealth_series_rappen) diesen Horizont
+# abdecken -- eine kuerzere Projektion bricht den Solver-Vertrag
+# (OptimizerInputError). Solver-, Report- und Zielanalyse-Horizont bleiben nur
+# mit derselben Untergrenze deckungsgleich. Eine Senkung auf 7 ist ein eigener
+# Methodik-Entscheid (Solver-Horizont, verschiebt alle Optimierungen).
+SIMULATION_HORIZON_MIN_YEARS = 10
+
+_HORIZON_SOURCE_ORDER = ("risk_profile", "goals", "life_expectancy")
+_HORIZON_SOURCE_LABELS = {
+    "risk_profile": "dem Anlagehorizont des Risikoprofils",
+    "goals": "dem letzten datierten Ziel",
+    "life_expectancy": "der Lebenserwartung",
+    "minimum": f"der Mindestdauer von {SIMULATION_HORIZON_MIN_YEARS} Jahren",
+}
+
+
+def _assessment_horizon_years(assessment) -> int:
+    """Anlagehorizont (Jahre) eines Risikoprofils; 0 = nicht bekannt."""
+    if assessment is None:
+        return 0
+    raw = getattr(assessment, "investment_horizon_years", None)
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+        return min(120, raw)
+    # Defensiv: Jahreszahl fehlt/ungueltig -> aus dem kanonischen Label.
+    from services.risk_scoring import HORIZON_YEARS, canonicalize_horizon_label
+
+    label = canonicalize_horizon_label(
+        str(getattr(assessment, "investment_horizon_label", "") or "")
+    )
+    return int(HORIZON_YEARS.get(label, 0))
+
+
+def _risk_profile_horizon_years(mandate) -> int:
+    """Anlagehorizont des AKTUELLEN Risikoprofils des Mandats (0 = keins).
+
+    Liest ueber die Session des Mandats; ein nicht gemapptes Objekt
+    (Test-Double) hat kein Risikoprofil.
+    """
+    if mandate is None:
+        return 0
+    from sqlalchemy.orm import object_session
+    from sqlalchemy.orm.exc import UnmappedInstanceError
+
+    try:
+        session = object_session(mandate)
+    except UnmappedInstanceError:
+        return 0
+    if session is None:
+        return 0
+    from services.portfolio_engine import _current_risk_assessment_or_none
+
+    return _assessment_horizon_years(
+        _current_risk_assessment_or_none(session, mandate.id)
+    )
+
+
+def _join_horizon_sources(labels: list[str]) -> str:
+    if len(labels) <= 1:
+        return "".join(labels)
+    return ", ".join(labels[:-1]) + " und " + labels[-1]
+
+
+_ASSESSMENT_FROM_MANDATE = object()
+
+
+def _simulation_horizon_derivation(
     goals: list[Goal],
     mandate: Mandate | None = None,
-) -> int:
-    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
-    from services.portfolio_engine import DEFAULT_SIMULATION_HORIZON_YEARS
+    *,
+    fixed_years: int | None = None,
+    assessment=_ASSESSMENT_FROM_MANDATE,
+) -> dict:
+    """Prognosehorizont samt bestimmender Groesse (fuer Reasoning/Report).
 
-    raw = (simulation_prefs or {}).get("horizonYears")
-    has_explicit_override = raw not in (None, "", False)
-    try:
-        requested = int(str(raw).strip()) if has_explicit_override else DEFAULT_SIMULATION_HORIZON_YEARS
-    except (TypeError, ValueError):
-        requested = DEFAULT_SIMULATION_HORIZON_YEARS
-        has_explicit_override = False
-
+    ``fixed_years`` ist ausschliesslich fuer interne Laeufe gedacht, die einen
+    gemeinsamen Szenario-Horizont brauchen (Ziel-Sensitivitaet); Zielhorizonte
+    werden auch dann nicht abgeschnitten. Berater-Praeferenzen fliessen nie ein.
+    ``assessment``: Risikoprofil-Anker des Aufrufers (z.B. der Payload-Reload
+    einer gespeicherten Allokation); ohne Angabe das aktuelle des Mandats.
+    """
     # A dated liability must never be truncated merely because horizon_years
     # was left NULL. This is especially important for pension/recurring goals,
     # where target_date is the final due year rather than optional metadata.
     goal_horizon = max(
         (dated_goal_calendar_buckets(goal) for goal in goals), default=0
     )
-
-    # Ein expliziter Berater-Horizont hat Vorrang vor der automatischen
-    # Lebenserwartung. Zielhorizonte werden dennoch nicht abgeschnitten.
-    if has_explicit_override:
-        return max(7, requested, goal_horizon)
-
+    if fixed_years is not None:
+        years = max(SIMULATION_HORIZON_MIN_YEARS, int(fixed_years), goal_horizon)
+        return {
+            "years": years,
+            "sources": ["fixed"],
+            "components": {"fixed": int(fixed_years), "goals": goal_horizon},
+            "sentence": f"Prognosehorizont {years} Jahre (gemeinsamer Szenario-Horizont).",
+        }
     # Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-Vereinheitlichung):
-    # planning_horizon.life_expectancy_year_for() (flach, Geburtsjahr+
-    # Konstante) durch die genauere BFS-2020-2022-Sterbetafel (alters-
-    # bedingt) ersetzt, siehe Kontrollrunde-2026-09-21-Analyse.
+    # BFS-2020-2022-Sterbetafel (altersbedingt) bzw. Mandats-Override.
     life_year = life_expectancy_year_from_mandate(
         mandate, client=getattr(mandate, "client", None),
     )
     life_horizon = max(0, life_year - date.today().year + 1) if life_year else 0
-    return max(7, requested, goal_horizon, life_horizon)
+    components = {
+        "risk_profile": (
+            _risk_profile_horizon_years(mandate)
+            if assessment is _ASSESSMENT_FROM_MANDATE
+            else _assessment_horizon_years(assessment)
+        ),
+        "goals": goal_horizon,
+        "life_expectancy": life_horizon,
+    }
+    years = max(SIMULATION_HORIZON_MIN_YEARS, *components.values())
+    sources = [key for key in _HORIZON_SOURCE_ORDER if components[key] == years]
+    if not sources:
+        sources = ["minimum"]
+    labels = [_HORIZON_SOURCE_LABELS[key] for key in sources]
+    return {
+        "years": years,
+        "sources": sources,
+        "components": components,
+        "sentence": (
+            f"Prognosehorizont {years} Jahre, hergeleitet aus "
+            f"{_join_horizon_sources(labels)}."
+        ),
+    }
+
+
+def _simulation_horizon_years(
+    simulation_prefs: dict | None,
+    goals: list[Goal],
+    mandate: Mandate | None = None,
+    *,
+    fixed_years: int | None = None,
+) -> int:
+    """Prognosehorizont in Jahren -- siehe ``_simulation_horizon_derivation``.
+
+    ``simulation_prefs`` bleibt nur aus Signatur-Kompatibilitaet erhalten:
+    ein darin enthaltenes ``horizonYears`` wird bewusst NICHT ausgewertet.
+    """
+    del simulation_prefs  # SIM-HORIZON-FROM-RISK-PROFILE-001
+    return int(
+        _simulation_horizon_derivation(goals, mandate, fixed_years=fixed_years)["years"]
+    )
 
 
 def _simulation_stress_multiplier(simulation_prefs: dict | None) -> float:
@@ -616,6 +734,36 @@ def _pension_series(
     return list(series)
 
 
+def _external_reserve_account(
+    advisory_summary: PortfolioSummary,
+    target_total_rappen: int | None,
+    reserve_release_series_rappen,
+    horizon_years: int,
+) -> tuple[list[int], list[int]]:
+    """RESERVE-FUNDING-LEDGER-001: Reservekonto neben dem SOLL-Strategiepfad.
+
+    Der SOLL-Pfad investiert nur ``target_total`` (= A - E); die Differenz zum
+    IST-Startwert ist die externe Reserve, weiterhin Kundengeld. Sie liegt als
+    Bargeld (ohne Rendite) auf einem eigenen Konto und fliesst nur gemaess
+    Ledger-Release in den Strategiepfad. Liefert (Release je Jahr, Kontostand
+    je Jahr inkl. Start). SOLL-Ausweis = Strategiepfad + Kontostand: IST und
+    SOLL erklaeren damit dieselbe wirtschaftliche Basis.
+    """
+    remaining = (
+        0 if target_total_rappen is None
+        else max(0, int(advisory_summary.total_rappen) - int(target_total_rappen))
+    )
+    series = list(reserve_release_series_rappen or [])
+    releases: list[int] = []
+    balance = [remaining]
+    for index in range(horizon_years):
+        released = min(remaining, max(0, int(series[index]) if index < len(series) else 0))
+        remaining -= released
+        releases.append(released)
+        balance.append(remaining)
+    return releases, balance
+
+
 def _build_simulation_payload(
     *,
     advisory_summary: PortfolioSummary,
@@ -632,6 +780,7 @@ def _build_simulation_payload(
     total_summary: PortfolioSummary | None = None,
     total_liabilities_rappen: int = 0,
     external_foundation_projection: dict | None = None,
+    reserve_release_series_rappen=None,
 ) -> dict:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -664,6 +813,13 @@ def _build_simulation_payload(
     vols = {**vols, "liquidity": 0}
     target_start_total = int(target_total_rappen if target_total_rappen is not None else advisory_summary.total_rappen)
     target_values = _target_bucket_values(target_start_total, targets)
+    reserve_releases, reserve_balance = _external_reserve_account(
+        advisory_summary, target_total_rappen, reserve_release_series_rappen, horizon_years,
+    )
+    target_cashflows = [
+        int(value or 0) + released
+        for value, released in zip(cashflow_projection_series_rappen, reserve_releases)
+    ]
     # Z8-W2 Phase 2: Total-Pfad nutzt Asset-Buckets aus Gesamtvermoegen,
     # Liabilities werden als initial_deficit eingebracht. Schuldzinsen
     # liegen ohnehin als recurring expense im cashflow_series.
@@ -698,7 +854,7 @@ def _build_simulation_payload(
         start_values=target_values,
         returns_by_asset=returns,
         vols_by_asset=vols,
-        cashflow_series_rappen=cashflow_projection_series_rappen,
+        cashflow_series_rappen=target_cashflows,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
@@ -709,7 +865,7 @@ def _build_simulation_payload(
     downside_series, _ = _simulate_bucket_path(
         start_values=target_values,
         returns_by_asset=downside_returns,
-        cashflow_series_rappen=cashflow_projection_series_rappen,
+        cashflow_series_rappen=target_cashflows,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
@@ -720,13 +876,17 @@ def _build_simulation_payload(
     upside_series, _ = _simulate_bucket_path(
         start_values=target_values,
         returns_by_asset=upside_returns,
-        cashflow_series_rappen=cashflow_projection_series_rappen,
+        cashflow_series_rappen=target_cashflows,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
         start_year=start_year,
         rebalance_mode=rebalance_mode,
         transaction_cost_bps=transaction_cost_bps,
+    )
+    target_series, downside_series, upside_series = (
+        [int(value) + balance for value, balance in zip(path, reserve_balance)]
+        for path in (target_series, downside_series, upside_series)
     )
     # Total-wealth paths keep direct property outside the listed-real-estate
     # bucket. Only financial assets receive CMA returns/rebalancing; the
@@ -845,6 +1005,8 @@ def _build_simulation_payload(
         "real_target_series_rappen": _real_series_from_nominal(target_series, inflation_series_bps),
         "inflation_series_bps": inflation_series_bps,
         "rebalancing_events": rebalance_events,
+        "reserve_accounting_basis": RESERVE_ACCOUNTING_BASIS,
+        "external_reserve_balance_series_rappen": reserve_balance,
     }
 
 
@@ -1426,6 +1588,7 @@ def _run_allocation_monte_carlo(
     total_summary: "PortfolioSummary | None" = None,
     total_liabilities_rappen: int = 0,
     external_foundation_projection: dict | None = None,
+    reserve_release_series_rappen=None,
 ) -> dict:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -1481,6 +1644,10 @@ def _run_allocation_monte_carlo(
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
     target_start_total = int(target_total_rappen if target_total_rappen is not None else advisory_summary.total_rappen)
     target_start_values = _target_bucket_values(target_start_total, targets)
+    # RESERVE-FUNDING-LEDGER-001: Reservekonto, siehe _external_reserve_account.
+    reserve_releases, reserve_balance = _external_reserve_account(
+        advisory_summary, target_total_rappen, reserve_release_series_rappen, horizon_years,
+    )
     # C3: Sub-Allocation in den MC-Seed aufnehmen, damit Aenderungen der
     # tatsaechlichen Sub-Verteilung (z.B. EM-Tilt aktiviert) zu einer
     # neuen, deterministisch reproduzierbaren Pfadschar fuehren.
@@ -1643,7 +1810,7 @@ def _run_allocation_monte_carlo(
             total_current_deficit = 0
             total_target_deficit = 0
         current_by_year[0].append(sum(current_values.values()) - current_deficit)
-        target_by_year[0].append(sum(target_values.values()) - target_deficit)
+        target_by_year[0].append(sum(target_values.values()) - target_deficit + reserve_balance[0])
 
         current_start = max(1, sum(current_values.values()))
         target_start = max(1, sum(target_values.values()))
@@ -1734,7 +1901,9 @@ def _run_allocation_monte_carlo(
                 current_values, int(contribution or 0), current_deficit
             )
             target_deficit += _apply_cashflow_to_bucket_values(
-                target_values, int(contribution or 0), target_deficit
+                target_values,
+                int(contribution or 0) + reserve_releases[year_index - 1],
+                target_deficit,
             )
             if total_current_values is not None:
                 total_current_deficit += _apply_cashflow_to_bucket_values(
@@ -1777,7 +1946,9 @@ def _run_allocation_monte_carlo(
                                 )))
 
             current_by_year[year_index].append(sum(current_values.values()) - current_deficit)
-            target_by_year[year_index].append(sum(target_values.values()) - target_deficit)
+            target_by_year[year_index].append(
+                sum(target_values.values()) - target_deficit + reserve_balance[year_index]
+            )
             if total_current_values is not None:
                 total_current_by_year[year_index].append(
                     sum(total_current_values.values())
@@ -1882,7 +2053,8 @@ def _run_allocation_monte_carlo(
     ]
 
     target_terminal_values = target_by_year[-1]
-    downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < target_start_total) / max(1, len(target_terminal_values)) * 100))
+    economic_target_start = target_start_total + reserve_balance[0]
+    downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < economic_target_start) / max(1, len(target_terminal_values)) * 100))
 
     # #96 Verzehr/Sequence-of-Returns-Kennzahl (SOLL + IST).
     target_depletion_probability_pct, target_depletion_median_year = _sequence_of_returns_depletion(
@@ -1973,4 +2145,6 @@ def _run_allocation_monte_carlo(
         "current_depletion_median_year": current_depletion_median_year,
         "goal_summaries": goal_summaries,
         "current_goal_summaries": current_goal_summaries,
+        "reserve_accounting_basis": RESERVE_ACCOUNTING_BASIS,
+        "external_reserve_balance_series_rappen": reserve_balance,
     }

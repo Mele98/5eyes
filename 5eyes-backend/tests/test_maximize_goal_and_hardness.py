@@ -126,7 +126,7 @@ def _liability(kind: str, *, hardness: str = "primaer", target: int = 0,
 def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     result, context = _run([], 10, key="no_goals_10")
     resampling = result.resampling
-    assert resampling["engine_version"] == "saa_resampled_v7"
+    assert resampling["engine_version"] == "saa_resampled_v8"
     contract = resampling["objective_contract"]
     assert contract["objective_contract_version"] == "objective-contract-v2"
     assert contract["goal_weighting_mode"] == "hardness"
@@ -507,8 +507,11 @@ def test_hardness_orders_the_deviation_from_the_house_quota():
             "tracking_error_vs_house_bps"])
 
     def probability(hardness):
-        rows = results[hardness][0].resampling["house_prior"]["goal_probabilities"]
-        return float(next(r for r in rows if r.get("goal_id"))["probability_final"])
+        # Publizierte Zielwahrscheinlichkeit (Validierungswuerfel); die
+        # Haus-vs-Final-Offenlegung fehlt seit Engine v7 (#649), wenn das
+        # Ergebnis die Hausquote ist.
+        rows = results[hardness][0].goal_achievability
+        return float(next(r for r in rows if r.get("goal_id") == "vz")["probability"])
 
     def vol(hardness):
         result, context = results[hardness]

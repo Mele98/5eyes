@@ -185,6 +185,14 @@ Messung: das Gewicht 0.2 allein genuegte NICHT – Vermoegensziel CHF 5 Mio bei 
 
 `test_risk_variants_improve_their_own_measure_on_the_foundation` ist wieder ein regulaerer Test (kein xfail) und gruen: min_volatility nicht volatiler als der Default, max_drawdown mit kleinerem Drawdown. Goldens unveraendert (keine herabgestuften Ziele, Haswell = Nehalem).
 
+### Runde 3: Merge mit #649 (Statistik-Vertraege), Engine `saa_resampled_v8`
+
+develop 854ee8e (#649 v7 Statistik, #641, #645, #646, #647, #648) eingemergt; Konflikte nur in Kommentaren (Versionshistorie in `solver.py`, Golden-Docstring). Beide Absichten erhalten: Paar-Bootstrap, Shift-p-Wert, getrennte Selection/Final-Cubes, Survivor-Schwelle 90 %, Fail-closed, Ridge-Prior, Prior-Context (#649) und Hierarchie, Herabstufung, Maximize, ContractV2, Skalierung (dieser PR). Anpassung: der ContractV2-Nachweis im Resampling-Audit wird defensiv gebildet (`_contract_evidence`), weil #649-Tests Vertragsattrappen ohne `as_evidence` verwenden. Version `saa_resampled_v8`.
+
+Goldens (Haswell = Nehalem): Score 3/5 = develop; Score 7 6800/1600/800/600/200 → 6734/1674/810/582/200 (529/1081 → 526/1071 bps), Score 9 7900/800/700/400/200 → 7799/959/670/372/200 (577/1245 → 572/1227 bps). Ursache je einzeln geprueft: mit Haertegrad-Teiler 1 statt 10 ergeben beide exakt die develop-Fixtures (harte Pension).
+
+Fundament (develop 854ee8e → v8): 6491/1051/1907/300/251 → 6184/1501/1764/300/251; Stage-8 solo 6.4 s → 4.7 / 4.7 s. Gleicher unabhaengiger 20k-Wuerfel: P(Einkommensbruecke) develop-Allokation 73.19 %, v8 72.90 % (−0.29 pp, ~2 Standardfehler der gepaarten Differenz – etwas mehr als die in Runde 2 akzeptierten −0.16 pp); P(Familienvermoegen) 13.1 → 11.3 %, P(Mindestrendite) 59.4 → 57.1 %. Publiziert (je eigener Wuerfel): Einkommensbruecke 73.4 → 73.9 %.
+
 ## 11. Offen (Phase 2, eigener PR)
 
 1. Codex OBJECTIVE-TIEBREAK (1): Varianz/Prior gegen **opportunistische** Ziele ist weiterhin additiv (opportunistisch = Stufe 2 by design).

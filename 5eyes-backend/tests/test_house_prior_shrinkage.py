@@ -224,7 +224,12 @@ def test_certain_goal_has_zero_tracking_error_and_zero_bag_dispersion():
     result = _run("A_ausgewogen_sparen", 0.40)
     block = result.resampling["house_prior"]
     assert block["decision"] == DECISION_HOUSE_PRIOR
-    assert block["reason"] == "identical_to_house_anchor"
+    # Engine v7: exakt identisch ODER innerhalb der Solver-Toleranz (<= 1 bp
+    # je Bucket, Ridge-Metrik; Herleitung bei REASON_WITHIN_TOLERANCE) --
+    # publiziert wird in beiden Faellen exakt der Anker.
+    assert block["reason"] in {
+        "identical_to_house_anchor", "within_solver_tolerance_of_house_anchor",
+    }
     assert block["tracking_error_vs_house_bps"] == 0.0
     assert block["final_bps"] == block["house_anchor_projected_bps"] == result.weights_bps
     assert max(result.resampling["dispersion_bps"].values()) <= 1.0
@@ -262,7 +267,7 @@ def test_disclosure_fields_are_complete_and_in_the_model_basis():
 
     result = _run("D_wachstum_sparen", 1.0)
     payload = result.resampling
-    assert payload["engine_version"] == "saa_resampled_v7"
+    assert payload["engine_version"] == "saa_resampled_v8"
     assert "significance" not in payload
     block = payload["house_prior"]
     assert HOUSE_PRIOR_KAPPA == 300.0
@@ -282,16 +287,30 @@ def test_disclosure_fields_are_complete_and_in_the_model_basis():
         "improvement", "improvement_lower_bound", "improvement_upper_bound",
         "p_value_better", "p_value_worse", "significantly_worse",
         "house_goal_level", "final_goal_level", "n_bootstrap", "alpha",
+        # Engine v7: Stichprobeneinheit und p-Wert-Vertrag.
+        "sampling_unit", "n_independent_units", "sampling_unit_hash",
+        "bootstrap_method", "null_hypothesis", "p_value_calibration",
+        "bootstrap_tail_fraction_not_better", "bootstrap_tail_fraction_not_worse",
     ):
         assert key in disclosure, key
+    assert disclosure["sampling_unit"] == "antithetic_pair"
     assert disclosure["improvement_lower_bound"] <= disclosure["improvement"]
     assert disclosure["improvement"] <= disclosure["improvement_upper_bound"]
-    # TE = 1e4 * sqrt((w - w_H)' Sigma (w - w_H)) mit der CMA-Kovarianz.
+    # TE = 1e4 * sqrt((w - w_H)' (Sigma + eps I) (w - w_H)) -- Engine v7
+    # Ridge-Metrik (HOUSE-PRIOR-PSD-NULLSPACE-001); der reine CMA-TE liegt
+    # nur marginal darunter.
+    from services.optimizer.house_prior import prior_metric_bps2
+
     delta = (_w(block["final_bps"]) - _w(block["house_anchor_projected_bps"])) / 1e4
     expected_te = 1e4 * np.sqrt(
+        portfolio_variance_one_year(delta, prior_metric_bps2(result.context.scenario_cov_bps2))
+    )
+    pure_te = 1e4 * np.sqrt(
         portfolio_variance_one_year(delta, result.context.scenario_cov_bps2)
     )
     assert block["tracking_error_vs_house_bps"] == pytest.approx(expected_te, abs=1e-3)
+    assert pure_te <= block["tracking_error_vs_house_bps"] <= pure_te * 1.05
+    assert block["prior_metric"]["min_eigenvalue_bps2"] >= 2500.0 - 1e-6
     # Reasoning fuer Kunde/Pruefer.
     assert any(
         "Hausmatrix als Anker des Optimierers" in line and "Tracking Error" in line
@@ -384,8 +403,12 @@ def test_prior_replaces_the_variance_tiebreak_only_with_an_anchor(small_context)
     prior_ctx = solver_module._with_house_prior(small_context, anchor)
     assert prior_ctx.house_prior_kappa == HOUSE_PRIOR_KAPPA
     assert not prior_ctx.house_prior_weights.flags.writeable
+    # Engine v7 (HOUSE-PRIOR-PSD-NULLSPACE-001): Ridge-Metrik Sigma + eps I.
+    from services.optimizer.house_prior import prior_metric_bps2
+
     assert solver_module._tiebreak_portfolio_variance(prior_ctx, w) == pytest.approx(
-        HOUSE_PRIOR_KAPPA * portfolio_variance_one_year(w - w_h, cov), rel=1e-12,
+        HOUSE_PRIOR_KAPPA * portfolio_variance_one_year(w - w_h, prior_metric_bps2(cov)),
+        rel=1e-12,
     )
     assert solver_module._tiebreak_portfolio_variance(prior_ctx, w_h) == 0.0
 
@@ -421,21 +444,33 @@ def test_solver_objective_equals_evaluate_weights_and_validation_split(small_con
     )
 
 
-def test_result_keeps_the_caller_context_and_its_external_objective_contract():
-    """Der Prior steuert die Bags; ``result.context`` bleibt das uebergebene
-    Objekt (Aktivierungsvalidierung, Shadow-Vergleich) und
-    ``evaluate_weights(ctx, result.weights_bps)`` reproduziert
-    ``result.objective_value`` exakt. Der Prior-Term steht im Audit."""
+def test_result_binds_the_prior_decision_objective():
+    """HOUSE-PRIOR-DECISION-OBJECTIVE-IDENTITY-001 (Engine v7, ersetzt den
+    v6-Vertrag "result.context ist das Aufrufer-Objekt"): der Prior steuert
+    die Bags UND der Abschluss laeuft auf dem Prior-Context. ``result.context``
+    ist der aus dem uebergebenen Context abgeleitete Prior-Context (alle
+    uebrigen Felder dieselben Objekte), ``result.objective_value`` ist die
+    Entscheidungs-Zielfunktion G + P_pref + kappa_H * TE_M^2 und
+    ``evaluate_weights(result.context, result.weights_bps)`` reproduziert ihn
+    exakt. Der Prior-Term steht zusaetzlich im Audit."""
+    import dataclasses
+
     inputs = _inputs("D_wachstum_sparen", 1.0)
     context = solver_module.build_optimizer_context(**inputs)
     result = solver_module.run_solver(**inputs, optimizer_context=context)
-    assert result.context is context
     assert context.house_prior_weights is None
-    assert solver_module.evaluate_weights(context, dict(result.weights_bps)).objective_value == (
-        pytest.approx(result.objective_value, rel=1e-12, abs=1e-12)
-    )
+    assert result.context is not context
+    assert result.context.house_prior_weights is not None
+    for field in dataclasses.fields(context):
+        if field.name in {"house_prior_weights", "house_prior_kappa"}:
+            continue
+        assert getattr(result.context, field.name) is getattr(context, field.name), field.name
+    assert solver_module.evaluate_weights(
+        result.context, dict(result.weights_bps),
+    ).objective_value == pytest.approx(result.objective_value, rel=1e-12, abs=1e-12)
     block = result.resampling["house_prior"]
     prior_ctx = solver_module._with_house_prior(context, block["house_anchor_projected_bps"])
+    np.testing.assert_array_equal(prior_ctx.house_prior_weights, result.context.house_prior_weights)
     w = _w(result.weights_bps) / 1e4
     assert block["final_prior_penalty"] == pytest.approx(
         solver_module._tiebreak_portfolio_variance(prior_ctx, w), rel=1e-12,
@@ -522,7 +557,12 @@ def test_risk_measure_variants_keep_the_v5_significance_rule(mode):
     assert result.context.house_prior_weights is None
     assert "house_prior" not in result.resampling
     significance = result.resampling["significance"]
-    assert significance["test"] == "paired_bootstrap_one_sided_goal_level_v4"
+    from services.optimizer.resampling import SIGNIFICANCE_TEST_VERSION
+
+    # Mathematisch die v5-Regel; seit Engine v7 mit Einheiten-Bootstrap und
+    # nullzentriertem p-Wert (eigene Testversion).
+    assert significance["test"] == SIGNIFICANCE_TEST_VERSION
+    assert significance["sampling_unit"] == "antithetic_pair"
     assert significance["decision"] in {"optimizer", "house_matrix"}
 
 
