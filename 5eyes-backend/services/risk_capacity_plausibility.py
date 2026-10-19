@@ -40,6 +40,12 @@ Widerspruch gefunden, lautet der Gesamtstatus ``partial`` (nie
 (``obligation_forward_window_months``) beginnen, zaehlen mit, weil Frage 5
 auch kuenftig absehbare Verpflichtungen umfasst; massgebend ist die hoechste
 monatliche Belastung im Fenster (Zeitprofil), nicht die Summe.
+Einkommen wird im selben Fenster konservativ gewertet (CIO-Entscheid
+2026-10-19): fuer Frage 3 und Frage 7 gilt das TIEFSTE monatliche Einkommen
+im Fenster (ein heute aktives Einkommen, das im Fenster wegfaellt, zaehlt
+nicht mehr; kuenftige neue Einkommen zaehlen nie). Die Sparquote wird je
+Monatssegment aus Einkommen und Belastung DESSELBEN Monats gebildet;
+massgebend ist der unguenstigste Monat.
 
 Folgeschritt (bewusst NICHT in diesem Modul): eine persistierte, hashgebundene
 ``RiskCapacityPlausibilityEvaluationV1`` (Assessment-ID, Input-Hashes, FX,
@@ -211,6 +217,15 @@ class RecordedFinancials:
     current_expense_monthly_rappen: int | None = None
     peak_expense_from: str | None = None
     outside_window_expense_count: int = 0
+    # Einkommens-Zeitprofil: ``gross_income_monthly_rappen`` ist das TIEFSTE
+    # monatliche Einkommen im Fenster, ``current_...`` das am Stichtag.
+    current_income_monthly_rappen: int | None = None
+    income_min_from: str | None = None
+    # Ungunstigster Monat fuer die Sparquote (Einkommen und Belastung
+    # desselben Monatssegments). None = Fallback auf die Aggregatwerte.
+    savings_worst_income_monthly_rappen: int | None = None
+    savings_worst_expense_monthly_rappen: int | None = None
+    savings_worst_from: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +334,14 @@ def assess_plausibility(
     )
     forward_months = int(t["obligation_forward_window_months"])
 
-    # R1 -- Frage 3: regelmaessiges Bruttoeinkommen pro Monat.
+    # R1 -- Frage 3: regelmaessiges Bruttoeinkommen pro Monat (tiefster
+    # Monat im Vorausfenster, siehe Modul-Docstring).
     income = int(recorded.gross_income_monthly_rappen)
+    income_drops = (
+        recorded.current_income_monthly_rappen is not None
+        and recorded.income_min_from is not None
+        and income < int(recorded.current_income_monthly_rappen)
+    )
     if declared.income_band is None:
         skip(CHECK_INCOME, 3, "Antwort zu Frage 3 ist keiner Antwortoption zuzuordnen.",
              COVERAGE_ANSWER_UNMAPPED)
@@ -328,7 +349,7 @@ def assess_plausibility(
         coverage[CHECK_INCOME] = COVERAGE_NOT_APPLICABLE
     else:
         band = INCOME_BANDS_CHF_MONTH[declared.income_band]
-        if income <= 0 or recorded.income_cashflow_count <= 0:
+        if recorded.income_cashflow_count <= 0 or (income <= 0 and not income_drops):
             skip(CHECK_INCOME, 3, "Keine laufenden Einnahmen als Cashflow erfasst.", income_coverage)
         else:
             coverage[CHECK_INCOME] = income_coverage
@@ -342,7 +363,14 @@ def assess_plausibility(
                     "recorded": f"{_chf(income)} pro Monat",
                     "message": (
                         f"Frage 3 (Einkommen): angegeben {_band_label_chf(band, ' pro Monat')}, "
-                        f"erfasste laufende Einnahmen {_chf(income)} pro Monat."
+                        + (
+                            f"erfasste laufende Einnahmen heute "
+                            f"{_chf(recorded.current_income_monthly_rappen)} pro Monat; ab "
+                            f"{_month_label(recorded.income_min_from)} sinkt das erfasste "
+                            f"Einkommen auf {_chf(income)} pro Monat."
+                            if income_drops
+                            else f"erfasste laufende Einnahmen {_chf(income)} pro Monat."
+                        )
                     ),
                 })
 
@@ -430,11 +458,20 @@ def assess_plausibility(
         coverage[CHECK_SAVINGS] = COVERAGE_NOT_APPLICABLE
     else:
         band = SAVINGS_RATE_BANDS_PCT[declared.savings_band]
-        if income <= 0 or recorded.income_cashflow_count <= 0:
+        sav_income = (
+            int(recorded.savings_worst_income_monthly_rappen)
+            if recorded.savings_worst_income_monthly_rappen is not None else income
+        )
+        sav_expense = (
+            int(recorded.savings_worst_expense_monthly_rappen)
+            if recorded.savings_worst_expense_monthly_rappen is not None else expense
+        )
+        if recorded.income_cashflow_count <= 0 or (sav_income <= 0 and not income_drops):
             skip(CHECK_SAVINGS, 7, "Keine laufenden Einnahmen als Cashflow erfasst.", income_coverage)
         else:
-            # Obergrenze: Brutto-Einnahmen minus (Untergrenze der) Ausgaben.
-            rate_pct = (income - expense) / income * 100.0
+            # Obergrenze: Brutto-Einnahmen minus (Untergrenze der) Ausgaben,
+            # im unguenstigsten Monatssegment des Vorausfensters.
+            rate_pct = _savings_rate_pct(sav_income, sav_expense)
             limit_pct = max(0.0, band[0] - t["savings_rate_tolerance_pp"])
             if rate_pct >= limit_pct and recorded.expense_cashflow_count <= 0:
                 # Ohne erfasste Ausgaben waere die Sparquote eine Scheingewissheit
@@ -461,8 +498,8 @@ def assess_plausibility(
                     "message": (
                         f"Frage 7 (Sparquote): angegeben {_band_label_pct(band)}, "
                         f"aus den erfassten laufenden Cashflows höchstens {rate_pct:.0f} % "
-                        f"(Einnahmen {_chf(income)}, Ausgaben {_chf(expense)} pro Monat"
-                        + _peak_suffix(recorded)
+                        f"(Einnahmen {_chf(sav_income)}, Ausgaben {_chf(sav_expense)} pro Monat"
+                        + _savings_suffix(recorded)
                         + ")."
                     ),
                 })
@@ -541,6 +578,11 @@ def assess_plausibility(
             "gross_income_monthly_rappen": income,
             "recurring_expense_monthly_rappen": expense,
             "current_expense_monthly_rappen": recorded.current_expense_monthly_rappen,
+            "current_income_monthly_rappen": recorded.current_income_monthly_rappen,
+            "income_min_from": recorded.income_min_from,
+            "savings_worst_income_monthly_rappen": recorded.savings_worst_income_monthly_rappen,
+            "savings_worst_expense_monthly_rappen": recorded.savings_worst_expense_monthly_rappen,
+            "savings_worst_from": recorded.savings_worst_from,
             "peak_expense_from": recorded.peak_expense_from,
             "obligation_forward_window_months": forward_months,
             "outside_window_expense_count": int(recorded.outside_window_expense_count),
@@ -581,10 +623,28 @@ def _expense_phrase(recorded: RecordedFinancials, forward_months: int) -> str:
     return "erfasste laufende Ausgaben inkl. Hypothekarzins und Amortisation"
 
 
-def _peak_suffix(recorded: RecordedFinancials) -> str:
-    if _peak_is_future(recorded):
-        return f", höchste Monatsbelastung ab {_month_label(recorded.peak_expense_from)}"
-    return ""
+def _savings_rate_pct(income: int, expense: int) -> float:
+    if income > 0:
+        return (income - expense) / income * 100.0
+    # Kein Einkommen im Monat: keine Sparquote moeglich; mit Ausgaben negativ.
+    return -100.0 if expense > 0 else 0.0
+
+
+def _savings_suffix(recorded: RecordedFinancials) -> str:
+    worst = recorded.savings_worst_from
+    current_income = recorded.current_income_monthly_rappen
+    current_expense = recorded.current_expense_monthly_rappen
+    if (
+        worst is None
+        or current_income is None
+        or current_expense is None
+        or (
+            recorded.savings_worst_income_monthly_rappen == current_income
+            and recorded.savings_worst_expense_monthly_rappen == current_expense
+        )
+    ):
+        return ""
+    return f", ungünstigster Monat ab {_month_label(worst)}"
 
 
 def _nothing_evaluable(not_evaluable: list[dict]) -> bool:
@@ -855,6 +915,7 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
     window_end_obl = _add_months(today, int(THRESHOLDS["obligation_forward_window_months"]))
     segments = _forward_segments(today, window_end_obl)
     segment_expense = [0.0] * len(segments)
+    segment_income = [0.0] * len(segments)
     income_monthly = 0.0
     income_count = expense_count = outside_window = 0
     for cf in cashflows:
@@ -877,8 +938,15 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
             gross_amount = getattr(cf, "gross_amount_rappen", None)
             if isinstance(gross_amount, int) and not isinstance(gross_amount, bool):
                 amount = max(amount, gross_amount)
-            income_monthly += _fx_to_chf(amount, cf.currency, fx_source) * per_year / 12.0
+            monthly_income = _fx_to_chf(amount, cf.currency, fx_source) * per_year / 12.0
+            income_monthly += monthly_income
             income_count += 0 if derived else 1
+            # Konservativ: ein Einkommen zaehlt in einem Monatssegment nur,
+            # wenn es das ganze Segment abdeckt (valid_until inklusiv).
+            end = _parse_iso_date(getattr(cf, "valid_until", None))
+            for i, (_s0, s1) in enumerate(segments):
+                if end is None or end >= s1:
+                    segment_income[i] += monthly_income
         elif cf_type == "Expense":
             # Frage 5: aktuelle UND innerhalb des Vorausfensters beginnende
             # Verpflichtungen; Zeitprofil je Monatssegment.
@@ -898,6 +966,19 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
     )
     expense_monthly = segment_expense[peak_index] if peak_index is not None else 0.0
     current_expense = segment_expense[0] if segments else 0.0
+    income_min_index = (
+        min(range(len(segment_income)), key=lambda i: segment_income[i]) if segments else None
+    )
+    income_min = segment_income[income_min_index] if income_min_index is not None else 0.0
+    worst_index = (
+        min(
+            range(len(segments)),
+            key=lambda i: _savings_rate_pct(
+                int(round(segment_income[i])), int(round(segment_expense[i]))
+            ),
+        )
+        if segments else None
+    )
 
     window_end = _add_years(today, int(THRESHOLDS["near_term_goal_years"]))
     need = 0
@@ -916,7 +997,7 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
             labels.append(str(getattr(goal, "label", "") or "Ziel"))
 
     return RecordedFinancials(
-        gross_income_monthly_rappen=int(round(income_monthly)),
+        gross_income_monthly_rappen=int(round(income_min)),
         recurring_expense_monthly_rappen=int(round(expense_monthly)),
         liquid_assets_rappen=liquid,
         gross_assets_rappen=gross,
@@ -931,6 +1012,17 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
         current_expense_monthly_rappen=int(round(current_expense)),
         peak_expense_from=segments[peak_index][0].isoformat() if peak_index is not None else None,
         outside_window_expense_count=outside_window,
+        current_income_monthly_rappen=int(round(income_monthly)),
+        income_min_from=(
+            segments[income_min_index][0].isoformat() if income_min_index is not None else None
+        ),
+        savings_worst_income_monthly_rappen=(
+            int(round(segment_income[worst_index])) if worst_index is not None else None
+        ),
+        savings_worst_expense_monthly_rappen=(
+            int(round(segment_expense[worst_index])) if worst_index is not None else None
+        ),
+        savings_worst_from=segments[worst_index][0].isoformat() if worst_index is not None else None,
     )
 
 

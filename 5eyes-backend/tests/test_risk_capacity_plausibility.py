@@ -852,3 +852,82 @@ def test_no_expense_rows_end_to_end_is_partial_via_endpoint(session_factory):
         assert {CHECK_OBLIGATIONS, CHECK_SAVINGS} <= _skipped(result)
         # kein Widerspruch -> kein Audit-Eintrag (unveraendertes Verhalten)
         assert _plausibility_audit_rows(session) == []
+
+
+# ---------------------------------------------------------------------------
+# CIO-Entscheid 2026-10-19: Einkommen im Vorausfenster konservativ werten.
+# F3/F7 nutzen das TIEFSTE Monatseinkommen im 12-Monats-Fenster; die Sparquote
+# wird je Monatssegment aus Einkommen und Belastung DESSELBEN Monats gebildet.
+# ---------------------------------------------------------------------------
+
+def test_income_drop_within_window_uses_lowest_month(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000, valid_until="2027-02-28"),
+        _cashflow("pension", "Income", 5_000),
+        _cashflow("living", "Expense", 4_500),
+    ])
+    assert recorded.current_income_monthly_rappen == 20_000 * CHF
+    assert recorded.gross_income_monthly_rappen == 5_000 * CHF
+    assert recorded.income_min_from == "2027-03-01"
+    result = assess_plausibility(_declared(), recorded)
+    income = next(f for f in result["findings"] if f["check"] == CHECK_INCOME)
+    assert "ab 03.2027 sinkt das erfasste Einkommen auf CHF 5'000" in income["message"]
+    savings = next(f for f in result["findings"] if f["check"] == CHECK_SAVINGS)
+    assert savings["recorded"] == "10 %"
+    assert "ungünstigster Monat ab 03.2027" in savings["message"]
+
+
+@pytest.mark.parametrize("until", ["2027-10-19", "2027-10-18"])  # nach / genau Fensterende (inklusiv)
+def test_income_drop_outside_window_is_not_counted(session_factory, until):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000, valid_until=until),
+        _cashflow("living", "Expense", 4_000),
+    ])
+    assert recorded.gross_income_monthly_rappen == 15_000 * CHF
+    result = assess_plausibility(_declared(), recorded)
+    assert CHECK_INCOME not in _checks(result)
+    assert CHECK_SAVINGS not in _checks(result)
+
+
+def test_multiple_incomes_dropping_at_different_months(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("a", "Income", 6_000, valid_until="2026-12-31"),
+        _cashflow("b", "Income", 4_000, valid_until="2027-05-31"),
+        _cashflow("c", "Income", 3_000),
+        _cashflow("future", "Income", 9_000, valid_from="2027-06-01"),  # zaehlt nie
+        _cashflow("living", "Expense", 1_000),
+    ])
+    assert recorded.current_income_monthly_rappen == 13_000 * CHF
+    assert recorded.gross_income_monthly_rappen == 3_000 * CHF
+    assert recorded.income_min_from == "2027-06-01"
+    assert recorded.income_cashflow_count == 3
+
+
+def test_savings_worst_month_pairs_income_and_expense_of_same_month(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 5_000, valid_until="2027-02-28"),
+        _cashflow("base", "Income", 10_000),
+        _cashflow("living", "Expense", 2_000),
+        _cashflow("one-month", "Expense", 8_000, valid_from="2026-11-01", valid_until="2026-11-30"),
+    ])
+    # Nov: 15'000 / 10'000 -> 33 %; ab Maerz: 10'000 / 2'000 -> 80 %.
+    # Falsch kombiniert (Min-Einkommen + Max-Belastung) waere 0 %.
+    assert recorded.savings_worst_from == "2026-11-01"
+    assert recorded.savings_worst_income_monthly_rappen == 15_000 * CHF
+    assert recorded.savings_worst_expense_monthly_rappen == 10_000 * CHF
+    result = assess_plausibility(_declared(income_band=2, obligations_band=4), recorded)
+    assert CHECK_SAVINGS not in _checks(result)
+    assert CHECK_INCOME not in _checks(result)
+
+
+def test_all_income_ending_in_window_is_a_finding_not_a_skip(session_factory):
+    recorded = _load(session_factory, [
+        _cashflow("salary", "Income", 15_000, valid_until="2027-01-31"),
+        _cashflow("living", "Expense", 2_000),
+    ])
+    assert recorded.gross_income_monthly_rappen == 0
+    result = assess_plausibility(_declared(), recorded)
+    assert {CHECK_INCOME, CHECK_SAVINGS} <= _checks(result)
+    assert not ({CHECK_INCOME, CHECK_SAVINGS} & _skipped(result))
+    income = next(f for f in result["findings"] if f["check"] == CHECK_INCOME)
+    assert "ab 02.2027 sinkt das erfasste Einkommen auf CHF 0" in income["message"]
