@@ -10,7 +10,7 @@
  * Mutationen laufen NICHT unter /clients (Inflow-ID ist global eindeutig).
  * Auth/Fehler aus ./client wiederverwendet; 422-Detail wird geflacht.
  */
-import { ApiError, resolveAuthToken } from './client';
+import { ApiError, apiErrorFromResponse, resolveAuthToken } from './client';
 import type {
   WealthInflowCreatePayload,
   WealthInflowRecord,
@@ -20,23 +20,6 @@ import type {
 interface RequestOptions {
   signal?: AbortSignal;
   baseUrl?: string;
-}
-
-function flattenDetail(detail: unknown): string {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) =>
-        item && typeof item === 'object' && 'msg' in item
-          ? String((item as { msg: unknown }).msg)
-          : String(item),
-      )
-      .join('; ');
-  }
-  if (detail && typeof detail === 'object' && 'msg' in detail) {
-    return String((detail as { msg: unknown }).msg);
-  }
-  return 'Unbekannter Fehler.';
 }
 
 async function authHeaders(): Promise<HeadersInit> {
@@ -49,16 +32,7 @@ async function authHeaders(): Promise<HeadersInit> {
 }
 
 async function raiseApiError(response: Response): Promise<never> {
-  let detail = `HTTP ${response.status}`;
-  let raw: unknown;
-  try {
-    const body = await response.json();
-    raw = (body as { detail?: unknown })?.detail;
-    if (raw !== undefined) detail = flattenDetail(raw);
-  } catch {
-    // non-json body
-  }
-  throw new ApiError(response.status, detail, raw);
+  throw await apiErrorFromResponse(response);
 }
 
 async function request(url: string, init: RequestInit): Promise<Response> {

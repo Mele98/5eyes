@@ -50,6 +50,20 @@ const config: Config = {
           DEFAULT: '#B39455',
           subtle:  '#D9C79A',
         },
+        // AA-UX-COLORS-001: Anlageklassen + SOLL (Spiegel von src/design/tokens.ts
+        // und den App-Tokens --ac-*/--soll). `*-dark` fuer die dark:-Variante.
+        ac: {
+          eq: '#1F3A5F', 'eq-dark': '#3D6DB0',
+          bd: '#B39455', 'bd-dark': '#CFBC94',
+          re: '#7A4A2E', 're-dark': '#BA7349',
+          alt: '#5E6B45', 'alt-dark': '#8EA06C',
+          liq: '#8E97A8', 'liq-dark': '#C2C7D0',
+          oth: '#6B4E71', 'oth-dark': '#9B79A2',
+        },
+        soll: {
+          DEFAULT: '#8A6A1F',
+          dark: '#D9B869',
+        },
         // Status-Farben für Ampeln (matt, NICHT signal-grün/-rot)
         status: {
           gruen: '#4E6F58',

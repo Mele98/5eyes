@@ -141,7 +141,13 @@ _FUNCTIONS = (
     "collectTiltReasonsFromUI",
     "syncTiltReasonVisibility",
     "stripLegacySimulationHorizon",
-    "sbbFormatChf",
+    "sbbFormatPctInput",
+    # AA-UX-FORMAT-001: zentrale Format-Helfer (#658)
+    "fmtLocaleCH",
+    "normalizeNumberInputCH",
+    "fmtNumber",
+    "fmtPct",
+    "fmtCHF",
     "sbbParseAmount",
     "findStrategyBlockConflicts",
     "buildStrategyBlockChips",
@@ -575,8 +581,51 @@ def test_panel_sits_directly_above_the_allocation_grid_and_starts_collapsed():
 
 
 def test_panel_has_the_six_sections_in_order():
-    legends = re.findall(r'<legend class="sbb-sec-t">([^<]*)</legend>', _panel(_html()))
-    assert [l.replace("&amp;", "&") for l in legends] == list(PANEL_SECTIONS)
+    legends = re.findall(r'<legend class="sbb-sec-t">(.*?)</legend>', _panel(_html()))
+    texts = [re.sub(r"<[^>]+>", "", l).replace("&amp;", "&") for l in legends]
+    assert texts == list(PANEL_SECTIONS)
+
+
+def test_asset_class_sections_and_chips_use_central_class_colour_tokens():
+    src = _html()
+    panel = _panel(src)
+    legends = dict(
+        (re.sub(r"<[^>]+>", "", l).replace("&amp;", "&"), l)
+        for l in re.findall(r'<legend class="sbb-sec-t">(.*?)</legend>', panel)
+    )
+    assert 'sbb-ac-eq' in legends["Aktien"]
+    assert 'sbb-ac-bd' in legends["Obligationen"]
+    assert 'sbb-ac-re' in legends["Immobilien & Alternative"] and 'sbb-ac-alt' in legends["Immobilien & Alternative"]
+    for key in ("eq", "bd", "re", "alt", "liq"):
+        assert ".sbb-ac-%s{background:var(--ac-%s);}" % (key, key) in src
+    # Keine eigenen Hex-Farben im Balken-CSS; Gold bleibt SOLL vorbehalten.
+    css = "\n".join(l for l in src.splitlines() if l.startswith(".sbb"))
+    assert not re.search(r"#[0-9a-fA-F]{3,6}\b", css)
+    assert "var(--g4)" not in css.replace("outline:2px solid var(--g4)", "")
+    chips = _chips("p.limits.minReserve=\"50'000\";")
+    by_label = {c["label"]: c.get("ac") for c in chips}
+    assert by_label["Aktien Schweiz-Fokus"] == "eq"
+    assert by_label["Obligationen langfristig"] == "bd"
+    assert by_label["Immobilien Schweiz"] == "re"
+    assert by_label["Alternative: Gold"] == "alt"
+    assert by_label["Mindestreserve CHF 50'000"] == "liq"
+    html = _run(
+        "var p=buildDefaultAllocationPreferences();renderStrategyBlocksSummary(p);"
+        "return document.getElementById('sbb-summary').innerHTML;"
+    )
+    assert '<span class="sbb-ac sbb-ac-eq" aria-hidden="true"></span>Aktien Schweiz-Fokus' in html
+
+
+def test_chip_numbers_use_central_format_helpers():
+    labels = [c["label"] for c in _chips(
+        "p.limits.minReserve='1250000';p.limits.singlePosition='15';p.limits.maxIlliquid='7.5';"
+    )]
+    assert "Mindestreserve CHF 1'250'000" in labels  # gerades Apostroph (AA-UX-FORMAT-001)
+    assert "Einzelposition ≤ 15\u00a0%" in labels
+    assert "Illiquid ≤ 7.5\u00a0%" in labels
+    body = _extract_function(_html(), "buildStrategyBlockChips")
+    assert "fmtCHF(" in body and "sbbFormatPctInput(" in body
+    assert "toLocaleString" not in body
 
 
 def test_every_bound_control_lives_once_inside_the_panel():
@@ -605,7 +654,7 @@ def test_removed_duplicates_and_old_dialog_are_gone():
     assert 'id="aa-preferences-card"' not in src and 'id="aa-restrictions-card"' not in src
     assert "toggleAllocationRestrictionsPanel" not in src
     # Genau eine Reserve-Eingabe.
-    assert len(re.findall(r'<label[^>]*>[^<]*reserve[^<]*\(CHF\)</label>', src, re.I)) == 1
+    assert len(re.findall(r'<label[^>]*>(?:<span[^>]*></span>)*[^<]*reserve[^<]*\(CHF\)</label>', src, re.I)) == 1
     assert re.findall(r'<input[^>]*\bid="(aa-[a-z-]*reserve[a-z-]*)"', src) == ["aa-liquidity-min-reserve"]
     # Header-Button bleibt (Header-Kontrakt) und oeffnet den Balken, keinen Dialog.
     opener = _extract_function(src, "openAllocationPreferencesModal")

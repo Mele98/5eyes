@@ -9,11 +9,10 @@
  *   POST   /mandates/{id}/goals/calculate-max-pension-spending (1047)
  *
  * Auth + Fehler-Typen werden aus `./client` wiederverwendet (kein Copy).
- * 422-Validation-Details werden über `formatGoalError` zu einem String
+ * 422-Validation-Details werden über den zentralen `apiErrorFromResponse` zu einem String
  * geflacht, damit Komponenten eine lesbare Meldung erhalten.
  */
-import { ApiError, resolveAuthToken } from './client';
-import { formatGoalError } from '@/lib/goalForm';
+import { ApiError, apiErrorFromResponse, resolveAuthToken } from './client';
 import type {
   GoalCreatePayload,
   GoalRecord,
@@ -42,18 +41,9 @@ function goalsBase(mandateId: string, baseUrl: string): string {
 
 /** Wandelt einen Nicht-OK-Response in einen ApiError mit lesbarem Detail. */
 async function raiseApiError(response: Response): Promise<never> {
-  let detail = `HTTP ${response.status}`;
-  let raw: unknown;
-  try {
-    const body = await response.json();
-    raw = (body as { detail?: unknown })?.detail;
-    if (raw !== undefined) {
-      detail = formatGoalError(raw);
-    }
-  } catch {
-    // Body war kein JSON — Fallback auf HTTP-Status.
-  }
-  throw new ApiError(response.status, detail, raw);
+  throw await apiErrorFromResponse(response, {
+    fallback: 'Unbekannter Fehler beim Speichern des Ziels.',
+  });
 }
 
 /** Zentraler fetch-Wrapper: Netzwerk → ApiError(0), AbortError durchreichen. */

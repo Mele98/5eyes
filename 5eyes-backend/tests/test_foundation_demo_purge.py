@@ -593,3 +593,65 @@ def test_table_exists_and_columns_use_dialect_agnostic_inspection(session_factor
         assert "client_number" in cols
         assert "id" in cols
         assert _columns(session, "this_table_does_not_exist") == set()
+
+
+def test_foundation_purge_succeeds_with_overrides_and_keeps_decision_rows(
+    admin_client, session_factory,
+):
+    """CIO-Entscheid 2026-10-19 (RISK-OVERRIDE-WRITE-BOUNDARY-001, PR #657):
+    risk_override_decisions folgt dem audit_log-Muster -- append-only, aber
+    ohne harten FK auf risk_assessments/mandates. Der Purge eines Demo-
+    Mandats mit Overrides gelingt; die Decision-Zeilen bleiben unveraendert
+    (gleicher Hash, weiterhin verifizierbar) als Nachweis stehen."""
+    from models.profiling import RiskOverrideDecision
+    from models.users import User
+    from routers import profiling as profiling_router
+    from schemas.profiling import RiskAssessmentOverride
+    from services.risk_override_decision import verify_decision
+
+    reason = (
+        "Kunde wuenscht eine dokumentierte Anpassung nach gemeinsamer "
+        "Besprechung der Risikofaehigkeit und der Anlageziele."
+    )
+    with session_factory() as session:
+        _seed_foundation_chain(session)
+        # Das Seed-Mandat ist soft-deleted; fuer die Overrides wieder aktiv
+        # (ein aktives Demo-Mandat mit Overrides ist genau der Purge-Fall).
+        _exec(session, "UPDATE clients SET deleted_at = NULL WHERE id = 'client-foundation'")
+        _exec(session, "UPDATE mandates SET deleted_at = NULL WHERE id = 'mandate-foundation'")
+        session.commit()
+        actor = session.get(User, "admin-purge")
+        for score, profile in [(30, "Defensiv"), (50, "Ausgewogen")]:
+            profiling_router.override_risk_assessment(
+                mandate_id="mandate-foundation",
+                ra_id="assessment-foundation",
+                body=RiskAssessmentOverride(
+                    override_score_x10=score,
+                    override_profile=profile,
+                    override_reason=reason,
+                ),
+                request=SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1")),
+                db=session,
+                current_user=actor,
+            )
+        before = {
+            row.id: {c.name: getattr(row, c.name) for c in RiskOverrideDecision.__table__.columns}
+            for row in session.query(RiskOverrideDecision).all()
+        }
+    assert len(before) == 2
+
+    response = admin_client.post("/admin/system/foundation-example/purge")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "purged"
+    with session_factory() as session:
+        assert _scalar(session, "SELECT COUNT(*) FROM risk_assessments") == 0
+        assert _scalar(session, "SELECT COUNT(*) FROM mandates") == 0
+        after_rows = session.query(RiskOverrideDecision).all()
+        after = {
+            row.id: {c.name: getattr(row, c.name) for c in RiskOverrideDecision.__table__.columns}
+            for row in after_rows
+        }
+        assert after == before
+        assert all(verify_decision(row) for row in after_rows)
+        assert {row.assessment_id for row in after_rows} == {"assessment-foundation"}

@@ -8,7 +8,7 @@
  *
  * Auth wie reportNotes.ts: Bearer aus Electron / SessionStorage / Vite-Env.
  */
-import { ApiError } from './client';
+import { ApiError, apiErrorFromResponse } from './client';
 import type { BeratungsprotokollEntry } from './types';
 
 export type CommunicationChannel =
@@ -117,19 +117,7 @@ async function authHeaders(): Promise<HeadersInit> {
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    let detail = `HTTP ${response.status}`;
-    try {
-      const body = await response.json();
-      if (typeof body?.detail === 'string') detail = body.detail;
-      else if (Array.isArray(body?.detail)) {
-        detail = body.detail
-          .map((e: { loc?: string[]; msg?: string }) => `${e.loc?.join('.') ?? '?'}: ${e.msg ?? ''}`)
-          .join('; ');
-      }
-    } catch {
-      /* non-json body */
-    }
-    throw new ApiError(response.status, detail);
+    throw await apiErrorFromResponse(response);
   }
   return (await response.json()) as T;
 }
