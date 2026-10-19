@@ -5,6 +5,7 @@
  * _validate_recurring-Validator: is_recurring=1 erfordert frequency
  * 'jaehrlich'|'monatlich' (nicht 'einmalig') UND duration_years.
  */
+import { formatChfFromRappen, parseNumberInputCH } from './format';
 import type {
   WealthInflowCreatePayload,
   WealthInflowFrequency,
@@ -41,10 +42,8 @@ export interface WealthInflowFormInput {
 }
 
 function parseAmount(value: string): number | null {
-  const t = (value ?? '').trim();
-  if (t === '') return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
+  // AA-UX-FORMAT-001: akzeptiert ' und ' als Tausendertrennung.
+  return parseNumberInputCH(value);
 }
 
 function parseInt10(value: string): number | null {
@@ -105,5 +104,5 @@ export function buildWealthInflowPayload(input: WealthInflowFormInput): WealthIn
 
 /** CHF-Anzeige aus Rappen. */
 export function rappenToChf(rappen: number): string {
-  return `CHF ${Math.round(rappen / 100).toLocaleString('de-CH')}`;
+  return formatChfFromRappen(rappen);
 }

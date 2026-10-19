@@ -6,7 +6,16 @@ import {
   formatChfRappen,
   formatHorizon,
   formatInteger,
+  fmtChfCompact,
+  fmtNumber,
+  formatChfFromRappen,
+  parseNumberInputCH,
+  fmtPct,
+  fmtProbPct,
+  fmtSharpe,
+  fmtSignedPct,
 } from './format';
+import contract from './format.contract.json';
 
 describe('formatChfRappen', () => {
   it('formatiert Rappen mit Apostroph als Tausender', () => {
@@ -36,17 +45,17 @@ describe('formatChfRappen', () => {
 });
 
 describe('formatBpsAsPct', () => {
-  it('formatiert bps als Prozent mit 1 Dezimal default', () => {
-    expect(formatBpsAsPct(4250)).toBe('42.5 %');
-    expect(formatBpsAsPct(100)).toBe('1.0 %');
+  it('formatiert bps als Prozent mit 1 Dezimal default (AA-UX-FORMAT-001)', () => {
+    expect(formatBpsAsPct(4250)).toBe('42.5\u00a0%');
+    expect(formatBpsAsPct(100)).toBe('1.0\u00a0%');
   });
 
   it('respektiert decimals-Option', () => {
     // 7250 bps = 72.5 % — JS-toFixed rundet zu 73, Python's :.0f zu 72.
     // Beide Werte sind akzeptabel; wir prüfen nur dass der Suffix stimmt.
     const score = formatBpsAsPct(7250, { decimals: 0 });
-    expect(score).toMatch(/^(72|73) %$/);
-    expect(formatBpsAsPct(1234, { decimals: 2 })).toBe('12.34 %');
+    expect(score).toMatch(/^(72|73)\u00a0%$/);
+    expect(formatBpsAsPct(1234, { decimals: 2 })).toBe('12.34\u00a0%');
   });
 
   it('rendert null als em-dash', () => {
@@ -56,17 +65,51 @@ describe('formatBpsAsPct', () => {
 });
 
 describe('formatBpsSignedPct', () => {
-  it('schreibt + bei positiven Werten', () => {
-    expect(formatBpsSignedPct(450)).toBe('+4.5 %');
-    expect(formatBpsSignedPct(0)).toBe('+0.0 %');
+  it('schreibt + bei positiven Werten, 0 ohne Vorzeichen', () => {
+    expect(formatBpsSignedPct(450)).toBe('+4.5\u00a0%');
+    expect(formatBpsSignedPct(0)).toBe('0.0\u00a0%');
   });
 
-  it('schreibt - bei negativen Werten', () => {
-    expect(formatBpsSignedPct(-1000)).toBe('-10.0 %');
+  it('schreibt U+2212 (nie Bindestrich) bei negativen Werten', () => {
+    expect(formatBpsSignedPct(-1000)).toBe('\u221210.0\u00a0%');
+    expect(formatBpsSignedPct(-1000)).not.toContain('-');
   });
 
   it('null → em-dash', () => {
     expect(formatBpsSignedPct(null)).toBe('—');
+  });
+});
+
+describe('AA-UX-FORMAT-001: gemeinsamer Vertrag (format.contract.json)', () => {
+  const fns: Record<string, (...args: never[]) => string> = {
+    fmtPct, fmtSignedPct, fmtProbPct, fmtSharpe, fmtNumber,
+  } as unknown as Record<string, (...args: never[]) => string>;
+  for (const [fn, args, expected] of contract.cases as Array<[string, unknown[], string]>) {
+    it(`${fn}(${JSON.stringify(args)}) -> ${JSON.stringify(expected)}`, () => {
+      expect((fns[fn] as (...a: unknown[]) => string)(...args)).toBe(expected);
+    });
+  }
+  for (const [rappenChf, expected] of contract.compact_chf_cases as Array<[number, string]>) {
+    it(`fmtChfCompact(${rappenChf})`, () => {
+      expect(fmtChfCompact(rappenChf)).toBe(expected);
+    });
+  }
+  for (const [rappen, expected] of contract.chf_rappen_cases as Array<[number, string]>) {
+    it(`formatChfRappen(${rappen}) -> gerades Apostroph`, () => {
+      expect(formatChfRappen(rappen)).toBe(expected);
+    });
+  }
+  for (const [input, expected] of contract.parse_cases as Array<[string, number]>) {
+    it(`parseNumberInputCH(${JSON.stringify(input)})`, () => {
+      expect(parseNumberInputCH(input)).toBe(expected);
+    });
+  }
+  it('kein typografisches Apostroph (U+2019) in CHF-Ausgaben', () => {
+    expect(formatChfFromRappen(125_000_000)).toBe("CHF 1'250'000");
+    expect(fmtChfCompact(850_000)).not.toContain('’');
+  });
+  it('negative CHF mit U+2212', () => {
+    expect(formatChfRappen(-123_400)).toBe("CHF \u22121'234");
   });
 });
 

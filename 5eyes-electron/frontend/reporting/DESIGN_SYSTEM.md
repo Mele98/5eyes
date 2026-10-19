@@ -72,6 +72,24 @@ Diese Doku spiegelt den Stand von `tailwind.config.ts` + `src/styles/globals.css
 
 **Regel:** Max 1 Gold-Akzent pro Sektion. Mehr als 2 Gold-Element pro Seite verletzt das Editorial.
 
+### Anlageklassen + SOLL (AA-UX-COLORS-001)
+
+Identisch mit den App-Tokens `--ac-*` / `--soll` (5eyes_v2.html) und
+`src/design/tokens.ts` (`assetClass`, `assetClassDark`, `soll`). Gleichlauf
+prüft `5eyes-backend/tests/test_monolith_asset_class_colors.py`.
+
+| Token | Hell | Dark | Klasse |
+|-------|------|------|--------|
+| `bg-ac-eq` | `#1F3A5F` | `#3D6DB0` | Aktien (Navy) |
+| `bg-ac-bd` | `#B39455` | `#CFBC94` | Obligationen (Gold) |
+| `bg-ac-re` | `#7A4A2E` | `#BA7349` | Immobilien (Terrakotta) |
+| `bg-ac-alt` | `#5E6B45` | `#8EA06C` | Alternative inkl. Gold/PE (Oliv) |
+| `bg-ac-liq` | `#8E97A8` | `#C2C7D0` | Liquidität (Grau) |
+| `bg-ac-oth` | `#6B4E71` | `#9B79A2` | Übrige/nicht zugeordnet (Aubergine) |
+| `bg-soll` | `#8A6A1F` | `#D9B869` | SOLL-Strategie (Brand-Gold) |
+
+**Regel:** Grün ist ausschliesslich „besser als IST" — weder Anlageklasse noch SOLL.
+
 ---
 
 ## Typografie-Tokens

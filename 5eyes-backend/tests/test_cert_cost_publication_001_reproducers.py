@@ -203,8 +203,9 @@ def test_monolith_null_rate_bps_renders_as_zero_percent_not_absent():
     _require_node()
     html = _html()
     match = re.search(
+        # AA-UX-FORMAT-001: Rate jetzt ueber den gemeinsamen Formatter fmtPct.
         r"var rate=\(item\.rate_bps==null\)\?'—':"
-        r"\(Number\(item\.rate_bps\)/100\)\.toFixed\(2\)\+'%';",
+        r"fmtPct\(Number\(item\.rate_bps\),2\);",
         html,
     )
     assert match, (
@@ -250,7 +251,9 @@ def test_monolith_null_rate_bps_renders_as_zero_percent_not_absent():
     )
 
     script = (
-        "var item = " + json.dumps(retro_item) + ";\n"
+        _extract_balanced_block(html, "function fmtNumber(") + "\n"
+        + _extract_balanced_block(html, "function fmtPct(") + "\n"
+        + "var item = " + json.dumps(retro_item) + ";\n"
         + match.group(0) + "\n"
         "console.log(rate);\n"
     )
@@ -259,7 +262,7 @@ def test_monolith_null_rate_bps_renders_as_zero_percent_not_absent():
     # Soll (spec 6.1): "rate_bps=null wird als '-' oder 'absoluter Betrag' "
     # dargestellt, nie 0 %" -- an absolute, rate-less cost item must never
     # be shown as if a 0.00% rate had been disclosed.
-    assert rendered_rate != "0.00%", (
+    assert rendered_rate not in ("0.00%", "0.00\u00a0%"), (
         f"an absolute retrocession with no rate_bps rendered as {rendered_rate!r} "
         "-- null is being displayed as a disclosed 0% rate instead of 'no rate'"
     )
