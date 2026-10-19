@@ -327,10 +327,12 @@ def _unreachable_id(ctx) -> str:
     return next(str(l.goal_id) for l in ctx.liabilities if l.label == "Unerreichbar")
 
 
-def test_unreachable_goal_does_not_steer_the_default_mode_either():
-    """CIO-Entscheid 2026-10-18: auch im Default ``goal_shortfall`` steuert
-    ein praktisch unerreichbares Ziel weder Chance-Strafe noch Primaerterm
-    (kein zusaetzliches Risiko fuer ein aussichtsloses Ziel)."""
+def test_unreachable_goal_still_steers_the_default_mode():
+    """GOAL-SCREEN-OBJECTIVE-ERASURE-001 (Engine v7, CIO-Entscheid nach
+    Codex-Review): ein auf der Pruefmenge unerreichbares Ziel wird offengelegt,
+    aber NICHT mehr aus Primaerterm und Chance-Strafe genommen (bis v6:
+    ``penalty_exempt_goal_ids``). Sein Fehlbetrag unterscheidet weiter
+    zwischen viel und wenig Verfehlen."""
     from services.optimizer.goal_reachability import UNREACHABLE_TAU_FRACTION
     from services.optimizer.objective import shortfall_objective
     from services.optimizer.scenario_engine import BUCKET_ORDER
@@ -345,11 +347,16 @@ def test_unreachable_goal_does_not_steer_the_default_mode_either():
     screen = ctx.goal_reachability
     gid = _unreachable_id(ctx)
     assert screen["unreachable_goal_ids"] == [gid]
+    assert screen["not_found_reachable_goal_ids"] == [gid]
+    assert screen["penalty_exempt_goal_ids"] == []
+    assert screen["role"] == "advisory_disclosure_only"
     row = next(r for r in screen["goals"] if r["goal_id"] == gid)
     assert row["reachable"] is False
+    assert row["status"] == "not_found_reachable_in_screen_set"
+    assert row["penalty_exempt"] is False
     assert row["max_upper_bound"] < UNREACHABLE_TAU_FRACTION * row["tau"]
     assert screen["n_candidates_evaluated"] == screen["n_candidates"] >= 5
-    assert ctx.penalty_exempt_goal_ids == frozenset({gid})
+    assert not hasattr(ctx, "penalty_exempt_goal_ids")
 
     w = np.array([0.6, 0.3, 0.05, 0.03, 0.02])
     wealth = _simulate_context_wealth(ctx, w)
@@ -358,9 +365,6 @@ def test_unreachable_goal_does_not_steer_the_default_mode_either():
         horizon_years=ctx.horizon_years, weights=ctx.scenario_weights,
     )
     reachable_only = [l for l in ctx.liabilities if str(l.goal_id) != gid]
-    assert shortfall_objective(
-        ctx.liabilities, wealth, excluded_goal_ids={gid}, **kwargs
-    ) == pytest.approx(shortfall_objective(reachable_only, wealth, **kwargs))
     assert shortfall_objective(ctx.liabilities, wealth, **kwargs) > shortfall_objective(
         reachable_only, wealth, **kwargs
     )
@@ -375,9 +379,9 @@ def test_unreachable_goal_does_not_steer_the_default_mode_either():
 def test_half_tau_threshold_keeps_decision_relevant_goals_steering(
     monkeypatch, success_share, reachable,
 ):
-    """Schwelle tau/2: ein Ziel mit max. 54 % gegen tau = 80 % (Fundament:
-    Einkommensbruecke) bleibt entscheidungsrelevant und steuert weiter; ein
-    Ziel mit max. 5 % (Familienvermoegen) nicht."""
+    """Schwelle tau/2 (Offenlegung): ein Ziel mit max. 54 % gegen tau = 80 %
+    gilt als auf der Pruefmenge erreichbar, eines mit max. 5 % nicht. Seit
+    Engine v7 steuern BEIDE (kein Ausnehmen)."""
     from services.optimizer import objective as objective_module
     from services.optimizer.goal_reachability import goal_reachability_screen
 
@@ -390,7 +394,8 @@ def test_half_tau_threshold_keeps_decision_relevant_goals_steering(
     monkeypatch.setattr(objective_module, "_goal_probability_core", _constant_success)
     screen = goal_reachability_screen(ctx)
     assert all(row["reachable"] is reachable for row in screen["goals"])
-    assert bool(screen["penalty_exempt_goal_ids"]) is (not reachable)
+    assert bool(screen["not_found_reachable_goal_ids"]) is (not reachable)
+    assert screen["penalty_exempt_goal_ids"] == []
 
 
 @pytest.mark.parametrize("mode", ["max_drawdown", "min_volatility"])
@@ -398,10 +403,9 @@ def test_half_tau_threshold_keeps_decision_relevant_goals_steering(
 def test_risk_variants_steer_only_goals_whose_tau_is_reachable(
     monkeypatch, mode, success_share, steers,
 ):
-    """CIO-Entscheid (b): in den Risikomass-Varianten steuert ein Ziel nur,
-    wenn tau (80 %) auf mindestens einer zulaessigen Allokation erreichbar
-    ist. 54 % (ueber tau/2, im Default steuernd) steuert dort NICHT und wird
-    mit eigenem Beraterhinweis offengelegt."""
+    """Risikomass-Varianten: ein Ziel, dessen tau (80 %) auf keiner gepruften
+    Allokation erreicht wird, bekommt einen eigenen Beraterhinweis -- es
+    steuert seit Engine v7 aber weiter (GOAL-SCREEN-OBJECTIVE-ERASURE-001)."""
     from services.optimizer import objective as objective_module
     from services.optimizer.goal_reachability import (
         goal_reachability_screen,
@@ -418,21 +422,24 @@ def test_risk_variants_steer_only_goals_whose_tau_is_reachable(
     screen = goal_reachability_screen(ctx)
     assert all(row["reachable"] is True for row in screen["goals"])
     assert all(row["tau_reachable"] is steers for row in screen["goals"])
-    assert bool(screen["penalty_exempt_goal_ids"]) is (not steers)
+    assert bool(screen["not_found_reachable_goal_ids"]) is (not steers)
+    assert screen["penalty_exempt_goal_ids"] == []
     lines = reachability_reasoning(screen)
     if steers:
         assert lines == []
     else:
         assert len(lines) == len(screen["goals"])
         assert all(
-            "in dieser Risikovariante (" + mode + ") nicht optimiert" in line
-            and "geforderte Sicherheit auf keiner zulaessigen Allokation erreichbar" in line
+            "erreichte in der Risikovariante (" + mode + ")" in line
+            and "es bleibt Teil der Zielfunktion" in line
             for line in lines
         )
 
 
 @pytest.mark.parametrize("mode", ["max_drawdown", "min_volatility"])
-def test_unreachable_goal_does_not_steer_risk_measure_variants(mode):
+def test_unreachable_goal_still_steers_risk_measure_variants(mode):
+    """Engine v7: auch in den Varianten keine Ausnahme -- eine Zielfunktion
+    (Hauptwuerfel, Bag, Nachbewertung, Validierung) mit dem Ziel."""
     from services.optimizer.drawdown_certification import validated_drawdown_evaluation
     from services.optimizer.objective import chance_constraint_penalty
     from services.optimizer.scenario_engine import BUCKET_ORDER
@@ -447,24 +454,29 @@ def test_unreachable_goal_does_not_steer_risk_measure_variants(mode):
 
     ctx = _screen_context(mode)
     gid = _unreachable_id(ctx)
-    assert ctx.penalty_exempt_goal_ids == frozenset({gid})
+    assert gid in ctx.goal_reachability["not_found_reachable_goal_ids"]
     w = np.array([0.6, 0.3, 0.05, 0.03, 0.02])
 
     # Eine Zielfunktion: Hauptwuerfel, Bag, Nachbewertung, Validierung.
-    _penalty, rows = chance_constraint_penalty(
+    penalty, rows = chance_constraint_penalty(
         _simulate_context_wealth(ctx, w), ctx.liabilities, ctx.advisory_wealth_rappen,
-        weights=ctx.scenario_weights, penalty_exempt_goal_ids=ctx.penalty_exempt_goal_ids,
+        weights=ctx.scenario_weights,
     )
-    assert {r["goal_id"]: r["penalty_exempt"] for r in rows}[gid] is True
+    assert all("penalty_exempt" not in r for r in rows)
+    without, _ = chance_constraint_penalty(
+        _simulate_context_wealth(ctx, w),
+        [l for l in ctx.liabilities if str(l.goal_id) != gid],
+        ctx.advisory_wealth_rappen, weights=ctx.scenario_weights,
+    )
+    assert penalty > without  # das unerreichbare Ziel steuert
     bag = _bag_context(ctx, seed=123, n_paths=200)
-    assert bag.penalty_exempt_goal_ids == ctx.penalty_exempt_goal_ids
+    assert not hasattr(bag, "penalty_exempt_goal_ids")
     bps = _weights_to_bps_dict(w, bounds=ctx.bounds)
     w_rounded = np.array([bps[b] / 10000.0 for b in BUCKET_ORDER])
     assert evaluate_weights(ctx, bps).objective_value == pytest.approx(
         _objective_from_array(ctx, w_rounded), rel=1e-12
     )
     validation_context, validation_seed, _hash = _build_validation_context(ctx)
-    assert validation_context.penalty_exempt_goal_ids == ctx.penalty_exempt_goal_ids
     if mode == "max_drawdown":
         evaluation = validated_drawdown_evaluation(
             validation_context, w_rounded, validation_seed=validation_seed,
@@ -473,14 +485,25 @@ def test_unreachable_goal_does_not_steer_risk_measure_variants(mode):
             _simulate_context_wealth(validation_context, w_rounded),
             validation_context.liabilities,
             validation_context.advisory_wealth_rappen,
-            penalty_exempt_goal_ids=ctx.penalty_exempt_goal_ids,
         )
         assert evaluation["chance_penalty"] == pytest.approx(expected)
 
 
-def test_exempt_goal_contributes_no_penalty_but_keeps_its_row():
+def test_chance_penalty_has_no_exemption_any_more():
+    """GOAL-SCREEN-OBJECTIVE-ERASURE-001: es gibt keinen Parameter mehr, mit
+    dem ein Ziel aus der Strafe genommen werden kann."""
+    import inspect
+
     from services.optimizer.goal_liabilities import GoalLiability
-    from services.optimizer.objective import chance_constraint_penalty
+    from services.optimizer.objective import (
+        chance_constraint_penalty,
+        shortfall_objective,
+    )
+
+    assert "penalty_exempt_goal_ids" not in inspect.signature(
+        chance_constraint_penalty).parameters
+    assert "excluded_goal_ids" not in inspect.signature(
+        shortfall_objective).parameters
 
     goal = GoalLiability(
         goal_id="g", label="g", goal_type="test", target_kind="wealth_at_t",
@@ -488,12 +511,9 @@ def test_exempt_goal_contributes_no_penalty_but_keeps_its_row():
         hardness_key="hart", weight_bps=10_000, success_probability_min_x100=8_000,
     )
     never = np.column_stack([np.full(400, 100.0), np.full(400, 10.0)])
-    steered, _ = chance_constraint_penalty(never, [goal], 100)
-    exempt, rows = chance_constraint_penalty(
-        never, [goal], 100, penalty_exempt_goal_ids=frozenset({"g"}),
-    )
-    assert steered > 0.0 and exempt == 0.0
-    assert rows[0]["penalty_exempt"] is True and rows[0]["probability"] == 0.0
+    steered, rows = chance_constraint_penalty(never, [goal], 100)
+    assert steered > 0.0
+    assert rows[0]["probability"] == 0.0 and "penalty_exempt" not in rows[0]
 
 
 def test_bps_rounding_on_an_active_linear_constraint_is_repaired():
@@ -550,5 +570,7 @@ def test_reachability_is_published_on_goal_rows(monkeypatch):
     assert rows["Unerreichbar"]["feasible_set_reachable"] is False
     hints = [line for line in result.reasoning if line.startswith("Beraterhinweis: Ziel 'Unerreichbar'")]
     assert len(hints) == 1
-    assert "mit ausreichender Sicherheit erreichbar" in hints[0]
+    assert "mit der Mindestsicherheit erreichbar" in hints[0]
     assert "Ziel mit dem Kunden ueberpruefen (Betrag, Termin, Prioritaet)" in hints[0]
+    assert "als nachrangiges Wunschziel verfolgt" in hints[0]
+    assert "verdraengt keine erreichbaren Ziele" in hints[0]

@@ -97,7 +97,8 @@ def test_typo_in_goal_weighting_env_var_should_not_silently_equal_unset(monkeypa
     """
     monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
     ratio_unset = _hard_vs_opportunistic_ratio()
-    assert ratio_unset == pytest.approx(1.0)
+    # GOAL-HARDNESS-DEFAULT-001 (Engine v7): Default ist "hardness" (50x).
+    assert ratio_unset == pytest.approx(50.0)
 
     monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "hardnes")  # typo for "hardness"
 
@@ -117,8 +118,16 @@ def test_typo_in_goal_weighting_env_var_should_not_silently_equal_unset(monkeypa
 # ============================================================================
 
 
-def test_positive_control_unset_env_var_gives_equal_weighting_ratio_1(monkeypatch):
+def test_positive_control_unset_env_var_gives_default_hardness_ratio_50(monkeypatch):
+    """GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine v7): der
+    dokumentierte Default ist jetzt "hardness" (vorher "equal", Ratio 1)."""
     monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
+    ratio = _hard_vs_opportunistic_ratio()
+    assert ratio == pytest.approx(50.0)
+
+
+def test_positive_control_explicit_equal_gives_ratio_1(monkeypatch):
+    monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "equal")
     ratio = _hard_vs_opportunistic_ratio()
     assert ratio == pytest.approx(1.0)
 

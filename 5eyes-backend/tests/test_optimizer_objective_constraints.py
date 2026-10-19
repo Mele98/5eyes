@@ -248,11 +248,28 @@ def test_shortfall_unknown_kind_returns_zero():
 # ============================================================================
 
 
-def test_objective_equal_weighting_is_default(monkeypatch):
-    """Methodik-Default: alle Ziele gleich wichtig (Mittelung). Ein 'hartes' und
-    ein 'opportunistisches' Ziel mit identischem Shortfall ergeben dasselbe
-    Objective — der Haertegrad spielt im Default KEINE Rolle."""
+def test_objective_hardness_weighting_is_default(monkeypatch):
+    """GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine v7): der
+    Haertegrad wirkt standardmaessig -- ein 'hartes' Ziel kostet bei
+    identischem Fehlbetrag 50x ein 'opportunistisches' (10 / 0.2). Bis v6
+    war der Default 'equal' (gleiches Objective, Haertegrad ohne Wirkung)."""
     monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
+    hart = _make_liab(goal_id="h", hardness="hart", weight_bps=10000,
+                       target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                       target_year_index=5)
+    opp = _make_liab(goal_id="o", hardness="opportunistisch", weight_bps=10000,
+                      target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                      target_year_index=5)
+    wealth = np.full((10, 11), 999_000, dtype=np.float64)
+    obj_hart = shortfall_objective([hart], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    obj_opp = shortfall_objective([opp], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    assert obj_hart == pytest.approx(50.0 * obj_opp)
+
+
+def test_objective_equal_opt_out_ignores_hardness(monkeypatch):
+    """Opt-out OPTIMIZER_GOAL_WEIGHTING=equal (3eyes-"Mittelung", Default bis
+    v6): identischer Fehlbetrag -> identisches Objective."""
+    monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "equal")
     hart = _make_liab(goal_id="h", hardness="hart", weight_bps=10000,
                        target_kind="wealth_at_t", target_amount_rappen=1_000_000,
                        target_year_index=5)
