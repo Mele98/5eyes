@@ -93,7 +93,7 @@ def _run(names: tuple[str, ...], scenario_js: str):
 # Befund 1: formatCompactCHF + Donut-Platzhalter
 # ---------------------------------------------------------------------------
 
-_FMT = ("formatCompactCHFAmount", "formatCompactCHF")
+_FMT = ("fmtLocaleCH", "formatCompactCHFAmount", "formatCompactCHF")
 
 
 def test_format_compact_chf_uses_point_as_decimal_separator():
@@ -102,7 +102,7 @@ def test_format_compact_chf_uses_point_as_decimal_separator():
         "return {a:formatCompactCHF(2850000),b:formatCompactCHF(1234567.8),"
         "c:formatCompactCHF(12500000),d:formatCompactCHF(1000000),"
         "e:formatCompactCHF(-2850000),f:formatCompactCHF(0),"
-        "g:formatCompactCHF(12000),ref:(12000).toLocaleString('de-CH')};",
+        "g:formatCompactCHF(12000)};",
     )
     assert out["a"] == "CHF 2.85 Mio."
     assert out["b"] == "CHF 1.23 Mio."
@@ -111,9 +111,9 @@ def test_format_compact_chf_uses_point_as_decimal_separator():
     # Negative Millionen werden ebenfalls kompakt formatiert (vorher "CHF -2'850'000").
     assert out["e"] == "CHF −2.85 Mio."
     assert out["f"] == "CHF 0"
-    # Unter 1 Mio.: unveraendert die de-CH-Tausendergruppierung der Laufzeit
-    # (konsistent mit allen anderen toLocaleString('de-CH')-Formatern).
-    assert out["g"] == "CHF " + out["ref"]
+    # Unter 1 Mio.: voller Betrag; Tausendertrennung immer gerades Apostroph
+    # U+0027 (CIO-Entscheid 2026-10-19, zentral in fmtLocaleCH()).
+    assert out["g"] == "CHF 12'000"
     for value in (out["a"], out["b"], out["c"]):
         assert "'" not in value and "’" not in value, value
 
@@ -161,6 +161,10 @@ var result={
 """
 
 _CHART_FNS = (
+    # AA-UX-COLORS-001: SOLL-Serien in Brand-Gold (sollColor + Helfer).
+    "_acIsDarkTheme",
+    "hexWithAlpha",
+    "sollColor",
     "aaScenarioLabel",
     "simulationPayload",
     "monteCarloPayload",
@@ -210,6 +214,10 @@ def test_fan_footnote_present():
 # ---------------------------------------------------------------------------
 
 _TABLE_FNS = (
+    # AA-UX-FORMAT-001: gemeinsamer Zahlenformat-Vertrag.
+    "fmtNumber",
+    "fmtPct",
+    "fmtLocaleCH",
     "formatCompactCHFAmount",
     "formatCompactCHF",
     "setText",
@@ -271,12 +279,13 @@ def test_growth_row_compares_same_quantity_for_soll_and_ist():
     +90k/Jahr) darf die SOLL-Zelle NICHT mehr speisen."""
     out = _run(_TABLE_FNS, _MC_RESULT_JS + "__override=null;" + _READ_TABLE_JS)
     # CAGR SOLL-Median: (2.5)^(1/30)-1 = 3.10 %; IST-Median: (1.9)^(1/30)-1 = 2.16 %
-    assert out["cagr"] == "3.10%"
-    assert out["curCagr"] == "2.16%"
+    # AA-UX-FORMAT-001: 1 Nachkommastelle (keine Scheingenauigkeit), NBSP vor %.
+    assert out["cagr"] == "3.1\u00a0%"
+    assert out["curCagr"] == "2.2\u00a0%"
     out10 = _run(_TABLE_FNS, _MC_RESULT_JS + "__override=10;" + _READ_TABLE_JS)
     # (1.5)^(1/10)-1 = 4.14 %; (1.3)^(1/10)-1 = 2.66 %
-    assert out10["cagr"] == "4.14%"
-    assert out10["curCagr"] == "2.66%"
+    assert out10["cagr"] == "4.1\u00a0%"
+    assert out10["curCagr"] == "2.7\u00a0%"
 
 
 def test_reserve_sockel_added_to_soll_end_values_and_growth():
@@ -291,7 +300,7 @@ def test_reserve_sockel_added_to_soll_end_values_and_growth():
     assert out["p10"] == "CHF 1.40 Mio."
     assert out["curMedian"] == "CHF 1.30 Mio."  # IST ohne Aufschlag
     # (1.7/1.2)^(1/10)-1 = 3.54 %
-    assert out["cagr"] == "3.54%"
+    assert out["cagr"] == "3.5\u00a0%"
 
 
 def test_reserve_sockel_not_added_twice_for_economic_basis_payloads():

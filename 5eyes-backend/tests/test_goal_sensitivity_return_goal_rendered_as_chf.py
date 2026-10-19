@@ -303,8 +303,19 @@ def test_return_goal_sensitivity_rendering_shows_percent_not_chf(
     assert body["target_return_bps_new"] == 600
 
     callback_js = _extract_sensitivity_callback_js()
+    html = _html()
+    fmt_js = ""
+    for name in ("fmtNumber", "fmtPct"):
+        start = html.index("function " + name + "(")
+        i = html.index("{", start)
+        depth, j = 1, i + 1
+        while depth:
+            depth += {"{": 1, "}": -1}.get(html[j], 0)
+            j += 1
+        fmt_js += html[start:j] + "\n"
     script = (
-        "var resEl={textContent:null};\n"
+        fmt_js
+        + "var resEl={textContent:null};\n"
         "var body=" + json.dumps(body) + ";\n"
         "(function(){\n"
         + callback_js

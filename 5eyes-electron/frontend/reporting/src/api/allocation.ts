@@ -10,7 +10,7 @@
  * Auth + Fehler-Typen aus ./client wiederverwendet. 422-Validation-Arrays
  * werden zu einem lesbaren String geflacht.
  */
-import { ApiError, resolveAuthToken } from './client';
+import { ApiError, apiErrorFromResponse, formatApiErrorDetail, resolveAuthToken } from './client';
 import type {
   AllocationGenerateResult,
   AllocationSensitivityRequestPayload,
@@ -25,21 +25,9 @@ interface RequestOptions {
 }
 
 /** Flacht FastAPI-Detail (string | 422-Array | Objekt) zu einem String. */
+/** Delegiert an den zentralen Formatter (siehe client.ts). */
 export function flattenDetail(detail: unknown): string {
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) =>
-        item && typeof item === 'object' && 'msg' in item
-          ? String((item as { msg: unknown }).msg)
-          : String(item),
-      )
-      .join('; ');
-  }
-  if (detail && typeof detail === 'object' && 'msg' in detail) {
-    return String((detail as { msg: unknown }).msg);
-  }
-  return 'Unbekannter Fehler.';
+  return formatApiErrorDetail(detail);
 }
 
 async function authHeaders(): Promise<HeadersInit> {
@@ -56,16 +44,7 @@ function base(mandateId: string, baseUrl: string): string {
 }
 
 async function raiseApiError(response: Response): Promise<never> {
-  let detail = `HTTP ${response.status}`;
-  let raw: unknown;
-  try {
-    const body = await response.json();
-    raw = (body as { detail?: unknown })?.detail;
-    if (raw !== undefined) detail = flattenDetail(raw);
-  } catch {
-    // non-json body
-  }
-  throw new ApiError(response.status, detail, raw);
+  throw await apiErrorFromResponse(response);
 }
 
 async function request(url: string, init: RequestInit): Promise<Response> {

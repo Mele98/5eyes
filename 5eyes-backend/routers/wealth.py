@@ -1785,12 +1785,13 @@ def calculate_max_pension_spending(
         # steht, gehoert in die Begruendung -- die Entnahmezahl ist ohne
         # diese Angabe nicht nachvollziehbar.
         allocation_basis_note(allocation_basis_id),
-        f"Beratungsvermögen heute: CHF {advisory_wealth_rappen / 100:,.0f}",
+        # AA-UX-FORMAT-001: Tausendertrennung gerades Apostroph (wie PDFs).
+        f"Beratungsvermögen heute: CHF {advisory_wealth_rappen / 100:,.0f}".replace(",", "'"),
         f"Modell-Medianrendite (CMA-momententreu): {nominal_geometric_return * 100:.2f}% p.a. nominal",
         f"Erwartete Inflation: {inflation * 100:.2f}% p.a.",
         f"Realer Erwartungswert: {real_return * 100:.2f}% p.a.",
         f"Auszahlungsperiode: {years_in_retirement} Jahre ({body.retirement_year}–{body.life_expectancy_year})",
-        f"Annuität ({body.value_mode}): CHF {annual_chf_rappen_out / 100:,.0f}/Jahr ≈ CHF {monthly_chf_rappen_out / 100:,.0f}/Monat",
+        f"Annuität ({body.value_mode}): CHF {annual_chf_rappen_out / 100:,.0f}/Jahr ≈ CHF {monthly_chf_rappen_out / 100:,.0f}/Monat".replace(",", "'"),
     ]
     if body.safety_margin_pct:
         reasoning.append(f"Sicherheits-Discount: {body.safety_margin_pct}% — Hedge gegen Sequence-of-Returns-Risiko.")

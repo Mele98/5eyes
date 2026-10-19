@@ -30,6 +30,66 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Zentraler Formatter fuer FastAPI-`detail` (alle API-Module nutzen ihn).
+ *
+ * - String -> unveraendert;
+ * - strukturierte 409/422 `{reason_code, message, ...}` -> `message [reason_code]`
+ *   (identisch zum Monolithen 5eyes_v2.html, ESG-P0-3/P0-5,
+ *   RISK-OVERRIDE-WRITE-BOUNDARY-001);
+ * - FastAPI-422-Array -> `.msg`-Werte mit `; ` verbunden;
+ * - Objekt mit `.msg` -> `.msg`;
+ * - sonst `fallback`.
+ */
+export function formatApiErrorDetail(
+  detail: unknown,
+  fallback = 'Unbekannter Fehler.',
+): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) =>
+        item && typeof item === 'object' && 'msg' in item
+          ? String((item as { msg: unknown }).msg)
+          : String(item),
+      )
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object') {
+    const obj = detail as { reason_code?: unknown; message?: unknown; msg?: unknown };
+    if (typeof obj.message === 'string' && obj.message) {
+      return typeof obj.reason_code === 'string' && obj.reason_code
+        ? `${obj.message} [${obj.reason_code}]`
+        : obj.message;
+    }
+    if ('msg' in obj) return String(obj.msg);
+  }
+  return fallback;
+}
+
+/**
+ * Zentraler API-Fehlerhandler: liest den Body eines Nicht-OK-Response und
+ * baut daraus einen `ApiError` (detail via `formatApiErrorDetail`, raw =
+ * rohes `detail`). Non-JSON-Body -> `HTTP <status>`.
+ */
+export async function apiErrorFromResponse(
+  response: Response,
+  options: { fallback?: string } = {},
+): Promise<ApiError> {
+  let detail = `HTTP ${response.status}`;
+  let raw: unknown;
+  try {
+    const body = await response.json();
+    raw = (body as { detail?: unknown })?.detail;
+    if (raw !== undefined && raw !== null) {
+      detail = formatApiErrorDetail(raw, options.fallback);
+    }
+  } catch {
+    // Body war kein JSON -- Fallback auf HTTP-Status.
+  }
+  return new ApiError(response.status, detail, raw);
+}
+
 export class SchemaError extends Error {
   constructor(public readonly missingKey: string) {
     super(`Advisory-Report Schema-Drift: Pflichtfeld "${missingKey}" fehlt.`);
@@ -71,16 +131,7 @@ export async function fetchAdvisoryReport(
   }
 
   if (!response.ok) {
-    let detail = `HTTP ${response.status}`;
-    try {
-      const errBody = await response.json();
-      if (typeof errBody?.detail === 'string') {
-        detail = errBody.detail;
-      }
-    } catch {
-      // body war kein JSON — Fallback auf HTTP-Status
-    }
-    throw new ApiError(response.status, detail);
+    throw await apiErrorFromResponse(response);
   }
 
   const data = (await response.json()) as AdvisoryReport;
