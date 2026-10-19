@@ -201,3 +201,23 @@ Fundament (develop 854ee8e → v8): 6491/1051/1907/300/251 → 6184/1501/1764/30
 4. κ_H = 300 wurde ohne Hierarchie kalibriert; der Schaetzfehler-Test (HOUSE-PRIOR-001 Abschnitt 4) ist mit Hierarchie nicht nachgemessen.
 5. Hart vs. Wahrscheinlichkeit: Stufe 1 schuetzt die Zielebene (Fehlbetrag + weiche Strafe), nicht die Wahrscheinlichkeit allein; bei ambitionierten Zielen kann "hart" die Streuung senken, ohne P zu erhoehen (1.6 Mio: 52.2 → 52.0 %).
 6. Zielverzicht als expliziter Kundenentscheid (Ziel-ID, Grund, Zeitpunkt, Widerruf) statt Ausnahme.
+
+## 12. Nachtrag Codex-Befund zu #650: zertifizierte Unerreichbarkeit (Engine `saa_resampled_v9`)
+
+**Befund (Codex, docs/audits/2026-10-19-maximize-goal-hardness-pr650-current-review.md, Abschnitt 4):** `_demoted_goal_ids()` uebernahm alle `not_found_reachable_goal_ids` des endlichen Screens. Ein hartes Ziel, das beide geprueften Endpunkte verfehlen, eine zulaessige 50/50-Innenallokation aber auf allen 200 Pfaden erfuellt, verlor damit Stufe 1 und bekam das Wunschziel-Gewicht. Der Reproducer ist als regulaerer Test uebernommen (`tests/test_goal_reachability_certificate.py`, rot auf develop exakt an `_stage1_liabilities(context) == [goal]`).
+
+**CIO-Entscheid (2026-10-19):** die Herabstufung (Gewicht 0.2 + W0-Deckel) bleibt als Mechanismus, greift aber nur bei **zertifizierter** Unerreichbarkeit.
+
+**Zertifikat (`goal_reachability.certify_goal_reachability`, `max_smoothed_success_multistart_v1`):** nur fuer Ziele, die der guenstige Screen nicht mit `UB_95 >= tau/2` findet.
+
+1. Starts: Zentrum der zulaessigen Menge (Mittel der Screen-Kandidaten; Bandbreiten, Summe = 1 und Risikobudget sind konvex, geprueft mit `is_feasible`, sonst projiziert) und **alle** Screen-Kandidaten (Ecken + Solver-Multi-Starts).
+2. Je Start SLSQP auf `-log mean sigmoid(m_n / b)` mit dem relativen Erfolgsabstand `m_n` aus `_success_margin_per_path` (dieselbe Definition wie die Stufe-1-Suche), Fortsetzung `b = 0.25 -> 0.05 -> 0.02`, dieselben Bandbreiten und Nebenbedingungen (`context.bounds`, `context.scipy_constraints`) wie der Solver. Log der Glaettung, damit auch sehr kleine Wahrscheinlichkeiten einen Gradienten haben.
+3. An **jedem** zulaessigen ausgewerteten Punkt (Starts, Liniensuche, lokale Optima) der EXAKTE Erfolgsindikator (`_goal_probability_core`) auf dem Screening-Wuerfel (eigener Seed, nie der Validierungs-Holdout); massgeblich ist der beste Punkt.
+4. `certified_unreachable_on_screen_cube` nur, wenn die obere einseitige 95-%-Wilson-Grenze mit Kish-ESS des besten Punktes `< tau/2`; sonst `reachable` (Abbruch beim ersten Treffer). Ohne bekannte zulaessige Menge `certificate_unavailable` -> keine Herabstufung (fail-safe).
+5. Operativ wirkt nur `demoted_goal_ids` (= `certified_unreachable_goal_ids`); `not_found_reachable_goal_ids` bleibt Offenlegung. Gleiche Regel in allen Modi.
+
+Policy-Versionen (ObjectiveContractV2-Hash wechselt): `goal_reachability_screen_v5_certified_demotion`, `certified_unreachable_demoted_wish_weight_v3` (Mechanismus identisch zu `screen_not_found_demoted_wish_weight_v2`, nur der Ausloeser ist neu).
+
+Das Zertifikat ist ein bestes gefundenes lokales Optimum auf einem Wuerfel, kein globaler Unmoeglichkeitsnachweis; der Beraterhinweis sagt das. **Nicht umgesetzt (nur dokumentiert), Codex 6.1.4:** Herabstufung ausschliesslich ueber eine explizite, append-only und versionierte `GoalRevisionDecision` (Kunde/Berater, Grund, urspruenglicher Rang/Haertegrad/tau, neue Behandlung, Zeitpunkt, Hash); das waere die Ablösung jeder automatischen Herabstufung durch einen Kundenentscheid (siehe Abschnitt 11, Punkt 6).
+
+**Wirkung in den Risikomass-Varianten:** bisher wurde dort jedes Ziel herabgestuft, dessen tau auf der Pruefmenge nicht erreicht wurde (Fundament: auch die Einkommensbruecke, max. ~73 % gegen 80 %). Mit der CIO-Regel (zertifiziert < tau/2) bleibt die Einkommensbruecke voll gewichtet; herabgestuft bleibt nur Familienvermoegen 2035.
