@@ -17,13 +17,19 @@ Chance-Constraint (Ziel-Untergrenze, jeder Modus):
 
 Hardness-Weights (OWNER-DECISION OD-1, vom User bestaetigt):
     hart: 10.0    primaer: 1.0    opportunistisch: 0.2
+Seit GOAL-HARDNESS-DEFAULT-001 (Engine ``saa_resampled_v7``) standardmaessig
+aktiv (auf den Fehlbetrag; die weiche Chance-Strafe bleibt ungewichtet) und
+zusaetzlich als Zielhierarchie: harte und primaere Ziele sind Stufe 1
+(GOAL-HIERARCHY-001, ``protected_goal_level``).
+``OPTIMIZER_GOAL_WEIGHTING=equal`` ist der Opt-out der Gewichte.
 
 Pro Goal-Typ wird Shortfall anders berechnet:
 - "wealth_at_t":      max(0, target - wealth[t])^2
 - "cashflow_in_year": max(0, -wealth[t])^2 (Outflow ist bereits abgezogen)
 - "outflow_stream":   max(0, -min_t wealth[t])^2 (jeder Outflow muss finanzierbar sein)
 - "return_rate":      max(0, target_bps - annualized_return_bps)^2
-- "maximize":         0  (kein Shortfall, nur in Vol-Min relevant)
+- "maximize":         kein Fehlbetrag; Wachstumsterm
+                      -lambda_M * T * E[log(1 + r_TWR)] (MAXIMIZE-GOAL-001)
 """
 from __future__ import annotations
 
@@ -93,13 +99,88 @@ HARDNESS_WEIGHT = {
 
 _PRIMARY_HARDNESS_KEYS = {"hart", "primaer", "primär"}
 
+# DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid 2026-10-19): Gewicht eines vom
+# Screen herabgestuften Ziels (= niedrigster Haertegrad, Wunschziel) auf
+# Fehlbetrag und Chance-Strafe -- konservativ: ein aussichtsloses Ziel darf
+# die Allokation nicht an die Bandobergrenze treiben, der Haus-Prior
+# dominiert. Bleibt > 0: "CHF 0 != CHF 900" (Codex) gilt weiter.
+DEMOTED_GOAL_WEIGHT = HARDNESS_WEIGHT["opportunistisch"]
+DEMOTED_GOAL_POLICY_VERSION = "screen_not_found_demoted_wish_weight_v2"
+
+# GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine
+# ``saa_resampled_v7``): der Haertegrad wirkt standardmaessig (Default
+# ``OPTIMIZER_GOAL_WEIGHTING=hardness``, config.DEFAULT_GOAL_WEIGHTING_MODE):
+# (1) HARDNESS_WEIGHT (OD-1) skaliert den Ziel-Fehlbetrag, (2) harte und
+# primaere Ziele bilden die geschuetzte Stufe 1 der Zielhierarchie
+# (GOAL-HIERARCHY-001), deren Erosionstoleranz durch h_g geteilt wird.
+# Im Default "equal" bis v6 war "hart" rechnerisch identisch mit "primaer".
+# Herleitung und Kalibrierungsbezug (primaer = 1 = Referenz der
+# kappa_H-Kalibrierung):
+# docs/planning/2026-10-18-maximize-goal-and-hardness.md.
+GOAL_HARDNESS_POLICY_VERSION = "hardness_scales_shortfall_and_protection_v1"
+
+# MAXIMIZE-GOAL-001 (CIO-Entscheid 2026-10-18, Engine ``saa_resampled_v7``):
+# Ziel "Maximierung" als Wachstumsterm in G statt Fehlbetrag 0:
+#
+#     M_g(w) = -lambda_M * h_g * g_g * T * E_n[ log(1 + r_n(w)) ]
+#
+# r_n = cashflow-neutrale annualisierte Portfolio-Rendite (TWR) auf Pfad n,
+# T = Bewertungshorizont des Ziels -- also -lambda_M * E[log(R_T/1)], der
+# erwartete Log-Endvermoegensfaktor (Kelly/Breiman: maximiert Median- und
+# Langfrist-Wachstum, risikoavers durch die Jensen-Luecke ~ -sigma^2/2,
+# skalenfrei in W0 und Waehrung). lambda_M = 1.0 ist die natuerliche
+# Einheit der uebrigen Zielterme (relatives Endvermoegen bei W_T = W0, d log W
+# = dW / W0); keine Kalibrierungsgroesse. Der Haertegrad wird fuer
+# Maximierung auf "primaer" gedeckelt (h <= 1): ein Ziel ohne Zielwert kann
+# nicht "sicher erreicht" werden. Herleitung und Alternativen:
+# docs/planning/2026-10-18-maximize-goal-and-hardness.md.
+MAXIMIZE_GOAL_POLICY_VERSION = "maximize_log_growth_v1"
+MAXIMIZE_GROWTH_WEIGHT = 1.0
+# Untergrenze des Wachstumsfaktors je Pfad (Totalverlust), wie in
+# ``solver._annualized_twr_bps_per_path`` (Faktoren >= 1e-12).
+_MAXIMIZE_MIN_GROWTH_FACTOR = 1e-12
+
+# GOAL-HIERARCHY-001 (CIO-Entscheid 2026-10-18, Engine ``saa_resampled_v7``,
+# nach Codex-Review OBJECTIVE-TIEBREAK-NOT-LEXICOGRAPHIC-001 /
+# GOAL-SCREEN-OBJECTIVE-ERASURE-001): harte und primaere Ziele bilden eine
+# echte Stufe 1. Je Szenario-Wuerfel wird zuerst
+#
+#     G1* = min_w G1(w),  G1(w) = sum_{g hart/primaer} (h_g * g_g * L_g(w) + C_g(w))
+#
+# bestimmt (dieselben Terme wie in der Zielfunktion), danach die volle
+# Zielfunktion (Stufe 2: opportunistische Ziele, Maximierung,
+# Soft-Preference, Haus-Prior) NUR unter der Nebenbedingung
+#
+#     G1(w) <= G1* + eps,   eps = z * SE(G1(w_H) - G1(w1*)) / h_max + GOAL_EROSION_NUMERIC_TOL
+#
+# minimiert. ``SE`` ist der Monte-Carlo-Standardfehler des gepaarten
+# Unterschieds der Zielebene zwischen Hausquote ``w_H`` und Stufe-1-Optimum
+# ``w1*`` auf demselben Wuerfel (ohne Haus-Anker: Standardfehler von G1 in
+# ``w1*``): eine Erosion innerhalb dieses Rauschens ist nicht als
+# Verschlechterung belegbar und wird dem Haus-Prior ueberlassen; alles
+# darueber kann er nicht "auskaufen". z = einseitiges 95-%-Quantil, dasselbe
+# alpha = 5 % wie die Hausmatrix-Offenlegung. Ist ein HARTES Ziel unter den
+# geschuetzten, wird die Toleranz durch sein Haertegrad-Gewicht geteilt
+# (h_hart / h_primaer = 10, OD-1): primaer darf innerhalb des Rauschens
+# erodieren, hart nur um ein Zehntel davon. Opportunistische Ziele sind
+# nicht geschuetzt (Stufe 2). Herleitung:
+# docs/planning/2026-10-18-maximize-goal-and-hardness.md.
+GOAL_HIERARCHY_POLICY_VERSION = "protected_goals_lexicographic_v2_reachable_only"
+GOAL_EROSION_Z = 1.6448536269514722
+GOAL_EROSION_NUMERIC_TOL = 1e-9
+
 
 def resolve_goal_weighting_mode() -> str:
-    """3eyes-Methodik (Q&A iSAA): 'Alle Ziele sind gleich wichtig (Mittelung)'.
+    """Goal-Weighting-Modus des Laufs (``equal`` | ``hardness``).
 
-    Default = 'equal' -> jedes Ziel geht mit Gewicht 1.0 in die Zielfunktion
-    ein. Die Haertegrad-Gewichtung (hart 10x / primaer 1x / opportunistisch
-    0.2x) bleibt als optionales Feature erhalten: OPTIMIZER_GOAL_WEIGHTING=hardness.
+    GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine v7): Default
+    ist ``hardness`` (config.DEFAULT_GOAL_WEIGHTING_MODE) -- hart 10x /
+    primaer 1x / opportunistisch 0.2x auf den ganzen Zielbeitrag. Bis v6 war
+    ``equal`` der Default (3eyes-Methodik "Alle Ziele sind gleich wichtig
+    (Mittelung)", ADR-011 Entscheid 2); er bleibt als Opt-out
+    OPTIMIZER_GOAL_WEIGHTING=equal erhalten. Die Gewichtung NACH WICHTIGKEIT
+    bleibt beim Rang (weight_bps); der Haertegrad steuert, wie stark ein
+    Ziel gegen die Hausmatrix-Abweichung durchgesetzt wird.
 
     CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001: this
     used to normalize ANY unrecognized value (a typo, an empty string, ...)
@@ -134,10 +215,9 @@ def _goal_weighting_mode() -> str:
 def _effective_hardness_weight(
     hardness_key: str | None, goal_weighting_mode: str | None = None,
 ) -> float:
-    """Gibt den Haertegrad-Multiplikator nur im opt-in-Modus zurueck, sonst 1.0.
+    """Haertegrad-Multiplikator im Modus ``hardness`` (Default ab v7), sonst 1.0.
 
-    So mittelt der Optimizer per Default alle Ziele gleich (Methodik-konform),
-    ohne die Haertegrad-Logik zu verlieren.
+    Im Opt-out ``equal`` mittelt der Optimizer alle Ziele gleich.
 
     OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: ``goal_weighting_mode`` ist der
     aus dem unveraenderlichen Lauf-Vertrag durchgereichte Modus. Ohne ihn las
@@ -159,6 +239,92 @@ def _effective_hardness_weight(
     if mode == "hardness":
         return HARDNESS_WEIGHT.get(_hardness_key(hardness_key), 1.0)
     return 1.0
+
+
+def _goal_hardness_weight(
+    liability: GoalLiability, goal_weighting_mode: str | None = None,
+) -> float:
+    """Haertegrad-Gewicht EINES Ziels (Fehlbetrag, Stufe 1 und 2).
+
+    MAXIMIZE-GOAL-001: fuer ``maximize`` hoechstens 1.0 -- "hart" verlangt
+    Zielsicherheit, und ein Ziel ohne Zielwert hat keine.
+
+    DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid 2026-10-19): ein herabgestuftes
+    (auf der Pruefmenge nicht erreichbares) Ziel zaehlt in JEDEM Modus wie
+    ein Wunschziel: ``DEMOTED_GOAL_WEIGHT`` = HARDNESS_WEIGHT["opportunistisch"].
+    """
+    if getattr(liability, "demoted", False):
+        return DEMOTED_GOAL_WEIGHT
+    weight = _effective_hardness_weight(
+        getattr(liability, "hardness_key", None), goal_weighting_mode,
+    )
+    if getattr(liability, "target_kind", None) == "maximize":
+        return min(1.0, weight)
+    return weight
+
+
+def maximize_growth_per_path(
+    liability: GoalLiability,
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+) -> np.ndarray:
+    """Log-Wachstumsfaktor ``T * log(1 + r_n)`` je Pfad fuer ein Maximierungsziel.
+
+    MAXIMIZE-GOAL-001. ``r_n`` ist die cashflow-neutrale annualisierte
+    Portfolio-Rendite des Solvers (TWR); ohne sie (Konsumenten ausserhalb
+    eines Laufs) die annualisierte Rendite aus dem Vermoegenspfad bis T.
+    """
+    n_cols = wealth_paths.shape[1]
+    horizon = max(1, min(
+        int(liability.target_year_index or (n_cols - 1)), max(1, n_cols - 1),
+    ))
+    if annualized_return_bps_per_path is None:
+        annualized = _annualized_return_bps_per_path(
+            initial_wealth_rappen, wealth_paths[:, horizon], horizon,
+        )
+    else:
+        annualized = np.asarray(
+            annualized_return_bps_per_path, dtype=np.float64
+        ).reshape(-1)
+        if annualized.shape != (wealth_paths.shape[0],):
+            raise ValueError(
+                "annualized_return_bps_per_path must match n_paths "
+                f"({annualized.shape} != {(wealth_paths.shape[0],)})"
+            )
+    factor = np.maximum(1.0 + annualized / 10000.0, _MAXIMIZE_MIN_GROWTH_FACTOR)
+    return float(horizon) * np.log(factor)
+
+
+def _demoted_volume_cap(
+    liability: GoalLiability, initial_wealth_rappen: float, n_wealth_columns: int,
+) -> float:
+    """DEMOTED-GOAL-WEIGHT-001: Volumen eines herabgestuften Ziels auf W0
+    gedeckelt -- Faktor ``1 / max(1, (Z/W0)^2)`` auf seine Terme.
+
+    Mit Gewicht 0.2 allein trieb ein Vermoegensziel von CHF 5 Mio bei CHF
+    0.5 Mio (Z/W0 = 10, Fehlbetragsterm ~ 40) die Allokation weiter an die
+    Bandobergrenze (6947 statt 7000 bps Aktien): die Groesse des Ziels, nicht
+    seine Bedeutung, entschied. Der Deckel ist Option (b) aus
+    OBJECTIVE-NORMALIZATION-001 ("Volumen je Ziel auf W0 deckeln"), hier nur
+    fuer herabgestufte Ziele. Monoton: CHF 0 bleibt schlechter als CHF 900.
+    1.0 fuer alle nicht herabgestuften Ziele (bitidentisch)."""
+    if not getattr(liability, "demoted", False):
+        return 1.0
+    relative_volume = goal_volume_rappen(
+        liability, initial_value_rappen=initial_wealth_rappen,
+        n_wealth_columns=n_wealth_columns,
+    ) / _context_scale_rappen(initial_wealth_rappen)
+    return 1.0 / max(1.0, relative_volume * relative_volume)
+
+
+def _demoted_goal_factor(liability: GoalLiability, relative_volume: float) -> float:
+    """Faktor der Chance-Strafe: Wunschziel-Gewicht und W0-Deckel fuer
+    herabgestufte Ziele, sonst 1.0."""
+    if not getattr(liability, "demoted", False):
+        return 1.0
+    return DEMOTED_GOAL_WEIGHT / max(1.0, relative_volume * relative_volume)
 
 
 def _hardness_key(value: str | None) -> str:
@@ -695,7 +861,9 @@ def goal_volume_rappen(
       Horizonts werden nirgends bewertet).
     * ``return_rate``: das implizite Zielvermoegen ``W0 * (1 + r)^h`` --
       dieselbe Definition wie in ``shortfall_squared_per_path``.
-    * ``maximize`` und Unbekanntes: 0 (keine Strafe).
+    * ``maximize`` und Unbekanntes: 0 (keine Strafe; ein Maximierungsziel
+      hat keinen Zielwert und damit keine Ziel-Untergrenze -- es wirkt nur
+      ueber den Wachstumsterm in L(w), MAXIMIZE-GOAL-001).
     """
     kind = goal.target_kind
     if kind == "wealth_at_t":
@@ -725,15 +893,21 @@ def chance_constraint_penalty(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     validation_seed: int | None = None,
-    penalty_exempt_goal_ids: frozenset | set | tuple = frozenset(),
 ) -> tuple[float, list[dict]]:
     """Return chance-constraint penalty and per-goal achievability rows.
 
-    ``penalty_exempt_goal_ids`` (GOAL-REACHABILITY-SCREEN-001): Ziele, deren
-    Strafe NICHT in den Wert eingeht -- in jedem Modus die praktisch
-    unerreichbaren Ziele (``goal_reachability.goal_reachability_screen``,
-    Schwelle tau/2); die Zeile wird trotzdem gebildet und als
-    ``penalty_exempt`` markiert.
+    WEICHE Strafe (Soft-Regret), keine garantierte Untergrenze (Codex-
+    Review CHANCE-PENALTY-NOT-CONSTRAINT-001; echte Wahrscheinlichkeits-
+    Untergrenzen sind Phase 2). Der Haertegrad wirkt NICHT hier, sondern
+    ueber den Fehlbetrag und die Zielhierarchie (GOAL-HARDNESS-DEFAULT-001,
+    GOAL-HIERARCHY-001).
+
+    GOAL-SCREEN-OBJECTIVE-ERASURE-001 (Engine v7): es gibt KEINE
+    Ausnahme mehr fuer "praktisch unerreichbare" Ziele. Bis v6 nahm
+    ``penalty_exempt_goal_ids`` (Reachability-Screen) harte/primaere Ziele
+    ganz aus Strafe und Fehlbetrag -- CHF 0 und CHF 900 gegen ein hartes
+    Ziel von CHF 1'000 waren dann gleich gut. Der Screen ist jetzt reine
+    Offenlegung (``goal_reachability.py``).
 
     Parameters
     ----------
@@ -809,7 +983,6 @@ def chance_constraint_penalty(
     else:
         weights_arr = None
         weight_sum = None
-    exempt_ids = frozenset(str(goal_id) for goal_id in (penalty_exempt_goal_ids or ()))
     for goal in goal_liabilities:
         # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
         # 4.2 `W_joint_requested`/`P_joint_requested`): the chance-constraint
@@ -863,13 +1036,6 @@ def chance_constraint_penalty(
             # fehlende Strafe -- deshalb wird hier offengelegt, nicht
             # bestraft.
             applies_penalty = False
-        penalty_exempt = applies_penalty and str(goal.goal_id) in exempt_ids
-        if penalty_exempt:
-            # GOAL-REACHABILITY-SCREEN-001: ein praktisch unerreichbares
-            # Ziel (nicht einmal die halbe geforderte Sicherheit auf irgendeiner
-            # zulaessigen Allokation) steuert nicht -- sein Defizit bleibt auf
-            # jeder Allokation, es wuerde nur in mehr Risiko treiben.
-            applies_penalty = False
         if applies_penalty:
             # Strafe an der unteren Grenze, nicht am Punktschaetzer (siehe
             # Docstring). Bei kollabierendem ESS geht die Grenze gegen 0 und
@@ -881,7 +1047,13 @@ def chance_constraint_penalty(
                 initial_value_rappen=initial_value_rappen,
                 n_wealth_columns=wealth_paths.shape[1],
             ) / context_scale_rappen
-            penalty += weight * deficit * relative_volume * relative_volume
+            # DEMOTED-GOAL-WEIGHT-001: herabgestufte Ziele mit Wunschziel-
+            # Gewicht und auf W0 gedeckeltem Volumen (alle Modi, auch
+            # Risikomass-Varianten), siehe ``_demoted_goal_factor``.
+            penalty += (
+                weight * _demoted_goal_factor(goal, relative_volume)
+                * deficit * relative_volume * relative_volume
+            )
         achievability.append({
             "goal_id": str(goal.goal_id),
             "label": str(goal.label),
@@ -898,7 +1070,6 @@ def chance_constraint_penalty(
             # Strecken gleich lesen kann.
             "outside_simulation_horizon": outside_horizon,
             "evaluation_scope": "joint_path_chance_penalty",
-            "penalty_exempt": bool(penalty_exempt),
         })
     return float(penalty), achievability
 
@@ -912,13 +1083,13 @@ def shortfall_objective(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     goal_weighting_mode: str | None = None,
-    excluded_goal_ids: frozenset | set | tuple = frozenset(),
 ) -> float:
     """Primaere Objective L(w): gewichteter dimensionsloser MSE-Shortfall.
 
-    ``excluded_goal_ids`` (GOAL-REACHABILITY-SCREEN-001): praktisch
-    unerreichbare Ziele gehen nicht in L(w) ein -- ihr Fehlbetrag bleibt auf
-    jeder zulaessigen Allokation und wuerde nur in mehr Risiko treiben.
+    Jedes Ziel geht ein (GOAL-SCREEN-OBJECTIVE-ERASURE-001, Engine v7: keine
+    Ausnahme "unerreichbarer" Ziele mehr -- auch ein Ziel, das seine
+    Schwelle nie erreicht, unterscheidet zwischen viel und wenig
+    Fehlbetrag).
 
     Jeder Rappen-Fehlbetrag wird vor dem Quadrieren durch die gemeinsame
     Context-Skala ``max(1, initial_wealth_rappen)`` geteilt. Damit bleibt die
@@ -927,10 +1098,15 @@ def shortfall_objective(
 
     L(w) = Σ_g h_g · g_g · mean_n(shortfall(g, n)^2)
 
-    h_g = _effective_hardness_weight(hardness_key)
-          → Default 1.0 (alle Ziele gleich, Methodik-konform);
-            HARDNESS_WEIGHT nur bei OPTIMIZER_GOAL_WEIGHTING=hardness.
+    h_g = _goal_hardness_weight(liability)
+          → Default HARDNESS_WEIGHT (Modus ``hardness``, ab v7);
+            1.0 im Opt-out OPTIMIZER_GOAL_WEIGHTING=equal; fuer
+            ``maximize`` hoechstens 1.0.
     g_g = liability.weight_bps / 10000
+
+    Maximierungsziele (MAXIMIZE-GOAL-001) tragen statt eines Fehlbetrags
+    ``-MAXIMIZE_GROWTH_WEIGHT * h_g * g_g * mean_n(T * log(1 + r_n))``
+    (siehe ``maximize_growth_per_path``); L(w) kann damit negativ werden.
 
     Skalar-Output, von scipy.optimize.minimize konsumierbar.
 
@@ -964,12 +1140,23 @@ def shortfall_objective(
         weight_sum = float(np.sum(weights_arr))
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
-    excluded = frozenset(str(goal_id) for goal_id in (excluded_goal_ids or ()))
     for liab in liabilities:
-        if str(liab.goal_id) in excluded:
-            continue
-        h_weight = _effective_hardness_weight(liab.hardness_key, goal_weighting_mode)
+        h_weight = _goal_hardness_weight(liab, goal_weighting_mode)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
+        if liab.target_kind == "maximize":
+            # MAXIMIZE-GOAL-001: Wachstumsterm statt Fehlbetrag (negativ =
+            # Nutzen; die Zielfunktion wird minimiert).
+            growth = maximize_growth_per_path(
+                liab, wealth_paths,
+                initial_wealth_rappen=initial_wealth_rappen,
+                annualized_return_bps_per_path=annualized_return_bps_per_path,
+            )
+            if weights is None:
+                mean_growth = float(np.sum(growth) * inv_n)
+            else:
+                mean_growth = float(np.sum(growth * weights_arr) / weight_sum)
+            total -= MAXIMIZE_GROWTH_WEIGHT * h_weight * g_weight * mean_growth
+            continue
         per_path = shortfall_squared_per_path(
             liab, wealth_paths,
             initial_wealth_rappen=initial_wealth_rappen,
@@ -981,7 +1168,9 @@ def shortfall_objective(
             mean_sq = float(np.sum(per_path) * inv_n)
         else:
             mean_sq = float(np.sum(per_path * weights_arr) / weight_sum)
-        total += h_weight * g_weight * mean_sq
+        total += h_weight * g_weight * mean_sq * _demoted_volume_cap(
+            liab, initial_wealth_rappen, wealth_paths.shape[1],
+        )
     return total
 
 
@@ -1091,8 +1280,22 @@ def shortfall_contributions(
             normalization_scale_rappen=context_scale_rappen,
         )
         mean_sq = float(np.sum(per_path) * inv_n)
-        h_weight = _effective_hardness_weight(liab.hardness_key, goal_weighting_mode)
+        h_weight = _goal_hardness_weight(liab, goal_weighting_mode)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
+        contribution = h_weight * g_weight * mean_sq * _demoted_volume_cap(
+            liab, initial_wealth_rappen, wealth_paths.shape[1],
+        )
+        if liab.target_kind == "maximize":
+            # MAXIMIZE-GOAL-001: derselbe Term wie in ``shortfall_objective``
+            # (Summe der Beitraege = L(w)); kein Fehlbetrag.
+            growth = maximize_growth_per_path(
+                liab, wealth_paths,
+                initial_wealth_rappen=initial_wealth_rappen,
+                annualized_return_bps_per_path=annualized_return_bps_per_path,
+            )
+            contribution = -MAXIMIZE_GROWTH_WEIGHT * h_weight * g_weight * float(
+                np.sum(growth) * inv_n
+            )
         rows.append(GoalShortfallContribution(
             goal_id=str(liab.goal_id),
             label=str(liab.label),
@@ -1100,7 +1303,7 @@ def shortfall_contributions(
             hardness_key=str(liab.hardness_key),
             weight_bps=int(liab.weight_bps),
             mean_shortfall_squared=mean_sq,
-            weighted_objective_contribution=float(h_weight * g_weight * mean_sq),
+            weighted_objective_contribution=float(contribution),
         ))
     return sorted(rows, key=lambda row: row.weighted_objective_contribution, reverse=True)
 
@@ -1155,7 +1358,6 @@ def combined_objective_two_phase(
     goal_weighting_mode: str | None = None,
     portfolio_return_factors: np.ndarray | None = None,
     portfolio_variance: float | None = None,
-    penalty_exempt_goal_ids: frozenset | set | tuple = frozenset(),
 ) -> float:
     """Skalare Zielfunktion des Solvers: Ziel-Stufe + IMMER aktiver Tiebreak.
 
@@ -1206,7 +1408,6 @@ def combined_objective_two_phase(
         goal_weighting_mode=goal_weighting_mode,
         portfolio_return_factors=portfolio_return_factors,
         portfolio_variance=portfolio_variance,
-        penalty_exempt_goal_ids=penalty_exempt_goal_ids,
     )
     return goal_level + tiebreak
 
@@ -1226,7 +1427,6 @@ def two_phase_objective_parts(
     goal_weighting_mode: str | None = None,
     portfolio_return_factors: np.ndarray | None = None,
     portfolio_variance: float | None = None,
-    penalty_exempt_goal_ids: frozenset | set | tuple = frozenset(),
     primary_value_override: float | None = None,
 ) -> tuple[float, float]:
     """Die beiden Terme von ``combined_objective_two_phase`` GETRENNT.
@@ -1263,7 +1463,6 @@ def two_phase_objective_parts(
             weights=weights,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
             goal_weighting_mode=goal_weighting_mode,
-            excluded_goal_ids=penalty_exempt_goal_ids,
         )
         if is_goal_shortfall
         else 0.0
@@ -1290,7 +1489,6 @@ def two_phase_objective_parts(
         # _objective_from_array/evaluate_weights (solver.py), die weights setzen.
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
-        penalty_exempt_goal_ids=penalty_exempt_goal_ids,
     )
     kappa = (
         TIEBREAK_VARIANCE_WEIGHT if volatility_weight is None else float(volatility_weight)
@@ -1305,3 +1503,224 @@ def two_phase_objective_parts(
     )
     goal_level = primary_weight * primary + chance
     return float(goal_level), float(tiebreak)
+
+
+# ============================================================================
+# GOAL-HIERARCHY-001: Stufe 1 (harte und primaere Ziele)
+# ============================================================================
+
+
+def is_protected_goal(liability: GoalLiability, *, n_wealth_columns: int) -> bool:
+    """Ziel der Stufe 1: Haertegrad hart/primaer, mit Zielwert, im Horizont.
+
+    Nicht geschuetzt: opportunistische Ziele, Maximierung (kein Zielwert),
+    staatlich gedeckte Ziele und Zahlungsstroeme komplett jenseits des
+    Horizonts (die Simulation beobachtet sie nicht, GOAL-OUTSIDE-HORIZON-001).
+    """
+    if getattr(liability, "demoted", False):
+        return False  # DEMOTED-GOAL-WEIGHT-001: herabgestuft = nicht Stufe 1
+    if _hardness_key(getattr(liability, "hardness_key", None)) not in _PRIMARY_HARDNESS_KEYS:
+        return False
+    if liability.target_kind in ("maximize", "state_funded"):
+        return False
+    if liability.target_kind in ("cashflow_in_year", "outflow_stream") and (
+        scheduled_outside_wealth_horizon(liability, n_wealth_columns=n_wealth_columns)
+    ):
+        return False
+    return True
+
+
+def protected_goal_level(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+    goal_weighting_mode: str | None = None,
+    with_per_path: bool = False,
+) -> tuple[float, np.ndarray | None]:
+    """Stufe-1-Zielniveau ``G1(w)`` der harten/primaeren Ziele.
+
+    ``G1 = sum_{g geschuetzt} (h_g * g_g * L_g + C_g)`` -- exakt die Terme,
+    mit denen diese Ziele in ``combined_objective_two_phase`` stehen
+    (Fehlbetrag mit Haertegrad- und Rang-Gewicht, weiche Chance-Strafe). Die Zielebene, die zuerst geschuetzt
+    wird, ist damit dieselbe, die die Zielfunktion und die
+    Hausmatrix-Offenlegung ausweisen -- kein zweites Mass.
+
+    ``with_per_path``: zusaetzlich ein Vektor ``y_n`` je Pfad, dessen
+    Streuung die Monte-Carlo-Unschaerfe von G1 traegt (fuer die
+    Erosionstoleranz): ``y_n = sum_g (h_g * g_g * s_g,n^2 + V_g^2 * (1 -
+    erfolg_g,n))`` -- der Fehlbetragsteil exakt, der Strafteil linearisiert
+    (dC/dp = -V^2, ohne die Wilson-Kruemmung). Gepaarte Differenzen zweier
+    Allokationen auf DEMSELBEN Wuerfel ergeben den Standardfehler ihres
+    Zielebenen-Unterschieds.
+    """
+    liability_list = [
+        liab for liab in liabilities
+        if is_protected_goal(liab, n_wealth_columns=wealth_paths.shape[1])
+    ]
+    n_paths = wealth_paths.shape[0]
+    if not liability_list or n_paths <= 0:
+        return 0.0, (np.zeros(max(0, n_paths)) if with_per_path else None)
+    scale = _context_scale_rappen(initial_wealth_rappen)
+    level = shortfall_objective(
+        liability_list, wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        goal_weighting_mode=goal_weighting_mode,
+    )
+    per_path = np.zeros(n_paths, dtype=np.float64) if with_per_path else None
+    for liab in liability_list:
+        h_weight = _goal_hardness_weight(liab, goal_weighting_mode)
+        chance, _rows = chance_constraint_penalty(
+            wealth_paths, [liab], int(initial_wealth_rappen),
+            weights=weights,
+            annualized_return_bps_per_path=annualized_return_bps_per_path,
+        )
+        level += float(chance)
+        if per_path is None:
+            continue
+        g_weight = max(1, int(liab.weight_bps)) / 10000.0
+        shortfall = shortfall_squared_per_path(
+            liab, wealth_paths,
+            initial_wealth_rappen=initial_wealth_rappen,
+            horizon_years=horizon_years,
+            annualized_return_bps_per_path=annualized_return_bps_per_path,
+            normalization_scale_rappen=scale,
+        )
+        success = _goal_probability_core(
+            wealth_paths, liab, int(initial_wealth_rappen),
+            annualized_return_bps_per_path=annualized_return_bps_per_path,
+        ).astype(np.float64)
+        volume = goal_volume_rappen(
+            liab, initial_value_rappen=initial_wealth_rappen,
+            n_wealth_columns=wealth_paths.shape[1],
+        ) / scale
+        per_path += h_weight * g_weight * shortfall + volume * volume * (1.0 - success)
+    return float(level), per_path
+
+
+def monte_carlo_standard_error(
+    per_path: np.ndarray, weights: np.ndarray | None = None,
+) -> float:
+    """Standardfehler des (gewichteten) Mittels eines Pfadvektors.
+
+    Bei Importance Sampling: gewichtete Varianz / Kish-ESS.
+    """
+    values = np.asarray(per_path, dtype=np.float64).reshape(-1)
+    if values.size == 0:
+        return 0.0
+    if weights is None:
+        mean = float(np.mean(values))
+        variance = float(np.mean((values - mean) ** 2))
+        n_eff = float(values.size)
+    else:
+        w = np.asarray(weights, dtype=np.float64).reshape(-1)
+        w_sum = float(np.sum(w))
+        mean = float(np.sum(values * w) / w_sum)
+        variance = float(np.sum(w * (values - mean) ** 2) / w_sum)
+        n_eff = float(effective_sample_size(w))
+    return float(np.sqrt(max(0.0, variance) / max(1.0, n_eff)))
+
+
+# Breite der logistischen Glaettung des Erfolgsindikators in der Stufe-1-
+# SUCHE (Anteil des Zielvolumens). Reine Numerik: der stueckweise konstante
+# Indikator hat fuer Gradientenverfahren keinen Gradienten; entschieden wird
+# immer mit dem EXAKTEN G1 (Codex-Empfehlung "glatte Surrogate mit finaler
+# exakter Pruefung").
+STAGE1_SURROGATE_WIDTH = 0.02
+
+
+def _success_margin_per_path(
+    goal: GoalLiability,
+    wealth_paths: np.ndarray,
+    initial_value_rappen: float,
+    annualized_return_bps_per_path: np.ndarray | None,
+) -> np.ndarray | None:
+    """Relativer Erfolgsabstand je Pfad (> 0 = erreicht), wie
+    ``_goal_probability_core``; None, wenn das Ziel immer als erreicht gilt."""
+    n_cols = wealth_paths.shape[1]
+    if goal.target_kind == "wealth_at_t":
+        idx = max(1, min(int(goal.target_year_index), n_cols - 1))
+        target = max(1.0, float(goal.target_amount_rappen or 0))
+        return (wealth_paths[:, idx] - target) / target
+    if goal.target_kind in ("cashflow_in_year", "outflow_stream"):
+        due = _positive_due_wealth_indices(goal, n_wealth_columns=n_cols)
+        if due.size == 0:
+            return None
+        volume = max(1.0, goal_volume_rappen(
+            goal, initial_value_rappen=initial_value_rappen, n_wealth_columns=n_cols,
+        ))
+        return np.min(wealth_paths[:, due], axis=1) / volume
+    if goal.target_kind == "return_rate":
+        horizon = max(1, min(int(goal.target_year_index or (n_cols - 1)), n_cols - 1))
+        target_growth = (1.0 + float(goal.target_amount_rappen or 0) / 10000.0) ** horizon
+        if annualized_return_bps_per_path is not None:
+            growth = np.power(
+                np.maximum(0.0, 1.0 + np.asarray(annualized_return_bps_per_path) / 10000.0),
+                horizon,
+            )
+        else:
+            growth = wealth_paths[:, horizon] / max(1.0, float(initial_value_rappen))
+        return growth / max(target_growth, 1e-12) - 1.0
+    return None
+
+
+def protected_goal_level_surrogate(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+    weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+    goal_weighting_mode: str | None = None,
+) -> float:
+    """Glatte Naeherung von ``protected_goal_level`` fuer die Stufe-1-SUCHE.
+
+    Fehlbetragsteil exakt; im Strafteil ersetzt ``sigmoid(Abstand / Breite)``
+    den Erfolgsindikator. Nie fuer Entscheidungen: die Schranke und jede
+    Auswahl verwenden das exakte G1.
+    """
+    liability_list = [
+        liab for liab in liabilities
+        if is_protected_goal(liab, n_wealth_columns=wealth_paths.shape[1])
+    ]
+    n_paths = wealth_paths.shape[0]
+    if not liability_list or n_paths <= 0:
+        return 0.0
+    level = shortfall_objective(
+        liability_list, wealth_paths,
+        initial_wealth_rappen=initial_wealth_rappen,
+        horizon_years=horizon_years,
+        weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
+        goal_weighting_mode=goal_weighting_mode,
+    )
+    scale = _context_scale_rappen(initial_wealth_rappen)
+    if weights is None:
+        w = None
+        n_eff = float(n_paths)
+    else:
+        w = np.asarray(weights, dtype=np.float64).reshape(-1)
+        n_eff = float(effective_sample_size(w))
+    for liab in liability_list:
+        margin = _success_margin_per_path(
+            liab, wealth_paths, initial_wealth_rappen, annualized_return_bps_per_path,
+        )
+        if margin is None:
+            continue
+        smooth = 0.5 * (1.0 + np.tanh(0.5 * margin / STAGE1_SURROGATE_WIDTH))
+        p_smooth = float(np.mean(smooth)) if w is None else float(np.sum(smooth * w) / np.sum(w))
+        tau = _default_tau_x100(liab) / 10000.0
+        deficit = max(0.0, tau - wilson_lower_bound(p_smooth, n_eff))
+        volume = goal_volume_rappen(
+            liab, initial_value_rappen=initial_wealth_rappen,
+            n_wealth_columns=wealth_paths.shape[1],
+        ) / scale
+        level += CHANCE_PENALTY_WEIGHT * deficit * volume * volume
+    return float(level)

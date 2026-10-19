@@ -349,7 +349,9 @@ def test_golden_mandate_with_certain_goals_publishes_the_house_matrix(golden_sco
     rows = [row for row in result.goal_achievability]
     assert rows and all(float(row["probability"]) == 1.0 for row in rows), rows
     assert block["decision"] == "house_prior", block
-    assert block["reason"] == "identical_to_house_anchor"
+    # Engine v7: exakt oder innerhalb der Solver-Toleranz (<= 1 bp je Bucket)
+    # -- publiziert wird in beiden Faellen exakt der Anker.
+    assert block["reason"] in {"identical_to_house_anchor", "within_solver_tolerance_of_house_anchor"}
     assert block["tracking_error_vs_house_bps"] == 0.0
     assert result.resampling["decision"] == "house_prior"
     assert result.weights_bps == block["house_anchor_projected_bps"]

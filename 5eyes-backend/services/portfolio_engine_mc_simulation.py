@@ -106,6 +106,7 @@ from services.drawdown_refinement import (
     refine_max_drawdowns,
 )
 from services.mortality.horizon import life_expectancy_year_from_mandate
+from services.reserve_funding_ledger import RESERVE_ACCOUNTING_BASIS
 from services.return_moments import (
     arithmetic_moments_to_log_parameters,
     bounded_cornish_fisher,
@@ -733,6 +734,36 @@ def _pension_series(
     return list(series)
 
 
+def _external_reserve_account(
+    advisory_summary: PortfolioSummary,
+    target_total_rappen: int | None,
+    reserve_release_series_rappen,
+    horizon_years: int,
+) -> tuple[list[int], list[int]]:
+    """RESERVE-FUNDING-LEDGER-001: Reservekonto neben dem SOLL-Strategiepfad.
+
+    Der SOLL-Pfad investiert nur ``target_total`` (= A - E); die Differenz zum
+    IST-Startwert ist die externe Reserve, weiterhin Kundengeld. Sie liegt als
+    Bargeld (ohne Rendite) auf einem eigenen Konto und fliesst nur gemaess
+    Ledger-Release in den Strategiepfad. Liefert (Release je Jahr, Kontostand
+    je Jahr inkl. Start). SOLL-Ausweis = Strategiepfad + Kontostand: IST und
+    SOLL erklaeren damit dieselbe wirtschaftliche Basis.
+    """
+    remaining = (
+        0 if target_total_rappen is None
+        else max(0, int(advisory_summary.total_rappen) - int(target_total_rappen))
+    )
+    series = list(reserve_release_series_rappen or [])
+    releases: list[int] = []
+    balance = [remaining]
+    for index in range(horizon_years):
+        released = min(remaining, max(0, int(series[index]) if index < len(series) else 0))
+        remaining -= released
+        releases.append(released)
+        balance.append(remaining)
+    return releases, balance
+
+
 def _build_simulation_payload(
     *,
     advisory_summary: PortfolioSummary,
@@ -749,6 +780,7 @@ def _build_simulation_payload(
     total_summary: PortfolioSummary | None = None,
     total_liabilities_rappen: int = 0,
     external_foundation_projection: dict | None = None,
+    reserve_release_series_rappen=None,
 ) -> dict:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -781,6 +813,13 @@ def _build_simulation_payload(
     vols = {**vols, "liquidity": 0}
     target_start_total = int(target_total_rappen if target_total_rappen is not None else advisory_summary.total_rappen)
     target_values = _target_bucket_values(target_start_total, targets)
+    reserve_releases, reserve_balance = _external_reserve_account(
+        advisory_summary, target_total_rappen, reserve_release_series_rappen, horizon_years,
+    )
+    target_cashflows = [
+        int(value or 0) + released
+        for value, released in zip(cashflow_projection_series_rappen, reserve_releases)
+    ]
     # Z8-W2 Phase 2: Total-Pfad nutzt Asset-Buckets aus Gesamtvermoegen,
     # Liabilities werden als initial_deficit eingebracht. Schuldzinsen
     # liegen ohnehin als recurring expense im cashflow_series.
@@ -815,7 +854,7 @@ def _build_simulation_payload(
         start_values=target_values,
         returns_by_asset=returns,
         vols_by_asset=vols,
-        cashflow_series_rappen=cashflow_projection_series_rappen,
+        cashflow_series_rappen=target_cashflows,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
@@ -826,7 +865,7 @@ def _build_simulation_payload(
     downside_series, _ = _simulate_bucket_path(
         start_values=target_values,
         returns_by_asset=downside_returns,
-        cashflow_series_rappen=cashflow_projection_series_rappen,
+        cashflow_series_rappen=target_cashflows,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
@@ -837,13 +876,17 @@ def _build_simulation_payload(
     upside_series, _ = _simulate_bucket_path(
         start_values=target_values,
         returns_by_asset=upside_returns,
-        cashflow_series_rappen=cashflow_projection_series_rappen,
+        cashflow_series_rappen=target_cashflows,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
         start_year=start_year,
         rebalance_mode=rebalance_mode,
         transaction_cost_bps=transaction_cost_bps,
+    )
+    target_series, downside_series, upside_series = (
+        [int(value) + balance for value, balance in zip(path, reserve_balance)]
+        for path in (target_series, downside_series, upside_series)
     )
     # Total-wealth paths keep direct property outside the listed-real-estate
     # bucket. Only financial assets receive CMA returns/rebalancing; the
@@ -962,6 +1005,8 @@ def _build_simulation_payload(
         "real_target_series_rappen": _real_series_from_nominal(target_series, inflation_series_bps),
         "inflation_series_bps": inflation_series_bps,
         "rebalancing_events": rebalance_events,
+        "reserve_accounting_basis": RESERVE_ACCOUNTING_BASIS,
+        "external_reserve_balance_series_rappen": reserve_balance,
     }
 
 
@@ -1543,6 +1588,7 @@ def _run_allocation_monte_carlo(
     total_summary: "PortfolioSummary | None" = None,
     total_liabilities_rappen: int = 0,
     external_foundation_projection: dict | None = None,
+    reserve_release_series_rappen=None,
 ) -> dict:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -1598,6 +1644,10 @@ def _run_allocation_monte_carlo(
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
     target_start_total = int(target_total_rappen if target_total_rappen is not None else advisory_summary.total_rappen)
     target_start_values = _target_bucket_values(target_start_total, targets)
+    # RESERVE-FUNDING-LEDGER-001: Reservekonto, siehe _external_reserve_account.
+    reserve_releases, reserve_balance = _external_reserve_account(
+        advisory_summary, target_total_rappen, reserve_release_series_rappen, horizon_years,
+    )
     # C3: Sub-Allocation in den MC-Seed aufnehmen, damit Aenderungen der
     # tatsaechlichen Sub-Verteilung (z.B. EM-Tilt aktiviert) zu einer
     # neuen, deterministisch reproduzierbaren Pfadschar fuehren.
@@ -1760,7 +1810,7 @@ def _run_allocation_monte_carlo(
             total_current_deficit = 0
             total_target_deficit = 0
         current_by_year[0].append(sum(current_values.values()) - current_deficit)
-        target_by_year[0].append(sum(target_values.values()) - target_deficit)
+        target_by_year[0].append(sum(target_values.values()) - target_deficit + reserve_balance[0])
 
         current_start = max(1, sum(current_values.values()))
         target_start = max(1, sum(target_values.values()))
@@ -1851,7 +1901,9 @@ def _run_allocation_monte_carlo(
                 current_values, int(contribution or 0), current_deficit
             )
             target_deficit += _apply_cashflow_to_bucket_values(
-                target_values, int(contribution or 0), target_deficit
+                target_values,
+                int(contribution or 0) + reserve_releases[year_index - 1],
+                target_deficit,
             )
             if total_current_values is not None:
                 total_current_deficit += _apply_cashflow_to_bucket_values(
@@ -1894,7 +1946,9 @@ def _run_allocation_monte_carlo(
                                 )))
 
             current_by_year[year_index].append(sum(current_values.values()) - current_deficit)
-            target_by_year[year_index].append(sum(target_values.values()) - target_deficit)
+            target_by_year[year_index].append(
+                sum(target_values.values()) - target_deficit + reserve_balance[year_index]
+            )
             if total_current_values is not None:
                 total_current_by_year[year_index].append(
                     sum(total_current_values.values())
@@ -1999,7 +2053,8 @@ def _run_allocation_monte_carlo(
     ]
 
     target_terminal_values = target_by_year[-1]
-    downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < target_start_total) / max(1, len(target_terminal_values)) * 100))
+    economic_target_start = target_start_total + reserve_balance[0]
+    downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < economic_target_start) / max(1, len(target_terminal_values)) * 100))
 
     # #96 Verzehr/Sequence-of-Returns-Kennzahl (SOLL + IST).
     target_depletion_probability_pct, target_depletion_median_year = _sequence_of_returns_depletion(
@@ -2090,4 +2145,6 @@ def _run_allocation_monte_carlo(
         "current_depletion_median_year": current_depletion_median_year,
         "goal_summaries": goal_summaries,
         "current_goal_summaries": current_goal_summaries,
+        "reserve_accounting_basis": RESERVE_ACCOUNTING_BASIS,
+        "external_reserve_balance_series_rappen": reserve_balance,
     }

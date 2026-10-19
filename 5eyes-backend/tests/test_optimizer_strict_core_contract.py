@@ -254,6 +254,15 @@ def test_context_owns_markowitz_inputs_and_supplied_solve_never_rereads_cma(
         max_iter=1,
     )
 
-    assert result.context is context
+    # Engine v7 (HOUSE-PRIOR-DECISION-OBJECTIVE-IDENTITY-001): mit
+    # projizierbarem Hausmatrix-Anker ist result.context der daraus
+    # abgeleitete Prior-Context -- alle Felder ausser dem Prior sind DIESELBEN
+    # Objekte wie im uebergebenen Context (keine neue CMA-Lesung).
+    import dataclasses
+
+    for field in dataclasses.fields(context):
+        if field.name in {"house_prior_weights", "house_prior_kappa"}:
+            continue
+        assert getattr(result.context, field.name) is getattr(context, field.name), field.name
     np.testing.assert_array_equal(captured["mu"], context.scenario_mu_bps)
     np.testing.assert_array_equal(captured["cov"], context.scenario_cov_bps2)

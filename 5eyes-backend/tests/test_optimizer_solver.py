@@ -664,7 +664,14 @@ def test_solver_empty_goals_returns_feasible_allocation():
     repeated = run_solver(**solver_kwargs)
 
     assert sum(result.weights_bps.values()) == 10000
-    assert result.objective_value > 0.0
+    # Engine v7: ohne Ziele ist die Zielebene 0 und der Hausmatrix-Prior am
+    # Anker 0 -- das Objective ist >= 0 und genau das des Ergebnis-Contexts.
+    assert result.objective_value >= 0.0
+    from services.optimizer.solver import evaluate_weights
+
+    assert evaluate_weights(result.context, result.weights_bps).objective_value == (
+        pytest.approx(result.objective_value, rel=1e-12, abs=1e-15)
+    )
     assert repeated.weights_bps == result.weights_bps
     assert repeated.objective_value == pytest.approx(result.objective_value)
 

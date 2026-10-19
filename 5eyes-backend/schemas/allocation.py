@@ -1232,6 +1232,9 @@ class AllocationSensitivityResponse(BaseModel):
     live_model_input_hash: Optional[str] = None
     baseline_model_input_hash: Optional[str] = None
     modified_model_input_hash: Optional[str] = None
+    # RESERVE-FUNDING-LEDGER-001: je Goal-Set kompilierter Reserve-Ledger.
+    baseline_reserve_funding_ledger: Optional[dict] = None
+    modified_reserve_funding_ledger: Optional[dict] = None
     scenario_pairing_basis: Optional[str] = None
     fx_basis: Optional[dict] = None
     capital_market_assumptions_id: Optional[str] = None
@@ -1318,6 +1321,10 @@ class AllocationSimulationResponse(BaseModel):
     real_target_series_rappen: list[int]
     inflation_series_bps: list[int]
     rebalancing_events: list[AllocationSimulationEventResponse]
+    # RESERVE-FUNDING-LEDGER-001: SOLL-Pfade enthalten das Reservekonto (Konsumenten
+    # schlagen external_reserve_rappen dann NICHT erneut auf).
+    reserve_accounting_basis: Optional[str] = None
+    external_reserve_balance_series_rappen: list[int] = Field(default_factory=list)
 
 
 class GoalAnalysisResponse(BaseModel):
@@ -1414,6 +1421,10 @@ class MonteCarloResponse(BaseModel):
     current_depletion_median_year: Optional[int] = None
     goal_summaries: list[MonteCarloGoalSummaryResponse]
     current_goal_summaries: list[MonteCarloGoalSummaryResponse] = Field(default_factory=list)
+    # RESERVE-FUNDING-LEDGER-001: SOLL-Pfade enthalten das Reservekonto (Konsumenten
+    # schlagen external_reserve_rappen dann NICHT erneut auf).
+    reserve_accounting_basis: Optional[str] = None
+    external_reserve_balance_series_rappen: list[int] = Field(default_factory=list)
 
 
 class LiveRebalancingPositionResponse(BaseModel):
@@ -1630,6 +1641,8 @@ class TargetAllocationGenerateResponse(BaseModel):
     recurring_cashflow_projection_series_rappen: list[int] = Field(default_factory=list)
     reserve_needed_rappen: int
     external_reserve_rappen: int = 0
+    # RESERVE-FUNDING-LEDGER-001: Herkunft/Release der externen Reserve.
+    reserve_funding_ledger: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int
