@@ -192,7 +192,7 @@ def build_anlagestrategie_flowables(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
-    flowables.extend(_make_preferences_section(data.allocation_preferences, styles))
+    flowables.extend(_make_preferences_section(data.allocation_preferences, styles, products=data.products))
     flowables.append(PageBreak())
 
     # ============================================================
@@ -395,7 +395,7 @@ def _build_anlagestrategie_flowables_template_order(
 
     # 4 Anlagepraeferenzen
     header("Anlagepräferenzen")
-    flowables.extend(_make_preferences_section(data.allocation_preferences, styles))
+    flowables.extend(_make_preferences_section(data.allocation_preferences, styles, products=data.products))
     flowables.append(PageBreak())
 
     # 5 Vermoegensstruktur: Asset-Allokation zuerst (gross nach klein)
@@ -652,7 +652,7 @@ def _make_strategy_reasoning_section(data: AnlagestrategieData, styles) -> list:
     ]
 
 
-def _make_preferences_section(preferences, styles) -> list:
+def _make_preferences_section(preferences, styles, products=None) -> list:
     """Anlagepraeferenzen als ruhige, tabellarische Vorlagen-Seite."""
     from services.pdf.components.header import _esc
     from services.pdf.styles import (
@@ -792,6 +792,12 @@ def _make_preferences_section(preferences, styles) -> list:
                 text_ += " -- keine Begruendung erfasst"
             deviation_texts.append(text_)
         rows.append(["Abweichungen von der ESG-Policy", "; ".join(deviation_texts)])
+    # ESG-SEED-PROVENANCE-001: keine positive ESG-Aussage auf unbelegten Seed-Werten.
+    from services.esg_data_provenance import customer_esg_data_caveat
+
+    esg_data_caveat = customer_esg_data_caveat(prefs, products)
+    if esg_data_caveat:
+        rows.append(["ESG-Datenstand", esg_data_caveat])
 
     band_labels = []
     for key, override in bands.items():

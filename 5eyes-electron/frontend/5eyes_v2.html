@@ -5408,6 +5408,10 @@ const API = {
         const parsed = JSON.parse(txt);
         if (parsed && typeof parsed === 'object' && parsed.detail) {
           if (typeof parsed.detail === 'string') detail = parsed.detail;
+          else if (parsed.detail.reason_code && parsed.detail.message) {
+            // ESG-P0-3/P0-5: strukturierte 409 (reason_code/message/positions).
+            detail = parsed.detail.message + ' [' + parsed.detail.reason_code + ']';
+          }
           else if (Array.isArray(parsed.detail)) {
             detail = parsed.detail.map(function(item){
               if (item && typeof item === 'object') return item.msg || item.message || JSON.stringify(item);
@@ -12299,6 +12303,13 @@ function adminRenderFundSearchTable(products){
     var origin = p.tenant_id
       ? '<span class="tag ta" title="Nur fuer Ihre Verwaltung sichtbar">Eigener Fonds</span>'
       : '<span class="tag tn">Global</span>';
+    // ESG-SEED-PROVENANCE-001: Provenienz der ESG-Angaben sichtbar machen
+    // (Seed-Werte ohne Quelle/Stichtag gelten als unbelegt).
+    if (p.esg_data_status === 'seed_unverified') {
+      origin += ' <span class="tag ta" title="ESG-Angaben (' + escapeHtml((p.esg_data_seed_fields || []).join(', ')) + ') sind Ausgangswerte des Standardkatalogs ohne Quelle/Stichtag. Kundendokumente bestaetigen darauf kein ESG-Kriterium.">ESG-Daten unbelegt</span>';
+    } else if (p.esg_data_status === 'maintained_no_source') {
+      origin += ' <span class="tag tn" title="ESG-Angaben gepflegt; Quelle/Stichtag werden im Katalog nicht erfasst.">ESG ohne Quellenangabe</span>';
+    }
     var isActive = p.is_active === undefined || p.is_active === null || !!Number(p.is_active);
     var pid = escapeHtml(String(p.id || ''));
     html += '<tr' + (isActive ? '' : ' style="opacity:.55"') + '>'

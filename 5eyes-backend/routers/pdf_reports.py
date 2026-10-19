@@ -571,6 +571,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     recommendation_status: str | None = None
     try:
         from models.review import Product, RecommendationPosition
+        from services.esg_data_provenance import product_esg_data_status
         # PDF-RUN-RESOLVER-001: dieselbe Regel wie _build_portfolio_data
         # (Final, sonst Draft, gebunden an die AKTUELLE TargetAllocation).
         # Kein passender Run -> keine Produkte + expliziter Marker, nie ein
@@ -609,6 +610,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                     "provider": str(getattr(product_obj, "provider", "") or ""),
                     "target_weight_bps": int(getattr(pos, "target_weight_bps", 0) or 0),
                     "target_amount_rappen": target_amt,
+                    # ESG-SEED-PROVENANCE-001: Kundendokument bestaetigt kein
+                    # ESG-Kriterium auf unbelegten Seed-Werten.
+                    "esg_data_status": product_esg_data_status(product_obj) if product_obj is not None else None,
                 })
 
     except Exception as exc:
@@ -1455,6 +1459,15 @@ def _build_contract_signoff_data(
     )
 
 
+def _customer_esg_orientation_label(policy) -> str | None:
+    from services.portfolio_engine_payload import esg_policy_customer_label
+
+    if policy == "negative_screening":
+        return "ESG-Vorgabe: Themenprodukte der kontroversen Themen ausgeschlossen"
+    label = esg_policy_customer_label(policy)
+    return f"ESG-Vorgabe: {label}" if label else None
+
+
 def _format_portfolio_orientation(preferences) -> str:
     if not isinstance(preferences, dict) or not preferences:
         return (
@@ -1468,6 +1481,13 @@ def _format_portfolio_orientation(preferences) -> str:
             continue
         for key, value in block.items():
             if value in (None, "", False):
+                continue
+            if section == "policy" and key == "esg":
+                # ESG-CLAIM-NEUTRAL-001 (Nachtrag): Rohwerte wie "impact"/"net_zero"
+                # sind Claim-Namen; Kundentext nur das gepruefte Kriterium.
+                label = _customer_esg_orientation_label(value)
+                if label:
+                    values.append(label)
                 continue
             values.append(f"{key}: {value}")
     if not values:
