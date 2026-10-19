@@ -8,6 +8,7 @@
  * 409-Fälle (kein aktuelles Risikoprofil / Beratungsvermögen ≤ 0 CHF) werden
  * als Hinweis gerendert, nicht als harter Fehler.
  */
+import { formatChfFromRappen } from '@/lib/format';
 import { useState } from 'react';
 import { ApiError } from '@/api/client';
 import { calculateMaxPensionSpending } from '@/api/goals';
@@ -17,8 +18,7 @@ import type {
 } from '@/api/types';
 
 function formatChf(rappen: number): string {
-  const chf = Math.round(rappen / 100);
-  return `CHF ${chf.toLocaleString('de-CH')}`;
+  return formatChfFromRappen(rappen);
 }
 
 interface MaxPensionSpendingPanelProps {

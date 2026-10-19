@@ -8,6 +8,7 @@
  * Konvention (Memory project_5eyes_cashflow_konventionen): valid_until ist
  * INKLUSIV — der letzte Gültigkeitstag zählt noch dazu.
  */
+import { formatChfFromRappen, parseNumberInputCH } from './format';
 import type {
   CashflowCreatePayload,
   CashflowNature,
@@ -39,10 +40,8 @@ export interface CashflowFormInput {
 }
 
 function parseChf(value: string): number | null {
-  const trimmed = (value ?? '').trim();
-  if (trimmed === '') return null;
-  const n = Number(trimmed);
-  return Number.isFinite(n) ? n : null;
+  // AA-UX-FORMAT-001: akzeptiert ' und ' als Tausendertrennung.
+  return parseNumberInputCH(value);
 }
 
 /** Liefert Fehler-Liste (leer = gültig). valid_until INKLUSIV → darf == valid_from sein. */
@@ -92,5 +91,5 @@ export function buildCashflowPayload(input: CashflowFormInput): CashflowCreatePa
 
 /** CHF-Anzeige aus Rappen (1234500 → "CHF 12'345"). */
 export function rappenToChf(rappen: number): string {
-  return `CHF ${Math.round(rappen / 100).toLocaleString('de-CH')}`;
+  return formatChfFromRappen(rappen);
 }

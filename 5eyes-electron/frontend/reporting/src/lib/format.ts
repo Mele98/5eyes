@@ -17,6 +17,10 @@
  *    Werten; ein auf 0 gerundeter Wert trägt kein Vorzeichen.
  *  - Wahrscheinlichkeiten ganzzahlig, Sharpe-Ratio 2 Stellen.
  *  - CHF kompakt ab 1 Mio. immer „Mio." mit 2 Stellen („CHF 2.85 Mio.").
+ *  - Tausendertrennung IMMER gerades Apostroph U+0027 („CHF 1'250'000",
+ *    CIO-Entscheid 2026-10-19; robust in PDF/CSV/Excel, wie die Backend-PDFs).
+ *    Nie toLocaleString('de-CH') direkt verwenden (ICU liefert U+2019).
+ *    Eingaben akzeptieren beide Zeichen: parseNumberInputCH().
  */
 
 export const MINUS = '−';
@@ -24,6 +28,26 @@ const PCT_SUFFIX = ' %';
 
 function groupThousands(intPart: string): string {
   return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+}
+
+/**
+ * Eingabe -> Zahl. Akzeptiert ' und ' (U+2019/U+02BC) als Tausendertrennung,
+ * Leerzeichen, Dezimalkomma und U+2212 als Minus. Leer/ungueltig -> null.
+ */
+export function parseNumberInputCH(value: string | null | undefined): number | null {
+  const t = String(value ?? '')
+    .replace(/^\s*CHF\s*/i, '')
+    .replace(/['\u2019\u02BC\s]/g, '')
+    .replace(/\u2212/g, '-')
+    .replace(',', '.');
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Ganze CHF aus Rappen: „CHF 12'345" (gerades Apostroph). */
+export function formatChfFromRappen(rappen: number): string {
+  return `CHF ${fmtNumber(Math.round(rappen / 100), 0)}`;
 }
 
 /** Zahl mit fester Nachkommastellenzahl, Apostroph-Gruppierung, U+2212. */

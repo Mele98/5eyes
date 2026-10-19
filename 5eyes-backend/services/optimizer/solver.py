@@ -3252,12 +3252,14 @@ def _finalize_solver_result(
         # No-Crisis-Baseline (gleiche Flows, gleiches 0%-Padding) ausgewiesen,
         # nicht als absolutes End-Vermoegen (das vom Padding dominiert ist).
         for name, r in stress_results.items():
+            # AA-UX-FORMAT-001: Tausendertrennung gerades Apostroph (wie PDFs).
+            impact_chf = f"{r.crisis_impact_end_wealth_rappen / 100:+,.0f}".replace(",", "'")
             reasoning.append(
                 f"Stress '{name}': Portfolio kumuliert "
                 f"{r.cumulative_return_bps / 100:+.1f}%, "
                 f"Max. Drawdown (Portfolio) {r.max_drawdown_bps / 100:.1f}%, "
                 "Krisen-Effekt auf End-Vermoegen "
-                f"{r.crisis_impact_end_wealth_rappen / 100:+,.0f} CHF "
+                f"{impact_chf} CHF "
                 "(vs. gleicher Verlauf ohne Krise)."
             )
     except Exception as exc:  # noqa: BLE001

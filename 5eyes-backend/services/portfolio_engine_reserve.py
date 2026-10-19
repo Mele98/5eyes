@@ -567,15 +567,16 @@ def _compute_reserve_for_inputs(
             absorbed = min(unlocked, external_reserve_rappen)
             external_reserve_rappen = max(0, external_reserve_rappen - absorbed)
             if reasoning is not None and absorbed > 0:
-                chf_unlocked = absorbed // 100
+                # AA-UX-FORMAT-001: Tausendertrennung gerades Apostroph (wie PDFs).
+                chf_unlocked = f"{absorbed // 100:,}".replace(",", "'")
                 reasoning.append(
-                    f"Anderes Vermoegen mit Goal-Funding-Schloss (CHF {chf_unlocked:,}) "
+                    f"Anderes Vermoegen mit Goal-Funding-Schloss (CHF {chf_unlocked}) "
                     "deckt einen Teil des externen Reservebedarfs."
                 )
         if reasoning is not None and external_reserve_rappen > 0:
-            chf_external = external_reserve_rappen // 100
+            chf_external = f"{external_reserve_rappen // 100:,}".replace(",", "'")
             reasoning.append(
-                f"Ein Liquiditaetsbedarf von CHF {chf_external:,} wird als externe Reserve ausserhalb "
+                f"Ein Liquiditaetsbedarf von CHF {chf_external} wird als externe Reserve ausserhalb "
                 f"des Beratungsmandats empfohlen. Die SAA-Liquiditaet bleibt auf {saa_liquidity_ceiling_bps / 100:.1f}%."
             )
         # 2026-07-24 (RES-2, Formel-Audit): external_reserve_rappen war bisher
@@ -590,11 +591,11 @@ def _compute_reserve_for_inputs(
         # sich in einer unplausiblen Kennzahl zu verstecken.
         if external_reserve_rappen > advisory_wealth_rappen:
             if reasoning is not None:
-                chf_needed = reserve_needed_rappen // 100
-                chf_available = advisory_wealth_rappen // 100
+                chf_needed = f"{reserve_needed_rappen // 100:,}".replace(",", "'")
+                chf_available = f"{advisory_wealth_rappen // 100:,}".replace(",", "'")
                 reasoning.append(
-                    f"Der berechnete Liquiditaetsbedarf (CHF {chf_needed:,}) uebersteigt das "
-                    f"gesamte Beratungsvermoegen (CHF {chf_available:,}) -- nicht alle Nahziele "
+                    f"Der berechnete Liquiditaetsbedarf (CHF {chf_needed}) uebersteigt das "
+                    f"gesamte Beratungsvermoegen (CHF {chf_available}) -- nicht alle Nahziele "
                     "sind aus diesem Mandat allein deckbar. Die externe Reserve wird auf das "
                     "verfuegbare Vermoegen begrenzt; die Deckungsluecke muss ausserhalb des "
                     "Mandats geschlossen werden (z.B. anderes Vermoegen, zusaetzliches Sparen)."

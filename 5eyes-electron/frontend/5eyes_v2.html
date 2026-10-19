@@ -2805,7 +2805,7 @@ function _renderSollIstCompare(){
         box.style.display='';
         box.style.color='var(--n7)';
         box.style.background='var(--bg)';
-        box.innerHTML='Differenz der Median-Endwerte SOLL − IST bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';
+        box.innerHTML='Differenz der Median-Endwerte SOLL − IST bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+fmtLocaleCH(Math.abs(deltaChf))+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';
       } else if(box){ box.style.display='none'; }
       // Roadmap #105: aria-label mit dem tatsaechlichen Endwert (mittleres Szenario)
       // fuellen -- ein statisches Label kann den Zahlenwert nicht abbilden.
@@ -5962,7 +5962,7 @@ async function loadClientById(clientId) {
       if (wealthRes.status === 'fulfilled' && wealthRes.value) {
         const w = wealthRes.value;
         currentWealthSummary = clientScopedSummary((w||{}), c.id);
-        const fmtK = v => 'CHF ' + Math.round(Number(v)||0).toLocaleString('de-CH');
+        const fmtK = v => 'CHF ' + fmtLocaleCH(Math.round(Number(v)||0));
         const kRV = document.getElementById('kpi-reinvermoegen');
         if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
         const kBV = document.getElementById('kpi-beratungsvermoegen');
@@ -5989,7 +5989,7 @@ async function loadClientById(clientId) {
       if (cashflowRes.status === 'fulfilled' && cashflowRes.value) {
         const cf = cashflowRes.value;
         const kCF = document.getElementById('kpi-cashflow');
-        if (kCF) kCF.textContent = 'CHF ' + Math.round(cf.surplus_chf).toLocaleString('de-CH');
+        if (kCF) kCF.textContent = 'CHF ' + fmtLocaleCH(Math.round(cf.surplus_chf));
       }
       // 2026-06-17: Cashflow-Liste SOFORT rendern — unabhaengig von der langsameren
       // Risiko-/Strategie-Hydration darunter (und vor deren stale-guard). Sonst blieb
@@ -8345,7 +8345,7 @@ function syncAllocationDonutFromStrategyState(){
       var _rein=Number(_a.total_wealth_rappen||_ta.total_base_rappen||0);
       var _found=Number(_ta.foundation_rappen||0);
       var _ber=Number(_a.advisory_wealth_rappen||0);
-      var _f=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+      var _f=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
       _rc.innerHTML='Reinvermögen (gesamt): <strong>'+_f(_rein)+'</strong>'
         +(_found>0?' · davon Eigenheim-Fundament '+_f(_found):'')
         +'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>';
@@ -8371,7 +8371,7 @@ function syncAllocationDonutFromStrategyState(){
       });
       if(_dnCanvas)_dnCanvas.setAttribute('aria-label','SOLL-Allokation: '+_rows.map(function(r){return r.name+' '+fmtPct(r.pct*100,1);}).join(', '));
       if(_dnTableBody)_dnTableBody.innerHTML=_rows.map(function(r){
-        return '<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.pct.toFixed(1))+'</td><td>'+escapeHtml(Math.round(r.amt).toLocaleString('de-CH'))+'</td></tr>';
+        return '<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.pct.toFixed(1))+'</td><td>'+escapeHtml(fmtLocaleCH(Math.round(r.amt)))+'</td></tr>';
       }).join('');
     }else{
       if(_dnCanvas)_dnCanvas.setAttribute('aria-label','SOLL-Allokation: noch keine Strategie berechnet');
@@ -8550,7 +8550,7 @@ var portfolioTechnicalExpandedRows = {};
 var currentCashflowEditId = null;
 var currentGoalEditId = null;
 
-function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.round(n).toLocaleString('de-CH');}
+function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+fmtLocaleCH(Math.round(n));}
 
   function loadPersona(pid){
     const p=PERSONAS.find(x=>x.id===pid);
@@ -8912,7 +8912,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:4px">Vertraulich · Erstellt am '+escapeHtml(today)+'</div></div>'
     +'<div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,0.7);font-weight:500">'+escapeHtml(reportSubject)+'</div>'
     +'<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px">'+escapeHtml(mandateLabel)+'</div>'
-    +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">CHF '+advisoryChf.toLocaleString('de-CH')+'</span></div>':'')
+    +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">CHF '+fmtLocaleCH(advisoryChf)+'</span></div>':'')
     +'</div></div></div>';
   // Section 1b: Kenntnisse & Erfahrungen (Eignungspruefung Seite 1)
   var keHtml='';
@@ -8969,7 +8969,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
       +'<td style="padding:8px 12px;font-size:11px;font-weight:600;color:#0f172a;text-align:right">'+pct+'%</td>'
       +'<td style="padding:8px 12px;"><div style="height:8px;background:#e2e8f0;border-radius:4px;width:100%"><div style="height:100%;width:'+barPct+'%;background:'+color+';border-radius:4px"></div></div></td>'
       +'<td style="padding:8px 12px;font-size:10px;color:#64748b;text-align:center">'+bandMin+'% – '+bandMax+'%</td>'
-      +(amtChf?'<td style="padding:8px 12px;font-size:11px;color:#334155;text-align:right">CHF '+amtChf.toLocaleString('de-CH')+'</td>':'<td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right">—</td>')
+      +(amtChf?'<td style="padding:8px 12px;font-size:11px;color:#334155;text-align:right">CHF '+fmtLocaleCH(amtChf)+'</td>':'<td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right">—</td>')
       +'</tr>';
   }).join('');
   var totalAmtChf=advisoryChf;
@@ -8984,7 +8984,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">Betrag</th>'
     +'</tr></thead>'
     +'<tbody>'+allocTableRows+'</tbody>'
-    +(totalAmtChf?'<tfoot><tr style="border-top:2px solid #e2e8f0"><td colspan="4" style="padding:8px 12px;font-size:10px;font-weight:600;color:#334155">Total Beratungsvermögen</td><td style="padding:8px 12px;font-size:11px;font-weight:700;color:#0f172a;text-align:right">CHF '+totalAmtChf.toLocaleString('de-CH')+'</td></tr></tfoot>':'')
+    +(totalAmtChf?'<tfoot><tr style="border-top:2px solid #e2e8f0"><td colspan="4" style="padding:8px 12px;font-size:10px;font-weight:600;color:#334155">Total Beratungsvermögen</td><td style="padding:8px 12px;font-size:11px;font-weight:700;color:#0f172a;text-align:right">CHF '+fmtLocaleCH(totalAmtChf)+'</td></tr></tfoot>':'')
     +'</table></div>':'';
   // Section 4: Portfolio implementation
   function reportPositionAmountRappen(row){
@@ -9180,10 +9180,10 @@ function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,
   function money(rappen){
     var n=Math.round(Number(rappen||0));
     var sign=n<0?'−':'';
-    return sign+'CHF '+Math.round(Math.abs(n)/100).toLocaleString('de-CH');
+    return sign+'CHF '+fmtLocaleCH(Math.round(Math.abs(n)/100));
   }
   function moneyChf(chf){
-    return 'CHF '+Math.round(Number(chf||0)).toLocaleString('de-CH');
+    return 'CHF '+fmtLocaleCH(Math.round(Number(chf||0)));
   }
   function pct(bps){
     return formatBpsPercent(Math.round(Number(bps||0)));
@@ -10760,7 +10760,7 @@ function adminAsNumber(value, fallback) {
 }
 
 function adminFormatCount(value) {
-  return String(adminAsNumber(value, 0).toLocaleString('de-CH'));
+  return String(fmtLocaleCH(adminAsNumber(value, 0)));
 }
 
 function adminFormatDateTime(value) {
@@ -13339,7 +13339,7 @@ async function adminPolicyActivate(){
 // Sprint U-P14 (2026-05-20): Depot-Check Frontend
 // ====================================================================
 function dcFmtPct(bps){ return fmtPct(Number(bps||0),1); }
-function dcFmtCHF(rappen){ return (Number(rappen||0)/100).toLocaleString('de-CH', {maximumFractionDigits: 0}) + ' CHF'; }
+function dcFmtCHF(rappen){ return fmtLocaleCH((Number(rappen||0)/100),{maximumFractionDigits: 0}) + ' CHF'; }
 // AA-UX-COLORS-001: Klassen-Tokens (CSS-Variablen, folgen dem Theme). Die
 // generische Reihe (Waehrungen/Regionen) nutzt dieselben Tokens plus Gold-/
 // Navy-Toene -- bewusst ohne Gruen (Gruen = "besser als IST") und ohne Rot.
@@ -13746,7 +13746,7 @@ async function downloadCostDisclosurePdf(){
 function _formatRappenChf(rappen, currency){
   var unit=String(currency||'CHF').toUpperCase().trim()||'CHF';
   var v=Number(rappen||0)/100;
-  try{ return unit+' '+v.toLocaleString('de-CH',{maximumFractionDigits:0}); }
+  try{ return unit+' '+fmtLocaleCH(v,{maximumFractionDigits:0}); }
   catch(e){ return unit+' '+Math.round(v); }
 }
 
@@ -14312,7 +14312,7 @@ function abRenderWarnings(warnings){
 
 var BT_LAST_RESULT = null;  // letztes Backtest-Resultat (für Re-Render bei Toggle)
 
-function btFormatCHF(rappen){ return (Number(rappen||0)/100).toLocaleString('de-CH', {maximumFractionDigits: 0}) + ' CHF'; }
+function btFormatCHF(rappen){ return fmtLocaleCH((Number(rappen||0)/100),{maximumFractionDigits: 0}) + ' CHF'; }
 function btFormatPctBps(bps, decimals){ return fmtPct(Number(bps||0), decimals==null?1:decimals); }
 function btSignedPctBps(bps, decimals){ return fmtSignedPct(Number(bps||0), decimals==null?1:decimals); }
 
@@ -15214,7 +15214,7 @@ function renderAdminAssetClassPriceStatus(payload) {
   if (summaryEl) {
     summaryEl.innerHTML = adminPill(complete ? 'vollständig' : 'Lücken', complete ? 'ok' : 'warn')
       + '<span style="margin-left:8px">' + loaded + ' von ' + keys.length + ' Anlageklassen mit Tagesdaten. '
-      + totalPoints.toLocaleString('de-CH') + ' Datenpunkte insgesamt.</span>';
+      + fmtLocaleCH(totalPoints) + ' Datenpunkte insgesamt.</span>';
   }
   if (gridEl) {
     gridEl.innerHTML = keys.map(function(ac) {
@@ -15225,7 +15225,7 @@ function renderAdminAssetClassPriceStatus(payload) {
       var last = formatAdminAssetClassPriceDate(row.last);
       return '<div class="admin-metric-panel">'
         + '<div class="admin-metric-label">' + escapeHtml(adminAssetClassPriceLabel(ac)) + '</div>'
-        + '<div class="admin-metric-value">' + (hasData ? points.toLocaleString('de-CH') : '0') + '</div>'
+        + '<div class="admin-metric-value">' + (hasData ? fmtLocaleCH(points) : '0') + '</div>'
         + '<div class="admin-metric-meta">' + escapeHtml(first) + ' bis ' + escapeHtml(last) + '</div>'
         + '</div>';
     }).join('');
@@ -15278,8 +15278,8 @@ async function backfillAdminAssetClassPrices() {
     });
     renderAdminAssetClassPriceStatus(res);
     var s = (res && res.summary) || {rows_written:0, rows_skipped:0, error_count:0};
-    var msg = 'Daily-Backfill abgeschlossen: ' + (s.rows_written || 0).toLocaleString('de-CH') + ' Tagespunkte geschrieben';
-    if (s.rows_skipped) msg += ', ' + Number(s.rows_skipped || 0).toLocaleString('de-CH') + ' übersprungen';
+    var msg = 'Daily-Backfill abgeschlossen: ' + fmtLocaleCH((s.rows_written || 0)) + ' Tagespunkte geschrieben';
+    if (s.rows_skipped) msg += ', ' + fmtLocaleCH(Number(s.rows_skipped || 0)) + ' übersprungen';
     if (s.error_count) msg += ', ' + s.error_count + ' Fehler';
     if (res && res.errors && res.errors.length) {
       var sample = res.errors.slice(0,3).map(function(e){
@@ -16115,10 +16115,10 @@ function prefillRiskCapacityFromCashflows(){
     else if(type==='Expense')annualObligationsChf+=annualized;
   });
   if(incomeLooksDefault&&annualIncomeChf>0){
-    setInputValue('rp-income-annual','CHF '+Math.round(annualIncomeChf).toLocaleString('de-CH'));
+    setInputValue('rp-income-annual','CHF '+fmtLocaleCH(Math.round(annualIncomeChf)));
   }
   if(obligationsLooksDefault&&annualObligationsChf>0){
-    setInputValue('rp-obligations-annual','CHF '+Math.round(annualObligationsChf).toLocaleString('de-CH'));
+    setInputValue('rp-obligations-annual','CHF '+fmtLocaleCH(Math.round(annualObligationsChf)));
   }
   if((incomeLooksDefault&&annualIncomeChf>0)||(obligationsLooksDefault&&annualObligationsChf>0)){
     if(typeof calcRiskScore==='function')calcRiskScore();
@@ -16406,14 +16406,14 @@ function parseRiskAnnualInput(label){
   if(mj){
     var raw = mj[1].trim().replace(/^CHF\s*/i, '');
     var rappen = parseCHF(raw);
-    if(rappen > 0) return 'CHF ' + Math.round(rappen / 100).toLocaleString('de-CH');
+    if(rappen > 0) return 'CHF ' + fmtLocaleCH(Math.round(rappen / 100));
   }
   // Fallback: first standalone CHF number (strip prefix before parsing)
-  var m2 = s.match(/CHF\s*([\d'.,]+)/);
+  var m2 = s.match(/CHF\s*([\d'\u2019.,]+)/);
   if(!m2) return '';
   var rappen2 = parseCHF(m2[1]);
   if(!rappen2) return '';
-  return 'CHF ' + Math.round(rappen2 / 100).toLocaleString('de-CH');
+  return 'CHF ' + fmtLocaleCH(Math.round(rappen2 / 100));
 }
 
 function parseRiskIncomeOrigins(label){
@@ -17784,11 +17784,11 @@ function parseApiError(e,fallback){
   return String((e&&e.detail)||(e&&e.message)||fallback||'?');
 }
 function parseCHF(s){
-  var c=String(s||0).replace(/^CHF\s*/i,'').replace(/['\s]/g,'').replace(',','.');
+  var c=normalizeNumberInputCH(String(s||0).replace(/^CHF\s*/i,'')).replace(',','.');
   return Math.round((parseFloat(c)||0)*100);
 }
 function parseUnitsMilli(value){
-  var raw=String(value||'').replace(/['\s]/g,'').replace(',','.').trim();
+  var raw=normalizeNumberInputCH(value||'').replace(',','.').trim();
   if(!raw)return null;
   var units=parseFloat(raw);
   if(!isFinite(units)||units<0)return null;
@@ -17798,7 +17798,7 @@ function formatUnitsInput(value){
   if(value==null||value==='')return '';
   var units=Number(value)/1000;
   if(!isFinite(units))return '';
-  return units.toLocaleString('de-CH',{minimumFractionDigits:0,maximumFractionDigits:3});
+  return fmtLocaleCH(units,{minimumFractionDigits:0,maximumFractionDigits:3});
 }
 function parsePercentToBps(value){
   var raw=String(value||'').replace('%','').replace(',','.').trim();
@@ -18754,7 +18754,7 @@ function formatBandPercent(bps){
 }
 function parseBandPercentInput(value){
   if(typeof value==='number'&&isFinite(value))return Math.round(Math.abs(value)>100?value:value*100);
-  var raw=String(value||'').replace('%','').replace(/'/g,'').replace(/\s+/g,'').replace(',','.').trim();
+  var raw=normalizeNumberInputCH(String(value||'').replace('%','')).replace(',','.').trim();
   if(!raw)return null;
   var numeric=Number(raw);
   if(!isFinite(numeric))return null;
@@ -18832,7 +18832,7 @@ function collectBandOverridesFromModal(){
 }
 function parseBandPercentUserInput(value){
   // Eingabe im Editor ist IMMER Prozent (das Feld zeigt "70%"); 0..100.
-  var raw=String(value==null?'':value).replace('%','').replace(/'/g,'').replace(/\s+/g,'').replace(',','.').trim();
+  var raw=normalizeNumberInputCH(String(value==null?'':value).replace('%','')).replace(',','.').trim();
   if(!raw)return null;
   var numeric=Number(raw);
   if(!isFinite(numeric)||numeric<0||numeric>100)return null;
@@ -19561,6 +19561,21 @@ function setText(id,text){
 //    waere Scheingenauigkeit). Kosten (TER) bleiben bewusst 2 Stellen.
 //  - CHF kompakt immer "Mio." (formatCompactCHF).
 //  - Zahlenzellen: tabular-nums + rechtsbuendig (CSS .num / Tabellen-Regel).
+// AA-UX-FORMAT-001 / CIO-Entscheid 2026-10-19: Tausendertrennung IMMER
+// gerades Apostroph U+0027 ("CHF 1'250'000") -- robust in PDF/CSV/Excel und
+// identisch mit den Backend-PDFs. toLocaleString('de-CH') liefert je nach ICU
+// U+2019 (typografisches Apostroph); dieser zentrale Helfer normalisiert das
+// und setzt ein Minus als U+2212. Alle Zahlen-toLocaleString laufen hierueber.
+function fmtLocaleCH(value,opts){
+  var n=Number(value);
+  if(!isFinite(n))n=0;
+  return n.toLocaleString('de-CH',opts).replace(/[\u2019\u02BC]/g,"'").replace(/^-/,'\u2212');
+}
+// Gegenstueck fuer Eingaben: akzeptiert ' UND ' (U+2019/U+02BC) als
+// Tausendertrennung, Leerzeichen und U+2212 als Minus.
+function normalizeNumberInputCH(value){
+  return String(value==null?'':value).replace(/['\u2019\u02BC\s]/g,'').replace(/\u2212/g,'-');
+}
 function fmtNumber(value,d){
   if(value===null||value===undefined||value==='')return '—';
   var n=Number(value);
@@ -19605,7 +19620,7 @@ function formatProbabilityPct(value){
 }
 function formatRappen(rappen){
   var chf=Math.round((Number(rappen)||0)/100);
-  return 'CHF '+(chf<0?'\u2212':'')+Math.abs(chf).toLocaleString('de-CH');
+  return 'CHF '+(chf<0?'\u2212':'')+fmtLocaleCH(Math.abs(chf));
 }
 function formatSignedBpsPercent(bps){
   if(bps===null||bps===undefined||bps==='')return 'n/a';
@@ -19615,7 +19630,7 @@ function formatSignedRappen(rappen){
   if(rappen===null||rappen===undefined||rappen==='')return 'n/a';
   var n=Math.round(Number(rappen||0));
   if(!n)return 'CHF 0';
-  return (n>0?'+':'\u2212')+'CHF '+Math.round(Math.abs(n)/100).toLocaleString('de-CH');
+  return (n>0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.round(Math.abs(n)/100));
 }
 function recurringCashflowLabel(netRappen){
   var net=Number(netRappen||0);
@@ -19648,19 +19663,19 @@ function projectionCashflowNarrative(recurringNetRappen,capitalNetRappen,horizon
 }
 function formatUnitsMilli(value){
   if(value===null||value===undefined||value==='')return 'n/a';
-  return (Number(value||0)/1000).toLocaleString('de-CH',{minimumFractionDigits:0,maximumFractionDigits:3});
+  return fmtLocaleCH((Number(value||0)/1000),{minimumFractionDigits:0,maximumFractionDigits:3});
 }
 // AA-UX-NUMBERS-001: CH-Konvention -- Apostroph = Tausendertrenner, Punkt =
 // Dezimalzeichen. Vorher wurde der Dezimalpunkt durch einen Apostroph ersetzt
 // ("CHF 2'85 Mio" fuer 2'850'000 -- fuer Schweizer Leser falsch lesbar).
-// Gruppierung kommt wie bei allen anderen Formatern aus toLocaleString('de-CH').
+// Gruppierung ueber fmtLocaleCH(): immer gerades Apostroph U+0027.
 function formatCompactCHFAmount(chf){
   var n=Number(chf||0);
   if(!isFinite(n))n=0;
   var a=Math.abs(n);
   var sign=(n<0&&Math.round(a)>0)?'−':'';
-  if(a>=1000000)return sign+(a/1000000).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' Mio.';
-  return sign+Math.round(a).toLocaleString('de-CH');
+  if(a>=1000000)return sign+fmtLocaleCH((a/1000000),{minimumFractionDigits:2,maximumFractionDigits:2})+' Mio.';
+  return sign+fmtLocaleCH(Math.round(a));
 }
 function formatCompactCHF(chf){
   return 'CHF '+formatCompactCHFAmount(chf);
@@ -20420,7 +20435,7 @@ function renderOverviewProjectionSummary(config){
   setText('ub-opt-terminal',formatCompactCHF(targetProjectedRappen/100));
   setText('ub-cagr-ist',fmtPct((currentMixReturnBps||currentCagrBps||0),1));
   setText('ub-cagr-opt',fmtPct((targetCagrBps||0),1));
-  setText('ub-delta-terminal',(deltaChf>=0?'+':'-')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH'));
+  setText('ub-delta-terminal',(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf)));
   var note=document.getElementById('ub-projection-note');
   if(note){
     note.style.color='var(--n6)';
@@ -20434,7 +20449,7 @@ function renderOverviewProjectionSummary(config){
     var value=overviewKpi.querySelector('.kv');
     var sub=overviewKpi.querySelector('.ks');
     if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
-    if(value)value.textContent=(deltaChf>=0?'+':'-')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH');
+    if(value)value.textContent=(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf));
     if(sub)sub.innerHTML='<span style="color:'+tone+'">'+(deltaChf>=0?'Verbesserte Situation ueber Ist':'Ist liegt ueber Zielpfad')+'</span>';
   }
 }
@@ -20457,7 +20472,7 @@ function updateAllocationProjectionComparison(config){
   setText('aa-proj-current-sub','Beratungsvermoegen heute im aktuellen Mix mit '+fmtPct((currentMixReturnBps||0),1)+' p.a.; '+projectionCashflowNarrative(currentRecurringNetCashflowRappen,currentCapitalNetCashflowRappen,horizonLabel));
   var deltaEl=document.getElementById('aa-proj-compare-delta');
   if(deltaEl){
-    deltaEl.textContent='Vergleich bis '+horizonLabel+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' Mehrwert durch zielbasiertes Investieren nach Rebalancing-Kosten.';
+    deltaEl.textContent='Vergleich bis '+horizonLabel+': '+(deltaChf>=0?'+':'−')+'CHF '+fmtLocaleCH(Math.abs(deltaChf))+' Mehrwert durch zielbasiertes Investieren nach Rebalancing-Kosten.';
     deltaEl.style.color=deltaChf>=0?'var(--pos)':'var(--warn)';
     deltaEl.style.background=deltaChf>=0?'rgba(22,101,52,0.05)':'rgba(146,64,14,0.07)';
     deltaEl.style.borderColor=deltaChf>=0?'rgba(22,101,52,0.14)':'rgba(146,64,14,0.14)';
@@ -22350,7 +22365,7 @@ function renderGoalAchievementSollIst(result){
   if(!soll.length||!ist.length){ el.style.display='none'; el.innerHTML=''; return; }
   var istById={}; ist.forEach(function(g){ if(g&&g.goal_id!=null) istById[String(g.goal_id)]=g; });
   var pct=function(v){ var n=Number(v); return isFinite(n)?fmtProbPct(Math.max(0,Math.min(100,Math.round(n)))):'—'; };
-  var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+Math.round(n/100).toLocaleString('de-CH')):'—'; };
+  var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+fmtLocaleCH(Math.round(n/100))):'—'; };
   var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
   var rows=soll.map(function(g){
     var i=istById[String(g.goal_id)]||{};
@@ -24223,7 +24238,7 @@ function updateCashflowsAndGoalsKpis(summary){
     var label=cashflowCard.querySelector('.kl');
     var sub=cashflowCard.querySelector('.ks');
     if(label)label.textContent=recurringCashflowLabelWithPeriod(net);
-    if(cashflowValue)cashflowValue.textContent=(net>=0?'+':'\u2212')+'CHF '+Math.abs(Math.round(net/100)).toLocaleString('de-CH');
+    if(cashflowValue)cashflowValue.textContent=(net>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(Math.round(net/100)));
     if(sub)sub.innerHTML=savingsRate==null?'<span class="a">Kapital netto '+formatSignedRappen(capitalNet)+'</span>':'<span class="'+(savingsRate>=0?'g':'a')+'">Sparquote '+Math.max(-999,savingsRate)+'% | Kapital '+formatSignedRappen(capitalNet)+'</span>';
   }
   if(cashflowCard){
@@ -24462,7 +24477,7 @@ async function saveCashflow(){
       var row=document.createElement('div');row.className='cf-row';row.dataset.cfid='local-'+Date.now();
       var detailLabel=cashflowTimingLabel({frequency:payload.frequency,valid_from:validFrom,valid_until:validUntil,timing_precision:payload.timing_precision,notes:cat,gross_amount_rappen:payload.gross_amount_rappen,tax_amount_rappen:payload.tax_amount_rappen});
       row.innerHTML='<div class="cfn"><div class="cfna">'+escapeHtml(label)+'</div><div class="cfnd">'+escapeHtml(detailLabel)+' (Demo)</div></div>'+
-        '<div class="cfa '+(isInc?'ci':'co')+'">'+(isInc?'+':'−')+'CHF '+parseFloat(amount).toLocaleString('de-CH')+'</div>'+
+        '<div class="cfa '+(isInc?'ci':'co')+'">'+(isInc?'+':'−')+'CHF '+fmtLocaleCH(parseFloat(amount))+'</div>'+
         '<div><button class="btn-ico" onclick="dcf(this)">&#10005;</button></div>';
       var tot=rows.querySelector('.cft');if(tot)rows.insertBefore(row,tot);else rows.appendChild(row);
       setupCashflowDragList(isInc?'zufluss-rows':'abfluss-rows',isInc?'Income':'Expense');
@@ -24639,7 +24654,7 @@ async function refreshInflowsUI(cid){
     if(String(cid)!==String(currentClientId||''))return;
     if(!Array.isArray(items))items=(items&&items.items)||[];
     currentInflows=Array.isArray(items)?items.slice():[];
-    var fmtR=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+    var fmtR=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
     if(!host)return;
     if(!currentInflows.length){
       host.innerHTML=journeyEmptyHint('Noch keine erwarteten Vermögenszuflüsse. Erfassen Sie z.B. eine Erbschaft, einen Bonus oder einen Verkaufserlös.');
@@ -24674,7 +24689,7 @@ function buildWealthInflowMarkers(labels){
   if(!Array.isArray(labels)||!labels.length)return [];
   var inflows=(typeof currentInflows!=='undefined'&&Array.isArray(currentInflows))?currentInflows:[];
   if(!inflows.length)return [];
-  var fmtR=function(r){return Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+  var fmtR=function(r){return fmtLocaleCH(Math.round(Number(r||0)/100));};
   var markers=[];
   inflows.forEach(function(inflow){
     if(!inflow)return;
@@ -24798,7 +24813,7 @@ async function refreshCashflowsUI(cid){
     currentCashflowProjection=projection&&Array.isArray(projection.years)?clientScopedProjection(projection,cid):null;
     // Sprint 2026-06-09: Override-Input nach Client-Switch synchronisieren
     try { syncIstHorizonOverrideInput(); } catch(e) {}
-    var fmt=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+    var fmt=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
     // Mandanten-Trennung: NUR aus dem client-gescopten currentCashflows rendern
     // (nicht aus rohem items), damit selbst bei einem theoretischen Endpoint-Leak
     // keine fremden Cashflows in dieser Klienten-Ansicht erscheinen.
@@ -25043,7 +25058,7 @@ function renderCashflowProjection(data) {
   var currentNet = currentIncome - currentExpense;
   var fmtHud = function(rappen) {
     var chf = Math.round(Math.abs(Number(rappen || 0)) / 100);
-    return 'CHF ' + chf.toLocaleString('de-CH');
+    return 'CHF ' + fmtLocaleCH(chf);
   };
   var statusLabel = currentNet > 0 ? 'Sparquote' : (currentNet < 0 ? 'Verm\u00f6gensverzehr' : 'Ausgeglichen');
   var statusTone = currentNet > 0 ? 'var(--pos)' : (currentNet < 0 ? 'var(--neg)' : 'var(--n6)');
@@ -25245,7 +25260,7 @@ async function refreshWealthUI(cid){
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
       var d=summaryRes.value;
       currentWealthSummary=clientScopedSummary((d||{}),cid);
-      var fmt=function(v){return 'CHF '+Math.round(v).toLocaleString('de-CH');};
+      var fmt=function(v){return 'CHF '+fmtLocaleCH(Math.round(v));};
       var k=document.getElementById('kpi-reinvermoegen');
       if(k)k.textContent=fmt(d.net_worth_chf||0);
       var k2=document.getElementById('kpi-beratungsvermoegen');
@@ -29345,7 +29360,7 @@ function renderStressTable(stressEvals){
     var rowHighlight=(ddBps!==null&&ddBps>5000)?'background:rgba(220,53,69,0.08);':'';
     var cumTxt=cumBps===null?'—':stressSigned(cumBps,fmtPct(Math.abs(cumBps),1));
     var ddTxt=ddBps===null?'—':fmtPct(-Math.abs(ddBps),1);
-    var impactTxt=impactR===null?'—':stressSigned(Math.round(impactR/100),Math.abs(Math.round(impactR/100)).toLocaleString('de-CH'));
+    var impactTxt=impactR===null?'—':stressSigned(Math.round(impactR/100),fmtLocaleCH(Math.abs(Math.round(impactR/100))));
     var label=nameMap[name]||String(name);
     var tr=document.createElement('tr');
     tr.style.cssText='border-bottom:1px solid var(--b1);'+rowHighlight;
@@ -29417,7 +29432,7 @@ function runSensitivityCall(btn){
       msg='Neues Renditeziel: '+fmtPct(Number(body.target_return_bps_new),2)+' p.a.';
     }else{
       var newAmt=Math.round(Number(amtRappen||0)/100);
-      msg='Neuer Zielwert: CHF '+newAmt.toLocaleString('de-CH');
+      msg='Neuer Zielwert: CHF '+fmtLocaleCH(newAmt);
     }
     if(dPct!=null){
       var sign=Number(dPct)>=0?'+':'';
@@ -29473,8 +29488,8 @@ function renderActionCards(reasoning){
       if(cashflowInfo.coveragePct!=null)reserveBody+=' Die laufenden Einkommen decken rund '+cashflowInfo.coveragePct+'% der Ausgaben.';
       if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporaer: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen);}).join(' und ')+'.';
       reserveBody+=' Die strategische Liquiditaet im Mandat bleibt bei '+liqTarget+'.';
-      if(externalReserve>0)reserveBody+=' Zusaetzlich werden CHF '+externalReserve.toLocaleString('de-CH')+' als separate Reserve ausserhalb des Mandats empfohlen.';
-      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund CHF '+reserveNeeded.toLocaleString('de-CH')+'.';
+      if(externalReserve>0)reserveBody+=' Zusaetzlich werden CHF '+fmtLocaleCH(externalReserve)+' als separate Reserve ausserhalb des Mandats empfohlen.';
+      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund CHF '+fmtLocaleCH(reserveNeeded)+'.';
       if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: IST '+currentRunway+', SOLL '+targetRunway+'.';
       if(runwayDeltaYears!=null&&runwayDeltaYears>0)reserveBody+=' Die Strategie gewinnt im Median rund '+runwayDeltaYears+' Jahre Zeit.';
       else if(runwayDeltaYears!=null&&runwayDeltaYears===0&&targetRunway!=='-')reserveBody+=' Wichtig: Die Strategie puffert den Entnahmepfad, verlaengert die Reichweite in diesem Setup aber nicht wesentlich. Fuer mehr Reichweite braucht es weniger Entnahme, mehr Vermoegen oder zusaetzliche Einkommen.';

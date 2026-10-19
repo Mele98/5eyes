@@ -29,6 +29,7 @@ FORMAT_TS = ROOT / "5eyes-electron" / "frontend" / "reporting" / "src" / "lib" /
 CONTRACT = ROOT / "5eyes-electron" / "frontend" / "reporting" / "src" / "lib" / "format.contract.json"
 
 _MONO_FNS = (
+    "fmtLocaleCH", "normalizeNumberInputCH", "parseCHF",
     "fmtNumber", "fmtPct", "fmtSignedPct", "fmtProbPct", "fmtSharpe",
     "formatCompactCHFAmount", "formatCompactCHF",
     "formatBpsPercent", "formatSignedBpsPercent", "formatRiskLossBps",
@@ -65,7 +66,9 @@ def _node():
 _RUNNER = r"""
 var C=__CONTRACT__;
 var out={cases:C.cases.map(function(c){return __fns[c[0]].apply(null,c[1]);}),
-         compact:C.compact_chf_cases.map(function(c){return __compact(c[0]);})};
+         compact:C.compact_chf_cases.map(function(c){return __compact(c[0]);}),
+         chf:C.chf_rappen_cases.map(function(c){return formatRappen(c[0]);}),
+         parse:C.parse_cases.map(function(c){return parseCHF(c[0])/100;})};
 process.stdout.write(JSON.stringify(out));
 """
 
@@ -96,7 +99,9 @@ def _run_report(tmp_path: Path):
         "const C = " + json.dumps(_contract()) + ";\n"
         "const fns: Record<string, (...a: unknown[]) => string> = F as never;\n"
         "const out = {cases: C.cases.map((c: [string, unknown[], string]) => fns[c[0]](...c[1])),"
-        " compact: C.compact_chf_cases.map((c: [number, string]) => F.fmtChfCompact(c[0]))};\n"
+        " compact: C.compact_chf_cases.map((c: [number, string]) => F.fmtChfCompact(c[0])),"
+        " chf: C.chf_rappen_cases.map((c: [number, string]) => F.formatChfRappen(c[0])),"
+        " parse: C.parse_cases.map((c: [string, number]) => F.parseNumberInputCH(c[0]))};\n"
         "process.stdout.write(JSON.stringify(out));\n",
         encoding="utf-8",
     )
@@ -115,6 +120,8 @@ def test_monolith_matches_contract():
     out = _run_monolith()
     assert out["cases"] == [case[2] for case in c["cases"]]
     assert out["compact"] == [case[1] for case in c["compact_chf_cases"]]
+    assert out["chf"] == [case[1] for case in c["chf_rappen_cases"]]
+    assert out["parse"] == [case[1] for case in c["parse_cases"]]
 
 
 def test_report_matches_contract_and_monolith(tmp_path):
@@ -122,6 +129,8 @@ def test_report_matches_contract_and_monolith(tmp_path):
     rep = _run_report(tmp_path)
     assert rep["cases"] == [case[2] for case in c["cases"]]
     assert rep["compact"] == [case[1] for case in c["compact_chf_cases"]]
+    assert rep["chf"] == [case[1] for case in c["chf_rappen_cases"]]
+    assert rep["parse"] == [case[1] for case in c["parse_cases"]]
     assert rep == _run_monolith()
 
 
@@ -193,3 +202,56 @@ def test_number_cells_use_tabular_nums():
     html = _html()
     assert re.search(r"table td,table th,\.num[^{]*\{font-variant-numeric:tabular-nums;\}", html)
     assert ".num{text-align:right;}" in html
+
+
+# ---------------------------------------------------------------------------
+# CIO-Entscheid 2026-10-19: Tausendertrennung immer gerades Apostroph U+0027
+# ---------------------------------------------------------------------------
+
+
+def test_all_number_tolocalestring_goes_through_central_helper():
+    html = _html()
+    calls = re.findall(r"toLocaleString\('de-CH'[^)]*\)", html)
+    # Erlaubt: der Helfer selbst (mit opts) und die Datumsanzeige.
+    rest = [c for c in calls if "year:" not in c and c != "toLocaleString('de-CH',opts)"
+            and c != "toLocaleString('de-CH')"]
+    assert rest == [], rest
+    code_lines = [ln for ln in html.splitlines()
+                  if "toLocaleString('de-CH'" in ln and not ln.lstrip().startswith("//")]
+    assert len(code_lines) == 2, code_lines  # fmtLocaleCH + Datum
+    assert "fmtLocaleCH(" in html
+
+
+def test_monolith_never_emits_typographic_apostrophe():
+    out = _run_monolith(
+        "return [fmtLocaleCH(1250000), formatRappen(125000000), formatSignedRappen(-125000000),"
+        " formatCompactCHF(850000), fmtLocaleCH(-1234.5,{maximumFractionDigits:1})];"
+    )
+    assert out[0] == "1'250'000"
+    assert out[1] == "CHF 1'250'000"
+    assert out[2] == "\u2212CHF 1'250'000"
+    assert out[3] == "CHF 850'000"
+    assert out[4] == "\u22121'234.5"
+    for v in out:
+        assert "\u2019" not in v and "\u02bc" not in v, v
+
+
+def test_monolith_inputs_accept_both_apostrophes():
+    out = _run_monolith(
+        "return [parseCHF(\"1'250'000\"), parseCHF('1\u2019250\u2019000'), parseCHF('CHF 1\u2019250'),"
+        " parseCHF('\u22121\u2019000')];"
+    )
+    assert out == [125000000, 125000000, 125000, -100000]
+
+
+def test_backend_texts_use_straight_apostrophe():
+    backend = ROOT / "5eyes-backend"
+    offenders = []
+    pat = re.compile(r"\{[^{}]*:[+ ]?,(\.[0-9]f)?\}")
+    for path in list((backend / "services").rglob("*.py")) + list((backend / "routers").rglob("*.py")):
+        for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if pat.search(line) and "replace(\",\", \"'\")" not in line and "thousand_sep" not in line:
+                offenders.append(f"{path.relative_to(backend)}:{no}: {line.strip()}")
+            if "\u2019" in line and "'" in line and re.search(r"\d\u2019\d", line):
+                offenders.append(f"{path.relative_to(backend)}:{no}: U+2019 in Zahl")
+    assert offenders == [], "\n".join(offenders)

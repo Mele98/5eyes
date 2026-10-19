@@ -8,6 +8,8 @@ import {
   formatInteger,
   fmtChfCompact,
   fmtNumber,
+  formatChfFromRappen,
+  parseNumberInputCH,
   fmtPct,
   fmtProbPct,
   fmtSharpe,
@@ -92,6 +94,20 @@ describe('AA-UX-FORMAT-001: gemeinsamer Vertrag (format.contract.json)', () => {
       expect(fmtChfCompact(rappenChf)).toBe(expected);
     });
   }
+  for (const [rappen, expected] of contract.chf_rappen_cases as Array<[number, string]>) {
+    it(`formatChfRappen(${rappen}) -> gerades Apostroph`, () => {
+      expect(formatChfRappen(rappen)).toBe(expected);
+    });
+  }
+  for (const [input, expected] of contract.parse_cases as Array<[string, number]>) {
+    it(`parseNumberInputCH(${JSON.stringify(input)})`, () => {
+      expect(parseNumberInputCH(input)).toBe(expected);
+    });
+  }
+  it('kein typografisches Apostroph (U+2019) in CHF-Ausgaben', () => {
+    expect(formatChfFromRappen(125_000_000)).toBe("CHF 1'250'000");
+    expect(fmtChfCompact(850_000)).not.toContain('’');
+  });
   it('negative CHF mit U+2212', () => {
     expect(formatChfRappen(-123_400)).toBe("CHF \u22121'234");
   });

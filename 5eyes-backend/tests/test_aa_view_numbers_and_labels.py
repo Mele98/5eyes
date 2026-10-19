@@ -93,7 +93,7 @@ def _run(names: tuple[str, ...], scenario_js: str):
 # Befund 1: formatCompactCHF + Donut-Platzhalter
 # ---------------------------------------------------------------------------
 
-_FMT = ("formatCompactCHFAmount", "formatCompactCHF")
+_FMT = ("fmtLocaleCH", "formatCompactCHFAmount", "formatCompactCHF")
 
 
 def test_format_compact_chf_uses_point_as_decimal_separator():
@@ -102,7 +102,7 @@ def test_format_compact_chf_uses_point_as_decimal_separator():
         "return {a:formatCompactCHF(2850000),b:formatCompactCHF(1234567.8),"
         "c:formatCompactCHF(12500000),d:formatCompactCHF(1000000),"
         "e:formatCompactCHF(-2850000),f:formatCompactCHF(0),"
-        "g:formatCompactCHF(12000),ref:(12000).toLocaleString('de-CH')};",
+        "g:formatCompactCHF(12000)};",
     )
     assert out["a"] == "CHF 2.85 Mio."
     assert out["b"] == "CHF 1.23 Mio."
@@ -111,9 +111,9 @@ def test_format_compact_chf_uses_point_as_decimal_separator():
     # Negative Millionen werden ebenfalls kompakt formatiert (vorher "CHF -2'850'000").
     assert out["e"] == "CHF −2.85 Mio."
     assert out["f"] == "CHF 0"
-    # Unter 1 Mio.: unveraendert die de-CH-Tausendergruppierung der Laufzeit
-    # (konsistent mit allen anderen toLocaleString('de-CH')-Formatern).
-    assert out["g"] == "CHF " + out["ref"]
+    # Unter 1 Mio.: voller Betrag; Tausendertrennung immer gerades Apostroph
+    # U+0027 (CIO-Entscheid 2026-10-19, zentral in fmtLocaleCH()).
+    assert out["g"] == "CHF 12'000"
     for value in (out["a"], out["b"], out["c"]):
         assert "'" not in value and "’" not in value, value
 
@@ -217,6 +217,7 @@ _TABLE_FNS = (
     # AA-UX-FORMAT-001: gemeinsamer Zahlenformat-Vertrag.
     "fmtNumber",
     "fmtPct",
+    "fmtLocaleCH",
     "formatCompactCHFAmount",
     "formatCompactCHF",
     "setText",
