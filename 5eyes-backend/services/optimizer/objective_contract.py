@@ -120,6 +120,174 @@ class ObjectiveContractV1:
         }
 
 
+OBJECTIVE_CONTRACT_V2_VERSION = "objective-contract-v2"
+
+
+def implemented_objective_policy() -> dict:
+    """Koeffizienten, Scopes und Policy-Versionen, die DIESER Code rechnet.
+
+    OBJECTIVE-CROSS-TERM-GOVERNANCE-001 (Codex-Review PR #626): V1 band nur
+    die beiden Modi; jede Konstantenaenderung ergab denselben Hash fuer eine
+    andere Mathematik. V2 bindet jeden Wert, der die Zielfunktion des
+    Default-Pfads bestimmt. Lazy Imports: Modul-Topologie unveraendert.
+    """
+    from .allocation_intent import (
+        SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT,
+        SOFT_PREFERENCE_POLICY_VERSION,
+    )
+    from .goal_reachability import GOAL_REACHABILITY_SCREEN_VERSION
+    from .house_prior import HOUSE_PRIOR_KAPPA, HOUSE_PRIOR_VERSION
+    from .objective import (
+        CHANCE_PENALTY_WEIGHT,
+        DEMOTED_GOAL_POLICY_VERSION,
+        DEMOTED_GOAL_WEIGHT,
+        GOAL_EROSION_NUMERIC_TOL,
+        GOAL_EROSION_Z,
+        GOAL_HARDNESS_POLICY_VERSION,
+        GOAL_HIERARCHY_POLICY_VERSION,
+        HARDNESS_WEIGHT,
+        MAXIMIZE_GOAL_POLICY_VERSION,
+        MAXIMIZE_GROWTH_WEIGHT,
+        TIEBREAK_VARIANCE_WEIGHT,
+    )
+
+    return {
+        "goal_hardness_policy": GOAL_HARDNESS_POLICY_VERSION,
+        "hardness_weights": tuple(sorted(
+            (str(k), float(v)) for k, v in HARDNESS_WEIGHT.items()
+        )),
+        "goal_hierarchy_policy": GOAL_HIERARCHY_POLICY_VERSION,
+        "goal_hierarchy_scope": "goal_shortfall_mode_only",
+        "protected_hardness": ("hart", "primaer"),
+        "goal_erosion_z": float(GOAL_EROSION_Z),
+        "goal_erosion_numeric_tol": float(GOAL_EROSION_NUMERIC_TOL),
+        "maximize_goal_policy": MAXIMIZE_GOAL_POLICY_VERSION,
+        "maximize_growth_weight": float(MAXIMIZE_GROWTH_WEIGHT),
+        "chance_penalty_policy": "linear_wilson_lb_soft_regret_v1",
+        "chance_penalty_weight": float(CHANCE_PENALTY_WEIGHT),
+        "tiebreak_policy": "portfolio_variance_one_year_v1",
+        "tiebreak_weight": float(TIEBREAK_VARIANCE_WEIGHT),
+        "house_prior_policy": HOUSE_PRIOR_VERSION,
+        "house_prior_kappa": float(HOUSE_PRIOR_KAPPA),
+        "soft_preference_policy": SOFT_PREFERENCE_POLICY_VERSION,
+        "soft_preference_lambda_default": float(SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT),
+        "goal_reachability_policy": GOAL_REACHABILITY_SCREEN_VERSION,
+        "goal_normalization": "relative_to_initial_wealth_squared_v1",
+        # GOAL-HIERARCHY-002 / STAGE2-OBJECTIVE-SCALE-001 (CIO-Review #650).
+        "goal_demotion_policy": DEMOTED_GOAL_POLICY_VERSION,
+        "demoted_goal_weight": float(DEMOTED_GOAL_WEIGHT),
+        "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
+    }
+
+
+_POLICY_FIELDS = (
+    "goal_hardness_policy",
+    "hardness_weights",
+    "goal_hierarchy_policy",
+    "goal_hierarchy_scope",
+    "protected_hardness",
+    "goal_erosion_z",
+    "goal_erosion_numeric_tol",
+    "maximize_goal_policy",
+    "maximize_growth_weight",
+    "chance_penalty_policy",
+    "chance_penalty_weight",
+    "tiebreak_policy",
+    "tiebreak_weight",
+    "house_prior_policy",
+    "house_prior_kappa",
+    "soft_preference_policy",
+    "soft_preference_lambda_default",
+    "goal_reachability_policy",
+    "goal_normalization",
+    "goal_demotion_policy",
+    "demoted_goal_weight",
+    "stage2_objective_scale_policy",
+)
+
+
+@dataclass(frozen=True)
+class ObjectiveContractV2(ObjectiveContractV1):
+    """V1 + alle Koeffizienten, Scopes und Policies (Engine ``saa_resampled_v7``).
+
+    Unterklasse von V1: jeder Konsument, der einen V1-Vertrag akzeptiert
+    (``objective_contract_of``), akzeptiert V2. Felder ohne Angabe werden
+    mit den IMPLEMENTIERTEN Werten belegt; ein explizit anderer Wert ist
+    fail-closed unzulaessig -- ein Vertrag darf keine Mathematik beschreiben,
+    die dieser Code nicht rechnet (Replay einer alten Vertragsversion auf
+    neuem Code bricht damit laut ab statt still anders zu rechnen).
+    """
+
+    version: str = OBJECTIVE_CONTRACT_V2_VERSION
+    goal_hardness_policy: str | None = None
+    hardness_weights: tuple | None = None
+    goal_hierarchy_policy: str | None = None
+    goal_hierarchy_scope: str | None = None
+    protected_hardness: tuple | None = None
+    goal_erosion_z: float | None = None
+    goal_erosion_numeric_tol: float | None = None
+    maximize_goal_policy: str | None = None
+    maximize_growth_weight: float | None = None
+    chance_penalty_policy: str | None = None
+    chance_penalty_weight: float | None = None
+    tiebreak_policy: str | None = None
+    tiebreak_weight: float | None = None
+    house_prior_policy: str | None = None
+    house_prior_kappa: float | None = None
+    soft_preference_policy: str | None = None
+    soft_preference_lambda_default: float | None = None
+    goal_reachability_policy: str | None = None
+    goal_normalization: str | None = None
+    goal_demotion_policy: str | None = None
+    demoted_goal_weight: float | None = None
+    stage2_objective_scale_policy: str | None = None
+
+    def __post_init__(self) -> None:
+        validate_objective_mode(self.objective_mode)
+        validate_goal_weighting_mode(self.goal_weighting_mode)
+        if self.version != OBJECTIVE_CONTRACT_V2_VERSION:
+            raise ObjectiveContractError(
+                f"Unbekannte Objective-Vertragsversion: {self.version!r}"
+            )
+        implemented = implemented_objective_policy()
+        for name in _POLICY_FIELDS:
+            value = getattr(self, name)
+            if value is None:
+                object.__setattr__(self, name, implemented[name])
+            elif value != implemented[name]:
+                raise ObjectiveContractError(
+                    f"Objective-Vertrag verlangt {name}={value!r}, dieser Code "
+                    f"rechnet {implemented[name]!r} -- kein stiller Replay mit "
+                    "anderer Mathematik."
+                )
+
+    @property
+    def contract_hash(self) -> str:
+        """SHA-256 ueber Version, Modi und ALLE Policy-Felder (feldbenannt)."""
+        parts = [
+            f"version={self.version}",
+            f"objective_mode={self.objective_mode}",
+            f"goal_weighting_mode={self.goal_weighting_mode}",
+        ]
+        parts.extend(f"{name}={getattr(self, name)!r}" for name in _POLICY_FIELDS)
+        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+    def as_evidence(self) -> dict:
+        evidence = {
+            "objective_contract_version": self.version,
+            "objective_mode": self.objective_mode,
+            "goal_weighting_mode": self.goal_weighting_mode,
+        }
+        for name in _POLICY_FIELDS:
+            value = getattr(self, name)
+            evidence[name] = list(value) if isinstance(value, tuple) else value
+        evidence["hardness_weights"] = {
+            str(k): float(v) for k, v in self.hardness_weights
+        }
+        evidence["objective_contract_hash"] = self.contract_hash
+        return evidence
+
+
 def resolve_objective_contract() -> ObjectiveContractV1:
     """Loest den Vertrag aus der Umgebung auf -- GENAU EINMAL pro Lauf.
 
@@ -134,7 +302,8 @@ def resolve_objective_contract() -> ObjectiveContractV1:
     from .objective import resolve_goal_weighting_mode
     from .objective_variants import resolve_objective_mode
 
-    return ObjectiveContractV1(
+    # Engine v7: V2 (alle Koeffizienten/Policies gebunden).
+    return ObjectiveContractV2(
         objective_mode=resolve_objective_mode(),
         goal_weighting_mode=resolve_goal_weighting_mode(),
     )

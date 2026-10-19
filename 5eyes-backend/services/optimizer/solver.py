@@ -70,11 +70,14 @@ from .drawdown_certification import (
 from .goal_attribution import publish_goal_achievability
 from .house_prior import (
     DECISION_HOUSE_PRIOR,
+    DECISION_HOUSE_PRIOR_FAIL_CLOSED,
     DECISION_HOUSE_PRIOR_GUARD,
+    HOUSE_ANCHOR_NUMERICAL_TOLERANCE_BPS,
     HOUSE_PRIOR_KAPPA,
     HOUSE_PRIOR_VERSION,
     REASON_GUARD,
     REASON_IDENTICAL,
+    REASON_WITHIN_TOLERANCE,
     REASON_NO_VALIDATION,
     REASON_NOT_WORSE,
     REASON_TEST_DISABLED,
@@ -82,10 +85,19 @@ from .house_prior import (
     house_prior_penalty,
     house_prior_sentence,
     paired_bootstrap_disclosure,
+    prior_metric_audit,
     tracking_error_bps,
 )
 from .objective import (
+    GOAL_EROSION_NUMERIC_TOL,
+    GOAL_EROSION_Z,
+    GOAL_HIERARCHY_POLICY_VERSION,
     chance_constraint_penalty,
+    _goal_hardness_weight,
+    is_protected_goal,
+    monte_carlo_standard_error,
+    protected_goal_level,
+    protected_goal_level_surrogate,
     combined_objective_two_phase,
     portfolio_variance_one_year,
     two_phase_objective_parts,
@@ -108,12 +120,19 @@ from .resampling import (
     DEFAULT_RESAMPLING,
     RISK_MEASURE_MATERIALITY,
     MIN_SUCCESSFUL_BAG_SHARE,
+    MISSINGNESS_STRESS_SIGMAS,
     RESAMPLING_SCHEME_VERSION,
     ResamplingConfig,
+    _domain_seed,
     bag_seeds,
     bootstrap_seed,
     build_bag_paths,
     paired_bootstrap_improvement,
+)
+from .scenario_engine import (
+    SAMPLING_UNIT_ANTITHETIC_PAIR,
+    SAMPLING_UNIT_PATH,
+    sampling_unit_ids as scenario_sampling_unit_ids,
 )
 from .scenario_cache import (
     build_scenario_paths_cached,
@@ -249,22 +268,61 @@ class OptimizerResult:
 # oder 2 wuerde bei benachbarten Mandats-Seeds Ueberlappungen riskieren.
 VALIDATION_SEED_OFFSET = 1_000_003
 
+# DRAWDOWN-HOLDOUT-REUSE-001 (Engine saa_resampled_v7): Drei-Rollen-Architektur.
+#
+#   Training/Bag-Wuerfel  -> Kandidatenerzeugung
+#   Auswahl-Wuerfel       -> genau einen Challenger einfrieren (nur Rerank)
+#   finaler Holdout       -> Challenger vs. Anker + Zielerreichung, KEINE
+#                            weitere Auswahl
+#
+# Der finale Holdout behaelt den bisherigen Seed (Inhalts-Seed +
+# VALIDATION_SEED_OFFSET); der Auswahl-Wuerfel ist domaenensepariert aus dem
+# Inhalts-Seed abgeleitet (SHA-256, wie die Bag-Seeds) -- er kann weder mit
+# dem Holdout noch mit einem Bag zusammenfallen. Weitere Konsumenten (z.B.
+# ein Screen vor der Optimierung) bekommen eine EIGENE Rolle statt einen der
+# beiden Wuerfel mitzubenutzen.
+CUBE_ROLE_FINAL = "final_certification"
+CUBE_ROLE_SELECTION = "selection"
+CUBE_ROLE_REACHABILITY_SCREEN = "reachability_screen"
+_CUBE_ROLE_SEED_DOMAINS = {
+    CUBE_ROLE_SELECTION: "saa-validation-selection-v1",
+    CUBE_ROLE_REACHABILITY_SCREEN: "saa-validation-reachability-screen-v1",
+}
+# Validierungswuerfel sind immer antithetisch (kein Importance Sampling).
+# Einzige Quelle fuer Bau UND Stichprobeneinheit des Bootstraps
+# (RESAMPLING-ANTITHETIC-BOOTSTRAP-001).
+VALIDATION_CUBE_ANTITHETIC = True
+
+
+def _validation_seed_for_role(content_seed: int, role: str) -> int:
+    if role == CUBE_ROLE_FINAL:
+        return int(content_seed) + VALIDATION_SEED_OFFSET
+    try:
+        domain = _CUBE_ROLE_SEED_DOMAINS[role]
+    except KeyError as exc:
+        raise ValueError(f"Unbekannte Wuerfel-Rolle: {role!r}") from exc
+    return _domain_seed(domain, int(content_seed))
+
 
 def _build_validation_context(
     context: "OptimizerContext",
+    *,
+    role: str = CUBE_ROLE_FINAL,
 ) -> tuple["OptimizerContext", int, str] | None:
     """Unabhaengiger Validierungs-Cube (gleiche Verteilung, anderer Seed).
 
-    Einzige Konstruktion dieses Cubes: die Nachzertifizierung der
-    Zielerreichung UND der Signifikanztest gegen die Hausmatrix
-    (SAA-RESAMPLED-STABILITY-001) bewerten auf exakt demselben Cube.
+    ``role=CUBE_ROLE_FINAL`` (Default) ist der finale Holdout: auf ihm
+    laufen NUR noch der Test des eingefrorenen Challengers gegen den Anker
+    und die Zielerreichungs-Nachzertifizierung -- keine Auswahl.
+    ``role=CUBE_ROLE_SELECTION`` ist der getrennte Auswahl-Wuerfel des
+    Drawdown-Reranks. Seeds und Hashes der Rollen sind verschieden.
     None, wenn keine ScenarioInputs vorliegen oder der Cube nicht gebaut
     werden kann.
     """
     inputs = getattr(context, "scenario_inputs", None)
     if inputs is None:
         return None
-    validation_seed = int(context.seed) + VALIDATION_SEED_OFFSET
+    validation_seed = _validation_seed_for_role(int(context.seed), role)
     scenario_horizon = int(
         getattr(context, "scenario_horizon_years", None) or context.horizon_years
     )
@@ -274,7 +332,7 @@ def _build_validation_context(
             horizon_years=scenario_horizon,
             n_paths=int(context.n_paths),
             seed=validation_seed,
-            antithetic=True,
+            antithetic=VALIDATION_CUBE_ANTITHETIC,
         )
     except (ReturnMomentError, ValueError):
         return None
@@ -289,17 +347,47 @@ def _build_validation_context(
     # Inputs-Digest mit anderem Seed ist ein anderer Cube. Wuerde hier nur
     # der Inputs-Digest stehen, waeren Trainings- und Validierungs-Cube
     # nicht unterscheidbar -- genau die Verwechslung, die dieser Anker
-    # ausschliessen soll.
+    # ausschliessen soll. Rolle und Stichprobeneinheit sind mitgebunden.
     cube_hash = hashlib.sha256(
         "|".join([
             scenario_inputs_digest(inputs),
             str(scenario_horizon),
             str(int(context.n_paths)),
             str(validation_seed),
-            "antithetic=True",
+            f"antithetic={VALIDATION_CUBE_ANTITHETIC}",
+            f"role={role}",
+            f"sampling_unit={SAMPLING_UNIT_ANTITHETIC_PAIR}",
         ]).encode("utf-8")
     ).hexdigest()
     return validation_context, validation_seed, cube_hash
+
+
+def _build_selection_validation_context(
+    context: "OptimizerContext",
+) -> tuple["OptimizerContext", int, str] | None:
+    """Auswahl-Wuerfel (DRAWDOWN-HOLDOUT-REUSE-001), getrennt vom Holdout."""
+    return _build_validation_context(context, role=CUBE_ROLE_SELECTION)
+
+
+def _validation_sampling_units(
+    validation_context: "OptimizerContext",
+) -> tuple[np.ndarray, str]:
+    """Stichprobeneinheiten eines Validierungswuerfels fuer den Bootstrap.
+
+    RESAMPLING-ANTITHETIC-BOOTSTRAP-001: Partnerpfade (i, i + ceil(n/2))
+    bilden EINE unabhaengige Einheit (Layout-Vertrag
+    ``scenario_engine.sampling_unit_ids``).
+    """
+    n_paths = int(validation_context.n_paths)
+    ids = scenario_sampling_unit_ids(
+        n_paths, antithetic=VALIDATION_CUBE_ANTITHETIC,
+    )
+    name = (
+        SAMPLING_UNIT_ANTITHETIC_PAIR
+        if VALIDATION_CUBE_ANTITHETIC
+        else SAMPLING_UNIT_PATH
+    )
+    return ids, name
 
 
 def _certify_on_independent_validation_cube(
@@ -320,7 +408,9 @@ def _certify_on_independent_validation_cube(
     Dieser Schritt baut einen zweiten Cube mit identischer Verteilung aber
     anderem Seed und bewertet NUR den bereits gewaehlten Gewinner darauf
     neu. Weil die Auswahl nicht von diesem Cube abhing, ist die Schaetzung
-    darauf selektionsfrei.
+    darauf selektionsfrei -- vorausgesetzt, kein vorgelagerter Schritt hat
+    auf diesem Cube ausgewaehlt: der Drawdown-Rerank nutzt deshalb den
+    getrennten Auswahl-Wuerfel (``CUBE_ROLE_SELECTION``).
 
     Returns ``(achievability, validation_seed, validation_cube_hash,
     validation_n_paths)``. Ohne verwertbare ScenarioInputs im Context wird
@@ -474,15 +564,13 @@ class OptimizerContext:
     house_prior_weights: np.ndarray | None = None
     house_prior_kappa: float = HOUSE_PRIOR_KAPPA
     # GOAL-REACHABILITY-SCREEN-001 (2026-10-18): je Ziel mit Ziel-Untergrenze
-    # die hoechste Erfolgswahrscheinlichkeit ueber die Pruefmenge zulaessiger
-    # Allokationen (Ecken des Bandbreiten-Simplex, zulaessig projiziert, plus
-    # Bandmitte) auf dem nominalen Validierungswuerfel. None, wenn nicht
-    # geprueft (keine ScenarioInputs).
+    # die hoechste beobachtete Erfolgswahrscheinlichkeit ueber eine
+    # Pruefmenge zulaessiger Allokationen. Seit Engine v7
+    # (GOAL-SCREEN-OBJECTIVE-ERASURE-001) REINE OFFENLEGUNG auf einem eigenen
+    # Screening-Wuerfel: kein Ziel wird mehr aus Zielfunktion oder
+    # Chance-Strafe genommen (das fruehere Feld ``penalty_exempt_goal_ids``
+    # ist entfallen). None, wenn nicht geprueft (keine ScenarioInputs).
     goal_reachability: dict | None = None
-    # Ziele, deren Chance-Strafe in DIESEM Lauf nicht steuert: nur in den
-    # Risikomass-Varianten und nur fuer auf der ganzen Pruefmenge
-    # unerreichbare Ziele (siehe ``_goal_reachability_screen``).
-    penalty_exempt_goal_ids: frozenset = frozenset()
 
 
 @dataclass(frozen=True)
@@ -999,17 +1087,24 @@ def build_optimizer_context(
             else resolve_objective_contract()
         ),
     )
-    # GOAL-REACHABILITY-SCREEN-001: einmal je Context (deterministisch:
-    # Validierungswuerfel des Inhalts-Seeds). Bags, Signifikanztest und
-    # Drawdown-Rerank erben Ergebnis und Ausnahme ueber den Context.
+    # GOAL-REACHABILITY-SCREEN-001: einmal je Context, seit Engine v7 nur
+    # Offenlegung auf einem eigenen Screening-Wuerfel (nie der Holdout, der
+    # spaeter zertifiziert; GOAL-SCREEN-HOLDOUT-LEAKAGE-001) und ohne
+    # Wirkung auf die Zielfunktion (GOAL-SCREEN-OBJECTIVE-ERASURE-001).
     screen = goal_reachability_screen(context)
     if screen is None:
         return context
-    return replace(
-        context,
-        goal_reachability=screen,
-        penalty_exempt_goal_ids=frozenset(screen["penalty_exempt_goal_ids"]),
+    # GOAL-HIERARCHY-002 / DEMOTED-GOAL-WEIGHT-001: herabgestufte Ziele auf
+    # der Liability markieren (Wunschziel-Gewicht in jedem Modus, nicht
+    # Stufe 1). Bags/Validierung erben die Markierung ueber ``replace``.
+    demoted = frozenset(
+        str(g) for g in (screen.get("not_found_reachable_goal_ids") or ())
     )
+    liabilities = [
+        replace(liab, demoted=True) if str(liab.goal_id) in demoted else liab
+        for liab in context.liabilities
+    ]
+    return replace(context, goal_reachability=screen, liabilities=liabilities)
 
 
 def _tiebreak_portfolio_variance(
@@ -1041,9 +1136,19 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
-    contract = objective_contract_of(context)
-    # SAA-RESAMPLED-RUNTIME-001: Faktoren einmal ableiten und fuer Wealth-
-    # Simulation UND annualisierte Rendite verwenden (bitidentisch).
+    return _objective_from_inputs(context, w, _evaluation_inputs(context, w))
+
+
+def _evaluation_inputs(
+    context: OptimizerContext, w: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(portfolio_factors, wealth, annualized_twr)`` EINER Allokation.
+
+    SAA-RESAMPLED-RUNTIME-001: Faktoren einmal ableiten und fuer Wealth-
+    Simulation UND annualisierte Rendite verwenden (bitidentisch).
+    GOAL-HIERARCHY-001: Zielfunktion und Stufe-1-Nebenbedingung teilen sich
+    dieselbe Simulation je Punkt.
+    """
     portfolio_factors = _portfolio_return_factors(context, w)
     wealth = _simulate_context_wealth(
         context, w, portfolio_factors=portfolio_factors
@@ -1051,6 +1156,59 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     annualized_twr = _annualized_twr_bps_per_path(
         context, w, portfolio_factors=portfolio_factors
     )
+    return portfolio_factors, wealth, annualized_twr
+
+
+def _protected_level_from_inputs(
+    context: OptimizerContext,
+    inputs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    *,
+    with_per_path: bool = False,
+) -> tuple[float, np.ndarray | None]:
+    """GOAL-HIERARCHY-001: Stufe-1-Zielniveau G1 (erreichbare harte/primaere Ziele)."""
+    _factors, wealth, annualized_twr = inputs
+    return protected_goal_level(
+        _stage1_liabilities(context),
+        wealth,
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        horizon_years=context.horizon_years,
+        weights=context.scenario_weights,
+        annualized_return_bps_per_path=annualized_twr,
+        goal_weighting_mode=objective_contract_of(context).goal_weighting_mode,
+        with_per_path=with_per_path,
+    )
+
+
+def _demoted_goal_ids(context: OptimizerContext) -> frozenset:
+    """GOAL-HIERARCHY-002 (CIO-Review #650): Ziele, die der Screen auf seiner
+    Pruefmenge nicht mit der Mindestsicherheit erreichbar fand (Default:
+    obere 95-%-Grenze < tau/2). Sie bleiben mit vollem Fehlbetrag in der
+    Zielfunktion (kein Ausnehmen, Codex "CHF 0 != CHF 900"), werden aber
+    unabhaengig vom Haertegrad in Stufe 2 herabgestuft -- ein aussichtsloses
+    Ziel darf erreichbare Stufe-1-Ziele nicht verdraengen."""
+    screen = getattr(context, "goal_reachability", None) or {}
+    return frozenset(str(g) for g in (screen.get("not_found_reachable_goal_ids") or ()))
+
+
+def _stage1_liabilities(context: OptimizerContext) -> list:
+    """Stufe-1-Ziele: hart/primaer, im Horizont, vom Screen erreichbar gefunden."""
+    demoted = _demoted_goal_ids(context)
+    n_cols = int(context.horizon_years) + 1
+    return [
+        liab for liab in context.liabilities
+        if is_protected_goal(liab, n_wealth_columns=n_cols)
+        and str(liab.goal_id) not in demoted
+    ]
+
+
+def _objective_from_inputs(
+    context: OptimizerContext,
+    w: np.ndarray,
+    inputs: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> float:
+    """Zielfunktion aus bereits simulierten Inputs (siehe ``_objective_from_array``)."""
+    contract = objective_contract_of(context)
+    portfolio_factors, wealth, annualized_twr = inputs
     objective = float(combined_objective_two_phase(
         context.liabilities,
         wealth,
@@ -1069,7 +1227,6 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         # wuerde geplanter Verzehr als Marktrisiko bewertet.
         portfolio_return_factors=portfolio_factors,
         portfolio_variance=_tiebreak_portfolio_variance(context, w),
-        penalty_exempt_goal_ids=context.penalty_exempt_goal_ids,
     ))
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
     # Soft-Preference Target Intent must actually influence the optimization,
@@ -1126,7 +1283,6 @@ def evaluate_weights(
         portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
         portfolio_variance=_tiebreak_portfolio_variance(context, w),
-        penalty_exempt_goal_ids=context.penalty_exempt_goal_ids,
     )
     # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as
     # `_objective_from_array`, so `evaluate_weights(ctx, result.weights_bps)
@@ -1227,7 +1383,19 @@ def deterministic_seed(*parts) -> int:
 # und Laeufe ohne Anker unveraendert v5-Regel. Bewusst neue Wuerfel (die
 # Version geht in den Seed).
 OPTIMIZER_SEED_SCHEME = "content_seed_v2"
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v6"
+# v7 (2026-10-18, Statistik-Vertraege): Einheiten-Bootstrap ueber
+# antithetische Paare, nullzentrierte p-Werte, getrennte Auswahl-/Final-
+# Wuerfel (max_drawdown), Survivor-Schwelle 90 %, Ridge-Prior-Metrik,
+# fail-closed ohne Validierungswuerfel, Prior-Context im Ergebnis.
+#
+# v8 (2026-10-19, MAXIMIZE-GOAL-001 + GOAL-HARDNESS-DEFAULT-001 +
+# GOAL-HIERARCHY-001/-002 + DEMOTED-GOAL-WEIGHT-001, CIO-Entscheide): Ziel
+# "Maximierung" als Log-Wachstumsterm; Haertegrad standardmaessig;
+# erreichbare harte/primaere Ziele als Stufe 1 (Schranke G1* + eps);
+# auf der Pruefmenge unerreichbare Ziele als Wunschziel (0.2, Volumen auf W0
+# gedeckelt); ObjectiveContractV2. Doku: docs/planning/2026-10-18-maximize-
+# goal-and-hardness.md. Bewusst neue Wuerfel (die Version geht in den Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v8"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2017,10 +2185,14 @@ def run_solver(
         # Auswahl folgt dem validierten Objective.
         drawdown_certification: dict | None = None
         if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
+            # DRAWDOWN-HOLDOUT-REUSE-001: gerankt wird auf dem Auswahl-
+            # Wuerfel; die Zielerreichung des Gewinners zertifiziert danach
+            # der getrennte finale Holdout (_finalize_solver_result).
             certified_w, drawdown_certification = certify_drawdown_candidates(
                 context,
                 winner_weights=np.asarray(weights, dtype=np.float64),
                 candidates=selection.finalists,
+                validation=_build_selection_validation_context(context),
             )
             if certified_w is not None:
                 weights = certified_w
@@ -2063,6 +2235,182 @@ class _CubeSelection:
     # Drawdown-Rerank des Einzelwuerfel-Pfads. Im Resampling-Pfad ungenutzt:
     # dort rankt der Rerank {Bag-Mittel, projiziertes Mittel, Hausmatrix-Anker}.
     finalists: list[dict] = field(default_factory=list)
+    # GOAL-HIERARCHY-001: Audit der Stufe 1 (None ohne geschuetzte Ziele bzw.
+    # in den Risikomass-Varianten).
+    goal_protection: dict | None = None
+
+
+# GOAL-HIERARCHY-001: Anzahl SLSQP-Starts der Stufe 1 (die besten Punkte
+# nach exaktem G1; optimiert wird die glatte Naeherung von G1). Ist G1 an
+# einem Punkt schon 0, entfaellt Stufe 1 (G1 >= 0).
+GOAL_STAGE1_STARTS = 1
+# Iterationsgrenze der Stufe-1-Suche (Laufzeitbudget Stage-8 <= 15 s): die
+# Suche muss G1* nur nach unten verbessern; jede gefundene Verbesserung macht
+# die Schranke strenger, ein vorzeitiger Abbruch macht sie hoechstens weiter.
+GOAL_STAGE1_MAX_ITER = 25
+# Punkte der Streckensuche, wenn die Stufe-1-Schranke bindet (t = 0, 0.1, ..1).
+GOAL_SEGMENT_POINTS = 11
+# Stufe-2-Multi-Starts, wenn herabgestufte Ziele vorliegen (siehe
+# ``_select_cube_candidate_core``); sonst alle Startpunkte (bitidentisch).
+GOAL_DEMOTED_STAGE2_STARTS = 2
+
+
+class _EvaluationMemo:
+    """Teilt die Simulation je Punkt zwischen Zielfunktion und Stufe-1-
+    Nebenbedingung (SLSQP ruft beide am selben x auf)."""
+
+    def __init__(self, context: OptimizerContext, capacity: int = 8):
+        self._context = context
+        self._capacity = int(capacity)
+        self._store: dict[bytes, tuple] = {}
+
+    def inputs(self, w: np.ndarray):
+        w = np.asarray(w, dtype=np.float64)
+        key = w.tobytes()
+        hit = self._store.get(key)
+        if hit is None:
+            if len(self._store) >= self._capacity:
+                self._store.pop(next(iter(self._store)))
+            hit = _evaluation_inputs(self._context, w)
+            self._store[key] = hit
+        return hit
+
+
+def _goal_protection_stage(
+    context: OptimizerContext,
+    initials: list[np.ndarray],
+    memo: _EvaluationMemo,
+    *,
+    max_iter: int,
+    ftol: float,
+) -> dict | None:
+    """GOAL-HIERARCHY-001, Stufe 1: ``G1* = min_w G1(w)`` auf diesem Wuerfel.
+
+    Liefert die Schranke ``G1* + eps`` fuer Stufe 2 und den Stufe-1-
+    Minimierer ``w1*`` (zulaessig fuer die Schranke per Konstruktion).
+    None im Risikomass-Modus (Phase 2, eigener Auftrag), ohne geschuetzte
+    Ziele oder ohne zulaessigen Startpunkt.
+
+    Suche: exaktes G1 an allen zulaessigen Multi-Start-Punkten und an der
+    Hausquote; von den besten Punkten aus SLSQP auf einer glatten Naeherung
+    von G1 (``protected_goal_level_surrogate``: die Chance-Strafe ist mit dem
+    harten Erfolgsindikator stueckweise konstant und fuer Gradienten
+    unsichtbar), das Ergebnis wieder EXAKT bewertet. ``G1*`` ist das
+    beste GEFUNDENE Minimum, kein globaler Beweis -- die Schranke ist damit
+    eher zu weit als zu eng.
+    """
+    if objective_contract_of(context).objective_mode != OBJECTIVE_GOAL_SHORTFALL:
+        return None
+    n_cols = int(context.horizon_years) + 1
+    protected = _stage1_liabilities(context)
+    if not protected:
+        return None
+    goal_weighting_mode = objective_contract_of(context).goal_weighting_mode
+
+    def level(w: np.ndarray) -> float:
+        return _protected_level_from_inputs(context, memo.inputs(w))[0]
+
+    house = context.house_prior_weights
+    points = [np.asarray(x0, dtype=np.float64) for x0 in initials]
+    if house is not None:
+        points.append(np.asarray(house, dtype=np.float64))
+    scored: list[tuple[float, int, np.ndarray]] = []
+    for index, x0 in enumerate(points):
+        ok, _violations = is_feasible(
+            x0, bounds=context.bounds, constraints=context.scipy_constraints,
+        )
+        if not ok:
+            continue
+        value = level(x0)
+        if np.isfinite(value):
+            scored.append((float(value), index, x0))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (item[0], item[1]))
+    best_level, _index, best_w = scored[0]
+    n_solves = 0
+    if best_level > 0.0:
+
+        def smooth_part(w: np.ndarray) -> float:
+            # Glatte Naeherung von G1 (Fehlbetrag exakt, Erfolgsindikator
+            # logistisch geglaettet) -- nur fuer die Suche; entschieden wird
+            # mit dem exakten G1 (``_finite_feasible_candidate(..., level)``).
+            _factors, wealth, annualized_twr = memo.inputs(w)
+            return protected_goal_level_surrogate(
+                protected, wealth,
+                initial_wealth_rappen=context.advisory_wealth_rappen,
+                horizon_years=context.horizon_years,
+                weights=context.scenario_weights,
+                annualized_return_bps_per_path=annualized_twr,
+                goal_weighting_mode=goal_weighting_mode,
+            )
+
+        # Numerik: SLSQP-ftol ist absolut -> relativ zum Startwert skaliert.
+        unit = max(smooth_part(best_w), 1e-300)
+        for _level, _i, x0 in scored[:GOAL_STAGE1_STARTS]:
+            result = _solve_single_start(
+                lambda w: smooth_part(w) / unit, x0,
+                context.bounds, context.scipy_constraints,
+                max_iter=min(int(max_iter), GOAL_STAGE1_MAX_ITER), ftol=ftol,
+            )
+            n_solves += 1
+            candidate = _finite_feasible_candidate(
+                result, level, context.bounds, context.scipy_constraints,
+            )
+            if candidate is not None and candidate[1] < best_level:
+                best_w, best_level = candidate
+    level_star, star_per_path = _protected_level_from_inputs(
+        context, memo.inputs(best_w), with_per_path=True,
+    )
+    if house is not None:
+        _house_level, house_per_path = _protected_level_from_inputs(
+            context, memo.inputs(np.asarray(house, dtype=np.float64)),
+            with_per_path=True,
+        )
+        standard_error = monte_carlo_standard_error(
+            house_per_path - star_per_path, context.scenario_weights,
+        )
+        tolerance_basis = "paired_house_vs_stage1"
+    else:
+        standard_error = monte_carlo_standard_error(
+            star_per_path, context.scenario_weights,
+        )
+        tolerance_basis = "stage1_point"
+    # Haertegrad (GOAL-HARDNESS-DEFAULT-001): die statistische Toleranz wird
+    # durch das hoechste Haertegrad-Gewicht der geschuetzten Ziele geteilt --
+    # primaer (h = 1) darf innerhalb des Rauschens erodieren, sobald ein
+    # hartes Ziel (h = 10) dabei ist nur um ein Zehntel davon.
+    hardness_divisor = max(
+        1.0, max(_goal_hardness_weight(liab, goal_weighting_mode) for liab in protected),
+    )
+    eps = (
+        GOAL_EROSION_Z * float(standard_error) / hardness_divisor
+        + GOAL_EROSION_NUMERIC_TOL
+    )
+    bound = float(level_star) + eps
+    # Skala der Nebenbedingung: relativ zur Schranke, damit die absolute
+    # Toleranz von is_feasible (1e-6) eine relative wird.
+    constraint_unit = max(bound, 1e-12)
+
+    def protection_slack(w: np.ndarray) -> float:
+        return (bound - level(w)) / constraint_unit
+
+    return {
+        "policy": GOAL_HIERARCHY_POLICY_VERSION,
+        "protected_goal_ids": [str(liab.goal_id) for liab in protected],
+        "demoted_goal_ids": sorted(_demoted_goal_ids(context)),
+        "level_star": float(level_star),
+        "standard_error": float(standard_error),
+        "tolerance_basis": tolerance_basis,
+        "erosion_z": float(GOAL_EROSION_Z),
+        "hardness_divisor": float(hardness_divisor),
+        "erosion_tolerance": float(eps),
+        "bound": bound,
+        "stage1_solves": int(n_solves),
+        "w_star": np.asarray(best_w, dtype=np.float64).copy(),
+        "level": level,
+        "constraint": {"type": "ineq", "fun": protection_slack},
+    }
 
 
 def _select_cube_candidate(
@@ -2076,18 +2424,78 @@ def _select_cube_candidate(
     Unveraenderte Auswahl-Logik des bisherigen ``run_solver`` (Schritte 5-6);
     SAA-RESAMPLED-STABILITY-001 hat sie nur aus ``run_solver`` herausgeloest,
     damit dieselbe Logik auf jedem Bag-Wuerfel laeuft.
+
+    GOAL-HIERARCHY-001: zuerst Stufe 1 (``_goal_protection_stage``), dann
+    Stufe 2 als "lazy constraint": erfuellt das Optimum der vollen
+    Zielfunktion die Schranke ``G1 <= G1* + eps`` bereits, ist es auch das
+    Optimum unter der Schranke (gleiche Zielfunktion, kleinere zulaessige
+    Menge, die es enthaelt). Nur sonst wird auf der Strecke zum
+    Stufe-1-Minimierer der beste Punkt gewaehlt, der die Schranke exakt
+    einhaelt. Gemessen: die Schranke als Dauer-Nebenbedingung kostete auf
+    dem Fundament-Mandat x3.4 Laufzeit, sie band aber nur in 1-3 von 40
+    Bags.
     """
-    seed = context.seed
-    score_x10 = context.score_x10
-    n_paths = context.n_paths
-    bounds = context.bounds
-    scipy_constraints = context.scipy_constraints
+    memo = _EvaluationMemo(context)
+    initials = _cube_initial_guesses(context)
+    protection = _goal_protection_stage(
+        context, list(initials), memo, max_iter=max_iter, ftol=ftol,
+    )
+    selection = _select_cube_candidate_core(
+        context, initials, memo, None, max_iter=max_iter, ftol=ftol,
+        demoted_starts=(
+            GOAL_DEMOTED_STAGE2_STARTS
+            if protection is not None and protection["demoted_goal_ids"]
+            else None
+        ),
+    )
+    if protection is None:
+        return selection
+    level = protection["level"]
+    bound = protection["bound"]
+    tolerance = 1e-9 * max(1.0, abs(bound))
+    if selection.weights is not None and level(selection.weights) <= bound + tolerance:
+        selection.goal_protection = _goal_protection_audit(
+            protection, selection.weights, constraint_pass=False,
+        )
+        return selection
+    # Die Schranke bindet: zulaessige Punkte auf der Strecke vom Stufe-1-
+    # Minimierer w1* (erfuellt sie per Konstruktion) zum Stufe-2-Optimum w2.
+    # Die zulaessige Menge der linearen Nebenbedingungen ist konvex, jeder
+    # Streckenpunkt also zulaessig; gewaehlt wird unter den Punkten, die die
+    # Schranke EXAKT einhalten, der mit der kleinsten vollen Zielfunktion.
+    # (Ein zweiter SLSQP-Lauf mit G1 als Nebenbedingung scheiterte gemessen an
+    # der stueckweise konstanten Chance-Strafe und fiel in die DE-Suche:
+    # +5 s je bindendem Bag.)
+    w_star = np.asarray(protection["w_star"], dtype=np.float64)
+    w_two = (
+        w_star if selection.weights is None
+        else np.asarray(selection.weights, dtype=np.float64)
+    )
+    best_w, best_value = w_star, float(_objective_from_inputs(
+        context, w_star, memo.inputs(w_star),
+    ))
+    for t in np.linspace(0.0, 1.0, GOAL_SEGMENT_POINTS)[1:]:
+        trial = _normalize_to_bounds((1.0 - t) * w_star + t * w_two, context.bounds)
+        if level(trial) > bound + tolerance:
+            continue
+        ok, _violations = is_feasible(
+            trial, bounds=context.bounds, constraints=context.scipy_constraints,
+        )
+        if not ok:
+            continue
+        value = float(_objective_from_inputs(context, trial, memo.inputs(trial)))
+        if np.isfinite(value) and value < best_value:
+            best_w, best_value = trial, value
+    selection.weights = np.asarray(best_w, dtype=np.float64).copy()
+    selection.objective = best_value
+    selection.goal_protection = _goal_protection_audit(
+        protection, selection.weights, constraint_pass=True,
+    )
+    return selection
 
-    # ---- 5. Objective Closure ueber den Context ----
-    def objective_fn(w: np.ndarray) -> float:
-        return _objective_from_array(context, w)
 
-    # ---- 6. Multi-Start SLSQP ----
+def _cube_initial_guesses(context: OptimizerContext) -> list[np.ndarray]:
+    """Multi-Start-Punkte eines Wuerfels (aus dem Context, nie aus der CMA)."""
     # PAR-5: zusaetzlicher Markowitz-Min-Varianz-Kandidat.  The retained
     # OptimizerContext is the sole source of truth: re-reading the separately
     # passed CMA here would allow the same context to produce different starts
@@ -2105,13 +2513,40 @@ def _select_cube_candidate(
         ):
             mu_bps_for_markowitz = candidate_mu.copy()
             cov_bps_for_markowitz = candidate_cov.copy()
-
-    initials = build_initial_guesses(
-        bounds, score_x10,
+    return list(build_initial_guesses(
+        context.bounds, context.score_x10,
         mu_bps=mu_bps_for_markowitz,
         cov_bps=cov_bps_for_markowitz,
         risky_fraction_per_bucket=context.risky_fraction_per_bucket,
-    )
+    ))
+
+
+def _select_cube_candidate_core(
+    context: OptimizerContext,
+    initials: list[np.ndarray],
+    memo: _EvaluationMemo,
+    protection: dict | None,
+    *,
+    max_iter: int,
+    ftol: float,
+    demoted_starts: int | None = None,
+) -> _CubeSelection:
+    """Auswahl auf einem Wuerfel; mit ``protection`` unter der Stufe-1-Schranke."""
+    seed = context.seed
+    n_paths = context.n_paths
+    bounds = context.bounds
+    scipy_constraints = context.scipy_constraints
+
+    # ---- 5. Objective Closure ueber den Context ----
+    def objective_fn(w: np.ndarray) -> float:
+        return _objective_from_inputs(context, w, memo.inputs(w))
+
+    # ---- 6. Multi-Start SLSQP ----
+    # ---- 5b. GOAL-HIERARCHY-001: Stufe-2-Lauf unter der Stufe-1-Schranke ----
+    # Der Stufe-1-Minimierer ist zulaessiger Rueckfall-Kandidat (erfuellt die
+    # Schranke per Konstruktion).
+    if protection is not None:
+        scipy_constraints = list(scipy_constraints) + [protection["constraint"]]
     best_result: OptimizeResult | None = None
     best_obj = float("inf")
     best_feasible_result: OptimizeResult | None = None
@@ -2124,11 +2559,64 @@ def _select_cube_candidate(
     used_ga_fallback = False
     accepted_feasible_non_success = False
     robustification_derisked = False
+    if protection is not None:
+        # Der Stufe-1-Minimierer erfuellt die Schranke per Konstruktion: er
+        # ist immer ein zulaessiger Rueckfall-Kandidat (nie Hausmitte-
+        # Fallback nur wegen der Zielhierarchie).
+        w_star = protection["w_star"]
+        star_objective = float(objective_fn(w_star))
+        if np.isfinite(star_objective):
+            finite_feasible_candidates.append({
+                "result": OptimizeResult(
+                    x=w_star.copy(), success=False, status=-1, nit=0,
+                    message="goal_hierarchy_stage1_minimizer",
+                ),
+                "weights": w_star.copy(),
+                "objective": star_objective,
+                "source": "goal_hierarchy_stage1",
+                "risky_fraction": _candidate_risky_fraction(
+                    w_star, context.risky_fraction_per_bucket,
+                ),
+            })
+            best_feasible_obj = star_objective
+            best_feasible_w = w_star.copy()
+            best_feasible_result = finite_feasible_candidates[-1]["result"]
+            best_feasible_source = "goal_hierarchy_stage1"
+
+    # STAGE2-OBJECTIVE-SCALE-001 (Laufzeit, CIO-Review #650): SLSQP prueft
+    # ``ftol`` ABSOLUT. Liegt die Zielfunktion weit ueber 1 (grosse
+    # Fehlbetraege, z. B. ein herabgestuftes unerreichbares Ziel), verlangt
+    # das eine relative Genauigkeit von 1e-7 und kostet Iterationen ohne
+    # Allokationswirkung. Der Solver sieht darum f / s mit
+    # s = max(1, |f| am besten Startpunkt): gleiches argmin, ftol relativ.
+    # Fuer |f| <= 1 (alle Golden-Mandate) ist s = 1 -- bitidentisch.
+    # Bewertet und verglichen wird weiterhin mit dem unskalierten f.
+    start_values = [
+        abs(float(objective_fn(np.asarray(x0, dtype=np.float64)))) for x0 in initials
+    ]
+    finite_starts = [v for v in start_values if np.isfinite(v)]
+    objective_unit = max(1.0, min(finite_starts)) if finite_starts else 1.0
+    if protection is None and demoted_starts is not None and len(initials) > demoted_starts:
+        # GOAL-HIERARCHY-002 (Laufzeit): mit herabgestuften (auf der
+        # Pruefmenge unerreichbaren) Zielen dominiert deren Fehlbetrag die
+        # Stufe-2-Zielfunktion, und die Stufe-1-Schranke bestimmt das
+        # Ergebnis (Streckensuche). Der Multi-Start sucht dann nur die
+        # Richtung w2 -- die besten Startpunkte nach f genuegen.
+        order = sorted(
+            range(len(initials)),
+            key=lambda i: (start_values[i] if np.isfinite(start_values[i]) else np.inf, i),
+        )[:demoted_starts]
+        initials = [initials[i] for i in sorted(order)]
+    if objective_unit == 1.0:
+        solver_objective_fn = objective_fn
+    else:
+        def solver_objective_fn(w: np.ndarray) -> float:
+            return objective_fn(w) / objective_unit
 
     for x0 in initials:
         attempt_started = time.perf_counter()
         result = _solve_single_start(
-            objective_fn, x0, bounds, scipy_constraints,
+            solver_objective_fn, x0, bounds, scipy_constraints,
             max_iter=max_iter, ftol=ftol,
         )
         elapsed_ms = int(round((time.perf_counter() - attempt_started) * 1000))
@@ -2307,6 +2795,49 @@ def _select_cube_candidate(
             or bool(getattr(candidate["result"], "success", False))
         ],
     )
+
+
+def _contract_evidence(context: OptimizerContext) -> dict | None:
+    """Nachweis-Block des Lauf-Vertrags (ObjectiveContractV2) fuer Audit und
+    Modellbasis; None, wenn ein (Test-)Vertrag keinen Nachweis liefert."""
+    as_evidence = getattr(objective_contract_of(context), "as_evidence", None)
+    return as_evidence() if callable(as_evidence) else None
+
+
+def _goal_protection_audit(
+    protection: dict | None,
+    weights: np.ndarray | None,
+    *,
+    constraint_pass: bool,
+) -> dict | None:
+    """Serialisierbarer Audit der Stufe 1 (GOAL-HIERARCHY-001)."""
+    if protection is None:
+        return None
+    final_level = (
+        None if weights is None else float(protection["level"](weights))
+    )
+    return {
+        "policy": protection["policy"],
+        "protected_goal_ids": list(protection["protected_goal_ids"]),
+        "demoted_goal_ids": list(protection["demoted_goal_ids"]),
+        "level_star": protection["level_star"],
+        "standard_error": protection["standard_error"],
+        "tolerance_basis": protection["tolerance_basis"],
+        "erosion_z": protection["erosion_z"],
+        "hardness_divisor": protection["hardness_divisor"],
+        "erosion_tolerance": protection["erosion_tolerance"],
+        "bound": protection["bound"],
+        "final_level": final_level,
+        "binding": (
+            None if final_level is None
+            else bool(final_level >= protection["bound"] - 1e-12 * max(1.0, abs(protection["bound"])))
+        ),
+        "stage1_solves": protection["stage1_solves"],
+        # True: das Optimum der vollen Zielfunktion verletzte die Schranke,
+        # die Auswahl lief ein zweites Mal mit ihr als Nebenbedingung.
+        "constraint_pass": bool(constraint_pass),
+        "w_star_bps": [int(round(x * 10000.0)) for x in protection["w_star"]],
+    }
 
 
 def _house_midpoint_fallback_result(
@@ -3002,7 +3533,6 @@ def _context_loss_components_on_validation(
             portfolio_return_factors=factors,
             primary_value_override=primary_override,
             portfolio_variance=variance,
-            penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
         risk_level = float(tiebreak) if is_default else float(primary_override)
         return float(goal_level) + float(preference), risk_level
@@ -3107,9 +3637,16 @@ def _significance_vs_house_anchor(
     Entscheid ``decision``:
     * ``optimizer``  -- (1) oder (2) erfuellt, Optimierer-Allokation gilt.
     * ``house_matrix`` -- weder noch, Hausmatrix-Zielquote gilt.
-    * ``optimizer_untested`` -- kein Test moeglich (kein Anker, keine
-      zulaessige Projektion, kein Validierungs-Cube, Test abgeschaltet);
-      die Optimierer-Allokation gilt, der Grund steht in ``reason``.
+    * ``optimizer_untested`` -- kein Test moeglich, weil es keinen
+      zulaessigen Anker gibt (kein Anker, keine zulaessige Projektion) oder
+      der Test abgeschaltet ist; die Optimierer-Allokation gilt, der Grund
+      steht in ``reason``.
+    * ``house_matrix`` mit ``reason="no_validation_cube"`` -- Anker vorhanden,
+      aber kein finaler Validierungswuerfel: fail-closed auf die Hausquote
+      (OPTIMIZER-POST-SELECTION-CERTIFICATION-001, v7).
+
+    ``validation`` ist der FINALE Holdout (``CUBE_ROLE_FINAL``); gezogen wird
+    ueber antithetische Paare (``_validation_sampling_units``).
 
     Die Top-Level-Statistik (``p_value``, ``improvement`` ...) ist immer die
     der Zielebene; die Varianten-Statistik steht in ``risk_measure_test``.
@@ -3137,12 +3674,15 @@ def _significance_vs_house_anchor(
     if validation is None:
         validation = _build_validation_context(context)
     if validation is None:
+        # Fail-closed: ohne Holdout ist die Abweichung unzertifiziert.
         return {
             **block,
-            "decision": "optimizer_untested",
+            "decision": "house_matrix",
             "reason": "no_validation_cube",
+            "significant": False,
         }
     validation_context, validation_seed, cube_hash = validation
+    unit_ids, unit_name = _validation_sampling_units(validation_context)
     objective_mode = objective_contract_of(context).objective_mode
     if objective_mode == OBJECTIVE_MAX_DRAWDOWN:
         # Nur in diesem Modus gesetzt: Default-Laeufe behalten ihre
@@ -3159,6 +3699,8 @@ def _significance_vs_house_anchor(
         n_bootstrap=int(config.n_bootstrap),
         alpha=float(config.significance_alpha),
         seed=bootstrap_seed(validation_seed),
+        sampling_unit_ids=unit_ids,
+        sampling_unit=unit_name,
     )
     goal_stats = paired_bootstrap_improvement(
         lambda idx: tuple(parts[0] for parts in component_pair(idx)),
@@ -3169,6 +3711,7 @@ def _significance_vs_house_anchor(
         **goal_stats,
         "comparison": COMPARISON_GOAL_LEVEL,
         "decision_level": COMPARISON_GOAL_LEVEL,
+        "cube_role": CUBE_ROLE_FINAL,
         "validation_seed": int(validation_seed),
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
@@ -3191,7 +3734,9 @@ def _significance_vs_house_anchor(
         **{
             key: risk_stats.get(key)
             for key in ("improvement", "improvement_lower_bound", "p_value",
-                        "anchor_objective", "candidate_objective")
+                        "bootstrap_tail_fraction", "null_hypothesis",
+                        "p_value_calibration", "anchor_objective",
+                        "candidate_objective")
         },
         "comparison": COMPARISON_RISK_MEASURE,
         "anchor_risk_measure": float(anchor_risk),
@@ -3240,14 +3785,14 @@ def _run_resampled_solver(
         )
     # HOUSE-PRIOR-001: im Default-Modus mit projizierbarem Anker tragen ALLE
     # Bags und der Validierungswuerfel der Offenlegung den Prior (eine
-    # Zielfunktion fuer Optimierung und Offenlegung). Der Abschluss
-    # (``result.context``, ``result.objective_value``) bleibt bewusst auf dem
-    # Aufrufer-Context: Objekt-Identitaet fuer Aktivierungsvalidierung,
-    # Explainability und Shadow-Vergleich, und
-    # ``evaluate_weights(ctx, result.weights_bps).objective_value ==
-    # result.objective_value`` fuer jeden aus denselben Inputs gebauten
-    # Context. Der Prior-Term steht separat im Audit (``final_prior_penalty``).
-    caller_context = context
+    # Zielfunktion fuer Optimierung und Offenlegung).
+    # HOUSE-PRIOR-DECISION-OBJECTIVE-IDENTITY-001 (Engine v7): auch der
+    # Abschluss laeuft auf dem Prior-Context. ``result.context`` und
+    # ``result.objective_value`` (= G + P_pref + kappa_H * TE_M^2) sind damit
+    # dieselbe Zielfunktion, unter der die Bags selektiert wurden;
+    # ``evaluate_weights(result.context, result.weights_bps).objective_value ==
+    # result.objective_value``. Ein ohne Prior gebauter Context bewertet
+    # bewusst eine ANDERE Zielfunktion (v5-Tiebreak w' Sigma w).
     house_prior_anchor_bps: dict[str, int] | None = None
     if objective_contract_of(context).objective_mode == OBJECTIVE_GOAL_SHORTFALL:
         house_prior_anchor_bps, _anchor_reason = _project_house_anchor(
@@ -3335,6 +3880,9 @@ def _run_resampled_solver(
                 else None
             ),
             "elapsed_ms": int(round((time.perf_counter() - bag_started) * 1000)),
+            # GOAL-HIERARCHY-001: Stufe-1-Audit dieses Bags (Objective-
+            # Schnittstelle; None ohne geschuetzte Ziele).
+            "goal_protection": selection.goal_protection,
         })
 
     n_succeeded = len(bag_weights)
@@ -3343,6 +3891,9 @@ def _run_resampled_solver(
         "scheme": RESAMPLING_SCHEME_VERSION,
         "seed_scheme": OPTIMIZER_SEED_SCHEME,
         "engine_version": OPTIMIZER_ENGINE_VERSION,
+        # ObjectiveContractV2 (Engine v7): alle Koeffizienten, Scopes und
+        # Policy-Versionen dieses Laufs samt Hash (Audit und Modellbasis).
+        "objective_contract": _contract_evidence(context),
         "content_seed": int(context.seed),
         "n_bags": n_bags,
         "n_bags_succeeded": n_succeeded,
@@ -3372,15 +3923,23 @@ def _run_resampled_solver(
         accepted_feasible_non_success=robustified_bags > 0,
         robustification_derisked=False,
     )
-    if n_succeeded < max(1, int(np.ceil(MIN_SUCCESSFUL_BAG_SHARE * n_bags))):
+    # RESAMPLING-SUCCESS-SURVIVOR-BIAS-001: Mindestquote (Herleitung bei
+    # MIN_SUCCESSFUL_BAG_SHARE). Darunter fail-closed, KEIN Mittel publiziert.
+    min_successful = max(1, int(np.ceil(MIN_SUCCESSFUL_BAG_SHARE * n_bags - 1e-9)))
+    payload["min_successful_bag_share"] = float(MIN_SUCCESSFUL_BAG_SHARE)
+    if n_succeeded < min_successful:
         payload["decision"] = "fallback_house_matrix"
+        payload["reason"] = "insufficient_successful_bags"
         payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
         return _house_midpoint_fallback_result(
             context,
             aggregate_selection,
             extra_reasoning=[
                 f"Resampling: nur {n_succeeded} von {n_bags} Bags lieferten eine "
-                "zulaessige Allokation -- kein belastbarer Mittelwert."
+                f"zulaessige Allokation (Mindestquote "
+                f"{MIN_SUCCESSFUL_BAG_SHARE:.0%} = {min_successful}) -- ein "
+                "Mittel nur der erfolgreichen Bags waere bei nicht zufaelligem "
+                "Ausfall verzerrt; kein Mittelwert publiziert."
             ],
             resampling_payload=payload,
         )
@@ -3398,10 +3957,24 @@ def _run_resampled_solver(
         bucket: round(float(dispersion[i]) * 10000.0, 2)
         for i, bucket in enumerate(BUCKET_ORDER)
     }
-    # Standardfehler des Bag-Mittels: die erwartete Streuung der
-    # publizierten Quote, wenn nur der Monte-Carlo-Zufall variiert.
-    payload["standard_error_bps"] = {
+    # Standardfehler des Bag-Mittels, BEDINGT auf die erfolgreichen Bags
+    # (RESAMPLING-SUCCESS-SURVIVOR-BIAS-001): die Streuung der publizierten
+    # Quote, wenn nur der Monte-Carlo-Zufall variiert. Er enthaelt weder die
+    # Unsicherheit durch Bag-Ausfall noch Projektion oder Hausmatrix-Gate.
+    payload["conditional_bag_mean_standard_error_bps"] = {
         bucket: round(float(dispersion[i]) * 10000.0 / float(np.sqrt(n_succeeded)), 2)
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    # Sensitivitaetsschranke fuer nicht zufaelligen Ausfall: liegen die
+    # fehlenden Bags bis zu MISSINGNESS_STRESS_SIGMAS Bag-Standardabweichungen
+    # neben dem Mittel, verschiebt das die Quote um hoechstens
+    # f * k * sigma_bag (f = Ausfallanteil). 0 bei vollstaendigem Lauf.
+    missing_share = float(n_bags - n_succeeded) / float(n_bags)
+    payload["missingness_sensitivity_bps"] = {
+        bucket: round(
+            missing_share * MISSINGNESS_STRESS_SIGMAS * float(dispersion[i]) * 10000.0,
+            2,
+        )
         for i, bucket in enumerate(BUCKET_ORDER)
     }
 
@@ -3426,22 +3999,27 @@ def _run_resampled_solver(
 
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001 unter Resampling (CIO-Entscheid
     # 2026-10-18): Modus max_drawdown -> {projiziertes Bag-Mittel, rohes
-    # Bag-Mittel, Hausmatrix-Anker} auf dem gemeinsamen Validierungs-Cube mit
-    # dem verfeinerten Drawdown ranken; der beste Nicht-Anker-Kandidat geht
-    # in den Signifikanztest (der dasselbe Mass verwendet).
+    # Bag-Mittel, Hausmatrix-Anker} mit dem verfeinerten Drawdown ranken; der
+    # beste Nicht-Anker-Kandidat geht in den Signifikanztest (der dasselbe
+    # Mass verwendet).
+    # DRAWDOWN-HOLDOUT-REUSE-001 (Engine v7): gerankt wird auf dem
+    # AUSWAHL-Wuerfel. Danach ist der Challenger eingefroren; Test gegen die
+    # Hausmatrix und Zielerreichung laufen auf dem getrennten FINALEN
+    # Holdout, auf dem nichts mehr ausgewaehlt wird.
     drawdown_certification: dict | None = None
-    validation = None
+    final_validation = None
     if objective_contract_of(context).objective_mode == OBJECTIVE_MAX_DRAWDOWN:
-        validation = _build_validation_context(context)
+        selection_validation = _build_selection_validation_context(context)
         certified_w, drawdown_certification = certify_resampled_candidates(
             context,
             projected_mean=projected,
             raw_mean=mean_w,
             house_anchor_bps=_project_house_anchor(context, house_anchor_bps)[0],
-            validation=validation,
+            validation=selection_validation,
         )
         if certified_w is not None:
             candidate_bps = _rounded_bps_with_repair(certified_w, context)
+        final_validation = _build_validation_context(context)
 
     reasoning: list[str] = []
     max_dispersion_pp = float(np.max(dispersion)) * 100.0
@@ -3450,7 +4028,8 @@ def _run_resampled_solver(
         f"Resampled Efficiency: {n_succeeded} von {n_bags} Bags a "
         f"{bag_n_paths} Pfaden (Inhalts-Seed, Common Random Numbers) gemittelt; "
         f"Streuung je Bucket ueber die Bags max. {max_dispersion_pp:.1f} pp, "
-        f"Standardfehler der Quote max. {max_standard_error_pp:.2f} pp."
+        f"Standardfehler der Quote (bedingt auf die erfolgreichen Bags) max. "
+        f"{max_standard_error_pp:.2f} pp."
     )
     if house_prior_anchor_bps is not None:
         # HOUSE-PRIOR-001: kein Schalter -- das (projizierte) Bag-Mittel IST
@@ -3470,7 +4049,7 @@ def _run_resampled_solver(
         payload["final_weights_bps"] = dict(final_bps)
         payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
         return _finalize_solver_result(
-            caller_context,
+            context,
             selection=aggregate_selection,
             weights=_trusted_weights_bps_to_array(final_bps),
             advisory_wealth_rappen=advisory_wealth_rappen,
@@ -3485,8 +4064,14 @@ def _run_resampled_solver(
         candidate_bps=candidate_bps,
         house_anchor_bps=house_anchor_bps,
         config=config,
-        validation=validation,
+        validation=final_validation,
     )
+    if drawdown_certification is not None and drawdown_certification.get("certified"):
+        # Beide Rollen offenlegen: Auswahl-Wuerfel != finaler Holdout.
+        significance["selection_seed"] = drawdown_certification.get("validation_seed")
+        significance["selection_cube_hash"] = drawdown_certification.get(
+            "validation_cube_hash"
+        )
     payload["significance"] = significance
     decision = significance["decision"]
     payload["decision"] = decision
@@ -3496,6 +4081,12 @@ def _run_resampled_solver(
             reasoning.append(
                 "Optimierer-Allokation ist identisch mit der Hausmatrix-Zielquote; "
                 "Hausmatrix-Zielquote beibehalten."
+            )
+        elif significance.get("reason") == "no_validation_cube":
+            reasoning.append(
+                "Finaler Validierungswuerfel nicht verfuegbar: die "
+                "Optimierer-Abweichung ist nicht zertifiziert; "
+                "Hausmatrix-Zielquote beibehalten (fail-closed)."
             )
         elif significance.get("reason") == "risk_improvement_not_material":
             reasoning.append(
@@ -3591,6 +4182,7 @@ def _house_prior_disclosure(
     block: dict = {
         "version": HOUSE_PRIOR_VERSION,
         "kappa": float(context.house_prior_kappa),
+        "prior_metric": prior_metric_audit(cov),
         "house_anchor_bps": dict(house_anchor_bps) if house_anchor_bps else None,
         "house_anchor_projected_bps": dict(anchor_projected_bps),
         "candidate_bps": dict(candidate_bps),
@@ -3611,9 +4203,9 @@ def _house_prior_disclosure(
             "tracking_error_vs_house_bps": round(
                 tracking_error_bps(final_w, house_w, cov), 4
             ),
-            # Prior-Term des publizierten Ergebnisses (kappa_H * TE^2); im
-            # result.objective_value steht stattdessen der v5-Audit-Skalar
-            # des Aufrufer-Contexts (siehe _run_resampled_solver).
+            # Prior-Term des publizierten Ergebnisses (kappa_H * TE_M^2);
+            # seit v7 Bestandteil von result.objective_value (der Abschluss
+            # laeuft auf dem Prior-Context, siehe _run_resampled_solver).
             "final_prior_penalty": float(house_prior_penalty(
                 final_w, house_w, cov, kappa=float(context.house_prior_kappa),
             )),
@@ -3621,12 +4213,27 @@ def _house_prior_disclosure(
 
     if candidate_bps == anchor_projected_bps:
         return _done(DECISION_HOUSE_PRIOR, REASON_IDENTICAL, candidate_bps)
+    if max(
+        abs(int(candidate_bps[bucket]) - int(anchor_projected_bps[bucket]))
+        for bucket in BUCKET_ORDER
+    ) <= HOUSE_ANCHOR_NUMERICAL_TOLERANCE_BPS:
+        return _done(
+            DECISION_HOUSE_PRIOR, REASON_WITHIN_TOLERANCE, dict(anchor_projected_bps),
+        )
     if not config.significance_test:
         return _done(DECISION_HOUSE_PRIOR, REASON_TEST_DISABLED, candidate_bps)
     validation = _build_validation_context(context)
     if validation is None:
-        return _done(DECISION_HOUSE_PRIOR, REASON_NO_VALIDATION, candidate_bps)
+        # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (v7): ohne finalen
+        # Holdout ist das Ergebnis nicht zertifiziert -> projizierte
+        # Hausquote (fail-closed), nicht der Kandidat.
+        return _done(
+            DECISION_HOUSE_PRIOR_FAIL_CLOSED,
+            REASON_NO_VALIDATION,
+            dict(anchor_projected_bps),
+        )
     validation_context, validation_seed, cube_hash = validation
+    unit_ids, unit_name = _validation_sampling_units(validation_context)
     component_pair = _context_loss_components_on_validation(
         validation_context, house_w, candidate_w,
         validation_seed=int(validation_seed),
@@ -3637,6 +4244,8 @@ def _house_prior_disclosure(
         n_bootstrap=int(config.n_bootstrap),
         alpha=float(config.significance_alpha),
         seed=bootstrap_seed(validation_seed),
+        sampling_unit_ids=unit_ids,
+        sampling_unit=unit_name,
     )
     block.update({
         "disclosure": disclosure,
@@ -3644,6 +4253,7 @@ def _house_prior_disclosure(
             _validation_goal_rows(validation_context, house_w, validation_seed),
             _validation_goal_rows(validation_context, candidate_w, validation_seed),
         ),
+        "cube_role": CUBE_ROLE_FINAL,
         "validation_seed": int(validation_seed),
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
@@ -3658,10 +4268,16 @@ def _significance_sentence(significance: Mapping) -> str:
     lower = significance.get("improvement_lower_bound")
     improvement = significance.get("improvement")
     alpha = float(significance.get("alpha") or 0.05)
+    units = significance.get("n_independent_units")
+    unit_text = (
+        f", {units} unabhaengige Einheiten ({significance.get('sampling_unit')})"
+        if units is not None
+        else ""
+    )
     parts = [
         f"Gepaarter Bootstrap (B={significance.get('n_bootstrap')}, einseitig, "
-        f"alpha={alpha:.0%}) auf dem unabhaengigen Validierungs-Cube "
-        f"({significance.get('validation_n_paths')} Pfade):"
+        f"alpha={alpha:.0%}{unit_text}) auf dem finalen, unabhaengigen "
+        f"Validierungs-Cube ({significance.get('validation_n_paths')} Pfade):"
     ]
     if significance.get("comparison") == "goal_level":
         parts.append(
@@ -3675,7 +4291,10 @@ def _significance_sentence(significance: Mapping) -> str:
             f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
         )
     if p_value is not None:
-        parts.append(f"p = {float(p_value):.4f}")
+        parts.append(
+            f"p = {float(p_value):.4f} (H0: keine Verbesserung, "
+            "nullzentrierter Bootstrap)"
+        )
     risk = significance.get("risk_measure_test")
     if isinstance(risk, Mapping):
         risk_p = risk.get("p_value")

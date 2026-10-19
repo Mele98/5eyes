@@ -1056,9 +1056,14 @@ def test_external_reserve_tax_remains_in_solver_cashflow_after_advisory_carve_ou
     # reserve re-enters the solver as cash in the years outflows fall due
     # (never negative, at most once in total). Net of that release the tax
     # contract is unchanged.
+    # RESERVE-FUNDING-LEDGER-001: the release is exactly the published,
+    # source-bound ledger series (a pure floor share is never released).
     reserve_release = [delta + 240_000 for delta in solver_delta]
+    ledger = generated["reserve_funding_ledger"]
+    assert reserve_release == list(ledger["release_series_rappen"])[: len(reserve_release)]
     assert all(released >= 0 for released in reserve_release)
-    assert 0 < sum(reserve_release) <= external_reserve_rappen
+    assert sum(reserve_release) <= external_reserve_rappen
+    assert ledger["total_external_rappen"] == external_reserve_rappen
     assert len(solver_delta) == len(reporting_delta)
 
 

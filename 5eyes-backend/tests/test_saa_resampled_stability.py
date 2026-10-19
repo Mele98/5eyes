@@ -124,20 +124,28 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     resampling = result.resampling
     assert resampling["enabled"] is True
     assert resampling["n_bags"] == DEFAULT_RESAMPLING.n_bags
-    assert resampling["n_bags_succeeded"] >= DEFAULT_RESAMPLING.n_bags // 2
+    # RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 (Engine v7): Mindestquote 90 %.
+    assert resampling["n_bags_succeeded"] >= 0.9 * DEFAULT_RESAMPLING.n_bags
+    assert resampling["min_successful_bag_share"] == 0.9
+    assert set(resampling["conditional_bag_mean_standard_error_bps"]) == set(BUCKET_ORDER)
+    assert set(resampling["missingness_sensitivity_bps"]) == set(BUCKET_ORDER)
     assert set(resampling["dispersion_bps"]) == set(BUCKET_ORDER)
     assert resampling["content_seed"] == result.seed
     # HOUSE-PRIOR-001 (Engine v6): im Default ist die Hausmatrix Prior des
     # Optimierers; der Bootstrap ist Offenlegung + Sicherheitsnetz.
-    assert resampling["engine_version"] == "saa_resampled_v6"
+    assert resampling["engine_version"] == "saa_resampled_v8"
     assert "significance" not in resampling
     house_prior = resampling["house_prior"]
     assert house_prior["decision"] in {"house_prior", "house_prior_guard"}
     assert house_prior["kappa"] == 300.0
-    if house_prior["reason"] != "identical_to_house_anchor":
+    if house_prior["reason"] not in {
+        "identical_to_house_anchor", "within_solver_tolerance_of_house_anchor",
+    }:
         disclosure = house_prior["disclosure"]
-        assert disclosure["test"] == "paired_bootstrap_disclosure_goal_level_v5"
+        assert disclosure["test"] == "paired_unit_bootstrap_disclosure_goal_level_v6"
+        assert disclosure["sampling_unit"] == "antithetic_pair"
         assert disclosure["p_value_worse"] is not None
+        assert disclosure["null_hypothesis"]["p_value_worse"]
     assert resampling["final_weights_bps"] == result.weights_bps
     # Die publizierte Allokation erfuellt alle harten Constraints.
     evaluation = evaluate_weights(result.context, dict(result.weights_bps))
@@ -249,7 +257,7 @@ def test_safety_net_publishes_the_projected_house_target(foundation, monkeypatch
     # Der Anker wird auf die harten Constraints projiziert (hier: die
     # Reserve-Untergrenze fixiert die Liquiditaet), nicht roh uebernommen.
     assert projected["liquidity"] == foundation["result"].weights_bps["liquidity"]
-    if block["reason"] == "identical_to_house_anchor":
+    if block["reason"] in {"identical_to_house_anchor", "within_solver_tolerance_of_house_anchor"}:
         pytest.skip("Ergebnis = Anker; kein Sicherheitsnetz noetig.")
     assert block["decision"] == "house_prior_guard"
     assert result.resampling["decision"] == "house_prior_guard"
@@ -259,14 +267,18 @@ def test_safety_net_publishes_the_projected_house_target(foundation, monkeypatch
     assert any("Sicherheitsnetz" in line for line in result.reasoning)
 
 
-def test_risk_variants_take_no_more_risk_than_the_default_on_the_foundation(foundation):
-    """GOAL-REACHABILITY-SCREEN-001, CIO-Entscheid (b) 2026-10-18.
-
-    Regression: solange in ``min_volatility`` ein Ziel steuerte, dessen
-    Schwelle auf keiner zulaessigen Allokation erreichbar ist
-    (Einkommensbruecke, max ~54 % gegen tau 80 %), lieferte die Variante
-    73.7 % Aktien -- mehr als der Default (64.4 %) und die Hausmatrix.
-    Eine Risikomass-Variante darf nicht riskanter sein als der Default."""
+def test_risk_variants_improve_their_own_measure_on_the_foundation(foundation):
+    """Engine v7 (GOAL-SCREEN-OBJECTIVE-ERASURE-001, CIO-Entscheid nach
+    Codex-Review): die Varianten nehmen kein Ziel mehr aus. Der fruehere
+    Vertrag "Variante nie riskanter als der Default" (CIO-Entscheid (b),
+    erreicht durch Ausnehmen der Einkommensbruecke) entfaellt damit: ein
+    auf der Pruefmenge nicht absicherbares Ziel steuert auch in der Variante.
+    Die Varianten-Regel nach einem Goal-Preservation-Gate (Codex-Befund 4)
+    ist Phase 2. Hier bleibt: jede Variante ist auf IHREM Mass mindestens so
+    gut wie der Default (min_volatility nicht volatiler), und die Ziele sind
+    offengelegt. Erfuellt seit DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid
+    2026-10-19): herabgestufte Ziele zaehlen auch in den Varianten nur mit
+    Wunschziel-Gewicht und auf W0 gedeckeltem Volumen."""
     from services.optimizer.drawdown_certification import validated_drawdown_evaluation
     from services.optimizer.objective_contract import ObjectiveContractV1
 
@@ -289,8 +301,6 @@ def test_risk_variants_take_no_more_risk_than_the_default_on_the_foundation(foun
         w = _w(result)
         return float(np.sqrt(w @ cov @ w))
 
-    equities = BUCKET_ORDER.index("equities")
-    assert _w(results["min_volatility"])[equities] <= _w(default)[equities] + 1e-12
     assert _vol(results["min_volatility"]) <= _vol(default) + 1e-12
 
     validation_context, validation_seed, _hash = solver_module._build_validation_context(
@@ -303,11 +313,13 @@ def test_risk_variants_take_no_more_risk_than_the_default_on_the_foundation(foun
         )["refined_mean_drawdown"]
 
     assert _drawdown(results["max_drawdown"]) <= _drawdown(default) + 1e-12
-    # Die ausgenommenen Ziele sind offengelegt (Beraterhinweis).
+    # Auf der Pruefmenge unerreichbare Ziele sind offengelegt
+    # (Beraterhinweis); seit Engine v7 wird keines mehr ausgenommen.
     for mode in ("min_volatility", "max_drawdown"):
         screen = results[mode].goal_reachability
         assert screen["objective_mode"] == mode
-        assert screen["penalty_exempt_goal_ids"]
+        assert screen["not_found_reachable_goal_ids"]
+        assert screen["penalty_exempt_goal_ids"] == []
         assert any(line.startswith("Beraterhinweis: Ziel") for line in results[mode].reasoning)
 
 

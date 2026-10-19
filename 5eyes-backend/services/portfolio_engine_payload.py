@@ -464,6 +464,7 @@ def _build_goal_analysis(
     expected_death_year_offset: int | None = None,
     advisory_path_series_rappen: list[int] | None = None,
     total_path_series_rappen: list[int] | None = None,
+    reserve_ledger=None,
 ) -> list[dict]:
     """Sprint U-P5 Fix H12: expected_death_year_offset (Years from today)
     schneidet die contribution_series so dass keine Cashflows nach dem
@@ -471,6 +472,12 @@ def _build_goal_analysis(
     Vorher: Goal-Analyse sah komplette Cashflow-Series ohne Mortality-Cutoff
     — AHV-Goal mit langer Laufzeit floss komplett in projected obwohl der
     Mandant statistisch in t=15 stirbt.
+
+    RESERVE-FUNDING-LEDGER-001: ``advisory_wealth_rappen`` ist der
+    investierbare Teil A - E. Mit ``reserve_ledger`` fliesst die externe
+    Reserve gemaess Ledger-Release (dieselbe Serie wie Solver/MC) in die
+    Projektion zurueck; der nicht freigegebene Rest bleibt als Bargeld
+    Kundenvermoegen. Ohne Ledger: Altverhalten (nur A - E).
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -483,7 +490,10 @@ def _build_goal_analysis(
 
     analysis = []
     # #83 Gesamtvermoegen-Scope: externe Assets = Gesamt- minus Beratungsvermoegen.
-    external_wealth_rappen = max(0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0))
+    reserve_external = int(reserve_ledger.total_external_rappen) if reserve_ledger is not None else 0
+    external_wealth_rappen = max(
+        0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0) - reserve_external
+    )
     for goal in sorted(goals, key=lambda g: (int(g.rank or 999), g.label or "")):
         years = _goal_projection_years(goal)
         # B4: Default werden Goals gegen advisory_wealth bewertet, weil die
@@ -505,11 +515,15 @@ def _build_goal_analysis(
             cutoff = min(projection_years, int(expected_death_year_offset))
             for idx in range(cutoff, len(contribution_series)):
                 contribution_series[idx] = 0
+        reserve_release = (
+            reserve_ledger.release_prefix(projection_years) if reserve_ledger is not None
+            else [0] * projection_years
+        )
         projected_rappen = future_value_with_cashflow_series(
             investable_base,
-            contribution_series,
+            [int(value) + released for value, released in zip(contribution_series, reserve_release)],
             expected_return_bps,
-        )
+        ) + max(0, reserve_external - sum(reserve_release))
         target_rappen = 0
         goal_type = _norm_text(goal.goal_type)
         hardness_key = _goal_hardness_key(goal)

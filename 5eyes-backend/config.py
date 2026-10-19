@@ -21,12 +21,23 @@ DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 # services.optimizer.objective.resolve_goal_weighting_mode() call it so
 # there is exactly one place that decides what a legal value is.
 GOAL_WEIGHTING_MODES = ("equal", "hardness")
+# GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine
+# ``saa_resampled_v7``): der Haertegrad wirkt standardmaessig. Vorher war
+# "equal" der Default (ADR-011 Entscheid 2, 3eyes-"Mittelung"), womit ein
+# als "hart" erfasstes Ziel rechnerisch identisch mit "primaer" war, obwohl
+# die Erfassungsmaske die Wahl anbietet. "equal" bleibt als expliziter
+# Opt-out erhalten. Begruendung: docs/planning/2026-10-18-maximize-goal-and-
+# hardness.md; Gewichte und Wirkung: services/optimizer/objective.py
+# (HARDNESS_WEIGHT, GOAL_HARDNESS_POLICY_VERSION).
+DEFAULT_GOAL_WEIGHTING_MODE = "hardness"
 
 
 def validate_goal_weighting_mode(raw: str | None) -> str:
     """Normalize + fail-closed validate OPTIMIZER_GOAL_WEIGHTING.
 
-    - Unset (``None``) resolves to the documented default ``"equal"``.
+    - Unset (``None``) resolves to the documented default
+      ``DEFAULT_GOAL_WEIGHTING_MODE`` (``"hardness"`` since
+      GOAL-HARDNESS-DEFAULT-001; ``"equal"`` before).
     - Any other value is trimmed and lower-cased before comparison, so
       ``" EQUAL "`` / ``"HARDNESS"`` canonicalize to their lowercase form.
     - Anything else -- including an explicit empty/whitespace-only string
@@ -35,14 +46,14 @@ def validate_goal_weighting_mode(raw: str | None) -> str:
       never indistinguishable from "unset".
     """
     if raw is None:
-        return "equal"
+        return DEFAULT_GOAL_WEIGHTING_MODE
     normalized = raw.strip().lower()
     if normalized not in GOAL_WEIGHTING_MODES:
         raise ValueError(
             "OPTIMIZER_GOAL_WEIGHTING="
             f"{raw!r} is not a recognized goal-weighting mode. Allowed: "
             f"{', '.join(GOAL_WEIGHTING_MODES)} (leave unset for the "
-            "documented default 'equal')."
+            f"documented default {DEFAULT_GOAL_WEIGHTING_MODE!r})."
         )
     return normalized
 
@@ -363,13 +374,13 @@ class Settings(BaseSettings):
     # counterpart to the env var the optimizer objective reads at run time
     # (services.optimizer.objective.resolve_goal_weighting_mode). Declared
     # here so deployment-config gates can assert the same fail-closed
-    # contract ("equal" | "hardness", unset -> "equal", everything else
+    # contract ("equal" | "hardness", unset -> DEFAULT_GOAL_WEIGHTING_MODE, everything else
     # rejected) independently of any particular run. The objective module
     # remains the per-run source of truth because a config change must take
     # effect on the next optimizer run without a process restart; this field
     # exists for startup/deployment validation parity, not as the runtime
     # read path.
-    optimizer_goal_weighting: str = 'equal'
+    optimizer_goal_weighting: str = DEFAULT_GOAL_WEIGHTING_MODE
 
     # Mean-Shift Importance Sampling fuer Tail-Risk im stochastic Optimizer
     # (Phase 5 der Stochastic-Optimizer-Spec). Default OFF, opt-in via
