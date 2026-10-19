@@ -101,6 +101,9 @@ export interface RiskOverride {
   override_client_confirmed?: boolean;
   override_warning_delivered?: boolean;
   override_warning_document_id?: string | null;
+  /** RISK-OVERRIDE-WRITE-BOUNDARY-001: optionale Optimistic-Concurrency-Werte (409 bei Abweichung). */
+  expected_assessment_version?: number;
+  expected_override_decision_id?: string | null;
 }
 
 export interface RiskAssessmentAnswer {
@@ -142,6 +145,9 @@ export interface RiskAssessment {
   override_reason?: string | null;
   override_client_confirmed?: number | null;
   override_warning_delivered?: number | null;
+  /** Pointer auf die wirksame append-only RiskOverrideDecisionV1. */
+  override_decision_id?: string | null;
+  override_decision_hash?: string | null;
   assessed_at: string;
   assessed_by: string;
   created_at: string;

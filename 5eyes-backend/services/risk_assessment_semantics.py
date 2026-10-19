@@ -27,6 +27,13 @@ _PROFILE_BAND = {
 }
 
 
+# Version der Regel in override_documentation_requirements(). Jede
+# RiskOverrideDecisionV1 bindet sie, damit ein spaeterer Regelwechsel alte
+# Entscheidungen nicht rueckwirkend umdeutet. MUSS bei jeder fachlichen
+# Aenderung der Funktion unten hochgezaehlt werden.
+OVERRIDE_DOCUMENTATION_RULES_VERSION = "RISK-OVERRIDE-CLIENT-WISH-001@2026-10-18"
+
+
 def override_documentation_requirements(
     *,
     final_score_x10: int,

@@ -269,6 +269,56 @@ THEME_TAG_BACKFILL: tuple[tuple[str, str], ...] = (
 )
 
 
+# RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund B (2026-10-19): append-only
+# RiskOverrideDecisionV1 (models/profiling.py::RiskOverrideDecision). Die
+# Trigger werden hier EINMAL definiert und vom Model (after_create fuer
+# create_all) sowie von ensure_runtime_columns() (Alt-DBs / Rohschema-
+# Fixtures) verwendet; 5eyes_schema_v4.0_FINAL.sql traegt dieselbe DDL fuer
+# frische Installationen, Alembic c4e9a7d2b815 fuer PostgreSQL.
+RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_override_decisions_no_update "
+    "BEFORE UPDATE ON risk_override_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_override_decisions is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_override_decisions_no_delete "
+    "BEFORE DELETE ON risk_override_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_override_decisions is immutable'); END",
+)
+
+RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS risk_override_decisions (
+    id                           TEXT PRIMARY KEY,
+    schema_version               TEXT NOT NULL DEFAULT 'RiskOverrideDecisionV1',
+    assessment_id                TEXT NOT NULL REFERENCES risk_assessments(id),
+    mandate_id                   TEXT NOT NULL REFERENCES mandates(id),
+    client_id                    TEXT,
+    assessment_version           INTEGER NOT NULL,
+    sequence_no                  INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_decision_id         TEXT,
+    basis_final_score_x10        INTEGER NOT NULL,
+    basis_final_profile          TEXT,
+    basis_capacity_score_x10     INTEGER,
+    basis_willingness_score_x10  INTEGER,
+    requested_score_x10          INTEGER NOT NULL CHECK(requested_score_x10 BETWEEN 0 AND 100),
+    requested_profile            TEXT NOT NULL,
+    reason                       TEXT NOT NULL,
+    client_confirmed             INTEGER NOT NULL DEFAULT 0 CHECK(client_confirmed IN (0,1)),
+    warning_delivered            INTEGER NOT NULL DEFAULT 0 CHECK(warning_delivered IN (0,1)),
+    warning_document_id          TEXT,
+    required_client_confirmation INTEGER NOT NULL DEFAULT 0 CHECK(required_client_confirmation IN (0,1)),
+    required_warning             INTEGER NOT NULL DEFAULT 0 CHECK(required_warning IN (0,1)),
+    actor_id                     TEXT NOT NULL REFERENCES users(id),
+    decided_at                   TEXT NOT NULL,
+    rules_version                TEXT NOT NULL,
+    decision_hash                TEXT NOT NULL,
+    created_at                   TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_risk_override_decision_sequence "
+    "ON risk_override_decisions(assessment_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS ix_risk_override_decisions_mandate "
+    "ON risk_override_decisions(mandate_id)",
+)
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -807,6 +857,13 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "client_signed_at", "TEXT")
         ensure_column(conn, "risk_assessments", "client_signed_method", "TEXT")
         ensure_column(conn, "risk_assessments", "client_signed_ref", "TEXT")
+        # RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund B (2026-10-19): Pointer
+        # auf die aktuell wirksame RiskOverrideDecisionV1 + die append-only
+        # Decision-Tabelle selbst (idempotent; siehe Konstanten oben).
+        ensure_column(conn, "risk_assessments", "override_decision_id", "TEXT")
+        ensure_column(conn, "risk_assessments", "override_decision_hash", "TEXT")
+        for ddl in RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL + RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist

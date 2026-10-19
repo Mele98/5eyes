@@ -103,6 +103,13 @@ class RiskAssessmentOverride(BaseModel):
     override_client_confirmed: bool = False
     override_warning_delivered: bool = False
     override_warning_document_id: Optional[str] = None
+    # RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund A (2026-10-19): optionale
+    # Optimistic-Concurrency-Erwartungswerte. Gesetzt -> der Server lehnt mit
+    # 409 ab, wenn der persistierte Stand abweicht (kein Last-Write-Wins).
+    # expected_override_decision_id darf explizit null sein ("ich habe noch
+    # keinen Override gesehen"); nur ein weggelassenes Feld prueft nichts.
+    expected_assessment_version: Optional[int] = None
+    expected_override_decision_id: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_override_score(self):
@@ -171,6 +178,9 @@ class RiskAssessmentResponse(BaseResponse):
     override_reason: Optional[str]
     override_client_confirmed: Optional[int]
     override_warning_delivered: Optional[int]
+    # RISK-OVERRIDE-WRITE-BOUNDARY-001: Pointer auf die wirksame Decision.
+    override_decision_id: Optional[str] = None
+    override_decision_hash: Optional[str] = None
     assessed_at: str
     assessed_by: str
     created_at: str

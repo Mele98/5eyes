@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
+from sqlalchemy import DDL, Column, String, Integer, ForeignKey, Index, event, text
 from sqlalchemy.orm import relationship
-from database import Base
+from database import RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS, Base
 
 
 class ClientKnowledge(Base):
@@ -80,6 +80,15 @@ class RiskAssessment(Base):
     override_client_confirmed = Column(Integer, default=0)
     override_warning_delivered = Column(Integer, default=0)
     override_warning_document_id = Column(String)
+    # RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund B (2026-10-19): Pointer auf
+    # die aktuell wirksame, append-only RiskOverrideDecisionV1-Zeile (siehe
+    # RiskOverrideDecision unten). Die override_*-Felder oben sind nur noch
+    # die abgeleitete Projektion dieser Decision; die Evidence jeder frueheren
+    # Entscheidung liegt unveraendert in risk_override_decisions. Bewusst
+    # ohne FK-Constraint (zirkulaerer Verweis + SQLite-ALTER fuer Alt-DBs).
+    # NULL = kein Override oder Altbestand-Override vor diesem Fix.
+    override_decision_id = Column(String)
+    override_decision_hash = Column(String)
     # Kenntnisse & Erfahrungen - Referenzmodell Eignungspruefung Seite 1 (kein Score, nur Compliance)
     knowledge_services_json = Column(String)    # {"Vermögensverwaltung":{"known":0,"informed":1},...}
     knowledge_instruments_json = Column(String) # {"Anlagefonds":{"known":1,"informed":1},...}
@@ -102,6 +111,72 @@ class RiskAssessment(Base):
     answers = relationship("RiskAssessmentAnswer", back_populates="assessment")
     assessor = relationship("User", foreign_keys=[assessed_by])
     overrider = relationship("User", foreign_keys=[override_by])
+
+
+class RiskOverrideDecision(Base):
+    """RiskOverrideDecisionV1 -- unveraenderlicher Nachweis EINER Override-
+    Entscheidung (RISK-OVERRIDE-WRITE-BOUNDARY-001, Restbefund B).
+
+    Jeder Override und jeder Re-Override schreibt genau eine neue Zeile; eine
+    Korrektur ist immer eine neue Zeile (previous_decision_id verkettet), nie
+    ein UPDATE. Append-only per Schema: KEIN updated_at, KEIN deleted_at;
+    SQLite- (Trigger unten) und PostgreSQL-Trigger (Alembic-Revision
+    c4e9a7d2b815) verbieten UPDATE/DELETE.
+
+    Gebunden werden die Basis, gegen die validiert wurde (Assessment-Version,
+    final/capacity/willingness-Score), die Anfrage, die damals effektiven
+    Requirements samt Regelversion -- ein spaeterer Policywechsel deutet alte
+    Entscheidungen dadurch nicht rueckwirkend um -- und ein SHA-256 ueber den
+    kanonischen Snapshot (services/risk_override_decision.py).
+
+    (assessment_id, sequence_no) ist eindeutig: zwei parallele Appends auf
+    denselben Stand koennen nicht beide gewinnen.
+    """
+
+    __tablename__ = "risk_override_decisions"
+    __table_args__ = (
+        Index(
+            "ux_risk_override_decision_sequence",
+            "assessment_id",
+            "sequence_no",
+            unique=True,
+        ),
+        Index("ix_risk_override_decisions_mandate", "mandate_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="RiskOverrideDecisionV1")
+    assessment_id = Column(String, ForeignKey("risk_assessments.id"), nullable=False)
+    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
+    client_id = Column(String)
+    assessment_version = Column(Integer, nullable=False)
+    sequence_no = Column(Integer, nullable=False)
+    previous_decision_id = Column(String)
+    basis_final_score_x10 = Column(Integer, nullable=False)
+    basis_final_profile = Column(String)
+    basis_capacity_score_x10 = Column(Integer)
+    basis_willingness_score_x10 = Column(Integer)
+    requested_score_x10 = Column(Integer, nullable=False)
+    requested_profile = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    client_confirmed = Column(Integer, nullable=False, default=0)
+    warning_delivered = Column(Integer, nullable=False, default=0)
+    warning_document_id = Column(String)
+    required_client_confirmation = Column(Integer, nullable=False, default=0)
+    required_warning = Column(Integer, nullable=False, default=0)
+    actor_id = Column(String, ForeignKey("users.id"), nullable=False)
+    decided_at = Column(String, nullable=False)
+    rules_version = Column(String, nullable=False)
+    decision_hash = Column(String(64), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS:
+    event.listen(
+        RiskOverrideDecision.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
 
 
 class RiskAssessmentAnswer(Base):

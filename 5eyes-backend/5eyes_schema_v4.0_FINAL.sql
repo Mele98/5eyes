@@ -294,6 +294,10 @@ CREATE TABLE IF NOT EXISTS risk_assessments (
     override_client_confirmed   INTEGER DEFAULT 0 CHECK(override_client_confirmed IN (0,1)),
     override_warning_delivered  INTEGER DEFAULT 0 CHECK(override_warning_delivered IN (0,1)),
     override_warning_document_id TEXT,
+    -- RISK-OVERRIDE-WRITE-BOUNDARY-001 (2026-10-19): Pointer auf die aktuell
+    -- wirksame append-only Decision (risk_override_decisions unten).
+    override_decision_id        TEXT,
+    override_decision_hash      TEXT,
     assessed_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     assessed_by                 TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
     created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -333,6 +337,51 @@ CREATE TABLE IF NOT EXISTS risk_assessment_answers (
     UNIQUE(assessment_id, question_number)
 );
 CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id);
+
+-- ===========================================================================
+-- RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund B (2026-10-19):
+-- RiskOverrideDecisionV1 -- append-only, gehashter Nachweis JEDER Override-
+-- Entscheidung (Basis, Anfrage, effektive Requirements, Regelversion).
+-- KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger verboten.
+-- Identisch zu database.py::RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS risk_override_decisions (
+    id                           TEXT PRIMARY KEY,
+    schema_version               TEXT NOT NULL DEFAULT 'RiskOverrideDecisionV1',
+    assessment_id                TEXT NOT NULL REFERENCES risk_assessments(id),
+    mandate_id                   TEXT NOT NULL REFERENCES mandates(id),
+    client_id                    TEXT,
+    assessment_version           INTEGER NOT NULL,
+    sequence_no                  INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_decision_id         TEXT,
+    basis_final_score_x10        INTEGER NOT NULL,
+    basis_final_profile          TEXT,
+    basis_capacity_score_x10     INTEGER,
+    basis_willingness_score_x10  INTEGER,
+    requested_score_x10          INTEGER NOT NULL CHECK(requested_score_x10 BETWEEN 0 AND 100),
+    requested_profile            TEXT NOT NULL,
+    reason                       TEXT NOT NULL,
+    client_confirmed             INTEGER NOT NULL DEFAULT 0 CHECK(client_confirmed IN (0,1)),
+    warning_delivered            INTEGER NOT NULL DEFAULT 0 CHECK(warning_delivered IN (0,1)),
+    warning_document_id          TEXT,
+    required_client_confirmation INTEGER NOT NULL DEFAULT 0 CHECK(required_client_confirmation IN (0,1)),
+    required_warning             INTEGER NOT NULL DEFAULT 0 CHECK(required_warning IN (0,1)),
+    actor_id                     TEXT NOT NULL REFERENCES users(id),
+    decided_at                   TEXT NOT NULL,
+    rules_version                TEXT NOT NULL,
+    decision_hash                TEXT NOT NULL,
+    created_at                   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_risk_override_decision_sequence
+    ON risk_override_decisions(assessment_id, sequence_no);
+CREATE INDEX IF NOT EXISTS ix_risk_override_decisions_mandate
+    ON risk_override_decisions(mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_risk_override_decisions_no_update
+BEFORE UPDATE ON risk_override_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_override_decisions is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_risk_override_decisions_no_delete
+BEFORE DELETE ON risk_override_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_override_decisions is immutable'); END;
 
 -- ============================================================
 -- 6. SUITABILITY CHECKS — NEU v4
