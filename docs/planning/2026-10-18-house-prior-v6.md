@@ -3,7 +3,7 @@
 Stand 2026-10-18 · Branch `feat/house-prior-v6` (gestapelt auf `fix/importance-sampling-ess`, Engine v5)
 Code: `services/optimizer/house_prior.py` (neu), `solver.py` (Context-Feld, Tiebreak, `_run_resampled_solver`, Offenlegung, Engine v6), `resampling.py` (Modellbasis, Docstring), `portfolio_engine_optimizer_integration.py` (Sensitivity-Anker). `portfolio_engine.py` unverändert (7'018 Zeilen, Budget 7'100).
 Tests: `tests/test_house_prior_shrinkage.py` (neu, 28 Tests); angepasst: `test_house_first_significance.py`, `test_saa_resampled_stability.py`, `test_objective_normalization.py`, `test_optimizer_drawdown_certification.py`, Golden-Docstring.
-Grundlage: Design + Experiment HOUSE-PRIOR-SHRINKAGE-001 (Scratchpad `house_shrinkage_design.md`, `shrink/`), CIO-Entscheid 2026-10-18.
+Grundlage: Design + Experiment HOUSE-PRIOR-SHRINKAGE-001 (Scratchpad `house_shrinkage_design.md`, `shrink/`; seit v7 commitgebunden unter `tools/house_prior_calibration/tuning_2026_10_18/` und `docs/planning/2026-10-18-house-prior-kappa-calibration/`), CIO-Entscheid 2026-10-18.
 
 ## 1. Befund (v5)
 
@@ -41,7 +41,9 @@ Je Bag `b` (Default `goal_shortfall`, Anker projizierbar):
 * `decision = house_prior_guard` (Sicherheitsnetz): Final auf der Zielebene **einseitig signifikant schlechter** als die Hausquote (`Δ < 0` und `p_worse ≤ α`, gleiches α = 5 %, B = 400) → Hausquote publiziert, Grund im Audit und im Reasoning. Bewusst unstetig, nur für Ausreißer; gegen CMA-Fehler schützt er nicht (gleiche CMA).
 * Reasoning-Satz z. B.: „Hausmatrix als Anker des Optimierers (Prior, kappa = 300): Abweichung nur so weit, wie sie die Zielerreichung verbessert (Tracking Error zur Hausmatrix 0.54 %). Zielebene … Zielwahrscheinlichkeit (Validierungswürfel): Ziel X: 67.5 % statt 64.8 % mit der Hausmatrix.“ Ob das für FIDLEG-Dokumentationspflichten genügt, ist eine Rechtsfrage und hier nicht beurteilt.
 
-**Abschluss auf dem Aufrufer-Context.** Bags und Offenlegung rechnen auf `replace(context, house_prior_weights=w_H)`. `result.context` und `result.objective_value` bleiben auf dem übergebenen Context (Objekt-Identität für Aktivierungsvalidierung/Explainability/Shadow-Vergleich; `evaluate_weights(ctx, result.weights_bps).objective_value == result.objective_value` für jeden aus denselben Inputs gebauten Context – bestehende Verträge in `test_optimizer_strict_core_contract.py`/`test_optimizer_context.py`). Der Prior-Term steht separat als `final_prior_penalty`.
+> **Überholt durch Engine `saa_resampled_v7`** (`2026-10-18-resampling-statistics-contracts-v7.md`): Abschluss auf dem Prior-Context, Ridge-Metrik Σ + εI, Einheiten-Bootstrap mit nullzentrierten p-Werten, fail-closed ohne Validierungswürfel; κ-Kalibrierungspaket in `2026-10-18-house-prior-kappa-calibration.md`.
+
+**Abschluss auf dem Aufrufer-Context (v6).** Bags und Offenlegung rechnen auf `replace(context, house_prior_weights=w_H)`. `result.context` und `result.objective_value` bleiben auf dem übergebenen Context (Objekt-Identität für Aktivierungsvalidierung/Explainability/Shadow-Vergleich; `evaluate_weights(ctx, result.weights_bps).objective_value == result.objective_value` für jeden aus denselben Inputs gebauten Context – bestehende Verträge in `test_optimizer_strict_core_contract.py`/`test_optimizer_context.py`). Der Prior-Term steht separat als `final_prior_penalty`.
 
 `sensitivity_house_anchor_bps` liest den Anker aus `house_prior`, Fallback `significance` (v5-Allokationen, Varianten).
 

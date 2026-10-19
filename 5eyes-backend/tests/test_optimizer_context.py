@@ -223,6 +223,18 @@ def test_evaluate_weights_returns_optimizer_evaluation():
     assert ev.terminal_wealth_p90_rappen is not None
 
 
+def _with_published_prior(ctx, result):
+    """Context aus denselben Inputs + der im Audit publizierte Prior-Anker."""
+    from dataclasses import replace
+
+    assert result.context.house_prior_weights is not None
+    return replace(
+        ctx,
+        house_prior_weights=result.context.house_prior_weights,
+        house_prior_kappa=result.context.house_prior_kappa,
+    )
+
+
 def test_evaluate_weights_matches_run_solver_objective_for_solver_weights():
     """Plan §8.2: Apples-to-Apples-Test."""
     cma = _cma()
@@ -243,6 +255,10 @@ def test_evaluate_weights_matches_run_solver_objective_for_solver_weights():
     )
     if result.status == "fallback_house_matrix":
         pytest.skip("Solver fallback in dieser Konfiguration; Apples-to-Apples nicht messbar.")
+    # Engine v7 (HOUSE-PRIOR-DECISION-OBJECTIVE-IDENTITY-001): der Lauf
+    # entscheidet unter dem Hausmatrix-Prior; derselbe Context plus der
+    # publizierte Prior-Anker reproduziert das Objective.
+    ctx = _with_published_prior(ctx, result)
     evaluation = evaluate_weights(ctx, result.weights_bps)
     assert evaluation.objective_value == pytest.approx(result.objective_value, rel=1e-8)
 
@@ -297,6 +313,7 @@ def test_run_solver_objective_value_matches_evaluate_weights_post_round():
     )
     if result.status == "fallback_house_matrix":
         pytest.skip("Solver fallback; Pruefung nicht anwendbar.")
+    ctx = _with_published_prior(ctx, result)
     ev = evaluate_weights(ctx, result.weights_bps)
     # rel=1e-12 = praktisch bit-identisch (post-rounding kongruent)
     assert ev.objective_value == pytest.approx(result.objective_value, rel=1e-12, abs=1e-12)

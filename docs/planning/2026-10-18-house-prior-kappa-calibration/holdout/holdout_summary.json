@@ -1,0 +1,60 @@
+{
+  "decision": "confirmed",
+  "kappas": [
+    100.0,
+    300.0,
+    1000.0
+  ],
+  "n_worlds": 150,
+  "raw_sha256": {
+    "holdout_A_ausg_spar.jsonl": "025ece381e7515ad490b2acb27cc92fa9750b5b5aeeade948632cb23fabf1cef",
+    "holdout_B_kons_entn.jsonl": "703f6a412e7c609779c88370a0056e8efe89e3c19f5076e41312a1b1ba2730f4",
+    "holdout_C_wachs_entn.jsonl": "88b72b5758222b67495035cec2f8f8bc51de21cc5eb99e6df5c05967877608ad",
+    "holdout_D_wachs_spar.jsonl": "4ab9bf4f150e3ece06c73687fc66b437437b66bb61699d5c9ef97a555d3d6521",
+    "holdout_E_ausg_entn.jsonl": "b3d0aaa04bc23ba9294fce505e65b3541be5b731e3d263171387e3aa543a9afc"
+  },
+  "rule_r1": {
+    "lower_95_one_sided_pp": 0.1918,
+    "ok": true
+  },
+  "rule_r2": {
+    "kappa_100": {
+      "mean_diff_pp": 0.0855,
+      "r2_ok": true,
+      "se_diff_pp": 0.034
+    },
+    "kappa_1000": {
+      "mean_diff_pp": 0.0515,
+      "r2_ok": true,
+      "se_diff_pp": 0.0366
+    },
+    "ok": true
+  },
+  "stats_vs_house": {
+    "kappa_100": {
+      "mean_delta_goal_level": -0.025338,
+      "mean_delta_probability_pp": 0.2216,
+      "se_delta_goal_level": 0.008759,
+      "se_delta_probability_pp": 0.079,
+      "share_worlds_probability_better": 0.7,
+      "share_worlds_probability_worse": 0.2
+    },
+    "kappa_1000": {
+      "mean_delta_goal_level": -0.026127,
+      "mean_delta_probability_pp": 0.2555,
+      "se_delta_goal_level": 0.00745,
+      "se_delta_probability_pp": 0.0529,
+      "share_worlds_probability_better": 0.6,
+      "share_worlds_probability_worse": 0.12
+    },
+    "kappa_300": {
+      "mean_delta_goal_level": -0.025774,
+      "mean_delta_probability_pp": 0.307,
+      "se_delta_goal_level": 0.008609,
+      "se_delta_probability_pp": 0.0696,
+      "share_worlds_probability_better": 0.7067,
+      "share_worlds_probability_worse": 0.1333
+    }
+  },
+  "valuation_year": 2026
+}

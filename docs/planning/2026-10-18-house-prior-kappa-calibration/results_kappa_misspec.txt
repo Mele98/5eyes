@@ -1,0 +1,89 @@
+=== kappa-Raster (2 %-Schritte, Inhalts-Seed): maxTO je 2 %, mittl. Abstand zur Hausquote (TO pp), OOS-Zielebene (nominal), Welt-Zielebene ===
+A_ausg_spar   c_10      maxTO   2.7 dist   4.2 OOS 0.2498 world 0.4229
+A_ausg_spar   c_30      maxTO   3.7 dist   2.4 OOS 0.2530 world 0.4283
+A_ausg_spar   x_c_100   maxTO   2.6 dist   1.7 OOS 0.2572 world 0.4334
+A_ausg_spar   c_300     maxTO   3.0 dist   2.1 OOS 0.2473 world 0.4265
+A_ausg_spar   x_c_1000  maxTO   2.2 dist   1.3 OOS 0.2553 world 0.4322
+A_ausg_spar   c_3000    maxTO   1.0 dist   0.8 OOS 0.2603 world 0.4362
+A_ausg_spar   x_a       maxTO  17.6 dist  12.1 OOS 0.2723 world 0.4351
+A_ausg_spar   x_opt     maxTO   6.5 dist  15.0 OOS 0.2710 world 0.4329
+B_kons_entn   c_10      maxTO   0.6 dist   0.8 OOS 0.0148 world 0.0259
+B_kons_entn   c_30      maxTO   0.4 dist   0.6 OOS 0.0149 world 0.0260
+B_kons_entn   x_c_100   maxTO   0.5 dist   0.6 OOS 0.0148 world 0.0258
+B_kons_entn   c_300     maxTO   0.3 dist   0.4 OOS 0.0149 world 0.0260
+B_kons_entn   x_c_1000  maxTO   0.2 dist   0.2 OOS 0.0150 world 0.0261
+B_kons_entn   c_3000    maxTO   0.1 dist   0.2 OOS 0.0150 world 0.0262
+B_kons_entn   x_a       maxTO   2.6 dist   0.4 OOS 0.0149 world 0.0261
+B_kons_entn   x_opt     maxTO   1.2 dist   2.3 OOS 0.0149 world 0.0262
+C_wachs_entn  c_10      maxTO   2.8 dist   6.5 OOS 0.2541 world 0.3121
+C_wachs_entn  c_30      maxTO   2.2 dist   5.3 OOS 0.2524 world 0.3109
+C_wachs_entn  x_c_100   maxTO   1.8 dist   6.0 OOS 0.2457 world 0.3099
+C_wachs_entn  c_300     maxTO   1.6 dist   4.7 OOS 0.2548 world 0.3128
+C_wachs_entn  x_c_1000  maxTO   0.5 dist   1.3 OOS 0.2648 world 0.3177
+C_wachs_entn  c_3000    maxTO   0.1 dist   0.3 OOS 0.2691 world 0.3200
+C_wachs_entn  x_a       maxTO   5.3 dist   4.8 OOS 0.2577 world 0.3161
+C_wachs_entn  x_opt     maxTO   4.1 dist   7.2 OOS 0.2572 world 0.3144
+D_wachs_spar  c_10      maxTO   6.8 dist   8.9 OOS 2.6688 world 3.7828
+D_wachs_spar  c_30      maxTO   5.7 dist   7.1 OOS 2.6112 world 3.7575
+D_wachs_spar  x_c_100   maxTO   4.0 dist   8.3 OOS 2.4809 world 3.6966
+D_wachs_spar  c_300     maxTO   4.0 dist   8.1 OOS 2.4863 world 3.6996
+D_wachs_spar  x_c_1000  maxTO   4.2 dist   7.5 OOS 2.5192 world 3.7226
+D_wachs_spar  c_3000    maxTO   2.0 dist   4.8 OOS 2.6653 world 3.8238
+D_wachs_spar  x_a       maxTO  17.0 dist   9.5 OOS 2.6897 world 3.7970
+D_wachs_spar  x_opt     maxTO   6.1 dist  10.8 OOS 2.6847 world 3.7876
+E_ausg_entn   c_10      maxTO   0.7 dist   3.7 OOS 0.0047 world 0.0370
+E_ausg_entn   c_30      maxTO   0.4 dist   2.2 OOS 0.0053 world 0.0384
+E_ausg_entn   x_c_100   maxTO   0.3 dist   1.2 OOS 0.0056 world 0.0392
+E_ausg_entn   c_300     maxTO   0.8 dist   0.9 OOS 0.0054 world 0.0390
+E_ausg_entn   x_c_1000  maxTO   0.3 dist   0.4 OOS 0.0060 world 0.0398
+E_ausg_entn   c_3000    maxTO   0.3 dist   0.4 OOS 0.0060 world 0.0398
+E_ausg_entn   x_a       maxTO  22.2 dist  11.4 OOS 0.0061 world 0.0397
+E_ausg_entn   x_opt     maxTO   4.2 dist  15.9 OOS 0.0061 world 0.0386
+--- Aggregat kappa ---
+c_10      maxTO max   6.8 mean  2.7  dist  4.8  OOS 0.6384  world 0.9161
+c_30      maxTO max   5.7 mean  2.5  dist  3.5  OOS 0.6273  world 0.9122
+x_c_100   maxTO max   4.0 mean  1.8  dist  3.5  OOS 0.6009  world 0.9010
+c_300     maxTO max   4.0 mean  1.9  dist  3.2  OOS 0.6017  world 0.9008
+x_c_1000  maxTO max   4.2 mean  1.5  dist  2.1  OOS 0.6121  world 0.9077
+c_3000    maxTO max   2.0 mean  0.7  dist  1.3  OOS 0.6432  world 0.9292
+x_a       maxTO max  22.2 mean 12.9  dist  7.7  OOS 0.6481  world 0.9228
+x_opt     maxTO max   6.5 mean  4.4  dist 10.2  OOS 0.6468  world 0.9199
+elapsed c_10: median 4806 max 46812
+elapsed c_30: median 4055 max 55843
+elapsed c_300: median 7753 max 36217
+elapsed c_3000: median 5030 max 23467
+
+=== Schaetzfehler-Test: Engine sieht mu_hat (T=20), Bewertung unter wahrer CMA (20k Pfade) ===
+A_ausg_spar   0.9 [OOOOOHOOOO] | a 0.0002/ 5.0 | b_eb 0.0002/ 6.4 | b_prob 0.0002/ 5.0 | d_0.001 0.0005/ 6.7 | d_0.005 0.0005/ 5.0 | c_100 0.0005/ 3.6 | c_1000 0.0006/ 0.6 | house 0.0006/ 0.0 | opt 0.0002/ 0.0
+A_ausg_spar   1.0 [OOOOOHOOOO] | a 0.0019/ 5.3 | b_eb 0.0018/ 5.5 | b_prob 0.0019/ 5.3 | d_0.001 0.0020/ 7.8 | d_0.005 0.0023/ 7.5 | c_100 0.0026/ 6.4 | c_1000 0.0027/ 1.7 | house 0.0028/ 0.0 | opt 0.0019/ 2.5
+A_ausg_spar   1.1 [OOOOOHOOOH] | a 0.5181/ 6.9 | b_eb 0.4779/ 6.9 | b_prob 0.5139/ 6.9 | d_0.001 0.4604/ 6.3 | d_0.005 0.4604/ 6.3 | c_100 0.4453/ 5.9 | c_1000 0.4008/ 1.3 | house 0.4232/ 0.0 | opt 0.6732/ 6.4
+B_kons_entn   0.9 [OOHOOOHOOO] | a 0.0002/ 1.5 | b_eb 0.0002/ 1.4 | b_prob 0.0002/ 1.5 | d_0.001 0.0002/ 1.0 | d_0.005 0.0002/ 0.6 | c_100 0.0002/ 0.3 | c_1000 0.0002/ 0.1 | house 0.0002/ 0.0 | opt 0.0002/ 1.5
+B_kons_entn   1.0 [OOHOOOOOHO] | a 0.0017/ 1.7 | b_eb 0.0013/ 1.6 | b_prob 0.0017/ 1.7 | d_0.001 0.0012/ 1.2 | d_0.005 0.0012/ 0.8 | c_100 0.0005/ 0.4 | c_1000 0.0005/ 0.2 | house 0.0005/ 0.0 | opt 0.0017/ 1.7
+B_kons_entn   1.1 [OOHOOOOOHO] | a 0.0296/ 1.7 | b_eb 0.0295/ 1.6 | b_prob 0.0296/ 1.7 | d_0.001 0.0289/ 1.5 | d_0.005 0.0289/ 1.2 | c_100 0.0261/ 0.5 | c_1000 0.0257/ 0.3 | house 0.0253/ 0.0 | opt 0.0308/ 1.6
+C_wachs_entn  0.9 [OOOOHHOOOO] | a 0.1572/ 9.0 | b_eb 0.1560/ 8.5 | b_prob 0.1572/ 9.0 | d_0.001 0.1524/ 8.4 | d_0.005 0.1501/ 7.8 | c_100 0.1411/ 2.1 | c_1000 0.1429/ 0.3 | house 0.1448/ 0.0 | opt 0.1812/ 8.8
+C_wachs_entn  1.0 [OOOOHHOOOO] | a 0.2604/ 9.2 | b_eb 0.2598/ 9.0 | b_prob 0.2604/ 9.2 | d_0.001 0.2604/ 9.2 | d_0.005 0.2518/ 8.1 | c_100 0.2387/ 3.1 | c_1000 0.2434/ 0.4 | house 0.2471/ 0.0 | opt 0.2959/ 9.4
+C_wachs_entn  1.1 [HOOOHHOOOO] | a 0.3952/ 9.0 | b_eb 0.3928/ 8.6 | b_prob 0.3952/ 9.0 | d_0.001 0.3952/ 9.0 | d_0.005 0.3863/ 7.8 | c_100 0.3682/ 3.8 | c_1000 0.3771/ 0.3 | house 0.3815/ 0.0 | opt 0.4678/ 9.8
+D_wachs_spar  0.9 [OHHOOOOOOO] | a 0.1711/ 8.2 | b_eb 0.1799/ 8.1 | b_prob 0.1713/ 8.2 | d_0.001 0.1711/ 8.2 | d_0.005 0.1843/ 8.4 | c_100 0.1773/ 6.8 | c_1000 0.1621/ 3.3 | house 0.1924/ 0.0 | opt 0.3034/ 6.6
+D_wachs_spar  1.0 [OHHOHOOOOH] | a 2.1844/ 9.4 | b_eb 2.1832/ 9.1 | b_prob 2.1845/ 9.4 | d_0.001 2.1844/ 9.4 | d_0.005 2.1844/ 9.4 | c_100 2.0204/ 6.0 | c_1000 2.0266/ 2.9 | house 2.1315/ 0.0 | opt 2.8511/11.0
+D_wachs_spar  1.1 [OHOOHOOHOH] | a 4.8605/ 5.8 | b_eb 4.8646/ 5.7 | b_prob 4.8653/ 5.9 | d_0.001 4.8605/ 5.8 | d_0.005 4.8775/ 5.7 | c_100 4.6598/ 4.7 | c_1000 4.7203/ 4.4 | house 5.0121/ 0.0 | opt 5.8167/10.1
+E_ausg_entn   0.9 [OOOOOOOHOO] | a 0.0005/ 7.6 | b_eb 0.0005/ 7.3 | b_prob 0.0005/ 7.6 | d_0.001 0.0005/ 7.6 | d_0.005 0.0007/ 8.6 | c_100 0.0008/ 0.9 | c_1000 0.0008/ 0.1 | house 0.0009/ 0.0 | opt 0.0005/ 6.3
+E_ausg_entn   1.0 [HOOOOOOHOO] | a 0.0011/ 8.4 | b_eb 0.0011/ 7.7 | b_prob 0.0010/ 7.6 | d_0.001 0.0011/ 8.4 | d_0.005 0.0011/ 8.4 | c_100 0.0015/ 1.6 | c_1000 0.0015/ 0.1 | house 0.0015/ 0.0 | opt 0.0018/ 6.4
+E_ausg_entn   1.1 [OOOOOOOHHO] | a 0.0112/ 8.2 | b_eb 0.0110/ 8.1 | b_prob 0.0112/ 8.2 | d_0.001 0.0112/ 8.2 | d_0.005 0.0106/ 8.5 | c_100 0.0067/ 1.7 | c_1000 0.0063/ 0.1 | house 0.0071/ 0.0 | opt 0.0188/ 7.2
+--- Aggregat Misspec (Mittel ueber 15 Mandat/Skala-Zellen x 10 Welten): wahre Zielebene, wahre P(Ziel), Std Aktienquote ueber Welten ---
+a        goal 0.57287 (vs a +0.00000)  P 73.93%  sdEq 6.46
+b_eb     goal 0.57067 (vs a -0.00220)  P 74.05%  sdEq 6.37
+b_prob   goal 0.57293 (vs a +0.00006)  P 73.92%  sdEq 6.40
+d_0.001  goal 0.56866 (vs a -0.00421)  P 74.21%  sdEq 6.59
+d_0.005  goal 0.56935 (vs a -0.00352)  P 74.38%  sdEq 6.28
+c_100    goal 0.53931 (vs a -0.03356)  P 75.09%  sdEq 3.20
+c_1000   goal 0.54077 (vs a -0.03210)  P 75.08%  sdEq 1.08
+house    goal 0.57143 (vs a -0.00144)  P 74.75%  sdEq 0.00
+opt      goal 0.70968 (vs a +0.13681)  P 71.72%  sdEq 5.95
+
+=== Misspec, gepaart mit (a) je Welt (n=150) ===
+c_30    dGoal -0.02468 (se 0.00630, besser in 64.0% der Welten)  dP +1.16pp (se 0.16) sdEq 3.32
+c_100   dGoal -0.03356 (se 0.00799, besser in 66.0% der Welten)  dP +1.16pp (se 0.17)
+c_300   dGoal -0.03552 (se 0.00809, besser in 55.3% der Welten)  dP +1.31pp (se 0.18) sdEq 1.91
+c_1000  dGoal -0.03210 (se 0.00820, besser in 46.7% der Welten)  dP +1.15pp (se 0.18)
+house   dGoal -0.00144 (se 0.00802, besser in 36.0% der Welten)  dP +0.82pp (se 0.19)
+opt     dGoal +0.13681 (se 0.04320, besser in  2.7% der Welten)  dP -2.21pp (se 0.45)

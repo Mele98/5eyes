@@ -193,6 +193,17 @@ und das Optimum des Priors ist exakt die (projizierte) Hausquote (Tracking
 Error 0, Entscheid ``house_prior`` /
 ``identical_to_house_anchor``). Begruendung:
 docs/planning/2026-10-18-house-prior-v6.md.
+
+Nachtrag (2026-10-18, Engine ``saa_resampled_v7``, Statistik-Vertraege):
+Einheiten-Bootstrap, nullzentrierte p-Werte, B = 999, getrennte Auswahl-/
+Final-Wuerfel, Survivor-Schwelle 90 %, Ridge-Prior-Metrik; neue Version im
+Seed. Alle sechs Fixtures UNVERAENDERT gegen die neue Engine gruen, keine
+Datei geaendert. Fachlich erwartet: die Ziele bleiben mit der Hausquote
+sicher erreicht; das Optimum des (Ridge-)Priors ist weiter die projizierte
+Hausquote. Eine Restabweichung des SLSQP-Mittels von <= 1 bp je Bucket
+(Solver-Toleranz, ``within_solver_tolerance_of_house_anchor``) publiziert
+ebenfalls exakt den Anker. Begruendung:
+docs/planning/2026-10-18-resampling-statistics-contracts-v7.md.
 """
 from __future__ import annotations
 

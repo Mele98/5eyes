@@ -52,9 +52,27 @@ Wilson-Untergrenze einer Erfolgsquote. Ein gepaarter t-Test auf
 pfadweisen Verlustdifferenzen ist daher nicht definiert. Verwendet wird ein
 gepaarter Bootstrap: dieselben gezogenen Pfadindizes werden fuer beide
 Allokationen verwendet, die Zielfunktion auf jeder Replikation vollstaendig
-neu ausgewertet. Einseitig, alpha = 5 %: signifikant genau dann, wenn die
-Punktschaetzung der Verbesserung positiv ist UND das untere 5-%-Perzentil
-der Bootstrap-Verteilung der Verbesserung > 0 liegt.
+neu ausgewertet.
+
+Engine ``saa_resampled_v7`` (Codex-Review 2026-10-18):
+
+* Stichprobeneinheit (RESAMPLING-ANTITHETIC-BOOTSTRAP-001): die
+  Validierungswuerfel sind antithetisch; Pfad ``i`` und ``i + ceil(n/2)``
+  stammen aus derselben Ziehung und sind EINE Einheit. Gezogen werden
+  Einheiten mit beiden Partnern (``unit_block_bootstrap``), nicht Zeilen --
+  sonst zaehlen ``2m`` abhaengige Pfade als ``2m`` unabhaengige und die
+  Streuung wird unterschaetzt (Codex-Gegenfall: Zeilen p = 0.037
+  "signifikant", Paare 0.087 bzw. nullzentriert 0.072).
+* p-Wert (RESAMPLING-PVALUE-SEMANTICS-001): ``p_value`` ist der einseitige
+  p-Wert zu H0 ``Delta <= 0`` aus der nullzentrierten Bootstrap-Verteilung
+  (Hall & Wilson 1991); der rohe Vorzeichenanteil der unzentrierten
+  Verteilung heisst ``bootstrap_tail_fraction`` und entscheidet nichts.
+  Signifikant genau dann, wenn ``Delta_hat > 0`` UND ``p_value <= alpha``
+  (dual zur einseitigen Basic-Bootstrap-Untergrenze > 0). Groesse unter H0
+  simuliert (``tests/test_resampling_statistics_contracts.py``).
+* Survivor-Schwelle (RESAMPLING-SUCCESS-SURVIVOR-BIAS-001): mindestens 90 %
+  erfolgreiche Bags, sonst fail-closed (Herleitung bei
+  ``MIN_SUCCESSFUL_BAG_SHARE``).
 """
 from __future__ import annotations
 
@@ -67,9 +85,11 @@ import numpy as np
 from .importance_sampling import IS_TOTAL_SHIFT_SIGMA, ess_requires_fallback
 from .scenario_engine import (
     N_BUCKETS,
+    SAMPLING_UNIT_ANTITHETIC_PAIR,
     ScenarioInputs,
     build_scenario_paths,
     build_scenario_paths_with_weights,
+    sampling_unit_ids as sampling_unit_ids_for,
 )
 
 RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
@@ -101,7 +121,21 @@ RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
 # mathematisch unveraendert und behaelt deshalb seine Version. Im Default
 # ersetzt ihn die Offenlegung ``house_prior.HOUSE_PRIOR_DISCLOSURE_TEST_VERSION``
 # (``paired_bootstrap_disclosure_goal_level_v5``).
-SIGNIFICANCE_TEST_VERSION = "paired_bootstrap_one_sided_goal_level_v4"
+#
+# v5 (RESAMPLING-ANTITHETIC-BOOTSTRAP-001 + RESAMPLING-PVALUE-SEMANTICS-001,
+# Engine saa_resampled_v7): gezogen werden unabhaengige Stichprobeneinheiten
+# (antithetische Pfadpaare) statt Zeilen; ``p_value`` ist der nullzentrierte
+# einseitige Shift-Bootstrap-p-Wert mit expliziter Nullhypothese, der rohe
+# Vorzeichenanteil heisst ``bootstrap_tail_fraction``.
+SIGNIFICANCE_TEST_VERSION = "paired_unit_bootstrap_one_sided_goal_level_v5"
+BOOTSTRAP_METHOD_VERSION = "paired_unit_block_bootstrap_v1"
+P_VALUE_CALIBRATION = "null_centered_shift_bootstrap_hall_wilson_1991_v1"
+NULL_HYPOTHESIS_NOT_BETTER = (
+    "H0: E[L(anker) - L(kandidat)] <= 0 (Kandidat nicht besser als der Anker)"
+)
+NULL_HYPOTHESIS_NOT_WORSE = (
+    "H0: E[L(anker) - L(kandidat)] >= 0 (Kandidat nicht schlechter als der Anker)"
+)
 COMPARISON_SCALAR = "scalar"
 COMPARISON_GOAL_LEVEL = "goal_level"
 COMPARISON_RISK_MEASURE = "goal_level_plus_risk_measure"
@@ -136,11 +170,39 @@ RISK_MEASURE_MATERIALITY = 0.005
 # Generierung bei ~2.4x der bisherigen Laufzeit (Budget: <= 3x).
 DEFAULT_N_BAGS = 40
 DEFAULT_BAG_N_PATHS = 500
-# Weniger als die Haelfte erfolgreicher Bags ist kein belastbarer Mittelwert:
-# dann gilt der Lauf als nicht konvergiert (kontrollierter House-Fallback).
-MIN_SUCCESSFUL_BAG_SHARE = 0.5
+# RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 (Engine saa_resampled_v7): Mindestanteil
+# erfolgreicher Bags. Mittel und Streuung stammen nur aus den erfolgreichen
+# Bags; das ist unverzerrt nur, wenn ein Bag-Ausfall vom Wuerfel unabhaengig
+# ist (MCAR) -- unbelegt: adverse Wuerfel koennen systematisch scheitern.
+# Herleitung der Schwelle (Sensitivitaetsschranke statt MCAR-Annahme):
+#
+#   Bias je Bucket = f * (mu_fehlend - mu_erfolgreich),  f = Ausfallanteil.
+#
+# Stressannahme: die fehlenden Bags liegen um bis zu 2 Bag-Standard-
+# abweichungen neben dem Mittel der erfolgreichen (|delta| <= 2 sigma_bag;
+# ein fehlender Bag ist "so extrem wie ein 2-sigma-Bag"). Gemessen
+# sigma_bag ~ 4-5 pp (Fundament-Mandat, 500 Pfade, siehe oben) -> 2 sigma
+# ~ 10 pp. Das Praezisionsziel der publizierten Quote ist 1 pp (Standard-
+# fehler-Ziel, dafuer 40 Bags). Bias <= 1 pp verlangt f <= 1 pp / 10 pp = 10 %:
+# mindestens 90 % erfolgreiche Bags (36 von 40). Darunter kann der Ausfall
+# allein die Quote um mehr als ihr Praezisionsziel verschieben -> fail-closed
+# (kontrollierter House-Fallback, kein Mittel publiziert). Die Schranke wird
+# je Lauf mit der GEMESSENEN Streuung ausgewiesen
+# (``missingness_sensitivity_bps`` = f * 2 * sigma_bag je Bucket).
+# Outcomes bei 40 Bags: 40/40, 39/40, 36/40 -> Mittel; 35/40, 30/40, 20/40,
+# 19/40 -> House-Fallback. Bis v6 reichten 20/40.
+MIN_SUCCESSFUL_BAG_SHARE = 0.9
+MISSINGNESS_STRESS_SIGMAS = 2.0
 DEFAULT_SIGNIFICANCE_ALPHA = 0.05
-DEFAULT_N_BOOTSTRAP = 400
+# Engine v7 (RESAMPLING-PVALUE-SEMANTICS-001): B = 999 statt 400.
+# * alpha (B + 1) = 50 ist ganzzahlig -> der (1 + k)/(B + 1)-Test haelt das
+#   Niveau exakt (Davison & Hinkley 1997, Abschn. 4.2.5); bei B = 400 war
+#   alpha (B + 1) = 20.05.
+# * Monte-Carlo-Fehler des p-Werts an der Grenze alpha = 5 %:
+#   sqrt(alpha (1 - alpha) / B) = 0.0069 (B = 400: 0.0109).
+# * Laufzeit gemessen +0.08 s je Lauf (Mandat D: Bootstrap 0.06 s -> 0.14 s
+#   bei 5.5-6.1 s Gesamtlauf).
+DEFAULT_N_BOOTSTRAP = 999
 
 BAG_SEED_DOMAIN = "saa-resampling-bag-v1"
 BOOTSTRAP_SEED_DOMAIN = "saa-significance-bootstrap-v1"
@@ -271,6 +333,155 @@ def scalar_improvement(anchor, candidate) -> tuple[float, str]:
     return scalar_loss(anchor) - scalar_loss(candidate), COMPARISON_SCALAR
 
 
+def bootstrap_unit_index_matrix(sampling_unit_ids: np.ndarray) -> np.ndarray:
+    """Mitglieder je Stichprobeneinheit als (n_units, max_members)-Matrix.
+
+    Einheiten in aufsteigender ID-Reihenfolge, Mitglieder in Pfadreihenfolge,
+    aufgefuellt mit -1 (z.B. die Einzel-Einheit einer ungeraden
+    antithetischen Pfadzahl).
+    """
+    ids = np.asarray(sampling_unit_ids, dtype=np.int64).reshape(-1)
+    if ids.size == 0:
+        raise ValueError("sampling_unit_ids ist leer.")
+    units, inverse = np.unique(ids, return_inverse=True)
+    counts = np.bincount(inverse, minlength=units.size)
+    matrix = np.full((units.size, int(counts.max())), -1, dtype=np.int64)
+    fill = np.zeros(units.size, dtype=np.int64)
+    for path, unit in enumerate(inverse):
+        matrix[unit, fill[unit]] = path
+        fill[unit] += 1
+    return matrix
+
+
+def sampling_unit_hash(sampling_unit_ids: np.ndarray) -> str:
+    """Bindung der Einheiten-Zuordnung (Replay/Modellbasis)."""
+    ids = np.ascontiguousarray(np.asarray(sampling_unit_ids, dtype=np.int64))
+    return hashlib.sha256(ids.tobytes()).hexdigest()
+
+
+def _resolve_sampling_units(
+    n_paths: int,
+    sampling_unit_ids: np.ndarray | None,
+    sampling_unit: str | None,
+) -> tuple[np.ndarray, str]:
+    """Default: Layout des antithetischen Wuerfels (``build_scenario_paths``).
+
+    Alle Validierungswuerfel der Engine sind antithetisch; fehlt die explizite
+    Zuordnung, ist die Paar-Einheit die konservative Annahme (bei
+    unabhaengigen Pfaden kostet sie nur Effizienz, nie Ueberdeckung).
+    """
+    if sampling_unit_ids is None:
+        return (
+            sampling_unit_ids_for(int(n_paths), antithetic=True),
+            SAMPLING_UNIT_ANTITHETIC_PAIR,
+        )
+    ids = np.asarray(sampling_unit_ids, dtype=np.int64).reshape(-1)
+    if ids.size != int(n_paths):
+        raise ValueError(
+            f"sampling_unit_ids hat {ids.size} Eintraege, erwartet {int(n_paths)}."
+        )
+    return ids, str(sampling_unit or "custom")
+
+
+def unit_block_bootstrap(
+    statistic: Callable[[np.ndarray | None], float],
+    *,
+    n_paths: int,
+    n_bootstrap: int,
+    seed: int,
+    sampling_unit_ids: np.ndarray | None = None,
+    sampling_unit: str | None = None,
+) -> tuple[float, np.ndarray, dict]:
+    """Bootstrap ueber unabhaengige Stichprobeneinheiten (Paar-/Blockbootstrap).
+
+    Je Replikation werden ``m = n_units`` Einheiten mit Zuruecklegen gezogen
+    und ALLE Mitglieder jeder gezogenen Einheit gemeinsam an ``statistic``
+    uebergeben (antithetische Partner also immer zusammen und gleich oft).
+    Bei Einzelpfad-Einheiten ist das exakt der bisherige Zeilen-Bootstrap
+    (identischer RNG-Strom). Bei ungerader antithetischer Pfadzahl ist der
+    partnerlose Basispfad eine eigene Einheit; die Replikationsgroesse
+    schwankt dann um hoechstens die Anzahl seiner Ziehungen (Erwartung
+    exakt ``n_paths``).
+
+    Returns ``(statistic(None), replikationen, metadaten)``.
+    """
+    unit_ids, unit_name = _resolve_sampling_units(
+        n_paths, sampling_unit_ids, sampling_unit,
+    )
+    members = bootstrap_unit_index_matrix(unit_ids)
+    n_units = int(members.shape[0])
+    full = float(statistic(None))
+    rng = np.random.default_rng(int(seed))
+    replicates = np.empty(int(n_bootstrap), dtype=np.float64)
+    single_member = members.shape[1] == 1
+    for b in range(int(n_bootstrap)):
+        draws = rng.integers(0, n_units, size=n_units)
+        if single_member:
+            idx = members[draws, 0]
+        else:
+            idx = members[draws].reshape(-1)
+            idx = idx[idx >= 0]
+        replicates[b] = float(statistic(idx))
+    meta = {
+        "bootstrap_method": BOOTSTRAP_METHOD_VERSION,
+        "sampling_unit": unit_name,
+        "n_independent_units": n_units,
+        "sampling_unit_hash": sampling_unit_hash(unit_ids),
+    }
+    return full, replicates, meta
+
+
+def null_centered_p_value(
+    estimate: float,
+    replicates: np.ndarray,
+    *,
+    alternative: str,
+) -> float:
+    """Einseitiger p-Wert des Shift-Bootstraps (Hall & Wilson 1991).
+
+    Die Verteilung der Schaetzung am Rand von H0 (Delta = 0) wird durch die
+    zentrierte Bootstrap-Verteilung ``Delta* - Delta_hat`` approximiert
+    (Hall & Wilson 1991, Guideline 1: resample unter der Nullhypothese):
+
+    * ``alternative="greater"`` (H0: Delta <= 0):
+      ``p = (1 + #{Delta*_b - Delta_hat >= Delta_hat}) / (B + 1)``
+    * ``alternative="less"`` (H0: Delta >= 0):
+      ``p = (1 + #{Delta*_b - Delta_hat <= Delta_hat}) / (B + 1)``
+
+    ``(1 + k)/(B + 1)`` (Davison & Hinkley 1997, Gl. 4.11) -- nie 0. Dual zur
+    einseitigen Basic-Bootstrap-Grenze ``2 Delta_hat - q_{1-alpha}``. Die
+    Groesse unter H0 (<= alpha) ist in
+    ``tests/test_resampling_statistics_contracts.py`` simuliert.
+    """
+    finite = np.asarray(replicates, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    centered = finite - float(estimate)
+    if alternative == "greater":
+        hits = int(np.count_nonzero(centered >= float(estimate)))
+    elif alternative == "less":
+        hits = int(np.count_nonzero(centered <= float(estimate)))
+    else:
+        raise ValueError(f"Unbekannte Alternative: {alternative!r}")
+    return (1.0 + hits) / (1.0 + float(finite.size))
+
+
+def tail_fraction(replicates: np.ndarray, *, not_better: bool) -> float:
+    """Geglaetteter Bootstrap-Vorzeichenanteil -- KEIN p-Wert.
+
+    ``not_better``: ``(1 + #{Delta* <= 0}) / (B + 1)``, sonst
+    ``(1 + #{Delta* >= 0}) / (B + 1)``. Aus der UNZENTRIERTEN
+    Bootstrap-Verteilung; als Stabilitaetskennzahl offengelegt
+    (RESAMPLING-PVALUE-SEMANTICS-001), nicht als Testentscheid.
+    """
+    finite = np.asarray(replicates, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    if not_better:
+        hits = np.count_nonzero(finite <= 0.0)
+    else:
+        hits = np.count_nonzero(finite >= 0.0)
+    return (1.0 + float(hits)) / (1.0 + float(finite.size))
+
+
 def paired_bootstrap_improvement(
     loss_pair: Callable[[np.ndarray | None], tuple],
     *,
@@ -278,58 +489,87 @@ def paired_bootstrap_improvement(
     n_bootstrap: int,
     alpha: float,
     seed: int,
+    sampling_unit_ids: np.ndarray | None = None,
+    sampling_unit: str | None = None,
 ) -> dict:
-    """Gepaarter, einseitiger Bootstrap der Verbesserung ``L(anker) - L(kandidat)``.
+    """Gepaarter, einseitiger Einheiten-Bootstrap der Verbesserung
+    ``Delta = L(anker) - L(kandidat)``.
 
     ``loss_pair(idx)`` liefert ``(L_anker, L_kandidat)`` auf der Pfadauswahl
     ``idx`` (None = alle Pfade). Beide Verluste werden auf DENSELBEN Indizes
-    ausgewertet -- das ist die Paarung; sie entfernt die gemeinsame
-    Szenariostreuung aus der Differenz.
+    ausgewertet -- das ist die Paarung Anker/Kandidat. Gezogen werden
+    unabhaengige Stichprobeneinheiten (``unit_block_bootstrap``; Default:
+    antithetische Pfadpaare), nicht Zeilen.
 
-    p-Wert: Anteil der Replikationen ohne Verbesserung, mit der ueblichen
-    (1 + k) / (1 + B)-Korrektur, damit nie p = 0 ausgewiesen wird.
+    Ausgewiesen (RESAMPLING-PVALUE-SEMANTICS-001, nicht vermischt):
+
+    * ``p_value`` -- einseitiger p-Wert zu ``null_hypothesis`` (H0: Delta <= 0)
+      aus der nullzentrierten Bootstrap-Verteilung
+      (``p_value_calibration``, ``null_centered_p_value``).
+    * ``improvement_lower_bound`` -- dazu duale einseitige
+      (1-alpha)-Basic-Bootstrap-Untergrenze ``2 Delta_hat - q_{1-alpha}``.
+    * ``bootstrap_tail_fraction`` -- roher Vorzeichenanteil
+      ``(1 + #{Delta* <= 0})/(B + 1)``; nur Stabilitaetskennzahl.
+
+    Entscheid: signifikant genau dann, wenn ``Delta_hat > 0`` UND
+    ``p_value <= alpha``.
 
     ``loss_pair`` darf Skalare oder ``(goal_level, tiebreak[, additiv])``-
     Tupel liefern; Tupel werden wie im Solver summiert (``scalar_loss``).
-
-    Entscheid: signifikant genau dann, wenn die Punktschaetzung positiv ist
-    UND ``p <= alpha``. Die untere Konfidenzgrenze ist das alpha-Quantil der
-    Replikationen (alle auf der Ebene ``scalar``).
     """
-    anchor_full, candidate_full = loss_pair(None)
-    improvement, comparison = scalar_improvement(anchor_full, candidate_full)
-    rng = np.random.default_rng(int(seed))
-    replicates = np.empty(int(n_bootstrap), dtype=np.float64)
     levels: dict[str, int] = {}
-    for b in range(int(n_bootstrap)):
-        idx = rng.integers(0, int(n_paths), size=int(n_paths))
-        anchor_b, candidate_b = loss_pair(idx)
-        replicates[b], level = scalar_improvement(anchor_b, candidate_b)
-        levels[level] = levels.get(level, 0) + 1
+    full_pair: dict = {}
+
+    def _improvement(idx):
+        anchor, candidate = loss_pair(idx)
+        value, level = scalar_improvement(anchor, candidate)
+        if idx is None:
+            full_pair["anchor"], full_pair["candidate"] = anchor, candidate
+            full_pair["comparison"] = level
+        else:
+            levels[level] = levels.get(level, 0) + 1
+        return value
+
+    improvement, replicates, unit_meta = unit_block_bootstrap(
+        _improvement,
+        n_paths=n_paths,
+        n_bootstrap=n_bootstrap,
+        seed=seed,
+        sampling_unit_ids=sampling_unit_ids,
+        sampling_unit=sampling_unit,
+    )
     finite = replicates[np.isfinite(replicates)]
     block = {
         "test": SIGNIFICANCE_TEST_VERSION,
+        **unit_meta,
         "n_bootstrap": int(n_bootstrap),
         "alpha": float(alpha),
-        "anchor_objective": _objective_scalar(anchor_full),
-        "candidate_objective": _objective_scalar(candidate_full),
-        "comparison": comparison,
+        "anchor_objective": _objective_scalar(full_pair["anchor"]),
+        "candidate_objective": _objective_scalar(full_pair["candidate"]),
+        "comparison": full_pair["comparison"],
         "replicate_comparisons": dict(sorted(levels.items())),
         "improvement": float(improvement),
+        "null_hypothesis": NULL_HYPOTHESIS_NOT_BETTER,
+        "p_value_calibration": P_VALUE_CALIBRATION,
     }
     if finite.size == 0 or not np.isfinite(improvement):
         return {
             **block,
             "improvement_lower_bound": None,
+            "bootstrap_tail_fraction": None,
             "p_value": None,
             "significant": False,
         }
-    no_improvement = int(np.count_nonzero(finite <= 0.0))
-    p_value = (1.0 + no_improvement) / (1.0 + float(finite.size))
-    lower = float(np.quantile(finite, float(alpha))) if len(levels) == 1 else None
+    p_value = null_centered_p_value(improvement, finite, alternative="greater")
+    lower = (
+        float(2.0 * improvement - np.quantile(finite, 1.0 - float(alpha)))
+        if len(levels) == 1
+        else None
+    )
     return {
         **block,
         "improvement_lower_bound": lower,
+        "bootstrap_tail_fraction": float(tail_fraction(finite, not_better=True)),
         "p_value": float(p_value),
         "significant": bool(improvement > 0.0 and p_value <= float(alpha)),
     }
@@ -356,7 +596,12 @@ _MODEL_BASIS_FIELDS = (
     "bag_n_paths",
     "mean_weights_bps",
     "dispersion_bps",
-    "standard_error_bps",
+    # RESAMPLING-SUCCESS-SURVIVOR-BIAS-001: der Standardfehler ist bedingt auf
+    # die erfolgreichen Bags (Name sagt den Scope); Mindestquote und
+    # Ausfall-Sensitivitaet gehoeren zur Entscheidungsbasis.
+    "conditional_bag_mean_standard_error_bps",
+    "min_successful_bag_share",
+    "missingness_sensitivity_bps",
     "projection_distance_bps",
     "resampled_weights_bps",
     "final_weights_bps",
@@ -383,8 +628,22 @@ _SIGNIFICANCE_BASIS_FIELDS = (
     # ("refined_brownian_bridge"); sonst fehlt der Schluessel und die
     # Modellbasis bleibt bit-gleich.
     "drawdown_measure",
+    # RESAMPLING-ANTITHETIC-BOOTSTRAP-001 / RESAMPLING-PVALUE-SEMANTICS-001:
+    # Stichprobeneinheit, Methode und p-Wert-Vertrag sind replaybar gebunden.
+    "bootstrap_method",
+    "sampling_unit",
+    "n_independent_units",
+    "sampling_unit_hash",
+    "null_hypothesis",
+    "p_value_calibration",
     "p_value",
+    "bootstrap_tail_fraction",
     "significant",
+    # DRAWDOWN-HOLDOUT-REUSE-001: Rolle des Wuerfels (immer der finale
+    # Holdout) und -- nur max_drawdown -- der getrennte Auswahl-Wuerfel.
+    "cube_role",
+    "selection_seed",
+    "selection_cube_hash",
     "validation_seed",
     "validation_cube_hash",
     "validation_n_paths",
@@ -406,8 +665,11 @@ _HOUSE_PRIOR_BASIS_FIELDS = (
     "final_bps",
     "tracking_error_vs_house_bps",
     "final_prior_penalty",
+    # HOUSE-PRIOR-PSD-NULLSPACE-001: Ridge der Prior-Metrik (Sigma + eps I).
+    "prior_metric",
     "disclosure",
     "goal_probabilities",
+    "cube_role",
     "validation_seed",
     "validation_cube_hash",
     "validation_n_paths",
