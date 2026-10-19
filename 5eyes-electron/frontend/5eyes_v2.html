@@ -74,6 +74,11 @@ body{font-family:var(--f-s);}
    Engine-/Compliance-Wirkung, siehe models/tenant.py::
    default_presentation_mode. */
 html[data-presentation-mode="consulting"] [data-wm-only]{display:none!important;}
+/* UX-1 (Befund 14): Technische Details (Audit-Fusszeile, Vergleichsmethode)
+   sind Berater-/Audit-Information und erscheinen im Consulting-Modus nicht. */
+html[data-presentation-mode="consulting"] details.tech,
+html[data-presentation-mode="consulting"] #al-method-comparison-panel{display:none!important;}
+details.tech>summary{font-size:10px;font-weight:500;cursor:pointer;color:var(--n5);}
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line-height:1.5;color:var(--n9);background:var(--bg);}
 
@@ -3550,7 +3555,7 @@ function _wireSollIstHover(){
             <div class="cbody">
               <div class="advisor-note">Diese Karte erklärt nur die Herleitung der Strategie. Vergleiche, Entscheidungen, Dokumentation und Umsetzung erfolgen anschliessend im Review.</div>
               <div id="aa-action-list" class="action-list">
-                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil, Ziele &amp; Beratungsvermögen</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die SOLL-Allokation wird stochastisch (Mulvey/Ziemba) aus dem Risikoprofil-Score, den priorisierten Lebenszielen und dem Beratungsvermögen hergeleitet.</div></div>
+                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil, Ziele &amp; Beratungsvermögen</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die SOLL-Allokation wird mit tausenden simulierten Marktverläufen aus dem Risikoprofil-Score, den priorisierten Lebenszielen und dem Beratungsvermögen hergeleitet.</div></div>
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Building Blocks pro Anlageklasse (CMA-Input), Bandbreiten und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Nächster Schritt</span><span class="tag tn">Einordnung</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Im Portfolio-Schritt folgt die Umsetzung in konkrete Wertschriften (ISIN). Vergleiche und Drift-Monitoring laufen im Review.</div></div>
               </div>
@@ -3559,25 +3564,25 @@ function _wireSollIstHover(){
           <!-- Phase 6: Optimizer-Panel -->
           <div class="card" id="al-optimizer-panel" style="display:none">
             <div class="chd">
-              <span class="cht">Stochastischer Optimizer</span>
+              <span class="cht">Optimierung mit simulierten Marktverläufen</span>
               <span class="rv-limiting-badge" id="opt-limiting-factor-badge" style="display:none"></span>
               <span class="opt-pill" id="opt-status-pill" style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px"></span>
             </div>
             <div class="cbody" style="display:grid;gap:12px">
               <div id="opt-fallback-banner" style="display:none;background:var(--warn-lt);border:1px solid rgba(122,82,0,0.25);border-radius:var(--r);padding:8px 10px;font-size:10px;color:var(--n6);line-height:1.4"></div>
               <details id="opt-reasoning-block" open>
-                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Reasoning-Trace</summary>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Herleitung</summary>
                 <ul id="opt-reasoning-list" style="margin:6px 0 0 18px;padding:0;font-size:10px;color:var(--n6);line-height:1.5"></ul>
               </details>
               <details id="opt-achievability-block">
-                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Zielerreichung (Entscheidungsmodell)</summary>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Erfolgswahrscheinlichkeit je Ziel</summary>
                 <div id="opt-plan-solvency" style="margin:6px 0"></div>
                 <table class="optimizer-table" id="opt-achievability-table">
                   <thead>
                     <tr>
                       <th>Ziel</th>
                       <th>H&auml;rte</th>
-                      <th title="Auf jedem Pfad werden die Ziele in Rangfolge finanziert (Rang 1 zuerst); das Ziel gilt als erreicht, wenn es nach allen h&ouml;her priorisierten Zielen voll finanziert ist.">Zielerreichung nach Priorit&auml;t</th>
+                      <th title="Erfolgswahrscheinlichkeit: Anteil der simulierten Verl&auml;ufe, in denen das Ziel vollst&auml;ndig erreicht wird. Auf jedem Verlauf werden die Ziele in Rangfolge finanziert (Rang 1 zuerst); das Ziel gilt als erreicht, wenn es nach allen h&ouml;her priorisierten Zielen voll finanziert ist.">Erfolgs-Wkt. (nach Priorit&auml;t)</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -3599,27 +3604,34 @@ function _wireSollIstHover(){
                 </table>
               </details>
               <details id="opt-sensitivity-block">
-                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Sensitivity-Analyse</summary>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Was-w&auml;re-wenn</summary>
                 <div id="opt-sensitivity-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
               </details>
-              <div id="opt-audit-footer" style="font-size:9px;color:var(--n4);font-family:var(--f-d);border-top:1px dashed var(--b1);padding-top:6px"></div>
+              <details class="tech" id="opt-tech-details" style="border-top:1px dashed var(--b1);padding-top:6px">
+                <summary>Technische Details</summary>
+                <div id="opt-audit-footer" style="font-size:9px;color:var(--n4);font-family:var(--f-d);margin-top:4px"></div>
+              </details>
             </div>
           </div>
-          <!-- V3 Sprint 1 Commit 4 (Plan §7): Methodenvergleich House Matrix vs. Shadow Stochastic. -->
+          <!-- V3 Sprint 1 Commit 4 (Plan §7): Methodenvergleich House Matrix vs. Shadow Stochastic.
+               UX-1 (Befund 14): kundenfaehig "Vergleichsmethode", Inhalt in
+               details.tech; im Consulting-Modus ausgeblendet (CSS oben). -->
           <div class="card" id="al-method-comparison-panel" style="display:none">
             <div class="chd">
-              <span class="cht">Methodenvergleich</span>
+              <span class="cht">Vergleichsmethode (Kontrollrechnung)</span>
               <span class="status-pill" id="method-comparison-pill" style="margin-left:auto"></span>
             </div>
             <div class="cbody optimizer-body">
+              <details class="tech" id="method-comparison-tech">
+              <summary>Technische Details</summary>
               <div id="method-comparison-note" class="advisor-note-shadow">Vergleich wird berechnet…</div>
               <table class="optimizer-table" id="method-comparison-table">
                 <thead>
                   <tr>
-                    <th>Assetklasse</th>
-                    <th>Aktiv</th>
-                    <th>Shadow</th>
-                    <th>Delta</th>
+                    <th>Anlageklasse</th>
+                    <th>Gew&auml;hlte Methode</th>
+                    <th>Vergleichsmethode</th>
+                    <th>Differenz</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -3629,10 +3641,10 @@ function _wireSollIstHover(){
                 <table class="optimizer-table" id="method-constraints-table">
                   <thead>
                     <tr>
-                      <th>Constraint</th>
+                      <th>Grenze</th>
                       <th>Wert</th>
-                      <th>Limit</th>
-                      <th>Slack</th>
+                      <th>Limite</th>
+                      <th title="Abstand zwischen Wert und Limite">Spielraum</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -3640,7 +3652,7 @@ function _wireSollIstHover(){
                 </table>
               </details>
               <details id="method-drivers-block">
-                <summary class="optimizer-summary" title="Gewichteter Verlustterm je Ziel auf dem gemeinsamen Pfad (weighted_loss_component_under_joint_path) &ndash; kein kausaler oder marginaler Zielanteil.">Goal-Driver (Shortfall-Beitrag, gemeinsamer Pfad)</summary>
+                <summary class="optimizer-summary" title="Gewichteter Anteil je Ziel an der gesamten Zielabweichung auf dem gemeinsamen simulierten Verlauf &ndash; kein kausaler oder marginaler Zielanteil.">Treiber der Zielabweichung</summary>
                 <table class="optimizer-table" id="method-drivers-table">
                   <thead>
                     <tr>
@@ -3648,13 +3660,14 @@ function _wireSollIstHover(){
                       <th>Ziel</th>
                       <th>Härte</th>
                       <th>Gewicht</th>
-                      <th>Beitrag (milli)</th>
+                      <th>Beitrag</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
                 </table>
               </details>
               <div id="method-comparison-audit" class="optimizer-audit"></div>
+              </details>
             </div>
           </div>
           <div class="card" id="al-planning-card">
@@ -3907,7 +3920,7 @@ function _wireSollIstHover(){
             </div>
           </div>
           <div class="rv-cockpit-tile">
-            <div class="rv-cockpit-kicker">Zielerreichung nach Priorit&auml;t</div>
+            <div class="rv-cockpit-kicker">Erfolgswahrscheinlichkeit nach Priorit&auml;t</div>
             <div id="rv-goal-achievability-list" class="rv-goal-list"><div style="font-size:10px;color:var(--n4)">Noch keine stochastische Zielerreichung vorhanden.</div></div>
           </div>
           <details id="rv-details-accordion" class="rv-cockpit-tile">
@@ -4093,7 +4106,7 @@ function _wireSollIstHover(){
               </div>
               <div class="calc-stage" data-calc-step="2">
                 <div class="calc-stage-top"><span class="calc-stage-dot"></span><span class="calc-stage-name">Risikoprofil als Leitplanke anwenden</span></div>
-                <div class="calc-stage-desc">Die maximale Risky Fraction und die House-Matrix setzen den disziplinierten Rahmen für die Strategie.</div>
+                <div class="calc-stage-desc">Das maximale Risikobudget und die Hausmatrix setzen den disziplinierten Rahmen für die Strategie.</div>
               </div>
               <div class="calc-stage" data-calc-step="3">
                 <div class="calc-stage-top"><span class="calc-stage-dot"></span><span class="calc-stage-name">Strategie und Projektion ableiten</span></div>
@@ -7808,21 +7821,34 @@ function engineMarketRuntimeCard(label,value,sub){
     +(sub?('<div class="market-runtime-s">'+escapeHtml(sub)+'</div>'):'')
     +'</div>';
 }
+// UX-1 (Befund 14): Prognosehorizont aus dem Payload (projection_horizon, #645)
+// statt hart codiert '7J'; Fallback Simulationshorizont, sonst neutral.
+function engineProjectionHorizonSub(result,sim){
+  var info=result&&result.projection_horizon&&typeof result.projection_horizon==='object'?result.projection_horizon:null;
+  var years=parseInt(String((info&&info.years)||(sim&&sim.horizon_years)||''),10);
+  if(isFinite(years)&&years>0)return 'Erwartung p.a. · Prognosehorizont '+years+' Jahre · Basis Beratungsvermögen';
+  return 'Erwartung p.a. · Basis Beratungsvermögen';
+}
+function engineRebalanceModeLabel(mode){
+  var key=String(mode||'bands');
+  var map={bands:'Bandbreiten',calendar:'Jährlich',none:'Kein Rebalancing'};
+  return map[key]||key;
+}
 function buildEngineSummaryCards(result, sim, mc){
   var advisoryChf=Math.round(Number(result.advisory_wealth_rappen||0)/100);
   var totalChf=Math.round(Number(result.total_wealth_rappen||0)/100);
   var rebalanceCount=sim&&Array.isArray(sim.rebalancing_events)?sim.rebalancing_events.length:0;
   return [
     {label:'House Matrix',value:(result.house_matrix_profile||'n/a')+' / Score '+String(result.score_bucket||'-'),sub:'Risikoprofil setzt das Maximalbudget'},
-    {label:'Risk Budget',value:formatBpsPercent(result.risk_budget_bps||0),sub:'Gewichtete Risky Fraction erlaubt'},
-    {label:'Risky Fraction',value:formatBpsPercent(result.risky_fraction_total_bps||0),sub:'Headroom '+formatBpsPercent(result.risky_fraction_headroom_bps||0)},
-    {label:'Liquiditaetsbedarf',value:formatRappen(result.reserve_needed_rappen||0),sub:'Laufend '+formatRappen(result.recurring_net_cashflow_rappen!=null?result.recurring_net_cashflow_rappen:result.annual_net_cashflow_rappen||0)+' · Kapital '+formatRappen(result.capital_net_cashflow_rappen||0)},
+    {label:'Risikobudget',value:formatBpsPercent(result.risk_budget_bps||0),sub:'Erlaubter Anteil risikobehafteter Anlagen'},
+    {label:'Risikobehafteter Anteil',value:formatBpsPercent(result.risky_fraction_total_bps||0),sub:'Spielraum bis Risikobudget '+formatBpsPercent(result.risky_fraction_headroom_bps||0)},
+    {label:'Liquiditätsbedarf',value:formatRappen(result.reserve_needed_rappen||0),sub:'Laufend '+formatRappen(result.recurring_net_cashflow_rappen!=null?result.recurring_net_cashflow_rappen:result.annual_net_cashflow_rappen||0)+' · Kapital '+formatRappen(result.capital_net_cashflow_rappen||0)},
     {label:'Beratungsvermögen',value:formatCompactCHF(advisoryChf),sub:totalChf?Math.round(advisoryChf/Math.max(1,totalChf)*100)+'% des Gesamtvermögens':'Kein Gesamtvermögen'},
-    {label:'Rendite / Vol',value:((Number(result.expected_return_bps||0)/100).toFixed(2))+'% / '+((Number(result.expected_volatility_bps||0)/100).toFixed(2))+'%',sub:'7J-Projektion auf Advisory-Basis'},
-    {label:'Aktiengewicht',value:formatBpsPercent((result.asset_class_risky_weights_bps||{}).equities||0),sub:'Hinterlegte Risky Fraction Aktien'},
-    {label:'Rebalancing',value:rebalanceCount?String(rebalanceCount)+' Event(s)':'Im Band',sub:sim?('Modus '+String(sim.rebalance_mode||'bands')):'Noch keine Simulation'},
-    {label:'Monte Carlo',value:mc?(String(mc.simulations||0)+' Pfade'):'n/a',sub:mc?('P50 '+((Number(mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'% p.a.'):'Noch keine Pfadsimulation'},
-    {label:'Downside',value:mc?(String(mc.target_downside_probability_pct||0)+'%'):'n/a',sub:'Anteil Zielpfade unter Startwert'}
+    {label:'Rendite / Volatilität',value:((Number(result.expected_return_bps||0)/100).toFixed(2))+'% / '+((Number(result.expected_volatility_bps||0)/100).toFixed(2))+'%',sub:engineProjectionHorizonSub(result,sim)},
+    {label:'Aktiengewicht',value:formatBpsPercent((result.asset_class_risky_weights_bps||{}).equities||0),sub:'Risikobehafteter Anteil aus Aktien'},
+    {label:'Rebalancing',value:rebalanceCount?String(rebalanceCount)+(rebalanceCount===1?' Anpassung':' Anpassungen'):'Innerhalb Bandbreiten',sub:sim?('Modus: '+engineRebalanceModeLabel(sim.rebalance_mode)):'Noch keine Simulation'},
+    {label:'Simulation',value:mc?(String(mc.simulations||0)+' Verläufe'):'n/a',sub:mc?('Median-Rendite '+((Number(mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'% p.a.'):'Noch keine Simulation'},
+    {label:'Verlustrisiko',value:mc?(String(mc.target_downside_probability_pct||0)+'%'):'n/a',sub:'Anteil der Verläufe unter Startwert'}
   ];
 }
 function buildMarketRuntimeHtml(result){
@@ -7922,11 +7948,21 @@ function buildMonteCarloGoalsHtml(mc){
   if(!(mc&&Array.isArray(mc.goal_summaries)&&mc.goal_summaries.length)){
     return engineRuntimeInfoBox('Keine Zielpfade berechnet.');
   }
+  // UX-1 (Befund 8): EINE Primaerkennzahl -- Erfolgswahrscheinlichkeit
+  // (success_rate_pct) traegt die Ampel; Erreichungsgrad (Median) sekundaer.
+  // Reine Anzeige, die Werte kommen unveraendert aus dem Payload.
   return mc.goal_summaries.slice(0,4).map(function(item){
-    var score=Number(item.score||0);
-    var tone=score>=70?'var(--pos)':(score>=45?'var(--warn)':'var(--neg)');
-    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.label||'Ziel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Pfaderfolg '+escapeHtml(String(item.success_rate_pct||0))+'% / P50 '+escapeHtml(formatRappen(item.projected_value_p50_rappen||0))+'</div></div><div style="text-align:right"><div style="font-size:10px;color:'+tone+';font-weight:600">'+escapeHtml(String(score))+'%</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Funded '+escapeHtml(String(Math.round(Number(item.funded_ratio_p50||0)*100)))+'%</div></div></div>';
-  }).join('');
+    var success=Number(item.success_rate_pct||0);
+    var tone=success>=70?'var(--pos)':(success>=45?'var(--warn)':'var(--neg)');
+    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.label||'Ziel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Medianverm\u00f6gen '+escapeHtml(formatRappen(item.projected_value_p50_rappen||0))+'</div></div><div style="text-align:right"><div style="font-size:10px;color:'+tone+';font-weight:600" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">Erfolgs-Wkt. '+escapeHtml(String(success))+'%</div><div style="font-size:9px;color:var(--n5);margin-top:3px" title="Erreichter Anteil des Ziels im mittleren Szenario (Median), auf 100 % begrenzt">Erreichungsgrad (Median) '+escapeHtml(String(Math.min(100,Math.round(Number(item.funded_ratio_p50||0)*100))))+'%</div></div></div>';
+  }).join('')+goalAmpelLegendHtml();
+}
+// UX-1 (Befund 8): einheitliche Begriffe und sichtbare Ampel-Legende fuer
+// alle Anzeigen, die nach den Schwellen 70/45 eingefaerbt werden.
+var GOAL_SUCCESS_PROBABILITY_TOOLTIP='Anteil der simulierten Verl\u00e4ufe, in denen das Ziel vollst\u00e4ndig erreicht wird';
+var GOAL_AMPEL_LEGEND_TEXT='Ampel: \u2265 70 % gut \u00b7 45\u201369 % knapp \u00b7 < 45 % kritisch';
+function goalAmpelLegendHtml(){
+  return '<div class="goal-ampel-legend" style="font-size:9px;color:var(--n5);padding:2px 2px 0">'+escapeHtml(GOAL_AMPEL_LEGEND_TEXT)+'</div>';
 }
 function allocationMessages(result){
   return result&&Array.isArray(result.messages)?result.messages:[];
@@ -7993,7 +8029,7 @@ function goalAchievabilityIsLegacy(row){
   return !!row&&row.evaluation_scope!=='priority_funded';
 }
 var PLAN_SOLVENCY_LABEL='Plan-Solvenz (alle Ziele gemeinsam)';
-var PRIORITY_FUNDED_LABEL='Zielerreichung nach Priorit\u00e4t';
+var PRIORITY_FUNDED_LABEL='Erfolgswahrscheinlichkeit nach Priorit\u00e4t';
 function planSolvencyHtml(plan){
   if(!plan)return '';
   var pct=Math.round(Number(plan.probability||0)*100);
@@ -18820,17 +18856,17 @@ function ensureAllocationRuntimePanels(){
       wrap.style.margin='0 24px 16px';
       wrap.innerHTML=''
         + '<div class="card">'
-        + '<div class="chd"><span class="cht">Engine & Markt-Setup</span><span style="font-size:9px;color:var(--n4)">Risikobudget, House Matrix, Liquiditaet und Marktdaten</span></div>'
+        + '<div class="chd"><span class="cht">Engine & Markt-Setup</span><span style="font-size:9px;color:var(--n4)">Risikobudget, Hausmatrix, Liquidität und Marktdaten</span></div>'
         + '<div class="cbody">'
         + '<div id="aa-engine-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px"></div>'
-        + '<div style="padding-top:8px;border-top:1px solid var(--b1)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Engine-Reasoning</div><div id="aa-engine-rationale" style="display:flex;flex-direction:column;gap:6px"></div></div>'
+        + '<div style="padding-top:8px;border-top:1px solid var(--b1)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Herleitung</div><div id="aa-engine-rationale" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Marktdaten & Kapitalmarktannahmen</div><div id="aa-market-runtime" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Live-Drift & Rebalancing</div><div id="aa-live-summary" style="display:flex;flex-direction:column;gap:6px"></div><div id="aa-live-assets" style="display:flex;flex-direction:column;gap:5px;margin-top:8px"></div><div id="aa-live-positions" style="display:flex;flex-direction:column;gap:5px;margin-top:8px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Simulation & Rebalancing</div><div id="aa-sim-events" style="display:flex;flex-direction:column;gap:6px"></div></div>'
-        + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Monte Carlo (Umsetzungsprojektion)</div><div id="aa-mc-summary" style="display:flex;flex-direction:column;gap:6px"></div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin:10px 0 6px">Ziel-Pfadanalyse (Umsetzungsprojektion)</div><div id="aa-mc-goals" style="display:flex;flex-direction:column;gap:6px"></div></div>'
+        + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Monte Carlo (Umsetzungsprojektion)</div><div id="aa-mc-summary" style="display:flex;flex-direction:column;gap:6px"></div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin:10px 0 6px">Erfolgswahrscheinlichkeit je Ziel (Umsetzungsprojektion)</div><div id="aa-mc-goals" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '</div></div>'
         + '<div class="card">'
-        + '<div class="chd"><span class="cht">Building Blocks & Risk Weights</span><span style="font-size:9px;color:var(--n4)">Subanlageklassen, Zielquote und Risky Fraction</span></div>'
+        + '<div class="chd"><span class="cht">Bausteine & Risikogewichte</span><span style="font-size:9px;color:var(--n4)">Subanlageklassen, Zielquote und risikobehafteter Anteil</span></div>'
         + '<div class="cbody">'
         + '<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Asset-Class-Annahmen</div><div id="aa-assumption-table" style="display:flex;flex-direction:column;gap:5px"></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Aktive Subanlageklassen</div><div id="aa-suballoc-table" style="display:flex;flex-direction:column;gap:5px"></div></div>'
@@ -22233,24 +22269,33 @@ function renderGoalAchievementSollIst(result){
   var pct=function(v){ var n=Number(v); return isFinite(n)?(Math.max(0,Math.min(100,Math.round(n)))+'%'):'—'; };
   var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+Math.round(n/100).toLocaleString('de-CH')):'—'; };
   var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
+  // UX-1 (Befund 8): Primaerkennzahl = Erfolgswahrscheinlichkeit (path_success_rate_pct,
+  // nur aus der Simulation; ohne Simulationswert '—', kein deterministischer 0/100-Ersatz).
+  // Sekundaer: Erreichungsgrad im mittleren Szenario (median_achievement_pct = Median,
+  // NICHT P25) und der Fehlbetrag im unguenstigen Szenario (P25-Pfad).
+  var successOf=function(g){ return g&&g.path_success_rate_pct!=null?g.path_success_rate_pct:null; };
+  var successCell=function(v,strong){ return '<td style="text-align:right;padding:6px 8px;'+(strong?'font-weight:600;':'')+'color:'+(v==null?'var(--n5)':tone(v))+'">'+(v==null?'—':pct(v))+'</td>'; };
   var rows=soll.map(function(g){
     var i=istById[String(g.goal_id)]||{};
     return '<tr style="border-bottom:1px solid var(--bg2)">'
       +'<td style="padding:6px 8px;font-family:var(--f);color:var(--n7)">'+escapeHtml(g.label||'Ziel')+'</td>'
-      +'<td style="text-align:right;padding:6px 8px;font-weight:600;color:'+tone(g.median_achievement_pct)+'">'+pct(g.median_achievement_pct)+'</td>'
-      +'<td style="text-align:right;padding:6px 8px;color:'+tone(i.median_achievement_pct)+'">'+pct(i.median_achievement_pct)+'</td>'
-      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Fehlbetrag im pessimistischen Szenario (SOLL / IST)">'+chf(g.pessimistic_shortfall_rappen)+' / '+chf(i.pessimistic_shortfall_rappen)+'</td>'
+      +successCell(successOf(g),true)
+      +successCell(successOf(i),false)
+      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">'+pct(g.median_achievement_pct)+' / '+pct(i.median_achievement_pct)+'</td>'
+      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">'+chf(g.pessimistic_shortfall_rappen)+' / '+chf(i.pessimistic_shortfall_rappen)+'</td>'
       +'</tr>';
   }).join('');
   el.style.display='';
   el.innerHTML='<div style="border:1px solid var(--b1);border-radius:8px;overflow:hidden">'
-    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Zielerreichung je Ziel — SOLL vs IST (Median; Fehlbetrag pessimistisch)</div>'
+    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Erfolgswahrscheinlichkeit je Ziel — SOLL vs IST</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:11px"><thead>'
     +'<tr style="border-bottom:1px solid var(--b1)"><th style="text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Ziel</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:rgb(22,101,52)">SOLL</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)">IST</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Fehlbetrag S/I</th></tr>'
-    +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table></div>';
+    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:rgb(22,101,52)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (SOLL-Strategie)">Erfolgs-Wkt. SOLL</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (heutige Anlage)">IST</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">Erreichungsgrad (Median) S/I</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">Fehlbetrag ung\u00fcnstig (P25) S/I</th></tr>'
+    +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table>'
+    +'<div style="padding:4px 8px 6px">'+goalAmpelLegendHtml()+'</div></div>';
 }
 function applyAllocationEngineResult(result){
   var payloadMandateId=allocationPayloadMandateId(result);
@@ -28983,7 +29028,7 @@ function renderAllocationMethodComparison(result){
   setStatusPill(
     pill,
     cmp.shadow_status||'',
-    cmp.shadow_status==='converged'?'Shadow konvergiert':'Vergleich'
+    cmp.shadow_status==='converged'?'Vergleich konvergiert':'Vergleich'
   );
 
   var note=document.getElementById('method-comparison-note');
@@ -29091,12 +29136,12 @@ function renderAllocationMethodComparison(result){
   var audit=document.getElementById('method-comparison-audit');
   if(audit){
     var bits=[
-      'Aktiv: '+(cmp.active_method||'—'),
-      'Shadow: '+(cmp.shadow_method||'—'),
+      'Gew\u00e4hlte Methode: '+(cmp.active_method||'—'),
+      'Vergleichsmethode: '+(cmp.shadow_method||'—'),
       'Status: '+(cmp.shadow_status||'—')
     ];
     if(cmp.objective_delta_pct!=null){
-      bits.push('Objective-Delta: '+Number(cmp.objective_delta_pct).toFixed(2)+'%');
+      bits.push('Differenz Zielfunktion: '+Number(cmp.objective_delta_pct).toFixed(2)+'%');
     }
     audit.textContent=bits.join(' | ');
   }
@@ -29146,15 +29191,15 @@ function renderOptimizerPanel(result){
     var bannerMsg='';
     if(status==='fallback_house_matrix'){
       bannerMsg='Solver konvergierte nicht — Fallback auf House-Matrix-Mittelwert '
-        +'(Bandbreiten-Default des Risikoprofils). Reasoning unten erklaert warum.';
+        +'(Bandbreiten-Default des Risikoprofils). Die Herleitung unten erkl\u00e4rt, warum.';
     }else if(status==='diverged_infeasible'){
-      bannerMsg='Solver hat eine Loesung berechnet, die ausserhalb der '
-        +'House-Matrix-Bandbreiten liegt (Constraints verletzt). '
-        +'Bitte Risikoprofil oder Renditeziel pruefen — gezeigte Gewichte '
-        +'sind kein gueltiger Anlagevorschlag.';
+      bannerMsg='Solver hat eine L\u00f6sung berechnet, die ausserhalb der '
+        +'House-Matrix-Bandbreiten liegt (Grenzen verletzt). '
+        +'Bitte Risikoprofil oder Renditeziel pr\u00fcfen — gezeigte Gewichte '
+        +'sind kein g\u00fcltiger Anlagevorschlag.';
     }else if(status==='diverged'){
       bannerMsg='Solver konvergierte nicht. Keine optimale Allokation '
-        +'gefunden — Reasoning unten erklaert warum. Bitte erneut '
+        +'gefunden — die Herleitung unten erkl\u00e4rt, warum. Bitte erneut '
         +'optimieren oder Eingabedaten anpassen.';
     }
     if(bannerMsg){
@@ -29184,7 +29229,7 @@ function renderOptimizerPanel(result){
     var seed=ta.optimization_seed!=null?String(ta.optimization_seed):'—';
     var iter=ta.optimization_iterations!=null?String(ta.optimization_iterations):'—';
     var obj=ta.optimization_objective_value_milli!=null?(Number(ta.optimization_objective_value_milli)/1000).toExponential(3):'—';
-    footer.textContent='Method: '+method+' | Status: '+(status||'—')+' | Seed: '+seed+' | Iter: '+iter+' | L(w*): '+obj;
+    footer.textContent='Methode: '+method+' | Status: '+(status||'—')+' | Seed: '+seed+' | Iterationen: '+iter+' | Zielfunktionswert: '+obj;
   }
 }
 function renderStressTable(stressEvals){
@@ -29260,7 +29305,7 @@ function renderSensitivitySlidersForResult(result){
     row.innerHTML=''
       +'<div style="display:flex;justify-content:space-between;align-items:center">'
       +  '<span style="font-size:11px;font-weight:500">'+escapeHtml(label)+'</span>'
-      +  '<span class="tag tn" style="font-size:9px">Was-wenn</span>'
+      +  '<span class="tag tn" style="font-size:9px">Was-w\u00e4re-wenn</span>'
       +'</div>'
       +'<div style="display:flex;gap:4px;flex-wrap:wrap">'
       +  ['-20','-10','0','10','20'].map(function(d){
@@ -29304,7 +29349,7 @@ function runSensitivityCall(btn){
     if(dPct!=null){
       var sign=Number(dPct)>=0?'+':'';
       var direction=Number(dPct)<0?' (besser erreichbar)':(Number(dPct)>0?' (schwerer erreichbar)':'');
-      msg+=' | Objective '+sign+Number(dPct).toFixed(1)+'%'+direction;
+      msg+=' | Zielabweichung '+sign+Number(dPct).toFixed(1)+'%'+direction;
     }else if(body.delta_objective_unavailable_reason){
       // Ohne diesen Zweig blieb das Feld einfach leer -- von "0 %
       // Veraenderung" nicht zu unterscheiden.

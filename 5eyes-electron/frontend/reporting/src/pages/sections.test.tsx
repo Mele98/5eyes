@@ -137,8 +137,8 @@ describe('Section 4: Ausgangslage', () => {
 
   it('rendert alle 6 KPI-Karten', () => {
     render(withRouter(<Ausgangslage data={makeAusgangslage()} />));
-    expect(screen.getByText('Risky-Fraction')).toBeInTheDocument();
-    expect(screen.getByText('Zielerreichung')).toBeInTheDocument();
+    expect(screen.getByText('Risikobehafteter Anteil')).toBeInTheDocument();
+    expect(screen.getByText('Erfolgs-Wkt. gesamt')).toBeInTheDocument();
     expect(screen.getByText('Erw. Volatilität')).toBeInTheDocument();
     expect(screen.getByText('Erw. Rendite')).toBeInTheDocument();
     expect(screen.getByText('Max Drawdown')).toBeInTheDocument();
@@ -163,7 +163,7 @@ describe('Section 4: Ausgangslage', () => {
       var_95_bps: null,
     };
     render(withRouter(<Ausgangslage data={data} />));
-    expect(screen.getByText('Risky-Fraction')).toBeInTheDocument();
+    expect(screen.getByText('Risikobehafteter Anteil')).toBeInTheDocument();
     // Die 5 null-Metriken werden NICHT als Karten gerendert.
     expect(screen.queryByText('Erw. Volatilität')).not.toBeInTheDocument();
     expect(screen.queryByText('VaR 95 %')).not.toBeInTheDocument();
@@ -427,7 +427,12 @@ describe('Section 11: Goals', () => {
     expect(kpi).toHaveTextContent('Plan-Solvenz (alle Ziele gemeinsam)');
     expect(kpi).toHaveTextContent('46 %');
     expect(screen.getAllByText('Plan-Solvenz (alle Ziele gemeinsam)')).toHaveLength(1);
-    expect(screen.getByText('Zielerreichung nach Priorität')).toBeInTheDocument();
+    expect(screen.getByText('Erfolgs-Wkt.')).toBeInTheDocument();
+    expect(screen.getByText('Erfolgswahrscheinlichkeit gesamt (gewichtet)')).toBeInTheDocument();
+    expect(screen.getByTestId('goals-scope-note')).toHaveTextContent(
+      'Anteil der simulierten Verläufe, in denen das Ziel vollständig erreicht wird',
+    );
+    expect(screen.getByTestId('goals-scope-note')).toHaveTextContent('Rangfolge');
     expect(screen.queryByText('Wahrscheinlichkeit')).not.toBeInTheDocument();
   });
 
