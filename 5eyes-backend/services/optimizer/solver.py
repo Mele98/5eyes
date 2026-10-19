@@ -1400,14 +1400,14 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # gedeckelt); ObjectiveContractV2. Doku: docs/planning/2026-10-18-maximize-
 # goal-and-hardness.md. Bewusst neue Wuerfel (die Version geht in den Seed).
 #
-# v9_reach (2026-10-19, GOAL-REACHABILITY-CERTIFICATE-001, CIO-Entscheid
+# v9 (2026-10-19, GOAL-REACHABILITY-CERTIFICATE-001, CIO-Entscheid
 # nach Codex-Befund zu #650): herabgestuft (Wunschziel, nicht Stufe 1) wird
 # nur noch ein ZERTIFIZIERT unerreichbares Ziel -- Maximierung seiner
 # geglaetteten Erfolgswahrscheinlichkeit ueber die zulaessige Menge
 # (Multi-Start: alle Screen-Kandidaten + Zentrum), obere Wilson-Grenze
-# (Kish-ESS) des Optimums < tau/2 auf dem Screening-Wuerfel. Vorlaeufiger
-# Name; wird beim Merge mit dem parallelen v9 vereinheitlicht.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v9_reach"
+# (Kish-ESS) des Optimums < tau/2 auf dem Screening-Wuerfel. (Die
+# Priority-Replay-Arbeit folgt als v10.)
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v9"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und

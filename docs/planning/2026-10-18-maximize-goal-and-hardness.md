@@ -202,7 +202,7 @@ Fundament (develop 854ee8e → v8): 6491/1051/1907/300/251 → 6184/1501/1764/30
 5. Hart vs. Wahrscheinlichkeit: Stufe 1 schuetzt die Zielebene (Fehlbetrag + weiche Strafe), nicht die Wahrscheinlichkeit allein; bei ambitionierten Zielen kann "hart" die Streuung senken, ohne P zu erhoehen (1.6 Mio: 52.2 → 52.0 %).
 6. Zielverzicht als expliziter Kundenentscheid (Ziel-ID, Grund, Zeitpunkt, Widerruf) statt Ausnahme.
 
-## 12. Nachtrag Codex-Befund zu #650: zertifizierte Unerreichbarkeit (Engine `saa_resampled_v9_reach`)
+## 12. Nachtrag Codex-Befund zu #650: zertifizierte Unerreichbarkeit (Engine `saa_resampled_v9`)
 
 **Befund (Codex, docs/audits/2026-10-19-maximize-goal-hardness-pr650-current-review.md, Abschnitt 4):** `_demoted_goal_ids()` uebernahm alle `not_found_reachable_goal_ids` des endlichen Screens. Ein hartes Ziel, das beide geprueften Endpunkte verfehlen, eine zulaessige 50/50-Innenallokation aber auf allen 200 Pfaden erfuellt, verlor damit Stufe 1 und bekam das Wunschziel-Gewicht. Der Reproducer ist als regulaerer Test uebernommen (`tests/test_goal_reachability_certificate.py`, rot auf develop exakt an `_stage1_liabilities(context) == [goal]`).
 

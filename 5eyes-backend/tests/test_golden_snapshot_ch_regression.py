@@ -221,15 +221,16 @@ Risikoanteil 69.17 -> 68.36 %). Nachweis der Ursache: mit Haertegrad-Teiler
 Begruendung: docs/planning/2026-10-18-maximize-goal-and-hardness.md.
 
 Nachtrag (2026-10-19, GOAL-REACHABILITY-CERTIFICATE-001, Engine
-``saa_resampled_v9_reach``): Herabstufung nur noch bei zertifizierter
-Unerreichbarkeit. Unter Haswell UND Nehalem neu erzeugt, byte-identisch.
-Mit dem v8-Seed (Version erzwungen, Experiment) sind ALLE sechs Fixtures
-byte-identisch zu v8 -- die neue Logik aendert hier nichts (kein Golden-
-Mandat hat ein Screen-Miss-Ziel). Geaendert nur durch den neuen Wuerfel
-(die Engine-Version geht in den Inhalts-Seed): Score 7 6734/1674/810/582/200
--> 6764/1641/809/586/200 (526/1071 -> 528/1076 bps), Score 9
-7799/959/670/372/200 -> 7783/977/685/355/200 (572/1227 -> 572/1225 bps);
-Score 3/5 unveraendert.
+``saa_resampled_v9``): Herabstufung nur noch bei zertifizierter
+Unerreichbarkeit. Unter Haswell UND Nehalem (Threads = 1) neu erzeugt, beide
+byte-identisch. Mit dem v8-Seed (Version erzwungen, Experiment) sind ALLE
+sechs Fixtures byte-identisch zu v8 -- die neue Logik aendert hier nichts
+(kein Golden-Mandat hat ein Screen-Miss-Ziel). Geaendert nur durch den
+neuen Wuerfel (die Engine-Version geht in den Inhalts-Seed; harte Pension,
+Stufe-1-Toleranz ein Zehntel des Rauschens): Score 7
+6734/1674/810/582/200 -> 6770/1631/800/599/200 (526/1071 -> 528/1077 bps),
+Score 9 7799/959/670/372/200 -> 7858/855/697/390/200 (572/1227 -> 575/1238
+bps); Score 3 und alle drei Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 

@@ -267,7 +267,7 @@ def test_disclosure_fields_are_complete_and_in_the_model_basis():
 
     result = _run("D_wachstum_sparen", 1.0)
     payload = result.resampling
-    assert payload["engine_version"] == "saa_resampled_v9_reach"
+    assert payload["engine_version"] == "saa_resampled_v9"
     assert "significance" not in payload
     block = payload["house_prior"]
     assert HOUSE_PRIOR_KAPPA == 300.0
@@ -597,14 +597,48 @@ def test_kappa_limits_move_from_free_optimizer_to_the_house_quota(monkeypatch):
     # kappa -> unendlich zieht nur bis an die Zielschutz-Schranke G1* + eps,
     # nicht mehr bis auf die Hausquote (v6: TE <= 5 bps). Der Prior wirkt
     # weiterhin: grosses kappa liegt naeher an der Hausquote.
-    # GOAL-REACHABILITY-CERTIFICATE-001 (Engine v9_reach): fuer D liegen
-    # beide kappa an derselben Stufe-1-Grenze; die strikte Ungleichung war
-    # ein Seed-Muenzwurf (v8-Inhaltsseed: 108.6 < 111.9; v9_reach: 105.7 vs
-    # 104.9; feste Seeds 11/12/13: +3.3/+1.5/-1.0 bps). Mit dem v8-Seed ist
-    # dieser Test auf v9_reach unveraendert gruen -- die Abweichung kommt
-    # nur vom neuen Wuerfel. Geprueft wird darum "nicht materiell weiter
-    # weg" (5 bps) plus unten die eigentliche Schranke.
-    assert tes[1e6] <= tes[3.0] + 5.0, tes
+    # GOAL-REACHABILITY-CERTIFICATE-001 (Engine v9, CIO-Abnahme #655): bei D
+    # bestimmt die Stufe-1-Zielschutz-Schranke das Ergebnis, nicht kappa --
+    # in JEDEM Bag verletzt das Optimum der vollen Zielfunktion die Schranke
+    # und die Auswahl laeuft mit ihr als Nebenbedingung (``constraint_pass``,
+    # Ergebnis nahe dem Stufe-1-Minimierer, kappa-unabhaengig). Der Abstand
+    # zur Hausquote haengt dann am Wuerfel, nicht am Prior: TE(1e6) - TE(3)
+    # = -3.4 (v8-Seed), +0.8 (Zwischenstand v9_reach), +16.2 bps (v9; 85.3
+    # vs 101.5), feste Seeds 11/12/13: +3.3/+1.5/-1.0. Eine TE-Toleranz
+    # waere daher Seed-Anpassung; geprueft wird stattdessen die Ursache
+    # (Schranke in allen Bags aktiv) und unten die Schranke selbst. Die
+    # eigentliche kappa-Monotonie sichert
+    # ``test_kappa_limits_without_binding_goal_protection_are_monotone``.
+    for kappa in (3.0, 1e6):
+        assert all(a is not None and a["constraint_pass"] for a in audits[kappa]), kappa
     for audit in audits[1e6]:
         assert audit is not None
         assert audit["final_level"] <= audit["bound"] * (1.0 + 1e-6)
+
+
+def test_kappa_limits_without_binding_goal_protection_are_monotone(monkeypatch):
+    """CIO-Abnahme #655: kappa-Monotonie auf einem Mandat OHNE Stufe 1.
+
+    Referenzmandat A mit opportunistischem statt hartem Ziel: kein
+    geschuetztes Ziel, keine Zielschutz-Schranke (``goal_protection`` None
+    in jedem Bag). Dort muss der Prior ungehindert wirken: kappa -> unendlich
+    landet auf der (projizierten) Hausquote, kleines kappa deutlich weiter
+    weg. Gemessen (v9): TE 30.9 bps (kappa 3) -> 0.0 bps (kappa 1e6).
+    """
+    config = ResamplingConfig(n_bags=8, bag_n_paths=500)
+    m = MANDATES["A_ausgewogen_sparen"]
+    inputs = _inputs(
+        "A_ausgewogen_sparen", 1.0,
+        goals=[_goal("A_ausgewogen_sparen", m["goal"], m["goal_years"], "Opportunistisch")],
+    )
+    tes = {}
+    for kappa in (3.0, 1e6):
+        monkeypatch.setattr(solver_module, "HOUSE_PRIOR_KAPPA", kappa)
+        result = solver_module.run_solver(**inputs, resampling=config)
+        block = result.resampling["house_prior"]
+        assert block["kappa"] == kappa
+        assert all(b["goal_protection"] is None for b in result.resampling["bags"])
+        tes[kappa] = block["candidate_tracking_error_vs_house_bps"]
+    assert tes[1e6] < tes[3.0], tes
+    assert tes[1e6] <= 5.0, tes
+    assert tes[3.0] >= 10.0, tes
