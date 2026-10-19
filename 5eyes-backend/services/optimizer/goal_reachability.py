@@ -74,7 +74,8 @@ Pruefmenge ``K`` zulaessiger Allokationen:
 
 Bewertet wird auf dem NOMINALEN, unabhaengigen Validierungswuerfel (kein
 Importance Sampling, eigener Seed) mit genau der Erfolgsdefinition der
-Chance-Strafe (``_goal_probability_core``, gemeinsamer Pfad). Ein Ziel mit
+Chance-Strafe (``_goal_probability_core`` auf dem priorisierten Scope des
+Ziels, direkter Replay seit Engine v10). Ein Ziel mit
 Ziel-Untergrenze (Haertegrad hart/primaer, nicht ``maximize``, nicht
 ausserhalb des Horizonts) heisst **praktisch unerreichbar**, wenn
 
@@ -332,8 +333,18 @@ def certify_goal_reachability(
         "max_probability": 0.0, "best_w": None, "n_evaluations": 0,
     }
 
+    from .priority_scope import _scope_differs
+
+    scoped_goal = _scope_differs(goal)
+
     def evaluate(w: np.ndarray, *, feasible: bool) -> np.ndarray | None:
         wealth = _solver._simulate_context_wealth(screening_context, w)
+        if scoped_goal:
+            # Engine v10: das Ziel auf seinem priorisierten Scope (direkter
+            # Replay), derselbe Pfad wie Zielfunktion und Publikation.
+            wealth = _solver._context_scope_wealth(
+                screening_context, w, wealth,
+            ).for_goal(goal)
         annualized = _solver._annualized_twr_bps_per_path(screening_context, w)
         state["n_evaluations"] += 1
         if feasible:
@@ -452,6 +463,9 @@ def goal_reachability_screen(context) -> dict | None:
     }
     mode = objective_contract_of(context).objective_mode
     risk_variant = mode != OBJECTIVE_GOAL_SHORTFALL
+    from .priority_scope import _scope_differs, scope_wealth_for
+
+    any_scoped = any(_scope_differs(goal) for goal in validation_context.liabilities)
     evaluated = 0
     for w in candidates:
         # Default: Entscheid an tau/2 genuegt. Risikomass-Variante: ein Ziel
@@ -464,11 +478,18 @@ def goal_reachability_screen(context) -> dict | None:
             break
         evaluated += 1
         wealth = _solver._simulate_context_wealth(validation_context, w)
+        # Engine v10: jedes Ziel auf seinem priorisierten Scope (direkter
+        # Replay, nur wenn ein Scope vom gemeinsamen Pfad abweicht).
+        scopes = (
+            _solver._context_scope_wealth(validation_context, w, wealth)
+            if any_scoped
+            else scope_wealth_for(wealth, validation_context.liabilities, None)
+        )
         annualized = _solver._annualized_twr_bps_per_path(validation_context, w)
         for gid in open_ids:
             row = state[gid]
             success = _goal_probability_core(
-                wealth,
+                scopes.for_goal(row["goal"]),
                 row["goal"],
                 validation_context.advisory_wealth_rappen,
                 annualized_return_bps_per_path=annualized,

@@ -26,6 +26,12 @@ def _goal_row(goal_id, label, probability, status, *, hardness="hart", event=Non
         "hardness": hardness, "evaluation_scope": "priority_funded",
         "funding_policy_version": "rank_cumulative_scope_v1",
         "funding_rank": rank, "failure_event_id": event,
+        # Engine v10 (GOAL-FAILURE-EVENT-MODE-COLLAPSE-001): ein gemeinsamer
+        # Engpass verlangt die VOLLE Fehlschlagsmasse auf dem Ereignis.
+        "failure_event_share": 1.0 if event else None,
+        "failure_event_distribution": (
+            [{"event_id": event, "weighted_mass": 1.0, "share": 1.0}] if event else []
+        ),
     }
 
 
