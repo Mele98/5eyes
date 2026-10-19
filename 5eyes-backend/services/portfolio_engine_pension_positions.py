@@ -32,6 +32,16 @@ Jetzt, fuer jede aktive EXTERNE Vorsorge-Position ("Anderes Vermoegen"):
 4. Ein vom Berater erfasster WealthInflow mit linked_position_id auf die
    Position IST der Bezug: der automatische Bezug entfaellt, die Position
    wird ab dem Jahr dieses Zuflusses ausgebucht (keine Doppelzaehlung).
+   PENSION-TRANSFER-LEDGER-001 (2026-10-19): jeder Bezug (verknuepft oder
+   automatisch) ist eine Zeile in PensionTransferLedgerV1
+   (services/pension_transfer_ledger.py). Automatisch: Brutto = Wert im
+   Bezugsjahr, Steuer pro Position, Netto = Brutto - Steuer. Verknuepft
+   (CIO-Entscheid 2026-10-19): der erfasste Betrag ist der massgebende
+   Nettobezug (Steuer enthalten), die Differenz zum fortgeschriebenen Wert
+   ist implizite Steuer/Abweichung (Hinweis ab 5 %). Ein Link
+   hinter dem Horizont hat trotzdem Vorrang (Quelle bleibt bis Horizontende
+   gebunden). Raten-/Mehrfach-/Orphan-Links und Links vor dem Bewertungsjahr
+   sind fail-closed (PensionTransferLedgerError).
    Nicht verknuepfte Zufluesse, die nach einem Vorsorgebezug aussehen und im
    selben Jahr wie ein automatischer Bezug liegen, werden als moeglicher
    Doppelbezug gemeldet.
@@ -47,6 +57,17 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable
+
+from services.pension_transfer_ledger import (
+    REASON_SOURCE_LINK_ORPHAN,
+    REASON_SOURCE_MULTIPLE_LINKS,
+    REASON_TRANSFER_BEFORE_VALUATION,
+    REASON_TRANSFER_NOT_ONE_TIME,
+    PensionTransferLedgerError,
+    PensionTransferLedgerV1,
+    PensionTransferRow,
+    linked_transfer_violation,
+)
 
 BUCKETS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 
@@ -238,22 +259,28 @@ def pension_lumpsum_tax_default_bps(position) -> int:
     return PENSION_LUMPSUM_TAX_DEFAULT_BPS if type_key in PENSION_LUMPSUM_TAXED_TYPES else 0
 
 
-def pension_lumpsum_tax(position, gross_rappen: int) -> tuple[int, str]:
-    """(Kapitalbezugssteuer in Rappen, Reasoning-Text) fuer einen Bezug."""
+def pension_lumpsum_tax_detail(position, gross_rappen: int) -> tuple[int, str, str]:
+    """(Kapitalbezugssteuer in Rappen, Ledger-Quelle, Reasoning-Text)."""
     gross = max(0, int(gross_rappen))
     amount = getattr(position, "pension_lumpsum_tax_rappen", None)
     rate = getattr(position, "pension_lumpsum_tax_bps", None)
     if amount is not None:
         tax = min(gross, max(0, int(amount)))
-        return tax, f"Kapitalbezugssteuer {_chf(tax)} (erfasst)"
+        return tax, "erfasst_betrag", f"Kapitalbezugssteuer {_chf(tax)} (erfasst)"
     if rate is not None:
         tax = min(gross, max(0, int(round(gross * int(rate) / 10000))))
-        return tax, f"Kapitalbezugssteuer {_chf(tax)} (erfasst {int(rate) / 100:.2f} %)"
+        return tax, "erfasst_satz", f"Kapitalbezugssteuer {_chf(tax)} (erfasst {int(rate) / 100:.2f} %)"
     default_bps = pension_lumpsum_tax_default_bps(position)
     if default_bps <= 0:
-        return 0, ""
+        return 0, "steuerfrei_default", ""
     tax = min(gross, int(round(gross * default_bps / 10000)))
-    return tax, f"Kapitalbezugssteuer {_chf(tax)} (Default {default_bps / 100:g} %, defensiv)"
+    return tax, "default", f"Kapitalbezugssteuer {_chf(tax)} (Default {default_bps / 100:g} %, defensiv)"
+
+
+def pension_lumpsum_tax(position, gross_rappen: int) -> tuple[int, str]:
+    """(Kapitalbezugssteuer in Rappen, Reasoning-Text) fuer einen Bezug."""
+    tax, _source, text = pension_lumpsum_tax_detail(position, gross_rappen)
+    return tax, text
 
 
 @dataclass
@@ -261,6 +288,10 @@ class PensionProjection:
     series_rappen: list[int]
     payout_series_rappen: list[int]
     notes: list[str] = field(default_factory=list)
+    # PENSION-TRANSFER-LEDGER-001: einzige Basis von payout_series_rappen,
+    # linked_replacement_series_rappen und den Bezugs-Reasoning-Saetzen.
+    ledger: PensionTransferLedgerV1 | None = None
+    linked_replacement_series_rappen: list[int] = field(default_factory=list)
 
 
 def _value_path(position, value: int, horizon: int, start_year: int) -> list[float]:
@@ -282,6 +313,156 @@ def _value_path(position, value: int, horizon: int, start_year: int) -> list[flo
     return [value * (1.0 + rate / 10000.0) ** t for t in range(horizon + 1)]
 
 
+def _active_links_by_source(wealth_inflows, pension_ids: set[str], start_year: int):
+    """Aktive verknuepfte Zufluesse je Quelle + unverknuepfte Zufluesse.
+
+    Fail-closed (PENSION-TRANSFER-LEDGER-001) fuer Bestandsdaten, die vor den
+    API-Guards entstanden sind: Raten-/Real-Link, Mehrfachlink, Orphan und
+    Bezug vor dem Bewertungsjahr werden NICHT still umgedeutet."""
+    linked: dict[str, object] = {}
+    unlinked: list = []
+    for inflow in wealth_inflows or []:
+        if int(getattr(inflow, "is_active", 1) or 0) != 1 or getattr(inflow, "deleted_at", None):
+            continue
+        linked_id = getattr(inflow, "linked_position_id", None)
+        if not linked_id:
+            unlinked.append(inflow)
+            continue
+        label = str(getattr(inflow, "label", "") or getattr(inflow, "id", ""))
+        violation = linked_transfer_violation(
+            is_recurring=getattr(inflow, "is_recurring", 0),
+            frequency=getattr(inflow, "frequency", None),
+            duration_years=getattr(inflow, "duration_years", None),
+            value_mode=getattr(inflow, "value_mode", "nominal"),
+        )
+        if violation:
+            raise PensionTransferLedgerError(REASON_TRANSFER_NOT_ONE_TIME, f"Zufluss '{label}': {violation}")
+        if str(linked_id) not in pension_ids:
+            raise PensionTransferLedgerError(
+                REASON_SOURCE_LINK_ORPHAN,
+                f"Zufluss '{label}' ist mit einer Vorsorge-Position verknüpft, die nicht "
+                "(mehr) aktiv als externe Vorsorge erfasst ist. Bitte Verknüpfung bereinigen.",
+            )
+        if str(linked_id) in linked:
+            raise PensionTransferLedgerError(
+                REASON_SOURCE_MULTIPLE_LINKS,
+                f"Mehrere aktive Zuflüsse sind mit derselben Vorsorge-Position verknüpft ('{label}'). "
+                "Ein Vollbezug darf nur einmal gebucht werden.",
+            )
+        year = int(getattr(inflow, "expected_year", 0) or 0)
+        if year < int(start_year):
+            raise PensionTransferLedgerError(
+                REASON_TRANSFER_BEFORE_VALUATION,
+                f"Verknüpfter Kapitalbezug '{label}' ({year}) liegt vor dem Bewertungsjahr "
+                f"{int(start_year)}, die Position ist aber noch als gebunden erfasst. Bitte "
+                "Position oder Zufluss bereinigen.",
+            )
+        linked[str(linked_id)] = inflow
+    return linked, unlinked
+
+
+# CIO-Entscheid 2026-10-19: beim VERKNUEPFTEN Bezug ist der vom Berater
+# erfasste Betrag massgebend (Nettobezug, Kapitalbezugssteuer darin bereits
+# enthalten -- "der Kunde gibt uns die Informationen"). Die Positionssteuer
+# gilt nur fuer den AUTOMATISCHEN Bezug. Weicht der erfasste Betrag um mehr als
+# diese Toleranz von "fortgeschriebener Wert minus Positionssteuer" ab, wird
+# das im Reasoning offengelegt (kein Fehler).
+LINKED_TRANSFER_DEVIATION_HINT_BPS = 500
+LINKED_TAX_SOURCE = "im_erfassten_netto_enthalten"
+
+
+def _transfer_row(position, *, label, type_key, value, payout_year, origin, link,
+                  start_year, horizon, target_currency) -> PensionTransferRow:
+    """Eine Ledger-Zeile (Vollbezug). Pfad bis zum Bezug unabhaengig vom
+    Horizont -> horizontinvariant.
+
+    auto:   Brutto = fortgeschriebener Wert, Steuer = Positionssteuer,
+            Netto = Brutto - Steuer.
+    linked: Netto = erfasster Zuflussbetrag; Brutto = fortgeschriebener Wert;
+            Steuer := Brutto - Netto (implizite Steuer/Abweichung). Liegt der
+            erfasste Betrag ueber der Hochrechnung, ist Steuer 0 und Brutto
+            = Netto (Geldidentitaet auf den Rappen bleibt erzwungen)."""
+    offset = payout_year - start_year
+    projected = int(round(_value_path(position, value, offset + 1, start_year)[offset + 1]))
+    recorded = int(getattr(link, "amount_rappen", 0) or 0) if link is not None else None
+    if origin == "linked_inflow":
+        net = recorded
+        gross = max(projected, net)
+        tax, tax_source = gross - net, LINKED_TAX_SOURCE
+    else:
+        gross = projected
+        tax, tax_source, _text = pension_lumpsum_tax_detail(position, gross)
+        net = gross - tax
+    position_currency = str(getattr(position, "currency", None) or target_currency).upper()
+    return PensionTransferRow(
+        source_position_id=str(getattr(position, "id", "") or ""),
+        source_label=label,
+        pension_type=_TYPE_LABELS.get(type_key, "ohne Typ"),
+        transfer_mode="full",
+        origin=origin,
+        linked_inflow_id=(str(getattr(link, "id", "") or "") or None) if link is not None else None,
+        payout_year=payout_year,
+        payout_offset=offset,
+        within_horizon=offset < horizon,
+        opening_bound_balance_rappen=value,
+        projected_bound_balance_rappen=projected,
+        gross_withdrawal_rappen=gross,
+        lumpsum_tax_rappen=tax,
+        tax_source=tax_source,
+        net_advisory_inflow_rappen=net,
+        closing_bound_balance_rappen=0,
+        recorded_inflow_amount_rappen=recorded,
+        currency=target_currency,
+        fx_basis=(
+            target_currency if position_currency == target_currency
+            else f"{position_currency}->{target_currency}"
+        ),
+    )
+
+
+def _row_notes(position, row: PensionTransferRow, origin_text: str) -> tuple[str, list[str]]:
+    """(Bezugs-Satz fuer die Positionsnotiz, Zusatznotizen) -- aus der Zeile."""
+    if row.origin == "linked_inflow":
+        tax_text = (
+            f"Kapitalbezugssteuer im erfassten Nettobetrag enthalten (implizit {_chf(row.lumpsum_tax_rappen)})"
+        )
+    else:
+        _tax, _source, tax_text = pension_lumpsum_tax_detail(position, row.gross_withdrawal_rappen)
+    if not row.within_horizon:
+        text = (
+            f"Kapitalbezug {row.payout_year} ({origin_text}) liegt ausserhalb des "
+            "Horizonts – bleibt gebunden"
+        )
+    else:
+        text = (
+            f"Kapitalbezug {row.payout_year} ({origin_text}) {_chf(row.gross_withdrawal_rappen)}"
+            + (f", {tax_text}" if tax_text else "")
+            + f" -> {_chf(row.net_advisory_inflow_rappen)} freies Vermögen"
+        )
+    extra: list[str] = []
+    if row.origin == "linked_inflow":
+        projected = row.projected_bound_balance_rappen
+        position_tax, _source, _text = pension_lumpsum_tax_detail(position, projected)
+        expected_net = projected - position_tax
+        recorded = row.net_advisory_inflow_rappen
+        if recorded > projected:
+            extra.append(
+                f"Vorsorge '{row.source_label}': Bezug höher als Hochrechnung – erfasster "
+                f"Nettobezug {_chf(recorded)} liegt über dem fortgeschriebenen Wert "
+                f"{_chf(projected)}. Massgebend ist der erfasste Betrag; bitte Wert/Satz der "
+                "Position prüfen."
+            )
+        elif abs(recorded - expected_net) * 10000 > LINKED_TRANSFER_DEVIATION_HINT_BPS * max(1, expected_net):
+            extra.append(
+                f"Vorsorge '{row.source_label}': erfasster Nettobezug {_chf(recorded)} weicht um "
+                f"mehr als {LINKED_TRANSFER_DEVIATION_HINT_BPS / 100:g} % von der Hochrechnung ab "
+                f"(fortgeschrieben {_chf(projected)} abzüglich Positionssteuer {_chf(position_tax)} "
+                f"= {_chf(expected_net)}). Massgebend ist der erfasste Betrag; die Differenz "
+                f"({_chf(row.lumpsum_tax_rappen)}) ist als implizite Steuer/Abweichung ausgewiesen."
+            )
+    return text, extra
+
+
 def build_pension_projection(
     positions,
     wealth_inflows,
@@ -291,40 +472,34 @@ def build_pension_projection(
     value_of: Callable[[object], int],
     birth_year: int | None = None,
     retirement_year: int | None = None,
+    target_currency: str = "CHF",
 ) -> PensionProjection | None:
     """Deterministische Projektion aller externen Vorsorge-Positionen.
 
     ``None``, wenn es keine gibt (Foundation-Vertrag bleibt dann
-    byte-identisch). Kapitalbezugssteuer: siehe pension_lumpsum_tax.
+    byte-identisch). Bezuege laufen ausschliesslich ueber
+    PensionTransferLedgerV1 (services/pension_transfer_ledger.py).
     """
     horizon = max(0, int(horizon_years or 0))
     start_year = int(start_year)
-    linked: dict[str, list] = {}
-    unlinked: list = []
-    for inflow in wealth_inflows or []:
-        if int(getattr(inflow, "is_active", 1) or 0) != 1:
-            continue
-        linked_id = getattr(inflow, "linked_position_id", None)
-        if linked_id:
-            linked.setdefault(str(linked_id), []).append(inflow)
-        else:
-            unlinked.append(inflow)
+    target_currency = str(target_currency or "CHF").upper()
+    pension_positions = [p for p in positions or [] if is_external_pension_position(p)]
+    pension_ids = {str(getattr(p, "id", "") or "") for p in pension_positions}
+    linked, unlinked = _active_links_by_source(wealth_inflows, pension_ids, start_year)
 
     series = [0] * (horizon + 1)
-    payouts = [0] * horizon
     notes: list[str] = []
+    rows: list[PensionTransferRow] = []
     auto_payout_years: dict[int, list[str]] = {}
     found = False
-    for position in positions or []:
-        if not is_external_pension_position(position):
-            continue
-        value = int(value_of(position))
-        if value <= 0:
+    for position in pension_positions:
+        value = max(0, int(value_of(position)))
+        link = linked.get(str(getattr(position, "id", "") or ""))
+        if value <= 0 and link is None:
             continue
         found = True
         type_key = normalized_pension_type(getattr(position, "pension_type", None))
         label = str(getattr(position, "label", "") or _TYPE_LABELS.get(type_key, "Vorsorge"))
-        path = _value_path(position, value, horizon, start_year)
         rate, rate_is_default = pension_rate_bps(position)
         vehicle = pension_vehicle(position)
         if vehicle == "Police" and getattr(position, "pension_maturity_value_rappen", None):
@@ -334,20 +509,14 @@ def build_pension_projection(
                 f"nominal {rate / 100:.2f} % p.a."
                 + (" (Default)" if rate_is_default else "")
             )
-        exit_offset: int | None = None
-        payout_text = ""
 
-        own_inflows = linked.get(str(getattr(position, "id", "") or ""), [])
-        linked_offsets = [
-            int(getattr(i, "expected_year", 0) or 0) - start_year for i in own_inflows
-        ]
-        linked_offsets = [k for k in linked_offsets if 0 <= k < horizon]
-        if linked_offsets:
-            exit_offset = min(linked_offsets)
-            payout_text = (
-                f"Bezug über erfassten Vermögenszufluss {start_year + exit_offset} "
-                "(automatischer Bezug entfällt)"
-            )
+        payout_year: int | None = None
+        origin = origin_text = payout_text = ""
+        if link is not None:
+            # Link-Existenz hat IMMER Vorrang vor der Auto-Regel -- auch hinter
+            # dem Horizont (dann bleibt die Quelle bis Horizontende gebunden).
+            payout_year, origin = int(getattr(link, "expected_year")), "linked_inflow"
+            origin_text = "erfasster Vermögenszufluss, automatischer Bezug entfällt"
         elif type_key in PENSION_AUTO_PAYOUT_TYPES:
             year, source = resolve_payout_year(
                 position, birth_year=birth_year, retirement_year=retirement_year,
@@ -358,26 +527,29 @@ def build_pension_projection(
                     "Geburtsjahr oder Pensionierungsjahr fehlt) – bleibt gebunden"
                 )
             else:
-                offset = max(0, year - start_year)
-                if offset >= horizon:
-                    payout_text = f"Bezug {year} liegt ausserhalb des Horizonts – bleibt gebunden"
-                else:
-                    exit_offset = offset
-                    gross = int(round(path[offset + 1]))
-                    tax, tax_text = pension_lumpsum_tax(position, gross)
-                    payouts[offset] += gross - tax
-                    auto_payout_years.setdefault(start_year + offset, []).append(label)
-                    payout_text = (
-                        f"Kapitalbezug {start_year + offset} ({source}) {_chf(gross)}"
-                        + (f", {tax_text}" if tax_text else "")
-                        + f" -> {_chf(gross - tax)} freies Vermögen"
-                    )
+                payout_year, origin, origin_text = max(start_year, int(year)), "auto", source
         else:
             payout_text = (
                 "nur Fortschreibung, kein automatischer Bezug (Kapitalbezug als "
                 "verknüpften Vermögenszufluss erfassen; BVG-Rente noch nicht modelliert)"
             )
 
+        exit_offset: int | None = None
+        if payout_year is not None:
+            row = _transfer_row(
+                position, label=label, type_key=type_key, value=value,
+                payout_year=payout_year, origin=origin, link=link,
+                start_year=start_year, horizon=horizon, target_currency=target_currency,
+            )
+            rows.append(row)
+            payout_text, extra_notes = _row_notes(position, row, origin_text)
+            notes.extend(extra_notes)
+            if row.within_horizon:
+                exit_offset = row.payout_offset
+                if origin == "auto":
+                    auto_payout_years.setdefault(payout_year, []).append(label)
+
+        path = _value_path(position, value, horizon, start_year)
         last = horizon if exit_offset is None else exit_offset
         for t in range(0, last + 1):
             series[t] += int(round(path[t]))
@@ -406,9 +578,17 @@ def build_pension_projection(
         f"(Annahmen-Version {PENSION_PROJECTION_ASSUMPTIONS_VERSION}); es zählt erst ab "
         "dem Bezug als verfügbares Vermögen."
     )
-    return PensionProjection(series_rappen=series, payout_series_rappen=payouts, notes=notes)
-
-
+    ledger = PensionTransferLedgerV1.build(
+        rows, valuation_year=start_year, currency=target_currency,
+        policy_version=PENSION_PROJECTION_ASSUMPTIONS_VERSION,
+    )
+    return PensionProjection(
+        series_rappen=series,
+        payout_series_rappen=ledger.net_payout_series(horizon),
+        notes=notes,
+        ledger=ledger,
+        linked_replacement_series_rappen=ledger.linked_replacement_series(horizon),
+    )
 
 
 def external_pension_projection(
@@ -437,18 +617,24 @@ def external_pension_projection(
         )),
         birth_year=int(getattr(mandate, "client_birth_year", 0) or 0) or None,
         retirement_year=int(getattr(mandate, "retirement_year", 0) or 0) or None,
+        target_currency=target_currency,
     )
 
 
 def with_pension_payouts(inflow_series_rappen: list[int], external_foundation_projection: dict) -> list[int]:
-    """Automatische Vorsorgebezuege sind Zufluesse ins freie Vermoegen
-    (genau einmal, im Bezugsjahr)."""
-    payouts = (external_foundation_projection or {}).get("pension_payout_series_rappen")
+    """Vorsorgebezuege sind Zufluesse ins freie Vermoegen (genau einmal, im
+    Bezugsjahr), netto nach Kapitalbezugssteuer -- ausschliesslich aus
+    PensionTransferLedgerV1. Fuer verknuepfte Zufluesse hat die allgemeine
+    Zufluss-Serie deren frei erfassten Betrag bereits materialisiert; er wird
+    hier durch das Ledger-Netto ERSETZT (der Zufluss bestimmt nur das Jahr)."""
+    foundation = external_foundation_projection or {}
+    payouts = foundation.get("pension_payout_series_rappen")
     if not payouts:
         return inflow_series_rappen
-    if len(payouts) != len(inflow_series_rappen):
+    replacement = foundation.get("pension_linked_inflow_replacement_series_rappen") or [0] * len(payouts)
+    if len(payouts) != len(inflow_series_rappen) or len(replacement) != len(payouts):
         raise ValueError("Vorsorge-Bezugsserie passt nicht zum Projektionshorizont.")
-    return [int(a) + int(b) for a, b in zip(inflow_series_rappen, payouts)]
+    return [int(a) - int(r) + int(b) for a, r, b in zip(inflow_series_rappen, replacement, payouts)]
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +710,12 @@ def pension_foundation_keys(
     return {
         "pension_series_rappen": list(pension.series_rappen),
         "pension_payout_series_rappen": list(pension.payout_series_rappen),
+        # Nur wenn verknuepfte Bezuege im Horizont liegen (sonst bleibt der
+        # Foundation-/Projection-Context-Hash fuer Auto-Bezuege unveraendert).
+        **(
+            {"pension_linked_inflow_replacement_series_rappen": list(pension.linked_replacement_series_rappen)}
+            if any(pension.linked_replacement_series_rappen) else {}
+        ),
     }
 
 

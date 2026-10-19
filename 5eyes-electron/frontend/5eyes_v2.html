@@ -4824,10 +4824,10 @@ function _wireSollIstHover(){
       <div class="frow">
         <div class="fg">
           <label class="fl">Stammt aus Vorsorge-Position</label>
-          <select class="fsel" id="awi-linked-position">
+          <select class="fsel" id="awi-linked-position" onchange="syncInflowModalState()">
             <option value="">Keine (neues Vermögen)</option>
           </select>
-          <div style="font-size:10px;color:var(--n5);line-height:1.4;margin-top:3px">Ist der Zufluss der Bezug einer erfassten Vorsorge (3a, Freizügigkeit, BVG-Kapital, Police), hier verknüpfen: die Position wird dann ab diesem Jahr ausgebucht und nicht automatisch nochmals bezogen.</div>
+          <div style="font-size:10px;color:var(--n5);line-height:1.4;margin-top:3px">Ist der Zufluss der Bezug einer erfassten Vorsorge (3a, Freizügigkeit, BVG-Kapital, Police), hier verknüpfen: die Position wird dann ab diesem Jahr ausgebucht und nicht automatisch nochmals bezogen. Ein verknüpfter Bezug ist ein einmaliger, nominaler Vollbezug; der erfasste Betrag gilt als Nettobezug (Kapitalbezugssteuer bereits abgezogen).</div>
         </div>
       </div>
       <div class="frow">
@@ -18237,7 +18237,7 @@ var liveClientLoadToken=0;
       try{showAppSuccess('Vermögensposition gelöscht',{title:'Position entfernt'});}catch(noticeErr){}
       cm('m-aw');
     }catch(e){
-      var dwpErr='Fehler: '+(e.detail||e.message||'?');
+      var dwpErr=pensionTransferGuardMessage(e);
       showModalFeedback('maw-error',document.getElementById('btn-maw-save'),dwpErr,true);
       try{showAppError(dwpErr,{title:'Vermögensposition nicht gelöscht'});}catch(noticeErr){}
     }
@@ -24655,6 +24655,13 @@ function resetInflowModal(){
 function syncInflowModalState(){
   var rec=document.getElementById('awi-recurring');
   var wrap=document.getElementById('awi-recurring-wrap');
+  // PENSION-TRANSFER-LEDGER-001: ein verknuepfter Vorsorgebezug ist ein
+  // einmaliger, nominaler Vollbezug (Backend lehnt sonst mit 422 ab).
+  var linkedSel=document.getElementById('awi-linked-position');
+  var isLinked=!!(linkedSel&&linkedSel.value);
+  var valueModeSel=document.getElementById('awi-value-mode');
+  if(rec){if(isLinked)rec.checked=false;rec.disabled=isLinked;}
+  if(valueModeSel){if(isLinked)valueModeSel.value='nominal';valueModeSel.disabled=isLinked;}
   var isRec=!!(rec&&rec.checked);
   if(wrap)wrap.style.display=isRec?'':'none';
   if(isRec){
@@ -24707,6 +24714,11 @@ async function saveInflow(){
   var year=parseInt(yearRaw,10);
   if(!isFinite(year)||year<1900||year>2200){showModalFeedback('awi-error',btn,'Bitte gültiges Jahr (1900–2200) eingeben.',true);return;}
   var durationYears=durationRaw!==''?parseInt(durationRaw,10):null;
+  var linkedPositionId=(document.getElementById('awi-linked-position')||{value:''}).value||null;
+  if(linkedPositionId&&(isRecurring||valueMode!=='nominal')){
+    showModalFeedback('awi-error',btn,'Ein mit einer Vorsorge-Position verknüpfter Zufluss ist ein einmaliger Kapitalbezug (nominal, nicht wiederkehrend).',true);
+    return;
+  }
   // Spiegelt die Backend-Regel: is_recurring=1 verlangt frequency in
   // {jaehrlich,monatlich} UND duration_years — sonst 422.
   if(isRecurring){
@@ -24727,7 +24739,7 @@ async function saveInflow(){
   }
   var notes=(document.getElementById('awi-notes')||{value:''}).value.trim();
   if(notes)payload.notes=notes;
-  payload.linked_position_id=(document.getElementById('awi-linked-position')||{value:''}).value||null;
+  payload.linked_position_id=linkedPositionId;
   var cid=getActiveClientId();
   if(!cid||isDemoClientId(cid)){
     showModalFeedback('awi-error',btn,'Bitte zuerst einen echten Mandanten auswählen.',true);
@@ -24743,10 +24755,25 @@ async function saveInflow(){
     refreshIstGoalMarkers();
     try{showAppSuccess(isEdit?'Vermögenszufluss aktualisiert':'Vermögenszufluss gespeichert');}catch(noticeErr){}
   }catch(e){
-    var wiErr='Fehler: '+(e.detail||e.message||'?');
+    var wiErr=pensionTransferGuardMessage(e);
     showModalFeedback('awi-error',btn,wiErr,true);
     try{showAppError(wiErr,{title:'Vermögenszufluss nicht gespeichert'});}catch(noticeErr){}
   }
+}
+// PENSION-TRANSFER-LEDGER-001: verstaendliche Meldungen fuer die Transfer-
+// Guards (409/422 mit reason_code) statt "API 409: ... [CODE]".
+var PENSION_TRANSFER_GUARD_HINTS={
+  PENSION_SOURCE_LINKED:'Diese Vorsorge-Position ist mit einem Kapitalbezug verknüpft. Löschen, deaktivieren oder entknüpfen Sie zuerst den Vermögenszufluss.',
+  PENSION_SOURCE_ALREADY_LINKED:'Diese Vorsorge-Position ist bereits mit einem aktiven Kapitalbezug verknüpft. Bitte den bestehenden Zufluss bearbeiten.'
+};
+function pensionTransferGuardMessage(e){
+  var parsed=null;
+  try{parsed=e&&e.body?JSON.parse(e.body):null;}catch(parseErr){parsed=null;}
+  var detail=parsed&&parsed.detail;
+  if(detail&&typeof detail==='object'&&PENSION_TRANSFER_GUARD_HINTS[detail.reason_code]){
+    return detail.message||PENSION_TRANSFER_GUARD_HINTS[detail.reason_code];
+  }
+  return 'Fehler: '+((e&&(e.detail||e.message))||'?');
 }
 async function deleteInflow(inflowId){
   if(!inflowId)return;
@@ -25350,7 +25377,7 @@ async function saveWealthPosition(){
       try{showAppSuccess(isEdit?'Vermögensposition aktualisiert':'Vermögensposition gespeichert');}catch(noticeErr){}
       setTimeout(function(){cm('m-aw');},600);
     }catch(e){
-      var wpErr='Fehler: '+(e.detail||e.message||'?');
+      var wpErr=pensionTransferGuardMessage(e);
       showModalFeedback('maw-error',btn,wpErr,true);
       try{showAppError(wpErr,{title:'Vermögensposition nicht gespeichert'});}catch(noticeErr){}
     }
