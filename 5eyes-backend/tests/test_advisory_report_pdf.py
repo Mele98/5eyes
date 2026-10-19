@@ -767,11 +767,14 @@ def test_ausgangslage_shows_six_key_metrics():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     page_text = reader.pages[3].extract_text() or ""
     # alle 6 KPI-Karten müssen ihre Labels haben
+    # UX-1 (Befund 8/14): deutsche Labels; Zeilenumbrueche der schmalen
+    # KPI-Karten fuer den Vergleich zu Leerzeichen normalisieren.
+    flat_text = " ".join(page_text.split())
     for label in [
-        "Risky-Fraction", "Zielerreichung", "Erw. Volatilität",
+        "Risikobehafteter Anteil", "Erfolgs-Wkt. gesamt", "Erw. Volatilität",
         "Erw. Rendite", "Max Drawdown", "VaR 95",
     ]:
-        assert label in page_text, f"KPI-Karte '{label}' fehlt"
+        assert label in flat_text, f"KPI-Karte '{label}' fehlt"
     # Werte: 4250 bps -> 42.5 %, 8500 -> 85.0 %, 1100 -> 11.0 %
     assert "42.5 %" in page_text
     assert "85.0 %" in page_text

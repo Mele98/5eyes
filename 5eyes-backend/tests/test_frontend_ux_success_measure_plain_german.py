@@ -128,3 +128,15 @@ def test_projection_horizon_comes_from_payload_not_hardcoded():
     assert "Prognosehorizont 12 Jahre" in _run_horizon({}, {"horizon_years": 12})
     neutral = _run_horizon({}, None)
     assert "Jahre" not in neutral and "Erwartung p.a." in neutral
+
+
+def test_review_cockpit_ampel_uses_70_45_and_keeps_strategy_level_separate():
+    html = _html()
+    badge = _function_source(html, "rvGoalProbBadge")
+    assert "p>=0.70" in badge and "p>=0.45" in badge
+    review = _function_source(html, "renderReviewGoalAchievability")
+    assert "goalAmpelLegendHtml()" in review
+    assert "GOAL_STRATEGY_LEVEL_TOOLTIP" in review
+    assert "goalAchievabilityStatusLabel(row.status)" in review
+    assert "var GOAL_STRATEGY_LEVEL_TOOLTIP='Zielniveau der Strategie:" in html
+    assert 'class="goal-ampel-legend"' in html

@@ -118,7 +118,7 @@ def test_pdf_table_labels_the_priority_scope_and_omits_the_plan_row():
     ])
     data = table._cellvalues
     assert [_cell_text(c) for c in data[0]] == [
-        "Ziel", "Typ", "Hardness", "Zielerreichung nach Priorität", "Status",
+        "Ziel", "Typ", "Härtegrad", "Erfolgs-Wkt. (nach Priorität)", "Status",
     ]
     labels = [_cell_text(row[0]) for row in data[1:]]
     assert labels == ["Hauskauf", "Weltreise"]

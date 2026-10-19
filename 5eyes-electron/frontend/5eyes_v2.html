@@ -3905,6 +3905,7 @@ function _wireSollIstHover(){
                 <span id="rv-main-goal-status" class="tag tn">ausstehend</span>
               </div>
               <div id="rv-main-goal-meta" style="font-size:10px;color:var(--n5);line-height:1.55;margin-top:7px">Strategie berechnen, um die Zielwahrscheinlichkeit zu sehen.</div>
+              <div class="goal-ampel-legend" style="font-size:9px;color:var(--n5);margin-top:4px">Ampel: &ge; 70 % gut &middot; 45&ndash;69 % knapp &middot; &lt; 45 % kritisch</div>
             </div>
             <div class="rv-cockpit-tile">
               <div class="rv-cockpit-kicker">Limitierender Faktor</div>
@@ -8059,11 +8060,15 @@ function goalAchievabilityStatusLabel(status){
   if(status==='nicht_erreichbar')return 'nicht plausibel';
   return status||'offen';
 }
+// UX-1 (CIO-Entscheid): Ampel einheitlich 70/45 wie in Allokation und Legende
+// (GOAL_AMPEL_LEGEND_TEXT). Der tau-basierte Optimizer-Status
+// (goalAchievabilityStatusLabel) bleibt davon getrennt = "Zielniveau der Strategie".
+var GOAL_STRATEGY_LEVEL_TOOLTIP='Zielniveau der Strategie: Einstufung des Optimierers gegen\u00fcber dem f\u00fcr dieses Ziel verlangten Sicherheitsniveau \u2013 nicht die Ampel';
 function rvGoalProbBadge(prob){
   var p=Number(prob||0);
-  if(p>=0.80)return {icon:'●',color:'var(--pos)',label:'komfortabel',tag:'tg'};
-  if(p>=0.50)return {icon:'◐',color:'var(--warn)',label:'knapp',tag:'ta'};
-  return {icon:'○',color:'var(--neg)',label:'nicht plausibel',tag:'tr2'};
+  if(p>=0.70)return {icon:'●',color:'var(--pos)',label:'gut',tag:'tg'};
+  if(p>=0.45)return {icon:'◐',color:'var(--warn)',label:'knapp',tag:'ta'};
+  return {icon:'○',color:'var(--neg)',label:'kritisch',tag:'tr2'};
 }
 function limitingFactorMeta(factor){
   var map={
@@ -26155,12 +26160,12 @@ function renderReviewGoalAchievability(result){
     var legacy=goalAchievabilityIsLegacy(row);
     var badge=legacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob);
     return '<div class="rv-goal-list-item" data-scope="'+escapeHtml(legacy?'legacy_aggregate_unknown':'priority_funded')+'">'
-      +'<div style="color:'+badge.color+';font-size:15px;line-height:1">'+badge.icon+'</div>'
+      +'<div style="color:'+badge.color+';font-size:15px;line-height:1" title="'+escapeHtml(legacy?'Altbewertung ohne Ampel':GOAL_AMPEL_LEGEND_TEXT)+'">'+badge.icon+'</div>'
       +'<div><div class="rv-goal-list-label">'+escapeHtml(goalAchievabilityLabel(row))+'</div><div class="rv-goal-list-meta">'+escapeHtml(hardnessDisplay(row.hardness))+(legacy?'':' \u00b7 '+escapeHtml(PRIORITY_FUNDED_LABEL))+'</div></div>'
-      +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right">'+escapeHtml(Math.round(prob*100)+'%')+'</div>'
-      +'<span class="tag '+badge.tag+'">'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</span>'
+      +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">'+escapeHtml(Math.round(prob*100)+'%')+'</div>'
+      +'<span class="tag '+badge.tag+'" title="'+escapeHtml(legacy?'Altbewertung':GOAL_STRATEGY_LEVEL_TOOLTIP)+'">'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</span>'
       +'</div>';
-  }).join('');
+  }).join('')+goalAmpelLegendHtml();
 }
 function renderReviewDetailsAccordion(result){
   var body=document.getElementById('rv-details-body');
@@ -26208,9 +26213,9 @@ function renderReviewCockpit(state){
     var mainLegacy=prob!=null&&goalAchievabilityIsLegacy(main);
     var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:(mainLegacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob));
     if(labelEl)labelEl.textContent=goalAchievabilityLabel(main);
-    if(probEl)probEl.textContent=prob==null?'—':Math.round(prob*100)+'%';
-    if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;}
-    if(statusEl){statusEl.className='tag '+badge.tag;statusEl.textContent=badge.label;}
+    if(probEl){probEl.textContent=prob==null?'—':Math.round(prob*100)+'%';probEl.title=GOAL_SUCCESS_PROBABILITY_TOOLTIP;}
+    if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;iconEl.title=GOAL_AMPEL_LEGEND_TEXT;}
+    if(statusEl){statusEl.className='tag '+badge.tag;statusEl.textContent=badge.label;statusEl.title=GOAL_AMPEL_LEGEND_TEXT;}
     if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' · '+(mainLegacy?'Altbewertung ohne Priorit\u00e4tszuordnung \u2013 Strategie neu berechnen':(PRIORITY_FUNDED_LABEL+(main.tau!=null?(' · Zielniveau '+Math.round(Number(main.tau||0)*100)+'%'):'')));
   }else{
     if(labelEl)labelEl.textContent='Noch kein Ziel bewertet';
