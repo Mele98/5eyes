@@ -171,6 +171,9 @@ def implemented_objective_policy() -> dict:
         "soft_preference_lambda_default": float(SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT),
         "goal_reachability_policy": GOAL_REACHABILITY_SCREEN_VERSION,
         "goal_normalization": "relative_to_initial_wealth_squared_v1",
+        # GOAL-HIERARCHY-002 / STAGE2-OBJECTIVE-SCALE-001 (CIO-Review #650).
+        "goal_demotion_policy": "screen_not_found_demoted_to_stage2_v1",
+        "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
     }
 
 
@@ -194,6 +197,8 @@ _POLICY_FIELDS = (
     "soft_preference_lambda_default",
     "goal_reachability_policy",
     "goal_normalization",
+    "goal_demotion_policy",
+    "stage2_objective_scale_policy",
 )
 
 
@@ -229,6 +234,8 @@ class ObjectiveContractV2(ObjectiveContractV1):
     soft_preference_lambda_default: float | None = None
     goal_reachability_policy: str | None = None
     goal_normalization: str | None = None
+    goal_demotion_policy: str | None = None
+    stage2_objective_scale_policy: str | None = None
 
     def __post_init__(self) -> None:
         validate_objective_mode(self.objective_mode)

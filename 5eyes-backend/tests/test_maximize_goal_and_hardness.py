@@ -132,7 +132,7 @@ def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     assert contract["goal_weighting_mode"] == "hardness"
     assert contract["goal_hardness_policy"] == (
         "hardness_scales_shortfall_and_protection_v1")
-    assert contract["goal_hierarchy_policy"] == "protected_goals_lexicographic_v1"
+    assert contract["goal_hierarchy_policy"] == "protected_goals_lexicographic_v2_reachable_only"
     assert contract["maximize_goal_policy"] == "maximize_log_growth_v1"
     assert contract["hardness_weights"] == {
         "hart": 10.0, "opportunistisch": 0.2, "primaer": 1.0}
@@ -627,19 +627,67 @@ def test_codex_final_certification_holdout_must_not_select_the_objective():
 
 def test_unreachable_hard_goal_is_not_exempted_in_production():
     """Produktionspfad: ein auf der Pruefmenge unerreichbares hartes Ziel
-    bleibt in der Zielfunktion und in Stufe 1 (v6: ``penalty_exempt``)."""
+    bleibt mit vollem Fehlbetrag in der Zielfunktion (v6: ``penalty_exempt``),
+    gehoert aber nicht zur Stufe 1 (GOAL-HIERARCHY-002)."""
     context = _goal_context("Hart", amount=50_000_000_00)
     screen = context.goal_reachability
     assert screen["not_found_reachable_goal_ids"] == ["vz"]
     assert screen["penalty_exempt_goal_ids"] == []
     assert not hasattr(context, "penalty_exempt_goal_ids")
+    assert solver_module._stage1_liabilities(context) == []
     low = _w({"equities": 4500, "bonds": 4500, "real_estate": 500,
               "alternatives": 300, "liquidity": 200})
     high = _w({"equities": 7000, "bonds": 2000, "real_estate": 500,
                "alternatives": 300, "liquidity": 200})
-    level = {
-        name: solver_module._protected_level_from_inputs(
-            context, solver_module._evaluation_inputs(context, w))[0]
-        for name, w in (("low", low), ("high", high))
-    }
-    assert level["low"] != level["high"]  # das Ziel unterscheidet weiter
+    shortfall = {}
+    for name, w in (("low", low), ("high", high)):
+        _f, wealth, twr = solver_module._evaluation_inputs(context, w)
+        shortfall[name] = objective_module.shortfall_objective(
+            context.liabilities, wealth,
+            initial_wealth_rappen=context.advisory_wealth_rappen,
+            horizon_years=context.horizon_years, weights=context.scenario_weights,
+            annualized_return_bps_per_path=twr,
+        )
+    assert shortfall["low"] != shortfall["high"]  # das Ziel unterscheidet weiter
+
+
+def _two_goal_context(seed: int = 11):
+    goals = [
+        _make_goal(goal_id="reach", label="Erreichbar", hardness="Primär",
+                   goal_type="Vermoegensziel", target_rappen=700_000_00,
+                   target_date_offset_days=365 * 25),
+        _make_goal(goal_id="far", label="Aussichtslos", hardness="Hart",
+                   goal_type="Vermoegensziel", target_rappen=50_000_000_00,
+                   target_date_offset_days=365 * 25),
+    ]
+    return solver_module.build_optimizer_context(seed=seed, **_inputs(goals, 25))
+
+
+def test_unreachable_goal_is_demoted_and_cannot_displace_a_reachable_goal():
+    """GOAL-HIERARCHY-002 (CIO-Review #650): das aussichtslose Ziel (auch
+    wenn HART) ist nicht Stufe 1; Stufe 1 schuetzt das erreichbare Ziel. Mit
+    der Hausquote als Prior bleibt das Stufe-1-Niveau des erreichbaren Ziels
+    innerhalb seiner Schranke, obwohl der Fehlbetrag des aussichtslosen Ziels
+    die Zielfunktion dominiert."""
+    from dataclasses import replace
+
+    context = replace(_two_goal_context(), house_prior_weights=_w(HOUSE_ANCHOR))
+    assert context.goal_reachability["not_found_reachable_goal_ids"] == ["far"]
+    assert [str(l.goal_id) for l in solver_module._stage1_liabilities(context)] == ["reach"]
+    selection = solver_module._select_cube_candidate(context, max_iter=50, ftol=1e-6)
+    audit = selection.goal_protection
+    assert audit["protected_goal_ids"] == ["reach"]
+    assert audit["demoted_goal_ids"] == ["far"]
+    level_final = solver_module._protected_level_from_inputs(
+        context, solver_module._evaluation_inputs(context, selection.weights))[0]
+    assert level_final <= audit["bound"] * (1.0 + 1e-6)
+
+
+def test_demoted_goal_reasoning_says_subordinate_not_excluded():
+    from services.optimizer.goal_reachability import reachability_reasoning
+
+    lines = reachability_reasoning(_two_goal_context().goal_reachability)
+    assert len(lines) == 1 and "'Aussichtslos'" in lines[0]
+    assert "mit der Mindestsicherheit erreichbar" in lines[0]
+    assert "nachrangig verfolgt und verdraengt keine erreichbaren Ziele" in lines[0]
+    assert "kein Unmoeglichkeitsnachweis" in lines[0]

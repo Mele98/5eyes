@@ -157,7 +157,7 @@ _MAXIMIZE_MIN_GROWTH_FACTOR = 1e-12
 # erodieren, hart nur um ein Zehntel davon. Opportunistische Ziele sind
 # nicht geschuetzt (Stufe 2). Herleitung:
 # docs/planning/2026-10-18-maximize-goal-and-hardness.md.
-GOAL_HIERARCHY_POLICY_VERSION = "protected_goals_lexicographic_v1"
+GOAL_HIERARCHY_POLICY_VERSION = "protected_goals_lexicographic_v2_reachable_only"
 GOAL_EROSION_Z = 1.6448536269514722
 GOAL_EROSION_NUMERIC_TOL = 1e-9
 

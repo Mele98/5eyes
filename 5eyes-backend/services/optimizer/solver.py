@@ -1073,10 +1073,10 @@ def _protected_level_from_inputs(
     *,
     with_per_path: bool = False,
 ) -> tuple[float, np.ndarray | None]:
-    """GOAL-HIERARCHY-001: Stufe-1-Zielniveau G1 (harte/primaere Ziele)."""
+    """GOAL-HIERARCHY-001: Stufe-1-Zielniveau G1 (erreichbare harte/primaere Ziele)."""
     _factors, wealth, annualized_twr = inputs
     return protected_goal_level(
-        context.liabilities,
+        _stage1_liabilities(context),
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         horizon_years=context.horizon_years,
@@ -1085,6 +1085,28 @@ def _protected_level_from_inputs(
         goal_weighting_mode=objective_contract_of(context).goal_weighting_mode,
         with_per_path=with_per_path,
     )
+
+
+def _demoted_goal_ids(context: OptimizerContext) -> frozenset:
+    """GOAL-HIERARCHY-002 (CIO-Review #650): Ziele, die der Screen auf seiner
+    Pruefmenge nicht mit der Mindestsicherheit erreichbar fand (Default:
+    obere 95-%-Grenze < tau/2). Sie bleiben mit vollem Fehlbetrag in der
+    Zielfunktion (kein Ausnehmen, Codex "CHF 0 != CHF 900"), werden aber
+    unabhaengig vom Haertegrad in Stufe 2 herabgestuft -- ein aussichtsloses
+    Ziel darf erreichbare Stufe-1-Ziele nicht verdraengen."""
+    screen = getattr(context, "goal_reachability", None) or {}
+    return frozenset(str(g) for g in (screen.get("not_found_reachable_goal_ids") or ()))
+
+
+def _stage1_liabilities(context: OptimizerContext) -> list:
+    """Stufe-1-Ziele: hart/primaer, im Horizont, vom Screen erreichbar gefunden."""
+    demoted = _demoted_goal_ids(context)
+    n_cols = int(context.horizon_years) + 1
+    return [
+        liab for liab in context.liabilities
+        if is_protected_goal(liab, n_wealth_columns=n_cols)
+        and str(liab.goal_id) not in demoted
+    ]
 
 
 def _objective_from_inputs(
@@ -2126,6 +2148,9 @@ GOAL_STAGE1_STARTS = 1
 GOAL_STAGE1_MAX_ITER = 25
 # Punkte der Streckensuche, wenn die Stufe-1-Schranke bindet (t = 0, 0.1, ..1).
 GOAL_SEGMENT_POINTS = 11
+# Stufe-2-Multi-Starts, wenn herabgestufte Ziele vorliegen (siehe
+# ``_select_cube_candidate_core``); sonst alle Startpunkte (bitidentisch).
+GOAL_DEMOTED_STAGE2_STARTS = 2
 
 
 class _EvaluationMemo:
@@ -2175,10 +2200,7 @@ def _goal_protection_stage(
     if objective_contract_of(context).objective_mode != OBJECTIVE_GOAL_SHORTFALL:
         return None
     n_cols = int(context.horizon_years) + 1
-    protected = [
-        liab for liab in context.liabilities
-        if is_protected_goal(liab, n_wealth_columns=n_cols)
-    ]
+    protected = _stage1_liabilities(context)
     if not protected:
         return None
     goal_weighting_mode = objective_contract_of(context).goal_weighting_mode
@@ -2274,6 +2296,7 @@ def _goal_protection_stage(
     return {
         "policy": GOAL_HIERARCHY_POLICY_VERSION,
         "protected_goal_ids": [str(liab.goal_id) for liab in protected],
+        "demoted_goal_ids": sorted(_demoted_goal_ids(context)),
         "level_star": float(level_star),
         "standard_error": float(standard_error),
         "tolerance_basis": tolerance_basis,
@@ -2317,6 +2340,11 @@ def _select_cube_candidate(
     )
     selection = _select_cube_candidate_core(
         context, initials, memo, None, max_iter=max_iter, ftol=ftol,
+        demoted_starts=(
+            GOAL_DEMOTED_STAGE2_STARTS
+            if protection is not None and protection["demoted_goal_ids"]
+            else None
+        ),
     )
     if protection is None:
         return selection
@@ -2399,6 +2427,7 @@ def _select_cube_candidate_core(
     *,
     max_iter: int,
     ftol: float,
+    demoted_starts: int | None = None,
 ) -> _CubeSelection:
     """Auswahl auf einem Wuerfel; mit ``protection`` unter der Stufe-1-Schranke."""
     seed = context.seed
@@ -2452,10 +2481,40 @@ def _select_cube_candidate_core(
             best_feasible_result = finite_feasible_candidates[-1]["result"]
             best_feasible_source = "goal_hierarchy_stage1"
 
+    # STAGE2-OBJECTIVE-SCALE-001 (Laufzeit, CIO-Review #650): SLSQP prueft
+    # ``ftol`` ABSOLUT. Liegt die Zielfunktion weit ueber 1 (grosse
+    # Fehlbetraege, z. B. ein herabgestuftes unerreichbares Ziel), verlangt
+    # das eine relative Genauigkeit von 1e-7 und kostet Iterationen ohne
+    # Allokationswirkung. Der Solver sieht darum f / s mit
+    # s = max(1, |f| am besten Startpunkt): gleiches argmin, ftol relativ.
+    # Fuer |f| <= 1 (alle Golden-Mandate) ist s = 1 -- bitidentisch.
+    # Bewertet und verglichen wird weiterhin mit dem unskalierten f.
+    start_values = [
+        abs(float(objective_fn(np.asarray(x0, dtype=np.float64)))) for x0 in initials
+    ]
+    finite_starts = [v for v in start_values if np.isfinite(v)]
+    objective_unit = max(1.0, min(finite_starts)) if finite_starts else 1.0
+    if protection is None and demoted_starts is not None and len(initials) > demoted_starts:
+        # GOAL-HIERARCHY-002 (Laufzeit): mit herabgestuften (auf der
+        # Pruefmenge unerreichbaren) Zielen dominiert deren Fehlbetrag die
+        # Stufe-2-Zielfunktion, und die Stufe-1-Schranke bestimmt das
+        # Ergebnis (Streckensuche). Der Multi-Start sucht dann nur die
+        # Richtung w2 -- die besten Startpunkte nach f genuegen.
+        order = sorted(
+            range(len(initials)),
+            key=lambda i: (start_values[i] if np.isfinite(start_values[i]) else np.inf, i),
+        )[:demoted_starts]
+        initials = [initials[i] for i in sorted(order)]
+    if objective_unit == 1.0:
+        solver_objective_fn = objective_fn
+    else:
+        def solver_objective_fn(w: np.ndarray) -> float:
+            return objective_fn(w) / objective_unit
+
     for x0 in initials:
         attempt_started = time.perf_counter()
         result = _solve_single_start(
-            objective_fn, x0, bounds, scipy_constraints,
+            solver_objective_fn, x0, bounds, scipy_constraints,
             max_iter=max_iter, ftol=ftol,
         )
         elapsed_ms = int(round((time.perf_counter() - attempt_started) * 1000))
@@ -2651,6 +2710,7 @@ def _goal_protection_audit(
     return {
         "policy": protection["policy"],
         "protected_goal_ids": list(protection["protected_goal_ids"]),
+        "demoted_goal_ids": list(protection["demoted_goal_ids"]),
         "level_star": protection["level_star"],
         "standard_error": protection["standard_error"],
         "tolerance_basis": protection["tolerance_basis"],

@@ -5,6 +5,11 @@ GOAL-SCREEN-FEASIBLE-SET-PROOF-001; CIO-Entscheid 2026-10-18 nach Codex-
 Review docs/audits/2026-10-18-core-optimizer-pr631-reachability-and-
 validation-review.md): der Screen ist REINE OFFENLEGUNG.
 
+* Herabstufung statt Ausnahme (GOAL-HIERARCHY-002, CIO-Review #650): ein
+  im Default-Modus nicht gefundenes Ziel (obere Grenze < tau/2) gehoert
+  unabhaengig vom Haertegrad nicht zur Stufe 1 der Zielhierarchie
+  (``solver._stage1_liabilities``) -- es verdraengt keine erreichbaren Ziele,
+  bleibt aber mit vollem Fehlbetrag in der Zielfunktion.
 * Kein Ziel wird mehr aus Fehlbetrag oder Chance-Strafe genommen
   (``penalty_exempt_goal_ids`` ist immer leer; das Feld bleibt nur fuer die
   Auditstruktur). Ein Ziel, das seine Schwelle nie erreicht, unterscheidet
@@ -357,12 +362,12 @@ def reachability_reasoning(screen: dict | None) -> list[str]:
         )
         if not row.get("reachable"):
             lines.append(
-                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " war auf keiner "
-                "der geprueften zulaessigen Allokationen mit ausreichender "
-                "Sicherheit erreichbar (" + figures + "; endliche Pruefmenge, "
-                "kein Unmoeglichkeitsnachweis). Ziel mit dem Kunden ueberpruefen "
-                "(Betrag, Termin, Prioritaet). Die Allokation minimiert den "
-                "Fehlbetrag dieses Ziels weiterhin; es wird nicht ausgenommen."
+                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist mit keiner "
+                "der geprueften zulaessigen Allokationen mit der Mindestsicherheit "
+                "erreichbar (" + figures + "; endliche Pruefmenge, kein "
+                "Unmoeglichkeitsnachweis); es wird nachrangig verfolgt und "
+                "verdraengt keine erreichbaren Ziele. Ziel mit dem Kunden "
+                "ueberpruefen (Betrag, Termin, Prioritaet)."
             )
         else:
             lines.append(

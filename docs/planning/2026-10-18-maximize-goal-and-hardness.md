@@ -113,7 +113,7 @@ Test `test_house_prior_cannot_buy_erosion_of_a_protected_goal`: mit κ_H = 1e6 w
 * Status `not_found_reachable_in_screen_set` statt "unerreichbar" (FEASIBLE-SET-PROOF), Beraterhinweis "Ziel mit dem Kunden ueberpruefen … es wird nicht ausgenommen".
 * Codex-Reproducer als regulaere Tests (ohne xfail): `test_codex_unreachable_label_must_not_erase_shortfall_ranking`, `..._finite_candidate_screen_...`, `..._final_certification_holdout_...` (auf develop rot, jetzt gruen). Aufrufe nur dort angepasst, wo die Schnittstelle absichtlich entfiel (Parameter existiert nicht mehr; Screening-Wuerfel statt Validierungswuerfel).
 
-**Folge (CIO-relevant):** ein praktisch unerreichbares Ziel steuert wieder – mit minimalem Fehlbetrag statt Ausnahme. Beispiel Vermoegensziel CHF 5 Mio (P max ~2 %): develop Hausquote 6000/3000/500/300/200, v7 7000/2000/800/0/200 (Aktien an der Bandobergrenze, σ 9.2 → 10.8 %). Fundament-Mandat (Familienvermoegen 2035, P ≈ 13–16 %): Aktien 64.9 → 73.4 %, Immobilien 19.2 → 11.0 %; P(Familienvermoegen) 12.6 → 15.7 %, P(Einkommensbruecke) 74.4 → 72.3 %, P(Mindestrendite) 58.7 → 61.0 %. Das ist die von Codex/CIO verlangte Semantik ("kein Beratermodus optimiert still eine andere Teilmenge der Kundenziele"); ein bewusster Zielverzicht braeuchte einen expliziten, kundengebundenen Entscheid (nicht Teil dieses PR).
+**Folge und Herabstufung (GOAL-HIERARCHY-002, CIO-Review #650):** ein auf der Pruefmenge nicht gefundenes Ziel (Default: obere 95-%-Grenze < tau/2) bleibt mit vollem Fehlbetrag in der Zielfunktion (Codex "CHF 0 ≠ CHF 900"), gehoert aber unabhaengig vom Haertegrad **nicht zur Stufe 1** (`solver._stage1_liabilities`): es wird nachrangig verfolgt und kann erreichbare harte/primaere Ziele nicht ueber deren Schranke hinaus verdraengen. Reasoning: "Ziel X ist mit keiner der geprueften zulaessigen Allokationen mit der Mindestsicherheit erreichbar (…; endliche Pruefmenge, kein Unmoeglichkeitsnachweis); es wird nachrangig verfolgt und verdraengt keine erreichbaren Ziele." Audit je Bag: `goal_protection.demoted_goal_ids`. Siehe Abschnitt 10.
 
 ## 6. ObjectiveContractV2
 
@@ -135,11 +135,11 @@ Begruendung: die Golden-Mandate haben eine **harte** Pension. In einzelnen Bags 
 
 | Fall | develop (v6) | v7 |
 |---|---|---|
-| Stage-8-Fundament (`elapsed_ms`, 2 Laeufe) | 5'542 / 5'536 | 12'817 / 12'761 |
-| davon: Ausnahme entfernt (ohne Hierarchie, gemessen) | – | 12'127 |
+| Stage-8-Fundament (`elapsed_ms`, solo) | 5'542 / 5'536 | erste Fassung 12'817 / 12'761; nach CIO-Review **4'475 / 4'543** |
+| Zwischenstaende (Fundament) | – | Herabstufung 13'363 → + Zielfunktions-Skalierung 9'639 → + 2 Starts bei Herabstufung 4'475 |
 | Vermoegensziel 1.2 Mio hart / primaer (Resampling, 500 Pfade; nicht solo, nur Groessenordnung) | 10.1 s / 9.8 s | 7.4 s / 7.6 s |
 
-Das Stage-8-Kriterium (rot > 15'000 ms) haelt; der Fundament-Lauf liegt im gelben Band (> 8'000 ms). Den Grossteil der Mehrzeit kostet das nicht mehr ausgenommene unerreichbare Ziel (SLSQP-Iterationen 1'501 → 2'673, +78 %), nicht die Hierarchie (+0.3–0.7 s). Gemessen und verworfen: Stufe-1-Schranke als Dauer-Nebenbedingung (44.5 s), zwei Stufe-1-Starts (24 s).
+Nach dem CIO-Review liegt der Fundament-Lauf im gruenen Band (< 8'000 ms), mit Reserve fuer #649 (+~0.9 s). Zwei Massnahmen: (1) STAGE2-OBJECTIVE-SCALE-001 – SLSQP sieht f/s mit s = max(1, |f| am besten Startpunkt): gleiches argmin, ftol wird relativ; fuer |f| ≤ 1 (alle Golden-Mandate) s = 1, bitidentisch. Mandate mit grossen Fehlbetraegen koennen sich im Rahmen der Solver-Toleranz verschieben (Vermoegensziel 1.6 Mio primaer: 6880/2030/852 → 6911/2032/836). (2) Mit herabgestuften Zielen laeuft Stufe 2 nur von den 2 besten Startpunkten (`GOAL_DEMOTED_STAGE2_STARTS`): dort bestimmt die Stufe-1-Schranke das Ergebnis (Streckensuche in 39 von 40 Bags), der Multi-Start liefert nur die Richtung; Fundament-Allokation 6178 → 6184 bps Aktien. Iterationen 2'837 → 796. Verworfen: Stufe-1-Schranke als Dauer-Nebenbedingung (44.5 s), zwei Stufe-1-Starts (24 s).
 
 ## 9. Angepasste Bestandstests
 
@@ -148,7 +148,27 @@ Das Stage-8-Kriterium (rot > 15'000 ms) haelt; der Fundament-Lauf liegt im gelbe
 * Reachability (`test_importance_sampling_ess`, `test_saa_resampled_stability`): Ausnahme → Offenlegung, Parameter entfallen, neue Hinweistexte; "Variante nie riskanter als Default" (CIO-Entscheid b, nur durch die Ausnahme erfuellt) → "Variante auf ihrem eigenen Mass mindestens so gut wie der Default".
 * κ-Grenzfall: κ → ∞ zieht bis an die Zielschutz-Schranke, nicht mehr bis auf die Hausquote.
 
-## 10. Offen (Phase 2, eigener PR)
+## 10. Nachtrag CIO-Review #650 (2026-10-19)
+
+**Fundament-Mandat** (develop → v7, solo):
+
+| | develop | v7 erste Fassung | v7 nach Review |
+|---|---|---|---|
+| Allokation | 6494/1037/1918/300/251 | 7343/1008/1098/300/251 | 6184/1388/1877/300/251 |
+| publiziert P(Einkommensbruecke) | 74.4 % (eigener Wuerfel) | 72.3 % | 73.1 % |
+| publiziert P(Familienvermoegen) | 12.6 % | 15.7 % | 11.5 % |
+
+Die publizierten Zahlen stammen von verschiedenen Validierungswuerfeln (die Engine-Version geht in den Inhalts-Seed). Vergleich auf DEMSELBEN unabhaengigen Wuerfel mit 20'000 Pfaden: P(Einkommensbruecke) develop-Allokation 73.41 %, v7 73.25 % (−0.16 pp; mit z = 0 statt 1.645: 73.27 %, d. h. nicht die Toleranz, sondern das Stufe-1-Mass). Stufe-1-Niveau G1 (Fehlbetrag + weiche Strafe der erreichbaren Ziele) auf dem Trainingswuerfel: develop-Allokation 0.1175, v7 0.1172 (besser). Stufe 1 schuetzt die Zielebene (Fehlbetragshoehe + weiche Strafe), nicht die Wahrscheinlichkeit allein; eine reine Wahrscheinlichkeits-Untergrenze ist Codex-Befund 2 (Phase 2). Ergebnis: P(Einkommensbruecke) liegt auf gleichem Wuerfel 0.16 pp unter der develop-Allokation (Standardfehler der gepaarten Differenz bei 20'000 Pfaden ~0.1–0.2 pp), die erste Fassung lag 2.1 pp darunter.
+
+**Unerreichbares Ziel CHF 5 Mio allein** (hart oder primaer, keine weiteren Ziele): 7000/2000/800/0/200, unveraendert gegenueber der ersten Fassung. Ohne erreichbare Ziele gibt es nichts zu verdraengen; der volle Fehlbetrag zieht bis an die Bandobergrenze (develop: Hausquote durch Ausnahme). Wenn der CIO hier die Hausquote will, braucht es eine eigene Regel (z. B. herabgestufte Ziele mit opportunistischem Gewicht) – nicht umgesetzt, weil "voller Fehlbetrag" verlangt war.
+
+**Goldens:** nach dem Review byte-identisch zur ersten v7-Fassung (Haswell = Nehalem). Score 3/5 = develop. Score 7 (−8 bps Aktien) und Score 9 (−93 bps) einzeln geprueft: mit Haertegrad-Teiler 1 statt 10 (Experiment) sind beide exakt die develop-Fixtures – die Aenderung kommt ausschliesslich von der harten Pension (Toleranz ein Zehntel des Rauschens), keine herabgestuften Ziele, keine Skalierungswirkung (|f| ≤ 1).
+
+**Varianten-Test:** `test_risk_variants_improve_their_own_measure_on_the_foundation` ist jetzt `xfail(strict=True)`: der Default ist auf dem Fundament defensiver (Aktien 61.8 %, Vola 10.2 %), `min_volatility` hat noch keine Hierarchie/Herabstufung und wird von den Strafen nicht erreichbarer Ziele getrieben (74.5 %, 11.6 %). Offener Defekt fuer Phase 2 (Codex-Befund 4), bewusst sichtbar statt abgeschwaecht.
+
+**Engine-Version:** bleibt bis zum Merge von #649 `saa_resampled_v7`; nach dessen Merge wird develop eingemergt und die Version `saa_resampled_v8`.
+
+## 11. Offen (Phase 2, eigener PR)
 
 1. Codex OBJECTIVE-TIEBREAK (1): Varianz/Prior gegen **opportunistische** Ziele ist weiterhin additiv (opportunistisch = Stufe 2 by design).
 2. Codex CHANCE-PENALTY-NOT-CONSTRAINT (2): echte Wahrscheinlichkeits-Untergrenzen (WilsonLB ≥ tau) statt weicher Strafe, in allen Modi; bis dahin heisst die Strafe im Code "weiche Strafe" – UI/PDF-Wortlaut pruefen.

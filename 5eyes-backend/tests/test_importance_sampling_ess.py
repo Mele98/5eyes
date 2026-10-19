@@ -570,6 +570,6 @@ def test_reachability_is_published_on_goal_rows(monkeypatch):
     assert rows["Unerreichbar"]["feasible_set_reachable"] is False
     hints = [line for line in result.reasoning if line.startswith("Beraterhinweis: Ziel 'Unerreichbar'")]
     assert len(hints) == 1
-    assert "mit ausreichender Sicherheit erreichbar" in hints[0]
+    assert "mit der Mindestsicherheit erreichbar" in hints[0]
     assert "Ziel mit dem Kunden ueberpruefen (Betrag, Termin, Prioritaet)" in hints[0]
-    assert "es wird nicht ausgenommen" in hints[0]
+    assert "nachrangig verfolgt und verdraengt keine erreichbaren Ziele" in hints[0]
