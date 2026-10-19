@@ -1791,6 +1791,16 @@ _SQLITE_CURRENT_ANCHOR_INDEXES: tuple[tuple[str, str, str, str], ...] = (
         "currency",
         "is_current = 1 AND valid_until IS NULL",
     ),
+    (
+        # PENSION-TRANSFER-LEDGER-001 (2026-10-19): hoechstens ein aktiver
+        # Vorsorgebezug je Quelle, siehe models/wealth.py::WealthInflow.
+        # Bestehende Doppel-Links lassen den Index-Aufbau laut scheitern
+        # (manuelle Bereinigung statt stiller Gewinnerwahl).
+        "ux_wealth_inflow_one_active_pension_link",
+        "wealth_inflows",
+        "linked_position_id",
+        "linked_position_id IS NOT NULL AND is_active = 1 AND deleted_at IS NULL",
+    ),
 )
 
 
