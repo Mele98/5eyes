@@ -1380,6 +1380,12 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
     chart = build_mc_paths_drawing(mc, goals)
     if chart is not None:
         out.append(chart)
+        if mc.get("horizon_note"):
+            # SIM-HORIZON-FROM-RISK-PROFILE-001: bestimmende Groesse nennen.
+            out.append(Paragraph(
+                _escape(str(mc["horizon_note"])),
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+            ))
         out.append(Spacer(1, 5 * mm))
     elif mc.get("data_pending"):
         out.append(Paragraph(

@@ -108,6 +108,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import date, datetime
 import time
 from dataclasses import is_dataclass, replace
 from types import SimpleNamespace
@@ -198,6 +199,41 @@ def sensitivity_delta_availability(
         )
     delta = round((float(modified_objective) - base) / abs(base) * 100.0, 2)
     return delta, None
+
+
+def sensitivity_canonical_scalar(value):
+    """Kanonische, hashbare Form eines Sensitivity-Modellkontexts (aus
+    evaluate_goal_sensitivity extrahiert, RESERVE-FUNDING-LEDGER-001)."""
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(
+                "Sensitivity-Modellkontext enthaelt NaN/Infinity."
+            )
+        return value
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {
+            str(key): sensitivity_canonical_scalar(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [sensitivity_canonical_scalar(item) for item in value]
+    if hasattr(value, "tolist"):
+        return sensitivity_canonical_scalar(value.tolist())
+    state = getattr(value, "__dict__", None)
+    if isinstance(state, dict):
+        return {
+            "class": f"{type(value).__module__}.{type(value).__qualname__}",
+            "state": sensitivity_canonical_scalar({
+                key: item
+                for key, item in state.items()
+                if not str(key).startswith("_")
+            }),
+        }
+    return str(value)
 
 
 def sensitivity_house_anchor_bps(
@@ -349,8 +385,9 @@ def _run_stochastic_optimizer_pass(
     # of "the advisor explicitly asked for this"). None/empty means no
     # Target Intent at all.
     preferred_target_bps: dict[str, int] | None = None,
-    # RESERVE-DOUBLE-COUNT-001: vor dem Solver herausgeloeste externe Reserve.
-    external_reserve_rappen: int = 0,
+    # RESERVE-DOUBLE-COUNT-001 / RESERVE-FUNDING-LEDGER-001: der eine,
+    # quellengebundene Ledger der vor dem Solver herausgeloesten Reserve.
+    reserve_ledger=None,
 ):
     """Solver in Shadow- oder Stochastic-Modus aufrufen.
 
@@ -466,41 +503,15 @@ def _run_stochastic_optimizer_pass(
 
     # RESERVE-DOUBLE-COUNT-001: die externe Reserve ist aus dem Startvermoegen
     # entfernt, die Abfluesse, fuer die sie gebildet wurde, bleiben aber voll im
-    # Solver. Sie fliesst deshalb als Bargeld genau im Faelligkeitsjahr dieser
-    # Abfluesse zurueck (jede CHF genau einmal, keine Rendite darauf).
-    if int(external_reserve_rappen or 0) > 0:
-        from services.optimizer.goal_liabilities import (
-            aggregate_liability_path,
-            goals_to_liabilities,
+    # Solver. RESERVE-FUNDING-LEDGER-001: sie fliesst ausschliesslich ueber den
+    # quellengebundenen Ledger zurueck -- jede Tranche nur in die Abfluesse
+    # ihrer eigenen Quelle, ein reiner Policy-Floor nie (jede CHF genau einmal).
+    if reserve_ledger is not None and int(reserve_ledger.total_external_rappen) > 0:
+        if int(reserve_ledger.horizon_years) != horizon:
+            raise ValueError("reserve ledger horizon differs from solver horizon")
+        cashflow_projection_series_rappen = reserve_ledger.effective_cashflow_series(
+            ([int(v) for v in cashflow_projection_series_rappen] + [0] * horizon)[:horizon]
         )
-        from services.portfolio_engine_reserve import (
-            _external_reserve_release_series,
-        )
-
-        padded_cashflows = (
-            [int(v) for v in cashflow_projection_series_rappen] + [0] * horizon
-        )[:horizon]
-        reserve_liability_path = aggregate_liability_path(
-            goals_to_liabilities(
-                list(goals),
-                horizon_years=horizon,
-                inflation_series_bps=inflation_series_bps,
-                external_wealth_rappen=max(0, int(external_wealth_rappen or 0)),
-                external_wealth_series_rappen=(
-                    list(external_wealth_series_rappen)[: horizon + 1] or None
-                    if external_wealth_series_rappen is not None
-                    else None
-                ),
-            ),
-            horizon,
-        )
-        reserve_release = _external_reserve_release_series(
-            int(external_reserve_rappen), padded_cashflows, reserve_liability_path
-        )
-        cashflow_projection_series_rappen = [
-            value + released
-            for value, released in zip(padded_cashflows, reserve_release)
-        ]
 
     optimizer_context = None
     try:

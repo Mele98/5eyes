@@ -3185,19 +3185,21 @@ def test_generate_target_allocation_exposes_simulation_and_asset_assumptions(ses
     simulation = result["simulation"]
     monte_carlo = result["monte_carlo"]
     assumptions = {item["asset_class"]: item for item in result["asset_class_assumptions"]}
-    assert simulation["horizon_years"] == 12
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: der Praeferenzwert 12 wird ignoriert;
+    # der Anlagehorizont des Risikoprofils ("Mehr als 12 Jahre" = 15) bestimmt.
+    assert simulation["horizon_years"] == 15
     assert simulation["start_year"] == date.today().year
-    assert len(simulation["year_labels"]) == 13
-    assert len(simulation["target_mix_series_rappen"]) == 13
-    assert len(simulation["current_mix_series_rappen"]) == 13
-    assert len(simulation["real_target_series_rappen"]) == 13
+    assert len(simulation["year_labels"]) == 16
+    assert len(simulation["target_mix_series_rappen"]) == 16
+    assert len(simulation["current_mix_series_rappen"]) == 16
+    assert len(simulation["real_target_series_rappen"]) == 16
     assert simulation["stress_multiplier"] == 1.5
     assert simulation["rebalance_mode"] == "bands"
     assert monte_carlo["simulations"] == 900
-    assert monte_carlo["horizon_years"] == 12
-    assert len(monte_carlo["year_labels"]) == 13
-    assert len(monte_carlo["target_p50_series_rappen"]) == 13
-    assert len(monte_carlo["target_p10_series_rappen"]) == 13
+    assert monte_carlo["horizon_years"] == 15
+    assert len(monte_carlo["year_labels"]) == 16
+    assert len(monte_carlo["target_p50_series_rappen"]) == 16
+    assert len(monte_carlo["target_p10_series_rappen"]) == 16
     assert len(monte_carlo["goal_summaries"]) == 0
     assert monte_carlo["target_p90_series_rappen"][-1] >= monte_carlo["target_p50_series_rappen"][-1] >= monte_carlo["target_p10_series_rappen"][-1]
     assert monte_carlo["target_var_95_1y_bps"] <= monte_carlo["target_cvar_95_1y_bps"] <= 10000
@@ -3529,7 +3531,8 @@ def test_build_target_payload_from_allocation_exposes_monte_carlo(session_factor
         )
 
     assert payload_result["monte_carlo"]["simulations"] == 600
-    assert payload_result["monte_carlo"]["horizon_years"] == 10
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: Praeferenzwert 10 ignoriert, Risikoprofil = 15.
+    assert payload_result["monte_carlo"]["horizon_years"] == 15
     assert payload_result["monte_carlo"]["year_labels"][0] == date.today().year
     assert payload_result["goal_analysis"][0]["path_success_rate_pct"] is not None
     assert any("Pfadsimulation" in item for item in payload_result["reasoning"])

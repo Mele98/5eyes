@@ -23,7 +23,6 @@ from schemas.allocation import (
     OptimizerRunResponse,
     OptimizerPolicyCreate, OptimizerPolicyUpdate, OptimizerPolicyResponse,
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
-    SimHorizonConfirmationRequest, SimHorizonConfirmationResponse,
 )
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from services.auth import (
@@ -44,7 +43,6 @@ from services.jurisdiction.resolve import (
 from services.portfolio_engine import (
     BUCKET_FIELDS,
     _current_risk_assessment_or_none,
-    _allocation_snapshot_preferences,
     _current_target_allocation_or_none,
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
@@ -75,6 +73,11 @@ from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
+from services.risk_capacity_plausibility import (
+    attach_to_strategy_payload,
+    audit_if_inconsistent,
+    evaluate_mandate_safely,
+)
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
@@ -212,7 +215,7 @@ def get_current_allocation_payload(
     # → silent Drift wenn CMA-Update zwischen Generate und Reload. Drift-Warning
     # in _strategy_drift_warnings macht die Differenz weiterhin sichtbar.
     try:
-        return build_target_payload_from_allocation(
+        payload = build_target_payload_from_allocation(
             db=db,
             mandate=mandate,
             allocation=ta,
@@ -221,94 +224,14 @@ def get_current_allocation_payload(
             assessment=assessment,
             preferences=None,
         )
+        # RISK-CAPACITY-PLAUSIBILITY-001: live gegen die aktuellen Daten.
+        return attach_to_strategy_payload(
+            payload, evaluate_mandate_safely(db, mandate, assessment),
+        )
     except ValueError as exc:
         # Invalid legacy/raw position semantics and persisted-context integrity
         # failures are repairable domain conflicts, not opaque server errors.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-def _snapshot_horizon(prefs: dict | None) -> tuple[int | None, bool]:
-    """(horizonYears als int oder None, horizonExplicit) aus einem Snapshot."""
-    simulation = (prefs or {}).get("simulation")
-    if not isinstance(simulation, dict):
-        return None, False
-    raw = simulation.get("horizonYears")
-    if raw is None or (isinstance(raw, str) and not raw.strip()):
-        return None, False
-    try:
-        years = int(str(raw).strip())
-    except ValueError:
-        return None, False
-    return years, simulation.get("horizonExplicit") is True
-
-
-@router.post("/mandates/{mandate_id}/target-allocation/current/sim-horizon-confirmation",
-             response_model=SimHorizonConfirmationResponse)
-def confirm_sim_horizon(
-    mandate_id: str,
-    body: SimHorizonConfirmationRequest,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_advisor),
-):
-    """SIM-HORIZON-CONFIRM-001: Berater bestaetigt einen Alt-Horizont.
-
-    Vor SIM-HORIZON-ALWAYS-EXPLICIT-001 schrieb der Monolith den Horizont
-    IMMER mit (Default '10'). CIO-Entscheid: keine automatische Migration;
-    der Berater bestaetigt den gespeicherten Wert einmalig. preferences_json
-    (Teil des allocation_context_hash) bleibt unveraendert -- vermerkt wird
-    nur, WER WANN den Wert bestaetigt hat. Idempotent.
-    """
-    mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    try:
-        ta = _current_target_allocation_or_none(db, mandate_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not ta:
-        raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
-    try:
-        prefs = _allocation_snapshot_preferences(ta)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    years, explicit = _snapshot_horizon(prefs)
-    if years is None:
-        raise HTTPException(
-            status_code=409,
-            detail="Die aktuelle Soll-Allokation hat keinen gespeicherten Horizont (Auto) -- nichts zu bestaetigen.",
-        )
-    if years != body.horizon_years:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Gespeicherter Horizont ({years} J.) weicht vom bestaetigten Wert "
-                f"({body.horizon_years} J.) ab -- bitte Ansicht neu laden."
-            ),
-        )
-    if explicit or ta.sim_horizon_confirmed_at:
-        return SimHorizonConfirmationResponse(
-            target_allocation_id=ta.id,
-            horizon_years=years,
-            sim_horizon_confirmed_at=ta.sim_horizon_confirmed_at or ta.set_at,
-            sim_horizon_confirmed_by=ta.sim_horizon_confirmed_by or (None if ta.sim_horizon_confirmed_at else ta.set_by),
-            already_confirmed=True,
-        )
-    now = _now()
-    ta.sim_horizon_confirmed_at = now
-    ta.sim_horizon_confirmed_by = current_user.id
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="target_allocations", record_id=ta.id, action="UPDATE",
-        field_name="sim_horizon_confirmed_at", old_value=None,
-        new_value=f"{now} ({years} J.)",
-        mandate_id=mandate_id, client_id=mandate.client_id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
-    return SimHorizonConfirmationResponse(
-        target_allocation_id=ta.id,
-        horizon_years=years,
-        sim_horizon_confirmed_at=now,
-        sim_horizon_confirmed_by=current_user.id,
-        already_confirmed=False,
-    )
 
 
 @router.post("/mandates/{mandate_id}/target-allocation",
@@ -768,6 +691,15 @@ def generate_target_allocation_endpoint(
                 table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
+            # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
+            # keine Profilaenderung, kein Blockieren.
+            plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
+            attach_to_strategy_payload(result, plausibility)
+            audit_if_inconsistent(
+                db, plausibility, user=current_user, table_name="target_allocations",
+                record_id=result["target_allocation"].id, mandate=mandate,
+                ip_address=_extract_client_ip(request),
+            )
             db.commit()
         except IntegrityError:
             db.rollback()

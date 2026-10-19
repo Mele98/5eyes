@@ -1,6 +1,6 @@
 import json
 from datetime import date, datetime
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 from typing import Any, Optional, Literal
 from schemas.common import BaseResponse
 from schemas.allocation import AllocationPreferencesPayload, LiveRebalancingResponse
@@ -1042,6 +1042,23 @@ class ProductResponse(BaseResponse):
     created_at: str
     updated_at: str
 
+    # ESG-SEED-PROVENANCE-001: abgeleiteter Provenienz-Status der ESG-Angaben
+    # (seed_unverified / maintained_no_source / not_maintained), ohne
+    # Schemaaenderung aus bestehenden Feldern, siehe services/esg_data_provenance.py.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def esg_data_status(self) -> str:
+        from services.esg_data_provenance import product_esg_data_status
+
+        return product_esg_data_status(self)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def esg_data_seed_fields(self) -> list[str]:
+        from services.esg_data_provenance import seed_unverified_esg_fields
+
+        return list(seed_unverified_esg_fields(self))
+
     @field_validator("theme_tags", mode="before")
     @classmethod
     def _parse_theme_tags(cls, v):
@@ -1372,6 +1389,9 @@ class RecommendationPositionResponse(BaseResponse):
     reference_lookup_mode: Optional[str] = None
     reference_price_fetched_at: Optional[str] = None
     rationale: Optional[str]
+    # ESG-P0-3: Hinweise beim manuellen Hinzufuegen (z.B.
+    # PREFERENCE_SNAPSHOT_LEGACY); Listenaufrufe liefern [].
+    warnings: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
 
