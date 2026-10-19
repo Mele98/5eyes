@@ -59,8 +59,13 @@ def _alembic_cfg(db_url):
 def test_alembic_has_exactly_one_head_and_it_is_the_decision_revision():
     from alembic.script import ScriptDirectory
 
-    heads = ScriptDirectory.from_config(_alembic_cfg("sqlite://")).get_heads()
-    assert heads == ["c4e9a7d2b815"], heads
+    script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
+    heads = script.get_heads()
+    # Genau ein Head; spaetere Revisionen duerfen auf der Decision-Revision
+    # aufbauen, solange sie in der linearen Kette bleibt.
+    assert len(heads) == 1, heads
+    chain = {rev.revision for rev in script.walk_revisions("base", heads[0])}
+    assert "c4e9a7d2b815" in chain
 
 
 def test_fresh_bootstrap_has_decision_table_pointer_columns_and_triggers(tmp_path):
