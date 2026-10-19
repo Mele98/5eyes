@@ -193,6 +193,21 @@ und das Optimum des Priors ist exakt die (projizierte) Hausquote (Tracking
 Error 0, Entscheid ``house_prior`` /
 ``identical_to_house_anchor``). Begruendung:
 docs/planning/2026-10-18-house-prior-v6.md.
+
+Nachtrag (2026-10-19, MAXIMIZE-GOAL-001 / GOAL-HARDNESS-DEFAULT-001 /
+GOAL-HIERARCHY-001, Engine ``saa_resampled_v7``): Haertegrad standardmaessig,
+harte/primaere Ziele als Stufe 1 (Zielschutz-Schranke G1* + eps, eps = z *
+SE(Haus - Stufe-1) / h_max). Unter OPENBLAS_CORETYPE=Haswell UND =Nehalem
+(OMP/OPENBLAS/MKL_NUM_THREADS=1) neu erzeugt, beide Laeufe byte-identisch:
+vier Fixtures unveraendert (Score 3, alle drei Score-5-Varianten: Hausquote
+liegt innerhalb der Schranke). Geaendert, weil die Pension HART ist (h = 10:
+nur ein Zehntel des Monte-Carlo-Rauschens als Erosion zugunsten der
+Hausmatrix): Score 7 6800/1600/800/600/200 -> 6792/1609/797/602/200
+(529/1081 -> 528/1080 bps), Score 9 7900/800/700/400/200 ->
+7807/916/707/370/200 (577/1245 -> 573/1230 bps, Risikoanteil 69.17 ->
+68.51 %): in einzelnen Bags hat die Hausquote Fehlbetragspfade der harten
+Pension, die die Schranke verletzen; die Allokation wird dort geringfuegig
+defensiver. Begruendung: docs/planning/2026-10-18-maximize-goal-and-hardness.md.
 """
 from __future__ import annotations
 

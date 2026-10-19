@@ -73,7 +73,8 @@ class GoalLiability:
                                  Wealth direkt danach muss >= 0 sein
         "outflow_stream"       - kumulierte Outflows ueber Jahre 1..T abdeckbar
         "return_rate"          - annualized Return ueber Horizont >= target_bps
-        "maximize"             - keine Constraint, nur in Vol-Min relevant
+        "maximize"             - keine Ziel-Untergrenze; wirkt als Log-Wachstums-
+                                 term in G (MAXIMIZE-GOAL-001, objective.py)
         "state_funded"         - extern/staatlich gedeckt; keine Portfolio-Liability
     """
     goal_id: str
@@ -796,7 +797,12 @@ def _build_recurring_outflow(
 
 
 def _build_maximierung(goal: Goal, *, horizon_years: int) -> GoalLiability:
-    """Maximierung: triviale Liability, ist nur fuer Phase-2-Vol-Min relevant."""
+    """Maximierung: kein Outflow, kein Zielwert.
+
+    MAXIMIZE-GOAL-001 (Engine v7): bewertet ueber den ganzen Horizont mit dem
+    Log-Wachstumsterm ``objective.maximize_growth_per_path`` (vorher
+    Fehlbetrag 0 -- das Ziel wirkte nicht).
+    """
     return GoalLiability(
         goal_id=str(goal.id),
         label=str(goal.label or ""),

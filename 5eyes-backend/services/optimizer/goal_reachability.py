@@ -1,5 +1,24 @@
 """Ist ein Ziel auf IRGENDEINER zulaessigen Allokation erreichbar?
 
+ENGINE v7 (GOAL-SCREEN-OBJECTIVE-ERASURE-001, GOAL-SCREEN-HOLDOUT-LEAKAGE-001,
+GOAL-SCREEN-FEASIBLE-SET-PROOF-001; CIO-Entscheid 2026-10-18 nach Codex-
+Review docs/audits/2026-10-18-core-optimizer-pr631-reachability-and-
+validation-review.md): der Screen ist REINE OFFENLEGUNG.
+
+* Kein Ziel wird mehr aus Fehlbetrag oder Chance-Strafe genommen
+  (``penalty_exempt_goal_ids`` ist immer leer; das Feld bleibt nur fuer die
+  Auditstruktur). Ein Ziel, das seine Schwelle nie erreicht, unterscheidet
+  trotzdem zwischen viel und wenig Fehlbetrag (CHF 0 vs. CHF 900 gegen
+  CHF 1000) -- und harte/primaere Ziele sind in der Zielhierarchie
+  geschuetzt (``objective.protected_goal_level``).
+* Eigener Screening-Wuerfel (``SCREENING_SEED_OFFSET``), nie der
+  Validierungswuerfel, der spaeter den Gewinner zertifiziert und gegen die
+  Hausmatrix testet.
+* Die Pruefmenge ist endlich und beweist keine Unerreichbarkeit: der Status
+  heisst ``not_found_reachable_in_screen_set``, nicht "unerreichbar".
+
+Historischer Text (v3, bis Engine v6):
+
 GOAL-REACHABILITY-SCREEN-001 (CIO-Entscheid 2026-10-18)
 =======================================================
 
@@ -74,7 +93,10 @@ import numpy as np
 
 from .certification import wilson_upper_bound
 
-GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v3"
+GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v4_advisory"
+# Seed-Offset des Screening-Wuerfels (Primzahl, verschieden vom
+# Validierungs-Offset ``solver.VALIDATION_SEED_OFFSET = 1_000_003``).
+SCREENING_SEED_OFFSET = 2_000_003
 # Ein Ziel gilt als praktisch unerreichbar, wenn die obere 95 %-Grenze seiner
 # besten zulaessigen Erfolgswahrscheinlichkeit unter diesem Anteil seiner
 # geforderten Sicherheit tau liegt (CIO-Entscheid 2026-10-18).
@@ -97,6 +119,54 @@ def _box_simplex_vertices(bounds) -> list[np.ndarray]:
                 w[free] = min(max(w[free], lo[free]), hi[free])
                 vertices.append(w)
     return vertices
+
+
+def _build_screening_context(context):
+    """Eigener Screening-Wuerfel (gleiche Verteilung, eigener Seed).
+
+    GOAL-SCREEN-HOLDOUT-LEAKAGE-001: der Validierungswuerfel
+    (``solver._build_validation_context``) bleibt bis zum Freeze des
+    Gewinners unberuehrt. None ohne ScenarioInputs oder bei
+    fehlgeschlagenem Wuerfel.
+    """
+    import hashlib
+    from dataclasses import replace
+
+    from services.return_moments import ReturnMomentError
+
+    from .scenario_cache import scenario_inputs_digest
+    from .scenario_engine import build_scenario_paths
+
+    inputs = getattr(context, "scenario_inputs", None)
+    if inputs is None:
+        return None
+    screening_seed = int(context.seed) + SCREENING_SEED_OFFSET
+    scenario_horizon = int(
+        getattr(context, "scenario_horizon_years", None) or context.horizon_years
+    )
+    try:
+        paths = build_scenario_paths(
+            inputs,
+            horizon_years=scenario_horizon,
+            n_paths=int(context.n_paths),
+            seed=screening_seed,
+            antithetic=True,
+        )
+    except (ReturnMomentError, ValueError):
+        return None
+    paths = paths[:, : int(context.horizon_years), :]
+    screening_context = replace(context, return_paths=paths, scenario_weights=None)
+    cube_hash = hashlib.sha256(
+        "|".join([
+            scenario_inputs_digest(inputs),
+            str(scenario_horizon),
+            str(int(context.n_paths)),
+            str(screening_seed),
+            "antithetic=True",
+            "screening",
+        ]).encode("utf-8")
+    ).hexdigest()
+    return screening_context, screening_seed, cube_hash
 
 
 def candidate_allocations(context) -> list[np.ndarray]:
@@ -162,10 +232,10 @@ def goal_reachability_screen(context) -> dict | None:
     goals = _screened_goals(context, int(context.horizon_years) + 1)
     if not goals:
         return None
-    validation = _solver._build_validation_context(context)
-    if validation is None:
+    screening = _build_screening_context(context)
+    if screening is None:
         return None
-    validation_context, validation_seed, cube_hash = validation
+    validation_context, validation_seed, cube_hash = screening
     n_paths = int(validation_context.n_paths)
     candidates = candidate_allocations(context)
     state = {
@@ -217,21 +287,20 @@ def goal_reachability_screen(context) -> dict | None:
                 row["tau_reachable"] = True
 
     unreachable = sorted(gid for gid, row in state.items() if not row["reachable"])
-    # Default: nur praktisch unerreichbare Ziele (UB < tau/2) steuern nicht.
-    # Risikomass-Variante (CIO-Entscheid b, 2026-10-18): nur Ziele, deren
-    # Schwelle tau auf mindestens einer zulaessigen Allokation erreichbar ist,
-    # steuern -- die Variante verspricht ein Risikomass und darf nicht fuer ein
-    # ohnehin nicht absicherbares Ziel Risiko aufbauen.
-    if risk_variant:
-        exempt = sorted(gid for gid, row in state.items() if not row["tau_reachable"])
-    else:
-        exempt = list(unreachable)
+    # Engine v7: reine Offenlegung -- in KEINEM Modus wird ein Ziel aus
+    # Zielfunktion oder Strafe genommen. "not_found_reachable_in_screen_set"
+    # heisst: auf der endlichen Pruefmenge nicht gefunden, kein Beweis.
+    not_tau_reachable = sorted(
+        gid for gid, row in state.items() if not row["tau_reachable"]
+    )
+    flagged = set(not_tau_reachable if risk_variant else unreachable)
     return {
         "version": GOAL_REACHABILITY_SCREEN_VERSION,
+        "role": "advisory_disclosure_only",
         "objective_mode": mode,
-        "validation_seed": int(validation_seed),
-        "validation_cube_hash": cube_hash,
-        "validation_n_paths": n_paths,
+        "screening_seed": int(validation_seed),
+        "screening_cube_hash": cube_hash,
+        "screening_n_paths": n_paths,
         "n_candidates": len(candidates),
         "n_candidates_evaluated": evaluated,
         "unreachable_tau_fraction": UNREACHABLE_TAU_FRACTION,
@@ -251,22 +320,35 @@ def goal_reachability_screen(context) -> dict | None:
                     if risk_variant or row["tau_reachable"] or not row["reachable"]
                     else None
                 ),
-                "penalty_exempt": gid in exempt,
+                "status": (
+                    "not_found_reachable_in_screen_set"
+                    if gid in flagged
+                    else "found_reachable_in_screen_set"
+                ),
+                "penalty_exempt": False,
             }
             for gid, row in state.items()
         ],
+        # Historischer Name: Ziele, die auf der Pruefmenge nicht einmal tau/2
+        # erreichen (keine Aussage ueber den ganzen zulaessigen Raum).
         "unreachable_goal_ids": unreachable,
-        "penalty_exempt_goal_ids": exempt,
+        "not_found_reachable_goal_ids": sorted(flagged),
+        # Immer leer seit v4 (Engine v7): kein Ziel wird ausgenommen.
+        "penalty_exempt_goal_ids": [],
     }
 
 
 def reachability_reasoning(screen: dict | None) -> list[str]:
-    """Beraterhinweis je Ziel, das in diesem Lauf nicht optimiert wird."""
-    if not screen or not screen.get("penalty_exempt_goal_ids"):
+    """Beraterhinweis je Ziel, das auf der Pruefmenge nicht erreichbar war.
+
+    Engine v7: das Ziel wird trotzdem optimiert (Fehlbetrag minimiert); der
+    Hinweis verlangt die Ueberpruefung mit dem Kunden.
+    """
+    if not screen or not screen.get("not_found_reachable_goal_ids"):
         return []
     lines = []
     for row in screen.get("goals") or ():
-        if not row.get("penalty_exempt"):
+        if row.get("status") != "not_found_reachable_in_screen_set":
             continue
         figures = (
             f"max. {100.0 * float(row['max_probability']):.1f} %, obere 95 %-Grenze "
@@ -275,20 +357,21 @@ def reachability_reasoning(screen: dict | None) -> list[str]:
         )
         if not row.get("reachable"):
             lines.append(
-                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist mit keiner "
-                "zulaessigen Allokation mit ausreichender Sicherheit erreichbar ("
-                + figures + "). Ziel mit dem Kunden ueberpruefen (Betrag, Termin, "
-                "Prioritaet). Die Allokation wird nicht auf dieses Ziel optimiert "
-                "(kein zusaetzliches Risiko fuer ein aussichtsloses Ziel)."
+                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " war auf keiner "
+                "der geprueften zulaessigen Allokationen mit ausreichender "
+                "Sicherheit erreichbar (" + figures + "; endliche Pruefmenge, "
+                "kein Unmoeglichkeitsnachweis). Ziel mit dem Kunden ueberpruefen "
+                "(Betrag, Termin, Prioritaet). Die Allokation minimiert den "
+                "Fehlbetrag dieses Ziels weiterhin; es wird nicht ausgenommen."
             )
         else:
             lines.append(
-                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " wird in dieser "
-                "Risikovariante (" + str(screen.get("objective_mode")) + ") nicht "
-                "optimiert, da die geforderte Sicherheit auf keiner zulaessigen "
-                "Allokation erreichbar ist (" + figures + "). Die Variante baut fuer "
-                "ein nicht absicherbares Ziel kein Risiko auf; Ziel mit dem Kunden "
-                "ueberpruefen (Betrag, Termin, Prioritaet)."
+                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " erreichte in "
+                "der Risikovariante (" + str(screen.get("objective_mode")) + ") auf "
+                "keiner der geprueften zulaessigen Allokationen die geforderte "
+                "Sicherheit (" + figures + "; endliche Pruefmenge). Ziel mit dem "
+                "Kunden ueberpruefen (Betrag, Termin, Prioritaet); es bleibt Teil "
+                "der Zielfunktion."
             )
     return lines
 

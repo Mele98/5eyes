@@ -262,7 +262,7 @@ def test_disclosure_fields_are_complete_and_in_the_model_basis():
 
     result = _run("D_wachstum_sparen", 1.0)
     payload = result.resampling
-    assert payload["engine_version"] == "saa_resampled_v6"
+    assert payload["engine_version"] == "saa_resampled_v7"
     assert "significance" not in payload
     block = payload["house_prior"]
     assert HOUSE_PRIOR_KAPPA == 300.0
@@ -532,8 +532,9 @@ def test_risk_measure_variants_keep_the_v5_significance_rule(mode):
 
 
 def test_kappa_limits_move_from_free_optimizer_to_the_house_quota(monkeypatch):
-    """Grenzfaelle in kappa: sehr grosses kappa -> Hausquote (TE ~ 0), sehr
-    kleines kappa -> deutlich weiter weg.
+    """Grenzfaelle in kappa: sehr grosses kappa -> so nah an die Hausquote,
+    wie die Zielschutz-Schranke (GOAL-HIERARCHY-001) erlaubt, sehr kleines
+    kappa -> deutlich weiter weg.
 
     Bewusst KEINE strikte Monotonie fuer benachbarte kappa: fuer exakte
     Bag-Minimierer gilt TE(kappa) nicht steigend, der Multi-Start-SLSQP
@@ -544,11 +545,19 @@ def test_kappa_limits_move_from_free_optimizer_to_the_house_quota(monkeypatch):
     config = ResamplingConfig(n_bags=8, bag_n_paths=500)
     inputs = _inputs("D_wachstum_sparen", 1.0)
     tes = {}
+    audits = {}
     for kappa in (3.0, 1e6):
         monkeypatch.setattr(solver_module, "HOUSE_PRIOR_KAPPA", kappa)
         result = solver_module.run_solver(**inputs, resampling=config)
         block = result.resampling["house_prior"]
         assert block["kappa"] == kappa
         tes[kappa] = block["candidate_tracking_error_vs_house_bps"]
-    assert tes[1e6] <= 5.0, tes
-    assert tes[3.0] > 20.0 * max(tes[1e6], 1.0), tes
+        audits[kappa] = [b["goal_protection"] for b in result.resampling["bags"]]
+    # GOAL-HIERARCHY-001 (Engine v7): das harte Ziel von D ist Stufe 1 -- auch
+    # kappa -> unendlich zieht nur bis an die Zielschutz-Schranke G1* + eps,
+    # nicht mehr bis auf die Hausquote (v6: TE <= 5 bps). Der Prior wirkt
+    # weiterhin: grosses kappa liegt naeher an der Hausquote.
+    assert tes[1e6] < tes[3.0], tes
+    for audit in audits[1e6]:
+        assert audit is not None
+        assert audit["final_level"] <= audit["bound"] * (1.0 + 1e-6)

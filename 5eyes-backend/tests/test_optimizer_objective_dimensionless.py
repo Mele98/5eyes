@@ -7,6 +7,7 @@ import pytest
 from services.optimizer.certification import wilson_lower_bound
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import (
+    HARDNESS_WEIGHT,
     combined_objective_two_phase,
     goal_probability_per_path,
     shortfall_contributions,
@@ -219,7 +220,8 @@ def test_tiebreak_is_continuous_instead_of_a_phase_switch():
         portfolio_variance=0.07 ** 2,
     )
 
-    primary = (0.01**2 + 0.03**2) / 2.0
+    # GOAL-HARDNESS-DEFAULT-001 (Engine v7): Haertegrad-Gewicht im Default.
+    primary = HARDNESS_WEIGHT["opportunistisch"] * (0.01**2 + 0.03**2) / 2.0
     # TIEBREAK-PORTFOLIO-VARIANCE-001: kappa * w' Sigma w (dimensionslos).
     tiebreak = 0.07 ** 2
     assert value == pytest.approx(primary + tiebreak)

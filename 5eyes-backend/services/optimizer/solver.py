@@ -85,7 +85,15 @@ from .house_prior import (
     tracking_error_bps,
 )
 from .objective import (
+    GOAL_EROSION_NUMERIC_TOL,
+    GOAL_EROSION_Z,
+    GOAL_HIERARCHY_POLICY_VERSION,
     chance_constraint_penalty,
+    _goal_hardness_weight,
+    is_protected_goal,
+    monte_carlo_standard_error,
+    protected_goal_level,
+    protected_goal_level_surrogate,
     combined_objective_two_phase,
     portfolio_variance_one_year,
     two_phase_objective_parts,
@@ -474,15 +482,13 @@ class OptimizerContext:
     house_prior_weights: np.ndarray | None = None
     house_prior_kappa: float = HOUSE_PRIOR_KAPPA
     # GOAL-REACHABILITY-SCREEN-001 (2026-10-18): je Ziel mit Ziel-Untergrenze
-    # die hoechste Erfolgswahrscheinlichkeit ueber die Pruefmenge zulaessiger
-    # Allokationen (Ecken des Bandbreiten-Simplex, zulaessig projiziert, plus
-    # Bandmitte) auf dem nominalen Validierungswuerfel. None, wenn nicht
-    # geprueft (keine ScenarioInputs).
+    # die hoechste beobachtete Erfolgswahrscheinlichkeit ueber eine
+    # Pruefmenge zulaessiger Allokationen. Seit Engine v7
+    # (GOAL-SCREEN-OBJECTIVE-ERASURE-001) REINE OFFENLEGUNG auf einem eigenen
+    # Screening-Wuerfel: kein Ziel wird mehr aus Zielfunktion oder
+    # Chance-Strafe genommen (das fruehere Feld ``penalty_exempt_goal_ids``
+    # ist entfallen). None, wenn nicht geprueft (keine ScenarioInputs).
     goal_reachability: dict | None = None
-    # Ziele, deren Chance-Strafe in DIESEM Lauf nicht steuert: nur in den
-    # Risikomass-Varianten und nur fuer auf der ganzen Pruefmenge
-    # unerreichbare Ziele (siehe ``_goal_reachability_screen``).
-    penalty_exempt_goal_ids: frozenset = frozenset()
 
 
 @dataclass(frozen=True)
@@ -999,17 +1005,14 @@ def build_optimizer_context(
             else resolve_objective_contract()
         ),
     )
-    # GOAL-REACHABILITY-SCREEN-001: einmal je Context (deterministisch:
-    # Validierungswuerfel des Inhalts-Seeds). Bags, Signifikanztest und
-    # Drawdown-Rerank erben Ergebnis und Ausnahme ueber den Context.
+    # GOAL-REACHABILITY-SCREEN-001: einmal je Context, seit Engine v7 nur
+    # Offenlegung auf einem eigenen Screening-Wuerfel (nie der Holdout, der
+    # spaeter zertifiziert; GOAL-SCREEN-HOLDOUT-LEAKAGE-001) und ohne
+    # Wirkung auf die Zielfunktion (GOAL-SCREEN-OBJECTIVE-ERASURE-001).
     screen = goal_reachability_screen(context)
     if screen is None:
         return context
-    return replace(
-        context,
-        goal_reachability=screen,
-        penalty_exempt_goal_ids=frozenset(screen["penalty_exempt_goal_ids"]),
-    )
+    return replace(context, goal_reachability=screen)
 
 
 def _tiebreak_portfolio_variance(
@@ -1041,9 +1044,19 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
-    contract = objective_contract_of(context)
-    # SAA-RESAMPLED-RUNTIME-001: Faktoren einmal ableiten und fuer Wealth-
-    # Simulation UND annualisierte Rendite verwenden (bitidentisch).
+    return _objective_from_inputs(context, w, _evaluation_inputs(context, w))
+
+
+def _evaluation_inputs(
+    context: OptimizerContext, w: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(portfolio_factors, wealth, annualized_twr)`` EINER Allokation.
+
+    SAA-RESAMPLED-RUNTIME-001: Faktoren einmal ableiten und fuer Wealth-
+    Simulation UND annualisierte Rendite verwenden (bitidentisch).
+    GOAL-HIERARCHY-001: Zielfunktion und Stufe-1-Nebenbedingung teilen sich
+    dieselbe Simulation je Punkt.
+    """
     portfolio_factors = _portfolio_return_factors(context, w)
     wealth = _simulate_context_wealth(
         context, w, portfolio_factors=portfolio_factors
@@ -1051,6 +1064,37 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     annualized_twr = _annualized_twr_bps_per_path(
         context, w, portfolio_factors=portfolio_factors
     )
+    return portfolio_factors, wealth, annualized_twr
+
+
+def _protected_level_from_inputs(
+    context: OptimizerContext,
+    inputs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    *,
+    with_per_path: bool = False,
+) -> tuple[float, np.ndarray | None]:
+    """GOAL-HIERARCHY-001: Stufe-1-Zielniveau G1 (harte/primaere Ziele)."""
+    _factors, wealth, annualized_twr = inputs
+    return protected_goal_level(
+        context.liabilities,
+        wealth,
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        horizon_years=context.horizon_years,
+        weights=context.scenario_weights,
+        annualized_return_bps_per_path=annualized_twr,
+        goal_weighting_mode=objective_contract_of(context).goal_weighting_mode,
+        with_per_path=with_per_path,
+    )
+
+
+def _objective_from_inputs(
+    context: OptimizerContext,
+    w: np.ndarray,
+    inputs: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> float:
+    """Zielfunktion aus bereits simulierten Inputs (siehe ``_objective_from_array``)."""
+    contract = objective_contract_of(context)
+    portfolio_factors, wealth, annualized_twr = inputs
     objective = float(combined_objective_two_phase(
         context.liabilities,
         wealth,
@@ -1069,7 +1113,6 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         # wuerde geplanter Verzehr als Marktrisiko bewertet.
         portfolio_return_factors=portfolio_factors,
         portfolio_variance=_tiebreak_portfolio_variance(context, w),
-        penalty_exempt_goal_ids=context.penalty_exempt_goal_ids,
     ))
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
     # Soft-Preference Target Intent must actually influence the optimization,
@@ -1126,7 +1169,6 @@ def evaluate_weights(
         portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
         portfolio_variance=_tiebreak_portfolio_variance(context, w),
-        penalty_exempt_goal_ids=context.penalty_exempt_goal_ids,
     )
     # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as
     # `_objective_from_array`, so `evaluate_weights(ctx, result.weights_bps)
@@ -1227,7 +1269,13 @@ def deterministic_seed(*parts) -> int:
 # und Laeufe ohne Anker unveraendert v5-Regel. Bewusst neue Wuerfel (die
 # Version geht in den Seed).
 OPTIMIZER_SEED_SCHEME = "content_seed_v2"
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v6"
+# saa_resampled_v7 (MAXIMIZE-GOAL-001 + GOAL-HARDNESS-DEFAULT-001, CIO-
+# Entscheid 2026-10-18): Ziel "Maximierung" wirkt als Log-Wachstumsterm in G
+# (vorher Fehlbetrag 0 -> exakt die Hausquote); der Haertegrad wirkt
+# standardmaessig auf Fehlbetrag UND Chance-Strafe (vorher Default "equal":
+# hart == primaer). Doku: docs/planning/2026-10-18-maximize-goal-and-
+# hardness.md. Bewusst neue Wuerfel (die Version geht in den Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v7"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2063,6 +2111,181 @@ class _CubeSelection:
     # Drawdown-Rerank des Einzelwuerfel-Pfads. Im Resampling-Pfad ungenutzt:
     # dort rankt der Rerank {Bag-Mittel, projiziertes Mittel, Hausmatrix-Anker}.
     finalists: list[dict] = field(default_factory=list)
+    # GOAL-HIERARCHY-001: Audit der Stufe 1 (None ohne geschuetzte Ziele bzw.
+    # in den Risikomass-Varianten).
+    goal_protection: dict | None = None
+
+
+# GOAL-HIERARCHY-001: Anzahl SLSQP-Starts der Stufe 1 (die besten Punkte
+# nach exaktem G1; optimiert wird die glatte Naeherung von G1). Ist G1 an
+# einem Punkt schon 0, entfaellt Stufe 1 (G1 >= 0).
+GOAL_STAGE1_STARTS = 1
+# Iterationsgrenze der Stufe-1-Suche (Laufzeitbudget Stage-8 <= 15 s): die
+# Suche muss G1* nur nach unten verbessern; jede gefundene Verbesserung macht
+# die Schranke strenger, ein vorzeitiger Abbruch macht sie hoechstens weiter.
+GOAL_STAGE1_MAX_ITER = 25
+# Punkte der Streckensuche, wenn die Stufe-1-Schranke bindet (t = 0, 0.1, ..1).
+GOAL_SEGMENT_POINTS = 11
+
+
+class _EvaluationMemo:
+    """Teilt die Simulation je Punkt zwischen Zielfunktion und Stufe-1-
+    Nebenbedingung (SLSQP ruft beide am selben x auf)."""
+
+    def __init__(self, context: OptimizerContext, capacity: int = 8):
+        self._context = context
+        self._capacity = int(capacity)
+        self._store: dict[bytes, tuple] = {}
+
+    def inputs(self, w: np.ndarray):
+        w = np.asarray(w, dtype=np.float64)
+        key = w.tobytes()
+        hit = self._store.get(key)
+        if hit is None:
+            if len(self._store) >= self._capacity:
+                self._store.pop(next(iter(self._store)))
+            hit = _evaluation_inputs(self._context, w)
+            self._store[key] = hit
+        return hit
+
+
+def _goal_protection_stage(
+    context: OptimizerContext,
+    initials: list[np.ndarray],
+    memo: _EvaluationMemo,
+    *,
+    max_iter: int,
+    ftol: float,
+) -> dict | None:
+    """GOAL-HIERARCHY-001, Stufe 1: ``G1* = min_w G1(w)`` auf diesem Wuerfel.
+
+    Liefert die Schranke ``G1* + eps`` fuer Stufe 2 und den Stufe-1-
+    Minimierer ``w1*`` (zulaessig fuer die Schranke per Konstruktion).
+    None im Risikomass-Modus (Phase 2, eigener Auftrag), ohne geschuetzte
+    Ziele oder ohne zulaessigen Startpunkt.
+
+    Suche: exaktes G1 an allen zulaessigen Multi-Start-Punkten und an der
+    Hausquote; von den besten Punkten aus SLSQP auf einer glatten Naeherung
+    von G1 (``protected_goal_level_surrogate``: die Chance-Strafe ist mit dem
+    harten Erfolgsindikator stueckweise konstant und fuer Gradienten
+    unsichtbar), das Ergebnis wieder EXAKT bewertet. ``G1*`` ist das
+    beste GEFUNDENE Minimum, kein globaler Beweis -- die Schranke ist damit
+    eher zu weit als zu eng.
+    """
+    if objective_contract_of(context).objective_mode != OBJECTIVE_GOAL_SHORTFALL:
+        return None
+    n_cols = int(context.horizon_years) + 1
+    protected = [
+        liab for liab in context.liabilities
+        if is_protected_goal(liab, n_wealth_columns=n_cols)
+    ]
+    if not protected:
+        return None
+    goal_weighting_mode = objective_contract_of(context).goal_weighting_mode
+
+    def level(w: np.ndarray) -> float:
+        return _protected_level_from_inputs(context, memo.inputs(w))[0]
+
+    house = context.house_prior_weights
+    points = [np.asarray(x0, dtype=np.float64) for x0 in initials]
+    if house is not None:
+        points.append(np.asarray(house, dtype=np.float64))
+    scored: list[tuple[float, int, np.ndarray]] = []
+    for index, x0 in enumerate(points):
+        ok, _violations = is_feasible(
+            x0, bounds=context.bounds, constraints=context.scipy_constraints,
+        )
+        if not ok:
+            continue
+        value = level(x0)
+        if np.isfinite(value):
+            scored.append((float(value), index, x0))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: (item[0], item[1]))
+    best_level, _index, best_w = scored[0]
+    n_solves = 0
+    if best_level > 0.0:
+
+        def smooth_part(w: np.ndarray) -> float:
+            # Glatte Naeherung von G1 (Fehlbetrag exakt, Erfolgsindikator
+            # logistisch geglaettet) -- nur fuer die Suche; entschieden wird
+            # mit dem exakten G1 (``_finite_feasible_candidate(..., level)``).
+            _factors, wealth, annualized_twr = memo.inputs(w)
+            return protected_goal_level_surrogate(
+                protected, wealth,
+                initial_wealth_rappen=context.advisory_wealth_rappen,
+                horizon_years=context.horizon_years,
+                weights=context.scenario_weights,
+                annualized_return_bps_per_path=annualized_twr,
+                goal_weighting_mode=goal_weighting_mode,
+            )
+
+        # Numerik: SLSQP-ftol ist absolut -> relativ zum Startwert skaliert.
+        unit = max(smooth_part(best_w), 1e-300)
+        for _level, _i, x0 in scored[:GOAL_STAGE1_STARTS]:
+            result = _solve_single_start(
+                lambda w: smooth_part(w) / unit, x0,
+                context.bounds, context.scipy_constraints,
+                max_iter=min(int(max_iter), GOAL_STAGE1_MAX_ITER), ftol=ftol,
+            )
+            n_solves += 1
+            candidate = _finite_feasible_candidate(
+                result, level, context.bounds, context.scipy_constraints,
+            )
+            if candidate is not None and candidate[1] < best_level:
+                best_w, best_level = candidate
+    level_star, star_per_path = _protected_level_from_inputs(
+        context, memo.inputs(best_w), with_per_path=True,
+    )
+    if house is not None:
+        _house_level, house_per_path = _protected_level_from_inputs(
+            context, memo.inputs(np.asarray(house, dtype=np.float64)),
+            with_per_path=True,
+        )
+        standard_error = monte_carlo_standard_error(
+            house_per_path - star_per_path, context.scenario_weights,
+        )
+        tolerance_basis = "paired_house_vs_stage1"
+    else:
+        standard_error = monte_carlo_standard_error(
+            star_per_path, context.scenario_weights,
+        )
+        tolerance_basis = "stage1_point"
+    # Haertegrad (GOAL-HARDNESS-DEFAULT-001): die statistische Toleranz wird
+    # durch das hoechste Haertegrad-Gewicht der geschuetzten Ziele geteilt --
+    # primaer (h = 1) darf innerhalb des Rauschens erodieren, sobald ein
+    # hartes Ziel (h = 10) dabei ist nur um ein Zehntel davon.
+    hardness_divisor = max(
+        1.0, max(_goal_hardness_weight(liab, goal_weighting_mode) for liab in protected),
+    )
+    eps = (
+        GOAL_EROSION_Z * float(standard_error) / hardness_divisor
+        + GOAL_EROSION_NUMERIC_TOL
+    )
+    bound = float(level_star) + eps
+    # Skala der Nebenbedingung: relativ zur Schranke, damit die absolute
+    # Toleranz von is_feasible (1e-6) eine relative wird.
+    constraint_unit = max(bound, 1e-12)
+
+    def protection_slack(w: np.ndarray) -> float:
+        return (bound - level(w)) / constraint_unit
+
+    return {
+        "policy": GOAL_HIERARCHY_POLICY_VERSION,
+        "protected_goal_ids": [str(liab.goal_id) for liab in protected],
+        "level_star": float(level_star),
+        "standard_error": float(standard_error),
+        "tolerance_basis": tolerance_basis,
+        "erosion_z": float(GOAL_EROSION_Z),
+        "hardness_divisor": float(hardness_divisor),
+        "erosion_tolerance": float(eps),
+        "bound": bound,
+        "stage1_solves": int(n_solves),
+        "w_star": np.asarray(best_w, dtype=np.float64).copy(),
+        "level": level,
+        "constraint": {"type": "ineq", "fun": protection_slack},
+    }
 
 
 def _select_cube_candidate(
@@ -2076,18 +2299,73 @@ def _select_cube_candidate(
     Unveraenderte Auswahl-Logik des bisherigen ``run_solver`` (Schritte 5-6);
     SAA-RESAMPLED-STABILITY-001 hat sie nur aus ``run_solver`` herausgeloest,
     damit dieselbe Logik auf jedem Bag-Wuerfel laeuft.
+
+    GOAL-HIERARCHY-001: zuerst Stufe 1 (``_goal_protection_stage``), dann
+    Stufe 2 als "lazy constraint": erfuellt das Optimum der vollen
+    Zielfunktion die Schranke ``G1 <= G1* + eps`` bereits, ist es auch das
+    Optimum unter der Schranke (gleiche Zielfunktion, kleinere zulaessige
+    Menge, die es enthaelt). Nur sonst wird auf der Strecke zum
+    Stufe-1-Minimierer der beste Punkt gewaehlt, der die Schranke exakt
+    einhaelt. Gemessen: die Schranke als Dauer-Nebenbedingung kostete auf
+    dem Fundament-Mandat x3.4 Laufzeit, sie band aber nur in 1-3 von 40
+    Bags.
     """
-    seed = context.seed
-    score_x10 = context.score_x10
-    n_paths = context.n_paths
-    bounds = context.bounds
-    scipy_constraints = context.scipy_constraints
+    memo = _EvaluationMemo(context)
+    initials = _cube_initial_guesses(context)
+    protection = _goal_protection_stage(
+        context, list(initials), memo, max_iter=max_iter, ftol=ftol,
+    )
+    selection = _select_cube_candidate_core(
+        context, initials, memo, None, max_iter=max_iter, ftol=ftol,
+    )
+    if protection is None:
+        return selection
+    level = protection["level"]
+    bound = protection["bound"]
+    tolerance = 1e-9 * max(1.0, abs(bound))
+    if selection.weights is not None and level(selection.weights) <= bound + tolerance:
+        selection.goal_protection = _goal_protection_audit(
+            protection, selection.weights, constraint_pass=False,
+        )
+        return selection
+    # Die Schranke bindet: zulaessige Punkte auf der Strecke vom Stufe-1-
+    # Minimierer w1* (erfuellt sie per Konstruktion) zum Stufe-2-Optimum w2.
+    # Die zulaessige Menge der linearen Nebenbedingungen ist konvex, jeder
+    # Streckenpunkt also zulaessig; gewaehlt wird unter den Punkten, die die
+    # Schranke EXAKT einhalten, der mit der kleinsten vollen Zielfunktion.
+    # (Ein zweiter SLSQP-Lauf mit G1 als Nebenbedingung scheiterte gemessen an
+    # der stueckweise konstanten Chance-Strafe und fiel in die DE-Suche:
+    # +5 s je bindendem Bag.)
+    w_star = np.asarray(protection["w_star"], dtype=np.float64)
+    w_two = (
+        w_star if selection.weights is None
+        else np.asarray(selection.weights, dtype=np.float64)
+    )
+    best_w, best_value = w_star, float(_objective_from_inputs(
+        context, w_star, memo.inputs(w_star),
+    ))
+    for t in np.linspace(0.0, 1.0, GOAL_SEGMENT_POINTS)[1:]:
+        trial = _normalize_to_bounds((1.0 - t) * w_star + t * w_two, context.bounds)
+        if level(trial) > bound + tolerance:
+            continue
+        ok, _violations = is_feasible(
+            trial, bounds=context.bounds, constraints=context.scipy_constraints,
+        )
+        if not ok:
+            continue
+        value = float(_objective_from_inputs(context, trial, memo.inputs(trial)))
+        if np.isfinite(value) and value < best_value:
+            best_w, best_value = trial, value
+    selection.weights = np.asarray(best_w, dtype=np.float64).copy()
+    selection.objective = best_value
+    selection.goal_protection = _goal_protection_audit(
+        protection, selection.weights, constraint_pass=True,
+    )
+    return selection
 
-    # ---- 5. Objective Closure ueber den Context ----
-    def objective_fn(w: np.ndarray) -> float:
-        return _objective_from_array(context, w)
 
-    # ---- 6. Multi-Start SLSQP ----
+def _cube_initial_guesses(context: OptimizerContext) -> list[np.ndarray]:
+    """Multi-Start-Punkte eines Wuerfels (aus dem Context, nie aus der CMA)."""
     # PAR-5: zusaetzlicher Markowitz-Min-Varianz-Kandidat.  The retained
     # OptimizerContext is the sole source of truth: re-reading the separately
     # passed CMA here would allow the same context to produce different starts
@@ -2105,13 +2383,39 @@ def _select_cube_candidate(
         ):
             mu_bps_for_markowitz = candidate_mu.copy()
             cov_bps_for_markowitz = candidate_cov.copy()
-
-    initials = build_initial_guesses(
-        bounds, score_x10,
+    return list(build_initial_guesses(
+        context.bounds, context.score_x10,
         mu_bps=mu_bps_for_markowitz,
         cov_bps=cov_bps_for_markowitz,
         risky_fraction_per_bucket=context.risky_fraction_per_bucket,
-    )
+    ))
+
+
+def _select_cube_candidate_core(
+    context: OptimizerContext,
+    initials: list[np.ndarray],
+    memo: _EvaluationMemo,
+    protection: dict | None,
+    *,
+    max_iter: int,
+    ftol: float,
+) -> _CubeSelection:
+    """Auswahl auf einem Wuerfel; mit ``protection`` unter der Stufe-1-Schranke."""
+    seed = context.seed
+    n_paths = context.n_paths
+    bounds = context.bounds
+    scipy_constraints = context.scipy_constraints
+
+    # ---- 5. Objective Closure ueber den Context ----
+    def objective_fn(w: np.ndarray) -> float:
+        return _objective_from_inputs(context, w, memo.inputs(w))
+
+    # ---- 6. Multi-Start SLSQP ----
+    # ---- 5b. GOAL-HIERARCHY-001: Stufe-2-Lauf unter der Stufe-1-Schranke ----
+    # Der Stufe-1-Minimierer ist zulaessiger Rueckfall-Kandidat (erfuellt die
+    # Schranke per Konstruktion).
+    if protection is not None:
+        scipy_constraints = list(scipy_constraints) + [protection["constraint"]]
     best_result: OptimizeResult | None = None
     best_obj = float("inf")
     best_feasible_result: OptimizeResult | None = None
@@ -2124,6 +2428,29 @@ def _select_cube_candidate(
     used_ga_fallback = False
     accepted_feasible_non_success = False
     robustification_derisked = False
+    if protection is not None:
+        # Der Stufe-1-Minimierer erfuellt die Schranke per Konstruktion: er
+        # ist immer ein zulaessiger Rueckfall-Kandidat (nie Hausmitte-
+        # Fallback nur wegen der Zielhierarchie).
+        w_star = protection["w_star"]
+        star_objective = float(objective_fn(w_star))
+        if np.isfinite(star_objective):
+            finite_feasible_candidates.append({
+                "result": OptimizeResult(
+                    x=w_star.copy(), success=False, status=-1, nit=0,
+                    message="goal_hierarchy_stage1_minimizer",
+                ),
+                "weights": w_star.copy(),
+                "objective": star_objective,
+                "source": "goal_hierarchy_stage1",
+                "risky_fraction": _candidate_risky_fraction(
+                    w_star, context.risky_fraction_per_bucket,
+                ),
+            })
+            best_feasible_obj = star_objective
+            best_feasible_w = w_star.copy()
+            best_feasible_result = finite_feasible_candidates[-1]["result"]
+            best_feasible_source = "goal_hierarchy_stage1"
 
     for x0 in initials:
         attempt_started = time.perf_counter()
@@ -2307,6 +2634,41 @@ def _select_cube_candidate(
             or bool(getattr(candidate["result"], "success", False))
         ],
     )
+
+
+def _goal_protection_audit(
+    protection: dict | None,
+    weights: np.ndarray | None,
+    *,
+    constraint_pass: bool,
+) -> dict | None:
+    """Serialisierbarer Audit der Stufe 1 (GOAL-HIERARCHY-001)."""
+    if protection is None:
+        return None
+    final_level = (
+        None if weights is None else float(protection["level"](weights))
+    )
+    return {
+        "policy": protection["policy"],
+        "protected_goal_ids": list(protection["protected_goal_ids"]),
+        "level_star": protection["level_star"],
+        "standard_error": protection["standard_error"],
+        "tolerance_basis": protection["tolerance_basis"],
+        "erosion_z": protection["erosion_z"],
+        "hardness_divisor": protection["hardness_divisor"],
+        "erosion_tolerance": protection["erosion_tolerance"],
+        "bound": protection["bound"],
+        "final_level": final_level,
+        "binding": (
+            None if final_level is None
+            else bool(final_level >= protection["bound"] - 1e-12 * max(1.0, abs(protection["bound"])))
+        ),
+        "stage1_solves": protection["stage1_solves"],
+        # True: das Optimum der vollen Zielfunktion verletzte die Schranke,
+        # die Auswahl lief ein zweites Mal mit ihr als Nebenbedingung.
+        "constraint_pass": bool(constraint_pass),
+        "w_star_bps": [int(round(x * 10000.0)) for x in protection["w_star"]],
+    }
 
 
 def _house_midpoint_fallback_result(
@@ -3002,7 +3364,6 @@ def _context_loss_components_on_validation(
             portfolio_return_factors=factors,
             primary_value_override=primary_override,
             portfolio_variance=variance,
-            penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
         risk_level = float(tiebreak) if is_default else float(primary_override)
         return float(goal_level) + float(preference), risk_level
@@ -3335,6 +3696,9 @@ def _run_resampled_solver(
                 else None
             ),
             "elapsed_ms": int(round((time.perf_counter() - bag_started) * 1000)),
+            # GOAL-HIERARCHY-001: Stufe-1-Audit dieses Bags (Objective-
+            # Schnittstelle; None ohne geschuetzte Ziele).
+            "goal_protection": selection.goal_protection,
         })
 
     n_succeeded = len(bag_weights)
@@ -3343,6 +3707,9 @@ def _run_resampled_solver(
         "scheme": RESAMPLING_SCHEME_VERSION,
         "seed_scheme": OPTIMIZER_SEED_SCHEME,
         "engine_version": OPTIMIZER_ENGINE_VERSION,
+        # ObjectiveContractV2 (Engine v7): alle Koeffizienten, Scopes und
+        # Policy-Versionen dieses Laufs samt Hash (Audit und Modellbasis).
+        "objective_contract": objective_contract_of(context).as_evidence(),
         "content_seed": int(context.seed),
         "n_bags": n_bags,
         "n_bags_succeeded": n_succeeded,

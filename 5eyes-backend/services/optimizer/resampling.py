@@ -348,6 +348,7 @@ _MODEL_BASIS_FIELDS = (
     "scheme",
     "seed_scheme",
     "engine_version",
+    "objective_contract",
     "content_seed",
     "n_bags",
     "n_bags_succeeded",

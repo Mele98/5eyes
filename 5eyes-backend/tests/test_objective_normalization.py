@@ -374,7 +374,6 @@ def test_house_prior_disclosure_compares_the_goal_level_not_the_prior_term():
             portfolio_variance=solver_module._tiebreak_portfolio_variance(
                 validation_context, w
             ),
-            penalty_exempt_goal_ids=validation_context.penalty_exempt_goal_ids,
         )
 
     house_goal, house_prior_term = levels(block["house_anchor_projected_bps"])

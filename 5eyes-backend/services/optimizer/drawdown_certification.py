@@ -149,11 +149,6 @@ def validated_drawdown_evaluation(
         annualized_return_bps_per_path=_solver._annualized_twr_bps_per_path(
             validation_context, weights_array, portfolio_factors=factors,
         ),
-        # GOAL-REACHABILITY-SCREEN-001: dieselbe Ausnahme wie in Bags und
-        # Signifikanztest (eine Zielfunktion fuer alle Pfade).
-        penalty_exempt_goal_ids=getattr(
-            validation_context, "penalty_exempt_goal_ids", frozenset()
-        ),
     )
     preference = 0.0
     if validation_context.preferred_target_bps:
