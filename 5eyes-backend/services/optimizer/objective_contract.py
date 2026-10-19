@@ -139,6 +139,8 @@ def implemented_objective_policy() -> dict:
     from .house_prior import HOUSE_PRIOR_KAPPA, HOUSE_PRIOR_VERSION
     from .objective import (
         CHANCE_PENALTY_WEIGHT,
+        DEMOTED_GOAL_POLICY_VERSION,
+        DEMOTED_GOAL_WEIGHT,
         GOAL_EROSION_NUMERIC_TOL,
         GOAL_EROSION_Z,
         GOAL_HARDNESS_POLICY_VERSION,
@@ -172,7 +174,8 @@ def implemented_objective_policy() -> dict:
         "goal_reachability_policy": GOAL_REACHABILITY_SCREEN_VERSION,
         "goal_normalization": "relative_to_initial_wealth_squared_v1",
         # GOAL-HIERARCHY-002 / STAGE2-OBJECTIVE-SCALE-001 (CIO-Review #650).
-        "goal_demotion_policy": "screen_not_found_demoted_to_stage2_v1",
+        "goal_demotion_policy": DEMOTED_GOAL_POLICY_VERSION,
+        "demoted_goal_weight": float(DEMOTED_GOAL_WEIGHT),
         "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
     }
 
@@ -198,6 +201,7 @@ _POLICY_FIELDS = (
     "goal_reachability_policy",
     "goal_normalization",
     "goal_demotion_policy",
+    "demoted_goal_weight",
     "stage2_objective_scale_policy",
 )
 
@@ -235,6 +239,7 @@ class ObjectiveContractV2(ObjectiveContractV1):
     goal_reachability_policy: str | None = None
     goal_normalization: str | None = None
     goal_demotion_policy: str | None = None
+    demoted_goal_weight: float | None = None
     stage2_objective_scale_policy: str | None = None
 
     def __post_init__(self) -> None:

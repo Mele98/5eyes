@@ -689,5 +689,43 @@ def test_demoted_goal_reasoning_says_subordinate_not_excluded():
     lines = reachability_reasoning(_two_goal_context().goal_reachability)
     assert len(lines) == 1 and "'Aussichtslos'" in lines[0]
     assert "mit der Mindestsicherheit erreichbar" in lines[0]
-    assert "nachrangig verfolgt und verdraengt keine erreichbaren Ziele" in lines[0]
+    assert "als nachrangiges Wunschziel verfolgt" in lines[0]
+    assert "verdraengt keine erreichbaren Ziele" in lines[0]
     assert "kein Unmoeglichkeitsnachweis" in lines[0]
+
+
+# ---------------------------------------------------------------------------
+# 7. DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid 2026-10-19)
+# ---------------------------------------------------------------------------
+
+
+def test_demoted_goal_counts_like_a_wish_goal_with_volume_capped_at_w0():
+    """Herabgestuft: Gewicht 0.2 (unabhaengig vom Haertegrad) und Volumen
+    auf W0 gedeckelt -- auf Fehlbetrag UND Chance-Strafe; CHF 0 bleibt
+    schlechter als CHF 900 (Codex)."""
+    from dataclasses import replace
+
+    big = _liability("wealth_at_t", target=int(10e8), hardness="hart", horizon=1)
+    demoted = replace(big, demoted=True)
+    worse = np.column_stack([np.full(400, 1e8), np.full(400, 0.0)])
+    better = np.column_stack([np.full(400, 1e8), np.full(400, 9e8)])
+    kwargs = dict(initial_wealth_rappen=1e8, horizon_years=1)
+    full = objective_module.shortfall_objective([big], worse, **kwargs)
+    reduced = objective_module.shortfall_objective([demoted], worse, **kwargs)
+    # h: 10 -> 0.2, Volumen (Z/W0 = 10) auf 1 gedeckelt: Faktor 0.02 / 100.
+    assert reduced == pytest.approx(full * (0.2 / 10.0) / 100.0, rel=1e-12)
+    assert objective_module.shortfall_objective([demoted], better, **kwargs) < reduced
+    chance_full, _ = objective_module.chance_constraint_penalty(worse, [big], int(1e8))
+    chance_reduced, _ = objective_module.chance_constraint_penalty(worse, [demoted], int(1e8))
+    assert chance_reduced == pytest.approx(chance_full * 0.2 / 100.0, rel=1e-12)
+    assert not objective_module.is_protected_goal(demoted, n_wealth_columns=2)
+
+
+def test_unreachable_goal_alone_stays_near_the_house_quota():
+    """CIO: ein aussichtsloses Ziel darf die Allokation nicht an die
+    Bandobergrenze treiben (erste Fassung: 7000/2000/800/0/200)."""
+    result, context = _run([_wealth_goal(5_000_000_00, "Hart")], 25, seed=11,
+                           key="unreachable_alone")
+    assert all(l.demoted for l in context.liabilities)
+    assert result.resampling["house_prior"]["tracking_error_vs_house_bps"] <= 25.0
+    assert result.weights_bps["equities"] <= 6100

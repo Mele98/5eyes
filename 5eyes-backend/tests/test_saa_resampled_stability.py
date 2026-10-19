@@ -259,17 +259,6 @@ def test_safety_net_publishes_the_projected_house_target(foundation, monkeypatch
     assert any("Sicherheitsnetz" in line for line in result.reasoning)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Phase 2 (Codex-Befund 4, eigener PR): die Risikomass-Varianten haben "
-        "noch keine Zielhierarchie/Herabstufung. Seit GOAL-HIERARCHY-002 ist der "
-        "Default auf dem Fundament defensiver (Aktien 61.8 %, Vola 10.2 %), "
-        "min_volatility wird weiter von den Strafen nicht erreichbarer Ziele "
-        "getrieben (Aktien 74.5 %, Vola 11.6 %) -- offener Defekt, sichtbar "
-        "gehalten statt abgeschwaecht."
-    ),
-)
 def test_risk_variants_improve_their_own_measure_on_the_foundation(foundation):
     """Engine v7 (GOAL-SCREEN-OBJECTIVE-ERASURE-001, CIO-Entscheid nach
     Codex-Review): die Varianten nehmen kein Ziel mehr aus. Der fruehere
@@ -278,7 +267,10 @@ def test_risk_variants_improve_their_own_measure_on_the_foundation(foundation):
     auf der Pruefmenge nicht absicherbares Ziel steuert auch in der Variante.
     Die Varianten-Regel nach einem Goal-Preservation-Gate (Codex-Befund 4)
     ist Phase 2. Hier bleibt: jede Variante ist auf IHREM Mass mindestens so
-    gut wie der Default, und die Ziele sind offengelegt."""
+    gut wie der Default (min_volatility nicht volatiler), und die Ziele sind
+    offengelegt. Erfuellt seit DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid
+    2026-10-19): herabgestufte Ziele zaehlen auch in den Varianten nur mit
+    Wunschziel-Gewicht und auf W0 gedeckeltem Volumen."""
     from services.optimizer.drawdown_certification import validated_drawdown_evaluation
     from services.optimizer.objective_contract import ObjectiveContractV1
 

@@ -99,6 +99,14 @@ HARDNESS_WEIGHT = {
 
 _PRIMARY_HARDNESS_KEYS = {"hart", "primaer", "primär"}
 
+# DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid 2026-10-19): Gewicht eines vom
+# Screen herabgestuften Ziels (= niedrigster Haertegrad, Wunschziel) auf
+# Fehlbetrag und Chance-Strafe -- konservativ: ein aussichtsloses Ziel darf
+# die Allokation nicht an die Bandobergrenze treiben, der Haus-Prior
+# dominiert. Bleibt > 0: "CHF 0 != CHF 900" (Codex) gilt weiter.
+DEMOTED_GOAL_WEIGHT = HARDNESS_WEIGHT["opportunistisch"]
+DEMOTED_GOAL_POLICY_VERSION = "screen_not_found_demoted_wish_weight_v2"
+
 # GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine
 # ``saa_resampled_v7``): der Haertegrad wirkt standardmaessig (Default
 # ``OPTIMIZER_GOAL_WEIGHTING=hardness``, config.DEFAULT_GOAL_WEIGHTING_MODE):
@@ -240,7 +248,13 @@ def _goal_hardness_weight(
 
     MAXIMIZE-GOAL-001: fuer ``maximize`` hoechstens 1.0 -- "hart" verlangt
     Zielsicherheit, und ein Ziel ohne Zielwert hat keine.
+
+    DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid 2026-10-19): ein herabgestuftes
+    (auf der Pruefmenge nicht erreichbares) Ziel zaehlt in JEDEM Modus wie
+    ein Wunschziel: ``DEMOTED_GOAL_WEIGHT`` = HARDNESS_WEIGHT["opportunistisch"].
     """
+    if getattr(liability, "demoted", False):
+        return DEMOTED_GOAL_WEIGHT
     weight = _effective_hardness_weight(
         getattr(liability, "hardness_key", None), goal_weighting_mode,
     )
@@ -281,6 +295,36 @@ def maximize_growth_per_path(
             )
     factor = np.maximum(1.0 + annualized / 10000.0, _MAXIMIZE_MIN_GROWTH_FACTOR)
     return float(horizon) * np.log(factor)
+
+
+def _demoted_volume_cap(
+    liability: GoalLiability, initial_wealth_rappen: float, n_wealth_columns: int,
+) -> float:
+    """DEMOTED-GOAL-WEIGHT-001: Volumen eines herabgestuften Ziels auf W0
+    gedeckelt -- Faktor ``1 / max(1, (Z/W0)^2)`` auf seine Terme.
+
+    Mit Gewicht 0.2 allein trieb ein Vermoegensziel von CHF 5 Mio bei CHF
+    0.5 Mio (Z/W0 = 10, Fehlbetragsterm ~ 40) die Allokation weiter an die
+    Bandobergrenze (6947 statt 7000 bps Aktien): die Groesse des Ziels, nicht
+    seine Bedeutung, entschied. Der Deckel ist Option (b) aus
+    OBJECTIVE-NORMALIZATION-001 ("Volumen je Ziel auf W0 deckeln"), hier nur
+    fuer herabgestufte Ziele. Monoton: CHF 0 bleibt schlechter als CHF 900.
+    1.0 fuer alle nicht herabgestuften Ziele (bitidentisch)."""
+    if not getattr(liability, "demoted", False):
+        return 1.0
+    relative_volume = goal_volume_rappen(
+        liability, initial_value_rappen=initial_wealth_rappen,
+        n_wealth_columns=n_wealth_columns,
+    ) / _context_scale_rappen(initial_wealth_rappen)
+    return 1.0 / max(1.0, relative_volume * relative_volume)
+
+
+def _demoted_goal_factor(liability: GoalLiability, relative_volume: float) -> float:
+    """Faktor der Chance-Strafe: Wunschziel-Gewicht und W0-Deckel fuer
+    herabgestufte Ziele, sonst 1.0."""
+    if not getattr(liability, "demoted", False):
+        return 1.0
+    return DEMOTED_GOAL_WEIGHT / max(1.0, relative_volume * relative_volume)
 
 
 def _hardness_key(value: str | None) -> str:
@@ -1003,7 +1047,13 @@ def chance_constraint_penalty(
                 initial_value_rappen=initial_value_rappen,
                 n_wealth_columns=wealth_paths.shape[1],
             ) / context_scale_rappen
-            penalty += weight * deficit * relative_volume * relative_volume
+            # DEMOTED-GOAL-WEIGHT-001: herabgestufte Ziele mit Wunschziel-
+            # Gewicht und auf W0 gedeckeltem Volumen (alle Modi, auch
+            # Risikomass-Varianten), siehe ``_demoted_goal_factor``.
+            penalty += (
+                weight * _demoted_goal_factor(goal, relative_volume)
+                * deficit * relative_volume * relative_volume
+            )
         achievability.append({
             "goal_id": str(goal.goal_id),
             "label": str(goal.label),
@@ -1118,7 +1168,9 @@ def shortfall_objective(
             mean_sq = float(np.sum(per_path) * inv_n)
         else:
             mean_sq = float(np.sum(per_path * weights_arr) / weight_sum)
-        total += h_weight * g_weight * mean_sq
+        total += h_weight * g_weight * mean_sq * _demoted_volume_cap(
+            liab, initial_wealth_rappen, wealth_paths.shape[1],
+        )
     return total
 
 
@@ -1230,7 +1282,9 @@ def shortfall_contributions(
         mean_sq = float(np.sum(per_path) * inv_n)
         h_weight = _goal_hardness_weight(liab, goal_weighting_mode)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
-        contribution = h_weight * g_weight * mean_sq
+        contribution = h_weight * g_weight * mean_sq * _demoted_volume_cap(
+            liab, initial_wealth_rappen, wealth_paths.shape[1],
+        )
         if liab.target_kind == "maximize":
             # MAXIMIZE-GOAL-001: derselbe Term wie in ``shortfall_objective``
             # (Summe der Beitraege = L(w)); kein Fehlbetrag.
@@ -1463,6 +1517,8 @@ def is_protected_goal(liability: GoalLiability, *, n_wealth_columns: int) -> boo
     staatlich gedeckte Ziele und Zahlungsstroeme komplett jenseits des
     Horizonts (die Simulation beobachtet sie nicht, GOAL-OUTSIDE-HORIZON-001).
     """
+    if getattr(liability, "demoted", False):
+        return False  # DEMOTED-GOAL-WEIGHT-001: herabgestuft = nicht Stufe 1
     if _hardness_key(getattr(liability, "hardness_key", None)) not in _PRIMARY_HARDNESS_KEYS:
         return False
     if liability.target_kind in ("maximize", "state_funded"):

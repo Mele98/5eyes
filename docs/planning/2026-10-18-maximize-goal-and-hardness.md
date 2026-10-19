@@ -164,9 +164,26 @@ Die publizierten Zahlen stammen von verschiedenen Validierungswuerfeln (die Engi
 
 **Goldens:** nach dem Review byte-identisch zur ersten v7-Fassung (Haswell = Nehalem). Score 3/5 = develop. Score 7 (−8 bps Aktien) und Score 9 (−93 bps) einzeln geprueft: mit Haertegrad-Teiler 1 statt 10 (Experiment) sind beide exakt die develop-Fixtures – die Aenderung kommt ausschliesslich von der harten Pension (Toleranz ein Zehntel des Rauschens), keine herabgestuften Ziele, keine Skalierungswirkung (|f| ≤ 1).
 
-**Varianten-Test:** `test_risk_variants_improve_their_own_measure_on_the_foundation` ist jetzt `xfail(strict=True)`: der Default ist auf dem Fundament defensiver (Aktien 61.8 %, Vola 10.2 %), `min_volatility` hat noch keine Hierarchie/Herabstufung und wird von den Strafen nicht erreichbarer Ziele getrieben (74.5 %, 11.6 %). Offener Defekt fuer Phase 2 (Codex-Befund 4), bewusst sichtbar statt abgeschwaecht.
+**Varianten-Test (Runde 1, in Runde 2 behoben – kein xfail mehr):** `test_risk_variants_improve_their_own_measure_on_the_foundation` war kurzzeitig `xfail(strict=True)`: der Default ist auf dem Fundament defensiver (Aktien 61.8 %, Vola 10.2 %), `min_volatility` hat noch keine Hierarchie/Herabstufung und wird von den Strafen nicht erreichbarer Ziele getrieben (74.5 %, 11.6 %). Offener Defekt fuer Phase 2 (Codex-Befund 4), bewusst sichtbar statt abgeschwaecht.
 
 **Engine-Version:** bleibt bis zum Merge von #649 `saa_resampled_v7`; nach dessen Merge wird develop eingemergt und die Version `saa_resampled_v8`.
+
+### Runde 2 (CIO-Entscheide 2026-10-19): DEMOTED-GOAL-WEIGHT-001
+
+Herabgestufte Ziele (Screen: auf der Pruefmenge nicht erreichbar; Default: obere Grenze < tau/2, Varianten: < tau) zaehlen unabhaengig vom erfassten Haertegrad wie ein Wunschziel: Gewicht `DEMOTED_GOAL_WEIGHT` = 0.2 auf Fehlbetrag UND Chance-Strafe, in jedem Modus (auch Risikomass-Varianten), nicht Stufe 1. Markierung `GoalLiability.demoted` (gesetzt in `build_optimizer_context`, erfasster Haertegrad bleibt fuer die Anzeige). Reasoning: "… es wird als nachrangiges Wunschziel verfolgt und verdraengt keine erreichbaren Ziele".
+
+Messung: das Gewicht 0.2 allein genuegte NICHT – Vermoegensziel CHF 5 Mio bei CHF 0.5 Mio (Z/W0 = 10) blieb bei 6947/2000/853/0/200 (Fehlbetragsterm ~40, ×0.2 ~8 gegen einen Prior-Term ~0.1). Ursache ist die Groesse des Ziels, nicht seine Bedeutung. Darum zusaetzlich das Volumen herabgestufter Ziele auf W0 gedeckelt (Faktor 1/max(1, (Z/W0)²) auf beide Terme) – Option (b) aus OBJECTIVE-NORMALIZATION-001, hier nur fuer herabgestufte Ziele; monoton, CHF 0 bleibt schlechter als CHF 900; fuer nicht herabgestufte Ziele Faktor 1 (bitidentisch). **Diese Deckelung geht ueber den Wortlaut des CIO-Entscheids hinaus und ist das Mittel, sein erklaertes Ziel ("Haus-Prior dominiert") zu erreichen – bitte bestaetigen.** Policy `screen_not_found_demoted_wish_weight_v2`, `demoted_goal_weight` im ObjectiveContractV2.
+
+| Fall | erste Fassung | Runde 1 | Runde 2 |
+|---|---|---|---|
+| nur unerreichbares Ziel CHF 5 Mio (hart/primaer) | 7000/2000/800/0/200 | 7000/2000/800/0/200 | **6014/2958/534/294/200** (TE 4 bps, Hausquote 6000/3000/500/300/200) |
+| Fundament, Default | 7343/1008/1098/300/251 | 6184/1388/1877/300/251 | 6161/1431/1857/300/251 |
+| Fundament, P(Einkommensbruecke), gleicher 20k-Wuerfel (develop-Allokation 73.41 %) | – | 73.25 % | 73.21 % |
+| Fundament min_volatility (Aktien) | – | 74.5 % (riskanter als Default) | **60.0 %** (≤ Default 61.6 %) |
+| Fundament max_drawdown (Aktien) | – | – | 60.0 % |
+| Stage-8-Fundament solo | 12.8 s | 4.5 s | **3.9 s** |
+
+`test_risk_variants_improve_their_own_measure_on_the_foundation` ist wieder ein regulaerer Test (kein xfail) und gruen: min_volatility nicht volatiler als der Default, max_drawdown mit kleinerem Drawdown. Goldens unveraendert (keine herabgestuften Ziele, Haswell = Nehalem).
 
 ## 11. Offen (Phase 2, eigener PR)
 

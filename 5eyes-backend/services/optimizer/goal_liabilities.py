@@ -115,6 +115,13 @@ class GoalLiability:
     # Dataclass-Konstruktion in Alt-Tests; der Produktionspfad
     # (goal_to_liability/goals_to_liabilities) setzt ihn immer.
     lifecycle_status: str | None = None
+    # GOAL-HIERARCHY-002 / DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid 2026-10-19):
+    # vom Reachability-Screen auf der Pruefmenge nicht erreichbar gefunden.
+    # Gesetzt nur von ``solver.build_optimizer_context``; dann zaehlt das Ziel
+    # unabhaengig vom erfassten Haertegrad wie ein Wunschziel (Gewicht 0.2
+    # auf Fehlbetrag UND Chance-Strafe, nicht Stufe 1). Der erfasste
+    # Haertegrad bleibt fuer Anzeige/Offenlegung unveraendert.
+    demoted: bool = False
 
 
 # ============================================================================

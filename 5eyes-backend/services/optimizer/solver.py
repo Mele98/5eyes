@@ -1012,7 +1012,17 @@ def build_optimizer_context(
     screen = goal_reachability_screen(context)
     if screen is None:
         return context
-    return replace(context, goal_reachability=screen)
+    # GOAL-HIERARCHY-002 / DEMOTED-GOAL-WEIGHT-001: herabgestufte Ziele auf
+    # der Liability markieren (Wunschziel-Gewicht in jedem Modus, nicht
+    # Stufe 1). Bags/Validierung erben die Markierung ueber ``replace``.
+    demoted = frozenset(
+        str(g) for g in (screen.get("not_found_reachable_goal_ids") or ())
+    )
+    liabilities = [
+        replace(liab, demoted=True) if str(liab.goal_id) in demoted else liab
+        for liab in context.liabilities
+    ]
+    return replace(context, goal_reachability=screen, liabilities=liabilities)
 
 
 def _tiebreak_portfolio_variance(

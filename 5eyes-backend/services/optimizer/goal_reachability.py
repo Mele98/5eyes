@@ -365,8 +365,8 @@ def reachability_reasoning(screen: dict | None) -> list[str]:
                 "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist mit keiner "
                 "der geprueften zulaessigen Allokationen mit der Mindestsicherheit "
                 "erreichbar (" + figures + "; endliche Pruefmenge, kein "
-                "Unmoeglichkeitsnachweis); es wird nachrangig verfolgt und "
-                "verdraengt keine erreichbaren Ziele. Ziel mit dem Kunden "
+                "Unmoeglichkeitsnachweis); es wird als nachrangiges Wunschziel "
+                "verfolgt und verdraengt keine erreichbaren Ziele. Ziel mit dem Kunden "
                 "ueberpruefen (Betrag, Termin, Prioritaet)."
             )
         else:

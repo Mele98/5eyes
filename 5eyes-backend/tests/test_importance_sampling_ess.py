@@ -572,4 +572,5 @@ def test_reachability_is_published_on_goal_rows(monkeypatch):
     assert len(hints) == 1
     assert "mit der Mindestsicherheit erreichbar" in hints[0]
     assert "Ziel mit dem Kunden ueberpruefen (Betrag, Termin, Prioritaet)" in hints[0]
-    assert "nachrangig verfolgt und verdraengt keine erreichbaren Ziele" in hints[0]
+    assert "als nachrangiges Wunschziel verfolgt" in hints[0]
+    assert "verdraengt keine erreichbaren Ziele" in hints[0]
