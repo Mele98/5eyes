@@ -999,3 +999,21 @@ class PlanningAssumptionResponse(BaseResponse):
     notes: Optional[str]
     created_at: str
     updated_at: str
+
+
+class FinancialCoverageAttestationCreate(BaseModel):
+    """RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (PR #653): Berater bestaetigt,
+    dass Einnahmen, Ausgaben und Verpflichtungen des Haushalts vollstaendig
+    erfasst sind. Alle Kategorien sind Pflichtangaben (explizit ja/nein);
+    nur eine vollstaendig bejahte, aktuelle Bestaetigung zaehlt als Evidence.
+    Fachliche Pruefung (Stichtag, Quelle, Personen) in
+    services/financial_coverage_attestation.create_attestation()."""
+
+    household_persons: list[str] = Field(..., max_length=10)
+    income_complete: bool
+    expenses_complete: bool
+    obligations_complete: bool
+    irregular_expenses_reviewed: bool
+    as_of_date: str
+    source: str
+    note: Optional[str] = Field(default=None, max_length=1000)

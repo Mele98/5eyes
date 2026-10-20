@@ -130,7 +130,9 @@ def test_alembic_head_creates_decision_table_and_downgrade_is_reversible(tmp_pat
     engine.dispose()
     assert _triggers(db_path) == TRIGGERS
 
-    command.downgrade(cfg, "-1")
+    # Kettenbasiert statt head-gekoppelt: zurueck VOR die Decision-Revision
+    # (spaetere Revisionen wie f3a8d1c6b4e2 liegen darueber).
+    command.downgrade(cfg, "a6d2e8f4c1b9")
     engine = create_engine(db_url)
     inspector = inspect(engine)
     assert "risk_override_decisions" not in inspector.get_table_names()

@@ -17260,25 +17260,91 @@ function toggleAaProjectionDetails(){
 function renderRiskCapacityPlausibility(result){
   var box=document.getElementById('rp-capacity-plausibility');
   if(!box)return;
+  var status=String(result&&result.status||'');
   var findings=(result&&result.status==='inconsistent'&&Array.isArray(result.findings))?result.findings:[];
-  if(!findings.length){
+  // Codex-Closure-Review PR #653 (Restbefund B): 'partial' und 'not_evaluable'
+  // sind nicht still -- "noch nicht verifiziert" + konkreter Aufloesungsauftrag.
+  var open=(status==='partial'||status==='not_evaluable');
+  if(!findings.length&&!open){
     box.style.display='none';
     box.dataset.reasonCode='';
+    box.dataset.status='';
     return;
   }
-  box.dataset.reasonCode=String(result.reason_code||'');
+  box.dataset.reasonCode=String((findings.length?result.reason_code:result.verification_code)||'');
+  box.dataset.status=status;
   var title=box.querySelector('.al-banner-title');
   var body=box.querySelector('.al-banner-body');
-  if(title)title.textContent=result.override_down
-    ?'Risikofähigkeit: Abweichung zu den erfassten Daten (Override nach unten dokumentiert)'
-    :'Risikofähigkeit: Angaben widersprechen den erfassten Finanzdaten';
+  if(title)title.textContent=findings.length
+    ?(result.override_down
+      ?'Risikofähigkeit: Abweichung zu den erfassten Daten (Override nach unten dokumentiert)'
+      :'Risikofähigkeit: Angaben widersprechen den erfassten Finanzdaten')
+    :'Risikofähigkeit: noch nicht verifiziert';
   if(body){
-    body.innerHTML=escapeHtml(result.advisor_text||'')
-      +'<ul style="margin:4px 0 0 14px;padding:0">'
-      +findings.map(function(f){return '<li>'+escapeHtml(f&&f.message||'')+'</li>';}).join('')
-      +'</ul>';
+    var actions=Array.isArray(result.resolution_actions)?result.resolution_actions:[];
+    var html=escapeHtml(result.advisor_text||'');
+    if(findings.length){
+      html+='<ul style="margin:4px 0 0 14px;padding:0">'
+        +findings.map(function(f){return '<li>'+escapeHtml(f&&f.message||'')+'</li>';}).join('')
+        +'</ul>';
+    }else if(actions.length){
+      html+='<div style="margin-top:4px;font-weight:600">Nächste Schritte</div>'
+        +'<ul style="margin:2px 0 0 14px;padding:0">'
+        +actions.map(function(a){return '<li>'+escapeHtml(a||'')+'</li>';}).join('')
+        +'</ul>';
+    }
+    // FinancialCoverageAttestationV1: Berater bestaetigt die Vollstaendigkeit
+    // der erfassten Finanzdaten (Haushalt, Kategorien, Stichtag, Quelle).
+    if(result.coverage_attestation_required){
+      var today=new Date().toISOString().slice(0,10);
+      html+='<div class="rcp-attest" style="margin-top:8px;padding-top:6px;border-top:1px solid var(--b1)">'
+        +'<div style="font-weight:600;margin-bottom:4px">Vollständigkeit der Finanzdaten bestätigen</div>'
+        +'<label style="display:block">Personen im Haushalt (Komma-getrennt) <input type="text" id="rcp-att-persons" style="width:100%"></label>'
+        +'<label style="display:block"><input type="checkbox" id="rcp-att-income"> Alle regelmässigen Einnahmen erfasst</label>'
+        +'<label style="display:block"><input type="checkbox" id="rcp-att-expenses"> Alle Ausgaben (Wohnen, Versicherungen, Steuern, Lebenshaltung) erfasst</label>'
+        +'<label style="display:block"><input type="checkbox" id="rcp-att-obligations"> Alle Verpflichtungen (Kredite, Unterhalt, Leasing) erfasst</label>'
+        +'<label style="display:block"><input type="checkbox" id="rcp-att-irregular"> Unregelmässige Ausgaben geprüft und erfasst</label>'
+        +'<label style="display:inline-block;margin-right:8px">Stichtag <input type="date" id="rcp-att-asof" value="'+escapeHtml(today)+'"></label>'
+        +'<label style="display:inline-block">Quelle <select id="rcp-att-source">'
+        +'<option>Kundengespräch</option><option>Kundenunterlagen</option><option>Kundenportal</option>'
+        +'</select></label>'
+        +'<div style="margin-top:6px"><button type="button" class="btn-p" onclick="submitFinancialCoverageAttestation(getActiveMandateId())">Bestätigen</button>'
+        +' <span id="rcp-att-feedback"></span></div>'
+        +'</div>';
+    }
+    body.innerHTML=html;
   }
   box.style.display='flex';
+}
+// RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (PR #653): POST einer
+// FinancialCoverageAttestationV1. Alle Kategorien werden explizit (ja/nein)
+// uebermittelt; nur eine vollstaendig bejahte Bestaetigung ist Evidence.
+async function submitFinancialCoverageAttestation(mid){
+  mid=String(mid||'');
+  if(!mid||isDemoMandateId(mid))return null;
+  var el=function(id){return document.getElementById(id);};
+  var fb=el('rcp-att-feedback');
+  var persons=String((el('rcp-att-persons')||{}).value||'').split(',')
+    .map(function(p){return p.trim();}).filter(function(p){return !!p;});
+  var body={
+    household_persons:persons,
+    income_complete:!!(el('rcp-att-income')||{}).checked,
+    expenses_complete:!!(el('rcp-att-expenses')||{}).checked,
+    obligations_complete:!!(el('rcp-att-obligations')||{}).checked,
+    irregular_expenses_reviewed:!!(el('rcp-att-irregular')||{}).checked,
+    as_of_date:String((el('rcp-att-asof')||{}).value||''),
+    source:String((el('rcp-att-source')||{}).value||'')
+  };
+  try{
+    var res=await API.post('/mandates/'+mid+'/financial-coverage-attestations',body);
+    if(String(getActiveMandateId()||'')!==mid)return null;
+    if(fb)fb.textContent=(res&&res.status==='valid')?'Bestätigt.':'Gespeichert: '+String(res&&res.reason||'');
+    await refreshRiskCapacityPlausibility(mid);
+    return res;
+  }catch(e){
+    if(fb&&String(getActiveMandateId()||'')===mid)fb.textContent=String(e&&e.message||e);
+    return null;
+  }
 }
 async function refreshRiskCapacityPlausibility(mid){
   var requested=String(mid||'');
