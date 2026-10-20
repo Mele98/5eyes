@@ -59,6 +59,9 @@ PRIORITY_SCOPE_POLICY_VERSION = "direct_crn_replay_per_rank_v1"
 # gemeinsamen Liability-Pfads und der Freigaben). Reine Performance im
 # Solver-Hotpath (je Auswertung ein neuer Replay-Kontext), keine Semantik.
 _PREPARED_SCOPES: dict = {}
+# Identitaets-Abkuerzung darauf (die Eintraege halten die Objekte, ids bleiben
+# damit eindeutig; nur fuer unveraenderliche Tupel).
+_PREPARED_BY_IDENTITY: dict = {}
 # Scope-Schluessel und Batch-Pruefung je Liability-Liste (Identitaet, die
 # Liste wird im Eintrag gehalten) und (Freigaben, gemeinsamer Pfad).
 _BATCH_KEYS: dict = {}
@@ -75,6 +78,29 @@ def _scope_differs(goal: GoalLiability) -> bool:
     if not scope or not joint:
         return False
     return [int(v) for v in scope] != [int(v) for v in joint]
+
+
+def _last_read_column(goal: GoalLiability, n_cols: int) -> int:
+    """Hoechste Spalte des Vermoegenspfads, die die Bewertung von ``goal`` liest.
+
+    Spiegelt ``objective.shortfall_squared_per_path``/``_goal_probability_core``/
+    ``_success_margin_per_path``/``maximize_growth_per_path`` und die
+    Failure-Events in ``goal_attribution`` (Spalten 1..letzte Bewertungsspalte).
+    """
+    last = max(1, int(n_cols) - 1)
+    kind = goal.target_kind
+    if kind == "wealth_at_t":
+        return max(1, min(int(goal.target_year_index), last))
+    if kind in ("cashflow_in_year", "outflow_stream"):
+        due = [
+            index + 1
+            for index, amount in enumerate(goal.liability_path_rappen or ())
+            if float(amount or 0) > 0.0 and index + 1 < int(n_cols)
+        ]
+        return max(due) if due else 0
+    if kind in ("return_rate", "maximize"):
+        return max(1, min(int(goal.target_year_index or last), last))
+    return last
 
 
 def _as_int_tuple(values: Iterable[int] | None) -> tuple[int, ...]:
@@ -133,19 +159,44 @@ class ScopeReplayInputs:
         """
         horizon = int(np.asarray(self.return_paths).shape[1])
         excluded = tuple(sorted(str(g) for g in excluded_release_goal_ids))
-        key = (tuple(int(v) for v in liability_path_rappen), excluded)
-        signature = (
-            horizon,
-            tuple(int(v) for v in self.cashflow_series_rappen),
-            None if self.joint_liability_path_rappen is None
-            else tuple(int(v) for v in self.joint_liability_path_rappen),
-            self.goal_reserve_release_series_rappen,
+        path_key = (
+            liability_path_rappen if isinstance(liability_path_rappen, tuple)
+            else tuple(int(v) for v in liability_path_rappen)
         )
-        cache = _PREPARED_SCOPES.get(signature)
-        if cache is None:
-            if len(_PREPARED_SCOPES) >= 64:
-                _PREPARED_SCOPES.pop(next(iter(_PREPARED_SCOPES)))
-            cache = _PREPARED_SCOPES[signature] = {}
+        key = (path_key, excluded)
+        # Schneller Weg: dieselben (unveraenderlichen) Tupel-Objekte wie beim
+        # letzten Aufruf -> kein Neuaufbau der Inhaltssignatur.
+        identity = (
+            horizon, id(self.cashflow_series_rappen),
+            id(self.joint_liability_path_rappen),
+            id(self.goal_reserve_release_series_rappen),
+        )
+        fast = _PREPARED_BY_IDENTITY.get(identity)
+        if fast is not None and fast[0] is self.cashflow_series_rappen and (
+            fast[1] is self.joint_liability_path_rappen
+        ) and fast[2] is self.goal_reserve_release_series_rappen and isinstance(
+            self.cashflow_series_rappen, tuple
+        ) and isinstance(self.joint_liability_path_rappen, (tuple, type(None))):
+            cache = fast[3]
+        else:
+            signature = (
+                horizon,
+                tuple(int(v) for v in self.cashflow_series_rappen),
+                None if self.joint_liability_path_rappen is None
+                else tuple(int(v) for v in self.joint_liability_path_rappen),
+                self.goal_reserve_release_series_rappen,
+            )
+            cache = _PREPARED_SCOPES.get(signature)
+            if cache is None:
+                if len(_PREPARED_SCOPES) >= 64:
+                    _PREPARED_SCOPES.pop(next(iter(_PREPARED_SCOPES)))
+                cache = _PREPARED_SCOPES[signature] = {}
+            if len(_PREPARED_BY_IDENTITY) >= 64:
+                _PREPARED_BY_IDENTITY.pop(next(iter(_PREPARED_BY_IDENTITY)))
+            _PREPARED_BY_IDENTITY[identity] = (
+                self.cashflow_series_rappen, self.joint_liability_path_rappen,
+                self.goal_reserve_release_series_rappen, cache,
+            )
         hit = cache.get(key)
         if hit is not None:
             return hit
@@ -177,18 +228,25 @@ class ScopeReplayInputs:
         scopes: Sequence[tuple[Sequence[int], Iterable[str]]],
         *,
         joint: np.ndarray | None = None,
+        stops: Sequence[int] | None = None,
     ) -> list[np.ndarray]:
-        """Mehrere Scopes -- jeder bitidentisch zu einem direkten ``simulate``.
+        """Mehrere Scopes -- auf allen bewerteten Spalten bitidentisch zu einem
+        direkten ``simulate``.
 
-        Ohne Steuer ist jeder Pfad unabhaengig (keine Querschnittsstatistik).
-        Dann gilt: bis zum ersten Jahr ``t0``, in dem Cashflow oder Liability
-        des Scopes vom gemeinsamen Lauf abweichen, sind beide Rekursionen
-        Operation fuer Operation identisch -- die Spalten ``0..t0`` werden aus
-        ``joint`` uebernommen und erst ab ``t0`` weitergerechnet, mit genau den
-        Operationen des steuerfreien Kerns
-        (``scenario_engine._simulate_wealth_paths_untaxed``). Mit Steuer
-        haengen ``median``/``binned`` vom Querschnitt aller Pfade ab -- dann
-        je Scope ein eigener direkter Aufruf ab Jahr 0.
+        Ohne Steuer ist jeder Pfad unabhaengig (keine Querschnittsstatistik):
+
+        * bis zum ersten Jahr ``t0``, in dem Cashflow oder Liability des
+          Scopes vom gemeinsamen Lauf abweichen, sind beide Rekursionen
+          Operation fuer Operation identisch -- Spalten ``0..t0`` kommen aus
+          ``joint``;
+        * ab ``t0`` wird mit genau den Operationen des steuerfreien Kerns
+          (``scenario_engine._simulate_wealth_paths_untaxed``) weitergerechnet,
+          aber nur bis zur Spalte ``stops[i]`` -- der letzten Spalte, die ein
+          Ziel dieses Scopes ueberhaupt liest. Spalten danach sind ``NaN``
+          (nie gelesen; ein Fehlzugriff wuerde laut statt still falsch).
+
+        Mit Steuer haengen ``median``/``binned`` vom Querschnitt aller Pfade
+        ab -- dann je Scope ein vollstaendiger direkter Aufruf ab Jahr 0.
         """
         scopes = list(scopes)
         if self.tax_regime is not None:
@@ -204,48 +262,53 @@ class ScopeReplayInputs:
                 "phb,b->ph", return_paths,
                 np.asarray(self.weights, dtype=np.float64).reshape(-1),
             )
-        factors_by_year = np.ascontiguousarray(np.asarray(factors, dtype=np.float64).T)
-        alive_by_year = None
+        factors = np.asarray(factors, dtype=np.float64)
+        death_idx = None
         if self.death_year_index_per_path is not None:
             death_idx = np.asarray(self.death_year_index_per_path, dtype=np.int32)
             if death_idx.shape != (n_paths,):
                 raise ValueError(
                     f"death_year_index_per_path must be shape ({n_paths},), got {death_idx.shape}"
                 )
-            alive_by_year = np.arange(horizon, dtype=np.int32)[:, None] < death_idx[None, :]
-
-        joint_by_year = None
+        joint_arr = None
         if joint is not None and self.joint_liability_path_rappen is not None:
-            joint_arr = np.asarray(joint, dtype=np.float64)
-            if joint_arr.shape == (n_paths, horizon + 1):
-                joint_by_year = joint_arr.T
+            candidate = np.asarray(joint, dtype=np.float64)
+            if candidate.shape == (n_paths, horizon + 1):
+                joint_arr = candidate
 
         results: list[np.ndarray] = []
         grown = np.empty(n_paths, dtype=np.float64)
         positive = np.empty(n_paths, dtype=bool)
-        for path, excluded in scopes:
+        for index, (path, excluded) in enumerate(scopes):
             cashflow, liability, divergence = self.prepare_scope(path, excluded)
-            wealth_by_year = np.empty((horizon + 1, n_paths), dtype=np.float64)
-            start = 0
-            if joint_by_year is not None:
-                start = divergence
-                wealth_by_year[: start + 1] = joint_by_year[: start + 1]
+            stop = horizon if stops is None else max(0, min(horizon, int(stops[index])))
+            if joint_arr is not None:
+                start = min(divergence, stop)
+                out = joint_arr.copy()
             else:
-                wealth_by_year[0] = float(self.initial_wealth_rappen)
-            for t in range(start, horizon):
-                prev = wealth_by_year[t]
+                start = 0
+                out = np.empty((n_paths, horizon + 1), dtype=np.float64)
+                out[:, 0] = float(self.initial_wealth_rappen)
+            prev = np.ascontiguousarray(out[:, start])
+            for t in range(start, stop):
                 np.greater(prev, 0, out=positive)
                 np.copyto(grown, prev)
-                np.multiply(prev, factors_by_year[t], out=grown, where=positive)
-                nxt = wealth_by_year[t + 1]
-                if alive_by_year is not None:
-                    np.add(grown, cashflow[t] * alive_by_year[t], out=nxt)
-                    np.subtract(nxt, liability[t] * alive_by_year[t], out=nxt)
+                np.multiply(prev, factors[:, t], out=grown, where=positive)
+                nxt = np.empty(n_paths, dtype=np.float64)
+                if death_idx is not None:
+                    alive = t < death_idx
+                    np.add(grown, cashflow[t] * alive, out=nxt)
+                    np.subtract(nxt, liability[t] * alive, out=nxt)
                 else:
                     np.add(grown, cashflow[t], out=nxt)
                     if liability[t] != 0.0:
                         np.subtract(nxt, liability[t], out=nxt)
-            results.append(np.ascontiguousarray(wealth_by_year.T))
+                out[:, t + 1] = nxt
+                prev = nxt
+            if stop < horizon:
+                out[:, stop + 1:] = np.nan
+            out.setflags(write=False)
+            results.append(out)
         return results
 
     def simulate(
@@ -342,6 +405,20 @@ class PriorityScopeWealth:
         self._keys[id(goal)] = (goal, key)
         return key
 
+    def _needed_column(self, key, n_cols: int) -> int:
+        """Letzte Vermoegensspalte, die ein Ziel mit Scope ``key`` liest.
+
+        Dieselben Spalten wie die Bewertung in ``objective``/``goal_attribution``
+        (Faelligkeiten, Zieljahr, Renditehorizont); unbekannte Zielarten lesen
+        konservativ den ganzen Pfad.
+        """
+        needed = 0
+        for goal in self.liabilities:
+            if self._scope_key(goal) != key:
+                continue
+            needed = max(needed, _last_read_column(goal, n_cols))
+        return needed
+
     def _excluded_ids(self, rank: int) -> list[str]:
         return sorted({
             str(other.goal_id) for other in self.liabilities
@@ -388,9 +465,11 @@ class PriorityScopeWealth:
                 self._check_batch(other, replay)
                 pending[other_key] = other
         keys = sorted(pending)
+        n_cols = int(np.asarray(self.joint).shape[1])
         results = replay.simulate_many(
-            [(list(scope_path), list(excluded)) for scope_path, excluded in keys],
+            [(scope_path, excluded) for scope_path, excluded in keys],
             joint=self.joint,
+            stops=[self._needed_column(k, n_cols) for k in keys],
         )
         for pending_key, result in zip(keys, results):
             self._cache[pending_key] = result

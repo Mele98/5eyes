@@ -693,14 +693,53 @@ def _context_scope_wealth(
     Replays entstehen lazy und nur fuer Scopes, die vom gemeinsamen Pfad
     abweichen (Ein-Rang-Mandate: kein Replay).
     """
-    replay = ScopeReplayInputs(
+    replay = _context_replay_inputs(context, w, portfolio_factors=portfolio_factors)
+    # ``context.liabilities`` selbst (nicht kopiert): Scope-Schluessel und
+    # Batch-Pruefung werden je Liste einmal berechnet (priority_scope).
+    return PriorityScopeWealth(
+        joint=wealth, liabilities=context.liabilities, replay=replay,
+    )
+
+
+_PLAN_TUPLES: dict = {}
+
+
+def _context_plan_tuples(context: OptimizerContext) -> tuple[tuple, tuple]:
+    """Cashflows und gemeinsamer Liability-Pfad als Tupel, je Kontext einmal.
+
+    Solver-Hotpath: der Kontext ist eingefroren, seine Plan-Serien werden nach
+    dem Bau nicht mehr veraendert. Der Eintrag haelt die Quellobjekte (ids
+    bleiben eindeutig); Laenge wird zusaetzlich geprueft.
+    """
+    cf_obj, liab_obj = context.cashflow_series_rappen, context.aggregated_liability_path
+    key = (id(cf_obj), id(liab_obj))
+    hit = _PLAN_TUPLES.get(key)
+    if hit is not None and hit[0] is cf_obj and hit[1] is liab_obj and (
+        len(hit[2]) == len(cf_obj) and len(hit[3]) == len(liab_obj)
+    ):
+        return hit[2], hit[3]
+    cashflow_tuple = tuple(int(v) for v in cf_obj)
+    joint_tuple = tuple(int(v) for v in liab_obj)
+    if len(_PLAN_TUPLES) >= 64:
+        _PLAN_TUPLES.pop(next(iter(_PLAN_TUPLES)))
+    _PLAN_TUPLES[key] = (cf_obj, liab_obj, cashflow_tuple, joint_tuple)
+    return cashflow_tuple, joint_tuple
+
+
+def _context_replay_inputs(
+    context: OptimizerContext,
+    w: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
+) -> ScopeReplayInputs:
+    """Eingefrorener Simulationskontext einer Allokation (wie ``_simulate_context_wealth``)."""
+    cashflow_tuple, joint_tuple = _context_plan_tuples(context)
+    return ScopeReplayInputs(
         initial_wealth_rappen=context.advisory_wealth_rappen,
         weights=np.asarray(w, dtype=np.float64),
         return_paths=context.return_paths,
-        cashflow_series_rappen=tuple(int(v) for v in context.cashflow_series_rappen),
-        joint_liability_path_rappen=tuple(
-            int(v) for v in context.aggregated_liability_path
-        ),
+        cashflow_series_rappen=cashflow_tuple,
+        joint_liability_path_rappen=joint_tuple,
         death_year_index_per_path=context.mortality_death_year_index_per_path,
         tax_regime=context.tax_regime,
         dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
@@ -710,19 +749,23 @@ def _context_scope_wealth(
         portfolio_factors=portfolio_factors,
         goal_reserve_release_series_rappen=context.reserve_goal_release_series_rappen,
     )
-    # ``context.liabilities`` selbst (nicht kopiert): Scope-Schluessel und
-    # Batch-Pruefung werden je Liste einmal berechnet (priority_scope).
-    return PriorityScopeWealth(
-        joint=wealth, liabilities=context.liabilities, replay=replay,
-    )
 
 
 def _simulate_context_scope_wealth(
     context: OptimizerContext,
     w: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
 ) -> tuple[np.ndarray, PriorityScopeWealth]:
-    """``(gemeinsamer Pfad, Scope-Replays)`` einer Allokation."""
-    factors = _portfolio_return_factors(context, w)
+    """``(gemeinsamer Pfad, Scope-Replays)`` einer Allokation.
+
+    Die Portfolio-Faktoren werden einmal je Gewichtsvektor abgeleitet und von
+    gemeinsamem Pfad und allen Scope-Replays geteilt.
+    """
+    factors = (
+        _portfolio_return_factors(context, w)
+        if portfolio_factors is None else portfolio_factors
+    )
     wealth = _simulate_context_wealth(context, w, portfolio_factors=factors)
     return wealth, _context_scope_wealth(
         context, w, wealth, portfolio_factors=factors,
@@ -1220,14 +1263,11 @@ def _evaluation_inputs(
     Prioritaets-Scope-Replays (``scope_wealth``, lazy, je Scope einmal).
     """
     portfolio_factors = _portfolio_return_factors(context, w)
-    wealth = _simulate_context_wealth(
-        context, w, portfolio_factors=portfolio_factors
+    wealth, scope_wealth = _simulate_context_scope_wealth(
+        context, w, portfolio_factors=portfolio_factors,
     )
     annualized_twr = _annualized_twr_bps_per_path(
         context, w, portfolio_factors=portfolio_factors
-    )
-    scope_wealth = _context_scope_wealth(
-        context, w, wealth, portfolio_factors=portfolio_factors,
     )
     return portfolio_factors, wealth, annualized_twr, scope_wealth
 

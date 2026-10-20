@@ -26,6 +26,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from services.optimizer.priority_scope import (  # noqa: E402
     PriorityScopeUnavailableError,
+    _last_read_column,
     PriorityScopeWealth,
     ScopeReplayInputs,
 )
@@ -334,6 +335,45 @@ def _replay_case(*, death_index=None, tax_regime=None, tax_free_negative=False):
     return liabilities, replay, joint_path
 
 
+def _assert_same_goal_metrics(goal, replayed, direct):
+    """Alle Bewertungen des Ziels: Scope-Replay == direkte Vollsimulation."""
+    from services.optimizer.goal_attribution import _failure_event_distribution
+    from services.optimizer.objective import (
+        _goal_probability_core,
+        _success_margin_per_path,
+        shortfall_squared_per_path,
+    )
+
+    n_cols = direct.shape[1]
+    for kwargs in ({}, {"annualized_return_bps_per_path": np.zeros(direct.shape[0])}):
+        np.testing.assert_array_equal(
+            _goal_probability_core(replayed, goal, 100, **kwargs),
+            _goal_probability_core(direct, goal, 100, **kwargs),
+        )
+        np.testing.assert_array_equal(
+            shortfall_squared_per_path(goal, replayed, initial_wealth_rappen=100,
+                                       horizon_years=n_cols - 1, **kwargs),
+            shortfall_squared_per_path(goal, direct, initial_wealth_rappen=100,
+                                       horizon_years=n_cols - 1, **kwargs),
+        )
+        twr = kwargs.get("annualized_return_bps_per_path")
+        a = _success_margin_per_path(goal, replayed, 100, twr)
+        b = _success_margin_per_path(goal, direct, 100, twr)
+        if a is None or b is None:
+            assert a is b
+        else:
+            np.testing.assert_array_equal(a, b)
+    success = _goal_probability_core(direct, goal, 100)
+    last = _last_read_column(goal, n_cols)
+    assert _failure_event_distribution(
+        success=success, funding_paths=replayed, last_column=last,
+        own_event_id="x", weights_arr=None,
+    ) == _failure_event_distribution(
+        success=success, funding_paths=direct, last_column=last,
+        own_event_id="x", weights_arr=None,
+    )
+
+
 @pytest.mark.parametrize("variant", ["plain", "mortality", "negative_then_positive", "tax"])
 def test_every_unique_rank_is_replayed_exactly_like_a_direct_simulation(variant):
     """Replay-Paritaet gegen direkte ``simulate_wealth_paths``-Aufrufe.
@@ -367,7 +407,20 @@ def test_every_unique_rank_is_replayed_exactly_like_a_direct_simulation(variant)
             death_year_index_per_path=death,
             tax_regime=tax,
         )
-        np.testing.assert_array_equal(scopes.for_goal(liab), direct)
+        replayed = scopes.for_goal(liab)
+        # Bitgenau auf jeder Spalte, die ein Ziel dieses Scopes liest; ohne
+        # Steuer werden spaetere Spalten nicht gerechnet (NaN, nie gelesen).
+        last = max(
+            _last_read_column(other, joint.shape[1]) for other in liabilities
+            if other.priority_scope_liability_path_rappen
+            == liab.priority_scope_liability_path_rappen
+        )
+        if tax is None and liab.priority_scope_liability_path_rappen != joint_path:
+            np.testing.assert_array_equal(replayed[:, : last + 1], direct[:, : last + 1])
+            assert np.isnan(replayed[:, last + 1:]).all()
+        else:
+            np.testing.assert_array_equal(replayed, direct)
+        _assert_same_goal_metrics(liab, replayed, direct)
     # Drei Raenge, der hoechste ist der gemeinsame Pfad: genau zwei Replays.
     assert scopes.replay_count == 2
     if variant == "negative_then_positive":
