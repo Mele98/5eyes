@@ -2,11 +2,12 @@
  * Asset-Allocation-Editor (Track #67).
  *
  * Lädt die aktuelle SOLL-Allokation, lässt den Berater Ziel-Quoten und
- * Toleranzbänder (in bps) editieren, validiert clientseitig (Summe 10000,
- * min<=target<=max) und speichert via POST. „Generate" lässt den Optimizer
- * einen Vorschlag berechnen und füllt den Editor damit vor.
+ * Toleranzbänder editieren, validiert live (Summe 100 %, min<=Ziel<=max,
+ * 0–100 %) und speichert via POST. „Generate" lässt den Optimizer einen
+ * Vorschlag berechnen und füllt den Editor damit vor.
  *
- * Editiert wird in Basispunkten (exakt; 10000 = 100%), mit Prozent-Anzeige.
+ * UX-Audit Befund 15: Eingabe in Prozent (1 Nachkommastelle), intern bps.
+ * Fehler stehen direkt am Feld; Speichern ist gesperrt, bis alles gültig ist.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
@@ -18,15 +19,39 @@ import {
 import {
   ALLOCATION_BUCKETS,
   type AllocationDraft,
+  type BandField,
   bpsToPct,
+  bpsToPctInput,
   buildTargetAllocationPayload,
   draftFromRecord,
+  fieldErrors,
+  pctInputToBps,
   totalTargetBps,
   validateAllocation,
 } from '@/lib/allocationForm';
 import type { AllocationBucketKey, TargetAllocationRecord } from '@/api/types';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+
+type InputTexts = Record<AllocationBucketKey, Record<BandField, string>>;
+
+const FIELD_COLUMNS: ReadonlyArray<{ field: BandField; label: string }> = [
+  { field: 'min', label: 'Minimum' },
+  { field: 'target', label: 'Ziel' },
+  { field: 'max', label: 'Maximum' },
+];
+
+function textsFromDraft(draft: AllocationDraft): InputTexts {
+  const out = {} as InputTexts;
+  for (const { key } of ALLOCATION_BUCKETS) {
+    out[key] = {
+      target: bpsToPctInput(draft[key].target),
+      min: bpsToPctInput(draft[key].min),
+      max: bpsToPctInput(draft[key].max),
+    };
+  }
+  return out;
+}
 
 interface GenerateMetrics {
   expected_return_bps: number;
@@ -42,7 +67,8 @@ interface AllocationEditorProps {
 export function AllocationEditor({ mandateId }: AllocationEditorProps) {
   const [state, setState] = useState<LoadState>('idle');
   const [record, setRecord] = useState<TargetAllocationRecord | null>(null);
-  const [draft, setDraft] = useState<AllocationDraft | null>(null);
+  const [draft, setDraftState] = useState<AllocationDraft | null>(null);
+  const [texts, setTexts] = useState<InputTexts | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [statusMsg, setStatusMsg] = useState('');
   const [saving, setSaving] = useState(false);
@@ -81,8 +107,16 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
     return () => controller.abort();
   }, [load]);
 
-  function setField(key: AllocationBucketKey, field: 'target' | 'min' | 'max', value: number) {
-    setDraft((prev) => (prev ? { ...prev, [key]: { ...prev[key], [field]: value } } : prev));
+  // Draft (bps) und Eingabetexte (Prozent) immer gemeinsam setzen.
+  function setDraft(next: AllocationDraft) {
+    setDraftState(next);
+    setTexts(textsFromDraft(next));
+  }
+
+  function setField(key: AllocationBucketKey, field: BandField, raw: string) {
+    setTexts((prev) => (prev ? { ...prev, [key]: { ...prev[key], [field]: raw } } : prev));
+    const value = pctInputToBps(raw);
+    setDraftState((prev) => (prev ? { ...prev, [key]: { ...prev[key], [field]: value } } : prev));
   }
 
   async function onGenerate() {
@@ -142,8 +176,12 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
   }
 
   const total = draft ? totalTargetBps(draft) : 0;
+  const totalKnown = Number.isFinite(total);
   const totalOk = total === 10000;
-  const inputClass = 'w-24 rounded border border-rule bg-canvas px-2 py-1 text-right text-body text-ink';
+  const perField = draft ? fieldErrors(draft) : {};
+  const liveErrors = draft ? validateAllocation(draft) : [];
+  const draftValid = liveErrors.length === 0;
+  const inputClass = 'w-20 rounded border bg-canvas px-2 py-1 text-right text-body text-ink';
 
   return (
     <article className="mx-auto min-h-screen max-w-editorial px-page-x py-page-y">
@@ -179,59 +217,62 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
       ) : draft ? (
         <>
           <table className="mt-block w-full border-collapse text-body" aria-label="SOLL-Allokation pro Anlageklasse">
-            <caption className="sr-only">Editierbare Ziel-Quoten und Toleranzbänder in Basispunkten</caption>
+            <caption className="sr-only">Editierbare Ziel-Quoten und Toleranzbänder in Prozent</caption>
             <thead>
               <tr className="border-b border-rule text-left text-caption text-ink-subtle">
                 <th scope="col" className="py-2">Anlageklasse</th>
-                <th scope="col" className="py-2 text-right">Ziel (bps)</th>
-                <th scope="col" className="py-2 text-right">Ziel %</th>
-                <th scope="col" className="py-2 text-right">Min (bps)</th>
-                <th scope="col" className="py-2 text-right">Max (bps)</th>
+                {FIELD_COLUMNS.map(({ field, label }) => (
+                  <th key={field} scope="col" className="py-2 text-right">
+                    {label} (%)
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {ALLOCATION_BUCKETS.map(({ key, label }) => (
-                <tr key={key} className="border-b border-rule/50">
-                  <td className="py-2">{label}</td>
-                  <td className="py-2 text-right">
-                    <input
-                      type="number"
-                      aria-label={`${label} Ziel in bps`}
-                      value={draft[key].target}
-                      onChange={(e) => setField(key, 'target', Number(e.target.value))}
-                      className={inputClass}
-                    />
-                  </td>
-                  <td className="py-2 text-right text-ink-muted">{bpsToPct(draft[key].target)}</td>
-                  <td className="py-2 text-right">
-                    <input
-                      type="number"
-                      aria-label={`${label} Min in bps`}
-                      value={draft[key].min}
-                      onChange={(e) => setField(key, 'min', Number(e.target.value))}
-                      className={inputClass}
-                    />
-                  </td>
-                  <td className="py-2 text-right">
-                    <input
-                      type="number"
-                      aria-label={`${label} Max in bps`}
-                      value={draft[key].max}
-                      onChange={(e) => setField(key, 'max', Number(e.target.value))}
-                      className={inputClass}
-                    />
-                  </td>
-                </tr>
-              ))}
+              {ALLOCATION_BUCKETS.map(({ key, label }) => {
+                const rowErrors = perField[key] ?? {};
+                const messages = Array.from(new Set(Object.values(rowErrors).filter(Boolean)));
+                const errId = `alloc-err-${key}`;
+                return [
+                  <tr key={key} className={messages.length ? '' : 'border-b border-rule/50'}>
+                    <td className="py-2">{label}</td>
+                    {FIELD_COLUMNS.map(({ field, label: fieldLabel }) => {
+                      const invalid = Boolean(rowErrors[field]);
+                      return (
+                        <td key={field} className="py-2 text-right">
+                          <span className="inline-flex items-center gap-1">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              aria-label={`${label} ${fieldLabel} in %`}
+                              aria-invalid={invalid}
+                              aria-describedby={messages.length ? errId : undefined}
+                              value={texts?.[key][field] ?? ''}
+                              onChange={(e) => setField(key, field, e.target.value)}
+                              className={`${inputClass} ${invalid ? 'border-status-rot' : 'border-rule'}`}
+                            />
+                            <span aria-hidden="true" className="text-caption text-ink-muted">%</span>
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>,
+                  messages.length ? (
+                    <tr key={`${key}-err`} className="border-b border-rule/50">
+                      <td colSpan={4} id={errId} className="pb-2 text-caption text-status-rot">
+                        {messages.join(' ')}
+                      </td>
+                    </tr>
+                  ) : null,
+                ];
+              })}
               <tr className="font-semibold">
-                <td className="py-2">Summe</td>
+                <td className="py-2">Summe Ziel</td>
+                <td />
                 <td className={`py-2 text-right ${totalOk ? 'text-status-gruen' : 'text-status-rot'}`}>
-                  {total} bps
+                  {totalKnown ? `${bpsToPct(total)}${totalOk ? ' ✓' : ' (muss 100 % ergeben)'}` : '—'}
                 </td>
-                <td className={`py-2 text-right ${totalOk ? 'text-status-gruen' : 'text-status-rot'}`}>
-                  {bpsToPct(total)}
-                </td>
-                <td colSpan={2} />
+                <td />
               </tr>
             </tbody>
           </table>
@@ -280,7 +321,8 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
             <button
               type="button"
               onClick={onSave}
-              disabled={saving || !record}
+              disabled={saving || !record || !draftValid}
+              title={draftValid ? undefined : 'Speichern gesperrt, bis alle Felder gültig sind.'}
               className="rounded bg-ink px-4 py-2 text-caption text-paper disabled:opacity-50"
             >
               {saving ? 'Speichere…' : 'SOLL-Allokation speichern'}
