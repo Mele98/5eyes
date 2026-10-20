@@ -118,7 +118,7 @@ def test_pdf_table_labels_the_priority_scope_and_omits_the_plan_row():
     ])
     data = table._cellvalues
     assert [_cell_text(c) for c in data[0]] == [
-        "Ziel", "Typ", "Hardness", "Zielerreichung nach Priorität", "Status",
+        "Ziel", "Typ", "Härtegrad", "Erfolgs-Wkt. (nach Priorität)", "Status",
     ]
     labels = [_cell_text(row[0]) for row in data[1:]]
     assert labels == ["Hauskauf", "Weltreise"]
@@ -194,8 +194,11 @@ def test_monolith_shows_plan_solvency_once_with_label():
 
 def test_monolith_labels_individual_values_as_priority_funded():
     source = _monolith()
-    assert "Zielerreichung nach Priorit&auml;t</th>" in source
-    assert '<div class="rv-cockpit-kicker">Zielerreichung nach Priorit&auml;t</div>' in source
+    # UX-1 (Befund 8): einheitliche Primaerkennzahl "Erfolgswahrscheinlichkeit",
+    # weiterhin ausdruecklich als priorisierte (zielindividuelle) Bewertung.
+    assert "Erfolgs-Wkt. (nach Priorit&auml;t)</th>" in source
+    assert '<div class="rv-cockpit-kicker">Erfolgswahrscheinlichkeit nach Priorit&auml;t</div>' in source
+    assert "var PRIORITY_FUNDED_LABEL='Erfolgswahrscheinlichkeit nach Priorit\\u00e4t';" in source
     # Die alte, scopelose Spaltenueberschrift "P" ist weg.
     table = source[source.index('id="opt-achievability-table"'):]
     table = table[: table.index("</thead>")]

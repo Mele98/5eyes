@@ -743,8 +743,8 @@ def _build_key_metrics_row(metrics: dict, styles: dict) -> Table:
     col_w = inner_width / 6
 
     karten = [
-        ("Risky-Fraction", format_bps_as_pct(metrics.get("risky_fraction_bps"))),
-        ("Zielerreichung", format_bps_as_pct(metrics.get("zielerreichung_bps"))),
+        ("Risikobehafteter Anteil", format_bps_as_pct(metrics.get("risky_fraction_bps"))),
+        ("Erfolgs-Wkt. gesamt", format_bps_as_pct(metrics.get("zielerreichung_bps"))),
         ("Erw. Volatilität", format_bps_as_pct(metrics.get("exp_vol_bps"))),
         ("Erw. Rendite", format_bps_as_pct(metrics.get("exp_return_bps"))),
         ("Max Drawdown", format_bps_as_pct(metrics.get("max_drawdown_bps"))),
@@ -1407,11 +1407,12 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
         out.append(_goals_table(goals, styles, mc_classifications, currency=currency))
         out.append(Spacer(1, 2 * mm))
         out.append(Paragraph(
-            "<b>Zielerreichung nach Priorität:</b> Auf jedem simulierten Pfad "
-            "werden die Ziele in der festgelegten Rangfolge finanziert "
-            "(Rang 1 zuerst). Ein Ziel gilt als erreicht, wenn es nach allen "
+            "<b>Erfolgswahrscheinlichkeit (Erfolgs-Wkt.):</b> Anteil der simulierten "
+            "Verläufe, in denen das Ziel vollständig erreicht wird. Auf jedem "
+            "Verlauf werden die Ziele in der festgelegten Rangfolge finanziert "
+            "(Rang 1 zuerst); ein Ziel gilt als erreicht, wenn es nach allen "
             "höher priorisierten Zielen vollständig finanziert ist. "
-            "<b>Plan-Solvenz:</b> Anteil der Pfade, auf denen alle Ziele "
+            "<b>Plan-Solvenz:</b> Anteil der Verläufe, in denen alle Ziele "
             "gemeinsam finanziert sind.",
             _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
         ))
@@ -1436,7 +1437,7 @@ def _plan_solvency_line(plan: dict, styles: dict) -> Paragraph:
 def _achievement_score_kpi(score_bps: int, styles: dict):
     """Großer Score-Block: Wert mittig, Label oben."""
     label_p = Paragraph(
-        "GEWICHTETER ZIELERREICHUNGS-SCORE",
+        "ERFOLGSWAHRSCHEINLICHKEIT GESAMT (GEWICHTET)",
         _ar_paragraph_style(
             styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
         ),
@@ -1491,7 +1492,7 @@ def _goals_table(
         _th("Hartheit", styles), _th("Ziel-Datum", styles),
         _th("Zielwert", styles), _th("Status", styles),
         _th("MC-Status", styles),
-        _th("Zielerreichung nach Priorität", styles),
+        _th("Erfolgs-Wkt. (nach Priorität)", styles),
     ]
     rows = [header]
     mc_by_goal_id = {
@@ -1849,7 +1850,7 @@ def _build_building_blocks_flowables(bb: dict, styles: dict) -> list[Any]:
     constraints = bb.get("constraints") or []
     if constraints:
         out.append(Spacer(1, 5 * mm))
-        out.append(Paragraph("Constraints", styles["h2"]))
+        out.append(Paragraph("Grenzen", styles["h2"]))
         out.append(_constraints_table(constraints, styles))
     return out
 
@@ -1861,7 +1862,7 @@ def _building_blocks_table(blocks: list[dict], styles: dict) -> Table:
     col_target = inner_width * 0.20
     col_band = inner_width - col_label - col_target
 
-    rows = [[_th("Anlageklasse", styles), _th("Target", styles), _th("Band", styles)]]
+    rows = [[_th("Anlageklasse", styles), _th("Zielquote", styles), _th("Bandbreite", styles)]]
     for b in blocks:
         label = _safe_string(b.get("label"))
         target = format_bps_as_pct(b.get("target_bps"))
@@ -1904,7 +1905,7 @@ def _constraints_table(constraints: list[dict], styles: dict) -> Table:
     col_value = inner_width * 0.15
     col_desc = inner_width - col_label - col_value
 
-    rows = [[_th("Constraint", styles), _th("Wert", styles), _th("Beschreibung", styles)]]
+    rows = [[_th("Grenze", styles), _th("Wert", styles), _th("Beschreibung", styles)]]
     for c in constraints:
         rows.append([
             Paragraph(
@@ -2727,7 +2728,7 @@ def _ab_metrics_table(policy_a: dict, policy_b: dict, styles: dict) -> Table:
         ("TER", "expected_ter_bps", format_bps_as_pct, format_bps_signed_pct),
         ("Sharpe", "sharpe_ratio_x100", _format_x100, _format_signed_x100),
         (
-            "Max. Risky Fraction",
+            "Max. risikobehafteter Anteil",
             "max_risky_fraction_bps",
             format_bps_as_pct,
             format_bps_signed_pct,

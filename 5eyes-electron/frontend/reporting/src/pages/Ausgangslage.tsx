@@ -4,7 +4,7 @@
  * Editorial 2-Spalten-Layout:
  * - Links: 7 Label-Wert-Paare aus client_info
  * - Rechts: 5 Vermögens-Kategorien aus wealth_summary
- * - Unten: 6 KPI-Karten (Risky-Fraction, Zielerreichung, Vol, Return, MaxDD, VaR 95)
+ * - Unten: 6 KPI-Karten (Risikobehafteter Anteil, Erfolgs-Wkt. gesamt, Vol, Return, MaxDD, VaR 95)
  *
  * Default-Disziplin: 0/None wird als „—" gerendert (z. B. Alter 0).
  */
@@ -27,8 +27,8 @@ export function Ausgangslage({ data }: AusgangslageProps) {
   const m = data.key_metrics;
 
   const kpis = ([
-    ['Risky-Fraction', m.risky_fraction_bps],
-    ['Zielerreichung', m.zielerreichung_bps],
+    ['Risikobehafteter Anteil', m.risky_fraction_bps],
+    ['Erfolgs-Wkt. gesamt', m.zielerreichung_bps],
     ['Erw. Volatilität', m.exp_vol_bps],
     ['Erw. Rendite', m.exp_return_bps],
     ['Max Drawdown', m.max_drawdown_bps],
