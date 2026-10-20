@@ -147,6 +147,16 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
             ))
             flowables.append(Spacer(1, 2 * mm))
 
+    # RISK-PROFILE-SIGNOFF-001: Signoff-/Decision-Referenz des aktuellen
+    # Risikoprofils -- dieselben Zeilen wie im Risikoprofil-PDF.
+    signoff_lines = tuple(getattr(data, "risk_signoff_lines", ()) or ())
+    if signoff_lines:
+        from services.pdf.documents.risikoprofil import signoff_lines_table
+
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Risikoprofil-Signoff"))
+        flowables.append(signoff_lines_table(signoff_lines, styles))
+
     flowables.append(Spacer(1, 8 * mm))
     flowables.extend(make_unterschrift_section())
     return flowables

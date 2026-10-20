@@ -655,3 +655,50 @@ def test_foundation_purge_succeeds_with_overrides_and_keeps_decision_rows(
         assert after == before
         assert all(verify_decision(row) for row in after_rows)
         assert {row.assessment_id for row in after_rows} == {"assessment-foundation"}
+
+
+def test_foundation_purge_succeeds_with_signoffs_and_keeps_signoff_rows(
+    admin_client, session_factory,
+):
+    """RISK-PROFILE-SIGNOFF-001: risk_profile_signoffs folgt dem Muster von
+    risk_override_decisions -- append-only, ohne harten FK auf
+    risk_assessments/mandates. Der Purge eines Demo-Mandats mit Signoffs
+    gelingt; die Signoff-Zeilen bleiben unveraendert und verifizierbar."""
+    from models.profiling import RiskProfileSignoff
+    from models.users import User
+    from routers import profiling as profiling_router
+    from services.risk_profile_signoff import verify_signoff
+
+    with session_factory() as session:
+        _seed_foundation_chain(session)
+        _exec(session, "UPDATE clients SET deleted_at = NULL WHERE id = 'client-foundation'")
+        _exec(session, "UPDATE mandates SET deleted_at = NULL WHERE id = 'mandate-foundation'")
+        session.commit()
+        actor = session.get(User, "admin-purge")
+        for _ in range(2):
+            profiling_router.sign_risk_profile(
+                mandate_id="mandate-foundation",
+                request=SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1")),
+                body=None,
+                db=session,
+                current_user=actor,
+            )
+        before = {
+            row.id: {c.name: getattr(row, c.name) for c in RiskProfileSignoff.__table__.columns}
+            for row in session.query(RiskProfileSignoff).all()
+        }
+    assert len(before) == 2
+
+    response = admin_client.post("/admin/system/foundation-example/purge")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "purged"
+    with session_factory() as session:
+        assert _scalar(session, "SELECT COUNT(*) FROM risk_assessments") == 0
+        after_rows = session.query(RiskProfileSignoff).all()
+        after = {
+            row.id: {c.name: getattr(row, c.name) for c in RiskProfileSignoff.__table__.columns}
+            for row in after_rows
+        }
+        assert after == before
+        assert all(verify_signoff(row) for row in after_rows)

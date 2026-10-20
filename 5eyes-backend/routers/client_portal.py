@@ -20,10 +20,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment
 from models.users import User
 from services.advisory_report import compute_advisory_report
-from services.audit import log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer die Kunden-Unterschrift
 # (rechtlich relevant -- Eignungspruefungs-Nachweis).
 from routers.auth import _extract_client_ip
@@ -150,34 +148,18 @@ def client_portal_sign_risk_profile(
     if not mandate:
         raise HTTPException(status_code=404, detail="Mandat nicht gefunden.")
 
-    ra = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.mandate_id == mandate_id,
-            RiskAssessment.is_current == 1,
-            RiskAssessment.deleted_at.is_(None),
-        )
-        .first()
+    # RISK-PROFILE-SIGNOFF-001: derselbe fail-closed Signoff-Pfad wie beim
+    # Berater (append-only RiskProfileSignoffV1, verifizierte Decision, CAS).
+    from services import risk_profile_signoff as signoff_service
+    from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
+
+    result = signoff_service.record_signoff(
+        db,
+        mandate=mandate,
+        actor=current_user,
+        method=signoff_service.METHOD_PORTAL,
+        note=None,
+        ip_address=_extract_client_ip(request),
     )
-    if not ra:
-        raise HTTPException(
-            status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden."
-        )
-
-    signed_at = _now()
-    ra.client_signed_at = signed_at
-    ra.client_signed_method = "portal"
-    ra.client_signed_ref = current_user.id
-    ra.updated_at = signed_at
-
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="risk_assessments", record_id=ra.id, action="UPDATE",
-        field_name="client_signed", new_value="portal",
-        mandate_id=mandate_id, client_id=client.id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
-    return {
-        "risk_assessment_id": ra.id,
-        "client_signed_at": ra.client_signed_at,
-        "client_signed_method": ra.client_signed_method,
-    }
+    invalidate_advisory_cache(mandate_id)
+    return result

@@ -319,6 +319,73 @@ RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
+# append-only RiskProfileSignoffV1 (models/profiling.py::RiskProfileSignoff).
+# Gleiches Muster wie risk_override_decisions: Trigger verbieten UPDATE/
+# DELETE, KEIN harter FK auf risk_assessments/mandates (Purge-fest wie
+# audit_log), nur actor_id -> users. Die DDL wird hier EINMAL definiert und
+# vom Model (after_create), von ensure_runtime_columns() und -- textgleich --
+# von 5eyes_schema_v4.0_FINAL.sql verwendet; Alembic d7b3f1a9c2e4 fuer
+# PostgreSQL.
+RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_profile_signoffs_no_update "
+    "BEFORE UPDATE ON risk_profile_signoffs FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_profile_signoffs_no_delete "
+    "BEFORE DELETE ON risk_profile_signoffs FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END",
+)
+
+RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS risk_profile_signoffs (
+    id                     TEXT PRIMARY KEY,
+    schema_version         TEXT NOT NULL DEFAULT 'RiskProfileSignoffV1',
+    assessment_id          TEXT NOT NULL,
+    mandate_id             TEXT NOT NULL,
+    client_id              TEXT,
+    assessment_version     INTEGER NOT NULL,
+    sequence_no            INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_signoff_id    TEXT,
+    effective_score_x10    INTEGER NOT NULL CHECK(effective_score_x10 BETWEEN 0 AND 100),
+    effective_profile      TEXT NOT NULL,
+    final_score_x10        INTEGER NOT NULL,
+    final_profile          TEXT,
+    is_overridden          INTEGER NOT NULL DEFAULT 0 CHECK(is_overridden IN (0,1)),
+    override_binding       TEXT NOT NULL CHECK(override_binding IN ('decision','no_override')),
+    override_decision_id   TEXT,
+    override_decision_hash TEXT,
+    override_rules_version TEXT,
+    assessment_input_hash  TEXT NOT NULL,
+    document_id            TEXT,
+    document_hash          TEXT,
+    method                 TEXT NOT NULL CHECK(method IN ('advisor_recorded','portal')),
+    evidence_level         TEXT NOT NULL CHECK(evidence_level IN ('advisor_attested','client_portal')),
+    actor_id               TEXT NOT NULL REFERENCES users(id),
+    actor_role             TEXT,
+    note                   TEXT,
+    signed_at              TEXT NOT NULL,
+    rules_version          TEXT NOT NULL,
+    signoff_hash           TEXT NOT NULL,
+    created_at             TEXT NOT NULL,
+    CHECK((override_binding = 'decision' AND override_decision_id IS NOT NULL AND override_decision_hash IS NOT NULL)
+          OR (override_binding = 'no_override' AND override_decision_id IS NULL AND override_decision_hash IS NULL))
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_risk_profile_signoff_sequence "
+    "ON risk_profile_signoffs(assessment_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS ix_risk_profile_signoffs_mandate "
+    "ON risk_profile_signoffs(mandate_id)",
+)
+
+# Altbestand: eine Signatur ohne RiskProfileSignoffV1-Snapshot bleibt sichtbar,
+# wird aber ausdruecklich als "Altsignatur, nicht an Decision gebunden"
+# markiert (idempotent; Alembic d7b3f1a9c2e4 fuehrt dasselbe UPDATE aus).
+RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL = (
+    "UPDATE risk_assessments SET signoff_status = 'legacy_unbound' "
+    "WHERE client_signed_at IS NOT NULL AND signoff_id IS NULL "
+    "AND signoff_status IS NULL"
+)
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -864,6 +931,14 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "override_decision_hash", "TEXT")
         for ddl in RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL + RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # RISK-PROFILE-SIGNOFF-001 (2026-10-20): Signoff-Pointer/-Status am
+        # Assessment + append-only Signoff-Tabelle + Altbestand-Markierung.
+        ensure_column(conn, "risk_assessments", "signoff_id", "TEXT")
+        ensure_column(conn, "risk_assessments", "signoff_hash", "TEXT")
+        ensure_column(conn, "risk_assessments", "signoff_status", "TEXT")
+        for ddl in RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL + RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        conn.execute(text(RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist

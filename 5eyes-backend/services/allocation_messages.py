@@ -332,6 +332,26 @@ def classify_messages(
             if decision_id
             else " Override ohne Decision-Nachweis (Altbestand vor RiskOverrideDecisionV1)."
         )
+        # RISK-PROFILE-SIGNOFF-001: Signoff-Zustand des uebersteuerten Profils
+        # -- nach jedem Override ist eine neue Signatur Pflicht, bis ein an
+        # genau diese Decision gebundener RiskProfileSignoffV1 vorliegt.
+        from services.risk_profile_signoff import (
+            STATUS_SIGNED,
+            signoff_reference,
+            signoff_state,
+        )
+
+        state = signoff_state(assessment)
+        signoff_id = _get(assessment, "signoff_id") if state == STATUS_SIGNED else None
+        signoff_hash = _get(assessment, "signoff_hash") if state == STATUS_SIGNED else None
+        override_message["signoff_state"] = state
+        override_message["signoff_id"] = signoff_id
+        override_message["signoff_hash"] = signoff_hash
+        override_message["body_advisor"] += (
+            f" Signoff: {signoff_reference(signoff_id, signoff_hash)}."
+            if state == STATUS_SIGNED
+            else " Neue Signatur des Risikoprofils erforderlich (aktueller Override ist nicht signiert)."
+        )
         messages.append(override_message)
 
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die Plan-Solvenz-Zeile

@@ -181,6 +181,16 @@ class RiskAssessmentResponse(BaseResponse):
     # RISK-OVERRIDE-WRITE-BOUNDARY-001: Pointer auf die wirksame Decision.
     override_decision_id: Optional[str] = None
     override_decision_hash: Optional[str] = None
+    # RISK-PROFILE-SIGNOFF-001: Signatur-Projektion + Pointer auf den
+    # aktuellen RiskProfileSignoffV1. signoff_state = fachlicher Zustand
+    # (signed | signature_required | legacy_unbound | remediation_required |
+    # unsigned); 'legacy_unbound' = Altsignatur, nicht an Decision gebunden.
+    client_signed_at: Optional[str] = None
+    client_signed_method: Optional[str] = None
+    signoff_id: Optional[str] = None
+    signoff_hash: Optional[str] = None
+    signoff_status: Optional[str] = None
+    signoff_state: Optional[str] = None
     assessed_at: str
     assessed_by: str
     created_at: str

@@ -27018,26 +27018,55 @@ function renderReviewRiskProfileCard(){
   var assessedTxt=assessedRaw?formatDateSwiss(String(assessedRaw).slice(0,10)):'Datum unbekannt';
   var versionTxt=risk.version!=null&&String(risk.version)!==''?('v'+String(risk.version)):'';
   if(metaEl)metaEl.innerHTML=escapeHtml(assessedTxt)+(versionTxt?(' &middot; <span style="color:var(--n5)">'+escapeHtml(versionTxt)+'</span>'):'');
+  // RISK-PROFILE-SIGNOFF-001: Zustand kommt aus signoff_state (Backend,
+  // RiskProfileSignoffV1). Ein Override nach der Signatur macht sie ungueltig
+  // (signature_required); eine Altsignatur ohne Snapshot ist sichtbar, aber
+  // ausdruecklich nicht an eine Decision gebunden. 'advisor_recorded' wird nie
+  // als Kundensignatur ausgegeben.
   var signedAt=risk.client_signed_at||null;
+  var signoffState=riskSignoffState(risk);
+  var methodRaw=String(risk.client_signed_method||'').toLowerCase();
+  var methodTxt=methodRaw.indexOf('portal')>=0?'vom Kunden im Portal':'vom Berater erfasst';
+  var decisionRef=risk.override_decision_id?('Override-Entscheid '+escapeHtml(String(risk.override_decision_id))+' &middot; SHA-256 '+escapeHtml(String(risk.override_decision_hash||'-').slice(0,12))):'kein Override';
   if(sigEl){
-    if(signedAt){
-      var methodRaw=String(risk.client_signed_method||'').toLowerCase();
-      var methodTxt=methodRaw.indexOf('portal')>=0?'Portal':(methodRaw.indexOf('advisor')>=0||methodRaw.indexOf('berater')>=0?'Berater':(risk.client_signed_method?String(risk.client_signed_method):'Berater'));
-      sigEl.innerHTML='<span class="tag tg">&#10003; signiert am '+escapeHtml(formatDateSwiss(String(signedAt).slice(0,10)))+' ('+escapeHtml(methodTxt)+')</span>';
+    if(signoffState==='signed'){
+      sigEl.innerHTML='<span class="tag tg">&#10003; signiert am '+escapeHtml(formatDateSwiss(String(signedAt||'').slice(0,10)))+' ('+escapeHtml(methodTxt)+')</span>'
+        +'<div id="sr-riskprofile-signoff-ref" style="font-size:9px;color:var(--n5);margin-top:4px;line-height:1.4">Signoff '+escapeHtml(String(risk.signoff_id||''))+' &middot; SHA-256 '+escapeHtml(String(risk.signoff_hash||'-').slice(0,12))+'<br>'+decisionRef+'</div>';
+    }else if(signoffState==='signature_required'){
+      sigEl.innerHTML='<span class="tag ta">&#9888; neue Signatur erforderlich</span>';
+    }else if(signoffState==='legacy_unbound'){
+      sigEl.innerHTML='<span class="tag ta">Altsignatur, nicht an Decision gebunden</span>';
+    }else if(signoffState==='remediation_required'){
+      sigEl.innerHTML='<span class="tag ta" style="color:var(--neg)">&#9888; Signatur gesperrt</span>';
     }else{
       sigEl.innerHTML='<span class="tag ta">&#9888; nicht signiert</span>';
     }
   }
   if(hintEl){
-    hintEl.textContent=signedAt
-      ?'Die Kundenzustimmung zum Risikoprofil ist dokumentiert.'
-      :'Noch nicht signiert. Mit «Signatur erfassen» dokumentieren Sie die Kundenzustimmung zum aktuellen Risikoprofil.';
+    var hints={
+      signed:'Die Bestaetigung zum aktuellen Risikoprofil ist dokumentiert und an '+(risk.override_decision_id?'den aktuellen Override-Entscheid':'das Fragebogenergebnis (kein Override)')+' gebunden.',
+      signature_required:'Das wirksame Risikoprofil wurde nach der letzten Signatur uebersteuert ('+(risk.override_decision_id?('Override-Entscheid '+String(risk.override_decision_id)):'Override')+'). Die fruehere Signatur gilt nicht fuer das aktuelle Profil -- bitte die Bestaetigung neu erfassen.',
+      legacy_unbound:'Altsignatur vom '+formatDateSwiss(String(signedAt||'').slice(0,10))+' ('+methodTxt+') ohne Signoff-Nachweis -- nicht an einen Override-Entscheid gebunden. Mit «Signatur erneuern» wird ein gebundener Signoff erfasst.',
+      remediation_required:'Der Override hat keinen verifizierbaren Decision-Nachweis (Altbestand). Bitte den Override auf der Seite Risikoprofil neu erfassen, bevor signiert wird.',
+      unsigned:'Noch nicht signiert. Mit «Signatur erfassen» dokumentieren Sie die Bestaetigung zum aktuellen Risikoprofil.'
+    };
+    hintEl.textContent=hints[signoffState]||hints.unsigned;
   }
   if(btn){
     if(isDemo){btn.disabled=true;btn.title='Signatur nur fuer ein gespeichertes Mandat moeglich.';}
+    else if(signoffState==='remediation_required'){btn.disabled=true;btn.title='Override zuerst neu erfassen (kein verifizierbarer Decision-Nachweis).';}
     else{btn.disabled=false;btn.title='';}
-    btn.textContent=signedAt?'Signatur erneuern':'Signatur erfassen';
+    btn.textContent=(signoffState==='signed'||signoffState==='legacy_unbound')?'Signatur erneuern':'Signatur erfassen';
   }
+}
+function riskSignoffState(risk){
+  if(!risk)return 'unsigned';
+  if(risk.signoff_state)return String(risk.signoff_state);
+  if(risk.signoff_status==='signed'&&risk.signoff_id)return 'signed';
+  if(risk.signoff_status==='signature_required')return 'signature_required';
+  if(risk.client_signed_at&&!risk.signoff_id)return 'legacy_unbound';
+  if(Number(risk.is_overridden||0)===1&&!risk.override_decision_id)return 'remediation_required';
+  return 'unsigned';
 }
 async function signRiskProfile(){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
@@ -27060,12 +27089,20 @@ async function signRiskProfile(){
   var restore=btn?btn.textContent:'';
   if(btn){btn.disabled=true;btn.textContent='Signieren…';}
   try{
-    var res=await API.post('/mandates/'+mid+'/risk-profile/sign',{note:note});
+    // RISK-PROFILE-SIGNOFF-001: Erwartungswerte (Version, Decision- und
+    // Signoff-Pointer) -> das Backend antwortet mit 409, wenn sich das Profil
+    // inzwischen geaendert hat, statt einen veralteten Stand zu signieren.
+    var payload={note:note};
+    payload.expected_assessment_version=risk.version!=null?Number(risk.version):null;
+    payload.expected_override_decision_id=risk.override_decision_id||null;
+    payload.expected_signoff_id=risk.signoff_id||null;
+    var res=await API.post('/mandates/'+mid+'/risk-profile/sign',payload);
     if(res){
       [strategyState.currentRisk,strategyState.risk].forEach(function(target){
         if(!target)return;
-        if(res.client_signed_at!=null)target.client_signed_at=res.client_signed_at;
-        if(res.client_signed_method!=null)target.client_signed_method=res.client_signed_method;
+        ['client_signed_at','client_signed_method','signoff_id','signoff_hash','signoff_status','signoff_state'].forEach(function(key){
+          if(res[key]!=null)target[key]=res[key];
+        });
       });
     }
     renderReviewRiskProfileCard();

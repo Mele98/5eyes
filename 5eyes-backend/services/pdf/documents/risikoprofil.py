@@ -72,6 +72,11 @@ def build_risikoprofil_flowables(
         styles["disclaimer"],
     ))
 
+    if data.signoff_lines:
+        flowables.append(Spacer(1, 5 * mm))
+        flowables.append(_section_title("Signatur-Nachweis"))
+        flowables.append(signoff_lines_table(data.signoff_lines, styles))
+
     flowables.append(Spacer(1, 8 * mm))
     flowables.extend(make_unterschrift_section(
         client_confirm_text=(
@@ -170,6 +175,28 @@ def _override_documentation(data: RisikoprofilData, styles) -> Table:
         ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
         ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER_BG),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#475569")),
+        ("BOX", (0, 0), (-1, -1), 0.5, COLOR_BORDER),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.25, COLOR_BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return table
+
+
+def signoff_lines_table(lines, styles) -> Table:
+    """RISK-PROFILE-SIGNOFF-001: Signoff-/Decision-Referenz als Tabelle --
+    von Risikoprofil- UND Beratungsprotokoll-PDF genutzt (eine Darstellung)."""
+    page_width, _ = PAGE_SIZE
+    table_width = page_width - 24 * mm
+    table = Table(
+        [[Paragraph(_esc(str(left)), styles["body"]), Paragraph(_esc(str(right)), styles["body"])]
+         for left, right in lines],
+        colWidths=[table_width * 0.32, table_width * 0.68],
+    )
+    table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.5, COLOR_BORDER),
         ("LINEBELOW", (0, 0), (-1, -2), 0.25, COLOR_BORDER),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
