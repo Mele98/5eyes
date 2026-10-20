@@ -89,6 +89,11 @@ body{font-family:var(--f-s);}
    Engine-/Compliance-Wirkung, siehe models/tenant.py::
    default_presentation_mode. */
 html[data-presentation-mode="consulting"] [data-wm-only]{display:none!important;}
+/* UX-1 (Befund 14): Technische Details (Audit-Fusszeile, Vergleichsmethode)
+   sind Berater-/Audit-Information und erscheinen im Consulting-Modus nicht. */
+html[data-presentation-mode="consulting"] details.tech,
+html[data-presentation-mode="consulting"] #al-method-comparison-panel{display:none!important;}
+details.tech>summary{font-size:10px;font-weight:500;cursor:pointer;color:var(--n5);}
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line-height:1.5;color:var(--n9);background:var(--bg);}
 
@@ -210,7 +215,6 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 /* STRIP */
 .strip{padding:9px 24px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid var(--b1);}
 .strip-e{background:var(--neg-lt);}
-.strip-w{background:var(--warn-lt);}
 .st{font-size:11px;font-weight:600;color:var(--n8);margin-bottom:1px;}
 .ss{font-size:10px;color:var(--n5);}
 
@@ -328,6 +332,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .al-banner-title{font-size:11px;font-weight:700;color:var(--n8);margin-bottom:2px;}
 .al-banner-body{font-size:10px;color:var(--n6);line-height:1.55;}
 .al-banner-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+.al-dirty-banner{align-items:center;}
+.al-dirty-banner .al-banner-content{flex:1 1 auto;min-width:0;}
+.al-dirty-banner-action{flex:0 0 auto;}
+/* STALE-RESULT-DISPLAY-001: veraltete Ergebnisse gedimmt + Stand-Badge je Karte */
+#page-al.aa-stale .alloc-top-grid>.card>:not(.aa-stale-badge),
+#page-al.aa-stale .g2>.card:not(#al-planning-card)>:not(.aa-stale-badge){opacity:.5;filter:grayscale(.6);transition:opacity .2s ease,filter .2s ease;}
+.aa-stale-badge{display:flex;justify-content:flex-end;align-self:stretch;padding:6px 10px 0;}
+.aa-stale-badge span{font-size:10px;font-weight:600;color:var(--n8);background:var(--warn-lt);border:1px solid var(--warn);border-radius:999px;padding:2px 8px;white-space:nowrap;}
 .al-banner-actions span{font-size:9px;color:var(--n5);background:rgba(255,255,255,.55);border:1px solid rgba(15,30,52,.08);border-radius:999px;padding:2px 7px;}
 .m-acf-field{display:block;}
 .m-acf-derived{margin-top:6px;font-size:11px;color:var(--n5);line-height:1.5;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:7px 9px;}
@@ -1131,6 +1143,27 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 .qti{font-size:11px;color:var(--n4);text-align:right;}
 .qtinp{width:56px;text-align:right;border:1px solid var(--b1);border-radius:2px;padding:3px 5px;font-family:var(--f-s);font-size:11px;color:var(--n8);background:var(--bg);outline:none;}
 .qtinp:focus{border-color:var(--g4);}
+.qtr>.qtinp{justify-self:end;}
+.qtinp.is-invalid{border-color:var(--neg)!important;background:var(--neg-lt);}
+.qth{padding:0 0 4px;border-bottom:2px solid var(--b2);margin-bottom:2px;}
+.qth>div{font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);text-align:right;}
+.qth>.qth-l{text-align:left;padding-left:6px;}
+.qtmsg{font-size:10px;line-height:1.45;padding:3px 0 5px 15px;border-bottom:1px solid var(--b1);}
+.qtmsg[hidden]{display:none;}
+.qtmsg-e{display:block;color:var(--neg);font-weight:600;}
+.qtmsg-h{display:block;color:var(--n5);}
+.qtsum{font-size:10px;line-height:1.5;margin-top:8px;padding:6px 8px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);color:var(--n6);}
+.qtsum .ok{color:var(--pos);font-weight:600;}
+.qtsum .bad{color:var(--neg);font-weight:600;}
+.qtmanual{margin-top:12px;padding:8px 10px;border:1px dashed var(--b2);border-radius:var(--r);background:var(--surface);}
+.qtmanual-title{font-size:10px;font-weight:600;color:var(--n8);margin-bottom:3px;}
+.qtmanual-copy{font-size:10px;color:var(--n5);line-height:1.5;margin-bottom:6px;}
+.qtmanual-label{font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);}
+.qtmanual-reason{width:100%;box-sizing:border-box;font-size:11px;margin:3px 0 6px;}
+.qtmanual-status{font-size:10px;line-height:1.45;color:var(--n6);margin-bottom:6px;}
+.qtmanual-status:empty{display:none;}
+.qtmanual-status .ok{color:var(--pos);font-weight:600;}
+.qtmanual-status .bad{color:var(--neg);font-weight:600;}
 /* dcv dcl for donut center */
 .dcv{font-family:var(--f-d);font-size:14px;color:var(--n8);text-align:center;line-height:1.2;}
 .dcl{font-size:8px;color:var(--n4);letter-spacing:0.05em;text-transform:uppercase;}
@@ -3497,15 +3530,16 @@ function _wireSollIstHover(){
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalität, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button><button class="btn" id="btn-al-react-editor" onclick="openAllocationEditor();this.closest('details').removeAttribute('open')" title="Asset-Allokation-Editor (React, Beta)">Editor (Beta)</button></div></details></div></div>
-      <div id="al-dirty-banner" class="strip strip-w" style="display:none">
-        <div>
-          <div class="st">Strategie veraltet</div>
-          <div class="ss">Stammdaten, Cashflows, Ziele oder Risikoprofil haben sich geändert — bitte «Anlagestrategie berechnen» klicken.</div>
-        </div>
-        <button class="btn-g" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
-      </div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalität, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
       <div class="pad">
+      <div id="al-dirty-banner" class="al-banner-warning al-dirty-banner" role="status" aria-live="polite" style="display:none">
+        <div class="al-banner-icon">!</div>
+        <div class="al-banner-content">
+          <div class="al-banner-title">Strategie veraltet</div>
+          <div class="al-banner-body" id="al-dirty-banner-body">Eingaben haben sich seit der letzten Berechnung geändert — bitte «Anlagestrategie berechnen» klicken.</div>
+        </div>
+        <button class="btn-g al-dirty-banner-action" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
+      </div>
         <div id="al-message-banner" class="al-banner-warning" style="display:none">
           <div class="al-banner-icon">!</div>
           <div class="al-banner-content">
@@ -3766,7 +3800,7 @@ function _wireSollIstHover(){
             <div class="cbody">
               <div class="advisor-note">Diese Karte erklärt nur die Herleitung der Strategie. Vergleiche, Entscheidungen, Dokumentation und Umsetzung erfolgen anschliessend im Review.</div>
               <div id="aa-action-list" class="action-list">
-                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil, Ziele &amp; Beratungsvermögen</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die SOLL-Allokation wird stochastisch (Mulvey/Ziemba) aus dem Risikoprofil-Score, den priorisierten Lebenszielen und dem Beratungsvermögen hergeleitet.</div></div>
+                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil, Ziele &amp; Beratungsvermögen</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die SOLL-Allokation wird mit tausenden simulierten Marktverläufen aus dem Risikoprofil-Score, den priorisierten Lebenszielen und dem Beratungsvermögen hergeleitet.</div></div>
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Building Blocks pro Anlageklasse (CMA-Input), Bandbreiten und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Nächster Schritt</span><span class="tag tn">Einordnung</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Im Portfolio-Schritt folgt die Umsetzung in konkrete Wertschriften (ISIN). Vergleiche und Drift-Monitoring laufen im Review.</div></div>
               </div>
@@ -3775,25 +3809,25 @@ function _wireSollIstHover(){
           <!-- Phase 6: Optimizer-Panel -->
           <div class="card" id="al-optimizer-panel" style="display:none">
             <div class="chd">
-              <span class="cht">Stochastischer Optimizer</span>
+              <span class="cht">Optimierung mit simulierten Marktverläufen</span>
               <span class="rv-limiting-badge" id="opt-limiting-factor-badge" style="display:none"></span>
               <span class="opt-pill" id="opt-status-pill" style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px"></span>
             </div>
             <div class="cbody" style="display:grid;gap:12px">
               <div id="opt-fallback-banner" style="display:none;background:var(--warn-lt);border:1px solid rgba(122,82,0,0.25);border-radius:var(--r);padding:8px 10px;font-size:10px;color:var(--n6);line-height:1.4"></div>
               <details id="opt-reasoning-block" open>
-                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Reasoning-Trace</summary>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Herleitung</summary>
                 <ul id="opt-reasoning-list" style="margin:6px 0 0 18px;padding:0;font-size:10px;color:var(--n6);line-height:1.5"></ul>
               </details>
               <details id="opt-achievability-block">
-                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Zielerreichung (Entscheidungsmodell)</summary>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Erfolgswahrscheinlichkeit je Ziel</summary>
                 <div id="opt-plan-solvency" style="margin:6px 0"></div>
                 <table class="optimizer-table" id="opt-achievability-table">
                   <thead>
                     <tr>
                       <th>Ziel</th>
                       <th>H&auml;rte</th>
-                      <th title="Auf jedem Pfad werden die Ziele in Rangfolge finanziert (Rang 1 zuerst); das Ziel gilt als erreicht, wenn es nach allen h&ouml;her priorisierten Zielen voll finanziert ist.">Zielerreichung nach Priorit&auml;t</th>
+                      <th title="Erfolgswahrscheinlichkeit: Anteil der simulierten Verl&auml;ufe, in denen das Ziel vollst&auml;ndig erreicht wird. Auf jedem Verlauf werden die Ziele in Rangfolge finanziert (Rang 1 zuerst); das Ziel gilt als erreicht, wenn es nach allen h&ouml;her priorisierten Zielen voll finanziert ist.">Erfolgs-Wkt. (nach Priorit&auml;t)</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -3815,27 +3849,34 @@ function _wireSollIstHover(){
                 </table>
               </details>
               <details id="opt-sensitivity-block">
-                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Sensitivity-Analyse</summary>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Was-w&auml;re-wenn</summary>
                 <div id="opt-sensitivity-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
               </details>
-              <div id="opt-audit-footer" style="font-size:9px;color:var(--n4);font-family:var(--f-d);border-top:1px dashed var(--b1);padding-top:6px"></div>
+              <details class="tech" id="opt-tech-details" style="border-top:1px dashed var(--b1);padding-top:6px">
+                <summary>Technische Details</summary>
+                <div id="opt-audit-footer" style="font-size:9px;color:var(--n4);font-family:var(--f-d);margin-top:4px"></div>
+              </details>
             </div>
           </div>
-          <!-- V3 Sprint 1 Commit 4 (Plan §7): Methodenvergleich House Matrix vs. Shadow Stochastic. -->
+          <!-- V3 Sprint 1 Commit 4 (Plan §7): Methodenvergleich House Matrix vs. Shadow Stochastic.
+               UX-1 (Befund 14): kundenfaehig "Vergleichsmethode", Inhalt in
+               details.tech; im Consulting-Modus ausgeblendet (CSS oben). -->
           <div class="card" id="al-method-comparison-panel" style="display:none">
             <div class="chd">
-              <span class="cht">Methodenvergleich</span>
+              <span class="cht">Vergleichsmethode (Kontrollrechnung)</span>
               <span class="status-pill" id="method-comparison-pill" style="margin-left:auto"></span>
             </div>
             <div class="cbody optimizer-body">
+              <details class="tech" id="method-comparison-tech">
+              <summary>Technische Details</summary>
               <div id="method-comparison-note" class="advisor-note-shadow">Vergleich wird berechnet…</div>
               <table class="optimizer-table" id="method-comparison-table">
                 <thead>
                   <tr>
-                    <th>Assetklasse</th>
-                    <th>Aktiv</th>
-                    <th>Shadow</th>
-                    <th>Delta</th>
+                    <th>Anlageklasse</th>
+                    <th>Gew&auml;hlte Methode</th>
+                    <th>Vergleichsmethode</th>
+                    <th>Differenz</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -3845,10 +3886,10 @@ function _wireSollIstHover(){
                 <table class="optimizer-table" id="method-constraints-table">
                   <thead>
                     <tr>
-                      <th>Constraint</th>
+                      <th>Grenze</th>
                       <th>Wert</th>
-                      <th>Limit</th>
-                      <th>Slack</th>
+                      <th>Limite</th>
+                      <th title="Abstand zwischen Wert und Limite">Spielraum</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -3856,7 +3897,7 @@ function _wireSollIstHover(){
                 </table>
               </details>
               <details id="method-drivers-block">
-                <summary class="optimizer-summary" title="Gewichteter Verlustterm je Ziel auf dem gemeinsamen Pfad (weighted_loss_component_under_joint_path) &ndash; kein kausaler oder marginaler Zielanteil.">Goal-Driver (Shortfall-Beitrag, gemeinsamer Pfad)</summary>
+                <summary class="optimizer-summary" title="Gewichteter Anteil je Ziel an der gesamten Zielabweichung auf dem gemeinsamen simulierten Verlauf &ndash; kein kausaler oder marginaler Zielanteil.">Treiber der Zielabweichung</summary>
                 <table class="optimizer-table" id="method-drivers-table">
                   <thead>
                     <tr>
@@ -3864,13 +3905,14 @@ function _wireSollIstHover(){
                       <th>Ziel</th>
                       <th>Härte</th>
                       <th>Gewicht</th>
-                      <th>Beitrag (milli)</th>
+                      <th>Beitrag</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
                 </table>
               </details>
               <div id="method-comparison-audit" class="optimizer-audit"></div>
+              </details>
             </div>
           </div>
           <div class="card" id="al-planning-card">
@@ -3981,6 +4023,7 @@ function _wireSollIstHover(){
                 <span id="rv-main-goal-status" class="tag tn">ausstehend</span>
               </div>
               <div id="rv-main-goal-meta" style="font-size:10px;color:var(--n5);line-height:1.55;margin-top:7px">Strategie berechnen, um die Zielwahrscheinlichkeit zu sehen.</div>
+              <div class="goal-ampel-legend" style="font-size:9px;color:var(--n5);margin-top:4px">Ampel: &ge; 70 % gut &middot; 45&ndash;69 % knapp &middot; &lt; 45 % kritisch</div>
             </div>
             <div class="rv-cockpit-tile">
               <div class="rv-cockpit-kicker">Limitierender Faktor</div>
@@ -3996,7 +4039,7 @@ function _wireSollIstHover(){
             </div>
           </div>
           <div class="rv-cockpit-tile">
-            <div class="rv-cockpit-kicker">Zielerreichung nach Priorit&auml;t</div>
+            <div class="rv-cockpit-kicker">Erfolgswahrscheinlichkeit nach Priorit&auml;t</div>
             <div id="rv-goal-achievability-list" class="rv-goal-list"><div style="font-size:10px;color:var(--n4)">Noch keine stochastische Zielerreichung vorhanden.</div></div>
           </div>
           <details id="rv-details-accordion" class="rv-cockpit-tile">
@@ -4182,7 +4225,7 @@ function _wireSollIstHover(){
               </div>
               <div class="calc-stage" data-calc-step="2">
                 <div class="calc-stage-top"><span class="calc-stage-dot"></span><span class="calc-stage-name">Risikoprofil als Leitplanke anwenden</span></div>
-                <div class="calc-stage-desc">Die maximale Risky Fraction und die House-Matrix setzen den disziplinierten Rahmen für die Strategie.</div>
+                <div class="calc-stage-desc">Das maximale Risikobudget und die Hausmatrix setzen den disziplinierten Rahmen für die Strategie.</div>
               </div>
               <div class="calc-stage" data-calc-step="3">
                 <div class="calc-stage-top"><span class="calc-stage-dot"></span><span class="calc-stage-name">Strategie und Projektion ableiten</span></div>
@@ -5954,6 +5997,7 @@ async function loadClientById(clientId) {
   }catch(_ldErr){}
   currentReviewState = {triggers:[],logs:[],documents:[],conflicts:[],suitability:[],allocation:null,recommendation:null};
   strategyState={allocation:null,recommendation:null,activeMandateId:null,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null,pendingAllocation:null,pendingRecommendation:null,deferVisualApply:false};
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   hydrateRiskQuestionnaire(null);
   renderRiskSummary(null);
   resetCurrentProjectionCharts();
@@ -5998,6 +6042,7 @@ async function loadClientById(clientId) {
         currentMandateData = activeMandate || null;
       }
       strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null,pendingAllocation:null,pendingRecommendation:null,deferVisualApply:false};
+      if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
       renderEngineRuntimePanels(null);
       renderPortfolioSections([]);
       syncAllocationPendingViews();
@@ -7775,7 +7820,7 @@ function buildQT(id){
   // fuer unberuehrte Felder -- nie aus dem (bereits override-haltigen)
   // Engine-Ergebnis zurueckgerechnet.
   allocationBandStoredOverrides={};
-  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Gesendet werden bestehende Overrides plus die Felder, die Sie hier aendern; ein geleertes Feld hebt seinen Override auf, Zuruecksetzen hebt alle auf.</div><div style="display:grid;grid-template-columns:8px 1fr 42px 62px 62px 62px;gap:0;padding-bottom:4px;border-bottom:2px solid var(--b2);margin-bottom:2px;"><div></div><div style="font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);padding-left:6px">Asset-Klasse</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ist</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Min</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Ziel</div><div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4);text-align:right">Max</div></div>`+quoten.map(function(r,idx){
+  t.innerHTML=`<div style="font-size:10px;color:var(--n6);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Manuelle Soll-Quoten sind eine Simulation ueber der aktuellen House-Matrix. Gesendet werden bestehende Overrides plus die Felder, die Sie hier aendern; ein geleertes Feld hebt seinen Override auf, Zuruecksetzen hebt alle auf.</div><div class="qtr qth" aria-hidden="true"><div></div><div class="qth-l">Asset-Klasse</div><div>Ist</div><div>Min</div><div>Ziel</div><div>Max</div></div>`+quoten.map(function(r,idx){
     var bucket=normalizeBandKey(r.key||r.n||('bucket_'+idx));
     var baseline={min_bps:Math.round(Number(r.min||0)*100),target_bps:Math.round(Number(r.ziel||0)*100),max_bps:Math.round(Number(r.max||0)*100)};
     allocationBandBaseline[bucket]=baseline;
@@ -7784,14 +7829,23 @@ function buildQT(id){
     var minimum=override.min_bps!=null?override.min_bps:baseline.min_bps;
     var target=override.target_bps!=null?override.target_bps:baseline.target_bps;
     var maximum=override.max_bps!=null?override.max_bps:baseline.max_bps;
-    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${fmtPct(Number(r.ist||0)*100,1)}</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}"></div>`;
-  }).join('');
+    // BAND-EDITOR-VALIDATION-001: Eingabe in Prozent (Wert traegt das "%"),
+    // beschriftet je Feld; Fehler/Hinweise erscheinen direkt unter der Zeile.
+    var errId='qt-msg-'+bucket;
+    return `<div class="qtr"><div class="qtd" style="background:${r.c}"></div><div class="qtn">${r.n}</div><div class="qti">${fmtPct(Number(r.ist||0)*100,1)}</div><input class="qtinp" data-bucket="${bucket}" data-field="min_bps" data-initial="${formatBandPercent(minimum)}" value="${formatBandPercent(minimum)}" aria-label="${r.n} Minimum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"><input class="qtinp" data-bucket="${bucket}" data-field="target_bps" data-initial="${formatBandPercent(target)}" value="${formatBandPercent(target)}" aria-label="${r.n} Ziel in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off" style="border-color:var(--n6)"><input class="qtinp" data-bucket="${bucket}" data-field="max_bps" data-initial="${formatBandPercent(maximum)}" value="${formatBandPercent(maximum)}" aria-label="${r.n} Maximum in %" aria-describedby="${errId}" inputmode="decimal" autocomplete="off"></div><div class="qtmsg" id="${errId}" data-band-msg="${bucket}" aria-live="polite" hidden></div>`;
+  }).join('')+'<div id="qt-band-summary" class="qtsum" aria-live="polite"></div>';
   t.querySelectorAll('.qtinp').forEach(function(input){
     input.addEventListener('input',function(){
+      // BAND-EDITOR-VALIDATION-001: Live-Pruefung; ungueltige Eingaben werden
+      // weder uebernommen noch als Strategie-Aenderung gemeldet.
+      var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
+      if(!check.valid)return;
       updateBandOverrideStatus(collectBandOverridesFromModal()||{});
       markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.');
     });
     input.addEventListener('change',function(){
+      var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
+      if(!check.valid)return;
       persistAllocationPreferences();
     });
   });
@@ -7800,6 +7854,16 @@ function buildQT(id){
   t.querySelectorAll('.qtinp').forEach(function(input){
     input.addEventListener('input',updateBandDeviationReasonBox);
   });
+  // MANUAL-TARGET-SAVE-IN-BAND-EDITOR-001: getrennte Sekundaer-Aktion.
+  if(typeof buildManualTargetSaveBoxHtml==='function'){
+    t.insertAdjacentHTML('beforeend',buildManualTargetSaveBoxHtml());
+    var manualReason=document.getElementById('aa-manual-save-reason');
+    if(manualReason&&manualReason.addEventListener){
+      manualReason.addEventListener('input',function(){
+        renderManualTargetSaveState(computeManualTargetSaveValidation());
+      });
+    }
+  }
   var reasonInput=document.getElementById('aa-band-deviation-reason');
   if(reasonInput){
     reasonInput.addEventListener('input',function(){
@@ -7811,6 +7875,299 @@ function buildQT(id){
   }
   updateBandOverrideStatus(activeBands);
   updateBandDeviationReasonBox();
+  if(typeof validateBandEditorModal==='function')validateBandEditorModal();
+}
+// BAND-EDITOR-VALIDATION-001 (UX-Audit Befund 15): Live-Validierung des
+// Bandbreiten-Editors. Die Regeln sind die des Backends, nicht neu erfunden:
+//  R1 Feld = Prozent 0..100 (schemas/allocation.py AllocationBandOverridePayload
+//     ge=0/le=10000 bps; parseBandPercentUserInput).
+//  R2 Min <= Max je Klasse; eine nicht gesetzte Grenze ist die Hausmatrix-
+//     Grenze des Risikoprofils (_apply_band_preferences: Bounds beim Eintritt
+//     = house_matrix_bands, ein Override ersetzt nur das gesendete Feld).
+//  R3 ein vorgegebenes Ziel liegt in [Min, Max] (Schema validate_band_order +
+//     _apply_band_preferences explicit_target_buckets).
+//  R4 Summe der Mindestquoten <= 100 % (_raise_if_band_envelope_infeasible).
+//  R5 sind ALLE fuenf Ziele vorgegeben, ergeben sie genau 100 %
+//     (_apply_band_preferences); Teilvorgaben gleicht die Engine aus.
+// Abweichungen von der Hausmatrix sind erlaubt, verlangen aber die
+// Pflichtbegruendung (BAND-DEVIATION-REASON-REQUIRED-001, Freigabe-Gate).
+var BAND_EDITOR_BUCKETS=['equities','bonds','real_estate','alternatives','liquidity'];
+var BAND_EDITOR_FIELD_LABELS={min_bps:'Minimum',target_bps:'Ziel',max_bps:'Maximum'};
+function computeBandEditorValidation(){
+  var result={valid:true,inputs:[],fieldErrors:{},rowErrors:{},rowHints:{},globalErrors:[],targetSum:null,minSum:0,allTargetsExplicit:false,active:false};
+  var inputs=document.querySelectorAll('#qt-modal .qtinp[data-bucket][data-field]');
+  if(!inputs||!inputs.length)return result;
+  result.active=true;
+  var house=(typeof currentHouseMatrixBands==='function'?currentHouseMatrixBands():null)||{};
+  var overrides=collectBandOverridesFromModal()||{};
+  var rows={};
+  var formatOk=true;
+  function fieldError(bucket,field,msg){
+    result.valid=false;
+    if(!result.fieldErrors[bucket])result.fieldErrors[bucket]={};
+    result.fieldErrors[bucket][field]=true;
+    if(msg){
+      if(!result.rowErrors[bucket])result.rowErrors[bucket]=[];
+      if(result.rowErrors[bucket].indexOf(msg)<0)result.rowErrors[bucket].push(msg);
+    }
+  }
+  inputs.forEach(function(input){
+    var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
+    var field=String(input.getAttribute('data-field')||'');
+    if(!bucket||!field)return;
+    result.inputs.push(input);
+    if(!rows[bucket])rows[bucket]={shown:{}};
+    var raw=String(input.value==null?'':input.value).trim();
+    var initial=input.getAttribute('data-initial');
+    var unchanged=initial!=null&&raw===String(initial).trim();
+    var parsed=raw?parseBandPercentUserInput(raw):null;
+    if(raw&&parsed==null&&!unchanged){
+      formatOk=false;
+      fieldError(bucket,field,(BAND_EDITOR_FIELD_LABELS[field]||field)+': bitte einen Prozentwert zwischen 0 und 100 eingeben (z. B. 12.5 %).');
+    }
+    rows[bucket].shown[field]=parsed;
+  });
+  var targetSum=0, targetSumKnown=true, explicitTargets=0;
+  Object.keys(rows).forEach(function(bucket){
+    var ov=overrides[bucket]||{};
+    var hb=house[bucket]||{};
+    var base=(allocationBandBaseline&&allocationBandBaseline[bucket])||{};
+    var minFromAdvisor=ov.min_bps!=null, maxFromAdvisor=ov.max_bps!=null;
+    var mn=minFromAdvisor?Number(ov.min_bps):(hb.min_bps!=null?Number(hb.min_bps):Number(base.min_bps||0));
+    var mx=maxFromAdvisor?Number(ov.max_bps):(hb.max_bps!=null?Number(hb.max_bps):Number(base.max_bps||0));
+    rows[bucket].effMin=mn;
+    rows[bucket].minFromAdvisor=minFromAdvisor;
+    result.minSum+=mn;
+    var shownTarget=rows[bucket].shown.target_bps;
+    if(shownTarget==null)targetSumKnown=false;else targetSum+=shownTarget;
+    if(ov.target_bps!=null)explicitTargets+=1;
+    if(!formatOk)return;
+    if(mn>mx){
+      var mnTxt=fmtPct(mn,1)+(minFromAdvisor?'':' (Hausmatrix)');
+      var mxTxt=fmtPct(mx,1)+(maxFromAdvisor?'':' (Hausmatrix)');
+      var msg='Minimum '+mnTxt+' liegt über dem Maximum '+mxTxt+'.';
+      if(minFromAdvisor)fieldError(bucket,'min_bps',msg);
+      if(maxFromAdvisor)fieldError(bucket,'max_bps',msg);
+      if(!minFromAdvisor&&!maxFromAdvisor)fieldError(bucket,'min_bps',msg);
+      return;
+    }
+    if(ov.target_bps!=null){
+      var tg=Number(ov.target_bps);
+      if(tg<mn||tg>mx)fieldError(bucket,'target_bps','Ziel '+fmtPct(tg,1)+' muss zwischen Minimum '+fmtPct(mn,1)+' und Maximum '+fmtPct(mx,1)+' liegen.');
+    }else if(shownTarget!=null&&(shownTarget<mn||shownTarget>mx)&&(minFromAdvisor||maxFromAdvisor)){
+      if(!result.rowHints[bucket])result.rowHints[bucket]=[];
+      result.rowHints[bucket].push('Das bisherige Ziel '+fmtPct(shownTarget,1)+' liegt ausserhalb der neuen Bandbreite; die Berechnung legt es innerhalb '+fmtPct(mn,1)+'–'+fmtPct(mx,1)+' fest.');
+    }
+  });
+  result.targetSum=targetSumKnown?targetSum:null;
+  result.allTargetsExplicit=explicitTargets===BAND_EDITOR_BUCKETS.length;
+  if(formatOk&&result.minSum>10000){
+    result.valid=false;
+    result.globalErrors.push('Die Mindestquoten ergeben zusammen '+fmtPct(result.minSum,1)+' und damit mehr als 100 %. Bitte Minima senken.');
+    Object.keys(rows).forEach(function(bucket){
+      if(rows[bucket].minFromAdvisor&&rows[bucket].effMin>0)fieldError(bucket,'min_bps',null);
+    });
+  }
+  if(formatOk&&result.allTargetsExplicit){
+    var explicitSum=0;
+    Object.keys(overrides).forEach(function(bucket){if(overrides[bucket].target_bps!=null)explicitSum+=Number(overrides[bucket].target_bps);});
+    if(explicitSum!==10000){
+      result.valid=false;
+      result.globalErrors.push('Alle Ziele sind vorgegeben und müssen zusammen genau 100 % ergeben (aktuell '+fmtPct(explicitSum,1)+').');
+      Object.keys(rows).forEach(function(bucket){fieldError(bucket,'target_bps',null);});
+    }
+  }
+  return result;
+}
+function renderBandEditorValidation(result){
+  var modal=document.getElementById('m-eq');
+  var primary=modal&&modal.querySelector('.mfooter .btn-p');
+  if(!result||!result.active){
+    if(primary){primary.disabled=false;primary.title='';}
+    return;
+  }
+  result.inputs.forEach(function(input){
+    var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
+    var field=String(input.getAttribute('data-field')||'');
+    var bad=!!(result.fieldErrors[bucket]&&result.fieldErrors[bucket][field]);
+    if(input.classList)input.classList.toggle('is-invalid',bad);
+    if(input.setAttribute)input.setAttribute('aria-invalid',bad?'true':'false');
+  });
+  BAND_EDITOR_BUCKETS.forEach(function(bucket){
+    var box=document.getElementById('qt-msg-'+bucket);
+    if(!box)return;
+    var errs=result.rowErrors[bucket]||[];
+    var hints=result.rowHints[bucket]||[];
+    box.innerHTML=errs.map(function(m){return '<span class="qtmsg-e">'+escapeHtml(m)+'</span>';}).join('')
+      +hints.map(function(m){return '<span class="qtmsg-h">'+escapeHtml(m)+'</span>';}).join('');
+    box.hidden=!(errs.length||hints.length);
+  });
+  var sum=document.getElementById('qt-band-summary');
+  if(sum){
+    var parts=[];
+    if(result.targetSum==null){
+      parts.push('Summe Ziel: —');
+    }else if(result.targetSum===10000){
+      parts.push('Summe Ziel: <span class="ok">'+escapeHtml(fmtPct(result.targetSum,1))+' ✓</span>');
+    }else if(result.allTargetsExplicit){
+      parts.push('Summe Ziel: <span class="bad">'+escapeHtml(fmtPct(result.targetSum,1))+' – muss 100 % ergeben</span>');
+    }else{
+      parts.push('Summe der angezeigten Ziele: '+escapeHtml(fmtPct(result.targetSum,1))+'. Nicht vorgegebene Ziele gleicht die Berechnung auf 100 % aus.');
+    }
+    parts.push('Summe Minima: '+(result.minSum>10000?'<span class="bad">'+escapeHtml(fmtPct(result.minSum,1))+'</span>':escapeHtml(fmtPct(result.minSum,1)))+' (höchstens 100 %)');
+    var html='<div>'+parts.join(' · ')+'</div>';
+    result.globalErrors.forEach(function(m){html+='<div class="bad">'+escapeHtml(m)+'</div>';});
+    if(!result.valid)html+='<div class="bad">Bitte die markierten Felder korrigieren – ungültige Werte werden nicht übernommen.</div>';
+    sum.innerHTML=html;
+  }
+  if(primary){
+    primary.disabled=!result.valid;
+    primary.title=result.valid?'':'Bandbreiten ungültig – bitte zuerst die markierten Felder korrigieren.';
+  }
+}
+function validateBandEditorModal(){
+  var result=computeBandEditorValidation();
+  renderBandEditorValidation(result);
+  if(typeof renderManualTargetSaveState==='function')renderManualTargetSaveState(computeManualTargetSaveValidation(result));
+  return result;
+}
+function bandEditorIsValid(){
+  return computeBandEditorValidation().valid;
+}
+// MANUAL-TARGET-SAVE-IN-BAND-EDITOR-001 (CIO-Review #656): die manuelle
+// SOLL-Speicherung (POST /mandates/{id}/target-allocation, MANUAL-SAVE-
+// DEADEND-001 / MANUAL-SAVE-BASIS-001) ist eine klar getrennte Sekundaer-
+// Aktion im EINEN Bandbreiten-Editor. Gleiche Prozent-Eingabe, gleicher
+// Validator (computeBandEditorValidation) plus die Regeln des Endpunkts
+// (schemas/allocation.py TargetAllocationCreate.validate_alloc: Summe der Ziele
+// = 10000 bps, je Klasse Min <= Ziel <= Max, alle 15 Felder 0..10000) und die
+// Begruendungspflicht (services/override_reason_quality.py: mind. 20 Zeichen,
+// Qualitaet prueft der Server). Primaer-Aktion bleibt "Neu berechnen".
+var MANUAL_TARGET_REASON_MIN_LENGTH=20;
+function buildManualTargetSaveBoxHtml(){
+  return '<div id="aa-manual-save-box" class="qtmanual">'
+    +'<div class="qtmanual-title">Manuelle Soll-Allokation (ohne Optimierung)</div>'
+    +'<div class="qtmanual-copy">Speichert die oben stehenden Ziele und Bandbreiten unverändert als neue Soll-Allokation – ohne Optimierer-Lauf. Die Ziele müssen zusammen genau 100 % ergeben und je innerhalb von Minimum und Maximum liegen.</div>'
+    +'<label for="aa-manual-save-reason" class="qtmanual-label">Begründung der manuellen Soll-Allokation (Pflicht, mind. '+MANUAL_TARGET_REASON_MIN_LENGTH+' Zeichen)</label>'
+    +'<textarea id="aa-manual-save-reason" rows="2" maxlength="2000" class="qtmanual-reason" placeholder="Warum wird die Soll-Allokation manuell festgelegt? (z. B. Kundenwunsch nach Gespräch vom …)"></textarea>'
+    +'<div id="aa-manual-save-status" class="qtmanual-status" aria-live="polite"></div>'
+    +'<button type="button" class="btn" id="btn-aa-manual-save" onclick="saveManualTargetAllocationFromModal()">Als manuelle Soll-Allokation speichern (ohne Optimierung)</button>'
+    +'</div>';
+}
+function currentManualSaveContext(){
+  var a=strategyState&&strategyState.allocation;
+  var ta=a&&(a.target_allocation||a);
+  return ta&&ta.policy_id?ta:null;
+}
+function computeManualTargetSaveValidation(baseResult){
+  var base=baseResult||computeBandEditorValidation();
+  var result={valid:false,errors:[],values:null,base:base};
+  if(!base.active){
+    result.errors.push('Bitte zuerst eine Strategie berechnen.');
+    return result;
+  }
+  if(!base.valid)result.errors.push('Bitte zuerst die markierten Felder korrigieren.');
+  var values={};
+  var complete=true;
+  var inputs=document.querySelectorAll('#qt-modal .qtinp[data-bucket][data-field]');
+  inputs.forEach(function(input){
+    var bucket=normalizeBandKey(input.getAttribute('data-bucket'));
+    var field=String(input.getAttribute('data-field')||'');
+    if(!values[bucket])values[bucket]={};
+    var parsed=parseBandPercentUserInput(input.value);
+    if(parsed==null)complete=false;
+    values[bucket][field]=parsed;
+  });
+  BAND_EDITOR_BUCKETS.forEach(function(bucket){if(!values[bucket])complete=false;});
+  if(!complete){
+    result.errors.push('Für die manuelle Speicherung müssen Minimum, Ziel und Maximum aller fünf Anlageklassen ausgefüllt sein.');
+  }else{
+    var total=0;
+    BAND_EDITOR_BUCKETS.forEach(function(bucket){
+      var v=values[bucket];
+      total+=v.target_bps;
+      var label=({equities:'Aktien',bonds:'Obligationen',real_estate:'Immobilien',alternatives:'Alternative',liquidity:'Liquidität'})[bucket];
+      if(v.min_bps>v.max_bps)result.errors.push(label+': Minimum '+fmtPct(v.min_bps,1)+' liegt über dem Maximum '+fmtPct(v.max_bps,1)+'.');
+      else if(v.target_bps<v.min_bps||v.target_bps>v.max_bps)result.errors.push(label+': Ziel '+fmtPct(v.target_bps,1)+' muss zwischen Minimum '+fmtPct(v.min_bps,1)+' und Maximum '+fmtPct(v.max_bps,1)+' liegen.');
+    });
+    if(total!==10000)result.errors.push('Die Ziele müssen für die manuelle Speicherung zusammen genau 100 % ergeben (aktuell '+fmtPct(total,1)+').');
+  }
+  var reasonEl=document.getElementById('aa-manual-save-reason');
+  var reason=String(reasonEl&&reasonEl.value||'').trim();
+  if(reason.length<MANUAL_TARGET_REASON_MIN_LENGTH){
+    result.errors.push('Begründung fehlt oder ist zu kurz (mind. '+MANUAL_TARGET_REASON_MIN_LENGTH+' Zeichen, aktuell '+reason.length+').');
+  }
+  if(!currentManualSaveContext())result.errors.push('Keine aktuelle Strategie-Basis (Policy) vorhanden – bitte zuerst «Neu berechnen».');
+  result.reason=reason;
+  result.values=complete?values:null;
+  result.valid=!result.errors.length;
+  return result;
+}
+// Request-Body identisch zum bisherigen Editor (reporting/src/lib/
+// allocationForm.ts buildTargetAllocationPayload): 15 bps-Felder +
+// risky_fraction_bps + based_on_assessment_id + policy_id + override_reason.
+function buildManualTargetAllocationPayload(values,ta,reason){
+  var body={};
+  BAND_EDITOR_BUCKETS.forEach(function(bucket){body['target_'+bucket+'_bps']=values[bucket].target_bps;});
+  BAND_EDITOR_BUCKETS.forEach(function(bucket){
+    body['band_'+bucket+'_min_bps']=values[bucket].min_bps;
+    body['band_'+bucket+'_max_bps']=values[bucket].max_bps;
+  });
+  body.risky_fraction_bps=ta.risky_fraction_bps!=null?ta.risky_fraction_bps:null;
+  body.based_on_assessment_id=ta.based_on_assessment_id!=null?ta.based_on_assessment_id:null;
+  body.policy_id=ta.policy_id;
+  body.override_reason=reason;
+  return body;
+}
+function renderManualTargetSaveState(result,message,isError){
+  var btn=document.getElementById('btn-aa-manual-save');
+  var status=document.getElementById('aa-manual-save-status');
+  if(btn){
+    btn.disabled=!(result&&result.valid);
+    btn.title=btn.disabled?'Manuelle Speicherung gesperrt – siehe Hinweise oberhalb.':'';
+  }
+  if(!status)return;
+  if(message){
+    status.innerHTML='<div class="'+(isError?'bad':'ok')+'">'+escapeHtml(message)+'</div>';
+    return;
+  }
+  var errs=(result&&result.errors)||[];
+  status.innerHTML=errs.map(function(m){return '<div>'+escapeHtml(m)+'</div>';}).join('');
+}
+function manualTargetSaveErrorText(e){
+  var status=Number(e&&e.status||0);
+  var detail=String(e&&e.detail||e&&e.message||'Unbekannter Fehler');
+  if(status===404)return 'Die Hausmatrix-Policy dieser Strategie ist nicht mehr aktuell – bitte zuerst «Neu berechnen». ('+detail+')';
+  if(status===409)return 'Speichern nicht möglich: '+detail;
+  if(status===422)return 'Eingabe abgelehnt: '+detail;
+  if(status===403)return 'Keine Berechtigung: '+detail;
+  return 'Speichern fehlgeschlagen: '+detail;
+}
+async function saveManualTargetAllocationFromModal(){
+  var check=computeManualTargetSaveValidation();
+  renderManualTargetSaveState(check);
+  if(!check.valid)return false;
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid||(typeof isDemoMandateId==='function'&&isDemoMandateId(mid))){
+    renderManualTargetSaveState(check,'Manuelle Speicherung ist nur für ein echtes Mandat möglich.',true);
+    return false;
+  }
+  var payload=buildManualTargetAllocationPayload(check.values,currentManualSaveContext(),check.reason);
+  var btn=document.getElementById('btn-aa-manual-save');
+  if(btn)btn.disabled=true;
+  try{
+    var saved=await API.post('/mandates/'+encodeURIComponent(mid)+'/target-allocation',payload);
+    var warnings=(saved&&Array.isArray(saved.manual_override_warnings))?saved.manual_override_warnings:[];
+    var msg='Manuelle Soll-Allokation gespeichert'+(saved&&saved.version!=null?' (Version '+saved.version+')':'')+'.'+(warnings.length?' Hinweise: '+warnings.join(' · '):'');
+    var reasonEl=document.getElementById('aa-manual-save-reason');
+    if(reasonEl)reasonEl.value='';
+    renderManualTargetSaveState(computeManualTargetSaveValidation(),msg,false);
+    if(typeof markStrategyDirty==='function')markStrategyDirty('Manuelle Soll-Allokation gespeichert: die angezeigten Kennzahlen stammen aus der letzten Berechnung.',false);
+    return true;
+  }catch(e){
+    renderManualTargetSaveState(computeManualTargetSaveValidation(),manualTargetSaveErrorText(e),true);
+    return false;
+  }
 }
 // BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14): verlaesst
 // eine Mandatsbandbreite die Hausmatrix-Bandbreite des Risikoprofils, ist eine
@@ -7869,6 +8226,13 @@ function updateBandDeviationReasonBox(){
   }
 }
 function applyAllocationBandOverrides(){
+  // BAND-EDITOR-VALIDATION-001: Uebernahme gesperrt, bis alle Felder gueltig sind.
+  var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
+  if(!check.valid){
+    var firstBad=document.querySelector('#qt-modal .qtinp.is-invalid');
+    if(firstBad&&firstBad.focus)firstBad.focus();
+    return false;
+  }
   persistAllocationPreferences();
   buildQT('qt-modal');
   updateBandOverrideStatus(collectBandOverridesFromModal()||{});
@@ -7941,21 +8305,34 @@ function engineMarketRuntimeCard(label,value,sub){
     +(sub?('<div class="market-runtime-s">'+escapeHtml(sub)+'</div>'):'')
     +'</div>';
 }
+// UX-1 (Befund 14): Prognosehorizont aus dem Payload (projection_horizon, #645)
+// statt hart codiert '7J'; Fallback Simulationshorizont, sonst neutral.
+function engineProjectionHorizonSub(result,sim){
+  var info=result&&result.projection_horizon&&typeof result.projection_horizon==='object'?result.projection_horizon:null;
+  var years=parseInt(String((info&&info.years)||(sim&&sim.horizon_years)||''),10);
+  if(isFinite(years)&&years>0)return 'Erwartung p.a. · Prognosehorizont '+years+' Jahre · Basis Beratungsvermögen';
+  return 'Erwartung p.a. · Basis Beratungsvermögen';
+}
+function engineRebalanceModeLabel(mode){
+  var key=String(mode||'bands');
+  var map={bands:'Bandbreiten',calendar:'Jährlich',none:'Kein Rebalancing'};
+  return map[key]||key;
+}
 function buildEngineSummaryCards(result, sim, mc){
   var advisoryChf=Math.round(Number(result.advisory_wealth_rappen||0)/100);
   var totalChf=Math.round(Number(result.total_wealth_rappen||0)/100);
   var rebalanceCount=sim&&Array.isArray(sim.rebalancing_events)?sim.rebalancing_events.length:0;
   return [
     {label:'House Matrix',value:(result.house_matrix_profile||'n/a')+' / Score '+String(result.score_bucket||'-'),sub:'Risikoprofil setzt das Maximalbudget'},
-    {label:'Risk Budget',value:formatBpsPercent(result.risk_budget_bps||0),sub:'Gewichtete Risky Fraction erlaubt'},
-    {label:'Risky Fraction',value:formatBpsPercent(result.risky_fraction_total_bps||0),sub:'Headroom '+formatBpsPercent(result.risky_fraction_headroom_bps||0)},
-    {label:'Liquiditaetsbedarf',value:formatRappen(result.reserve_needed_rappen||0),sub:'Laufend '+formatRappen(result.recurring_net_cashflow_rappen!=null?result.recurring_net_cashflow_rappen:result.annual_net_cashflow_rappen||0)+' · Kapital '+formatRappen(result.capital_net_cashflow_rappen||0)},
+    {label:'Risikobudget',value:formatBpsPercent(result.risk_budget_bps||0),sub:'Erlaubter Anteil risikobehafteter Anlagen'},
+    {label:'Risikobehafteter Anteil',value:formatBpsPercent(result.risky_fraction_total_bps||0),sub:'Spielraum bis Risikobudget '+formatBpsPercent(result.risky_fraction_headroom_bps||0)},
+    {label:'Liquiditätsbedarf',value:formatRappen(result.reserve_needed_rappen||0),sub:'Laufend '+formatRappen(result.recurring_net_cashflow_rappen!=null?result.recurring_net_cashflow_rappen:result.annual_net_cashflow_rappen||0)+' · Kapital '+formatRappen(result.capital_net_cashflow_rappen||0)},
     {label:'Beratungsvermögen',value:formatCompactCHF(advisoryChf),sub:totalChf?Math.round(advisoryChf/Math.max(1,totalChf)*100)+'% des Gesamtvermögens':'Kein Gesamtvermögen'},
-    {label:'Rendite / Vol',value:(fmtPct(Number(result.expected_return_bps||0),1))+' / '+(fmtPct(Number(result.expected_volatility_bps||0),1)),sub:'7J-Projektion auf Advisory-Basis'},
-    {label:'Aktiengewicht',value:formatBpsPercent((result.asset_class_risky_weights_bps||{}).equities||0),sub:'Hinterlegte Risky Fraction Aktien'},
-    {label:'Rebalancing',value:rebalanceCount?String(rebalanceCount)+' Event(s)':'Im Band',sub:sim?('Modus '+String(sim.rebalance_mode||'bands')):'Noch keine Simulation'},
-    {label:'Monte Carlo',value:mc?(String(mc.simulations||0)+' Pfade'):'n/a',sub:mc?('P50 '+(fmtPct(Number(mc.target_annualized_return_p50_bps||0),1))+' p.a.'):'Noch keine Pfadsimulation'},
-    {label:'Downside',value:mc?fmtProbPct(mc.target_downside_probability_pct||0):'n/a',sub:'Anteil Zielpfade unter Startwert'}
+    {label:'Rendite / Volatilität',value:(fmtPct(Number(result.expected_return_bps||0),1))+' / '+(fmtPct(Number(result.expected_volatility_bps||0),1)),sub:engineProjectionHorizonSub(result,sim)},
+    {label:'Aktiengewicht',value:formatBpsPercent((result.asset_class_risky_weights_bps||{}).equities||0),sub:'Risikobehafteter Anteil aus Aktien'},
+    {label:'Rebalancing',value:rebalanceCount?String(rebalanceCount)+(rebalanceCount===1?' Anpassung':' Anpassungen'):'Innerhalb Bandbreiten',sub:sim?('Modus: '+engineRebalanceModeLabel(sim.rebalance_mode)):'Noch keine Simulation'},
+    {label:'Simulation',value:mc?(String(mc.simulations||0)+' Verläufe'):'n/a',sub:mc?('Median-Rendite '+(fmtPct(Number(mc.target_annualized_return_p50_bps||0),1))+' p.a.'):'Noch keine Simulation'},
+    {label:'Verlustrisiko',value:mc?fmtProbPct(mc.target_downside_probability_pct||0):'n/a',sub:'Anteil der Verläufe unter Startwert'}
   ];
 }
 function buildMarketRuntimeHtml(result){
@@ -8055,11 +8432,21 @@ function buildMonteCarloGoalsHtml(mc){
   if(!(mc&&Array.isArray(mc.goal_summaries)&&mc.goal_summaries.length)){
     return engineRuntimeInfoBox('Keine Zielpfade berechnet.');
   }
+  // UX-1 (Befund 8): EINE Primaerkennzahl -- Erfolgswahrscheinlichkeit
+  // (success_rate_pct) traegt die Ampel; Erreichungsgrad (Median) sekundaer.
+  // Reine Anzeige, die Werte kommen unveraendert aus dem Payload.
   return mc.goal_summaries.slice(0,4).map(function(item){
-    var score=Number(item.score||0);
-    var tone=score>=70?'var(--pos)':(score>=45?'var(--warn)':'var(--neg)');
-    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.label||'Ziel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Pfaderfolg '+escapeHtml(String(item.success_rate_pct||0))+'% / P50 '+escapeHtml(formatRappen(item.projected_value_p50_rappen||0))+'</div></div><div style="text-align:right"><div style="font-size:10px;color:'+tone+';font-weight:600">'+escapeHtml(String(score))+'%</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Funded '+escapeHtml(String(Math.round(Number(item.funded_ratio_p50||0)*100)))+'%</div></div></div>';
-  }).join('');
+    var success=Number(item.success_rate_pct||0);
+    var tone=success>=70?'var(--pos)':(success>=45?'var(--warn)':'var(--neg)');
+    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.label||'Ziel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Medianverm\u00f6gen '+escapeHtml(formatRappen(item.projected_value_p50_rappen||0))+'</div></div><div style="text-align:right"><div style="font-size:10px;color:'+tone+';font-weight:600" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">Erfolgs-Wkt. '+escapeHtml(fmtProbPct(success))+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px" title="Erreichter Anteil des Ziels im mittleren Szenario (Median), auf 100 % begrenzt">Erreichungsgrad (Median) '+escapeHtml(fmtProbPct(Math.min(100,Math.round(Number(item.funded_ratio_p50||0)*100))))+'</div></div></div>';
+  }).join('')+goalAmpelLegendHtml();
+}
+// UX-1 (Befund 8): einheitliche Begriffe und sichtbare Ampel-Legende fuer
+// alle Anzeigen, die nach den Schwellen 70/45 eingefaerbt werden.
+var GOAL_SUCCESS_PROBABILITY_TOOLTIP='Anteil der simulierten Verl\u00e4ufe, in denen das Ziel vollst\u00e4ndig erreicht wird';
+var GOAL_AMPEL_LEGEND_TEXT='Ampel: \u2265 70 % gut \u00b7 45\u201369 % knapp \u00b7 < 45 % kritisch';
+function goalAmpelLegendHtml(){
+  return '<div class="goal-ampel-legend" style="font-size:9px;color:var(--n5);padding:2px 2px 0">'+escapeHtml(GOAL_AMPEL_LEGEND_TEXT)+'</div>';
 }
 function allocationMessages(result){
   return result&&Array.isArray(result.messages)?result.messages:[];
@@ -8126,7 +8513,7 @@ function goalAchievabilityIsLegacy(row){
   return !!row&&row.evaluation_scope!=='priority_funded';
 }
 var PLAN_SOLVENCY_LABEL='Plan-Solvenz (alle Ziele gemeinsam)';
-var PRIORITY_FUNDED_LABEL='Zielerreichung nach Priorit\u00e4t';
+var PRIORITY_FUNDED_LABEL='Erfolgswahrscheinlichkeit nach Priorit\u00e4t';
 function planSolvencyHtml(plan){
   if(!plan)return '';
   var pct=Math.round(Number(plan.probability||0)*100);
@@ -8156,11 +8543,15 @@ function goalAchievabilityStatusLabel(status){
   if(status==='nicht_erreichbar')return 'nicht plausibel';
   return status||'offen';
 }
+// UX-1 (CIO-Entscheid): Ampel einheitlich 70/45 wie in Allokation und Legende
+// (GOAL_AMPEL_LEGEND_TEXT). Der tau-basierte Optimizer-Status
+// (goalAchievabilityStatusLabel) bleibt davon getrennt = "Zielniveau der Strategie".
+var GOAL_STRATEGY_LEVEL_TOOLTIP='Zielniveau der Strategie: Einstufung des Optimierers gegen\u00fcber dem f\u00fcr dieses Ziel verlangten Sicherheitsniveau \u2013 nicht die Ampel';
 function rvGoalProbBadge(prob){
   var p=Number(prob||0);
-  if(p>=0.80)return {icon:'●',color:'var(--pos)',label:'komfortabel',tag:'tg'};
-  if(p>=0.50)return {icon:'◐',color:'var(--warn)',label:'knapp',tag:'ta'};
-  return {icon:'○',color:'var(--neg)',label:'nicht plausibel',tag:'tr2'};
+  if(p>=0.70)return {icon:'●',color:'var(--pos)',label:'gut',tag:'tg'};
+  if(p>=0.45)return {icon:'◐',color:'var(--warn)',label:'knapp',tag:'ta'};
+  return {icon:'○',color:'var(--neg)',label:'kritisch',tag:'tr2'};
 }
 function limitingFactorMeta(factor){
   var map={
@@ -8611,6 +9002,7 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+fmtLoca
     currentCashflows=[];
     riskHorizonTouched=false;
     strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null};
+    if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
     renderEngineRuntimePanels(null);
     renderPortfolioSections([]);
     currentWealthPositions=[];
@@ -13511,24 +13903,12 @@ async function openCashflowEditor(){
   window.open(url, '_blank', 'noopener');
 }
 
-// Roadmap #67 / ADR-008 Track 2: Migration Asset-Allocation-Editor.
-// Oeffnet den neuen React-Allocation-Editor (Schema-First-Migration) in einem
-// neuen Browser-Tab statt der Inline-HTML-Sektion. Der Editor ruft exakt
-// dieselben Backend-Endpunkte auf wie die Inline-Sektion (POST
-// /mandates/{id}/target-allocation/generate, .../sensitivity) -- keine
-// Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
-// Uebergangs-Strategie gemaess ADR-008 Track 2: die Inline-Sektion bleibt
-// vorerst aktiv (Zwei-Stack-Betrieb), bis die React-Seite im Alltag erprobt ist.
+// BAND-EDITOR-SINGLE-001 (UX-Audit Befund 15): es gibt genau EINEN
+// Bandbreiten-Editor -- das Modal "Soll-Quoten & Bandbreiten" (Prozent,
+// Live-Validierung). Der zweite Einstieg (React-Editor in Basispunkten) ist
+// aus der Asset-Allokation entfernt; Altaufrufe landen im selben Editor.
 async function openAllocationEditor(){
-  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
-  if(!mid){
-    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
-    return;
-  }
-  var path = '/mandates/' + encodeURIComponent(mid) + '/allocation-editor';
-  var url = await resolveReportingAppUrl(path);
-  window.open(url, '_blank', 'noopener');
+  return openAllocationEngineModal();
 }
 
 // ADR-008 Track 2 / Roadmap #65: Migration Mandate-Edit.
@@ -17311,6 +17691,7 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   if (phS) phS.textContent = firstName + ' ' + lastName + ' \u00b7 ' + mType + ' \u00b7 Neu angelegt';
 
   strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null};
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   hydrateRiskQuestionnaire(null);
   renderRiskSummary(null);
   renderEngineRuntimePanels(null);
@@ -18941,17 +19322,17 @@ function ensureAllocationRuntimePanels(){
       wrap.style.margin='0 24px 16px';
       wrap.innerHTML=''
         + '<div class="card">'
-        + '<div class="chd"><span class="cht">Engine & Markt-Setup</span><span style="font-size:9px;color:var(--n4)">Risikobudget, House Matrix, Liquiditaet und Marktdaten</span></div>'
+        + '<div class="chd"><span class="cht">Engine & Markt-Setup</span><span style="font-size:9px;color:var(--n4)">Risikobudget, Hausmatrix, Liquidität und Marktdaten</span></div>'
         + '<div class="cbody">'
         + '<div id="aa-engine-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px"></div>'
-        + '<div style="padding-top:8px;border-top:1px solid var(--b1)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Engine-Reasoning</div><div id="aa-engine-rationale" style="display:flex;flex-direction:column;gap:6px"></div></div>'
+        + '<div style="padding-top:8px;border-top:1px solid var(--b1)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Herleitung</div><div id="aa-engine-rationale" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Marktdaten & Kapitalmarktannahmen</div><div id="aa-market-runtime" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Live-Drift & Rebalancing</div><div id="aa-live-summary" style="display:flex;flex-direction:column;gap:6px"></div><div id="aa-live-assets" style="display:flex;flex-direction:column;gap:5px;margin-top:8px"></div><div id="aa-live-positions" style="display:flex;flex-direction:column;gap:5px;margin-top:8px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Simulation & Rebalancing</div><div id="aa-sim-events" style="display:flex;flex-direction:column;gap:6px"></div></div>'
-        + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Monte Carlo (Umsetzungsprojektion)</div><div id="aa-mc-summary" style="display:flex;flex-direction:column;gap:6px"></div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin:10px 0 6px">Ziel-Pfadanalyse (Umsetzungsprojektion)</div><div id="aa-mc-goals" style="display:flex;flex-direction:column;gap:6px"></div></div>'
+        + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Monte Carlo (Umsetzungsprojektion)</div><div id="aa-mc-summary" style="display:flex;flex-direction:column;gap:6px"></div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin:10px 0 6px">Erfolgswahrscheinlichkeit je Ziel (Umsetzungsprojektion)</div><div id="aa-mc-goals" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '</div></div>'
         + '<div class="card">'
-        + '<div class="chd"><span class="cht">Building Blocks & Risk Weights</span><span style="font-size:9px;color:var(--n4)">Subanlageklassen, Zielquote und Risky Fraction</span></div>'
+        + '<div class="chd"><span class="cht">Bausteine & Risikogewichte</span><span style="font-size:9px;color:var(--n4)">Subanlageklassen, Zielquote und risikobehafteter Anteil</span></div>'
         + '<div class="cbody">'
         + '<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Asset-Class-Annahmen</div><div id="aa-assumption-table" style="display:flex;flex-direction:column;gap:5px"></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Aktive Subanlageklassen</div><div id="aa-suballoc-table" style="display:flex;flex-direction:column;gap:5px"></div></div>'
@@ -19580,7 +19961,9 @@ function collectAllocationPreferencesFromUI(){
   prefs.simulation=live.simulation;
   prefs.assetClasses=live.assetClasses;
   var modal=document.getElementById('m-eq');
-  var modalBands=(modal&&modal.classList.contains('open')&&hasCanonicalBandBaseline())?collectBandOverridesFromModal():null;
+  // BAND-EDITOR-VALIDATION-001: ein ungueltiger Editor-Stand wird nie
+  // uebernommen; dann gelten die zuletzt gueltig gespeicherten Bandbreiten.
+  var modalBands=(modal&&modal.classList.contains('open')&&hasCanonicalBandBaseline()&&(typeof bandEditorIsValid!=='function'||bandEditorIsValid()))?collectBandOverridesFromModal():null;
   prefs.bands=modalBands==null?(prefs.bands||{}):modalBands;
   var reasonInput=document.getElementById('aa-band-deviation-reason');
   if(reasonInput)prefs.bandDeviationReason=String(reasonInput.value||'').trim();
@@ -21524,6 +21907,67 @@ function invalidateStrategyOutputs(){
   setText('po-average-ter','—');
   clearStrategySummaryForDirtyState();
   syncPortfolioUmsetzenButtonVisibility();
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
+}
+
+// STALE-RESULT-DISPLAY-001 (UX-Audit Befund 12): solange die Strategie nach
+// einer Eingabeaenderung nicht neu berechnet wurde, duerfen die sichtbaren
+// Ergebnisse nicht gueltig aussehen. Ergebnis-Karten werden gedimmt und tragen
+// ein Badge "Stand: <Zeitpunkt der Berechnung> – nicht mehr aktuell"; das
+// Banner zeigt die konkrete Aenderungsmeldung. Reine Darstellung -- keine
+// Zahl wird veraendert oder ausgeblendet (das macht invalidateStrategyOutputs).
+var STRATEGY_STALE_DEFAULT_NOTICE='Eingaben haben sich seit der letzten Berechnung geändert — bitte «Anlagestrategie berechnen» klicken.';
+function strategyResultStampMs(){
+  var a=strategyState&&strategyState.allocation;
+  var ta=a&&(a.target_allocation||a);
+  var raw=ta&&(ta.set_at||ta.created_at);
+  if(raw){
+    var iso=String(raw);
+    // Server-Zeitstempel sind UTC; ohne Zonenangabe nicht als Lokalzeit lesen.
+    if(/T\d{2}:\d{2}/.test(iso)&&!/(Z|[+-]\d{2}:?\d{2})$/.test(iso))iso+='Z';
+    var ms=Date.parse(iso);
+    if(isFinite(ms))return ms;
+  }
+  var local=Number(strategyState&&strategyState.lastGeneratedAt||0);
+  return local>0?local:null;
+}
+function strategyStaleBadgeText(){
+  var ms=strategyResultStampMs();
+  if(ms==null)return 'Stand unbekannt – nicht mehr aktuell';
+  var d=new Date(ms);
+  var stamp=d.toLocaleDateString('de-CH',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
+  return 'Stand: '+stamp+' – nicht mehr aktuell';
+}
+function syncStrategyStaleView(){
+  var notice=(strategyState&&strategyState.dirty&&strategyState.staleNotice)?String(strategyState.staleNotice):'';
+  var banner=document.getElementById('al-dirty-banner');
+  if(banner){
+    banner.style.display=notice?'flex':'none';
+    var body=document.getElementById('al-dirty-banner-body');
+    if(body&&notice)body.textContent=notice;
+  }
+  var page=document.getElementById('page-al');
+  if(!page)return;
+  var stale=!!notice&&hasVisibleStrategyOutputs();
+  page.classList.toggle('aa-stale',stale);
+  var label=stale?strategyStaleBadgeText():'';
+  page.querySelectorAll('.alloc-top-grid>.card, .g2>.card:not(#al-planning-card)').forEach(function(card){
+    var badge=null;
+    for(var i=0;i<card.children.length;i++){
+      if(card.children[i].classList.contains('aa-stale-badge')){badge=card.children[i];break;}
+    }
+    if(!stale){
+      if(badge)badge.remove();
+      return;
+    }
+    if(!badge){
+      badge=document.createElement('div');
+      badge.className='aa-stale-badge';
+      badge.innerHTML='<span></span>';
+      card.insertBefore(badge,card.firstChild);
+    }
+    badge.firstChild.textContent=label;
+  });
 }
 
 function hasVisibleStrategyOutputs(){
@@ -21541,9 +21985,9 @@ function finalizeStrategyOutputs(allocationResult,recommendationResult,wantsReco
   if(wantsRecommendation&&recommendationResult)applyRecommendationEngineResult(recommendationResult);
   strategyState.lastGeneratedAt=Date.now();
   strategyState.dirty=false;
+  strategyState.staleNotice=null;
   syncPortfolioUmsetzenButtonVisibility();
-  var dirtyBanner=document.getElementById('al-dirty-banner');
-  if(dirtyBanner)dirtyBanner.style.display='none';
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   if(statusMessage)updateStrategyStatus(statusMessage,false);
 }
 
@@ -21564,8 +22008,11 @@ function markStrategyDirty(message,invalidateOutputs){
   if(invalidateOutputs&&!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
   syncPortfolioUmsetzenButtonVisibility();
   if(message)updateStrategyStatus(message,false);
-  var dirtyBanner=document.getElementById('al-dirty-banner');
-  if(dirtyBanner)dirtyBanner.style.display='';
+  // STALE-RESULT-DISPLAY-001: der Bannertext ist die konkrete Meldung des
+  // Aufrufers (Bandbreiten, Praeferenzen, Risikoprofil, ...), nicht ein
+  // statischer Sammeltext.
+  strategyState.staleNotice=message||(typeof STRATEGY_STALE_DEFAULT_NOTICE==='string'?STRATEGY_STALE_DEFAULT_NOTICE:'Eingaben geändert: Strategie neu berechnen.');
+  if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
   // Auto-Recompute mit Debounce: falls aktiviert, wird nach Aenderungen
   // verzoegert neu gerechnet. Der Default bleibt manuell, damit die sichtbare
   // SOLL-Prognose stabil bleibt, bis der Berater bewusst neu berechnet.
@@ -22555,6 +23002,7 @@ async function loadSrPage(){
     if(allocation)strategyState.allocation=allocation;
     if(recommendation)strategyState.recommendation=recommendation;
     else if(allocation)strategyState.recommendation=null;
+    if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
     renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers);
     renderSrImplementationDecision(null);
   }catch(e){
@@ -22575,24 +23023,33 @@ function renderGoalAchievementSollIst(result){
   var pct=function(v){ var n=Number(v); return isFinite(n)?fmtProbPct(Math.max(0,Math.min(100,Math.round(n)))):'—'; };
   var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+fmtLocaleCH(Math.round(n/100))):'—'; };
   var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
+  // UX-1 (Befund 8): Primaerkennzahl = Erfolgswahrscheinlichkeit (path_success_rate_pct,
+  // nur aus der Simulation; ohne Simulationswert '—', kein deterministischer 0/100-Ersatz).
+  // Sekundaer: Erreichungsgrad im mittleren Szenario (median_achievement_pct = Median,
+  // NICHT P25) und der Fehlbetrag im unguenstigen Szenario (P25-Pfad).
+  var successOf=function(g){ return g&&g.path_success_rate_pct!=null?g.path_success_rate_pct:null; };
+  var successCell=function(v,strong){ return '<td style="text-align:right;padding:6px 8px;'+(strong?'font-weight:600;':'')+'color:'+(v==null?'var(--n5)':tone(v))+'">'+(v==null?'—':pct(v))+'</td>'; };
   var rows=soll.map(function(g){
     var i=istById[String(g.goal_id)]||{};
     return '<tr style="border-bottom:1px solid var(--bg2)">'
       +'<td style="padding:6px 8px;font-family:var(--f);color:var(--n7)">'+escapeHtml(g.label||'Ziel')+'</td>'
-      +'<td style="text-align:right;padding:6px 8px;font-weight:600;color:'+tone(g.median_achievement_pct)+'">'+pct(g.median_achievement_pct)+'</td>'
-      +'<td style="text-align:right;padding:6px 8px;color:'+tone(i.median_achievement_pct)+'">'+pct(i.median_achievement_pct)+'</td>'
-      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Fehlbetrag im pessimistischen Szenario (SOLL / IST)">'+chf(g.pessimistic_shortfall_rappen)+' / '+chf(i.pessimistic_shortfall_rappen)+'</td>'
+      +successCell(successOf(g),true)
+      +successCell(successOf(i),false)
+      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">'+pct(g.median_achievement_pct)+' / '+pct(i.median_achievement_pct)+'</td>'
+      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">'+chf(g.pessimistic_shortfall_rappen)+' / '+chf(i.pessimistic_shortfall_rappen)+'</td>'
       +'</tr>';
   }).join('');
   el.style.display='';
   el.innerHTML='<div style="border:1px solid var(--b1);border-radius:8px;overflow:hidden">'
-    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Zielerreichung je Ziel — SOLL vs IST (Median; Fehlbetrag pessimistisch)</div>'
+    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Erfolgswahrscheinlichkeit je Ziel — SOLL vs IST</div>'
     +'<table style="width:100%;border-collapse:collapse;font-size:11px"><thead>'
     +'<tr style="border-bottom:1px solid var(--b1)"><th style="text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Ziel</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--soll)">SOLL</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)">IST</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Fehlbetrag S/I</th></tr>'
-    +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table></div>';
+    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--soll)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (SOLL-Strategie)">Erfolgs-Wkt. SOLL</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (heutige Anlage)">IST</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">Erreichungsgrad (Median) S/I</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">Fehlbetrag ung\u00fcnstig (P25) S/I</th></tr>'
+    +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table>'
+    +'<div style="padding:4px 8px 6px">'+goalAmpelLegendHtml()+'</div></div>';
 }
 function applyAllocationEngineResult(result){
   var payloadMandateId=allocationPayloadMandateId(result);
@@ -24084,6 +24541,18 @@ function normalizeAllocationLayout(){
   var blocksPanel=document.getElementById('aa-strategy-blocks');
   if(blocksPanel&&mainGrid.parentNode&&blocksPanel.nextElementSibling!==mainGrid){
     mainGrid.parentNode.insertBefore(blocksPanel,mainGrid);
+  }
+  // Das Stale-Banner (STALE-RESULT-DISPLAY-001) und das Meldungs-Banner stehen
+  // direkt ueber dem Balken: eine Baustein-Aenderung zeigt ihre Meldung dort,
+  // wo sie ausgeloest wurde, nicht unterhalb des Grids.
+  if(blocksPanel&&blocksPanel.parentNode===mainGrid.parentNode){
+    ['al-dirty-banner','al-message-banner'].forEach(function(id){
+      var banner=document.getElementById(id);
+      if(banner&&banner.parentNode===blocksPanel.parentNode&&banner.nextElementSibling!==blocksPanel
+        &&!(id==='al-dirty-banner'&&banner.nextElementSibling&&banner.nextElementSibling.id==='al-message-banner')){
+        blocksPanel.parentNode.insertBefore(banner,blocksPanel);
+      }
+    });
   }
   var legacyGrid=page.querySelector('.g2');
   var projectionCard=document.getElementById('aa-projection-card');
@@ -26484,12 +26953,12 @@ function renderReviewGoalAchievability(result){
     var legacy=goalAchievabilityIsLegacy(row);
     var badge=legacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob);
     return '<div class="rv-goal-list-item" data-scope="'+escapeHtml(legacy?'legacy_aggregate_unknown':'priority_funded')+'">'
-      +'<div style="color:'+badge.color+';font-size:15px;line-height:1">'+badge.icon+'</div>'
+      +'<div style="color:'+badge.color+';font-size:15px;line-height:1" title="'+escapeHtml(legacy?'Altbewertung ohne Ampel':GOAL_AMPEL_LEGEND_TEXT)+'">'+badge.icon+'</div>'
       +'<div><div class="rv-goal-list-label">'+escapeHtml(goalAchievabilityLabel(row))+'</div><div class="rv-goal-list-meta">'+escapeHtml(hardnessDisplay(row.hardness))+(legacy?'':' \u00b7 '+escapeHtml(PRIORITY_FUNDED_LABEL))+'</div></div>'
-      +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right">'+escapeHtml(fmtProbPct(prob*100))+'</div>'
-      +'<span class="tag '+badge.tag+'">'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</span>'
+      +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">'+escapeHtml(fmtProbPct(prob*100))+'</div>'
+      +'<span class="tag '+badge.tag+'" title="'+escapeHtml(legacy?'Altbewertung':GOAL_STRATEGY_LEVEL_TOOLTIP)+'">'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</span>'
       +'</div>';
-  }).join('');
+  }).join('')+goalAmpelLegendHtml();
 }
 function renderReviewDetailsAccordion(result){
   var body=document.getElementById('rv-details-body');
@@ -26537,9 +27006,9 @@ function renderReviewCockpit(state){
     var mainLegacy=prob!=null&&goalAchievabilityIsLegacy(main);
     var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:(mainLegacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob));
     if(labelEl)labelEl.textContent=goalAchievabilityLabel(main);
-    if(probEl)probEl.textContent=prob==null?'—':fmtProbPct(prob*100);
-    if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;}
-    if(statusEl){statusEl.className='tag '+badge.tag;statusEl.textContent=badge.label;}
+    if(probEl){probEl.textContent=prob==null?'—':fmtProbPct(prob*100);probEl.title=GOAL_SUCCESS_PROBABILITY_TOOLTIP;}
+    if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;iconEl.title=GOAL_AMPEL_LEGEND_TEXT;}
+    if(statusEl){statusEl.className='tag '+badge.tag;statusEl.textContent=badge.label;statusEl.title=GOAL_AMPEL_LEGEND_TEXT;}
     if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' · '+(mainLegacy?'Altbewertung ohne Priorit\u00e4tszuordnung \u2013 Strategie neu berechnen':(PRIORITY_FUNDED_LABEL+(main.tau!=null?(' · Zielniveau '+Math.round(Number(main.tau||0)*100)+'%'):'')));
   }else{
     if(labelEl)labelEl.textContent='Noch kein Ziel bewertet';
@@ -29357,7 +29826,7 @@ function renderAllocationMethodComparison(result){
   setStatusPill(
     pill,
     cmp.shadow_status||'',
-    cmp.shadow_status==='converged'?'Shadow konvergiert':'Vergleich'
+    cmp.shadow_status==='converged'?'Vergleich konvergiert':'Vergleich'
   );
 
   var note=document.getElementById('method-comparison-note');
@@ -29465,12 +29934,12 @@ function renderAllocationMethodComparison(result){
   var audit=document.getElementById('method-comparison-audit');
   if(audit){
     var bits=[
-      'Aktiv: '+(cmp.active_method||'—'),
-      'Shadow: '+(cmp.shadow_method||'—'),
+      'Gew\u00e4hlte Methode: '+(cmp.active_method||'—'),
+      'Vergleichsmethode: '+(cmp.shadow_method||'—'),
       'Status: '+(cmp.shadow_status||'—')
     ];
     if(cmp.objective_delta_pct!=null){
-      bits.push('Objective-Delta: '+Number(cmp.objective_delta_pct).toFixed(2)+'%');
+      bits.push('Differenz Zielfunktion: '+Number(cmp.objective_delta_pct).toFixed(2)+'%');
     }
     audit.textContent=bits.join(' | ');
   }
@@ -29520,15 +29989,15 @@ function renderOptimizerPanel(result){
     var bannerMsg='';
     if(status==='fallback_house_matrix'){
       bannerMsg='Solver konvergierte nicht — Fallback auf House-Matrix-Mittelwert '
-        +'(Bandbreiten-Default des Risikoprofils). Reasoning unten erklaert warum.';
+        +'(Bandbreiten-Default des Risikoprofils). Die Herleitung unten erkl\u00e4rt, warum.';
     }else if(status==='diverged_infeasible'){
-      bannerMsg='Solver hat eine Loesung berechnet, die ausserhalb der '
-        +'House-Matrix-Bandbreiten liegt (Constraints verletzt). '
-        +'Bitte Risikoprofil oder Renditeziel pruefen — gezeigte Gewichte '
-        +'sind kein gueltiger Anlagevorschlag.';
+      bannerMsg='Solver hat eine L\u00f6sung berechnet, die ausserhalb der '
+        +'House-Matrix-Bandbreiten liegt (Grenzen verletzt). '
+        +'Bitte Risikoprofil oder Renditeziel pr\u00fcfen — gezeigte Gewichte '
+        +'sind kein g\u00fcltiger Anlagevorschlag.';
     }else if(status==='diverged'){
       bannerMsg='Solver konvergierte nicht. Keine optimale Allokation '
-        +'gefunden — Reasoning unten erklaert warum. Bitte erneut '
+        +'gefunden — die Herleitung unten erkl\u00e4rt, warum. Bitte erneut '
         +'optimieren oder Eingabedaten anpassen.';
     }
     if(bannerMsg){
@@ -29558,7 +30027,7 @@ function renderOptimizerPanel(result){
     var seed=ta.optimization_seed!=null?String(ta.optimization_seed):'—';
     var iter=ta.optimization_iterations!=null?String(ta.optimization_iterations):'—';
     var obj=ta.optimization_objective_value_milli!=null?(Number(ta.optimization_objective_value_milli)/1000).toExponential(3):'—';
-    footer.textContent='Method: '+method+' | Status: '+(status||'—')+' | Seed: '+seed+' | Iter: '+iter+' | L(w*): '+obj;
+    footer.textContent='Methode: '+method+' | Status: '+(status||'—')+' | Seed: '+seed+' | Iterationen: '+iter+' | Zielfunktionswert: '+obj;
   }
 }
 function renderStressTable(stressEvals){
@@ -29634,7 +30103,7 @@ function renderSensitivitySlidersForResult(result){
     row.innerHTML=''
       +'<div style="display:flex;justify-content:space-between;align-items:center">'
       +  '<span style="font-size:11px;font-weight:500">'+escapeHtml(label)+'</span>'
-      +  '<span class="tag tn" style="font-size:9px">Was-wenn</span>'
+      +  '<span class="tag tn" style="font-size:9px">Was-w\u00e4re-wenn</span>'
       +'</div>'
       +'<div style="display:flex;gap:4px;flex-wrap:wrap">'
       +  ['-20','-10','0','10','20'].map(function(d){
@@ -29678,7 +30147,7 @@ function runSensitivityCall(btn){
     if(dPct!=null){
       var sign=Number(dPct)>=0?'+':'';
       var direction=Number(dPct)<0?' (besser erreichbar)':(Number(dPct)>0?' (schwerer erreichbar)':'');
-      msg+=' | Objective '+sign+Number(dPct).toFixed(1)+'%'+direction;
+      msg+=' | Zielabweichung '+sign+Number(dPct).toFixed(1)+'%'+direction;
     }else if(body.delta_objective_unavailable_reason){
       // Ohne diesen Zweig blieb das Feld einfach leer -- von "0 %
       // Veraenderung" nicht zu unterscheiden.

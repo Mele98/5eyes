@@ -673,3 +673,19 @@ def test_panel_uses_no_third_party_brand_names():
     panel = _panel(_html()).lower()
     for brand in ("swiss life", "3eyes", "ubs", "credit suisse", "msci", "blackrock", "ishares"):
         assert brand not in panel, brand
+
+
+def test_block_change_feeds_the_single_stale_banner_above_the_panel():
+    """Zusammenspiel mit STALE-RESULT-DISPLAY-001 (#656): jede Baustein-
+    Aenderung ruft markStrategyDirty(<konkrete Meldung>) auf, das eine Banner
+    zeigt genau diese Meldung und steht direkt ueber dem Balken."""
+    src = _html()
+    bind = _extract_function(src, "bindAllocationPreferenceControls")
+    assert bind.count("markStrategyDirty(strategyBlockDirtyMessage(el))") == 3
+    assert "Mandatspräferenzen aktualisiert" not in bind
+    dirty = _extract_function(src, "markStrategyDirty")
+    assert "strategyState.staleNotice=message" in dirty
+    layout = _extract_function(src, "normalizeAllocationLayout")
+    assert "['al-dirty-banner','al-message-banner']" in layout
+    assert "insertBefore(banner,blocksPanel)" in layout
+    assert src.count('id="al-dirty-banner"') == 1

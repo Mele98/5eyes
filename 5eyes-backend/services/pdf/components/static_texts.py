@@ -190,12 +190,12 @@ KENNZAHLEN_DEFINITIONS = [
         "Wahrscheinlichkeit, desto mehr Balken sind farbig.",
     ),
     (
-        "Fehlbetrag",
+        "Fehlbetrag ungünstig (P25)",
         "Der Fehlbetrag misst den Betrag, der als zusätzliches Kapital aus "
-        "heutiger Perspektive benötigt wird, um die Zielerreichung im "
-        "5. Perzentil sicherzustellen. Das 5. Perzentil entspricht einem "
-        "sehr schlechten Kapitalmarktszenario (95% aller Szenarien sind "
-        "besser).",
+        "heutiger Perspektive benötigt wird, um das Ziel auch im "
+        "ungünstigen Szenario zu erreichen. Das ungünstige Szenario "
+        "entspricht dem 25. Perzentil der simulierten Verläufe (drei "
+        "Viertel aller Verläufe sind besser).",
     ),
 ]
 

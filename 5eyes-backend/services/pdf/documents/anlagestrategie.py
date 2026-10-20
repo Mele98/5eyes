@@ -889,11 +889,11 @@ def _make_kennzahlen_hinweise_section(styles) -> list:
 
     paragraphs = [
         (
-            "Fehlbetrag",
-            "Der Fehlbetrag misst den Betrag, der als zusaetzliches Kapital aus heutiger "
-            "Perspektive benoetigt wird, um die Zielerreichung in einem sehr schlechten "
-            "Kapitalmarktszenario zu stabilisieren. Er ist eine Orientierungsgroesse und "
-            "keine Garantie."
+            "Fehlbetrag ungünstig (P25)",
+            "Der Fehlbetrag misst den Betrag, der als zusätzliches Kapital aus heutiger "
+            "Perspektive benötigt wird, um das Ziel auch im ungünstigen Szenario "
+            "(25. Perzentil der simulierten Verläufe) zu erreichen. Er ist eine "
+            "Orientierungsgrösse und keine Garantie."
         ),
         (
             "Einordnung",

@@ -121,7 +121,7 @@ def test_table_includes_all_metric_labels():
         "Erwartete Volatilität",
         "TER",
         "Sharpe",
-        "Max. Risky Fraction",
+        "Max. risikobehafteter Anteil",
     ):
         assert metric in all_text
 

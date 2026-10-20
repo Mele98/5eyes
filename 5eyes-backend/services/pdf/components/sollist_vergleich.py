@@ -175,8 +175,8 @@ def make_sollist_goal_comparison_table(
     header_style = cell_style
     rows = [[
         Paragraph("<b>Ziel</b>", header_style),
-        Paragraph("<b>Erreichung SOLL</b>", header_style),
-        Paragraph("<b>Erreichung IST</b>", header_style),
+        Paragraph("<b>Erreichungsgrad (Median) SOLL</b>", header_style),
+        Paragraph("<b>Erreichungsgrad (Median) IST</b>", header_style),
     ]]
 
     def _pct_cell(item: Mapping | None) -> str:
