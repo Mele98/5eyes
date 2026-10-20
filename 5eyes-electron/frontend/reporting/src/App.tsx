@@ -390,7 +390,9 @@ function renderSection(
     return <Inhaltsverzeichnis data={data.inhaltsverzeichnis} />;
   }
   if (sectionId === 'ausgangslage') {
-    return <Ausgangslage data={data.ausgangslage} />;
+    return (
+      <Ausgangslage data={data.ausgangslage} projectionGate={data.projection_gate} />
+    );
   }
   if (sectionId === 'positionen') {
     return <Positionen data={data.positionen} />;

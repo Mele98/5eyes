@@ -169,6 +169,40 @@ describe('Section 4: Ausgangslage', () => {
     expect(screen.queryByText('VaR 95 %')).not.toBeInTheDocument();
   });
 
+  it('MC-CONTEXT-001: zeigt Gate-Hinweis statt Kennzahlen bei blocked', () => {
+    const data = makeAusgangslage();
+    data.key_metrics = {
+      risky_fraction_bps: null,
+      zielerreichung_bps: null,
+      exp_vol_bps: null,
+      exp_return_bps: null,
+      max_drawdown_bps: null,
+      var_95_bps: null,
+    };
+    render(
+      withRouter(
+        <Ausgangslage
+          data={data}
+          projectionGate={{
+            status: 'blocked',
+            reason_code: 'no_assessment',
+            projections_hidden: true,
+            hinweis: 'Kein aktuelles Risikoprofil – Projektionen ausgeblendet.',
+            note: null,
+            hidden_channels: ['ausgangslage.key_metrics'],
+            historical_ist_channels: ['ausgangslage.wealth_summary'],
+          }}
+        />,
+      ),
+    );
+    expect(
+      screen.getByText(/Kein aktuelles Risikoprofil – Projektionen ausgeblendet\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Risikobehafteter Anteil')).not.toBeInTheDocument();
+    // IST-Vermoegensuebersicht bleibt sichtbar.
+    expect(screen.getByText('Gesamtvermögen')).toBeInTheDocument();
+  });
+
   it('PA-04: ohne Kennzahlen entfällt der ganze Kennzahlen-Block', () => {
     const data = makeAusgangslage();
     data.key_metrics = {

@@ -51,15 +51,39 @@ _NOTE_INPUTS_STALE = (
     "Soll-Allokation geaendert. Prognosen dieser Strategie werden deshalb "
     "nicht angezeigt. " + RECOMPUTE_HINT
 )
+# MC-CONTEXT-001 (Codex-Closure-Review PR #652): Berater-Kurzhinweis je
+# Gate-Grund. Wird in jeder ausgeblendeten Projektionssektion (Key-Metrics,
+# Zielerreichung, MC, Stress, Soll-Sektionen 7-10/13, PDF) gleich angezeigt.
+HINT_NO_ASSESSMENT = "Kein aktuelles Risikoprofil – Projektionen ausgeblendet."
+HINT_POLICY_NOT_CURRENT = (
+    "Keine aktuelle Optimizer-Policy – Projektionen ausgeblendet."
+)
+HINT_GATE_ERROR = (
+    "Projektionskontext nicht pruefbar – Projektionen ausgeblendet."
+)
+HINT_STALE = "Soll-Allokation veraltet – Projektionen ausgeblendet."
+HINT_GENERIC = "Projektionen ausgeblendet."
+
 _NOTE_NO_ASSESSMENT = (
-    "Kein eindeutiges aktuelles Risikoprofil hinterlegt -- die Soll-Allokation "
-    "kann nicht gegen ihr Risikoprofil geprueft werden. Bitte Risikoprofil "
+    HINT_NO_ASSESSMENT + " Die Soll-Allokation kann nicht gegen ein "
+    "eindeutiges aktuelles Risikoprofil geprueft werden. Bitte Risikoprofil "
     "erfassen und Strategie neu berechnen."
 )
 _NOTE_POLICY_NOT_CURRENT = (
     "Die Soll-Allokation referenziert keine aktuelle Optimizer-Policy. "
     + RECOMPUTE_HINT
 )
+_NOTE_GATE_ERROR = (
+    "Der Projektionskontext der Soll-Allokation konnte nicht geprueft "
+    "werden. Prognosen dieser Strategie werden deshalb nicht angezeigt. "
+    + RECOMPUTE_HINT
+)
+
+# Status, unter denen Projektionen der Soll-Allokation publiziert werden
+# duerfen. ``no_allocation``: es gibt nichts zu projizieren (Sektionen
+# liefern ohnehin ihre Leerform). Jeder andere -- auch ein kuenftig neuer,
+# hier unbekannter -- Status blendet aus (fail-closed).
+_PUBLISHABLE_STATUSES = frozenset({STATUS_CURRENT, STATUS_NO_ALLOCATION})
 
 
 @dataclass(frozen=True)
@@ -73,8 +97,45 @@ class ProjectionGate:
         return self.status == STATUS_CURRENT
 
     @property
+    def is_hidden(self) -> bool:
+        """Kanonischer Ausblende-Entscheid fuer ALLE Projektionskanaele des
+        Reports (MC-CONTEXT-001, Codex-Closure-Review PR #652): ``stale``
+        UND ``blocked`` -- fehlende Verifizierbarkeit ist der strengere
+        Zustand, nicht der schwaechere. Unbekannte Status: fail-closed."""
+        return self.status not in _PUBLISHABLE_STATUSES
+
+    @property
     def is_stale_or_blocked(self) -> bool:
-        return self.status in (STATUS_STALE, STATUS_BLOCKED)
+        # Rueckwaertskompatibler Alias -- gleiche (fail-closed) Semantik.
+        return self.is_hidden
+
+    @property
+    def hint(self) -> str | None:
+        """Kurzer Berater-Hinweis fuer ausgeblendete Projektionen."""
+        if not self.is_hidden:
+            return None
+        if self.status == STATUS_STALE:
+            return HINT_STALE
+        return {
+            "no_assessment": HINT_NO_ASSESSMENT,
+            "policy_not_current": HINT_POLICY_NOT_CURRENT,
+            "gate_error": HINT_GATE_ERROR,
+        }.get(self.reason, HINT_GENERIC)
+
+    def to_payload(self) -> dict[str, Any]:
+        """Maschinenlesbarer Gate-Kontext fuer API/Web/PDF."""
+        return {
+            "status": self.status,
+            "reason_code": self.reason or None,
+            "projections_hidden": self.is_hidden,
+            "hinweis": self.hint,
+            "note": self.note or None,
+        }
+
+
+def gate_error() -> ProjectionGate:
+    """Fail-closed-Urteil, wenn die Gate-Pruefung selbst scheitert."""
+    return ProjectionGate(STATUS_BLOCKED, "gate_error", _NOTE_GATE_ERROR)
 
 
 def resolve_report_projection_gate(
