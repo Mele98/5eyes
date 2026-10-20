@@ -303,13 +303,22 @@ def test_ui_label_for_negative_screening_does_not_claim_no_filter():
 
 
 @pytest.mark.parametrize("value", ["standard", "extended"])
-def test_ui_universe_label_does_not_hide_product_checkboxes(value):
+def test_ui_universe_label_matches_the_single_universe_control(value):
+    # STRATEGY-BLOCKS-PANEL-001: das Universum-Dropdown ist die EINZIGE
+    # Steuerung; product.fundsOnly/listedOnly werden daraus abgeleitet (keine
+    # separaten Checkboxen mehr). "Kein Zusatzfilter" ist damit wahr.
     label = _option_label("aa-policy-universe", value)
     assert "inkl. Alternative" not in label, label
-    assert "Checkbox" in label, label
-    # Engine bleibt unveraendert: fundsOnly-Checkbox filtert weiterhin.
-    prefs = _ui_prefs(**{"policy.universe": value})
-    assert _product_matches_constraints(_product(product_type="Einzeltitel"), prefs, 8) is False
+    assert "kein Zusatzfilter" in label, label
+    html = HTML_PATH.read_text(encoding="utf-8")
+    collect = re.search(r"function collectAllocationPreferencesFromUI\(\)\{(.*?)\n\}", html, re.S).group(1)
+    assert "fundsOnly:universeUi==='funds_only'" in collect
+    assert "listedOnly:universeUi==='listed_only'" in collect
+    prefs = _ui_prefs(**{"policy.universe": value, "product.fundsOnly": False})
+    assert _product_matches_constraints(_product(product_type="Einzeltitel"), prefs, 8) is True
+    # Engine unveraendert: ein (Alt-)fundsOnly filtert weiterhin.
+    legacy = _ui_prefs(**{"policy.universe": value})
+    assert _product_matches_constraints(_product(product_type="Einzeltitel"), legacy, 8) is False
 
 
 def test_ui_documents_underweight_semantics_and_missing_look_through():

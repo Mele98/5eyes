@@ -5,8 +5,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  bpsToPctInput,
   buildTargetAllocationPayload,
   draftFromRecord,
+  fieldErrors,
+  pctInputToBps,
   totalTargetBps,
   validateAllocation,
   type AllocationDraft,
@@ -29,13 +32,13 @@ describe('ALLOC-1: Integer-/Finite-Validierung', () => {
     d.equities.target = 4000.5;
     d.bonds.target = 2999.5; // Summe bleibt 10000, aber Floats
     const errs = validateAllocation(d);
-    expect(errs.some((e) => e.includes('ganze Zahl in BP'))).toBe(true);
+    expect(errs.some((e) => e.includes('bitte einen Prozentwert eingeben'))).toBe(true);
   });
   it('meldet ein NaN-Feld (Finite-Guard)', () => {
     const d = balancedDraft();
     d.liquidity.target = Number.NaN;
     const errs = validateAllocation(d);
-    expect(errs.some((e) => e.includes('ganze Zahl in BP'))).toBe(true);
+    expect(errs.some((e) => e.includes('bitte einen Prozentwert eingeben'))).toBe(true);
   });
 });
 
@@ -54,7 +57,7 @@ describe('validateAllocation', () => {
     const d = balancedDraft();
     d.equities.target = 4500; // Summe 10500
     const errs = validateAllocation(d);
-    expect(errs.some((e) => e.includes('10000 BP'))).toBe(true);
+    expect(errs.some((e) => e.includes('zusammen 100 % ergeben'))).toBe(true);
   });
 
   it('meldet min > max', () => {
@@ -109,5 +112,32 @@ describe('draftFromRecord', () => {
     const draft = draftFromRecord(rec);
     expect(draft.equities).toEqual({ target: 4200, min: 3500, max: 5500 });
     expect(draft.bonds.target).toBe(2800);
+  });
+});
+
+describe('Prozent-Eingabe (UX-Audit Befund 15)', () => {
+  it('rechnet Prozent mit Komma oder Punkt exakt in bps um', () => {
+    expect(pctInputToBps('12.5')).toBe(1250);
+    expect(pctInputToBps('12,5 %')).toBe(1250);
+    expect(pctInputToBps('')).toBeNaN();
+    expect(pctInputToBps('abc')).toBeNaN();
+    expect(bpsToPctInput(4000)).toBe('40.0');
+  });
+
+  it('meldet Fehler feldgenau: min > max an beiden Grenzen, Ziel ausserhalb am Ziel', () => {
+    const d = balancedDraft();
+    d.equities.min = 6000; // > max 5000
+    d.bonds.target = 4500; // > max 4000
+    const errs = fieldErrors(d);
+    expect(errs.equities?.min).toMatch(/Minimum 60.0 % liegt über dem Maximum 50.0 %/);
+    expect(errs.equities?.max).toBeDefined();
+    expect(errs.bonds?.target).toMatch(/zwischen Minimum 20.0 % und Maximum 40.0 %/);
+    expect(errs.real_estate).toBeUndefined();
+  });
+
+  it('meldet Werte ausserhalb 0–100 %', () => {
+    const d = balancedDraft();
+    d.liquidity.max = 10500;
+    expect(fieldErrors(d).liquidity?.max).toMatch(/zwischen 0 % und 100 %/);
   });
 });
