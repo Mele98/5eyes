@@ -496,13 +496,11 @@ def test_api_audit_advisory_log_strategy_and_pdfs_share_one_reference(seeded):
     audit = json.loads(_audit(session, "client_signed")[-1].new_value)
     assert (audit["signoff_id"], audit["signoff_hash"]) == (sid, shash)
 
-    entry = session.get(AdvisoryLog, res["advisory_log_id"])
-    assert entry.entry_type == "Eignungsprüfung"
-    assert sid in entry.description and shash in entry.description
-    assert did in entry.description and dhash in entry.description
-    # advisor_recorded ist KEINE Kundensignatur.
-    assert entry.client_signed == 0
-    assert "keine elektronische Kundensignatur" in entry.description
+    # CIO-Abnahme #662: eine Berater-Signatur ist kein Beratungsgespraech ->
+    # KEIN AdvisoryLog-Eintrag; Audit-Log + Signoff-Tabelle sind der Nachweis.
+    assert res["advisory_log_id"] is None
+    assert session.query(AdvisoryLog).count() == 0
+    assert res["evidence_level"] == "advisor_attested"
 
     msg = [m for m in classify_messages(None, [], "optimal", None, ra) if m["code"] == WARN_OVERRIDE][0]
     assert (msg["signoff_id"], msg["signoff_hash"], msg["signoff_state"]) == (sid, shash, "signed")
@@ -581,7 +579,62 @@ def test_portal_signoff_binds_decision_and_counts_as_client_signature(session_fa
         entry = session.get(AdvisoryLog, res["advisory_log_id"])
         assert entry.client_signed == 1 and entry.client_signed_at
         assert entry.advisor_id == advisor.id
+        # Kennzeichnung als Signoff-Ereignis + dieselbe Referenz.
+        assert entry.system_event == "risk_profile_signoff"
+        assert entry.entry_type == "Eignungsprüfung"
+        assert entry.duration_minutes is None
+        assert res["signoff_id"] in entry.description and res["signoff_hash"] in entry.description
+        assert res["override_decision_id"] in entry.description
+        assert res["override_decision_hash"] in entry.description
         assert _fresh(session).client_signed_ref == "cu-rcp"
+
+
+def test_signoffs_never_become_the_last_advisory_appointment(session_factory):  # noqa: F811
+    """CIO-Abnahme #662: nach Berater- UND Portal-Signatur bleibt der
+    "letzte Termin" im Report der echte letzte Beratungstermin."""
+    from models.client_login import ClientLogin
+    from models.mandates import Mandate
+    from models.users import User
+    from routers.client_portal import client_portal_sign_risk_profile
+    from services.advisory_log_service import create_advisory_log, get_latest_active_entry
+    from tests.test_risk_capacity_plausibility import NOW
+    from types import SimpleNamespace
+
+    with session_factory() as session:
+        advisor = _seed(session)
+        session.add(_assessment("ra-current", advisor.id, version=1, is_current=1))
+        cu = User(id="cu-rcp", username="cu-rcp", password_hash="h", full_name="Kunde",
+                  role="client", is_active=1, created_at=NOW, updated_at=NOW)
+        session.add(cu)
+        session.add(ClientLogin(id="lnk-rcp", user_id="cu-rcp", client_id="cl-rcp",
+                                is_active=1, created_by=advisor.id, created_at=NOW))
+        session.commit()
+        meeting = create_advisory_log(session, mandate_id="m-rcp", advisor=advisor, payload=SimpleNamespace(
+            entry_type="Jahresreview", title="Jahresgespraech 2026",
+            description="Echtes Beratungsgespraech mit dem Kunden zum Jahresreview.",
+            decision=None, trigger_id=None, recommendation_run_id=None, status="Empfohlen",
+            client_signed=False, client_signed_at=None, document_id=None, entry_date=None,
+            entry_datetime="2026-01-15T10:00:00.000Z", duration_minutes=60,
+            communication_channel="persoenlich", language="de", location=None,
+            participants=[], topics=["Jahresreview"], risk_warnings_given=[],
+            cost_disclosure_given=False, conflict_disclosure_ids=[], suitability_check_id=None,
+        ))
+        session.commit()
+
+        _sign(session, advisor)
+        assert get_latest_active_entry(session, mandate_id="m-rcp").id == meeting.id
+        client_portal_sign_risk_profile(
+            mandate_id="m-rcp", request=_FakeRequest(), db=session, current_user=cu,
+        )
+        assert session.query(AdvisoryLog).count() == 2
+        assert get_latest_active_entry(session, mandate_id="m-rcp").id == meeting.id
+
+        from services.advisory_report import _build_beratungsprotokoll
+
+        mandate = session.get(Mandate, "m-rcp")
+        section = _build_beratungsprotokoll(session, mandate)
+        assert section["latest_entry"]["id"] == meeting.id
+        assert section["last_review_date"] == "2026-01-15"
 
 
 def _render_texts(builder, data) -> str:

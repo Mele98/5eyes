@@ -128,6 +128,9 @@ def upgrade() -> None:
     op.add_column("risk_assessments", sa.Column("signoff_id", sa.String(), nullable=True))
     op.add_column("risk_assessments", sa.Column("signoff_hash", sa.String(), nullable=True))
     op.add_column("risk_assessments", sa.Column("signoff_status", sa.String(), nullable=True))
+    # System-Ereignis-Kennzeichnung im Beratungsprotokoll: ein Portal-Signoff
+    # ist kein Beratungsgespraech und zaehlt nie als "letzter Termin".
+    op.add_column("advisory_log", sa.Column("system_event", sa.String(), nullable=True))
     op.execute(_LEGACY_BACKFILL)
 
     dialect = op.get_bind().dialect.name
@@ -147,6 +150,7 @@ def downgrade() -> None:
     elif dialect == "sqlite":
         op.execute("DROP TRIGGER IF EXISTS trg_risk_profile_signoffs_no_update")
         op.execute("DROP TRIGGER IF EXISTS trg_risk_profile_signoffs_no_delete")
+    op.drop_column("advisory_log", "system_event")
     op.drop_column("risk_assessments", "signoff_status")
     op.drop_column("risk_assessments", "signoff_hash")
     op.drop_column("risk_assessments", "signoff_id")

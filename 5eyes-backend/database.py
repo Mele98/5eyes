@@ -1078,6 +1078,13 @@ def run_advisory_log_migration(target_engine: Engine = engine) -> None:
             conn.execute(text(
                 "ALTER TABLE advisory_log ADD COLUMN cost_disclosure_snapshot_json TEXT"
             ))
+        # RISK-PROFILE-SIGNOFF-001 (2026-10-20): Kennzeichnung von System-
+        # Ereignissen (z.B. 'risk_profile_signoff'), die KEIN Beratungs-
+        # gespraech sind und nie als "letzter Termin" zaehlen.
+        if "system_event" not in existing:
+            conn.execute(text(
+                "ALTER TABLE advisory_log ADD COLUMN system_event TEXT"
+            ))
         conn.commit()
 
 

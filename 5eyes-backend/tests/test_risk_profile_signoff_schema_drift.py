@@ -256,3 +256,33 @@ def test_signoff_table_has_no_hard_fk_to_assessments_or_mandates(tmp_path):
             )}
         assert targets == {"users"}, (db_path.name, targets)
     assert {fk.column.table.name for fk in RiskProfileSignoff.__table__.foreign_keys} == {"users"}
+
+
+def test_advisory_log_system_event_column_in_all_schema_sources(tmp_path, monkeypatch):
+    """CIO-Abnahme #662: Portal-Signoffs sind im Beratungsprotokoll als
+    System-Ereignis gekennzeichnet (advisory_log.system_event) -- in
+    Bootstrap, Runtime-Patch, ORM und Alembic (inkl. Downgrade)."""
+    import database as db_module
+    from alembic import command
+    from models.review import AdvisoryLog
+
+    assert "system_event" in {c.name for c in AdvisoryLog.__table__.columns}
+    fresh = tmp_path / "evt_fresh.db"
+    db_module.bootstrap_sqlite_schema(db_path=fresh, schema_path=SCHEMA_FILE)
+    assert "system_event" in _columns(fresh, "advisory_log")
+
+    with sqlite3.connect(str(fresh)) as conn:
+        conn.execute("ALTER TABLE advisory_log DROP COLUMN system_event")
+        conn.commit()
+    test_engine = create_engine(f"sqlite:///{fresh}")
+    db_module.run_advisory_log_migration(test_engine)
+    db_module.run_advisory_log_migration(test_engine)  # idempotent
+    test_engine.dispose()
+    assert "system_event" in _columns(fresh, "advisory_log")
+
+    migrated = tmp_path / "evt_alembic.db"
+    cfg = _alembic_cfg(f"sqlite:///{migrated}")
+    command.upgrade(cfg, "head")
+    assert "system_event" in _columns(migrated, "advisory_log")
+    command.downgrade(cfg, "c4e9a7d2b815")
+    assert "system_event" not in _columns(migrated, "advisory_log")

@@ -53,6 +53,9 @@ STATUS_LEGACY_UNBOUND = "legacy_unbound"
 STATE_UNSIGNED = "unsigned"
 STATE_REMEDIATION_REQUIRED = "remediation_required"
 
+# AdvisoryLog.system_event fuer Portal-Signoffs (kein Beratungsgespraech).
+ADVISORY_SYSTEM_EVENT = "risk_profile_signoff"
+
 BINDING_DECISION = "decision"
 BINDING_NO_OVERRIDE = "no_override"
 
@@ -653,14 +656,17 @@ def record_signoff(
             new_value=json.dumps(snapshot, ensure_ascii=False),
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=ip_address)
-        advisor_id = actor.id
+        # CIO-Abnahme #662: eine Signatur ist kein Beratungsgespraech. Berater-
+        # Signaturen erzeugen KEINEN AdvisoryLog-Eintrag (Audit-Log + Signoff-
+        # Tabelle sind der Nachweis); Portal-Signaturen schon, aber als
+        # System-Ereignis gekennzeichnet (nie "letzter Termin").
         if method == METHOD_PORTAL:
             client = db.get(Client, mandate.client_id)
             advisor_id = getattr(client, "advisor_id", None) or actor.id
-        entry = _advisory_log_entry(
-            db, mandate=mandate, advisor_id=advisor_id, signoff=signoff,
-        )
-        advisory_log_id = entry.id
+            entry = _advisory_log_entry(
+                db, mandate=mandate, advisor_id=advisor_id, signoff=signoff,
+            )
+            advisory_log_id = entry.id
         db.commit()
         db.refresh(ra)
     except IntegrityError:
@@ -711,11 +717,11 @@ def advisory_log_description(signoff: Any) -> str:
 
 
 def _advisory_log_entry(db, *, mandate, advisor_id: str, signoff: Any):
-    """Beratungsprotokoll-Eintrag mit derselben Signoff-/Decision-Referenz.
-
-    Bewusst ohne erfundene Gespraechsdauer/-kanal (None): der Eintrag
-    dokumentiert die erfasste Bestaetigung, kein Beratungsgespraech. Nur eine
-    Portal-Bestaetigung zaehlt als Kundensignatur (client_signed=1)."""
+    """Beratungsprotokoll-Eintrag (nur Portal-Signoff) mit derselben Signoff-/
+    Decision-Referenz, gekennzeichnet als System-Ereignis
+    (system_event='risk_profile_signoff'): dokumentiert die Bestaetigung des
+    Kunden, KEIN Beratungsgespraech -- darum ohne Gespraechsdauer und nie als
+    "letzter Termin" (advisory_log_service.get_latest_active_entry)."""
     from services.advisory_log_service import create_advisory_log
 
     is_portal = signoff.method == METHOD_PORTAL
@@ -744,4 +750,6 @@ def _advisory_log_entry(db, *, mandate, advisor_id: str, signoff: Any):
         suitability_check_id=None,
     )
     advisor = SimpleNamespace(id=advisor_id)
-    return create_advisory_log(db, mandate_id=mandate.id, advisor=advisor, payload=payload)
+    entry = create_advisory_log(db, mandate_id=mandate.id, advisor=advisor, payload=payload)
+    entry.system_event = ADVISORY_SYSTEM_EVENT
+    return entry

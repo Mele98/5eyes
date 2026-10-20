@@ -1196,6 +1196,9 @@ CREATE TABLE IF NOT EXISTS advisory_log (
     superseded_by_id             TEXT REFERENCES advisory_log(id),
     last_read_at                 TEXT,
     last_read_by                 TEXT REFERENCES users(id),
+    -- RISK-PROFILE-SIGNOFF-001 (2026-10-20): System-Ereignis statt Beratungs-
+    -- gespraech (z.B. 'risk_profile_signoff'); zaehlt nie als "letzter Termin".
+    system_event                 TEXT,
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     FOREIGN KEY (trigger_id, mandate_id) REFERENCES review_triggers(id, mandate_id) ON UPDATE CASCADE,
