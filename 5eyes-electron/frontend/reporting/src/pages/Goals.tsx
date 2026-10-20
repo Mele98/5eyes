@@ -1,7 +1,7 @@
 /**
  * U-FE-4: Sektion 11 — Zielbasierte Optimierung.
  *
- * Großer Achievement-Score-KPI, Monte-Carlo-Pfade-Chart (p5/p50/p75)
+ * Grosse KPI «Erfolgswahrscheinlichkeit gesamt», Monte-Carlo-Pfade-Chart (p5/p50/p75)
  * mit Goal-Markern (Sprint U-12, Roadmap-Punkt 12) und Goals-Tabelle
  * mit Status-Pills.
  */
@@ -57,7 +57,7 @@ export function Goals({ data }: GoalsProps) {
       nr={11}
       kicker="Zielbasierte Optimierung"
       title="Zielbasierte Optimierung"
-      subtitle="Zielerreichung nach Priorität je Ziel und Plan-Solvenz aller Ziele gemeinsam."
+      subtitle="Erfolgswahrscheinlichkeit je Ziel (nach Priorität) und Plan-Solvenz aller Ziele gemeinsam."
     >
       <AchievementScoreKpi scoreBps={data.goal_achievement_score_bps} />
       <PlanSolvencyKpi plan={data.plan_solvency ?? null} />
@@ -82,7 +82,7 @@ export function Goals({ data }: GoalsProps) {
                 <SortableTh column="type" sortConfig={sortConfig} onSort={handleSort}>Typ</SortableTh>
                 <SortableTh column="target" sortConfig={sortConfig} onSort={handleSort} align="right">Zielwert</SortableTh>
                 <SortableTh column="status" sortConfig={sortConfig} onSort={handleSort}>Status</SortableTh>
-                <SortableTh column="probability" sortConfig={sortConfig} onSort={handleSort} align="right">Zielerreichung nach Priorität</SortableTh>
+                <SortableTh column="probability" sortConfig={sortConfig} onSort={handleSort} align="right" title={SUCCESS_PROBABILITY_TOOLTIP}>Erfolgs-Wkt.</SortableTh>
               </tr>
             </thead>
             <tbody>
@@ -92,17 +92,22 @@ export function Goals({ data }: GoalsProps) {
             </tbody>
           </table>
           <p className="mt-3 text-caption text-ink-muted" data-testid="goals-scope-note">
-            <span className="font-semibold text-ink">Zielerreichung nach Priorität:</span>{' '}
-            Auf jedem simulierten Pfad werden die Ziele in der festgelegten
-            Rangfolge finanziert (Rang 1 zuerst). Ein Ziel gilt als erreicht,
-            wenn es nach allen höher priorisierten Zielen vollständig
-            finanziert ist.
+            <span className="font-semibold text-ink">Erfolgswahrscheinlichkeit (Erfolgs-Wkt.):</span>{' '}
+            {SUCCESS_PROBABILITY_TOOLTIP}. Auf jedem simulierten Verlauf werden
+            die Ziele in der festgelegten Rangfolge finanziert (Rang 1 zuerst).
+            Ein Ziel gilt als erreicht, wenn es nach allen höher priorisierten
+            Zielen vollständig finanziert ist.
           </p>
         </section>
       )}
     </ReportPage>
   );
 }
+
+// UX-1 (Befund 8): eine Primärkennzahl mit derselben Definition wie im
+// Monolithen (5eyes_v2.html, GOAL_SUCCESS_PROBABILITY_TOOLTIP).
+const SUCCESS_PROBABILITY_TOOLTIP =
+  'Anteil der simulierten Verläufe, in denen das Ziel vollständig erreicht wird';
 
 // ---------------------------------------------------------------------------
 // Sprint U-48: SortableTh — klickbarer Header mit Sort-Indicator
@@ -114,12 +119,14 @@ function SortableTh({
   sortConfig,
   onSort,
   align = 'left',
+  title,
 }: {
   children: React.ReactNode;
   column: SortColumn;
   sortConfig: SortConfig | null;
   onSort: (column: SortColumn) => void;
   align?: 'left' | 'right';
+  title?: string;
 }) {
   const isActive = sortConfig?.column === column;
   const indicator = isActive
@@ -127,6 +134,7 @@ function SortableTh({
     : '';
   return (
     <th
+      title={title}
       className={[
         'pb-3 font-medium uppercase tracking-widest text-micro text-ink-subtle',
         align === 'right' ? 'pr-0 text-right' : 'pr-4 text-left',
@@ -162,9 +170,12 @@ function AchievementScoreKpi({ scoreBps }: { scoreBps: number | null | undefined
   return (
     <section className="border-l-4 border-accent bg-canvas-subtle px-6 py-5">
       <p className="text-micro uppercase tracking-widest text-ink-subtle">
-        Gewichteter Zielerreichungs-Score
+        Erfolgswahrscheinlichkeit gesamt (gewichtet)
       </p>
       <p className="mt-2 font-serif text-display text-ink">{display}</p>
+      <p className="mt-1 text-caption text-ink-muted">
+        Nach Zielgewicht gemittelte Erfolgswahrscheinlichkeit aller Ziele.
+      </p>
     </section>
   );
 }
@@ -187,7 +198,7 @@ function PlanSolvencyKpi({ plan }: { plan: GoalBasedInvestingData['plan_solvency
         {formatBpsAsPct(plan.probability_bps, { decimals: 0 })}
       </p>
       <p className="mt-1 text-caption text-ink-muted">
-        Anteil der simulierten Pfade, auf denen alle Ziele gemeinsam finanziert sind.
+        Anteil der simulierten Verläufe, in denen alle Ziele gemeinsam finanziert sind.
       </p>
     </section>
   );

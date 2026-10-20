@@ -54,7 +54,9 @@ def test_banner_diverged_infeasible_warnt_vor_bandbreiten_verletzung():
     assert idx > 0, "diverged_infeasible-Block fehlt"
     block = text[idx:idx + 600]
     assert "ausserhalb der" in block and "Bandbreiten" in block
-    assert "kein gueltiger Anlagevorschlag" in block
+    # Aussage zaehlt, nicht die Umlaut-Schreibweise (UX-14: echte Umlaute).
+    normalized = block.replace(chr(92) + "u00fc", "ü").replace("ue", "ü")
+    assert "kein gültiger Anlagevorschlag" in normalized
 
 
 def test_banner_diverged_unterscheidet_sich_von_fallback():
