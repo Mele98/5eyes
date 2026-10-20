@@ -9,7 +9,7 @@
  * Auth: gleicher Bearer-Token-Mechanismus wie `client.ts` (Electron →
  * sessionStorage → localStorage → Vite-Env-Fallback).
  */
-import { ApiError } from './client';
+import { ApiError, apiErrorFromResponse } from './client';
 
 /** Welche Sektion ein Override-Feld betrifft. */
 export type NotesField =
@@ -103,14 +103,7 @@ async function authHeaders(): Promise<HeadersInit> {
 
 async function handleResponse(response: Response): Promise<ReportNotes> {
   if (!response.ok) {
-    let detail = `HTTP ${response.status}`;
-    try {
-      const errBody = await response.json();
-      if (typeof errBody?.detail === 'string') detail = errBody.detail;
-    } catch {
-      /* non-json body */
-    }
-    throw new ApiError(response.status, detail);
+    throw await apiErrorFromResponse(response);
   }
   const raw = (await response.json()) as ReportNotes;
   // comp-5: Listenfelder defensiv normalisieren — buildInitial/anythingPersisted

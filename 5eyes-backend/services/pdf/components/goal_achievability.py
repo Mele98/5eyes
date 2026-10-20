@@ -243,7 +243,8 @@ def _status_cell(status: str | None) -> str:
     return f'<font color="{color}"><b>{_esc(label)}</b></font>'
 
 
-PRIORITY_COLUMN_LABEL = "Zielerreichung nach Priorität"
+# UX-1 (Befund 8): dieselbe Primaerkennzahl wie App und React-Report.
+PRIORITY_COLUMN_LABEL = "Erfolgs-Wkt. (nach Priorität)"
 
 
 def make_plan_solvency_line(achievability: Iterable[Mapping]) -> Paragraph:
@@ -267,9 +268,10 @@ def make_plan_solvency_line(achievability: Iterable[Mapping]) -> Paragraph:
         f'<b>{_esc(PLAN_SOLVENCY_LABEL)}:</b> {_esc(_prob_cell(plan_row.get("probability")))}'
         f'</font>'
         f'<font name="{FONT_DEFAULT}" size="8" color="#475569"><br/>'
-        f'Anteil der simulierten Pfade, auf denen alle Ziele gemeinsam finanziert sind. '
-        f'Die Spalte &laquo;{_esc(PRIORITY_COLUMN_LABEL)}&raquo; zeigt je Ziel, ob es nach '
-        f'allen höher priorisierten Zielen vollständig finanziert ist (Rang 1 zuerst).'
+        f'Anteil der simulierten Verläufe, in denen alle Ziele gemeinsam finanziert sind. '
+        f'Die Spalte &laquo;{_esc(PRIORITY_COLUMN_LABEL)}&raquo; zeigt je Ziel den Anteil der '
+        f'simulierten Verläufe, in denen es vollständig erreicht wird &ndash; nachdem alle '
+        f'höher priorisierten Ziele finanziert sind (Rang 1 zuerst).'
         f'</font>',
         style,
     )
@@ -294,7 +296,7 @@ def make_goal_achievability_table(achievability: Iterable[Mapping]) -> Table:
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: nur Zielzeilen (nach Rang), die
     # Plan-Solvenz steht separat (make_plan_solvency_line).
     achievability_list, _plan_row = split_goal_achievability(list(achievability or []))
-    rows = [["Ziel", "Typ", "Hardness", PRIORITY_COLUMN_LABEL, "Status"]]
+    rows = [["Ziel", "Typ", "Härtegrad", PRIORITY_COLUMN_LABEL, "Status"]]
 
     if not achievability_list:
         rows.append([

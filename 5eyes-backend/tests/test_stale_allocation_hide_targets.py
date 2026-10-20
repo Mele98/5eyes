@@ -347,6 +347,15 @@ def _monolith_render_bucket_drift(data: dict) -> str:
         depth += {"{": 1, "}": -1}.get(html[j], 0)
         j += 1
     fn_src = html[start:j]
+    # AA-UX-FORMAT-001: Prozentwerte ueber den gemeinsamen Formatter.
+    for name in ("fmtNumber", "fmtPct", "fmtSignedPct"):
+        s0 = html.index("function " + name + "(")
+        k = html.index("{", s0)
+        d, m = 1, k + 1
+        while d:
+            d += {"{": 1, "}": -1}.get(html[m], 0)
+            m += 1
+        fn_src = html[s0:m] + "\n" + fn_src
     script = (
         "var out={innerHTML:''};var document={getElementById:function(){return out;}};"
         "var DC_BUCKET_COLORS={};function escapeHtml(s){return String(s);}\n"
@@ -383,9 +392,9 @@ def test_monolith_depot_check_hides_targets_when_stale():
     assert "Vermögen, Cashflows oder Ziele" in html
     assert "SOLL" not in html
     assert "Toleranzband" not in html.split("</div></div>", 1)[1]
-    assert ">0.0%<" not in html  # keine genullten Soll-/Drift-Spalten
+    assert ">0.0\u00a0%<" not in html and ">0.0%<" not in html  # keine genullten Soll-/Drift-Spalten
     assert "Drift</th>" not in html
-    assert "20.0%" in html  # IST bleibt sichtbar
+    assert "20.0\u00a0%" in html  # IST bleibt sichtbar
 
 
 def test_monolith_depot_check_shows_targets_when_current():
@@ -394,5 +403,5 @@ def test_monolith_depot_check_shows_targets_when_current():
         "soll_ausgeblendet": False,
     })
     assert "SOLL" in html
-    assert "53.0%" in html
+    assert "53.0\u00a0%" in html
     assert "neu berechnen" not in html

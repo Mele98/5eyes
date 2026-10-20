@@ -381,6 +381,13 @@ class RisikoprofilData:
     override_reason: str | None = None
     override_client_confirmed: bool | None = None
     override_warning_delivered: bool | None = None
+    # RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund B (2026-10-19): Referenz auf
+    # die wirksame RiskOverrideDecisionV1. verified = Hash der Decision-Zeile
+    # beim Rendern neu berechnet und mit Pointer + gespeichertem Hash
+    # abgeglichen (None = kein Decision-Nachweis, Altbestand).
+    override_decision_id: str | None = None
+    override_decision_hash: str | None = None
+    override_decision_verified: bool | None = None
     # RISK-CAPACITY-PLAUSIBILITY-001: neutraler Berater-Satz, wenn die
     # Fragebogen-Angaben den erfassten Finanzdaten widersprechen.
     capacity_plausibility_note: str = ""

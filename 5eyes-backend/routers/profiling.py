@@ -1,5 +1,8 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
@@ -9,7 +12,7 @@ from models.users import User
 from models.mandates import Mandate
 from models.clients import Client
 from models.profiling import (
-    ClientKnowledge, RiskAssessment, RiskAssessmentAnswer, SuitabilityCheck
+    ClientKnowledge, RiskAssessment, RiskAssessmentAnswer, RiskOverrideDecision, SuitabilityCheck
 )
 from models.review import AdvisoryLog
 from schemas.profiling import (
@@ -38,8 +41,14 @@ from services.portfolio_engine import (
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 from services.risk_capacity_plausibility import audit_if_inconsistent, evaluate_mandate_safely
 from services.risk_assessment_semantics import (
+    OVERRIDE_DOCUMENTATION_RULES_VERSION,
     _optional_capacity_score,
     override_documentation_requirements,
+)
+from services.risk_override_decision import (
+    SCHEMA_VERSION as RISK_OVERRIDE_DECISION_SCHEMA,
+    compute_decision_hash,
+    decision_snapshot,
 )
 
 router = APIRouter(tags=["Risikoprofilierung"])
@@ -374,13 +383,51 @@ def override_risk_assessment(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund A (Codex-Closure-Review zu
+    # PR #646): Row-Lock (PostgreSQL; unter SQLite serialisiert der
+    # Datei-Lock beim Schreiben) + Current-Gate. Eine historische Version ist
+    # unveraenderliche Evidence -- sie wird nie in-place uebersteuert.
     ra = db.query(RiskAssessment).filter(
         RiskAssessment.id == ra_id,
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     if not ra:
         raise HTTPException(status_code=404, detail="Risikoprofilierung nicht gefunden")
+    if int(ra.is_current or 0) != 1:
+        current = db.query(RiskAssessment.id).filter(
+            RiskAssessment.mandate_id == mandate_id,
+            RiskAssessment.is_current == 1,
+            RiskAssessment.deleted_at.is_(None),
+        ).first()
+        _override_conflict(
+            "RISK_ASSESSMENT_NOT_CURRENT",
+            "Nur das aktuelle Risikoprofil kann uebersteuert werden; diese Version "
+            "ist historisch. Bitte die aktuelle Version laden.",
+            assessment_id=ra.id,
+            current_assessment_id=current[0] if current else None,
+        )
+    if (
+        body.expected_assessment_version is not None
+        and int(body.expected_assessment_version) != int(ra.version or 0)
+    ):
+        _override_conflict(
+            "RISK_ASSESSMENT_VERSION_CONFLICT",
+            "Das Risikoprofil wurde inzwischen neu erfasst -- bitte Seite neu laden.",
+            assessment_id=ra.id,
+            current_assessment_version=int(ra.version or 0),
+        )
+    if (
+        "expected_override_decision_id" in body.model_fields_set
+        and body.expected_override_decision_id != ra.override_decision_id
+    ):
+        _override_conflict(
+            "RISK_OVERRIDE_DECISION_CONFLICT",
+            "Der Override wurde inzwischen von jemand anderem geaendert -- bitte "
+            "Seite neu laden und erneut entscheiden.",
+            assessment_id=ra.id,
+            current_override_decision_id=ra.override_decision_id,
+        )
     if str(mandate.mandate_type or "").strip().upper() == "FZK" and int(body.override_score_x10 or 0) > 75:
         raise HTTPException(
             status_code=422,
@@ -389,10 +436,12 @@ def override_risk_assessment(
     # RISK-OVERRIDE-WRITE-BOUNDARY-001: dieselbe Regel wie Strategie-Gate und
     # Domain-Validierung, VOR jeder Mutation -- ein unvollstaendig
     # dokumentierter Override wird nie persistiert (422, kein Audit-Log).
+    basis_final = int(ra.final_score_x10 or 0)
+    basis_capacity = _optional_capacity_score(ra)
     needs_confirmation, needs_warning = override_documentation_requirements(
-        final_score_x10=int(ra.final_score_x10 or 0),
+        final_score_x10=basis_final,
         override_score_x10=int(body.override_score_x10),
-        risk_capacity_score_x10=_optional_capacity_score(ra),
+        risk_capacity_score_x10=basis_capacity,
     )
     if needs_confirmation and not body.override_client_confirmed:
         raise HTTPException(
@@ -408,25 +457,114 @@ def override_risk_assessment(
             ),
         )
 
-    ra.is_overridden = 1
-    ra.override_score_x10 = body.override_score_x10
-    ra.override_profile = body.override_profile
-    ra.override_by = current_user.id
-    ra.override_at = _now()
-    ra.override_reason = body.override_reason
-    ra.override_client_confirmed = 1 if body.override_client_confirmed else 0
-    ra.override_warning_delivered = 1 if body.override_warning_delivered else 0
-    ra.override_warning_document_id = body.override_warning_document_id
+    # Restbefund B: append-only RiskOverrideDecisionV1, gebunden an die
+    # validierte Basis und die damals effektiven Requirements.
+    now = _now()
+    previous_decision_id = ra.override_decision_id
+    assessment_version = int(ra.version or 0)
+    sequence_no = int(
+        db.query(func.max(RiskOverrideDecision.sequence_no))
+        .filter(RiskOverrideDecision.assessment_id == ra.id)
+        .scalar() or 0
+    ) + 1
+    decision = RiskOverrideDecision(
+        id=new_uuid(),
+        schema_version=RISK_OVERRIDE_DECISION_SCHEMA,
+        assessment_id=ra.id,
+        mandate_id=mandate_id,
+        client_id=mandate.client_id,
+        assessment_version=assessment_version,
+        sequence_no=sequence_no,
+        previous_decision_id=previous_decision_id,
+        basis_final_score_x10=basis_final,
+        basis_final_profile=ra.final_profile,
+        basis_capacity_score_x10=basis_capacity,
+        basis_willingness_score_x10=ra.risk_willingness_score_x10,
+        requested_score_x10=int(body.override_score_x10),
+        requested_profile=body.override_profile,
+        reason=body.override_reason,
+        client_confirmed=1 if body.override_client_confirmed else 0,
+        warning_delivered=1 if body.override_warning_delivered else 0,
+        warning_document_id=body.override_warning_document_id,
+        required_client_confirmation=1 if needs_confirmation else 0,
+        required_warning=1 if needs_warning else 0,
+        actor_id=current_user.id,
+        decided_at=now,
+        rules_version=OVERRIDE_DOCUMENTATION_RULES_VERSION,
+        created_at=now,
+    )
+    decision.decision_hash = compute_decision_hash(decision)
 
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="risk_assessments", record_id=ra_id, action="UPDATE",
-        field_name="override", new_value=body.override_profile,
-        mandate_id=mandate_id, client_id=mandate.client_id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
+    # Compare-and-Swap: is_current, Version und bisheriger Decision-Pointer
+    # werden unmittelbar beim Schreiben erneut geprueft. Hat sich die Basis
+    # seit dem Laden geaendert (neue Assessment-Version, paralleler
+    # Re-Override, Loeschung), trifft das UPDATE keine Zeile -> 409.
+    pointer_filter = (
+        RiskAssessment.override_decision_id.is_(None)
+        if previous_decision_id is None
+        else RiskAssessment.override_decision_id == previous_decision_id
+    )
+    updated = db.query(RiskAssessment).filter(
+        RiskAssessment.id == ra.id,
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.deleted_at.is_(None),
+        RiskAssessment.is_current == 1,
+        RiskAssessment.version == assessment_version,
+        pointer_filter,
+    ).update({
+        RiskAssessment.is_overridden: 1,
+        RiskAssessment.override_score_x10: decision.requested_score_x10,
+        RiskAssessment.override_profile: decision.requested_profile,
+        RiskAssessment.override_by: current_user.id,
+        RiskAssessment.override_at: now,
+        RiskAssessment.override_reason: decision.reason,
+        RiskAssessment.override_client_confirmed: decision.client_confirmed,
+        RiskAssessment.override_warning_delivered: decision.warning_delivered,
+        RiskAssessment.override_warning_document_id: decision.warning_document_id,
+        RiskAssessment.override_decision_id: decision.id,
+        RiskAssessment.override_decision_hash: decision.decision_hash,
+        RiskAssessment.updated_at: now,
+    }, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        _override_conflict(
+            "RISK_OVERRIDE_CONCURRENT_MODIFICATION",
+            "Das Risikoprofil wurde waehrend der Speicherung geaendert -- bitte "
+            "Seite neu laden und erneut versuchen.",
+            assessment_id=ra_id,
+        )
+
+    try:
+        db.add(decision)
+        # Audit-Log: replaybarer Snapshot inkl. Decision-ID/-Hash statt nur
+        # des Profilnamens.
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="risk_assessments", record_id=ra_id, action="UPDATE",
+            field_name="override",
+            new_value=json.dumps(decision_snapshot(decision), ensure_ascii=False),
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    except IntegrityError:
+        # Paralleler Append mit derselben sequence_no (ux_risk_override_
+        # decision_sequence) -- genau ein Gewinner, der Verlierer bekommt 409.
+        db.rollback()
+        _override_conflict(
+            "RISK_OVERRIDE_CONCURRENT_MODIFICATION",
+            "Ein anderer Override wurde gleichzeitig gespeichert -- bitte Seite "
+            "neu laden und erneut entscheiden.",
+            assessment_id=ra_id,
+        )
     db.refresh(ra)
     invalidate_advisory_cache(mandate_id)
     return ra
+
+
+def _override_conflict(reason_code: str, message: str, **context) -> None:
+    raise HTTPException(
+        status_code=409,
+        detail={"reason_code": reason_code, "message": message, **context},
+    )
 
 
 class RiskProfileSignRequest(BaseModel):

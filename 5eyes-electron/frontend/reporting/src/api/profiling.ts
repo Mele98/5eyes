@@ -1,5 +1,6 @@
 import {
   ApiError,
+  apiErrorFromResponse,
   SchemaError,
   resolveAuthToken,
 } from './client';
@@ -28,20 +29,7 @@ async function authHeaders(includeBody = false): Promise<HeadersInit> {
 }
 
 async function parseError(response: Response): Promise<ApiError> {
-  let detail = `HTTP ${response.status}`;
-  let raw: unknown;
-  try {
-    raw = await response.json();
-    const maybeDetail = (raw as { detail?: unknown })?.detail;
-    if (typeof maybeDetail === 'string') {
-      detail = maybeDetail;
-    } else if (maybeDetail) {
-      detail = JSON.stringify(maybeDetail);
-    }
-  } catch {
-    // Non-JSON body: keep HTTP fallback.
-  }
-  return new ApiError(response.status, detail, raw);
+  return apiErrorFromResponse(response);
 }
 
 function validateRiskAssessment(data: unknown): asserts data is RiskAssessment {

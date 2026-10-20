@@ -51,6 +51,9 @@ def test_limiting_factor_mapping_and_story_builder_exist():
 def test_review_goal_probability_badge_logic_exists():
     html = _html()
     assert "function rvGoalProbBadge(prob)" in html
-    assert "p>=0.80" in html
-    assert "p>=0.50" in html
+    # UX-1 (CIO-Entscheid): Ampel einheitlich 70/45 wie die Legende.
+    assert "p>=0.70" in html
+    assert "p>=0.45" in html
+    assert "p>=0.80" not in html
+    # Der tau-basierte Optimizer-Status behaelt seine eigene Sprache.
     assert "nicht plausibel" in html

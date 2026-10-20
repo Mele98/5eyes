@@ -313,11 +313,26 @@ def classify_messages(
         messages.append(format_message(WARN_FALLBACK))
 
     if int(_get(assessment, "is_overridden", 0) or 0) == 1 and _get(assessment, "override_score_x10") is not None:
-        messages.append(format_message(
+        override_message = format_message(
             WARN_OVERRIDE,
             override_label=_get(assessment, "override_profile") or _get(assessment, "final_profile") or "Override",
             reason=_get(assessment, "override_reason") or "dokumentiert",
-        ))
+        )
+        # RISK-OVERRIDE-WRITE-BOUNDARY-001 Restbefund B: die Meldung nennt die
+        # wirksame RiskOverrideDecisionV1 (ID + Hash), damit Strategie-
+        # Begruendung und Decision-Log eindeutig verknuepft sind.
+        from services.risk_override_decision import decision_reference
+
+        decision_id = _get(assessment, "override_decision_id")
+        decision_hash = _get(assessment, "override_decision_hash")
+        override_message["override_decision_id"] = decision_id
+        override_message["override_decision_hash"] = decision_hash
+        override_message["body_advisor"] += (
+            f" Override-Entscheid: {decision_reference(decision_id, decision_hash)}."
+            if decision_id
+            else " Override ohne Decision-Nachweis (Altbestand vor RiskOverrideDecisionV1)."
+        )
+        messages.append(override_message)
 
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die Plan-Solvenz-Zeile
     # (evaluation_scope=joint_plan) ist kein Ziel und erzeugt keine

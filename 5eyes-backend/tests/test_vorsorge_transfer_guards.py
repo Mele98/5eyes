@@ -386,9 +386,16 @@ def test_alembic_has_single_head_with_partial_unique_index():
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
     assert len(heads) == 1, heads
-    head = script.get_revision(heads[0])
-    source = Path(head.path).read_text(encoding="utf-8")
-    assert _INDEX in source
+    # Die Index-Migration muss nicht der Head sein (spaetere Migrationen
+    # haengen sich an); sie muss genau einmal in der Kette zum Head liegen.
+    chain = [rev for rev in script.walk_revisions("base", heads[0])]
+    carrying = [
+        rev for rev in chain
+        if _INDEX in Path(rev.path).read_text(encoding="utf-8")
+        and "create_index" in Path(rev.path).read_text(encoding="utf-8")
+    ]
+    assert len(carrying) == 1, [rev.revision for rev in carrying]
+    source = Path(carrying[0].path).read_text(encoding="utf-8")
     assert "sqlite_where" in source and "postgresql_where" in source
 
 
