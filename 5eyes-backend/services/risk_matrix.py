@@ -113,9 +113,15 @@ def _conflict_cause_signature(row: Mapping) -> object | None:
     legacy caller silently gets merged into a shared-cause event it never
     declared.
     """
-    event_id = row.get("failure_event_id")
-    if event_id:
-        return ("failure_event_id", event_id)
+    # GOAL-FAILURE-EVENT-MODE-COLLAPSE-001 (Engine v10): only a cause that
+    # carries the goal's ENTIRE failure mass may be shared. A row whose
+    # dominant event covers 60 % and other causes 40 % is its own cause --
+    # the 40 % do not disappear behind the mode.
+    from services.optimizer.goal_attribution import full_mass_failure_event
+
+    if row.get("failure_event_id") or row.get("failure_event_distribution"):
+        event_id = full_mass_failure_event(row)
+        return ("failure_event_id", event_id) if event_id else None
     due_year = row.get("due_year")
     shortfall_source = row.get("shortfall_source")
     if due_year is not None and shortfall_source:

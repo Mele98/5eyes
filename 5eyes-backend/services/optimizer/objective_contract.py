@@ -137,6 +137,7 @@ def implemented_objective_policy() -> dict:
     )
     from .goal_reachability import GOAL_REACHABILITY_SCREEN_VERSION
     from .house_prior import HOUSE_PRIOR_KAPPA, HOUSE_PRIOR_VERSION
+    from .priority_scope import PRIORITY_SCOPE_POLICY_VERSION
     from .objective import (
         CHANCE_PENALTY_WEIGHT,
         DEMOTED_GOAL_POLICY_VERSION,
@@ -177,6 +178,12 @@ def implemented_objective_policy() -> dict:
         "goal_demotion_policy": DEMOTED_GOAL_POLICY_VERSION,
         "demoted_goal_weight": float(DEMOTED_GOAL_WEIGHT),
         "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
+        # GOAL-OPTIMIZATION-PUBLICATION-SCOPE-SPLIT-001 (Engine v10):
+        # Fehlbetrag, Chance-Strafe und Stufe 1 je Ziel auf seinem
+        # priorisierten Scope (direkter Replay), wie die Publikation; die
+        # Plan-Solvenz ist kein Term der Zielfunktion.
+        "goal_evaluation_scope": "priority_funded",
+        "goal_scope_replay_policy": PRIORITY_SCOPE_POLICY_VERSION,
     }
 
 
@@ -203,6 +210,8 @@ _POLICY_FIELDS = (
     "goal_demotion_policy",
     "demoted_goal_weight",
     "stage2_objective_scale_policy",
+    "goal_evaluation_scope",
+    "goal_scope_replay_policy",
 )
 
 
@@ -241,6 +250,8 @@ class ObjectiveContractV2(ObjectiveContractV1):
     goal_demotion_policy: str | None = None
     demoted_goal_weight: float | None = None
     stage2_objective_scale_policy: str | None = None
+    goal_evaluation_scope: str | None = None
+    goal_scope_replay_policy: str | None = None
 
     def __post_init__(self) -> None:
         validate_objective_mode(self.objective_mode)

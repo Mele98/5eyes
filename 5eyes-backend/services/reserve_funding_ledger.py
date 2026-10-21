@@ -334,6 +334,24 @@ class ReserveFundedSolverInputs:
     cashflow_series_rappen: tuple[int, ...]
     ledger: ReserveFundingLedgerV1
 
+    def solver_kwargs(self) -> dict:
+        """Start, Cashflows und Ziel-Freigaben fuer ``run_solver``.
+
+        GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001 (Engine v10): die Freigaben je
+        Ziel braucht der direkte Prioritaets-Scope-Replay, um die Freigabe
+        eines Ziels ausserhalb des Scopes zusammen mit dessen Abfluss zu
+        entfernen.
+        """
+        from services.optimizer.priority_scope import goal_release_series_from_ledger
+
+        return {
+            "advisory_wealth_rappen": self.start_wealth_rappen,
+            "cashflow_series_rappen": list(self.cashflow_series_rappen),
+            "reserve_goal_release_series_rappen": goal_release_series_from_ledger(
+                self.ledger, int(self.ledger.horizon_years),
+            ),
+        }
+
 
 def compile_goal_set_funding(
     *,

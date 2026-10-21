@@ -68,6 +68,7 @@ from .drawdown_certification import (
     refined_primary_per_path,
 )
 from .goal_attribution import publish_goal_achievability
+from .priority_scope import PriorityScopeWealth, ScopeReplayInputs, release_mapping
 from .house_prior import (
     DECISION_HOUSE_PRIOR,
     DECISION_HOUSE_PRIOR_FAIL_CLOSED,
@@ -425,10 +426,12 @@ def _certify_on_independent_validation_cube(
         # wird NICHT abgebrochen -- aber er gilt auch nicht als validiert.
         return train_achievability, None, None, None
     validation_context, validation_seed, cube_hash = validation
-    validation_wealth = _simulate_context_wealth(validation_context, weights_array)
+    validation_wealth, validation_scopes = _simulate_context_scope_wealth(
+        validation_context, weights_array,
+    )
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: publiziert wird der typisierte
     # Vertrag (Zielzeilen nach Prioritaet + genau eine Plan-Solvenz-Zeile),
-    # nicht die interne Joint-Sicht der Chance-Penalty.
+    # nicht die interne Sicht der Chance-Penalty.
     validation_achievability = publish_goal_achievability(
         validation_wealth,
         validation_context.liabilities,
@@ -438,6 +441,7 @@ def _certify_on_independent_validation_cube(
             validation_context, weights_array
         ),
         validation_seed=validation_seed,
+        scope_wealth=validation_scopes,
     )
     return (
         validation_achievability,
@@ -571,6 +575,13 @@ class OptimizerContext:
     # Chance-Strafe genommen (das fruehere Feld ``penalty_exempt_goal_ids``
     # ist entfallen). None, wenn nicht geprueft (keine ScenarioInputs).
     goal_reachability: dict | None = None
+    # GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001 (Engine v10): die in
+    # ``cashflow_series_rappen`` enthaltenen Freigaben der externen Reserve,
+    # die in die Abfluesse eines bestimmten Ziels fliessen (je Ziel-ID,
+    # RESERVE-FUNDING-LEDGER-001). Der direkte Replay eines Prioritaets-
+    # Scopes entfernt sie zusammen mit den Abfluessen der Ziele ausserhalb
+    # des Scopes (``priority_scope``).
+    reserve_goal_release_series_rappen: tuple[tuple[str, tuple[int, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -663,6 +674,101 @@ def _simulate_context_wealth(
         base_calendar_year=context.base_calendar_year,
         mandate_age_at_start=context.mandate_age_at_start,
         is_retired=context.is_retired,
+    )
+
+
+def _context_scope_wealth(
+    context: OptimizerContext,
+    w: np.ndarray,
+    wealth: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
+) -> PriorityScopeWealth:
+    """Prioritaets-Scopes einer Allokation: gemeinsamer Pfad + direkte Replays.
+
+    GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001 (Engine v10): derselbe
+    Simulationskontext wie ``_simulate_context_wealth`` (Szenarien,
+    Portfolio-Faktoren, Cashflows inkl. Reserve-Freigaben, Steuer,
+    Todesmaske), nur je eindeutigem Scope mit dem Scope-Liability-Pfad.
+    Replays entstehen lazy und nur fuer Scopes, die vom gemeinsamen Pfad
+    abweichen (Ein-Rang-Mandate: kein Replay).
+    """
+    replay = _context_replay_inputs(context, w, portfolio_factors=portfolio_factors)
+    # ``context.liabilities`` selbst (nicht kopiert): Scope-Schluessel und
+    # Batch-Pruefung werden je Liste einmal berechnet (priority_scope).
+    return PriorityScopeWealth(
+        joint=wealth, liabilities=context.liabilities, replay=replay,
+    )
+
+
+_PLAN_TUPLES: dict = {}
+
+
+def _context_plan_tuples(context: OptimizerContext) -> tuple[tuple, tuple]:
+    """Cashflows und gemeinsamer Liability-Pfad als Tupel, je Kontext einmal.
+
+    Solver-Hotpath: der Kontext ist eingefroren, seine Plan-Serien werden nach
+    dem Bau nicht mehr veraendert. Der Eintrag haelt die Quellobjekte (ids
+    bleiben eindeutig); Laenge wird zusaetzlich geprueft.
+    """
+    cf_obj, liab_obj = context.cashflow_series_rappen, context.aggregated_liability_path
+    key = (id(cf_obj), id(liab_obj))
+    hit = _PLAN_TUPLES.get(key)
+    if hit is not None and hit[0] is cf_obj and hit[1] is liab_obj and (
+        len(hit[2]) == len(cf_obj) and len(hit[3]) == len(liab_obj)
+    ):
+        return hit[2], hit[3]
+    cashflow_tuple = tuple(int(v) for v in cf_obj)
+    joint_tuple = tuple(int(v) for v in liab_obj)
+    if len(_PLAN_TUPLES) >= 64:
+        _PLAN_TUPLES.pop(next(iter(_PLAN_TUPLES)))
+    _PLAN_TUPLES[key] = (cf_obj, liab_obj, cashflow_tuple, joint_tuple)
+    return cashflow_tuple, joint_tuple
+
+
+def _context_replay_inputs(
+    context: OptimizerContext,
+    w: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
+) -> ScopeReplayInputs:
+    """Eingefrorener Simulationskontext einer Allokation (wie ``_simulate_context_wealth``)."""
+    cashflow_tuple, joint_tuple = _context_plan_tuples(context)
+    return ScopeReplayInputs(
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        weights=np.asarray(w, dtype=np.float64),
+        return_paths=context.return_paths,
+        cashflow_series_rappen=cashflow_tuple,
+        joint_liability_path_rappen=joint_tuple,
+        death_year_index_per_path=context.mortality_death_year_index_per_path,
+        tax_regime=context.tax_regime,
+        dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
+        base_calendar_year=context.base_calendar_year,
+        mandate_age_at_start=context.mandate_age_at_start,
+        is_retired=context.is_retired,
+        portfolio_factors=portfolio_factors,
+        goal_reserve_release_series_rappen=context.reserve_goal_release_series_rappen,
+    )
+
+
+def _simulate_context_scope_wealth(
+    context: OptimizerContext,
+    w: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
+) -> tuple[np.ndarray, PriorityScopeWealth]:
+    """``(gemeinsamer Pfad, Scope-Replays)`` einer Allokation.
+
+    Die Portfolio-Faktoren werden einmal je Gewichtsvektor abgeleitet und von
+    gemeinsamem Pfad und allen Scope-Replays geteilt.
+    """
+    factors = (
+        _portfolio_return_factors(context, w)
+        if portfolio_factors is None else portfolio_factors
+    )
+    wealth = _simulate_context_wealth(context, w, portfolio_factors=factors)
+    return wealth, _context_scope_wealth(
+        context, w, wealth, portfolio_factors=factors,
     )
 
 
@@ -760,6 +866,9 @@ def build_optimizer_context(
     # Lauf). Gesetzt = ein Aufrufer, der mehrere Laeufe unter DERSELBEN
     # Mathematik vergleichen muss, hat ihn schon aufgeloest.
     objective_contract: ObjectiveContractV1 | None = None,
+    # GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001: Reserve-Freigaben je Ziel
+    # (bereits in ``cashflow_series_rappen`` enthalten).
+    reserve_goal_release_series_rappen=None,
 ) -> OptimizerContext:
     """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
 
@@ -1086,6 +1195,9 @@ def build_optimizer_context(
             if objective_contract is not None
             else resolve_objective_contract()
         ),
+        reserve_goal_release_series_rappen=release_mapping(
+            reserve_goal_release_series_rappen
+        ),
     )
     # GOAL-REACHABILITY-SCREEN-001: einmal je Context, seit Engine v7 nur
     # Offenlegung auf einem eigenen Screening-Wuerfel (nie der Holdout, der
@@ -1141,32 +1253,33 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
 
 def _evaluation_inputs(
     context: OptimizerContext, w: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """``(portfolio_factors, wealth, annualized_twr)`` EINER Allokation.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, PriorityScopeWealth]:
+    """``(portfolio_factors, wealth, annualized_twr, scope_wealth)`` EINER Allokation.
 
     SAA-RESAMPLED-RUNTIME-001: Faktoren einmal ableiten und fuer Wealth-
     Simulation UND annualisierte Rendite verwenden (bitidentisch).
     GOAL-HIERARCHY-001: Zielfunktion und Stufe-1-Nebenbedingung teilen sich
-    dieselbe Simulation je Punkt.
+    dieselbe Simulation je Punkt -- seit Engine v10 auch dieselben
+    Prioritaets-Scope-Replays (``scope_wealth``, lazy, je Scope einmal).
     """
     portfolio_factors = _portfolio_return_factors(context, w)
-    wealth = _simulate_context_wealth(
-        context, w, portfolio_factors=portfolio_factors
+    wealth, scope_wealth = _simulate_context_scope_wealth(
+        context, w, portfolio_factors=portfolio_factors,
     )
     annualized_twr = _annualized_twr_bps_per_path(
         context, w, portfolio_factors=portfolio_factors
     )
-    return portfolio_factors, wealth, annualized_twr
+    return portfolio_factors, wealth, annualized_twr, scope_wealth
 
 
 def _protected_level_from_inputs(
     context: OptimizerContext,
-    inputs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    inputs: tuple[np.ndarray, np.ndarray, np.ndarray, PriorityScopeWealth],
     *,
     with_per_path: bool = False,
 ) -> tuple[float, np.ndarray | None]:
     """GOAL-HIERARCHY-001: Stufe-1-Zielniveau G1 (erreichbare harte/primaere Ziele)."""
-    _factors, wealth, annualized_twr = inputs
+    _factors, wealth, annualized_twr, scope_wealth = inputs
     return protected_goal_level(
         _stage1_liabilities(context),
         wealth,
@@ -1176,6 +1289,7 @@ def _protected_level_from_inputs(
         annualized_return_bps_per_path=annualized_twr,
         goal_weighting_mode=objective_contract_of(context).goal_weighting_mode,
         with_per_path=with_per_path,
+        scope_wealth=scope_wealth,
     )
 
 
@@ -1208,11 +1322,11 @@ def _stage1_liabilities(context: OptimizerContext) -> list:
 def _objective_from_inputs(
     context: OptimizerContext,
     w: np.ndarray,
-    inputs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    inputs: tuple[np.ndarray, np.ndarray, np.ndarray, PriorityScopeWealth],
 ) -> float:
     """Zielfunktion aus bereits simulierten Inputs (siehe ``_objective_from_array``)."""
     contract = objective_contract_of(context)
-    portfolio_factors, wealth, annualized_twr = inputs
+    portfolio_factors, wealth, annualized_twr, scope_wealth = inputs
     objective = float(combined_objective_two_phase(
         context.liabilities,
         wealth,
@@ -1231,6 +1345,7 @@ def _objective_from_inputs(
         # wuerde geplanter Verzehr als Marktrisiko bewertet.
         portfolio_return_factors=portfolio_factors,
         portfolio_variance=_tiebreak_portfolio_variance(context, w),
+        scope_wealth=scope_wealth,
     ))
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
     # Soft-Preference Target Intent must actually influence the optimization,
@@ -1266,6 +1381,9 @@ def evaluate_weights(
     annualized_twr = _annualized_twr_bps_per_path(
         context, w, portfolio_factors=portfolio_factors
     )
+    scope_wealth = _context_scope_wealth(
+        context, w, wealth, portfolio_factors=portfolio_factors,
+    )
     objective = combined_objective_two_phase(
         context.liabilities,
         wealth,
@@ -1287,6 +1405,7 @@ def evaluate_weights(
         portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
         portfolio_variance=_tiebreak_portfolio_variance(context, w),
+        scope_wealth=scope_wealth,
     )
     # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as
     # `_objective_from_array`, so `evaluate_weights(ctx, result.weights_bps)
@@ -1407,7 +1526,16 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # (Multi-Start: alle Screen-Kandidaten + Zentrum), obere Wilson-Grenze
 # (Kish-ESS) des Optimums < tau/2 auf dem Screening-Wuerfel. (Die
 # Priority-Replay-Arbeit folgt als v10.)
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v9"
+#
+# v10 (2026-10-19, GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001 +
+# GOAL-OPTIMIZATION-PUBLICATION-SCOPE-SPLIT-001 +
+# GOAL-FAILURE-EVENT-MODE-COLLAPSE-001, Codex-Reviews 2026-10-18):
+# prioritaetsgeschuetzte Pfade per DIREKTEM Replay je eindeutigem Scope
+# (gleiche Szenarien, Cashflows, Steuer, Todesmaske, Reserve-Freigaben;
+# ``priority_scope.py``) statt Rueckwaertsrekonstruktion; Fehlbetrag,
+# Chance-Strafe, Stufe 1, Screen und Publikation auf DEMSELBEN Scope; volle
+# Ursachenverteilung je Ziel. Bewusst neue Wuerfel (Version im Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v10"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2125,6 +2253,8 @@ def run_solver(
     # SAA-RESAMPLED-STABILITY-001: None = Produktions-Resampling
     # (DEFAULT_RESAMPLING). Nur Vergleichsmessungen setzen SINGLE_CUBE.
     resampling: ResamplingConfig | None = None,
+    # GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001: an build_optimizer_context.
+    reserve_goal_release_series_rappen=None,
 ) -> OptimizerResult:
     """Mulvey-Light SLSQP Optimizer mit Resampled Efficiency.
 
@@ -2174,6 +2304,7 @@ def run_solver(
             preferred_target_bps=preferred_target_bps,
             preference_penalty_lambda=preference_penalty_lambda,
             objective_contract=objective_contract,
+            reserve_goal_release_series_rappen=reserve_goal_release_series_rappen,
         )
     elif not isinstance(context, OptimizerContext):
         raise OptimizerInputError(
@@ -2347,7 +2478,7 @@ def _goal_protection_stage(
             # Glatte Naeherung von G1 (Fehlbetrag exakt, Erfolgsindikator
             # logistisch geglaettet) -- nur fuer die Suche; entschieden wird
             # mit dem exakten G1 (``_finite_feasible_candidate(..., level)``).
-            _factors, wealth, annualized_twr = memo.inputs(w)
+            _factors, wealth, annualized_twr, scope_wealth = memo.inputs(w)
             return protected_goal_level_surrogate(
                 protected, wealth,
                 initial_wealth_rappen=context.advisory_wealth_rappen,
@@ -2355,6 +2486,7 @@ def _goal_protection_stage(
                 weights=context.scenario_weights,
                 annualized_return_bps_per_path=annualized_twr,
                 goal_weighting_mode=goal_weighting_mode,
+                scope_wealth=scope_wealth,
             )
 
         # Numerik: SLSQP-ftol ist absolut -> relativ zum Startwert skaliert.
@@ -2874,7 +3006,7 @@ def _house_midpoint_fallback_result(
     )
     weights_bps = _weights_to_bps_dict(mid, bounds=bounds)
     midpoint_w = _trusted_weights_bps_to_array(weights_bps)
-    mid_wealth = _simulate_context_wealth(context, midpoint_w)
+    mid_wealth, mid_scopes = _simulate_context_scope_wealth(context, midpoint_w)
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: auch der House-Fallback publiziert
     # den typisierten Vertrag (Zielzeilen nach Prioritaet + Plan-Solvenz).
     goal_achievability = publish_goal_achievability(
@@ -2885,6 +3017,7 @@ def _house_midpoint_fallback_result(
         annualized_return_bps_per_path=_annualized_twr_bps_per_path(
             context, midpoint_w
         ),
+        scope_wealth=mid_scopes,
     )
     fallback_preference_deviation = (
         preference_deviation_bps(weights_bps, context.preferred_target_bps)
@@ -3130,7 +3263,7 @@ def _finalize_solver_result(
             f"({post_round_objective!r}); ein solcher Lauf ist nicht "
             "bewertbar und darf nicht als konvergiert gelten.",
         )
-    final_wealth = _simulate_context_wealth(context, rounded_w)
+    final_wealth, final_scopes = _simulate_context_scope_wealth(context, rounded_w)
     train_achievability = publish_goal_achievability(
         final_wealth,
         context.liabilities,
@@ -3139,6 +3272,7 @@ def _finalize_solver_result(
         annualized_return_bps_per_path=_annualized_twr_bps_per_path(
             context, rounded_w
         ),
+        scope_wealth=final_scopes,
     )
     # OPTIMIZER-POST-SELECTION-CERTIFICATION-001: der Gewinner wird auf einem
     # UNABHAENGIGEN Cube nachzertifiziert. Was publiziert wird, ist die
@@ -3486,8 +3620,13 @@ def _context_loss_components_on_validation(
     )
 
     def _prepare(w: np.ndarray):
-        wealth = _simulate_context_wealth(validation_context, w)
         factors = _portfolio_return_factors(validation_context, w)
+        wealth = _simulate_context_wealth(
+            validation_context, w, portfolio_factors=factors,
+        )
+        scopes = _context_scope_wealth(
+            validation_context, w, wealth, portfolio_factors=factors,
+        )
         annualized = _annualized_twr_bps_per_path(
             validation_context, w, portfolio_factors=factors
         )
@@ -3508,14 +3647,15 @@ def _context_loss_components_on_validation(
             else None
         )
         variance = _tiebreak_portfolio_variance(validation_context, w)
-        return wealth, factors, annualized, float(preference), drawdowns, variance
+        return wealth, factors, annualized, float(preference), drawdowns, variance, scopes
 
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
 
     def _components(bundle, idx) -> tuple[float, float]:
-        wealth, factors, annualized, preference, drawdowns, variance = bundle
+        wealth, factors, annualized, preference, drawdowns, variance, scopes = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
+            scopes = scopes.subset(idx)
             if drawdowns is not None:
                 drawdowns = drawdowns[idx]
         primary_override, primary_weight = None, 1.0
@@ -3547,6 +3687,7 @@ def _context_loss_components_on_validation(
             portfolio_return_factors=factors,
             primary_value_override=primary_override,
             portfolio_variance=variance,
+            scope_wealth=scopes,
         )
         risk_level = float(tiebreak) if is_default else float(primary_override)
         return float(goal_level) + float(preference), risk_level
@@ -4159,7 +4300,7 @@ def _validation_goal_rows(
     w: np.ndarray,
     validation_seed: int,
 ) -> list[dict]:
-    wealth = _simulate_context_wealth(validation_context, w)
+    wealth, scopes = _simulate_context_scope_wealth(validation_context, w)
     return publish_goal_achievability(
         wealth,
         validation_context.liabilities,
@@ -4169,6 +4310,7 @@ def _validation_goal_rows(
             validation_context, w
         ),
         validation_seed=int(validation_seed),
+        scope_wealth=scopes,
     )
 
 

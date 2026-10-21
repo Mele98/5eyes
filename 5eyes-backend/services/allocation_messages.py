@@ -407,15 +407,15 @@ def classify_messages(
 def _single_shared_failure_event(rows: list[dict]) -> str | None:
     """Gemeinsame typisierte Ursache ALLER Zeilen, sonst None.
 
-    Nur ``failure_event_id`` zaehlt (vom Optimizer typisiert, siehe
-    services/optimizer/goal_attribution.py). Zeilen ohne Ursache -- etwa
-    Altbewertungen -- gelten konservativ als je eigene Ursache.
+    GOAL-FAILURE-EVENT-MODE-COLLAPSE-001 (Engine v10): nur ein Ereignis, das
+    die GESAMTE Fehlschlagsmasse jeder Zeile traegt
+    (``goal_attribution.shared_failure_event``). Teilmasse anderer Ursachen
+    oder Zeilen ohne Ursache -- etwa Altbewertungen -- gelten konservativ
+    als je eigene Ursache.
     """
-    events = {str(row.get("failure_event_id") or "") for row in rows}
-    if len(events) == 1:
-        event = next(iter(events))
-        return event or None
-    return None
+    from services.optimizer.goal_attribution import shared_failure_event
+
+    return shared_failure_event(rows)
 
 
 def _failure_event_label(event_id: str) -> str:

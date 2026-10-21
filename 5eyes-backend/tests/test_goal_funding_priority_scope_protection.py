@@ -65,16 +65,45 @@ def _goal(
     )
 
 
+# Engine v10 (GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001): der priorisierte Scope
+# wird direkt simuliert statt rueckwaerts rekonstruiert. Die Simulations-
+# helfer registrieren ihren Kontext; ``_scopes`` reicht ihn als
+# ``scope_wealth`` an die Bewertung weiter.
+_REPLAYS: dict = {}
+
+
+def _register(wealth, **simulate_kwargs):
+    from services.optimizer.priority_scope import ScopeReplayInputs
+
+    _REPLAYS[id(wealth)] = (wealth, ScopeReplayInputs(
+        initial_wealth_rappen=simulate_kwargs["initial_wealth_rappen"],
+        weights=simulate_kwargs["weights"],
+        return_paths=simulate_kwargs["return_paths"],
+        cashflow_series_rappen=tuple(simulate_kwargs["cashflow_series_rappen"]),
+        joint_liability_path_rappen=tuple(int(v) for v in simulate_kwargs["liability_path_rappen"]),
+    ))
+    return wealth
+
+
+def _scopes(wealth, liabilities):
+    from services.optimizer.priority_scope import PriorityScopeWealth
+
+    entry = _REPLAYS.get(id(wealth))
+    replay = entry[1] if entry is not None and entry[0] is wealth else None
+    return PriorityScopeWealth(joint=wealth, liabilities=list(liabilities), replay=replay)
+
+
 def _simulate(initial_wealth_rappen: int, liability_path_rappen: list[int]) -> np.ndarray:
     weights = np.full(N_BUCKETS, 1.0 / N_BUCKETS, dtype=np.float64)
     return_paths = np.ones((1, HORIZON_YEARS, N_BUCKETS), dtype=np.float64)
-    return simulate_wealth_paths(
+    kwargs = dict(
         initial_wealth_rappen=initial_wealth_rappen,
         weights=weights,
         return_paths=return_paths,
         cashflow_series_rappen=[0] * HORIZON_YEARS,
         liability_path_rappen=liability_path_rappen,
     )
+    return _register(simulate_wealth_paths(**kwargs), **kwargs)
 
 
 def test_golden_case_1_hard_rank1_protected_from_opportunistic_rank5():
@@ -100,12 +129,10 @@ def test_golden_case_1_hard_rank1_protected_from_opportunistic_rank5():
     opportunistic_liability = liabilities[1]
 
     p_protected_hard = float(
-        goal_probability_per_path(wealth_joint, hard_liability, initial_value_rappen=100).mean()
+        goal_probability_per_path(wealth_joint, hard_liability, initial_value_rappen=100, scope_wealth=_scopes(wealth_joint, [hard_liability])).mean()
     )
     p_protected_opp = float(
-        goal_probability_per_path(
-            wealth_joint, opportunistic_liability, initial_value_rappen=100
-        ).mean()
+        goal_probability_per_path(wealth_joint, opportunistic_liability, initial_value_rappen=100, scope_wealth=_scopes(wealth_joint, [opportunistic_liability])).mean()
     )
 
     assert p_protected_hard == pytest.approx(1.0), (
@@ -134,10 +161,10 @@ def test_golden_case_3_sufficient_wealth_both_goals_admissible():
     wealth_joint = _simulate(120, liabilities[0].joint_liability_path_rappen)
 
     p_hard = float(
-        goal_probability_per_path(wealth_joint, liabilities[0], initial_value_rappen=120).mean()
+        goal_probability_per_path(wealth_joint, liabilities[0], initial_value_rappen=120, scope_wealth=_scopes(wealth_joint, [liabilities[0]])).mean()
     )
     p_opp = float(
-        goal_probability_per_path(wealth_joint, liabilities[1], initial_value_rappen=120).mean()
+        goal_probability_per_path(wealth_joint, liabilities[1], initial_value_rappen=120, scope_wealth=_scopes(wealth_joint, [liabilities[1]])).mean()
     )
     assert p_hard == pytest.approx(1.0)
     assert p_opp == pytest.approx(1.0)
@@ -167,10 +194,10 @@ def test_hard_invariant_lower_priority_non_interference():
     wealth_large = _simulate(100, liabilities_large[0].joint_liability_path_rappen)
 
     p_hard_small = float(
-        goal_probability_per_path(wealth_small, liabilities_small[0], initial_value_rappen=100).mean()
+        goal_probability_per_path(wealth_small, liabilities_small[0], initial_value_rappen=100, scope_wealth=_scopes(wealth_small, [liabilities_small[0]])).mean()
     )
     p_hard_large = float(
-        goal_probability_per_path(wealth_large, liabilities_large[0], initial_value_rappen=100).mean()
+        goal_probability_per_path(wealth_large, liabilities_large[0], initial_value_rappen=100, scope_wealth=_scopes(wealth_large, [liabilities_large[0]])).mean()
     )
     assert p_hard_small == pytest.approx(1.0)
     assert p_hard_large == pytest.approx(1.0)
@@ -206,9 +233,9 @@ def test_input_order_invariance_permutation_does_not_change_protected_outcome():
     wealth_reversed = _simulate(100, reversed_hard.joint_liability_path_rappen)
 
     p_forward = float(
-        goal_probability_per_path(wealth_forward, forward_hard, initial_value_rappen=100).mean()
+        goal_probability_per_path(wealth_forward, forward_hard, initial_value_rappen=100, scope_wealth=_scopes(wealth_forward, [forward_hard])).mean()
     )
     p_reversed = float(
-        goal_probability_per_path(wealth_reversed, reversed_hard, initial_value_rappen=100).mean()
+        goal_probability_per_path(wealth_reversed, reversed_hard, initial_value_rappen=100, scope_wealth=_scopes(wealth_reversed, [reversed_hard])).mean()
     )
     assert p_forward == pytest.approx(p_reversed)

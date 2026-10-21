@@ -15,6 +15,13 @@ Sekundaer (Priorität 2, als stetiger Tiebreak, OBJECTIVE-NORMALIZATION-001):
 Chance-Constraint (Ziel-Untergrenze, jeder Modus):
     Σ_g max(0, tau_g - LB_g) · (Zielvolumen_g / W0)^2
 
+Bewertungs-Scope (Engine ``saa_resampled_v10``, GOAL-OPTIMIZATION-PUBLICATION-
+SCOPE-SPLIT-001): ``wealth_g`` ist der prioritaetsgeschuetzte Pfad des Ziels
+(nur Abfluesse der Raenge <= rank(g)), per DIREKTEM Replay auf denselben
+Szenarien (``priority_scope.PriorityScopeWealth``, Argument ``scope_wealth``)
+-- derselbe Pfad, den die Publikation (``goal_attribution``) ausweist. Ohne
+``scope_wealth`` bricht jedes Ziel mit abweichendem Scope fail-closed ab.
+
 Hardness-Weights (OWNER-DECISION OD-1, vom User bestaetigt):
     hart: 10.0    primaer: 1.0    opportunistisch: 0.2
 Seit GOAL-HARDNESS-DEFAULT-001 (Engine ``saa_resampled_v7``) standardmaessig
@@ -36,7 +43,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import numpy as np
 
@@ -49,6 +56,12 @@ from .certification import (
     wilson_lower_bound,
 )
 from .goal_liabilities import GoalLiability
+from .priority_scope import (
+    PriorityScopeWealth,
+    ScopeReplayInputs,
+    _scope_differs,
+    scope_wealth_for,
+)
 
 
 # OBJECTIVE-NORMALIZATION-001 (2026-10-18): Gewicht der Chance-Constraint-
@@ -617,57 +630,38 @@ def shortfall_squared_per_path(
 def _priority_protected_wealth_paths(
     wealth_paths: np.ndarray,
     goal: GoalLiability,
+    *,
+    replay: ScopeReplayInputs | None = None,
+    liabilities: Sequence[GoalLiability] | None = None,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> tuple[np.ndarray, bool]:
-    """Reconstruct `goal`'s priority-protected wealth trajectory.
+    """Prioritaetsgeschuetzter Vermoegenspfad von ``goal`` per DIREKTEM Replay.
 
-    GOAL-FUNDING-PRIORITY-001 (CERT-GOAL-FUNDING-001), Spec Sec. 4.2: a goal
-    with rank ``r`` must be evaluated on the cumulative scope
-    ``S_r = {h | rank(h) <= r}``, not on the unprotected joint aggregate of
-    every requested goal. ``goals_to_liabilities()`` precomputes, for every
-    goal in a batch, ``priority_scope_liability_path_rappen`` (the scope-r
-    cumulative outflow) and ``joint_liability_path_rappen`` (the full
-    unprotected aggregate -- what actually produced the given
-    ``wealth_paths``).
+    GOAL-FUNDING-PRIORITY-001 / GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001
+    (Engine ``saa_resampled_v10``): ein Ziel mit Rang ``r`` wird auf dem
+    kumulativen Scope ``S_r = {h | rank(h) <= r}`` bewertet. Bis v8 wurde
+    dieser Pfad aus ``wealth_paths`` rueckwaerts rekonstruiert -- additive
+    Cashflows wurden dabei als Rendite skaliert (100 -> 100 -> 600 statt
+    200), die Todesmaske ging verloren (100 -> 160 statt 100). Jetzt wird
+    der Scope mit ``scenario_engine.simulate_wealth_paths`` auf denselben
+    Szenarien neu simuliert (``services/optimizer/priority_scope.py``).
 
-    When both are present and differ, this derives the per-path, per-year
-    growth factor directly from the already-realized joint trajectory
-    (``simulate_wealth_paths`` applies growth before subtracting the
-    liability for that year) and re-applies that SAME realized growth to the
-    scope-protected liability path instead. This is mathematically identical
-    to re-running ``simulate_wealth_paths`` on the same scenario cube with a
-    different liability path (common random numbers, Hard Invariant #3) as
-    long as liability subtraction does not itself feed back into growth
-    (true when ``tax_regime`` is inactive; a known approximation otherwise,
-    see PR description). It is NOT path-wise lookahead: every return used
-    here already happened in the given ``wealth_paths``; no later year's
-    return is consulted to decide an earlier year's funding order.
+    ``replay``: eingefrorener Simulationskontext des gemeinsamen Pfads;
+    ``liabilities``: der volle Batch (Reserve-Freigaben ausserhalb des
+    Scopes); alternativ ein bereits gebautes ``scope_wealth``. Ohne Kontext
+    und mit abweichendem Scope: ``PriorityScopeUnavailableError``.
 
-    Returns (wealth_paths_or_reconstruction, was_reconstructed).
+    Returns (wealth_paths_or_replay, was_replayed).
     """
-    scope_path = goal.priority_scope_liability_path_rappen
-    joint_path = goal.joint_liability_path_rappen
-    if not scope_path or not joint_path or list(scope_path) == list(joint_path):
+    if not _scope_differs(goal):
         return wealth_paths, False
-
-    n_cols = wealth_paths.shape[1]
-    horizon = n_cols - 1
-    protected = np.array(wealth_paths, dtype=np.float64, copy=True)
-    prev_joint = wealth_paths[:, 0]
-    prev_protected = protected[:, 0]
-    for t in range(horizon):
-        joint_next = wealth_paths[:, t + 1]
-        joint_liab_t = float(joint_path[t]) if t < len(joint_path) else 0.0
-        scope_liab_t = float(scope_path[t]) if t < len(scope_path) else 0.0
-        pre_liability_joint = joint_next + joint_liab_t
-        with np.errstate(divide="ignore", invalid="ignore"):
-            growth_factor = np.where(
-                prev_joint != 0.0, pre_liability_joint / prev_joint, 1.0
-            )
-        protected_next = prev_protected * growth_factor - scope_liab_t
-        protected[:, t + 1] = protected_next
-        prev_joint = joint_next
-        prev_protected = protected_next
-    return protected, True
+    if scope_wealth is None:
+        scope_wealth = PriorityScopeWealth(
+            joint=wealth_paths,
+            liabilities=list(liabilities) if liabilities is not None else [goal],
+            replay=replay,
+        )
+    return scope_wealth.for_goal(goal), True
 
 
 def _goal_probability_core(
@@ -732,28 +726,23 @@ def goal_probability_per_path(
     goal: GoalLiability,
     initial_value_rappen: int,
     annualized_return_bps_per_path: np.ndarray | None = None,
+    *,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> np.ndarray:
     """Returns an int array with 1 where the goal is achieved, else 0.
 
-    GOAL-FUNDING-PRIORITY-001: when `goal` carries priority-scope evidence
-    (built via ``goals_to_liabilities()``), the goal is evaluated on its own
-    priority-protected wealth trajectory (Spec Sec. 4.2 ``P_protected(g)``),
-    not on the raw ``wealth_paths`` the caller supplies -- a lower-priority
-    (higher-rank) goal's outflow must not be able to drag a higher-priority
-    goal's achievability below what it would have been without it. Callers
-    that deliberately want the unprotected joint-requested-plan view (e.g.
-    ``chance_constraint_penalty`` below) use ``_goal_probability_core``
-    directly instead of this public wrapper.
+    GOAL-FUNDING-PRIORITY-001: evaluated on the goal's own priority scope
+    (Spec Sec. 4.2 ``P_protected(g)``). Since engine v10 that path comes from
+    a direct replay (``scope_wealth``); without one, a goal whose scope
+    differs from ``wealth_paths`` fails closed. The cashflow-neutral TWR is a
+    portfolio property and therefore scope-independent.
     """
-    protected_wealth_paths, reconstructed = _priority_protected_wealth_paths(
-        wealth_paths, goal
-    )
-    effective_twr = None if reconstructed else annualized_return_bps_per_path
+    paths = scope_wealth_for(wealth_paths, [goal], scope_wealth).for_goal(goal)
     return _goal_probability_core(
-        protected_wealth_paths,
+        paths,
         goal,
         initial_value_rappen,
-        annualized_return_bps_per_path=effective_twr,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
 
 
@@ -896,6 +885,7 @@ def chance_constraint_penalty(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     validation_seed: int | None = None,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> tuple[float, list[dict]]:
     """Return chance-constraint penalty and per-goal achievability rows.
 
@@ -986,22 +976,21 @@ def chance_constraint_penalty(
     else:
         weights_arr = None
         weight_sum = None
+    goal_liabilities = list(goal_liabilities)
+    scoped = scope_wealth_for(wealth_paths, goal_liabilities, scope_wealth)
     for goal in goal_liabilities:
-        # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
-        # 4.2 `W_joint_requested`/`P_joint_requested`): the chance-constraint
-        # term feeding the SLSQP objective is unchanged by
-        # GOAL-FUNDING-PRIORITY-001 and GOAL-ACHIEVABILITY-ATTRIBUTION-001.
+        # GOAL-OPTIMIZATION-PUBLICATION-SCOPE-SPLIT-001 (Engine v10): die
+        # Strafe eines Ziels bewertet DENSELBEN priorisierten Scope wie die
+        # Publikation (``publish_goal_achievability``), per direktem Replay
+        # (``priority_scope``). Ein niedriger priorisiertes Ziel kann die
+        # Ziel-Untergrenze eines hoeher priorisierten damit nicht mehr
+        # ausloesen. Bis v8 bewertete die Strafe den gemeinsamen Pfad
+        # (intern 0 %, publiziert 100 %).
         #
-        # GOAL-ACHIEVABILITY-ATTRIBUTION-001 (2026-10-14): the rows returned
-        # here are the PENALTY's internal per-goal view of the joint path and
-        # are NOT published any more. Every publication point (solver
-        # result, validation cube, House fallback) uses
-        # `services.optimizer.goal_attribution.publish_goal_achievability`,
-        # which emits priority-funded goal rows plus exactly ONE joint-plan
-        # row. The rows are tagged with their own scope so that an
-        # accidental publication is recognisable as non-individual evidence.
+        # Die Zeilen bleiben interne Sicht und werden nicht publiziert; sie
+        # tragen einen eigenen Scope-Tag.
         per_path = _goal_probability_core(
-            wealth_paths,
+            scoped.for_goal(goal),
             goal,
             initial_value_rappen,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
@@ -1072,7 +1061,7 @@ def chance_constraint_penalty(
             # Gleicher Feldname wie im MC-Kanal, damit ein Konsument beide
             # Strecken gleich lesen kann.
             "outside_simulation_horizon": outside_horizon,
-            "evaluation_scope": "joint_path_chance_penalty",
+            "evaluation_scope": "priority_funded_chance_penalty",
         })
     return float(penalty), achievability
 
@@ -1086,6 +1075,7 @@ def shortfall_objective(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     goal_weighting_mode: str | None = None,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> float:
     """Primaere Objective L(w): gewichteter dimensionsloser MSE-Shortfall.
 
@@ -1143,14 +1133,19 @@ def shortfall_objective(
         weight_sum = float(np.sum(weights_arr))
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
+    liabilities = list(liabilities)
+    # GOAL-OPTIMIZATION-PUBLICATION-SCOPE-SPLIT-001 (Engine v10): jedes Ziel
+    # auf seinem priorisierten Scope (direkter Replay), wie in der Publikation.
+    scoped = scope_wealth_for(wealth_paths, liabilities, scope_wealth)
     for liab in liabilities:
+        goal_wealth = scoped.for_goal(liab)
         h_weight = _goal_hardness_weight(liab, goal_weighting_mode)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
         if liab.target_kind == "maximize":
             # MAXIMIZE-GOAL-001: Wachstumsterm statt Fehlbetrag (negativ =
             # Nutzen; die Zielfunktion wird minimiert).
             growth = maximize_growth_per_path(
-                liab, wealth_paths,
+                liab, goal_wealth,
                 initial_wealth_rappen=initial_wealth_rappen,
                 annualized_return_bps_per_path=annualized_return_bps_per_path,
             )
@@ -1161,7 +1156,7 @@ def shortfall_objective(
             total -= MAXIMIZE_GROWTH_WEIGHT * h_weight * g_weight * mean_growth
             continue
         per_path = shortfall_squared_per_path(
-            liab, wealth_paths,
+            liab, goal_wealth,
             initial_wealth_rappen=initial_wealth_rappen,
             horizon_years=horizon_years,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
@@ -1252,6 +1247,7 @@ def shortfall_contributions(
     horizon_years: int,
     annualized_return_bps_per_path: np.ndarray | None = None,
     goal_weighting_mode: str | None = None,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> list[GoalShortfallContribution]:
     """Pro Goal: Mean-Shortfall² und gewichteter Beitrag zum Objective.
 
@@ -1273,10 +1269,13 @@ def shortfall_contributions(
         return rows
     context_scale_rappen = _context_scale_rappen(initial_wealth_rappen)
     inv_n = 1.0 / n_paths
+    liabilities = list(liabilities)
+    scoped = scope_wealth_for(wealth_paths, liabilities, scope_wealth)
     for liab in liabilities:
+        goal_wealth = scoped.for_goal(liab)
         per_path = shortfall_squared_per_path(
             liab,
-            wealth_paths,
+            goal_wealth,
             initial_wealth_rappen=initial_wealth_rappen,
             horizon_years=horizon_years,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
@@ -1292,7 +1291,7 @@ def shortfall_contributions(
             # MAXIMIZE-GOAL-001: derselbe Term wie in ``shortfall_objective``
             # (Summe der Beitraege = L(w)); kein Fehlbetrag.
             growth = maximize_growth_per_path(
-                liab, wealth_paths,
+                liab, goal_wealth,
                 initial_wealth_rappen=initial_wealth_rappen,
                 annualized_return_bps_per_path=annualized_return_bps_per_path,
             )
@@ -1361,6 +1360,7 @@ def combined_objective_two_phase(
     goal_weighting_mode: str | None = None,
     portfolio_return_factors: np.ndarray | None = None,
     portfolio_variance: float | None = None,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> float:
     """Skalare Zielfunktion des Solvers: Ziel-Stufe + IMMER aktiver Tiebreak.
 
@@ -1411,6 +1411,7 @@ def combined_objective_two_phase(
         goal_weighting_mode=goal_weighting_mode,
         portfolio_return_factors=portfolio_return_factors,
         portfolio_variance=portfolio_variance,
+        scope_wealth=scope_wealth,
     )
     return goal_level + tiebreak
 
@@ -1431,6 +1432,7 @@ def two_phase_objective_parts(
     portfolio_return_factors: np.ndarray | None = None,
     portfolio_variance: float | None = None,
     primary_value_override: float | None = None,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> tuple[float, float]:
     """Die beiden Terme von ``combined_objective_two_phase`` GETRENNT.
 
@@ -1466,6 +1468,7 @@ def two_phase_objective_parts(
             weights=weights,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
             goal_weighting_mode=goal_weighting_mode,
+            scope_wealth=scope_wealth,
         )
         if is_goal_shortfall
         else 0.0
@@ -1492,6 +1495,7 @@ def two_phase_objective_parts(
         # _objective_from_array/evaluate_weights (solver.py), die weights setzen.
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
+        scope_wealth=scope_wealth,
     )
     kappa = (
         TIEBREAK_VARIANCE_WEIGHT if volatility_weight is None else float(volatility_weight)
@@ -1543,6 +1547,7 @@ def protected_goal_level(
     annualized_return_bps_per_path: np.ndarray | None = None,
     goal_weighting_mode: str | None = None,
     with_per_path: bool = False,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> tuple[float, np.ndarray | None]:
     """Stufe-1-Zielniveau ``G1(w)`` der harten/primaeren Ziele.
 
@@ -1568,6 +1573,7 @@ def protected_goal_level(
     if not liability_list or n_paths <= 0:
         return 0.0, (np.zeros(max(0, n_paths)) if with_per_path else None)
     scale = _context_scale_rappen(initial_wealth_rappen)
+    scoped = scope_wealth_for(wealth_paths, liability_list, scope_wealth)
     level = shortfall_objective(
         liability_list, wealth_paths,
         initial_wealth_rappen=initial_wealth_rappen,
@@ -1575,6 +1581,7 @@ def protected_goal_level(
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
         goal_weighting_mode=goal_weighting_mode,
+        scope_wealth=scoped,
     )
     per_path = np.zeros(n_paths, dtype=np.float64) if with_per_path else None
     for liab in liability_list:
@@ -1583,20 +1590,22 @@ def protected_goal_level(
             wealth_paths, [liab], int(initial_wealth_rappen),
             weights=weights,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
+            scope_wealth=scoped,
         )
         level += float(chance)
         if per_path is None:
             continue
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
+        goal_wealth = scoped.for_goal(liab)
         shortfall = shortfall_squared_per_path(
-            liab, wealth_paths,
+            liab, goal_wealth,
             initial_wealth_rappen=initial_wealth_rappen,
             horizon_years=horizon_years,
             annualized_return_bps_per_path=annualized_return_bps_per_path,
             normalization_scale_rappen=scale,
         )
         success = _goal_probability_core(
-            wealth_paths, liab, int(initial_wealth_rappen),
+            goal_wealth, liab, int(initial_wealth_rappen),
             annualized_return_bps_per_path=annualized_return_bps_per_path,
         ).astype(np.float64)
         volume = goal_volume_rappen(
@@ -1682,6 +1691,7 @@ def protected_goal_level_surrogate(
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
     goal_weighting_mode: str | None = None,
+    scope_wealth: PriorityScopeWealth | None = None,
 ) -> float:
     """Glatte Naeherung von ``protected_goal_level`` fuer die Stufe-1-SUCHE.
 
@@ -1696,6 +1706,7 @@ def protected_goal_level_surrogate(
     n_paths = wealth_paths.shape[0]
     if not liability_list or n_paths <= 0:
         return 0.0
+    scoped = scope_wealth_for(wealth_paths, liability_list, scope_wealth)
     level = shortfall_objective(
         liability_list, wealth_paths,
         initial_wealth_rappen=initial_wealth_rappen,
@@ -1703,6 +1714,7 @@ def protected_goal_level_surrogate(
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
         goal_weighting_mode=goal_weighting_mode,
+        scope_wealth=scoped,
     )
     scale = _context_scale_rappen(initial_wealth_rappen)
     if weights is None:
@@ -1713,7 +1725,8 @@ def protected_goal_level_surrogate(
         n_eff = float(effective_sample_size(w))
     for liab in liability_list:
         margin = _success_margin_per_path(
-            liab, wealth_paths, initial_wealth_rappen, annualized_return_bps_per_path,
+            liab, scoped.for_goal(liab), initial_wealth_rappen,
+            annualized_return_bps_per_path,
         )
         if margin is None:
             continue

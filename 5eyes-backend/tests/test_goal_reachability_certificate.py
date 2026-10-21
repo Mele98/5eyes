@@ -285,4 +285,5 @@ def test_policy_versions_are_bound_in_the_objective_contract():
     assert "certif" in reachability.GOAL_REACHABILITY_SCREEN_VERSION
     assert evidence["goal_demotion_policy"] == DEMOTED_GOAL_POLICY_VERSION
     assert DEMOTED_GOAL_POLICY_VERSION.startswith("certified_unreachable_")
-    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v9"
+    # v10: Priority-Scope-Replay (GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001) auf v9.
+    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v10"

@@ -512,6 +512,12 @@ def _run_stochastic_optimizer_pass(
         cashflow_projection_series_rappen = reserve_ledger.effective_cashflow_series(
             ([int(v) for v in cashflow_projection_series_rappen] + [0] * horizon)[:horizon]
         )
+    # GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001 (Engine v10): Ziel-Freigaben je
+    # Ziel, damit der direkte Scope-Replay sie mit den Zielen ausserhalb des
+    # Scopes entfernt.
+    from services.optimizer.priority_scope import goal_release_series_from_ledger
+
+    reserve_goal_releases = goal_release_series_from_ledger(reserve_ledger, horizon)
 
     optimizer_context = None
     try:
@@ -533,6 +539,7 @@ def _run_stochastic_optimizer_pass(
             sub_allocations=sub_allocations,
             effective_bounds_bps=effective_bounds_bps,
             preferred_target_bps=preferred_target_bps,
+            reserve_goal_release_series_rappen=reserve_goal_releases,
             **mortality_kwargs,
             **tax_kwargs,
         )
@@ -795,7 +802,7 @@ def _synchronize_fallback_optimizer_result(
         from services.optimizer.goal_attribution import publish_goal_achievability
         from services.optimizer.solver import (
             _annualized_twr_bps_per_path,
-            _simulate_context_wealth,
+            _simulate_context_scope_wealth,
             _weights_bps_to_array,
             evaluate_weights,
         )
@@ -807,7 +814,7 @@ def _synchronize_fallback_optimizer_result(
                 + "; ".join(evaluation.constraint_violations)
             )
         active_array = _weights_bps_to_array(active)
-        wealth_paths = _simulate_context_wealth(context, active_array)
+        wealth_paths, scope_wealth = _simulate_context_scope_wealth(context, active_array)
         achievability = publish_goal_achievability(
             wealth_paths,
             context.liabilities,
@@ -816,6 +823,7 @@ def _synchronize_fallback_optimizer_result(
             annualized_return_bps_per_path=_annualized_twr_bps_per_path(
                 context, active_array
             ),
+            scope_wealth=scope_wealth,
         )
         # GOAL-REACHABILITY-SCREEN-001: dieselbe Offenlegung wie im Solver.
         from services.optimizer.goal_reachability import annotate_rows
@@ -1361,7 +1369,7 @@ def _build_optimizer_explainability(
         from services.optimizer.objective_contract import objective_contract_of
         from services.optimizer.solver import (
             _annualized_twr_bps_per_path,
-            _simulate_context_wealth,
+            _simulate_context_scope_wealth,
             _weights_bps_to_array,
             build_optimizer_context,
         )
@@ -1429,10 +1437,11 @@ def _build_optimizer_explainability(
     drivers_payload: list[dict] = []
     try:
         active_w = _weights_bps_to_array(active_weights_bps)
-        wealth_paths = _simulate_context_wealth(context, active_w)
+        wealth_paths, scope_wealth = _simulate_context_scope_wealth(context, active_w)
         contribution_rows = shortfall_contributions(
             context.liabilities,
             wealth_paths,
+            scope_wealth=scope_wealth,
             initial_wealth_rappen=context.advisory_wealth_rappen,
             horizon_years=context.horizon_years,
             annualized_return_bps_per_path=_annualized_twr_bps_per_path(
@@ -1468,9 +1477,11 @@ def _build_optimizer_explainability(
                 ),
                 "rank": rank,
                 # GOAL-ACHIEVABILITY-ATTRIBUTION-001 (Reparaturvertrag Punkt
-                # 5): der Beitrag ist der gewichtete Verlustterm dieses Ziels
-                # auf dem GEMEINSAMEN Pfad, kein kausaler/marginaler Anteil.
-                "evaluation_scope": "weighted_loss_component_under_joint_path",
+                # 5): der Beitrag ist der gewichtete Verlustterm dieses Ziels,
+                # kein kausaler/marginaler Anteil. Engine v10: bewertet auf
+                # dem priorisierten Scope des Ziels -- derselbe Term, den der
+                # Solver optimiert und die Publikation ausweist.
+                "evaluation_scope": "weighted_loss_component_under_priority_scope",
             })
     except Exception as exc:  # noqa: BLE001
         logger.warning(
