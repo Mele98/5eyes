@@ -3,7 +3,7 @@
     "css_selectors": 1118,
     "event_handlers": 452,
     "ids": 983,
-    "js_functions": 1262,
+    "js_functions": 1263,
     "modal_structures": 99,
     "script_blocks": 19,
     "style_blocks": 3,
@@ -14165,12 +14165,12 @@
     },
     {
       "declaration": "function",
-      "line": 30288,
+      "line": 30303,
       "name": "_reviewIsDiscretionaryMandate"
     },
     {
       "declaration": "function",
-      "line": 30284,
+      "line": 30299,
       "name": "_reviewIsIlliquidAssetClass"
     },
     {
@@ -14252,6 +14252,11 @@
       "declaration": "function",
       "line": 29744,
       "name": "aaActionCardHtml"
+    },
+    {
+      "declaration": "function",
+      "line": 30203,
+      "name": "aaKnowledgeGapCardBody"
     },
     {
       "declaration": "function",
@@ -16870,7 +16875,7 @@
     },
     {
       "declaration": "function",
-      "line": 30410,
+      "line": 30425,
       "name": "getColor"
     },
     {
@@ -17415,7 +17420,7 @@
     },
     {
       "declaration": "function",
-      "line": 30449,
+      "line": 30464,
       "name": "loadReviewSpiegel"
     },
     {
@@ -18265,7 +18270,7 @@
     },
     {
       "declaration": "var",
-      "line": 30207,
+      "line": 30218,
       "name": "pushCard"
     },
     {
@@ -18415,7 +18420,7 @@
     },
     {
       "declaration": "function",
-      "line": 30200,
+      "line": 30211,
       "name": "renderActionCards"
     },
     {
@@ -18750,7 +18755,7 @@
     },
     {
       "declaration": "function",
-      "line": 30454,
+      "line": 30469,
       "name": "renderReviewStrategyComparison"
     },
     {
@@ -19030,7 +19035,7 @@
     },
     {
       "declaration": "function",
-      "line": 30408,
+      "line": 30423,
       "name": "reviewAllocationPortraitHtml"
     },
     {
@@ -19040,7 +19045,7 @@
     },
     {
       "declaration": "function",
-      "line": 30302,
+      "line": 30317,
       "name": "reviewBandStateMeta"
     },
     {
@@ -19070,7 +19075,7 @@
     },
     {
       "declaration": "function",
-      "line": 30376,
+      "line": 30391,
       "name": "reviewImplementationHotspots"
     },
     {
@@ -19090,7 +19095,7 @@
     },
     {
       "declaration": "function",
-      "line": 30339,
+      "line": 30354,
       "name": "reviewStrategyComparisonRows"
     },
     {
@@ -19395,7 +19400,7 @@
     },
     {
       "declaration": "function",
-      "line": 30415,
+      "line": 30430,
       "name": "seg"
     },
     {
@@ -19730,7 +19735,7 @@
     },
     {
       "declaration": "function",
-      "line": 30488,
+      "line": 30503,
       "name": "srAcColor2"
     },
     {
@@ -21010,8 +21015,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "640a7d1e73d2168d06b73e636eeaa5b0d21dbce37ba2f1fa225822295dbcfb53",
-  "source_size_bytes": 1864914,
+  "source_sha256": "ad02bfe5cd63ace7763cf2fcaf8cbb97ebb737af916be8f96cd5da9b793df9c9",
+  "source_size_bytes": 1865938,
   "sub_sections": [
     {
       "class": "sbb",

@@ -73,6 +73,9 @@ from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
+from services.knowledge_asset_class_gap import (
+    attach_to_strategy_payload as attach_knowledge_gap_check,
+)
 from services.risk_capacity_plausibility import (
     attach_to_strategy_payload,
     audit_if_inconsistent,
@@ -224,6 +227,8 @@ def get_current_allocation_payload(
             assessment=assessment,
             preferences=None,
         )
+        # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Klassen <-> Kenntnisse (Hinweis).
+        attach_knowledge_gap_check(payload, mandate, assessment)
         # RISK-CAPACITY-PLAUSIBILITY-001: live gegen die aktuellen Daten.
         return attach_to_strategy_payload(
             payload, evaluate_mandate_safely(db, mandate, assessment),
@@ -693,6 +698,8 @@ def generate_target_allocation_endpoint(
                 ip_address=_extract_client_ip(request))
             # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
             # keine Profilaenderung, kein Blockieren.
+            # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
+            attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
             plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
             attach_to_strategy_payload(result, plausibility)
             audit_if_inconsistent(

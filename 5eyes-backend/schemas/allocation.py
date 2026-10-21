@@ -1657,6 +1657,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     # RISK-CAPACITY-PLAUSIBILITY-001: Fragebogen <-> erfasste Finanzdaten
     # (Hinweis, Reason-Code RISK_CAPACITY_INCONSISTENT; aendert nichts).
     risk_capacity_plausibility: Optional[dict] = None
+    # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Anlageklassen ohne dokumentierte
+    # Kenntnis/Aufklaerung (Reason-Code KNOWLEDGE_GAP_ASSET_CLASS; Hinweis).
+    knowledge_asset_class_check: Optional[dict] = None
     asset_class_risky_weights_bps: dict[str, int]
     expected_return_bps: int
     expected_volatility_bps: int
