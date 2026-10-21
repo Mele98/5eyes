@@ -127,15 +127,9 @@ def _default_rows() -> list[dict]:
 
 
 def _valid_rows() -> list[dict]:
-    """Default-Zeilen, bei denen nur die bekannte 99.5-%-Zeile (Score 7-8,
-    siehe ``test_shipped_default_growth_row_is_flagged_like_the_schema``) so
-    ergaenzt ist, wie die Engine sie selbst normalisiert
-    (``_rebalance_to_total``: Fehlbetrag zuerst in Obligationen)."""
-    rows = _default_rows()
-    for row in rows:
-        gap = 10000 - sum(row[f"{p}_target_bps"] for p in PREFIXES)
-        row["bonds_target_bps"] += gap
-    return rows
+    """Ausgelieferte Default-Zeilen -- seit CIO-Entscheid 1 alle schema-gueltig
+    (siehe ``test_all_shipped_default_rows_are_schema_valid``)."""
+    return _default_rows()
 
 
 def _as_inputs(rows: list[dict], overrides: dict | None = None) -> list[dict]:
@@ -174,6 +168,13 @@ def _schema_accepts(rows: list[dict]) -> bool:
     except ValidationError:
         return False
     return True
+
+
+def _feasibility_accepts(rows: list[dict], policy: dict) -> bool:
+    """Server-Gate (POST .../activate) -- die Python-Funktion, die der JS-Validator spiegelt."""
+    from services.house_matrix_feasibility import policy_activation_violations
+
+    return not policy_activation_violations([SimpleNamespace(**r) for r in rows], SimpleNamespace(**policy))
 
 
 def _engine_accepts(rows: list[dict], policy: dict) -> bool:
@@ -341,6 +342,15 @@ def _run_parity(cases):
             sent_rows.append(r)
         schema = parse_ok and _schema_accepts(sent_rows)
         engine = schema and _engine_accepts(sent_rows, pol)
+        if schema:
+            # Server-Gate == tatsaechliches Engine-Verhalten.
+            assert _feasibility_accepts(sent_rows, pol) == engine, name
+            from services.house_matrix_feasibility import house_matrix_row_feasibility
+
+            for js_row, row in zip(res["rows"], sent_rows):
+                py = house_matrix_row_feasibility(SimpleNamespace(**row), SimpleNamespace(**pol))
+                assert (js_row["effMinSum"], js_row["effMaxSum"]) == (
+                    py["effective_min_sum_bps"], py["effective_max_sum_bps"]), name
         assert res["schemaValid"] == schema, (name, res)
         assert res["valid"] == engine, (name, res)
         if res["valid"]:
@@ -412,19 +422,38 @@ def test_hints_do_not_block():
     assert risky["riskyEstimateBps"] == pytest.approx(5615)
 
 
-def test_shipped_default_growth_row_is_flagged_like_the_schema():
-    """Befund: die ausgelieferte Default-Zeile "Wachstumsorientiert" (Score
-    7-8, YAML + Fallback) summiert ihre Ziele auf 99.5 %. Das PUT-Schema lehnt
-    sie ab; der Editor meldet sie am Feld statt sie still zu speichern.
-    Korrektur der Werte = Owner-Entscheid (hier bewusst NICHT geaendert)."""
-    rows = _default_rows()
-    growth = next(i for i, r in enumerate(rows) if r["score_from"] == 7)
-    assert sum(rows[growth][f"{p}_target_bps"] for p in PREFIXES) == 9950
-    assert _schema_accepts(rows) is False
-    res = _validate([{"rows": _as_inputs(rows), "policy": DEFAULT_POLICY}])[0]
-    assert res["valid"] is False and res["schemaValid"] is False
-    assert [i for i, r in enumerate(res["rows"]) if not r["valid"]] == [growth]
-    assert any("Summe der Ziele 99.50 %" in e for e in res["rows"][growth]["errors"])
+def _runtime_seed_tuples() -> list[tuple]:
+    """Roh-Tupel der Runtime-Seeds in services/portfolio_engine.py (vor der
+    Normalisierung), direkt aus dem Quelltext gelesen."""
+    import ast
+
+    src = (REPO_ROOT / "5eyes-backend" / "services" / "portfolio_engine.py").read_text(encoding="utf-8")
+    body = _function(src, "def _ensure_runtime_reference_data_ch(")
+    start = body.index("_normalize_house_matrix_defaults([")
+    end = body.index("])", start)
+    return list(ast.literal_eval("[" + body[start + len("_normalize_house_matrix_defaults(["):end] + "]"))
+
+
+def test_all_shipped_default_rows_are_schema_valid():
+    """CIO-Entscheid 1 (2026-10-21): "Wachstumsorientiert" (Score 7-8) summierte
+    auf 99.5 % (Liquiditaet 150). Die Runtime-Normalisierung legte die fehlenden
+    50 bps schon immer auf die Liquiditaet (200) -- die Konfiguration bildet
+    jetzt nur das tatsaechliche Verhalten ab. Alle drei Quellen (YAML,
+    Loader-Fallback, Runtime-Seeds) sind schema-gueltig, identisch und werden
+    von der Normalisierung nicht mehr veraendert."""
+    from services.house_matrix_loader import _HARDCODED_FALLBACK, load_house_matrix_default_tuples
+    from services.portfolio_engine_house_matrix import _normalize_house_matrix_defaults
+
+    yaml_rows = [tuple(t) for t in load_house_matrix_default_tuples()]
+    seeds = _runtime_seed_tuples()
+    assert yaml_rows == list(_HARDCODED_FALLBACK) == seeds
+    assert _normalize_house_matrix_defaults(seeds) == seeds
+    growth = next(t for t in seeds if t[0] == 7)
+    assert growth[3:6] == (0, 200, 200)
+    assert _schema_accepts(_default_rows()) is True
+    assert _feasibility_accepts(_default_rows(), DEFAULT_POLICY) is True
+    res = _validate([{"rows": _as_inputs(_default_rows()), "policy": DEFAULT_POLICY}])[0]
+    assert res["valid"] is True and all(r["errors"] == [] for r in res["rows"])
 
 
 def test_default_rows_have_no_risk_budget_hint():
@@ -574,3 +603,87 @@ def test_monolith_no_longer_edits_policy_in_bps():
     save = _function(src, "async function adminPolicySaveRows(")
     assert "validation.payloadRows" in save
     assert ".pol-pct.is-invalid" in src
+
+
+# ------------------------------------------- Klonen ohne prompt (CIO-Entscheid 2)
+
+_CLONE_HARNESS = r"""
+var ELS={}, CALLS=[], OPENED=[], LOADED=[], PROMPTS=0;
+function unesc(s){return String(s).replace(/&amp;/g,'&');}
+function reg(attrs){
+  var o={value:unesc(attrs.value||''),disabled:false,textContent:'',attrs:attrs,focus:function(){},select:function(){}};
+  if(attrs.id)ELS[attrs.id]=o;
+  return o;
+}
+var document={
+  body:{appendChild:function(el){
+    ELS[el.id]=el;
+    var re=/<(input|button|div)\s([^>]*)>/g,m;
+    while((m=re.exec(el.innerHTML))){var attrs={},ra=/([\w-]+)="([^"]*)"/g,a;while((a=ra.exec(m[2])))attrs[a[1]]=a[2];if(attrs.id)reg(attrs);}
+  }},
+  createElement:function(){var cls={};return {id:'',className:'',innerHTML:'',dataset:{},
+    classList:{add:function(c){cls[c]=1;},remove:function(c){delete cls[c];},contains:function(c){return !!cls[c];}}};},
+  getElementById:function(id){return ELS[id]||null;},
+};
+var window={prompt:function(){PROMPTS++;return 'X';}};
+function prompt(){PROMPTS++;return 'X';}
+function prepareModalBeforeOpen(){return true;}
+function cleanupModalAfterClose(){}
+var adminPolicyState={policies:[{id:'pol-active',policy_name:'Haus',version:3,is_current:1}],selectedId:null,rows:[]};
+var API={post:async function(url,body){CALLS.push(url);return {id:'pol-clone',policy_name:'Haus Variante',version:1};}};
+async function adminLoadPolicies(h){LOADED.push(h);}
+async function adminPolicyOpen(id){OPENED.push(id);}
+"""
+
+
+def _clone(script: str) -> dict:
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available to execute extracted JS")
+    src = HTML_PATH.read_text(encoding="utf-8")
+    fns = [_function(src, s) for s in (
+        "function om(", "function cm(", "function adminPolicyEnsureCloneModal(",
+        "function adminPolicyCloneActive(", "async function adminPolicyCloneConfirm(",
+    )]
+    body = _CLONE_HARNESS + "\n".join(fns) + "\n(async function(){\n" + script + "\n})().catch(function(e){console.error(e&&e.stack||e);process.exit(1);});"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
+        fh.write(body)
+        path = fh.name
+    try:
+        res = subprocess.run(["node", path], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    finally:
+        Path(path).unlink(missing_ok=True)
+    assert res.returncode == 0, res.stderr
+    return json.loads(res.stdout.strip().splitlines()[-1])
+
+
+def test_clone_uses_modal_not_prompt_and_clones():
+    out = _clone(
+        "adminPolicyCloneActive();"
+        "var open=ELS['m-policy-clone'].classList.contains('open');var prefill=ELS['policy-clone-name'].value;"
+        "ELS['policy-clone-name'].value='  Haus Variante  ';"
+        "await adminPolicyCloneConfirm();"
+        "console.log(JSON.stringify({open:open,prefill:prefill,closed:!ELS['m-policy-clone'].classList.contains('open'),"
+        "calls:CALLS,opened:OPENED,loaded:LOADED,prompts:PROMPTS}));"
+    )
+    assert out["open"] is True and out["prefill"] == "Haus (Kopie)"
+    assert out["calls"] == ["/admin/optimizer-policies/pol-active/clone?new_name=Haus%20Variante"]
+    assert out["closed"] is True and out["loaded"] == [True] and out["opened"] == ["pol-clone"]
+    assert out["prompts"] == 0
+
+
+def test_clone_with_empty_name_stays_open_and_sends_nothing():
+    out = _clone(
+        "adminPolicyCloneActive();ELS['policy-clone-name'].value='   ';await adminPolicyCloneConfirm();"
+        "console.log(JSON.stringify({open:ELS['m-policy-clone'].classList.contains('open'),"
+        "err:ELS['policy-clone-error'].textContent,calls:CALLS}));"
+    )
+    assert out["open"] is True and out["calls"] == [] and "Namen" in out["err"]
+
+
+def test_policy_editor_sources_contain_no_native_dialogs():
+    src = HTML_PATH.read_text(encoding="utf-8")
+    for sig in ("function adminPolicyCloneActive(", "async function adminPolicyCloneConfirm(",
+                "function adminPolicyEnsureCloneModal(", "async function adminPolicySaveRows(",
+                "function adminRenderPolicyGrid(", "function adminPolicyValidateAll("):
+        body = _function(src, sig)
+        assert not re.search(r"\b(prompt|alert|confirm)\s*\(", body), sig

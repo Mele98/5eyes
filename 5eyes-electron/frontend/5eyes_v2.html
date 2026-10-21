@@ -13664,7 +13664,10 @@ async function adminPolicyOpen(policyId){
 //  S5 Profilname 1..80 Zeichen           -> HouseMatrixRowInput.profile_name
 //  S6 Scores 1..10, from<=to, lueckenlos 1..10 -> HouseMatrixRowInput + HouseMatrixRowsReplace._validate_score_coverage
 //  E1 Summe der wirksamen Minima <= 100 % <= Summe der wirksamen Maxima
-//     -> services/portfolio_engine_house_matrix.py _baseline_target_bands()
+//     -> services/house_matrix_feasibility.py house_matrix_row_feasibility()
+//        (Spiegel; dieselbe Funktion sperrt serverseitig POST .../activate
+//        und Create+Aktivieren mit 409 HOUSE_MATRIX_ENGINE_INFEASIBLE), sie
+//        nutzt services/portfolio_engine_house_matrix.py _baseline_target_bands()
 //        (Aktien-Min = max(Aktien-Min, Aktien-Mindestquote), Policy-Caps
 //        Immobilien/Alternative, Policy-Liquiditaetsminimum) +
 //        _rebalance_to_total() (ValueError, wenn 10000 bps nicht erreichbar).
@@ -15728,23 +15731,67 @@ function btAttachChartHover(container, meta){
   overlay.addEventListener('mouseleave', onLeave);
 }
 
-async function adminPolicyCloneActive(){
+// ADMIN-HOUSE-MATRIX-PERCENT-001 (CIO-Entscheid 2): Electron unterstuetzt
+// window.prompt nicht -- der Einstieg "Aktive klonen & bearbeiten" war dort
+// blockiert. Name jetzt ueber die bestehende Modal-Komponente (om/cm). Das
+// Overlay wird am <body> angehaengt, damit es ueber dem Admin-Modal liegt.
+function adminPolicyEnsureCloneModal(){
+  var existing = document.getElementById('m-policy-clone');
+  if(existing) return existing;
+  var wrap = document.createElement('div');
+  wrap.id = 'm-policy-clone';
+  wrap.className = 'overlay';
+  wrap.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-policy-clone-title" style="max-width:440px">'
+    + '<div class="mhd"><div class="mtitle" id="m-policy-clone-title">Aktive Policy klonen</div><button class="mx" type="button" aria-label="Schliessen" onclick="cm(\'m-policy-clone\')">&#10005;</button></div>'
+    + '<div class="mbody">'
+    + '<label for="policy-clone-name" style="display:block;font-size:10px;color:var(--n6);margin-bottom:4px">Name der geklonten Variante</label>'
+    + '<input class="fi" id="policy-clone-name" maxlength="120" autocomplete="off" style="width:100%" onkeydown="if(event.key===\'Enter\'){event.preventDefault();adminPolicyCloneConfirm();}">'
+    + '<div id="policy-clone-error" role="alert" style="font-size:10px;color:var(--neg);margin-top:6px"></div>'
+    + '</div>'
+    + '<div class="mfooter"><button class="btn" type="button" onclick="cm(\'m-policy-clone\')">Abbrechen</button><button class="btn-p" type="button" id="btn-policy-clone-confirm" onclick="adminPolicyCloneConfirm()">Klonen &amp; bearbeiten</button></div>'
+    + '</div>';
+  document.body.appendChild(wrap);
+  return wrap;
+}
+
+function adminPolicyCloneActive(){
   var active = (adminPolicyState.policies || []).find(function(p){ return p.is_current; });
   if(!active){
     try { if(window.showAppError) showAppError('Keine aktive Policy gefunden. Bitte zuerst Policies laden.'); } catch(e){}
     return;
   }
-  // prompt() bewusst belassen: einfache Einzeleingabe; ein Modal-Dialog waere
-  // hier Over-Engineering. confirm()/alert() sind ersetzt.
-  var name = prompt('Name der geklonten Variante:', active.policy_name + ' (Kopie)');
-  if(!name) return;
+  adminPolicyState.cloneSourceId = active.id;
+  adminPolicyEnsureCloneModal();
+  var input = document.getElementById('policy-clone-name');
+  var err = document.getElementById('policy-clone-error');
+  var btn = document.getElementById('btn-policy-clone-confirm');
+  if(input) input.value = active.policy_name + ' (Kopie)';
+  if(err) err.textContent = '';
+  if(btn) btn.disabled = false;
+  om('m-policy-clone');
+  try { if(input){ input.focus(); input.select(); } } catch(e){}
+}
+
+async function adminPolicyCloneConfirm(){
+  var input = document.getElementById('policy-clone-name');
+  var err = document.getElementById('policy-clone-error');
+  var btn = document.getElementById('btn-policy-clone-confirm');
+  var name = String((input && input.value) || '').trim();
+  if(!name){ if(err) err.textContent = 'Bitte einen Namen eingeben.'; return; }
+  if(name.length > 120){ if(err) err.textContent = 'Höchstens 120 Zeichen.'; return; }
+  var sourceId = adminPolicyState.cloneSourceId;
+  if(!sourceId){ if(err) err.textContent = 'Keine aktive Policy gewählt.'; return; }
+  if(btn) btn.disabled = true;
   try {
-    var clone = await API.post('/admin/optimizer-policies/' + encodeURIComponent(active.id) + '/clone?new_name=' + encodeURIComponent(name), {});
+    var clone = await API.post('/admin/optimizer-policies/' + encodeURIComponent(sourceId) + '/clone?new_name=' + encodeURIComponent(name), {});
+    cm('m-policy-clone');
     try { if(window.showAppSuccess) showAppSuccess('Variante geklont: ' + clone.policy_name + ' v' + clone.version); } catch(e){}
     await adminLoadPolicies(true);
-    adminPolicyOpen(clone.id);
+    await adminPolicyOpen(clone.id);
   } catch(e){
-    try { if(window.showAppError) showAppError('Klonen fehlgeschlagen: ' + (e && (e.detail||e.message) || '?')); } catch(_){}
+    if(err) err.textContent = 'Klonen fehlgeschlagen: ' + (e && (e.detail||e.message) || '?');
+  } finally {
+    if(btn) btn.disabled = false;
   }
 }
 
