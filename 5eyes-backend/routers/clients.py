@@ -229,7 +229,12 @@ def erase_client(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="clients", record_id=client_id, action="CLIENT_ERASE",
         client_id=client_id,
-        new_value=str({"reason": body.reason, "redacted": result["redacted"]}),
+        new_value=str({
+            "reason": body.reason,
+            "redacted": result["redacted"],
+            "pii_keys_shredded": result.get("pii_keys_shredded", 0),
+            "unsealed_append_only_rows": result.get("unsealed_append_only_rows", {}),
+        }),
         ip_address=_extract_client_ip(request))
     db.commit()
     return result
