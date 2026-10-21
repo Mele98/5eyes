@@ -150,7 +150,9 @@ def validated_drawdown_evaluation(
     drawdown = refined_drawdown_check_for_winner(
         factors, seed=int(validation_seed), weights=None,
     )
-    wealth = _solver._simulate_context_wealth(validation_context, weights_array)
+    wealth = _solver._simulate_context_wealth(
+        validation_context, weights_array, portfolio_factors=factors,
+    )
     chance, _rows = chance_constraint_penalty(
         wealth,
         validation_context.liabilities,
@@ -158,6 +160,10 @@ def validated_drawdown_evaluation(
         weights=None,
         annualized_return_bps_per_path=_solver._annualized_twr_bps_per_path(
             validation_context, weights_array, portfolio_factors=factors,
+        ),
+        # Engine v10: dieselben Prioritaets-Scopes wie Training und Publikation.
+        scope_wealth=_solver._context_scope_wealth(
+            validation_context, weights_array, wealth, portfolio_factors=factors,
         ),
     )
     preference = 0.0

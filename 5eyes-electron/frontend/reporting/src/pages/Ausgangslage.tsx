@@ -8,7 +8,7 @@
  *
  * Default-Disziplin: 0/None wird als „—" gerendert (z. B. Alter 0).
  */
-import type { AusgangslageData } from '@/api/types';
+import type { AusgangslageData, ProjectionGateData } from '@/api/types';
 import { ReportPage } from '@/components/ReportPage';
 import {
   formatAge,
@@ -19,9 +19,12 @@ import {
 
 interface AusgangslageProps {
   data: AusgangslageData;
+  /** MC-CONTEXT-001: bei ausgeblendeten Projektionen Hinweis statt stiller
+   * Leere des Kennzahlen-Blocks. */
+  projectionGate?: ProjectionGateData;
 }
 
-export function Ausgangslage({ data }: AusgangslageProps) {
+export function Ausgangslage({ data, projectionGate }: AusgangslageProps) {
   const ci = data.client_info;
   const w = data.wealth_summary;
   const m = data.key_metrics;
@@ -52,6 +55,17 @@ export function Ausgangslage({ data }: AusgangslageProps) {
       {/* PA-04: nur befüllte Kennzahlen rendern. Mehrere Metriken sind backend-
           seitig (noch) null; alle 6 Karten zu zeigen ergab 5x „—" und wirkte
           unfertig. Sind keine Kennzahlen vorhanden, entfällt der ganze Block. */}
+      {projectionGate?.projections_hidden && (
+        <div role="alert" className="mt-section border border-rule bg-canvas-subtle p-4 text-caption">
+          <p className="font-semibold text-status-rot">
+            Achtung: {projectionGate.hinweis || 'Projektionen ausgeblendet.'}
+          </p>
+          {projectionGate.note && projectionGate.note !== projectionGate.hinweis && (
+            <p className="mt-2 text-ink-muted">{projectionGate.note}</p>
+          )}
+        </div>
+      )}
+
       {kpis.length > 0 && (
         <>
           <h2 className="mt-section font-serif text-h2 text-ink">Kennzahlen</h2>

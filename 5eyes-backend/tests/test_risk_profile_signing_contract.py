@@ -64,3 +64,28 @@ def test_risk_profile_card_relocated_into_overview():
     # damit sie nicht in der ausgeblendeten Zusammenfassung verschwindet.
     assert "var riskProfileCard=document.getElementById('sr-riskprofile-card');" in html
     assert "[heroCard,summaryKpis,riskProfileCard,cockpit]" in html
+
+
+def test_risk_profile_card_renders_signoff_state_and_references():
+    """RISK-PROFILE-SIGNOFF-001: die Karte zeigt den Signoff-Zustand aus dem
+    Backend (signoff_state), die Signoff- und Decision-Referenz, die neue
+    Signaturpflicht nach Override und die Altsignatur ausdruecklich
+    ungebunden. 'advisor_recorded' wird nicht als Kundensignatur ausgegeben."""
+    html = _html()
+    assert "function riskSignoffState(risk)" in html
+    assert "risk.signoff_state" in html
+    assert "risk.signoff_id" in html and "risk.signoff_hash" in html
+    assert "risk.override_decision_id" in html and "risk.override_decision_hash" in html
+    assert "neue Signatur erforderlich" in html
+    assert "Altsignatur, nicht an Decision gebunden" in html
+    assert "signoffState==='remediation_required'" in html
+    assert "'vom Berater erfasst'" in html
+    assert 'id="sr-riskprofile-signoff-ref"' in html
+
+
+def test_risk_profile_sign_sends_concurrency_expectations():
+    html = _html()
+    assert "payload.expected_assessment_version=" in html
+    assert "payload.expected_override_decision_id=" in html
+    assert "payload.expected_signoff_id=" in html
+    assert "API.post('/mandates/'+mid+'/risk-profile/sign',payload)" in html

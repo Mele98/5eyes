@@ -5251,8 +5251,7 @@ def evaluate_goal_sensitivity(
             goals=context_goals,
             house_matrix_row=house_matrix,
             score_x10=score_x10,
-            advisory_wealth_rappen=funding.start_wealth_rappen,
-            cashflow_series_rappen=list(funding.cashflow_series_rappen),
+            **funding.solver_kwargs(),  # Start, Cashflows, Ziel-Freigaben (v10)
             external_wealth_rappen=sensitivity_external_wealth,
             external_wealth_series_rappen=external_series,
             horizon_years=run_horizon,

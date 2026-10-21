@@ -148,6 +148,14 @@ export interface RiskAssessment {
   /** Pointer auf die wirksame append-only RiskOverrideDecisionV1. */
   override_decision_id?: string | null;
   override_decision_hash?: string | null;
+  /** RISK-PROFILE-SIGNOFF-001: Signatur-Projektion + Pointer auf den aktuellen RiskProfileSignoffV1. */
+  client_signed_at?: string | null;
+  client_signed_method?: string | null;
+  signoff_id?: string | null;
+  signoff_hash?: string | null;
+  signoff_status?: string | null;
+  /** signed | signature_required | legacy_unbound | remediation_required | unsigned */
+  signoff_state?: string | null;
   assessed_at: string;
   assessed_by: string;
   created_at: string;
@@ -845,6 +853,20 @@ export interface SuitabilitySummaryData {
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
+// MC-CONTEXT-001: Report-Projection-Gate
+export interface ProjectionGateData {
+  /** 'current' | 'stale' | 'blocked' | 'no_allocation' -- unbekannte Werte
+   * sind fail-closed (projections_hidden=true). */
+  status: string;
+  reason_code: string | null;
+  projections_hidden: boolean;
+  /** Berater-Kurzhinweis, z.B. "Kein aktuelles Risikoprofil – Projektionen ausgeblendet." */
+  hinweis: string | null;
+  note: string | null;
+  hidden_channels: string[];
+  historical_ist_channels: string[];
+}
+
 export interface AdvisoryReport {
   schema_version: 2;
   mandate_id: string;
@@ -854,6 +876,11 @@ export interface AdvisoryReport {
    * zwischen Client.country_of_residence und Mandate.tax_jurisdiction, sonst null.
    * Rein informativ, NIE ueber hidden_report_sections ausblendbar. */
   tax_domicile_mismatch_warning: string | null;
+  /** MC-CONTEXT-001 (Codex-Closure-Review PR #652): EIN Gate-Entscheid fuer
+   * alle Projektionskanaele. Bei projections_hidden (stale ODER blocked)
+   * sind Key-Metrics, Zielwahrscheinlichkeiten, MC, Stress, Attribution und
+   * Soll-Werte leer; IST-Kanaele bleiben sichtbar. Nie ausblendbar. */
+  projection_gate?: ProjectionGateData;
   cover: CoverData;
   disclaimer: DisclaimerData;
   inhaltsverzeichnis: InhaltsverzeichnisData;

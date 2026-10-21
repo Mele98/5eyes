@@ -202,7 +202,11 @@ def test_foundation_case_yields_green_or_yellow_verdict(
         f"risky_drift_bps={payload.get('risky_drift_bps')}\n"
         f"budget_compliance={payload.get('budget_compliance')}\n"
         f"goal_counts={payload.get('goal_counts')}\n"
-        f"verdict_notes={notes}"
+        # Diagnose (PR #659): Verdikt-Gruende und Solver-Laufzeit explizit,
+        # damit ein RED aus der Laufzeitgrenze (elapsed_ms > 15000) von einem
+        # fachlichen RED unterscheidbar ist. Schwellen unveraendert.
+        f"verdict_reasons={notes}\n"
+        f"elapsed_ms={payload.get('elapsed_ms')}"
     )
     assert verdict in {"green", "yellow"}, (
         f"Foundation-Case wurde als {verdict.upper()} klassifiziert — "

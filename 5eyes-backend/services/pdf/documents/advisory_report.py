@@ -293,7 +293,10 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     if "ausgangslage" in payload:
         flowables.append(_toc_anchor(toc_collector, "ausgangslage", "Ausgangslage"))
-        flowables.extend(_build_ausgangslage_flowables(payload.get("ausgangslage") or {}, styles))
+        flowables.extend(_build_ausgangslage_flowables(
+            payload.get("ausgangslage") or {}, styles,
+            projection_gate=payload.get("projection_gate"),
+        ))
         flowables.append(PageBreak())
     if "positionen" in payload:
         flowables.append(_toc_anchor(toc_collector, "positionen", "Übersicht Ihrer Positionen"))
@@ -621,9 +624,17 @@ def _build_toc_flowables(
 # Sektion 4 — Ausgangslage (Client-Info + Wealth-Summary + Key-Metrics)
 # ---------------------------------------------------------------------------
 
-def _build_ausgangslage_flowables(ausgangslage: dict, styles: dict) -> list[Any]:
+def _build_ausgangslage_flowables(
+    ausgangslage: dict,
+    styles: dict,
+    *,
+    projection_gate: dict | None = None,
+) -> list[Any]:
     """Editorial 2-Spalten-Layout: links Client-Info, rechts Wealth-Summary,
-    unten 6 KPI-Karten."""
+    unten 6 KPI-Karten.
+
+    MC-CONTEXT-001: blendet der Report-Gate die Projektionen aus (stale oder
+    blocked), steht ueber den (leeren) KPI-Karten der Berater-Hinweis."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 4", styles["kicker"]))
     out.append(Paragraph("Ausgangslage", styles["h1"]))
@@ -664,6 +675,13 @@ def _build_ausgangslage_flowables(ausgangslage: dict, styles: dict) -> list[Any]
     out.append(Spacer(1, 6 * mm))
     out.append(Paragraph("Kennzahlen", styles["h2"]))
     out.append(Spacer(1, 3 * mm))
+    gate = projection_gate if isinstance(projection_gate, dict) else {}
+    gate_hint = str(gate.get("hinweis") or "").strip()
+    if gate.get("projections_hidden") and gate_hint:
+        out.append(Paragraph(
+            "<b>Achtung:</b> " + _escape(gate_hint), styles["body"],
+        ))
+        out.append(Spacer(1, 3 * mm))
     out.append(_build_key_metrics_row(metrics, styles))
     return out
 
