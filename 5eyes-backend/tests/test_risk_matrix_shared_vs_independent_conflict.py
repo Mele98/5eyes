@@ -140,11 +140,24 @@ def test_explicit_failure_event_id_dedups_even_without_due_year():
     5.5) gets dedup even if due_year/shortfall_source are absent.
     """
     kwargs = _base_kwargs()
+    # GOAL-FAILURE-EVENT-MODE-COLLAPSE-001 (Engine v10): dedupliziert wird nur
+    # ein Ereignis, das die VOLLE Fehlschlagsmasse traegt (share 1.0).
     kwargs["achievability"] = [
+        {"status": "nicht_erreichbar", "hardness": "hart", "failure_event_id": "evt-1",
+         "failure_event_share": 1.0},
+        {"status": "nicht_erreichbar", "hardness": "primaer", "failure_event_id": "evt-1",
+         "failure_event_share": 1.0},
+    ]
+    assert classify_limiting_factor(**kwargs) != "zielkonflikt"
+
+    # Ohne belegte Masse (kein share) ist dieselbe ID kein Nachweis eines
+    # gemeinsamen Engpasses -- konservativ je eigene Ursache.
+    kwargs_unknown_mass = _base_kwargs()
+    kwargs_unknown_mass["achievability"] = [
         {"status": "nicht_erreichbar", "hardness": "hart", "failure_event_id": "evt-1"},
         {"status": "nicht_erreichbar", "hardness": "primaer", "failure_event_id": "evt-1"},
     ]
-    assert classify_limiting_factor(**kwargs) != "zielkonflikt"
+    assert classify_limiting_factor(**kwargs_unknown_mass) == "zielkonflikt"
 
     kwargs_independent = _base_kwargs()
     kwargs_independent["achievability"] = [
