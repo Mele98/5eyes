@@ -1145,6 +1145,7 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 .qtinp:focus{border-color:var(--g4);}
 .qtr>.qtinp{justify-self:end;}
 .qtinp.is-invalid{border-color:var(--neg)!important;background:var(--neg-lt);}
+.pol-pct.is-invalid,.pol-name.is-invalid{border-color:var(--neg)!important;background:var(--neg-lt);}
 .qth{padding:0 0 4px;border-bottom:2px solid var(--b2);margin-bottom:2px;}
 .qth>div{font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);text-align:right;}
 .qth>.qth-l{text-align:left;padding-left:6px;}
@@ -13624,92 +13625,329 @@ async function adminPolicyOpen(policyId){
       (detail.is_current ? 'AKTIV — wirkt auf alle Mandate' : 'historic/draft — wird nicht für neue Strategien verwendet')
       + ' · max RE ' + (detail.max_real_estate_bps/100).toFixed(0) + '% · max Alt ' + (detail.max_alternatives_bps/100).toFixed(0) + '%';
     adminPolicyState.isCurrent = !!detail.is_current;
+    adminPolicyState.policy = {
+      max_real_estate_bps: detail.max_real_estate_bps,
+      max_alternatives_bps: detail.max_alternatives_bps,
+      min_liquidity_bps: detail.min_liquidity_bps,
+    };
+    adminPolicyState.savedPayloadRows = null;
     document.getElementById('btn-policy-save').style.display = '';
     document.getElementById('btn-policy-activate').style.display = detail.is_current ? 'none' : '';
     var polWarn = document.getElementById('admin-policy-active-warning');
     if (polWarn) polWarn.style.display = detail.is_current ? 'block' : 'none';
     adminRenderPolicyGrid();
+    // Gespeicherter Stand = Referenz fuer "ungespeicherte Aenderungen".
+    adminPolicyState.savedPayloadRows = (adminPolicyState.validation && adminPolicyState.validation.payloadRows) || null;
+    adminPolicyRefreshSaveState();
     if(status) status.textContent = '';
   } catch(e){
     if(status){ status.textContent = 'Konnte Policy nicht laden: ' + (e && (e.detail||e.message) || '?'); status.style.color='var(--neg)'; }
   }
 }
 
+// ADMIN-HOUSE-MATRIX-PERCENT-001: Eingabe in Prozent, Live-Validierung mit
+// den Backend-Regeln, Fehler am Feld, Speichern/Aktivieren gesperrt solange
+// ungueltig. Der Request bleibt in bps.
+//
+// Umrechnung % -> bps ist EXAKT und ohne Rundung: das Backend verlangt ganze
+// bps (HouseMatrixRowInput: int), 1 bps = 0.01 %. Erlaubt sind daher hoechstens
+// zwei Nachkommastellen (weitere nur als Nullen, "12.500"); mehr wird als
+// Fehler gemeldet statt still gerundet. Die Umrechnung rechnet mit ganzen
+// Zahlen (Ganzzahlteil*100 + zwei Nachkommaziffern), nicht mit pct*100 in
+// Gleitkomma. Anzeige bps -> % ist ebenso verlustfrei (bis 2 Stellen).
+//
+// Regeln und ihre Quelle im Backend:
+//  S1 jedes Feld ganze bps in 0..10000  -> schemas/allocation.py HouseMatrixRowInput Field(ge=0, le=10000)
+//  S2 min <= Ziel <= max je Anlageklasse -> HouseMatrixRowInput._validate_bands_and_sum
+//  S3 |Summe Ziele - 10000| <= 5 bps     -> HouseMatrixRowInput._validate_bands_and_sum (Toleranz +-0.05 %)
+//  S4 Aktien-Mindestquote <= Aktien-Max  -> HouseMatrixRowInput._validate_bands_and_sum
+//  S5 Profilname 1..80 Zeichen           -> HouseMatrixRowInput.profile_name
+//  S6 Scores 1..10, from<=to, lueckenlos 1..10 -> HouseMatrixRowInput + HouseMatrixRowsReplace._validate_score_coverage
+//  E1 Summe der wirksamen Minima <= 100 % <= Summe der wirksamen Maxima
+//     -> services/portfolio_engine_house_matrix.py _baseline_target_bands()
+//        (Aktien-Min = max(Aktien-Min, Aktien-Mindestquote), Policy-Caps
+//        Immobilien/Alternative, Policy-Liquiditaetsminimum) +
+//        _rebalance_to_total() (ValueError, wenn 10000 bps nicht erreichbar).
+//        Das Schema laesst solche Zeilen durch; jede Berechnung im Score-Band
+//        scheitert danach. Deshalb ebenfalls sperrend.
+//  Hinweise (nicht sperrend): Aktien-Mindestquote ueber dem Aktien-Ziel
+//  (Engine hebt das Ziel an, _rebalance_to_total klemmt), Risikobudget unter
+//  dem Risikoanteil des Zielmixes (Richtwert mit den Standard-Risikoanteilen
+//  services/optimizer/constraints.py DEFAULT_BUCKET_RISKY_FRACTION; produktiv
+//  kommen sie aus den Bausteinen, die Engine weicht dann auf den
+//  Risikobudget-Fallback aus).
+var ADMIN_POLICY_EXTRA_FIELDS = [
+  {field:'equity_minimum_bps', label:'Aktien-Mindestquote'},
+  {field:'max_risky_fraction_bps', label:'Risikobudget'},
+];
+var ADMIN_POLICY_SUB_LABELS = {min:'Minimum', target:'Ziel', max:'Maximum'};
+// Spiegel von DEFAULT_BUCKET_RISKY_FRACTION (Test prueft Gleichlauf), in bps.
+var ADMIN_POLICY_DEFAULT_RISKY_BPS = {liq:0, bonds:2500, equity:8000, real_estate:6000, alt:6000};
+
+function adminPolicyFieldList(){
+  var out = [];
+  ADMIN_POLICY_BUCKETS.forEach(function(b){
+    ['min','target','max'].forEach(function(s){
+      out.push({field:b.key+'_'+s+'_bps', label:b.label+' '+ADMIN_POLICY_SUB_LABELS[s]});
+    });
+  });
+  return out.concat(ADMIN_POLICY_EXTRA_FIELDS);
+}
+
+function adminPolicyFormatPercentInput(bps){
+  var n = Number(bps);
+  if(bps === null || bps === undefined || bps === '' || !isFinite(n)) return '';
+  n = Math.round(n);
+  var neg = n < 0; n = Math.abs(n);
+  var whole = Math.floor(n / 100), frac = n % 100;
+  var txt = String(whole);
+  if(frac) txt += '.' + (frac < 10 ? '0' + frac : String(frac)).replace(/0$/, '');
+  return (neg ? '-' : '') + txt;
+}
+
+// Gibt {ok:true,bps} oder {ok:false,code,msg} zurueck. Kein Runden (s. oben).
+function adminPolicyParsePercentInput(value){
+  var s = normalizeNumberInputCH(String(value == null ? '' : value).replace(/%/g, '')).replace(',', '.').trim();
+  if(!s) return {ok:false, code:'empty', msg:'Wert fehlt (Prozent 0–100).'};
+  var m = /^(\d+)(?:\.(\d*))?$/.exec(s);
+  if(!m) return {ok:false, code:'format', msg:'Bitte einen Prozentwert zwischen 0 und 100 eingeben (z. B. 12.5).'};
+  var frac = m[2] || '';
+  if(frac.length > 2 && !/^0*$/.test(frac.slice(2))){
+    return {ok:false, code:'precision', msg:'Höchstens zwei Nachkommastellen (1 bps = 0.01 %).'};
+  }
+  var bps = Number(m[1]) * 100 + Number((frac + '00').slice(0, 2));
+  if(!isFinite(bps) || bps > 10000) return {ok:false, code:'range', msg:'Höchstens 100 %.'};
+  return {ok:true, bps:bps};
+}
+
+// Reine Funktion (kein DOM). rows: [{score_from, score_to, profile_name,
+// values:{feld: Eingabetext}}], policy: {max_real_estate_bps,
+// max_alternatives_bps, min_liquidity_bps} (null = nicht gesetzt).
+function computeAdminPolicyValidation(rows, policy){
+  var fields = adminPolicyFieldList();
+  var pol = policy || {};
+  var result = {valid:true, schemaValid:true, rows:[], globalErrors:[], payloadRows:null};
+  var payload = [];
+  (rows || []).forEach(function(row){
+    var r = {bps:{}, fieldErrors:{}, errors:[], hints:[], targetSum:null, effMinSum:null, effMaxSum:null, riskyEstimateBps:null, schemaValid:true, valid:true};
+    function err(field, msg, schema){
+      r.valid = false;
+      if(schema !== false) r.schemaValid = false;
+      if(field){
+        r.fieldErrors[field] = r.fieldErrors[field] ? r.fieldErrors[field] + ' ' + msg : msg;
+      }
+      var label = '';
+      if(field === 'profile_name') label = 'Profilname: ';
+      else if(field) label = (fields.filter(function(f){ return f.field === field; })[0] || {label:field}).label + ': ';
+      r.errors.push(label + msg);
+    }
+    var allParsed = true;
+    fields.forEach(function(f){
+      var parsed = adminPolicyParsePercentInput((row.values || {})[f.field]);
+      if(parsed.ok) r.bps[f.field] = parsed.bps;
+      else { allParsed = false; err(f.field, parsed.msg); }
+    });
+    var name = row.profile_name == null ? '' : String(row.profile_name);
+    if(name.length < 1 || name.length > 80) err('profile_name', 'muss 1–80 Zeichen lang sein.');
+    var sf = Number(row.score_from), st = Number(row.score_to);
+    if(!(Number.isInteger(sf) && Number.isInteger(st) && 1 <= sf && sf <= st && st <= 10)){
+      err(null, 'Score-Bereich ' + row.score_from + '–' + row.score_to + ' ungültig (1–10, von ≤ bis).');
+    }
+    if(allParsed){
+      var b = r.bps, sum = 0;
+      ADMIN_POLICY_BUCKETS.forEach(function(bk){
+        var mn = b[bk.key+'_min_bps'], tg = b[bk.key+'_target_bps'], mx = b[bk.key+'_max_bps'];
+        sum += tg;
+        if(mn > mx){
+          err(bk.key+'_min_bps', 'liegt über dem Maximum ' + fmtPct(mx, 2) + '.');
+          r.fieldErrors[bk.key+'_max_bps'] = 'Maximum unter dem Minimum.';
+        } else if(tg < mn || tg > mx){
+          err(bk.key+'_target_bps', 'muss zwischen ' + fmtPct(mn, 2) + ' und ' + fmtPct(mx, 2) + ' liegen.');
+        }
+      });
+      r.targetSum = sum;
+      if(Math.abs(sum - 10000) > 5){
+        err(null, 'Summe der Ziele ' + fmtPct(sum, 2) + ' – muss 100 % ergeben (Toleranz ±0.05 %).');
+        ADMIN_POLICY_BUCKETS.forEach(function(bk){
+          if(!r.fieldErrors[bk.key+'_target_bps']) r.fieldErrors[bk.key+'_target_bps'] = 'Summe der Ziele ≠ 100 %.';
+        });
+      }
+      if(b.equity_minimum_bps > b.equity_max_bps){
+        err('equity_minimum_bps', 'darf das Aktien-Maximum ' + fmtPct(b.equity_max_bps, 2) + ' nicht überschreiten.');
+      }
+      if(r.schemaValid){
+        // E1: wirksame Bandbreiten wie _baseline_target_bands().
+        var reCap = (pol.max_real_estate_bps == null) ? 10000 : Number(pol.max_real_estate_bps);
+        var altCap = (pol.max_alternatives_bps == null) ? 10000 : Number(pol.max_alternatives_bps);
+        var liqFloor = (pol.min_liquidity_bps == null) ? 0 : Number(pol.min_liquidity_bps);
+        var reMax = Math.min(b.real_estate_max_bps, reCap);
+        var altMax = Math.min(b.alt_max_bps, altCap);
+        var liqMin = Math.max(b.liq_min_bps, liqFloor);
+        var effMin = {
+          equity: Math.max(b.equity_min_bps, b.equity_minimum_bps),
+          bonds: b.bonds_min_bps,
+          real_estate: Math.min(b.real_estate_min_bps, reMax),
+          alt: Math.min(b.alt_min_bps, altMax),
+          liq: liqMin,
+        };
+        var effMax = {
+          equity: b.equity_max_bps, bonds: b.bonds_max_bps,
+          real_estate: reMax, alt: altMax, liq: Math.max(b.liq_max_bps, liqMin),
+        };
+        var minSum = 0, maxSum = 0;
+        Object.keys(effMin).forEach(function(k){ minSum += effMin[k]; maxSum += effMax[k]; });
+        r.effMinSum = minSum; r.effMaxSum = maxSum;
+        if(minSum > 10000){
+          err(null, 'Die wirksamen Mindestquoten ergeben ' + fmtPct(minSum, 2) + ' (Aktien-Mindestquote und Policy-Liquiditätsminimum eingerechnet) – mehr als 100 %, die Berechnung kann so keine Allokation bilden.', false);
+          if(b.equity_minimum_bps > b.equity_min_bps && !r.fieldErrors.equity_minimum_bps) r.fieldErrors.equity_minimum_bps = 'Hebt die Summe der Minima über 100 %.';
+        }
+        if(maxSum < 10000){
+          err(null, 'Die wirksamen Maxima ergeben nur ' + fmtPct(maxSum, 2) + ' (Policy-Obergrenzen Immobilien/Alternative eingerechnet) – weniger als 100 %, die Berechnung kann so keine Allokation bilden.', false);
+        }
+        if(b.equity_minimum_bps > b.equity_target_bps){
+          r.hints.push('Aktien-Mindestquote ' + fmtPct(b.equity_minimum_bps, 2) + ' liegt über dem Aktien-Ziel ' + fmtPct(b.equity_target_bps, 2) + '; die Berechnung hebt das Aktien-Ziel an.');
+        }
+        var risky = 0;
+        ADMIN_POLICY_BUCKETS.forEach(function(bk){ risky += b[bk.key+'_target_bps'] * ADMIN_POLICY_DEFAULT_RISKY_BPS[bk.key]; });
+        risky = risky / 10000;
+        r.riskyEstimateBps = risky;
+        if(risky > b.max_risky_fraction_bps){
+          r.hints.push('Richtwert: Der Zielmix hat mit Standard-Risikoanteilen etwa ' + fmtPct(risky, 1) + ' risikobehaftete Anlagen, das Risikobudget erlaubt ' + fmtPct(b.max_risky_fraction_bps, 1) + '. Die Berechnung weicht dann auf den Risikobudget-Fallback aus.');
+        }
+      }
+    }
+    if(!r.schemaValid) result.schemaValid = false;
+    if(!r.valid) result.valid = false;
+    result.rows.push(r);
+    if(r.valid){
+      var out = {score_from: row.score_from, score_to: row.score_to, profile_name: name};
+      fields.forEach(function(f){ out[f.field] = r.bps[f.field]; });
+      payload.push(out);
+    }
+  });
+  // S6: lueckenlose Abdeckung 1..10 (HouseMatrixRowsReplace).
+  var sorted = (rows || []).map(function(r){ return {f:Number(r.score_from), t:Number(r.score_to)}; }).sort(function(a, c){ return a.f - c.f; });
+  var coverageOk = sorted.length > 0 && sorted[0].f === 1 && sorted[sorted.length-1].t === 10;
+  for(var i = 1; coverageOk && i < sorted.length; i++){ if(sorted[i].f !== sorted[i-1].t + 1) coverageOk = false; }
+  if(!coverageOk){
+    result.valid = false; result.schemaValid = false;
+    result.globalErrors.push('Die Zeilen müssen die Scores 1–10 lückenlos und ohne Überschneidung abdecken.');
+  }
+  result.payloadRows = result.valid ? payload : null;
+  return result;
+}
+
 function adminRenderPolicyGrid(){
   var el = document.getElementById('admin-policy-grid');
   if(!el) return;
-  // Header
+  var cell = 'padding:2px;border:1px solid var(--b1)';
+  var inp = 'font-size:10px;width:46px;text-align:right;border:1px solid transparent;border-radius:2px';
   var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:var(--bg2)">'
     + '<th style="padding:6px;border:1px solid var(--b1);text-align:left">Score</th>'
     + '<th style="padding:6px;border:1px solid var(--b1);text-align:left">Profil</th>';
   ADMIN_POLICY_BUCKETS.forEach(function(b){
-    html += '<th colspan="3" style="padding:6px;border:1px solid var(--b1);text-align:center">'+b.label+'<br/><span style="font-size:9px;color:var(--n5);font-weight:normal">min · target · max (%)</span></th>';
+    html += '<th colspan="3" style="padding:6px;border:1px solid var(--b1);text-align:center">'+b.label+'<br/><span style="font-size:9px;color:var(--n5);font-weight:normal">Min · Ziel · Max (%)</span></th>';
   });
-  html += '<th style="padding:6px;border:1px solid var(--b1);text-align:right">Risk-Budget<br/><span style="font-size:9px;color:var(--n5);font-weight:normal">% risky</span></th>';
+  html += '<th style="padding:6px;border:1px solid var(--b1);text-align:right">Aktien-Mindestquote<br/><span style="font-size:9px;color:var(--n5);font-weight:normal">% (Eignung)</span></th>';
+  html += '<th style="padding:6px;border:1px solid var(--b1);text-align:right">Risikobudget<br/><span style="font-size:9px;color:var(--n5);font-weight:normal">% risikobehaftet</span></th>';
   html += '</tr></thead><tbody>';
+  function input(rowIdx, row, field, label, extra){
+    var scoreTxt = 'Score ' + row.score_from + '–' + row.score_to;
+    var bold = (field.indexOf('_target_bps') > 0 || field === 'max_risky_fraction_bps') ? ';font-weight:600' : '';
+    return '<td style="'+cell+(extra||'')+'"><input class="fi pol-pct" data-row="'+rowIdx+'" data-field="'+field+'" type="text" inputmode="decimal" autocomplete="off"'
+      + ' value="'+escapeHtml(adminPolicyFormatPercentInput(row[field]))+'"'
+      + ' aria-label="'+escapeHtml(scoreTxt+' '+label+' in %')+'" aria-describedby="pol-row-status-'+rowIdx+'"'
+      + ' style="'+inp+bold+'" oninput="adminPolicyValidateAll()"></td>';
+  }
   adminPolicyState.rows.forEach(function(row, rowIdx){
     html += '<tr>'
       + '<td style="padding:4px;border:1px solid var(--b1);font-weight:600">'+row.score_from+'–'+row.score_to+'</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1)"><input class="fi" id="pol-name-'+rowIdx+'" value="'+escapeHtml(row.profile_name)+'" style="font-size:10px;width:100%;border:none"></td>';
+      + '<td style="padding:4px;border:1px solid var(--b1)"><input class="fi pol-name" id="pol-name-'+rowIdx+'" data-row="'+rowIdx+'" data-field="profile_name" value="'+escapeHtml(row.profile_name)+'" maxlength="80" aria-label="Score '+row.score_from+'–'+row.score_to+' Profilname" aria-describedby="pol-row-status-'+rowIdx+'" style="font-size:10px;width:100%;border:1px solid transparent" oninput="adminPolicyValidateAll()"></td>';
     ADMIN_POLICY_BUCKETS.forEach(function(b){
-      html += '<td style="padding:2px;border:1px solid var(--b1)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_min_bps" type="number" min="0" max="10000" value="'+row[b.key+'_min_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
-      html += '<td style="padding:2px;border:1px solid var(--b1);background:var(--bg)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_target_bps" type="number" min="0" max="10000" value="'+row[b.key+'_target_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none;font-weight:600" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
-      html += '<td style="padding:2px;border:1px solid var(--b1)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_max_bps" type="number" min="0" max="10000" value="'+row[b.key+'_max_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
+      html += input(rowIdx, row, b.key+'_min_bps', b.label+' Minimum');
+      html += input(rowIdx, row, b.key+'_target_bps', b.label+' Ziel', ';background:var(--bg)');
+      html += input(rowIdx, row, b.key+'_max_bps', b.label+' Maximum');
     });
-    html += '<td style="padding:2px;border:1px solid var(--b1);text-align:right"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="max_risky_fraction_bps" type="number" min="0" max="10000" value="'+row.max_risky_fraction_bps+'" style="font-size:10px;width:60px;text-align:right;border:none;font-weight:600" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
+    html += input(rowIdx, row, 'equity_minimum_bps', 'Aktien-Mindestquote');
+    html += input(rowIdx, row, 'max_risky_fraction_bps', 'Risikobudget');
     html += '</tr>';
-    html += '<tr><td colspan="'+(2+ADMIN_POLICY_BUCKETS.length*3+1)+'" id="pol-row-status-'+rowIdx+'" style="padding:2px 6px;font-size:9.5px;color:var(--n5);border:none"></td></tr>';
+    html += '<tr><td colspan="'+(2+ADMIN_POLICY_BUCKETS.length*3+2)+'" id="pol-row-status-'+rowIdx+'" aria-live="polite" style="padding:2px 6px;font-size:9.5px;color:var(--n5);border:none"></td></tr>';
   });
   html += '</tbody></table>';
-  html += '<div style="font-size:9.5px;color:var(--n5);margin-top:6px">Hinweis: Σ Target-Quoten muss 10000 bps (100%) ergeben. Werte in bps (1% = 100 bps). Mittelspalten (Target) sind hervorgehoben.</div>';
+  html += '<div id="admin-policy-grid-errors" style="font-size:9.5px;color:var(--neg);margin-top:6px"></div>';
+  html += '<div style="font-size:9.5px;color:var(--n5);margin-top:6px">Eingabe in Prozent (z. B. 12.5 oder 12,5), höchstens zwei Nachkommastellen. Je Zeile müssen die Ziele 100 % ergeben und Minimum ≤ Ziel ≤ Maximum gelten.</div>';
   el.innerHTML = html;
-  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
+  adminPolicyValidateAll();
 }
 
-function adminPolicyValidateRow(rowIdx){
-  var row = adminPolicyState.rows[rowIdx];
-  if(!row) return;
-  var statusEl = document.getElementById('pol-row-status-'+rowIdx);
-  var problems = [];
-  var targetSum = 0;
-  ADMIN_POLICY_BUCKETS.forEach(function(b){
-    var mn = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="'+b.key+'_min_bps"]')||{}).value||0,10);
-    var tg = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="'+b.key+'_target_bps"]')||{}).value||0,10);
-    var mx = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="'+b.key+'_max_bps"]')||{}).value||0,10);
-    row[b.key+'_min_bps'] = mn; row[b.key+'_target_bps'] = tg; row[b.key+'_max_bps'] = mx;
-    targetSum += tg;
-    if(!(mn <= tg && tg <= mx)) problems.push(b.label+' min≤target≤max verletzt');
-  });
-  var risky = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="max_risky_fraction_bps"]')||{}).value||0,10);
-  row.max_risky_fraction_bps = risky;
-  if(Math.abs(targetSum - 10000) > 5) problems.push('Σ Target = '+(targetSum/100).toFixed(1)+'% (soll 100%)');
-  if(statusEl){
-    statusEl.textContent = problems.length ? '⚠ ' + problems.join(' · ') : '✓ valide';
-    statusEl.style.color = problems.length ? 'var(--neg)' : 'var(--pos)';
-  }
-  adminPolicyRefreshSaveState();
-}
-
-// Redesign 2026-06-10: Integritaets-Guards fuer Policy-Editor.
-// Prueft alle Zeilen aus dem State (Σ Target = 100%, min ≤ target ≤ max).
-function adminPolicyAllRowsValid(){
-  return (adminPolicyState.rows || []).every(function(row){
-    var targetSum = 0, ok = true;
-    ADMIN_POLICY_BUCKETS.forEach(function(b){
-      var mn = row[b.key+'_min_bps'], tg = row[b.key+'_target_bps'], mx = row[b.key+'_max_bps'];
-      targetSum += Number(tg || 0);
-      if(!(Number(mn||0) <= Number(tg||0) && Number(tg||0) <= Number(mx||0))) ok = false;
+// Liest die Eingaben aus dem Raster (Text, unveraendert) fuer den Validator.
+function adminPolicyReadGridRows(){
+  var fields = adminPolicyFieldList();
+  return (adminPolicyState.rows || []).map(function(row, rowIdx){
+    var values = {};
+    fields.forEach(function(f){
+      var input = document.querySelector('#admin-policy-grid input[data-row="'+rowIdx+'"][data-field="'+f.field+'"]');
+      values[f.field] = input ? input.value : adminPolicyFormatPercentInput(row[f.field]);
     });
-    if(Math.abs(targetSum - 10000) > 5) ok = false;
-    return ok;
+    var nameEl = document.getElementById('pol-name-'+rowIdx);
+    return {score_from: row.score_from, score_to: row.score_to, profile_name: nameEl ? nameEl.value : row.profile_name, values: values};
   });
 }
 
-// Sperrt den Speichern-Button: hart bei aktiver Policy (Versionstreue),
-// sonst solange die Baender nicht valide sind.
+function adminPolicyValidateAll(){
+  var result = computeAdminPolicyValidation(adminPolicyReadGridRows(), adminPolicyState.policy);
+  adminPolicyState.validation = result;
+  result.rows.forEach(function(r, rowIdx){
+    var inputs = document.querySelectorAll('#admin-policy-grid input[data-row="'+rowIdx+'"][data-field]');
+    Array.prototype.forEach.call(inputs || [], function(input){
+      var field = input.getAttribute('data-field');
+      var msg = r.fieldErrors[field] || '';
+      if(input.classList) input.classList.toggle('is-invalid', !!msg);
+      input.setAttribute('aria-invalid', msg ? 'true' : 'false');
+      input.title = msg;
+    });
+    var statusEl = document.getElementById('pol-row-status-'+rowIdx);
+    if(statusEl){
+      var html = r.errors.map(function(m){ return '<div style="color:var(--neg)">⚠ '+escapeHtml(m)+'</div>'; }).join('')
+        + r.hints.map(function(m){ return '<div style="color:var(--n6)">Hinweis: '+escapeHtml(m)+'</div>'; }).join('');
+      if(!r.errors.length) html = '<div style="color:var(--pos)">✓ gültig · Summe Ziele '+escapeHtml(fmtPct(r.targetSum, 2))+'</div>' + html;
+      statusEl.innerHTML = html;
+    }
+  });
+  var globalEl = document.getElementById('admin-policy-grid-errors');
+  if(globalEl) globalEl.innerHTML = result.globalErrors.map(function(m){ return '<div>⚠ '+escapeHtml(m)+'</div>'; }).join('');
+  adminPolicyRefreshSaveState();
+  return result;
+}
+
+// Kompatibilitaet: alte Aufrufer validieren immer das ganze Raster
+// (Summen-/Abdeckungsregeln sind zeilenuebergreifend).
+function adminPolicyValidateRow(){ return adminPolicyValidateAll(); }
+
+function adminPolicyAllRowsValid(){
+  var v = adminPolicyState.validation;
+  return !!(v && v.valid);
+}
+
+function adminPolicyIsDirty(){
+  var v = adminPolicyState.validation;
+  if(!v || !v.valid) return true;
+  return JSON.stringify(v.payloadRows) !== JSON.stringify(adminPolicyState.savedPayloadRows || null);
+}
+
+// Sperrt Speichern (aktive Policy: Versionstreue; sonst bis gueltig) und
+// Aktivieren (solange ungueltig oder ungespeicherte Aenderungen bestehen --
+// aktiviert wird der GESPEICHERTE Stand).
 function adminPolicyRefreshSaveState(){
   var btn = document.getElementById('btn-policy-save');
+  var act = document.getElementById('btn-policy-activate');
   var hint = document.getElementById('admin-policy-save-hint');
+  var valid = adminPolicyAllRowsValid();
+  var dirty = adminPolicyIsDirty();
+  if(act){
+    act.disabled = !valid || dirty;
+    act.title = !valid ? 'Aktivieren gesperrt: Bänder ungültig.' : (dirty ? 'Erst speichern – aktiviert wird der gespeicherte Stand.' : '');
+  }
   if(!btn) return;
   if(adminPolicyState.isCurrent){
     btn.disabled = true;
@@ -13717,10 +13955,9 @@ function adminPolicyRefreshSaveState(){
     if(hint) hint.textContent = '';
     return;
   }
-  var valid = adminPolicyAllRowsValid();
   btn.disabled = !valid;
-  btn.title = valid ? '' : 'Speichern gesperrt: Bänder noch nicht valide.';
-  if(hint) hint.textContent = valid ? '' : '⚠ Speichern gesperrt, bis alle Zeilen valide sind (Σ Target = 100%, min ≤ target ≤ max).';
+  btn.title = valid ? '' : 'Speichern gesperrt: Bänder noch nicht gültig.';
+  if(hint) hint.textContent = valid ? (dirty ? 'Ungespeicherte Änderungen – vor dem Aktivieren speichern.' : '') : '⚠ Speichern gesperrt, bis alle markierten Felder gültig sind.';
 }
 
 async function adminPolicySaveRows(){
@@ -13729,26 +13966,16 @@ async function adminPolicySaveRows(){
     try { if(window.showAppError) showAppError('Aktive Policy kann nicht direkt überschrieben werden — bitte zuerst klonen.'); } catch(e){}
     return;
   }
-  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
-  if(!adminPolicyAllRowsValid()){
+  var validation = adminPolicyValidateAll();
+  if(!validation.valid){
     var stInvalid = document.getElementById('admin-policy-status');
-    if(stInvalid){ stInvalid.textContent = '⚠ Speichern gesperrt: Bänder nicht valide (Σ Target = 100%, min ≤ target ≤ max).'; stInvalid.style.color='var(--neg)'; }
+    if(stInvalid){ stInvalid.textContent = '⚠ Speichern gesperrt: bitte die markierten Felder korrigieren.'; stInvalid.style.color='var(--neg)'; }
     return;
   }
   var status = document.getElementById('admin-policy-status');
   if(status){ status.textContent = 'Speichert...'; status.style.color='var(--n5)'; }
-  var payload = { rows: adminPolicyState.rows.map(function(r){
-    return {
-      score_from: r.score_from, score_to: r.score_to, profile_name: (document.getElementById('pol-name-'+adminPolicyState.rows.indexOf(r))||{value:r.profile_name}).value,
-      liq_min_bps: r.liq_min_bps, liq_target_bps: r.liq_target_bps, liq_max_bps: r.liq_max_bps,
-      bonds_min_bps: r.bonds_min_bps, bonds_target_bps: r.bonds_target_bps, bonds_max_bps: r.bonds_max_bps,
-      equity_min_bps: r.equity_min_bps, equity_target_bps: r.equity_target_bps, equity_max_bps: r.equity_max_bps,
-      real_estate_min_bps: r.real_estate_min_bps, real_estate_target_bps: r.real_estate_target_bps, real_estate_max_bps: r.real_estate_max_bps,
-      alt_min_bps: r.alt_min_bps, alt_target_bps: r.alt_target_bps, alt_max_bps: r.alt_max_bps,
-      equity_minimum_bps: r.equity_minimum_bps || 0,
-      max_risky_fraction_bps: r.max_risky_fraction_bps,
-    };
-  })};
+  // Request in bps (exakt aus der Prozent-Eingabe, s. adminPolicyParsePercentInput).
+  var payload = { rows: validation.payloadRows };
   try {
     await API.put('/admin/optimizer-policies/' + encodeURIComponent(adminPolicyState.selectedId) + '/house-matrix', payload);
     if(status){ status.textContent = '✓ Bänder gespeichert.'; status.style.color='var(--pos)'; }
