@@ -231,6 +231,18 @@ Stufe-1-Toleranz ein Zehntel des Rauschens): Score 7
 6734/1674/810/582/200 -> 6770/1631/800/599/200 (526/1071 -> 528/1077 bps),
 Score 9 7799/959/670/372/200 -> 7858/855/697/390/200 (572/1227 -> 575/1238
 bps); Score 3 und alle drei Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-19, GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001 /
+GOAL-OPTIMIZATION-PUBLICATION-SCOPE-SPLIT-001, Engine ``saa_resampled_v10``):
+Prioritaets-Scopes per direktem Replay, Zielterme auf dem priorisierten
+Scope. Unter Haswell UND Nehalem (Threads = 1) neu erzeugt, beide
+byte-identisch. Mit dem v9-Seed (Version erzwungen, Experiment) sind ALLE
+sechs Fixtures byte-identisch zu v9 -- die Scope-Logik aendert hier nichts.
+Geaendert nur durch den neuen Wuerfel (Version im Inhalts-Seed): Score 7
+6770/1631/800/599/200 -> 6768/1636/804/592/200 (528/1077 -> 528/1076 bps,
+Risikoanteil 64.48 -> 64.44 %), Score 9 7858/855/697/390/200 ->
+7821/912/704/363/200 (575/1238 -> 574/1232 bps, Risikoanteil 68.87 ->
+68.54 %); Score 3 und alle drei Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 

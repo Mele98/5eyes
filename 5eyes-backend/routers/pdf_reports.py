@@ -1114,6 +1114,10 @@ def get_risikoprofil_pdf(
             evaluate_mandate_safely(db, mandate, ra)
         )
 
+    # RISK-PROFILE-SIGNOFF-001: Signoff-Zustand + Referenz (dieselbe Quelle
+    # wie Beratungsprotokoll-PDF, API und Strategie-Meldung).
+    signoff_view = _risk_signoff_view(db, ra)
+
     risk_data = RisikoprofilData(
         risk_profile_label=risk_label,
         risk_capacity_score=risk_capacity,
@@ -1134,6 +1138,10 @@ def get_risikoprofil_pdf(
         override_decision_id=override_decision_id,
         override_decision_hash=override_decision_hash,
         override_decision_verified=override_decision_verified,
+        signoff_state=signoff_view.get("state"),
+        signoff_id=signoff_view.get("signoff_id"),
+        signoff_hash=signoff_view.get("signoff_hash"),
+        signoff_lines=signoff_view.get("lines", ()),
         capacity_plausibility_note=capacity_plausibility_note,
     )
 
@@ -1549,6 +1557,31 @@ def get_contract_signoff_pdf(
     )
 
 
+_SIGNOFF_LOAD_FAILED = ((
+    "Signatur-Status", "Signoff-Nachweis konnte nicht geladen werden -- pruefen",
+),)
+
+
+def _risk_signoff_view(db: Session, ra) -> dict:
+    """RISK-PROFILE-SIGNOFF-001: Signoff-Ansicht fuer beide PDFs; nur fuer das
+    aktuelle Assessment (ein historisches traegt keine gueltige Signatur).
+    Best-effort wie der restliche PDF-Datenpfad, Fehler werden sichtbar."""
+    from services.risk_profile_signoff import build_signoff_view, signoff_view_lines
+
+    if ra is not None and int(getattr(ra, "is_current", 0) or 0) != 1:
+        return {"state": None, "lines": ((
+            "Signatur-Status",
+            "Kein aktuelles Risikoprofil -- Signatur nicht ausweisbar",
+        ),)}
+    try:
+        view = build_signoff_view(db, ra)
+        view["lines"] = tuple(signoff_view_lines(view))
+    except Exception as exc:  # noqa: BLE001 -- PDF darf nicht crashen
+        logger.warning("PDF signoff view failed: %s", exc)
+        return {"state": None, "lines": _SIGNOFF_LOAD_FAILED}
+    return view
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -1665,6 +1698,18 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: bausteine load failed: %s", exc)
 
+    # RISK-PROFILE-SIGNOFF-001: dieselbe Signoff-/Decision-Referenz wie im
+    # Risikoprofil-PDF.
+    try:
+        from services.portfolio_engine import _current_risk_assessment_or_none
+
+        risk_signoff_view = _risk_signoff_view(
+            db, _current_risk_assessment_or_none(db, mandate.id),
+        )
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: risk signoff load failed: %s", exc)
+        risk_signoff_view = {"state": None, "lines": _SIGNOFF_LOAD_FAILED}
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -1672,6 +1717,10 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         latest_recommendation_summary=latest_recommendation_summary,
         conflict_messages=conflict_messages,
         selected_bausteine=selected_bausteine,
+        risk_signoff_state=risk_signoff_view.get("state"),
+        risk_signoff_id=risk_signoff_view.get("signoff_id"),
+        risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
+        risk_signoff_lines=risk_signoff_view.get("lines", ()),
     )
 
 

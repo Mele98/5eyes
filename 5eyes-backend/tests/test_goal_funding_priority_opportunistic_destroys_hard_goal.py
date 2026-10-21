@@ -167,6 +167,34 @@ def _opportunistic_one_off_expense() -> SimpleNamespace:
 DETERMINISTIC_PATH_REPLICAS = 2000
 
 
+# Engine v10 (GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001): der priorisierte Scope
+# wird direkt simuliert statt rueckwaerts rekonstruiert. Die Simulations-
+# helfer registrieren ihren Kontext; ``_scopes`` reicht ihn als
+# ``scope_wealth`` an die Bewertung weiter.
+_REPLAYS: dict = {}
+
+
+def _register(wealth, **simulate_kwargs):
+    from services.optimizer.priority_scope import ScopeReplayInputs
+
+    _REPLAYS[id(wealth)] = (wealth, ScopeReplayInputs(
+        initial_wealth_rappen=simulate_kwargs["initial_wealth_rappen"],
+        weights=simulate_kwargs["weights"],
+        return_paths=simulate_kwargs["return_paths"],
+        cashflow_series_rappen=tuple(simulate_kwargs["cashflow_series_rappen"]),
+        joint_liability_path_rappen=tuple(int(v) for v in simulate_kwargs["liability_path_rappen"]),
+    ))
+    return wealth
+
+
+def _scopes(wealth, liabilities):
+    from services.optimizer.priority_scope import PriorityScopeWealth
+
+    entry = _REPLAYS.get(id(wealth))
+    replay = entry[1] if entry is not None and entry[0] is wealth else None
+    return PriorityScopeWealth(joint=wealth, liabilities=list(liabilities), replay=replay)
+
+
 def _simulate_wealth(liability_path_rappen: list[int]) -> np.ndarray:
     """Simuliert einen deterministischen Pfad mit Return-Faktor 1.0 (kein
     Wachstum), vervielfacht auf DETERMINISTIC_PATH_REPLICAS identische Pfade.
@@ -179,13 +207,14 @@ def _simulate_wealth(liability_path_rappen: list[int]) -> np.ndarray:
         (DETERMINISTIC_PATH_REPLICAS, HORIZON_YEARS, N_BUCKETS), dtype=np.float64,
     )
     cashflow_series_rappen = [0] * HORIZON_YEARS
-    return simulate_wealth_paths(
+    kwargs = dict(
         initial_wealth_rappen=INITIAL_WEALTH_RAPPEN,
         weights=weights,
         return_paths=return_paths,
         cashflow_series_rappen=cashflow_series_rappen,
         liability_path_rappen=liability_path_rappen,
     )
+    return _register(simulate_wealth_paths(**kwargs), **kwargs)
 
 
 def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypatch):
@@ -219,9 +248,7 @@ def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypa
     np.testing.assert_allclose(np.unique(wealth_without_b, axis=0), [[100.0, 100.0, 100.0]])
 
     prob_a_without_b = float(
-        goal_probability_per_path(
-            wealth_without_b, liabilities_without_b[0], initial_value_rappen=INITIAL_WEALTH_RAPPEN
-        ).mean()
+        goal_probability_per_path(wealth_without_b, liabilities_without_b[0], initial_value_rappen=INITIAL_WEALTH_RAPPEN, scope_wealth=_scopes(wealth_without_b, [liabilities_without_b[0]])).mean()
     )
     assert prob_a_without_b == pytest.approx(1.0)
 
@@ -237,14 +264,10 @@ def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypa
     goal_b_liability_with_b = liabilities_with_b[1]
 
     prob_a_with_b = float(
-        goal_probability_per_path(
-            wealth_with_b, goal_a_liability_with_b, initial_value_rappen=INITIAL_WEALTH_RAPPEN
-        ).mean()
+        goal_probability_per_path(wealth_with_b, goal_a_liability_with_b, initial_value_rappen=INITIAL_WEALTH_RAPPEN, scope_wealth=_scopes(wealth_with_b, [goal_a_liability_with_b])).mean()
     )
     prob_b_with_b = float(
-        goal_probability_per_path(
-            wealth_with_b, goal_b_liability_with_b, initial_value_rappen=INITIAL_WEALTH_RAPPEN
-        ).mean()
+        goal_probability_per_path(wealth_with_b, goal_b_liability_with_b, initial_value_rappen=INITIAL_WEALTH_RAPPEN, scope_wealth=_scopes(wealth_with_b, [goal_b_liability_with_b])).mean()
     )
 
     # The opportunistic, rank-5 Goal B is fully funded...
@@ -255,12 +278,19 @@ def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypa
     # lower-priority goal. Penalty (OBJECTIVE-NORMALIZATION-001, 2026-10-18;
     # was 1e6 * 0.8^2 = 640'000): deficit (tau 0.8 - LB 0.0) times
     # (goal volume 90 / initial wealth 100)^2 = 0.8 * 0.81.
+    #
+    # Engine v10 (GOAL-OPTIMIZATION-PUBLICATION-SCOPE-SPLIT-001): die
+    # Chance-Strafe bewertet denselben priorisierten Scope wie die
+    # Publikation. Bis v8 lag sie auf dem gemeinsamen Pfad (Strafe
+    # 0.8 * 0.9^2, Status nicht_erreichbar); jetzt ist sie exakt die des
+    # Plans ohne Goal B.
     penalty, rows = chance_constraint_penalty(
-        wealth_with_b, liabilities_with_b, initial_value_rappen=INITIAL_WEALTH_RAPPEN
+        wealth_with_b, liabilities_with_b, initial_value_rappen=INITIAL_WEALTH_RAPPEN,
+        scope_wealth=_scopes(wealth_with_b, liabilities_with_b),
     )
-    assert penalty == pytest.approx(0.8 * 0.9 ** 2)
+    assert penalty == pytest.approx(0.0)
     assert rows[0]["goal_id"] == "goal-a-hart"
-    assert rows[0]["status"] == "nicht_erreichbar"
+    assert rows[0]["status"] == "erreichbar"
 
     # This is the actual bug assertion: a lower-priority goal must never be
     # able to make a hard goal's achievability WORSE than it was without it.
@@ -289,9 +319,7 @@ def test_positive_control_hard_goal_alone_is_fully_achievable():
     np.testing.assert_allclose(np.unique(wealth_paths, axis=0), [[100.0, 100.0, 100.0]])
 
     probability = float(
-        goal_probability_per_path(
-            wealth_paths, liabilities[0], initial_value_rappen=INITIAL_WEALTH_RAPPEN
-        ).mean()
+        goal_probability_per_path(wealth_paths, liabilities[0], initial_value_rappen=INITIAL_WEALTH_RAPPEN, scope_wealth=_scopes(wealth_paths, [liabilities[0]])).mean()
     )
     assert probability == pytest.approx(1.0)
 

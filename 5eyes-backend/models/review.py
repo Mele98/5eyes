@@ -196,6 +196,13 @@ class AdvisoryLog(Base):
     last_read_at = Column(String)
     last_read_by = Column(String, ForeignKey("users.id"), nullable=True)
 
+    # RISK-PROFILE-SIGNOFF-001 (2026-10-20): NULL = echter Beratungseintrag.
+    # Gesetzt (z.B. 'risk_profile_signoff') = System-Ereignis, das KEIN
+    # Beratungsgespraech ist; get_latest_active_entry() ("letzter Termin")
+    # schliesst solche Eintraege aus. Bewusst NICHT im integrity_hash
+    # (fester Hash-Vertrag, siehe cost_disclosure_snapshot_json).
+    system_event = Column(String)
+
     mandate = relationship("Mandate", back_populates="advisory_log")
     advisor = relationship("User", foreign_keys=[advisor_id])
     recommendation_run = relationship("RecommendationRun")

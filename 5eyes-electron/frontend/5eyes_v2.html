@@ -678,6 +678,58 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 .aa-assets-col,.aa-projection-col{min-width:0;}
 .aa-assets-col .alloc-top-grid{grid-template-columns:1fr;margin-bottom:0;}
 .alloc-top-grid{display:grid;grid-template-columns:minmax(340px,400px) minmax(0,1fr);gap:18px;margin-bottom:18px;align-items:start;}
+/* STRATEGY-BLOCKS-PANEL-001: Strategiebausteine-Balken ueber der Asset Allocation (neutral, ruhig) */
+.sbb{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r3);margin:0 0 16px;box-shadow:0 10px 28px rgba(15,30,52,0.05);overflow:hidden;}
+.sbb-head{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;padding:11px 16px;cursor:pointer;border-left:3px solid var(--n5);}
+.sbb-head:hover{background:var(--n0);}
+.sbb-head:focus-visible{outline:2px solid var(--g4);outline-offset:-2px;}
+.sbb-head-main{display:flex;align-items:center;gap:14px;min-width:0;flex:1;flex-wrap:wrap;}
+.sbb-title{font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--n7);white-space:nowrap;}
+.sbb-chips{display:flex;flex-wrap:wrap;gap:5px;min-width:0;}
+.sbb-chip{font-size:10px;line-height:1.4;padding:2px 8px;border-radius:999px;background:var(--bg);border:1px solid var(--b1);color:var(--n6);white-space:nowrap;}
+.sbb-chip-more{background:transparent;color:var(--n4);}
+.sbb-chip .sbb-ac{margin-right:5px;}
+/* AA-UX-COLORS-001: Klassenfarb-Marke aus den zentralen --ac-* Tokens (folgt dem Theme). */
+.sbb-ac{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:6px;vertical-align:1px;flex-shrink:0;}
+.sbb-ac+.sbb-ac{margin-left:-3px;}
+.sbb-ac-eq{background:var(--ac-eq);}.sbb-ac-bd{background:var(--ac-bd);}.sbb-ac-re{background:var(--ac-re);}.sbb-ac-alt{background:var(--ac-alt);}.sbb-ac-liq{background:var(--ac-liq);}
+.sbb-chip-warn{background:var(--warn-lt);border-color:rgba(122,82,0,0.25);color:var(--warn);}
+.sbb-head-side{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.sbb-action{font-size:10px;color:var(--n5);}
+.sbb-caret{width:8px;height:8px;border-right:1.5px solid var(--n5);border-bottom:1.5px solid var(--n5);transform:rotate(45deg);margin-top:-3px;transition:transform 0.15s ease;}
+.sbb.is-open .sbb-caret{transform:rotate(225deg);margin-top:4px;}
+.sbb.is-open .sbb-head{border-bottom:1px solid var(--b1);}
+.sbb-body{padding:14px 16px 12px;}
+.sbb-body[hidden]{display:none;}
+.sbb-intro{font-size:11px;color:var(--n5);line-height:1.55;margin:0 0 12px;}
+.sbb-conflict{font-size:11px;line-height:1.5;color:var(--warn);background:var(--warn-lt);border:1px solid rgba(122,82,0,0.22);border-radius:var(--r2);padding:8px 10px;margin:0 0 12px;}
+.sbb-conflict[hidden]{display:none;}
+.sbb-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
+@media(max-width:1100px){.sbb-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:640px){.sbb-grid{grid-template-columns:1fr;}}
+.sbb-sec{border:1px solid var(--b1);border-radius:var(--r2);padding:10px 12px 12px;min-width:0;background:var(--surface);}
+.sbb-sec-wide{grid-column:1/-1;}
+.sbb-sec-t{font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--n7);padding:0 4px;}
+.sbb-field{display:flex;flex-direction:column;gap:4px;margin-top:8px;min-width:0;}
+.sbb-lbl{font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--n4);}
+.sbb-opt{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--n7);cursor:pointer;}
+.sbb-opt input:disabled+*,.sbb-opt input:disabled{cursor:not-allowed;}
+.sbb-sel{font-size:11px;width:100%;max-width:100%;}
+#aa-policy-esg{max-width:560px;}
+.sbb-derived{font-size:10px;color:var(--n4);line-height:1.45;}
+.sbb-note{font-size:9px;line-height:1.45;color:var(--n4);margin-top:6px;}
+.sbb-themes{display:grid;grid-template-columns:minmax(110px,max-content) minmax(0,260px);gap:5px 10px;align-items:center;}
+.sbb-theme-l{font-size:11px;color:var(--n7);}
+.sbb-reason{grid-column:1/-1;font-size:10px;}
+.sbb-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:4px 18px;}
+.sbb-inline{font-size:10px;color:var(--n5);}
+.sbb-num{font-size:11px;padding:4px 7px;max-width:160px;}
+.sbb-kv{display:grid;grid-template-columns:minmax(90px,max-content) 80px;gap:5px 10px;align-items:center;}
+.sbb-kv .sbb-num{max-width:80px;}
+.sbb-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--b1);}
+.sbb-status{font-size:10px;color:var(--n4);}
+.sbb-foot-actions{display:flex;gap:8px;}
+@media(prefers-reduced-motion:reduce){.sbb-caret{transition:none;}}
 .alloc-donut-card{display:flex;flex-direction:column;align-items:center;padding:16px 18px;}
 .alloc-donut-card .section-kicker{font-size:9px;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:12px;text-align:center;}
 .alloc-donut-subline{margin-top:10px;font-size:10px;color:var(--n5);line-height:1.55;text-align:center;max-width:240px;}
@@ -3496,6 +3548,150 @@ function _wireSollIstHover(){
             <div class="al-banner-actions"></div>
           </div>
         </div>
+        <!-- STRATEGY-BLOCKS-PANEL-001: alle Strategiebausteine (Tilts, Praeferenzen, Restriktionen, Reserve)
+             an EINEM Ort direkt ueber der Asset Allocation. Je Thema genau eine Steuerung; die Element-IDs
+             sind die bisherigen (collect/apply/bind unveraendert), der Payload behaelt alle Praeferenz-Keys. -->
+        <section class="sbb" id="aa-strategy-blocks" aria-labelledby="sbb-title">
+          <button type="button" class="sbb-head" id="sbb-toggle" aria-expanded="false" aria-controls="sbb-body" onclick="toggleStrategyBlocksPanel()">
+            <span class="sbb-head-main">
+              <span class="sbb-title" id="sbb-title">Strategiebausteine</span>
+              <span class="sbb-chips" id="sbb-summary"></span>
+            </span>
+            <span class="sbb-head-side"><span class="sbb-action" id="sbb-toggle-label">Bearbeiten</span><span class="sbb-caret" aria-hidden="true"></span></span>
+          </button>
+          <div class="sbb-body" id="sbb-body" role="region" aria-labelledby="sbb-title" hidden>
+            <p class="sbb-intro">Jeder Baustein wird genau hier festgelegt. Änderungen markieren die Strategie zur Neuberechnung — die angezeigte Allokation bleibt bis dahin unverändert.</p>
+            <div id="sbb-conflict" class="sbb-conflict" role="alert" hidden></div>
+            <div class="sbb-grid">
+              <fieldset class="sbb-sec" id="sbb-sec-equities">
+                <legend class="sbb-sec-t"><span class="sbb-ac sbb-ac-eq" aria-hidden="true"></span>Aktien</legend>
+                <div class="sbb-field" role="radiogroup" aria-labelledby="sbb-lbl-eq-geo">
+                  <div class="sbb-lbl" id="sbb-lbl-eq-geo">Geografischer Fokus</div>
+                  <label class="sbb-opt"><input type="radio" name="aa-equities-geo" value="Schweiz Fokus" checked> Schweiz-Fokus</label>
+                  <label class="sbb-opt"><input type="radio" name="aa-equities-geo" value="Global"> Global</label>
+                  <label class="sbb-opt"><input type="radio" name="aa-equities-geo" value="Europa"> Europa</label>
+                  <label class="sbb-opt"><input type="radio" name="aa-equities-geo" value="Schwellenländer"> Schwellenländer</label>
+                </div>
+                <div class="sbb-field">
+                  <div class="sbb-lbl">Segment</div>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-equities-large-cap" checked> Large Cap</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-equities-smid"> Small &amp; Mid Cap</label>
+                </div>
+              </fieldset>
+              <fieldset class="sbb-sec" id="sbb-sec-bonds">
+                <legend class="sbb-sec-t"><span class="sbb-ac sbb-ac-bd" aria-hidden="true"></span>Obligationen</legend>
+                <div class="sbb-field" role="radiogroup" aria-labelledby="sbb-lbl-bd-dur">
+                  <div class="sbb-lbl" id="sbb-lbl-bd-dur">Laufzeit</div>
+                  <label class="sbb-opt"><input type="radio" name="aa-bonds-duration" value="Langfristig" checked> Langfristig</label>
+                  <label class="sbb-opt"><input type="radio" name="aa-bonds-duration" value="Kurzfristig"> Kurzfristig</label>
+                  <label class="sbb-opt"><input type="radio" name="aa-bonds-duration" value="Gemischt"> Gemischt</label>
+                </div>
+                <div class="sbb-field">
+                  <div class="sbb-lbl">Qualität</div>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-bonds-investment-grade" checked> Investment Grade</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-bonds-high-yield"> High Yield</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-bonds-emerging"> Emerging Markets</label>
+                </div>
+              </fieldset>
+              <fieldset class="sbb-sec" id="sbb-sec-realalt">
+                <legend class="sbb-sec-t"><span class="sbb-ac sbb-ac-re" aria-hidden="true"></span><span class="sbb-ac sbb-ac-alt" aria-hidden="true"></span>Immobilien &amp; Alternative</legend>
+                <div class="sbb-field" role="radiogroup" aria-labelledby="sbb-lbl-re-mkt">
+                  <div class="sbb-lbl" id="sbb-lbl-re-mkt"><span class="sbb-ac sbb-ac-re" aria-hidden="true"></span>Immobilien · Markt</div>
+                  <label class="sbb-opt"><input type="radio" name="aa-realestate-market" value="Schweiz" checked> Schweiz</label>
+                  <label class="sbb-opt"><input type="radio" name="aa-realestate-market" value="Ausland"> Ausland</label>
+                  <label class="sbb-opt"><input type="radio" name="aa-realestate-market" value="Gemischt"> Gemischt</label>
+                </div>
+                <div class="sbb-field">
+                  <div class="sbb-lbl"><span class="sbb-ac sbb-ac-re" aria-hidden="true"></span>Immobilien · Format</div>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-realestate-funds" checked> Fonds / REIT</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-realestate-direct"> Direkt</label>
+                </div>
+                <div class="sbb-field">
+                  <div class="sbb-lbl"><span class="sbb-ac sbb-ac-alt" aria-hidden="true"></span>Alternative · Instrumente</div>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-alts-gold" checked> Gold / Rohstoffe</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-alts-liquid-alts"> Liquid Alternatives</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-alts-hedge"> Hedge Funds</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-alts-pe"> Private Equity</label>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-alts-crypto"> Krypto</label>
+                </div>
+              </fieldset>
+              <fieldset class="sbb-sec" id="sbb-sec-fx">
+                <legend class="sbb-sec-t">Währung &amp; Universum</legend>
+                <div class="sbb-field">
+                  <label class="sbb-lbl" for="aa-policy-universe">Anlageuniversum</label>
+                  <select class="fsel sbb-sel" id="aa-policy-universe"><option value="funds_only" selected>Nur Fonds / ETFs (Filter aktiv)</option><option value="listed_only">Nur kotierte Instrumente (Filter aktiv)</option><option value="standard">Standard (Fonds, ETFs und Einzeltitel; kein Zusatzfilter)</option><option value="extended">Erweitert (kein Zusatzfilter)</option></select>
+                  <div class="sbb-derived" id="sbb-universe-derived" aria-live="polite"></div>
+                </div>
+                <div class="sbb-field">
+                  <label class="sbb-lbl" for="aa-policy-home-bias">Heimmarkt</label>
+                  <select class="fsel sbb-sel" id="aa-policy-home-bias"><option value="ch_focus" selected>CH-Fokus bevorzugt (Score-Boost aktiv)</option><option value="none">Kein Heimmarkt-Bias</option><option value="europe_focus">Europa-Fokus (Dokumentation, kein Boost)</option><option value="global">Global neutral (Dokumentation, kein Boost)</option></select>
+                </div>
+                <div class="sbb-field">
+                  <label class="sbb-lbl" for="aa-policy-hedging">Währungsabsicherung</label>
+                  <select class="fsel sbb-sel" id="aa-policy-hedging"><option value="none" selected>Keine Vorgabe</option><option value="hedged">Abgesichert bevorzugt (Vorrang, kein Filter)</option><option value="required">Absicherung obligatorisch (nur Heimwährung oder abgesichert)</option><option value="chf_only">Nur CHF-Instrumente (Filter aktiv)</option><option value="risk_budget">Nur ausserhalb Risiko-Budget</option></select>
+                </div>
+                <div class="sbb-field">
+                  <div class="sbb-lbl">Währungsausschluss</div>
+                  <label class="sbb-opt"><input type="checkbox" id="aa-geo-no-usd"> Kein USD</label>
+                </div>
+              </fieldset>
+              <fieldset class="sbb-sec sbb-sec-wide" id="sbb-sec-esg">
+                <legend class="sbb-sec-t">Nachhaltigkeit</legend>
+                <div class="sbb-field">
+                  <label class="sbb-lbl" for="aa-policy-esg">ESG-Kriterium</label>
+                  <select class="fsel sbb-sel" id="aa-policy-esg"><option value="none" selected>Keine ESG-Präferenz</option><option value="best_in_class">Best-in-Class (SFDR 8/9 und ESG-Rating AAA/AA oder ESG-Score ≥ 71.4; ohne Rating ausgeschlossen; Liquidität ausgenommen)</option><option value="impact">Impact Investing (nur SFDR 9; Liquidität ausgenommen)</option><option value="net_zero">Paris-aligned / Net Zero (SFDR 8/9 und EU-Klima-Benchmark PAB/CTB, beides Pflicht; SFDR 9 allein genügt nicht; Liquidität ausgenommen)</option><option value="esg_integration">ESG-Integration (SFDR 8/9 Filter aktiv; Liquidität ausgenommen)</option><option value="negative_screening">Negativ-Screening (Themenprodukte unten ausgeschlossen, sofern nicht abweichend gewählt)</option></select>
+                </div>
+                <div class="sbb-field">
+                  <div class="sbb-lbl">Themen</div>
+                  <div class="sbb-themes">
+                    <label class="sbb-theme-l" for="aa-tilt-fossil">Fossile Energie</label><select class="fsel sbb-sel" id="aa-tilt-fossil"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason sbb-reason" id="aa-tilt-reason-fossil" data-tilt="fossil" maxlength="2000" aria-label="Begründung Fossile Energie" placeholder="Begründung Fossile Energie (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="display:none">
+                    <label class="sbb-theme-l" for="aa-tilt-defense">Verteidigung</label><select class="fsel sbb-sel" id="aa-tilt-defense"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason sbb-reason" id="aa-tilt-reason-defense" data-tilt="defense" maxlength="2000" aria-label="Begründung Verteidigung" placeholder="Begründung Verteidigung (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="display:none">
+                    <label class="sbb-theme-l" for="aa-tilt-tobacco">Tabak</label><select class="fsel sbb-sel" id="aa-tilt-tobacco"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason sbb-reason" id="aa-tilt-reason-tobacco" data-tilt="tobacco" maxlength="2000" aria-label="Begründung Tabak" placeholder="Begründung Tabak (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="display:none">
+                    <label class="sbb-theme-l" for="aa-tilt-alcohol">Alkohol</label><select class="fsel sbb-sel" id="aa-tilt-alcohol"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason sbb-reason" id="aa-tilt-reason-alcohol" data-tilt="alcohol" maxlength="2000" aria-label="Begründung Alkohol" placeholder="Begründung Alkohol (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="display:none">
+                    <label class="sbb-theme-l" for="aa-tilt-gaming">Glücksspiel</label><select class="fsel sbb-sel" id="aa-tilt-gaming"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason sbb-reason" id="aa-tilt-reason-gaming" data-tilt="gaming" maxlength="2000" aria-label="Begründung Glücksspiel" placeholder="Begründung Glücksspiel (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="display:none">
+                    <label class="sbb-theme-l" for="aa-tilt-nuclear">Kernenergie</label><select class="fsel sbb-sel" id="aa-tilt-nuclear"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason sbb-reason" id="aa-tilt-reason-nuclear" data-tilt="nuclear" maxlength="2000" aria-label="Begründung Kernenergie" placeholder="Begründung Kernenergie (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="display:none">
+                  </div>
+                  <div id="aa-tilt-screening-note" class="sbb-note">Neutral folgt der ESG-Policy (bei Negativ-Screening: ausgeschlossen). Ausschliessen: Themenprodukte werden nie ausgewählt. Untergewichten: kein eigener Themenbaustein und Themenprodukte werden nie als Ersatz für einen anderen Baustein ausgewählt (gleiche Produktwirkung wie Ausschliessen). Bewusst zulassen: übersteuert das Negativ-Screening für dieses Thema, verlangt eine Begründung und wird in der Anlagestrategie als Abweichung von der ESG-Policy ausgewiesen. Fossile Energie: Themenprodukte sowie Fonds mit Energie-Sektoranteil &gt; 10 % (gepflegte Sektordaten, Look-through). Übrige Themen: nur als Themenprodukt klassifizierte Produkte (Sub-Anlageklasse „Thema …“ oder Themen-Tag); breit diversifizierte Index-/Fondsprodukte werden auf diese Themen nicht durchleuchtet.</div>
+                </div>
+              </fieldset>
+              <fieldset class="sbb-sec sbb-sec-wide" id="sbb-sec-limits">
+                <legend class="sbb-sec-t">Restriktionen &amp; Reserve</legend>
+                <div class="sbb-cols">
+                  <div class="sbb-field">
+                    <div class="sbb-lbl">Produkte</div>
+                    <label class="sbb-opt"><input type="checkbox" id="aa-product-no-derivatives"> Keine Derivate</label>
+                    <label class="sbb-opt"><input type="checkbox" id="aa-product-no-leverage"> Keine Hebelprodukte</label>
+                    <label class="sbb-opt"><input type="checkbox" id="aa-product-no-structured"> Keine Strukturierten</label>
+                    <label class="sbb-opt"><input type="checkbox" id="aa-geo-no-em"> Kein EM-Exposure</label>
+                  </div>
+                  <div class="sbb-field">
+                    <div class="sbb-lbl">Konzentration (max. %)</div>
+                    <div class="sbb-kv">
+                      <label class="sbb-inline" for="aa-limit-single-position">Einzelposition</label><input class="fi sbb-num" id="aa-limit-single-position" type="number" min="0" max="100" placeholder="20">
+                      <label class="sbb-inline" for="aa-limit-single-issuer">Einzelemittent</label><input class="fi sbb-num" id="aa-limit-single-issuer" type="number" min="0" max="100" placeholder="10">
+                      <label class="sbb-inline" for="aa-liquidity-max-illiquid">Max. illiquid</label><input class="fi sbb-num" id="aa-liquidity-max-illiquid" type="number" min="0" max="100" placeholder="20">
+                    </div>
+                  </div>
+                  <div class="sbb-field">
+                    <label class="sbb-lbl" for="aa-liquidity-min-reserve"><span class="sbb-ac sbb-ac-liq" aria-hidden="true"></span>Mindestreserve (CHF)</label>
+                    <input class="fi sbb-num" id="aa-liquidity-min-reserve" type="text" inputmode="numeric" placeholder="z.B. 50'000">
+                    <div class="sbb-derived">Einzige Reserve-Vorgabe. Die Engine hält mindestens diesen Betrag liquid; ein höherer Bedarf aus Cashflows und Zielen geht vor.</div>
+                  </div>
+                  <div class="sbb-field" role="radiogroup" aria-labelledby="sbb-lbl-liq-inst">
+                    <div class="sbb-lbl" id="sbb-lbl-liq-inst">Reserve halten in</div>
+                    <label class="sbb-opt"><input type="radio" name="aa-liquidity-instrument" value="Geldmarktfonds" checked> Geldmarktfonds</label>
+                    <label class="sbb-opt"><input type="radio" name="aa-liquidity-instrument" value="Kontoguthaben"> Kontoguthaben</label>
+                    <label class="sbb-opt"><input type="radio" name="aa-liquidity-instrument" value="Festgeld"> Festgeld</label>
+                  </div>
+                </div>
+              </fieldset>
+            </div>
+            <div class="sbb-foot">
+              <div id="aa-pref-status" class="sbb-status">Strategiebausteine werden pro Mandat im Arbeitsstand gespeichert und in der Abschlussansicht gespiegelt.</div>
+              <div class="sbb-foot-actions"><button type="button" class="btn" onclick="toggleStrategyBlocksPanel(false)">Einklappen</button><button type="button" class="btn-p" onclick="calculateInvestmentStrategy()">Strategie neu berechnen</button></div>
+            </div>
+          </div>
+        </section>
         <div class="alloc-top-grid">
           <div class="card alloc-donut-card">
             <div class="section-kicker">SOLL-Allokation</div>
@@ -3701,7 +3897,7 @@ function _wireSollIstHover(){
                 </table>
               </details>
               <details id="method-drivers-block">
-                <summary class="optimizer-summary" title="Gewichteter Anteil je Ziel an der gesamten Zielabweichung auf dem gemeinsamen simulierten Verlauf &ndash; kein kausaler oder marginaler Zielanteil.">Treiber der Zielabweichung</summary>
+                <summary class="optimizer-summary" title="Gewichteter Anteil je Ziel an der Zielabweichung, bewertet auf seinem priorisierten Verlauf (nur Ziele bis einschliesslich dieses Rangs) &ndash; kein kausaler oder marginaler Zielanteil.">Treiber der Zielabweichung</summary>
                 <table class="optimizer-table" id="method-drivers-table">
                   <thead>
                     <tr>
@@ -3739,66 +3935,6 @@ function _wireSollIstHover(){
           </div>
         </div>
       </div>
-                  <!-- Restriktionen in Asset Allokation -->
-      <div class="card" id="aa-restrictions-card" style="display:none;margin:0 24px 12px">
-        <div class="chd"><span class="cht">Restriktionen & Tilts</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Mandatsvorgaben für Strategie-Summary und Produktauswahl-Vorbereitung</span></div>
-        <div class="cbody">
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
-            <div>
-              <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Policy</div>
-                <div style="display:flex;flex-direction:column;gap:9px">
-                <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none" selected>Keine ESG-Präferenz</option><option value="best_in_class">Best-in-Class (SFDR 8/9 und ESG-Rating AAA/AA oder ESG-Score ≥ 71.4; ohne Rating ausgeschlossen; Liquidität ausgenommen)</option><option value="impact">Impact Investing (nur SFDR 9; Liquidität ausgenommen)</option><option value="net_zero">Paris-aligned / Net Zero (SFDR 8/9 und EU-Klima-Benchmark PAB/CTB, beides Pflicht; SFDR 9 allein genügt nicht; Liquidität ausgenommen)</option><option value="esg_integration">ESG-Integration (SFDR 8/9 Filter aktiv; Liquidität ausgenommen)</option><option value="negative_screening">Negativ-Screening (Themenprodukte unten ausgeschlossen, sofern nicht abweichend gewählt)</option></select></div>
-                <div><label style="font-size:9px;color:var(--n4)">Anlageuniversum</label><select class="fsel" id="aa-policy-universe" style="font-size:10px"><option value="funds_only" selected>Nur Fonds / ETFs (Filter aktiv)</option><option value="listed_only">Nur kotierte Instrumente (Filter aktiv)</option><option value="standard">Standard (kein Zusatzfilter; Checkboxen unter Produkt &amp; Struktur gelten)</option><option value="extended">Erweitert (kein Zusatzfilter; Checkboxen unter Produkt &amp; Struktur gelten)</option></select></div>
-                <div><label style="font-size:9px;color:var(--n4)">Heimmarkt-Präferenz</label><select class="fsel" id="aa-policy-home-bias" style="font-size:10px"><option value="ch_focus" selected>CH-Fokus bevorzugt (Score-Boost aktiv)</option><option value="none">Kein Heimmarkt-Bias</option><option value="europe_focus">Europa-Fokus (Dokumentation, kein Boost)</option><option value="global">Global neutral (Dokumentation, kein Boost)</option></select></div>
-                <div><label style="font-size:9px;color:var(--n4)">Währungsabsicherung</label><select class="fsel" id="aa-policy-hedging" style="font-size:10px"><option value="none" selected>Keine Vorgabe</option><option value="hedged">FX-gehedgt bevorzugt</option><option value="chf_only">Nur CHF-Instrumente</option><option value="risk_budget">Nur ausserhalb Risiko-Budget</option></select></div>
-              </div>
-            </div>
-            <div>
-              <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Kontroverse Exposures</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 6px;align-items:center">
-                <label style="font-size:9px;color:var(--n6)">Fossile Energie</label><select class="fsel" id="aa-tilt-fossil" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason" id="aa-tilt-reason-fossil" data-tilt="fossil" maxlength="2000" placeholder="Begründung Fossile Energie (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="grid-column:1/-1;display:none;font-size:10px">
-                <label style="font-size:9px;color:var(--n6)">Verteidigung</label><select class="fsel" id="aa-tilt-defense" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason" id="aa-tilt-reason-defense" data-tilt="defense" maxlength="2000" placeholder="Begründung Verteidigung (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="grid-column:1/-1;display:none;font-size:10px">
-                <label style="font-size:9px;color:var(--n6)">Tabak</label><select class="fsel" id="aa-tilt-tobacco" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason" id="aa-tilt-reason-tobacco" data-tilt="tobacco" maxlength="2000" placeholder="Begründung Tabak (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="grid-column:1/-1;display:none;font-size:10px">
-                <label style="font-size:9px;color:var(--n6)">Alkohol</label><select class="fsel" id="aa-tilt-alcohol" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason" id="aa-tilt-reason-alcohol" data-tilt="alcohol" maxlength="2000" placeholder="Begründung Alkohol (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="grid-column:1/-1;display:none;font-size:10px">
-                <label style="font-size:9px;color:var(--n6)">Glücksspiel</label><select class="fsel" id="aa-tilt-gaming" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason" id="aa-tilt-reason-gaming" data-tilt="gaming" maxlength="2000" placeholder="Begründung Glücksspiel (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="grid-column:1/-1;display:none;font-size:10px">
-                <label style="font-size:9px;color:var(--n6)">Kernenergie</label><select class="fsel" id="aa-tilt-nuclear" style="font-size:10px"><option value="exclude">Ausschliessen</option><option value="underweight">Untergewichten</option><option value="neutral" selected>Neutral (folgt ESG-Policy)</option><option value="allow">Bewusst zulassen</option><option value="overweight">Übergewichten</option></select><input class="fi aa-tilt-reason" id="aa-tilt-reason-nuclear" data-tilt="nuclear" maxlength="2000" placeholder="Begründung Kernenergie (Pflicht bei „Bewusst zulassen“, mind. 20 Zeichen)" style="grid-column:1/-1;display:none;font-size:10px">
-              </div>
-              <div id="aa-tilt-screening-note" style="font-size:8px;line-height:1.35;color:var(--n4);margin-top:5px">Neutral folgt der ESG-Policy (bei Negativ-Screening: ausgeschlossen). Ausschliessen: Themenprodukte werden nie ausgewählt. Untergewichten: kein eigener Themenbaustein und Themenprodukte werden nie als Ersatz für einen anderen Baustein ausgewählt (gleiche Produktwirkung wie Ausschliessen). Bewusst zulassen: übersteuert das Negativ-Screening für dieses Thema, verlangt eine Begründung und wird in der Anlagestrategie als Abweichung von der ESG-Policy ausgewiesen. Fossile Energie: Themenprodukte sowie Fonds mit Energie-Sektoranteil &gt; 10 % (gepflegte Sektordaten, Look-through). Übrige Themen: nur als Themenprodukt klassifizierte Produkte (Sub-Anlageklasse „Thema …“ oder Themen-Tag); breit diversifizierte Index-/Fondsprodukte werden auf diese Themen nicht durchleuchtet.</div>
-            </div>
-            <div>
-              <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Produkt & Struktur</div>
-              <div style="display:flex;flex-direction:column;gap:3px">
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-product-no-derivatives"> Keine Derivate</label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-product-no-leverage"> Keine Hebelprodukte</label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-product-no-structured"> Keine Strukturierten</label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-product-listed-only"> Nur kotierte Titel</label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-product-funds-only" checked> Nur Fonds/ETFs</label>
-              </div>
-              <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin:8px 0 5px">Konzentration (max. %)</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-                <div><label style="font-size:9px;color:var(--n4)">Einzelposition</label><input class="fi" id="aa-limit-single-position" type="number" placeholder="20" style="font-size:10px;padding:3px 6px"></div>
-                <div><label style="font-size:9px;color:var(--n4)">Einzelemittent</label><input class="fi" id="aa-limit-single-issuer" type="number" placeholder="10" style="font-size:10px;padding:3px 6px"></div>
-              </div>
-            </div>
-            <div>
-              <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Geografie & Währung</div>
-              <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px">
-                <!-- CH-Fokus wird ausschliesslich ueber die Heimmarkt-Praeferenz (policy.homeBias) gesteuert, kein zweiter Schalter. -->
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-no-em"> Kein EM-Exposure</label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-hedging-required"> FX-Absicherung obligatorisch</label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-chf-only"> Nur CHF-Instrumente</label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-no-usd"> Kein USD</label>
-              </div>
-              <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Liquidität (Grenzen)</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-                <div><label style="font-size:9px;color:var(--n4)">Min. Reserve (CHF)</label><input class="fi" id="aa-liquidity-min-reserve" type="text" placeholder="50'000" style="font-size:10px;padding:3px 6px"></div>
-                <div><label style="font-size:9px;color:var(--n4)">Max. Illiquid (%)</label><input class="fi" id="aa-liquidity-max-illiquid" type="number" placeholder="20" style="font-size:10px;padding:3px 6px"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div class="card" id="aa-simulation-card" style="display:none;margin:0 24px 12px">
         <div class="chd"><span class="cht">Simulation & Rebalancing</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Volatilitäts-Szenario und Rebalancing-Modus für die Berechnung</span></div>
         <div class="cbody">
@@ -3844,73 +3980,6 @@ function _wireSollIstHover(){
         </div>
       </div>
 
-<!-- Schwerpunkt Panel -->
-      <div class="card" id="aa-preferences-card" style="display:none;margin:0 24px 16px">
-        <div class="chd"><span class="cht">Anlagepräferenzen & Tilts</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Pro Anlageklasse Fokus, Instrumente und Tilts definieren</span></div>
-        <div class="cbody">
-          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;">
-            <div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px;">
-              <div style="font-size:10px;font-weight:600;color:var(--n7);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--b1)">Aktien</div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">GEOGRAFISCHER FOKUS</div>
-              <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-equities-geo" value="Schweiz Fokus" checked> Schweiz Fokus</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-equities-geo" value="Global"> Global</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-equities-geo" value="Europa"> Europa</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-equities-geo" value="Schwellenländer"> Schwellenländer</label>
-              </div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">SEGMENT</div>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-equities-large-cap" checked> Large Cap</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-equities-smid"> Small & Mid Cap</label>
-            </div>
-            <div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px;">
-              <div style="font-size:10px;font-weight:600;color:var(--n7);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--b1)">Obligationen</div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">LAUFZEIT</div>
-              <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-bonds-duration" value="Langfristig" checked> Langfristig</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-bonds-duration" value="Kurzfristig"> Kurzfristig</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-bonds-duration" value="Gemischt"> Gemischt</label>
-              </div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">QUALITÄT</div>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-bonds-investment-grade" checked> Investment Grade</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-bonds-high-yield"> High Yield</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-bonds-emerging"> Emerging Markets</label>
-            </div>
-            <div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px;">
-              <div style="font-size:10px;font-weight:600;color:var(--n7);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--b1)">Immobilien</div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">MARKT</div>
-              <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-realestate-market" value="Schweiz" checked> Schweiz</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-realestate-market" value="Ausland"> Ausland</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-realestate-market" value="Gemischt"> Gemischt</label>
-              </div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">FORMAT</div>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-realestate-funds" checked> Fonds / REIT</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-realestate-direct"> Direkt</label>
-            </div>
-            <div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px;">
-              <div style="font-size:10px;font-weight:600;color:var(--n7);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--b1)">Alternative Anlagen</div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">INSTRUMENTE</div>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-alts-gold" checked> Gold / Rohstoffe</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-alts-liquid-alts"> Liquid Alternatives</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-alts-hedge"> Hedge Funds</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;margin-bottom:3px"><input type="checkbox" id="aa-alts-pe"> Private Equity</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-alts-crypto"> Krypto</label>
-            </div>
-            <div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px;">
-              <div style="font-size:10px;font-weight:600;color:var(--n7);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--b1)">Liquidität</div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">INSTRUMENT</div>
-              <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-liquidity-instrument" value="Geldmarktfonds" checked> Geldmarktfonds</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-liquidity-instrument" value="Kontoguthaben"> Kontoguthaben</label>
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer"><input type="radio" name="aa-liquidity-instrument" value="Festgeld"> Festgeld</label>
-              </div>
-              <div style="font-size:9px;color:var(--n4);margin-bottom:4px;font-weight:500">RESERVE (CHF)</div>
-              <input class="fi" id="aa-liquidity-reserve-target" type="text" placeholder="z.B. 50'000" style="font-size:10px;padding:4px 7px;width:100%">
-            </div>
-          </div>
-          <div id="aa-pref-status" style="font-size:10px;color:var(--n4);margin-top:10px">Mandatspräferenzen werden lokal pro Mandat im Arbeitsstand gespeichert und in der Abschlussansicht gespiegelt.</div>
-        </div>
-      </div>
       <div class="cnav"><button class="btn" onclick="go('rp')">← Zurück zum Risikoprofil</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio →</button></div>
     </div>
 
@@ -4171,28 +4240,6 @@ function _wireSollIstHover(){
             <div class="calc-progress" id="strategy-calc-progress">Strategie wird vorbereitet...</div>
           </div>
         </div>
-      </div>
-    </div>
-    <div class="overlay" id="m-aa-pref">
-      <div class="modal" style="width:1080px;max-height:84vh;overflow-y:auto">
-        <div class="mhd"><div class="mtitle">Anlagepr&auml;ferenzen</div><button class="mx" onclick="cm('m-aa-pref')">&#x2715;</button></div>
-        <div class="mbody">
-          <div style="font-size:11px;color:var(--n5);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;margin-bottom:12px">Hier liegen zuerst die kundennahen Anlagepr&auml;ferenzen. Restriktionen und Tilts erscheinen nur im zweiten Schritt, wenn sie im Gespr&auml;ch wirklich ben&ouml;tigt werden.</div>
-          <div id="aa-pref-modal-slot" style="display:flex;flex-direction:column;gap:12px"></div>
-          <div id="aa-pref-advanced-teaser" style="display:flex;flex-direction:column;gap:10px;border:1px dashed var(--b1);border-radius:var(--r);padding:12px 14px;background:linear-gradient(180deg, rgba(42,74,112,0.03), rgba(42,74,112,0.01));margin-top:12px">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-              <div>
-                <div style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--n5);margin-bottom:4px">Optionaler zweiter Schritt</div>
-                <div style="font-size:11px;color:var(--n6);line-height:1.55;max-width:640px">Ausschl&uuml;sse, kontroverse Exposures, Produktgrenzen und W&auml;hrungs-/Geografie-Vorgaben nur dann &ouml;ffnen, wenn sie f&uuml;r das Mandat wirklich relevant sind.</div>
-              </div>
-              <button class="btn" type="button" id="btn-aa-advanced-toggle" onclick="toggleAllocationRestrictionsPanel()">Restriktionen &amp; Tilts &ouml;ffnen</button>
-            </div>
-          </div>
-          <div id="aa-pref-advanced-slot-wrap" style="display:none;flex-direction:column;gap:12px;margin-top:12px">
-            <div id="aa-pref-advanced-slot" style="display:flex;flex-direction:column;gap:12px"></div>
-          </div>
-        </div>
-        <div class="mfooter"><button class="btn" onclick="cm('m-aa-pref')">Schliessen</button><button class="btn-p" onclick="calculateInvestmentStrategy()">Strategie neu berechnen</button></div>
       </div>
     </div>
     <div class="overlay" id="m-aa-params">
@@ -19265,9 +19312,10 @@ function ensureAllocationRuntimePanels(){
   var page=document.getElementById('page-al');
   if(!page)return;
   if(!document.getElementById('aa-engine-grid')){
-    var status=document.getElementById('aa-pref-status');
-    if(status&&status.parentNode&&status.parentNode.parentNode){
-      var host=status.parentNode.parentNode;
+    // STRATEGY-BLOCKS-PANEL-001: Anker ist die Simulations-Karte (wandert wie
+    // dieses Panel ins Parameter-Modal), nicht mehr die Praeferenz-Karte.
+    var host=document.getElementById('aa-simulation-card');
+    if(host&&host.parentNode){
       var wrap=document.createElement('div');
       wrap.id='aa-runtime-wrap';
       wrap.className='g2';
@@ -19489,29 +19537,153 @@ function updateAllocationPreferencesEntryButton(){
   var restrictions=buildAllocationRestrictionItems(prefs);
   var prefBtn=document.getElementById('btn-aa-pref-open');
   if(prefBtn){
-    prefBtn.textContent='Anlagepräferenzen';
+    // STRATEGY-BLOCKS-PANEL-001: der Header-Button oeffnet denselben
+    // Strategiebausteine-Balken (kein zweiter Dialog, keine zweite Wahrheit).
+    prefBtn.textContent='Strategiebausteine';
     prefBtn.title=restrictions.length
-      ? ('Anlagepräferenzen öffnen. '+String(restrictions.length)+' Restriktion(en) oder Tilts sind zusätzlich hinterlegt.')
-      : 'Anlagepräferenzen öffnen';
+      ? ('Strategiebausteine öffnen. '+String(restrictions.length)+' Restriktion(en) oder Tilts sind aktiv.')
+      : 'Strategiebausteine öffnen';
   }
-  var advancedBtn=document.getElementById('btn-aa-advanced-toggle');
-  if(advancedBtn){
-    advancedBtn.textContent=restrictions.length
-      ? ('Restriktionen & Tilts bearbeiten ('+String(restrictions.length)+' aktiv)')
-      : 'Restriktionen & Tilts öffnen';
+  renderStrategyBlocksSummary(prefs);
+}
+// STRATEGY-BLOCKS-PANEL-001 (UX-Audit Befund 9): alle Strategie-Eingaben
+// (Tilts, Praeferenzen, Restriktionen, Reserve) in EINEM einklappbaren Balken
+// direkt ueber der Asset Allocation. Eingeklappt: ruhige Chips der aktiven
+// Bausteine; aufgeklappt: Detail-Auswahl je Thema mit genau einer Steuerung.
+var STRATEGY_BLOCK_CHIP_LIMIT=9;
+function sbbParseAmount(value){
+  // AA-UX-FORMAT-001: Eingaben mit ' oder ' (U+2019) als Tausendertrennung.
+  var n=Number(normalizeNumberInputCH(value).replace(/[^0-9.]/g,''));
+  return isFinite(n)&&n>0?n:0;
+}
+function sbbFormatPctInput(value){
+  // Prozent-Eingaben (z.B. "15") ueber den zentralen Helfer fmtPct (bps).
+  var n=Number(normalizeNumberInputCH(value).replace(',','.'));
+  if(!isFinite(n))return String(value||'').trim()+'\u00a0%';
+  return fmtPct(Math.round(n*100),Math.round(n)===n?0:1);
+}
+function findStrategyBlockConflicts(prefs){
+  // Das Backend lehnt diese Kombinationen ab (portfolio_engine_house_matrix:
+  // "Anlagepraeferenzen widerspruechlich"). Der Balken zeigt sie VOR der
+  // Berechnung an, statt Werte stillschweigend umzustellen.
+  var conflicts=[];
+  var geo=(prefs&&prefs.geo)||{};
+  var ac=(prefs&&prefs.assetClasses)||{};
+  if(geo.noEm){
+    var eqGeo=String(ac.equitiesGeo||'').toLowerCase();
+    if(eqGeo.indexOf('schwellenl')===0)conflicts.push('Aktien-Fokus «Schwellenländer» widerspricht der Restriktion «Kein EM-Exposure».');
+    if(ac.bondsEmerging)conflicts.push('Obligationen «Emerging Markets» widerspricht der Restriktion «Kein EM-Exposure».');
+  }
+  return conflicts;
+}
+function buildStrategyBlockChips(prefs){
+  if(!prefs)return [];
+  var policy=prefs.policy||{};
+  var ac=prefs.assetClasses||{};
+  var product=prefs.product||{};
+  var geo=prefs.geo||{};
+  var limits=prefs.limits||{};
+  var tilts=prefs.tilts||{};
+  var chips=[];
+  function add(label,tone,ac){
+    if(!label)return;
+    var chip={label:label,tone:tone||'neutral'};
+    if(ac)chip.ac=ac;
+    chips.push(chip);
+  }
+  if(findStrategyBlockConflicts(prefs).length)add('Widerspruch prüfen','warn');
+  var eqGeo={'Schweiz Fokus':'Aktien Schweiz-Fokus','Global':'Aktien global','Europa':'Aktien Europa','Schwellenländer':'Aktien Schwellenländer'};
+  add((eqGeo[ac.equitiesGeo]||('Aktien '+(ac.equitiesGeo||'Schweiz-Fokus')))+(ac.equitiesSmid?' inkl. Small & Mid':''),null,'eq');
+  var homeBias={ch_focus:'Heimmarkt CH bevorzugt',europe_focus:'Heimmarkt Europa',global:'Global neutral'};
+  add(homeBias[policy.homeBias]);
+  var bondExtras=[];
+  if(ac.bondsHighYield)bondExtras.push('High Yield');
+  if(ac.bondsEmerging)bondExtras.push('EM');
+  add('Obligationen '+String(ac.bondsDuration||'Langfristig').toLowerCase()+(bondExtras.length?' + '+bondExtras.join(' + '):''),null,'bd');
+  add('Immobilien '+(ac.realestateMarket&&ac.realestateMarket!=='Schweiz'?String(ac.realestateMarket).toLowerCase():'Schweiz'),null,'re');
+  var alts=[];
+  if(ac.altsGold)alts.push('Gold');
+  if(ac.altsLiquidAlts)alts.push('Liquid Alts');
+  if(ac.altsHedge)alts.push('Hedge Funds');
+  if(ac.altsPe)alts.push('Private Equity');
+  if(ac.altsCrypto)alts.push('Krypto');
+  if(alts.length)add('Alternative: '+alts.join(', '),null,'alt');
+  var universe={funds_only:'Nur Fonds/ETFs',listed_only:'Nur kotierte Instrumente',extended:'Universum erweitert'};
+  add(universe[policy.universe]);
+  if(geo.chfOnly||policy.hedging==='chf_only')add('Nur CHF-Instrumente');
+  else if(geo.hedgingRequired)add('Währung abgesichert (obligatorisch)');
+  else if(policy.hedging==='hedged')add('Währung abgesichert bevorzugt');
+  else if(policy.hedging==='risk_budget')add('Absicherung ausserhalb Risiko-Budget');
+  if(geo.noUsd)add('Kein USD');
+  var esg={esg_integration:'ESG: SFDR 8/9',best_in_class:'ESG: Best-in-Class (SFDR 8/9 + Rating)',impact:'ESG: nur SFDR 9',net_zero:'ESG: SFDR 8/9 + PAB/CTB',negative_screening:'ESG: Negativ-Screening'};
+  add(esg[policy.esg]);
+  var themeNames={fossil:'Fossile Energie',defense:'Verteidigung',tobacco:'Tabak',alcohol:'Alkohol',gaming:'Glücksspiel',nuclear:'Kernenergie'};
+  [['exclude','Ausschluss'],['underweight','Untergewichtet'],['allow','Bewusst zugelassen'],['overweight','Übergewichtet']].forEach(function(group){
+    var names=Object.keys(themeNames).filter(function(key){return tilts[key]===group[0];}).map(function(key){return themeNames[key];});
+    if(names.length)add(group[1]+': '+names.join(', '));
+  });
+  var productRules=[];
+  if(product.noDerivatives)productRules.push('Derivate');
+  if(product.noLeverage)productRules.push('Hebel');
+  if(product.noStructured)productRules.push('Strukturierte');
+  if(productRules.length)add('Ohne '+productRules.join(', '));
+  if(geo.noEm)add('Kein EM-Exposure');
+  if(String(limits.singlePosition||'').trim())add('Einzelposition ≤ '+sbbFormatPctInput(limits.singlePosition));
+  if(String(limits.singleIssuer||'').trim())add('Emittent ≤ '+sbbFormatPctInput(limits.singleIssuer));
+  if(String(limits.maxIlliquid||'').trim())add('Illiquid ≤ '+sbbFormatPctInput(limits.maxIlliquid));
+  // Eine Reserve-Vorgabe: Altbestaende mit liquidityReserveTarget zeigen
+  // denselben (groesseren) Betrag, den die Engine per max() ohnehin nutzt.
+  var reserve=Math.max(sbbParseAmount(limits.minReserve),sbbParseAmount(ac.liquidityReserveTarget));
+  if(reserve>0)add('Mindestreserve '+fmtCHF(reserve),null,'liq');
+  if(typeof countBandOverrides==='function'&&countBandOverrides(prefs.bands||{}))add('Individuelle Bandbreiten');
+  return chips;
+}
+function renderStrategyBlocksSummary(prefs){
+  var host=document.getElementById('sbb-summary');
+  if(!host)return;
+  var chips=buildStrategyBlockChips(prefs);
+  var visible=chips.slice(0,STRATEGY_BLOCK_CHIP_LIMIT);
+  var hidden=chips.length-visible.length;
+  host.innerHTML=visible.map(function(chip){
+    var mark=chip.ac?'<span class="sbb-ac sbb-ac-'+escapeHtml(chip.ac)+'" aria-hidden="true"></span>':'';
+    return '<span class="sbb-chip'+(chip.tone==='warn'?' sbb-chip-warn':'')+'">'+mark+escapeHtml(chip.label)+'</span>';
+  }).join('')+(hidden>0?'<span class="sbb-chip sbb-chip-more">+'+String(hidden)+' weitere</span>':'');
+  var conflictBox=document.getElementById('sbb-conflict');
+  if(conflictBox){
+    var conflicts=findStrategyBlockConflicts(prefs);
+    conflictBox.hidden=!conflicts.length;
+    conflictBox.textContent=conflicts.length?('Bitte auflösen, sonst kann die Strategie nicht berechnet werden: '+conflicts.join(' ')):'';
+  }
+  var derived=document.getElementById('sbb-universe-derived');
+  if(derived){
+    var universe=(prefs&&prefs.policy&&prefs.policy.universe)||'funds_only';
+    derived.textContent=universe==='funds_only'
+      ? 'Abgeleitet: Produktfilter «Nur Fonds/ETFs» aktiv.'
+      : (universe==='listed_only'
+        ? 'Abgeleitet: Produktfilter «Nur kotierte Titel» aktiv.'
+        : 'Abgeleitet: kein Produktfilter auf Fonds oder kotierte Titel.');
   }
 }
-function setAllocationRestrictionsPanelVisible(visible){
-  var wrap=document.getElementById('aa-pref-advanced-slot-wrap');
-  var btn=document.getElementById('btn-aa-advanced-toggle');
-  if(wrap)wrap.style.display=visible?'flex':'none';
-  updateAllocationPreferencesEntryButton();
-  if(btn&&visible)btn.textContent='Restriktionen & Tilts ausblenden';
+function setStrategyBlocksPanelOpen(open){
+  var panel=document.getElementById('aa-strategy-blocks');
+  var toggle=document.getElementById('sbb-toggle');
+  var body=document.getElementById('sbb-body');
+  if(!panel||!toggle||!body)return false;
+  open=!!open;
+  body.hidden=!open;
+  toggle.setAttribute('aria-expanded',open?'true':'false');
+  if(panel.classList)panel.classList[open?'add':'remove']('is-open');
+  var label=document.getElementById('sbb-toggle-label');
+  if(label)label.textContent=open?'Einklappen':'Bearbeiten';
+  return open;
 }
-function toggleAllocationRestrictionsPanel(forceOpen){
-  var wrap=document.getElementById('aa-pref-advanced-slot-wrap');
-  var isVisible=!!(wrap&&wrap.style.display!=='none');
-  setAllocationRestrictionsPanelVisible(forceOpen===true?true:!isVisible);
+function toggleStrategyBlocksPanel(forceOpen){
+  var toggle=document.getElementById('sbb-toggle');
+  var isOpen=!!(toggle&&toggle.getAttribute('aria-expanded')==='true');
+  var next=(forceOpen===true||forceOpen===false)?forceOpen:!isOpen;
+  var opened=setStrategyBlocksPanelOpen(next);
+  if(!opened&&isOpen&&toggle&&typeof toggle.focus==='function')toggle.focus();
+  return opened;
 }
 function ensureAssetAllocationMoreMenu(header){
   var existing=header&&header.querySelector?header.querySelector('.aa-more'):null;
@@ -19580,19 +19752,25 @@ function ensureAssetAllocationQuickActions(){
   updateAllocationPreferencesEntryButton();
 }
 function ensureAllocationControlModalsMounted(){
-  mountAllocationCardIntoSlot('aa-preferences-card','aa-pref-modal-slot');
-  mountAllocationCardIntoSlot('aa-restrictions-card','aa-pref-advanced-slot');
+  // STRATEGY-BLOCKS-PANEL-001: Praeferenzen/Restriktionen liegen fest im
+  // Strategiebausteine-Balken; nur Simulation/Engine-Setup wandern ins Parameter-Modal.
   mountAllocationCardIntoSlot('aa-simulation-card','aa-params-modal-slot');
   mountAllocationCardIntoSlot('aa-runtime-wrap','aa-params-modal-slot');
 }
 function openAllocationPreferencesModal(){
+  // STRATEGY-BLOCKS-PANEL-001: kein eigener Dialog mehr -- oeffnet den
+  // Strategiebausteine-Balken ueber der Asset Allocation (eine Wahrheit).
   ensureAllocationRuntimePanels();
-  ensureAllocationControlModalsMounted();
-  setAllocationRestrictionsPanelVisible(false);
   updateAllocationPreferencesEntryButton();
-  var prefCardTitle=document.querySelector('#aa-preferences-card .cht');
-  if(prefCardTitle)prefCardTitle.textContent='Anlagepräferenzen';
-  om('m-aa-pref');
+  toggleStrategyBlocksPanel(true);
+  var panel=document.getElementById('aa-strategy-blocks');
+  if(panel&&typeof panel.scrollIntoView==='function'){
+    try{panel.scrollIntoView({behavior:'smooth',block:'start'});}catch(e){panel.scrollIntoView();}
+  }
+  var toggle=document.getElementById('sbb-toggle');
+  if(toggle&&typeof toggle.focus==='function'){
+    try{toggle.focus({preventScroll:true});}catch(e){toggle.focus();}
+  }
 }
 function setInputValue(id,value){
   // DATE-GROUP-001: die vier Jahr/Monat/Tag-Datumsfelder haben ein eigenes
@@ -19693,14 +19871,22 @@ function renderAllocationPreferenceSummary(prefs){
 function collectAllocationPreferencesFromUI(){
   var stored=loadAllocationPreferences();
   var prefs=mergeAllocationPreferences(buildDefaultAllocationPreferences(),stored);
+  // STRATEGY-BLOCKS-PANEL-001: je Thema genau EINE Steuerung. Das Universum-
+  // Dropdown ist die einzige Quelle fuer product.fundsOnly/listedOnly, das
+  // Absicherungs-Dropdown die einzige Quelle fuer geo.chfOnly/hedgingRequired
+  // ("required" ist ein reiner UI-Wert = policy.hedging 'hedged' + Pflicht-
+  // Filter). Die Keys bleiben im Payload, sie werden nur nicht mehr separat
+  // (und widerspruechlich) erfasst.
+  var universeUi=getInputValue('aa-policy-universe')||'funds_only';
+  var hedgingUi=getInputValue('aa-policy-hedging')||'none';
   var live={
     policy:{
       // Sprint U-P0 Fix H1-H3: Defaults auf wirkende Werte (waren vorher
       // "esg_integration"/"standard" die nichts taten — irreführend).
       esg:getInputValue('aa-policy-esg')||'none',
-      universe:getInputValue('aa-policy-universe')||'funds_only',
+      universe:universeUi,
       homeBias:getInputValue('aa-policy-home-bias')||'ch_focus',
-      hedging:getInputValue('aa-policy-hedging')||'none',
+      hedging:hedgingUi==='required'?'hedged':hedgingUi,
     },
     tilts:{
       fossil:getInputValue('aa-tilt-fossil')||'neutral',
@@ -19714,8 +19900,8 @@ function collectAllocationPreferencesFromUI(){
       noDerivatives:getCheckboxValue('aa-product-no-derivatives'),
       noLeverage:getCheckboxValue('aa-product-no-leverage'),
       noStructured:getCheckboxValue('aa-product-no-structured'),
-      listedOnly:getCheckboxValue('aa-product-listed-only'),
-      fundsOnly:getCheckboxValue('aa-product-funds-only'),
+      listedOnly:universeUi==='listed_only',
+      fundsOnly:universeUi==='funds_only',
     },
     limits:{
       singlePosition:getInputValue('aa-limit-single-position'),
@@ -19726,8 +19912,8 @@ function collectAllocationPreferencesFromUI(){
     geo:{
       chFocus:(getInputValue('aa-policy-home-bias')||'ch_focus')==='ch_focus',
       noEm:getCheckboxValue('aa-geo-no-em'),
-      hedgingRequired:getCheckboxValue('aa-geo-hedging-required'),
-      chfOnly:getCheckboxValue('aa-geo-chf-only'),
+      hedgingRequired:hedgingUi==='required',
+      chfOnly:hedgingUi==='chf_only',
       noUsd:getCheckboxValue('aa-geo-no-usd'),
     },
     simulation:{
@@ -19752,7 +19938,9 @@ function collectAllocationPreferencesFromUI(){
       altsPe:getCheckboxValue('aa-alts-pe'),
       altsCrypto:getCheckboxValue('aa-alts-crypto'),
       liquidityInstrument:getRadioValue('aa-liquidity-instrument','Geldmarktfonds'),
-      liquidityReserveTarget:getInputValue('aa-liquidity-reserve-target'),
+      // Eine Reserve-Eingabe (limits.minReserve). Die Engine nimmt max(minReserve,
+      // liquidityReserveTarget) -- der Alt-Key bleibt im Payload, aber leer.
+      liquidityReserveTarget:'',
     },
   };
   // CH-Fokus hat nur EINE Quelle: policy.homeBias (Dropdown). geo.chFocus wird
@@ -19803,9 +19991,20 @@ function syncTiltReasonVisibility(){
 function applyAllocationPreferencesToUI(prefs){
   if(!prefs)return;
   setSelectValue('aa-policy-esg',prefs.policy&&prefs.policy.esg);
-  setSelectValue('aa-policy-universe',prefs.policy&&prefs.policy.universe);
+  // STRATEGY-BLOCKS-PANEL-001: Altbestaende mit separat gesetzten Checkboxen
+  // werden auf die EINE Steuerung abgebildet, ohne die Wirkung zu aendern
+  // (Engine: fundsOnly ODER universe==funds_only, chfOnly ODER hedging==chf_only).
+  var universeUi=(prefs.policy&&prefs.policy.universe)||'funds_only';
+  if((universeUi==='standard'||universeUi==='extended')&&prefs.product){
+    if(prefs.product.fundsOnly)universeUi='funds_only';
+    else if(prefs.product.listedOnly)universeUi='listed_only';
+  }
+  setSelectValue('aa-policy-universe',universeUi);
   setSelectValue('aa-policy-home-bias',prefs.policy&&prefs.policy.homeBias);
-  setSelectValue('aa-policy-hedging',prefs.policy&&prefs.policy.hedging);
+  var hedgingUi=(prefs.policy&&prefs.policy.hedging)||'none';
+  if(prefs.geo&&prefs.geo.chfOnly)hedgingUi='chf_only';
+  else if(prefs.geo&&prefs.geo.hedgingRequired&&hedgingUi!=='chf_only')hedgingUi='required';
+  setSelectValue('aa-policy-hedging',hedgingUi);
   setSelectValue('aa-tilt-fossil',prefs.tilts&&prefs.tilts.fossil);
   setSelectValue('aa-tilt-defense',prefs.tilts&&prefs.tilts.defense);
   setSelectValue('aa-tilt-tobacco',prefs.tilts&&prefs.tilts.tobacco);
@@ -19820,15 +20019,17 @@ function applyAllocationPreferencesToUI(prefs){
   setCheckboxValue('aa-product-no-derivatives',prefs.product&&prefs.product.noDerivatives);
   setCheckboxValue('aa-product-no-leverage',prefs.product&&prefs.product.noLeverage);
   setCheckboxValue('aa-product-no-structured',prefs.product&&prefs.product.noStructured);
-  setCheckboxValue('aa-product-listed-only',prefs.product&&prefs.product.listedOnly);
-  setCheckboxValue('aa-product-funds-only',prefs.product?prefs.product.fundsOnly!==false:true);
   setSelectValue('aa-limit-single-position',prefs.limits&&prefs.limits.singlePosition);
   setSelectValue('aa-limit-single-issuer',prefs.limits&&prefs.limits.singleIssuer);
-  setSelectValue('aa-liquidity-min-reserve',prefs.limits&&prefs.limits.minReserve);
+  // Eine Reserve-Eingabe: Alt-Wert aus liquidityReserveTarget nur uebernehmen,
+  // wenn er groesser ist (gleiche Wirkung wie das max() der Engine).
+  var minReserveUi=(prefs.limits&&prefs.limits.minReserve)||'';
+  var legacyReserve=(prefs.assetClasses&&prefs.assetClasses.liquidityReserveTarget)||'';
+  var reserveDigits=function(v){var d=String(v||'').replace(/[^0-9]/g,'');return d?Number(d):0;};
+  if(reserveDigits(legacyReserve)>reserveDigits(minReserveUi))minReserveUi=legacyReserve;
+  setSelectValue('aa-liquidity-min-reserve',minReserveUi);
   setSelectValue('aa-liquidity-max-illiquid',prefs.limits&&prefs.limits.maxIlliquid);
   setCheckboxValue('aa-geo-no-em',prefs.geo&&prefs.geo.noEm);
-  setCheckboxValue('aa-geo-hedging-required',prefs.geo&&prefs.geo.hedgingRequired);
-  setCheckboxValue('aa-geo-chf-only',prefs.geo&&prefs.geo.chfOnly);
   setCheckboxValue('aa-geo-no-usd',prefs.geo&&prefs.geo.noUsd);
   setSelectValue('aa-sim-stress',prefs.simulation&&prefs.simulation.stressMultiplier);
   setSelectValue('aa-sim-rebalance',prefs.simulation&&prefs.simulation.rebalanceMode);
@@ -19849,7 +20050,6 @@ function applyAllocationPreferencesToUI(prefs){
   setCheckboxValue('aa-alts-pe',prefs.assetClasses&&prefs.assetClasses.altsPe);
   setCheckboxValue('aa-alts-crypto',prefs.assetClasses&&prefs.assetClasses.altsCrypto);
   setRadioValue('aa-liquidity-instrument',prefs.assetClasses&&prefs.assetClasses.liquidityInstrument);
-  setSelectValue('aa-liquidity-reserve-target',prefs.assetClasses&&prefs.assetClasses.liquidityReserveTarget);
   renderAllocationPreferenceSummary(prefs);
 }
 function persistAllocationPreferences(prefs){
@@ -19875,28 +20075,36 @@ function syncAllocationPreferences(){
   updateAllocationPreferencesEntryButton();
   buildQT('qt-modal');
 }
+function strategyBlockDirtyMessage(el){
+  // STRATEGY-BLOCKS-PANEL-001: konkrete Meldung -- welcher Baustein geaendert wurde.
+  var sec=el&&el.closest?el.closest('.sbb-sec'):null;
+  var legend=sec&&sec.querySelector?sec.querySelector('legend'):null;
+  var name=legend?String(legend.textContent||'').trim():'';
+  return name
+    ? ('Strategiebaustein «'+name+'» geändert: Strategie neu berechnen.')
+    : 'Strategiebausteine geändert: Strategie neu berechnen.';
+}
 function bindAllocationPreferenceControls(){
   var selectors=[
     '#aa-policy-esg','#aa-policy-universe','#aa-policy-home-bias','#aa-policy-hedging',
     '#aa-tilt-fossil','#aa-tilt-defense','#aa-tilt-tobacco','#aa-tilt-alcohol','#aa-tilt-gaming','#aa-tilt-nuclear',
     '#aa-tilt-reason-fossil','#aa-tilt-reason-defense','#aa-tilt-reason-tobacco','#aa-tilt-reason-alcohol','#aa-tilt-reason-gaming','#aa-tilt-reason-nuclear',
-    '#aa-product-no-derivatives','#aa-product-no-leverage','#aa-product-no-structured','#aa-product-listed-only','#aa-product-funds-only',
+    '#aa-product-no-derivatives','#aa-product-no-leverage','#aa-product-no-structured',
     '#aa-limit-single-position','#aa-limit-single-issuer','#aa-liquidity-min-reserve','#aa-liquidity-max-illiquid',
-    '#aa-geo-no-em','#aa-geo-hedging-required','#aa-geo-chf-only','#aa-geo-no-usd',
+    '#aa-geo-no-em','#aa-geo-no-usd',
     '#aa-sim-stress','#aa-sim-rebalance','#aa-sim-mc-runs',
     '#aa-equities-large-cap','#aa-equities-smid','#aa-bonds-investment-grade','#aa-bonds-high-yield','#aa-bonds-emerging',
-    '#aa-realestate-funds','#aa-realestate-direct','#aa-alts-gold','#aa-alts-liquid-alts','#aa-alts-hedge','#aa-alts-pe','#aa-alts-crypto',
-    '#aa-liquidity-reserve-target'
+    '#aa-realestate-funds','#aa-realestate-direct','#aa-alts-gold','#aa-alts-liquid-alts','#aa-alts-hedge','#aa-alts-pe','#aa-alts-crypto'
   ];
   document.querySelectorAll(selectors.join(',')).forEach(function(el){
-    el.addEventListener('change',function(){syncTiltReasonVisibility();persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
-    el.addEventListener('input',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
+    el.addEventListener('change',function(){syncTiltReasonVisibility();persistAllocationPreferences();markStrategyDirty(strategyBlockDirtyMessage(el));});
+    el.addEventListener('input',function(){persistAllocationPreferences();markStrategyDirty(strategyBlockDirtyMessage(el));});
   });
   [
     'aa-equities-geo','aa-bonds-duration','aa-realestate-market','aa-liquidity-instrument'
   ].forEach(function(name){
     document.querySelectorAll('input[name="'+name+'"]').forEach(function(el){
-      el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
+      el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty(strategyBlockDirtyMessage(el));});
     });
   });
 }
@@ -24328,6 +24536,24 @@ function normalizeAllocationLayout(){
   }
   var assetsGrid=page.querySelector('.alloc-top-grid');
   if(assetsGrid&&assetsGrid.parentNode!==assetsCol)assetsCol.appendChild(assetsGrid);
+  // STRATEGY-BLOCKS-PANEL-001: der Strategiebausteine-Balken steht immer direkt
+  // ueber dem Asset-Allocation-Grid (volle Breite), auch nach dem Umbau.
+  var blocksPanel=document.getElementById('aa-strategy-blocks');
+  if(blocksPanel&&mainGrid.parentNode&&blocksPanel.nextElementSibling!==mainGrid){
+    mainGrid.parentNode.insertBefore(blocksPanel,mainGrid);
+  }
+  // Das Stale-Banner (STALE-RESULT-DISPLAY-001) und das Meldungs-Banner stehen
+  // direkt ueber dem Balken: eine Baustein-Aenderung zeigt ihre Meldung dort,
+  // wo sie ausgeloest wurde, nicht unterhalb des Grids.
+  if(blocksPanel&&blocksPanel.parentNode===mainGrid.parentNode){
+    ['al-dirty-banner','al-message-banner'].forEach(function(id){
+      var banner=document.getElementById(id);
+      if(banner&&banner.parentNode===blocksPanel.parentNode&&banner.nextElementSibling!==blocksPanel
+        &&!(id==='al-dirty-banner'&&banner.nextElementSibling&&banner.nextElementSibling.id==='al-message-banner')){
+        blocksPanel.parentNode.insertBefore(banner,blocksPanel);
+      }
+    });
+  }
   var legacyGrid=page.querySelector('.g2');
   var projectionCard=document.getElementById('aa-projection-card');
   var whyCard=document.getElementById('aa-why-card');
@@ -24365,7 +24591,7 @@ function normalizeAllocationLayout(){
   if(whyCard){
     whyCard.id='aa-why-card';
     whyCard.style.margin='0 24px 12px';
-    var anchor=document.getElementById('aa-simulation-card')||document.getElementById('aa-restrictions-card');
+    var anchor=document.getElementById('aa-simulation-card');
     if(anchor&&whyCard.previousElementSibling!==anchor){
       anchor.parentNode.insertBefore(whyCard,anchor.nextSibling);
     }else if(!anchor&&whyCard.parentNode!==page){
@@ -27018,26 +27244,55 @@ function renderReviewRiskProfileCard(){
   var assessedTxt=assessedRaw?formatDateSwiss(String(assessedRaw).slice(0,10)):'Datum unbekannt';
   var versionTxt=risk.version!=null&&String(risk.version)!==''?('v'+String(risk.version)):'';
   if(metaEl)metaEl.innerHTML=escapeHtml(assessedTxt)+(versionTxt?(' &middot; <span style="color:var(--n5)">'+escapeHtml(versionTxt)+'</span>'):'');
+  // RISK-PROFILE-SIGNOFF-001: Zustand kommt aus signoff_state (Backend,
+  // RiskProfileSignoffV1). Ein Override nach der Signatur macht sie ungueltig
+  // (signature_required); eine Altsignatur ohne Snapshot ist sichtbar, aber
+  // ausdruecklich nicht an eine Decision gebunden. 'advisor_recorded' wird nie
+  // als Kundensignatur ausgegeben.
   var signedAt=risk.client_signed_at||null;
+  var signoffState=riskSignoffState(risk);
+  var methodRaw=String(risk.client_signed_method||'').toLowerCase();
+  var methodTxt=methodRaw.indexOf('portal')>=0?'vom Kunden im Portal':'vom Berater erfasst';
+  var decisionRef=risk.override_decision_id?('Override-Entscheid '+escapeHtml(String(risk.override_decision_id))+' &middot; SHA-256 '+escapeHtml(String(risk.override_decision_hash||'-').slice(0,12))):'kein Override';
   if(sigEl){
-    if(signedAt){
-      var methodRaw=String(risk.client_signed_method||'').toLowerCase();
-      var methodTxt=methodRaw.indexOf('portal')>=0?'Portal':(methodRaw.indexOf('advisor')>=0||methodRaw.indexOf('berater')>=0?'Berater':(risk.client_signed_method?String(risk.client_signed_method):'Berater'));
-      sigEl.innerHTML='<span class="tag tg">&#10003; signiert am '+escapeHtml(formatDateSwiss(String(signedAt).slice(0,10)))+' ('+escapeHtml(methodTxt)+')</span>';
+    if(signoffState==='signed'){
+      sigEl.innerHTML='<span class="tag tg">&#10003; signiert am '+escapeHtml(formatDateSwiss(String(signedAt||'').slice(0,10)))+' ('+escapeHtml(methodTxt)+')</span>'
+        +'<div id="sr-riskprofile-signoff-ref" style="font-size:9px;color:var(--n5);margin-top:4px;line-height:1.4">Signoff '+escapeHtml(String(risk.signoff_id||''))+' &middot; SHA-256 '+escapeHtml(String(risk.signoff_hash||'-').slice(0,12))+'<br>'+decisionRef+'</div>';
+    }else if(signoffState==='signature_required'){
+      sigEl.innerHTML='<span class="tag ta">&#9888; neue Signatur erforderlich</span>';
+    }else if(signoffState==='legacy_unbound'){
+      sigEl.innerHTML='<span class="tag ta">Altsignatur, nicht an Decision gebunden</span>';
+    }else if(signoffState==='remediation_required'){
+      sigEl.innerHTML='<span class="tag ta" style="color:var(--neg)">&#9888; Signatur gesperrt</span>';
     }else{
       sigEl.innerHTML='<span class="tag ta">&#9888; nicht signiert</span>';
     }
   }
   if(hintEl){
-    hintEl.textContent=signedAt
-      ?'Die Kundenzustimmung zum Risikoprofil ist dokumentiert.'
-      :'Noch nicht signiert. Mit «Signatur erfassen» dokumentieren Sie die Kundenzustimmung zum aktuellen Risikoprofil.';
+    var hints={
+      signed:'Die Bestaetigung zum aktuellen Risikoprofil ist dokumentiert und an '+(risk.override_decision_id?'den aktuellen Override-Entscheid':'das Fragebogenergebnis (kein Override)')+' gebunden.',
+      signature_required:'Das wirksame Risikoprofil wurde nach der letzten Signatur uebersteuert ('+(risk.override_decision_id?('Override-Entscheid '+String(risk.override_decision_id)):'Override')+'). Die fruehere Signatur gilt nicht fuer das aktuelle Profil -- bitte die Bestaetigung neu erfassen.',
+      legacy_unbound:'Altsignatur vom '+formatDateSwiss(String(signedAt||'').slice(0,10))+' ('+methodTxt+') ohne Signoff-Nachweis -- nicht an einen Override-Entscheid gebunden. Mit «Signatur erneuern» wird ein gebundener Signoff erfasst.',
+      remediation_required:'Der Override hat keinen verifizierbaren Decision-Nachweis (Altbestand). Bitte den Override auf der Seite Risikoprofil neu erfassen, bevor signiert wird.',
+      unsigned:'Noch nicht signiert. Mit «Signatur erfassen» dokumentieren Sie die Bestaetigung zum aktuellen Risikoprofil.'
+    };
+    hintEl.textContent=hints[signoffState]||hints.unsigned;
   }
   if(btn){
     if(isDemo){btn.disabled=true;btn.title='Signatur nur fuer ein gespeichertes Mandat moeglich.';}
+    else if(signoffState==='remediation_required'){btn.disabled=true;btn.title='Override zuerst neu erfassen (kein verifizierbarer Decision-Nachweis).';}
     else{btn.disabled=false;btn.title='';}
-    btn.textContent=signedAt?'Signatur erneuern':'Signatur erfassen';
+    btn.textContent=(signoffState==='signed'||signoffState==='legacy_unbound')?'Signatur erneuern':'Signatur erfassen';
   }
+}
+function riskSignoffState(risk){
+  if(!risk)return 'unsigned';
+  if(risk.signoff_state)return String(risk.signoff_state);
+  if(risk.signoff_status==='signed'&&risk.signoff_id)return 'signed';
+  if(risk.signoff_status==='signature_required')return 'signature_required';
+  if(risk.client_signed_at&&!risk.signoff_id)return 'legacy_unbound';
+  if(Number(risk.is_overridden||0)===1&&!risk.override_decision_id)return 'remediation_required';
+  return 'unsigned';
 }
 async function signRiskProfile(){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
@@ -27060,12 +27315,20 @@ async function signRiskProfile(){
   var restore=btn?btn.textContent:'';
   if(btn){btn.disabled=true;btn.textContent='Signieren…';}
   try{
-    var res=await API.post('/mandates/'+mid+'/risk-profile/sign',{note:note});
+    // RISK-PROFILE-SIGNOFF-001: Erwartungswerte (Version, Decision- und
+    // Signoff-Pointer) -> das Backend antwortet mit 409, wenn sich das Profil
+    // inzwischen geaendert hat, statt einen veralteten Stand zu signieren.
+    var payload={note:note};
+    payload.expected_assessment_version=risk.version!=null?Number(risk.version):null;
+    payload.expected_override_decision_id=risk.override_decision_id||null;
+    payload.expected_signoff_id=risk.signoff_id||null;
+    var res=await API.post('/mandates/'+mid+'/risk-profile/sign',payload);
     if(res){
       [strategyState.currentRisk,strategyState.risk].forEach(function(target){
         if(!target)return;
-        if(res.client_signed_at!=null)target.client_signed_at=res.client_signed_at;
-        if(res.client_signed_method!=null)target.client_signed_method=res.client_signed_method;
+        ['client_signed_at','client_signed_method','signoff_id','signoff_hash','signoff_status','signoff_state'].forEach(function(key){
+          if(res[key]!=null)target[key]=res[key];
+        });
       });
     }
     renderReviewRiskProfileCard();
