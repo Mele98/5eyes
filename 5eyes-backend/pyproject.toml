@@ -13,6 +13,9 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--tb=short -ra"
+# Haengt ein einzelner Test laenger als 300 s, dumpt pytest alle Thread-Stacks
+# (nicht fatal). Ergaenzt den Exit-Watchdog aus tests/_session_leak_guard.py.
+faulthandler_timeout = 300
 markers = [
     "network: Test benoetigt echten Netzwerkzugriff (externe Marktdaten-Provider). In Offline-CI via -m 'not network' abwaehlbar.",
 ]
