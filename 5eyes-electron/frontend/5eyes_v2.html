@@ -3430,6 +3430,9 @@ function _wireSollIstHover(){
                      Vermoegenszufluessen des Mandanten. -->
                 <div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Vermögenszuflüsse werden geladen…</div>
               </div>
+              <!-- CASHFLOW-TAB-PENSION-PAYOUTS-001: automatische Vorsorgebezuege
+                   (3a/FZ/Police) aus der Ledger-Quelle der Engine, schreibgeschuetzt. -->
+              <div class="cbody" id="pension-payout-rows" style="display:none"></div>
             </div>
             <div class="card mb">
               <div class="chd"><span class="cht">Abflüsse &amp; Verpflichtungen</span><div class="chr"><button class="btn-p btn-sm" onclick="openNewCashflow('Expense')">+ Abfluss</button></div></div>
@@ -7392,18 +7395,22 @@ function cashflowProjectionComponents(row){
   var capitalOutflow=row&&row.capital_outflow_rappen!=null
     ? Number(row.capital_outflow_rappen||0)
     : 0;
+  // CASHFLOW-TAB-PENSION-PAYOUTS-001: automatischer Vorsorgebezug (netto,
+  // Ledger-Quelle der Engine) -- eigene Komponente, nicht in capital_inflow.
+  var pensionPayout=Number(row&&row.pension_payout_rappen||0);
   var totalIncome=Number(row&&row.income_rappen||0);
   var totalExpense=Number(row&&row.expense_rappen||0);
-  if(recurringIncome==null)recurringIncome=Math.max(0,totalIncome-capitalInflow);
+  if(recurringIncome==null)recurringIncome=Math.max(0,totalIncome-capitalInflow-pensionPayout);
   if(recurringExpense==null)recurringExpense=Math.max(0,totalExpense-capitalOutflow);
   return {
     recurringIncomeRappen:recurringIncome,
     capitalInflowsRappen:capitalInflow,
+    pensionPayoutRappen:pensionPayout,
     totalIncomeRappen:totalIncome,
     recurringExpenseRappen:recurringExpense,
     capitalOutflowsRappen:capitalOutflow,
     totalExpenseRappen:totalExpense,
-    netCashflowRappen:recurringIncome+capitalInflow-recurringExpense-capitalOutflow
+    netCashflowRappen:recurringIncome+capitalInflow+pensionPayout-recurringExpense-capitalOutflow
   };
 }
 
@@ -7605,7 +7612,7 @@ function cashflowProjectionComponentRow(row,fallbackRecurringRappen,fallbackCapi
     };
   }
   var recurringNet=Number(parts.recurringIncomeRappen||0)-Number(parts.recurringExpenseRappen||0);
-  var capitalNet=Number(parts.capitalInflowsRappen||0)-Number(parts.capitalOutflowsRappen||0);
+  var capitalNet=Number(parts.capitalInflowsRappen||0)+Number(parts.pensionPayoutRappen||0)-Number(parts.capitalOutflowsRappen||0);
   return {
     recurringNetRappen:recurringNet,
     capitalNetRappen:capitalNet,
@@ -20400,6 +20407,7 @@ async function applyCashflowIndexation(on){
     currentCashflowProjection = projection && Array.isArray(projection.years)
       ? clientScopedProjection(projection, currentClientId)
       : null;
+    try { renderPensionPayoutRows(currentCashflowProjection); } catch(_pp) {}
   } catch(e) {
     // Refetch-Fehler nicht-blockierend; Ansicht bleibt mit alten Daten.
   }
@@ -20473,6 +20481,7 @@ async function applyIstHorizonOverride(yearsRaw){
     currentCashflowProjection = projection && Array.isArray(projection.years)
       ? clientScopedProjection(projection, currentClientId)
       : null;
+    try { renderPensionPayoutRows(currentCashflowProjection); } catch(_pp) {}
   } catch(e) {
     // Refetch-Fehler nicht-blockierend; Charts bleiben dann mit alter Daten.
   }
@@ -24830,6 +24839,18 @@ function allocationTimelineFallbackFlows(result){
     var year=Number(row&&row.year||0);
     var capitalIn=Number(row&&row.capital_inflow_rappen||0);
     var capitalOut=Number(row&&row.capital_outflow_rappen||0);
+    var pensionIn=Number(row&&row.pension_payout_rappen||0);
+    if(year&&pensionIn>0){
+      flows.push({
+        label:'Vorsorgebezug (automatisch, netto)',
+        cashflow_type:'Income',
+        frequency:'einmalig',
+        nature:'einmalig',
+        valid_from:String(year)+'-01-01',
+        valid_until:String(year)+'-01-01',
+        amount_rappen:pensionIn
+      });
+    }
     if(year&&capitalIn>0){
       flows.push({
         label:'Kapitalzufluss',
@@ -25632,6 +25653,14 @@ async function refreshCashflowsUI(cid){
     syncAllocationPendingViews();
     renderAllocationCashflowTimeline(strategyState&&strategyState.allocation?strategyState.allocation:null);
     renderCashflowProjection(activeClientCashflowProjection());
+    // CASHFLOW-TAB-PENSION-PAYOUTS-001: Ledger fail-closed (409 PENSION_*) sichtbar machen,
+    // statt die Projektion still ohne Vorsorgebezuege zu zeigen.
+    var _ppErr=results[2].status==='rejected'?results[2].reason:null;
+    var _ppHost=document.getElementById('pension-payout-rows');
+    if(_ppHost&&_ppErr&&Number(_ppErr.status)===409&&/PENSION_/.test(String(_ppErr.detail||''))){
+      _ppHost.innerHTML='<div style="font-size:10px;color:var(--neg);line-height:1.5;padding:6px 2px">&#9888; Vorsorgebezüge können nicht projiziert werden: '+escapeHtml(String(_ppErr.detail||''))+'</div>';
+      _ppHost.style.display='';
+    }
     if(strategyState&&strategyState.allocation&&!strategyState.dirty){
       applyAllocationEngineResult(strategyState.allocation);
       if(strategyState.recommendation)applyRecommendationEngineResult(strategyState.recommendation);
@@ -25753,7 +25782,39 @@ function refreshBaselineChartFromClientDataForced(){
   normalizeProjectionChartsPresentation();
   renderCurrentWealthOnlyProjectionSummary(totalProjection);
 }
+// CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): automatische Vorsorgebezuege
+// (Saeule 3a, Freizuegigkeit, Policen) werden in der Engine beim Bezug genau
+// einmal freies Vermoegen (PensionTransferLedgerV1). Diese Zeilen kommen 1:1
+// aus /cashflow-projection (pension_payout_rappen + pension_transfers) --
+// keine eigene Rechnung im Frontend. Verknuepfte Bezuege stehen bereits als
+// erfasster Vermoegenszufluss oben und erscheinen hier nicht doppelt.
+function renderPensionPayoutRows(data){
+  var host=document.getElementById('pension-payout-rows');
+  if(!host)return;
+  data=clientScopedProjection(data,currentClientId);
+  var years=data&&Array.isArray(data.years)?data.years:[];
+  var transfers=data&&Array.isArray(data.pension_transfers)?data.pension_transfers:[];
+  var rows=years.filter(function(row){return row&&Number(row.pension_payout_rappen||0)>0;});
+  if(!rows.length){host.style.display='none';host.innerHTML='';return;}
+  var fmtR=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
+  host.innerHTML=rows.map(function(row){
+    var yr=Number(row.year||0);
+    var sources=transfers.filter(function(t){return t&&t.origin==='auto'&&Number(t.year)===yr;});
+    var names=sources.map(function(t){return String(t.source_label||t.pension_type||'Vorsorge');}).join(', ');
+    var tip=sources.map(function(t){
+      return String(t.source_label||'Vorsorge')+': brutto '+fmtR(t.gross_withdrawal_rappen)
+        +' − Kapitalbezugssteuer '+fmtR(t.lumpsum_tax_rappen)+' = netto '+fmtR(t.net_advisory_inflow_rappen);
+    }).join(' · ');
+    return '<div class="cf-row cf-derived cf-pension-payout" style="opacity:0.9" title="'+escapeHtml((tip?tip+' — ':'')+'Automatisch aus der Vorsorge-Position abgeleitet, Betrag in der Vorsorge-Position bearbeiten.')+'">'+
+      '<div class="cfn"><div class="cfna">Vorsorgebezug (automatisch, netto) <span style="font-size:8px;background:rgba(201,168,76,0.18);color:var(--g4);border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle">⚙ AUTO</span></div>'+
+      '<div class="cfnd">'+escapeHtml(String(yr)+(names?' · '+names:''))+'</div></div>'+
+      '<div class="cfa ci">+'+fmtR(row.pension_payout_rappen)+'</div>'+
+      '<div style="width:46px"></div></div>';
+  }).join('');
+  host.style.display='';
+}
 function renderCashflowProjection(data) {
+  try { renderPensionPayoutRows(data); } catch(e) { /* defensive */ }
   var el = document.getElementById('cf-projection');
   if (!el) return;
   data = clientScopedProjection(data, currentClientId);
@@ -29777,7 +29838,7 @@ function currentCashflowCoverageInfo(){
         ? currentCashflowSummary.recurring_expense_rappen
         : Math.max(0,Number(currentCashflowSummary&&currentCashflowSummary.total_expense_rappen||0)))
   );
-  var oneOffIncomeCurrentYear=Number(parts&&parts.capitalInflowsRappen||0);
+  var oneOffIncomeCurrentYear=Number(parts&&parts.capitalInflowsRappen||0)+Number(parts&&parts.pensionPayoutRappen||0);
   var oneOffExpenseCurrentYear=Number(parts&&parts.capitalOutflowsRappen||0);
   var net=recurringIncome-recurringExpense;
   var coveragePct=recurringExpense>0?Math.round(recurringIncome/recurringExpense*100):null;

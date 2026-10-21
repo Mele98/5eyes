@@ -817,6 +817,36 @@ def cashflow_projection(
     inflow_series = _wealth_inflow_series_rappen(
         wealth_inflows, horizon, start_year, inflation_series_bps,
     )
+    # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): automatische Vorsorge-
+    # bezuege (3a/FZ/Police, #642/#651) aus DERSELBEN Ledger-Quelle wie die
+    # Engine (PensionTransferLedgerV1 via pension_payout_view) -- keine zweite
+    # Formel. Verknuepfte Bezuege stehen bereits als erfasster Zufluss in
+    # inflow_series und werden nicht doppelt gezaehlt. Geburts-/Pensionierungs-
+    # jahr aus dem juengsten Mandat (wie die Horizont-Ableitung oben).
+    # Fail-closed wie die Engine: inkonsistente Verknuepfung -> 409 mit
+    # reason_code statt still falscher Projektion.
+    from models.mandates import Mandate
+    from services.pension_transfer_ledger import PensionTransferLedgerError
+    from services.portfolio_engine_pension_positions import pension_payout_view
+
+    _pension_mandate = (
+        db.query(Mandate)
+        .filter(Mandate.client_id == client.id, Mandate.deleted_at.is_(None))
+        .order_by(Mandate.created_at.desc())
+        .first()
+    )
+    try:
+        pension_view = pension_payout_view(
+            inflow_series, _mort_positions, wealth_inflows,
+            start_year=start_year, fx_source=fx_source,
+            target_currency=target_currency, mandate=_pension_mandate,
+        )
+    except PensionTransferLedgerError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason_code": exc.reason_code, "message": exc.message},
+        ) from exc
+    pension_series = pension_view.pension_payout_series_rappen
 
     rows = []
     for offset in range(horizon):
@@ -832,20 +862,24 @@ def cashflow_projection(
         adj = int(_mort_adj[offset]) if offset < len(_mort_adj) else 0
         # Wealth-Inflows als Zufluss-Beitrag (Erbschaft/Bonus sind Kapital-Zufluesse).
         inflow = int(inflow_series[offset]) if offset < len(inflow_series) else 0
+        pension = int(pension_series[offset]) if offset < len(pension_series) else 0
         rows.append(CashflowYearRow(
             year=yr,
             recurring_income_rappen=t["recurring_income_rappen"],
             capital_inflow_rappen=t["capital_inflow_rappen"] + inflow,
-            income_rappen=t["income_rappen"] + inflow,
+            income_rappen=t["income_rappen"] + inflow + pension,
             recurring_expense_rappen=max(0, t["recurring_expense_rappen"] - adj),
             capital_outflow_rappen=t["capital_outflow_rappen"],
             expense_rappen=max(0, t["expense_rappen"] - adj),
-            net_rappen=t["net_rappen"] + adj + inflow,
+            net_rappen=t["net_rappen"] + adj + inflow + pension,
+            pension_payout_rappen=pension,
         ))
     return CashflowProjectionResponse(
         client_id=client_id,
         start_year=start_year,
         years=rows,
+        pension_transfers=list(pension_view.transfers),
+        pension_ledger_hash=pension_view.ledger_hash,
     )
 
 
