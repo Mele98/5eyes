@@ -244,7 +244,10 @@ def test_variant_material_risk_gain_chooses_optimizer(monkeypatch, small_context
     )
     assert sig["decision"] == "optimizer", sig
     assert sig["reason"] == "significant_material_risk_improvement"
-    assert sig["decision_level"] == "goal_level_plus_risk_measure"
+    # VARIANT-GOAL-PRESERVATION-GATE-001 (v12): Risikotest auf dem
+    # Risikomass allein, erst nach dem Goal-Preservation-Gate.
+    assert sig["decision_level"] == "risk_measure_only"
+    assert sig["goal_preservation"]["passed"] is True
     assert sig["risk_measure_test"]["material"] is True
 
 
@@ -262,7 +265,8 @@ def test_variant_materiality_boundary(monkeypatch, small_context):
 
 def test_variant_material_risk_gain_bought_with_goal_loss_is_not_taken(monkeypatch, small_context):
     """Material weniger Risiko, aber auf der Zielebene deutlich schlechter:
-    der Skalar (Risikomass + Chance-Strafe) ist nicht besser -> Hausmatrix."""
+    das Goal-Preservation-Gate (v12) sperrt vor jedem Risikotest -> Hausmatrix
+    (bis v10: Skalar Risikomass + Chance-Strafe nicht besser)."""
     rng = np.random.default_rng(11)
     anchor_goal = np.zeros(N_PATHS)
     candidate_goal = np.where(rng.random(N_PATHS) < 0.25, 1.0, 0.0)
@@ -272,7 +276,8 @@ def test_variant_material_risk_gain_bought_with_goal_loss_is_not_taken(monkeypat
         anchor_risk=0.0800, candidate_risk=0.0700,
     )
     assert sig["decision"] == "house_matrix", sig
-    assert sig["reason"] == "risk_improvement_not_significant"
+    assert sig["reason"] == "goal_level_significantly_worse"
+    assert sig["goal_preservation"]["passed"] is False
 
 
 def test_variant_significant_goal_gain_wins_without_risk_materiality(monkeypatch, small_context):

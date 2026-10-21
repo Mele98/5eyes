@@ -267,7 +267,7 @@ def test_disclosure_fields_are_complete_and_in_the_model_basis():
 
     result = _run("D_wachstum_sparen", 1.0)
     payload = result.resampling
-    assert payload["engine_version"] == "saa_resampled_v11"
+    assert payload["engine_version"] == "saa_resampled_v12"
     assert "significance" not in payload
     block = payload["house_prior"]
     assert HOUSE_PRIOR_KAPPA == 300.0

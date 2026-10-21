@@ -115,6 +115,10 @@ RESAMPLING_SCHEME_VERSION = "michaud_bagging_crn_v1"
 # 2-7 bps weniger Volatilitaet. In den Risikomass-Varianten entscheidet
 # zusaetzlich der Skalar (Risikomass + Chance-Strafe), aber nur mit
 # Materialitaet (``RISK_MEASURE_MATERIALITY``).
+# Engine v12 (VARIANT-GOAL-PRESERVATION-GATE-001): dieser Skalar ist ersetzt
+# -- in den Varianten zuerst ein nicht verrechenbares Goal-Preservation-Gate
+# (``solver._variant_goal_preservation_gate``), danach der Risikotest auf dem
+# Risikomass allein; die Zielebenen-Statistik oben ist unveraendert.
 #
 # Engine v6 (HOUSE-PRIOR-001, 2026-10-18): dieser Test entscheidet nur noch in
 # den Risikomass-Varianten (und ohne projizierbaren Anker); dort ist er
@@ -625,6 +629,10 @@ _SIGNIFICANCE_BASIS_FIELDS = (
     # die Risikomass-Statistik mit Materialitaet.
     "decision_level",
     "risk_measure_test",
+    # VARIANT-GOAL-PRESERVATION-GATE-001 (Engine v12): nicht verrechenbares
+    # Goal-Preservation-Gate der Varianten (fehlt im Default -> Modellbasis
+    # dort unveraendert).
+    "goal_preservation",
     # OPTIMIZER-DRAWDOWN-CERTIFICATION-001: nur im Modus max_drawdown gesetzt
     # ("refined_brownian_bridge"); sonst fehlt der Schluessel und die
     # Modellbasis bleibt bit-gleich.
