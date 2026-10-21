@@ -37,6 +37,7 @@ import {
   fanAboveScaleText,
   fanEndLabelText,
   fanGoalPillText,
+  fanGoalProbability,
   fanRangeSentence,
   fanSpreadLabelYs,
   type FanEndKey,
@@ -306,7 +307,12 @@ export function MonteCarloPathsChart({
           const labelAnchor = nearRightEdge ? 'end' : 'start';
           // Ziel-Pille: „Ruhestand · 82 %" (Wahrscheinlichkeit nur, wenn
           // belastbar bewertet -- sonst nur das Label).
-          const pillText = fanGoalPillText(goal.label || goal.goal_id, goalProbabilityPct(goal));
+          const prob = goalProbability(goal);
+          const pillText = fanGoalPillText(
+            goal.label || goal.goal_id,
+            prob?.pct ?? null,
+            prob?.estimate ?? false,
+          );
           const pillW = Math.round(pillText.length * 5.6 + 14);
           const pillH = 16;
           const pillX = nearRightEdge ? x - 8 - pillW : x + 8;
@@ -545,16 +551,21 @@ export function selectFanBands(paths: MonteCarloPaths, n: number): FanBands | nu
 }
 
 /**
- * Erfolgswahrscheinlichkeit fuer die Ziel-Pille in Prozent -- nur wenn das
- * Ziel belastbar priorisiert bewertet ist (keine Altbewertung, nicht
- * ausserhalb des Simulationshorizonts, Wert vorhanden).
+ * Erfolgswahrscheinlichkeit fuer die Ziel-Pille -- gleiche Regel wie die App
+ * (fanGoalProbability): kanonisch `probability_bps` bei `priority_funded`.
+ * Der Report kennt keinen Simulations-Fallback (null), Altbewertung bzw.
+ * ausserhalb des Horizonts -> nur Label.
  */
-export function goalProbabilityPct(goal: GoalEntry): number | null {
-  if (goal.outside_simulation_horizon) return null;
-  if (goal.evaluation_scope !== 'priority_funded') return null;
+export function goalProbability(goal: GoalEntry): { pct: number; estimate: boolean } | null {
   const bps = goal.probability_bps;
-  if (typeof bps !== 'number' || !Number.isFinite(bps)) return null;
-  return bps / 100;
+  return fanGoalProbability(
+    {
+      probability: typeof bps === 'number' && Number.isFinite(bps) ? bps / 10000 : null,
+      evaluation_scope: goal.evaluation_scope,
+      outside_simulation_horizon: goal.outside_simulation_horizon,
+    },
+    null,
+  );
 }
 
 function bandPolygon(

@@ -35,7 +35,7 @@ NBSP = " "
 _TEXT_FNS = (
     "fmtLocaleCH", "fmtNumber", "fmtProbPct", "formatCompactCHFAmount",
     "_fanFinite", "fanEndLabelText", "fanGoalPillText", "fanAboveScaleText",
-    "fanRangeSentence", "fanSpreadLabelYs",
+    "fanRangeSentence", "fanSpreadLabelYs", "fanGoalProbability",
 )
 _APP_FNS = _TEXT_FNS + (
     "arrMin", "arrMax", "projectionChartValues", "_projAxisConfig",
@@ -86,6 +86,8 @@ var C=__CONTRACT__;
 process.stdout.write(JSON.stringify({
   end:C.end_label_cases.map(function(c){return fanEndLabelText(c[0],c[1]);}),
   pill:C.goal_pill_cases.map(function(c){return fanGoalPillText(c[0],c[1]);}),
+  pillEst:C.goal_pill_estimate_cases.map(function(c){return fanGoalPillText(c[0],c[1],c[2]);}),
+  prob:C.goal_probability_cases.map(function(c){return fanGoalProbability(c[0],c[1]);}),
   above:C.above_scale_cases.map(function(c){return fanAboveScaleText(c[0]);}),
   sentence:C.range_sentence_cases.map(function(c){return fanRangeSentence(c[0],c[1],c[2]);}),
   spread:C.spread_cases.map(function(c){return fanSpreadLabelYs(c[0],c[1],c[2],c[3]);})
@@ -97,6 +99,8 @@ def _expected(c: dict) -> dict:
     return {
         "end": [x[2] for x in c["end_label_cases"]],
         "pill": [x[2] for x in c["goal_pill_cases"]],
+        "pillEst": [x[3] for x in c["goal_pill_estimate_cases"]],
+        "prob": [x[2] for x in c["goal_probability_cases"]],
         "above": [x[1] for x in c["above_scale_cases"]],
         "sentence": [x[3] for x in c["range_sentence_cases"]],
         "spread": [x[4] for x in c["spread_cases"]],
@@ -119,6 +123,8 @@ def test_report_matches_fan_contract_and_monolith(tmp_path):
         "process.stdout.write(JSON.stringify({"
         "end: C.end_label_cases.map((x: any) => F.fanEndLabelText(x[0], x[1])),"
         "pill: C.goal_pill_cases.map((x: any) => F.fanGoalPillText(x[0], x[1])),"
+        "pillEst: C.goal_pill_estimate_cases.map((x: any) => F.fanGoalPillText(x[0], x[1], x[2])),"
+        "prob: C.goal_probability_cases.map((x: any) => F.fanGoalProbability(x[0], x[1])),"
         "above: C.above_scale_cases.map((x: any) => F.fanAboveScaleText(x[0])),"
         "sentence: C.range_sentence_cases.map((x: any) => F.fanRangeSentence(x[0], x[1], x[2])),"
         "spread: C.spread_cases.map((x: any) => F.fanSpreadLabelYs(x[0], x[1], x[2], x[3]))"
@@ -190,7 +196,14 @@ var ALLOC={buckets:[{asset_class:'Aktien'}],goal_analysis:[
   {goal_id:'s',label:'Stiftung',target_amount_rappen:5000000000,target_date:'2045-06-30',path_success_rate_pct:31},
   {goal_id:'n',label:'Ohne Wert',target_amount_rappen:100000000,target_date:'2030-01-01'},
   {goal_id:'x',label:'Rendite',target_amount_rappen:0,target_date:'2030-01-01',path_success_rate_pct:90},
-  {goal_id:'h',label:'Spaeter',target_amount_rappen:100000000,target_date:'2070-01-01',path_success_rate_pct:90}
+  {goal_id:'h',label:'Spaeter',target_amount_rappen:100000000,target_date:'2070-01-01',path_success_rate_pct:90},
+  {goal_id:'l',label:'Alt',target_amount_rappen:100000000,target_date:'2032-01-01',path_success_rate_pct:57},
+  {goal_id:'o',label:'Draussen',target_amount_rappen:100000000,target_date:'2034-01-01',path_success_rate_pct:57}
+],goal_achievability:[
+  {goal_id:'r',probability:0.79,evaluation_scope:'priority_funded',outside_simulation_horizon:false},
+  {goal_id:'l',probability:0.4,evaluation_scope:'legacy_aggregate_unknown'},
+  {goal_id:'o',probability:0,evaluation_scope:'priority_funded',outside_simulation_horizon:true},
+  {goal_id:null,probability:0.66,evaluation_scope:'joint_plan'}
 ]};
 var strategyState={allocation:ALLOC,dirty:false,staleNotice:null};
 var charts={};
@@ -206,9 +219,18 @@ def test_goal_markers_from_goal_analysis():
         "process.stdout.write(JSON.stringify(aaFanGoalMarkers(ALLOC,labels)));"
     )
     # Rendite-Ziel ohne CHF-Wert und Ziel jenseits des Horizonts: kein Marker.
-    assert [g["id"] for g in out] == ["r", "s", "n"]
-    assert out[0] == {"id": "r", "index": 14, "valueK": 2200, "label": "Ruhestand", "prob": 82}
-    assert out[2]["prob"] is None
+    assert [g["id"] for g in out] == ["r", "s", "n", "l", "o"]
+    by = {g["id"]: (g["prob"], g["estimate"]) for g in out}
+    # CIO-Entscheid: kanonisch goal_achievability (priority_funded) = Report-Wert,
+    # NICHT path_success_rate_pct (82) der Simulation.
+    assert by["r"] == (79, False)
+    assert out[0]["index"] == 14 and out[0]["valueK"] == 2200
+    # Keine publizierte Evidenz -> Simulationswert als Schaetzung.
+    assert by["s"] == (31, True)
+    assert by["l"] == (57, True)  # nur Altbewertung -> Schaetzung
+    # Priorisiert, aber ausserhalb des Horizonts -> nur Label.
+    assert by["o"] == (None, False)
+    assert by["n"] == (None, False)
 
 
 def test_fresh_strategy_draws_end_labels_pills_and_above_scale():
@@ -220,8 +242,9 @@ def test_fresh_strategy_draws_end_labels_pills_and_above_scale():
     assert "3.40 Mio. · P90" in texts
     assert "2.41 Mio. · Median" in texts
     assert "1.60 Mio. · P10" in texts
-    assert f"Ruhestand · 82{NBSP}%" in texts
-    assert f"Stiftung · 31{NBSP}%" in texts
+    assert f"Ruhestand · 79{NBSP}%" in texts
+    assert f"Stiftung · ~31{NBSP}%" in texts
+    assert "Draussen" in texts
     assert "Ohne Wert" in texts  # keine erfundene Prozentzahl
     assert "▲ CHF 50.00 Mio. über Skala" in texts
     ends = [c for c in out if c["t"].endswith(("· P90", "· Median", "· P10"))]

@@ -196,5 +196,105 @@
     100
    ]
   ]
+ ],
+ "goal_pill_estimate_cases": [
+  [
+   "Ruhestand",
+   82,
+   true,
+   "Ruhestand · ~82 %"
+  ],
+  [
+   "Ruhestand",
+   82,
+   false,
+   "Ruhestand · 82 %"
+  ],
+  [
+   "Ruhestand",
+   null,
+   true,
+   "Ruhestand"
+  ]
+ ],
+ "goal_probability_cases": [
+  [
+   {
+    "probability": 0.82,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 82,
+    "estimate": false
+   }
+  ],
+  [
+   {
+    "probability": 0.0,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 0,
+    "estimate": false
+   }
+  ],
+  [
+   {
+    "probability": 0.0,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": true
+   },
+   64,
+   null
+  ],
+  [
+   {
+    "probability": 0.55,
+    "evaluation_scope": "legacy_aggregate_unknown",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 64,
+    "estimate": true
+   }
+  ],
+  [
+   {
+    "probability": null,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 64,
+    "estimate": true
+   }
+  ],
+  [
+   null,
+   64,
+   {
+    "pct": 64,
+    "estimate": true
+   }
+  ],
+  [
+   null,
+   null,
+   null
+  ],
+  [
+   {
+    "probability": 0.55,
+    "evaluation_scope": "legacy_aggregate_unknown"
+   },
+   null,
+   null
+  ]
  ]
 }

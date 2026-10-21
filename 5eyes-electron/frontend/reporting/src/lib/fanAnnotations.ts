@@ -37,14 +37,51 @@ export function fanEndLabelText(chf: number | null | undefined, key: FanEndKey):
 /**
  * „Ruhestand · 82 %". Ohne belastbare Wahrscheinlichkeit (null/undefined/
  * nicht-endlich) nur das Label -- nie eine erfundene Prozentzahl.
+ * `estimate` = Simulations-Fallback (keine publizierte Optimizer-Evidenz):
+ * gekennzeichnet als „Ruhestand · ~82 %".
  */
 export function fanGoalPillText(
   label: string | null | undefined,
   probPct: number | null | undefined,
+  estimate = false,
 ): string {
   const l = String(label ?? '').trim() || 'Ziel';
   if (!finite(probPct)) return l;
-  return `${l} · ${fmtProbPct(probPct)}`;
+  return `${l} · ${estimate ? '~' : ''}${fmtProbPct(probPct)}`;
+}
+
+/** Publizierte Zielerreichung des Optimizers (goal_achievability-Zeile). */
+export interface FanCanonicalGoalProbability {
+  /** 0..1 */
+  probability?: number | null;
+  evaluation_scope?: string | null;
+  outside_simulation_horizon?: boolean | null;
+}
+
+/**
+ * CIO-Entscheid (AA-UX-HONEST-FAN-001, gilt auch fuer #667): kanonische
+ * Quelle der Ziel-Pille ist die priorisierte, vom Optimizer publizierte
+ * Erfolgswahrscheinlichkeit (goal_achievability, `priority_funded`) --
+ * derselbe Wert wie `probability_bps` im Report.
+ *  - priority_funded, im Horizont, Wert vorhanden -> {pct, estimate:false}
+ *  - priority_funded, aber ausserhalb des Horizonts -> null (nur Label;
+ *    die 0 ist eine Konvention, keine Messung)
+ *  - keine/keine priorisierte Evidenz -> Simulationswert als Schaetzung
+ *    {pct, estimate:true}, sonst null.
+ */
+export function fanGoalProbability(
+  canonical: FanCanonicalGoalProbability | null | undefined,
+  simulationPct: number | null | undefined,
+): { pct: number; estimate: boolean } | null {
+  if (canonical && canonical.evaluation_scope === 'priority_funded') {
+    if (canonical.outside_simulation_horizon) return null;
+    if (finite(canonical.probability)) {
+      // bps-genau wie probability_bps im Report (kein 82.00000000000001)
+      return { pct: Math.round(canonical.probability * 10000) / 100, estimate: false };
+    }
+  }
+  if (finite(simulationPct)) return { pct: simulationPct, estimate: true };
+  return null;
 }
 
 /** „▲ CHF 5.00 Mio. über Skala" (Ziel liegt oberhalb der y-Skala). */

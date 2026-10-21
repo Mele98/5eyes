@@ -10,8 +10,10 @@ import {
   fanAboveScaleText,
   fanEndLabelText,
   fanGoalPillText,
+  fanGoalProbability,
   fanRangeSentence,
   fanSpreadLabelYs,
+  type FanCanonicalGoalProbability,
   type FanEndKey,
 } from './fanAnnotations';
 
@@ -55,5 +57,21 @@ describe('fanAnnotations — gemeinsamer Vertrag App/Report', () => {
     const s = fanRangeSentence('2050', 1_600_000, 3_400_000);
     expect(s).not.toMatch(/garant|sicher|gewiss|wird .* erreich/i);
     expect(s).toMatch(/^In 8 von 10 Verläufen/);
+  });
+});
+
+describe('fanAnnotations — kanonische Quelle der Ziel-Pille (CIO-Entscheid)', () => {
+  it.each(
+    (contract as C).goal_pill_estimate_cases as Array<[string, number | null, boolean, string]>,
+  )('Pille %s / %s / Schaetzung=%s', (label, prob, estimate, expected) => {
+    expect(fanGoalPillText(label, prob, estimate)).toBe(expected);
+  });
+
+  it.each(
+    (contract as C).goal_probability_cases as Array<
+      [FanCanonicalGoalProbability | null, number | null, { pct: number; estimate: boolean } | null]
+    >,
+  )('Quelle %j / Simulation %s', (canonical, sim, expected) => {
+    expect(fanGoalProbability(canonical, sim)).toEqual(expected);
   });
 });

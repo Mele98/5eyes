@@ -20296,10 +20296,23 @@ function fanEndLabelText(chf,key){
   var suffix=key==='p90'?'P90':(key==='p10'?'P10':'Median');
   return formatCompactCHFAmount(chf)+' · '+suffix;
 }
-function fanGoalPillText(label,probPct){
+function fanGoalPillText(label,probPct,estimate){
   var l=String(label==null?'':label).trim()||'Ziel';
   if(!_fanFinite(probPct))return l;
-  return l+' · '+fmtProbPct(probPct);
+  return l+' · '+(estimate?'~':'')+fmtProbPct(probPct);
+}
+// CIO-Entscheid (gilt auch fuer #667): kanonisch ist die priorisierte, vom
+// Optimizer publizierte Erfolgswahrscheinlichkeit (goal_achievability,
+// priority_funded) -- derselbe Wert wie probability_bps im Report. Nur ohne
+// diese Evidenz: Simulationswert als Schaetzung ("~82 %"), sonst nur Label.
+// Priorisiert, aber ausserhalb des Horizonts: nur Label (0 ist Konvention).
+function fanGoalProbability(canonical,simulationPct){
+  if(canonical&&canonical.evaluation_scope==='priority_funded'){
+    if(canonical.outside_simulation_horizon)return null;
+    if(_fanFinite(canonical.probability))return {pct:Math.round(canonical.probability*10000)/100,estimate:false};
+  }
+  if(_fanFinite(simulationPct))return {pct:simulationPct,estimate:true};
+  return null;
 }
 function fanAboveScaleText(targetChf){
   if(!_fanFinite(targetChf))return '';
@@ -21558,11 +21571,15 @@ function aaFanAnnotationsHidden(){
   return !hasVisibleStrategyOutputs();
 }
 // Zielmarker fuer den SOLL-Faecher: Jahr aus target_date, Wert in K (wie die
-// Serien), Erfolgswahrscheinlichkeit = path_success_rate_pct (dieselbe Zahl wie
-// "Erfolgs-Wkt. SOLL"); ohne Wert keine Prozentzahl.
+// Serien), Erfolgswahrscheinlichkeit kanonisch aus goal_achievability
+// (fanGoalProbability), Fallback path_success_rate_pct als Schaetzung.
 function aaFanGoalMarkers(result,labels){
   var list=Array.isArray(result&&result.goal_analysis)?result.goal_analysis:[];
   var lbl=(labels||[]).map(function(l){return String(l);});
+  var achById={};
+  (Array.isArray(result&&result.goal_achievability)?result.goal_achievability:[]).forEach(function(row){
+    if(row&&row.evaluation_scope!=='joint_plan'&&row.goal_id!=null)achById[String(row.goal_id)]=row;
+  });
   var out=[];
   list.forEach(function(g){
     var target=Number(g&&g.target_amount_rappen||0);
@@ -21571,8 +21588,8 @@ function aaFanGoalMarkers(result,labels){
     if(!isFinite(yr))return;
     var idx=lbl.indexOf(String(yr));
     if(idx<0)return;
-    var p=g.path_success_rate_pct;
-    out.push({id:String(g.goal_id||g.label||idx),index:idx,valueK:target/100000,label:g.label||'Ziel',prob:_fanFinite(p)?p:null});
+    var pr=fanGoalProbability(achById[String(g.goal_id)]||null,g.path_success_rate_pct);
+    out.push({id:String(g.goal_id||g.label||idx),index:idx,valueK:target/100000,label:g.label||'Ziel',prob:pr?pr.pct:null,estimate:!!(pr&&pr.estimate)});
   });
   return out;
 }
@@ -21642,7 +21659,7 @@ function aaDrawFanAnnotations(chart){
     if(above){ctx.moveTo(x,yT-8);ctx.lineTo(x-6,yT+3);ctx.lineTo(x+6,yT+3);ctx.closePath();}
     else{ctx.arc(x,yT,4,0,Math.PI*2);}
     ctx.fill();
-    var txt=fanGoalPillText(g.label,g.prob);
+    var txt=fanGoalPillText(g.label,g.prob,g.estimate);
     ctx.font='600 10px sans-serif';
     var w=Math.ceil(ctx.measureText(txt).width)+14, h=16;
     var nearRight=x>area.right-160;
