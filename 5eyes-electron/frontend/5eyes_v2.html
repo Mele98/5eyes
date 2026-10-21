@@ -8621,9 +8621,12 @@ function renderOptimizerAchievability(result){
 // wird die Einstufung als nachrangiges Wunschziel erst mit einer begruendeten
 // Berater-Entscheidung (POST .../revision-decisions). Keine Garantie- oder
 // Unmoeglichkeitsaussage.
+var goalRevisionEvidenceByGoal={};
+var goalRevisionDialogState=null;
 function goalRevisionCellHtml(row){
   var rev=row&&row.goal_revision;
   if(!rev||!row.goal_id)return '';
+  goalRevisionEvidenceByGoal[String(row.goal_id)]=rev;
   if(rev.demoted_by_decision){
     return '<div class="goal-revision-note" style="font-size:9px;color:var(--n5);margin-top:3px">Nachrangiges Wunschziel (Beraterentscheid)</div>';
   }
@@ -8633,28 +8636,92 @@ function goalRevisionCellHtml(row){
     +'<br><button type="button" class="btn-link goal-revision-btn" data-goal-id="'+escapeHtml(String(row.goal_id))+'" onclick="openGoalRevisionDialog(this.getAttribute(\'data-goal-id\'))" style="font-size:9px;padding:0;margin-top:2px;background:none;border:0;color:var(--brand,#8a6d1f);cursor:pointer;text-decoration:underline">Als nachrangiges Wunschziel einstufen\u2026</button>'
     +'</div>';
 }
-async function openGoalRevisionDialog(goalId){
+// Gleiche Regeln wie services/override_reason_quality.py (Backend prueft
+// erneut und bleibt massgeblich): >= 20 Zeichen, keine Floskel, >= 3 Woerter
+// mit >= 4 Buchstaben und >= 2 verschiedenen Zeichen.
+var GOAL_REVISION_REASON_MIN_LENGTH=20;
+var GOAL_REVISION_GENERIC_PHRASES=['ok','o.k.','okay','ja','passt','fine','good','geht','n/a','na','keine','kein grund','test','tbd','todo','siehe oben','wie besprochen','siehe protokoll','kunde will','kundenwunsch','siehe akten','weiss nicht'];
+function goalRevisionReasonIssue(text){
+  var t=String(text||'').trim();
+  if(!t)return 'Bitte eine Begr\u00fcndung erfassen.';
+  if(t.length<GOAL_REVISION_REASON_MIN_LENGTH)return 'Mindestens '+GOAL_REVISION_REASON_MIN_LENGTH+' Zeichen (aktuell '+t.length+').';
+  var norm=t.toLowerCase().replace(/\s+/g,' ').replace(/[.!?,;:]+$/,'');
+  var generic=GOAL_REVISION_GENERIC_PHRASES.some(function(phrase){
+    var esc=phrase.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    return new RegExp('^(?:'+esc+')(?:\\s+'+esc+')*$').test(norm);
+  });
+  if(generic)return 'Bitte konkret begr\u00fcnden (keine Floskel).';
+  var words=(t.match(/\p{L}+/gu)||[]).filter(function(w){
+    return w.length>=4&&new Set(w.toLowerCase().split('')).size>=2;
+  });
+  if(words.length<3)return 'Bitte mit mindestens 3 aussagekr\u00e4ftigen W\u00f6rtern begr\u00fcnden.';
+  return '';
+}
+function goalRevisionErrorText(e){
+  var detail=e&&e.detail;
+  if(detail&&typeof detail==='object'&&detail.message){
+    return String(detail.message)+(detail.reason_code?' ['+detail.reason_code+']':'');
+  }
+  return parseApiError(e,'Die Einstufung konnte nicht erfasst werden.');
+}
+function openGoalRevisionDialog(goalId){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
   if(!mid||(typeof isDemoMandateId==='function'&&isDemoMandateId(mid))){
     showAppError('Die Einstufung ist nur f\u00fcr ein gespeichertes Mandat m\u00f6glich.');
     return;
   }
   var goal=goalById(goalId);
-  var label=goal&&goal.label?goal.label:'dieses Ziel';
-  var reason=null;
+  var label=goal&&goal.label?String(goal.label):'Ziel';
+  var rev=goalRevisionEvidenceByGoal[String(goalId)]||{};
+  goalRevisionDialogState={goalId:String(goalId),mandateId:String(mid),label:label};
+  var nameEl=document.getElementById('grv-goal');
+  if(nameEl)nameEl.textContent=label;
+  var evEl=document.getElementById('grv-evidence');
+  if(evEl){
+    var best=rev.best_probability!=null?fmtProbPct(Number(rev.best_probability)*100):'n/a';
+    var tau=rev.tau!=null?fmtProbPct(Number(rev.tau)*100):'n/a';
+    evEl.textContent='Beste gefundene Allokation: '+best+' (gefordert '+tau+'), Engine '+(rev.engine_version||'n/a');
+  }
+  var reason=document.getElementById('grv-reason');
+  if(reason)reason.value='';
+  updGoalRevisionBtn(false);
+  om('m-goalrev');
+}
+function updGoalRevisionBtn(showError){
+  var reason=document.getElementById('grv-reason');
+  var err=document.getElementById('grv-error');
+  var btn=document.getElementById('grv-submit');
+  var issue=goalRevisionReasonIssue(reason?reason.value:'');
+  if(btn)btn.disabled=!!issue;
+  if(err){
+    var visible=!!issue&&showError!==false&&!!(reason&&reason.value);
+    err.textContent=visible?issue:'';
+    err.style.display=visible?'block':'none';
+  }
+  return issue;
+}
+async function submitGoalRevision(){
+  var state=goalRevisionDialogState;
+  if(!state)return;
+  var reasonEl=document.getElementById('grv-reason');
+  var reason=String(reasonEl?reasonEl.value:'').trim();
+  if(updGoalRevisionBtn(true))return;
+  var btn=document.getElementById('grv-submit');
+  if(btn)btn.disabled=true;
   try{
-    reason=window.prompt('Ziel "'+label+'" als nachrangiges Wunschziel einstufen.\n\nDas Ziel wird weiter verfolgt, verdr\u00e4ngt aber keine vorrangigen Ziele mehr. Jede sp\u00e4tere \u00c4nderung des Ziels hebt die Einstufung auf.\n\nBegr\u00fcndung (mit dem Kunden besprochen, mind. 20 Zeichen):','');
-  }catch(e){reason=null;}
-  if(reason===null)return;
-  reason=String(reason||'').trim();
-  if(!reason){showAppError('Bitte eine Begr\u00fcndung erfassen.');return;}
-  try{
-    await API.post('/mandates/'+mid+'/goals/'+encodeURIComponent(goalId)+'/revision-decisions',{reason:reason});
-    showAppSuccess('Ziel als nachrangiges Wunschziel eingestuft. Bitte die Strategie neu berechnen.');
+    await API.post('/mandates/'+state.mandateId+'/goals/'+encodeURIComponent(state.goalId)+'/revision-decisions',{reason:reason});
+    cm('m-goalrev');
+    goalRevisionDialogState=null;
+    showAppSuccess('Ziel "'+state.label+'" als nachrangiges Wunschziel eingestuft.');
+    if(typeof markStrategyDirty==='function'){
+      markStrategyDirty('Ziel "'+state.label+'" als nachrangiges Wunschziel eingestuft: Strategie neu berechnen.');
+    }
   }catch(e){
-    var detail=e&&e.detail;
-    var msg=detail&&typeof detail==='object'&&detail.message?detail.message:parseApiError(e,'Die Einstufung konnte nicht erfasst werden.');
+    var err=document.getElementById('grv-error');
+    var msg=goalRevisionErrorText(e);
+    if(err){err.textContent=msg;err.style.display='block';}
     showAppError(msg);
+    if(btn)btn.disabled=false;
   }
 }
 function buildBuildingBlockReferenceHtml(items){
@@ -10658,6 +10725,27 @@ protokolliereEreignis=runtimeProtokolliereEreignis;
     <div class="mfooter">
       <button class="btn" onclick="cm('m-overr')">Abbrechen</button>
       <button class="btn-g" onclick="applyOv()">Override bestätigen & protokollieren</button>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="m-goalrev">
+  <div class="modal" style="width:420px">
+    <div class="mhd"><div class="mtitle">Als nachrangiges Wunschziel einstufen</div><button class="mx" onclick="cm('m-goalrev')">✕</button></div>
+    <div class="mbody">
+      <div style="font-size:12px;font-weight:600;color:var(--n8);margin-bottom:6px" id="grv-goal">–</div>
+      <div style="font-size:10px;color:var(--n6);margin-bottom:10px" id="grv-evidence">–</div>
+      <div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:10px;margin-bottom:12px;font-size:11px;color:var(--n6);line-height:1.5">
+        Mit den gepr&uuml;ften Allokationen wird dieses Ziel nicht mit ausreichender Sicherheit erreicht. Als nachrangiges Wunschziel wird es weiter verfolgt, verdr&auml;ngt aber keine vorrangigen Ziele mehr. Jede sp&auml;tere &Auml;nderung des Ziels hebt die Einstufung auf. Die Entscheidung wird protokolliert.
+      </div>
+      <div class="frow"><div class="fg">
+        <label class="fl" for="grv-reason">Begr&uuml;ndung (mit dem Kunden besprochen)</label>
+        <textarea class="fi" id="grv-reason" rows="3" placeholder="z. B. Kunde bestaetigt: Familienvermoegen 2035 ist ein Wunsch, kein Muss." style="resize:none;min-height:60px" oninput="updGoalRevisionBtn(true)"></textarea>
+        <div id="grv-error" style="display:none;font-size:10px;color:var(--neg);margin-top:4px"></div>
+      </div></div>
+    </div>
+    <div class="mfooter">
+      <button class="btn" onclick="cm('m-goalrev')">Abbrechen</button>
+      <button class="btn-g" id="grv-submit" disabled onclick="submitGoalRevision()">Einstufen</button>
     </div>
   </div>
 </div>
