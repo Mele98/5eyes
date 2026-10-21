@@ -8,8 +8,8 @@
     "Aktien aufbauen: ca. CHF 138'400",
     "Liquiditaet reduzieren: ca. CHF 90'000",
     "Obligationen reduzieren: ca. CHF 68'200",
-    "Immobilien aufbauen: ca. CHF 40'200",
-    "Alternative reduzieren: ca. CHF 20'400"
+    "Immobilien aufbauen: ca. CHF 40'400",
+    "Alternative reduzieren: ca. CHF 20'600"
   ],
   "positions": [
     {
@@ -36,8 +36,8 @@
         "Immobilien Schweiz"
       ],
       "sub_asset_class": "Immobilien Schweiz",
-      "target_amount_rappen": 3215000,
-      "target_weight_bps": 643,
+      "target_amount_rappen": 3230000,
+      "target_weight_bps": 646,
       "ter_bps": 52
     },
     {
@@ -78,8 +78,8 @@
         "Gold / Rohstoffe"
       ],
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_amount_rappen": 2960000,
-      "target_weight_bps": 592,
+      "target_amount_rappen": 2940000,
+      "target_weight_bps": 588,
       "ter_bps": 40
     },
     {
@@ -134,8 +134,8 @@
         "Immobilien Global"
       ],
       "sub_asset_class": "Immobilien Global",
-      "target_amount_rappen": 805000,
-      "target_weight_bps": 161,
+      "target_amount_rappen": 810000,
+      "target_weight_bps": 162,
       "ter_bps": 48
     },
     {
@@ -183,19 +183,19 @@
       "asset_class": "Alternative",
       "rationale": "Standardbaustein fuer Alternative Anlagen",
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_weight_bps": 592
+      "target_weight_bps": 588
     },
     {
       "asset_class": "Immobilien",
       "rationale": "Ergaenzende Diversifikation",
       "sub_asset_class": "Immobilien Global",
-      "target_weight_bps": 161
+      "target_weight_bps": 162
     },
     {
       "asset_class": "Immobilien",
       "rationale": "Schweizer Immobilienfokus",
       "sub_asset_class": "Immobilien Schweiz",
-      "target_weight_bps": 643
+      "target_weight_bps": 646
     },
     {
       "asset_class": "Liquiditaet",
@@ -250,14 +250,14 @@
     "optimization_method": "stochastic",
     "optimization_status": "converged",
     "reserve_needed_rappen": 0,
-    "risky_fraction_bps": 6444,
+    "risky_fraction_bps": 6443,
     "score_bucket": 7,
     "targets_bps": {
-      "alternatives": 592,
+      "alternatives": 588,
       "bonds": 1636,
       "equities": 6768,
       "liquidity": 200,
-      "real_estate": 804
+      "real_estate": 808
     }
   },
   "target_allocation_warnings": [],

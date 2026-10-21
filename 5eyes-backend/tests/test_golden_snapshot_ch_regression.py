@@ -243,6 +243,18 @@ Geaendert nur durch den neuen Wuerfel (Version im Inhalts-Seed): Score 7
 Risikoanteil 64.48 -> 64.44 %), Score 9 7858/855/697/390/200 ->
 7821/912/704/363/200 (575/1238 -> 574/1232 bps, Risikoanteil 68.87 ->
 68.54 %); Score 3 und alle drei Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-21, VARIANT-GOAL-PRESERVATION-GATE-001, Engine
+``saa_resampled_v12``): Goal-Preservation-Gate nur in den Risikomass-
+Varianten; der Default-Pfad (House-Prior) ist unveraendert. Mit dem v10-Seed
+(Version erzwungen, Experiment) sind ALLE sechs Fixtures byte-identisch zu
+v10. Unter Haswell UND Nehalem (Threads = 1) neu erzeugt, beide
+byte-identisch; geaendert nur durch den neuen Wuerfel (Version im
+Inhalts-Seed): Score 7 6768/1636/804/592/200 -> Immobilien 804 -> 808,
+Alternative 592 -> 588 (Risikoanteil 64.44 -> 64.43 %), Score 9
+7821/912/704/363/200 -> 7832/885/702/381/200 (Vola 1232 -> 1234 bps,
+Risikoanteil 68.54 -> 68.70 %); Score 3 und alle drei Score-5-Varianten
+unveraendert.
 """
 from __future__ import annotations
 

@@ -117,7 +117,6 @@ from .objective_variants import (
 )
 from .resampling import (
     COMPARISON_GOAL_LEVEL,
-    COMPARISON_RISK_MEASURE,
     DEFAULT_RESAMPLING,
     RISK_MEASURE_MATERIALITY,
     MIN_SUCCESSFUL_BAG_SHARE,
@@ -1535,7 +1534,17 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # ``priority_scope.py``) statt Rueckwaertsrekonstruktion; Fehlbetrag,
 # Chance-Strafe, Stufe 1, Screen und Publikation auf DEMSELBEN Scope; volle
 # Ursachenverteilung je Ziel. Bewusst neue Wuerfel (Version im Seed).
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v10"
+#
+# v12 (2026-10-21, VARIANT-GOAL-PRESERVATION-GATE-001, Codex-Befund
+# 2026-10-18 "Risiko kann weiterhin Zielerosion kaufen"): in den
+# Risikomass-Varianten ein nicht verrechenbares Goal-Preservation-Gate VOR
+# jedem Optimierer-Entscheid -- Zielebene und Stufe-1-Zielebene duerfen nicht
+# signifikant schlechter sein als die Hausquote (gepaarter Einheiten-
+# Bootstrap, nullzentrierter Shift-p-Wert, H0: nicht schlechter). Danach
+# Risikotest auf dem Risikomass ALLEIN (kein Skalar Ziel + Risiko) mit 50-bps-
+# Materialitaet. Default-Pfad (House-Prior) unveraendert. (v11 ist fuer einen
+# parallelen Branch reserviert; beim Merge vereinheitlicht.)
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v12"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -3650,8 +3659,9 @@ def _context_loss_components_on_validation(
         return wealth, factors, annualized, float(preference), drawdowns, variance, scopes
 
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
+    stage1_liabilities = [] if is_default else _stage1_liabilities(validation_context)
 
-    def _components(bundle, idx) -> tuple[float, float]:
+    def _components(bundle, idx) -> tuple:
         wealth, factors, annualized, preference, drawdowns, variance, scopes = bundle
         if idx is not None:
             wealth, factors, annualized = wealth[idx], factors[idx], annualized[idx]
@@ -3689,8 +3699,28 @@ def _context_loss_components_on_validation(
             portfolio_variance=variance,
             scope_wealth=scopes,
         )
-        risk_level = float(tiebreak) if is_default else float(primary_override)
-        return float(goal_level) + float(preference), risk_level
+        goal_total = float(goal_level) + float(preference)
+        if is_default:
+            return goal_total, float(tiebreak)
+        # VARIANT-GOAL-PRESERVATION-GATE-001 (Engine v12): in den Varianten
+        # zusaetzlich die Stufe-1-Zielebene G1 (harte/primaere Ziele, exakt
+        # ``protected_goal_level``) fuer das nicht verrechenbare
+        # Goal-Preservation-Gate; None ohne Stufe-1-Ziele.
+        stage1_level = (
+            float(protected_goal_level(
+                stage1_liabilities,
+                wealth,
+                initial_wealth_rappen=validation_context.advisory_wealth_rappen,
+                horizon_years=validation_context.horizon_years,
+                weights=None,
+                annualized_return_bps_per_path=annualized,
+                goal_weighting_mode=contract.goal_weighting_mode,
+                scope_wealth=scopes,
+            )[0])
+            if stage1_liabilities
+            else None
+        )
+        return goal_total, float(primary_override), stage1_level
 
     def component_pair(idx):
         return _components(prepared[0], idx), _components(prepared[1], idx)
@@ -3784,10 +3814,16 @@ def _significance_vs_house_anchor(
        Eckloesungen auf Schaetzfehlern der Korrelation. Im Solver bleibt er
        (Stetigkeit/Monotonie), er entscheidet nur nicht ueber Anker vs.
        Kandidat.
-    2. Nur in den Varianten (Risikomass = Zweck): Skalar-Zielfunktion
-       (Risikomass + Chance-Strafe + Preference) signifikant UND
-       Risikomass-Verbesserung auf dem Validierungs-Cube
-       >= ``RISK_MEASURE_MATERIALITY`` -> Optimierer.
+    2. Nur in den Varianten (Risikomass = Zweck), lexikographisch
+       (VARIANT-GOAL-PRESERVATION-GATE-001, Engine v12): ZUERST das nicht
+       verrechenbare Goal-Preservation-Gate
+       (``_variant_goal_preservation_gate``: Zielebene und Stufe-1-Zielebene
+       nicht signifikant schlechter als die Hausquote); faellt es durch ->
+       Hausmatrix, egal wie gross der Risikogewinn ist. Sonst Optimierer,
+       wenn (1) gilt ODER das Risikomass ALLEIN signifikant besser ist UND
+       die Verbesserung auf dem Validierungs-Cube
+       >= ``RISK_MEASURE_MATERIALITY``. Bis v10 stand hier der Skalar
+       (Risikomass + Chance-Strafe), der Zielerosion verrechnen liess.
 
     Entscheid ``decision``:
     * ``optimizer``  -- (1) oder (2) erfuellt, Optimierer-Allokation gilt.
@@ -3804,7 +3840,8 @@ def _significance_vs_house_anchor(
     ueber antithetische Paare (``_validation_sampling_units``).
 
     Die Top-Level-Statistik (``p_value``, ``improvement`` ...) ist immer die
-    der Zielebene; die Varianten-Statistik steht in ``risk_measure_test``.
+    der Zielebene; die Varianten-Statistik steht getrennt in
+    ``goal_preservation`` (Gate) und ``risk_measure_test`` (Risikotest).
     """
     block: dict = {
         "test": None,
@@ -3871,18 +3908,31 @@ def _significance_vs_house_anchor(
         "validation_cube_hash": cube_hash,
         "validation_n_paths": int(validation_context.n_paths),
     }
-    if goal_stats["significant"]:
-        return {**result, "decision": "optimizer",
-                "reason": "significant_goal_improvement"}
     if objective_mode == OBJECTIVE_GOAL_SHORTFALL:
+        if goal_stats["significant"]:
+            return {**result, "decision": "optimizer",
+                    "reason": "significant_goal_improvement"}
         return {**result, "decision": "house_matrix",
                 "reason": "goal_improvement_not_significant"}
 
-    (_anchor_goal, anchor_risk), (_cand_goal, candidate_risk) = component_pair(None)
-    risk_improvement = float(anchor_risk) - float(candidate_risk)
+    # ---- Risikomass-Varianten (VARIANT-GOAL-PRESERVATION-GATE-001, v12) ----
+    # 1. Nicht verrechenbares Goal-Preservation-Gate: weder Zielebene noch
+    #    Stufe-1-Zielebene signifikant schlechter als die Hausquote.
+    gate = _variant_goal_preservation_gate(component_pair, bootstrap_kwargs)
+    result["goal_preservation"] = gate
+    if goal_stats["significant"]:
+        if gate["passed"]:
+            return {**result, "decision": "optimizer",
+                    "reason": "significant_goal_improvement"}
+        return {**result, "decision": "house_matrix", "reason": gate["reason"]}
+
+    # 2. Risikotest auf dem Risikomass ALLEIN (Evidence auch bei Gate-Fail).
+    (_anchor_parts, _cand_parts) = component_pair(None)
+    anchor_risk, candidate_risk = float(_anchor_parts[1]), float(_cand_parts[1])
+    risk_improvement = anchor_risk - candidate_risk
     material = bool(risk_improvement >= RISK_MEASURE_MATERIALITY)
     risk_stats = paired_bootstrap_improvement(
-        lambda idx: tuple(sum(parts) for parts in component_pair(idx)),
+        lambda idx: tuple(parts[1] for parts in component_pair(idx)),
         **bootstrap_kwargs,
     )
     result["risk_measure_test"] = {
@@ -3893,17 +3943,20 @@ def _significance_vs_house_anchor(
                         "p_value_calibration", "anchor_objective",
                         "candidate_objective")
         },
-        "comparison": COMPARISON_RISK_MEASURE,
-        "anchor_risk_measure": float(anchor_risk),
-        "candidate_risk_measure": float(candidate_risk),
+        "comparison": COMPARISON_RISK_MEASURE_ONLY,
+        "anchor_risk_measure": anchor_risk,
+        "candidate_risk_measure": candidate_risk,
         "risk_improvement": risk_improvement,
         "materiality_threshold": float(RISK_MEASURE_MATERIALITY),
         "material": material,
         "significant": bool(risk_stats["significant"]),
     }
+    # 3. Lexikographischer Entscheid: das Gate ist nie verrechenbar.
+    if not gate["passed"]:
+        return {**result, "decision": "house_matrix", "reason": gate["reason"]}
     if risk_stats["significant"] and material:
         return {**result, "decision": "optimizer", "significant": True,
-                "decision_level": COMPARISON_RISK_MEASURE,
+                "decision_level": COMPARISON_RISK_MEASURE_ONLY,
                 "reason": "significant_material_risk_improvement"}
     return {
         **result,
@@ -3913,6 +3966,67 @@ def _significance_vs_house_anchor(
             if risk_stats["significant"]
             else "risk_improvement_not_significant"
         ),
+    }
+
+
+# VARIANT-GOAL-PRESERVATION-GATE-001 (Engine v12): Version des Gates und
+# Vergleichsebene des Risikotests (Risikomass allein, kein Skalar mehr).
+VARIANT_GOAL_PRESERVATION_GATE_VERSION = "paired_unit_bootstrap_goal_non_inferiority_v1"
+COMPARISON_RISK_MEASURE_ONLY = "risk_measure_only"
+
+
+def _variant_goal_preservation_gate(component_pair, bootstrap_kwargs: dict) -> dict:
+    """Nicht verrechenbares Goal-Preservation-Gate der Risikomass-Varianten.
+
+    Codex-Befund 2026-10-18 (core-stack-034ee30-Revalidierung, "Risiko kann
+    weiterhin Zielerosion kaufen"): der bisherige Skalar ``Ziel + Risiko``
+    liess einen materiellen Risikogewinn eine strikt schlechtere Zielebene
+    bezahlen. Das Gate prueft die Ziele GETRENNT und VOR dem Risikotest:
+
+    * ``goal_level`` -- Zielebene (Chance-Strafe + Soft-Preference, Teil 0
+      der Komponenten),
+    * ``stage1_goal_level`` -- Stufe-1-Zielebene ``G1`` der harten/primaeren
+      Ziele (Teil 2; ``None`` ohne Stufe-1-Ziele oder wenn die Komponenten
+      sie nicht liefern).
+
+    Je Ebene derselbe Baustein wie die Default-Offenlegung (#649,
+    ``house_prior.paired_bootstrap_disclosure``): gepaarter Einheiten-
+    Bootstrap auf dem finalen Holdout, nullzentrierter Shift-p-Wert zu H0
+    "Kandidat nicht schlechter"; ``significantly_worse`` genau dann, wenn
+    ``Delta < 0`` und ``p_value_worse <= alpha``. Gleiche Bootstrap-Seeds wie
+    der Zieltest (gleiche Replikationen, gepaart).
+
+    Owner-Entscheid offen: eine feste Toleranz ``epsilon_goal`` bzw.
+    Floor-Policy je Ziel ist nicht festgelegt; das Gate nutzt die
+    statistische Nicht-Unterlegenheit mit Marge 0 (keine erfundene Zahl).
+    """
+    levels: dict[str, dict | None] = {}
+    _anchor_full, _cand_full = component_pair(None)
+    has_stage1 = (
+        len(_anchor_full) > 2 and len(_cand_full) > 2
+        and _anchor_full[2] is not None and _cand_full[2] is not None
+    )
+    for name, index in (("goal_level", 0), ("stage1_goal_level", 2)):
+        if index == 2 and not has_stage1:
+            levels[name] = None
+            continue
+        levels[name] = paired_bootstrap_disclosure(
+            lambda idx, i=index: tuple(float(parts[i]) for parts in component_pair(idx)),
+            **bootstrap_kwargs,
+        )
+    reason = None
+    if levels["goal_level"]["significantly_worse"]:
+        reason = "goal_level_significantly_worse"
+    elif levels["stage1_goal_level"] is not None and (
+        levels["stage1_goal_level"]["significantly_worse"]
+    ):
+        reason = "stage1_goal_level_significantly_worse"
+    return {
+        "version": VARIANT_GOAL_PRESERVATION_GATE_VERSION,
+        "margin": 0.0,
+        **levels,
+        "passed": reason is None,
+        "reason": reason,
     }
 
 
@@ -4242,6 +4356,23 @@ def _run_resampled_solver(
                 "Finaler Validierungswuerfel nicht verfuegbar: die "
                 "Optimierer-Abweichung ist nicht zertifiziert; "
                 "Hausmatrix-Zielquote beibehalten (fail-closed)."
+            )
+        elif significance.get("reason") in (
+            "goal_level_significantly_worse",
+            "stage1_goal_level_significantly_worse",
+        ):
+            reasoning.append(
+                "Optimierer-Allokation erreicht die Ziele"
+                + (
+                    " (harte/primaere Ziele)"
+                    if significance.get("reason")
+                    == "stage1_goal_level_significantly_worse"
+                    else ""
+                )
+                + " signifikant schlechter als die Hausmatrix-Zielquote; ein "
+                "Risikogewinn wird nicht mit Zielerosion verrechnet. "
+                "Hausmatrix-Zielquote beibehalten. "
+                + _significance_sentence(significance)
             )
         elif significance.get("reason") == "risk_improvement_not_material":
             reasoning.append(
