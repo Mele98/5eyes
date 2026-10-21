@@ -653,7 +653,28 @@ export interface BeratungsprotokollData {
   days_since_last_review: number | null;
   suitability_mismatches: string[];
   has_active_mismatches: boolean;
+  /** SUITABILITY-DETECTOR-AVAILABILITY-001: Status der HouseMatrix-Cap-Pruefung.
+   *  "unavailable" zaehlt nie als geeignet; die Meldung steht zusaetzlich in
+   *  suitability_mismatches (Banner). */
+  suitability_cap_check?: SuitabilityCapCheckData;
   retention_audit_ok: boolean;
+}
+
+export type SuitabilityCapCheckStatus =
+  | 'ok'
+  | 'violation'
+  | 'unavailable'
+  | 'not_applicable';
+
+export interface SuitabilityCapCheckData {
+  status: SuitabilityCapCheckStatus;
+  reason_code: string | null;
+  message: string | null;
+  score_bucket: number | null;
+  cap_bps: number | null;
+  profile_name: string | null;
+  risky_fraction_bps: number | null;
+  counts_as_suitable: boolean;
 }
 
 // ---------------------------------------------------------------------------

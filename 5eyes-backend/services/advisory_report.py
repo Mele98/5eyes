@@ -3055,7 +3055,10 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
     - latest_entry: serialisierter letzter Eintrag oder None
     - last_review_date: Datum des letzten Eintrags (ISO YYYY-MM-DD)
     - suitability_mismatches: aktive Mismatches (Risikobudget, Bands)
-    - has_active_mismatches: True wenn mindestens ein Mismatch
+    - has_active_mismatches: True wenn mindestens ein Mismatch oder die
+      HouseMatrix-Cap-Pruefung nicht moeglich war
+    - suitability_cap_check: Status ok/violation/unavailable/not_applicable
+      + reason_code (SUITABILITY-DETECTOR-AVAILABILITY-001)
     - days_since_last_review: Anzahl Tage seit letzem Eintrag
     - retention_audit_ok: True wenn keine Einträge ablaufen in den nächsten
       30 Tagen (FIDLEG-Aufbewahrungspflicht)
@@ -3064,14 +3067,16 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     from services.advisory_log_service import (
         count_active_entries,
-        detect_suitability_mismatches,
+        evaluate_suitability_mismatches,
         get_latest_active_entry,
         serialize_response,
     )
 
     total_active = count_active_entries(db, mandate_id=mandate.id)
     latest = get_latest_active_entry(db, mandate_id=mandate.id)
-    mismatches = detect_suitability_mismatches(db, mandate)
+    suitability = evaluate_suitability_mismatches(db, mandate)
+    mismatches = suitability["warnings"]
+    cap_check = suitability["cap_check"]
 
     last_review_date: str | None = None
     days_since: int | None = None
@@ -3095,7 +3100,12 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
         "last_review_date": last_review_date,
         "days_since_last_review": days_since,
         "suitability_mismatches": mismatches,
-        "has_active_mismatches": bool(mismatches),
+        # SUITABILITY-DETECTOR-AVAILABILITY-001: eine nicht pruefbare
+        # Cap-Pruefung (status "unavailable") ist ein aktiver Hinweis, nie
+        # "geeignet" -- auch falls die Warnungsliste anders gefiltert wuerde.
+        "has_active_mismatches": bool(mismatches)
+        or cap_check.requires_advisor_attention,
+        "suitability_cap_check": cap_check.to_dict(),
         "retention_audit_ok": retention_audit_ok,
     }
 
