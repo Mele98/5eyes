@@ -118,6 +118,8 @@ def test_legacy_maintenance_path_widens_stale_check_lists(tmp_path, monkeypatch)
     import services.market_data.provider_health_registry as health
     monkeypatch.setattr(health, "ensure_provider_health_table", lambda *a, **k: None)
     monkeypatch.setattr(db_module, "resolve_schema_path", lambda: SCHEMA_FILE)
+    from config import settings
+    monkeypatch.setattr(settings, "backup_dir", str(tmp_path / "bk"))
 
     objects_before = _schema_objects(db_path)
     db_module._run_sqlite_legacy_schema_maintenance()
@@ -133,21 +135,43 @@ def test_legacy_maintenance_path_widens_stale_check_lists(tmp_path, monkeypatch)
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("SELECT role FROM users WHERE id='u-legacy'").fetchone()[0] == "readonly"
     assert _schema_objects(db_path) == objects_before
+    assert len(list((tmp_path / "bk").glob("5eyes_pre_check_upgrade_*.db"))) == 1
 
 
-def test_widening_is_idempotent_and_union_only(tmp_path):
+_EXPECTED_ADDED = {
+    "users": {"role": ["'super_admin'", "'portfolio_management'", "'client'"]},
+    "wealth_positions": {"mortgage_amortization_type": ["'Indirekt (Säule 3a)'"]},
+    "contract_documents": {"status": ["'Teilweise unterzeichnet'"]},
+}
+
+
+def _table_ddl(db_path: Path) -> dict[str, str]:
+    with sqlite3.connect(db_path) as conn:
+        return dict(conn.execute("SELECT name, sql FROM sqlite_master WHERE type='table'"))
+
+
+def test_widening_is_idempotent_union_only_with_backup_and_protocol(tmp_path):
+    import json
+
     from services.sqlite_check_constraint_upgrade import ensure_sqlite_check_in_lists_current
 
     db_path = _legacy_db(tmp_path)
+    ddl_before = _table_ddl(db_path)
+    backup_dir = tmp_path / "bk"
     engine = create_engine(f"sqlite:///{db_path}")
-    first = ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE)
-    assert first == {
-        "users": ["role"],
-        "wealth_positions": ["mortgage_amortization_type"],
-        "contract_documents": ["status"],
-    }
-    assert ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE) == {}
+    first = ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE, backup_dir=backup_dir)
+    assert first == _EXPECTED_ADDED
+    # Zweiter Lauf: nichts zu tun, KEINE weitere Sicherung.
+    assert ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE, backup_dir=backup_dir) == {}
     engine.dispose()
+    backups = sorted(backup_dir.glob("5eyes_pre_check_upgrade_*.db"))
+    assert len(backups) == 1
+    assert not list(backup_dir.glob("*.partial*"))  # keine verwaisten Temp-Reste
+    # Sicherung = Zustand VOR der Aenderung.
+    assert _table_ddl(backups[0]) == ddl_before
+    protocol = json.loads(backups[0].with_suffix(".json").read_text(encoding="utf-8"))
+    assert protocol["added_values"] == _EXPECTED_ADDED
+    assert protocol["event"] == "UPGRADE-PATH-CHECK-DRIFT-001"
     # Echter Schreibtest mit vollem Datensatz: neue Rolle wird akzeptiert.
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -169,5 +193,85 @@ def test_fresh_reference_schema_needs_no_change(tmp_path):
         conn.execute("PRAGMA foreign_keys = OFF")
         conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
     engine = create_engine(f"sqlite:///{db_path}")
-    assert ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE) == {}
+    backup_dir = tmp_path / "bk"
+    assert ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE, backup_dir=backup_dir) == {}
     engine.dispose()
+    # Keine Aenderung -> keine Sicherung.
+    assert not backup_dir.exists() or not any(backup_dir.iterdir())
+
+
+def _assert_unchanged_and_readable(db_path: Path, ddl_before: dict[str, str]) -> None:
+    assert _table_ddl(db_path) == ddl_before
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("SELECT role FROM users WHERE id='u-legacy'").fetchone()[0] == "readonly"
+    assert not _accepts(db_path, "users", "role", "client", "u-still-old")
+
+
+def test_simulated_integrity_failure_rolls_back_to_old_schema(tmp_path, monkeypatch):
+    import services.sqlite_check_constraint_upgrade as mod
+
+    db_path = _legacy_db(tmp_path)
+    ddl_before = _table_ddl(db_path)
+    real_check = mod._post_change_problems
+    calls = []
+
+    def failing_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return ["integrity_check: ['simuliert']"]
+        return real_check(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "_post_change_problems", failing_once)
+    engine = create_engine(f"sqlite:///{db_path}")
+    assert mod.ensure_sqlite_check_in_lists_current(
+        engine, SCHEMA_FILE, backup_dir=tmp_path / "bk"
+    ) == {}
+    engine.dispose()
+    assert len(calls) == 2  # Pruefung + Pruefung nach Ruecksetzen
+    _assert_unchanged_and_readable(db_path, ddl_before)
+    # Sicherung existiert (wurde vor der Aenderung angelegt), kein Erfolgsprotokoll.
+    assert len(list((tmp_path / "bk").glob("*.db"))) == 1
+    assert not list((tmp_path / "bk").glob("*.json"))
+
+
+def test_failed_revert_restores_from_backup(tmp_path, monkeypatch):
+    import services.sqlite_check_constraint_upgrade as mod
+
+    db_path = _legacy_db(tmp_path)
+    ddl_before = _table_ddl(db_path)
+    monkeypatch.setattr(mod, "_post_change_problems", lambda *a, **k: ["simuliert"])
+    restored = []
+    real_restore = mod._restore_from_backup
+
+    def spy(*args, **kwargs):
+        restored.append(1)
+        return real_restore(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "_restore_from_backup", spy)
+    engine = create_engine(f"sqlite:///{db_path}")
+    assert mod.ensure_sqlite_check_in_lists_current(
+        engine, SCHEMA_FILE, backup_dir=tmp_path / "bk"
+    ) == {}
+    engine.dispose()
+    assert restored == [1]
+    _assert_unchanged_and_readable(db_path, ddl_before)
+
+
+def test_backup_failure_means_no_change(tmp_path, monkeypatch):
+    import services.backup as backup
+    import services.sqlite_check_constraint_upgrade as mod
+
+    db_path = _legacy_db(tmp_path)
+    ddl_before = _table_ddl(db_path)
+
+    def broken_copy(*args, **kwargs):
+        raise OSError("Datentraeger voll (simuliert)")
+
+    monkeypatch.setattr(backup, "_perform_atomic_copy", broken_copy)
+    engine = create_engine(f"sqlite:///{db_path}")
+    assert mod.ensure_sqlite_check_in_lists_current(
+        engine, SCHEMA_FILE, backup_dir=tmp_path / "bk"
+    ) == {}
+    engine.dispose()
+    _assert_unchanged_and_readable(db_path, ddl_before)
