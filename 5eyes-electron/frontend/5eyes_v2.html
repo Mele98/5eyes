@@ -8611,9 +8611,51 @@ function renderOptimizerAchievability(result){
       +'<td>'+escapeHtml(goalAchievabilityLabel(row))+'</td>'
       +'<td>'+escapeHtml(hardnessDisplay(row.hardness))+'</td>'
       +'<td class="num">'+escapeHtml(fmtProbPct(prob*100))+'</td>'
-      +'<td>'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</td>'
+      +'<td>'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+goalRevisionCellHtml(row)+'</td>'
       +'</tr>';
   }).join('');
+}
+// GOAL-REVISION-DECISION-001 (Engine v11): die Engine stuft ein Ziel nie
+// selbst herab. Findet die lokale Suche keine zulaessige Allokation mit
+// ausreichender Sicherheit, erscheint beim Ziel nur ein VORSCHLAG; wirksam
+// wird die Einstufung als nachrangiges Wunschziel erst mit einer begruendeten
+// Berater-Entscheidung (POST .../revision-decisions). Keine Garantie- oder
+// Unmoeglichkeitsaussage.
+function goalRevisionCellHtml(row){
+  var rev=row&&row.goal_revision;
+  if(!rev||!row.goal_id)return '';
+  if(rev.demoted_by_decision){
+    return '<div class="goal-revision-note" style="font-size:9px;color:var(--n5);margin-top:3px">Nachrangiges Wunschziel (Beraterentscheid)</div>';
+  }
+  if(!rev.revision_suggested)return '';
+  return '<div class="goal-revision-note" style="font-size:9px;color:var(--n5);margin-top:3px;line-height:1.4">'
+    +'Mit den gepr\u00fcften Allokationen nicht mit ausreichender Sicherheit erreicht.'
+    +'<br><button type="button" class="btn-link goal-revision-btn" data-goal-id="'+escapeHtml(String(row.goal_id))+'" onclick="openGoalRevisionDialog(this.getAttribute(\'data-goal-id\'))" style="font-size:9px;padding:0;margin-top:2px;background:none;border:0;color:var(--brand,#8a6d1f);cursor:pointer;text-decoration:underline">Als nachrangiges Wunschziel einstufen\u2026</button>'
+    +'</div>';
+}
+async function openGoalRevisionDialog(goalId){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid||(typeof isDemoMandateId==='function'&&isDemoMandateId(mid))){
+    showAppError('Die Einstufung ist nur f\u00fcr ein gespeichertes Mandat m\u00f6glich.');
+    return;
+  }
+  var goal=goalById(goalId);
+  var label=goal&&goal.label?goal.label:'dieses Ziel';
+  var reason=null;
+  try{
+    reason=window.prompt('Ziel "'+label+'" als nachrangiges Wunschziel einstufen.\n\nDas Ziel wird weiter verfolgt, verdr\u00e4ngt aber keine vorrangigen Ziele mehr. Jede sp\u00e4tere \u00c4nderung des Ziels hebt die Einstufung auf.\n\nBegr\u00fcndung (mit dem Kunden besprochen, mind. 20 Zeichen):','');
+  }catch(e){reason=null;}
+  if(reason===null)return;
+  reason=String(reason||'').trim();
+  if(!reason){showAppError('Bitte eine Begr\u00fcndung erfassen.');return;}
+  try{
+    await API.post('/mandates/'+mid+'/goals/'+encodeURIComponent(goalId)+'/revision-decisions',{reason:reason});
+    showAppSuccess('Ziel als nachrangiges Wunschziel eingestuft. Bitte die Strategie neu berechnen.');
+  }catch(e){
+    var detail=e&&e.detail;
+    var msg=detail&&typeof detail==='object'&&detail.message?detail.message:parseApiError(e,'Die Einstufung konnte nicht erfasst werden.');
+    showAppError(msg);
+  }
 }
 function buildBuildingBlockReferenceHtml(items){
   return items.length?items.map(function(item){

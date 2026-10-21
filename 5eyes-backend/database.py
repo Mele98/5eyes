@@ -386,6 +386,58 @@ RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL = (
 )
 
 
+# GOAL-REVISION-DECISION-001 (CIO-Entscheid 2026-10-21, Codex-Closure-Review
+# zu PR #655): append-only GoalRevisionDecisionV1 (models/wealth.py::
+# GoalRevisionDecision). Einzige Quelle einer Herabstufung eines Ziels zum
+# nachrangigen Wunschziel. Gleiches Muster wie risk_override_decisions:
+# Trigger verbieten UPDATE/DELETE, KEIN harter FK auf goals/mandates
+# (Purge-fest), nur actor_id -> users. Die DDL wird hier EINMAL definiert und
+# vom Model (after_create), von ensure_runtime_columns() und -- textgleich --
+# von 5eyes_schema_v4.0_FINAL.sql verwendet; Alembic e3c7a91f5b28 fuer
+# PostgreSQL.
+GOAL_REVISION_DECISION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_update "
+    "BEFORE UPDATE ON goal_revision_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_delete "
+    "BEFORE DELETE ON goal_revision_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END",
+)
+
+GOAL_REVISION_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS goal_revision_decisions (
+    id                            TEXT PRIMARY KEY,
+    schema_version                TEXT NOT NULL DEFAULT 'GoalRevisionDecisionV1',
+    goal_id                       TEXT NOT NULL,
+    mandate_id                    TEXT NOT NULL,
+    client_id                     TEXT,
+    sequence_no                   INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_decision_id          TEXT,
+    goal_snapshot_hash            TEXT NOT NULL,
+    goal_snapshot_json            TEXT NOT NULL,
+    previous_hardness             TEXT NOT NULL,
+    new_status                    TEXT NOT NULL CHECK(new_status IN ('nachrangiges_wunschziel')),
+    reason                        TEXT NOT NULL,
+    evidence_status               TEXT NOT NULL,
+    evidence_best_probability_bps INTEGER,
+    evidence_wilson_upper_bps     INTEGER,
+    evidence_tau_bps              INTEGER,
+    evidence_engine_version       TEXT NOT NULL,
+    evidence_allocation_id        TEXT,
+    evidence_screening_cube_hash  TEXT,
+    actor_id                      TEXT NOT NULL REFERENCES users(id),
+    decided_at                    TEXT NOT NULL,
+    rules_version                 TEXT NOT NULL,
+    decision_hash                 TEXT NOT NULL,
+    created_at                    TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_goal_revision_decision_sequence "
+    "ON goal_revision_decisions(goal_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS ix_goal_revision_decisions_mandate "
+    "ON goal_revision_decisions(mandate_id)",
+)
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -939,6 +991,10 @@ def ensure_runtime_columns() -> None:
         for ddl in RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL + RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
         conn.execute(text(RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL))
+        # GOAL-REVISION-DECISION-001 (2026-10-21): append-only Herabstufungs-
+        # Entscheidungen (idempotent; siehe Konstanten oben).
+        for ddl in GOAL_REVISION_DECISION_SQLITE_TABLE_DDL + GOAL_REVISION_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist

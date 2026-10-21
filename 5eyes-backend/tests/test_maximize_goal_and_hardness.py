@@ -126,7 +126,7 @@ def _liability(kind: str, *, hardness: str = "primaer", target: int = 0,
 def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     result, context = _run([], 10, key="no_goals_10")
     resampling = result.resampling
-    assert resampling["engine_version"] == "saa_resampled_v10"
+    assert resampling["engine_version"] == "saa_resampled_v11"
     contract = resampling["objective_contract"]
     assert contract["objective_contract_version"] == "objective-contract-v2"
     assert contract["goal_weighting_mode"] == "hardness"
@@ -630,14 +630,18 @@ def test_codex_final_certification_holdout_must_not_select_the_objective():
 
 def test_unreachable_hard_goal_is_not_exempted_in_production():
     """Produktionspfad: ein auf der Pruefmenge unerreichbares hartes Ziel
-    bleibt mit vollem Fehlbetrag in der Zielfunktion (v6: ``penalty_exempt``),
-    gehoert aber nicht zur Stufe 1 (GOAL-HIERARCHY-002)."""
+    bleibt mit vollem Fehlbetrag in der Zielfunktion (v6: ``penalty_exempt``).
+    Engine v11 (GOAL-REVISION-DECISION-001): ohne Berater-Entscheidung bleibt
+    es auch Stufe 1 (bis v10 automatisch herabgestuft) -- die lokale Suche
+    beweist keine Unerreichbarkeit; sie schlaegt die Einstufung nur vor."""
     context = _goal_context("Hart", amount=50_000_000_00)
     screen = context.goal_reachability
     assert screen["not_found_reachable_goal_ids"] == ["vz"]
     assert screen["penalty_exempt_goal_ids"] == []
+    assert screen["revision_suggested_goal_ids"] == ["vz"]
+    assert screen["demoted_goal_ids"] == []
     assert not hasattr(context, "penalty_exempt_goal_ids")
-    assert solver_module._stage1_liabilities(context) == []
+    assert [str(l.goal_id) for l in solver_module._stage1_liabilities(context)] == ["vz"]
     low = _w({"equities": 4500, "bonds": 4500, "real_estate": 500,
               "alternatives": 300, "liquidity": 200})
     high = _w({"equities": 7000, "bonds": 2000, "real_estate": 500,
@@ -654,27 +658,37 @@ def test_unreachable_hard_goal_is_not_exempted_in_production():
     assert shortfall["low"] != shortfall["high"]  # das Ziel unterscheidet weiter
 
 
-def _two_goal_context(seed: int = 11):
+def _with_revision_decision(goal):
+    """GOAL-REVISION-DECISION-001: gueltige Berater-Entscheidung am Ziel."""
+    from test_goal_revision_decision import _decision_for
+
+    goal.goal_revision_decision = _decision_for(goal)
+    return goal
+
+
+def _two_goal_context(seed: int = 11, *, decided: bool = False):
+    far = _make_goal(goal_id="far", label="Aussichtslos", hardness="Hart",
+                     goal_type="Vermoegensziel", target_rappen=50_000_000_00,
+                     target_date_offset_days=365 * 25)
     goals = [
         _make_goal(goal_id="reach", label="Erreichbar", hardness="Primär",
                    goal_type="Vermoegensziel", target_rappen=700_000_00,
                    target_date_offset_days=365 * 25),
-        _make_goal(goal_id="far", label="Aussichtslos", hardness="Hart",
-                   goal_type="Vermoegensziel", target_rappen=50_000_000_00,
-                   target_date_offset_days=365 * 25),
+        _with_revision_decision(far) if decided else far,
     ]
     return solver_module.build_optimizer_context(seed=seed, **_inputs(goals, 25))
 
 
 def test_unreachable_goal_is_demoted_and_cannot_displace_a_reachable_goal():
     """GOAL-HIERARCHY-002 (CIO-Review #650): das aussichtslose Ziel (auch
-    wenn HART) ist nicht Stufe 1; Stufe 1 schuetzt das erreichbare Ziel. Mit
-    der Hausquote als Prior bleibt das Stufe-1-Niveau des erreichbaren Ziels
-    innerhalb seiner Schranke, obwohl der Fehlbetrag des aussichtslosen Ziels
-    die Zielfunktion dominiert."""
+    wenn HART) ist -- seit Engine v11 NUR mit Berater-Entscheidung
+    GoalRevisionDecisionV1 -- nicht Stufe 1; Stufe 1 schuetzt das erreichbare
+    Ziel. Mit der Hausquote als Prior bleibt das Stufe-1-Niveau des
+    erreichbaren Ziels innerhalb seiner Schranke, obwohl der Fehlbetrag des
+    aussichtslosen Ziels die Zielfunktion dominiert."""
     from dataclasses import replace
 
-    context = replace(_two_goal_context(), house_prior_weights=_w(HOUSE_ANCHOR))
+    context = replace(_two_goal_context(decided=True), house_prior_weights=_w(HOUSE_ANCHOR))
     assert context.goal_reachability["not_found_reachable_goal_ids"] == ["far"]
     assert [str(l.goal_id) for l in solver_module._stage1_liabilities(context)] == ["reach"]
     selection = solver_module._select_cube_candidate(context, max_iter=50, ftol=1e-6)
@@ -687,14 +701,19 @@ def test_unreachable_goal_is_demoted_and_cannot_displace_a_reachable_goal():
 
 
 def test_demoted_goal_reasoning_says_subordinate_not_excluded():
+    """Engine v11: ohne Decision ein VORSCHLAG (keine Unmoeglichkeits-/
+    Garantieaussage), mit Decision der Hinweis auf den Beraterentscheid."""
     from services.optimizer.goal_reachability import reachability_reasoning
 
     lines = reachability_reasoning(_two_goal_context().goal_reachability)
     assert len(lines) == 1 and "'Aussichtslos'" in lines[0]
-    assert "mit der Mindestsicherheit erreichbar" in lines[0]
-    assert "als nachrangiges Wunschziel verfolgt" in lines[0]
-    assert "verdraengt keine erreichbaren Ziele" in lines[0]
-    assert "kein Unmoeglichkeitsnachweis" in lines[0]
+    assert "nicht mit ausreichender Sicherheit erreicht" in lines[0]
+    assert "als nachrangiges Wunschziel einstufen" in lines[0]
+    assert "unerreichbar" not in lines[0].lower()
+    decided = reachability_reasoning(_two_goal_context(decided=True).goal_reachability)
+    assert len(decided) == 1 and "'Aussichtslos'" in decided[0]
+    assert "als nachrangiges Wunschziel eingestuft" in decided[0]
+    assert "verdraengt aber keine vorrangigen Ziele" in decided[0]
 
 
 # ---------------------------------------------------------------------------
@@ -725,10 +744,30 @@ def test_demoted_goal_counts_like_a_wish_goal_with_volume_capped_at_w0():
 
 
 def test_unreachable_goal_alone_stays_near_the_house_quota():
-    """CIO: ein aussichtsloses Ziel darf die Allokation nicht an die
-    Bandobergrenze treiben (erste Fassung: 7000/2000/800/0/200)."""
-    result, context = _run([_wealth_goal(5_000_000_00, "Hart")], 25, seed=11,
-                           key="unreachable_alone")
+    """CIO: ein vom Berater als nachrangig eingestuftes, aussichtsloses Ziel
+    darf die Allokation nicht an die Bandobergrenze treiben (erste Fassung:
+    7000/2000/800/0/200). Engine v11: die Herabstufung kommt aus der
+    GoalRevisionDecisionV1, nicht mehr automatisch aus der Suche."""
+    result, context = _run([_with_revision_decision(_wealth_goal(5_000_000_00, "Hart"))],
+                           25, seed=11, key="unreachable_alone")
     assert all(l.demoted for l in context.liabilities)
     assert result.resampling["house_prior"]["tracking_error_vs_house_bps"] <= 25.0
     assert result.weights_bps["equities"] <= 6100
+
+
+def test_unreachable_goal_without_decision_stays_stage1_and_is_disclosed():
+    """Engine v11 (GOAL-REVISION-DECISION-001, CIO-Entscheid 2026-10-21):
+    OHNE Berater-Entscheidung bleibt das harte CHF-5-Mio-Ziel Stufe 1 --
+    bewusst, denn die lokale Suche kann "aussichtslos" nicht von einer
+    verfehlten Erfolgsinsel unterscheiden. Der Optimierer verfolgt das Ziel
+    dann innerhalb der Bandbreiten maximal (gemessen 7000/2000/800/0/200,
+    TE 170 bps zur Hausquote; mit Decision 6014/2958/534/294/200, TE 4 bps,
+    identisch zu v10). Das Reasoning schlaegt die Einstufung vor."""
+    result, context = _run([_wealth_goal(5_000_000_00, "Hart")], 25, seed=11,
+                           key="unreachable_alone_no_decision")
+    assert not any(l.demoted for l in context.liabilities)
+    assert [str(l.goal_id) for l in solver_module._stage1_liabilities(context)] == ["vz"]
+    assert context.goal_reachability["revision_suggested_goal_ids"] == ["vz"]
+    assert result.status == "converged"
+    assert result.weights_bps["equities"] <= 7000  # Bandobergrenze Wachstum
+    assert any("als nachrangiges Wunschziel einstufen" in line for line in result.reasoning)
