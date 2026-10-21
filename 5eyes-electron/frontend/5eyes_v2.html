@@ -4100,7 +4100,7 @@ function _wireSollIstHover(){
               <div id="sr-wealth-share" style="font-size:11px;color:var(--n5);margin-top:2px">Noch kein Verm&ouml;gen erfasst</div>
             </div>
             <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
-              <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Ziele erreichbar</div>
+              <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px" title="Erfolgswahrscheinlichkeit gesamt (gewichtet): nach Zielgewicht gemittelter Anteil der simulierten Verl&auml;ufe, in denen die Ziele vollst&auml;ndig erreicht werden. Ampel: &ge; 70 % gut &middot; 45&ndash;69 % knapp &middot; &lt; 45 % kritisch">Erfolgs-Wkt. gesamt</div>
               <div id="sr-goal-score" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--n6)">—</div>
               <div id="sr-goal-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Noch keine Ziele festgelegt</div>
             </div>
@@ -8445,6 +8445,45 @@ function buildMonteCarloGoalsHtml(mc){
 // alle Anzeigen, die nach den Schwellen 70/45 eingefaerbt werden.
 var GOAL_SUCCESS_PROBABILITY_TOOLTIP='Anteil der simulierten Verl\u00e4ufe, in denen das Ziel vollst\u00e4ndig erreicht wird';
 var GOAL_AMPEL_LEGEND_TEXT='Ampel: \u2265 70 % gut \u00b7 45\u201369 % knapp \u00b7 < 45 % kritisch';
+// GOAL-STATUS-BY-SUCCESS-001: Cockpit-Kachel und Zielstatus folgen der
+// Erfolgswahrscheinlichkeit (path_success_rate_pct, nur aus der Simulation)
+// mit derselben Ampel 70/45 -- nicht mehr dem Mischwert achievement_score.
+function goalSuccessPct(item){
+  var v=item?item.path_success_rate_pct:null;
+  if(v===null||v===undefined||v==='')return null;
+  var n=Number(v);
+  return isFinite(n)?Math.max(0,Math.min(100,Math.round(n))):null;
+}
+function goalSuccessAmpel(pct){
+  if(pct===null||pct===undefined)return {key:'none',label:'nicht bewertet',tone:'var(--n5)',bg:'var(--bg2)'};
+  if(pct>=70)return {key:'gut',label:'gut',tone:'var(--pos)',bg:'rgba(14,107,65,0.1)'};
+  if(pct>=45)return {key:'knapp',label:'knapp',tone:'var(--warn)',bg:'rgba(122,82,0,0.1)'};
+  return {key:'kritisch',label:'kritisch',tone:'var(--neg)',bg:'rgba(139,30,30,0.1)'};
+}
+function goalSuccessSummary(goals){
+  var list=Array.isArray(goals)?goals:[];
+  var weightSum=0,valueSum=0,scored=0,good=0,tight=0,critical=0;
+  list.forEach(function(item){
+    var pct=goalSuccessPct(item);
+    if(pct===null)return;
+    var w=Math.max(1,Number(item.weight_bps||0));
+    weightSum+=w;valueSum+=w*pct;scored+=1;
+    if(pct>=70)good+=1;else if(pct>=45)tight+=1;else critical+=1;
+  });
+  var weighted=weightSum?Math.round(valueSum/weightSum):null;
+  return {weighted:weighted,scored:scored,good:good,tight:tight,critical:critical,ampel:goalSuccessAmpel(weighted)};
+}
+function goalSuccessSubText(summary){
+  if(!summary||!summary.scored)return 'Noch keine Simulation';
+  if(summary.critical)return summary.critical+' Ziel(e) kritisch'+(summary.tight?(' · '+summary.tight+' knapp'):'');
+  if(summary.tight)return summary.tight+' Ziel(e) knapp';
+  return 'Alle Ziele gut';
+}
+function setGoalSuccessTile(summary){
+  setText('sr-goal-score',summary&&summary.weighted!=null?fmtProbPct(summary.weighted):'—');
+  var el=document.getElementById('sr-goal-score');
+  if(el)el.style.color=summary&&summary.weighted!=null?summary.ampel.tone:'var(--n6)';
+}
 function goalAmpelLegendHtml(){
   return '<div class="goal-ampel-legend" style="font-size:9px;color:var(--n5);padding:2px 2px 0">'+escapeHtml(GOAL_AMPEL_LEGEND_TEXT)+'</div>';
 }
@@ -9535,14 +9574,15 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
   var goalsHtml='';
   if(scoredGoals.length){
     var goalRows=scoredGoals.map(function(goal){
-      var score=Number(goal.achievement_score||0);
-      var color=goalColor(score);
-      var barPct=Math.min(100,score);
+      // GOAL-STATUS-BY-SUCCESS-001: Erfolgs-Wkt. statt Mischwert, ohne Simulation '—'.
+      var success=goalSuccessPct(goal);
+      var color=success==null?'#64748b':goalColor(success);
+      var barPct=success==null?0:Math.min(100,success);
       return '<tr style="border-bottom:1px solid #f1f5f9">'
         +'<td style="padding:8px 12px;font-size:10px;color:#64748b;font-weight:600">RANG '+escapeHtml(String(goal.rank||'—'))+'</td>'
         +'<td style="padding:8px 12px;font-size:11px;color:#334155;font-weight:500">'+escapeHtml(goal.label||'Ziel')+'</td>'
         +'<td style="padding:8px 14px"><div style="height:6px;background:#e2e8f0;border-radius:3px"><div style="height:100%;width:'+barPct+'%;background:'+color+';border-radius:3px"></div></div></td>'
-        +'<td style="padding:8px 12px;font-size:12px;font-weight:700;color:'+color+';text-align:right">'+score+'%</td>'
+        +'<td style="padding:8px 12px;font-size:12px;font-weight:700;color:'+color+';text-align:right">'+(success==null?'—':fmtProbPct(success))+'</td>'
         +'<td style="padding:8px 12px;font-size:10px;color:#64748b">'+escapeHtml(strategyGoalTargetText(goal))+'</td>'
         +'</tr>';
     }).join('');
@@ -9553,11 +9593,13 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
       +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:left">Rang</th>'
       +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:left">Ziel</th>'
       +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8">Zielerreichung</th>'
-      +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">Score</th>'
+      +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">Erfolgs-Wkt.</th>'
       +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8">Zielgrösse</th>'
       +'</tr></thead>'
       +'<tbody>'+goalRows+'</tbody>'
-      +'</table></div>';
+      +'</table>'
+      +'<div style="font-size:9px;color:#64748b;margin-top:6px">Erfolgs-Wkt.: '+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'. '+escapeHtml(GOAL_AMPEL_LEGEND_TEXT)+'</div>'
+      +'</div>';
   }
   // Signature block
   var sigHtml='<div style="margin-top:48px;page-break-inside:avoid">'
@@ -21858,7 +21900,7 @@ function clearStrategySummaryForDirtyState(){
   var totalChf=Math.round(Number(snapshot.totalNetRappen||0)/100);
   setText('sr-wealth',advisoryChf?formatCompactCHF(advisoryChf):'—');
   setText('sr-wealth-share',totalChf&&advisoryChf?Math.round(advisoryChf/Math.max(1,totalChf)*100)+'% des Reinvermögens':'Strategie ausstehend');
-  setText('sr-goal-score','—');
+  setGoalSuccessTile(null);
   setText('sr-goal-sub','Bitte Strategie neu berechnen.');
   setText('kpi-goal-score','—');
   setText('kpi-goal-sub','Strategie ausstehend');
@@ -22755,17 +22797,7 @@ function renderStrategySummary(){
   var sim=simulationPayload(allocation);
   var projectedRappen=simulationTerminalRappen(allocation,'target_mix_series_rappen',7);
   renderSimulationHorizonInfo(allocation);
-  var scoredGoals=allocation.goal_analysis||[];
-  var scoreWeightTotal=scoredGoals.reduce(function(sum,item){return sum+Math.max(1,Number(item.weight_bps||0));},0);
-  var avgGoalScore=scoreWeightTotal
-    ? Math.round(scoredGoals.reduce(function(sum,item){return sum+(Math.max(1,Number(item.weight_bps||0))*Number(item.achievement_score||0));},0)/scoreWeightTotal)
-    : 0;
-  var goalsWithPath=allocation.goal_analysis?allocation.goal_analysis.filter(function(item){return item.path_success_rate_pct!=null;}):[];
-  var pathWeightTotal=goalsWithPath.reduce(function(sum,item){return sum+Math.max(1,Number(item.weight_bps||0));},0);
-  var avgPathSuccess=pathWeightTotal
-    ? Math.round(goalsWithPath.reduce(function(sum,item){return sum+(Math.max(1,Number(item.weight_bps||0))*Number(item.path_success_rate_pct||0));},0)/pathWeightTotal)
-    : null;
-  var endangered=allocation.goal_analysis?allocation.goal_analysis.filter(function(item){return Number(item.achievement_score||0)<45;}).length:0;
+  var goalSuccess=goalSuccessSummary(allocation.goal_analysis||[]);
   if(risk){
     setText('sr-risk-score',Math.round(Number(risk.final_score_x10||0)/10)+' / 10');
     setText('sr-risk-profile',risk.final_profile||'Nicht definiert');
@@ -22774,10 +22806,10 @@ function renderStrategySummary(){
   }
   setText('sr-wealth',formatCompactCHF(advisoryChf));
   setText('sr-wealth-share',totalChf?Math.round(advisoryChf/Math.max(1,totalChf)*100)+'% des Reinvermögens':'Kein Gesamtvermögen verfügbar');
-  setText('sr-goal-score',avgGoalScore+'%');
-  setText('sr-goal-sub',endangered?(endangered+' Ziel(e) gefährdet'+(avgPathSuccess!=null?' / Pfad '+avgPathSuccess+'%':'')):('Ziele mehrheitlich on track'+(avgPathSuccess!=null?' / Pfad '+avgPathSuccess+'%':'')));
-  setText('kpi-goal-score',avgGoalScore+'%');
-  setText('kpi-goal-sub',endangered?(endangered+' Ziel(e) gefährdet'):((avgPathSuccess!=null?'Pfad '+avgPathSuccess+'%':'Ziele mehrheitlich on track')));
+  setGoalSuccessTile(goalSuccess);
+  setText('sr-goal-sub',goalSuccessSubText(goalSuccess));
+  setText('kpi-goal-score',goalSuccess.weighted!=null?fmtProbPct(goalSuccess.weighted):'—');
+  setText('kpi-goal-sub',goalSuccessSubText(goalSuccess));
   setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));
   setText('sr-proj-sub',sim?('Simulation bis '+String((sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'')):'Nach Umsetzung Soll');
   var srProjValue=document.getElementById('sr-proj-wealth');
@@ -22796,7 +22828,7 @@ function renderStrategySummary(){
   var goals=document.getElementById('sr-goal-priority-list');
   if(goals){
     goals.innerHTML=(allocation.goal_analysis||[]).slice(0,3).map(function(goal){
-      var color=Number(goal.achievement_score||0)>=70?'var(--pos)':(Number(goal.achievement_score||0)>=45?'var(--warn)':'var(--neg)');
+      var color=goalSuccessAmpel(goalSuccessPct(goal)).tone;
       return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:6px 8px;background:var(--bg);border-radius:var(--r);border:1px solid var(--b1)"><div><div><span style="font-size:9px;font-weight:600;color:var(--n5);margin-right:6px">RANG '+escapeHtml(goal.rank)+'</span><span style="font-size:11px;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span></div>'+goalEvaluationNoteHtml(goal,true)+'</div><span style="font-size:10px;color:'+color+';font-weight:500">'+formatRappen(goal.target_amount_rappen||0)+'</span></div>';
     }).join('');
   }
@@ -22881,14 +22913,10 @@ function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
   var sim=simulationPayload(activeAllocation);
   var projectedRappen=simulationTerminalRappen(activeAllocation,'target_mix_series_rappen',7);
   var scoredGoals=Array.isArray(activeAllocation.goal_analysis)?activeAllocation.goal_analysis:[];
-  var scoreWeightTotal=scoredGoals.reduce(function(sum,item){return sum+Math.max(1,Number(item.weight_bps||0));},0);
-  var avgGoalScore=scoreWeightTotal
-    ? Math.round(scoredGoals.reduce(function(sum,item){return sum+(Math.max(1,Number(item.weight_bps||0))*Number(item.achievement_score||0));},0)/scoreWeightTotal)
-    : 0;
-  var endangered=scoredGoals.filter(function(item){return Number(item.achievement_score||0)<45;}).length;
+  var goalSuccess=goalSuccessSummary(scoredGoals);
   var goalSubParts=[];
 if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+formatRappen(cashflow.recurring_net_rappen)+' p.a.');
-  if(endangered)goalSubParts.push(String(endangered)+' Ziel(e) gefährdet');
+  if(goalSuccess.scored)goalSubParts.push(goalSuccessSubText(goalSuccess));
   if(!goalSubParts.length)goalSubParts.push('Noch keine belastbare Zielauswertung');
   if(activeRisk){
     setText('sr-risk-score',Math.round(Number(activeRisk.final_score_x10||0)/10)+' / 10');
@@ -22898,7 +22926,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   }
   setText('sr-wealth',formatCompactCHF(advisoryChf));
   setText('sr-wealth-share',totalChf?Math.round(advisoryChf/Math.max(1,totalChf)*100)+'% des Reinvermögens':'Kein Gesamtvermögen verfügbar');
-  setText('sr-goal-score',avgGoalScore+'%');
+  setGoalSuccessTile(goalSuccess);
   setText('sr-goal-sub',goalSubParts.join(' · '));
   setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));
   setText('sr-proj-sub',sim?('Terminal Value bis '+String((sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'')):'Aktuelle Soll-Allokation');
@@ -22927,14 +22955,16 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   var goals=document.getElementById('sr-goal-priority-list');
   if(goals){
     goals.innerHTML=scoredGoals.slice(0,4).map(function(goal){
-      var score=Math.max(0,Math.min(100,Math.round(Number(goal.achievement_score||0))));
-      var tone=score>=70?'var(--pos)':(score>=45?'var(--warn)':'var(--neg)');
-      var statusLabel=score>=70?'Im Plan':(score>=45?'Im Blick':'Gefährdet');
-      var bgColor=score>=70?'rgba(14,107,65,0.1)':(score>=45?'rgba(122,82,0,0.1)':'rgba(139,30,30,0.1)');
+      var success=goalSuccessPct(goal);
+      var ampel=goalSuccessAmpel(success);
+      var score=success==null?0:success;
+      var tone=ampel.tone;
+      var statusLabel=ampel.label;
+      var bgColor=ampel.bg;
       return '<div>'
         +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
         +'<div><span style="font-size:9px;font-weight:600;color:var(--n5);margin-right:5px">RANG '+escapeHtml(String(goal.rank||'—'))+'</span><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span></div>'
-        +'<div style="display:flex;align-items:center;gap:7px"><span style="font-size:12px;font-weight:700;color:'+tone+'">'+score+'%</span>'
+        +'<div style="display:flex;align-items:center;gap:7px"><span style="font-size:12px;font-weight:700;color:'+tone+'" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">'+(success==null?'—':fmtProbPct(success))+'</span>'
         +'<span style="font-size:9px;color:'+tone+';background:'+bgColor+';border-radius:999px;padding:2px 7px">'+escapeHtml(statusLabel)+'</span>'
         +'</div></div>'
         +'<div style="position:relative;height:6px;background:var(--bg2);border-radius:999px;margin-bottom:2px">'
@@ -30246,10 +30276,13 @@ function renderActionCards(reasoning){
   if(allocation&&Array.isArray(allocation.goal_analysis)&&allocation.goal_analysis.length){
     var primaryGoal=allocation.goal_analysis.slice().sort(function(a,b){return Number(a.rank||99)-Number(b.rank||99);})[0];
     var goalBody='Prioritaet 1 ist "'+String(primaryGoal.label||'Ziel')+'": '+strategyGoalTargetText(primaryGoal)+' · '+goalTimingLabel(primaryGoal)+'.';
-    if(primaryGoal.path_success_rate_pct!=null)goalBody+=' Aktuelle Pfadwahrscheinlichkeit: '+String(primaryGoal.path_success_rate_pct)+'%.';
+    // GOAL-STATUS-BY-SUCCESS-001: kritisch = Erfolgs-Wkt. < 45 % (Ampel 70/45), nicht Mischwert.
+    var primarySuccess=goalSuccessPct(primaryGoal);
+    var primaryCritical=primarySuccess!=null&&primarySuccess<45;
+    if(primarySuccess!=null)goalBody+=' Aktuelle Erfolgswahrscheinlichkeit: '+fmtProbPct(primarySuccess)+' ('+goalSuccessAmpel(primarySuccess).label+').';
     if(primaryGoal.evaluation_note)goalBody+=' '+String(primaryGoal.evaluation_note);
-    else if(Number(primaryGoal.achievement_score||0)<45)goalBody+=' Das Ziel ist im aktuellen Setup gefaehrdet und braucht eine explizite Besprechung im Review.';
-    pushCard('Ziele & Timing','Relevant','ta',goalBody,Number(primaryGoal.achievement_score||0)<45?'warn':'good');
+    else if(primaryCritical)goalBody+=' Das Ziel ist im aktuellen Setup kritisch und braucht eine explizite Besprechung im Review.';
+    pushCard('Ziele & Timing','Relevant','ta',goalBody,primaryCritical?'warn':'good');
   }
   if(allocation){
     var expectedReturn=fmtPct((Number(allocation.expected_return_bps||0)),1);
@@ -30467,14 +30500,16 @@ renderStrategySummary=function(){
   var goals=document.getElementById('sr-goal-priority-list');
   if(goals&&allocation){
     goals.innerHTML=(allocation.goal_analysis||[]).slice(0,4).map(function(goal){
-      var score=Math.max(0,Math.min(100,Math.round(Number(goal.achievement_score||0))));
-      var tone=score>=70?'var(--pos)':(score>=45?'var(--warn)':'var(--neg)');
-      var statusLabel=score>=70?'Im Plan':(score>=45?'Im Blick':'Gefährdet');
-      var bgColor=score>=70?'rgba(14,107,65,0.1)':(score>=45?'rgba(122,82,0,0.1)':'rgba(139,30,30,0.1)');
+      var success=goalSuccessPct(goal);
+      var ampel=goalSuccessAmpel(success);
+      var score=success==null?0:success;
+      var tone=ampel.tone;
+      var statusLabel=ampel.label;
+      var bgColor=ampel.bg;
       return '<div>'
         +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
         +'<div><span style="font-size:9px;font-weight:600;color:var(--n5);margin-right:5px">RANG '+escapeHtml(String(goal.rank||'—'))+'</span><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span></div>'
-        +'<div style="display:flex;align-items:center;gap:7px"><span style="font-size:12px;font-weight:700;color:'+tone+'">'+score+'%</span>'
+        +'<div style="display:flex;align-items:center;gap:7px"><span style="font-size:12px;font-weight:700;color:'+tone+'" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">'+(success==null?'—':fmtProbPct(success))+'</span>'
         +'<span style="font-size:9px;color:'+tone+';background:'+bgColor+';border-radius:999px;padding:2px 7px">'+escapeHtml(statusLabel)+'</span>'
         +'</div></div>'
         +'<div style="position:relative;height:6px;background:var(--bg2);border-radius:999px;margin-bottom:2px">'

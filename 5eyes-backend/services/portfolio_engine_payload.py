@@ -121,6 +121,7 @@ from models.review import Product, ProductUniverseEntry
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import future_value_with_cashflow_series, normalize_frequency
+from services.goal_success_status import goal_status_from_success_pct
 
 logger = logging.getLogger(__name__)
 
@@ -620,6 +621,8 @@ def _build_goal_analysis(
                 funded_ratio_pct=funded_ratio_pct,
                 hardness_key=hardness_key,
             )
+        # Vorlaeufig (ohne Simulation keine Erfolgs-Wkt.); in Produktion ersetzt
+        # _merge_goal_analysis_with_monte_carlo ihn (GOAL-STATUS-BY-SUCCESS-001).
         status = "On Track" if score >= 70 else ("Pruefen" if score >= 45 else "Gefaehrdet")
         analysis.append(
             {
@@ -671,7 +674,8 @@ def _merge_goal_analysis_with_monte_carlo(
             {
                 **item,
                 "achievement_score": int(summary.get("score", item.get("achievement_score") or 0)),
-                "status": "On Track" if int(summary.get("score", 0)) >= 70 else ("Pruefen" if int(summary.get("score", 0)) >= 45 else "Gefaehrdet"),
+                # GOAL-STATUS-BY-SUCCESS-001: Status nach Erfolgs-Wkt. (70/45, #654).
+                "status": goal_status_from_success_pct(summary.get("success_rate_pct")),
                 "success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "path_success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "funded_ratio_p50": float(summary.get("funded_ratio_p50") or 0),
