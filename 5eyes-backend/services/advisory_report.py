@@ -3121,6 +3121,16 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
     """
     from models.profiling import SuitabilityCheck
 
+    # RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
+    # pruefung Risikofaehigkeit (gegen das aktuelle Risikoprofil) fuer den
+    # Beraterteil; None ohne aktuelles Profil. Hinweis-Layer, blockiert nie.
+    from services.risk_capacity_plausibility_report import (
+        compact_view, evaluate_for_assessment,
+    )
+    risk_capacity_plausibility = compact_view(evaluate_for_assessment(
+        db, mandate, _cached_current_ra_is_current(db, mandate),
+    ))
+
     check = (
         db.query(SuitabilityCheck)
         .filter(SuitabilityCheck.mandate_id == mandate.id)
@@ -3152,6 +3162,7 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
             "checked_by_id": None,
             "checked_by_name": "—",
             "linked_log_present": False,
+            "risk_capacity_plausibility": risk_capacity_plausibility,
         }
 
     missing = _parse_notes_json_list(getattr(check, "missing_information_json", None))
@@ -3200,6 +3211,7 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
         "checked_by_id": str(getattr(check, "checked_by", "") or "") or None,
         "checked_by_name": checked_by_name,
         "linked_log_present": linked_log_present,
+        "risk_capacity_plausibility": risk_capacity_plausibility,
     }
 
 

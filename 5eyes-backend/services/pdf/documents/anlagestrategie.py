@@ -391,6 +391,7 @@ def _build_anlagestrategie_flowables_template_order(
         ))
     else:
         empty_section("Risikoprofil", "Noch kein Risikoprofil gespeichert.")
+    flowables.extend(_make_capacity_plausibility_note(data, styles))
     flowables.append(PageBreak())
 
     # 4 Anlagepraeferenzen
@@ -879,6 +880,30 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
         Spacer(1, 4 * mm),
         table,
         *screening_note,
+    ]
+
+
+def _make_capacity_plausibility_note(data: AnlagestrategieData, styles) -> list:
+    """RISK-CAPACITY-REPORT-001: Beraterhinweis der Plausibilitaetspruefung
+    Risikofaehigkeit unter der Risikoprofil-Box (nur partial/inconsistent).
+
+    Der Text ist fertig formuliert und betragsfrei
+    (services/risk_capacity_plausibility_report.advisor_report_note);
+    leer -> keine Flowables, das PDF bleibt unveraendert.
+    """
+    note = str(getattr(data, "capacity_plausibility_note", "") or "").strip()
+    if not note:
+        return []
+    from services.pdf.components.header import _esc
+    from services.pdf.styles import FONT_DEFAULT, FONT_SIZE_BODY
+
+    return [
+        Spacer(1, 4 * mm),
+        Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#92400e">'
+            f'{_esc(note)}</font>',
+            styles["body"],
+        ),
     ]
 
 
