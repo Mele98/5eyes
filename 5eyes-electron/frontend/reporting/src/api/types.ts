@@ -148,6 +148,14 @@ export interface RiskAssessment {
   /** Pointer auf die wirksame append-only RiskOverrideDecisionV1. */
   override_decision_id?: string | null;
   override_decision_hash?: string | null;
+  /** RISK-PROFILE-SIGNOFF-001: Signatur-Projektion + Pointer auf den aktuellen RiskProfileSignoffV1. */
+  client_signed_at?: string | null;
+  client_signed_method?: string | null;
+  signoff_id?: string | null;
+  signoff_hash?: string | null;
+  signoff_status?: string | null;
+  /** signed | signature_required | legacy_unbound | remediation_required | unsigned */
+  signoff_state?: string | null;
   assessed_at: string;
   assessed_by: string;
   created_at: string;

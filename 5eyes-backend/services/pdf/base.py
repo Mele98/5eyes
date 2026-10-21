@@ -298,6 +298,13 @@ class ProtokollData:
     # PDF einen eigenen 'Bausteine'-Abschnitt vor dem Konflikt-Hinweis.
     selected_bausteine: list = field(default_factory=list)
 
+    # RISK-PROFILE-SIGNOFF-001 (2026-10-20): Signoff-/Decision-Referenz des
+    # aktuellen Risikoprofils -- identische Zeilen wie im Risikoprofil-PDF.
+    risk_signoff_state: str | None = None
+    risk_signoff_id: str | None = None
+    risk_signoff_hash: str | None = None
+    risk_signoff_lines: tuple = ()
+
 
 @dataclass(frozen=True)
 class CostDisclosurePDFData:
@@ -388,6 +395,14 @@ class RisikoprofilData:
     override_decision_id: str | None = None
     override_decision_hash: str | None = None
     override_decision_verified: bool | None = None
+    # RISK-PROFILE-SIGNOFF-001 (2026-10-20): Zustand + Referenz des aktuellen
+    # RiskProfileSignoffV1 (services/risk_profile_signoff.py::build_signoff_
+    # view). signoff_lines = dieselben (Label, Text)-Zeilen wie im
+    # Beratungsprotokoll-PDF.
+    signoff_state: str | None = None
+    signoff_id: str | None = None
+    signoff_hash: str | None = None
+    signoff_lines: tuple = ()
     # RISK-CAPACITY-PLAUSIBILITY-001: neutraler Berater-Satz, wenn die
     # Fragebogen-Angaben den erfassten Finanzdaten widersprechen.
     capacity_plausibility_note: str = ""
