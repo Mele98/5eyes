@@ -130,8 +130,8 @@ def test_alembic_head_creates_decision_table_and_downgrade_is_reversible(tmp_pat
     engine.dispose()
     assert _triggers(db_path) == TRIGGERS
 
-    # Kettenbasiert statt head-gekoppelt: zurueck VOR die Decision-Revision
-    # (spaetere Revisionen wie f3a8d1c6b4e2 liegen darueber).
+    # Auf die Vorgaenger-Revision der Decision-Migration zurueck (spaetere
+    # Revisionen wie d7b3f1a9c2e4/f3a8d1c6b4e2 haengen sich an und werden mit entfernt).
     command.downgrade(cfg, "a6d2e8f4c1b9")
     engine = create_engine(db_url)
     inspector = inspect(engine)

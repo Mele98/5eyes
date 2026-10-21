@@ -1,6 +1,10 @@
-from sqlalchemy import DDL, Column, String, Integer, ForeignKey, Index, event, text
+from sqlalchemy import DDL, CheckConstraint, Column, String, Integer, ForeignKey, Index, event, text
 from sqlalchemy.orm import relationship
-from database import RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS, Base
+from database import (
+    RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS,
+    RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS,
+    Base,
+)
 
 
 class ClientKnowledge(Base):
@@ -101,6 +105,18 @@ class RiskAssessment(Base):
     client_signed_at = Column(String)           # ISO-UTC; None = noch nicht signiert
     client_signed_method = Column(String)       # 'portal' | 'advisor_recorded'
     client_signed_ref = Column(String)          # Portal-User-ID bzw. Berater-Notiz
+    # RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
+    # die client_signed_*-Felder oben sind nur noch die Projektion des aktuell
+    # gueltigen, append-only RiskProfileSignoffV1 (RiskProfileSignoff unten).
+    # signoff_id/_hash zeigen auf genau diesen Snapshot; ein Override/Re-
+    # Override setzt Projektion + Pointer im selben Compare-and-Swap zurueck
+    # und signoff_status auf 'signature_required' -- der alte Signoff bleibt
+    # als historische Evidence unveraendert stehen. 'legacy_unbound' = Alt-
+    # signatur vor RiskProfileSignoffV1 (nicht an eine Decision gebunden).
+    # Bewusst ohne FK-Constraint (wie override_decision_id).
+    signoff_id = Column(String)
+    signoff_hash = Column(String)
+    signoff_status = Column(String)             # signed | signature_required | legacy_unbound
     assessed_at = Column(String, nullable=False)
     assessed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
@@ -111,6 +127,13 @@ class RiskAssessment(Base):
     answers = relationship("RiskAssessmentAnswer", back_populates="assessment")
     assessor = relationship("User", foreign_keys=[assessed_by])
     overrider = relationship("User", foreign_keys=[override_by])
+
+    @property
+    def signoff_state(self) -> str:
+        """Fachlicher Signoff-Zustand (services/risk_profile_signoff.py)."""
+        from services.risk_profile_signoff import signoff_state
+
+        return signoff_state(self)
 
 
 class RiskOverrideDecision(Base):
@@ -181,6 +204,93 @@ class RiskOverrideDecision(Base):
 for _trigger_ddl in RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS:
     event.listen(
         RiskOverrideDecision.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+
+class RiskProfileSignoff(Base):
+    """RiskProfileSignoffV1 -- unveraenderlicher Nachweis EINER Signatur des
+    Risikoprofils (RISK-PROFILE-SIGNOFF-001, Codex-Closure-Review zu PR #657).
+
+    Gebunden werden Assessment-Version, wirksamer Score/Profil, die zum
+    Signaturzeitpunkt verifizierte Override-Decision (ID + Hash) bzw.
+    ausdruecklich ``override_binding='no_override'``, ein Hash ueber die
+    Fragebogen-Inputs, optional das signierte Dokument (ID + Hash), Akteur,
+    Methode + Beweisniveau (``advisor_attested`` = Berater hat die
+    Bestaetigung erfasst, KEINE elektronische Kundensignatur;
+    ``client_portal`` = Kunde selbst im Portal), Zeitpunkt, Regelversion und
+    ein SHA-256 ueber den kanonischen Snapshot.
+
+    Append-only: KEIN updated_at/deleted_at, UPDATE/DELETE per Trigger
+    verboten (SQLite unten, PostgreSQL Alembic d7b3f1a9c2e4). Wie
+    risk_override_decisions KEIN FK auf risk_assessments/mandates
+    (Purge-fest). (assessment_id, sequence_no) eindeutig.
+    """
+
+    __tablename__ = "risk_profile_signoffs"
+    __table_args__ = (
+        Index(
+            "ux_risk_profile_signoff_sequence",
+            "assessment_id",
+            "sequence_no",
+            unique=True,
+        ),
+        Index("ix_risk_profile_signoffs_mandate", "mandate_id"),
+        CheckConstraint(
+            "override_binding IN ('decision','no_override')",
+            name="ck_risk_profile_signoff_binding",
+        ),
+        CheckConstraint(
+            "(override_binding = 'decision' AND override_decision_id IS NOT NULL "
+            "AND override_decision_hash IS NOT NULL) OR (override_binding = 'no_override' "
+            "AND override_decision_id IS NULL AND override_decision_hash IS NULL)",
+            name="ck_risk_profile_signoff_binding_refs",
+        ),
+        CheckConstraint(
+            "method IN ('advisor_recorded','portal')",
+            name="ck_risk_profile_signoff_method",
+        ),
+        CheckConstraint(
+            "evidence_level IN ('advisor_attested','client_portal')",
+            name="ck_risk_profile_signoff_evidence",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="RiskProfileSignoffV1")
+    assessment_id = Column(String, nullable=False)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String)
+    assessment_version = Column(Integer, nullable=False)
+    sequence_no = Column(Integer, nullable=False)
+    previous_signoff_id = Column(String)
+    effective_score_x10 = Column(Integer, nullable=False)
+    effective_profile = Column(String, nullable=False)
+    final_score_x10 = Column(Integer, nullable=False)
+    final_profile = Column(String)
+    is_overridden = Column(Integer, nullable=False, default=0)
+    override_binding = Column(String, nullable=False)
+    override_decision_id = Column(String)
+    override_decision_hash = Column(String)
+    override_rules_version = Column(String)
+    assessment_input_hash = Column(String, nullable=False)
+    document_id = Column(String)
+    document_hash = Column(String)
+    method = Column(String, nullable=False)
+    evidence_level = Column(String, nullable=False)
+    actor_id = Column(String, ForeignKey("users.id"), nullable=False)
+    actor_role = Column(String)
+    note = Column(String)
+    signed_at = Column(String, nullable=False)
+    rules_version = Column(String, nullable=False)
+    signoff_hash = Column(String(64), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
+    event.listen(
+        RiskProfileSignoff.__table__,
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )

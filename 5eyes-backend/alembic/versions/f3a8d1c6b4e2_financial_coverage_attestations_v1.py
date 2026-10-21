@@ -8,7 +8,7 @@ Ausgaben nur noch dann als Konsistenzbeleg, wenn eine gueltige Bestaetigung
 vorliegt. UPDATE/DELETE per Trigger verboten (SQLite und PostgreSQL).
 
 Revision ID: f3a8d1c6b4e2
-Revises: c4e9a7d2b815
+Revises: d7b3f1a9c2e4
 Create Date: 2026-10-20
 """
 from typing import Sequence, Union
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision: str = "f3a8d1c6b4e2"
-down_revision: Union[str, Sequence[str], None] = "c4e9a7d2b815"
+down_revision: Union[str, Sequence[str], None] = "d7b3f1a9c2e4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -298,6 +298,12 @@ CREATE TABLE IF NOT EXISTS risk_assessments (
     -- wirksame append-only Decision (risk_override_decisions unten).
     override_decision_id        TEXT,
     override_decision_hash      TEXT,
+    -- RISK-PROFILE-SIGNOFF-001 (2026-10-20): Pointer auf den aktuell gueltigen
+    -- append-only RiskProfileSignoffV1 (risk_profile_signoffs unten) und der
+    -- Signoff-Status ('signed' | 'signature_required' | 'legacy_unbound').
+    signoff_id                  TEXT,
+    signoff_hash                TEXT,
+    signoff_status              TEXT,
     assessed_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     assessed_by                 TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
     created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -423,6 +429,59 @@ BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_financial_coverage_attestations_no_delete
 BEFORE DELETE ON financial_coverage_attestations FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
+
+-- ===========================================================================
+-- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
+-- RiskProfileSignoffV1 -- append-only, gehashter Nachweis JEDER Signatur des
+-- Risikoprofils, gebunden an Assessment-Version, wirksames Profil/Score und
+-- die verifizierte Override-Decision (oder ausdruecklich 'no_override').
+-- UPDATE/DELETE per Trigger verboten; wie audit_log KEIN FK auf
+-- risk_assessments/mandates (Purge-fest).
+-- Identisch zu database.py::RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS risk_profile_signoffs (
+    id                     TEXT PRIMARY KEY,
+    schema_version         TEXT NOT NULL DEFAULT 'RiskProfileSignoffV1',
+    assessment_id          TEXT NOT NULL,
+    mandate_id             TEXT NOT NULL,
+    client_id              TEXT,
+    assessment_version     INTEGER NOT NULL,
+    sequence_no            INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_signoff_id    TEXT,
+    effective_score_x10    INTEGER NOT NULL CHECK(effective_score_x10 BETWEEN 0 AND 100),
+    effective_profile      TEXT NOT NULL,
+    final_score_x10        INTEGER NOT NULL,
+    final_profile          TEXT,
+    is_overridden          INTEGER NOT NULL DEFAULT 0 CHECK(is_overridden IN (0,1)),
+    override_binding       TEXT NOT NULL CHECK(override_binding IN ('decision','no_override')),
+    override_decision_id   TEXT,
+    override_decision_hash TEXT,
+    override_rules_version TEXT,
+    assessment_input_hash  TEXT NOT NULL,
+    document_id            TEXT,
+    document_hash          TEXT,
+    method                 TEXT NOT NULL CHECK(method IN ('advisor_recorded','portal')),
+    evidence_level         TEXT NOT NULL CHECK(evidence_level IN ('advisor_attested','client_portal')),
+    actor_id               TEXT NOT NULL REFERENCES users(id),
+    actor_role             TEXT,
+    note                   TEXT,
+    signed_at              TEXT NOT NULL,
+    rules_version          TEXT NOT NULL,
+    signoff_hash           TEXT NOT NULL,
+    created_at             TEXT NOT NULL,
+    CHECK((override_binding = 'decision' AND override_decision_id IS NOT NULL AND override_decision_hash IS NOT NULL)
+          OR (override_binding = 'no_override' AND override_decision_id IS NULL AND override_decision_hash IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_risk_profile_signoff_sequence
+    ON risk_profile_signoffs(assessment_id, sequence_no);
+CREATE INDEX IF NOT EXISTS ix_risk_profile_signoffs_mandate
+    ON risk_profile_signoffs(mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_risk_profile_signoffs_no_update
+BEFORE UPDATE ON risk_profile_signoffs FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_risk_profile_signoffs_no_delete
+BEFORE DELETE ON risk_profile_signoffs FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
 
 -- ============================================================
 -- 6. SUITABILITY CHECKS — NEU v4
@@ -1176,6 +1235,9 @@ CREATE TABLE IF NOT EXISTS advisory_log (
     superseded_by_id             TEXT REFERENCES advisory_log(id),
     last_read_at                 TEXT,
     last_read_by                 TEXT REFERENCES users(id),
+    -- RISK-PROFILE-SIGNOFF-001 (2026-10-20): System-Ereignis statt Beratungs-
+    -- gespraech (z.B. 'risk_profile_signoff'); zaehlt nie als "letzter Termin".
+    system_event                 TEXT,
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     FOREIGN KEY (trigger_id, mandate_id) REFERENCES review_triggers(id, mandate_id) ON UPDATE CASCADE,

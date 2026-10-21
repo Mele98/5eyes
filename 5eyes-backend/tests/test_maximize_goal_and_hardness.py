@@ -126,7 +126,7 @@ def _liability(kind: str, *, hardness: str = "primaer", target: int = 0,
 def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     result, context = _run([], 10, key="no_goals_10")
     resampling = result.resampling
-    assert resampling["engine_version"] == "saa_resampled_v9"
+    assert resampling["engine_version"] == "saa_resampled_v10"
     contract = resampling["objective_contract"]
     assert contract["objective_contract_version"] == "objective-contract-v2"
     assert contract["goal_weighting_mode"] == "hardness"
@@ -644,12 +644,12 @@ def test_unreachable_hard_goal_is_not_exempted_in_production():
                "alternatives": 300, "liquidity": 200})
     shortfall = {}
     for name, w in (("low", low), ("high", high)):
-        _f, wealth, twr = solver_module._evaluation_inputs(context, w)
+        _f, wealth, twr, scopes = solver_module._evaluation_inputs(context, w)
         shortfall[name] = objective_module.shortfall_objective(
             context.liabilities, wealth,
             initial_wealth_rappen=context.advisory_wealth_rappen,
             horizon_years=context.horizon_years, weights=context.scenario_weights,
-            annualized_return_bps_per_path=twr,
+            annualized_return_bps_per_path=twr, scope_wealth=scopes,
         )
     assert shortfall["low"] != shortfall["high"]  # das Ziel unterscheidet weiter
 

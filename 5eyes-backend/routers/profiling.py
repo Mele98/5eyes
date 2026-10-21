@@ -50,6 +50,7 @@ from services.risk_override_decision import (
     compute_decision_hash,
     decision_snapshot,
 )
+from services import risk_profile_signoff as signoff_service
 
 router = APIRouter(tags=["Risikoprofilierung"])
 
@@ -524,6 +525,13 @@ def override_risk_assessment(
         RiskAssessment.override_decision_id: decision.id,
         RiskAssessment.override_decision_hash: decision.decision_hash,
         RiskAssessment.updated_at: now,
+        # RISK-PROFILE-SIGNOFF-001 Restbefund A: im SELBEN CAS wird eine
+        # vorhandene Signatur ungueltig -- sie galt dem frueheren wirksamen
+        # Profil. Der alte RiskProfileSignoffV1 bleibt append-only stehen.
+        **{
+            getattr(RiskAssessment, column): value
+            for column, value in signoff_service.invalidation_values(now).items()
+        },
     }, synchronize_session=False)
     if updated != 1:
         db.rollback()
@@ -544,6 +552,17 @@ def override_risk_assessment(
             new_value=json.dumps(decision_snapshot(decision), ensure_ascii=False),
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=_extract_client_ip(request))
+        # Signoff-Invalidierung replaybar: bisherige (Alt-)Signatur + neue
+        # Decision, Status signature_required.
+        if signoff_service.had_signature(ra):
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="risk_assessments", record_id=ra_id, action="UPDATE",
+                field_name="client_signed_invalidated",
+                new_value=signoff_service.invalidation_audit_value(
+                    ra, decision_id=decision.id, decision_hash=decision.decision_hash,
+                ),
+                mandate_id=mandate_id, client_id=mandate.client_id,
+                ip_address=_extract_client_ip(request))
         db.commit()
     except IntegrityError:
         # Paralleler Append mit derselben sequence_no (ux_risk_override_
@@ -569,6 +588,12 @@ def _override_conflict(reason_code: str, message: str, **context) -> None:
 
 class RiskProfileSignRequest(BaseModel):
     note: str | None = None
+    # RISK-PROFILE-SIGNOFF-001: optionale Erwartungswerte (Optimistic
+    # Concurrency wie beim Override) + optional das signierte Dokument.
+    expected_assessment_version: int | None = None
+    expected_override_decision_id: str | None = None
+    expected_signoff_id: str | None = None
+    document_id: str | None = None
 
 
 @router.post("/mandates/{mandate_id}/risk-profile/sign")
@@ -579,37 +604,36 @@ def sign_risk_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    """FIDLEG-Eignungspruefung: Berater erfasst die Kunden-Signatur des
-    aktuellen Risikoprofils (Fallback A / 'old-school', wenn der Kunde nicht
-    ueber das Portal signiert). Reine DOKUMENTATION der Bestaetigung — aendert
-    die Eignungs-Konformitaet (Audit is_compliant) NICHT."""
+    """FIDLEG-Eignungspruefung: Berater erfasst die Bestaetigung des aktuellen
+    Risikoprofils (Fallback A, Methode 'advisor_recorded' = Beweisniveau
+    'advisor_attested', KEINE elektronische Kundensignatur). Reine
+    DOKUMENTATION -- aendert die Eignungs-Konformitaet (Audit is_compliant)
+    NICHT.
+
+    RISK-PROFILE-SIGNOFF-001: schreibt einen append-only RiskProfileSignoffV1,
+    gebunden an Assessment-Version, wirksames Profil und die verifizierte
+    Override-Decision (oder 'no_override'). Nicht verifizierbare Decision,
+    veraltete Erwartungswerte oder ein paralleler Override -> 409 vor jeder
+    Wirkung."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    try:
-        ra = _current_risk_assessment_or_none(db, mandate_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not ra:
-        raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
-
-    note = (body.note if body else None)
-    signed_at = _now()
-    ra.client_signed_at = signed_at
-    ra.client_signed_method = "advisor_recorded"
-    ra.client_signed_ref = note
-    ra.updated_at = signed_at
-
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="risk_assessments", record_id=ra.id, action="UPDATE",
-        field_name="client_signed", new_value="advisor_recorded",
-        mandate_id=mandate_id, client_id=mandate.client_id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
+    body = body or RiskProfileSignRequest()
+    fields = body.model_fields_set
+    result = signoff_service.record_signoff(
+        db,
+        mandate=mandate,
+        actor=current_user,
+        method=signoff_service.METHOD_ADVISOR,
+        note=body.note,
+        ip_address=_extract_client_ip(request),
+        document_id=body.document_id,
+        expected_assessment_version=body.expected_assessment_version,
+        expect_override_decision="expected_override_decision_id" in fields,
+        expected_override_decision_id=body.expected_override_decision_id,
+        expect_signoff="expected_signoff_id" in fields,
+        expected_signoff_id=body.expected_signoff_id,
+    )
     invalidate_advisory_cache(mandate_id)
-    return {
-        "risk_assessment_id": ra.id,
-        "client_signed_at": ra.client_signed_at,
-        "client_signed_method": ra.client_signed_method,
-    }
+    return result
 
 
 # ── Suitability Checks ─────────────────────────────────────────────────────────

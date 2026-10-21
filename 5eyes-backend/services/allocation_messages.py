@@ -332,6 +332,26 @@ def classify_messages(
             if decision_id
             else " Override ohne Decision-Nachweis (Altbestand vor RiskOverrideDecisionV1)."
         )
+        # RISK-PROFILE-SIGNOFF-001: Signoff-Zustand des uebersteuerten Profils
+        # -- nach jedem Override ist eine neue Signatur Pflicht, bis ein an
+        # genau diese Decision gebundener RiskProfileSignoffV1 vorliegt.
+        from services.risk_profile_signoff import (
+            STATUS_SIGNED,
+            signoff_reference,
+            signoff_state,
+        )
+
+        state = signoff_state(assessment)
+        signoff_id = _get(assessment, "signoff_id") if state == STATUS_SIGNED else None
+        signoff_hash = _get(assessment, "signoff_hash") if state == STATUS_SIGNED else None
+        override_message["signoff_state"] = state
+        override_message["signoff_id"] = signoff_id
+        override_message["signoff_hash"] = signoff_hash
+        override_message["body_advisor"] += (
+            f" Signoff: {signoff_reference(signoff_id, signoff_hash)}."
+            if state == STATUS_SIGNED
+            else " Neue Signatur des Risikoprofils erforderlich (aktueller Override ist nicht signiert)."
+        )
         messages.append(override_message)
 
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die Plan-Solvenz-Zeile
@@ -407,15 +427,15 @@ def classify_messages(
 def _single_shared_failure_event(rows: list[dict]) -> str | None:
     """Gemeinsame typisierte Ursache ALLER Zeilen, sonst None.
 
-    Nur ``failure_event_id`` zaehlt (vom Optimizer typisiert, siehe
-    services/optimizer/goal_attribution.py). Zeilen ohne Ursache -- etwa
-    Altbewertungen -- gelten konservativ als je eigene Ursache.
+    GOAL-FAILURE-EVENT-MODE-COLLAPSE-001 (Engine v10): nur ein Ereignis, das
+    die GESAMTE Fehlschlagsmasse jeder Zeile traegt
+    (``goal_attribution.shared_failure_event``). Teilmasse anderer Ursachen
+    oder Zeilen ohne Ursache -- etwa Altbewertungen -- gelten konservativ
+    als je eigene Ursache.
     """
-    events = {str(row.get("failure_event_id") or "") for row in rows}
-    if len(events) == 1:
-        event = next(iter(events))
-        return event or None
-    return None
+    from services.optimizer.goal_attribution import shared_failure_event
+
+    return shared_failure_event(rows)
 
 
 def _failure_event_label(event_id: str) -> str:

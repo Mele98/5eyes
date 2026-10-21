@@ -387,6 +387,9 @@ def get_latest_active_entry(
         .filter(
             AdvisoryLog.mandate_id == mandate_id,
             AdvisoryLog.superseded_by_id.is_(None),
+            # RISK-PROFILE-SIGNOFF-001: System-Ereignisse (z.B. Portal-
+            # Signoff des Risikoprofils) sind kein Beratungstermin.
+            AdvisoryLog.system_event.is_(None),
         )
         .order_by(
             AdvisoryLog.entry_datetime.desc().nullslast(),

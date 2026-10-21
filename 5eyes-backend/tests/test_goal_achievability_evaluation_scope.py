@@ -20,6 +20,14 @@ Owner-Entscheid (2026-10-14):
 * Gemeinsame Failure-Events werden typisiert (``failure_event_id``) und in der
   Konfliktklassifikation dedupliziert.
 * Die Chance-Constraint-/Objective-Mathematik bleibt unveraendert.
+
+Engine v10 (GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001 / GOAL-OPTIMIZATION-
+PUBLICATION-SCOPE-SPLIT-001): der priorisierte Scope wird nicht mehr aus dem
+gemeinsamen Pfad rekonstruiert, sondern direkt simuliert. Die Tests erzeugen
+ihre Pfade deshalb ueber ``_simulate``/``_simulate_returns``, die den
+Simulationskontext mitregistrieren, und ``_publish`` reicht ihn als
+``scope_wealth`` weiter. Die Chance-Strafe bewertet seither denselben Scope
+wie die Publikation (vorher bewusst den gemeinsamen Pfad).
 """
 from __future__ import annotations
 
@@ -36,7 +44,12 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from services.optimizer.goal_liabilities import goals_to_liabilities
 from services.optimizer.objective import chance_constraint_penalty
+from services.optimizer.priority_scope import PriorityScopeWealth, ScopeReplayInputs
 from services.optimizer.scenario_engine import N_BUCKETS, simulate_wealth_paths
+
+# id(Pfad-Array) -> (Array, Replay-Kontext), damit ``_publish`` die direkten
+# Scope-Replays bilden kann (Engine v10).
+_REPLAYS: dict[int, tuple[np.ndarray, ScopeReplayInputs]] = {}
 from services.risk_matrix import classify_limiting_factor
 
 
@@ -79,15 +92,38 @@ def _simulate(
     growth: float = 1.0,
     n_paths: int = 1,
 ) -> np.ndarray:
-    weights = np.full(N_BUCKETS, 1.0 / N_BUCKETS, dtype=np.float64)
     return_paths = np.full((n_paths, horizon_years, N_BUCKETS), growth, dtype=np.float64)
-    return simulate_wealth_paths(
+    return _simulate_returns(initial_wealth_rappen, liability_path_rappen, return_paths)
+
+
+def _simulate_returns(
+    initial_wealth_rappen: int,
+    liability_path_rappen: list[int],
+    return_paths: np.ndarray,
+) -> np.ndarray:
+    horizon_years = int(return_paths.shape[1])
+    replay = ScopeReplayInputs(
         initial_wealth_rappen=initial_wealth_rappen,
-        weights=weights,
+        weights=np.full(N_BUCKETS, 1.0 / N_BUCKETS, dtype=np.float64),
+        return_paths=return_paths,
+        cashflow_series_rappen=(0,) * horizon_years,
+        joint_liability_path_rappen=tuple(int(v) for v in liability_path_rappen),
+    )
+    wealth = simulate_wealth_paths(
+        initial_wealth_rappen=initial_wealth_rappen,
+        weights=replay.weights,
         return_paths=return_paths,
         cashflow_series_rappen=[0] * horizon_years,
         liability_path_rappen=liability_path_rappen,
     )
+    _REPLAYS[id(wealth)] = (wealth, replay)
+    return wealth
+
+
+def _scopes(wealth, liabilities):
+    entry = _REPLAYS.get(id(wealth))
+    replay = entry[1] if entry is not None and entry[0] is wealth else None
+    return PriorityScopeWealth(joint=wealth, liabilities=list(liabilities), replay=replay)
 
 
 def _audit_repro():
@@ -115,6 +151,7 @@ def _publish(wealth, liabilities, initial, **kwargs):
         weights=kwargs.pop("weights", None),
         annualized_return_bps_per_path=kwargs.pop("annualized_return_bps_per_path", None),
         validation_seed=kwargs.pop("validation_seed", None),
+        scope_wealth=_scopes(wealth, liabilities),
     )
 
 
@@ -247,14 +284,7 @@ def test_input_order_does_not_change_rows_or_event_ids():
     forward = goals_to_liabilities([a, b, c], horizon_years=horizon)
     backward = goals_to_liabilities([c, b, a], horizon_years=horizon)
     factors = rng.lognormal(mean=0.02, sigma=0.25, size=(400, horizon, N_BUCKETS))
-    weights = np.full(N_BUCKETS, 1.0 / N_BUCKETS, dtype=np.float64)
-    wealth = simulate_wealth_paths(
-        initial_wealth_rappen=100,
-        weights=weights,
-        return_paths=factors,
-        cashflow_series_rappen=[0] * horizon,
-        liability_path_rappen=forward[0].joint_liability_path_rappen,
-    )
+    wealth = _simulate_returns(100, forward[0].joint_liability_path_rappen, factors)
     rows_f = {r["goal_id"]: r for r in _publish(wealth, forward, 100)}
     rows_b = {r["goal_id"]: r for r in _publish(wealth, backward, 100)}
     assert rows_f.keys() == rows_b.keys()
@@ -282,7 +312,10 @@ def test_single_goal_priority_funded_equals_plan_solvency():
 def test_importance_weights_are_used_for_both_scopes():
     liabilities, _ = _audit_repro()
     # Zwei Pfade: einer mit Wachstum (alles finanzierbar), einer ohne.
-    wealth = np.array([[100.0, 40.0], [100.0, -10.0]])
+    growth = np.empty((2, 1, N_BUCKETS))
+    growth[0], growth[1] = 1.5, 1.0
+    wealth = _simulate_returns(100, liabilities[0].joint_liability_path_rappen, growth)
+    np.testing.assert_allclose(wealth, [[100.0, 40.0], [100.0, -10.0]])
     weights = np.array([3.0, 1.0])
     goal_rows, plan_row = _split(_publish(wealth, liabilities, 100, weights=weights))
     assert plan_row["probability"] == pytest.approx(0.75)
@@ -296,16 +329,30 @@ def test_importance_weights_are_used_for_both_scopes():
 # ---------------------------------------------------------------------------
 
 
-def test_chance_penalty_still_uses_the_joint_path():
-    """Die Chance-Penalty (Ziel-Untergrenze im SLSQP-Objective) ist bewusst
-    unveraendert: sie bewertet weiterhin den gemeinsamen Pfad. Ihre Zeilen
-    sind als interne Sicht getaggt und werden nicht publiziert."""
+def test_chance_penalty_uses_the_same_priority_scope_as_publication():
+    """Engine v10 (GOAL-OPTIMIZATION-PUBLICATION-SCOPE-SPLIT-001): die
+    Chance-Penalty bewertet denselben priorisierten Scope wie die
+    Publikation. Bis v8 sah sie den gemeinsamen Pfad (hart-90: intern 0 %,
+    publiziert 100 %) -- das opportunistische Rang-2-Ziel loeste die harte
+    Strafe des Rang-1-Ziels aus. Ihre Zeilen bleiben interne Sicht."""
     liabilities, wealth = _audit_repro()
-    penalty, rows = chance_constraint_penalty(wealth, liabilities, 100)
+    scopes = _scopes(wealth, liabilities)
+    penalty, rows = chance_constraint_penalty(wealth, liabilities, 100, scope_wealth=scopes)
     by_id = {row["goal_id"]: row for row in rows}
-    assert by_id["hart-90"]["probability"] == pytest.approx(0.0)
-    assert penalty > 0.0
-    assert all(row["evaluation_scope"] == "joint_path_chance_penalty" for row in rows)
+    assert by_id["hart-90"]["probability"] == pytest.approx(1.0)
+    published = {row["goal_id"]: row for row in _publish(wealth, liabilities, 100)}
+    assert by_id["hart-90"]["probability"] == published["hart-90"]["probability"]
+    # Die Strafe ist exakt die eines Plans OHNE das opportunistische Ziel
+    # (dieses traegt selbst keine Strafe): Rang 2 veraendert Rang 1 nicht.
+    hard_only = goals_to_liabilities(
+        [_goal(goal_id="hart-90", goal_type="Einmalige_Ausgabe", hardness="Hart",
+               rank=1, target_amount_rappen=90)],
+        horizon_years=1,
+    )
+    alone = _simulate(100, hard_only[0].joint_liability_path_rappen, horizon_years=1)
+    penalty_alone, _rows = chance_constraint_penalty(alone, hard_only, 100)
+    assert penalty == penalty_alone
+    assert all(row["evaluation_scope"] == "priority_funded_chance_penalty" for row in rows)
 
 
 # ---------------------------------------------------------------------------
