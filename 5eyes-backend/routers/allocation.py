@@ -68,9 +68,10 @@ from services.advisory_report_cache import (
     invalidate_mandate as invalidate_advisory_cache,
 )
 from services.depot_check import compute_depot_check
-from services.backtest_stress import compute_stress_replays
+from services.backtest_stress import gated_stress_replays
 from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
+from services.report_projection_gate import resolve_current_allocation_projection_gate
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
 from services.risk_capacity_plausibility import (
@@ -1030,7 +1031,7 @@ def get_backtest_stress_replays(
     historischer Time-Series kommt in Sprint U-P11.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return compute_stress_replays(db, mandate)
+    return gated_stress_replays(db, mandate)
 
 
 @router.get("/optimizer-policies", response_model=list[OptimizerPolicyResponse])
@@ -1172,6 +1173,8 @@ def get_strategy_backtest(
         else None
     )
     sub_benchmark = _parse_sub_asset_benchmark_query(benchmark_sub_assets)
+    # MC-CONTEXT-001: derselbe Gate-Entscheid wie der Advisory-Report --
+    # bei stale/blocked kein Soll-Backtest, Benchmark-Historie bleibt.
     return run_strategy_backtest(
         db,
         mandate,
@@ -1182,6 +1185,7 @@ def get_strategy_backtest(
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
         benchmark_sub_weights_bps=sub_benchmark,
+        projection_gate=resolve_current_allocation_projection_gate(db, mandate),
     )
 
 

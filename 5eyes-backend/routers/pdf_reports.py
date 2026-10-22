@@ -1766,12 +1766,29 @@ def get_protokoll_pdf(
 
 def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
     """Build the client-facing analysis of the recommended target portfolio."""
-    from services.backtest_stress import compute_stress_replays
+    from services.backtest_stress import gated_stress_replays
     from services.cost_disclosure import build_cost_disclosure
     from services.depot_check import compute_depot_check
 
+    from services.report_projection_gate import (
+        STATUS_STALE,
+        resolve_current_allocation_projection_gate,
+    )
+
     dc = compute_depot_check(db, mandate) or {}
-    if dc.get("soll_ausgeblendet"):
+    # MC-CONTEXT-001: derselbe Gate-Entscheid wie Advisory-Report/Backtest.
+    # ``blocked`` (kein eindeutig aktuelles Risikoprofil, Policy nicht
+    # aktuell, Gate-Fehler) mit eigenem Hinweis statt "veraltet"; ``stale``
+    # behaelt die bestehende Begruendung unten.
+    projection_gate = resolve_current_allocation_projection_gate(
+        db, mandate, depot_check=dc,
+    )
+    if projection_gate.is_hidden and projection_gate.status != STATUS_STALE:
+        raise ValueError(
+            "Depot-Check kann nicht erstellt werden: "
+            + str(projection_gate.advisor_message)
+        )
+    if projection_gate.is_hidden or dc.get("soll_ausgeblendet"):
         # STALE-ALLOCATION-HIDE-TARGETS-001: ein Depot-Check-PDF ist ein
         # Soll/Ist-Vergleich. Bei veralteter Soll-Allokation gibt es keine
         # gueltigen Zielzahlen -- blockieren (409) statt alte Ziele zu drucken.
@@ -1789,7 +1806,7 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             f"Depot-Check kann nicht erstellt werden: die Soll-Allokation ist "
             f"veraltet ({grund}). Bitte Strategie neu berechnen."
         )
-    sr = compute_stress_replays(db, mandate) or {}
+    sr = gated_stress_replays(db, mandate, projection_gate) or {}
     fc = dc.get("fund_characteristics") or {}
     strategy = _build_anlagestrategie_data(mandate, db)
     try:
@@ -1816,7 +1833,7 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             "note": "Kostenausweis ist fuer diese Empfehlung noch nicht verfuegbar.",
             "warnings": [],
         }
-    performance = _build_depotcheck_performance(mandate, db)
+    performance = _build_depotcheck_performance(mandate, db, projection_gate)
     soll_country = dc.get("soll_country_exposure_bps") or {}
     soll_sector = dc.get("soll_sector_exposure_bps") or {}
     soll_currency = dc.get("soll_currency_exposure_bps") or {}
@@ -1944,7 +1961,15 @@ def _cost_item_rate(costs: dict, key: str) -> int:
     return 0
 
 
-def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
+def _build_depotcheck_performance(
+    mandate: Mandate, db: Session, projection_gate=None,
+) -> dict:
+    if projection_gate is None:
+        from services.report_projection_gate import (
+            resolve_current_allocation_projection_gate,
+        )
+
+        projection_gate = resolve_current_allocation_projection_gate(db, mandate)
     try:
         benchmark = _depotcheck_house_matrix_benchmark(mandate, db)
         data = _build_backtest_data(
@@ -1954,7 +1979,13 @@ def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
             end_year=None,
             benchmark_weights_bps=benchmark or None,
             resolution="annual",
+            projection_gate=projection_gate,
         )
+        if projection_gate.is_hidden:
+            return {
+                "data_pending": True,
+                "note": str(projection_gate.advisor_message),
+            }
         return {
             "data_pending": False,
             "start_year": data.start_year,
@@ -2104,6 +2135,7 @@ def _build_backtest_data(
     resolution: str = "annual",
     strategy_fee_bps: int | None = None,
     benchmark_fee_bps: int | None = None,
+    projection_gate=None,
 ) -> BacktestData:
     """Wendet run_strategy_backtest an und mappt das Resultat auf BacktestData.
 
@@ -2124,6 +2156,7 @@ def _build_backtest_data(
         resolution=resolution,
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
+        projection_gate=projection_gate,
     )
     soll = result.get("soll") or {}
     rebal = (soll.get("rebalanced") if isinstance(soll, dict) else None) or {}
@@ -2156,6 +2189,12 @@ def _build_backtest_data(
         soll_gross_metrics=(soll_gross or {}).get("metrics") if soll_gross else None,
         benchmark_gross_wealth_path_rappen=tuple((bm_gross or {}).get("wealth_path_rappen") or []),
         benchmark_gross_metrics=(bm_gross or {}).get("metrics") if bm_gross else None,
+        # MC-CONTEXT-001: Gate-Hinweis, wenn der Soll-Backtest ausgeblendet ist.
+        projection_hidden_hint=(
+            projection_gate.advisor_message
+            if projection_gate is not None and projection_gate.is_hidden
+            else None
+        ),
     )
 
 
@@ -2207,6 +2246,14 @@ def get_backtest_pdf(
         if any(v is not None for v in bm_inputs.values())
         else None
     )
+    # MC-CONTEXT-001: derselbe fail-closed Gate-Entscheid wie Advisory-Report
+    # und Backtest-API -- bei stale/blocked kein Soll-Backtest, nur Hinweis
+    # plus (falls gewaehlt) die von der Soll-Allokation unabhaengige
+    # Benchmark-Historie.
+    from services.report_projection_gate import (
+        resolve_current_allocation_projection_gate,
+    )
+
     data = _build_backtest_data(
         mandate, db,
         start_year=start_year, end_year=end_year,
@@ -2214,6 +2261,7 @@ def get_backtest_pdf(
         resolution=resolution,
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
+        projection_gate=resolve_current_allocation_projection_gate(db, mandate),
     )
     pdf_bytes = ReportLabRenderer().render_backtest(ctx, data)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
