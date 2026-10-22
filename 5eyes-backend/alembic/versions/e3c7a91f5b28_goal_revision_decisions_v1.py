@@ -10,7 +10,7 @@ UPDATE/DELETE sind per Trigger verboten (SQLite und PostgreSQL); wie
 risk_override_decisions KEIN FK auf goals/mandates (Purge-fest).
 
 Revision ID: e3c7a91f5b28
-Revises: d7b3f1a9c2e4
+Revises: e5a1c7f3b9d2
 Create Date: 2026-10-21
 """
 from typing import Sequence, Union
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 
 
 revision: str = "e3c7a91f5b28"
-down_revision: Union[str, Sequence[str], None] = "d7b3f1a9c2e4"
+down_revision: Union[str, Sequence[str], None] = "e5a1c7f3b9d2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

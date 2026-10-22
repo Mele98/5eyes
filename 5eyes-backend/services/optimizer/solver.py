@@ -69,6 +69,7 @@ from .drawdown_certification import (
 )
 from .goal_attribution import publish_goal_achievability
 from .priority_scope import PriorityScopeWealth, ScopeReplayInputs, release_mapping
+from services.retirement_phase import retirement_status_series
 from .house_prior import (
     DECISION_HOUSE_PRIOR,
     DECISION_HOUSE_PRIOR_FAIL_CLOSED,
@@ -586,6 +587,10 @@ class OptimizerContext:
     # Scopes entfernt sie zusammen mit den Abfluessen der Ziele ausserhalb
     # des Scopes (``priority_scope``).
     reserve_goal_release_series_rappen: tuple[tuple[str, tuple[int, ...]], ...] = ()
+    # DYNAMIC-RETIREMENT-PHASE-001: Ruhestandsstatus je Simulationsjahr
+    # (services.retirement_phase). None = statisches ``is_retired`` fuer alle
+    # Jahre (Vor-Verhalten; kein Pensionierungsjahr bekannt).
+    is_retired_series: tuple[bool, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -678,6 +683,7 @@ def _simulate_context_wealth(
         base_calendar_year=context.base_calendar_year,
         mandate_age_at_start=context.mandate_age_at_start,
         is_retired=context.is_retired,
+        is_retired_series=context.is_retired_series,
     )
 
 
@@ -750,6 +756,7 @@ def _context_replay_inputs(
         base_calendar_year=context.base_calendar_year,
         mandate_age_at_start=context.mandate_age_at_start,
         is_retired=context.is_retired,
+        is_retired_series=context.is_retired_series,
         portfolio_factors=portfolio_factors,
         goal_reserve_release_series_rappen=context.reserve_goal_release_series_rappen,
     )
@@ -861,6 +868,9 @@ def build_optimizer_context(
     base_calendar_year: int = 2026,
     mandate_age_at_start: int | None = None,
     is_retired: bool = False,
+    # DYNAMIC-RETIREMENT-PHASE-001: Pensionierungs-Kalenderjahr; daraus wird
+    # mit ``base_calendar_year`` die Jahresserie ``is_retired_series``.
+    retirement_calendar_year: int | None = None,
     # CERT-ALLOCATION-INTENT-001: optional, partial Soft-Preference Target
     # Intent -- see OptimizerContext.preferred_target_bps.
     preferred_target_bps: Mapping[str, int] | None = None,
@@ -1046,6 +1056,16 @@ def build_optimizer_context(
         str(getattr(liab, "hardness_key", "") or "").lower() == "hart"
         for liab in liabilities
     )
+    # DYNAMIC-RETIREMENT-PHASE-001: Jahresserie des Ruhestandsstatus. Die
+    # Importance-Sampling-Regel ist eine Lauf-Entscheidung und bleibt beim
+    # Status im Startjahr (Serie[0]) -- genau wie vorher.
+    is_retired_series = retirement_status_series(
+        int(base_calendar_year),
+        common_scenario_horizon,
+        None if retirement_calendar_year is None else int(retirement_calendar_year),
+    )
+    if is_retired_series:
+        is_retired = bool(is_retired_series[0])
     is_active, is_reason = decide_is_for_context(
         score_x10=int(score_x10),
         has_hart_goal=has_hart_goal,
@@ -1184,6 +1204,7 @@ def build_optimizer_context(
         base_calendar_year=int(base_calendar_year),
         mandate_age_at_start=mandate_age_at_start,
         is_retired=bool(is_retired),
+        is_retired_series=is_retired_series,
         bounds_collapse_warnings=tuple(collapse_warnings),
         preferred_target_bps=validated_preferred_target_bps,
         preference_penalty_lambda=(
@@ -2218,6 +2239,7 @@ def run_solver(
     base_calendar_year: int = 2026,
     mandate_age_at_start: int | None = None,
     is_retired: bool = False,
+    retirement_calendar_year: int | None = None,
     # Sprint B1 (2026-06-07): Sub-Allocation-Aware Bucket-Returns
     sub_allocations: list[dict] | None = None,
     # Strict mandate-specific solver bounds. None keeps the legacy
@@ -2294,6 +2316,7 @@ def run_solver(
             base_calendar_year=base_calendar_year,
             mandate_age_at_start=mandate_age_at_start,
             is_retired=is_retired,
+            retirement_calendar_year=retirement_calendar_year,
             # Sprint B1 (2026-06-07): Sub-Allocation
             sub_allocations=sub_allocations,
             effective_bounds_bps=effective_bounds_bps,

@@ -26,7 +26,7 @@ from models.wealth import GoalRevisionDecision  # noqa: E402
 
 SCHEMA_FILE = BACKEND_ROOT / "5eyes_schema_v4.0_FINAL.sql"
 REVISION = "e3c7a91f5b28"
-PREVIOUS = "d7b3f1a9c2e4"
+PREVIOUS = "e5a1c7f3b9d2"
 TRIGGERS = {
     "trg_goal_revision_decisions_no_update",
     "trg_goal_revision_decisions_no_delete",
