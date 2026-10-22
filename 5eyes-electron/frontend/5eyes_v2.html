@@ -7258,8 +7258,16 @@ function inferPositionBucketMixBps(pos){
 // sinken (direkt) bzw. baute nie ein Gegen-Asset auf (indirekt) -- eine
 // bilanziell neutrale Tilgungszahlung wirkte dadurch im sichtbaren Chart wie
 // echter Vermoegensverzehr. Gibt fuer years+1 Jahre (Index 0..years) je eine
-// Liability- und Pledged-Serie zurueck, aufsummiert ueber alle aktiven
-// Hypotheken-Positionen.
+// Liability- und Pledged-Serie zurueck, aufsummiert ueber ALLE aktiven
+// Verbindlichkeiten.
+// TOTAL-WEALTH-LIABILITY-001 (2026-10-21): vorher zaehlten nur Positionen vom
+// Typ 'Hypothek'; Privatkredite, Leasing, Steuerschulden usw. fehlten -> die
+// Gesamtvermoegens-Kurve startete zu hoch (Repro: Aktiven 900k, Hypothek 300k,
+// Kredit 200k -> 600k statt netto 400k). Jetzt wie das Backend
+// (_build_external_foundation_projection): jede Position mit assignment
+// 'Verbindlichkeit' geht in die Liability-Serie; nur Hypotheken kennen eine
+// Amortisation (direkt/indirekt), alle uebrigen Schulden bleiben konstant.
+// Der Funktionsname bleibt aus Kompatibilitaet (Aufrufer/Tests) erhalten.
 function mortgageLiabilityAndPledgedSeriesRappen(positions,years){
   var n=Math.max(0,Number(years||0))+1;
   var liability=new Array(n).fill(0);
@@ -7267,12 +7275,13 @@ function mortgageLiabilityAndPledgedSeriesRappen(positions,years){
   (Array.isArray(positions)?positions:[]).forEach(function(pos){
     if(!pos)return;
     if(Object.prototype.hasOwnProperty.call(pos,'is_active')&&pos.is_active===0)return;
-    if(String(pos.position_type||'')!=='Hypothek')return;
+    if(pos.deleted_at)return;
     if(String(pos.assignment||'')!=='Verbindlichkeit')return;
+    var isMortgage=String(pos.position_type||'')==='Hypothek';
     var debt=Math.max(0,Math.round(Number(pos.current_value_rappen||0)));
     // "indirekt" enthaelt den Substring "direkt" -- daher zuerst ausschliessen
     // (dieselbe Reihenfolge wie services/wealth_cashflows._is_direct_amortization()).
-    var modeRaw=String(pos.mortgage_amortization_type||'').toLowerCase();
+    var modeRaw=isMortgage?String(pos.mortgage_amortization_type||'').toLowerCase():'';
     var isIndirect=modeRaw.indexOf('indirekt')>=0||modeRaw.indexOf('indirect')>=0;
     var isDirect=!isIndirect&&(modeRaw.indexOf('direkt')>=0||modeRaw.indexOf('direct')>=0);
     var amortization=(isDirect||isIndirect)
@@ -7364,11 +7373,15 @@ function wealthProjectionInputs(scope,years){
   // sank bzw. nie ein Gegenwert entstand, obwohl der Cashflow die Zahlung
   // schon als Ausgabe abzog. mortgageMortgageSeries liefert dieselbe, jahres-
   // abhaengige Formel wie das Backend (_build_external_foundation_projection).
+  // TOTAL-WEALTH-LIABILITY-001: die Serie enthaelt ALLE Verbindlichkeiten
+  // (Hypotheken mit Tilgung, uebrige Schulden konstant) -> Startwert netto.
   var mortgagePositions=scope!=='advisory'?activeClientWealthPositions():[];
   var mortgageSeries=mortgageLiabilityAndPledgedSeriesRappen(mortgagePositions,years);
   var liabilitiesRappen=Number(mortgageSeries.liability[0]||0);
   var startRappen=Math.max(0,totalRappen-liabilitiesRappen+Number(mortgageSeries.pledged[0]||0));
-  // Sockel = Immobilien-Wert abzueglich der (i.d.R. darauf lastenden) Hypotheken.
+  // Sockel = Immobilien-Wert abzueglich der Verbindlichkeiten (Hypotheken und
+  // uebrige Schulden; das verzehrbare Finanzvermoegen bleibt brutto und
+  // rentiert, die Schuld bleibt bis zur Tilgung stehen).
   // consumableReturnBps = gewichtete Rendite NUR des verzehrbaren Finanzvermoegens
   // (ohne die Immobilien-Buchrendite, die jetzt im Sockel-Index sitzt).
   var sockelRappen=Math.max(0,sockelGrossRappen-liabilitiesRappen+Number(mortgageSeries.pledged[0]||0));
@@ -8800,12 +8813,22 @@ function syncAllocationDonutFromStrategyState(){
     var _a=strategyState&&strategyState.allocation;
     if(hasStrategy&&_a){
       var _ta=_a.total_allocation||{};
-      var _rein=Number(_a.total_wealth_rappen||_ta.total_base_rappen||0);
-      var _found=Number(_ta.foundation_rappen||0);
+      var _rein=Math.max(0,Number(_a.total_wealth_rappen||_ta.total_base_rappen||0));
+      // TOTAL-WEALTH-LIABILITY-001: nur der im Netto-Reinvermoegen verbleibende
+      // Fundament-Teil (Immobilie netto Hypothek, abzueglich ggf. darauf
+      // kaskadierter uebriger Schulden) -- nie mehr als das Reinvermoegen.
+      var _found=Math.min(_rein,Math.max(0,Number(_ta.foundation_in_net_wealth_rappen||0)));
+      var _nonPos=_ta.net_wealth_non_positive===true;
+      var _uncovered=Math.max(0,Number(_ta.uncovered_liabilities_rappen||0));
       var _ber=Number(_a.advisory_wealth_rappen||0);
       var _f=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
-      _rc.innerHTML='Reinvermögen (gesamt): <strong>'+_f(_rein)+'</strong>'
+      _rc.innerHTML='Reinvermögen (gesamt, netto aller Verbindlichkeiten): <strong>'+_f(_rein)+'</strong>'
         +(_found>0?' · davon Eigenheim-Fundament '+_f(_found):'')
+        +((_nonPos||_uncovered>0)
+          ?'<br><span style="color:var(--neg);font-weight:600">Verbindlichkeiten übersteigen die Aktiven'
+            +(_uncovered>0?' – ungedeckte Schulden '+_f(_uncovered):'')
+            +'. Kein positives Reinvermögen.</span>'
+          :'')
         +'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>';
       _rc.style.display='';
     }else{
