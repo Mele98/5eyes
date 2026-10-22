@@ -688,9 +688,16 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 )
                 .all()
             )
+            from services.wealth_inflow_certainty import is_uncertain
+
             for inf in inflows:
+                # INFLOW-CERTAINTY-001: unsichere Zufluesse sichtbar, aber als
+                # nicht eingerechnet gekennzeichnet.
+                inf_name = str(getattr(inf, "label", "—") or "—")
+                if is_uncertain(inf):
+                    inf_name += " (unsicher, nicht eingerechnet)"
                 cashflow_events.append({
-                    "name": str(getattr(inf, "label", "—") or "—"),
+                    "name": inf_name,
                     "household_member": "",
                     "recurrence": "Einmalig" if not getattr(inf, "is_recurring", 0) else
                                   str(getattr(inf, "frequency", "") or "Wiederkehrend"),

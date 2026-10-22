@@ -4041,6 +4041,7 @@ def _recompute_reserve_reasoning(
         _unlocked_other_assets_rappen,
         _wealth_inflow_series_rappen,
     )
+    from services.portfolio_engine_pension_positions import pension_payout_view
     from services.wealth_cashflows import derive_tax_cashflow, derive_wealth_cashflows
 
     prefs = _normalize_preferences(_allocation_snapshot_preferences(ta))
@@ -4153,9 +4154,29 @@ def _recompute_reserve_reasoning(
         )
         .all()
     )
-    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
-        inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
-    )
+    # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): Zufluss-Scope wie die
+    # Engine (mandatslose + dieses Mandat) und automatische Vorsorgebezuege aus
+    # DERSELBEN Ledger-Quelle (PensionTransferLedgerV1 via pension_payout_view).
+    # INFLOW-CERTAINTY-001: unsichere Zufluesse senken die Reserve nicht
+    # (identisch zum Engine-Pfad, services/wealth_inflow_certainty.py);
+    # verknuepfte Vorsorgebezuege sind immer "sicher".
+    from services.wealth_inflow_certainty import certain_inflows
+
+    inflows = certain_inflows([
+        inflow for inflow in inflows
+        if not getattr(inflow, "mandate_id", None) or inflow.mandate_id == mandate.id
+    ])
+    inflow_projection_series_rappen = pension_payout_view(
+        _wealth_inflow_series_rappen(
+            inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+        ),
+        positions,
+        inflows,
+        start_year=cashflow_totals["year"],
+        fx_source=fx_source,
+        target_currency=target_currency,
+        mandate=mandate,
+    ).inflow_series_rappen
 
     reasoning: list[str] = []
     fresh_needed_rappen, fresh_external_rappen = _compute_reserve_for_inputs(
