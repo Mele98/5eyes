@@ -394,9 +394,30 @@ class CashflowYearRow(BaseModel):
     capital_outflow_rappen: int = 0
     expense_rappen: int
     net_rappen: int
+    # CASHFLOW-TAB-PENSION-PAYOUTS-001: automatischer Vorsorgebezug (3a/FZ/
+    # Police) netto nach Kapitalbezugssteuer aus PensionTransferLedgerV1 --
+    # NICHT in capital_inflow_rappen, aber in income_rappen/net_rappen.
+    pension_payout_rappen: int = 0
+
+
+class CashflowPensionTransfer(BaseModel):
+    year: int
+    source_position_id: str
+    source_label: str
+    pension_type: str
+    origin: str
+    linked_inflow_id: str | None = None
+    gross_withdrawal_rappen: int
+    lumpsum_tax_rappen: int
+    tax_source: str
+    net_advisory_inflow_rappen: int
+    currency: str
 
 
 class CashflowProjectionResponse(BaseModel):
     client_id: str
     start_year: int
     years: list[CashflowYearRow]
+    # Ledger-Zeilen im Horizont (auto UND verknuepft) zur Offenlegung.
+    pension_transfers: list[CashflowPensionTransfer] = []
+    pension_ledger_hash: str | None = None
