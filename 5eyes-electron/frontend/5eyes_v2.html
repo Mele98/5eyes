@@ -14014,8 +14014,17 @@ async function openCostDisclosureModal(){
     _costDisclosureLastPayload=data;
     renderCostDisclosure(data);
     if(content) content.style.display='';
+    // COST-SNAPSHOT-BINDING-001: ungueltiger eingefrorener Kostennachweis
+    // (fremder Lauf, unbekannte Schema-Version, Hash-Bruch) ist ein
+    // ausgewiesener Fehler -- nicht "noch keine Empfehlung"; PDF gesperrt.
+    var evidenceBlocked=!!(data&&data.evidence_status==='blocked');
+    var pdfBtn=document.getElementById('cd-pdf-btn');
+    if(pdfBtn) pdfBtn.disabled=evidenceBlocked;
     if(status){
-      if(data&&data.data_pending){
+      if(evidenceBlocked){
+        status.textContent='Kostennachweis ungueltig ('+String(data.evidence_error||'unbekannt')+') — der freigegebene Kostenausweis laesst sich nicht belegen. Strategie neu berechnen und finalisieren.';
+        status.style.color='var(--neg)';
+      }else if(data&&data.data_pending){
         status.textContent='Noch keine Empfehlung — bitte Portfolio zuerst generieren.';
         status.style.color='var(--warn)';
       }else{
@@ -14071,7 +14080,9 @@ function renderCostDisclosure(data){
   var items=document.getElementById('cd-items');
   if(items){
     var rows=Array.isArray(data.cost_items)?data.cost_items:[];
-    if(!rows.length){
+    if(data.evidence_status==='blocked'){
+      items.innerHTML='<div style="font-size:11px;color:var(--neg);padding:14px;text-align:center;border:1px solid var(--neg);border-radius:var(--r)">Kostennachweis ungueltig ('+escapeHtml(String(data.evidence_error||'unbekannt'))+') — keine Zahlen ausweisbar.</div>';
+    }else if(!rows.length){
       items.innerHTML='<div style="font-size:11px;color:var(--n4);padding:14px;text-align:center;border:1px dashed var(--b1);border-radius:var(--r)">Noch keine Kostenposten ausweisbar.</div>';
     }else{
       items.innerHTML='<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden">'

@@ -342,12 +342,17 @@ def build_cost_disclosure(
         # behauptet einen Nachweis, und ihn stillschweigend durch frische
         # Zahlen zu ersetzen waere genau die Substitution, die dieser
         # Nachweis verhindern soll.
-        return _pending_payload(
-            "Der eingefrorene Kostenausweis dieses Empfehlungslaufs ist "
-            f"nicht verwertbar ({snapshot_reason}). Die dem Kunden "
-            "ausgehändigten Zahlen lassen sich damit nicht belegen -- "
-            "Strategie neu berechnen und finalisieren.",
+        #
+        # COST-SNAPSHOT-BINDING-001: der Fehler ist AUSGEWIESEN, nicht nur in
+        # einem Freitext versteckt -- `evidence_status="blocked"` +
+        # maschinenlesbarer `evidence_error`, und `audit_degraded=True`,
+        # damit jedes bestehende Publikations-Gate (Advisory-Report-PDF,
+        # React-Sektion) greift, ohne auf Meldungstexte zu matchen.
+        return blocked_cost_disclosure_payload(
+            snapshot_reason,
             currency=currency,
+            source_run_id=_opt_str(getattr(best_run, "id", None)),
+            source_run_status=_opt_str(getattr(best_run, "result_status", None)),
         )
 
     live = build_cost_disclosure_for_run(db, mandate, best_run, currency=currency)
@@ -359,6 +364,12 @@ def build_cost_disclosure(
         live["evidence_frozen"] = False
         live["content_hash"] = None
         live["frozen_at"] = None
+        live["evidence_error"] = None
+        live["evidence_status"] = (
+            EVIDENCE_STATUS_LEGACY_UNVERIFIED
+            if str(live.get("source_run_status") or "") == "Final"
+            else EVIDENCE_STATUS_PREVIEW
+        )
         if str(live.get("source_run_status") or "") == "Final":
             live.setdefault("warnings", []).append(
                 "Dieser freigegebene Empfehlungslauf hat keinen eingefrorenen "
@@ -1071,7 +1082,38 @@ def _pending_payload(note: str, *, currency: str = "CHF") -> dict[str, Any]:
         "is_complete": False,
         "has_estimates": False,
         "warnings": [note],
+        "evidence_status": EVIDENCE_STATUS_PENDING,
+        "evidence_error": None,
     }
+
+
+def blocked_cost_disclosure_payload(
+    reason: str,
+    *,
+    currency: str = "CHF",
+    source_run_id: str | None = None,
+    source_run_status: str | None = None,
+) -> dict[str, Any]:
+    """Payload fuer einen vorhandenen, aber ungueltigen Kostennachweis.
+
+    COST-SNAPSHOT-BINDING-001: nie Zahlen (weder die ungueltigen noch live
+    neu gerechnete), sondern ein ausgewiesener Fehlerzustand. Lauf-ID und
+    -Status bleiben sichtbar, damit der Berater weiss, WELCHER Lauf neu zu
+    finalisieren ist.
+    """
+    payload = _pending_payload(
+        "Der eingefrorene Kostenausweis dieses Empfehlungslaufs ist "
+        f"nicht verwertbar ({reason}). Die dem Kunden "
+        "ausgehändigten Zahlen lassen sich damit nicht belegen -- "
+        "Strategie neu berechnen und finalisieren.",
+        currency=currency,
+    )
+    payload["source_run_id"] = source_run_id
+    payload["source_run_status"] = source_run_status
+    payload["evidence_status"] = EVIDENCE_STATUS_BLOCKED
+    payload["evidence_error"] = reason
+    payload["audit_degraded"] = True
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1088,12 +1130,30 @@ def _utc_now_iso() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
-COST_SNAPSHOT_SCHEMA_VERSION = 1
+# COST-SNAPSHOT-BINDING-001 (2026-10-21): V2 hasht den GANZEN Umschlag
+# (Version, Lauf-, Mandats- und TA-Bindung, frozen_at, Payload) statt nur den
+# inneren Payload. V1 (nur Payload gehasht) bleibt LESBAR, weil seit
+# 2026-10-13 finalisierte Laeufe so eingefroren wurden -- aber auch V1 muss
+# die Lauf-Bindung bestehen. Jede andere Version ist unbekannte Semantik und
+# wird fail-closed verworfen, nie "wie V1" gelesen.
+COST_SNAPSHOT_SCHEMA_VERSION = 2
+COST_SNAPSHOT_SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
 
 # Begruendungscodes fuer einen unbrauchbaren Snapshot -- maschinenlesbar,
-# damit ein Aufrufer nicht auf Meldungstexte matchen muss.
-REASON_SNAPSHOT_MALFORMED = "cost_snapshot_malformed"
-REASON_SNAPSHOT_HASH_MISMATCH = "cost_snapshot_hash_mismatch"
+# damit ein Aufrufer nicht auf Meldungstexte matchen muss. Werte stabil
+# (Codex-Review 2026-10-14, Pflicht-Reason-Codes).
+REASON_SNAPSHOT_MALFORMED = "snapshot_malformed"
+REASON_SNAPSHOT_HASH_MISMATCH = "snapshot_hash_mismatch"
+REASON_SNAPSHOT_SCHEMA_UNSUPPORTED = "snapshot_schema_unsupported"
+REASON_SNAPSHOT_RUN_MISMATCH = "snapshot_run_mismatch"
+REASON_SNAPSHOT_CONTEXT_MISMATCH = "snapshot_context_mismatch"
+
+# Diskriminierter Evidence-Status jedes Kostenausweis-Payloads.
+EVIDENCE_STATUS_CERTIFIED = "certified"          # eingefroren + verifiziert
+EVIDENCE_STATUS_PREVIEW = "preview"              # Entwurf, live gerechnet
+EVIDENCE_STATUS_LEGACY_UNVERIFIED = "legacy_unverified"  # Final ohne Snapshot
+EVIDENCE_STATUS_BLOCKED = "blocked"              # Snapshot da, aber ungueltig
+EVIDENCE_STATUS_PENDING = "pending"              # keine Empfehlung/Basis
 
 
 def cost_disclosure_content_hash(payload: Mapping[str, Any]) -> str:
@@ -1138,10 +1198,29 @@ def freeze_cost_disclosure_for_run(db: Session, mandate: Any, run: Any) -> str |
         "schema_version": COST_SNAPSHOT_SCHEMA_VERSION,
         "frozen_at": _utc_now_iso(),
         "recommendation_run_id": str(getattr(run, "id", "") or ""),
-        "content_hash": cost_disclosure_content_hash(payload),
+        "mandate_id": _opt_str(getattr(run, "mandate_id", None)),
+        "target_allocation_id": _opt_str(getattr(run, "target_allocation_id", None)),
         "payload": payload,
     }
+    envelope["content_hash"] = _envelope_hash_v2(envelope)
     return json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+
+
+def _opt_str(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _envelope_hash_v2(envelope: Mapping[str, Any]) -> str:
+    """V2-Hash: der ganze Umschlag ausser dem Hashfeld selbst.
+
+    Damit sind Lauf-/Mandats-/TA-Bindung, Version und `frozen_at` nicht mehr
+    ohne Hashbruch aenderbar (Codex-Befund 2: nur der innere Payload war
+    gehasht).
+    """
+    return cost_disclosure_content_hash(
+        {key: value for key, value in envelope.items() if key != "content_hash"}
+    )
 
 
 def load_frozen_cost_disclosure(run: Any) -> tuple[dict[str, Any] | None, str | None]:
@@ -1158,6 +1237,19 @@ def load_frozen_cost_disclosure(run: Any) -> tuple[dict[str, Any] | None, str | 
     Inhalt nicht zu seinem Hash passt, ist kein Nachweis -- ihn trotzdem
     auszuliefern waere schlimmer als ihn zu verwerfen, weil das Dokument dann
     eine Reproduzierbarkeit behauptet, die es nicht hat.
+
+    COST-SNAPSHOT-BINDING-001 (2026-10-21), Pruefreihenfolge:
+
+    1. Struktur (Payload-Dict + Hash-String) -> ``snapshot_malformed``
+    2. bekannte Schema-Version (1 oder 2, echtes int) ->
+       ``snapshot_schema_unsupported``. Eine unbekannte Version wird NIE
+       wie V1 interpretiert.
+    3. Lauf-Bindung: Umschlag-Run-ID UND Payload-``source_run_id`` muessen
+       beide gleich ``run.id`` sein -> ``snapshot_run_mismatch``. Ein
+       kryptographisch korrekter Snapshot von Lauf A ist kein Nachweis fuer
+       Lauf B.
+    4. (V2) Mandats-/TA-Bindung gegen den Lauf -> ``snapshot_context_mismatch``
+    5. Hash (V1: Payload, V2: ganzer Umschlag) -> ``snapshot_hash_mismatch``
     """
     raw = getattr(run, "cost_disclosure_snapshot_json", None)
     if not raw:
@@ -1172,10 +1264,40 @@ def load_frozen_cost_disclosure(run: Any) -> tuple[dict[str, Any] | None, str | 
     stored_hash = envelope.get("content_hash")
     if not isinstance(payload, dict) or not isinstance(stored_hash, str):
         return None, REASON_SNAPSHOT_MALFORMED
-    if cost_disclosure_content_hash(payload) != stored_hash:
+
+    version = envelope.get("schema_version")
+    if (
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version not in COST_SNAPSHOT_SUPPORTED_SCHEMA_VERSIONS
+    ):
+        return None, REASON_SNAPSHOT_SCHEMA_UNSUPPORTED
+
+    run_id = _opt_str(getattr(run, "id", None))
+    if (
+        run_id is None
+        or _opt_str(envelope.get("recommendation_run_id")) != run_id
+        or _opt_str(payload.get("source_run_id")) != run_id
+    ):
+        return None, REASON_SNAPSHOT_RUN_MISMATCH
+
+    if version >= 2:
+        for key in ("mandate_id", "target_allocation_id"):
+            bound = _opt_str(envelope.get(key))
+            actual = _opt_str(getattr(run, key, None))
+            if bound != actual:
+                return None, REASON_SNAPSHOT_CONTEXT_MISMATCH
+        expected_hash = _envelope_hash_v2(envelope)
+    else:
+        expected_hash = cost_disclosure_content_hash(payload)
+    if expected_hash != stored_hash:
         return None, REASON_SNAPSHOT_HASH_MISMATCH
+
     frozen = dict(payload)
     frozen["evidence_frozen"] = True
+    frozen["evidence_status"] = EVIDENCE_STATUS_CERTIFIED
+    frozen["evidence_error"] = None
     frozen["content_hash"] = stored_hash
     frozen["frozen_at"] = envelope.get("frozen_at")
+    frozen["snapshot_schema_version"] = version
     return frozen, None
