@@ -6,7 +6,7 @@ data keeps its behaviour. 'unsicher' inflows neither lower the liquidity
 reserve nor enter the strategy simulation (services/wealth_inflow_certainty.py).
 
 Revision ID: e5a1c7f3b9d2
-Revises: d7b3f1a9c2e4
+Revises: e8a4c2f7d913
 Create Date: 2026-10-21
 """
 from typing import Sequence, Union
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 
 revision: str = "e5a1c7f3b9d2"
-down_revision: Union[str, Sequence[str], None] = "d7b3f1a9c2e4"
+down_revision: Union[str, Sequence[str], None] = "e8a4c2f7d913"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

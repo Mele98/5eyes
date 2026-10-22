@@ -2523,6 +2523,7 @@ def _projection_context_snapshot(
     external_goal_funding_series_rappen: list[int],
 ) -> dict:
     """Canonical effective inputs for reporting and total-scope goal paths."""
+    from services.retirement_phase import retirement_phase_snapshot_fields
     normalized_target_currency = str(
         target_currency or "CHF"
     ).upper().strip()
@@ -2592,12 +2593,9 @@ def _projection_context_snapshot(
                 getattr(mandate, "use_mortality_simulation", 0) or 0
             ),
             "opened_at": str(getattr(mandate, "opened_at", None) or ""),
-            "retirement_year": int(
-                getattr(mandate, "retirement_year", 0) or 0
-            ),
-            "life_expectancy_year": int(
-                getattr(mandate, "life_expectancy_year", 0) or 0
-            ),
+            "retirement_year": int(getattr(mandate, "retirement_year", 0) or 0),
+            "life_expectancy_year": int(getattr(mandate, "life_expectancy_year", 0) or 0),
+            **retirement_phase_snapshot_fields(mandate),  # DYNAMIC-RETIREMENT-PHASE-001
         },
     }
 

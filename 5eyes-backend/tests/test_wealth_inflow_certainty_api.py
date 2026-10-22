@@ -21,7 +21,7 @@ from test_vorsorge_transfer_guards import (  # noqa: E402,F401 - pytest fixtures
 )
 
 REVISION = "e5a1c7f3b9d2"
-DOWN_REVISION = "d7b3f1a9c2e4"
+DOWN_REVISION = "e8a4c2f7d913"
 MONOLITH = BACKEND_ROOT.parent / "5eyes-electron" / "frontend" / "5eyes_v2.html"
 
 

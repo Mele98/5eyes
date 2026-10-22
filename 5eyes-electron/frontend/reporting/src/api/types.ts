@@ -472,6 +472,33 @@ export interface GoalEntry {
    * selben Engpass — ein Konflikt, nicht mehrere.
    */
   failure_event_id: string | null;
+  /**
+   * GOAL-FAILURE-DISTRIBUTION-REPORT-001: volle Verteilung des ersten
+   * Ereignisses über die verfehlten Verläufe (Engine v10). `null` =
+   * Altbestand / nicht deutbar / Projektion ausgeblendet → nichts anzeigen;
+   * `[]` = in keinem Verlauf verfehlt. Ältere Payloads liefern das Feld nicht.
+   */
+  failure_event_distribution?: FailureEventShare[] | null;
+  /** Kompakte, kundenverständliche Gruppen je Ereignisart (Anteil absteigend). */
+  failure_cause_summary?: FailureCauseGroup[] | null;
+}
+
+export type FailureEventKind = 'liquiditaetsengpass' | 'zielschwelle' | 'renditeziel';
+
+export interface FailureEventShare {
+  event_id: string;
+  kind: FailureEventKind;
+  /** Simulationsjahr (Spalte t des Vermögenspfads); nur bei Liquiditätsengpass. */
+  plan_year: number | null;
+  share_bps: number;
+}
+
+export interface FailureCauseGroup {
+  kind: FailureEventKind;
+  label: string;
+  share_bps: number;
+  first_plan_year: number | null;
+  last_plan_year: number | null;
 }
 
 export interface MonteCarloPaths {
