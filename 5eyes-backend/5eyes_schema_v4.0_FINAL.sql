@@ -391,6 +391,46 @@ CREATE TRIGGER IF NOT EXISTS trg_risk_override_decisions_no_delete
 BEFORE DELETE ON risk_override_decisions FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'risk_override_decisions is immutable'); END;
 
+-- GOAL-REVISION-DECISION-001 (2026-10-21): append-only GoalRevisionDecisionV1,
+-- einzige Quelle einer Herabstufung zum nachrangigen Wunschziel. Kein FK auf
+-- goals/mandates (Purge-fest); DDL textgleich mit database.py.
+CREATE TABLE IF NOT EXISTS goal_revision_decisions (
+    id                            TEXT PRIMARY KEY,
+    schema_version                TEXT NOT NULL DEFAULT 'GoalRevisionDecisionV1',
+    goal_id                       TEXT NOT NULL,
+    mandate_id                    TEXT NOT NULL,
+    client_id                     TEXT,
+    sequence_no                   INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_decision_id          TEXT,
+    goal_snapshot_hash            TEXT NOT NULL,
+    goal_snapshot_json            TEXT NOT NULL,
+    previous_hardness             TEXT NOT NULL,
+    new_status                    TEXT NOT NULL CHECK(new_status IN ('nachrangiges_wunschziel')),
+    reason                        TEXT NOT NULL,
+    evidence_status               TEXT NOT NULL,
+    evidence_best_probability_bps INTEGER,
+    evidence_wilson_upper_bps     INTEGER,
+    evidence_tau_bps              INTEGER,
+    evidence_engine_version       TEXT NOT NULL,
+    evidence_allocation_id        TEXT,
+    evidence_screening_cube_hash  TEXT,
+    actor_id                      TEXT NOT NULL REFERENCES users(id),
+    decided_at                    TEXT NOT NULL,
+    rules_version                 TEXT NOT NULL,
+    decision_hash                 TEXT NOT NULL,
+    created_at                    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_goal_revision_decision_sequence
+    ON goal_revision_decisions(goal_id, sequence_no);
+CREATE INDEX IF NOT EXISTS ix_goal_revision_decisions_mandate
+    ON goal_revision_decisions(mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_update
+BEFORE UPDATE ON goal_revision_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_delete
+BEFORE DELETE ON goal_revision_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END;
+
 -- ===========================================================================
 -- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 -- RiskProfileSignoffV1 -- append-only, gehashter Nachweis JEDER Signatur des
@@ -443,6 +483,32 @@ BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_risk_profile_signoffs_no_delete
 BEFORE DELETE ON risk_profile_signoffs FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
+
+-- ===========================================================================
+-- DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Kundenschluessel fuer das
+-- Crypto-Shredding der Freitexte in append-only Evidence-Tabellen
+-- (services/pii_vault.py). Shred-only: der Trigger erlaubt nur das
+-- Vernichten (key_material -> NULL + shredded_at), kein Ersetzen/Wieder-
+-- beleben, kein DELETE (Tombstone bleibt als Nachweis). Kein FK auf clients.
+-- Identisch zu database.py::CLIENT_PII_KEYS_SQLITE_TABLE_DDL/_TRIGGERS.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS client_pii_keys (
+    client_id     TEXT PRIMARY KEY,
+    key_id        TEXT NOT NULL UNIQUE,
+    key_material  TEXT,
+    created_at    TEXT NOT NULL,
+    shredded_at   TEXT,
+    CHECK ((key_material IS NULL) = (shredded_at IS NOT NULL))
+);
+CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_shred_only
+BEFORE UPDATE ON client_pii_keys FOR EACH ROW
+WHEN NEW.client_id IS NOT OLD.client_id OR NEW.key_id IS NOT OLD.key_id
+OR (NEW.key_material IS NOT NULL AND NEW.key_material IS NOT OLD.key_material)
+OR (OLD.shredded_at IS NOT NULL AND NEW.shredded_at IS NOT OLD.shredded_at)
+BEGIN SELECT RAISE(ABORT, 'client_pii_keys is shred-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_no_delete
+BEFORE DELETE ON client_pii_keys FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'client_pii_keys is shred-only'); END;
 
 -- ============================================================
 -- 6. SUITABILITY CHECKS — NEU v4

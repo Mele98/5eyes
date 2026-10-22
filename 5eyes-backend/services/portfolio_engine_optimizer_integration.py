@@ -284,6 +284,33 @@ def sensitivity_house_anchor_bps(
     return {str(bucket): int(value) for bucket, value in anchor.items()}
 
 
+def _build_retirement_phase_kwargs(mandate) -> dict:
+    """Ruhestandsphase fuer run_solver (DYNAMIC-RETIREMENT-PHASE-001).
+
+    Leer, wenn kein Pensionierungsjahr aufloesbar ist (bisheriges Verhalten:
+    durchgehend Erwerbsphase). Sonst ``retirement_calendar_year`` (daraus baut
+    ``build_optimizer_context`` die Jahresserie), ``base_calendar_year`` (das
+    Bewertungsjahr = t0, dieselbe Achse wie der Steuerkontext) und -- wie
+    bisher -- ``is_retired`` fuer den Status im Startjahr.
+    """
+    if mandate is None:
+        return {}
+    from services.mortality.horizon import mandate_reference_year
+    from services.retirement_phase import resolve_retirement_phase
+
+    phase = resolve_retirement_phase(mandate)
+    if phase.retirement_year is None:
+        return {}
+    reference_year = mandate_reference_year(mandate)
+    kwargs: dict = {
+        "base_calendar_year": reference_year,
+        "retirement_calendar_year": int(phase.retirement_year),
+    }
+    if phase.is_retired_at(reference_year):
+        kwargs["is_retired"] = True
+    return kwargs
+
+
 def _build_tax_solver_kwargs(mandate) -> dict:
     """Baut die tax-*-kwargs fuer run_solver aus dem Mandat (Sprint U-P2 Fix C9).
 
@@ -292,6 +319,10 @@ def _build_tax_solver_kwargs(mandate) -> dict:
     nicht still tax-naiv weiterlaufen oder dadurch in die House Matrix fallen.
     """
     tax_kwargs: dict = {}
+    # DYNAMIC-RETIREMENT-PHASE-001: Ruhestandsphase unabhaengig von der
+    # Steuerbasis (vorher nur mit tax_jurisdiction gesetzt -> ein pensionierter
+    # Mandant ohne Steuersitz galt fuer Importance-Sampling als erwerbstaetig).
+    tax_kwargs.update(_build_retirement_phase_kwargs(mandate))
     try:
         from services.mandate_model_inputs import validate_tax_model_inputs
 
@@ -341,9 +372,6 @@ def _build_tax_solver_kwargs(mandate) -> dict:
         cby = int(getattr(mandate, "client_birth_year", 0) or 0)
         if cby:
             tax_kwargs["mandate_age_at_start"] = max(0, current_year - cby)
-        retirement_year = int(getattr(mandate, "retirement_year", 0) or 0)
-        if retirement_year and current_year >= retirement_year:
-            tax_kwargs["is_retired"] = True
     except Exception as exc:  # noqa: BLE001 - translate to stable domain error
         from services.optimizer.constraints import OptimizerInputError
 
@@ -500,6 +528,22 @@ def _run_stochastic_optimizer_pass(
     # an run_solver durchgereicht. Backwards-Compat: kein Feld → None
     # → simulate_wealth_paths laeuft tax-naiv (wie vorher).
     tax_kwargs = _build_tax_solver_kwargs(mandate)
+    if mandate is not None:
+        # DYNAMIC-RETIREMENT-PHASE-001: Phasenwechsel (oder fehlendes
+        # Pensionierungsjahr) im Reasoning offenlegen.
+        from services.mortality.horizon import mandate_reference_year
+        from services.retirement_phase import (
+            resolve_retirement_phase,
+            retirement_phase_note,
+        )
+
+        reasoning.append(
+            retirement_phase_note(
+                resolve_retirement_phase(mandate),
+                reference_year=mandate_reference_year(mandate),
+                horizon_years=horizon,
+            )
+        )
 
     # RESERVE-DOUBLE-COUNT-001: die externe Reserve ist aus dem Startvermoegen
     # entfernt, die Abfluesse, fuer die sie gebildet wurde, bleiben aber voll im
