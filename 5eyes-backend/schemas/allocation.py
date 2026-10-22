@@ -1353,6 +1353,12 @@ class GoalAnalysisResponse(BaseModel):
     timing_label: Optional[str] = None
     success_rate_pct: Optional[int] = None
     path_success_rate_pct: Optional[int] = None
+    # GOAL-STATUS-BY-SUCCESS-001: kanonische Erfolgs-Wkt. (Optimizer-Evidenz,
+    # sonst Simulation) + Quelle; Gewicht wie im Bericht (Goal.weight_bps roh).
+    success_probability: Optional[float] = None
+    success_probability_pct: Optional[int] = None
+    success_probability_source: Optional[str] = None
+    success_weight_bps: Optional[int] = None
     funded_ratio_p50: Optional[float] = None
     median_achievement_pct: Optional[int] = None
     pessimistic_shortfall_rappen: Optional[int] = None
