@@ -241,3 +241,116 @@ def test_retired_at_start_activates_is_without_tax_jurisdiction(monkeypatch) -> 
     )
     assert ctx.is_retired is True
     assert ctx.scenario_weights is not None
+
+
+# ── Input-Snapshot-Hash (CIO-Entscheid zu #670) ─────────────────────────
+
+
+@pytest.fixture()
+def db_session(tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import configure_mappers, sessionmaker
+
+    from database import Base
+    from models import (  # noqa: F401
+        allocation, clients, mandates, profiling, review, snapshots, users, wealth,
+    )
+    from models import tenant as _tenant  # noqa: F401
+
+    configure_mappers()
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'retirement_phase_hash.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    factory = sessionmaker(
+        autocommit=False, autoflush=False, expire_on_commit=False, bind=engine,
+    )
+    s = factory()
+    try:
+        yield s
+    finally:
+        s.close()
+        engine.dispose()
+
+
+def _allocation_under_pre_update_hash(s, monkeypatch, *, retirement_year, pa_age):
+    """Foundation-Mandat konfigurieren und die Allokation mit dem Hash-Aufbau
+    VOR diesem Update (ohne Phasenfeld) erzeugen."""
+    import services.retirement_phase as rp
+    from models.allocation import TargetAllocation
+    from models.mandates import Mandate
+    from models.users import User
+    from models.wealth import PlanningAssumption
+    from services.foundation_example import (
+        FOUNDATION_MANDATE_NUMBER,
+        upsert_foundation_example_case,
+    )
+    from services.portfolio_engine import generate_target_allocation
+
+    monkeypatch.setattr(rp, "retirement_phase_snapshot_fields", lambda mandate: {})
+    adv = User(
+        id="advisor-1", username="advisor", password_hash="h", full_name="Advisor",
+        role="advisor", is_active=1,
+        created_at="2026-03-27T00:00:00.000Z", updated_at="2026-03-27T00:00:00.000Z",
+    )
+    s.add(adv)
+    s.commit()
+    upsert_foundation_example_case(s, adv)
+    s.commit()
+    mandate = s.query(Mandate).filter(
+        Mandate.mandate_number == FOUNDATION_MANDATE_NUMBER
+    ).one()
+    mandate.tax_jurisdiction = None
+    mandate.tax_overrides_json = None
+    mandate.tax_estimate_in_cashflow_enabled = 0
+    mandate.retirement_year = retirement_year
+    for pa in s.query(PlanningAssumption).filter(
+        PlanningAssumption.mandate_id == mandate.id
+    ):
+        pa.retirement_age_primary = pa_age
+        pa.retirement_age_partner = None
+    s.commit()
+    generate_target_allocation(db=s, mandate=mandate, user_id=adv.id, preferences=None)
+    s.commit()
+    ta = s.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).one()
+    assert ta.input_snapshot_hash
+    return mandate, ta
+
+
+def test_retired_mandate_without_tax_seat_is_stale_after_update(db_session, monkeypatch):
+    from services.allocation_input_staleness import allocation_inputs_stale
+
+    mandate, ta = _allocation_under_pre_update_hash(
+        db_session, monkeypatch, retirement_year=2020, pa_age=None,
+    )
+    # Positivkontrolle: unter dem alten Hash-Aufbau ist sie aktuell.
+    assert allocation_inputs_stale(db_session, mandate, ta) is False
+    monkeypatch.undo()
+    assert allocation_inputs_stale(db_session, mandate, ta) is True
+
+
+def test_mandate_without_retirement_year_stays_current(db_session, monkeypatch):
+    from services.allocation_input_staleness import allocation_inputs_stale
+
+    mandate, ta = _allocation_under_pre_update_hash(
+        db_session, monkeypatch, retirement_year=None, pa_age=None,
+    )
+    assert allocation_inputs_stale(db_session, mandate, ta) is False
+    monkeypatch.undo()
+    assert allocation_inputs_stale(db_session, mandate, ta) is False
+
+
+def test_snapshot_field_only_with_retirement_year() -> None:
+    from services.retirement_phase import retirement_phase_snapshot_fields
+
+    none = SimpleNamespace(retirement_year=None, client_birth_year=1960, client=None)
+    assert retirement_phase_snapshot_fields(none) == {}
+    some = SimpleNamespace(retirement_year=2031, client_birth_year=1966, client=None)
+    assert retirement_phase_snapshot_fields(some)["retirement_phase"][
+        "retirement_calendar_year"
+    ] == 2031

@@ -219,3 +219,28 @@ def retirement_phase_note(
             "(ausgewiesen; rechenwirksam ist die Hauptperson)."
         )
     return text
+
+
+RETIREMENT_PHASE_SNAPSHOT_SCHEME = "dynamic_retirement_phase_v1"
+
+
+def retirement_phase_snapshot_fields(mandate: Any) -> dict:
+    """Beitrag zum Input-Snapshot-Hash (CIO-Entscheid zu #670).
+
+    Nur gesetzt, wenn ein Pensionierungsjahr aufloesbar ist -- genau dann
+    weicht die Rechnung vom statischen Vor-Verhalten ab (Phasenserie,
+    Entkopplung von der Steuerbasis, Planungsannahme als Quelle). Bestehende
+    Allokationen solcher Mandate werden damit "Neuberechnung noetig";
+    Mandate ohne Pensionierungsjahr behalten ihren Hash unveraendert.
+    """
+    if mandate is None:
+        return {}
+    phase = resolve_retirement_phase(mandate)
+    if phase.retirement_year is None:
+        return {}
+    return {
+        "retirement_phase": {
+            "scheme": RETIREMENT_PHASE_SNAPSHOT_SCHEME,
+            "retirement_calendar_year": int(phase.retirement_year),
+        }
+    }
