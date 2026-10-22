@@ -2265,7 +2265,18 @@ def get_advisory_report_pdf(
     """
     from services.pdf.documents.advisory_report import render_advisory_report_pdf
 
+    from services.recommendation_release_gate import (
+        CHANNEL_ADVISORY_PDF,
+        assert_recommendation_release_eligible,
+    )
+
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    # RISK-BUDGET-RELEASE-GATE (2026-10-21): kein client-ready PDF einer
+    # Strategie, deren Risikobudget-Treue verletzt oder nicht belegt ist --
+    # zentrales Gate, VOR dem Rendern.
+    assert_recommendation_release_eligible(
+        db, mandate, channel=CHANNEL_ADVISORY_PDF,
+    )
     pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
