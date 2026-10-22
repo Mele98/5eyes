@@ -213,6 +213,8 @@ def _depot_check_gate_blocked(dc: Mapping[str, Any]) -> bool:
 _PROJECTION_CHANNELS = (
     "ausgangslage.key_metrics",
     "goal_based_investing.goals.probability_bps",
+    "goal_based_investing.goals.failure_event_distribution",
+    "goal_based_investing.goals.failure_cause_summary",
     "goal_based_investing.plan_solvency",
     "goal_based_investing.monte_carlo_paths",
     "erkenntnisse.zielkompatibilitaet",
@@ -2471,6 +2473,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "evaluation_scope": "data_pending",
                 "funding_rank": None,
                 "failure_event_id": None,
+                "failure_event_distribution": None,
+                "failure_cause_summary": None,
             })
         return {
             "goals": goals,
@@ -2526,6 +2530,10 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 else None
             ),
             "failure_event_id": r.get("failure_event_id"),
+            # GOAL-FAILURE-DISTRIBUTION-REPORT-001: volle Ursachenverteilung
+            # (Engine v10) + kompakte Kundengruppen; None bei Altbestand
+            # oder nicht deutbarer Verteilung -> keine Anzeige.
+            **_failure_cause_fields(r),
         })
     # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
     # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
@@ -2544,6 +2552,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 evaluation_scope="data_pending",
                 outside_simulation_horizon=False,
                 failure_event_id=None,
+                failure_event_distribution=None,
+                failure_cause_summary=None,
             )
         plan_row = None
 
@@ -2559,6 +2569,27 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
         # mit klarer Begruendung zurueck — UI rendert dann Platzhalter.
         "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
         **staleness,
+    }
+
+
+def _failure_cause_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    """GOAL-FAILURE-DISTRIBUTION-REPORT-001: Payload-Felder einer Zielzeile."""
+    from services.goal_failure_causes import (
+        normalize_failure_event_distribution,
+        summarize_failure_causes,
+    )
+    from services.optimizer.goal_attribution import is_individual_goal_row
+
+    # Nur zielindividuelle Evidenz (priority_funded) traegt eine
+    # zielbezogene Verteilung; Altbewertungen zeigen nichts.
+    distribution = (
+        normalize_failure_event_distribution(row)
+        if is_individual_goal_row(row)
+        else None
+    )
+    return {
+        "failure_event_distribution": distribution,
+        "failure_cause_summary": summarize_failure_causes(distribution),
     }
 
 
