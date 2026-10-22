@@ -229,7 +229,12 @@ def erase_client(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="clients", record_id=client_id, action="CLIENT_ERASE",
         client_id=client_id,
-        new_value=str({"reason": body.reason, "redacted": result["redacted"]}),
+        new_value=str({
+            "reason": body.reason,
+            "redacted": result["redacted"],
+            "pii_keys_shredded": result.get("pii_keys_shredded", 0),
+            "unsealed_append_only_rows": result.get("unsealed_append_only_rows", {}),
+        }),
         ip_address=_extract_client_ip(request))
     db.commit()
     return result
@@ -814,8 +819,12 @@ def cashflow_projection(
         WealthInflow.deleted_at.is_(None),
         WealthInflow.is_active == 1,
     ).all()
+    # INFLOW-CERTAINTY-001: wie in der Strategie-Engine nur sichere Zufluesse
+    # (unsichere Erbschaft/Bonus ohne Zusage sind nicht eingerechnet).
+    from services.wealth_inflow_certainty import certain_inflows
+
     inflow_series = _wealth_inflow_series_rappen(
-        wealth_inflows, horizon, start_year, inflation_series_bps,
+        certain_inflows(wealth_inflows), horizon, start_year, inflation_series_bps,
     )
     # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): automatische Vorsorge-
     # bezuege (3a/FZ/Police, #642/#651) aus DERSELBEN Ledger-Quelle wie die

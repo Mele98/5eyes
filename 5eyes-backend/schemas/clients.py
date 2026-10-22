@@ -201,6 +201,12 @@ class ClientErasureResponse(BaseModel):
     mandate_ids: list[str]
     redacted: dict[str, int]
     erased_at: str
+    # DSG-ERASURE-APPEND-ONLY-001: vernichtete Kundenschluessel (Crypto-
+    # Shredding der versiegelten Freitexte in append-only Evidence) und
+    # Altbestand-Zeilen mit Klartext, die ohne Aufweichung der Trigger nicht
+    # redigiert werden koennen (Owner-/Legal-Entscheid -- sichtbar gemeldet).
+    pii_keys_shredded: int = 0
+    unsealed_append_only_rows: dict[str, int] = {}
 
 
 class NationalityCreate(BaseModel):

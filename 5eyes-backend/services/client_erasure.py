@@ -39,7 +39,13 @@ TIER A -- irreversible Anonymisierung (JETZT, bei jedem Aufruf):
     Direkt identifizierende Felder (Name, Geburtsdatum, Partnerdaten,
     Adresse, Bankverbindungs-/Depotnummern, freie Notizfelder,
     Signatur-Bildartefakte, Login-E-Mail) werden auf einen fixen
-    Redaction-Marker gesetzt. Diese Felder sind selbst NICHT der
+    Redaction-Marker gesetzt. Seit DSG-ERASURE-APPEND-ONLY-001 (2026-10-21)
+    zusaetzlich: die Freitext-Projektion am Risikoprofil (override_reason,
+    Berater-Notiz in client_signed_ref) wird redigiert und der Kunden-
+    schluessel in client_pii_keys vernichtet (Crypto-Shredding der
+    versiegelten Freitexte in risk_override_decisions/risk_profile_signoffs
+    und ihren audit_log-Snapshots, services/pii_vault.py) -- ohne die
+    Unveraenderlichkeits-Trigger dieser Tabellen anzufassen. Diese Felder sind selbst NICHT der
     gesetzlich vorgeschriebene "Beleg" (das ist die Beratungsleistung,
     der Entscheid, der Betrag, das Datum) -- sie sind Metadaten UEBER
     die Person, die den Beleg betrifft. Nach dieser Stufe ist die
@@ -348,6 +354,11 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
         )
 
     now = _now()
+    if db.get_bind().dialect.name == "sqlite":
+        # DSG-ERASURE-APPEND-ONLY-001: freigegebene Zelleninhalte der
+        # folgenden Redaktionen mit Nullen ueberschreiben, statt sie als
+        # forensischen Rest in den DB-Seiten liegen zu lassen.
+        db.execute(text("PRAGMA secure_delete = ON"))
     mandate_rows = db.execute(
         text("SELECT id FROM mandates WHERE client_id = :client_id"),
         {"client_id": client_id},
@@ -434,6 +445,42 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
             ],
         )
 
+    # --- DSG-ERASURE-APPEND-ONLY-001: Freitexte der Risikoprofil-Evidence ---
+    # risk_override_decisions.reason / risk_profile_signoffs.note (append-only,
+    # UPDATE/DELETE per Trigger verboten) und ihre audit_log-Snapshots tragen
+    # den Freitext nur versiegelt (services/pii_vault.py). Crypto-Shredding:
+    # der Kundenschluessel wird vernichtet -> Zeilen und Hashes bleiben
+    # unveraendert und verifizierbar, der Klartext ist nicht mehr herstellbar.
+    # Die veraenderbare Projektion am Assessment (override_reason; bei
+    # Berater-Signaturen client_signed_ref = Notiz) wird redigiert; Score,
+    # Profil, Pointer und Hashes (die strukturierte FIDLEG-Evidence) bleiben.
+    # Rechtsfrage (Aufbewahrung vs. Loeschung der Begruendung): Owner-/Legal-
+    # Entscheid, siehe docs/planning/2026-08-15-dsg-art32-erasure-workflow.md.
+    from services.pii_vault import count_unsealed_rows, shred_client_keys
+
+    ra_columns = _columns(db, "risk_assessments") if mandate_ids else set()
+    for column, extra in (
+        ("override_reason", ""),
+        ("client_signed_ref", " AND COALESCE(client_signed_method, '') <> 'portal'"),
+    ):
+        if column not in ra_columns:
+            continue
+        clause, id_params = _in_params("ra_m", mandate_ids)
+        n = db.execute(
+            text(
+                f"UPDATE risk_assessments SET {_quote_ident(column)} = :marker "
+                f"WHERE mandate_id IN ({clause}) AND {_quote_ident(column)} IS NOT NULL"
+                f"{extra}"
+            ),
+            {"marker": REDACTION_MARKER, **id_params},
+        ).rowcount
+        if n:
+            redacted[f"risk_assessments.{column}"] = int(n)
+    pii_keys_shredded = (
+        shred_client_keys(db, client_id) if _table_exists(db, "client_pii_keys") else 0
+    )
+    unsealed_append_only_rows = count_unsealed_rows(db, client_id, mandate_ids)
+
     # --- Kundenportal-Login (falls vorhanden): eigenes User-Konto des Kunden ---
     login_row = db.execute(
         text("SELECT user_id FROM client_logins WHERE client_id = :client_id"),
@@ -500,4 +547,6 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
         "mandate_ids": mandate_ids,
         "redacted": redacted,
         "erased_at": now,
+        "pii_keys_shredded": pii_keys_shredded,
+        "unsealed_append_only_rows": unsealed_append_only_rows,
     }

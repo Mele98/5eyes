@@ -4157,13 +4157,15 @@ def _recompute_reserve_reasoning(
     # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): Zufluss-Scope wie die
     # Engine (mandatslose + dieses Mandat) und automatische Vorsorgebezuege aus
     # DERSELBEN Ledger-Quelle (PensionTransferLedgerV1 via pension_payout_view).
-    # Vorher rechnete diese Nachrechnung nur mit den rohen Zufluessen ->
-    # Abweichung zur persistierten Reserve sobald ein 3a/FZ/Police-Bezug in den
-    # ersten Jahren lag (Herleitung dann faelschlich als Drift verborgen).
-    inflows = [
+    # INFLOW-CERTAINTY-001: unsichere Zufluesse senken die Reserve nicht
+    # (identisch zum Engine-Pfad, services/wealth_inflow_certainty.py);
+    # verknuepfte Vorsorgebezuege sind immer "sicher".
+    from services.wealth_inflow_certainty import certain_inflows
+
+    inflows = certain_inflows([
         inflow for inflow in inflows
         if not getattr(inflow, "mandate_id", None) or inflow.mandate_id == mandate.id
-    ]
+    ])
     inflow_projection_series_rappen = pension_payout_view(
         _wealth_inflow_series_rappen(
             inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
