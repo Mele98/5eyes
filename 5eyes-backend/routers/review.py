@@ -399,7 +399,7 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Soll-Allokation und RecommendationRun referenzieren verschiedene CMA.")
     if not errors and allocation and assessment and policy and cma:
         try:
-            build_target_payload_from_allocation(
+            anchored_payload = build_target_payload_from_allocation(
                 db=db,
                 mandate=mandate,
                 allocation=allocation,
@@ -413,6 +413,16 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
                 "Der verankerte Allocation-Kontext ist nicht mehr integer: "
                 f"{exc}"
             )
+        else:
+            # RESERVE-LEDGER-SNAPSHOT-001: nur ein replay-verifizierter
+            # Reserve-Funding-Ledger ist finalisierbar (stale/Legacy fail-closed).
+            from services.reserve_funding_ledger_snapshot import (
+                reserve_ledger_finalization_error,
+            )
+
+            ledger_error = reserve_ledger_finalization_error(anchored_payload)
+            if ledger_error:
+                errors.append(ledger_error)
     if allocation and assessment and policy:
         # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1) +
         # BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14):

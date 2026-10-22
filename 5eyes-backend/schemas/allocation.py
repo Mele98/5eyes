@@ -382,6 +382,7 @@ class TargetAllocationResponse(BaseResponse):
     total_wealth_at_generation_rappen: Optional[int] = None
     reserve_needed_at_generation_rappen: Optional[int] = None
     external_reserve_at_generation_rappen: Optional[int] = None
+    reserve_funding_ledger_hash: Optional[str] = None
     # Active allocation decision audit. These fields already exist on the ORM
     # model; declaring them here prevents FastAPI's response_model filtering
     # from hiding the Optimizer panel in the client.
@@ -1645,6 +1646,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     external_reserve_rappen: int = 0
     # RESERVE-FUNDING-LEDGER-001: Herkunft/Release der externen Reserve.
     reserve_funding_ledger: Optional[dict] = None
+    # RESERVE-LEDGER-SNAPSHOT-001: Historical Replay vs. Live-Preview
+    # (mode/status verified|stale|unverifiable, snapshot_hash, live_preview).
+    reserve_funding_ledger_replay: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int
