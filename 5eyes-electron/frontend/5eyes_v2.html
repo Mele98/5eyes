@@ -30908,6 +30908,17 @@ function runSensitivityCall(btn){
     siblings.forEach(function(b){b.disabled=false;});
   });
 }
+// KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Anlageklassen ohne dokumentierte
+// Kenntnis/Aufklaerung (Backend: knowledge_asset_class_check). Reiner Hinweis,
+// die Allokation wird dadurch nicht veraendert.
+function aaKnowledgeGapCardBody(check){
+  if(!check||check.status!=='gap'||!Array.isArray(check.findings)||!check.findings.length)return '';
+  var actions=check.findings.map(function(f){
+    var pct=formatBpsPercent(Number(f&&f.target_weight_bps||0));
+    return String(f&&f.label||'Anlageklasse')+' ('+pct+'): '+String(f&&f.action||'');
+  });
+  return 'Fuer folgende Anlageklassen der Strategie sind weder Kenntnisse noch eine Aufklaerung dokumentiert: '+actions.join(' · ')+' Die Allokation wurde dadurch nicht veraendert.';
+}
 function renderActionCards(reasoning){
   var el=document.getElementById('aa-action-list');
   if(!el)return;
@@ -30927,6 +30938,10 @@ function renderActionCards(reasoning){
     var profileBody='Die Soll-Allokation wird vom Profil '+profileBits.join(' · ')+' getragen.';
     if(allocation&&allocation.house_matrix_profile)profileBody+=' Die House View startet aus '+allocation.house_matrix_profile+' und bleibt innerhalb der Risiko-Leitplanken.';
     pushCard('Risikoprofil & Horizont','Zentral','tr2',profileBody,'good');
+  }
+  if(allocation&&allocation.knowledge_asset_class_check){
+    // Reason-Code KNOWLEDGE_GAP_ASSET_CLASS (siehe aaKnowledgeGapCardBody).
+    pushCard('Kenntnisse & Anlageklassen','Hinweis','ta',aaKnowledgeGapCardBody(allocation.knowledge_asset_class_check),'warn');
   }
   if(allocation){
     var annualNet=allocationRecurringNetCashflowRappen(allocation);
@@ -30972,7 +30987,7 @@ function renderActionCards(reasoning){
   }
   var leftoverReasoning=(Array.isArray(reasoning)?reasoning:[]).filter(function(text){
     var raw=String(text||'');
-    return raw && !/Liquiditaet|Reserve|Cashflow|House Matrix fuer Score|Risky Fraction|Pfadsimulation/i.test(raw);
+    return raw && !/Liquiditaet|Reserve|Cashflow|House Matrix fuer Score|Risky Fraction|Pfadsimulation|KNOWLEDGE_GAP_ASSET_CLASS/i.test(raw);
   }).slice(0,2);
   if(leftoverReasoning.length)pushCard('Leitplanken & Engine','Einordnung','tn',leftoverReasoning.join(' '),'');
   if(!items.length){

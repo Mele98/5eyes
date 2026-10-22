@@ -1717,6 +1717,15 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         logger.warning("Protokoll data: risk signoff load failed: %s", exc)
         risk_signoff_view = {"state": None, "lines": _SIGNOFF_LOAD_FAILED}
 
+    # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Klassen ohne dokumentierte Kenntnis.
+    knowledge_gap_hints: list[str] = []
+    try:
+        from services.knowledge_asset_class_gap import protocol_hints_for_mandate
+
+        knowledge_gap_hints = protocol_hints_for_mandate(db, mandate, ta)
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -1728,6 +1737,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_id=risk_signoff_view.get("signoff_id"),
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
+        knowledge_gap_hints=knowledge_gap_hints,
     )
 
 
