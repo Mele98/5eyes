@@ -793,7 +793,16 @@ def get_depot_check(
     Liste der Warnings/Empfehlungen.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return compute_depot_check(db, mandate)
+    result = compute_depot_check(db, mandate)
+    # SUITABILITY-DETECTOR-AVAILABILITY-001: Status der HouseMatrix-Referenz
+    # (dieselbe Aufloesung wie im Depotcheck-PDF) ausgewiesen statt still
+    # weggelassen; bei "unavailable" mit Reason-Code + Hinweistext.
+    from services.house_matrix_benchmark import resolve_depotcheck_benchmark
+
+    result["house_matrix_benchmark"] = resolve_depotcheck_benchmark(
+        db, mandate,
+    ).public()
+    return result
 
 
 @router.get("/mandates/{mandate_id}/advisory-report")

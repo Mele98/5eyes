@@ -1141,6 +1141,9 @@ export type PerformanceAttributionData = {
   benchmark_source: string;
   fidleg_basis: string;
   error?: string;
+  /** SUITABILITY-DETECTOR-AVAILABILITY-001: Grund, wenn keine eindeutige
+   *  House-Matrix-Referenz aufloesbar ist (z.B. SCORE_BUCKET_AMBIGUOUS). */
+  reason_code?: string;
 };
 
 // ---------------------------------------------------------------------------

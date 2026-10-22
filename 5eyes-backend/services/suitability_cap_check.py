@@ -84,6 +84,111 @@ def not_applicable() -> SuitabilityCapCheck:
     return SuitabilityCapCheck(status=STATUS_NOT_APPLICABLE)
 
 
+@dataclass(frozen=True)
+class HouseMatrixResolution:
+    """Eindeutige Aufloesung einer HouseMatrix-Zeile fuer (Policy, Bucket).
+
+    ``row`` ist nur gesetzt, wenn genau EINE aktive Zeile passt; sonst
+    tragen ``reason_code``/``detail`` den Grund (fail-closed, nie
+    ``.first()`` nach DB-Reihenfolge).
+    """
+
+    row: object | None
+    reason_code: str | None = None
+    detail: str | None = None
+    score_bucket: int | None = None
+
+    @property
+    def available(self) -> bool:
+        return self.row is not None
+
+
+def resolve_house_matrix_row(
+    db: Session,
+    *,
+    policy_id: str | None,
+    score_bucket: int,
+) -> HouseMatrixResolution:
+    """Gemeinsame Bucket-Aufloesung fuer Suitability-Detektor, Depotcheck-
+    Benchmark und Performance-Attribution."""
+    from models.allocation import HouseMatrix, OptimizerPolicy
+
+    bucket = int(score_bucket)
+    policy = None
+    if policy_id:
+        policy = (
+            db.query(OptimizerPolicy)
+            .filter(OptimizerPolicy.id == policy_id)
+            .first()
+        )
+    if policy is None:
+        return HouseMatrixResolution(
+            row=None,
+            reason_code=REASON_SUITABILITY_POLICY_MISSING,
+            detail="Keine Optimizer-Policy (HouseMatrix) hinterlegt.",
+            score_bucket=bucket,
+        )
+    rows = (
+        db.query(HouseMatrix)
+        .filter(
+            HouseMatrix.policy_id == policy.id,
+            HouseMatrix.score_from <= bucket,
+            HouseMatrix.score_to >= bucket,
+            HouseMatrix.is_active == 1,
+        )
+        .all()
+    )
+    if not rows:
+        return HouseMatrixResolution(
+            row=None,
+            reason_code=REASON_SCORE_BUCKET_MISSING,
+            detail=(
+                "Die HouseMatrix hat keine aktive Zeile fuer "
+                f"Score-Bucket {bucket}."
+            ),
+            score_bucket=bucket,
+        )
+    if len(rows) > 1:
+        return HouseMatrixResolution(
+            row=None,
+            reason_code=REASON_SCORE_BUCKET_AMBIGUOUS,
+            detail=(
+                f"Die HouseMatrix ist fuer Score-Bucket {bucket} mehrdeutig "
+                "(ueberlappende aktive Zeilen)."
+            ),
+            score_bucket=bucket,
+        )
+    return HouseMatrixResolution(row=rows[0], score_bucket=bucket)
+
+
+def resolve_house_matrix_for_assessment(
+    db: Session,
+    *,
+    assessment,
+    policy_id: str | None,
+) -> HouseMatrixResolution:
+    """Wie ``resolve_house_matrix_row``, inkl. override-bewusster
+    Bucket-Herleitung aus dem Risikoprofil (fehlend/inkonsistent -> Grund)."""
+    from services.risk_assessment_semantics import RiskAssessmentInputError
+    from services.risk_matrix import score_bucket_from_assessment
+
+    if assessment is None:
+        return HouseMatrixResolution(
+            row=None,
+            reason_code=REASON_RISK_PROFILE_MISSING,
+            detail="Kein aktuelles Risikoprofil erfasst.",
+        )
+    try:
+        bucket = int(score_bucket_from_assessment(assessment))
+    except RiskAssessmentInputError as exc:
+        return HouseMatrixResolution(
+            row=None,
+            reason_code=REASON_RISK_PROFILE_INCONSISTENT,
+            detail=f"Risikoprofil ist nicht konsistent herleitbar ({exc}).",
+        )
+    return resolve_house_matrix_row(db, policy_id=policy_id, score_bucket=bucket)
+
+
 def evaluate_house_matrix_cap(
     db: Session,
     *,
@@ -96,65 +201,33 @@ def evaluate_house_matrix_cap(
     Fail-closed: jede fehlende oder mehrdeutige Grundlage ergibt
     ``unavailable`` mit Reason-Code, niemals ``ok``.
     """
-    from models.allocation import HouseMatrix, OptimizerPolicy
-    from services.risk_assessment_semantics import RiskAssessmentInputError
-    from services.risk_matrix import score_bucket_from_assessment
-
-    if assessment is None:
-        return _unavailable(
-            REASON_RISK_PROFILE_MISSING,
-            "Zur aktiven Soll-Allokation existiert kein aktuelles Risikoprofil.",
-            risky_fraction_bps=risky_fraction_bps,
-        )
-    try:
-        score_bucket = int(score_bucket_from_assessment(assessment))
-    except RiskAssessmentInputError as exc:
-        return _unavailable(
-            REASON_RISK_PROFILE_INCONSISTENT,
-            f"Risikoprofil ist nicht konsistent herleitbar ({exc}).",
-            risky_fraction_bps=risky_fraction_bps,
-        )
+    from models.allocation import OptimizerPolicy
 
     policy = (
         db.query(OptimizerPolicy)
         .filter(OptimizerPolicy.is_current == 1)
         .first()
     )
-    if policy is None:
-        return _unavailable(
-            REASON_SUITABILITY_POLICY_MISSING,
-            "Keine aktuelle Optimizer-Policy (HouseMatrix) hinterlegt.",
-            score_bucket=score_bucket,
-            risky_fraction_bps=risky_fraction_bps,
-        )
-
-    rows = (
-        db.query(HouseMatrix)
-        .filter(
-            HouseMatrix.policy_id == policy.id,
-            HouseMatrix.score_from <= score_bucket,
-            HouseMatrix.score_to >= score_bucket,
-            HouseMatrix.is_active == 1,
-        )
-        .all()
+    resolution = resolve_house_matrix_for_assessment(
+        db,
+        assessment=assessment,
+        policy_id=getattr(policy, "id", None),
     )
-    if not rows:
+    score_bucket = resolution.score_bucket
+    if resolution.row is None:
+        detail = resolution.detail
+        if resolution.reason_code == REASON_RISK_PROFILE_MISSING:
+            detail = (
+                "Zur aktiven Soll-Allokation existiert kein aktuelles "
+                "Risikoprofil."
+            )
         return _unavailable(
-            REASON_SCORE_BUCKET_MISSING,
-            f"Die aktuelle HouseMatrix hat keine aktive Zeile fuer "
-            f"Score-Bucket {score_bucket}.",
+            resolution.reason_code,
+            detail,
             score_bucket=score_bucket,
             risky_fraction_bps=risky_fraction_bps,
         )
-    if len(rows) > 1:
-        return _unavailable(
-            REASON_SCORE_BUCKET_AMBIGUOUS,
-            f"Die aktuelle HouseMatrix ist fuer Score-Bucket {score_bucket} "
-            "mehrdeutig (ueberlappende aktive Zeilen).",
-            score_bucket=score_bucket,
-            risky_fraction_bps=risky_fraction_bps,
-        )
-    hm = rows[0]
+    hm = resolution.row
     cap_bps = int(hm.max_risky_fraction_bps)
     profile_name = str(hm.profile_name or "")
 
