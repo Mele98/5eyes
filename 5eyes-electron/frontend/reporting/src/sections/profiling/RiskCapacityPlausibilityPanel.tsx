@@ -45,6 +45,8 @@ const STATUS_META: Record<
   },
 };
 
+const NOT_EVALUABLE_HINT = 'Risikofähigkeit mangels Daten nicht prüfbar – Finanzdaten erfassen.';
+
 const NO_AUTO_CHANGE = 'Das Risikoprofil wird dadurch nicht automatisch geändert.';
 
 export function RiskCapacityPlausibilityView({
@@ -107,22 +109,25 @@ export function RiskCapacityPlausibilityView({
 
 /**
  * Kompakte Variante aus dem Advisory-Report-Payload (betragsfrei).
- * Rendert nur bei partial/inconsistent etwas -- sonst null.
+ * Rendert bei partial/inconsistent/not_evaluable (CIO-Entscheid: fehlende
+ * Daten bleiben nie stumm) -- nur bei consistent oder ohne Daten null.
  */
 export function RiskCapacityPlausibilityNotice({
   data,
 }: {
   data: RiskCapacityPlausibilityCompact | null | undefined;
 }) {
-  if (!data || (data.status !== 'partial' && data.status !== 'inconsistent')) {
+  if (!data || data.status === 'consistent') {
     return null;
   }
-  const meta = STATUS_META[data.status];
+  const meta = STATUS_META[data.status] ?? STATUS_META.not_evaluable;
   const checks = data.status === 'inconsistent' ? data.finding_checks : data.open_checks;
   const topics = checks.map(riskCapacityCheckLabel).join(' · ');
   return (
     <PanelFrame status={data.status} label={meta.label} tone={meta.tone} printHidden>
-      <p className="mt-3 text-caption text-ink-muted">{meta.summary}</p>
+      <p className="mt-3 text-caption text-ink-muted">
+        {data.status === 'not_evaluable' ? NOT_EVALUABLE_HINT : meta.summary}
+      </p>
       {topics ? <p className="mt-2 text-caption text-ink">{topics}</p> : null}
       <Footer
         reasonCode={data.reason_code}

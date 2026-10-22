@@ -328,6 +328,31 @@ def _cached_active_goals(db: Session, mandate: Mandate) -> list[Any]:
     return _aggregator_cache_get(db, ("active_goals", mandate.id), _factory)
 
 
+def _cached_risk_capacity_plausibility(db: Session, mandate: Mandate) -> Any:
+    """RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
+    pruefung Risikofaehigkeit (gegen das aktuelle Risikoprofil) fuer den
+    Beraterteil; None ohne aktuelles Profil. Hinweis-Layer, blockiert nie.
+
+    Laeuft ueber den Call-Cache: Risikoprofil, Cashflows und Ziele kommen
+    aus denselben gecachten Zeilen wie die uebrigen Sektionen (keine
+    zusaetzlichen Queries, siehe test_aggregator_n1_baseline)."""
+    from services.risk_capacity_plausibility_report import (
+        compact_view, evaluate_for_assessment,
+    )
+
+    def _factory():
+        return compact_view(evaluate_for_assessment(
+            db, mandate, _cached_current_ra_is_current(db, mandate),
+            preloaded_rows={
+                "cashflows": _cached_active_cashflows(db, str(mandate.client_id)),
+                "goals": _cached_active_goals(db, mandate),
+            },
+        ))
+    return _aggregator_cache_get(
+        db, ("risk_capacity_plausibility", mandate.id), _factory,
+    )
+
+
 def _cached_active_cashflows(db: Session, client_id: str) -> list[Any]:
     """U-18: einmal pro compute() statt 2x (Sektionen 4, 4-Header)."""
     from models.wealth import Cashflow
@@ -3121,15 +3146,7 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
     """
     from models.profiling import SuitabilityCheck
 
-    # RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
-    # pruefung Risikofaehigkeit (gegen das aktuelle Risikoprofil) fuer den
-    # Beraterteil; None ohne aktuelles Profil. Hinweis-Layer, blockiert nie.
-    from services.risk_capacity_plausibility_report import (
-        compact_view, evaluate_for_assessment,
-    )
-    risk_capacity_plausibility = compact_view(evaluate_for_assessment(
-        db, mandate, _cached_current_ra_is_current(db, mandate),
-    ))
+    risk_capacity_plausibility = _cached_risk_capacity_plausibility(db, mandate)
 
     check = (
         db.query(SuitabilityCheck)

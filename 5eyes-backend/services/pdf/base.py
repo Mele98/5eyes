@@ -218,12 +218,6 @@ class AnlagestrategieData:
     band_deviation_reason: str | None = None
     """Dokumentierte Begruendung der Abweichung (bandDeviationReason)."""
 
-    # ---- RISK-CAPACITY-REPORT-001 ----
-    capacity_plausibility_note: str = ""
-    """Beraterhinweis der Plausibilitaetspruefung Risikofaehigkeit (nur bei
-    Status partial/inconsistent; betragsfrei, siehe
-    services/risk_capacity_plausibility_report.py). Leer = kein Hinweis."""
-
 
 @dataclass(frozen=True)
 class VertragData:

@@ -6,6 +6,12 @@ inconsistent/not_evaluable) war nur im Monolith und im Risikoprofil-PDF
 sichtbar. Advisory-Report-PDF und Strategie-PDF hatten bei ``partial`` und
 ``inconsistent`` keinen Hinweis. Der Hinweis gehoert in den Beraterteil, ohne
 Betraege und ohne Aussage ueber den Kunden.
+
+CIO-Entscheid 2026-10-21: der Hinweis gehoert NUR in den internen
+Advisory-Report (und die React-Berateransicht), NICHT in das vom Kunden
+unterzeichnete Anlagestrategie-PDF; ``not_evaluable`` erhaelt ebenfalls einen
+Hinweis (fehlende Daten bleiben nie stumm); die Pruefung laeuft ueber den
+Aggregator-Cache (keine Zusatz-Queries).
 """
 from __future__ import annotations
 
@@ -26,6 +32,7 @@ for _p in (BACKEND_ROOT, TESTS_ROOT):
 from main import app  # noqa: F401,E402  (Modell-Registrierung)
 from services import risk_capacity_plausibility as rcp  # noqa: E402
 from services.risk_capacity_plausibility_report import (  # noqa: E402
+    NOT_EVALUABLE_NOTE,
     PDF_NOTE_PREFIX,
     advisor_report_note,
     compact_view,
@@ -75,14 +82,24 @@ _CLIENT_CLAIM_RE = re.compile(r"(Kunde|Kundin|Verlusttragf|Garantie|garantiert)"
 # Hinweistext: nur partial/inconsistent, betragsfrei, neutral
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("result", [INCONSISTENT, PARTIAL], ids=["inconsistent", "partial"])
-def test_note_for_partial_and_inconsistent_is_neutral_and_amount_free(result):
+@pytest.mark.parametrize(
+    "result", [INCONSISTENT, PARTIAL, NOT_EVALUABLE],
+    ids=["inconsistent", "partial", "not_evaluable"],
+)
+def test_note_is_neutral_and_amount_free(result):
     note = advisor_report_note(result)
     assert note.startswith(PDF_NOTE_PREFIX)
     assert "Beraterhinweis" in note
     assert "nicht automatisch verändert" in note
     assert not _AMOUNT_RE.search(note), note
     assert not _CLIENT_CLAIM_RE.search(note), note
+
+
+def test_not_evaluable_note_asks_for_financial_data():
+    note = advisor_report_note(NOT_EVALUABLE)
+    assert note == NOT_EVALUABLE_NOTE
+    assert "mangels Daten nicht prüfbar" in note
+    assert "Finanzdaten erfassen" in note
 
 
 def test_inconsistent_note_names_affected_checks_without_messages():
@@ -99,10 +116,10 @@ def test_partial_note_names_open_checks():
 
 
 @pytest.mark.parametrize(
-    "result", [CONSISTENT, NOT_EVALUABLE, None, {}, {"status": "kaputt"}],
-    ids=["consistent", "not_evaluable", "none", "empty", "unknown"],
+    "result", [CONSISTENT, None, {}, {"status": "kaputt"}],
+    ids=["consistent", "none", "empty", "unknown"],
 )
-def test_no_note_without_partial_or_inconsistent(result):
+def test_no_note_for_consistent_or_missing_result(result):
     assert advisor_report_note(result) == ""
 
 
@@ -137,7 +154,7 @@ def test_compact_view_is_amount_free_and_tolerates_new_optional_fields():
 def test_compact_view_unknown_status_is_never_consistent():
     view = compact_view({"status": "irgendwas"})
     assert view["status"] == "not_evaluable"
-    assert view["note"] == ""
+    assert view["note"] == NOT_EVALUABLE_NOTE
     assert compact_view(None) is None
 
 
@@ -226,7 +243,71 @@ def test_advisory_report_payload_without_current_assessment_is_none(session_fact
 
 
 # ---------------------------------------------------------------------------
-# Strategie-PDF (Anlagestrategie): Beraterhinweis auf der Risikoprofil-Seite
+# Advisory-Report: not_evaluable sichtbar, Aggregator-Cache, keine Zusatz-Queries
+# ---------------------------------------------------------------------------
+
+def test_advisory_report_pdf_shows_not_evaluable_note():
+    from services.pdf.documents.advisory_report import (
+        render_advisory_report_pdf_from_payload,
+    )
+    from test_advisory_report_pdf import _make_minimal_payload
+
+    payload = _make_minimal_payload()
+    ss = dict(payload.get("suitability_summary") or {})
+    ss["risk_capacity_plausibility"] = compact_view(NOT_EVALUABLE)
+    payload["suitability_summary"] = ss
+    text = _pdf_text(render_advisory_report_pdf_from_payload(payload))
+    assert "mangels Daten nicht prüfbar" in text
+
+
+def test_report_evaluation_uses_cached_rows_and_matches_db_result(session_factory):
+    """Mit vorgeladenen Cache-Zeilen identisches Ergebnis, aber ohne eigene
+    Cashflow-/Ziel-Queries; der Preload wird danach wieder entfernt."""
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    from models.mandates import Mandate
+    from models.profiling import RiskAssessment
+    from services.advisory_report import _cached_active_cashflows, _cached_active_goals
+    from services.risk_capacity_plausibility_report import evaluate_for_assessment
+
+    _adv, _cid, mid, aid = _seed_realistic_mandate(session_factory, "rcr-cache")
+    with session_factory() as db:
+        mandate = db.query(Mandate).filter(Mandate.id == mid).one()
+        ra = db.query(RiskAssessment).filter(RiskAssessment.id == aid).one()
+        direct = rcp.evaluate_mandate_safely(db, mandate, ra)
+        rows = {
+            "cashflows": _cached_active_cashflows(db, str(mandate.client_id)),
+            "goals": _cached_active_goals(db, mandate),
+        }
+        statements: list[str] = []
+
+        def _count(conn, cursor, statement, *_a):
+            statements.append(statement.upper())
+
+        event.listen(Engine, "before_cursor_execute", _count)
+        try:
+            cached = evaluate_for_assessment(db, mandate, ra, preloaded_rows=rows)
+        finally:
+            event.remove(Engine, "before_cursor_execute", _count)
+        assert rcp.PRELOADED_ROWS_KEY not in db.info
+    assert cached == direct
+    assert not [x for x in statements if "FROM CASHFLOWS" in x], statements
+    assert not [x for x in statements if "FROM GOALS" in x], statements
+
+
+def test_preloaded_rows_for_other_mandate_are_ignored():
+    from types import SimpleNamespace
+
+    db = SimpleNamespace(info={rcp.PRELOADED_ROWS_KEY: {
+        "mandate_id": "m-a", "client_id": "c-a", "cashflows": [], "goals": [],
+    }})
+    assert rcp._preloaded_rows(db, SimpleNamespace(id="m-b", client_id="c-a")) is None
+    assert rcp._preloaded_rows(db, SimpleNamespace(id="m-a", client_id="c-a")) is not None
+
+
+# ---------------------------------------------------------------------------
+# Strategie-PDF (Anlagestrategie, vom Kunden unterzeichnet): KEIN Hinweis
 # ---------------------------------------------------------------------------
 
 def _ctx():
@@ -238,66 +319,35 @@ def _ctx():
     )
 
 
-@pytest.mark.parametrize("result", [PARTIAL, INCONSISTENT], ids=["partial", "inconsistent"])
-def test_strategy_pdf_renders_note_on_risk_profile_page(result):
+def test_strategy_pdf_data_has_no_plausibility_field():
+    import dataclasses
+
     from services.pdf.base import AnlagestrategieData
+
+    names = {f.name for f in dataclasses.fields(AnlagestrategieData)}
+    assert not [n for n in names if "plausibility" in n], names
+
+
+@pytest.mark.parametrize(
+    "result", [PARTIAL, INCONSISTENT, NOT_EVALUABLE],
+    ids=["partial", "inconsistent", "not_evaluable"],
+)
+def test_client_signed_strategy_pdf_never_shows_plausibility_note(
+    session_factory, monkeypatch, result,
+):
+    from models.mandates import Mandate
+    from routers.pdf_reports import _build_anlagestrategie_data
     from services.pdf.reportlab_renderer import ReportLabRenderer
+    from test_band_override_house_matrix_disclosure import _generate
 
-    data = AnlagestrategieData(
-        target_allocation_bps={"equities": 5000, "bonds": 4500, "liquidity": 500},
-        cma_expected_return_bps=400, cma_expected_vol_bps=900, horizon_years=10,
-        risk_profile_label="Ausgewogen", risk_score_x10=55,
-        capacity_plausibility_note=advisor_report_note(result),
+    adv, _cid, mid, _aid = _seed_realistic_mandate(
+        session_factory, "rcr-sp-" + str(result["status"]),
     )
-    text = _pdf_text(ReportLabRenderer().render_anlagestrategie(_ctx(), data))
-    assert "Plausibilitätsprüfung Risikofähigkeit (Beraterhinweis)" in text
-    assert "nicht automatisch verändert" in text
-
-
-def test_strategy_pdf_without_note_unchanged():
-    from services.pdf.base import AnlagestrategieData
-    from services.pdf.reportlab_renderer import ReportLabRenderer
-
-    data = AnlagestrategieData(
-        target_allocation_bps={"equities": 5000, "bonds": 4500, "liquidity": 500},
-        cma_expected_return_bps=400, cma_expected_vol_bps=900, horizon_years=10,
-        risk_profile_label="Ausgewogen", risk_score_x10=55,
-    )
-    assert data.capacity_plausibility_note == ""
+    _generate(session_factory, mid, adv, {})
+    monkeypatch.setattr(rcp, "evaluate_mandate_safely", lambda *a, **k: result)
+    with session_factory() as db:
+        mandate = db.query(Mandate).filter(Mandate.id == mid).one()
+        data = _build_anlagestrategie_data(mandate, db)
     text = _pdf_text(ReportLabRenderer().render_anlagestrategie(_ctx(), data))
     assert "Plausibilitätsprüfung" not in text
-
-
-def test_strategy_pdf_data_uses_strategy_anchor_assessment(session_factory, monkeypatch):
-    from models.mandates import Mandate
-    from routers.pdf_reports import _build_anlagestrategie_data
-    from test_band_override_house_matrix_disclosure import _generate
-
-    seen = {}
-
-    def _fake(db, mandate, assessment, **_kw):
-        seen["assessment_id"] = getattr(assessment, "id", None)
-        return PARTIAL
-
-    adv, _cid, mid, aid = _seed_realistic_mandate(session_factory, "rcr-sp")
-    _generate(session_factory, mid, adv, {})
-    monkeypatch.setattr(rcp, "evaluate_mandate_safely", _fake)
-    with session_factory() as db:
-        mandate = db.query(Mandate).filter(Mandate.id == mid).one()
-        data = _build_anlagestrategie_data(mandate, db)
-    assert seen["assessment_id"] == aid
-    assert data.capacity_plausibility_note == advisor_report_note(PARTIAL)
-
-
-def test_strategy_pdf_data_consistent_has_no_note(session_factory, monkeypatch):
-    from models.mandates import Mandate
-    from routers.pdf_reports import _build_anlagestrategie_data
-    from test_band_override_house_matrix_disclosure import _generate
-
-    adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, "rcr-sc")
-    _generate(session_factory, mid, adv, {})
-    monkeypatch.setattr(rcp, "evaluate_mandate_safely", lambda *a, **k: CONSISTENT)
-    with session_factory() as db:
-        mandate = db.query(Mandate).filter(Mandate.id == mid).one()
-        data = _build_anlagestrategie_data(mandate, db)
-    assert data.capacity_plausibility_note == ""
+    assert "Beraterhinweis" not in text

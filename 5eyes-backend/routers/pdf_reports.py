@@ -854,17 +854,6 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                     getattr(ta_obj, "id", "?"), exc,
                 )
 
-    # RISK-CAPACITY-REPORT-001: Plausibilitaetspruefung gegen das
-    # Strategie-Anker-Assessment (dasselbe wie alle Risikofelder oben);
-    # Hinweis nur bei partial/inconsistent, betragsfrei. Hinweis-Layer:
-    # ein Fehler verhindert das PDF nie.
-    from services.risk_capacity_plausibility_report import (
-        advisor_report_note, evaluate_for_assessment,
-    )
-    capacity_plausibility_note = advisor_report_note(
-        evaluate_for_assessment(db, mandate, assessment_obj)
-    )
-
     return AnlagestrategieData(
         target_allocation_bps=target_alloc_bps,
         cma_expected_return_bps=cma_return,
@@ -912,7 +901,6 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         band_house_deviations=list(band_disclosure["deviations"]),
         band_house_profile=band_disclosure["profile"],
         band_deviation_reason=band_disclosure["reason"],
-        capacity_plausibility_note=capacity_plausibility_note,
     )
 
 

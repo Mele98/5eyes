@@ -1,15 +1,24 @@
-"""Plausibilitaetspruefung Risikofaehigkeit in Advisory-Report und Strategie-PDF.
+"""Plausibilitaetspruefung Risikofaehigkeit im internen Advisory-Report.
 
 RISK-CAPACITY-REPORT-001 (Folge zu RISK-CAPACITY-PLAUSIBILITY-001).
 
-Die Pruefung selbst lebt in ``services/risk_capacity_plausibility.py`` und
-wird hier NICHT veraendert. Dieses Modul liest nur die stabile Schnittstelle
-des Pruefergebnisses -- ``status``, ``reason_code``, ``findings[].check`` und
-``not_evaluable[].check`` -- und leitet daraus ab:
+Die Pruefregeln leben in ``services/risk_capacity_plausibility.py``. Dieses
+Modul liest nur die stabile Schnittstelle des Pruefergebnisses -- ``status``,
+``reason_code``, ``findings[].check`` und ``not_evaluable[].check`` -- und
+leitet daraus ab:
 
 * einen kompakten, betragsfreien Auszug fuer den Advisory-Report-Payload
   (``suitability_summary.risk_capacity_plausibility``), und
-* einen neutralen Beraterhinweis fuer die PDFs (Advisory-Report, Strategie).
+* einen neutralen Beraterhinweis fuer das interne Advisory-Report-PDF.
+
+CIO-Entscheid 2026-10-21:
+* NUR interner Berater-Report (und React-Berateransicht). Das vom Kunden
+  unterzeichnete Anlagestrategie-PDF erhaelt bewusst KEINEN Hinweis --
+  interne Hinweise gehoeren nicht in ein kundensigniertes Dokument.
+* Auch ``not_evaluable`` erhaelt einen Hinweis: fehlende Daten bleiben nie
+  stumm. Nur ``consistent`` erzeugt keinen Hinweis.
+* Die Pruefung laeuft im Advisory-Report ueber den Aggregator-Call-Cache
+  (keine zusaetzlichen Cashflow-/Ziel-Queries, test_aggregator_n1_baseline).
 
 Spaetere Felder werden nie vorausgesetzt: ``verification_code`` (Coverage-
 Attestation, PR #664) wird optional durchgereicht; ``resolution_actions``
@@ -18,10 +27,7 @@ bewusst NICHT, weil deren Fallback freie Begruendungstexte enthalten kann
 direkt aus dem Endpoint).
 
 Bewusst ohne Betraege (keine Rappen-/CHF-Werte aus ``data_basis`` oder den
-Befund-Texten) und ohne Aussage ueber den Kunden: der Hinweis dokumentiert
-nur, dass die Fragebogen-Angaben gegen die erfassten Finanzdaten nicht
-(vollstaendig) aufgehen und das Profil dadurch NICHT automatisch geaendert
-wurde. Status ``consistent`` und ``not_evaluable`` erzeugen keinen PDF-Hinweis.
+Befund-Texten) und ohne Aussage ueber den Kunden.
 """
 from __future__ import annotations
 
@@ -37,10 +43,15 @@ STATUS_NOT_EVALUABLE = "not_evaluable"
 KNOWN_STATUSES = (
     STATUS_CONSISTENT, STATUS_PARTIAL, STATUS_INCONSISTENT, STATUS_NOT_EVALUABLE,
 )
-NOTE_STATUSES = (STATUS_PARTIAL, STATUS_INCONSISTENT)
+NOTE_STATUSES = (STATUS_PARTIAL, STATUS_INCONSISTENT, STATUS_NOT_EVALUABLE)
 
 PDF_NOTE_PREFIX = "Plausibilitätsprüfung Risikofähigkeit (Beraterhinweis): "
 PDF_NOTE_SUFFIX = " Das Risikoprofil wurde dadurch nicht automatisch verändert."
+NOT_EVALUABLE_NOTE = (
+    PDF_NOTE_PREFIX
+    + "Risikofähigkeit mangels Daten nicht prüfbar – Finanzdaten erfassen."
+    + PDF_NOTE_SUFFIX
+)
 
 
 def _short_labels() -> dict[str, str]:
@@ -68,7 +79,7 @@ def _topics(check_ids: list[str]) -> str:
 
 
 def advisor_report_note(result: dict | None) -> str:
-    """Neutraler, betragsfreier Beraterhinweis fuer partial/inconsistent."""
+    """Neutraler, betragsfreier Beraterhinweis (alles ausser consistent)."""
     if not isinstance(result, dict):
         return ""
     status = result.get("status")
@@ -90,6 +101,8 @@ def advisor_report_note(result: dict | None) -> str:
             + (f" (offen: {topics})." if topics else ".")
             + PDF_NOTE_SUFFIX
         )
+    if status == STATUS_NOT_EVALUABLE:
+        return NOT_EVALUABLE_NOTE
     return ""
 
 
@@ -111,29 +124,51 @@ def compact_view(result: dict | None) -> dict | None:
     }
 
 
-def evaluate_for_assessment(db, mandate, assessment) -> dict | None:
+def evaluate_for_assessment(
+    db, mandate, assessment, *, preloaded_rows: dict | None = None,
+) -> dict | None:
     """Pruefung gegen ein bestimmtes Assessment; None ohne Assessment.
 
-    Hinweis-Layer: ein Fehler darf weder Report noch PDF verhindern
-    (``evaluate_mandate_safely`` faengt bereits; hier zusaetzlich der Import).
+    ``preloaded_rows`` = {"cashflows": [...], "goals": [...]} aus dem
+    Aggregator-Cache; sie werden nur fuer die Dauer dieses Aufrufs und nur
+    fuer dieses Mandat hinterlegt (siehe
+    ``risk_capacity_plausibility.PRELOADED_ROWS_KEY``).
+
+    Hinweis-Layer: ein Fehler verhindert den Report nie und wird als
+    ``not_evaluable`` sichtbar -- nie still als "konsistent" oder leer.
     """
     if assessment is None:
         return None
     try:
         from services import risk_capacity_plausibility as rcp
 
-        return rcp.evaluate_mandate_safely(db, mandate, assessment)
+        info = getattr(db, "info", None)
+        use_preloaded = preloaded_rows is not None and isinstance(info, dict)
+        if use_preloaded:
+            info[rcp.PRELOADED_ROWS_KEY] = {
+                "mandate_id": getattr(mandate, "id", None),
+                "client_id": getattr(mandate, "client_id", None),
+                "cashflows": list(preloaded_rows.get("cashflows") or []),
+                "goals": list(preloaded_rows.get("goals") or []),
+            }
+        try:
+            return rcp.evaluate_mandate_safely(db, mandate, assessment)
+        finally:
+            if use_preloaded:
+                info.pop(rcp.PRELOADED_ROWS_KEY, None)
     except Exception:  # noqa: BLE001 -- Hinweis-Layer
         logger.exception(
             "Risk-capacity plausibility (report) failed for mandate %s",
             getattr(mandate, "id", "?"),
         )
-        return None
+        return {"status": STATUS_NOT_EVALUABLE, "reason_code": None,
+                "findings": [], "not_evaluable": [{"check": "ALL"}]}
 
 
 __all__ = [
     "KNOWN_STATUSES",
     "NOTE_STATUSES",
+    "NOT_EVALUABLE_NOTE",
     "PDF_NOTE_PREFIX",
     "advisor_report_note",
     "compact_view",

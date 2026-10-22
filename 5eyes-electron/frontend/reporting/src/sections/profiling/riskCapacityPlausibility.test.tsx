@@ -149,9 +149,16 @@ describe('RiskCapacityPlausibilityNotice (Report, kompakt)', () => {
     note: '',
   });
 
-  it.each(['consistent', 'not_evaluable'] as const)('renders nothing for %s', (status) => {
+  it('renders nothing for consistent', () => {
+    const status = 'consistent' as const;
     const { container } = render(<RiskCapacityPlausibilityNotice data={compact(status)} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders a data request for not_evaluable (never silent)', () => {
+    render(<RiskCapacityPlausibilityNotice data={compact('not_evaluable')} />);
+    expect(screen.getByText('Nicht prüfbar')).toBeInTheDocument();
+    expect(screen.getByText(/mangels Daten nicht prüfbar – Finanzdaten erfassen/)).toBeInTheDocument();
   });
 
   it('renders nothing without data', () => {
