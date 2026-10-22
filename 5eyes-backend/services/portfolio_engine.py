@@ -50,6 +50,7 @@ from services.preference_snapshot import (
     inherit_current_allocation_preferences,
     resolve_recommendation_preferences,
 )
+from services.goal_revision_decision import goal_revision_hash_part, included_goals_with_revisions
 from services.goal_semantics import (
     GoalInputError,
     validate_active_goal_inputs as _validate_active_goal_inputs,
@@ -2205,10 +2206,9 @@ def _load_allocation_inputs(
     ).order_by(Goal.rank.asc()).all()
     goals = _strictly_active_rows(goal_rows, label="Ziel")
     _validate_active_goal_inputs(goals)
-    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar oben bei
-    # den Cashflows -- is_included=0 bleibt sichtbar, fliesst aber in keine
-    # Berechnung ein.
-    goals = [g for g in goals if getattr(g, "is_included", 1) == 1]
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001 (is_included=0 fliesst in keine Berechnung
+    # ein) + GOAL-REVISION-DECISION-001 (Herabstufungs-Decision am Ziel).
+    goals = included_goals_with_revisions(db, goals)
     # Sprint A1: erwartete Vermoegenszufluesse (Erbschaft, Bonus, Saeule3b, ...)
     # INFLOW-CERTAINTY-001: unsichere Zufluesse (Erbschaft/Bonus ohne Zusage)
     # senken weder Reserve noch fliessen sie in die Simulation; nur Reasoning.
@@ -2761,7 +2761,7 @@ def _compute_input_snapshot_hash(
                 getattr(g, "linked_position_id", "") or ""
             ),
             "is_active": _nullable_int(getattr(g, "is_active", None)),
-        }
+        } | goal_revision_hash_part(g)  # GOAL-REVISION-DECISION-001
 
     def _wealth_inflow_v3(inflow) -> tuple:
         return (
@@ -5515,10 +5515,9 @@ def build_target_payload_from_allocation(
     ).order_by(Goal.rank.asc()).all()
     goals = _strictly_active_rows(goal_rows, label="Ziel")
     _validate_active_goal_inputs(goals)
-    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar in
-    # _load_allocation_inputs -- is_included=0 bleibt sichtbar, fliesst aber
-    # in keine Berechnung ein.
-    goals = [g for g in goals if getattr(g, "is_included", 1) == 1]
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001 + GOAL-REVISION-DECISION-001: siehe
+    # identischen Kommentar in _load_allocation_inputs.
+    goals = included_goals_with_revisions(db, goals)
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
     )

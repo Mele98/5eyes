@@ -142,6 +142,10 @@ from .scenario_cache import (
     scenario_inputs_digest,
     scenario_inputs_seed_digest,
 )
+from services.goal_revision_decision import (
+    apply_to_liabilities as apply_goal_revision_decisions,
+)
+
 from .goal_reachability import (
     annotate_rows as annotate_reachability_rows,
     goal_reachability_screen,
@@ -1045,6 +1049,9 @@ def build_optimizer_context(
             canonical_external_wealth_series or None
         ),
     )
+    # GOAL-REVISION-DECISION-001 (Engine v11): herabgestuft wird NUR ein Ziel
+    # mit gueltiger Berater-Entscheidung (Ziel-Snapshot-Hash passt).
+    liabilities = apply_goal_revision_decisions(goals, liabilities)
     has_hart_goal = any(
         str(getattr(liab, "hardness_key", "") or "").lower() == "hart"
         for liab in liabilities
@@ -1220,24 +1227,14 @@ def build_optimizer_context(
             reserve_goal_release_series_rappen
         ),
     )
-    # GOAL-REACHABILITY-SCREEN-001: einmal je Context, seit Engine v7 nur
-    # Offenlegung auf einem eigenen Screening-Wuerfel (nie der Holdout, der
-    # spaeter zertifiziert; GOAL-SCREEN-HOLDOUT-LEAKAGE-001) und ohne
-    # Wirkung auf die Zielfunktion (GOAL-SCREEN-OBJECTIVE-ERASURE-001).
+    # GOAL-REACHABILITY-SCREEN-001: einmal je Context, nur Offenlegung auf
+    # einem eigenen Screening-Wuerfel (GOAL-SCREEN-HOLDOUT-LEAKAGE-001) und
+    # ohne Wirkung auf die Zielfunktion. Engine v11: auch die lokale Suche
+    # stuft nicht mehr herab -- nur die Berater-Entscheidung (oben).
     screen = goal_reachability_screen(context)
     if screen is None:
         return context
-    # GOAL-HIERARCHY-002 / DEMOTED-GOAL-WEIGHT-001: herabgestufte Ziele auf
-    # der Liability markieren (Wunschziel-Gewicht in jedem Modus, nicht
-    # Stufe 1). Bags/Validierung erben die Markierung ueber ``replace``.
-    # GOAL-REACHABILITY-CERTIFICATE-001 (Engine v9): nur ZERTIFIZIERT
-    # unerreichbare Ziele, nie ein blosser Screen-Miss.
-    demoted = frozenset(str(g) for g in (screen.get("demoted_goal_ids") or ()))
-    liabilities = [
-        replace(liab, demoted=True) if str(liab.goal_id) in demoted else liab
-        for liab in context.liabilities
-    ]
-    return replace(context, goal_reachability=screen, liabilities=liabilities)
+    return replace(context, goal_reachability=screen)
 
 
 def _tiebreak_portfolio_variance(
@@ -1315,22 +1312,21 @@ def _protected_level_from_inputs(
 
 
 def _demoted_goal_ids(context: OptimizerContext) -> frozenset:
-    """GOAL-HIERARCHY-002 (CIO-Review #650) + GOAL-REACHABILITY-CERTIFICATE-001
-    (Engine v9, Codex-Befund 2026-10-19): Ziele, deren Unerreichbarkeit
-    ZERTIFIZIERT ist -- die Maximierung ihrer Erfolgswahrscheinlichkeit ueber
-    die zulaessige Menge erreicht auf dem Screening-Wuerfel nicht einmal eine
-    obere 95-%-Grenze von tau/2 (``goal_reachability.certify_goal_
-    reachability``). Sie bleiben mit vollem Fehlbetrag in der Zielfunktion
-    (Codex "CHF 0 != CHF 900"), werden aber unabhaengig vom Haertegrad in
-    Stufe 2 herabgestuft. Ein blosser Screen-Miss
-    (``not_found_reachable_goal_ids``) ist reine Offenlegung und stuft nie
-    herab."""
-    screen = getattr(context, "goal_reachability", None) or {}
-    return frozenset(str(g) for g in (screen.get("demoted_goal_ids") or ()))
+    """GOAL-HIERARCHY-002 + GOAL-REVISION-DECISION-001 (Engine v11, Codex-
+    Closure-Review zu PR #655): herabgestuft sind ausschliesslich Ziele mit
+    gueltiger Berater-Entscheidung GoalRevisionDecisionV1 (Markierung auf der
+    Liability). Sie bleiben mit Wunschziel-Gewicht in der Zielfunktion
+    (Codex "CHF 0 != CHF 900"), sind aber nicht Stufe 1. Kein Ergebnis der
+    Reachability-Suche (lokaler Miss, Solverfehler, fehlende Menge) stuft
+    herab -- ein lokales Optimum ist kein globaler Unmoeglichkeitsnachweis."""
+    return frozenset(
+        str(liab.goal_id) for liab in (getattr(context, "liabilities", None) or ())
+        if getattr(liab, "demoted", False)
+    )
 
 
 def _stage1_liabilities(context: OptimizerContext) -> list:
-    """Stufe-1-Ziele: hart/primaer, im Horizont, nicht zertifiziert unerreichbar."""
+    """Stufe-1-Ziele: hart/primaer, im Horizont, ohne gueltige Herabstufungs-Decision."""
     demoted = _demoted_goal_ids(context)
     n_cols = int(context.horizon_years) + 1
     return [
@@ -1556,7 +1552,7 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # ``priority_scope.py``) statt Rueckwaertsrekonstruktion; Fehlbetrag,
 # Chance-Strafe, Stufe 1, Screen und Publikation auf DEMSELBEN Scope; volle
 # Ursachenverteilung je Ziel. Bewusst neue Wuerfel (Version im Seed).
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v10"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v11"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2416,8 +2412,9 @@ GOAL_STAGE1_STARTS = 1
 GOAL_STAGE1_MAX_ITER = 25
 # Punkte der Streckensuche, wenn die Stufe-1-Schranke bindet (t = 0, 0.1, ..1).
 GOAL_SEGMENT_POINTS = 11
-# Stufe-2-Multi-Starts, wenn herabgestufte Ziele vorliegen (siehe
-# ``_select_cube_candidate_core``); sonst alle Startpunkte (bitidentisch).
+# Stufe-2-Multi-Starts, wenn herabgestufte Ziele vorliegen oder Stufe 1 ein
+# lokal nicht gefundenes Ziel schuetzt (Engine v11, ``_protects_unfound_
+# goal``; siehe ``_select_cube_candidate_core``); sonst alle Startpunkte.
 GOAL_DEMOTED_STAGE2_STARTS = 2
 
 
@@ -2611,7 +2608,10 @@ def _select_cube_candidate(
         context, initials, memo, None, max_iter=max_iter, ftol=ftol,
         demoted_starts=(
             GOAL_DEMOTED_STAGE2_STARTS
-            if protection is not None and protection["demoted_goal_ids"]
+            if protection is not None and (
+                protection["demoted_goal_ids"]
+                or _protects_unfound_goal(context, protection)
+            )
             else None
         ),
     )
@@ -2659,6 +2659,20 @@ def _select_cube_candidate(
         protection, selection.weights, constraint_pass=True,
     )
     return selection
+
+
+def _protects_unfound_goal(context: OptimizerContext, protection: dict) -> bool:
+    """GOAL-REVISION-DECISION-001 (Engine v11, Laufzeit): schuetzt Stufe 1 ein
+    Ziel, das die lokale Suche nicht mit ausreichender Sicherheit fand
+    (``revision_suggested_goal_ids``), dominiert dessen Fehlbetrag die
+    Zielfunktion wie bis v10 ein herabgestuftes Ziel -- die Stufe-1-Schranke
+    bestimmt das Ergebnis (Streckensuche), der Stufe-2-Multi-Start sucht nur
+    die Richtung. Gleiche Startzahl wie mit herabgestuften Zielen
+    (``GOAL_DEMOTED_STAGE2_STARTS``). Reines Suchbudget: die Schutzklasse
+    (Stufe 1) und die Schranke bleiben unveraendert."""
+    screen = getattr(context, "goal_reachability", None) or {}
+    unfound = set(screen.get("revision_suggested_goal_ids") or ())
+    return bool(unfound & set(protection.get("protected_goal_ids") or ()))
 
 
 def _cube_initial_guesses(context: OptimizerContext) -> list[np.ndarray]:

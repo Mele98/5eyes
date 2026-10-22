@@ -13,7 +13,7 @@ from models.wealth import WealthPosition, Cashflow, Goal, PlanningAssumption, We
 from schemas.wealth import (
     WealthPositionCreate, WealthPositionUpdate, WealthPositionResponse,
     CashflowCreate, CashflowUpdate, CashflowResponse,
-    GoalCreate, GoalUpdate, GoalResponse,
+    GoalCreate, GoalUpdate, GoalResponse, GoalRevisionDecisionCreate,
     PlanningAssumptionCreate, PlanningAssumptionResponse,
     WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
     MaxPensionSpendingRequest, MaxPensionSpendingResponse,
@@ -1332,6 +1332,107 @@ def delete_goal(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     invalidate_advisory_cache(mandate_id)
+
+
+# ── Goal Revision Decisions (GOAL-REVISION-DECISION-001) ─────────────────────
+
+def _active_goal_or_404(mandate_id: str, goal_id: str, db: Session) -> Goal:
+    goal = db.query(Goal).filter(
+        Goal.id == goal_id,
+        Goal.mandate_id == mandate_id,
+        Goal.deleted_at.is_(None),
+        Goal.is_active == 1,
+    ).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
+    return goal
+
+
+@router.get("/mandates/{mandate_id}/goals/{goal_id}/revision-decisions")
+def list_goal_revision_decisions(
+    mandate_id: str, goal_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Append-only Historie der Herabstufungs-Entscheidungen eines Ziels,
+    juengste zuerst, je mit Gueltigkeit gegen den AKTUELLEN Zielstand."""
+    from models.wealth import GoalRevisionDecision
+    from services.goal_revision_decision import goal_revision_view
+
+    _get_mandate_or_404(mandate_id, db, current_user)
+    goal = _active_goal_or_404(mandate_id, goal_id, db)
+    rows = (
+        db.query(GoalRevisionDecision)
+        .filter(GoalRevisionDecision.goal_id == goal.id)
+        .order_by(GoalRevisionDecision.sequence_no.desc())
+        .all()
+    )
+    return [goal_revision_view(goal, row, db) for row in rows]
+
+
+@router.post("/mandates/{mandate_id}/goals/{goal_id}/revision-decisions", status_code=201)
+def create_goal_revision_decision(
+    mandate_id: str, goal_id: str,
+    body: GoalRevisionDecisionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Ziel als nachrangiges Wunschziel einstufen (GoalRevisionDecisionV1).
+
+    Die Engine schlaegt das nur vor (lokal keine zulaessige Allokation mit
+    ausreichender Sicherheit gefunden); wirksam wird es erst mit dieser
+    expliziten, begruendeten Berater-Entscheidung. Fail-closed vor jeder
+    Mutation: Begruendungsqualitaet (422), Engine-Evidenz der aktuellen
+    Strategie zum aktuellen Zielstand mit Vorschlag (409), keine bereits
+    wirksame Decision (409)."""
+    import json
+
+    from models.allocation import TargetAllocation
+    from services.goal_revision_decision import (
+        GoalRevisionError,
+        decision_snapshot,
+        goal_revision_view,
+        record_goal_revision_decision,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    goal = _active_goal_or_404(mandate_id, goal_id, db)
+    allocation = (
+        db.query(TargetAllocation)
+        .filter(TargetAllocation.mandate_id == mandate_id, TargetAllocation.is_current == 1)
+        .order_by(TargetAllocation.version.desc())
+        .first()
+    )
+    try:
+        decision = record_goal_revision_decision(
+            db, goal=goal, mandate=mandate, allocation=allocation,
+            actor_id=current_user.id, reason=body.reason, new_uuid=new_uuid,
+        )
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="goal_revision_decisions", record_id=decision.id, action="CREATE",
+            field_name="goal_revision", old_value=str(decision.previous_hardness),
+            new_value=json.dumps(decision_snapshot(decision), sort_keys=True, ensure_ascii=False),
+            mandate_id=mandate_id, client_id=mandate.client_id)
+        # Die Ziel-Konkurrenz aendert sich -> gespeicherte Scores veraltet.
+        _invalidate_achievement_scores_for_mandate(mandate_id, db)
+        db.commit()
+    except GoalRevisionError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"reason_code": exc.reason_code, "message": str(exc)},
+        ) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "concurrent_decision",
+                "message": "Parallel wurde bereits eine Entscheidung erfasst. Bitte neu laden.",
+            },
+        ) from exc
+    invalidate_advisory_cache(mandate_id)
+    return goal_revision_view(goal, decision, db)
 
 
 # ── Planning Assumptions ───────────────────────────────────────────────────────

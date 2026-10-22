@@ -956,6 +956,14 @@ class GoalResponse(BaseResponse):
     updated_at: str
 
 
+class GoalRevisionDecisionCreate(BaseModel):
+    """GOAL-REVISION-DECISION-001: Berater stuft ein Ziel als nachrangiges
+    Wunschziel ein. Die Begruendung wird wie eine Override-Begruendung
+    geprueft (services.override_reason_quality); die Engine-Evidenz liest
+    der Server aus der aktuellen Strategie, nie aus dem Request."""
+    reason: str
+
+
 # ── Planning Assumptions ───────────────────────────────────────────────────────
 
 class PlanningAssumptionCreate(BaseModel):
