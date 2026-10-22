@@ -865,6 +865,9 @@ class SubAssetClassAssumptionResponse(BaseModel):
     expected_return_bps: int
     expected_volatility_bps: int
     source: str
+    # LIQUIDITY-INSTRUMENT-MODEL-001: nur bei nicht freigegebenem Code-Default.
+    approval_status: Optional[str] = None
+    evidence_sha256: Optional[str] = None
 
 
 class AllocationBandOverridePayload(BaseModel):

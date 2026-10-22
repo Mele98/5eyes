@@ -3774,7 +3774,7 @@ def generate_target_allocation(
     )
     sub_asset_class_assumptions_reference = _build_sub_asset_class_assumption_reference(
         sub_allocations,
-        cma,
+        cma, reasoning,
     )
     simulation = _build_simulation_payload(
         advisory_summary=advisory_summary,
