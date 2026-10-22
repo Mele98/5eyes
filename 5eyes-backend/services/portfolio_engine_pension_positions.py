@@ -368,7 +368,11 @@ def _active_links_by_source(wealth_inflows, pension_ids: set[str], start_year: i
 # diese Toleranz von "fortgeschriebener Wert minus Positionssteuer" ab, wird
 # das im Reasoning offengelegt (kein Fehler).
 LINKED_TRANSFER_DEVIATION_HINT_BPS = 500
-LINKED_TAX_SOURCE = "im_erfassten_netto_enthalten"
+# Steuerquelle -> Provenienz (PR-#651-Restbefund A). Nur ein erfasster
+# CHF-Betrag beim Auto-Bezug ist eine beobachtete Steuer; Satz und Default
+# sind Annahmen, beim verknuepften Bezug ist jede Steuer eine Ableitung aus
+# dem erfassten Netto (kein Brutto beobachtet).
+TAX_SOURCE_PROVENANCE = {"erfasst_betrag": "observed", "erfasst_satz": "inferred", "default": "inferred"}
 
 
 def _transfer_row(position, *, label, type_key, value, payout_year, origin, link,
@@ -377,21 +381,25 @@ def _transfer_row(position, *, label, type_key, value, payout_year, origin, link
     Horizont -> horizontinvariant.
 
     auto:   Brutto = fortgeschriebener Wert, Steuer = Positionssteuer,
-            Netto = Brutto - Steuer.
-    linked: Netto = erfasster Zuflussbetrag; Brutto = fortgeschriebener Wert;
-            Steuer := Brutto - Netto (implizite Steuer/Abweichung). Liegt der
-            erfasste Betrag ueber der Hochrechnung, ist Steuer 0 und Brutto
-            = Netto (Geldidentitaet auf den Rappen bleibt erzwungen)."""
+            Netto = Brutto - Steuer, Bewertungsanpassung 0.
+    linked: Netto = erfasster Zuflussbetrag (massgebend). Steuer abgeleitet:
+            Positionssteuer auf die Hochrechnung, begrenzt auf die Luecke
+            max(0, Hochrechnung - Netto) -> ``inferred`` (0 -> ``unavailable``).
+            Brutto = Netto + Steuer; Bewertungsanpassung = Brutto -
+            Hochrechnung (explizit, vorzeichenbehaftet, gehasht)."""
     offset = payout_year - start_year
     projected = int(round(_value_path(position, value, offset + 1, start_year)[offset + 1]))
     recorded = int(getattr(link, "amount_rappen", 0) or 0) if link is not None else None
     if origin == "linked_inflow":
         net = recorded
-        gross = max(projected, net)
-        tax, tax_source = gross - net, LINKED_TAX_SOURCE
+        position_tax, source, _text = pension_lumpsum_tax_detail(position, projected)
+        tax = min(position_tax, max(0, projected - net))
+        tax_source, provenance = (source, "inferred") if tax > 0 else ("keine_evidenz", "unavailable")
+        gross = net + tax
     else:
         gross = projected
         tax, tax_source, _text = pension_lumpsum_tax_detail(position, gross)
+        provenance = TAX_SOURCE_PROVENANCE.get(tax_source, "inferred")
         net = gross - tax
     position_currency = str(getattr(position, "currency", None) or target_currency).upper()
     return PensionTransferRow(
@@ -406,9 +414,11 @@ def _transfer_row(position, *, label, type_key, value, payout_year, origin, link
         within_horizon=offset < horizon,
         opening_bound_balance_rappen=value,
         projected_bound_balance_rappen=projected,
+        valuation_adjustment_rappen=gross - projected,
         gross_withdrawal_rappen=gross,
         lumpsum_tax_rappen=tax,
         tax_source=tax_source,
+        tax_provenance=provenance,
         net_advisory_inflow_rappen=net,
         closing_bound_balance_rappen=0,
         recorded_inflow_amount_rappen=recorded,
@@ -424,7 +434,9 @@ def _row_notes(position, row: PensionTransferRow, origin_text: str) -> tuple[str
     """(Bezugs-Satz fuer die Positionsnotiz, Zusatznotizen) -- aus der Zeile."""
     if row.origin == "linked_inflow":
         tax_text = (
-            f"Kapitalbezugssteuer im erfassten Nettobetrag enthalten (implizit {_chf(row.lumpsum_tax_rappen)})"
+            f"Kapitalbezugssteuer im erfassten Nettobetrag enthalten (abgeleitet {_chf(row.lumpsum_tax_rappen)})"
+            if row.tax_provenance == "inferred"
+            else "Kapitalbezugssteuer im erfassten Nettobetrag enthalten (Höhe nicht belegt)"
         )
     else:
         _tax, _source, tax_text = pension_lumpsum_tax_detail(position, row.gross_withdrawal_rappen)
@@ -449,16 +461,18 @@ def _row_notes(position, row: PensionTransferRow, origin_text: str) -> tuple[str
             extra.append(
                 f"Vorsorge '{row.source_label}': Bezug höher als Hochrechnung – erfasster "
                 f"Nettobezug {_chf(recorded)} liegt über dem fortgeschriebenen Wert "
-                f"{_chf(projected)}. Massgebend ist der erfasste Betrag; bitte Wert/Satz der "
-                "Position prüfen."
+                f"{_chf(projected)}. Massgebend ist der erfasste Betrag; die Differenz ist als "
+                f"Bewertungsanpassung {_chf(row.valuation_adjustment_rappen)} ausgewiesen. "
+                "Bitte Wert/Satz der Position prüfen."
             )
         elif abs(recorded - expected_net) * 10000 > LINKED_TRANSFER_DEVIATION_HINT_BPS * max(1, expected_net):
             extra.append(
                 f"Vorsorge '{row.source_label}': erfasster Nettobezug {_chf(recorded)} weicht um "
                 f"mehr als {LINKED_TRANSFER_DEVIATION_HINT_BPS / 100:g} % von der Hochrechnung ab "
                 f"(fortgeschrieben {_chf(projected)} abzüglich Positionssteuer {_chf(position_tax)} "
-                f"= {_chf(expected_net)}). Massgebend ist der erfasste Betrag; die Differenz "
-                f"({_chf(row.lumpsum_tax_rappen)}) ist als implizite Steuer/Abweichung ausgewiesen."
+                f"= {_chf(expected_net)}). Massgebend ist der erfasste Betrag; ausgewiesen als "
+                f"abgeleitete Steuer {_chf(row.lumpsum_tax_rappen)} und Bewertungsanpassung "
+                f"{_chf(row.valuation_adjustment_rappen)}."
             )
     return text, extra
 
@@ -692,10 +706,20 @@ def pension_foundation_keys(
     fx_source=None,
     target_currency: str = "CHF",
     mandate=None,
-) -> dict[str, list[int]]:
+) -> dict:
     """Zusatz-Keys fuer _build_external_foundation_projection: deterministische
     Vorsorge-Serie (H+1) und Netto-Bezuege (H, vom Loader in den Cashflow-Pfad
-    addiert). Ohne externe Vorsorge ``{}`` -> Vertrag byte-identisch."""
+    addiert). Ohne externe Vorsorge ``{}`` -> Vertrag byte-identisch.
+
+    PENSION-TRANSFER-LEDGER-001 (Restbefund B): zusaetzlich die Ledger-
+    Identitaet (Version, Policy, Hash, Zeilen) und der replaybare
+    PensionTransferLedgerSnapshotV1 -- damit Teil des input_snapshot_hash und
+    von Generate/manuellem Speichern an der TargetAllocation persistiert."""
+    from services.pension_transfer_ledger_snapshot import (
+        FOUNDATION_SNAPSHOT_KEY,
+        build_pension_transfer_ledger_snapshot,
+    )
+
     pension = external_pension_projection(
         positions,
         wealth_inflows,
@@ -707,7 +731,17 @@ def pension_foundation_keys(
     )
     if pension is None:
         return {}
+    ledger = pension.ledger
+    snapshot = build_pension_transfer_ledger_snapshot(
+        ledger, positions=positions, wealth_inflows=wealth_inflows,
+        fx_source=fx_source, target_currency=target_currency,
+    )
     return {
+        "pension_transfer_ledger_version": ledger.version,
+        "pension_transfer_ledger_policy_version": ledger.policy_version,
+        "pension_transfer_ledger_input_hash": ledger.input_hash,
+        "pension_transfer_ledger_rows": snapshot["rows"],
+        FOUNDATION_SNAPSHOT_KEY: snapshot,
         "pension_series_rappen": list(pension.series_rappen),
         "pension_payout_series_rappen": list(pension.payout_series_rappen),
         # Nur wenn verknuepfte Bezuege im Horizont liegen (sonst bleibt der

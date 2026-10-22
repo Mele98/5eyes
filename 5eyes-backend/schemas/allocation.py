@@ -1645,6 +1645,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     external_reserve_rappen: int = 0
     # RESERVE-FUNDING-LEDGER-001: Herkunft/Release der externen Reserve.
     reserve_funding_ledger: Optional[dict] = None
+    # PENSION-TRANSFER-LEDGER-001: persistierter, beim Laden verifizierter
+    # PensionTransferLedgerSnapshotV1 (None ohne externe Vorsorge).
+    pension_transfer_ledger_snapshot: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int

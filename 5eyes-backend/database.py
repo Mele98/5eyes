@@ -521,6 +521,8 @@ def ensure_runtime_columns() -> None:
             # SIM-HORIZON-FROM-RISK-PROFILE-001 ungenutzt; Spalten bleiben.
             ('sim_horizon_confirmed_at', 'TEXT'),
             ('sim_horizon_confirmed_by', 'TEXT'),
+            # PENSION-TRANSFER-LEDGER-001 (2026-10-21): PensionTransferLedgerSnapshotV1.
+            ('pension_transfer_ledger_snapshot_json', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),
