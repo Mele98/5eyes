@@ -682,6 +682,8 @@ def ensure_runtime_columns() -> None:
         # (unveraendertes Verhalten fuer Bestandszeilen).
         'wealth_inflows': [
             ('linked_position_id', 'TEXT'),
+            # INFLOW-CERTAINTY-001: NULL = 'sicher' (services/wealth_inflow_certainty.py).
+            ('certainty', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),

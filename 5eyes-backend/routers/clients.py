@@ -819,8 +819,12 @@ def cashflow_projection(
         WealthInflow.deleted_at.is_(None),
         WealthInflow.is_active == 1,
     ).all()
+    # INFLOW-CERTAINTY-001: wie in der Strategie-Engine nur sichere Zufluesse
+    # (unsichere Erbschaft/Bonus ohne Zusage sind nicht eingerechnet).
+    from services.wealth_inflow_certainty import certain_inflows
+
     inflow_series = _wealth_inflow_series_rappen(
-        wealth_inflows, horizon, start_year, inflation_series_bps,
+        certain_inflows(wealth_inflows), horizon, start_year, inflation_series_bps,
     )
 
     rows = []

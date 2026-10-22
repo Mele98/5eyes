@@ -155,6 +155,12 @@ class WealthInflow(Base):
     # des Gesamtvermoegens: die Position wird ab dem Bezugsjahr ausgebucht
     # (services/portfolio_engine_pension_positions.py). NULL = neues Vermoegen.
     linked_position_id = Column(String)
+    # INFLOW-CERTAINTY-001 (2026-10-21): 'sicher' | 'unsicher'. NULL (Bestand
+    # vor der Migration / Runtime-Patch) = 'sicher' -> unveraendertes Verhalten.
+    # 'unsicher' senkt die Reserve nicht und fliesst nicht in die Simulation
+    # (services/wealth_inflow_certainty.py). Verknuepfte Vorsorgebezuege sind
+    # immer 'sicher'.
+    certainty = Column(String, nullable=True, default="sicher", server_default="sicher")
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
