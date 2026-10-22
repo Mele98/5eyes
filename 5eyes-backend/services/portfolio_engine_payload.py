@@ -191,16 +191,29 @@ def _build_asset_class_assumptions(
 def _build_sub_asset_class_assumption_reference(
     sub_allocations: list[dict],
     cma: CapitalMarketAssumption,
+    reasoning: list[str] | None = None,
 ) -> list[dict]:
+    """Herkunft je Sub-Anlageklasse fuer den Nachweis.
+
+    LIQUIDITY-INSTRUMENT-MODEL-001: ``"CMA Sub-Asset-Class"`` nur, wenn die
+    CMA-Version die Kennzahl belegt. Ein nie freigegebener Code-Default wird
+    als ``"unapproved_code_default"`` mit SHA-256 deklariert und -- wenn ein
+    ``reasoning``-Kanal uebergeben wird -- dort sichtbar gemacht. Die Zahlen
+    selbst bleiben unveraendert.
+    """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
         _asset_class_expected_metrics,
         _sub_asset_class_assumption_map,
         _sub_asset_class_metrics,
     )
+    from services.portfolio_engine_cma import (
+        _sub_asset_class_code_default_evidence,
+    )
 
     returns, vols = _asset_class_expected_metrics(cma)
     assumption_map = _sub_asset_class_assumption_map(cma)
+    code_defaults = _sub_asset_class_code_default_evidence(cma)
     seen: set[tuple[str, str]] = set()
     items: list[dict] = []
     for item in sub_allocations:
@@ -219,15 +232,26 @@ def _build_sub_asset_class_assumption_reference(
             returns,
             vols,
         )
-        items.append(
-            {
-                "asset_class": asset_class,
-                "sub_asset_class": sub_asset_class,
-                "expected_return_bps": expected_return_bps,
-                "expected_volatility_bps": expected_volatility_bps,
-                "source": "CMA Sub-Asset-Class" if sub_asset_class in assumption_map else "Asset-Class fallback",
-            }
-        )
+        entry = {
+            "asset_class": asset_class,
+            "sub_asset_class": sub_asset_class,
+            "expected_return_bps": expected_return_bps,
+            "expected_volatility_bps": expected_volatility_bps,
+            "source": "CMA Sub-Asset-Class" if sub_asset_class in assumption_map else "Asset-Class fallback",
+        }
+        code_default = code_defaults.get(sub_asset_class)
+        if code_default is not None:
+            entry["source"] = "unapproved_code_default"
+            entry["approval_status"] = "not_approved"
+            entry["evidence_sha256"] = code_default["sha256"]
+            if reasoning is not None:
+                reasoning.append(
+                    f"Sub-Anlageklasse {sub_asset_class}: Rendite/Volatilitaet "
+                    "stammen aus einem Code-Default, nicht aus der genehmigten "
+                    "CMA-Version (nicht freigegeben, Evidenz-Hash "
+                    f"{code_default['sha256'][:12]})."
+                )
+        items.append(entry)
     return items
 
 

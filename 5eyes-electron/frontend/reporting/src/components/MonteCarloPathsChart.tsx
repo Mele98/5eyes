@@ -33,12 +33,26 @@
  *   └────────────────────────────────────────┘
  */
 import type { GoalEntry, MonteCarloPaths } from '@/api/types';
+import {
+  fanAboveScaleText,
+  fanEndLabelText,
+  fanGoalPillText,
+  fanGoalProbability,
+  fanRangeSentence,
+  fanSpreadLabelYs,
+  type FanEndKey,
+} from '@/lib/fanAnnotations';
 import { formatChfRappen } from '@/lib/format';
 import { classifyGoals, type GoalAchievabilityStatus } from '@/lib/goalClassification';
 
 interface MonteCarloPathsChartProps {
   paths: MonteCarloPaths;
   goals: GoalEntry[];
+  /**
+   * AA-UX-HONEST-FAN-001: Report-Projection-Gate (`projections_hidden`).
+   * true -> kein Faecher, keine Endwerte, keine Ziel-Pillen, kein Satz.
+   */
+  projectionsHidden?: boolean;
 }
 
 // Layout-Konstanten — passt zu Editorial-Design-Tokens
@@ -46,7 +60,10 @@ const WIDTH = 720;
 const HEIGHT = 320;
 // Platz fuer "CHF 12.25 Mio." (14 Zeichen x ~6.6px bei 11px Monospace)
 const PADDING_LEFT = 100;
-const PADDING_RIGHT = 24;
+// AA-UX-HONEST-FAN-001: Platz fuer Endwert-Beschriftungen am rechten Rand
+// ("12.25 Mio. · Median" = 18 Zeichen x ~5.6px bei 10px).
+const PADDING_RIGHT = 112;
+const END_LABEL_GAP = 12;
 const PADDING_TOP = 36;
 const PADDING_BOTTOM = 56;
 const PLOT_W = WIDTH - PADDING_LEFT - PADDING_RIGHT;
@@ -91,7 +108,17 @@ const STATUS_COLOR: Record<GoalAchievabilityStatus, string> = {
 export function MonteCarloPathsChart({
   paths,
   goals,
+  projectionsHidden = false,
 }: MonteCarloPathsChartProps) {
+  // AA-UX-HONEST-FAN-001: Gate fail-closed -- bei ausgeblendeten Projektionen
+  // bzw. veralteter/blockierter Allokation weder Faecher noch Beschriftung.
+  if (
+    projectionsHidden ||
+    paths.projection_status === 'stale' ||
+    paths.projection_status === 'blocked'
+  ) {
+    return null;
+  }
   const p5 = paths.p5 ?? [];
   const p50 = paths.p50 ?? [];
   const p75 = paths.p75 ?? [];
@@ -149,6 +176,26 @@ export function MonteCarloPathsChart({
   // X-Achse Ticks: maximal 6 Beschriftungen (sonst ueberfuellt)
   const xTickIndices = _spacedIndices(n, 6);
   const anyGoalAboveScale = goalTargetsInHorizon.some((v) => v > maxValue);
+
+  // Endwerte am rechten Rand (Median immer; P90/P10 nur beim symmetrischen
+  // Faecher -- das Legacy-Band p5–p75 bekommt keine P10/P90-Etiketten).
+  const last = n - 1;
+  const endEntries: Array<{ key: FanEndKey; rappen: number }> = fan.symmetric
+    ? [
+        { key: 'p90', rappen: fan.outerHi[last] },
+        { key: 'p50', rappen: p50[last] },
+        { key: 'p10', rappen: fan.outerLo[last] },
+      ]
+    : [{ key: 'p50', rappen: p50[last] }];
+  const endYs = fanSpreadLabelYs(
+    endEntries.map((e) => yFor(e.rappen)),
+    END_LABEL_GAP,
+    PADDING_TOP,
+    HEIGHT - PADDING_BOTTOM,
+  );
+  const rangeSentence = fan.symmetric
+    ? fanRangeSentence(time_axis[last], fan.outerLo[last] / 100, fan.outerHi[last] / 100)
+    : '';
 
   return (
     <figure
@@ -223,8 +270,27 @@ export function MonteCarloPathsChart({
           points={p50Line}
           fill="none"
           stroke={COLOR_P50}
-          strokeWidth={1.8}
+          strokeWidth={2.5}
         />
+
+        {/* Endwerte direkt am rechten Rand statt in einer Legende */}
+        {endEntries.map((e, k) => (
+          <text
+            key={`end-${e.key}`}
+            data-testid={`mc-paths-end-label-${e.key}`}
+            x={WIDTH - PADDING_RIGHT + 6}
+            y={endYs[k]}
+            textAnchor="start"
+            dominantBaseline="central"
+            fontSize="10"
+            fontFamily="ui-sans-serif, system-ui, sans-serif"
+            fill={e.key === 'p50' ? COLOR_P50 : COLOR_INK_MUTED}
+            fontWeight={e.key === 'p50' ? 600 : 400}
+            style={TABULAR_NUMS}
+          >
+            {fanEndLabelText(e.rappen / 100, e.key)}
+          </text>
+        ))}
 
         {/* Goal-Marker: vertikale Linie + Status-Punkt (bzw. Randmarker) */}
         {classifications.map((c) => {
@@ -238,8 +304,21 @@ export function MonteCarloPathsChart({
           const color = STATUS_COLOR[status];
           // Labels am rechten Rand nach links ausrichten (sonst abgeschnitten)
           const nearRightEdge = x > WIDTH - PADDING_RIGHT - 160;
-          const labelX = nearRightEdge ? x - 10 : x + 10;
           const labelAnchor = nearRightEdge ? 'end' : 'start';
+          // Ziel-Pille: „Ruhestand · 82 %" (Wahrscheinlichkeit nur, wenn
+          // belastbar bewertet -- sonst nur das Label).
+          const prob = goalProbability(goal);
+          const pillText = fanGoalPillText(
+            goal.label || goal.goal_id,
+            prob?.pct ?? null,
+            prob?.estimate ?? false,
+          );
+          const pillW = Math.round(pillText.length * 5.6 + 14);
+          const pillH = 16;
+          const pillX = nearRightEdge ? x - 8 - pillW : x + 8;
+          const pillCy = aboveScale
+            ? yTarget + 14
+            : Math.max(PADDING_TOP + pillH / 2, yTarget - 12);
           return (
             <g
               key={`goal-${c.goal_id}`}
@@ -269,27 +348,46 @@ export function MonteCarloPathsChart({
               ) : (
                 <circle cx={x} cy={yTarget} r={5} fill={color} />
               )}
-              <text
-                x={labelX}
-                y={aboveScale ? yTarget + 14 : yTarget - 6}
-                textAnchor={labelAnchor}
-                fontSize="10"
-                fontFamily="ui-sans-serif, system-ui, sans-serif"
-                fill={COLOR_INK}
-                fontWeight={600}
-                style={TABULAR_NUMS}
-              >
-                {goal.label || goal.goal_id}
-                {aboveScale ? (
-                  <tspan
-                    data-testid={`goal-marker-value-${c.goal_id}`}
-                    fill={COLOR_INK_MUTED}
-                    fontWeight={400}
-                  >
-                    {` ▲ Ziel ${formatChfRappen(goal.target_amount_rappen)} (über Skala)`}
-                  </tspan>
-                ) : null}
-              </text>
+              <g data-testid={`goal-marker-pill-${c.goal_id}`}>
+                <rect
+                  x={pillX}
+                  y={pillCy - pillH / 2}
+                  width={pillW}
+                  height={pillH}
+                  rx={pillH / 2}
+                  fill="#ffffff"
+                  fillOpacity={0.94}
+                  stroke={color}
+                  strokeWidth={1}
+                />
+                <text
+                  x={pillX + pillW / 2}
+                  y={pillCy}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize="10"
+                  fontFamily="ui-sans-serif, system-ui, sans-serif"
+                  fill={COLOR_INK}
+                  fontWeight={600}
+                  style={TABULAR_NUMS}
+                >
+                  {pillText}
+                </text>
+              </g>
+              {aboveScale ? (
+                <text
+                  data-testid={`goal-marker-value-${c.goal_id}`}
+                  x={nearRightEdge ? x - 8 : x + 8}
+                  y={pillCy + pillH / 2 + 10}
+                  textAnchor={labelAnchor}
+                  fontSize="10"
+                  fontFamily="ui-sans-serif, system-ui, sans-serif"
+                  fill={COLOR_INK_MUTED}
+                  style={TABULAR_NUMS}
+                >
+                  {fanAboveScaleText(goal.target_amount_rappen / 100)}
+                </text>
+              ) : null}
             </g>
           );
         })}
@@ -328,6 +426,16 @@ export function MonteCarloPathsChart({
           strokeWidth={1}
         />
       </svg>
+
+      {rangeSentence ? (
+        <p
+          data-testid="mc-paths-range-sentence"
+          className="mt-3 text-body text-ink"
+          style={TABULAR_NUMS}
+        >
+          {rangeSentence}
+        </p>
+      ) : null}
 
       {/* Legende */}
       <figcaption
@@ -388,6 +496,8 @@ export function MonteCarloPathsChart({
 // ---------------------------------------------------------------------------
 
 interface FanBands {
+  /** true = P10–P90/P25–P75; false = Legacy p5–p75 (asymmetrisch). */
+  symmetric: boolean;
   outerLo: number[];
   outerHi: number[];
   innerLo: number[] | null;
@@ -414,6 +524,7 @@ export function selectFanBands(paths: MonteCarloPaths, n: number): FanBands | nu
   const present = [p10, p25, p90].filter((a) => a.length > 0).length;
   if (present === 0) {
     return {
+      symmetric: false,
       outerLo: p5,
       outerHi: p75,
       innerLo: null,
@@ -428,6 +539,7 @@ export function selectFanBands(paths: MonteCarloPaths, n: number): FanBands | nu
   );
   if (!valid) return null;
   return {
+    symmetric: true,
     outerLo: p10,
     outerHi: p90,
     innerLo: p25,
@@ -436,6 +548,24 @@ export function selectFanBands(paths: MonteCarloPaths, n: number): FanBands | nu
     innerLegend: 'Kernbereich P25–P75 (5 von 10 Verläufen)',
     quantileList: 'P10, P25, P50, P75 und P90',
   };
+}
+
+/**
+ * Erfolgswahrscheinlichkeit fuer die Ziel-Pille -- gleiche Regel wie die App
+ * (fanGoalProbability): kanonisch `probability_bps` bei `priority_funded`.
+ * Der Report kennt keinen Simulations-Fallback (null), Altbewertung bzw.
+ * ausserhalb des Horizonts -> nur Label.
+ */
+export function goalProbability(goal: GoalEntry): { pct: number; estimate: boolean } | null {
+  const bps = goal.probability_bps;
+  return fanGoalProbability(
+    {
+      probability: typeof bps === 'number' && Number.isFinite(bps) ? bps / 10000 : null,
+      evaluation_scope: goal.evaluation_scope,
+      outside_simulation_horizon: goal.outside_simulation_horizon,
+    },
+    null,
+  );
 }
 
 function bandPolygon(

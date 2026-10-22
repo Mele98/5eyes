@@ -213,6 +213,8 @@ def _depot_check_gate_blocked(dc: Mapping[str, Any]) -> bool:
 _PROJECTION_CHANNELS = (
     "ausgangslage.key_metrics",
     "goal_based_investing.goals.probability_bps",
+    "goal_based_investing.goals.failure_event_distribution",
+    "goal_based_investing.goals.failure_cause_summary",
     "goal_based_investing.plan_solvency",
     "goal_based_investing.monte_carlo_paths",
     "erkenntnisse.zielkompatibilitaet",
@@ -2472,6 +2474,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "evaluation_scope": "data_pending",
                 "funding_rank": None,
                 "failure_event_id": None,
+                "failure_event_distribution": None,
+                "failure_cause_summary": None,
             })
         return {
             "goals": goals,
@@ -2527,6 +2531,10 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 else None
             ),
             "failure_event_id": r.get("failure_event_id"),
+            # GOAL-FAILURE-DISTRIBUTION-REPORT-001: volle Ursachenverteilung
+            # (Engine v10) + kompakte Kundengruppen; None bei Altbestand
+            # oder nicht deutbarer Verteilung -> keine Anzeige.
+            **_failure_cause_fields(r),
         })
     # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
     # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
@@ -2545,6 +2553,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 evaluation_scope="data_pending",
                 outside_simulation_horizon=False,
                 failure_event_id=None,
+                failure_event_distribution=None,
+                failure_cause_summary=None,
             )
         plan_row = None
 
@@ -2560,6 +2570,27 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
         # mit klarer Begruendung zurueck — UI rendert dann Platzhalter.
         "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
         **staleness,
+    }
+
+
+def _failure_cause_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    """GOAL-FAILURE-DISTRIBUTION-REPORT-001: Payload-Felder einer Zielzeile."""
+    from services.goal_failure_causes import (
+        normalize_failure_event_distribution,
+        summarize_failure_causes,
+    )
+    from services.optimizer.goal_attribution import is_individual_goal_row
+
+    # Nur zielindividuelle Evidenz (priority_funded) traegt eine
+    # zielbezogene Verteilung; Altbewertungen zeigen nichts.
+    distribution = (
+        normalize_failure_event_distribution(row)
+        if is_individual_goal_row(row)
+        else None
+    )
+    return {
+        "failure_event_distribution": distribution,
+        "failure_cause_summary": summarize_failure_causes(distribution),
     }
 
 
@@ -4011,6 +4042,7 @@ def _recompute_reserve_reasoning(
         _unlocked_other_assets_rappen,
         _wealth_inflow_series_rappen,
     )
+    from services.portfolio_engine_pension_positions import pension_payout_view
     from services.wealth_cashflows import derive_tax_cashflow, derive_wealth_cashflows
 
     prefs = _normalize_preferences(_allocation_snapshot_preferences(ta))
@@ -4123,9 +4155,29 @@ def _recompute_reserve_reasoning(
         )
         .all()
     )
-    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
-        inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
-    )
+    # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): Zufluss-Scope wie die
+    # Engine (mandatslose + dieses Mandat) und automatische Vorsorgebezuege aus
+    # DERSELBEN Ledger-Quelle (PensionTransferLedgerV1 via pension_payout_view).
+    # INFLOW-CERTAINTY-001: unsichere Zufluesse senken die Reserve nicht
+    # (identisch zum Engine-Pfad, services/wealth_inflow_certainty.py);
+    # verknuepfte Vorsorgebezuege sind immer "sicher".
+    from services.wealth_inflow_certainty import certain_inflows
+
+    inflows = certain_inflows([
+        inflow for inflow in inflows
+        if not getattr(inflow, "mandate_id", None) or inflow.mandate_id == mandate.id
+    ])
+    inflow_projection_series_rappen = pension_payout_view(
+        _wealth_inflow_series_rappen(
+            inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+        ),
+        positions,
+        inflows,
+        start_year=cashflow_totals["year"],
+        fx_source=fx_source,
+        target_currency=target_currency,
+        mandate=mandate,
+    ).inflow_series_rappen
 
     reasoning: list[str] = []
     fresh_needed_rappen, fresh_external_rappen = _compute_reserve_for_inputs(
