@@ -23853,10 +23853,11 @@ async function downloadServerPdf(reportType, queryString){
   // ALLOC-EDITOR-STALE-001: kennt der Browser einen veralteten Strategie-
   // Stand (Bandbreiten/Eingaben geaendert, manuelle Speicherung ohne Neu-
   // berechnung), wird KEIN frisch beschriftetes Beratungs-PDF aus dem alten
-  // persistierten Kontext erzeugt. Nur das Risikoprofil haengt nicht an der
-  // Soll-Allokation.
+  // persistierten Kontext erzeugt. Nicht an der Soll-Allokation haengen
+  // (CIO-Entscheid 2026-10-22): Risikoprofil und Beratungsvertrag.
   var _staleState=(typeof strategyState!=='undefined'&&strategyState)?strategyState:null;
-  if(reportType!=='risikoprofil'&&_staleState&&_staleState.dirty){
+  var _allocationIndependent=(reportType==='risikoprofil'||reportType==='vertrag');
+  if(!_allocationIndependent&&_staleState&&_staleState.dirty){
     var _staleMsg='PDF nicht erstellt: die angezeigte Strategie ist nicht aktuell'
       +(_staleState.staleNotice?' ('+String(_staleState.staleNotice)+')':'')
       +'. Bitte zuerst «Anlagestrategie berechnen». [allocation_stale]';

@@ -201,16 +201,24 @@ def _pdf_harness(state_js: str, calls: str) -> dict:
     return json.loads(_run_node(download + "\n" + harness))
 
 
-def test_dirty_state_blocks_all_allocation_bound_pdfs_but_not_risk_profile():
+def test_dirty_state_blocks_allocation_bound_pdfs_but_not_contract_or_risk_profile():
+    """CIO-Entscheid 2026-10-22: Vertrag und Risikoprofil haengen nicht an der
+    Strategie und bleiben bei dirty erlaubt; Protokoll und Strategie-PDFs
+    sind gesperrt."""
     out = _pdf_harness(
         "{dirty:true,staleNotice:'Bandbreiten geaendert',"
         "allocation:{target_allocation:{id:'TA1'}}}",
-        "downloadServerPdf('portfolio'),downloadServerPdf('vertrag'),"
-        "downloadServerPdf('cost-disclosure'),downloadServerPdf('risikoprofil')",
+        "downloadServerPdf('anlagestrategie'),downloadServerPdf('assetallocation'),"
+        "downloadServerPdf('protokoll'),downloadServerPdf('portfolio'),"
+        "downloadServerPdf('cost-disclosure'),downloadServerPdf('vertrag'),"
+        "downloadServerPdf('risikoprofil')",
     )
-    assert [r["type"] for r in out["requests"]] == ["risikoprofil"]
+    assert [r["path"] for r in out["requests"]] == [
+        "/mandates/M1/reports/vertrag.pdf",
+        "/mandates/M1/reports/risikoprofil.pdf",
+    ]
     blocked = [r for r in out["results"] if r and r.get("status") == "cancelled"]
-    assert len(blocked) == 3
+    assert len(blocked) == 5
     assert all(r["reason"] == "allocation_stale" for r in blocked)
     assert out["errors"] and "[allocation_stale]" in out["errors"][0]
     assert "Bandbreiten geaendert" in out["errors"][0]
