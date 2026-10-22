@@ -9,6 +9,8 @@
  * hochsetzen. Tests verhindern stilles Drift via Top-Level-Key-Vergleich.
  */
 
+import type { RiskCapacityPlausibilityCompact } from './riskCapacityPlausibility';
+
 // ---------------------------------------------------------------------------
 // Gemeinsame Bausteine
 // ---------------------------------------------------------------------------
@@ -895,6 +897,12 @@ export interface SuitabilitySummaryData {
   checked_by_id: string | null;
   checked_by_name: string;
   linked_log_present: boolean;
+  /**
+   * RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
+   * pruefung Risikofaehigkeit; null ohne aktuelles Risikoprofil. Optional,
+   * damit aeltere Payloads weiter validieren.
+   */
+  risk_capacity_plausibility?: RiskCapacityPlausibilityCompact | null;
 }
 
 // ---------------------------------------------------------------------------
