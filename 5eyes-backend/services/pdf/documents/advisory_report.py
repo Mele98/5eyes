@@ -293,7 +293,10 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     if "ausgangslage" in payload:
         flowables.append(_toc_anchor(toc_collector, "ausgangslage", "Ausgangslage"))
-        flowables.extend(_build_ausgangslage_flowables(payload.get("ausgangslage") or {}, styles))
+        flowables.extend(_build_ausgangslage_flowables(
+            payload.get("ausgangslage") or {}, styles,
+            projection_gate=payload.get("projection_gate"),
+        ))
         flowables.append(PageBreak())
     if "positionen" in payload:
         flowables.append(_toc_anchor(toc_collector, "positionen", "Übersicht Ihrer Positionen"))
@@ -621,9 +624,17 @@ def _build_toc_flowables(
 # Sektion 4 — Ausgangslage (Client-Info + Wealth-Summary + Key-Metrics)
 # ---------------------------------------------------------------------------
 
-def _build_ausgangslage_flowables(ausgangslage: dict, styles: dict) -> list[Any]:
+def _build_ausgangslage_flowables(
+    ausgangslage: dict,
+    styles: dict,
+    *,
+    projection_gate: dict | None = None,
+) -> list[Any]:
     """Editorial 2-Spalten-Layout: links Client-Info, rechts Wealth-Summary,
-    unten 6 KPI-Karten."""
+    unten 6 KPI-Karten.
+
+    MC-CONTEXT-001: blendet der Report-Gate die Projektionen aus (stale oder
+    blocked), steht ueber den (leeren) KPI-Karten der Berater-Hinweis."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 4", styles["kicker"]))
     out.append(Paragraph("Ausgangslage", styles["h1"]))
@@ -664,6 +675,13 @@ def _build_ausgangslage_flowables(ausgangslage: dict, styles: dict) -> list[Any]
     out.append(Spacer(1, 6 * mm))
     out.append(Paragraph("Kennzahlen", styles["h2"]))
     out.append(Spacer(1, 3 * mm))
+    gate = projection_gate if isinstance(projection_gate, dict) else {}
+    gate_hint = str(gate.get("hinweis") or "").strip()
+    if gate.get("projections_hidden") and gate_hint:
+        out.append(Paragraph(
+            "<b>Achtung:</b> " + _escape(gate_hint), styles["body"],
+        ))
+        out.append(Spacer(1, 3 * mm))
     out.append(_build_key_metrics_row(metrics, styles))
     return out
 
@@ -1416,12 +1434,59 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
             "gemeinsam finanziert sind.",
             _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
         ))
+        out.extend(_failure_cause_flowables(goals, styles))
     else:
         out.append(Paragraph(
             "<i>Keine Ziele erfasst.</i>",
             styles["caption"],
         ))
     return out
+
+
+def _failure_cause_flowables(goals: list[dict], styles: dict) -> list[Any]:
+    """GOAL-FAILURE-DISTRIBUTION-REPORT-001: verfehlte Verlaeufe je Ziel.
+
+    Nur Ziele mit nicht-leerer ``failure_cause_summary`` (Engine v10);
+    Altbestand / ausgeblendete Projektionen (``None``) zeigen nichts.
+    Beschreibend (erstes eingetretenes Ereignis), keine Kausalaussage.
+    """
+    from services.goal_failure_causes import FAILURE_CAUSE_INTRO, FAILURE_CAUSE_NOTE
+
+    lines: list[Any] = []
+    for g in goals:
+        summary = g.get("failure_cause_summary")
+        if not isinstance(summary, list) or not summary:
+            continue
+        parts = [
+            f"{_escape(str(item.get('label') or ''))} "
+            f"({_escape(format_bps_as_pct(item.get('share_bps'), decimals=0))})"
+            for item in summary
+            if isinstance(item, dict) and item.get("share_bps") is not None
+        ]
+        if not parts:
+            continue
+        label = _safe_string(g.get("label")) or "Ziel"
+        lines.append(Paragraph(
+            f"<b>{_escape(label)}:</b> {_escape(FAILURE_CAUSE_INTRO)}: "
+            + "; ".join(parts) + ".",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+        ))
+    if not lines:
+        return []
+    return [
+        Spacer(1, 4 * mm),
+        Paragraph(
+            "Verfehlte Verläufe nach erstem Ereignis",
+            _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
+        ),
+        Spacer(1, 1.5 * mm),
+        *lines,
+        Spacer(1, 1.5 * mm),
+        Paragraph(
+            _escape(FAILURE_CAUSE_NOTE),
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ),
+    ]
 
 
 def _plan_solvency_line(plan: dict, styles: dict) -> Paragraph:

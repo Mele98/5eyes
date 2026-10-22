@@ -169,6 +169,40 @@ describe('Section 4: Ausgangslage', () => {
     expect(screen.queryByText('VaR 95 %')).not.toBeInTheDocument();
   });
 
+  it('MC-CONTEXT-001: zeigt Gate-Hinweis statt Kennzahlen bei blocked', () => {
+    const data = makeAusgangslage();
+    data.key_metrics = {
+      risky_fraction_bps: null,
+      zielerreichung_bps: null,
+      exp_vol_bps: null,
+      exp_return_bps: null,
+      max_drawdown_bps: null,
+      var_95_bps: null,
+    };
+    render(
+      withRouter(
+        <Ausgangslage
+          data={data}
+          projectionGate={{
+            status: 'blocked',
+            reason_code: 'no_assessment',
+            projections_hidden: true,
+            hinweis: 'Kein aktuelles Risikoprofil – Projektionen ausgeblendet.',
+            note: null,
+            hidden_channels: ['ausgangslage.key_metrics'],
+            historical_ist_channels: ['ausgangslage.wealth_summary'],
+          }}
+        />,
+      ),
+    );
+    expect(
+      screen.getByText(/Kein aktuelles Risikoprofil – Projektionen ausgeblendet\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Risikobehafteter Anteil')).not.toBeInTheDocument();
+    // IST-Vermoegensuebersicht bleibt sichtbar.
+    expect(screen.getByText('Gesamtvermögen')).toBeInTheDocument();
+  });
+
   it('PA-04: ohne Kennzahlen entfällt der ganze Kennzahlen-Block', () => {
     const data = makeAusgangslage();
     data.key_metrics = {
@@ -447,6 +481,62 @@ describe('Section 11: Goals', () => {
     render(withRouter(<Goals data={data} />));
     expect(screen.getByText('Altbewertung')).toBeInTheDocument();
     expect(screen.queryByText('Erreichbar')).not.toBeInTheDocument();
+  });
+
+  describe('GOAL-FAILURE-DISTRIBUTION-REPORT-001: verfehlte Verläufe', () => {
+    const summary = [
+      {
+        kind: 'liquiditaetsengpass' as const,
+        label: 'Liquiditätsengpass – verfügbares Vermögen zwischen dem 7. und 9. Planjahr aufgebraucht',
+        share_bps: 7000,
+        first_plan_year: 7,
+        last_plan_year: 9,
+      },
+      {
+        kind: 'zielschwelle' as const,
+        label: 'Zielbetrag zum Fälligkeitszeitpunkt nicht vollständig erreicht',
+        share_bps: 3000,
+        first_plan_year: null,
+        last_plan_year: null,
+      },
+    ];
+
+    it('zeigt die Verteilung kompakt je Ziel', () => {
+      const data = makeGoals();
+      data.goals = [{ ...data.goals[0], failure_cause_summary: summary }, data.goals[1]];
+      render(withRouter(<Goals data={data} />));
+      const block = screen.getByTestId('goal-failure-causes');
+      expect(block).toHaveTextContent('Verfehlte Verläufe nach erstem Ereignis');
+      const line = screen.getByTestId('goal-failure-causes-g1');
+      expect(line).toHaveTextContent(
+        'Frühpension mit 60: In den simulierten Verläufen, in denen das Ziel verfehlt wird, ' +
+          'tritt zuerst ein: Liquiditätsengpass – verfügbares Vermögen zwischen dem 7. und ' +
+          '9. Planjahr aufgebraucht (70 %); Zielbetrag zum Fälligkeitszeitpunkt nicht ' +
+          'vollständig erreicht (30 %).',
+      );
+      // g2 ohne Verteilung (Altbestand) -> keine Zeile
+      expect(screen.queryByTestId('goal-failure-causes-g2')).not.toBeInTheDocument();
+      expect((block.textContent ?? '').toLowerCase()).not.toMatch(/weil |verursacht|aufgrund|wegen /);
+    });
+
+    it('Altbestand (Feld fehlt / null) und leere Verteilung zeigen nichts', () => {
+      const data = makeGoals();
+      data.goals = [
+        { ...data.goals[0], failure_cause_summary: null },
+        { ...data.goals[1], failure_cause_summary: [] },
+      ];
+      render(withRouter(<Goals data={data} />));
+      expect(screen.queryByTestId('goal-failure-causes')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Verfehlte Verläufe/)).not.toBeInTheDocument();
+    });
+
+    it('bei veralteter/gesperrter Allokation ausgeblendet', () => {
+      const data = makeGoals();
+      data.goals = [{ ...data.goals[0], failure_cause_summary: summary }];
+      data.target_allocation_stale = true;
+      render(withRouter(<Goals data={data} />));
+      expect(screen.queryByTestId('goal-failure-causes')).not.toBeInTheDocument();
+    });
   });
 
   it('U-12: Goal jenseits Horizont hat KEINEN Marker', () => {

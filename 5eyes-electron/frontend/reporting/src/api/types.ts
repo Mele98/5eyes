@@ -472,6 +472,33 @@ export interface GoalEntry {
    * selben Engpass — ein Konflikt, nicht mehrere.
    */
   failure_event_id: string | null;
+  /**
+   * GOAL-FAILURE-DISTRIBUTION-REPORT-001: volle Verteilung des ersten
+   * Ereignisses über die verfehlten Verläufe (Engine v10). `null` =
+   * Altbestand / nicht deutbar / Projektion ausgeblendet → nichts anzeigen;
+   * `[]` = in keinem Verlauf verfehlt. Ältere Payloads liefern das Feld nicht.
+   */
+  failure_event_distribution?: FailureEventShare[] | null;
+  /** Kompakte, kundenverständliche Gruppen je Ereignisart (Anteil absteigend). */
+  failure_cause_summary?: FailureCauseGroup[] | null;
+}
+
+export type FailureEventKind = 'liquiditaetsengpass' | 'zielschwelle' | 'renditeziel';
+
+export interface FailureEventShare {
+  event_id: string;
+  kind: FailureEventKind;
+  /** Simulationsjahr (Spalte t des Vermögenspfads); nur bei Liquiditätsengpass. */
+  plan_year: number | null;
+  share_bps: number;
+}
+
+export interface FailureCauseGroup {
+  kind: FailureEventKind;
+  label: string;
+  share_bps: number;
+  first_plan_year: number | null;
+  last_plan_year: number | null;
 }
 
 export interface MonteCarloPaths {
@@ -853,6 +880,20 @@ export interface SuitabilitySummaryData {
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
+// MC-CONTEXT-001: Report-Projection-Gate
+export interface ProjectionGateData {
+  /** 'current' | 'stale' | 'blocked' | 'no_allocation' -- unbekannte Werte
+   * sind fail-closed (projections_hidden=true). */
+  status: string;
+  reason_code: string | null;
+  projections_hidden: boolean;
+  /** Berater-Kurzhinweis, z.B. "Kein aktuelles Risikoprofil – Projektionen ausgeblendet." */
+  hinweis: string | null;
+  note: string | null;
+  hidden_channels: string[];
+  historical_ist_channels: string[];
+}
+
 export interface AdvisoryReport {
   schema_version: 2;
   mandate_id: string;
@@ -862,6 +903,11 @@ export interface AdvisoryReport {
    * zwischen Client.country_of_residence und Mandate.tax_jurisdiction, sonst null.
    * Rein informativ, NIE ueber hidden_report_sections ausblendbar. */
   tax_domicile_mismatch_warning: string | null;
+  /** MC-CONTEXT-001 (Codex-Closure-Review PR #652): EIN Gate-Entscheid fuer
+   * alle Projektionskanaele. Bei projections_hidden (stale ODER blocked)
+   * sind Key-Metrics, Zielwahrscheinlichkeiten, MC, Stress, Attribution und
+   * Soll-Werte leer; IST-Kanaele bleiben sichtbar. Nie ausblendbar. */
+  projection_gate?: ProjectionGateData;
   cover: CoverData;
   disclaimer: DisclaimerData;
   inhaltsverzeichnis: InhaltsverzeichnisData;

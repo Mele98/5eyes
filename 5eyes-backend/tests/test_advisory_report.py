@@ -139,6 +139,9 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         # TAX-01 (Audit-Finding, 2026-10-07): ebenfalls immer verfuegbares
         # Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
         "tax_domicile_mismatch_warning",
+        # MC-CONTEXT-001 (Codex-Closure-Review PR #652): EIN Gate-Entscheid
+        # fuer alle Projektionskanaele, siehe PROTECTED_REPORT_SECTIONS.
+        "projection_gate",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
@@ -541,6 +544,22 @@ def _make_optimizer_policy(s, advisor_id: str) -> OptimizerPolicy:
     return pol
 
 
+def _ensure_current_assessment_anchor(s, *, mandate_id: str, advisor_id: str) -> None:
+    """MC-CONTEXT-001 (Codex-Closure-Review PR #652): Projektionen einer
+    Soll-Allokation (Key-Metrics, Zielerreichung, Stress, Soll-Sektionen)
+    erscheinen nur mit eindeutig aktuellem Risikoprofil -- ohne ist der
+    Report-Gate ``blocked``. Tests, die die Projektionswerte selbst pruefen,
+    seeden deshalb ein aktuelles Risikoprofil (falls noch keines existiert)."""
+    exists = s.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if exists is None:
+        _make_strategy_ready_assessment(s, mandate_id=mandate_id, advisor_id=advisor_id)
+        s.flush()
+
+
 def _make_strategy_ready_assessment(s, *, mandate_id: str, advisor_id: str) -> None:
     aid = str(uuid.uuid4())
     risk_fields = derive_current_risk_fields(
@@ -731,6 +750,7 @@ def _bind_run_to_current_ta(s, run: RecommendationRun, *, mandate_id: str, advis
         s.flush()
     run.target_allocation_id = ta.id
     s.flush()
+    _ensure_current_assessment_anchor(s, mandate_id=mandate_id, advisor_id=advisor_id)
     return ta
 
 
@@ -1070,6 +1090,7 @@ def test_asset_allocation_carries_drift_and_band_info(session_factory):
             policy_id=pol2.id, set_by=advisor.id, set_at=_NOW,
             created_at=_NOW, updated_at=_NOW,
         ))
+        _ensure_current_assessment_anchor(s, mandate_id=mandate.id, advisor_id=advisor.id)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     aa = report["asset_allocation"]
@@ -1254,6 +1275,7 @@ def _make_ta_with_goals(
     )
     s.add(ta)
     s.flush()
+    _ensure_current_assessment_anchor(s, mandate_id=mandate_id, advisor_id=advisor_id)
     return ta
 
 
@@ -1645,6 +1667,9 @@ def test_endpoint_returns_full_report_structure(session_factory):
         # TAX-01 (Audit-Finding, 2026-10-07): ebenfalls immer verfuegbares
         # Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
         "tax_domicile_mismatch_warning",
+        # MC-CONTEXT-001 (Codex-Closure-Review PR #652): EIN Gate-Entscheid
+        # fuer alle Projektionskanaele, siehe PROTECTED_REPORT_SECTIONS.
+        "projection_gate",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",

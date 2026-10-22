@@ -158,30 +158,127 @@ def _cached_projection_gate(db: Session, mandate: Mandate) -> Any:
     17 Stress-Replay). Nutzt den im Aggregator bereits berechneten
     Depot-Check (dieselbe Regel wie Sektionen 7/8/13), sonst eigene Pruefung.
     Siehe services/report_projection_gate.py."""
-    from services.report_projection_gate import resolve_report_projection_gate
+    from services.report_projection_gate import (
+        gate_error,
+        resolve_report_projection_gate,
+    )
 
     def _factory():
         cache = db.info.get(_CACHE_KEY) or {}
-        return resolve_report_projection_gate(
-            db, mandate, _cached_current_ta(db, mandate),
-            depot_check=cache.get("_depot_check"),
-            assessment=_cached_current_ra_is_current(db, mandate),
-            assessment_preloaded=True,
-        )
+        try:
+            return resolve_report_projection_gate(
+                db, mandate, _cached_current_ta(db, mandate),
+                depot_check=cache.get("_depot_check"),
+                assessment=_cached_current_ra_is_current(db, mandate),
+                assessment_preloaded=True,
+            )
+        except Exception:  # noqa: BLE001 - Gate-Fehler = fail-closed
+            # MC-CONTEXT-001: eine nicht pruefbare Allokation ist nie
+            # "current"; der Report bleibt erzeugbar, projiziert aber nichts.
+            return gate_error()
 
     return _aggregator_cache_get(db, ("projection_gate", mandate.id), _factory)
 
 
 def _allocation_projection_hidden(db: Session, mandate: Mandate) -> bool:
-    """True, wenn PERSISTIERTE Projektionen der Soll-Allokation (Zielerreichung,
-    MC-KPIs, Stress-Replay der Soll-Gewichte) fail-closed ausgeblendet werden
-    muessen: exakt die Depot-Check-Regel der Sektionen 7/8/13 (Risikoprofil-
-    oder Input-Drift). ``blocked`` (Anker nicht pruefbar, z.B. kein
-    Risikoprofil) betrifft nur die LIVE-Neuberechnung der MC-Pfade -- die
-    persistierten Werte bleiben dort wie Sektion 8 sichtbar."""
+    """True, wenn Projektionen der Soll-Allokation (Zielerreichung, MC-KPIs,
+    Stress-Replay, Benchmark-Attribution, Soll-Werte der Sektionen 7-10/13)
+    fail-closed ausgeblendet werden muessen.
+
+    MC-CONTEXT-001 (Codex-Closure-Review PR #652): delegiert an den
+    kanonischen Vertrag ``ProjectionGate.is_hidden`` -- ``stale`` UND
+    ``blocked`` (und jeder unbekannte Status). Die fruehere Abgrenzung
+    "blocked sperrt nur die Live-Neuberechnung" publizierte Kennzahlen und
+    Stress-Szenarien einer Allokation, die derselbe Bericht im MC-Abschnitt
+    als nicht verifizierbar auswies. Konsistenz gilt jetzt in die strengere
+    Richtung: ist der Anker nicht pruefbar, sind auch die persistierten
+    Projektionswerte nicht publizierbar."""
+    return bool(_cached_projection_gate(db, mandate).is_hidden)
+
+
+def _depot_check_gate_blocked(dc: Mapping[str, Any]) -> bool:
+    """True, wenn der Report-Gate (nicht die Depot-Check-Drift) den Grund
+    fuer die Ausblendung liefert: ``blocked`` bzw. unbekannter Status."""
     from services.report_projection_gate import STATUS_STALE
 
-    return _cached_projection_gate(db, mandate).status == STATUS_STALE
+    status = dc.get("projection_gate_status")
+    return bool(status) and status != STATUS_STALE and bool(
+        dc.get("projection_gate_hinweis")
+    )
+
+
+# MC-CONTEXT-001: typisierte Trennung der Kanaele im API-Payload. Die
+# Projektionskanaele werden bei ``projections_hidden`` kanalgleich genullt;
+# die IST-/Bestandskanaele bleiben sichtbar (keine Prognose, keine Sollzahl).
+_PROJECTION_CHANNELS = (
+    "ausgangslage.key_metrics",
+    "goal_based_investing.goals.probability_bps",
+    "goal_based_investing.goals.failure_event_distribution",
+    "goal_based_investing.goals.failure_cause_summary",
+    "goal_based_investing.plan_solvency",
+    "goal_based_investing.monte_carlo_paths",
+    "erkenntnisse.zielkompatibilitaet",
+    "erkenntnisse.asset_allocation",
+    "asset_allocation.soll",
+    "risikowaehrungen.soll",
+    "branchen.soll",
+    "building_blocks.blocks",
+    "stress_replay.scenarios",
+    "performance_attribution",
+)
+_HISTORICAL_IST_CHANNELS = (
+    "ausgangslage.wealth_summary",
+    "positionen",
+    "asset_allocation.ist",
+)
+
+
+def _projection_gate_payload(gate: Any) -> dict[str, Any]:
+    payload = gate.to_payload()
+    payload["hidden_channels"] = (
+        list(_PROJECTION_CHANNELS) if payload["projections_hidden"] else []
+    )
+    payload["historical_ist_channels"] = list(_HISTORICAL_IST_CHANNELS)
+    return payload
+
+
+def _apply_projection_gate_to_depot_check(
+    dc: dict[str, Any], gate: Any,
+) -> dict[str, Any]:
+    """MC-CONTEXT-001: der Report-Gate-Entscheid gilt auch fuer die aus dem
+    Depot-Check abgeleiteten Soll-Sektionen (7/8/9/10/13).
+
+    Der Depot-Check kennt nur Risikoprofil- und Input-Drift; ``blocked``
+    (kein eindeutiges aktuelles Risikoprofil, Policy nicht aktuell,
+    Gate-Fehler) erkennt er z.B. bei Alt-Allokationen nicht. Ist der Gate
+    ausgeblendet, werden die Soll-Werte wie bei Staleness genullt -- IST-
+    Werte (Bestand/Exposures) bleiben unveraendert sichtbar. Liefert eine
+    Kopie; das Original-Ergebnis bleibt unangetastet."""
+    if not dc or not gate.is_hidden:
+        return dc
+    gated = dict(dc)
+    gated["projection_gate_status"] = gate.status
+    gated["projection_gate_hinweis"] = gate.hint
+    if dc.get("target_allocation_stale"):
+        return gated
+    gated["target_allocation_stale"] = True
+    gated["soll_ausgeblendet"] = True
+    gated["buckets"] = {
+        key: {
+            **info,
+            "soll_bps": None, "drift_bps": None,
+            "band_min_bps": None, "band_max_bps": None, "in_band": None,
+        }
+        for key, info in (dc.get("buckets") or {}).items()
+    }
+    for key in (
+        "soll_country_exposure_bps", "soll_sector_exposure_bps",
+        "soll_currency_exposure_bps", "country_exposure_drift_bps",
+        "sector_exposure_drift_bps", "currency_exposure_drift_bps",
+    ):
+        if key in gated:
+            gated[key] = {}
+    return gated
 
 
 def _cached_current_ra_is_current(db: Session, mandate: Mandate) -> Any:
@@ -324,6 +421,9 @@ PROTECTED_REPORT_SECTIONS = frozenset({
     # Abgleichs-Hinweis darf nicht per hidden_report_sections wegkonfiguriert
     # werden koennen.
     "tax_domicile_mismatch_warning",
+    # MC-CONTEXT-001: der Hinweis "Projektionen ausgeblendet" darf nicht
+    # wegkonfiguriert werden.
+    "projection_gate",
 })
 
 
@@ -369,6 +469,10 @@ def _compute_advisory_report_inner(
     _call_cache = db.info.get(_CACHE_KEY)
     if _call_cache is not None:
         _call_cache["_depot_check"] = dc
+    # MC-CONTEXT-001 (Codex-Closure-Review PR #652): EIN Gate-Entscheid fuer
+    # alle Projektionskanaele -- auch die Soll-Sektionen 7-10/13 folgen ihm.
+    projection_gate = _cached_projection_gate(db, mandate)
+    dc = _apply_projection_gate_to_depot_check(dc, projection_gate)
     # PROVISORIK-WARNBANNER-JSON-001 (Kontrollrunde 2026-09-27): dieselbe
     # Provisorik-Gate-Logik, die im PDF-Export laengst ein sichtbares
     # "PROVISORISCH -- NICHT IC-FREIGEGEBEN"-Banner erzeugt, war im
@@ -409,6 +513,10 @@ def _compute_advisory_report_inner(
         # -- None wenn kein Abgleichs-Mismatch bzw. tax_jurisdiction NULL
         # (steuer-naiv), sonst ein Hinweistext.
         "tax_domicile_mismatch_warning": _build_tax_domicile_mismatch_warning(client, mandate),
+        # MC-CONTEXT-001 (Codex-Closure-Review PR #652): der EINE Gate-
+        # Entscheid maschinenlesbar (status/reason_code/projections_hidden/
+        # hinweis). Nie ausblendbar (PROTECTED_REPORT_SECTIONS).
+        "projection_gate": _projection_gate_payload(projection_gate),
         # --- Sektion 1
         "cover": _build_cover(mandate, client, advisor, generated_at),
         # --- Sektion 2
@@ -1488,6 +1596,14 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
     # Sektion "gruen" zeigen, waehrend Sektion 19 (Compliance-Audit,
     # services/suitability_audit.py) dasselbe Mandat bereits als nicht-
     # konform ausweist. Siehe depot_check.py::target_allocation_stale.
+    if _depot_check_gate_blocked(dc):
+        # MC-CONTEXT-001: Anker nicht pruefbar -> kein Band-Urteil.
+        return _verdict(
+            "Asset Allocation", "nicht_beurteilbar",
+            str(dc.get("projection_gate_hinweis"))
+            + " Band-Vergleich nicht aussagekraeftig.",
+            "Risikoprofil pruefen und Strategie neu berechnen.",
+        )
     if dc.get("target_allocation_inputs_stale"):
         # ALLOCATION-INPUT-STALENESS-001: gleiche Konsequenz, anderer Grund.
         return _verdict(
@@ -2357,6 +2473,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "evaluation_scope": "data_pending",
                 "funding_rank": None,
                 "failure_event_id": None,
+                "failure_event_distribution": None,
+                "failure_cause_summary": None,
             })
         return {
             "goals": goals,
@@ -2412,6 +2530,10 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 else None
             ),
             "failure_event_id": r.get("failure_event_id"),
+            # GOAL-FAILURE-DISTRIBUTION-REPORT-001: volle Ursachenverteilung
+            # (Engine v10) + kompakte Kundengruppen; None bei Altbestand
+            # oder nicht deutbarer Verteilung -> keine Anzeige.
+            **_failure_cause_fields(r),
         })
     # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
     # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
@@ -2430,6 +2552,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 evaluation_scope="data_pending",
                 outside_simulation_horizon=False,
                 failure_event_id=None,
+                failure_event_distribution=None,
+                failure_cause_summary=None,
             )
         plan_row = None
 
@@ -2445,6 +2569,27 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
         # mit klarer Begruendung zurueck — UI rendert dann Platzhalter.
         "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
         **staleness,
+    }
+
+
+def _failure_cause_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    """GOAL-FAILURE-DISTRIBUTION-REPORT-001: Payload-Felder einer Zielzeile."""
+    from services.goal_failure_causes import (
+        normalize_failure_event_distribution,
+        summarize_failure_causes,
+    )
+    from services.optimizer.goal_attribution import is_individual_goal_row
+
+    # Nur zielindividuelle Evidenz (priority_funded) traegt eine
+    # zielbezogene Verteilung; Altbewertungen zeigen nichts.
+    distribution = (
+        normalize_failure_event_distribution(row)
+        if is_individual_goal_row(row)
+        else None
+    )
+    return {
+        "failure_event_distribution": distribution,
+        "failure_cause_summary": summarize_failure_causes(distribution),
     }
 
 
@@ -2510,7 +2655,7 @@ def _build_monte_carlo_paths_section(
         "mortality_cutoff_year_index": None,
     }
     gate = _cached_projection_gate(db, mandate)
-    if gate.is_stale_or_blocked:
+    if gate.is_hidden:
         return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
             "note": gate.note,
             "projection_status": gate.status,
@@ -2676,7 +2821,10 @@ _INPUT_STALE_ALLOCATION_TEXT = (
 
 def _stale_allocation_hinweis(dc: dict[str, Any]) -> str:
     """Hinweistext fuer eine veraltete Soll-Allokation (Grund aus dem
-    Depot-Check: geaenderte Inputs vs. frueheres Risikoprofil)."""
+    Depot-Check: geaenderte Inputs vs. frueheres Risikoprofil; bei
+    ``blocked`` der Gate-Hinweis, z.B. kein aktuelles Risikoprofil)."""
+    if _depot_check_gate_blocked(dc):
+        return "Hinweis: " + str(dc.get("projection_gate_hinweis"))
     if dc.get("target_allocation_inputs_stale"):
         return "Hinweis: " + _INPUT_STALE_ALLOCATION_TEXT + "."
     return (
@@ -4408,6 +4556,11 @@ def _build_performance_attribution(
         )
         if ta is None:
             return _performance_attribution_empty("Keine aktive TargetAllocation.")
+        # MC-CONTEXT-001: die Attribution projiziert die Soll-Gewichte mit
+        # CMA-Erwartungen (forward-looking) -- gleicher Gate wie MC/Stress.
+        gate = _cached_projection_gate(db, mandate)
+        if gate.is_hidden:
+            return _performance_attribution_empty(gate.note or str(gate.hint))
 
         # Portfolio-Weights aus TA
         portfolio_weights = {
