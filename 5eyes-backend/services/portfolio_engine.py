@@ -36,6 +36,10 @@ from models.review import (
     RecommendationRun,
 )
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, WealthPosition
+from services.wealth_inflow_certainty import (
+    certain_inflows, scope_active_mandate_inflows, split_by_certainty as split_inflows_by_certainty,
+    uncertain_inflow_sensitivity,
+)
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
@@ -2206,28 +2210,13 @@ def _load_allocation_inputs(
     # Berechnung ein.
     goals = [g for g in goals if getattr(g, "is_included", 1) == 1]
     # Sprint A1: erwartete Vermoegenszufluesse (Erbschaft, Bonus, Saeule3b, ...)
-    wealth_inflows = db.query(WealthInflow).filter(
-        WealthInflow.client_id == mandate.client_id,
-        WealthInflow.deleted_at.is_(None),
-    ).all()
-    scoped_wealth_inflows = []
-    for inflow in wealth_inflows:
-        active = getattr(inflow, "is_active", None)
-        if isinstance(active, bool) or not isinstance(active, int) or active not in (0, 1):
-            raise ValueError("Vermoegenszufluss: is_active muss exakt 0 oder 1 sein.")
-        inflow_mandate_id = getattr(inflow, "mandate_id", None)
-        if inflow_mandate_id:
-            inflow_mandate = db.query(Mandate).filter(Mandate.id == inflow_mandate_id).first()
-            if inflow_mandate is None or inflow_mandate.client_id != mandate.client_id:
-                raise ValueError(
-                    "Vermoegenszufluss verweist auf ein Mandat eines anderen "
-                    "Kunden oder auf ein fehlendes Mandat."
-                )
-            if inflow_mandate_id != mandate.id:
-                continue
-        if active == 1:
-            scoped_wealth_inflows.append(inflow)
-    wealth_inflows = scoped_wealth_inflows
+    # INFLOW-CERTAINTY-001: unsichere Zufluesse (Erbschaft/Bonus ohne Zusage)
+    # senken weder Reserve noch fliessen sie in die Simulation; nur Reasoning.
+    wealth_inflows, uncertain_wealth_inflows = split_inflows_by_certainty(scope_active_mandate_inflows(
+        db, mandate, db.query(WealthInflow).filter(
+            WealthInflow.client_id == mandate.client_id, WealthInflow.deleted_at.is_(None),
+        ).all(),
+    ))
     # fx_source/target_currency bereits weiter oben ermittelt (siehe FX-Fix-
     # Kommentar) -- hier wiederverwendet statt erneut geladen.
     cashflow_totals = totals_for_year(
@@ -2440,6 +2429,7 @@ def _load_allocation_inputs(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         # Sprint A1: erwartete Vermoegenszufluesse, fuer Audit-Trail + FE-Anzeige.
         "wealth_inflows": wealth_inflows,
+        "uncertain_wealth_inflows": uncertain_wealth_inflows,  # INFLOW-CERTAINTY-001
         "inflow_projection_series_rappen": inflow_projection_series_rappen,
         # Sprint B2: Anderes-Vermoegen-Schloss-Pool (Reserve-Reduktion).
         "unlocked_other_assets_rappen": unlocked_other_assets_rappen,
@@ -3154,20 +3144,26 @@ def generate_target_allocation(
     # _apply_goal_and_reserve_tilts den Reserve-Split gleich vornimmt -- der
     # stochastische Floor unten muss genau diesen internen Betrag halten.
     saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(maximums["liquidity"])
-    reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
-        targets=targets,
-        minimums=minimums,
-        maximums=maximums,
+    reserve_inputs = dict(
         goals=goals,
         limits_prefs=prefs["limits"],
         asset_class_prefs=prefs["assetClasses"],
         recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
         recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
         advisory_wealth_rappen=advisory_wealth_rappen,
-        reasoning=reasoning,
         unlocked_other_assets_rappen=int(inputs.get("unlocked_other_assets_rappen") or 0),
         # Sprint U-P2 Fix H11: Wealth-Inflows in Reserve berücksichtigen
         inflow_projection_series_rappen=inputs.get("inflow_projection_series_rappen"),
+    )
+    reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
+        targets=targets, minimums=minimums, maximums=maximums, reasoning=reasoning, **reserve_inputs,
+    )
+    uncertain_inflow_info = uncertain_inflow_sensitivity(  # INFLOW-CERTAINTY-001: nur Info
+        uncertain_inflows=inputs.get("uncertain_wealth_inflows") or [], projection_years=len(cashflow_projection_series_rappen),
+        start_year=cashflow_totals["year"], inflation_series_bps=inputs.get("cashflow_inflation_series_bps"),
+        reserve_inputs=reserve_inputs, saa_liquidity_ceiling_bps=saa_liquidity_ceiling_bps,
+        reserve_needed_rappen=reserve_needed_rappen, external_reserve_rappen=external_reserve_rappen,
+        currency=str(inputs.get("cashflow_target_currency") or "CHF"), reasoning=reasoning,
     )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
 
@@ -4268,6 +4264,7 @@ def generate_target_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
+        "uncertain_inflow_sensitivity": uncertain_inflow_info,  # INFLOW-CERTAINTY-001
         "reserve_funding_ledger": reserve_ledger.to_dict(),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
@@ -5560,28 +5557,10 @@ def build_target_payload_from_allocation(
     # erscheinen. Sonst koennte ein Reload alte Zielgewichte mit einer
     # unvollstaendigen Live-Projektion publizieren und deren Provenienz nicht
     # mehr belegen.
-    rebuild_wealth_inflows = db.query(WealthInflow).filter(
-        WealthInflow.client_id == mandate.client_id,
-        WealthInflow.deleted_at.is_(None),
-    ).all()
-    scoped_rebuild_inflows = []
-    for inflow in rebuild_wealth_inflows:
-        active = getattr(inflow, "is_active", None)
-        if isinstance(active, bool) or not isinstance(active, int) or active not in (0, 1):
-            raise ValueError("Vermoegenszufluss: is_active muss exakt 0 oder 1 sein.")
-        inflow_mandate_id = getattr(inflow, "mandate_id", None)
-        if inflow_mandate_id:
-            inflow_mandate = db.query(Mandate).filter(Mandate.id == inflow_mandate_id).first()
-            if inflow_mandate is None or inflow_mandate.client_id != mandate.client_id:
-                raise ValueError(
-                    "Vermoegenszufluss verweist auf ein Mandat eines anderen "
-                    "Kunden oder auf ein fehlendes Mandat."
-                )
-            if inflow_mandate_id != mandate.id:
-                continue
-        if active == 1:
-            scoped_rebuild_inflows.append(inflow)
-    rebuild_wealth_inflows = scoped_rebuild_inflows
+    # INFLOW-CERTAINTY-001: wie generate-Pfad nur sichere Zufluesse.
+    rebuild_wealth_inflows = certain_inflows(scope_active_mandate_inflows(db, mandate, db.query(WealthInflow).filter(
+        WealthInflow.client_id == mandate.client_id, WealthInflow.deleted_at.is_(None),
+    ).all()))
     external_foundation_projection = _build_external_foundation_projection(  # nach den Zufluessen
         all_positions, horizon_years=projection_years, fx_source=fx_source, target_currency=target_currency,
         wealth_inflows=rebuild_wealth_inflows, start_year=cashflow_totals["year"], mandate=mandate,

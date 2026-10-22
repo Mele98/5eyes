@@ -4922,6 +4922,16 @@ function _wireSollIstHover(){
       </div>
       <div class="frow">
         <div class="fg">
+          <label class="fl">Gewissheit</label>
+          <select class="fsel" id="awi-certainty" onchange="syncInflowModalState()">
+            <option value="sicher">Sicher (vertraglich / fix zugesagt)</option>
+            <option value="unsicher">Unsicher (z.B. Erbschaft oder Bonus ohne Zusage)</option>
+          </select>
+          <div id="awi-certainty-hint" style="font-size:10px;color:var(--n5);line-height:1.4;margin-top:3px">Konservativ: ein unsicherer Zufluss senkt die Liquiditätsreserve nicht und wird in der Strategie-Simulation nicht eingerechnet. Er erscheint in der Begründung als „nicht eingerechnet (unsicher)“ und als Info-Sensitivität „mit Zufluss“. Ein verknüpfter Vorsorgebezug ist immer sicher.</div>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg">
           <label class="fl">Notiz</label>
           <input class="fi" id="awi-notes" placeholder="Optional...">
         </div>
@@ -25209,6 +25219,7 @@ function resetInflowModal(){
   setInputValue('awi-duration','');
   setInputValue('awi-notes','');
   populateInflowLinkedPositionOptions('');
+  setSelectValue('awi-certainty','sicher');
   var btn=document.getElementById('btn-awi-save');
   if(btn){btn.textContent='Speichern';btn.disabled=false;}
   var err=document.getElementById('awi-error');
@@ -25226,6 +25237,9 @@ function syncInflowModalState(){
   var valueModeSel=document.getElementById('awi-value-mode');
   if(rec){if(isLinked)rec.checked=false;rec.disabled=isLinked;}
   if(valueModeSel){if(isLinked)valueModeSel.value='nominal';valueModeSel.disabled=isLinked;}
+  // INFLOW-CERTAINTY-001: verknuepfter Vorsorgebezug ist immer sicher.
+  var certaintySel=document.getElementById('awi-certainty');
+  if(certaintySel){if(isLinked)certaintySel.value='sicher';certaintySel.disabled=isLinked;}
   var isRec=!!(rec&&rec.checked);
   if(wrap)wrap.style.display=isRec?'':'none';
   if(isRec){
@@ -25252,6 +25266,7 @@ function openInflowEditor(inflowId){
   setInputValue('awi-duration',inflow.duration_years!=null?String(inflow.duration_years):'');
   setInputValue('awi-notes',inflow.notes||'');
   populateInflowLinkedPositionOptions(inflow.linked_position_id||'');
+  setSelectValue('awi-certainty',inflow.certainty==='unsicher'?'unsicher':'sicher');
   var btn=document.getElementById('btn-awi-save');
   if(btn){btn.textContent='Aktualisieren';btn.disabled=false;}
   var err=document.getElementById('awi-error');
@@ -25304,6 +25319,9 @@ async function saveInflow(){
   var notes=(document.getElementById('awi-notes')||{value:''}).value.trim();
   if(notes)payload.notes=notes;
   payload.linked_position_id=linkedPositionId;
+  // INFLOW-CERTAINTY-001: 'unsicher' senkt weder Reserve noch fliesst er in die Simulation.
+  var certainty=(document.getElementById('awi-certainty')||{value:'sicher'}).value;
+  payload.certainty=(linkedPositionId||certainty!=='unsicher')?'sicher':'unsicher';
   var cid=getActiveClientId();
   if(!cid||isDemoClientId(cid)){
     showModalFeedback('awi-error',btn,'Bitte zuerst einen echten Mandanten auswählen.',true);
@@ -25371,7 +25389,7 @@ async function refreshInflowsUI(cid){
       return;
     }
     host.innerHTML=currentInflows.map(function(inflow){
-      var sub=escapeHtml(inflowSourceLabel(inflow.source_type)+' · '+(inflow.expected_year||''));
+      var sub=escapeHtml(inflowSourceLabel(inflow.source_type)+' · '+(inflow.expected_year||'')+(inflow.certainty==='unsicher'?' · unsicher, nicht eingerechnet':''));
       return '<div class="cf-row" data-inflowid="'+escapeHtml(inflow.id||'')+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(inflow.label||'Zufluss')+'</div><div class="cfnd">'+sub+'</div></div>'+
         '<div class="cfa ci">+'+fmtR(inflow.amount_rappen||0)+'</div>'+
@@ -25407,6 +25425,7 @@ function buildWealthInflowMarkers(labels){
     var idx=labels.indexOf(String(inflow.expected_year));
     if(idx<0)return;
     var nm=String(inflow.label||inflowSourceLabel(inflow.source_type)||'Zufluss');
+    if(inflow.certainty==='unsicher')nm+=' – unsicher, nicht eingerechnet';
     markers.push({index:idx,year:inflow.expected_year,label:nm+' (CHF '+fmtR(inflow.amount_rappen)+')',shortLabel:inflowSourceLabel(inflow.source_type),type:'inflow'});
   });
   return markers;

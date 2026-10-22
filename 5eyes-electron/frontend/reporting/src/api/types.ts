@@ -1622,6 +1622,7 @@ export type WealthInflowSourceType =
   | 'Verkaufserloes'
   | 'Andere';
 export type WealthInflowFrequency = 'einmalig' | 'jaehrlich' | 'monatlich';
+export type WealthInflowCertainty = 'sicher' | 'unsicher';
 
 export interface WealthInflowCreatePayload {
   label: string;
@@ -1636,6 +1637,8 @@ export interface WealthInflowCreatePayload {
   notes?: string | null;
   /** VORSORGE-PROJECTION-001: Zufluss ist der Bezug dieser Vorsorge-Position. */
   linked_position_id?: string | null;
+  /** INFLOW-CERTAINTY-001: 'unsicher' = weder Reserve noch Simulation. */
+  certainty?: WealthInflowCertainty | null;
 }
 
 export type WealthInflowUpdatePayload = Partial<
@@ -1658,6 +1661,7 @@ export interface WealthInflowRecord {
   value_mode: string;
   notes: string | null;
   linked_position_id?: string | null;
+  certainty?: WealthInflowCertainty;
   is_active: number;
   created_at: string;
   updated_at: string;
