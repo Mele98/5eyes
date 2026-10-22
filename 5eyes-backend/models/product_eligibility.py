@@ -108,6 +108,11 @@ class ProductEligibilityRule(Base):
     created_by = Column(String, nullable=False)
     approved_by = Column(String)
     approved_at = Column(String)
+    # ELIG-GOVERNANCE-001 (2026-10-22): wie die Regel freigegeben wurde --
+    # 'four_eyes' oder 'single_approver_attested' (Einzelberater-Ausnahme,
+    # services/product_eligibility_governance.approve_rule). NULL = vor
+    # dieser Spalte bzw. beim Anlegen genehmigt (Bootstrap/Backfill/Legacy).
+    approval_mode = Column(String)
     supersedes_id = Column(String, ForeignKey("product_eligibility_rules.id"))
     rule_hash = Column(String, nullable=False)
     created_at = Column(String, nullable=False)

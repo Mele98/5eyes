@@ -139,6 +139,46 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+APPROVAL_MODE_FOUR_EYES = "four_eyes"
+APPROVAL_MODE_SINGLE_APPROVER_ATTESTED = "single_approver_attested"
+APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin")
+MIN_ATTESTATION_REASON_LENGTH = 20
+
+
+def tenant_approver_ids(db: Session, tenant_id: str | None) -> list[str]:
+    """Active users of `tenant_id` holding the approval right (the roles
+    services.auth.require_admin admits). Users without tenant_id belong to
+    DEFAULT_TENANT_ID, exactly like services.auth._resolve_tenant_id_for_user."""
+    from models.tenant import DEFAULT_TENANT_ID
+    from models.users import User
+
+    if tenant_id is None:
+        return []
+    query = db.query(User.id).filter(
+        User.role.in_(APPROVER_ROLES),
+        User.is_active == 1,
+        User.deleted_at.is_(None),
+    )
+    if tenant_id == DEFAULT_TENANT_ID:
+        query = query.filter((User.tenant_id.is_(None)) | (User.tenant_id == "") | (User.tenant_id == tenant_id))
+    else:
+        query = query.filter(User.tenant_id == tenant_id)
+    return sorted(str(row[0]) for row in query.all())
+
+
+def approval_bound_rule_hash(authored_rule_hash: str, approval_mode: str) -> str:
+    """The approval mode becomes part of the persisted rule_hash: the
+    authored policy hash (all policy fields) chained with the mode, so a
+    single-approver attestation is distinguishable in every decision that
+    references the hash."""
+    from services.product_eligibility import canonical_hash
+
+    return canonical_hash({
+        "authored_rule_hash": authored_rule_hash,
+        "approval_mode": approval_mode,
+    })
+
+
 def approve_rule(
     db: Session,
     *,
@@ -146,12 +186,24 @@ def approve_rule(
     approver_id: str,
     tenant_id: str | None,
     now: str | None = None,
+    single_approver_attestation: bool = False,
+    attestation_reason: str | None = None,
 ) -> ProductEligibilityRule:
-    """Approve a draft rule (and its still-draft rule set) under four-eyes.
+    """Approve a draft rule (and its still-draft rule set).
 
-    Raises ``LookupError`` if the rule is not visible to ``tenant_id`` and
-    ``RuleApprovalConflict`` if the approver authored the rule or the draft
-    rule set, or if the rule is not in draft state.
+    Default is four-eyes: the approver must differ from the author of the
+    rule and of a still-draft rule set.
+
+    Single-approver exception (CIO decision 2026-10-22, fail-closed): the
+    author may approve their own rule only if (1) the tenant has EXACTLY ONE
+    active approver and that approver is the author, (2)
+    `single_approver_attestation` is true and (3) a reason of at least
+    MIN_ATTESTATION_REASON_LENGTH characters is given. The rule is then
+    stored with approval_mode='single_approver_attested' (part of
+    rule_hash). With two or more approvers the author always gets
+    RuleApprovalConflict (HTTP 409).
+
+    Raises ``LookupError`` if the rule is not visible to ``tenant_id``.
     """
     rule = db.get(ProductEligibilityRule, rule_id)
     rule_set = db.get(ProductEligibilityRuleSet, rule.rule_set_id) if rule else None
@@ -161,20 +213,37 @@ def approve_rule(
         raise RuleApprovalConflict(
             f"Eignungsregel ist nicht im Entwurfsstatus (Status: {rule.status})."
         )
-    if not approver_id or approver_id == rule.created_by:
-        raise RuleApprovalConflict(
-            "Vier-Augen-Prinzip: Die Eignungsregel muss von einer anderen Person "
-            "genehmigt werden als von ihrem Autor."
-        )
-    if rule_set.status == "draft" and approver_id == rule_set.created_by:
-        raise RuleApprovalConflict(
-            "Vier-Augen-Prinzip: Das Regelset muss von einer anderen Person "
-            "genehmigt werden als von seinem Autor."
-        )
     if rule_set.status not in ("draft", "approved"):
         raise RuleApprovalConflict(
             f"Regelset ist nicht genehmigungsfaehig (Status: {rule_set.status})."
         )
+    if not approver_id:
+        raise RuleApprovalConflict("Genehmiger fehlt.")
+    self_approval = approver_id == rule.created_by or (
+        rule_set.status == "draft" and approver_id == rule_set.created_by
+    )
+    if not self_approval:
+        approval_mode = APPROVAL_MODE_FOUR_EYES
+    else:
+        if not single_approver_attestation:
+            raise RuleApprovalConflict(
+                "Vier-Augen-Prinzip: Die Eignungsregel muss von einer anderen Person "
+                "genehmigt werden als von ihrem Autor."
+            )
+        if len((attestation_reason or "").strip()) < MIN_ATTESTATION_REASON_LENGTH:
+            raise RuleApprovalConflict(
+                "Einzelfreigabe braucht eine Begruendung "
+                f"(mindestens {MIN_ATTESTATION_REASON_LENGTH} Zeichen)."
+            )
+        approvers = tenant_approver_ids(db, tenant_id)
+        if approvers != [approver_id]:
+            raise RuleApprovalConflict(
+                "Einzelfreigabe ist nur zulaessig, wenn die Verwaltung genau eine "
+                "freigabeberechtigte Person hat. Hier sind "
+                f"{len(approvers)} freigabeberechtigt -- bitte eine andere Person "
+                "freigeben lassen."
+            )
+        approval_mode = APPROVAL_MODE_SINGLE_APPROVER_ATTESTED
     now = now or _now_iso()
     if rule_set.status == "draft":
         rule_set.status = "approved"
@@ -184,6 +253,8 @@ def approve_rule(
     rule.status = "approved"
     rule.approved_by = approver_id
     rule.approved_at = now
+    rule.approval_mode = approval_mode
+    rule.rule_hash = approval_bound_rule_hash(rule.rule_hash, approval_mode)
     rule.updated_at = now
     db.flush()
     return rule

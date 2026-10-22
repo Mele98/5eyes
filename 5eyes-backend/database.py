@@ -443,6 +443,10 @@ def ensure_runtime_columns() -> None:
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
         ],
+        # ELIG-GOVERNANCE-001 (2026-10-22): siehe models/product_eligibility.py.
+        'product_eligibility_rules': [
+            ('approval_mode', 'TEXT'),
+        ],
         # 2026-07-27 (Retrozessions-Feature): siehe models/review.py.
         'conflict_of_interest_disclosures': [
             ('reimbursed_to_client', 'INTEGER', 0),

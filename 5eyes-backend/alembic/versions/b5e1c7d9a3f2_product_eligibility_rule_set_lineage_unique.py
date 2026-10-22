@@ -14,6 +14,9 @@ indexes on both SQLite and PostgreSQL (global rule sets carry tenant_id
 NULL on SQLite). An installation that already holds duplicate lineages
 fails loudly here instead of silently picking a winner -- same
 fail-closed convention as f2c8a4e9b1d3.
+
+Also adds product_eligibility_rules.approval_mode ('four_eyes' |
+'single_approver_attested', NULL for rules approved at authoring time).
 """
 from typing import Sequence, Union
 
@@ -28,6 +31,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    op.add_column(
+        "product_eligibility_rules",
+        sa.Column("approval_mode", sa.String(), nullable=True),
+    )
     op.create_index(
         "ux_product_eligibility_rule_sets_lineage_tenant",
         "product_eligibility_rule_sets",
@@ -47,6 +54,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    with op.batch_alter_table("product_eligibility_rules") as batch_op:
+        batch_op.drop_column("approval_mode")
     op.drop_index(
         "ux_product_eligibility_rule_sets_lineage_global",
         table_name="product_eligibility_rule_sets",

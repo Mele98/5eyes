@@ -424,3 +424,129 @@ def test_legacy_migration_rejects_self_approval(sf):
         report = classify_and_migrate_legacy_suitability(
             s, created_by="author-x", approved_by="author-x", dry_run=True)
         assert report.migrated_count == 0
+
+
+# -- Einzelberater-Ausnahme (CIO-Entscheid 2026-10-22) -----------------------
+
+def _seed_tenant_and_admins(session_factory, tenant_id: str, admin_ids: list[str]) -> None:
+    from models.users import User
+
+    with session_factory() as s:
+        s.add(Tenant(
+            id=tenant_id, display_name=tenant_id, slug=tenant_id, hosting_tier="tier2",
+            license_status="active", is_active=1, created_at=_now(), updated_at=_now(),
+        ))
+        for uid in admin_ids:
+            s.add(User(
+                id=uid, tenant_id=tenant_id, username=f"{uid}-{tenant_id}", password_hash="x",
+                full_name=f"Tester {uid}", role="admin", is_active=1,
+                created_at=_now(), updated_at=_now(),
+            ))
+        # Ein Berater ohne Freigaberecht und ein deaktivierter Admin zaehlen nicht.
+        s.add(User(
+            id=f"advisor-{tenant_id}", tenant_id=tenant_id, username=f"advisor-{tenant_id}",
+            password_hash="x", full_name="Berater", role="advisor", is_active=1,
+            created_at=_now(), updated_at=_now(),
+        ))
+        s.add(User(
+            id=f"inactive-{tenant_id}", tenant_id=tenant_id, username=f"inactive-{tenant_id}",
+            password_hash="x", full_name="Ex-Admin", role="admin", is_active=0,
+            created_at=_now(), updated_at=_now(),
+        ))
+        s.commit()
+
+
+def _create_fund(client) -> str:
+    created = client.post("/products", json={
+        "product_name": "Hausfonds", "product_type": "Fonds",
+        "asset_class": "Aktien", "currency": "CHF",
+        "suitability_profile_from": 1, "suitability_profile_to": 10,
+    })
+    assert created.status_code == 201, created.text
+    return created.json()["id"]
+
+
+_REASON = "Einzelberater-Firma, keine zweite freigabeberechtigte Person vorhanden."
+
+
+def test_single_approver_needs_attestation_and_then_records_mode(sf):
+    from main import app
+    from models.review import AuditLog
+
+    _seed_tenant_and_admins(sf, "solo-firm", ["solo-admin"])
+    try:
+        with _api_client(sf, "solo-admin", "solo-firm") as client:
+            pid = _create_fund(client)
+            drafts = client.get("/products/eligibility-drafts").json()
+            assert drafts["approver_count"] == 1 and drafts["current_user_is_sole_approver"] is True
+            assert [d["product_id"] for d in drafts["drafts"]] == [pid]
+            assert drafts["drafts"][0]["authored_by_current_user"] is True
+
+            no_attestation = client.post(f"/products/{pid}/eligibility-rule/approve")
+            assert no_attestation.status_code == 409, no_attestation.text
+            short_reason = client.post(f"/products/{pid}/eligibility-rule/approve", json={
+                "single_approver_attestation": True, "attestation_reason": "zu kurz",
+            })
+            assert short_reason.status_code == 409, short_reason.text
+            with sf() as s:
+                authored_hash = s.query(ProductEligibilityRule).filter_by(product_id=pid).one().rule_hash
+
+            attested = client.post(f"/products/{pid}/eligibility-rule/approve", json={
+                "single_approver_attestation": True, "attestation_reason": _REASON,
+            })
+            assert attested.status_code == 200, attested.text
+            assert attested.json()["approval_mode"] == "single_approver_attested"
+            assert client.get("/products/eligibility-drafts").json()["drafts"] == []
+    finally:
+        app.dependency_overrides.clear()
+    with sf() as s:
+        rule = s.query(ProductEligibilityRule).filter_by(product_id=pid).one()
+        assert (rule.status, rule.approval_mode) == ("approved", "single_approver_attested")
+        assert rule.created_by == rule.approved_by == "solo-admin"
+        assert rule.rule_hash != authored_hash
+        audit = [a.new_value for a in s.query(AuditLog).filter_by(
+            table_name="product_eligibility_rules", record_id=pid).all()]
+        assert any("approval_mode=single_approver_attested" in v and _REASON in v for v in audit), audit
+        product = s.get(Product, pid)
+        assert is_eligible_candidate(
+            s, product, service_mode="investment_advice", score_bucket=5, tenant_id="solo-firm")
+
+
+def test_two_approvers_keep_author_at_409_even_with_attestation(sf):
+    from main import app
+
+    _seed_tenant_and_admins(sf, "duo-firm", ["duo-admin-1", "duo-admin-2"])
+    try:
+        with _api_client(sf, "duo-admin-1", "duo-firm") as client:
+            pid = _create_fund(client)
+            assert client.get("/products/eligibility-drafts").json()["current_user_is_sole_approver"] is False
+            attested = client.post(f"/products/{pid}/eligibility-rule/approve", json={
+                "single_approver_attestation": True, "attestation_reason": _REASON,
+            })
+            assert attested.status_code == 409, attested.text
+        with _api_client(sf, "duo-admin-2", "duo-firm") as client:
+            second = client.post(f"/products/{pid}/eligibility-rule/approve")
+            assert second.status_code == 200, second.text
+            assert second.json()["approval_mode"] == "four_eyes"
+    finally:
+        app.dependency_overrides.clear()
+    with sf() as s:
+        rule = s.query(ProductEligibilityRule).filter_by(product_id=pid).one()
+        assert (rule.approved_by, rule.approval_mode) == ("duo-admin-2", "four_eyes")
+
+
+def test_unknown_approver_count_fails_closed(sf):
+    """Freigabeberechtigte Person nicht als aktiver Admin erfasst -> 0
+    Freigabeberechtigte -> keine Einzelfreigabe."""
+    with sf() as s:
+        product = _product(s, "ghost", tenant_id="tenant-a")
+        rule = author_tenant_product_rule(
+            s, product=product, created_by_user_id="ghost-admin", jurisdiction="CH",
+            profile_from=1, profile_to=10, service_modes=["investment_advice"], now=_past(),
+        )
+        s.commit()
+        with pytest.raises(RuleApprovalConflict):
+            approve_rule(
+                s, rule_id=rule.id, approver_id="ghost-admin", tenant_id="tenant-a",
+                single_approver_attestation=True, attestation_reason=_REASON,
+            )

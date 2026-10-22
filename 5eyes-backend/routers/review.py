@@ -33,6 +33,8 @@ from schemas.review import (
     ConflictDiscloseRequest, ConflictAcknowledgeRequest,
     ConflictMitigateRequest, ConflictAttachDocumentRequest,
     ProductCreate, ProductUpdate, ProductResponse,
+    ProductEligibilityApprovalRequest, ProductEligibilityApprovalResponse,
+    ProductEligibilityDraftItem, ProductEligibilityDraftsResponse,
     ProductBulkImportRequest, ProductImportResponse, ProductImportResultItem,
     ProductMarketOverrideRequest, ProductMarketOverrideResponse,
     ProductIdMappingPreviewRequest, ProductIdMappingPreviewResponse,
@@ -2421,21 +2423,66 @@ def update_product(
     return product
 
 
-@products_router.post("/{product_id}/eligibility-rule/approve")
-def approve_product_eligibility_rule(
-    product_id: str,
+@products_router.get("/eligibility-drafts", response_model=ProductEligibilityDraftsResponse)
+def list_product_eligibility_drafts(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """ELIG-GOVERNANCE-001 (2026-10-21): Vier-Augen-Genehmigung der beim
-    Erfassen/Import eines Tenant-Produkts angelegten Entwurfs-Eignungsregel
+    """ELIG-GOVERNANCE-001 (2026-10-22): offene Entwurfs-Eignungsregeln der
+    eigenen Verwaltung (fuer den Status "Entwurf -- Freigabe ausstehend" im
+    Fondsuniversum) plus die Angabe, ob die Einzelberater-Ausnahme fuer den
+    aktuellen Benutzer ueberhaupt in Frage kommt."""
+    from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
+    from services.product_eligibility_governance import rule_visible_to_tenant, tenant_approver_ids
+
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    rows = (
+        db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+        .join(ProductEligibilityRuleSet, ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id)
+        .filter(ProductEligibilityRule.status == "draft", ProductEligibilityRule.product_id.isnot(None))
+        .order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id)
+        .all()
+    )
+    by_product: dict[str, ProductEligibilityDraftItem] = {}
+    for rule, rule_set in rows:
+        if not rule_visible_to_tenant(rule, rule_set, tenant_id):
+            continue
+        item = by_product.setdefault(rule.product_id, ProductEligibilityDraftItem(
+            product_id=rule.product_id, rule_ids=[], authored_by_current_user=False,
+        ))
+        item.rule_ids.append(rule.id)
+        if rule.created_by == current_user.id:
+            item.authored_by_current_user = True
+    approvers = tenant_approver_ids(db, tenant_id)
+    return ProductEligibilityDraftsResponse(
+        approver_count=len(approvers),
+        current_user_is_sole_approver=approvers == [str(current_user.id)],
+        drafts=list(by_product.values()),
+    )
+
+
+@products_router.post("/{product_id}/eligibility-rule/approve", response_model=ProductEligibilityApprovalResponse)
+def approve_product_eligibility_rule(
+    product_id: str,
+    body: ProductEligibilityApprovalRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """ELIG-GOVERNANCE-001 (2026-10-21/22): Freigabe der beim Erfassen/Import
+    eines Tenant-Produkts angelegten Entwurfs-Eignungsregel
     (services/product_eligibility.py::author_tenant_product_rule). Bis dahin
     ist das Produkt `indeterminate` und fuer Generate nicht waehlbar.
-    409, wenn der Genehmiger die Regel (oder das Entwurfs-Regelset) selbst
-    verfasst hat oder keine Entwurfsregel offen ist."""
+
+    Standard Vier-Augen: 409, wenn der Genehmiger die Regel selbst verfasst
+    hat. Einzelberater-Ausnahme (fail-closed): Selbstfreigabe nur mit
+    single_approver_attestation=true + Begruendung UND genau einer
+    freigabeberechtigten Person in der Verwaltung; gespeichert als
+    approval_mode='single_approver_attested' (Teil des rule_hash, Audit-Log).
+    409 auch, wenn keine Entwurfsregel offen ist."""
     from models.product_eligibility import ProductEligibilityRule
     from services.product_eligibility_governance import RuleApprovalConflict, approve_rule
 
+    body = body or ProductEligibilityApprovalRequest()
     product = _get_product_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     draft_ids = [
@@ -2447,21 +2494,33 @@ def approve_product_eligibility_rule(
     if not draft_ids:
         raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel fuer dieses Produkt.")
     approved: list[str] = []
+    modes: set[str] = set()
     try:
         for rule_id in draft_ids:
-            approve_rule(db, rule_id=rule_id, approver_id=current_user.id, tenant_id=tenant_id, now=_now())
+            rule = approve_rule(
+                db, rule_id=rule_id, approver_id=current_user.id, tenant_id=tenant_id, now=_now(),
+                single_approver_attestation=body.single_approver_attestation,
+                attestation_reason=body.attestation_reason,
+            )
             approved.append(rule_id)
+            modes.add(rule.approval_mode)
     except LookupError:
         db.rollback()
         raise HTTPException(status_code=404, detail="Eignungsregel nicht gefunden.")
     except RuleApprovalConflict as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
+    approval_mode = ",".join(sorted(modes))
+    audit_value = f"approved:{','.join(approved)};approval_mode={approval_mode}"
+    if "single_approver_attested" in modes:
+        audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_eligibility_rules", record_id=product.id, action="UPDATE",
-        new_value="approved:" + ",".join(approved))
+        new_value=audit_value)
     db.commit()
-    return {"product_id": product.id, "approved_rule_ids": approved}
+    return ProductEligibilityApprovalResponse(
+        product_id=product.id, approved_rule_ids=approved, approval_mode=approval_mode,
+    )
 
 
 @products_router.put("/{product_id}/market-override", response_model=ProductMarketOverrideResponse)

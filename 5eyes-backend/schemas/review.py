@@ -1633,3 +1633,31 @@ class ReportNotesResponse(BaseResponse):
     # das fuer den Client sichtbar (kein stilles Abschneiden).
     previous_versions: list[ReportNotesHistoryEntry] = Field(default_factory=list)
     previous_versions_total: int = 0
+
+
+class ProductEligibilityApprovalRequest(BaseModel):
+    """ELIG-GOVERNANCE-001 (2026-10-22): Body fuer POST /products/{id}/
+    eligibility-rule/approve. Standard ist Vier-Augen (leerer Body). Die
+    Einzelberater-Ausnahme verlangt ausdruecklich
+    single_approver_attestation=true UND eine Begruendung; ob sie zulaessig
+    ist (genau eine freigabeberechtigte Person), prueft der Server."""
+    single_approver_attestation: bool = False
+    attestation_reason: str | None = Field(default=None, max_length=2000)
+
+
+class ProductEligibilityApprovalResponse(BaseModel):
+    product_id: str
+    approved_rule_ids: list[str]
+    approval_mode: str
+
+
+class ProductEligibilityDraftItem(BaseModel):
+    product_id: str
+    rule_ids: list[str]
+    authored_by_current_user: bool
+
+
+class ProductEligibilityDraftsResponse(BaseModel):
+    approver_count: int
+    current_user_is_sole_approver: bool
+    drafts: list[ProductEligibilityDraftItem]
