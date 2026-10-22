@@ -1367,7 +1367,7 @@ def list_goal_revision_decisions(
         .order_by(GoalRevisionDecision.sequence_no.desc())
         .all()
     )
-    return [goal_revision_view(goal, row) for row in rows]
+    return [goal_revision_view(goal, row, db) for row in rows]
 
 
 @router.post("/mandates/{mandate_id}/goals/{goal_id}/revision-decisions", status_code=201)
@@ -1432,7 +1432,7 @@ def create_goal_revision_decision(
             },
         ) from exc
     invalidate_advisory_cache(mandate_id)
-    return goal_revision_view(goal, decision)
+    return goal_revision_view(goal, decision, db)
 
 
 # ── Planning Assumptions ───────────────────────────────────────────────────────

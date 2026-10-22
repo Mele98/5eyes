@@ -663,9 +663,11 @@ def reachability_reasoning(screen: dict | None) -> list[str]:
             lines.append(
                 "Beraterhinweis: Ziel " + label + " ist per Beraterentscheid"
                 + (f" ({reference}, SHA-256 {digest})" if reference else "")
-                + " als nachrangiges Wunschziel eingestuft; es wird weiter "
-                "verfolgt, verdraengt aber keine vorrangigen Ziele. Eine "
-                "Aenderung des Ziels hebt die Einstufung auf."
+                + " als nachrangiges Wunschziel eingestuft; es wird als "
+                "nachrangiges Wunschziel verfolgt und verdraengt keine "
+                "erreichbaren Ziele. Eine Aenderung des Ziels hebt die "
+                "Einstufung auf. Ziel mit dem Kunden ueberpruefen (Betrag, "
+                "Termin, Prioritaet)."
             )
             continue
         if row.get("status") != "not_found_reachable_in_screen_set":
@@ -679,7 +681,7 @@ def reachability_reasoning(screen: dict | None) -> list[str]:
                 "Beraterhinweis: Ziel " + label + " wird mit den geprueften "
                 "Allokationen nicht mit ausreichender Sicherheit erreicht ("
                 + figures + "). Es bleibt mit seinem Haertegrad vorrangig "
-                "geschuetzt. Ziel mit dem Kunden besprechen (Betrag, Termin, "
+                "geschuetzt. Ziel mit dem Kunden ueberpruefen (Betrag, Termin, "
                 "Prioritaet) oder als nachrangiges Wunschziel einstufen "
                 "(Begruendung erforderlich)."
             )
@@ -734,9 +736,11 @@ def annotate_rows(rows, screen: dict | None) -> list[dict]:
     """Setzt auf jeder GEPRUEFTEN Zielzeile ``feasible_set_reachable`` und
     (Engine v11) ``goal_revision`` (Evidenz + Vorschlag).
 
-    ``feasible_set_reachable``: True = eine zulaessige Allokation mit
-    ausreichender Sicherheit gefunden; None = lokal nicht gefunden (Engine
-    v11: unbekannt, nicht "unerreichbar")."""
+    ``feasible_set_reachable`` (bool, Vertrag seit Engine v7/v9): True =
+    eine zulaessige Allokation mit ausreichender Sicherheit (obere Grenze >=
+    tau/2) gefunden -- im Screen oder von der lokalen Suche; False = nicht
+    gefunden. False ist eine Offenlegung, KEIN Unerreichbarkeitsnachweis
+    (Engine v11): der ehrliche Status steht in ``goal_revision.status``."""
     screen = screen or {}
     by_goal = {str(row["goal_id"]): row for row in (screen.get("goals") or ())}
     out = []
@@ -751,7 +755,7 @@ def annotate_rows(rows, screen: dict | None) -> list[dict]:
                 (screened.get("certificate") or {}).get("status")
                 == CERTIFICATE_STATUS_REACHABLE
             )
-            row["feasible_set_reachable"] = True if found else None
+            row["feasible_set_reachable"] = bool(found)
             row["goal_revision"] = _revision_evidence(screened, screen)
         out.append(row)
     return out

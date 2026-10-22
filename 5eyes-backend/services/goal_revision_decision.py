@@ -297,7 +297,7 @@ def included_goals_with_revisions(db, goals: list) -> list:
     return attach_goal_revision_decisions(db, included)
 
 
-def goal_revision_view(goal: Any, decision: Any) -> dict[str, Any] | None:
+def goal_revision_view(goal: Any, decision: Any, db=None) -> dict[str, Any] | None:
     """Anzeige-/API-Sicht der juengsten Decision eines Ziels (oder None)."""
     if decision is None:
         return None
@@ -308,7 +308,7 @@ def goal_revision_view(goal: Any, decision: Any) -> dict[str, Any] | None:
         "new_status": _value(decision, "new_status"),
         "new_status_label": NEW_STATUS_LABEL,
         "previous_hardness": _value(decision, "previous_hardness"),
-        "reason": _value(decision, "reason"),
+        "reason": display_reason(db, _value(decision, "reason")),
         "decided_at": _value(decision, "decided_at"),
         "actor_id": _value(decision, "actor_id"),
         "validity": validity,
@@ -360,6 +360,31 @@ def engine_evidence_for_goal(allocation: Any, goal_id: str) -> dict[str, Any] | 
             if isinstance(evidence, dict):
                 return evidence
     return None
+
+
+# ---------------------------------------------------------------------------
+# DSG (Vorbereitung, DSG-ERASURE-APPEND-ONLY-001 / PR #681): der Freitext
+# ``reason`` liegt in einer append-only Tabelle und laesst sich bei einer
+# DSG-Loeschung nicht entfernen. Sobald services/pii_vault.py gemergt ist:
+#   * ``stored_reason`` -> ``seal_for_client(db, client_id, reason)`` (VOR dem
+#     Hashen; der Decision-Hash bindet dann den versiegelten Wert, wie bei
+#     risk_override_decisions.reason),
+#   * ``display_reason`` -> ``reveal(db, value)``,
+#   * ``("goal_revision_decisions", "reason")`` in SEALED_APPEND_ONLY_COLUMNS
+#     (Spalte ``client_id`` ist vorhanden -> Shredding-Scope passt).
+# Bis dahin sind beide Funktionen die Identitaet (Klartext wie bisher).
+# ---------------------------------------------------------------------------
+
+
+def stored_reason(db, client_id: str | None, reason: str) -> str:
+    """Wert, der in ``goal_revision_decisions.reason`` gespeichert und
+    gehasht wird (Seam fuer die Versiegelung, siehe oben)."""
+    return reason
+
+
+def display_reason(db, value: Any) -> Any:
+    """Anzeigewert einer gespeicherten Begruendung (Seam fuer ``reveal``)."""
+    return value
 
 
 class GoalRevisionError(ValueError):
@@ -446,7 +471,7 @@ def record_goal_revision_decision(
         ),
         previous_hardness=str(getattr(goal, "hardness", "") or ""),
         new_status=NEW_STATUS_SUBORDINATE_WISH,
-        reason=str(reason).strip(),
+        reason=stored_reason(db, getattr(mandate, "client_id", None), str(reason).strip()),
         evidence_status=str(evidence.get("status") or ""),
         evidence_best_probability_bps=_bps(evidence.get("best_probability")),
         evidence_wilson_upper_bps=_bps(evidence.get("wilson_upper_bound")),

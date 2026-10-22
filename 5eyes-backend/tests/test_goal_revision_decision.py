@@ -342,7 +342,8 @@ def test_reasoning_and_published_rows_carry_suggestion_without_impossibility_cla
         context.goal_reachability,
     )
     far_row = rows[0]
-    assert far_row["feasible_set_reachable"] is None  # unbekannt, nicht "False"
+    # bool-Vertrag (v7/v9): nicht gefunden; der ehrliche Status steht in goal_revision.
+    assert far_row["feasible_set_reachable"] is False
     evidence = far_row["goal_revision"]
     assert evidence["revision_suggested"] is True
     assert evidence["status"] == "not_found_reachable_locally"
@@ -359,6 +360,8 @@ def test_reasoning_and_published_rows_carry_suggestion_without_impossibility_cla
     assert len(decided_lines) == 1
     assert "per Beraterentscheid (grd-1" in decided_lines[0]
     assert "als nachrangiges Wunschziel eingestuft" in decided_lines[0]
+    assert "als nachrangiges Wunschziel verfolgt" in decided_lines[0]
+    assert "verdraengt keine erreichbaren Ziele" in decided_lines[0]
 
 
 def test_engine_version_and_policies_are_v11():

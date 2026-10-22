@@ -713,7 +713,7 @@ def test_demoted_goal_reasoning_says_subordinate_not_excluded():
     decided = reachability_reasoning(_two_goal_context(decided=True).goal_reachability)
     assert len(decided) == 1 and "'Aussichtslos'" in decided[0]
     assert "als nachrangiges Wunschziel eingestuft" in decided[0]
-    assert "verdraengt aber keine vorrangigen Ziele" in decided[0]
+    assert "verdraengt keine erreichbaren Ziele" in decided[0]
 
 
 # ---------------------------------------------------------------------------
