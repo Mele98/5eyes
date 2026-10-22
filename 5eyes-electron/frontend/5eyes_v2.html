@@ -14459,7 +14459,13 @@ function dcRenderLiquidity(lp){
 function dcRenderStressReplays(stress){
   var el = document.getElementById('dc-stress-replays');
   if(!stress || !stress.scenarios || !stress.scenarios.length){
-    el.innerHTML = '<div style="color:var(--n5);font-size:10.5px;font-style:italic">Stress-Replay-Endpoint nicht verfügbar oder noch keine Bucket-Allokation berechnet.</div>';
+    // MC-CONTEXT-001 (#691): Projection-Gate (stale/blocked) liefert den
+    // Berater-Hinweis in stress.warning -- diesen zeigen statt der
+    // generischen Endpoint-Meldung.
+    var stressHint = (stress && stress.warning)
+      ? String(stress.warning)
+      : 'Stress-Replay-Endpoint nicht verfügbar oder noch keine Bucket-Allokation berechnet.';
+    el.innerHTML = '<div style="color:var(--n5);font-size:10.5px;font-style:italic">' + escapeHtml(stressHint) + '</div>';
     return;
   }
   var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
@@ -15084,15 +15090,6 @@ function btRender(data){
     avail.textContent = 'Keine vollständigen Jahre gepflegt';
   }
 
-  if(!data.soll){
-    btRenderWarnings(data.warnings || []);
-    if(meta) meta.textContent = '';
-    document.getElementById('bt-wealth-chart').innerHTML = '';
-    document.getElementById('bt-drawdown-chart').innerHTML = '';
-    document.getElementById('bt-metrics-table').innerHTML = '';
-    return;
-  }
-
   // Phase 4 (2026-06-09): Wenn Backend benchmark_sub_asset liefert UND Modus
   // sub aktiv ist, behandeln wir den Sub-Asset-Block als 'data.benchmark'
   // fuer den nachfolgenden Render — gleiche rebal/no_rebal/metrics-Struktur.
@@ -15102,10 +15099,26 @@ function btRender(data){
     data._benchmark_is_sub_asset = true;
   }
 
+  // MC-CONTEXT-001 (#691): Projection-Gate blendet den Soll-Backtest aus
+  // (stale/blocked). Der Gate-Hinweis kommt ueber data.warnings; ein
+  // gewaehlter Benchmark ist von der Soll-Allokation unabhaengig und wird
+  // weiterhin gerendert, statt frueh auszusteigen.
+  var btHasSoll = !!data.soll;
+  if(!btHasSoll && !data.benchmark){
+    btRenderWarnings(data.warnings || []);
+    if(meta) meta.textContent = '';
+    document.getElementById('bt-wealth-chart').innerHTML = '';
+    document.getElementById('bt-drawdown-chart').innerHTML = '';
+    document.getElementById('bt-metrics-table').innerHTML = '';
+    return;
+  }
+
   if(meta){
-    var soll = data.soll.weights_bps || {};
-    var weightSummary = ['equities','bonds','real_estate','alternatives','liquidity']
-      .map(function(b){ return (soll[b]/100).toFixed(0)+'%'; }).join(' / ');
+    var soll = btHasSoll ? (data.soll.weights_bps || {}) : {};
+    var weightSummary = btHasSoll
+      ? ['equities','bonds','real_estate','alternatives','liquidity']
+          .map(function(b){ return (soll[b]/100).toFixed(0)+'%'; }).join(' / ')
+      : 'ausgeblendet';
     // Bug-#8a UI: Netto-Anzeige bei Kosten
     var stratFee = parseInt(data.strategy_fee_bps || 0, 10);
     var bmFee = parseInt(data.benchmark_fee_bps || 0, 10);
@@ -15147,13 +15160,13 @@ function btRender(data){
   var wealthSeries = [];
   var ddSeries = [];
 
-  if(showRebal){
+  if(btHasSoll && showRebal){
     wealthSeries.push({label:'SOLL (Rebal)', color:sollColor(), dash:false,
       data: data.soll.rebalanced.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
     ddSeries.push({label:'SOLL (Rebal)', color:sollColor(), dash:false,
       data: data.soll.rebalanced.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
   }
-  if(showNoRebal){
+  if(btHasSoll && showNoRebal){
     wealthSeries.push({label:'SOLL (Buy&Hold)', color:sollColor(), dash:true,
       data: data.soll.no_rebalance.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
     ddSeries.push({label:'SOLL (Buy&Hold)', color:sollColor(), dash:true,
@@ -15193,8 +15206,8 @@ function btRender(data){
 
 function btRenderMetricsTable(data, showRebal, showNoRebal){
   var cols = [];
-  if(showRebal) cols.push({key:'soll_rebal', label:'SOLL Rebal', color:sollColor(), metrics: data.soll.rebalanced.metrics});
-  if(showNoRebal) cols.push({key:'soll_norebal', label:'SOLL Buy&Hold', color:sollColor(), dash:true, metrics: data.soll.no_rebalance.metrics});
+  if(data.soll && showRebal) cols.push({key:'soll_rebal', label:'SOLL Rebal', color:sollColor(), metrics: data.soll.rebalanced.metrics});
+  if(data.soll && showNoRebal) cols.push({key:'soll_norebal', label:'SOLL Buy&Hold', color:sollColor(), dash:true, metrics: data.soll.no_rebalance.metrics});
   if(data.benchmark){
     if(showRebal) cols.push({key:'bm_rebal', label:'Benchmark Rebal', color:btBenchmarkColor(), metrics: data.benchmark.rebalanced.metrics});
     if(showNoRebal) cols.push({key:'bm_norebal', label:'Benchmark Buy&Hold', color:btBenchmarkColor(), dash:true, metrics: data.benchmark.no_rebalance.metrics});
