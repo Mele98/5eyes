@@ -1432,6 +1432,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _items_with_known_ter,
     _merge_goal_analysis_with_monte_carlo,
     _missing_ter_positions_count,
+    _stored_goal_achievability,
     _parse_iso_date,
     _product_descriptor_text,
     _product_is_chf_or_fx_hedged,
@@ -3870,7 +3871,7 @@ def generate_target_allocation(
         monte_carlo,
         summaries_key="current_goal_summaries",
     )
-    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
+    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo, achievability=goal_achievability)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
     reasoning.append(inputs["projection_horizon"]["sentence"])
 
@@ -6026,7 +6027,7 @@ def build_target_payload_from_allocation(
         monte_carlo,
         summaries_key="current_goal_summaries",
     )
-    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
+    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo, achievability=_stored_goal_achievability(allocation, log_invalid=False))
     bucket_response = []
     current_amounts = advisory_summary.amounts_rappen
     label_map = {
@@ -6124,20 +6125,7 @@ def build_target_payload_from_allocation(
                 "Stored optimizer_reasoning_json invalid for allocation %s: %s",
                 getattr(allocation, "id", "?"), exc,
             )
-    goal_achievability: list[dict] = []
-    raw_goal_achievability = getattr(allocation, "goal_achievability_json", None)
-    if raw_goal_achievability:
-        try:
-            parsed_achievability = json.loads(raw_goal_achievability)
-            if isinstance(parsed_achievability, list):
-                goal_achievability = [
-                    item for item in parsed_achievability if isinstance(item, dict)
-                ]
-        except (TypeError, ValueError) as exc:
-            logger.warning(
-                "Stored goal_achievability_json invalid for allocation %s: %s",
-                getattr(allocation, "id", "?"), exc,
-            )
+    goal_achievability: list[dict] = _stored_goal_achievability(allocation)
     messages = persisted_messages or classify_messages(
         allocation,
         goal_achievability,

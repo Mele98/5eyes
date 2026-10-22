@@ -1032,20 +1032,21 @@ def _compute_goal_achievement_score_bps(db: Session, mandate: Mandate) -> int | 
     # des Befunds. Dann lieber kein Wert bis zur Neuberechnung.
     if not all(is_individual_goal_row(r) for r in rows):
         return None
+    from services.goal_success_status import (
+        report_goal_weight,
+        weighted_success_probability_bps,
+    )
+
     goal_by_id = {str(g.id): g for g in _cached_active_goals(db, mandate)}
-    weighted_sum = 0.0
-    weight_total = 0.0
+    # GOAL-STATUS-BY-SUCCESS-001: dieselbe Formel wie Cockpit-Kachel und
+    # Zielstatus (services/goal_success_status.py); Gewicht Goal.weight_bps
+    # roh, <= 0 -> gleichgewichtet.
+    pairs = []
     for r in rows:
         meta = goal_by_id.get(str(r.get("goal_id", "") or ""))
         probability = float(r.get("probability", 0) or 0)  # 0..1
-        weight = float(getattr(meta, "weight_bps", 0) or 0) if meta else 0.0
-        if weight <= 0:
-            weight = 1.0  # gleichgewichtet, falls Goal keine weight_bps hat
-        weighted_sum += probability * weight
-        weight_total += weight
-    if weight_total <= 0:
-        return None
-    return int(round(weighted_sum / weight_total * 10000))
+        pairs.append((probability, report_goal_weight(getattr(meta, "weight_bps", 0) if meta else 0)))
+    return weighted_success_probability_bps(pairs)
 
 
 def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
