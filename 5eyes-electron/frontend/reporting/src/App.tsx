@@ -431,7 +431,9 @@ function renderSection(
     );
   }
   if (sectionId === 'goals') {
-    return <Goals data={data.goal_based_investing} />;
+    return (
+      <Goals data={data.goal_based_investing} projectionGate={data.projection_gate} />
+    );
   }
   if (sectionId === 'risikoprofil') {
     return <Risikoprofil data={data.risikoprofilierung} />;
