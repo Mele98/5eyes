@@ -7,7 +7,12 @@
  */
 import { useMemo, useState } from 'react';
 
-import type { GoalBasedInvestingData, GoalEntry, GoalStatus } from '@/api/types';
+import type {
+  GoalBasedInvestingData,
+  GoalEntry,
+  GoalStatus,
+  ProjectionGateData,
+} from '@/api/types';
 import { AmpelPill } from '@/components/AmpelPill';
 import { MonteCarloPathsChart } from '@/components/MonteCarloPathsChart';
 import { ReportPage } from '@/components/ReportPage';
@@ -21,9 +26,12 @@ import {
 
 interface GoalsProps {
   data: GoalBasedInvestingData;
+  /** AA-UX-HONEST-FAN-001: bei projections_hidden kein Faecher. */
+  projectionGate?: ProjectionGateData;
 }
 
-export function Goals({ data }: GoalsProps) {
+export function Goals({ data, projectionGate }: GoalsProps) {
+  const projectionsHidden = projectionGate?.projections_hidden === true;
   const goals = data.goals ?? [];
   // Sprint U-48: Three-State-Sort (asc/desc/reset) pro Spalte
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
@@ -62,8 +70,8 @@ export function Goals({ data }: GoalsProps) {
       <AchievementScoreKpi scoreBps={data.goal_achievement_score_bps} />
       <PlanSolvencyKpi plan={data.plan_solvency ?? null} />
 
-      {hasRealPaths ? (
-        <MonteCarloPathsChart paths={mc!} goals={goals} />
+      {projectionsHidden ? null : hasRealPaths ? (
+        <MonteCarloPathsChart paths={mc!} goals={goals} projectionsHidden={projectionsHidden} />
       ) : (
         <McPathsHint data={data} />
       )}
@@ -98,6 +106,7 @@ export function Goals({ data }: GoalsProps) {
             Ein Ziel gilt als erreicht, wenn es nach allen höher priorisierten
             Zielen vollständig finanziert ist.
           </p>
+          {data.target_allocation_stale ? null : <FailureCauses goals={goals} />}
         </section>
       )}
     </ReportPage>
@@ -251,6 +260,45 @@ function GoalStatusPill({ status }: { status: GoalStatus | string }) {
   };
   const ampel = ampelMap[status] ?? 'nicht_beurteilbar';
   return <AmpelPill status={ampel} label={GOAL_STATUS_LABEL[status] ?? 'Daten ausstehend'} />;
+}
+
+/**
+ * GOAL-FAILURE-DISTRIBUTION-REPORT-001: verfehlte Verläufe je Ziel nach dem
+ * ersten eingetretenen Ereignis (Engine v10). Beschreibend, keine
+ * Kausalaussage. Ziele ohne Verteilung (Altbestand, `null`) oder ohne
+ * verfehlte Verläufe (`[]`) erscheinen nicht; ohne solche Ziele kein Block.
+ */
+const FAILURE_CAUSE_INTRO =
+  'In den simulierten Verläufen, in denen das Ziel verfehlt wird, tritt zuerst ein';
+const FAILURE_CAUSE_NOTE =
+  'Anteile der verfehlten Verläufe nach dem ersten eingetretenen Ereignis; ' +
+  'beschreibt den Verlauf, keine Ursache im engeren Sinn.';
+
+function FailureCauses({ goals }: { goals: GoalEntry[] }) {
+  const rows = goals.filter(
+    (g) => Array.isArray(g.failure_cause_summary) && g.failure_cause_summary.length > 0,
+  );
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-4" data-testid="goal-failure-causes">
+      <h3 className="font-semibold text-caption text-ink">
+        Verfehlte Verläufe nach erstem Ereignis
+      </h3>
+      <ul className="mt-2 space-y-1 text-caption text-ink">
+        {rows.map((g) => (
+          <li key={g.goal_id || g.label} data-testid={`goal-failure-causes-${g.goal_id}`}>
+            <span className="font-semibold">{g.label || 'Ziel'}:</span>{' '}
+            {FAILURE_CAUSE_INTRO}:{' '}
+            {(g.failure_cause_summary ?? [])
+              .map((c) => `${c.label} (${formatBpsAsPct(c.share_bps, { decimals: 0 })})`)
+              .join('; ')}
+            .
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-caption text-ink-muted">{FAILURE_CAUSE_NOTE}</p>
+    </div>
+  );
 }
 
 function McPathsHint({ data }: { data: GoalBasedInvestingData }) {
