@@ -1648,6 +1648,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     external_reserve_rappen: int = 0
     # RESERVE-FUNDING-LEDGER-001: Herkunft/Release der externen Reserve.
     reserve_funding_ledger: Optional[dict] = None
+    # INFLOW-CERTAINTY-001: Info-Sensitivitaet "mit Zufluss" fuer unsichere
+    # Vermoegenszufluesse (nicht eingerechnet). None = keine unsicheren Zufluesse.
+    uncertain_inflow_sensitivity: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int

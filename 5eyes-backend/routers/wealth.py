@@ -1627,6 +1627,8 @@ def update_wealth_inflow(
         _block_if_pension_source_already_linked(
             inflow.client_id, merged_link, db, exclude_inflow_id=inflow.id,
         )
+    if "certainty" in payload and payload["certainty"] is None:
+        payload["certainty"] = "sicher"  # INFLOW-CERTAINTY-001: null = sicher
     for key, value in payload.items():
         setattr(inflow, key, value)
     inflow.updated_at = _now()

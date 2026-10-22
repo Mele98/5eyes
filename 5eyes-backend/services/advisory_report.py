@@ -4153,8 +4153,12 @@ def _recompute_reserve_reasoning(
         )
         .all()
     )
+    # INFLOW-CERTAINTY-001: unsichere Zufluesse senken die Reserve nicht
+    # (identisch zum Engine-Pfad, services/wealth_inflow_certainty.py).
+    from services.wealth_inflow_certainty import certain_inflows
+
     inflow_projection_series_rappen = _wealth_inflow_series_rappen(
-        inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+        certain_inflows(inflows), projection_years, cashflow_totals["year"], cf_inflation_series_bps,
     )
 
     reasoning: list[str] = []
