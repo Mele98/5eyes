@@ -17,7 +17,7 @@ product is `indeterminate` under `evaluate_product_eligibility()`
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, String
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -50,6 +50,29 @@ class ProductEligibilityRuleSet(Base):
         Index(
             "ix_product_eligibility_rule_sets_scope",
             "tenant_scope", "tenant_id", "jurisdiction", "status",
+        ),
+        # ELIG-GOVERNANCE-001 (2026-10-21): services.product_eligibility.
+        # ensure_rule_set() ist ein find-or-create ueber (tenant_scope,
+        # tenant_id, jurisdiction, created_by). Ohne DB-Unique-Key konnten
+        # zwei parallele Requests beide den Precheck bestehen und zwei
+        # RuleSets derselben Linie anlegen. version gehoert zum Schluessel,
+        # damit eine spaetere Folgeversion (supersedes_id) moeglich bleibt.
+        # Zwei partielle Indizes, weil NULL in Unique-Indizes (SQLite und
+        # Postgres) als verschieden gilt -- globale Sets haben tenant_id NULL.
+        # Postgres-Pfad: alembic/versions/b5e1c7d9a3f2_*.py.
+        Index(
+            "ux_product_eligibility_rule_sets_lineage_tenant",
+            "tenant_scope", "tenant_id", "jurisdiction", "created_by", "version",
+            unique=True,
+            sqlite_where=text("tenant_id IS NOT NULL"),
+            postgresql_where=text("tenant_id IS NOT NULL"),
+        ),
+        Index(
+            "ux_product_eligibility_rule_sets_lineage_global",
+            "tenant_scope", "jurisdiction", "created_by", "version",
+            unique=True,
+            sqlite_where=text("tenant_id IS NULL"),
+            postgresql_where=text("tenant_id IS NULL"),
         ),
     )
 

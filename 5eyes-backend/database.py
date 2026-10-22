@@ -1940,6 +1940,20 @@ _SQLITE_CURRENT_ANCHOR_INDEXES: tuple[tuple[str, str, str, str], ...] = (
         "linked_position_id",
         "linked_position_id IS NOT NULL AND is_active = 1 AND deleted_at IS NULL",
     ),
+    (
+        # ELIG-GOVERNANCE-001 (2026-10-21): find-or-create-Schluessel der
+        # Produkt-Eignungs-RuleSets, siehe models/product_eligibility.py.
+        "ux_product_eligibility_rule_sets_lineage_tenant",
+        "product_eligibility_rule_sets",
+        "tenant_scope, tenant_id, jurisdiction, created_by, version",
+        "tenant_id IS NOT NULL",
+    ),
+    (
+        "ux_product_eligibility_rule_sets_lineage_global",
+        "product_eligibility_rule_sets",
+        "tenant_scope, jurisdiction, created_by, version",
+        "tenant_id IS NULL",
+    ),
 )
 
 
