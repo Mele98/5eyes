@@ -2048,6 +2048,11 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
     """Run the backwards-compatible schema repair path for SQLite only."""
     ensure_runtime_columns()
     ensure_current_anchor_unique_indexes()
+    # UPGRADE-PATH-CHECK-DRIFT-001: erweiterte CHECK-IN-Listen des
+    # Referenzschemas erreichten bestehende DBs nie (CREATE TABLE IF NOT EXISTS).
+    from services.sqlite_check_constraint_upgrade import ensure_sqlite_check_in_lists_current
+
+    ensure_sqlite_check_in_lists_current(engine, resolve_schema_path())
     migrate_house_matrix_real_estate_cap_20()
     ensure_snapshot_tables()
     from services.market_data.provider_health_registry import ensure_provider_health_table

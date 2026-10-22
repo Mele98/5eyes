@@ -1715,6 +1715,14 @@ def update_wealth_inflow(
     # anderen Zuflusses duerfen keinen zweiten aktiven Bezug erzeugen.
     merged_link = merged_state.get("linked_position_id")
     merged_active = int(payload.get("is_active", inflow.is_active) or 0) == 1
+    # TENANT-ISOLATION-NEW-TABLES-001 (2026-10-21): ein NEU gesetzter Link wird
+    # immer geprueft, auch auf einem (dabei) inaktiven Zufluss -- sonst liess
+    # sich per is_active=0 eine fremde (auch tenant-fremde) Position-ID
+    # ungeprueft persistieren. Ein unveraenderter Alt-Link blockiert dagegen
+    # keine Edits eines inaktiven Zuflusses.
+    new_link = payload.get("linked_position_id")
+    if new_link and new_link != inflow.linked_position_id:
+        _validate_inflow_position_link(inflow.client_id, new_link, db)
     if merged_link and merged_active:
         _validate_inflow_position_link(inflow.client_id, merged_link, db)
         _block_if_pension_source_already_linked(
