@@ -40,6 +40,7 @@ from services.jurisdiction.resolve import (
     resolve_cma_for_jurisdiction,
     resolve_mandate_jurisdiction,
 )
+from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
     _current_risk_assessment_or_none,
@@ -225,9 +226,11 @@ def get_current_allocation_payload(
             preferences=None,
         )
         # RISK-CAPACITY-PLAUSIBILITY-001: live gegen die aktuellen Daten.
-        return attach_to_strategy_payload(
+        attach_to_strategy_payload(
             payload, evaluate_mandate_safely(db, mandate, assessment),
         )
+        # CMA-CURRENCY-GUARD-001 (zuletzt = zuoberst im Reasoning, blockierend).
+        return attach_cma_currency_guard(db, mandate, payload)
     except ValueError as exc:
         # Invalid legacy/raw position semantics and persisted-context integrity
         # failures are repairable domain conflicts, not opaque server errors.
@@ -695,6 +698,9 @@ def generate_target_allocation_endpoint(
             # keine Profilaenderung, kein Blockieren.
             plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
             attach_to_strategy_payload(result, plausibility)
+            # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
+            # (nach der Plausibilitaet = zuoberst im Reasoning).
+            attach_cma_currency_guard(db, mandate, result)
             audit_if_inconsistent(
                 db, plausibility, user=current_user, table_name="target_allocations",
                 record_id=result["target_allocation"].id, mandate=mandate,

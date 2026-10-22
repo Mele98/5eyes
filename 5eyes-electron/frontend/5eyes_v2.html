@@ -8213,6 +8213,29 @@ function buildBandDeviationReasonBoxHtml(prefs){
     +'<div style="font-size:9px;color:#8a6718;margin-top:3px">Ohne dokumentierte Begruendung ist die Freigabe der Empfehlung blockiert.</div>'
     +'</div>';
 }
+// CMA-CURRENCY-GUARD-001: Basiswaehrung != Waehrungsbasis der Kapital-
+// marktannahmen -> Strategie berechnet, aber "nicht freigegeben". Freigabe
+// und Kundendokumente sind im Backend blockiert (409 CMA_CURRENCY_MISMATCH),
+// bis eine dokumentierte Beraterbestaetigung (prefs.cmaCurrencyMismatchReason)
+// im Snapshot der neu berechneten Strategie steht.
+function buildCmaCurrencyGuardHtml(guard){
+  if(!guard||!guard.reason_code)return '';
+  var acknowledged=guard.status==='acknowledged';
+  var prefs=loadAllocationPreferences();
+  var reason=prefs&&typeof prefs.cmaCurrencyMismatchReason==='string'?prefs.cmaCurrencyMismatchReason:'';
+  return '<div id="aa-cma-currency-guard" data-reason-code="'+escapeHtml(guard.reason_code||'')+'" style="margin-bottom:8px;padding:8px 10px;border:1px solid #9E4747;border-left:3px solid #9E4747;border-radius:var(--r);background:#F0D9D9">'
+    +'<div style="font-size:10px;font-weight:600;color:#9E4747;margin-bottom:4px">'+(acknowledged?'Währungsbasis bewusst bestätigt':'Strategie nicht freigegeben')+' ['+escapeHtml(guard.reason_code||'')+']</div>'
+    +'<div style="font-size:10px;color:var(--n6);line-height:1.5;margin-bottom:6px">'+escapeHtml(guard.message||'')+'</div>'
+    +'<label for="aa-cma-currency-reason" style="font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--n4)">Bewusste Bestätigung (Begründung, wird im Kundendokument ausgewiesen)</label>'
+    +'<textarea id="aa-cma-currency-reason" rows="2" maxlength="2000" onchange="onCmaCurrencyReasonChange()" style="width:100%;box-sizing:border-box;font-size:11px;margin-top:3px" placeholder="Warum soll die Strategie trotz abweichender Währungsbasis freigegeben werden? (mind. 20 Zeichen, keine Floskeln)">'+escapeHtml(reason)+'</textarea>'
+    +(guard.acknowledgement_error?'<div style="font-size:9px;color:#9E4747;margin-top:3px">'+escapeHtml(guard.acknowledgement_error)+'</div>':'')
+    +'<div style="font-size:9px;color:#9E4747;margin-top:3px">'+(acknowledged?'Freigabe möglich; der Hinweis erscheint im Kundendokument.':'Finalisierung und Kundendokumente sind blockiert. Begründung erfassen und Strategie neu berechnen.')+'</div>'
+    +'</div>';
+}
+function onCmaCurrencyReasonChange(){
+  persistAllocationPreferences();
+  if(typeof markStrategyDirty==='function')markStrategyDirty('Begründung zur Währungsbasis erfasst: Strategie neu berechnen.');
+}
 function updateBandDeviationReasonBox(){
   var box=document.getElementById('aa-band-deviation-box');
   if(!box)return;
@@ -8655,9 +8678,9 @@ function renderEngineRuntimePanels(result){
   var mc=monteCarloPayload(result);
   var live=liveRebalancingPayload(result)||(strategyState.recommendation?liveRebalancingPayload(strategyState.recommendation):null);
   engine.innerHTML=renderEngineRuntimeCardList(buildEngineSummaryCards(result, sim, mc));
-  rationale.innerHTML=(result.reasoning||[]).slice(0,7).map(function(item){
+  rationale.innerHTML=buildCmaCurrencyGuardHtml(result.cma_currency_guard)+((result.reasoning||[]).slice(0,7).map(function(item){
     return '<div style="font-size:10px;color:var(--n6);line-height:1.6;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)">- '+escapeHtml(item)+'</div>';
-  }).join('')||engineRuntimeInfoBox('Keine Reasoning-Punkte vorhanden.');
+  }).join('')||engineRuntimeInfoBox('Keine Reasoning-Punkte vorhanden.'));
   market.innerHTML=buildMarketRuntimeHtml(result);
   liveSummary.innerHTML=buildLiveSummaryHtml(live);
   liveAssets.innerHTML=renderLiveRebalancingBuckets(live);
@@ -19174,6 +19197,9 @@ function mergeAllocationPreferences(base,override){
   if(typeof incoming.bandDeviationReason==='string'){
     merged.bandDeviationReason=incoming.bandDeviationReason;
   }
+  if(typeof incoming.cmaCurrencyMismatchReason==='string'){
+    merged.cmaCurrencyMismatchReason=incoming.cmaCurrencyMismatchReason;
+  }
   return stripLegacySimulationHorizon(merged);
 }
 function formatBandPercent(bps){
@@ -19968,6 +19994,9 @@ function collectAllocationPreferencesFromUI(){
   var reasonInput=document.getElementById('aa-band-deviation-reason');
   if(reasonInput)prefs.bandDeviationReason=String(reasonInput.value||'').trim();
   if(!prefs.bandDeviationReason)delete prefs.bandDeviationReason;
+  var cmaCurrencyInput=document.getElementById('aa-cma-currency-reason');
+  if(cmaCurrencyInput)prefs.cmaCurrencyMismatchReason=String(cmaCurrencyInput.value||'').trim();
+  if(!prefs.cmaCurrencyMismatchReason)delete prefs.cmaCurrencyMismatchReason;
   return prefs;
 }
 function collectTiltReasonsFromUI(tilts){

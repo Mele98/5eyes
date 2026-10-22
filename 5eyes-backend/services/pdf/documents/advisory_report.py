@@ -519,7 +519,7 @@ def _build_provisional_notice_banner(notice: dict[str, Any], styles: dict) -> Ta
     from reportlab.lib.colors import HexColor
 
     heading = Paragraph(
-        _escape("PROVISORISCH — NICHT IC-FREIGEGEBEN"),
+        _escape(str(notice.get("heading") or "").strip() or "PROVISORISCH — NICHT IC-FREIGEGEBEN"),
         _ar_paragraph_style(
             styles["body"], font=FONT_SANS_BOLD, color=COLOR_STATUS_ROT,
         ),

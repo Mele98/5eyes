@@ -920,11 +920,16 @@ class AllocationPreferencesPayload(BaseModel):
     # None wird von _normalize_preferences() aus dem Snapshot entfernt.
     bandDeviationReason: Optional[str] = Field(default=None, max_length=2000)
 
-    @field_validator("bandDeviationReason", mode="before")
+    # CMA-CURRENCY-GUARD-001: dokumentierte Bestaetigung des Beraters, dass
+    # die Strategie trotz Kapitalmarktannahmen in fremder Waehrungsbasis
+    # freigegeben werden soll. Qualitaetspruefung im Freigabe-Gate.
+    cmaCurrencyMismatchReason: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("bandDeviationReason", "cmaCurrencyMismatchReason", mode="before")
     @classmethod
-    def validate_band_deviation_reason_type(cls, value):
+    def validate_band_deviation_reason_type(cls, value, info):
         if value is not None and not isinstance(value, str):
-            raise ValueError("bandDeviationReason muss ein Text sein")
+            raise ValueError(f"{info.field_name} muss ein Text sein")
         return value
 
     # ESG-PREMIUM-CRITERIA-001: Begruendung je Thema fuer "allow" (Pflicht)
@@ -1657,6 +1662,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     # RISK-CAPACITY-PLAUSIBILITY-001: Fragebogen <-> erfasste Finanzdaten
     # (Hinweis, Reason-Code RISK_CAPACITY_INCONSISTENT; aendert nichts).
     risk_capacity_plausibility: Optional[dict] = None
+    # CMA-CURRENCY-GUARD-001: status ok|mismatch|acknowledged|not_applicable, reason_code
+    # CMA_CURRENCY_MISMATCH, released, message, Waehrungen, Bestaetigung.
+    cma_currency_guard: Optional[dict] = None
     asset_class_risky_weights_bps: dict[str, int]
     expected_return_bps: int
     expected_volatility_bps: int

@@ -105,10 +105,33 @@ def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -
 
     from services.pdf.provisional_notice import resolve_pdf_provisional_notice
 
+    _enforce_cma_currency_release(db, mandate)
     notice = resolve_pdf_provisional_notice(db, mandate)
     if notice is None:
         return ctx
     return replace(ctx, provisional_notice=notice)
+
+
+def _enforce_cma_currency_release(db: Session, mandate: Mandate) -> None:
+    """CMA-CURRENCY-GUARD-001: CMA-abhaengige Kundendokumente nur, wenn die
+    Waehrungsbasis der Kapitalmarktannahmen zur Basiswaehrung passt oder der
+    Berater die Abweichung dokumentiert bestaetigt hat -- sonst 409."""
+    from services.cma_currency_guard import (
+        CmaCurrencyMismatchError,
+        enforce_release,
+        evaluate_for_current_allocation,
+    )
+
+    try:
+        guard = evaluate_for_current_allocation(db, mandate)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if guard is None:
+        return
+    try:
+        enforce_release(guard, context="document")
+    except CmaCurrencyMismatchError as exc:
+        raise HTTPException(status_code=409, detail=exc.http_detail()) from exc
 
 
 def _audit_hash_for_mandate(mandate: Mandate) -> str:
@@ -2249,6 +2272,7 @@ def get_advisory_report_pdf(
     from services.pdf.documents.advisory_report import render_advisory_report_pdf
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
     pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded

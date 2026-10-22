@@ -209,6 +209,44 @@ def _enforce_run_preferences(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+def _enforce_run_cma_currency(db: Session, mandate: Mandate, run: RecommendationRun) -> str | None:
+    """CMA-CURRENCY-GUARD-001: Basiswaehrung des Mandats != Waehrungsbasis der
+    CMA des Runs -> 409 CMA_CURRENCY_MISMATCH, ausser der Berater hat die
+    Abweichung im Praeferenz-Snapshot der Soll-Allokation dokumentiert
+    bestaetigt (``cmaCurrencyMismatchReason``). Rueckgabe: Audit-Warnung bei
+    bestaetigter Abweichung, sonst None."""
+    from services.cma_currency_guard import (
+        STATUS_ACKNOWLEDGED,
+        CmaCurrencyMismatchError,
+        enforce_release,
+        evaluate_cma_currency,
+    )
+    from services.portfolio_engine import _allocation_snapshot_preferences
+
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.id == run.capital_market_assumptions_id,
+    ).first() if run.capital_market_assumptions_id else None
+    if cma is None:
+        return None  # "keine gueltige CMA-Version" meldet die Validierung.
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.id == run.target_allocation_id,
+        TargetAllocation.mandate_id == mandate.id,
+    ).first() if run.target_allocation_id else None
+    try:
+        preferences = _allocation_snapshot_preferences(allocation)
+    except ValueError:
+        preferences = None
+    guard = evaluate_cma_currency(db, mandate, cma, preferences)
+    try:
+        enforce_release(guard, context="finalization")
+    except CmaCurrencyMismatchError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=exc.http_detail()) from exc
+    if guard["status"] == STATUS_ACKNOWLEDGED:
+        return f"{guard['message']} Beraterbestaetigung: {guard['acknowledgement_reason']}"
+    return None
+
+
 def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -3263,9 +3301,12 @@ def finalize_recommendation(
     # fuer dasselbe Mandat, unabhaengig vom Vorzustand.
     db.query(Mandate).filter(Mandate.id == mandate_id).with_for_update().first()
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    cma_currency_warning = _enforce_run_cma_currency(db, mandate, run)
     errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    if cma_currency_warning:
+        warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
     # die Auto-Selektion gegen den Praeferenz-Snapshot der TA geprueft --
     # erfasst manuelle Positionen und nachtraeglich geaenderte Produktdaten.

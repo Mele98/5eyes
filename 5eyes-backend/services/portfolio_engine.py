@@ -517,11 +517,11 @@ def _normalize_preferences(preferences: dict | None) -> dict:
         {} if preferences is None else preferences
     )
     dumped = validated.model_dump()
-    # BAND-DEVIATION-REASON-REQUIRED-001: ein fehlendes Begruendungsfeld darf
-    # den persistierten Praeferenz-Snapshot nicht veraendern (sonst meldete
-    # die Drift-Erkennung jede bestehende Allokation als veraltet).
-    if dumped.get("bandDeviationReason") is None:
-        dumped.pop("bandDeviationReason", None)
+    # BAND-DEVIATION-REASON-REQUIRED-001 / CMA-CURRENCY-GUARD-001: fehlende Begruendungsfelder
+    # duerfen den Snapshot nicht veraendern (sonst Drift-Warnung je Bestandsallokation).
+    for reason_key in ("bandDeviationReason", "cmaCurrencyMismatchReason"):
+        if dumped.get(reason_key) is None:
+            dumped.pop(reason_key, None)
     # ESG-PREMIUM-CRITERIA-001: leeres tiltReasons nicht ausgeben (sonst Drift-Warnung je Altbestand).
     if not dumped.get("tiltReasons"):
         dumped.pop("tiltReasons", None)
