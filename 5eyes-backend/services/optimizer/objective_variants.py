@@ -310,20 +310,79 @@ def _normalized_weights(
     return array / total
 
 
+def _require_finite_values(values: np.ndarray) -> None:
+    """Schaetzer-WERTE muessen endlich sein -- gueltige Gewichte reinigen nichts.
+
+    OPTIMIZER-OBJECTIVE-DOMAIN-001 (Residual, Codex-Reproducer 2026-10-14):
+    ``_normalized_weights`` prueft nur die Gewichte. ``weighted_mean([0, nan],
+    [1, 1])`` lieferte ``nan``, ``weighted_std([0, inf], [1, 1])`` ebenfalls
+    ``nan`` -- ohne Fehler, als regulaerer Schaetzwert.
+    """
+    if not np.all(np.isfinite(values)):
+        n_bad = int(np.count_nonzero(~np.isfinite(values)))
+        raise ObjectiveDomainError(
+            "objective_values_not_finite",
+            f"{n_bad} von {np.size(values)} Schaetzer-Werten sind nicht "
+            "endlich (nan/inf).",
+        )
+
+
+def _require_finite_estimate(value: float, estimator: str) -> float:
+    """Ein Schaetzwert aus endlichen Werten kann trotzdem ueberlaufen.
+
+    Summe oder Quadrat endlicher, aber grosser Werte wird ``inf`` (gemessen:
+    ``weighted_mean([max, max], None) = inf``). Nur eine Pruefung, keine
+    Rechenaenderung -- endliche Schaetzwerte bleiben bitidentisch.
+    """
+    if not np.isfinite(value):
+        raise ObjectiveDomainError(
+            "objective_estimate_not_finite",
+            f"{estimator} ueber endliche Werte ist nicht endlich ({value!r}); "
+            "numerischer Ueberlauf.",
+        )
+    return value
+
+
+def require_finite_objective(value: float, *, where: str) -> float:
+    """Zielfunktionswert fail-closed: endlich oder ``ObjectiveDomainError``.
+
+    OPTIMIZER-OBJECTIVE-DOMAIN-001: EINE Stelle fuer den Reason-Code
+    ``objective_value_not_finite`` -- jeder Ausgang von ``primary_objective``,
+    die Solver-Closure (``_objective_from_inputs``/``_objective_from_array``)
+    und ``evaluate_weights`` pruefen hier, BEVOR der Wert an SLSQP geht oder
+    als ``objective_value`` publiziert wird. Gibt den Wert unveraendert zurueck.
+    """
+    result = float(value)
+    if not np.isfinite(result):
+        raise ObjectiveDomainError(
+            "objective_value_not_finite",
+            f"Zielfunktionswert in {where} ist nicht endlich ({result!r}); "
+            "ein solcher Kandidat ist nicht bewertbar und wird verworfen.",
+        )
+    return result
+
+
 def weighted_mean(values: np.ndarray, weights: np.ndarray | None) -> float:
+    _require_finite_values(values)
     normalized = _normalized_weights(weights, values.shape[0])
     if normalized is None:
-        return float(np.mean(values))
-    return float(np.sum(values * normalized))
+        return _require_finite_estimate(float(np.mean(values)), "weighted_mean")
+    return _require_finite_estimate(
+        float(np.sum(values * normalized)), "weighted_mean",
+    )
 
 
 def weighted_std(values: np.ndarray, weights: np.ndarray | None) -> float:
+    _require_finite_values(values)
     normalized = _normalized_weights(weights, values.shape[0])
     if normalized is None:
-        return float(np.std(values))
+        return _require_finite_estimate(float(np.std(values)), "weighted_std")
     mean = float(np.sum(values * normalized))
     deviations = values - mean
-    return float(np.sqrt(max(0.0, np.sum(normalized * deviations * deviations))))
+    return _require_finite_estimate(
+        float(np.sqrt(max(0.0, np.sum(normalized * deviations * deviations)))),
+        "weighted_std",
+    )
 
 
 def weighted_lower_tail_mean(
@@ -343,6 +402,7 @@ def weighted_lower_tail_mean(
     n_paths = values.shape[0]
     if n_paths == 0:
         return 0.0
+    _require_finite_values(values)
     tail_fraction = float(min(1.0, max(1e-9, tail_fraction)))
     order = np.argsort(values, kind="stable")
     ordered_values = values[order]
@@ -363,7 +423,9 @@ def weighted_lower_tail_mean(
         np.sum(ordered_values[:cutoff] * ordered_weights[:cutoff])
         + ordered_values[cutoff] * partial_mass
     )
-    return contribution / tail_fraction
+    return _require_finite_estimate(
+        contribution / tail_fraction, "weighted_lower_tail_mean",
+    )
 
 
 # ── Primaerterme ─────────────────────────────────────────────────────────────
@@ -520,7 +582,11 @@ def primary_objective(
     """
     resolved = validate_objective_mode(mode)
     if resolved == OBJECTIVE_GOAL_SHORTFALL:
-        return float(goal_shortfall_value)
+        # OPTIMIZER-OBJECTIVE-DOMAIN-001: auch der durchgereichte L(w)-Wert
+        # ist ein Ausgang dieser Funktion und wird geprueft.
+        return require_finite_objective(
+            goal_shortfall_value, where=f"primary_objective[{resolved}]",
+        )
 
     if portfolio_return_factors is None:
         raise ObjectiveModeError(
@@ -537,14 +603,24 @@ def primary_objective(
         )
     _require_valid_growth_factors(factors)
 
+    # OPTIMIZER-OBJECTIVE-DOMAIN-001: endliche, strikt positive Faktoren
+    # koennen trotzdem ueberlaufen (``cumprod`` -> inf -> inf/inf = nan im
+    # Drawdown; Quadrat im Std; Summe im Mittel). Jeder Ausgang laeuft darum
+    # ueber ``require_finite_objective`` -- reine Pruefung, gleicher Wert.
+    where = f"primary_objective[{resolved}]"
     if resolved == OBJECTIVE_MAX_DRAWDOWN:
-        return weighted_mean(_annual_grid_max_drawdowns(factors), weights)
+        return require_finite_objective(
+            weighted_mean(_annual_grid_max_drawdowns(factors), weights),
+            where=where,
+        )
     if resolved == OBJECTIVE_MIN_VOLATILITY:
         # OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001: Einperioden-Streuung, siehe
         # _one_period_return_dispersion. Bewusst VOR der Annualisierung, damit
         # diese Variante sie nicht mehr berechnet -- sie braucht sie nicht,
         # und in jeder SLSQP-Iteration waere das verworfene Arbeit.
-        return _one_period_return_dispersion(factors, weights)
+        return require_finite_objective(
+            _one_period_return_dispersion(factors, weights), where=where,
+        )
 
     annualized = _annualized_returns_from_factors(factors)
     if resolved == OBJECTIVE_CVAR_RETURN:
@@ -553,9 +629,13 @@ def primary_objective(
         # im Plus, wird der Term negativ und belohnt das -- bewusst nicht bei
         # 0 abgeschnitten, sonst waere die Zielfunktion dort flach und der
         # Solver bekaeme kein Gefaelle mehr.
-        return -weighted_lower_tail_mean(annualized, weights)
+        return require_finite_objective(
+            -weighted_lower_tail_mean(annualized, weights), where=where,
+        )
     if resolved == OBJECTIVE_MAX_RETURN:
-        return -weighted_mean(annualized, weights)
+        return require_finite_objective(
+            -weighted_mean(annualized, weights), where=where,
+        )
 
     raise ObjectiveModeError(f"Objective-Modus {resolved!r} ist nicht implementiert.")
 

@@ -114,6 +114,7 @@ from .objective_variants import (
     ObjectiveDomainError,
     primary_objective,
     refined_drawdown_check_for_winner,
+    require_finite_objective,
 )
 from .resampling import (
     COMPARISON_GOAL_LEVEL,
@@ -1247,8 +1248,15 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
 
     Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
+
+    OPTIMIZER-OBJECTIVE-DOMAIN-001: nie ``nan``/``inf`` zurueck -- ein nicht
+    endlicher Wert ist ``ObjectiveDomainError`` (``objective_value_not_finite``)
+    statt eines Werts an SLSQP oder an den Post-Round-Vergleich.
     """
-    return _objective_from_inputs(context, w, _evaluation_inputs(context, w))
+    return require_finite_objective(
+        _objective_from_inputs(context, w, _evaluation_inputs(context, w)),
+        where="_objective_from_array",
+    )
 
 
 def _evaluation_inputs(
@@ -1355,7 +1363,11 @@ def _objective_from_inputs(
         objective += preference_loss_from_array(
             w, context.preferred_target_bps, lam=context.preference_penalty_lambda,
         )
-    return objective
+    # OPTIMIZER-OBJECTIVE-DOMAIN-001: dies ist die SLSQP-Closure (und jede
+    # Multi-Start-/Stufe-1/2-Bewertung). Vorher ging ein nicht endlicher Wert
+    # ungeprueft an SLSQP; nur der Wert NACH dem Rounding in `run_solver`
+    # wurde geprueft -- zu spaet. Reine Pruefung, gleicher Wert.
+    return require_finite_objective(objective, where="_objective_from_inputs")
 
 
 def evaluate_weights(
@@ -1421,6 +1433,9 @@ def evaluate_weights(
         preference_deviation = preference_deviation_bps(
             weights_bps_out, context.preferred_target_bps,
         )
+    # OPTIMIZER-OBJECTIVE-DOMAIN-001: `objective_value` wird publiziert
+    # (Audit, Ex-post-Bewertung); ein nicht endlicher Wert darf das nie.
+    objective = require_finite_objective(objective, where="evaluate_weights")
     feasible, violations = is_feasible(
         w, bounds=context.bounds, constraints=context.scipy_constraints,
     )
