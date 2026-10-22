@@ -1277,6 +1277,12 @@ export interface TargetAllocationCreatePayload {
   policy_id: string;
   /** Pflicht beim manuellen Speichern (MANUAL-SAVE-DEADEND-001, FIDLEG Art. 13). */
   override_reason?: string | null;
+  /**
+   * ALLOC-EDITOR-STALE-001: ID/Version der bearbeiteten Allokation
+   * (Optimistic Concurrency). Abweichung -> 409 `[allocation_version_conflict]`.
+   */
+  expected_current_allocation_id?: string | null;
+  expected_current_allocation_version?: number | null;
 }
 
 /** Response-Kernfelder (TargetAllocationResponse hat zusätzliche Audit-Felder). */
