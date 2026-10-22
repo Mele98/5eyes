@@ -1962,8 +1962,18 @@ def _cost_item_rate(costs: dict, key: str) -> int:
 
 
 def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
+    # SUITABILITY-DETECTOR-AVAILABILITY-001: die HouseMatrix-Referenz hat
+    # einen ausgewiesenen Status. Fehlt sie, wird der Vergleich NICHT still
+    # ohne Referenz gezeigt, sondern mit Hinweis (warnings + Status-Block).
+    benchmark, benchmark_status = _depotcheck_house_matrix_benchmark_with_status(
+        mandate, db,
+    )
+    benchmark_warnings = (
+        [benchmark_status["note"]]
+        if benchmark_status.get("status") != "available" and benchmark_status.get("note")
+        else []
+    )
     try:
-        benchmark = _depotcheck_house_matrix_benchmark(mandate, db)
         data = _build_backtest_data(
             mandate,
             db,
@@ -1983,57 +1993,48 @@ def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
             "metrics": dict(data.soll_metrics or {}),
             "benchmark_metrics": dict(data.benchmark_metrics or {}),
             "benchmark_weights_bps": dict(data.benchmark_weights_bps or {}),
-            "warnings": list(data.warnings or []),
+            "house_matrix_benchmark": benchmark_status,
+            "warnings": list(data.warnings or []) + benchmark_warnings,
         }
     except Exception as exc:  # noqa: BLE001 - PDF must fail soft
         logger.warning("Depotcheck performance unavailable: %s", exc)
         return {
             "data_pending": True,
             "note": "Historischer Vergleich ist fuer diese Strategie noch nicht verfuegbar.",
+            "house_matrix_benchmark": benchmark_status,
+            "warnings": benchmark_warnings,
         }
 
 
-def _depotcheck_house_matrix_benchmark(mandate: Mandate, db: Session) -> dict:
-    from models.allocation import HouseMatrix
-    from models.profiling import RiskAssessment
-    from services.risk_matrix import score_bucket_from_assessment
+def _depotcheck_benchmark_resolution(mandate: Mandate, db: Session):
+    from services.house_matrix_benchmark import resolve_depotcheck_benchmark
 
     ta = _latest_target_allocation(mandate, db)
-    if ta is None:
-        return {}
-    assessment = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.mandate_id == mandate.id,
-            RiskAssessment.is_current == 1,
-            RiskAssessment.deleted_at.is_(None),
-        )
-        .order_by(RiskAssessment.created_at.desc())
-        .first()
+    return resolve_depotcheck_benchmark(
+        db, mandate, target_allocation=ta, use_current_target_allocation=False,
     )
-    if assessment is None:
-        return {}
-    score = score_bucket_from_assessment(assessment)
-    matrix = (
-        db.query(HouseMatrix)
-        .filter(
-            HouseMatrix.policy_id == getattr(ta, "policy_id", None),
-            HouseMatrix.score_from <= int(score),
-            HouseMatrix.score_to >= int(score),
-            HouseMatrix.is_active == 1,
-        )
-        .order_by(HouseMatrix.score_from.desc())
-        .first()
-    )
-    if matrix is None:
-        return {}
-    return {
-        "equities": int(getattr(matrix, "equity_target_bps", 0) or 0),
-        "bonds": int(getattr(matrix, "bonds_target_bps", 0) or 0),
-        "real_estate": int(getattr(matrix, "real_estate_target_bps", 0) or 0),
-        "alternatives": int(getattr(matrix, "alt_target_bps", 0) or 0),
-        "liquidity": int(getattr(matrix, "liq_target_bps", 0) or 0),
-    }
+
+
+def _depotcheck_house_matrix_benchmark_with_status(
+    mandate: Mandate, db: Session,
+) -> tuple[dict, dict]:
+    """(Gewichte oder ``{}``, Status-Block) aus EINER Aufloesung."""
+    try:
+        resolution = _depotcheck_benchmark_resolution(mandate, db)
+        weights = dict(resolution.weights_bps) if resolution.available else {}
+        return weights, resolution.public()
+    except Exception as exc:  # noqa: BLE001 - PDF must fail soft, aber sichtbar
+        logger.warning("Depotcheck house-matrix benchmark unresolved: %s", exc)
+        return {}, {
+            "status": "unavailable",
+            "reason_code": "BENCHMARK_RESOLUTION_FAILED",
+            "note": (
+                "Vergleich mit der Hausmatrix nicht möglich – Policy/Profil "
+                "fehlt (BENCHMARK_RESOLUTION_FAILED)."
+            ),
+            "score_bucket": None,
+            "profile_name": None,
+        }
 
 
 def _depotcheck_data_quality_warnings(costs: dict, performance: dict) -> list[str]:

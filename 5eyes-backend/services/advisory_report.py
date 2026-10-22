@@ -3087,7 +3087,10 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
     - latest_entry: serialisierter letzter Eintrag oder None
     - last_review_date: Datum des letzten Eintrags (ISO YYYY-MM-DD)
     - suitability_mismatches: aktive Mismatches (Risikobudget, Bands)
-    - has_active_mismatches: True wenn mindestens ein Mismatch
+    - has_active_mismatches: True wenn mindestens ein Mismatch oder die
+      HouseMatrix-Cap-Pruefung nicht moeglich war
+    - suitability_cap_check: Status ok/violation/unavailable/not_applicable
+      + reason_code (SUITABILITY-DETECTOR-AVAILABILITY-001)
     - days_since_last_review: Anzahl Tage seit letzem Eintrag
     - retention_audit_ok: True wenn keine Einträge ablaufen in den nächsten
       30 Tagen (FIDLEG-Aufbewahrungspflicht)
@@ -3096,14 +3099,16 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     from services.advisory_log_service import (
         count_active_entries,
-        detect_suitability_mismatches,
+        evaluate_suitability_mismatches,
         get_latest_active_entry,
         serialize_response,
     )
 
     total_active = count_active_entries(db, mandate_id=mandate.id)
     latest = get_latest_active_entry(db, mandate_id=mandate.id)
-    mismatches = detect_suitability_mismatches(db, mandate)
+    suitability = evaluate_suitability_mismatches(db, mandate)
+    mismatches = suitability["warnings"]
+    cap_check = suitability["cap_check"]
 
     last_review_date: str | None = None
     days_since: int | None = None
@@ -3127,7 +3132,12 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
         "last_review_date": last_review_date,
         "days_since_last_review": days_since,
         "suitability_mismatches": mismatches,
-        "has_active_mismatches": bool(mismatches),
+        # SUITABILITY-DETECTOR-AVAILABILITY-001: eine nicht pruefbare
+        # Cap-Pruefung (status "unavailable") ist ein aktiver Hinweis, nie
+        # "geeignet" -- auch falls die Warnungsliste anders gefiltert wuerde.
+        "has_active_mismatches": bool(mismatches)
+        or cap_check.requires_advisor_attention,
+        "suitability_cap_check": cap_check.to_dict(),
         "retention_audit_ok": retention_audit_ok,
     }
 
@@ -4557,7 +4567,6 @@ def _build_performance_attribution(
     try:
         from models.allocation import (
             CapitalMarketAssumption,
-            HouseMatrix,
             OptimizerPolicy,
             TargetAllocation,
         )
@@ -4565,7 +4574,6 @@ def _build_performance_attribution(
             BUCKET_KEYS,
             compute_brinson_attribution,
         )
-        from services.risk_matrix import score_bucket_from_assessment
 
         ta = (
             db.query(TargetAllocation)
@@ -4609,25 +4617,29 @@ def _build_performance_attribution(
         # macht exakt dieselbe 0..100 -> 1..10-Abbildung, die
         # _depotcheck_house_matrix_benchmark() (routers/pdf_reports.py) fuer
         # denselben fachlichen Vergleich bereits korrekt verwendet.
-        risk_score = _safe_int(getattr(ra, "final_score_x10", 0)) if ra else 0
-        score_bucket = score_bucket_from_assessment(ra) if ra else 0
-        policy_id = getattr(ta, "policy_id", None)
-        hm_row = None
-        if policy_id and risk_score > 0:
-            hm_row = (
-                db.query(HouseMatrix)
-                .filter(
-                    HouseMatrix.policy_id == policy_id,
-                    HouseMatrix.is_active == 1,
-                    HouseMatrix.score_from <= score_bucket,
-                    HouseMatrix.score_to >= score_bucket,
-                )
-                .first()
+        # SUITABILITY-DETECTOR-AVAILABILITY-001: dieselbe eindeutige
+        # Bucket-Aufloesung wie Suitability-Detektor und Depotcheck
+        # (services.suitability_cap_check). Vorher ``.first()`` (ueberlappende
+        # Zeilen still nach DB-Reihenfolge) und ``risk_score > 0`` -- ein
+        # gueltiger Score 0 (Kapitalschutz, Bucket 1) bekam nie eine Referenz.
+        # Fehlend/mehrdeutig wird mit Reason-Code ausgewiesen.
+        from services.suitability_cap_check import (
+            resolve_house_matrix_for_assessment,
+        )
+
+        resolution = resolve_house_matrix_for_assessment(
+            db,
+            assessment=ra,
+            policy_id=getattr(ta, "policy_id", None),
+        )
+        if resolution.row is None:
+            empty = _performance_attribution_empty(
+                "Keine eindeutige House-Matrix-Referenz fuer das Risikoprofil "
+                f"({resolution.reason_code}): {resolution.detail}"
             )
-        if hm_row is None:
-            return _performance_attribution_empty(
-                "Keine House-Matrix-Default fuer das Risikoprofil gefunden."
-            )
+            empty["reason_code"] = resolution.reason_code
+            return empty
+        hm_row = resolution.row
         benchmark_weights = {
             "equities": _safe_int(getattr(hm_row, "equity_target_bps", 0)),
             "bonds": _safe_int(getattr(hm_row, "bonds_target_bps", 0)),
