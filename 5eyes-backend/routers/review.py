@@ -3275,6 +3275,18 @@ def finalize_recommendation(
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
     if errors:
+        # RESERVE-LEDGER-SNAPSHOT-001: die Ledger-Sperre ist eine Handlungs-
+        # anweisung (neu berechnen) -> strukturierte 422 mit reason_code; alle
+        # uebrigen Sperren bleiben unveraendert ein Text.
+        from services.reserve_funding_ledger_snapshot import finalization_reason_code
+
+        ledger_reason = finalization_reason_code(errors)
+        if ledger_reason:
+            raise HTTPException(status_code=422, detail={
+                "reason_code": ledger_reason,
+                "message": "; ".join(errors),
+                "errors": errors,
+            })
         raise HTTPException(status_code=422, detail="; ".join(errors))
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
     # die Auto-Selektion gegen den Praeferenz-Snapshot der TA geprueft --

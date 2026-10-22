@@ -23750,8 +23750,19 @@ async function confirmImplementationRecipe(){
     cm('m-ums');
     printPortfolioPlan();
   }catch(e){
-    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+(e.detail||e.message||'?'),true);
+    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);
   }
+}
+// RESERVE-LEDGER-SNAPSHOT-001: strukturierte Finalisierungs-Sperre
+// ({reason_code,message}) zeigt nur den Klartext mit Handlungsanweisung,
+// nie den technischen reason_code.
+function finalizeErrorText(e){
+  try{
+    var parsed=JSON.parse((e&&e.body)||'');
+    var d=parsed&&parsed.detail;
+    if(d&&typeof d==='object'&&d.reason_code&&d.message)return String(d.message);
+  }catch(_err){}
+  return (e&&(e.detail||e.message))||'?';
 }
 function getActiveClientId(){
   if(currentClientId)return currentClientId;

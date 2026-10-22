@@ -206,18 +206,48 @@ def replay_reserve_funding_ledger(
     )
 
 
-def reserve_ledger_finalization_error(payload: dict | None) -> str | None:
-    """Fail-closed: nur ein replay-verifizierter Ledger ist finalisierbar."""
+# Finalisierungs-Sperre (CIO 2026-10-22): kundenfreundlicher Text mit
+# Handlungsanweisung + maschinenlesbarer reason_code. Nach dem Deploy ist jede
+# bestehende Allokation "unverifiable" -- der Berater muss sofort sehen, was zu
+# tun ist (einmal neu berechnen), nicht einen technischen Integritaetsfehler.
+REASON_RECALCULATION_REQUIRED = "RESERVE_LEDGER_RECALCULATION_REQUIRED"
+REASON_LEDGER_STALE = "RESERVE_LEDGER_STALE"
+FINALIZATION_MESSAGES = {
+    REASON_RECALCULATION_REQUIRED: (
+        "Die Strategie stammt aus einer früheren Version und muss einmal neu "
+        "berechnet werden, bevor sie finalisiert werden kann. Bitte im "
+        "Strategie-Schritt «Neu berechnen» ausführen."
+    ),
+    REASON_LEDGER_STALE: (
+        "Die Berechnungsgrundlage der Liquiditätsreserve wurde seit dieser "
+        "Strategie aktualisiert. Die Strategie muss einmal neu berechnet "
+        "werden, bevor sie finalisiert werden kann. Bitte im Strategie-Schritt "
+        "«Neu berechnen» ausführen."
+    ),
+}
+
+
+def reserve_ledger_finalization_block(payload: dict | None) -> tuple[str, str] | None:
+    """Fail-closed: nur ein replay-verifizierter Ledger ist finalisierbar.
+
+    Liefert ``(reason_code, message)`` oder ``None``.
+    """
     replay = (payload or {}).get("reserve_funding_ledger_replay") or {}
     status = replay.get("status")
     if status == REPLAY_VERIFIED:
         return None
-    if status == REPLAY_STALE:
-        return (
-            "Der Reserve-Funding-Ledger der Soll-Allokation ist veraltet (Ledger-"
-            "Policy geaendert). Bitte Strategie neu berechnen."
-        )
-    return (
-        "Der Reserve-Funding-Ledger der Soll-Allokation ist nicht replay-"
-        "verifizierbar (kein gespeicherter Snapshot). Bitte Strategie neu berechnen."
-    )
+    code = REASON_LEDGER_STALE if status == REPLAY_STALE else REASON_RECALCULATION_REQUIRED
+    return code, FINALIZATION_MESSAGES[code]
+
+
+def reserve_ledger_finalization_error(payload: dict | None) -> str | None:
+    block = reserve_ledger_finalization_block(payload)
+    return None if block is None else block[1]
+
+
+def finalization_reason_code(errors: list[str]) -> str | None:
+    """reason_code der Ledger-Sperre, falls sie unter den Finalisierungsfehlern ist."""
+    for code, message in FINALIZATION_MESSAGES.items():
+        if message in errors:
+            return code
+    return None
