@@ -23,7 +23,7 @@ Tenant-Name + hosting_tier + license_status leben hier. Auth-Layer
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, text
 
 from database import Base
 
@@ -100,6 +100,10 @@ class Tenant(Base):
     encrypted_dek = Column(String)
     dek_version = Column(Integer)
     dek_rotated_at = Column(String)
+    # AF-5 (Tenant-Crypto-Haertung): Generation der Master-KEK, unter der
+    # encrypted_dek verpackt ist (dek_version = Generation des DEK selbst).
+    # Heute immer 1; ein spaeterer KEK-Rewrap setzt die neue Generation.
+    kek_version = Column(Integer, nullable=False, default=1, server_default=text("1"))
     # 2026-07-27 (Retrozessions-Feature): Firmenweite Vorbelegung fuer neue
     # Interessenkonflikt-Offenlegungen (ConflictOfInterestDisclosure.
     # reimbursed_to_client) -- spiegelt die uebliche Firmenpolicy ("wir
