@@ -12,7 +12,7 @@ gebildet, und ein rueckwirkendes Befuellen waere eine Erfindung. Der Verifier
 akzeptiert NULL nur zusammen mit fehlender Referenz.
 
 Revision ID: b8e4d2a7c913
-Revises: d7b3f1a9c2e4
+Revises: f3a8d1c6b4e2
 Create Date: 2026-10-21
 """
 from typing import Sequence, Union
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b8e4d2a7c913"
-down_revision: Union[str, Sequence[str], None] = "d7b3f1a9c2e4"
+down_revision: Union[str, Sequence[str], None] = "f3a8d1c6b4e2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

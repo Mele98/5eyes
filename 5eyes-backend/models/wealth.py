@@ -1,6 +1,10 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
+from sqlalchemy import DDL, Column, String, Integer, ForeignKey, Index, event, text
 from sqlalchemy.orm import relationship
-from database import Base
+from database import (
+    FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS,
+    GOAL_REVISION_DECISION_SQLITE_TRIGGERS,
+    Base,
+)
 
 
 class WealthPosition(Base):
@@ -155,6 +159,12 @@ class WealthInflow(Base):
     # des Gesamtvermoegens: die Position wird ab dem Bezugsjahr ausgebucht
     # (services/portfolio_engine_pension_positions.py). NULL = neues Vermoegen.
     linked_position_id = Column(String)
+    # INFLOW-CERTAINTY-001 (2026-10-21): 'sicher' | 'unsicher'. NULL (Bestand
+    # vor der Migration / Runtime-Patch) = 'sicher' -> unveraendertes Verhalten.
+    # 'unsicher' senkt die Reserve nicht und fliesst nicht in die Simulation
+    # (services/wealth_inflow_certainty.py). Verknuepfte Vorsorgebezuege sind
+    # immer 'sicher'.
+    certainty = Column(String, nullable=True, default="sicher", server_default="sicher")
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -263,6 +273,74 @@ class GoalLifecycleTransition(Base):
     created_at = Column(String, nullable=False)
 
 
+class GoalRevisionDecision(Base):
+    """GoalRevisionDecisionV1 -- unveraenderlicher Nachweis EINER Berater-
+    Entscheidung, ein Ziel als nachrangiges Wunschziel einzustufen
+    (GOAL-REVISION-DECISION-001, CIO-Entscheid 2026-10-21 nach Codex-Closure-
+    Review zu PR #655).
+
+    Die Engine stuft nie selbst herab (ein lokales Optimum ist kein globaler
+    Unmoeglichkeitsnachweis); sie nutzt den Wunschziel-Mechanismus nur fuer
+    Ziele mit gueltiger Decision, deren Ziel-Snapshot-Hash zum aktuellen Ziel
+    passt (services/goal_revision_decision.py). Gebunden werden Ziel-Snapshot
+    (Hash + JSON), bisheriger Haertegrad, neuer Status, Begruendung, die
+    Engine-Evidenz zum Entscheidungszeitpunkt (Status, beste gefundene
+    Wahrscheinlichkeit, Wilson-Obergrenze am besten Punkt, tau, Engine-
+    Version, Allokation, Screening-Wuerfel), Akteur, Zeitpunkt, Regelversion
+    und ein SHA-256 ueber den kanonischen Snapshot.
+
+    Append-only: KEIN updated_at/deleted_at, UPDATE/DELETE per Trigger
+    verboten (SQLite unten, PostgreSQL Alembic e3c7a91f5b28). Wie
+    risk_override_decisions KEIN FK auf goals/mandates (Purge-fest).
+    (goal_id, sequence_no) eindeutig.
+    """
+
+    __tablename__ = "goal_revision_decisions"
+    __table_args__ = (
+        Index(
+            "ux_goal_revision_decision_sequence",
+            "goal_id",
+            "sequence_no",
+            unique=True,
+        ),
+        Index("ix_goal_revision_decisions_mandate", "mandate_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="GoalRevisionDecisionV1")
+    # Kein harter FK (Purge-fest, Muster audit_log/risk_override_decisions).
+    goal_id = Column(String, nullable=False)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String)
+    sequence_no = Column(Integer, nullable=False)
+    previous_decision_id = Column(String)
+    goal_snapshot_hash = Column(String, nullable=False)
+    goal_snapshot_json = Column(String, nullable=False)
+    previous_hardness = Column(String, nullable=False)
+    new_status = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    evidence_status = Column(String, nullable=False)
+    evidence_best_probability_bps = Column(Integer)
+    evidence_wilson_upper_bps = Column(Integer)
+    evidence_tau_bps = Column(Integer)
+    evidence_engine_version = Column(String, nullable=False)
+    evidence_allocation_id = Column(String)
+    evidence_screening_cube_hash = Column(String)
+    actor_id = Column(String, ForeignKey("users.id"), nullable=False)
+    decided_at = Column(String, nullable=False)
+    rules_version = Column(String, nullable=False)
+    decision_hash = Column(String(64), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in GOAL_REVISION_DECISION_SQLITE_TRIGGERS:
+    event.listen(
+        GoalRevisionDecision.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+
 class PlanningAssumption(Base):
     __tablename__ = "planning_assumptions"
 
@@ -291,3 +369,56 @@ class PlanningAssumption(Base):
     deleted_at = Column(String)
 
     mandate = relationship("Mandate", back_populates="planning_assumptions")
+
+
+class FinancialCoverageAttestation(Base):
+    """FinancialCoverageAttestationV1 -- unveraenderliche Berater-Bestaetigung,
+    dass die Finanzdaten des Haushalts vollstaendig erfasst sind
+    (RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A, Codex-Closure-Review PR #653).
+
+    Zeilenpraesenz ist keine Vollstaendigkeit: eine einzelne Ausgabenzeile
+    beweist nicht, dass Wohnen, Versicherungen, Steuern, Unterhalt, Kredite
+    und unregelmaessige Ausgaben erfasst sind. Erst eine gueltige Zeile hier
+    erlaubt der Plausibilitaetspruefung, einen niedrigen Ausgabenwert als
+    Konsistenzbeleg zu verwenden (services/financial_coverage_attestation.py).
+
+    Gebunden: Haushalt (Mandat + Kunde + erfasste Personen), Kategorien
+    (Einnahmen, Ausgaben, Verpflichtungen, unregelmaessige Ausgaben geprueft),
+    Stichtag, Quelle, Akteur, Policy-Version und der SHA-256-Fingerprint der
+    erfassten Cashflows -- jede spaetere Cashflow-Aenderung invalidiert die
+    Bestaetigung. Append-only (Trigger), Korrektur = neue Zeile; die neueste
+    Zeile gilt. Kein FK auf mandates/clients (Muster audit_log, Purge-fest).
+    """
+
+    __tablename__ = "financial_coverage_attestations"
+    __table_args__ = (
+        Index("ix_financial_coverage_attestations_mandate", "mandate_id", "attested_at"),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="FinancialCoverageAttestationV1")
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    household_persons_json = Column(String, nullable=False)
+    income_complete = Column(Integer, nullable=False)
+    expenses_complete = Column(Integer, nullable=False)
+    obligations_complete = Column(Integer, nullable=False)
+    irregular_expenses_reviewed = Column(Integer, nullable=False)
+    as_of_date = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    note = Column(String)
+    cashflow_fingerprint = Column(String(64), nullable=False)
+    cashflow_row_count = Column(Integer, nullable=False)
+    actor_id = Column(String, ForeignKey("users.id"), nullable=False)
+    attested_at = Column(String, nullable=False)
+    policy_version = Column(String, nullable=False)
+    attestation_hash = Column(String(64), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS:
+    event.listen(
+        FinancialCoverageAttestation.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )

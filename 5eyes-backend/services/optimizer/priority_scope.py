@@ -132,6 +132,8 @@ class ScopeReplayInputs:
     is_retired: bool = False
     portfolio_factors: np.ndarray | None = None
     goal_reserve_release_series_rappen: tuple[tuple[str, tuple[int, ...]], ...] = ()
+    # DYNAMIC-RETIREMENT-PHASE-001: derselbe Jahres-Status wie im gemeinsamen Pfad.
+    is_retired_series: tuple[bool, ...] | None = None
 
     def _scope_cashflow(self, excluded_release_goal_ids: Iterable[str]) -> list[int]:
         horizon = int(np.asarray(self.return_paths).shape[1])
@@ -332,6 +334,7 @@ class ScopeReplayInputs:
             base_calendar_year=self.base_calendar_year,
             mandate_age_at_start=self.mandate_age_at_start,
             is_retired=self.is_retired,
+            is_retired_series=self.is_retired_series,
             death_year_index_per_path=self.death_year_index_per_path,
             portfolio_factors=self.portfolio_factors,
         )

@@ -17,7 +17,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from models.allocation import TargetAllocation  # noqa: E402
 
 REVISION = "b8e4d2a7c913"
-DOWN_REVISION = "d7b3f1a9c2e4"
+DOWN_REVISION = "f3a8d1c6b4e2"
 COLUMN = "pension_transfer_ledger_snapshot_json"
 SCHEMA_FILE = BACKEND_ROOT / "5eyes_schema_v4.0_FINAL.sql"
 

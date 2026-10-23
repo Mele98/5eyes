@@ -122,6 +122,20 @@ class ProjectionGate:
             "gate_error": HINT_GATE_ERROR,
         }.get(self.reason, HINT_GENERIC)
 
+    @property
+    def advisor_message(self) -> str | None:
+        """Kurzhinweis + Begruendung als ein Satzblock (ohne Doppelung, falls
+        die Note bereits mit dem Hinweis beginnt). ``None`` wenn sichtbar."""
+        hint = self.hint
+        if hint is None:
+            return None
+        note = (self.note or "").strip()
+        if not note:
+            return hint
+        if note.startswith(hint):
+            return note
+        return f"{hint} {note}"
+
     def to_payload(self) -> dict[str, Any]:
         """Maschinenlesbarer Gate-Kontext fuer API/Web/PDF."""
         return {
@@ -211,3 +225,41 @@ def resolve_report_projection_gate(
                 STATUS_BLOCKED, "policy_not_current", _NOTE_POLICY_NOT_CURRENT,
             )
     return ProjectionGate(STATUS_CURRENT, "", "")
+
+
+def resolve_current_allocation_projection_gate(
+    db: Session,
+    mandate: Any,
+    *,
+    depot_check: Mapping[str, Any] | None = None,
+) -> ProjectionGate:
+    """Gate-Entscheid fuer Exporte ausserhalb des Advisory-Reports, die die
+    aktuelle Soll-Allokation projizieren (Strategie-Backtest API/PDF,
+    Stress-Replays, Depotcheck-PDF).
+
+    Laedt die aktuelle Soll-Allokation genauso wie die Backtest-/Stress-
+    Services (``is_current=1``, nicht geloescht) und delegiert an
+    ``resolve_report_projection_gate`` -- KEINE eigene Staleness-Regel.
+    Jede Ausnahme (auch mehrdeutige Allokationen) ergibt fail-closed
+    ``blocked``/``gate_error``.
+    """
+    try:
+        from models.allocation import TargetAllocation
+
+        rows = (
+            db.query(TargetAllocation)
+            .filter(
+                TargetAllocation.mandate_id == mandate.id,
+                TargetAllocation.is_current == 1,
+                TargetAllocation.deleted_at.is_(None),
+            )
+            .limit(2)
+            .all()
+        )
+        if len(rows) > 1:
+            return gate_error()
+        return resolve_report_projection_gate(
+            db, mandate, rows[0] if rows else None, depot_check=depot_check,
+        )
+    except Exception:  # noqa: BLE001 - Gate-Fehler = fail-closed
+        return gate_error()
