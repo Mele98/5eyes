@@ -17,6 +17,7 @@ from schemas.wealth import (
     PlanningAssumptionCreate, PlanningAssumptionResponse,
     WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
     MaxPensionSpendingRequest, MaxPensionSpendingResponse,
+    FinancialCoverageAttestationCreate,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
@@ -1926,3 +1927,63 @@ def calculate_max_pension_spending(
         "safety_margin_pct": body.safety_margin_pct,
         "reasoning": reasoning,
     }
+
+
+# ---------------------------------------------------------------------------
+# RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (Codex-Closure-Review PR #653):
+# FinancialCoverageAttestationV1 -- Vollstaendigkeits-Bestaetigung der
+# erfassten Finanzdaten. Append-only: jede Bestaetigung ist eine neue Zeile,
+# die neueste gilt; Cashflow-Aenderungen invalidieren sie automatisch.
+# ---------------------------------------------------------------------------
+
+@router.get("/mandates/{mandate_id}/financial-coverage-attestation")
+def get_financial_coverage_attestation(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from services.financial_coverage_attestation import resolve_attestation
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return resolve_attestation(db, mandate)
+
+
+@router.post("/mandates/{mandate_id}/financial-coverage-attestations", status_code=201)
+def create_financial_coverage_attestation(
+    mandate_id: str,
+    body: FinancialCoverageAttestationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    import json as _json
+
+    from services.financial_coverage_attestation import (
+        attestation_snapshot,
+        create_attestation,
+        resolve_attestation,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        row = create_attestation(
+            db, mandate, actor=current_user,
+            household_persons=body.household_persons,
+            income_complete=body.income_complete,
+            expenses_complete=body.expenses_complete,
+            obligations_complete=body.obligations_complete,
+            irregular_expenses_reviewed=body.irregular_expenses_reviewed,
+            as_of_date=body.as_of_date,
+            source=body.source,
+            note=body.note,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="financial_coverage_attestations", record_id=row.id, action="CREATE",
+        field_name="financial_coverage_attestation",
+        new_value=_json.dumps(attestation_snapshot(row), ensure_ascii=False, sort_keys=True),
+        mandate_id=mandate.id, client_id=mandate.client_id)
+    db.commit()
+    _invalidate_advisory_cache_for_client(mandate.client_id, db)
+    return resolve_attestation(db, mandate)

@@ -1,6 +1,10 @@
 from sqlalchemy import DDL, Column, String, Integer, ForeignKey, Index, event, text
 from sqlalchemy.orm import relationship
-from database import GOAL_REVISION_DECISION_SQLITE_TRIGGERS, Base
+from database import (
+    FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS,
+    GOAL_REVISION_DECISION_SQLITE_TRIGGERS,
+    Base,
+)
 
 
 class WealthPosition(Base):
@@ -365,3 +369,56 @@ class PlanningAssumption(Base):
     deleted_at = Column(String)
 
     mandate = relationship("Mandate", back_populates="planning_assumptions")
+
+
+class FinancialCoverageAttestation(Base):
+    """FinancialCoverageAttestationV1 -- unveraenderliche Berater-Bestaetigung,
+    dass die Finanzdaten des Haushalts vollstaendig erfasst sind
+    (RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A, Codex-Closure-Review PR #653).
+
+    Zeilenpraesenz ist keine Vollstaendigkeit: eine einzelne Ausgabenzeile
+    beweist nicht, dass Wohnen, Versicherungen, Steuern, Unterhalt, Kredite
+    und unregelmaessige Ausgaben erfasst sind. Erst eine gueltige Zeile hier
+    erlaubt der Plausibilitaetspruefung, einen niedrigen Ausgabenwert als
+    Konsistenzbeleg zu verwenden (services/financial_coverage_attestation.py).
+
+    Gebunden: Haushalt (Mandat + Kunde + erfasste Personen), Kategorien
+    (Einnahmen, Ausgaben, Verpflichtungen, unregelmaessige Ausgaben geprueft),
+    Stichtag, Quelle, Akteur, Policy-Version und der SHA-256-Fingerprint der
+    erfassten Cashflows -- jede spaetere Cashflow-Aenderung invalidiert die
+    Bestaetigung. Append-only (Trigger), Korrektur = neue Zeile; die neueste
+    Zeile gilt. Kein FK auf mandates/clients (Muster audit_log, Purge-fest).
+    """
+
+    __tablename__ = "financial_coverage_attestations"
+    __table_args__ = (
+        Index("ix_financial_coverage_attestations_mandate", "mandate_id", "attested_at"),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="FinancialCoverageAttestationV1")
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    household_persons_json = Column(String, nullable=False)
+    income_complete = Column(Integer, nullable=False)
+    expenses_complete = Column(Integer, nullable=False)
+    obligations_complete = Column(Integer, nullable=False)
+    irregular_expenses_reviewed = Column(Integer, nullable=False)
+    as_of_date = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    note = Column(String)
+    cashflow_fingerprint = Column(String(64), nullable=False)
+    cashflow_row_count = Column(Integer, nullable=False)
+    actor_id = Column(String, ForeignKey("users.id"), nullable=False)
+    attested_at = Column(String, nullable=False)
+    policy_version = Column(String, nullable=False)
+    attestation_hash = Column(String(64), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS:
+    event.listen(
+        FinancialCoverageAttestation.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )

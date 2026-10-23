@@ -47,11 +47,25 @@ nicht mehr; kuenftige neue Einkommen zaehlen nie). Die Sparquote wird je
 Monatssegment aus Einkommen und Belastung DESSELBEN Monats gebildet;
 massgebend ist der unguenstigste Monat.
 
-Folgeschritt (bewusst NICHT in diesem Modul): eine persistierte, hashgebundene
-``RiskCapacityPlausibilityEvaluationV1`` (Assessment-ID, Input-Hashes, FX,
-As-of, Coverage je Regel, Policy-Hash, Aufloesungs-Event). Heute wird die
-Pruefung live berechnet; ``coverage`` und ``data_basis`` im Ergebnis sind die
-Felder, die ein solcher Snapshot binden muesste.
+Zeilenpraesenz ist keine Vollstaendigkeit (Codex-Closure-Review PR #653,
+2026-10-20): erfasste Ausgabenzeilen sind ohne Berater-Bestaetigung nur eine
+UNTERGRENZE (Coverage ``rows_unattested``). Ein niedriger Ausgabenwert belegt
+Frage 5 und Frage 7 erst mit einer gueltigen FinancialCoverageAttestationV1
+(``services/financial_coverage_attestation.py``: Haushalt, Kategorien,
+unregelmaessige Ausgaben, Stichtag, Quelle, Actor, Policy, Cashflow-
+Fingerprint). Ein bereits zu hoher Wert flaggt weiterhin einwegig.
+
+``partial`` und ``not_evaluable`` sind kein stiller Zustand: Strategie-
+Reasoning, Berater-PDF, Monolith-Banner und Audit zeigen sie als "noch nicht
+verifiziert" (``VERIFICATION_CODE``) mit konkretem Aufloesungsauftrag
+(``resolution_actions``).
+
+Bewusst NICHT umgesetzt: eine eigene persistierte
+``RiskCapacityPlausibilityEvaluationV1``-Tabelle. Jedes nicht konsistente
+Ergebnis wird append-only im Audit-Log festgehalten (Status, offene Pruefungen,
+Bestaetigungs-ID/-Hash, ``evaluation_hash`` = SHA-256 ueber Regelversion,
+Status, Befunde, Coverage und Datengrundlage); ein Aufloesungs-Workflow
+(Akzeptanz/Override einer offenen Coverage) waere ein eigener Schritt.
 
 Alle Schwellen sind CIO-Defaults, Compliance zu bestaetigen (siehe
 ``THRESHOLDS``); sie sind versioniert (``PLAUSIBILITY_RULES_VERSION``), damit
@@ -76,7 +90,11 @@ from services.risk_scoring import (
 logger = logging.getLogger(__name__)
 
 REASON_CODE = "RISK_CAPACITY_INCONSISTENT"
-PLAUSIBILITY_RULES_VERSION = "RCP-2026-10-19.v2"
+# partial / not_evaluable: kein Widerspruch, aber noch nicht verifiziert.
+VERIFICATION_CODE = "RISK_CAPACITY_NOT_VERIFIED"
+# v3 (2026-10-20, PR #653 Restbefund A): Ausgaben-Coverage "recorded" nur mit
+# gueltiger FinancialCoverageAttestationV1, sonst "rows_unattested".
+PLAUSIBILITY_RULES_VERSION = "RCP-2026-10-20.v3"
 
 STATUS_CONSISTENT = "consistent"
 STATUS_INCONSISTENT = "inconsistent"
@@ -86,7 +104,8 @@ STATUS_NOT_EVALUABLE = "not_evaluable"
 STATUS_PARTIAL = "partial"
 
 # Datenabdeckung je Regel (``result["coverage"]``).
-COVERAGE_RECORDED = "recorded"          # vom Berater erfasste Zeilen vorhanden
+COVERAGE_RECORDED = "recorded"          # erfasste Zeilen (Ausgaben: + gueltige Vollstaendigkeits-Bestaetigung)
+COVERAGE_ROWS_UNATTESTED = "rows_unattested"  # Ausgabenzeilen ohne Bestaetigung (Untergrenze)
 COVERAGE_DERIVED_ONLY = "derived_only"  # nur aus Positionen abgeleitet (Untergrenze)
 COVERAGE_MISSING = "missing"            # keine Datenbasis
 COVERAGE_ANSWER_UNMAPPED = "answer_unmapped"  # Antwort keiner Option zuzuordnen
@@ -226,6 +245,12 @@ class RecordedFinancials:
     savings_worst_income_monthly_rappen: int | None = None
     savings_worst_expense_monthly_rappen: int | None = None
     savings_worst_from: str | None = None
+    # Restbefund A (PR #653): erfasste Ausgabenzeilen belegen nur mit einer
+    # gueltigen FinancialCoverageAttestationV1 Vollstaendigkeit.
+    # ``coverage_attestation_status`` ist der Status der Bestaetigung
+    # (services/financial_coverage_attestation.py), nur fuer die Wortwahl.
+    expense_coverage_attested: bool = False
+    coverage_attestation_status: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -328,10 +353,12 @@ def assess_plausibility(
         else COVERAGE_MISSING
     )
     expense_coverage = (
-        COVERAGE_RECORDED if recorded.expense_cashflow_count > 0
+        (COVERAGE_RECORDED if recorded.expense_coverage_attested else COVERAGE_ROWS_UNATTESTED)
+        if recorded.expense_cashflow_count > 0
         else COVERAGE_DERIVED_ONLY if recorded.recurring_expense_monthly_rappen > 0
         else COVERAGE_MISSING
     )
+    expense_complete = expense_coverage == COVERAGE_RECORDED
     forward_months = int(t["obligation_forward_window_months"])
 
     # R1 -- Frage 3: regelmaessiges Bruttoeinkommen pro Monat (tiefster
@@ -388,7 +415,8 @@ def assess_plausibility(
             # Einweg-Logik: die erfassten (auch nur abgeleiteten) Ausgaben sind
             # eine UNTERGRENZE der Verpflichtungen. Liegt schon sie ueber der
             # Bandgrenze, ist das ein Befund. Liegt sie darunter, belegt das
-            # nur dann Konsistenz, wenn Ausgaben ueberhaupt erfasst sind.
+            # nur dann Konsistenz, wenn die Ausgaben als vollstaendig bestaetigt
+            # sind (Zeilenpraesenz allein genuegt nicht).
             if expense > limit:
                 coverage[CHECK_OBLIGATIONS] = expense_coverage
                 evaluated.add(CHECK_OBLIGATIONS)
@@ -403,7 +431,15 @@ def assess_plausibility(
                         + f" {_chf(expense)} pro Monat."
                     ),
                 })
-            elif recorded.expense_cashflow_count <= 0:
+            elif expense_coverage == COVERAGE_ROWS_UNATTESTED:
+                skip(
+                    CHECK_OBLIGATIONS, 5,
+                    "Ausgaben erfasst, aber ihre Vollständigkeit ist nicht bestätigt"
+                    + _attestation_suffix(recorded)
+                    + "; die erfassten Ausgaben sind nur eine Untergrenze.",
+                    expense_coverage,
+                )
+            elif not expense_complete:
                 skip(
                     CHECK_OBLIGATIONS, 5,
                     "Keine Ausgaben als Cashflow erfasst"
@@ -473,19 +509,30 @@ def assess_plausibility(
             # im unguenstigsten Monatssegment des Vorausfensters.
             rate_pct = _savings_rate_pct(sav_income, sav_expense)
             limit_pct = max(0.0, band[0] - t["savings_rate_tolerance_pp"])
-            if rate_pct >= limit_pct and recorded.expense_cashflow_count <= 0:
-                # Ohne erfasste Ausgaben waere die Sparquote eine Scheingewissheit
-                # (bis 100 %). Nur ein bereits widersprechender Wert zaehlt.
+            if rate_pct >= limit_pct and not expense_complete:
+                # Ohne (vollstaendig bestaetigte) Ausgaben waere die Sparquote
+                # eine Scheingewissheit (bis 100 %). Nur ein bereits
+                # widersprechender Wert zaehlt.
                 skip(
                     CHECK_SAVINGS, 7,
-                    "Keine Ausgaben als Cashflow erfasst; die Sparquote ist ohne "
-                    "Ausgaben nicht belegbar.",
+                    (
+                        "Ausgaben erfasst, aber ihre Vollständigkeit ist nicht bestätigt"
+                        + _attestation_suffix(recorded)
+                        + "; die Sparquote ist damit nur eine Obergrenze."
+                    )
+                    if expense_coverage == COVERAGE_ROWS_UNATTESTED
+                    else (
+                        "Keine Ausgaben als Cashflow erfasst; die Sparquote ist ohne "
+                        "Ausgaben nicht belegbar."
+                    ),
                     expense_coverage,
                 )
             else:
                 coverage[CHECK_SAVINGS] = (
                     COVERAGE_RECORDED
-                    if income_coverage == COVERAGE_RECORDED and expense_coverage == COVERAGE_RECORDED
+                    if income_coverage == COVERAGE_RECORDED and expense_complete
+                    else COVERAGE_ROWS_UNATTESTED
+                    if expense_coverage == COVERAGE_ROWS_UNATTESTED
                     else COVERAGE_DERIVED_ONLY
                 )
                 evaluated.add(CHECK_SAVINGS)
@@ -588,6 +635,7 @@ def assess_plausibility(
             "outside_window_expense_count": int(recorded.outside_window_expense_count),
             "income_cashflow_count": int(recorded.income_cashflow_count),
             "expense_cashflow_count": int(recorded.expense_cashflow_count),
+            "expense_coverage_attested": bool(recorded.expense_coverage_attested),
             "liquid_assets_rappen": liquid,
             "gross_assets_rappen": gross_assets,
             "liabilities_rappen": liabilities,
@@ -595,7 +643,91 @@ def assess_plausibility(
             "near_term_goal_need_rappen": need,
         },
     }
+    _finalize(result, recorded.coverage_attestation_status)
+    return result
+
+
+def _attestation_suffix(recorded: RecordedFinancials) -> str:
+    from services.financial_coverage_attestation import STATUS_MISSING, STATUS_REASONS
+
+    status = recorded.coverage_attestation_status
+    if not status or status == STATUS_MISSING or status not in STATUS_REASONS:
+        return ""
+    return " (" + STATUS_REASONS[status].rstrip(".") + ")"
+
+
+def _resolution_actions(result: dict, attestation_status: str | None) -> list[str]:
+    """Konkrete naechste Schritte fuer jede offene Pruefung (dedupliziert)."""
+    from services.financial_coverage_attestation import STATUS_MISSING
+
+    coverage = result.get("coverage") or {}
+    actions: list[str] = []
+
+    def add(text: str) -> None:
+        if text not in actions:
+            actions.append(text)
+
+    for row in result.get("not_evaluable") or []:
+        check = row.get("check")
+        cov = coverage.get(check)
+        if check == "ALL":
+            add(str(row.get("reason") or "Datengrundlage prüfen").rstrip(".")
+                + ": Risikoprofil und erfasste Finanzdaten prüfen und die Prüfung wiederholen.")
+        elif cov == COVERAGE_ANSWER_UNMAPPED:
+            add(f"Antwort zu Frage {row.get('question_number')} im Fragebogen eindeutig erfassen.")
+        elif check in (CHECK_OBLIGATIONS, CHECK_SAVINGS) and cov == COVERAGE_ROWS_UNATTESTED:
+            if attestation_status and attestation_status != STATUS_MISSING:
+                add("Ausgaben und Verpflichtungen prüfen und die Vollständigkeit erneut bestätigen "
+                    "(bisherige Bestätigung nicht mehr gültig).")
+            else:
+                add("Ausgaben und Verpflichtungen auf Vollständigkeit prüfen und die "
+                    "Vollständigkeit der Finanzdaten bestätigen.")
+        elif check in (CHECK_OBLIGATIONS, CHECK_SAVINGS) and cov in (
+            COVERAGE_MISSING, COVERAGE_DERIVED_ONLY,
+        ) and not (check == CHECK_SAVINGS and str(row.get("reason", "")).startswith("Keine laufenden Einnahmen")):
+            add("Ausgaben vollständig als Cashflow erfassen und die Vollständigkeit bestätigen.")
+        elif check in (CHECK_INCOME, CHECK_SAVINGS):
+            add("Laufende Einnahmen als Cashflow erfassen.")
+        elif check == CHECK_FREE_WEALTH:
+            add("Vermögenspositionen erfassen.")
+        else:
+            add(str(row.get("reason") or "Datengrundlage ergänzen."))
+    return actions
+
+
+def _evaluation_hash(result: dict) -> str:
+    import hashlib
+
+    bound = {
+        key: result.get(key)
+        for key in (
+            "version", "status", "reason_code", "findings", "not_evaluable",
+            "coverage", "capacity_binding", "override_down", "thresholds",
+            "data_basis", "coverage_attestation", "risk_assessment_id",
+        )
+    }
+    canonical = json.dumps(bound, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                           default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _finalize(result: dict, attestation_status: str | None = None) -> dict:
+    """Leitet Verifikationscode, Aufloesungsauftraege, Text und Hash ab."""
+    from services.financial_coverage_attestation import STATUS_VALID
+
+    open_status = result.get("status") in (STATUS_PARTIAL, STATUS_NOT_EVALUABLE)
+    result["verification_code"] = VERIFICATION_CODE if open_status else None
+    result["resolution_actions"] = _resolution_actions(result, attestation_status)
+    coverage = result.get("coverage") or {}
+    result["coverage_attestation_required"] = bool(
+        attestation_status != STATUS_VALID
+        and any(
+            coverage.get(check) in (COVERAGE_ROWS_UNATTESTED, COVERAGE_MISSING, COVERAGE_DERIVED_ONLY)
+            for check in (CHECK_OBLIGATIONS, CHECK_SAVINGS)
+        )
+    )
     result["advisor_text"] = advisor_summary_text(result)
+    result["evaluation_hash"] = _evaluation_hash(result)
     return result
 
 
@@ -674,11 +806,40 @@ def _override_down(declared: DeclaredCapacity) -> bool:
     )
 
 
+def _open_topics(result: dict) -> str:
+    labels: list[str] = []
+    for row in result.get("not_evaluable") or []:
+        check = str(row.get("check"))
+        if check == "ALL":
+            continue
+        label = CHECK_SHORT_LABELS.get(check, check)
+        if label not in labels:
+            labels.append(label)
+    return ", ".join(labels)
+
+
+def not_verified_text(result: dict) -> str:
+    """Berater-Satz fuer partial/not_evaluable: noch nicht verifiziert + Auftrag."""
+    if result.get("status") not in (STATUS_PARTIAL, STATUS_NOT_EVALUABLE):
+        return ""
+    topics = _open_topics(result)
+    actions = result.get("resolution_actions") or []
+    text = (
+        f"Plausibilitätsprüfung Risikofähigkeit ({VERIFICATION_CODE}): "
+        "Die Angaben zur Risikofähigkeit sind noch nicht verifiziert"
+        + (f" – nicht prüfbar: {topics}." if topics else ".")
+    )
+    if actions:
+        text += " Offen: " + " ".join(actions)
+    text += " Das Risikoprofil wurde nicht automatisch geändert."
+    return text
+
+
 def advisor_summary_text(result: dict) -> str:
     """Neutraler Berater-Satz (UI, Strategie-Reasoning)."""
     findings = result.get("findings") or []
     if not findings:
-        return ""
+        return not_verified_text(result)
     count = len(findings)
     topics = "; ".join(
         CHECK_SHORT_LABELS.get(str(f.get("check")), str(f.get("check"))) for f in findings
@@ -705,8 +866,17 @@ def advisor_summary_text(result: dict) -> str:
 
 
 def strategy_reasoning_lines(result: dict | None) -> list[str]:
-    """Reasoning-Zeilen fuer die Strategie (leer, wenn kein Widerspruch)."""
-    if not result or result.get("status") != STATUS_INCONSISTENT:
+    """Reasoning-Zeilen fuer die Strategie (leer nur bei ``consistent``).
+
+    ``partial``/``not_evaluable`` erscheinen als "noch nicht verifiziert" mit
+    Aufloesungsauftrag (Restbefund B, PR #653) -- nie still.
+    """
+    if not result:
+        return []
+    if result.get("status") in (STATUS_PARTIAL, STATUS_NOT_EVALUABLE):
+        line = not_verified_text(result)
+        return [line] if line else []
+    if result.get("status") != STATUS_INCONSISTENT:
         return []
     lines = [result.get("advisor_text") or advisor_summary_text(result)]
     lines.extend(str(f.get("message") or "") for f in result.get("findings") or [])
@@ -737,9 +907,29 @@ PDF_ADVISOR_NOTE = (
 
 
 def pdf_advisor_note(result: dict | None) -> str:
-    if not result or result.get("status") != STATUS_INCONSISTENT:
+    """Berater-Teil des Risikoprofil-PDF (ohne Betraege).
+
+    inconsistent -> fester neutraler Satz; partial/not_evaluable -> "noch nicht
+    verifiziert" mit offenen Pruefungen und naechstem Schritt; consistent -> "".
+    """
+    if not result:
         return ""
-    return PDF_ADVISOR_NOTE
+    status = result.get("status")
+    if status == STATUS_INCONSISTENT:
+        return PDF_ADVISOR_NOTE
+    if status not in (STATUS_PARTIAL, STATUS_NOT_EVALUABLE):
+        return ""
+    topics = _open_topics(result)
+    actions = result.get("resolution_actions") or []
+    note = (
+        "Plausibilitätsprüfung (Beraterhinweis): Die Angaben zur Risikofähigkeit "
+        "sind noch nicht vollständig gegen die erfassten Finanzdaten verifiziert"
+        + (f" ({topics})." if topics else ".")
+    )
+    if actions:
+        note += " Offener Schritt: " + " ".join(actions)
+    note += " Das Risikoprofil wurde dadurch nicht automatisch verändert."
+    return note
 
 
 # ---------------------------------------------------------------------------
@@ -1065,13 +1255,25 @@ def evaluate_mandate(db, mandate, assessment, *, today: date | None = None) -> d
     """Pruefung fuer ein Mandat. Fehler in der Datenbasis -> "nicht pruefbar"."""
     if assessment is None:
         return _not_evaluable_result("Kein aktuelles Risikoprofil vorhanden.")
+    from dataclasses import replace
+
+    from services.financial_coverage_attestation import STATUS_VALID, resolve_attestation
+
     declared = declared_capacity_from_assessment(assessment)
     try:
         recorded = load_recorded_financials(db, mandate, today=today)
     except ValueError as exc:
         return _not_evaluable_result(f"Erfasste Daten nicht auswertbar: {exc}")
+    attestation = resolve_attestation(db, mandate, today=today)
+    recorded = replace(
+        recorded,
+        expense_coverage_attested=attestation["status"] == STATUS_VALID,
+        coverage_attestation_status=attestation["status"],
+    )
     result = assess_plausibility(declared, recorded)
     result["risk_assessment_id"] = getattr(assessment, "id", None)
+    result["coverage_attestation"] = attestation
+    _finalize(result, attestation["status"])
     return result
 
 
@@ -1093,7 +1295,7 @@ def evaluate_mandate_safely(db, mandate, assessment, *, today: date | None = Non
 
 
 def _not_evaluable_result(reason: str) -> dict:
-    return {
+    return _finalize({
         "version": PLAUSIBILITY_RULES_VERSION,
         "status": STATUS_NOT_EVALUABLE,
         "reason_code": None,
@@ -1105,24 +1307,35 @@ def _not_evaluable_result(reason: str) -> dict:
         "thresholds": dict(THRESHOLDS),
         "data_basis": {},
         "advisor_text": "",
-    }
+    })
 
 
 def audit_payload(result: dict) -> str:
-    """Kompakter Audit-Wert: Version, Reason-Code, Pruef-IDs (keine Betraege)."""
+    """Kompakter Audit-Wert ohne Betraege: Version, Status, Codes, Pruef-IDs,
+    offene Pruefungen, Bestaetigungs-Referenz und Evaluation-Hash."""
+    attestation = result.get("coverage_attestation") or {}
     return json.dumps(
         {
             "version": result.get("version"),
+            "status": result.get("status"),
             "reason_code": result.get("reason_code"),
+            "verification_code": result.get("verification_code"),
             "checks": [f.get("check") for f in result.get("findings") or []],
+            "not_evaluable": [r.get("check") for r in result.get("not_evaluable") or []],
             "override_down": bool(result.get("override_down")),
+            "coverage_attestation": {
+                "status": attestation.get("status"),
+                "attestation_id": attestation.get("attestation_id"),
+                "attestation_hash": attestation.get("attestation_hash"),
+            },
+            "evaluation_hash": result.get("evaluation_hash"),
         },
         ensure_ascii=False,
         sort_keys=True,
     )
 
 
-def audit_if_inconsistent(
+def audit_plausibility_outcome(
     db,
     result: dict,
     *,
@@ -1132,8 +1345,15 @@ def audit_if_inconsistent(
     mandate,
     ip_address: str | None = None,
 ) -> bool:
-    """Schreibt einen Audit-Log-Eintrag, wenn ein Widerspruch vorliegt."""
-    if not result or result.get("status") != STATUS_INCONSISTENT:
+    """Schreibt einen Audit-Log-Eintrag fuer jedes NICHT konsistente Ergebnis.
+
+    inconsistent, partial und not_evaluable werden append-only festgehalten
+    (Restbefund B, PR #653): der spaetere Audit sieht, dass eine Empfehlung
+    mit unverifizierter Risikofaehigkeit erstellt wurde.
+    """
+    if not result or result.get("status") not in (
+        STATUS_INCONSISTENT, STATUS_PARTIAL, STATUS_NOT_EVALUABLE,
+    ):
         return False
     from services.audit import log
 
@@ -1153,8 +1373,15 @@ def audit_if_inconsistent(
     return True
 
 
+# Historischer Name (routers/profiling.py); auditiert seit PR #653 jedes nicht
+# konsistente Ergebnis, nicht nur Widersprueche.
+audit_if_inconsistent = audit_plausibility_outcome
+
+
 __all__ = [
     "REASON_CODE",
+    "VERIFICATION_CODE",
+    "COVERAGE_ROWS_UNATTESTED",
     "PLAUSIBILITY_RULES_VERSION",
     "THRESHOLDS",
     "STATUS_PARTIAL",
@@ -1169,4 +1396,6 @@ __all__ = [
     "attach_to_strategy_payload",
     "pdf_advisor_note",
     "audit_if_inconsistent",
+    "audit_plausibility_outcome",
+    "not_verified_text",
 ]

@@ -319,6 +319,49 @@ RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (Codex-Closure-Review PR #653,
+# 2026-10-20): append-only FinancialCoverageAttestationV1
+# (models/wealth.py::FinancialCoverageAttestation). Erfasste Cashflow-Zeilen
+# beweisen keine vollstaendige Haushaltserfassung; erst diese Berater-
+# Bestaetigung (gehasht, an den Cashflow-Fingerprint gebunden) macht die
+# Ausgaben-Coverage zu "recorded". Muster wie risk_override_decisions: kein
+# FK auf mandates/clients (Purge-fest), nur actor_id -> users; dieselbe DDL
+# in 5eyes_schema_v4.0_FINAL.sql, Alembic f3a8d1c6b4e2 fuer PostgreSQL.
+FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_financial_coverage_attestations_no_update "
+    "BEFORE UPDATE ON financial_coverage_attestations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_financial_coverage_attestations_no_delete "
+    "BEFORE DELETE ON financial_coverage_attestations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END",
+)
+
+FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS financial_coverage_attestations (
+    id                          TEXT PRIMARY KEY,
+    schema_version              TEXT NOT NULL DEFAULT 'FinancialCoverageAttestationV1',
+    mandate_id                  TEXT NOT NULL,
+    client_id                   TEXT NOT NULL,
+    household_persons_json      TEXT NOT NULL,
+    income_complete             INTEGER NOT NULL CHECK(income_complete IN (0,1)),
+    expenses_complete           INTEGER NOT NULL CHECK(expenses_complete IN (0,1)),
+    obligations_complete        INTEGER NOT NULL CHECK(obligations_complete IN (0,1)),
+    irregular_expenses_reviewed INTEGER NOT NULL CHECK(irregular_expenses_reviewed IN (0,1)),
+    as_of_date                  TEXT NOT NULL,
+    source                      TEXT NOT NULL,
+    note                        TEXT,
+    cashflow_fingerprint        TEXT NOT NULL,
+    cashflow_row_count          INTEGER NOT NULL,
+    actor_id                    TEXT NOT NULL REFERENCES users(id),
+    attested_at                 TEXT NOT NULL,
+    policy_version              TEXT NOT NULL,
+    attestation_hash            TEXT NOT NULL,
+    created_at                  TEXT NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_financial_coverage_attestations_mandate "
+    "ON financial_coverage_attestations(mandate_id, attested_at)",
+)
+
 # RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 # append-only RiskProfileSignoffV1 (models/profiling.py::RiskProfileSignoff).
 # Gleiches Muster wie risk_override_decisions: Trigger verbieten UPDATE/
@@ -1019,6 +1062,11 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "override_decision_id", "TEXT")
         ensure_column(conn, "risk_assessments", "override_decision_hash", "TEXT")
         for ddl in RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL + RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
+        # FinancialCoverageAttestationV1 (idempotent; siehe Konstanten oben).
+        for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
+                    + FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS):
             conn.execute(text(ddl))
         # RISK-PROFILE-SIGNOFF-001 (2026-10-20): Signoff-Pointer/-Status am
         # Assessment + append-only Signoff-Tabelle + Altbestand-Markierung.

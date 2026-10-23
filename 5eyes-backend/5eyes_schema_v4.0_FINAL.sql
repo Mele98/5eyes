@@ -432,6 +432,45 @@ BEFORE DELETE ON goal_revision_decisions FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END;
 
 -- ===========================================================================
+-- RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20):
+-- FinancialCoverageAttestationV1 -- append-only, gehashte Berater-Bestaetigung,
+-- dass Einnahmen, Ausgaben und Verpflichtungen des Haushalts vollstaendig
+-- erfasst sind (gebunden an den Cashflow-Fingerprint, Stichtag, Policy).
+-- KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger verboten.
+-- Kein FK auf mandates/clients (Muster audit_log, Purge-fest).
+-- Identisch zu database.py::FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS financial_coverage_attestations (
+    id                          TEXT PRIMARY KEY,
+    schema_version              TEXT NOT NULL DEFAULT 'FinancialCoverageAttestationV1',
+    mandate_id                  TEXT NOT NULL,  -- bewusst ohne FK (Purge-fest)
+    client_id                   TEXT NOT NULL,  -- bewusst ohne FK (Purge-fest)
+    household_persons_json      TEXT NOT NULL,
+    income_complete             INTEGER NOT NULL CHECK(income_complete IN (0,1)),
+    expenses_complete           INTEGER NOT NULL CHECK(expenses_complete IN (0,1)),
+    obligations_complete        INTEGER NOT NULL CHECK(obligations_complete IN (0,1)),
+    irregular_expenses_reviewed INTEGER NOT NULL CHECK(irregular_expenses_reviewed IN (0,1)),
+    as_of_date                  TEXT NOT NULL,
+    source                      TEXT NOT NULL,
+    note                        TEXT,
+    cashflow_fingerprint        TEXT NOT NULL,
+    cashflow_row_count          INTEGER NOT NULL,
+    actor_id                    TEXT NOT NULL REFERENCES users(id),
+    attested_at                 TEXT NOT NULL,
+    policy_version              TEXT NOT NULL,
+    attestation_hash            TEXT NOT NULL,
+    created_at                  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_financial_coverage_attestations_mandate
+    ON financial_coverage_attestations(mandate_id, attested_at);
+CREATE TRIGGER IF NOT EXISTS trg_financial_coverage_attestations_no_update
+BEFORE UPDATE ON financial_coverage_attestations FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_financial_coverage_attestations_no_delete
+BEFORE DELETE ON financial_coverage_attestations FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
+
+-- ===========================================================================
 -- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 -- RiskProfileSignoffV1 -- append-only, gehashter Nachweis JEDER Signatur des
 -- Risikoprofils, gebunden an Assessment-Version, wirksames Profil/Score und
