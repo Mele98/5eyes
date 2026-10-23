@@ -49,6 +49,7 @@ export function Kostenausweis({ data }: KostenausweisProps) {
   const totals = data?.totals;
   const items = data?.cost_items ?? [];
   const warnings = (data?.warnings ?? []).filter(Boolean);
+  const isEvidenceBlocked = data?.evidence_status === 'blocked';
   const isDegraded = Boolean(data?.audit_degraded);
   const isPending = Boolean(data?.data_pending);
 
@@ -59,7 +60,13 @@ export function Kostenausweis({ data }: KostenausweisProps) {
       title="Kostenausweis ex-ante"
       subtitle="Voraussichtliche Kosten der empfohlenen Finanzdienstleistung und des Zielportfolios."
     >
-      {isDegraded ? (
+      {isEvidenceBlocked ? (
+        <StatusBanner
+          tone="blocked"
+          title="Kostennachweis ungültig"
+          body={`Der eingefrorene Kostennachweis des freigegebenen Empfehlungslaufs ist ungültig (${data?.evidence_error || 'unbekannt'}). Es werden bewusst keine Zahlen gezeigt – auch keine neu berechneten. Strategie neu berechnen und finalisieren.`}
+        />
+      ) : isDegraded ? (
         <StatusBanner
           tone="blocked"
           title="Kostenausweis nicht verfügbar"
