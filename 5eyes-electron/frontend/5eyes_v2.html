@@ -8059,6 +8059,18 @@ function currentManualSaveContext(){
   var ta=a&&(a.target_allocation||a);
   return ta&&ta.policy_id?ta:null;
 }
+// ALLOC-EDITOR-STALE-001: Vorgaenger-Token (ID/Version der bearbeiteten
+// Allokation) fuer den Lost-Update-Schutz des Servers. Nach einer manuellen
+// Speicherung ist der gespeicherte Datensatz der neue Vorgaenger -- aber nur,
+// solange die angezeigte Basis-Allokation dieselbe ist (nach Neu-Berechnung
+// gilt wieder die frisch geladene).
+function currentManualSavePredecessor(ta){
+  if(!ta||!ta.id)return {id:null,version:null};
+  var ref=strategyState&&strategyState.manualSaveRef;
+  if(ref&&ref.baseId===String(ta.id)&&ref.id)return {id:ref.id,version:ref.version};
+  var v=Number(ta.version);
+  return {id:String(ta.id),version:Number.isFinite(v)?v:null};
+}
 function computeManualTargetSaveValidation(baseResult){
   var base=baseResult||computeBandEditorValidation();
   var result={valid:false,errors:[],values:null,base:base};
@@ -8117,6 +8129,9 @@ function buildManualTargetAllocationPayload(values,ta,reason){
   body.based_on_assessment_id=ta.based_on_assessment_id!=null?ta.based_on_assessment_id:null;
   body.policy_id=ta.policy_id;
   body.override_reason=reason;
+  var pred=currentManualSavePredecessor(ta);
+  body.expected_current_allocation_id=pred.id;
+  body.expected_current_allocation_version=pred.version;
   return body;
 }
 function renderManualTargetSaveState(result,message,isError){
@@ -8156,7 +8171,11 @@ async function saveManualTargetAllocationFromModal(){
   var btn=document.getElementById('btn-aa-manual-save');
   if(btn)btn.disabled=true;
   try{
+    var saveBase=currentManualSaveContext();
     var saved=await API.post('/mandates/'+encodeURIComponent(mid)+'/target-allocation',payload);
+    if(saved&&saved.id&&saveBase&&saveBase.id){
+      strategyState.manualSaveRef={baseId:String(saveBase.id),id:String(saved.id),version:(saved.version!=null?Number(saved.version):null)};
+    }
     var warnings=(saved&&Array.isArray(saved.manual_override_warnings))?saved.manual_override_warnings:[];
     var msg='Manuelle Soll-Allokation gespeichert'+(saved&&saved.version!=null?' (Version '+saved.version+')':'')+'.'+(warnings.length?' Hinweise: '+warnings.join(' · '):'');
     var reasonEl=document.getElementById('aa-manual-save-reason');
@@ -10575,10 +10594,14 @@ protokolliereEreignis=runtimeProtokolliereEreignis;
 
 <div class="overlay" id="m-overr">
   <div class="modal" style="width:400px">
-    <div class="mhd"><div class="mtitle">Risikoprofil überschreiben</div><button class="mx" onclick="cm('m-overr')">✕</button></div>
+    <div class="mhd"><div class="mtitle" id="ov-title">Risikoprofil überschreiben</div><button class="mx" onclick="cm('m-overr')">✕</button></div>
     <div class="mbody">
-      <div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:10px;margin-bottom:14px;font-size:11px;color:var(--n6)">
+      <div id="ov-intro" style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:10px;margin-bottom:14px;font-size:11px;color:var(--n6)">
         <strong style="color:var(--warn)">&#9888; Berater-Override</strong><br>Diese Aktion wird protokolliert. Vertragliche Zustimmung des Kunden erforderlich.
+      </div>
+      <div id="ov-legacy-intro" style="display:none;background:rgba(201,68,68,0.08);border:1px solid rgba(201,68,68,0.35);border-radius:var(--r2);padding:10px;margin-bottom:14px;font-size:11px;color:var(--n6)">
+        <strong style="color:var(--neg)">&#9888; Override aus Altbestand &ndash; bitte bestätigen</strong><br>Dieser Override wurde vor Einführung des Decision-Nachweises erfasst und hat keinen verifizierbaren Entscheid; das Risikoprofil kann so nicht signiert werden. Die bestehenden Angaben sind vorbelegt. Mit der Bestätigung wird ein neuer Override-Entscheid mit heutigem Datum protokolliert (keine Rückdatierung); alle Pflichtangaben werden erneut geprüft.
+        <div id="ov-legacy-meta" style="margin-top:6px;font-size:10px;color:var(--n5)"></div>
       </div>
       <div class="frow"><div class="fg">
         <label class="fl">Aktueller Score (berechnet)</label>
@@ -10771,9 +10794,19 @@ function updOvWarnBtn(){
   var btn=document.querySelector('#m-overr .btn-g');
   if(btn){btn.disabled=(req.confirm&&(!ic||!ic.checked))||(req.warn&&(!wc||!wc.checked));}
 }
-async function openOverrideModal(){
+// RISK-OVERRIDE-LEGACY-REMEDIATION-001: Override aus Altbestand (ohne
+// Decision-Nachweis) ueber den NORMALEN Override-Endpunkt bestaetigen.
+var _ovLegacyRemediation=false;
+function riskOverrideIsLegacy(risk){
+  return !!risk&&Number(risk.is_overridden||0)===1&&risk.override_score_x10!=null&&!risk.override_decision_id;
+}
+function openLegacyOverrideRemediation(){
+  return openOverrideModal({legacyRemediation:true});
+}
+async function openOverrideModal(opts){
   var mid=getActiveMandateId();
   var risk=await resolveRiskAssessmentForOverride(mid);
+  _ovLegacyRemediation=!!(opts&&opts.legacyRemediation)&&riskOverrideIsLegacy(risk);
   // Sprint Bug-#2 (2026-06-08): Pre-check fuer Real-Mandate-RA-Existenz.
   // Bei REAL-Mandat ohne RA: User benachrichtigen statt Modal zu oeffnen.
   // Demo-Mandate duerfen weiter (visualisierungs-Zweck).
@@ -10800,7 +10833,29 @@ async function openOverrideModal(){
   var ib=document.getElementById('ov-wish-block');if(ib)ib.style.display='none';
   var ic=document.getElementById('ov-wish-confirm');if(ic)ic.checked=false;
   if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
+  var ttl=document.getElementById('ov-title');
+  var intro=document.getElementById('ov-intro');
+  var lIntro=document.getElementById('ov-legacy-intro');
+  if(ttl)ttl.textContent=_ovLegacyRemediation?'Override aus Altbestand bestätigen':'Risikoprofil überschreiben';
+  if(intro)intro.style.display=_ovLegacyRemediation?'none':'';
+  if(lIntro)lIntro.style.display=_ovLegacyRemediation?'block':'none';
+  if(sl)sl.disabled=_ovLegacyRemediation;
   updOv(score);
+  if(_ovLegacyRemediation){
+    // Bestehende Override-Daten vorbelegt anzeigen (Score fix; Aenderung =
+    // normaler Override). Begruendung editierbar: sie muss die heutige
+    // Qualitaetsregel erfuellen.
+    if(re)re.value=String(risk.override_reason||'');
+    if(ic&&ib&&ib.style.display!=='none')ic.checked=Number(risk.override_client_confirmed||0)===1;
+    if(wc&&wb&&wb.style.display!=='none')wc.checked=Number(risk.override_warning_delivered||0)===1;
+    var meta=document.getElementById('ov-legacy-meta');
+    if(meta)meta.textContent='Bisher erfasst: Score '+score+'/10 ('+profile+')'
+      +(risk.override_at?' am '+formatDateSwiss(String(risk.override_at).slice(0,10)):'')
+      +' · Kundenwunsch bestätigt: '+(Number(risk.override_client_confirmed||0)===1?'ja':'nein')
+      +' · Warnhinweis abgegeben: '+(Number(risk.override_warning_delivered||0)===1?'ja':'nein');
+    if(btn)btn.textContent='Altbestand bestätigen & protokollieren';
+    updOvWarnBtn();
+  }
   om('m-overr');
 }
 async function applyOv(){
@@ -10851,11 +10906,18 @@ async function applyOv(){
     var req2=riskOverrideRequirements(v*10,risk2);
     var ic2=document.getElementById('ov-wish-confirm');
     var wc2=document.getElementById('ov-warn-confirm');
-    var saved=await API.post('/mandates/'+mid+'/risk-assessments/'+raId+'/override',{
+    var ovPayload={
       override_score_x10:v*10,override_profile:n,override_reason:reason,
       override_client_confirmed:req2.confirm?!!(ic2&&ic2.checked):false,
       override_warning_delivered:req2.warn?!!(wc2&&wc2.checked):false
-    });
+    };
+    if(_ovLegacyRemediation&&riskOverrideIsLegacy(risk2)){
+      ovPayload.remediation='legacy_remediation';
+      ovPayload.expected_override_decision_id=null;
+      if(risk2.version!=null)ovPayload.expected_assessment_version=Number(risk2.version);
+    }
+    var saved=await API.post('/mandates/'+mid+'/risk-assessments/'+raId+'/override',ovPayload);
+    _ovLegacyRemediation=false;
     strategyState.currentRisk=saved;
     strategyState.risk=riskAssessmentReadyForStrategy(saved, mid)?saved:null;
     renderRiskSummary(saved);
@@ -14014,8 +14076,17 @@ async function openCostDisclosureModal(){
     _costDisclosureLastPayload=data;
     renderCostDisclosure(data);
     if(content) content.style.display='';
+    // COST-SNAPSHOT-BINDING-001: ungueltiger eingefrorener Kostennachweis
+    // (fremder Lauf, unbekannte Schema-Version, Hash-Bruch) ist ein
+    // ausgewiesener Fehler -- nicht "noch keine Empfehlung"; PDF gesperrt.
+    var evidenceBlocked=!!(data&&data.evidence_status==='blocked');
+    var pdfBtn=document.getElementById('cd-pdf-btn');
+    if(pdfBtn) pdfBtn.disabled=evidenceBlocked;
     if(status){
-      if(data&&data.data_pending){
+      if(evidenceBlocked){
+        status.textContent='Kostennachweis ungueltig ('+String(data.evidence_error||'unbekannt')+') — der freigegebene Kostenausweis laesst sich nicht belegen. Strategie neu berechnen und finalisieren.';
+        status.style.color='var(--neg)';
+      }else if(data&&data.data_pending){
         status.textContent='Noch keine Empfehlung — bitte Portfolio zuerst generieren.';
         status.style.color='var(--warn)';
       }else{
@@ -14071,7 +14142,9 @@ function renderCostDisclosure(data){
   var items=document.getElementById('cd-items');
   if(items){
     var rows=Array.isArray(data.cost_items)?data.cost_items:[];
-    if(!rows.length){
+    if(data.evidence_status==='blocked'){
+      items.innerHTML='<div style="font-size:11px;color:var(--neg);padding:14px;text-align:center;border:1px solid var(--neg);border-radius:var(--r)">Kostennachweis ungueltig ('+escapeHtml(String(data.evidence_error||'unbekannt'))+') — keine Zahlen ausweisbar.</div>';
+    }else if(!rows.length){
       items.innerHTML='<div style="font-size:11px;color:var(--n4);padding:14px;text-align:center;border:1px dashed var(--b1);border-radius:var(--r)">Noch keine Kostenposten ausweisbar.</div>';
     }else{
       items.innerHTML='<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden">'
@@ -17256,6 +17329,11 @@ function renderRiskSummary(result){
     badge.style.display = normalized.isOverridden ? 'block' : 'none';
     if (normalized.isOverridden) {
       badge.innerHTML = '⚠ Override aktiv – Score: <span id="overr-val">' + formatRiskScoreTen(normalized.finalScore) + '/10</span> – Protokolliert';
+      // RISK-OVERRIDE-LEGACY-REMEDIATION-001
+      if (riskOverrideIsLegacy(result)) {
+        badge.innerHTML += '<div id="overr-legacy-hint" style="margin-top:6px;font-weight:600">Override aus Altbestand – bitte bestätigen. Ohne Decision-Nachweis ist keine Signatur des Risikoprofils möglich.</div>'
+          + '<button type="button" id="btn-overr-legacy-remediate" onclick="openLegacyOverrideRemediation()" style="margin-top:6px;background:var(--chrome-n6);border:none;color:#fff;border-radius:var(--r);font-family:var(--f-s);font-size:10px;font-weight:500;padding:5px 11px;cursor:pointer;">Override bestätigen</button>';
+      }
     }
   }
   normalizeVisibleMojibake(document.getElementById('page-rp')||document.body);
@@ -23831,9 +23909,34 @@ async function downloadServerPdf(reportType, queryString){
   if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'&&reportType!=='cost-disclosure'){
     console.error('downloadServerPdf: unknown reportType', reportType);return;
   }
+  // ALLOC-EDITOR-STALE-001: kennt der Browser einen veralteten Strategie-
+  // Stand (Bandbreiten/Eingaben geaendert, manuelle Speicherung ohne Neu-
+  // berechnung), wird KEIN frisch beschriftetes Beratungs-PDF aus dem alten
+  // persistierten Kontext erzeugt. Nicht an der Soll-Allokation haengen
+  // (CIO-Entscheid 2026-10-22): Risikoprofil und Beratungsvertrag.
+  var _staleState=(typeof strategyState!=='undefined'&&strategyState)?strategyState:null;
+  var _allocationIndependent=(reportType==='risikoprofil'||reportType==='vertrag');
+  if(!_allocationIndependent&&_staleState&&_staleState.dirty){
+    var _staleMsg='PDF nicht erstellt: die angezeigte Strategie ist nicht aktuell'
+      +(_staleState.staleNotice?' ('+String(_staleState.staleNotice)+')':'')
+      +'. Bitte zuerst «Anlagestrategie berechnen». [allocation_stale]';
+    if(window.showAppError)window.showAppError(_staleMsg);
+    return {status:'cancelled', reason:'allocation_stale', message:_staleMsg};
+  }
   var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
-  if(queryString){
-    path += (queryString.indexOf('?')===0 ? queryString : '?' + queryString);
+  var _qs=queryString?String(queryString).replace(/^\?/,''):'';
+  // Server-seitiger Abgleich: die angezeigte Allokation muss die aktuelle
+  // sein (409 [allocation_report_context_stale] sonst).
+  if(reportType==='anlagestrategie'||reportType==='assetallocation'){
+    var _shownAlloc=_staleState&&_staleState.allocation;
+    var _shownTa=_shownAlloc&&_shownAlloc.target_allocation;
+    var _sameMandate=!_staleState||!_staleState.activeMandateId||String(_staleState.activeMandateId)===String(mid);
+    if(_shownTa&&_shownTa.id&&_sameMandate){
+      _qs+=(_qs?'&':'')+'expected_allocation_id='+encodeURIComponent(String(_shownTa.id));
+    }
+  }
+  if(_qs){
+    path += '?' + _qs;
   }
   return _fetchAndSavePdf(path, reportType);
 }
@@ -27273,14 +27376,14 @@ function renderReviewRiskProfileCard(){
       signed:'Die Bestaetigung zum aktuellen Risikoprofil ist dokumentiert und an '+(risk.override_decision_id?'den aktuellen Override-Entscheid':'das Fragebogenergebnis (kein Override)')+' gebunden.',
       signature_required:'Das wirksame Risikoprofil wurde nach der letzten Signatur uebersteuert ('+(risk.override_decision_id?('Override-Entscheid '+String(risk.override_decision_id)):'Override')+'). Die fruehere Signatur gilt nicht fuer das aktuelle Profil -- bitte die Bestaetigung neu erfassen.',
       legacy_unbound:'Altsignatur vom '+formatDateSwiss(String(signedAt||'').slice(0,10))+' ('+methodTxt+') ohne Signoff-Nachweis -- nicht an einen Override-Entscheid gebunden. Mit «Signatur erneuern» wird ein gebundener Signoff erfasst.',
-      remediation_required:'Der Override hat keinen verifizierbaren Decision-Nachweis (Altbestand). Bitte den Override auf der Seite Risikoprofil neu erfassen, bevor signiert wird.',
+      remediation_required:'Override aus Altbestand – bitte bestätigen: Der Override hat keinen verifizierbaren Decision-Nachweis. Auf der Seite Risikoprofil mit «Override bestätigen» einen Entscheid erfassen, danach ist die Signatur möglich.',
       unsigned:'Noch nicht signiert. Mit «Signatur erfassen» dokumentieren Sie die Bestaetigung zum aktuellen Risikoprofil.'
     };
     hintEl.textContent=hints[signoffState]||hints.unsigned;
   }
   if(btn){
     if(isDemo){btn.disabled=true;btn.title='Signatur nur fuer ein gespeichertes Mandat moeglich.';}
-    else if(signoffState==='remediation_required'){btn.disabled=true;btn.title='Override zuerst neu erfassen (kein verifizierbarer Decision-Nachweis).';}
+    else if(signoffState==='remediation_required'){btn.disabled=true;btn.title='Override aus Altbestand zuerst auf der Seite Risikoprofil bestätigen (kein verifizierbarer Decision-Nachweis).';}
     else{btn.disabled=false;btn.title='';}
     btn.textContent=(signoffState==='signed'||signoffState==='legacy_unbound')?'Signatur erneuern':'Signatur erfassen';
   }

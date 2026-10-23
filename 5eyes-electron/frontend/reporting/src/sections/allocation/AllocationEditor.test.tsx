@@ -177,4 +177,64 @@ describe('AllocationEditor', () => {
     expect(minField).toHaveAttribute('aria-invalid', 'false');
     expect(save).toBeEnabled();
   });
+  it('sendet die erwartete Allokations-ID/-Version mit (ALLOC-EDITOR-STALE-001)', async () => {
+    fetchMock.mockResolvedValue(makeRecord({ id: 'ta-7', version: 7 }));
+    saveMock.mockResolvedValue(makeRecord({ id: 'ta-8', version: 8 }));
+    render(<AllocationEditor mandateId="m1" />);
+    await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText(/Begründung der manuellen Anpassung/), {
+      target: { value: 'Kunde wünscht nach Gespräch eine defensivere Gewichtung.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'SOLL-Allokation speichern' }));
+    expect(await screen.findByText(/Version 8/)).toBeInTheDocument();
+    expect(saveMock).toHaveBeenCalledWith(
+      'm1',
+      expect.objectContaining({
+        expected_current_allocation_id: 'ta-7',
+        expected_current_allocation_version: 7,
+      }),
+    );
+  });
+
+  it('zeigt die 409-Meldung eines veralteten Stands an (Lost Update)', async () => {
+    fetchMock.mockResolvedValue(makeRecord());
+    saveMock.mockRejectedValue(
+      new ApiError(409, 'Die Soll-Allokation wurde inzwischen in einer anderen Sitzung geaendert (aktuelle Version 2). [allocation_version_conflict]'),
+    );
+    render(<AllocationEditor mandateId="m1" />);
+    await screen.findByRole('table');
+    fireEvent.change(screen.getByLabelText(/Begründung der manuellen Anpassung/), {
+      target: { value: 'Kunde wünscht nach Gespräch eine defensivere Gewichtung.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'SOLL-Allokation speichern' }));
+    expect(await screen.findByText(/allocation_version_conflict/)).toBeInTheDocument();
+  });
+
+  it('verwirft Optimizer-Kennzahlen nach dem manuellen Speichern', async () => {
+    fetchMock.mockRejectedValue(new ApiError(404, 'keine'));
+    generateMock.mockResolvedValue({
+      target_allocation: makeRecord({ id: 'ta-gen', version: 3 }),
+      expected_return_bps: 350,
+      expected_volatility_bps: 900,
+      risky_fraction_total_bps: 6000,
+      limiting_factor: null,
+      reasoning: [],
+      messages: [],
+    });
+    saveMock.mockResolvedValue(makeRecord({ id: 'ta-man', version: 4 }));
+    render(<AllocationEditor mandateId="m1" />);
+    await screen.findByText(/Noch keine SOLL-Allokation/);
+    fireEvent.click(screen.getByRole('button', { name: 'Optimizer-Vorschlag' }));
+    expect(await screen.findByText(/Erwartete Rendite/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Begründung der manuellen Anpassung/), {
+      target: { value: 'Kunde wünscht nach Gespräch eine defensivere Gewichtung.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'SOLL-Allokation speichern' }));
+    expect(await screen.findByText(/Version 4/)).toBeInTheDocument();
+    expect(screen.queryByText(/Erwartete Rendite/)).not.toBeInTheDocument();
+    expect(saveMock).toHaveBeenCalledWith(
+      'm1',
+      expect.objectContaining({ expected_current_allocation_id: 'ta-gen' }),
+    );
+  });
 });

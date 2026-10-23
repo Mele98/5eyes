@@ -18,6 +18,7 @@ from services.pdf.components.advisory_palette import (
     COLOR_RULE,
     COLOR_STATUS_GELB,
     COLOR_STATUS_GRUEN,
+    COLOR_STATUS_ROT,
     FONT_SANS,
     FONT_SANS_BOLD,
     MARGIN_LEFT,
@@ -63,6 +64,21 @@ def build_kostenausweis_flowables(
         ),
         Spacer(1, (2 if compact else 4) * mm),
     ]
+
+    if data and data.get("evidence_status") == "blocked":
+        # COST-SNAPSHOT-BINDING-001: ungueltiger Kostennachweis ist ein
+        # ausgewiesener Fehler (rot), nicht "Daten ausstehend" und nie Zahlen.
+        out.extend([
+            _status_panel(
+                "Kostennachweis ungültig",
+                _first_warning(data),
+                styles,
+                color=COLOR_STATUS_ROT,
+            ),
+            Spacer(1, 5 * mm),
+            _legal_note(styles),
+        ])
+        return out
 
     if not data or data.get("data_pending"):
         out.extend([

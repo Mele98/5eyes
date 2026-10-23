@@ -103,7 +103,12 @@ def test_finalization_freezes_a_hashed_snapshot_on_the_run(session_factory):
     assert envelope["schema_version"] >= 1
     assert envelope["frozen_at"]
     # Der Hash muss zum Inhalt passen -- sonst ist er Dekoration.
-    assert envelope["content_hash"] == cost_disclosure_content_hash(envelope["payload"])
+    # COST-SNAPSHOT-BINDING-001: V2 hasht den GANZEN Umschlag (Version,
+    # Lauf-/Mandats-/TA-Bindung, frozen_at, Payload) -- nicht nur den Payload.
+    assert envelope["content_hash"] == cost_disclosure_content_hash(
+        {k: v for k, v in envelope.items() if k != "content_hash"}
+    )
+    assert envelope["content_hash"] != cost_disclosure_content_hash(envelope["payload"])
     # Der Snapshot zertifiziert den Status, den er traegt.
     assert envelope["payload"]["source_run_status"] == "Final"
 

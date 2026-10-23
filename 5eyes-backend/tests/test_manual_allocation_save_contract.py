@@ -134,6 +134,9 @@ def _body_from(ta, assessment_id, *, reason=REASON, **overrides):
     kw.update(overrides)
     if reason is not None:
         kw["override_reason"] = reason
+    # ALLOC-EDITOR-STALE-001: der Editor bearbeitet ``ta`` -> Vorgaenger-Token.
+    kw.setdefault("expected_current_allocation_id", ta.id)
+    kw.setdefault("expected_current_allocation_version", int(ta.version))
     return TargetAllocationCreate(
         policy_id=ta.policy_id, based_on_assessment_id=assessment_id, **kw,
     )
@@ -325,6 +328,7 @@ def _all_equity_body(ta, assessment_id, reason=REASON):
         kw[f"band_{b}_max_bps"] = 10000
     if reason is not None:
         kw["override_reason"] = reason
+    kw["expected_current_allocation_id"] = ta.id
     return TargetAllocationCreate(
         policy_id=ta.policy_id, based_on_assessment_id=assessment_id, **kw,
     )

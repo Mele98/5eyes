@@ -988,6 +988,17 @@ export interface CostDisclosureData {
    * degraded Evidence darf nie als client-ready dargestellt werden
    * (COST-PUBLICATION-GATE-001). */
   audit_degraded?: boolean;
+  /** COST-SNAPSHOT-BINDING-001: diskriminierter Nachweis-Status.
+   * 'blocked' = eingefrorener Nachweis vorhanden, aber ungueltig (fremder
+   * Lauf, unbekannte Schema-Version, Hash-Bruch) -- keine Zahlen, Grund in
+   * `evidence_error`. */
+  evidence_status?: 'certified' | 'preview' | 'legacy_unverified' | 'blocked' | 'pending' | null;
+  evidence_error?: string | null;
+  evidence_frozen?: boolean;
+  content_hash?: string | null;
+  frozen_at?: string | null;
+  source_run_status?: string | null;
+  snapshot_schema_version?: number | null;
 }
 
 /** C2-Wiring (2026-06-07): Stub-Type fuer engine_configuration.
@@ -1277,6 +1288,12 @@ export interface TargetAllocationCreatePayload {
   policy_id: string;
   /** Pflicht beim manuellen Speichern (MANUAL-SAVE-DEADEND-001, FIDLEG Art. 13). */
   override_reason?: string | null;
+  /**
+   * ALLOC-EDITOR-STALE-001: ID/Version der bearbeiteten Allokation
+   * (Optimistic Concurrency). Abweichung -> 409 `[allocation_version_conflict]`.
+   */
+  expected_current_allocation_id?: string | null;
+  expected_current_allocation_version?: number | null;
 }
 
 /** Response-Kernfelder (TargetAllocationResponse hat zusätzliche Audit-Felder). */

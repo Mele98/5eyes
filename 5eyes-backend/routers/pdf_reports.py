@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -336,6 +336,30 @@ def _latest_target_allocation(mandate: Mandate, db: Session):
     # A historic non-current allocation is an audit record, never a valid
     # substitute for the customer's active strategy.
     return current_rows[0] if current_rows else None
+
+
+def _assert_report_allocation_context(
+    mandate: Mandate, db: Session, expected_allocation_id: str | None
+) -> None:
+    """ALLOC-EDITOR-STALE-001: ein Strategie-PDF darf nur aus genau der
+    Allokation entstehen, die der Browser anzeigt. Abweichung -> 409
+    ``... [allocation_report_context_stale]``. Ohne Token keine Pruefung;
+    die Persistenz-Staleness (Risikoprofil/Inputs) prueft weiterhin der
+    Payload-Pfad fail-closed."""
+    # Direktaufrufe (Tests/interne Pfade) uebergeben den Query-Default
+    # (FieldInfo) statt None -- nur echte Zeichenketten sind ein Token.
+    if not isinstance(expected_allocation_id, str) or not expected_allocation_id.strip():
+        return
+    from services.allocation_concurrency import (
+        AllocationVersionConflict,
+        assert_report_allocation_matches,
+    )
+
+    try:
+        current = _latest_target_allocation(mandate, db)
+        assert_report_allocation_matches(current, expected_allocation_id)
+    except (AllocationVersionConflict, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
@@ -914,9 +938,11 @@ def get_anlagestrategie_pdf(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    expected_allocation_id: str | None = Query(default=None, max_length=64),
 ):
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     try:
@@ -952,9 +978,11 @@ def get_assetallocation_pdf(
     mandate_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    expected_allocation_id: str | None = Query(default=None, max_length=64),
 ):
     """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     try:
@@ -2314,6 +2342,26 @@ def get_cost_disclosure_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     payload = build_cost_disclosure(db, mandate)
+    if payload.get("evidence_status") == "blocked":
+        # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger
+        # Kostennachweis (fremder Lauf, unbekannte Version, Hash-Bruch) ist
+        # ein eigener, ausgewiesener Fehler -- nicht "noch keine Empfehlung"
+        # und schon gar kein live neu gerechnetes Dokument.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_EVIDENCE_INVALID",
+                "evidence_error": payload.get("evidence_error"),
+                "source_run_id": payload.get("source_run_id"),
+                "message": (
+                    "Der eingefrorene Kostennachweis des freigegebenen "
+                    "Empfehlungslaufs ist ungueltig "
+                    f"({payload.get('evidence_error')}). Der Kostenausweis "
+                    "wird nicht erstellt -- Strategie neu berechnen und "
+                    "finalisieren."
+                ),
+            },
+        )
     if payload.get("data_pending"):
         raise HTTPException(
             status_code=409,

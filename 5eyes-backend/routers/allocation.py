@@ -31,6 +31,10 @@ from services.auth import (
     enforce_cma_cross_tenant_read_scope,
 )
 from services.audit import log
+from services.allocation_concurrency import (
+    AllocationVersionConflict,
+    assert_expected_predecessor,
+)
 from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
@@ -331,6 +335,17 @@ def create_target_allocation(
             for_update=True,
         )
     except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # ALLOC-EDITOR-STALE-001: Lost-Update-Schutz. Der unter Sperre geladene
+    # Stand muss genau der sein, den der Editor bearbeitet hat.
+    try:
+        assert_expected_predecessor(
+            prev,
+            body.expected_current_allocation_id,
+            body.expected_current_allocation_version,
+        )
+    except AllocationVersionConflict as exc:
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     # TA-LEGACY-FABRICATION-001: risky_fraction_bps des Clients wird nie
     # uebernommen (Feld bleibt nur aus API-Kompatibilitaet im Schema).
