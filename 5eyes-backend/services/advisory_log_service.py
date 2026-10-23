@@ -113,9 +113,41 @@ def build_hash_payload(entry: AdvisoryLog) -> dict:
 ADVISORY_LOG_COST_SNAPSHOT_SCHEMA_VERSION = 2
 
 
+class AdvisoryLogCostEvidenceError(ValueError):
+    """COST-SNAPSHOT-BINDING-001: `cost_disclosure_given=True`, aber der
+    Kostennachweis des genannten (bzw. aktuellen) Laufs ist vorhanden und
+    ungueltig. Der Router mappt das auf 409 -- ein Protokoll darf weder einen
+    ungueltigen Nachweis noch heute live gerechnete Ersatzzahlen als
+    "gezeigte Kosten" festhalten."""
+
+    def __init__(self, reason: str, run_id: str | None) -> None:
+        self.reason = reason
+        self.run_id = run_id
+        super().__init__(
+            "Der eingefrorene Kostennachweis des Empfehlungslaufs "
+            f"{run_id or '(aktuell)'} ist ungueltig ({reason}). Eine "
+            "Kostenoffenlegung kann damit nicht belegt werden -- Strategie "
+            "neu berechnen und finalisieren."
+        )
+
+
 def _build_cost_disclosure_snapshot(
     db: Session, mandate, *, recommendation_run_id: str | None = None,
 ) -> str | None:
+    """Wie `_resolve_cost_disclosure_snapshot`, aber nur der JSON-String.
+
+    Bei ungueltigem Nachweis `None` -- nie ein Live-Ersatz
+    (COST-SNAPSHOT-BINDING-001).
+    """
+    snapshot_json, _block_reason = _resolve_cost_disclosure_snapshot(
+        db, mandate, recommendation_run_id=recommendation_run_id,
+    )
+    return snapshot_json
+
+
+def _resolve_cost_disclosure_snapshot(
+    db: Session, mandate, *, recommendation_run_id: str | None = None,
+) -> tuple[str | None, str | None]:
     """Nachweis der Kostenzahlen, die in dieser Beratung gezeigt wurden.
 
     Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): `cost_disclosure_given` war ein
@@ -149,7 +181,7 @@ def _build_cost_disclosure_snapshot(
     verlangt.
     """
     if mandate is None:
-        return None
+        return None, None
     try:
         from services.cost_disclosure import (
             build_cost_disclosure,
@@ -174,7 +206,13 @@ def _build_cost_disclosure_snapshot(
             )
 
         if run is not None:
-            frozen, _reason = load_frozen_cost_disclosure(run)
+            frozen, reason = load_frozen_cost_disclosure(run)
+            if reason is not None:
+                # COST-SNAPSHOT-BINDING-001 (Codex-Befund 3): vorher wurde
+                # `reason` ignoriert und ein korrupter Final-Nachweis still
+                # durch heute live gerechnete Zahlen ersetzt -- mit eigenem,
+                # gueltigem Hash. Jetzt: kein Snapshot, ausgewiesener Grund.
+                return None, reason
             payload = frozen if frozen is not None else build_cost_disclosure_for_run(
                 db, mandate, run,
             )
@@ -185,10 +223,12 @@ def _build_cost_disclosure_snapshot(
             # mandatsweite Bauer. Die Bindung bleibt dann ausdruecklich
             # leer, statt einen Lauf zu behaupten.
             payload = build_cost_disclosure(db, mandate)
+            if payload.get("evidence_status") == "blocked":
+                return None, str(payload.get("evidence_error") or "snapshot_invalid")
             bound_run_id = str(payload.get("source_run_id") or "") or None
             bound_status = str(payload.get("source_run_status") or "") or None
     except Exception:  # noqa: BLE001 -- siehe Docstring: fail-soft
-        return None
+        return None, None
 
     totals = payload.get("totals") or {}
     snapshot = {
@@ -217,7 +257,7 @@ def _build_cost_disclosure_snapshot(
     # Kostenausweis. `generated_at` ist Teil des Inhalts: zwei Protokolle
     # ueber dieselben Zahlen sind zwei verschiedene Nachweise.
     snapshot["content_hash"] = cost_disclosure_content_hash(snapshot)
-    return json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+    return json.dumps(snapshot, ensure_ascii=False, sort_keys=True), None
 
 
 def create_advisory_log(
@@ -238,17 +278,21 @@ def create_advisory_log(
     now = _now_iso()
     entry_datetime = payload.entry_datetime
     entry_date = payload.entry_date or entry_datetime[:10]
-    cost_disclosure_snapshot_json = (
-        _build_cost_disclosure_snapshot(
+    cost_disclosure_snapshot_json = None
+    if payload.cost_disclosure_given:
+        named_run_id = getattr(payload, "recommendation_run_id", None)
+        cost_disclosure_snapshot_json, block_reason = _resolve_cost_disclosure_snapshot(
             db, mandate,
             # COST-EVIDENCE-001: an den Lauf binden, auf den sich DIESER
             # Eintrag beruft -- nicht an den, den der mandatsweite Bauer
             # gerade waehlen wuerde.
-            recommendation_run_id=getattr(payload, "recommendation_run_id", None),
+            recommendation_run_id=named_run_id,
         )
-        if payload.cost_disclosure_given
-        else None
-    )
+        if block_reason is not None:
+            # COST-SNAPSHOT-BINDING-001: fail-closed. Ein ungueltiger
+            # Nachweis darf weder still durch Live-Zahlen ersetzt noch als
+            # nachweisloses `cost_disclosure_given=True` gespeichert werden.
+            raise AdvisoryLogCostEvidenceError(block_reason, named_run_id)
 
     entry = AdvisoryLog(
         id=new_uuid(),

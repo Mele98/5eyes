@@ -1174,6 +1174,7 @@ def create_advisory_log_entry(
     Aufbewahrungs-Datum und vollem Audit-Log.
     """
     from services.advisory_log_integrity import AdvisoryLogDatetimeError
+    from services.advisory_log_service import AdvisoryLogCostEvidenceError
     from services.advisory_log_service import create_advisory_log, serialize_response
 
     enforce_data_classification(body.data_classification)
@@ -1229,6 +1230,19 @@ def create_advisory_log_entry(
         # darstellbare Aufbewahrungsfrist ergibt (z.B. Jahr 9999 + 10).
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))
+    except AdvisoryLogCostEvidenceError as exc:
+        # COST-SNAPSHOT-BINDING-001: ungueltiger Kostennachweis -> 409 mit
+        # stabilem Reason-Code, kein Protokoll mit Live-Ersatzzahlen.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_EVIDENCE_INVALID",
+                "evidence_error": exc.reason,
+                "recommendation_run_id": exc.run_id,
+                "message": str(exc),
+            },
+        )
     db.flush()
     log(
         db,

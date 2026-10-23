@@ -2343,6 +2343,26 @@ def get_cost_disclosure_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     payload = build_cost_disclosure(db, mandate)
+    if payload.get("evidence_status") == "blocked":
+        # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger
+        # Kostennachweis (fremder Lauf, unbekannte Version, Hash-Bruch) ist
+        # ein eigener, ausgewiesener Fehler -- nicht "noch keine Empfehlung"
+        # und schon gar kein live neu gerechnetes Dokument.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_EVIDENCE_INVALID",
+                "evidence_error": payload.get("evidence_error"),
+                "source_run_id": payload.get("source_run_id"),
+                "message": (
+                    "Der eingefrorene Kostennachweis des freigegebenen "
+                    "Empfehlungslaufs ist ungueltig "
+                    f"({payload.get('evidence_error')}). Der Kostenausweis "
+                    "wird nicht erstellt -- Strategie neu berechnen und "
+                    "finalisieren."
+                ),
+            },
+        )
     if payload.get("data_pending"):
         raise HTTPException(
             status_code=409,
