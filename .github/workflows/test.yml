@@ -68,67 +68,41 @@ jobs:
       - name: Check portfolio_engine.py line budget
         run: python3 scripts/check_engine_line_budget.py
 
-  pytest:
-    name: Backend Tests
+  # ------------------------------------------------------------------------
+  # Backend-Suite parallel (F0-3, 2026-10-24). Vorher ein serieller Job
+  # `pytest tests/` mit zuletzt ~157 min Wandzeit (Run 40005758865) und
+  # 200 min Job-Timeout. Jetzt:
+  #   backend-test-plan      volle Collection (Referenzliste aller Node-IDs)
+  #   backend-test-shard     6 Matrix-Shards (pytest-split nach .test_durations,
+  #                          Algorithmus duration_based_chunks = Dateien bleiben
+  #                          zusammenhaengend), je Shard `-n auto --dist loadfile`
+  #                          (pytest-xdist; eigene DB je Worker, tests/conftest.py)
+  #   backend-test-wallclock Tests mit Marker wallclock_budget seriell, ohne
+  #                          parallele Nachbarprozesse (Wandzeit-Schranken)
+  #   pytest ("Backend Tests (3.12)")  Aggregat-/Pflicht-Check: alle Teiljobs
+  #                          gruen UND scripts/ci_test_shard_gate.py belegt,
+  #                          dass jeder gesammelte Test genau einmal selektiert
+  #                          und ausgefuehrt wurde (sonst rot).
+  # Der Check-Name "Backend Tests (3.12)" bleibt unveraendert (Tooling haengt
+  # daran). Historie des seriellen Jobs: git log -- .github/workflows/test.yml.
+  # ------------------------------------------------------------------------
+  backend-test-plan:
+    name: Backend Test Plan (collect)
     runs-on: ubuntu-latest
-    # 2026-08-04 (Mega-Audit-Nachlauf, war seit 2026-06-08 stale bei "3400
-    # Tests"): Backend-Suite liegt inzwischen bei ueber 5000 Tests. Lokal
-    # ~17min, CI-Runner braucht laenger wegen pip-Install. 30min Puffer.
-    # 2026-08-18/19: PR #374 (Stochastic-Optimizer-Produktionsdefault +
-    # Audit-Nachlauf) bringt die Suite auf 5991 Tests (+~1000). Drei CI-
-    # Laeufe unter --cov=services/routers/schemas/models scheiterten
-    # (30min@21%, 60min@39%, 120min mit einer 21-minuetigen KOMPLETTEN
-    # Stille direkt nach 48% -- "operation was canceled", nie ein FAILED).
-    # Verdaechtigt: test_golden_snapshot_ch_regression.py (naechste Datei
-    # in der Kollektionsreihenfolge, rechenintensivste Monte-Carlo-Datei
-    # der Suite). Lokal (Windows) mit IDENTISCHEN --cov-Flags einzeln
-    # gemessen: nur 26s->37s (1.4x), UND die volle Suite lokal mit exakt
-    # denselben Flags lief sauber durch genau diese Datei und weit darueber
-    # hinaus durch -- kein Haenger reproduzierbar. Schluss: das ist ein
-    # Linux/CI-Runner-spezifisches Coverage-Instrumentierungs-Problem
-    # (vermutlich coverage.py + sqlite/multiprocessing-Interaktion unter
-    # Linux), kein Code-Bug in diesem PR. Fix: Coverage-Tracking aus dem
-    # BLOCKIERENDEN Pytest-Lauf entfernt (siehe Schritte unten) -- die
-    # Korrektheits-Pruefung (was den PR mergebar macht) laeuft jetzt ohne
-    # --cov und faellt damit auf die schnelle, verlaessliche lokale Zeit
-    # (~20-25min) zurueck. Coverage laeuft als eigener, NICHT blockierender
-    # Schritt danach (continue-on-error) mit eigenem Timeout, damit ein
-    # erneuter Coverage-Haenger den PR nicht mehr blockieren kann.
-    #
-    # Nachtrag (2026-10-05): der JOB-Timeout umklammert BEIDE Schritte
-    # (blockierender Correctness-Gate-Lauf + nicht-blockierender Coverage-
-    # Lauf mit eigenem 60min-Timeout). Correctness-Gate allein brauchte
-    # wiederholt ~28-31min (realistisch bei wachsender Testsuite, nicht nur
-    # die urspruenglich budgetierten ~20-25min). Setup+Install+28-31min+
-    # bis zu 60min Coverage kann die 90min-Jobgrenze knapp ueberschreiten --
-    # GitHub Actions cancelt dann den GESAMTEN Job (inkl. des bereits
-    # erfolgreich abgeschlossenen Correctness-Gate-Schritts!), was als
-    # "Backend Tests failed" erscheint, obwohl `pytest tests/` selbst 0
-    # Fehler hatte. Beobachtet an mehreren unabhaengigen PRs (#525, #527)
-    # mit identischem Muster: Hauptlauf 0 failed in den Logs, Job-Conclusion
-    # trotzdem "cancelled". Grosszuegigerer Puffer verhindert, dass der
-    # ohnehin nicht-blockierende Coverage-Schritt den mergebar-Status des
-    # PRs ueber die Jobgrenze hinweg gefaehrdet.
-    # Nachtrag (2026-10-17, SAA-RESAMPLED-STABILITY-001): das Resampling
-    # (40 Bags je Optimierung) verlaengert den Correctness-Gate auf ~100 min.
-    # Job-Limit = Gate (~100) + Coverage-Schritt (max. 60) + Puffer, damit der
-    # nicht-blockierende Coverage-Schritt den Job nie mehr abbricht (Run
-    # 38964294815: Gate success, Job trotzdem "cancelled").
-    timeout-minutes: 200
-
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.12']
-
+    timeout-minutes: 15
+    env:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_CORETYPE: "Haswell"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: 5eyes-backend/requirements.txt
 
@@ -138,46 +112,215 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pytest (correctness gate, no coverage)
+      - name: Collect full suite (reference list)
         working-directory: 5eyes-backend
-        # OMP/OPENBLAS/MKL_NUM_THREADS=1 (2026-09-09): golden-snapshot-Test
-        # bucket5_ausgewogen_default_prefs flakte wiederholt auf CI (396 vs.
-        # 397 bps, ULP-Differenz), obwohl die Monte-Carlo-Inputs deterministisch
-        # geseedet sind (deterministic_seed()). Ursache: SLSQP's interne BLAS-
-        # Linearalgebra summiert unter Multi-Threading nicht garantiert in
-        # fixer Reihenfolge, und ephemere Runner haben wechselnde Kernzahlen.
-        # Single-Threaded BLAS erzwingt deterministische Summationsreihenfolge.
-        # Nur CI-Jobumgebung -- betrifft nie die ausgelieferte Windows-Electron-
-        # Desktop-App des echten Kunden.
-        #
-        # Nachtrag (2026-09-16): derselbe Flake trat trotz Thread-Pinning auf
-        # mehreren unabhaengigen PRs erneut auf (immer dieselbe Fixture, immer
-        # kleine bps-Differenzen). Ursache Nummer zwei: `numpy.show_config()`
-        # zeigt "DYNAMIC_ARCH" fuer die installierte scipy-openblas-Wheel --
-        # OpenBLAS waehlt zur Laufzeit einen von mehreren einkompilierten
-        # Mikroarchitektur-Kerneln passend zur tatsaechlichen Runner-CPU (z.B.
-        # Haswell vs. Skylake vs. Zen). Zwei "ubuntu-latest"-Runs koennen auf
-        # unterschiedlicher physischer Hardware landen und deshalb einen
-        # anderen Kernel waehlen -- exakt dieselbe Rechnung rundet dann anders,
-        # obwohl Threads, Seed und Software-Versionen identisch sind.
-        # OPENBLAS_CORETYPE erzwingt IMMER denselben Kernel unabhaengig von der
-        # tatsaechlichen Runner-CPU. Haswell (AVX2+FMA3) ist seit ~2013 auf
-        # praktisch jeder x86-64-Cloud-CPU vorhanden und damit sicher portabel.
-        env:
-          OMP_NUM_THREADS: "1"
-          OPENBLAS_NUM_THREADS: "1"
-          MKL_NUM_THREADS: "1"
-          OPENBLAS_CORETYPE: "Haswell"
         run: |
-          python -m pytest tests/ --tb=short --maxfail=50
+          python -m pytest tests/ --collect-only -q -p no:cacheprovider > ci-collected.txt
+          tail -n 3 ci-collected.txt
 
-      - name: Upload pytest log on failure
-        if: failure()
+      - name: Upload reference collection
         uses: actions/upload-artifact@v6
         with:
-          name: pytest-log
-          path: 5eyes-backend/.pytest_cache/
-          retention-days: 7
+          name: test-plan
+          path: 5eyes-backend/ci-collected.txt
+          retention-days: 14
+
+  backend-test-shard:
+    name: Backend Test Shard ${{ matrix.group }}/6
+    runs-on: ubuntu-latest
+    # Erwartung je Shard ~10-20 min (Gesamtlaufzeit / 6 Shards / 4 vCPU).
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4, 5, 6]
+    # OMP/OPENBLAS/MKL_NUM_THREADS=1 (2026-09-09): golden-snapshot-Test
+    # bucket5_ausgewogen_default_prefs flakte wiederholt auf CI (396 vs.
+    # 397 bps, ULP-Differenz), obwohl die Monte-Carlo-Inputs deterministisch
+    # geseedet sind (deterministic_seed()). Ursache: SLSQP's interne BLAS-
+    # Linearalgebra summiert unter Multi-Threading nicht garantiert in
+    # fixer Reihenfolge, und ephemere Runner haben wechselnde Kernzahlen.
+    # Single-Threaded BLAS erzwingt deterministische Summationsreihenfolge.
+    # Nur CI-Jobumgebung -- betrifft nie die ausgelieferte Windows-Electron-
+    # Desktop-App des echten Kunden.
+    #
+    # Nachtrag (2026-09-16): derselbe Flake trat trotz Thread-Pinning auf
+    # mehreren unabhaengigen PRs erneut auf (immer dieselbe Fixture, immer
+    # kleine bps-Differenzen). Ursache Nummer zwei: `numpy.show_config()`
+    # zeigt "DYNAMIC_ARCH" fuer die installierte scipy-openblas-Wheel --
+    # OpenBLAS waehlt zur Laufzeit einen von mehreren einkompilierten
+    # Mikroarchitektur-Kerneln passend zur tatsaechlichen Runner-CPU (z.B.
+    # Haswell vs. Skylake vs. Zen). Zwei "ubuntu-latest"-Runs koennen auf
+    # unterschiedlicher physischer Hardware landen und deshalb einen
+    # anderen Kernel waehlen -- exakt dieselbe Rechnung rundet dann anders,
+    # obwohl Threads, Seed und Software-Versionen identisch sind.
+    # OPENBLAS_CORETYPE erzwingt IMMER denselben Kernel unabhaengig von der
+    # tatsaechlichen Runner-CPU. Haswell (AVX2+FMA3) ist seit ~2013 auf
+    # praktisch jeder x86-64-Cloud-CPU vorhanden und damit sicher portabel.
+    #
+    # F0-3: die Variablen stehen auf Job-Ebene und werden von jedem
+    # xdist-Worker-Prozess geerbt (gleiches Pinning pro Worker wie vorher im
+    # seriellen Lauf).
+    env:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_CORETYPE: "Haswell"
+      SPLIT_ARGS: >-
+        --splits 6 --group ${{ matrix.group }}
+        --splitting-algorithm duration_based_chunks
+        --durations-path .test_durations
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 5eyes-backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: 5eyes-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Record shard selection
+        working-directory: 5eyes-backend
+        run: |
+          mkdir -p ci-out/selection ci-out/junit
+          python -m pytest tests/ --collect-only -q -p no:cacheprovider $SPLIT_ARGS -m "not wallclock_budget" \
+            > ci-out/selection/shard-${{ matrix.group }}.txt
+          tail -n 3 ci-out/selection/shard-${{ matrix.group }}.txt
+
+      - name: Run pytest shard (correctness gate, no coverage)
+        working-directory: 5eyes-backend
+        run: |
+          python -m pytest tests/ -n auto --dist loadfile $SPLIT_ARGS -m "not wallclock_budget" \
+            --tb=short --maxfail=50 -o junit_family=xunit1 \
+            --junit-xml=ci-out/junit/shard-${{ matrix.group }}.xml
+
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-shard-${{ matrix.group }}
+          path: 5eyes-backend/ci-out/
+          retention-days: 14
+          if-no-files-found: warn
+
+  backend-test-wallclock:
+    name: Backend Test Wallclock Budgets (serial)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_CORETYPE: "Haswell"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 5eyes-backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: 5eyes-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Record selection
+        working-directory: 5eyes-backend
+        run: |
+          mkdir -p ci-out/selection ci-out/junit
+          python -m pytest tests/ --collect-only -q -p no:cacheprovider -m wallclock_budget \
+            > ci-out/selection/wallclock.txt
+          tail -n 3 ci-out/selection/wallclock.txt
+
+      - name: Run wallclock-budget tests serially
+        working-directory: 5eyes-backend
+        run: |
+          python -m pytest tests/ -p no:xdist -m wallclock_budget --tb=short --maxfail=50 \
+            -o junit_family=xunit1 --junit-xml=ci-out/junit/wallclock.xml
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-wallclock
+          path: 5eyes-backend/ci-out/
+          retention-days: 14
+          if-no-files-found: warn
+
+  pytest:
+    # Aggregat-Job = Pflicht-Check mit dem historischen Namen
+    # "Backend Tests (3.12)" (Name + Matrix-Suffix bewusst unveraendert).
+    name: Backend Tests
+    needs: [backend-test-plan, backend-test-shard, backend-test-wallclock]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ['3.12']
+    steps:
+      - name: All test jobs succeeded
+        env:
+          PLAN: ${{ needs.backend-test-plan.result }}
+          SHARDS: ${{ needs.backend-test-shard.result }}
+          WALLCLOCK: ${{ needs.backend-test-wallclock.result }}
+        run: |
+          echo "plan=$PLAN shards=$SHARDS wallclock=$WALLCLOCK"
+          test "$PLAN" = success && test "$SHARDS" = success && test "$WALLCLOCK" = success
+
+      - name: Checkout
+        if: always()
+        uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        if: always()
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download results
+        if: always()
+        uses: actions/download-artifact@v6
+        with:
+          path: ci-artifacts
+
+      - name: Completeness gate (every collected test selected and run exactly once)
+        if: always()
+        run: |
+          mkdir -p ci-gate/selection ci-gate/junit
+          cp ci-artifacts/test-shard-*/selection/*.txt ci-artifacts/test-wallclock/selection/*.txt ci-gate/selection/ || true
+          cp ci-artifacts/test-shard-*/junit/*.xml ci-artifacts/test-wallclock/junit/*.xml ci-gate/junit/ || true
+          python scripts/ci_test_shard_gate.py \
+            --collected ci-artifacts/test-plan/ci-collected.txt \
+            --selection-dir ci-gate/selection \
+            --junit-dir ci-gate/junit \
+            --merged-junit-out ci-gate/junit-merged.xml \
+            --durations-out ci-gate/test_durations.json \
+            --file-summary 15
+
+      - name: Upload merged junit and measured durations
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          # test_durations.json -> 5eyes-backend/.test_durations uebernehmen,
+          # wenn die Shard-Balance nachlaesst (neue/teure Tests).
+          name: test-gate-${{ matrix.python-version }}
+          path: ci-gate/
+          retention-days: 30
+          if-no-files-found: warn
 
   coverage:
     # CI-COVERAGE-ON-PUSH (2026-10-18): Coverage lief frueher als zweiter,
@@ -185,10 +328,70 @@ jobs:
     # bei >8100 Tests jedes Mal am eigenen Timeout ab -- kein Report, aber
     # 60 min Runner-Zeit pro PR. Jetzt eigener, nicht-blockierender Job nur
     # nach Merge (push auf develop/main) mit ausreichend Zeit.
-    name: Backend Coverage (push only, non-blocking)
+    # F0-3 (2026-10-24): parallel wie das Gate (6 Shards x xdist-Worker,
+    # pytest-cov kombiniert die Worker je Shard), danach `coverage combine`
+    # ueber alle Shards im Job coverage-combine. Weiterhin nicht blockierend.
+    name: Backend Coverage Shard ${{ matrix.group }}/6 (push only, non-blocking)
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 90
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4, 5, 6]
+    env:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_CORETYPE: "Haswell"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 5eyes-backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: 5eyes-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest shard with coverage
+        working-directory: 5eyes-backend
+        run: |
+          python -m pytest tests/ --tb=short -n auto --dist loadfile \
+            --splits 6 --group ${{ matrix.group }} --splitting-algorithm duration_based_chunks \
+            --durations-path .test_durations \
+            --cov=services --cov=routers --cov=schemas --cov=models --cov-report=
+
+      - name: Rename coverage data
+        if: always()
+        working-directory: 5eyes-backend
+        run: |
+          if [ -f .coverage ]; then mv .coverage .coverage.shard-${{ matrix.group }}; fi
+
+      - name: Upload coverage data
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-data-${{ matrix.group }}
+          path: 5eyes-backend/.coverage.shard-${{ matrix.group }}
+          include-hidden-files: true
+          retention-days: 3
+          if-no-files-found: warn
+
+  coverage-combine:
+    name: Backend Coverage (push only, non-blocking)
+    if: github.event_name == 'push' && always()
+    needs: [coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     continue-on-error: true
     steps:
       - name: Checkout
@@ -207,15 +410,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pytest with coverage
+      - name: Download coverage data
+        uses: actions/download-artifact@v6
+        with:
+          pattern: coverage-data-*
+          path: 5eyes-backend/coverage-data
+          merge-multiple: true
+
+      - name: Combine and report
         working-directory: 5eyes-backend
-        env:
-          OMP_NUM_THREADS: "1"
-          OPENBLAS_NUM_THREADS: "1"
-          MKL_NUM_THREADS: "1"
-          OPENBLAS_CORETYPE: "Haswell"
         run: |
-          python -m pytest tests/ --tb=short             --cov=services --cov=routers --cov=schemas --cov=models             --cov-report=term-missing --cov-report=xml
+          ls -la coverage-data
+          python -m coverage combine coverage-data
+          python -m coverage report -m
+          python -m coverage xml -o coverage.xml
 
       - name: Upload coverage report
         if: always()
