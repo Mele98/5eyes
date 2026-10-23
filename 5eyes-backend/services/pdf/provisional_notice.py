@@ -44,6 +44,24 @@ BANNER_HEADING_TEXT = "PROVISORISCH — NICHT IC-FREIGEGEBEN"
 
 
 def resolve_pdf_provisional_notice(db: Session | None, mandate: Any) -> dict[str, Any] | None:
+    """Provisorik-Hinweis (Jurisdiktion/IC-Status, siehe
+    `_resolve_jurisdiction_provisional_notice`) plus CMA-CURRENCY-GUARD-001:
+    Basiswaehrung des Mandats != Waehrungsbasis der CMA der aktuellen
+    Soll-Allokation -> Hinweis "Kapitalmarktannahmen in CHF -- fuer
+    Basiswaehrung EUR nicht freigegeben" (Reason-Code CMA_CURRENCY_MISMATCH),
+    bei bestaetigter Abweichung samt Berater-Begruendung. CH-Mandat in CHF
+    bleibt ein DB-freier Kurzschluss."""
+    from services.cma_currency_guard import (
+        evaluate_for_current_allocation,
+        merge_notices,
+        pdf_notice,
+    )
+
+    provisional = _resolve_jurisdiction_provisional_notice(db, mandate)
+    return merge_notices(provisional, pdf_notice(evaluate_for_current_allocation(db, mandate)))
+
+
+def _resolve_jurisdiction_provisional_notice(db: Session | None, mandate: Any) -> dict[str, Any] | None:
     """Liefert None fuer CH ODER eine bereits IC-freigegebene Nicht-CH-CMA.
 
     Andernfalls ein dict {jurisdiction, cma_status, message}, das als
@@ -187,7 +205,8 @@ def make_provisional_notice_banner(
         spaceAfter=0,
     )
 
-    heading = Paragraph(_escape(BANNER_HEADING_TEXT), heading_style)
+    heading_text = str((notice or {}).get("heading") or "").strip() or BANNER_HEADING_TEXT
+    heading = Paragraph(_escape(heading_text), heading_style)
     message = str((notice or {}).get("message") or "").strip() or (
         "Diese Kapitalmarktannahmen sind noch nicht vom Investment Committee "
         "freigegeben."

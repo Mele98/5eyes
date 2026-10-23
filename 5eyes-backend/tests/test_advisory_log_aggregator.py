@@ -132,11 +132,24 @@ def _seed_ta_within_budget(s, mandate, advisor, *, risky_bps: int = 4000):
 # ---------------------------------------------------------------------------
 
 def test_no_mismatch_for_in_budget_allocation(session_factory):
+    """Budget und Baender eingehalten -> keine Budget-/Band-Warnung.
+
+    SUITABILITY-DETECTOR-AVAILABILITY-001: vorher erwartete dieser Test
+    ``warnings == []``, obwohl das Fixture weder ein Risikoprofil noch
+    HouseMatrix-Zeilen hat -- der Cap-Check wurde still uebersprungen und das
+    leere Ergebnis als "geeignet" festgeschrieben (fail-open). Jetzt bleibt
+    genau der Hinweis "HouseMatrix-Cap nicht pruefbar (RISK_PROFILE_MISSING)".
+    Die echte Positivkontrolle (Cap geprueft und eingehalten -> leere Liste)
+    liegt in test_suitability_detector_score_scale.py::
+    test_positive_control_within_cap_no_warning.
+    """
     with session_factory() as s:
         advisor, mandate = _seed(s)
         _seed_ta_within_budget(s, mandate, advisor, risky_bps=4000)
         warnings = detect_suitability_mismatches(s, mandate)
-    assert warnings == []
+    assert len(warnings) == 1, warnings
+    assert "HouseMatrix-Cap nicht pruefbar (RISK_PROFILE_MISSING)" in warnings[0]
+    assert not any("Toleranzband" in w or "Risikobudget" in w for w in warnings)
 
 
 def test_mismatch_when_risky_exceeds_budget(session_factory):

@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
+from types import SimpleNamespace
 
 from config import settings
 from database import get_db, new_uuid
@@ -31,6 +32,10 @@ from services.auth import (
     enforce_cma_cross_tenant_read_scope,
 )
 from services.audit import log
+from services.allocation_concurrency import (
+    AllocationVersionConflict,
+    assert_expected_predecessor,
+)
 from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
@@ -40,6 +45,7 @@ from services.jurisdiction.resolve import (
     resolve_cma_for_jurisdiction,
     resolve_mandate_jurisdiction,
 )
+from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
     _current_risk_assessment_or_none,
@@ -74,6 +80,9 @@ from services.backtest_strategy import run_strategy_backtest
 from services.report_projection_gate import resolve_current_allocation_projection_gate
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
+from services.knowledge_asset_class_gap import (
+    attach_to_strategy_payload as attach_knowledge_gap_check,
+)
 from services.risk_capacity_plausibility import (
     attach_to_strategy_payload,
     audit_if_inconsistent,
@@ -225,10 +234,14 @@ def get_current_allocation_payload(
             assessment=assessment,
             preferences=None,
         )
+        # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Klassen <-> Kenntnisse (Hinweis).
+        attach_knowledge_gap_check(payload, mandate, assessment)
         # RISK-CAPACITY-PLAUSIBILITY-001: live gegen die aktuellen Daten.
-        return attach_to_strategy_payload(
+        attach_to_strategy_payload(
             payload, evaluate_mandate_safely(db, mandate, assessment),
         )
+        # CMA-CURRENCY-GUARD-001 (zuletzt = zuoberst im Reasoning, blockierend).
+        return attach_cma_currency_guard(db, mandate, payload)
     except ValueError as exc:
         # Invalid legacy/raw position semantics and persisted-context integrity
         # failures are repairable domain conflicts, not opaque server errors.
@@ -332,6 +345,17 @@ def create_target_allocation(
             for_update=True,
         )
     except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # ALLOC-EDITOR-STALE-001: Lost-Update-Schutz. Der unter Sperre geladene
+    # Stand muss genau der sein, den der Editor bearbeitet hat.
+    try:
+        assert_expected_predecessor(
+            prev,
+            body.expected_current_allocation_id,
+            body.expected_current_allocation_version,
+        )
+    except AllocationVersionConflict as exc:
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     # TA-LEGACY-FABRICATION-001: risky_fraction_bps des Clients wird nie
     # uebernommen (Feld bleibt nur aus API-Kompatibilitaet im Schema).
@@ -694,8 +718,13 @@ def generate_target_allocation_endpoint(
                 ip_address=_extract_client_ip(request))
             # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
             # keine Profilaenderung, kein Blockieren.
+            # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
+            attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
             plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
             attach_to_strategy_payload(result, plausibility)
+            # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
+            # (nach der Plausibilitaet = zuoberst im Reasoning).
+            attach_cma_currency_guard(db, mandate, result)
             audit_if_inconsistent(
                 db, plausibility, user=current_user, table_name="target_allocations",
                 record_id=result["target_allocation"].id, mandate=mandate,
@@ -794,7 +823,16 @@ def get_depot_check(
     Liste der Warnings/Empfehlungen.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return compute_depot_check(db, mandate)
+    result = compute_depot_check(db, mandate)
+    # SUITABILITY-DETECTOR-AVAILABILITY-001: Status der HouseMatrix-Referenz
+    # (dieselbe Aufloesung wie im Depotcheck-PDF) ausgewiesen statt still
+    # weggelassen; bei "unavailable" mit Reason-Code + Hinweistext.
+    from services.house_matrix_benchmark import resolve_depotcheck_benchmark
+
+    result["house_matrix_benchmark"] = resolve_depotcheck_benchmark(
+        db, mandate,
+    ).public()
+    return result
 
 
 @router.get("/mandates/{mandate_id}/advisory-report")
@@ -1254,6 +1292,40 @@ def get_optimizer_policy_detail(
     return OptimizerPolicyDetailResponse(**payload)
 
 
+def _raise_if_policy_engine_infeasible(house_matrix_rows, policy) -> None:
+    """ADMIN-HOUSE-MATRIX-PERCENT-001 (CIO-Entscheid 3): eine Policy, unter der
+    die Engine fuer ein Score-Band keine Allokation bilden kann (wirksame
+    Minima > 100 % oder wirksame Maxima < 100 %, inkl. Aktien-Mindestquote und
+    Policy-Grenzen), wird nicht aktiviert -- 409 mit Reason-Code und Zeilen.
+    Dieselbe Regel prueft der Admin-Editor live
+    (services/house_matrix_feasibility.py)."""
+    from services.house_matrix_feasibility import (
+        REASON_CODE_INFEASIBLE,
+        policy_activation_violations,
+    )
+
+    violations = policy_activation_violations(house_matrix_rows, policy)
+    if not violations:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "reason_code": REASON_CODE_INFEASIBLE,
+            "message": (
+                "Policy nicht aktiviert: Fuer folgende Score-Baender kann die "
+                "Berechnung keine Allokation bilden (wirksame Mindestquoten "
+                "ueber 100 % oder wirksame Maxima unter 100 %, inkl. "
+                "Aktien-Mindestquote und Policy-Grenzen): "
+                + ", ".join(
+                    f"{v['score_from']}-{v['score_to']} {v['profile_name']}"
+                    for v in violations
+                )
+            ),
+            "rows": violations,
+        },
+    )
+
+
 @router.post("/admin/optimizer-policies", response_model=OptimizerPolicyDetailResponse, status_code=201)
 def create_optimizer_policy(
     body: OptimizerPolicyCreate,
@@ -1264,6 +1336,16 @@ def create_optimizer_policy(
 ):
     now = _now()
     if activate:
+        # Gleiches Gate wie POST .../activate (Create+Aktivieren ist ein
+        # zweiter Aktivierungsweg).
+        _raise_if_policy_engine_infeasible(
+            [SimpleNamespace(**row.model_dump()) for row in body.house_matrix_rows],
+            SimpleNamespace(
+                max_real_estate_bps=body.max_real_estate_bps,
+                max_alternatives_bps=body.max_alternatives_bps,
+                min_liquidity_bps=body.min_liquidity_bps,
+            ),
+        )
         prev = db.query(OptimizerPolicy).filter(
             OptimizerPolicy.is_current == 1,
         ).with_for_update().first()
@@ -1421,6 +1503,15 @@ def activate_optimizer_policy(
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
     if policy.is_current == 1:
         return policy
+
+    # ADMIN-HOUSE-MATRIX-PERCENT-001 (CIO-Entscheid 3): fail-closed.
+    _raise_if_policy_engine_infeasible(
+        db.query(HouseMatrix).filter(
+            HouseMatrix.policy_id == policy_id,
+            HouseMatrix.is_active == 1,
+        ).all(),
+        policy,
+    )
 
     now = _now()
     prev = db.query(OptimizerPolicy).filter(
