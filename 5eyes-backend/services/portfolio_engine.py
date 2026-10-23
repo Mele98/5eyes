@@ -2952,10 +2952,8 @@ from services.portfolio_engine_reserve import (  # noqa: F401,E402
     PENSION_PILLARS,
     PENSION_PILLAR_STATE_FUNDED,
 )
-from services.reserve_funding_ledger import (  # noqa: E402
-    compile_goal_set_funding,
-    compile_reserve_funding_ledger_for_inputs,
-)
+from services.reserve_funding_ledger import compile_goal_set_funding, compile_reserve_funding_ledger_for_inputs  # noqa: E402
+from services.reserve_funding_ledger_snapshot import ledger_reference, ledger_snapshot_columns, replay_reserve_funding_ledger  # noqa: E402
 
 
 def _target_allocation_reserve_warnings(allocation, *, external_reserve_rappen):
@@ -4097,6 +4095,7 @@ def generate_target_allocation(
         # Live-Payload. Ein gespeicherter Wert war damit nicht mehr
         # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
         "reporting_model_basis": dict(model_basis["reporting"]),
+        "reserve_funding_ledger": ledger_reference(reserve_ledger),  # RESERVE-LEDGER-SNAPSHOT-001
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)
@@ -4149,6 +4148,7 @@ def generate_target_allocation(
         total_wealth_at_generation_rappen=total_wealth_rappen,
         reserve_needed_at_generation_rappen=reserve_needed_rappen,
         external_reserve_at_generation_rappen=external_reserve_rappen,
+        **ledger_snapshot_columns(reserve_ledger),  # RESERVE-LEDGER-SNAPSHOT-001: durable Ledger-Evidence
         # Phase 4 Optimizer-Audit-Anchor (None wenn house_matrix-Modus)
         optimization_method=optimizer_audit.get("optimization_method"),
         optimization_objective_value_milli=optimizer_audit.get("optimization_objective_value_milli"),
@@ -5807,9 +5807,8 @@ def build_target_payload_from_allocation(
         goals=goals, reserve_needed_rappen=reserve_needed_rappen, external_reserve_rappen=external_reserve_rappen,
         solver_cashflow_series_rappen=rebuild_optimizer_cashflow_projection_series_rappen,
         inflation_series_bps=goal_inflation_series_bps,
-        external_wealth_rappen=max(0, int(total_wealth_rappen) - int(advisory_wealth_rappen)),
-        external_wealth_series_rappen=external_goal_funding_series_rappen,
-    )
+        external_wealth_rappen=max(0, int(total_wealth_rappen) - int(advisory_wealth_rappen)), external_wealth_series_rappen=external_goal_funding_series_rappen,
+    )  # Live-Preview: der Reload replayt unten den gespeicherten Snapshot (RESERVE-LEDGER-SNAPSHOT-001)
     # A persisted allocation owns its targets.  Reporting, however, is rebuilt
     # from the live database.  Therefore the input anchor must be checked
     # *before* any deterministic or stochastic analysis is produced; otherwise
@@ -5849,7 +5848,7 @@ def build_target_payload_from_allocation(
             "advisory_wealth_rappen": int(advisory_wealth_rappen),
             "total_wealth_rappen": int(total_wealth_rappen),
             "reserve_needed_rappen": int(reserve_needed_rappen),
-            "external_reserve_rappen": int(external_reserve_rappen),
+            "external_reserve_rappen": int(external_reserve_rappen), "reserve_funding_ledger": reserve_ledger,
             "external_foundation_projection": external_foundation_projection,
         }
     legacy_projection_context = dict(current_projection_context)
@@ -5905,7 +5904,8 @@ def build_target_payload_from_allocation(
         # Analyse/Simulation. Frueher Ausstieg NACH exakt derselben
         # Hash-Pruefung -- keine zweite, divergierende Hash-Herleitung.
         return {"input_snapshot_current": True}
-
+    reserve_replay = replay_reserve_funding_ledger(allocation, _stored_constraints, live_ledger=reserve_ledger)
+    reserve_ledger = reserve_replay.ledger  # Historical Replay; Legacy: sichtbar Live-Preview
     asset_class_assumptions = _build_asset_class_assumptions(
         current_amounts=advisory_summary.amounts_rappen,
         advisory_wealth_rappen=advisory_wealth_rappen,
@@ -6144,7 +6144,7 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
-        "reserve_funding_ledger": reserve_ledger.to_dict(),
+        **reserve_replay.payload,
         "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,

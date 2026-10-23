@@ -401,7 +401,7 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Soll-Allokation und RecommendationRun referenzieren verschiedene CMA.")
     if not errors and allocation and assessment and policy and cma:
         try:
-            build_target_payload_from_allocation(
+            anchored_payload = build_target_payload_from_allocation(
                 db=db,
                 mandate=mandate,
                 allocation=allocation,
@@ -415,6 +415,16 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
                 "Der verankerte Allocation-Kontext ist nicht mehr integer: "
                 f"{exc}"
             )
+        else:
+            # RESERVE-LEDGER-SNAPSHOT-001: nur ein replay-verifizierter
+            # Reserve-Funding-Ledger ist finalisierbar (stale/Legacy fail-closed).
+            from services.reserve_funding_ledger_snapshot import (
+                reserve_ledger_finalization_error,
+            )
+
+            ledger_error = reserve_ledger_finalization_error(anchored_payload)
+            if ledger_error:
+                errors.append(ledger_error)
     if allocation and assessment and policy:
         # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1) +
         # BAND-DEVIATION-REASON-REQUIRED-001 (Produktentscheid 2026-10-14):
@@ -3390,6 +3400,18 @@ def finalize_recommendation(
     cma_currency_warning = _enforce_run_cma_currency(db, mandate, run)
     errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
     if errors:
+        # RESERVE-LEDGER-SNAPSHOT-001: die Ledger-Sperre ist eine Handlungs-
+        # anweisung (neu berechnen) -> strukturierte 422 mit reason_code; alle
+        # uebrigen Sperren bleiben unveraendert ein Text.
+        from services.reserve_funding_ledger_snapshot import finalization_reason_code
+
+        ledger_reason = finalization_reason_code(errors)
+        if ledger_reason:
+            raise HTTPException(status_code=422, detail={
+                "reason_code": ledger_reason,
+                "message": "; ".join(errors),
+                "errors": errors,
+            })
         raise HTTPException(status_code=422, detail="; ".join(errors))
     if cma_currency_warning:
         warnings.append(cma_currency_warning)

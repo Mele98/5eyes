@@ -30,6 +30,7 @@ import hashlib
 import json
 
 from models.allocation import TargetAllocation
+from services.reserve_funding_ledger_snapshot import verify_persisted_ledger_snapshot
 
 
 # MANUAL-SAVE-DEADEND-001 (2026-10-14): Vertrag des manuellen Speicherpfads
@@ -167,6 +168,9 @@ def _verified_persisted_allocation_context(
                 "Persistierter Allocation-Context fehlt vollstaendig, obwohl "
                 "diese Engine-Allokation unveraenderliche Artefakte verlangt."
             )
+        # RESERVE-LEDGER-SNAPSHOT-001: ohne gehashten Context ist ein evtl.
+        # vorhandener Ledger-Snapshot ungebunden; der Reload behandelt ihn
+        # deshalb als Legacy "unverifiable" (nie als Historical Replay).
         return None, None
     if not all(
         isinstance(value, str) and bool(value.strip())
@@ -366,6 +370,9 @@ def _verified_persisted_allocation_context(
             "Allocation-Context-Hash stimmt nicht mit den persistierten "
             "Entscheidungsartefakten ueberein."
         )
+    # RESERVE-LEDGER-SNAPSHOT-001: Ledger-Hash aus den gespeicherten Zeilen
+    # rekalkulieren und gegen Hash-Spalte + gehashte Referenz pruefen.
+    verify_persisted_ledger_snapshot(allocation, stored_constraints)
     return stored_sub_allocations, stored_constraints
 
 

@@ -618,6 +618,9 @@ def ensure_runtime_columns() -> None:
             ('total_wealth_at_generation_rappen', 'INTEGER'),
             ('reserve_needed_at_generation_rappen', 'INTEGER'),
             ('external_reserve_at_generation_rappen', 'INTEGER'),
+            # RESERVE-LEDGER-SNAPSHOT-001
+            ('reserve_funding_ledger_json', 'TEXT'),
+            ('reserve_funding_ledger_hash', 'TEXT'),
             # Optimizer-Audit-Anchor (Spec 2026-05-05). NULL fuer pre-Optimizer-
             # Allocations - bedeutet "via House-Matrix-Default berechnet".
             ('optimization_method', 'TEXT'),

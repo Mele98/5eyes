@@ -92,6 +92,12 @@ class TargetAllocation(Base):
     total_wealth_at_generation_rappen = Column(Integer)
     reserve_needed_at_generation_rappen = Column(Integer)
     external_reserve_at_generation_rappen = Column(Integer)
+    # RESERVE-LEDGER-SNAPSHOT-001: der beim Generate publizierte
+    # ReserveFundingLedgerV1 als kanonisches JSON + Contract-Hash. Die Referenz
+    # steht zusaetzlich in effective_constraints (-> allocation_context_hash).
+    # NULL = Legacy ohne Snapshot (replay-unverifizierbar).
+    reserve_funding_ledger_json = Column(String)
+    reserve_funding_ledger_hash = Column(String(64))
     # AR-2 (FIDLEG-Report): persistierte Monte-Carlo-Risiko-Kennzahlen auf
     # Beratungsvermoegens-Ebene (target_*), erzeugt beim Strategie-Lauf. Der
     # Report liest sie in _build_key_metrics; NULL bei Alt-TAs -> Karte zeigt "—".
