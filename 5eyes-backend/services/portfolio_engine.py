@@ -661,6 +661,9 @@ from services.portfolio_engine_pension_positions import (  # noqa: E402 -- VORSO
     external_pension_projection as _external_pension_projection, with_pension_payouts as _with_pension_payouts,
     pension_foundation_keys, pension_series_for_horizon, with_pension_notes,
 )
+from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION-TRANSFER-LEDGER-001
+    bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
+)
 
 
 def _convert_position_value_to_target_currency(
@@ -2560,10 +2563,7 @@ def _projection_context_snapshot(
             int(value)
             for value in optimizer_cashflow_projection_series_rappen
         ],
-        "external_foundation_projection": {
-            key: [int(value) for value in values]
-            for key, values in sorted(external_foundation_projection.items())
-        },
+        "external_foundation_projection": canonical_foundation_projection(external_foundation_projection),
         "external_goal_funding_series_rappen": [
             int(value) for value in external_goal_funding_series_rappen
         ],
@@ -4063,12 +4063,7 @@ def generate_target_allocation(
             logger.warning("Shadow-optimization JSON-serialization failed: %s", exc)
             shadow_optimization_json = None
 
-    sub_allocations_json = json.dumps(
-        sub_allocations,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
+    sub_allocations_json = json.dumps(sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     effective_constraints_payload = {
         "engine_version": "stochastic_core_v2",
         "bounds_bps": {
@@ -4103,11 +4098,10 @@ def generate_target_allocation(
         # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
         "reporting_model_basis": dict(model_basis["reporting"]),
     }
+    pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
+        effective_constraints_payload, external_foundation_projection)
     effective_constraints_json = json.dumps(
-        effective_constraints_payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
+        effective_constraints_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
     )
     allocation_context_hash = allocation_context_hash_for(  # MANUAL-SAVE-DEADEND-001: eine Hash-Form fuer alle Schreibpfade
         engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
@@ -4143,6 +4137,7 @@ def generate_target_allocation(
         goal_achievability_json=goal_achievability_json,
         sub_allocations_json=sub_allocations_json,
         effective_constraints_json=effective_constraints_json,
+        pension_transfer_ledger_snapshot_json=pension_ledger_snapshot_json,
         allocation_context_hash=allocation_context_hash,
         context_artifacts_required=1,
         based_on_assessment_id=assessment.id,
@@ -4265,6 +4260,7 @@ def generate_target_allocation(
         "external_reserve_rappen": external_reserve_rappen,
         "uncertain_inflow_sensitivity": uncertain_inflow_info,  # INFLOW-CERTAINTY-001
         "reserve_funding_ledger": reserve_ledger.to_dict(),
+        "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(target_allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
@@ -5854,6 +5850,7 @@ def build_target_payload_from_allocation(
             "total_wealth_rappen": int(total_wealth_rappen),
             "reserve_needed_rappen": int(reserve_needed_rappen),
             "external_reserve_rappen": int(external_reserve_rappen),
+            "external_foundation_projection": external_foundation_projection,
         }
     legacy_projection_context = dict(current_projection_context)
     legacy_projection_context.pop("fx_basis", None)
@@ -6148,6 +6145,7 @@ def build_target_payload_from_allocation(
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
         "reserve_funding_ledger": reserve_ledger.to_dict(),
+        "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),

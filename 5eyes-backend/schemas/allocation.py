@@ -1675,6 +1675,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     # INFLOW-CERTAINTY-001: Info-Sensitivitaet "mit Zufluss" fuer unsichere
     # Vermoegenszufluesse (nicht eingerechnet). None = keine unsicheren Zufluesse.
     uncertain_inflow_sensitivity: Optional[dict] = None
+    # PENSION-TRANSFER-LEDGER-001: persistierter, beim Laden verifizierter
+    # PensionTransferLedgerSnapshotV1 (None ohne externe Vorsorge).
+    pension_transfer_ledger_snapshot: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int

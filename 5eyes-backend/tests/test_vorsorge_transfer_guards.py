@@ -19,8 +19,8 @@ docs/audits/reproducers/test_2026_10_18_vorsorge_transfer_ledger_pr642_adversari
    Quelle; die Netto-Bezuege des Ledgers sind die EINZIGE Basis der
    Zufluss-Serie. Betragsregel (CIO-Entscheid 2026-10-19): beim
    verknuepften Bezug ist der erfasste Betrag der massgebende Nettobezug
-   (Steuer enthalten, Differenz zur Hochrechnung = implizite Steuer, Hinweis
-   ab 5 % Abweichung); die Positionssteuer gilt nur fuer den Auto-Bezug.
+   (Steuer enthalten; Steuer nur abgeleitet, Rest = explizite
+   Bewertungsanpassung, Hinweis ab 5 % Abweichung); die Positionssteuer gilt nur fuer den Auto-Bezug.
 """
 from __future__ import annotations
 
@@ -501,16 +501,22 @@ def test_linked_full_payout_books_recorded_net_and_discloses_implicit_tax():
     assert row.transfer_mode == "full"
     assert row.opening_bound_balance_rappen == 10_000_000
     assert row.projected_bound_balance_rappen == projected
-    assert row.gross_withdrawal_rappen == projected
     assert row.net_advisory_inflow_rappen == 9_999_999  # erfasster Betrag ist massgebend
-    assert row.lumpsum_tax_rappen == projected - 9_999_999  # implizite Steuer/Abweichung
-    assert row.tax_source == "im_erfassten_netto_enthalten"
+    # PR-#651-Restbefund A: Steuer nur abgeleitet (Positionssatz 3 % auf die
+    # Hochrechnung), der Rest der Luecke ist eine explizite Bewertungsanpassung.
+    inferred_tax = round(projected * 300 / 10000)
+    assert row.lumpsum_tax_rappen == inferred_tax
+    assert row.tax_source == "erfasst_satz" and row.tax_provenance == "inferred"
+    assert row.gross_withdrawal_rappen == 9_999_999 + inferred_tax
+    assert row.valuation_adjustment_rappen == row.gross_withdrawal_rappen - projected < 0
     assert row.gross_withdrawal_rappen == row.lumpsum_tax_rappen + row.net_advisory_inflow_rappen
+    assert (row.projected_bound_balance_rappen + row.valuation_adjustment_rappen
+            == row.gross_withdrawal_rappen + row.closing_bound_balance_rappen)
     assert row.closing_bound_balance_rappen == 0
     assert projection.payout_series_rappen == [0, 0, 9_999_999, 0, 0]
     assert projection.linked_replacement_series_rappen == [0, 0, 9_999_999, 0, 0]
     # 9'999'999 vs. Hochrechnung 10'927'270 - 3 % = 10'599'452 -> 5.7 % Abweichung
-    assert any("weicht" in note and "implizite Steuer" in note for note in projection.notes)
+    assert any("weicht" in note and "Bewertungsanpassung" in note for note in projection.notes)
 
 
 def test_linked_payout_within_five_percent_gives_no_hint():
@@ -518,7 +524,10 @@ def test_linked_payout_within_five_percent_gives_no_hint():
     projection = _project([position], [_linked(expected_year=2028, amount_rappen=8_700_000)])
     assert not any("weicht" in note or "höher als" in note for note in projection.notes)
     (row,) = projection.ledger.rows
-    assert row.net_advisory_inflow_rappen == 8_700_000 and row.lumpsum_tax_rappen == 1_300_000
+    # Default-Steuer 10 % auf 10'000'000 = 1'000'000 (abgeleitet), Rest -300'000
+    # ist Bewertungsanpassung -- nicht pauschal "Steuer".
+    assert row.net_advisory_inflow_rappen == 8_700_000 and row.lumpsum_tax_rappen == 1_000_000
+    assert row.tax_provenance == "inferred" and row.valuation_adjustment_rappen == -300_000
 
 
 def test_linked_payout_above_projection_has_zero_tax_and_hint():
@@ -526,7 +535,8 @@ def test_linked_payout_above_projection_has_zero_tax_and_hint():
     (row,) = projection.ledger.rows
     assert row.projected_bound_balance_rappen == 10_000_000
     assert row.net_advisory_inflow_rappen == row.gross_withdrawal_rappen == 10_500_000
-    assert row.lumpsum_tax_rappen == 0
+    assert row.lumpsum_tax_rappen == 0 and row.tax_provenance == "unavailable"
+    assert row.valuation_adjustment_rappen == 500_000
     assert any("höher als Hochrechnung" in note for note in projection.notes)
 
 
@@ -562,8 +572,11 @@ def test_multiple_sources_in_same_year_stay_separate_ledger_rows():
     assert set(rows) == {"pa", "pb"}
     assert rows["pa"].origin == "auto" and rows["pb"].origin == "linked_inflow"
     assert rows["pa"].lumpsum_tax_rappen == 300_000 and rows["pa"].tax_source == "erfasst_betrag"
-    assert rows["pb"].lumpsum_tax_rappen == 400_000
-    assert rows["pb"].tax_source == "im_erfassten_netto_enthalten"
+    assert rows["pa"].tax_provenance == "observed" and rows["pa"].valuation_adjustment_rappen == 0
+    # 5 % von 5'000'000 = 250'000 abgeleitet; Luecke 400'000 -> -150'000 Anpassung
+    assert rows["pb"].lumpsum_tax_rappen == 250_000
+    assert rows["pb"].tax_source == "erfasst_satz" and rows["pb"].tax_provenance == "inferred"
+    assert rows["pb"].valuation_adjustment_rappen == -150_000
     assert projection.payout_series_rappen[2] == (10_000_000 - 300_000) + 4_600_000
 
 
