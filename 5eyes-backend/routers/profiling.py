@@ -430,6 +430,7 @@ def override_risk_assessment(
             assessment_id=ra.id,
             current_override_decision_id=ra.override_decision_id,
         )
+    legacy_snapshot = _legacy_remediation_precheck(ra, body)
     if str(mandate.mandate_type or "").strip().upper() == "FZK" and int(body.override_score_x10 or 0) > 75:
         raise HTTPException(
             status_code=422,
@@ -556,12 +557,31 @@ def override_risk_assessment(
         db.add(decision)
         # Audit-Log: replaybarer Snapshot inkl. Decision-ID/-Hash statt nur
         # des Profilnamens.
+        override_audit = decision_snapshot(decision)
+        if legacy_snapshot is not None:
+            override_audit["audit_reason"] = LEGACY_REMEDIATION
         log(db, user_id=current_user.id, user_name=current_user.full_name,
             table_name="risk_assessments", record_id=ra_id, action="UPDATE",
             field_name="override",
-            new_value=json.dumps(decision_snapshot(decision), ensure_ascii=False),
+            new_value=json.dumps(override_audit, ensure_ascii=False),
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=_extract_client_ip(request))
+        if legacy_snapshot is not None:
+            # RISK-OVERRIDE-LEGACY-REMEDIATION-001: Altwerte replaybar neben
+            # der neuen Decision -- die Decision selbst traegt den heutigen
+            # Zeitstempel (keine Rueckdatierung auf legacy_override_at).
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="risk_assessments", record_id=ra_id, action="UPDATE",
+                field_name=LEGACY_REMEDIATION,
+                new_value=json.dumps({
+                    "audit_reason": LEGACY_REMEDIATION,
+                    "decision_id": decision.id,
+                    "decision_hash": decision.decision_hash,
+                    "decided_at": decision.decided_at,
+                    **legacy_snapshot,
+                }, ensure_ascii=False),
+                mandate_id=mandate_id, client_id=mandate.client_id,
+                ip_address=_extract_client_ip(request))
         # Signoff-Invalidierung replaybar: bisherige (Alt-)Signatur + neue
         # Decision, Status signature_required.
         if signoff_service.had_signature(ra):
@@ -588,6 +608,47 @@ def override_risk_assessment(
     db.refresh(ra)
     invalidate_advisory_cache(mandate_id)
     return ra
+
+
+LEGACY_REMEDIATION = "legacy_remediation"
+
+
+def _legacy_remediation_precheck(ra: RiskAssessment, body: RiskAssessmentOverride) -> dict | None:
+    """RISK-OVERRIDE-LEGACY-REMEDIATION-001: Vorpruefung VOR jeder Mutation.
+
+    Nur ein echter Altbestand-Override (is_overridden=1, kein Decision-
+    Pointer) darf remediiert werden (sonst 409); die Remediation bestaetigt
+    denselben Score (eine Aenderung ist ein normaler Override, sonst 422).
+    Liefert die Altwerte fuer den Audit-Eintrag, None ohne Remediation."""
+    if body.remediation != LEGACY_REMEDIATION:
+        return None
+    if int(ra.is_overridden or 0) != 1 or ra.override_score_x10 is None or ra.override_decision_id:
+        _override_conflict(
+            "RISK_OVERRIDE_NOT_LEGACY",
+            "Kein Override aus dem Altbestand ohne Decision-Nachweis -- eine "
+            "Altbestand-Bestaetigung ist hier nicht moeglich. Bitte Seite neu laden.",
+            assessment_id=ra.id,
+            current_override_decision_id=ra.override_decision_id,
+        )
+    if int(body.override_score_x10) != int(ra.override_score_x10):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Die Altbestand-Bestaetigung uebernimmt den bestehenden Override-Score "
+                f"({int(ra.override_score_x10)}). Fuer einen anderen Score bitte einen "
+                "normalen Override erfassen."
+            ),
+        )
+    return {
+        "legacy_override_score_x10": int(ra.override_score_x10),
+        "legacy_override_profile": ra.override_profile,
+        "legacy_override_reason": ra.override_reason,
+        "legacy_override_client_confirmed": int(ra.override_client_confirmed or 0),
+        "legacy_override_warning_delivered": int(ra.override_warning_delivered or 0),
+        "legacy_override_warning_document_id": ra.override_warning_document_id,
+        "legacy_override_by": ra.override_by,
+        "legacy_override_at": ra.override_at,
+    }
 
 
 def _override_conflict(reason_code: str, message: str, **context) -> None:

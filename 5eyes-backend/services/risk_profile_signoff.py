@@ -446,8 +446,9 @@ def signoff_view_lines(view: dict[str, Any]) -> list[tuple[str, str]]:
     elif state == STATE_REMEDIATION_REQUIRED:
         lines.append((
             "Hinweis",
-            "Override ohne verifizierbaren Decision-Nachweis (Altbestand). Bitte den "
-            "Override neu erfassen, bevor das Risikoprofil signiert wird.",
+            "Override aus Altbestand ohne verifizierbaren Decision-Nachweis -- bitte "
+            "bestaetigen (Risikoprofil-Ansicht, Aktion \"Override bestaetigen\"), bevor "
+            "das Risikoprofil signiert wird.",
         ))
     return lines
 
@@ -533,7 +534,8 @@ def record_signoff(
             _conflict(
                 "RISK_OVERRIDE_DECISION_UNVERIFIABLE",
                 "Der Override hat keinen Decision-Nachweis (Altbestand) und kann nicht "
-                "signiert werden. Bitte den Override neu erfassen (remediation_required).",
+                "signiert werden. Bitte den Override aus Altbestand bestaetigen "
+                "(Risikoprofil-Ansicht, remediation=legacy_remediation; remediation_required).",
                 assessment_id=ra.id, signoff_state=STATE_REMEDIATION_REQUIRED,
             )
         if decision_verified is not True:

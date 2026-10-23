@@ -10437,10 +10437,14 @@ protokolliereEreignis=runtimeProtokolliereEreignis;
 
 <div class="overlay" id="m-overr">
   <div class="modal" style="width:400px">
-    <div class="mhd"><div class="mtitle">Risikoprofil überschreiben</div><button class="mx" onclick="cm('m-overr')">✕</button></div>
+    <div class="mhd"><div class="mtitle" id="ov-title">Risikoprofil überschreiben</div><button class="mx" onclick="cm('m-overr')">✕</button></div>
     <div class="mbody">
-      <div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:10px;margin-bottom:14px;font-size:11px;color:var(--n6)">
+      <div id="ov-intro" style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:10px;margin-bottom:14px;font-size:11px;color:var(--n6)">
         <strong style="color:var(--warn)">&#9888; Berater-Override</strong><br>Diese Aktion wird protokolliert. Vertragliche Zustimmung des Kunden erforderlich.
+      </div>
+      <div id="ov-legacy-intro" style="display:none;background:rgba(201,68,68,0.08);border:1px solid rgba(201,68,68,0.35);border-radius:var(--r2);padding:10px;margin-bottom:14px;font-size:11px;color:var(--n6)">
+        <strong style="color:var(--neg)">&#9888; Override aus Altbestand &ndash; bitte bestätigen</strong><br>Dieser Override wurde vor Einführung des Decision-Nachweises erfasst und hat keinen verifizierbaren Entscheid; das Risikoprofil kann so nicht signiert werden. Die bestehenden Angaben sind vorbelegt. Mit der Bestätigung wird ein neuer Override-Entscheid mit heutigem Datum protokolliert (keine Rückdatierung); alle Pflichtangaben werden erneut geprüft.
+        <div id="ov-legacy-meta" style="margin-top:6px;font-size:10px;color:var(--n5)"></div>
       </div>
       <div class="frow"><div class="fg">
         <label class="fl">Aktueller Score (berechnet)</label>
@@ -10654,9 +10658,19 @@ function updOvWarnBtn(){
   var btn=document.querySelector('#m-overr .btn-g');
   if(btn){btn.disabled=(req.confirm&&(!ic||!ic.checked))||(req.warn&&(!wc||!wc.checked));}
 }
-async function openOverrideModal(){
+// RISK-OVERRIDE-LEGACY-REMEDIATION-001: Override aus Altbestand (ohne
+// Decision-Nachweis) ueber den NORMALEN Override-Endpunkt bestaetigen.
+var _ovLegacyRemediation=false;
+function riskOverrideIsLegacy(risk){
+  return !!risk&&Number(risk.is_overridden||0)===1&&risk.override_score_x10!=null&&!risk.override_decision_id;
+}
+function openLegacyOverrideRemediation(){
+  return openOverrideModal({legacyRemediation:true});
+}
+async function openOverrideModal(opts){
   var mid=getActiveMandateId();
   var risk=await resolveRiskAssessmentForOverride(mid);
+  _ovLegacyRemediation=!!(opts&&opts.legacyRemediation)&&riskOverrideIsLegacy(risk);
   // Sprint Bug-#2 (2026-06-08): Pre-check fuer Real-Mandate-RA-Existenz.
   // Bei REAL-Mandat ohne RA: User benachrichtigen statt Modal zu oeffnen.
   // Demo-Mandate duerfen weiter (visualisierungs-Zweck).
@@ -10683,7 +10697,29 @@ async function openOverrideModal(){
   var ib=document.getElementById('ov-wish-block');if(ib)ib.style.display='none';
   var ic=document.getElementById('ov-wish-confirm');if(ic)ic.checked=false;
   if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
+  var ttl=document.getElementById('ov-title');
+  var intro=document.getElementById('ov-intro');
+  var lIntro=document.getElementById('ov-legacy-intro');
+  if(ttl)ttl.textContent=_ovLegacyRemediation?'Override aus Altbestand bestätigen':'Risikoprofil überschreiben';
+  if(intro)intro.style.display=_ovLegacyRemediation?'none':'';
+  if(lIntro)lIntro.style.display=_ovLegacyRemediation?'block':'none';
+  if(sl)sl.disabled=_ovLegacyRemediation;
   updOv(score);
+  if(_ovLegacyRemediation){
+    // Bestehende Override-Daten vorbelegt anzeigen (Score fix; Aenderung =
+    // normaler Override). Begruendung editierbar: sie muss die heutige
+    // Qualitaetsregel erfuellen.
+    if(re)re.value=String(risk.override_reason||'');
+    if(ic&&ib&&ib.style.display!=='none')ic.checked=Number(risk.override_client_confirmed||0)===1;
+    if(wc&&wb&&wb.style.display!=='none')wc.checked=Number(risk.override_warning_delivered||0)===1;
+    var meta=document.getElementById('ov-legacy-meta');
+    if(meta)meta.textContent='Bisher erfasst: Score '+score+'/10 ('+profile+')'
+      +(risk.override_at?' am '+formatDateSwiss(String(risk.override_at).slice(0,10)):'')
+      +' · Kundenwunsch bestätigt: '+(Number(risk.override_client_confirmed||0)===1?'ja':'nein')
+      +' · Warnhinweis abgegeben: '+(Number(risk.override_warning_delivered||0)===1?'ja':'nein');
+    if(btn)btn.textContent='Altbestand bestätigen & protokollieren';
+    updOvWarnBtn();
+  }
   om('m-overr');
 }
 async function applyOv(){
@@ -10734,11 +10770,18 @@ async function applyOv(){
     var req2=riskOverrideRequirements(v*10,risk2);
     var ic2=document.getElementById('ov-wish-confirm');
     var wc2=document.getElementById('ov-warn-confirm');
-    var saved=await API.post('/mandates/'+mid+'/risk-assessments/'+raId+'/override',{
+    var ovPayload={
       override_score_x10:v*10,override_profile:n,override_reason:reason,
       override_client_confirmed:req2.confirm?!!(ic2&&ic2.checked):false,
       override_warning_delivered:req2.warn?!!(wc2&&wc2.checked):false
-    });
+    };
+    if(_ovLegacyRemediation&&riskOverrideIsLegacy(risk2)){
+      ovPayload.remediation='legacy_remediation';
+      ovPayload.expected_override_decision_id=null;
+      if(risk2.version!=null)ovPayload.expected_assessment_version=Number(risk2.version);
+    }
+    var saved=await API.post('/mandates/'+mid+'/risk-assessments/'+raId+'/override',ovPayload);
+    _ovLegacyRemediation=false;
     strategyState.currentRisk=saved;
     strategyState.risk=riskAssessmentReadyForStrategy(saved, mid)?saved:null;
     renderRiskSummary(saved);
@@ -17423,6 +17466,11 @@ function renderRiskSummary(result){
     badge.style.display = normalized.isOverridden ? 'block' : 'none';
     if (normalized.isOverridden) {
       badge.innerHTML = '⚠ Override aktiv – Score: <span id="overr-val">' + formatRiskScoreTen(normalized.finalScore) + '/10</span> – Protokolliert';
+      // RISK-OVERRIDE-LEGACY-REMEDIATION-001
+      if (riskOverrideIsLegacy(result)) {
+        badge.innerHTML += '<div id="overr-legacy-hint" style="margin-top:6px;font-weight:600">Override aus Altbestand – bitte bestätigen. Ohne Decision-Nachweis ist keine Signatur des Risikoprofils möglich.</div>'
+          + '<button type="button" id="btn-overr-legacy-remediate" onclick="openLegacyOverrideRemediation()" style="margin-top:6px;background:var(--chrome-n6);border:none;color:#fff;border-radius:var(--r);font-family:var(--f-s);font-size:10px;font-weight:500;padding:5px 11px;cursor:pointer;">Override bestätigen</button>';
+      }
     }
   }
   normalizeVisibleMojibake(document.getElementById('page-rp')||document.body);
@@ -27695,14 +27743,14 @@ function renderReviewRiskProfileCard(){
       signed:'Die Bestaetigung zum aktuellen Risikoprofil ist dokumentiert und an '+(risk.override_decision_id?'den aktuellen Override-Entscheid':'das Fragebogenergebnis (kein Override)')+' gebunden.',
       signature_required:'Das wirksame Risikoprofil wurde nach der letzten Signatur uebersteuert ('+(risk.override_decision_id?('Override-Entscheid '+String(risk.override_decision_id)):'Override')+'). Die fruehere Signatur gilt nicht fuer das aktuelle Profil -- bitte die Bestaetigung neu erfassen.',
       legacy_unbound:'Altsignatur vom '+formatDateSwiss(String(signedAt||'').slice(0,10))+' ('+methodTxt+') ohne Signoff-Nachweis -- nicht an einen Override-Entscheid gebunden. Mit «Signatur erneuern» wird ein gebundener Signoff erfasst.',
-      remediation_required:'Der Override hat keinen verifizierbaren Decision-Nachweis (Altbestand). Bitte den Override auf der Seite Risikoprofil neu erfassen, bevor signiert wird.',
+      remediation_required:'Override aus Altbestand – bitte bestätigen: Der Override hat keinen verifizierbaren Decision-Nachweis. Auf der Seite Risikoprofil mit «Override bestätigen» einen Entscheid erfassen, danach ist die Signatur möglich.',
       unsigned:'Noch nicht signiert. Mit «Signatur erfassen» dokumentieren Sie die Bestaetigung zum aktuellen Risikoprofil.'
     };
     hintEl.textContent=hints[signoffState]||hints.unsigned;
   }
   if(btn){
     if(isDemo){btn.disabled=true;btn.title='Signatur nur fuer ein gespeichertes Mandat moeglich.';}
-    else if(signoffState==='remediation_required'){btn.disabled=true;btn.title='Override zuerst neu erfassen (kein verifizierbarer Decision-Nachweis).';}
+    else if(signoffState==='remediation_required'){btn.disabled=true;btn.title='Override aus Altbestand zuerst auf der Seite Risikoprofil bestätigen (kein verifizierbarer Decision-Nachweis).';}
     else{btn.disabled=false;btn.title='';}
     btn.textContent=(signoffState==='signed'||signoffState==='legacy_unbound')?'Signatur erneuern':'Signatur erfassen';
   }
