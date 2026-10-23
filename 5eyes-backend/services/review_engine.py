@@ -25,6 +25,7 @@ from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
 )
+from services.goal_success_status import GOAL_SUCCESS_WARN_PCT
 from services.jurisdiction.resolve import resolve_mandate_jurisdiction
 
 
@@ -398,9 +399,13 @@ def refresh_system_review_triggers(
                 ),
             )
 
+        # GOAL-STATUS-BY-SUCCESS-001: kritisch = Erfolgswahrscheinlichkeit
+        # < 45 % (Ampel 70/45, dieselbe Quelle wie Cockpit und Bericht);
+        # nicht mehr der Mischwert achievement_score. Ziele ohne Wert zaehlen nicht.
         endangered_goals = [
             goal for goal in payload.get("goal_analysis", [])
-            if int(goal.get("achievement_score") or 0) < 45
+            if goal.get("success_probability_pct") is not None
+            and int(goal.get("success_probability_pct")) < GOAL_SUCCESS_WARN_PCT
         ]
         if not goal_analysis_trusted:
             endangered_goals = None
@@ -417,10 +422,10 @@ def refresh_system_review_triggers(
             goal_trigger.next_due_at = today
             goal_trigger.triggered_at = now
             goal_trigger.triggered_value = "; ".join(
-                f"{goal.get('label')}: {int(goal.get('achievement_score') or 0)}%"
+                f"{goal.get('label')}: {int(goal.get('success_probability_pct'))}%"
                 for goal in endangered_goals[:3]
             )
-            goal_trigger.triggered_notes = "Mindestens ein Ziel liegt gemaess Goal Engine unter 45% Zielerreichung."
+            goal_trigger.triggered_notes = "Mindestens ein Ziel liegt unter 45% Erfolgswahrscheinlichkeit (Ampel kritisch)."
             goal_trigger.updated_at = now
         elif endangered_goals is not None:
             _resolve_system_trigger(
@@ -429,7 +434,7 @@ def refresh_system_review_triggers(
                 trigger_type="Ereignis",
                 trigger_name=SYSTEM_TRIGGER_GOALS,
                 now=now,
-                note="Systempruefung: aktuell keine gefaehrdeten Ziele unterhalb 45% Zielerreichung.",
+                note="Systempruefung: aktuell kein Ziel unter 45% Erfolgswahrscheinlichkeit (Ampel kritisch).",
             )
 
     recommendation_runs = db.query(RecommendationRun).filter(

@@ -12,6 +12,7 @@ import type {
   RiskAssessmentCreate,
 } from '@/api/types';
 import { RiskSummary } from './RiskSummary';
+import { RiskCapacityPlausibilityPanel } from './RiskCapacityPlausibilityPanel';
 
 type Option = {
   label: string;
@@ -432,6 +433,11 @@ export function ProfilingPage() {
 
         <aside className="space-y-block">
           <RiskSummary assessment={assessment} />
+          {/* RISK-CAPACITY-REPORT-001: Plausibilitaetspruefung (Berater-Hinweis). */}
+          <RiskCapacityPlausibilityPanel
+            mandateId={mandateId}
+            assessmentId={assessment?.id ?? null}
+          />
           <section className="border border-rule bg-canvas-subtle p-5">
             <p className="text-micro uppercase tracking-widest text-ink-subtle">
               Methodik
