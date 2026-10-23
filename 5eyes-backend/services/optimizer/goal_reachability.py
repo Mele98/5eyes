@@ -1,5 +1,28 @@
 """Ist ein Ziel auf IRGENDEINER zulaessigen Allokation erreichbar?
 
+ENGINE v11 (GOAL-REVISION-DECISION-001, CIO-Entscheid 2026-10-21 nach Codex-
+Closure-Review docs/audits/2026-10-20-goal-reachability-certificate-pr655-
+closure-review.md): ein lokales Optimum ist kein globaler
+Unmoeglichkeitsnachweis. Eine schmale zulaessige Erfolgsinsel zwischen allen
+Startpunkten (400/400 erfolgreiche Pfade) wurde von SLSQP verfehlt und das
+harte Ziel trotzdem als ``certified_unreachable_on_screen_cube`` aus Stufe 1
+herabgestuft. Seit v11:
+
+* die lokale Suche (unveraendert: Multi-Start, Glaettungsfortsetzung,
+  exakter Indikator) liefert nur noch ``reachable`` (gefunden) oder
+  ``not_found_reachable_locally`` (lokal nicht gefunden, KEIN Beweis);
+  ohne zulaessige Menge ``global_certificate_unavailable``. Jeder Zustand
+  ausser ``reachable`` ist fail-safe: das Ziel bleibt mit seinem Haertegrad
+  in Stufe 1. ``certified_unreachable_goal_ids`` ist immer leer;
+* die Engine stuft NIE selbst herab. ``demoted_goal_ids`` sind die Ziele mit
+  gueltiger Berater-Entscheidung ``GoalRevisionDecisionV1``
+  (services/goal_revision_decision.py, Ziel-Snapshot-Hash passt);
+* ein lokaler Such-Miss erzeugt einen Vorschlag (``revision_suggested`` je
+  Zielzeile, Beraterhinweis im Reasoning): "Als nachrangiges Wunschziel
+  einstufen..." mit Begruendung -> POST erzeugt die Decision;
+* die Wilson-Obergrenze ist eine Stichproben-Unsicherheit AM BESTEN
+  GEFUNDENEN PUNKT, kein Optimierungs-Bound (Codex 5.2.4).
+
 ENGINE v9 (GOAL-REACHABILITY-CERTIFICATE-001, CIO-Entscheid 2026-10-19 nach
 Codex-Review docs/audits/2026-10-19-maximize-goal-hardness-pr650-current-
 review.md, Abschnitt 4): ein endlicher Screen-Miss stufte ein hartes Ziel
@@ -126,15 +149,19 @@ import numpy as np
 
 from .certification import wilson_upper_bound
 
-GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v5_certified_demotion"
-GOAL_REACHABILITY_CERTIFICATE_VERSION = "max_smoothed_success_multistart_v1"
+GOAL_REACHABILITY_SCREEN_VERSION = "goal_reachability_screen_v6_local_search_no_auto_demotion"
+GOAL_REACHABILITY_CERTIFICATE_VERSION = "max_smoothed_success_multistart_v2_local_only"
 # Fortsetzung der logistischen Glaettung (Anteil des Zielwerts): breit zuerst
 # (Gradient auch weit vom Ziel), zuletzt die Stufe-1-Breite.
 CERTIFICATE_WIDTHS = (0.25, 0.05, 0.02)
 CERTIFICATE_MAX_ITER = 40
-CERTIFICATE_STATUS_UNREACHABLE = "certified_unreachable_on_screen_cube"
+# Engine v11: ein lokaler Such-Miss ist KEIN Unerreichbarkeitsnachweis.
+CERTIFICATE_STATUS_NOT_FOUND = "not_found_reachable_locally"
 CERTIFICATE_STATUS_REACHABLE = "reachable"
-CERTIFICATE_STATUS_UNAVAILABLE = "certificate_unavailable"
+CERTIFICATE_STATUS_UNAVAILABLE = "global_certificate_unavailable"
+# Ein globales Zertifikat (oberer Bound + Gap ueber die ganze zulaessige
+# Menge) existiert nicht; jede Zeile traegt das ausdruecklich.
+GLOBAL_CERTIFICATE_STATUS = "unavailable_local_search_only"
 # Seed-Offset des Screening-Wuerfels (Primzahl, verschieden vom
 # Validierungs-Offset ``solver.VALIDATION_SEED_OFFSET = 1_000_003``).
 SCREENING_SEED_OFFSET = 2_000_003
@@ -366,6 +393,7 @@ def certify_goal_reachability(
     ]
     status = None
     n_local_solves = 0
+    solver_status: dict[str, int] = {"success": 0, "failure": 0, "non_finite": 0}
     for x0 in starts:
         evaluate(x0, feasible=True)  # Kandidaten/Zentrum sind zulaessig
         if reached():
@@ -403,8 +431,11 @@ def certify_goal_reachability(
                     options={"maxiter": CERTIFICATE_MAX_ITER, "ftol": 1e-9, "disp": False},
                 )
                 n_local_solves += 1
+                solver_status["success" if bool(getattr(result, "success", False)) else "failure"] += 1
                 raw = getattr(result, "x", None)
-                if raw is not None and np.all(np.isfinite(raw)) and is_ok(np.asarray(raw)):
+                if raw is None or not np.all(np.isfinite(raw)):
+                    solver_status["non_finite"] += 1
+                elif is_ok(np.asarray(raw)):
                     x = np.asarray(raw, dtype=np.float64)
                     evaluate(x, feasible=True)
                 if reached():
@@ -413,13 +444,19 @@ def certify_goal_reachability(
             if status is not None:
                 break
         if status is None:
-            status = CERTIFICATE_STATUS_UNREACHABLE
+            # Engine v11: lokal nicht gefunden -- kein Beweis, keine Wirkung.
+            status = CERTIFICATE_STATUS_NOT_FOUND
     best = state["best_w"]
     return {
         "version": GOAL_REACHABILITY_CERTIFICATE_VERSION,
         "status": status,
+        "global_certificate": GLOBAL_CERTIFICATE_STATUS,
+        "solver_status_counts": dict(solver_status),
         "max_probability": float(state["max_probability"]),
+        # Stichproben-Unsicherheit am besten gefundenen Punkt, KEIN
+        # Optimierungs-Bound ueber die zulaessige Menge (Codex 5.2.4).
         "max_upper_bound": float(wilson_upper_bound(state["max_probability"], n_eff)),
+        "upper_bound_kind": "sampling_wilson_at_best_found_point",
         "threshold": float(threshold),
         "n_eff": float(n_eff),
         "best_bps": (
@@ -508,20 +545,26 @@ def goal_reachability_screen(context) -> dict | None:
                 row["tau_reachable"] = True
 
     unreachable = sorted(gid for gid, row in state.items() if not row["reachable"])
-    # Engine v9 (GOAL-REACHABILITY-CERTIFICATE-001): nur fuer Ziele, die der
-    # guenstige Screen nicht an tau/2 findet, die echte Optimierung ueber die
-    # zulaessige Menge. Herabgestuft wird ausschliesslich, was sie
-    # zertifiziert (``demoted_goal_ids``).
+    # Engine v9: fuer Ziele, die der guenstige Screen nicht an tau/2 findet,
+    # die lokale Suche ueber die zulaessige Menge. Engine v11
+    # (GOAL-REVISION-DECISION-001): ihr Miss ist nur ein Vorschlag an den
+    # Berater (``revision_suggested_goal_ids``), nie eine Herabstufung.
     for gid in unreachable:
         row = state[gid]
         row["certificate"] = certify_goal_reachability(
             context, validation_context, row["goal"], candidates,
             tau=row["tau"], cube_hash=cube_hash,
         )
-    certified_unreachable = sorted(
+    revision_suggested = sorted(
         gid for gid in unreachable
-        if state[gid]["certificate"]["status"] == CERTIFICATE_STATUS_UNREACHABLE
+        if state[gid]["certificate"]["status"] != CERTIFICATE_STATUS_REACHABLE
     )
+    # Herabgestuft ist nur, was eine gueltige GoalRevisionDecisionV1 traegt
+    # (``goal_revision_decision.apply_to_liabilities`` markiert die Liability).
+    decided = {
+        str(liab.goal_id): liab for liab in context.liabilities
+        if getattr(liab, "demoted", False)
+    }
     # Engine v7: reine Offenlegung -- in KEINEM Modus wird ein Ziel aus
     # Zielfunktion oder Strafe genommen. "not_found_reachable_in_screen_set"
     # heisst: auf der endlichen Pruefmenge nicht gefunden, kein Beweis.
@@ -561,9 +604,16 @@ def goal_reachability_screen(context) -> dict | None:
                     else "found_reachable_in_screen_set"
                 ),
                 "penalty_exempt": False,
-                # Engine v9: Zertifikat (nur fuer Screen-Misses an tau/2).
+                # Engine v9: lokale Suche (nur fuer Screen-Misses an tau/2).
                 "certificate": row.get("certificate"),
-                "certified_unreachable": gid in certified_unreachable,
+                # Engine v11: nie zertifiziert unerreichbar (kein globaler
+                # Nachweis); ein Miss ist nur ein Vorschlag an den Berater.
+                "certified_unreachable": False,
+                "revision_suggested": gid in revision_suggested,
+                "demoted_by_decision": gid in decided,
+                "revision_decision_id": getattr(decided.get(gid), "revision_decision_id", None),
+                "revision_decision_hash": getattr(decided.get(gid), "revision_decision_hash", None),
+                "goal_snapshot_hash": getattr(row["goal"], "goal_snapshot_hash", None),
             }
             for gid, row in state.items()
         ],
@@ -571,93 +621,141 @@ def goal_reachability_screen(context) -> dict | None:
         # erreichen (keine Aussage ueber den ganzen zulaessigen Raum).
         "unreachable_goal_ids": unreachable,
         "not_found_reachable_goal_ids": sorted(flagged),
-        # Engine v9: einzige operative Groesse -- zertifiziert unerreichbar
-        # (obere Wilson-Grenze des Optimums < tau/2) -> Wunschziel, nicht
-        # Stufe 1. Alles andere bleibt Offenlegung.
+        # Engine v11 (GOAL-REVISION-DECISION-001): keine automatische
+        # Herabstufung. Operativ wirkt nur die Berater-Entscheidung
+        # (``demoted_goal_ids`` = Ziele mit gueltiger GoalRevisionDecisionV1);
+        # ein lokaler Such-Miss ist ein Vorschlag.
         "certificate_version": GOAL_REACHABILITY_CERTIFICATE_VERSION,
-        "certified_unreachable_goal_ids": certified_unreachable,
-        "demoted_goal_ids": certified_unreachable,
+        "global_certificate": GLOBAL_CERTIFICATE_STATUS,
+        "certified_unreachable_goal_ids": [],
+        "revision_suggested_goal_ids": revision_suggested,
+        "demoted_goal_ids": sorted(decided),
         # Immer leer seit v4 (Engine v7): kein Ziel wird ausgenommen.
         "penalty_exempt_goal_ids": [],
     }
 
 
-def reachability_reasoning(screen: dict | None) -> list[str]:
-    """Beraterhinweis je Ziel, das auf der Pruefmenge nicht erreichbar war.
+def _best_found(row: dict) -> float:
+    certificate = row.get("certificate") or {}
+    return max(
+        float(row.get("max_probability") or 0.0),
+        float(certificate.get("max_probability") or 0.0),
+    )
 
-    Engine v7: das Ziel wird trotzdem optimiert (Fehlbetrag minimiert); der
-    Hinweis verlangt die Ueberpruefung mit dem Kunden. Engine v9: "nachrangiges
-    Wunschziel" nur bei zertifizierter Unerreichbarkeit.
+
+def reachability_reasoning(screen: dict | None) -> list[str]:
+    """Beraterhinweis je Ziel, das lokal nicht mit ausreichender Sicherheit
+    gefunden wurde oder per Berater-Entscheid nachrangig ist.
+
+    Engine v11 (GOAL-REVISION-DECISION-001): keine Unmoeglichkeits- oder
+    Garantieaussage. Ein lokal nicht gefundenes Ziel bleibt mit seinem
+    Haertegrad geschuetzt; der Hinweis schlaegt die Einstufung als
+    nachrangiges Wunschziel nur VOR (Berater-Entscheid mit Begruendung).
     """
-    if not screen or not screen.get("not_found_reachable_goal_ids"):
+    if not screen:
         return []
     lines = []
     for row in screen.get("goals") or ():
+        label = repr(str(row["label"]))
+        if row.get("demoted_by_decision"):
+            reference = str(row.get("revision_decision_id") or "")
+            digest = str(row.get("revision_decision_hash") or "")[:12]
+            lines.append(
+                "Beraterhinweis: Ziel " + label + " ist per Beraterentscheid"
+                + (f" ({reference}, SHA-256 {digest})" if reference else "")
+                + " als nachrangiges Wunschziel eingestuft; es wird als "
+                "nachrangiges Wunschziel verfolgt und verdraengt keine "
+                "erreichbaren Ziele. Eine Aenderung des Ziels hebt die "
+                "Einstufung auf. Ziel mit dem Kunden ueberpruefen (Betrag, "
+                "Termin, Prioritaet)."
+            )
+            continue
         if row.get("status") != "not_found_reachable_in_screen_set":
             continue
         figures = (
-            f"max. {100.0 * float(row['max_probability']):.1f} %, obere 95 %-Grenze "
-            f"{100.0 * float(row['max_upper_bound']):.1f} %, gefordert "
+            f"beste gefundene Allokation {100.0 * _best_found(row):.1f} %, gefordert "
             f"{100.0 * float(row['tau']):.0f} %"
         )
-        certificate = row.get("certificate") or {}
-        if not row.get("reachable") and row.get("certified_unreachable"):
+        if row.get("revision_suggested"):
             lines.append(
-                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist auch nach "
-                "Optimierung seiner Erfolgswahrscheinlichkeit ueber die zulaessige "
-                "Menge nicht mit der Mindestsicherheit erreichbar (beste gefundene "
-                "Allokation " + f"{100.0 * float(certificate['max_probability']):.1f} %, "
-                "obere 95 %-Grenze "
-                + f"{100.0 * float(certificate['max_upper_bound']):.1f} %, gefordert "
-                + f"{100.0 * float(row['tau']):.0f} %; zertifiziert auf dem "
-                "Screening-Wuerfel, lokales Optimum, kein Unmoeglichkeitsnachweis); "
-                "es wird als nachrangiges Wunschziel verfolgt und verdraengt keine "
-                "erreichbaren Ziele. Ziel mit dem Kunden ueberpruefen (Betrag, "
-                "Termin, Prioritaet)."
-            )
-        elif not row.get("reachable") and (
-            certificate.get("status") != CERTIFICATE_STATUS_REACHABLE
-        ):
-            # Screen-Miss ohne Zertifikat (keine zulaessige Menge bekannt):
-            # das Ziel wird NICHT herabgestuft (Engine v9).
-            lines.append(
-                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " ist mit keiner "
-                "der geprueften zulaessigen Allokationen mit der Mindestsicherheit "
-                "erreichbar (" + figures + "; endliche Pruefmenge, kein "
-                "Unmoeglichkeitsnachweis); ohne Zertifikat bleibt es voll gewichtet. "
-                "Ziel mit dem Kunden ueberpruefen (Betrag, Termin, Prioritaet)."
+                "Beraterhinweis: Ziel " + label + " wird mit den geprueften "
+                "Allokationen nicht mit ausreichender Sicherheit erreicht ("
+                + figures + "). Es bleibt mit seinem Haertegrad vorrangig "
+                "geschuetzt. Ziel mit dem Kunden ueberpruefen (Betrag, Termin, "
+                "Prioritaet) oder als nachrangiges Wunschziel einstufen "
+                "(Begruendung erforderlich)."
             )
         elif screen.get("objective_mode") == "goal_shortfall":
-            # Screen-Miss, vom Zertifikat erreichbar gefunden: das Ziel wird
-            # normal (hart/primaer: Stufe 1) verfolgt -- kein Hinweis.
+            # Von der lokalen Suche erreichbar gefunden: normal verfolgt.
             continue
         else:
             lines.append(
-                "Beraterhinweis: Ziel " + repr(str(row["label"])) + " erreichte in "
+                "Beraterhinweis: Ziel " + label + " erreichte in "
                 "der Risikovariante (" + str(screen.get("objective_mode")) + ") auf "
                 "keiner der geprueften zulaessigen Allokationen die geforderte "
-                "Sicherheit (" + figures + "; endliche Pruefmenge). Ziel mit dem "
-                "Kunden ueberpruefen (Betrag, Termin, Prioritaet); es bleibt Teil "
-                "der Zielfunktion."
+                "Sicherheit (" + figures + "). Ziel mit dem Kunden ueberpruefen "
+                "(Betrag, Termin, Prioritaet); es bleibt Teil der Zielfunktion."
             )
     return lines
 
 
-def annotate_rows(rows, screen: dict | None) -> list[dict]:
-    """Setzt ``feasible_set_reachable`` (bool) auf jeder GEPRUEFTEN Zielzeile."""
-    verdict = {
-        str(row["goal_id"]): bool(row["reachable"]) or (
-            (row.get("certificate") or {}).get("status") == CERTIFICATE_STATUS_REACHABLE
-        )
-        for row in ((screen or {}).get("goals") or ())
+def _revision_evidence(row: dict, screen: dict) -> dict:
+    """GOAL-REVISION-DECISION-001: Engine-Evidenz je gepruefter Zielzeile
+    (Grundlage einer spaeteren GoalRevisionDecisionV1)."""
+    from .solver import OPTIMIZER_ENGINE_VERSION
+
+    certificate = row.get("certificate") or {}
+    if row.get("reachable"):
+        status = "found_reachable_in_screen_set"
+    else:
+        status = certificate.get("status") or CERTIFICATE_STATUS_UNAVAILABLE
+    upper = max(
+        float(row.get("max_upper_bound") or 0.0),
+        float(certificate.get("max_upper_bound") or 0.0),
+    )
+    return {
+        "status": status,
+        "revision_suggested": bool(row.get("revision_suggested")),
+        "demoted_by_decision": bool(row.get("demoted_by_decision")),
+        "revision_decision_id": row.get("revision_decision_id"),
+        "revision_decision_hash": row.get("revision_decision_hash"),
+        "best_probability": _best_found(row),
+        "wilson_upper_bound": upper,
+        "upper_bound_kind": "sampling_wilson_at_best_found_point",
+        "tau": float(row.get("tau") or 0.0),
+        "threshold": UNREACHABLE_TAU_FRACTION * float(row.get("tau") or 0.0),
+        "global_certificate": GLOBAL_CERTIFICATE_STATUS,
+        "screening_cube_hash": screen.get("screening_cube_hash"),
+        "goal_snapshot_hash": row.get("goal_snapshot_hash"),
+        "engine_version": OPTIMIZER_ENGINE_VERSION,
+        "policy": screen.get("version"),
     }
+
+
+def annotate_rows(rows, screen: dict | None) -> list[dict]:
+    """Setzt auf jeder GEPRUEFTEN Zielzeile ``feasible_set_reachable`` und
+    (Engine v11) ``goal_revision`` (Evidenz + Vorschlag).
+
+    ``feasible_set_reachable`` (bool, Vertrag seit Engine v7/v9): True =
+    eine zulaessige Allokation mit ausreichender Sicherheit (obere Grenze >=
+    tau/2) gefunden -- im Screen oder von der lokalen Suche; False = nicht
+    gefunden. False ist eine Offenlegung, KEIN Unerreichbarkeitsnachweis
+    (Engine v11): der ehrliche Status steht in ``goal_revision.status``."""
+    screen = screen or {}
+    by_goal = {str(row["goal_id"]): row for row in (screen.get("goals") or ())}
     out = []
     for row in rows:
         row = dict(row)
         goal_id = row.get("goal_id")
-        # Nur gepruefte Ziele (Untergrenze, im Horizont) bekommen das Feld;
+        # Nur gepruefte Ziele (Untergrenze, im Horizont) bekommen die Felder;
         # alle anderen Zeilen bleiben unveraendert.
-        if goal_id is not None and str(goal_id) in verdict:
-            row["feasible_set_reachable"] = verdict[str(goal_id)]
+        screened = by_goal.get(str(goal_id)) if goal_id is not None else None
+        if screened is not None:
+            found = bool(screened["reachable"]) or (
+                (screened.get("certificate") or {}).get("status")
+                == CERTIFICATE_STATUS_REACHABLE
+            )
+            row["feasible_set_reachable"] = bool(found)
+            row["goal_revision"] = _revision_evidence(screened, screen)
         out.append(row)
     return out

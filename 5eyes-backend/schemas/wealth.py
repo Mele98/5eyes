@@ -641,9 +641,18 @@ class WealthInflowCreate(BaseModel):
     notes: Optional[str] = None
     # VORSORGE-TRANSFER-001: siehe models/wealth.py::WealthInflow.linked_position_id.
     linked_position_id: Optional[str] = None
+    # INFLOW-CERTAINTY-001: 'sicher' (Default, vertraglich/fix) | 'unsicher'
+    # (Erbschaft/Bonus ohne Zusage -> weder Reserve noch Simulation).
+    # null = 'sicher' (Bestandszeilen vor der Migration).
+    certainty: Optional[Literal["sicher", "unsicher"]] = "sicher"
     # rls-3 (2026-07-23): Phase-0-Gate (enforce_data_classification) fehlte fuer
     # Wealth-Inflows komplett -- analog zu Cashflow/Goal/Wealth-Position nachgezogen.
     data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @field_validator("certainty", mode="before")
+    @classmethod
+    def _default_certainty(cls, value):
+        return "sicher" if value is None else value
 
     @model_validator(mode="after")
     def _validate_recurring(self):
@@ -673,6 +682,13 @@ class WealthInflowCreate(BaseModel):
             )
             if violation:
                 raise ValueError(violation)
+            if self.certainty == "unsicher":
+                # INFLOW-CERTAINTY-001: ein Vorsorgebezug ist eine Umbuchung
+                # innerhalb des Gesamtvermoegens und immer sicher.
+                raise ValueError(
+                    "Ein mit einer Vorsorge-Position verknuepfter Zufluss ist immer "
+                    "'sicher' (Umbuchung innerhalb des Gesamtvermoegens)."
+                )
         return self
 
 
@@ -687,6 +703,7 @@ class WealthInflowUpdate(BaseModel):
     value_mode: Optional[Literal["nominal", "real"]] = None
     notes: Optional[str] = None
     linked_position_id: Optional[str] = None
+    certainty: Optional[Literal["sicher", "unsicher"]] = None
     is_active: Optional[int] = Field(None, ge=0, le=1)
     # rls-3 (2026-07-23): siehe WealthInflowCreate.
     data_classification: Optional[Literal["synthetic", "real"]] = None
@@ -706,9 +723,16 @@ class WealthInflowResponse(BaseResponse):
     value_mode: str
     notes: Optional[str]
     linked_position_id: Optional[str] = None
+    # INFLOW-CERTAINTY-001: wirksame Gewissheit (NULL-Bestand -> 'sicher').
+    certainty: str = "sicher"
     is_active: int
     created_at: str
     updated_at: str
+
+    @field_validator("certainty", mode="before")
+    @classmethod
+    def _effective_certainty(cls, value):
+        return "sicher" if value in (None, "") else value
 
 
 # ── Goal ───────────────────────────────────────────────────────────────────────
@@ -932,6 +956,14 @@ class GoalResponse(BaseResponse):
     updated_at: str
 
 
+class GoalRevisionDecisionCreate(BaseModel):
+    """GOAL-REVISION-DECISION-001: Berater stuft ein Ziel als nachrangiges
+    Wunschziel ein. Die Begruendung wird wie eine Override-Begruendung
+    geprueft (services.override_reason_quality); die Engine-Evidenz liest
+    der Server aus der aktuellen Strategie, nie aus dem Request."""
+    reason: str
+
+
 # ── Planning Assumptions ───────────────────────────────────────────────────────
 
 class PlanningAssumptionCreate(BaseModel):
@@ -999,3 +1031,21 @@ class PlanningAssumptionResponse(BaseResponse):
     notes: Optional[str]
     created_at: str
     updated_at: str
+
+
+class FinancialCoverageAttestationCreate(BaseModel):
+    """RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (PR #653): Berater bestaetigt,
+    dass Einnahmen, Ausgaben und Verpflichtungen des Haushalts vollstaendig
+    erfasst sind. Alle Kategorien sind Pflichtangaben (explizit ja/nein);
+    nur eine vollstaendig bejahte, aktuelle Bestaetigung zaehlt als Evidence.
+    Fachliche Pruefung (Stichtag, Quelle, Personen) in
+    services/financial_coverage_attestation.create_attestation()."""
+
+    household_persons: list[str] = Field(..., max_length=10)
+    income_complete: bool
+    expenses_complete: bool
+    obligations_complete: bool
+    irregular_expenses_reviewed: bool
+    as_of_date: str
+    source: str
+    note: Optional[str] = Field(default=None, max_length=1000)

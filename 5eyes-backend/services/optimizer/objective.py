@@ -118,10 +118,11 @@ _PRIMARY_HARDNESS_KEYS = {"hart", "primaer", "primär"}
 # die Allokation nicht an die Bandobergrenze treiben, der Haus-Prior
 # dominiert. Bleibt > 0: "CHF 0 != CHF 900" (Codex) gilt weiter.
 DEMOTED_GOAL_WEIGHT = HARDNESS_WEIGHT["opportunistisch"]
-# GOAL-REACHABILITY-CERTIFICATE-001 (Engine v9): gleicher Mechanismus wie v2
-# (Gewicht 0.2 + W0-Deckel), Ausloeser nur noch ZERTIFIZIERTE Unerreichbarkeit
-# statt Screen-Miss -- neue Version, damit der ObjectiveContract-Hash wechselt.
-DEMOTED_GOAL_POLICY_VERSION = "certified_unreachable_demoted_wish_weight_v3"
+# GOAL-REVISION-DECISION-001 (Engine v11): gleicher Mechanismus (Gewicht 0.2
+# + W0-Deckel), Ausloeser ausschliesslich eine gueltige Berater-Entscheidung
+# GoalRevisionDecisionV1 (v3: "zertifizierte" Unerreichbarkeit aus einer
+# lokalen Suche) -- neue Version, damit der ObjectiveContract-Hash wechselt.
+DEMOTED_GOAL_POLICY_VERSION = "goal_revision_decision_demoted_wish_weight_v4"
 
 # GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine
 # ``saa_resampled_v7``): der Haertegrad wirkt standardmaessig (Default

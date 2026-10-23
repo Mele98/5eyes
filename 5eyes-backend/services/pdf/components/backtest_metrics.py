@@ -42,12 +42,14 @@ def _fmt_chf(rappen: int) -> str:
 def make_backtest_metrics_table(
     soll_metrics: Mapping,
     benchmark_metrics: Mapping | None = None,
+    *,
+    primary_label: str = "SOLL-Strategie",
 ) -> Table:
     """Returns Table mit Backtest-Kennzahlen.
 
     Layout: Linke Spalte = Label, weitere = SOLL (+ Benchmark).
     """
-    cols = [("SOLL-Strategie", soll_metrics)]
+    cols = [(primary_label, soll_metrics)]
     if benchmark_metrics:
         cols.append(("Benchmark", benchmark_metrics))
 

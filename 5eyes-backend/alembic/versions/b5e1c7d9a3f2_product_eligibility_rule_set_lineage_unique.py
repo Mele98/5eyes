@@ -1,7 +1,7 @@
 """Unique find-or-create key for product eligibility rule sets (ELIG-GOVERNANCE-001).
 
 Revision ID: b5e1c7d9a3f2
-Revises: d7b3f1a9c2e4
+Revises: b8e4d2a7c913
 Create Date: 2026-10-21
 
 services.product_eligibility.ensure_rule_set() finds-or-creates one rule
@@ -25,7 +25,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b5e1c7d9a3f2"
-down_revision: Union[str, Sequence[str], None] = "d7b3f1a9c2e4"
+down_revision: Union[str, Sequence[str], None] = "b8e4d2a7c913"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

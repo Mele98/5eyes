@@ -434,6 +434,17 @@ def build_manual_target_allocation(
     candidate.total_wealth_at_generation_rappen = anchors["total_wealth_rappen"]
     candidate.reserve_needed_at_generation_rappen = anchors["reserve_needed_rappen"]
     candidate.external_reserve_at_generation_rappen = anchors["external_reserve_rappen"]
+    # PENSION-TRANSFER-LEDGER-001: derselbe Vorsorge-Transfer-Snapshot wie
+    # Generate (aus der Live-Foundation des Ankers), Referenz im gehashten
+    # Context -- die Constraints werden deshalb nach dem Binden neu serialisiert.
+    from services.pension_transfer_ledger_snapshot import bind_pension_transfer_ledger_snapshot
+
+    candidate.pension_transfer_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(
+        effective_constraints, anchors.get("external_foundation_projection"),
+    )
+    candidate.effective_constraints_json = json.dumps(
+        effective_constraints, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
     candidate.allocation_context_hash = allocation_context_hash_for(
         engine_version=MANUAL_OVERRIDE_ENGINE_VERSION,
         policy_id=candidate.policy_id,

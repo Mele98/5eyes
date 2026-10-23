@@ -74,6 +74,12 @@ from services.portfolio_engine import (
     ensure_runtime_reference_data,
 )
 from services.product_market_data import currency_mismatch_warning, resolve_market_profile
+from services.recommendation_release_gate import (
+    CHANNEL_SIGNATURE,
+    RECOMMENDATION_DOCUMENT_TYPES,
+    assert_recommendation_release_eligible,
+    risk_budget_release_errors,
+)
 from services.review_engine import (
     ReviewAnchorDataError,
     _add_months,
@@ -211,6 +217,44 @@ def _enforce_run_preferences(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+def _enforce_run_cma_currency(db: Session, mandate: Mandate, run: RecommendationRun) -> str | None:
+    """CMA-CURRENCY-GUARD-001: Basiswaehrung des Mandats != Waehrungsbasis der
+    CMA des Runs -> 409 CMA_CURRENCY_MISMATCH, ausser der Berater hat die
+    Abweichung im Praeferenz-Snapshot der Soll-Allokation dokumentiert
+    bestaetigt (``cmaCurrencyMismatchReason``). Rueckgabe: Audit-Warnung bei
+    bestaetigter Abweichung, sonst None."""
+    from services.cma_currency_guard import (
+        STATUS_ACKNOWLEDGED,
+        CmaCurrencyMismatchError,
+        enforce_release,
+        evaluate_cma_currency,
+    )
+    from services.portfolio_engine import _allocation_snapshot_preferences
+
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.id == run.capital_market_assumptions_id,
+    ).first() if run.capital_market_assumptions_id else None
+    if cma is None:
+        return None  # "keine gueltige CMA-Version" meldet die Validierung.
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.id == run.target_allocation_id,
+        TargetAllocation.mandate_id == mandate.id,
+    ).first() if run.target_allocation_id else None
+    try:
+        preferences = _allocation_snapshot_preferences(allocation)
+    except ValueError:
+        preferences = None
+    guard = evaluate_cma_currency(db, mandate, cma, preferences)
+    try:
+        enforce_release(guard, context="finalization")
+    except CmaCurrencyMismatchError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=exc.http_detail()) from exc
+    if guard["status"] == STATUS_ACKNOWLEDGED:
+        return f"{guard['message']} Beraterbestaetigung: {guard['acknowledgement_reason']}"
+    return None
+
+
 def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -270,62 +314,18 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
     # liegt die Allokation im Budget. Eine Empfehlung, die das Risikobudget
     # verletzt, DARF nicht zertifizierbar sein -- #AA-1 gibt dem Berater eine
     # Strategie zum Ansehen, nicht eine zum Freigeben.
+    #
+    # RISK-BUDGET-RELEASE-GATE (2026-10-21): die Pruefung lebt jetzt in
+    # services/recommendation_release_gate.py, damit Finalisierung,
+    # Advisory-PDF, Signatur und Handoff EIN Urteil teilen. Ein fehlender
+    # Nachweis (Ist-Risikoanteil oder Budget fehlt/unlesbar) ist ein FEHLER,
+    # keine Warnung mehr: "nicht belegbar" ist nicht "eingehalten" -- eine
+    # Allokation, deren Nachweis-Spalten (samt context_artifacts_required)
+    # auf "legacy" zurueckgeschrieben wurden, darf nicht als Warnung
+    # durchrutschen. Ein fehlendes Budget meldet die Integritaetspruefung
+    # unten nicht mehr doppelt, weil sie nur bei leerer Fehlerliste laeuft.
     if allocation is not None:
-        realized_risky_bps = getattr(
-            allocation, "risky_fraction_bps_at_generation", None
-        )
-        allocation_risk_budget_bps = getattr(
-            allocation, "risk_budget_bps_at_generation", None
-        )
-        if allocation_risk_budget_bps is None:
-            # BEWUSST keine eigene Meldung: ein fehlendes typisiertes Budget
-            # ist bereits fail-closed abgedeckt.
-            # `_verified_persisted_allocation_context()` (aufgerufen ueber
-            # build_target_payload_from_allocation weiter unten) wirft dafuer
-            # "Persistiertes Risikobudget widerspricht der typisierten
-            # TargetAllocation-Spalte" -- nachgemessen, der Fall kommt nie
-            # bis zu einer Freigabe. Hier zusaetzlich zu warnen wuerde
-            # denselben Sachverhalt zweimal melden, einmal als Warnung und
-            # einmal als Fehler, und den Berater zwei Ursachen suchen
-            # lassen, wo es eine gibt.
-            pass
-        elif realized_risky_bps is None:
-            # Dieser Fall ist NICHT anderweitig abgedeckt: die
-            # Integritaetspruefung oben validiert das Budget gegen die
-            # typisierte Spalte, den IST-Risikoanteil aber nicht. Ohne ihn
-            # ist die Budget-Treue nicht BELEGBAR. Sie als erfuellt zu
-            # behandeln waere eine Behauptung ohne Nachweis; deshalb
-            # sichtbar machen statt stillschweigend durchzuwinken.
-            warnings.append(
-                "Die Risikobudget-Treue der verankerten Soll-Allokation ist "
-                "nicht belegbar: der Ist-Risikoanteil fehlt in der "
-                "Allokation. Vor der Freigabe neu generieren, damit der "
-                "Nachweis vorliegt."
-            )
-        else:
-            try:
-                realized_int = int(realized_risky_bps)
-                budget_int = int(allocation_risk_budget_bps)
-            except (TypeError, ValueError):
-                warnings.append(
-                    "Ist-Risikoanteil oder Risikobudget der verankerten "
-                    "Soll-Allokation sind nicht als Zahl lesbar; die "
-                    "Budget-Treue ist nicht belegbar."
-                )
-            else:
-                if realized_int > budget_int:
-                    # Zahlen in die Meldung: der Berater muss sehen, WIE weit
-                    # er darueber liegt, um zu entscheiden, ob das
-                    # Risikoprofil oder die Bausteine die richtige
-                    # Stellschraube sind.
-                    errors.append(
-                        "Die verankerte Soll-Allokation verletzt das "
-                        "Risikobudget des Risikoprofils: Ist-Risikoanteil "
-                        f"{realized_int / 100:.2f} % gegen Budget "
-                        f"{budget_int / 100:.2f} %. Risikoprofil oder "
-                        "Bausteine anpassen und die Allokation neu "
-                        "generieren."
-                    )
+        errors.extend(risk_budget_release_errors(allocation))
     # COST-FINALIZATION-001 (CERT-COST-CONFLICT-001, 2026-10-13): die
     # Validierung prueft Risikoprofil, Soll-Allokation und Policy -- aber
     # nie den Nachweiszustand der Interessenkonflikte. Ein Mandat mit einer
@@ -1214,6 +1214,7 @@ def create_advisory_log_entry(
     Aufbewahrungs-Datum und vollem Audit-Log.
     """
     from services.advisory_log_integrity import AdvisoryLogDatetimeError
+    from services.advisory_log_service import AdvisoryLogCostEvidenceError
     from services.advisory_log_service import create_advisory_log, serialize_response
 
     enforce_data_classification(body.data_classification)
@@ -1269,6 +1270,19 @@ def create_advisory_log_entry(
         # darstellbare Aufbewahrungsfrist ergibt (z.B. Jahr 9999 + 10).
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))
+    except AdvisoryLogCostEvidenceError as exc:
+        # COST-SNAPSHOT-BINDING-001: ungueltiger Kostennachweis -> 409 mit
+        # stabilem Reason-Code, kein Protokoll mit Live-Ersatzzahlen.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_EVIDENCE_INVALID",
+                "evidence_error": exc.reason,
+                "recommendation_run_id": exc.run_id,
+                "message": str(exc),
+            },
+        )
     db.flush()
     log(
         db,
@@ -1562,8 +1576,16 @@ def sign_document(
     # den bestehenden Checkbox-Flags das tatsaechliche Signatur-Artefakt
     # (Bild + Name + Zeitstempel + IP) fuer genau den Unterzeichner, der in
     # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
-    _get_mandate_or_404(mandate_id, db, current_user)
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
+    # RISK-BUDGET-RELEASE-GATE (2026-10-21): ein Empfehlungsdokument darf
+    # nur unterzeichnet werden, wenn die Soll-Allokation, die es
+    # verkoerpert, ihr Risikobudget nachweislich einhaelt -- dasselbe
+    # zentrale Gate wie Advisory-PDF und Handoff, VOR jeder Mutation.
+    if str(doc.document_type or "") in RECOMMENDATION_DOCUMENT_TYPES:
+        assert_recommendation_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+        )
     # REC-006 (Codex-Audit 2026-08-25): dieser Endpoint hatte keinerlei
     # Status-Gate -- ein zweiter Aufruf mit signed_by_advisor/signed_by_client
     # ueberschrieb klaglos Bild/Name/Zeitstempel/IP einer bereits geleisteten
@@ -3365,9 +3387,12 @@ def finalize_recommendation(
     # fuer dasselbe Mandat, unabhaengig vom Vorzustand.
     db.query(Mandate).filter(Mandate.id == mandate_id).with_for_update().first()
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    cma_currency_warning = _enforce_run_cma_currency(db, mandate, run)
     errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
     if errors:
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    if cma_currency_warning:
+        warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
     # die Auto-Selektion gegen den Praeferenz-Snapshot der TA geprueft --
     # erfasst manuelle Positionen und nachtraeglich geaenderte Produktdaten.

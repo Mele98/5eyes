@@ -140,6 +140,11 @@ class TargetAllocation(Base):
     # (keine Down-Migration), werden aber weder geschrieben noch gelesen.
     sim_horizon_confirmed_at = Column(String)
     sim_horizon_confirmed_by = Column(String)
+    # PENSION-TRANSFER-LEDGER-001 (2026-10-21, Alembic b8e4d2a7c913):
+    # unveraenderlicher PensionTransferLedgerSnapshotV1 (kanonisches JSON).
+    # NULL = keine externe Vorsorge im Run; die Referenz liegt gehasht in
+    # effective_constraints_json (siehe services/pension_transfer_ledger_snapshot.py).
+    pension_transfer_ledger_snapshot_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
