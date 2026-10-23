@@ -519,7 +519,7 @@ def _build_provisional_notice_banner(notice: dict[str, Any], styles: dict) -> Ta
     from reportlab.lib.colors import HexColor
 
     heading = Paragraph(
-        _escape("PROVISORISCH — NICHT IC-FREIGEGEBEN"),
+        _escape(str(notice.get("heading") or "").strip() or "PROVISORISCH — NICHT IC-FREIGEGEBEN"),
         _ar_paragraph_style(
             styles["body"], font=FONT_SANS_BOLD, color=COLOR_STATUS_ROT,
         ),
@@ -2968,6 +2968,22 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
     out.append(Spacer(1, 4 * mm))
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
+
+    # RISK-CAPACITY-REPORT-001: Beraterhinweis der Plausibilitaetspruefung
+    # Risikofaehigkeit -- unabhaengig davon, ob ein SuitabilityCheck existiert
+    # (geschuetzte Sektion, nie per HUD ausblendbar). Betragsfreier Text aus
+    # services/risk_capacity_plausibility_report.advisor_report_note.
+    rcp_block = (ss or {}).get("risk_capacity_plausibility")
+    rcp_note = (
+        str(rcp_block.get("note") or "").strip()
+        if isinstance(rcp_block, dict) else ""
+    )
+    if rcp_note:
+        out.append(Paragraph(
+            _escape(rcp_note),
+            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
+        ))
+        out.append(Spacer(1, 4 * mm))
 
     if not ss or not ss.get("has_check"):
         out.append(_ss_empty_state(styles))

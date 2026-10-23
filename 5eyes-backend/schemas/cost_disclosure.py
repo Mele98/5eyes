@@ -7,7 +7,7 @@ und stellt sie als typsicheres Response-Schema bereit. Im pending-Fall
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -93,6 +93,38 @@ class CostDisclosureResponse(BaseModel):
     )
     frozen_at: Optional[str] = Field(
         None, description="Zeitpunkt des Einfrierens (ISO), nur bei `evidence_frozen=True`."
+    )
+    evidence_status: Optional[
+        Literal["certified", "preview", "legacy_unverified", "blocked", "pending"]
+    ] = Field(
+        None,
+        description=(
+            "Diskriminierter Nachweis-Status (COST-SNAPSHOT-BINDING-001): "
+            "'certified' = eingefrorener, an Lauf/Version/Hash gebundener "
+            "Nachweis; 'preview' = Entwurf, live; 'legacy_unverified' = "
+            "freigegebener Lauf ohne Snapshot, live; 'blocked' = Snapshot "
+            "vorhanden, aber ungueltig (keine Zahlen, siehe `evidence_error`); "
+            "'pending' = keine Empfehlung/Kostenbasis."
+        ),
+    )
+    evidence_error: Optional[str] = Field(
+        None,
+        description=(
+            "Maschinenlesbarer Grund bei `evidence_status='blocked'`: "
+            "snapshot_malformed | snapshot_schema_unsupported | "
+            "snapshot_run_mismatch | snapshot_context_mismatch | "
+            "snapshot_hash_mismatch."
+        ),
+    )
+    snapshot_schema_version: Optional[int] = Field(
+        None, description="Schema-Version des verifizierten Snapshots (nur 'certified')."
+    )
+    audit_degraded: bool = Field(
+        False,
+        description=(
+            "True, wenn der Ausweis nicht belastbar ist (ungueltiger Nachweis "
+            "oder fehlgeschlagene Berechnung) -- nie client-ready."
+        ),
     )
     fidleg_basis: str
     advisory_wealth_rappen: int = 0

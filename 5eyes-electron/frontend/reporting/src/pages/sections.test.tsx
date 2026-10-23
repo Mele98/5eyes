@@ -762,6 +762,25 @@ describe('Section 17: Kostenausweis (CERT-COST-PUBLICATION-001)', () => {
     );
     expect(screen.getByText('Kostenausweis nicht verfügbar')).toBeInTheDocument();
   });
+
+  it('zeigt ungueltigen Kostennachweis als eigenen Fehler, ohne Zahlen (COST-SNAPSHOT-BINDING-001)', () => {
+    render(
+      withRouter(
+        <Kostenausweis
+          data={makeCostDisclosure({
+            audit_degraded: true,
+            data_pending: true,
+            evidence_status: 'blocked',
+            evidence_error: 'snapshot_run_mismatch',
+          })}
+        />,
+      ),
+    );
+    expect(screen.getByText('Kostennachweis ungültig')).toBeInTheDocument();
+    expect(screen.getByText(/snapshot_run_mismatch/)).toBeInTheDocument();
+    expect(screen.queryByText('Kostenausweis nicht verfügbar')).not.toBeInTheDocument();
+    expect(screen.queryByText('Anlagebasis')).not.toBeInTheDocument();
+  });
 });
 
 describe('Section 17: Eignung (Suitability-Summary, U-FINMA-3)', () => {

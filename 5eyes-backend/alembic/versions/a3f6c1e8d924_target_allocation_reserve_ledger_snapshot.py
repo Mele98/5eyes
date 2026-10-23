@@ -12,7 +12,7 @@ rueckwirkend erfundene Evidence (Finalisierung verlangt Neuberechnung).
 Retention: der Snapshot lebt und stirbt mit seiner TargetAllocation-Zeile.
 
 Revision ID: a3f6c1e8d924
-Revises: d7b3f1a9c2e4
+Revises: b5e1c7d9a3f2
 Create Date: 2026-10-21
 """
 from typing import Sequence, Union
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 
 
 revision: str = "a3f6c1e8d924"
-down_revision: Union[str, Sequence[str], None] = "d7b3f1a9c2e4"
+down_revision: Union[str, Sequence[str], None] = "b5e1c7d9a3f2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

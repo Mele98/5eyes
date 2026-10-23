@@ -85,6 +85,10 @@ def _recorded(**overrides) -> RecordedFinancials:
         position_count=3,
         income_cashflow_count=1,
         expense_cashflow_count=2,
+        # Restbefund A (PR #653): "consistent" verlangt eine gueltige
+        # Vollstaendigkeits-Bestaetigung; Zeilen ohne Bestaetigung sind nur
+        # eine Untergrenze (tests/test_risk_capacity_coverage_attestation.py).
+        expense_coverage_attested=True,
     )
     base.update(overrides)
     return RecordedFinancials(**base)
@@ -543,6 +547,7 @@ def test_create_risk_assessment_audits_inconsistency_without_changing_profile(se
 
 def test_consistent_profile_writes_no_plausibility_audit(session_factory):
     from routers.profiling import create_risk_assessment
+    from services.financial_coverage_attestation import create_attestation
 
     with session_factory() as session:
         advisor = _seed(session)
@@ -551,6 +556,15 @@ def test_consistent_profile_writes_no_plausibility_audit(session_factory):
             _cashflow("living", "Expense", 4_000),
             _position("depot", "Depot", "Beratungsvermögen", 1_500_000),
         ])
+        session.commit()
+        # "consistent" erst mit gueltiger Vollstaendigkeits-Bestaetigung.
+        create_attestation(
+            session, session.get(Mandate, "m-rcp"), actor=advisor,
+            household_persons=["Max Muster"], income_complete=True,
+            expenses_complete=True, obligations_complete=True,
+            irregular_expenses_reviewed=True, as_of_date=date.today().isoformat(),
+            source="Kundengespräch",
+        )
         session.commit()
         create_risk_assessment(
             mandate_id="m-rcp", body=_risk_body(), request=_FakeRequest(), db=session,
@@ -621,7 +635,7 @@ def test_monolith_risk_view_has_plausibility_banner_reusing_warning_component():
     assert HTML.index('id="rp-capacity-plausibility"') < HTML.index('<div class="resbox">')
 
 
-def test_monolith_renders_findings_escaped_and_only_when_inconsistent():
+def test_monolith_renders_findings_escaped_and_open_states_visible():
     render = _js_function("renderRiskCapacityPlausibility")
     assert "result.status==='inconsistent'" in render
     assert "escapeHtml(" in render
@@ -675,9 +689,14 @@ def test_missing_expense_coverage_is_not_certified_consistent():
     assert result["coverage"][CHECK_OBLIGATIONS] == "missing"
     assert result["coverage"][CHECK_SAVINGS] == "missing"
     assert result["coverage"][CHECK_INCOME] == "recorded"
-    # Hinweis-Layer bleibt still: kein Banner/PDF/Reasoning fuer "partial".
-    assert strategy_reasoning_lines(result) == []
-    assert pdf_advisor_note(result) == ""
+    # Restbefund B (Codex-Closure-Review PR #653): "partial" ist NICHT still,
+    # sondern "noch nicht verifiziert" mit Aufloesungsauftrag in Reasoning
+    # und Berater-PDF (kein Widerspruchs-Reason-Code).
+    lines = strategy_reasoning_lines(result)
+    assert len(lines) == 1 and "noch nicht verifiziert" in lines[0]
+    assert "Ausgaben vollständig als Cashflow erfassen" in lines[0]
+    note = pdf_advisor_note(result)
+    assert note and note != PDF_ADVISOR_NOTE and "verifiziert" in note
 
 
 def test_derived_only_expenses_below_limit_are_not_evaluable():
@@ -721,7 +740,7 @@ def test_full_coverage_remains_consistent():
 
 def test_forward_window_is_versioned_cio_default():
     assert THRESHOLDS["obligation_forward_window_months"] == 12
-    assert PLAUSIBILITY_RULES_VERSION == "RCP-2026-10-19.v2"
+    assert PLAUSIBILITY_RULES_VERSION == "RCP-2026-10-20.v3"
 
 
 def _load(session_factory, rows, *, today=TODAY):
@@ -850,8 +869,10 @@ def test_no_expense_rows_end_to_end_is_partial_via_endpoint(session_factory):
         result = get_risk_capacity_plausibility(mandate_id="m-rcp", db=session, current_user=advisor)
         assert result["status"] == "partial"
         assert {CHECK_OBLIGATIONS, CHECK_SAVINGS} <= _skipped(result)
-        # kein Widerspruch -> kein Audit-Eintrag (unveraendertes Verhalten)
-        assert _plausibility_audit_rows(session) == []
+        # Restbefund B (PR #653): auch "partial" wird append-only auditiert.
+        rows = _plausibility_audit_rows(session)
+        assert len(rows) == 1
+        assert json.loads(rows[0].new_value)["status"] == "partial"
 
 
 # ---------------------------------------------------------------------------

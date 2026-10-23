@@ -215,6 +215,13 @@ def _verified_persisted_allocation_context(
         raise ValueError(
             "Persistierte effektive Allocation-Constraints muessen ein Objekt sein."
         )
+    # PENSION-TRANSFER-LEDGER-001: gespeicherter Vorsorge-Transfer-Snapshot
+    # und seine gehashte Referenz muessen gemeinsam vorliegen und passen.
+    from services.pension_transfer_ledger_snapshot import (
+        verify_bound_pension_transfer_ledger_snapshot,
+    )
+
+    verify_bound_pension_transfer_ledger_snapshot(allocation, stored_constraints)
 
     stored_bounds = stored_constraints.get("bounds_bps")
     expected_bounds = {

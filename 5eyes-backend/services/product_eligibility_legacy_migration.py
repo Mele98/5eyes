@@ -23,6 +23,13 @@ backfill it authorized -- it still follows the spec's own guardrails:
 4. This migration does not retroactively certify any past
    RecommendationRun (Section 15.4) -- the new rule's `valid_from` is the
    migration timestamp, not backdated.
+5. ELIG-MIGRATION-IDEMPOTENCY-001 (Codex-Audit, Fix 2026-10-21): repeated
+   runs are idempotent. A product that already has a non-retired,
+   product-specific governed rule (from an earlier run of this migration,
+   the default-catalog bootstrap, a tenant author or the unclassified
+   backfill) is reported as `already_governed` and never migrated again --
+   a second rule for the same product would otherwise create a duplicate
+   (AMBIGUOUS_RULE_MATCH, i.e. the product silently drops out of Generate).
 
 This module does NOT wire the new rules into Generate, Finalize, or any
 other production decision path. It only backfills data that
@@ -42,6 +49,7 @@ from database import new_uuid
 from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
 from models.review import Product, ProductSuitability
 from services.product_eligibility import canonical_hash
+from services.product_eligibility_governance import compute_rule_hash
 
 MIGRATION_SOURCE = "legacy_product_suitability_migration_v1"
 
@@ -68,7 +76,7 @@ def _decision_tuple(row: ProductSuitability) -> tuple:
 class LegacyRuleMigrationItem:
     product_id: str
     legacy_suitability_id: str
-    classification: str  # "verified_migrated_rule" | "legacy_ambiguous_scope" | "legacy_conflicting"
+    classification: str  # "verified_migrated_rule" | "already_governed" | "legacy_ambiguous_scope" | "legacy_conflicting"
     reason: str
     new_rule_id: str | None = None
 
@@ -84,8 +92,15 @@ class LegacyMigrationReport:
         return sum(1 for i in self.items if i.classification == "verified_migrated_rule")
 
     @property
+    def already_governed_count(self) -> int:
+        return sum(1 for i in self.items if i.classification == "already_governed")
+
+    @property
     def quarantined_count(self) -> int:
-        return sum(1 for i in self.items if i.classification != "verified_migrated_rule")
+        return sum(
+            1 for i in self.items
+            if i.classification not in ("verified_migrated_rule", "already_governed")
+        )
 
 
 def classify_and_migrate_legacy_suitability(
@@ -104,6 +119,12 @@ def classify_and_migrate_legacy_suitability(
     this mirrors the spec's own requirement (Section 11) that a RuleSet's
     governance identity is never a synthetic "system" sentinel.
     """
+    if not dry_run and (not created_by or created_by == approved_by):
+        # ELIG-GOVERNANCE-001 (2026-10-21): four-eyes -- the approving
+        # principal must differ from the author of the migrated rule set.
+        raise ValueError(
+            "Vier-Augen-Prinzip: approved_by muss sich von created_by unterscheiden."
+        )
     report = LegacyMigrationReport(dry_run=dry_run)
 
     rows = (
@@ -116,8 +137,29 @@ def classify_and_migrate_legacy_suitability(
         by_product.setdefault(product.id, []).append((suitability, product))
 
     to_migrate: list[tuple[ProductSuitability, Product]] = []
+    already_governed_ids = {
+        row[0]
+        for row in db.query(ProductEligibilityRule.product_id)
+        .filter(
+            ProductEligibilityRule.product_id.isnot(None),
+            ProductEligibilityRule.status.in_(("approved", "draft")),
+        )
+        .all()
+    }
 
     for product_id, group in by_product.items():
+        if product_id in already_governed_ids:
+            for suitability, _ in group:
+                report.items.append(LegacyRuleMigrationItem(
+                    product_id=product_id,
+                    legacy_suitability_id=suitability.id,
+                    classification="already_governed",
+                    reason=(
+                        "Produkt hat bereits eine produktspezifische, nicht "
+                        "zurueckgezogene Eignungsregel -- keine erneute Migration."
+                    ),
+                ))
+            continue
         if len(group) == 1:
             to_migrate.append(group[0])
             continue
@@ -207,18 +249,33 @@ def classify_and_migrate_legacy_suitability(
         prohibited = not advisory_allowed and not discretionary_allowed
 
         rule_id = new_uuid()
-        rule_payload = {
-            "rule_set_id": rule_set_id,
-            "product_id": product.id,
-            "profile_from": int(suitability.profile_from or 1),
-            "profile_to": int(suitability.profile_to or 10),
-            "service_modes": service_modes,
-            "requires_appropriateness": int(suitability.requires_appropriateness or 0),
-            "requires_override": int(suitability.requires_override or 0),
-            "max_position_bps": suitability.max_position_bps,
-            "prohibited": int(prohibited),
-            "source_legacy_suitability_id": suitability.id,
-        }
+        policy = dict(
+            rule_set_id=rule_set_id,
+            version=1,
+            product_id=product.id,
+            product_category_selector=None,
+            tenant_scope="tenant" if product.tenant_id else "global",
+            tenant_id=product.tenant_id,
+            jurisdiction=product.jurisdiction or jurisdiction_fallback,
+            client_classifications_json="[]",
+            service_modes_json=json.dumps(service_modes),
+            profile_from=int(suitability.profile_from or 1),
+            profile_to=int(suitability.profile_to or 10),
+            requires_knowledge_categories_json="[]",
+            minimum_experience_level=None,
+            requires_appropriateness=int(suitability.requires_appropriateness or 0),
+            # Section 11: the legacy row's very existence IS a suitability
+            # rule (risk-band gating) -- every migrated row therefore
+            # requires_suitability=1. This is an explicit, documented
+            # choice, not a silent default (see module docstring point 1).
+            requires_suitability=1,
+            requires_override=int(suitability.requires_override or 0),
+            max_position_bps=suitability.max_position_bps,
+            prohibited=int(prohibited),
+            valid_from=now,
+            valid_to=None,
+            supersedes_id=None,
+        )
         report.items.append(LegacyRuleMigrationItem(
             product_id=product.id,
             legacy_suitability_id=suitability.id,
@@ -230,32 +287,14 @@ def classify_and_migrate_legacy_suitability(
             continue
         db.add(ProductEligibilityRule(
             id=rule_id,
-            rule_set_id=rule_set_id,
-            version=1,
-            product_id=product.id,
-            tenant_scope="tenant" if product.tenant_id else "global",
-            tenant_id=product.tenant_id,
-            jurisdiction=product.jurisdiction or jurisdiction_fallback,
-            client_classifications_json="[]",
-            service_modes_json=json.dumps(service_modes),
-            profile_from=int(suitability.profile_from or 1),
-            profile_to=int(suitability.profile_to or 10),
-            requires_knowledge_categories_json="[]",
-            requires_appropriateness=int(suitability.requires_appropriateness or 0),
-            # Section 11: the legacy row's very existence IS a suitability
-            # rule (risk-band gating) -- every migrated row therefore
-            # requires_suitability=1. This is an explicit, documented
-            # choice, not a silent default (see module docstring point 1).
-            requires_suitability=1,
-            requires_override=int(suitability.requires_override or 0),
-            max_position_bps=suitability.max_position_bps,
-            prohibited=int(prohibited),
-            valid_from=now,
+            **policy,
             status="approved",
             created_by=created_by,
             approved_by=approved_by,
             approved_at=now,
-            rule_hash=canonical_hash(rule_payload),
+            rule_hash=compute_rule_hash(
+                policy, source=f"{MIGRATION_SOURCE}:{suitability.id}",
+            ),
             created_at=now,
             updated_at=now,
         ))

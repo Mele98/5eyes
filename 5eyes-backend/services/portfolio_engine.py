@@ -36,6 +36,10 @@ from models.review import (
     RecommendationRun,
 )
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, WealthPosition
+from services.wealth_inflow_certainty import (
+    certain_inflows, scope_active_mandate_inflows, split_by_certainty as split_inflows_by_certainty,
+    uncertain_inflow_sensitivity,
+)
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
@@ -46,6 +50,7 @@ from services.preference_snapshot import (
     inherit_current_allocation_preferences,
     resolve_recommendation_preferences,
 )
+from services.goal_revision_decision import goal_revision_hash_part, included_goals_with_revisions
 from services.goal_semantics import (
     GoalInputError,
     validate_active_goal_inputs as _validate_active_goal_inputs,
@@ -517,11 +522,11 @@ def _normalize_preferences(preferences: dict | None) -> dict:
         {} if preferences is None else preferences
     )
     dumped = validated.model_dump()
-    # BAND-DEVIATION-REASON-REQUIRED-001: ein fehlendes Begruendungsfeld darf
-    # den persistierten Praeferenz-Snapshot nicht veraendern (sonst meldete
-    # die Drift-Erkennung jede bestehende Allokation als veraltet).
-    if dumped.get("bandDeviationReason") is None:
-        dumped.pop("bandDeviationReason", None)
+    # BAND-DEVIATION-REASON-REQUIRED-001 / CMA-CURRENCY-GUARD-001: fehlende Begruendungsfelder
+    # duerfen den Snapshot nicht veraendern (sonst Drift-Warnung je Bestandsallokation).
+    for reason_key in ("bandDeviationReason", "cmaCurrencyMismatchReason"):
+        if dumped.get(reason_key) is None:
+            dumped.pop(reason_key, None)
     # ESG-PREMIUM-CRITERIA-001: leeres tiltReasons nicht ausgeben (sonst Drift-Warnung je Altbestand).
     if not dumped.get("tiltReasons"):
         dumped.pop("tiltReasons", None)
@@ -655,6 +660,9 @@ from services.portfolio_engine_pension_positions import (  # noqa: E402 -- VORSO
     position_bucket_weights as _default_weights_for_position, summarize_positions as _summarize_positions,
     external_pension_projection as _external_pension_projection, with_pension_payouts as _with_pension_payouts,
     pension_foundation_keys, pension_series_for_horizon, with_pension_notes,
+)
+from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION-TRANSFER-LEDGER-001
+    bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
 )
 
 
@@ -1432,6 +1440,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _items_with_known_ter,
     _merge_goal_analysis_with_monte_carlo,
     _missing_ter_positions_count,
+    _stored_goal_achievability,
     _parse_iso_date,
     _product_descriptor_text,
     _product_is_chf_or_fx_hedged,
@@ -1733,7 +1742,7 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
         (3, 3, "Defensiv", 0, 200, 500, 5000, 9500, 9700, 0, 0, 0, 0, 0, 0, 0, 300, 800, 4500, 0),
         (4, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 2000, 0, 300, 800, 4500, 0),
         (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 2000, 300, 500, 800, 6000, 0),
-        (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 2000, 300, 600, 1000, 8000, 6000),
+        (7, 8, "Wachstumsorientiert", 0, 200, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 2000, 300, 600, 1000, 8000, 6000),
         (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 2000, 200, 400, 600, 9000, 7500),
         (10, 10, "Aktien", 0, 100, 200, 0, 200, 500, 8500, 9000, 9500, 200, 500, 2000, 0, 200, 500, 10000, 8500),
     ])
@@ -2201,33 +2210,17 @@ def _load_allocation_inputs(
     ).order_by(Goal.rank.asc()).all()
     goals = _strictly_active_rows(goal_rows, label="Ziel")
     _validate_active_goal_inputs(goals)
-    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar oben bei
-    # den Cashflows -- is_included=0 bleibt sichtbar, fliesst aber in keine
-    # Berechnung ein.
-    goals = [g for g in goals if getattr(g, "is_included", 1) == 1]
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001 (is_included=0 fliesst in keine Berechnung
+    # ein) + GOAL-REVISION-DECISION-001 (Herabstufungs-Decision am Ziel).
+    goals = included_goals_with_revisions(db, goals)
     # Sprint A1: erwartete Vermoegenszufluesse (Erbschaft, Bonus, Saeule3b, ...)
-    wealth_inflows = db.query(WealthInflow).filter(
-        WealthInflow.client_id == mandate.client_id,
-        WealthInflow.deleted_at.is_(None),
-    ).all()
-    scoped_wealth_inflows = []
-    for inflow in wealth_inflows:
-        active = getattr(inflow, "is_active", None)
-        if isinstance(active, bool) or not isinstance(active, int) or active not in (0, 1):
-            raise ValueError("Vermoegenszufluss: is_active muss exakt 0 oder 1 sein.")
-        inflow_mandate_id = getattr(inflow, "mandate_id", None)
-        if inflow_mandate_id:
-            inflow_mandate = db.query(Mandate).filter(Mandate.id == inflow_mandate_id).first()
-            if inflow_mandate is None or inflow_mandate.client_id != mandate.client_id:
-                raise ValueError(
-                    "Vermoegenszufluss verweist auf ein Mandat eines anderen "
-                    "Kunden oder auf ein fehlendes Mandat."
-                )
-            if inflow_mandate_id != mandate.id:
-                continue
-        if active == 1:
-            scoped_wealth_inflows.append(inflow)
-    wealth_inflows = scoped_wealth_inflows
+    # INFLOW-CERTAINTY-001: unsichere Zufluesse (Erbschaft/Bonus ohne Zusage)
+    # senken weder Reserve noch fliessen sie in die Simulation; nur Reasoning.
+    wealth_inflows, uncertain_wealth_inflows = split_inflows_by_certainty(scope_active_mandate_inflows(
+        db, mandate, db.query(WealthInflow).filter(
+            WealthInflow.client_id == mandate.client_id, WealthInflow.deleted_at.is_(None),
+        ).all(),
+    ))
     # fx_source/target_currency bereits weiter oben ermittelt (siehe FX-Fix-
     # Kommentar) -- hier wiederverwendet statt erneut geladen.
     cashflow_totals = totals_for_year(
@@ -2440,6 +2433,7 @@ def _load_allocation_inputs(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         # Sprint A1: erwartete Vermoegenszufluesse, fuer Audit-Trail + FE-Anzeige.
         "wealth_inflows": wealth_inflows,
+        "uncertain_wealth_inflows": uncertain_wealth_inflows,  # INFLOW-CERTAINTY-001
         "inflow_projection_series_rappen": inflow_projection_series_rappen,
         # Sprint B2: Anderes-Vermoegen-Schloss-Pool (Reserve-Reduktion).
         "unlocked_other_assets_rappen": unlocked_other_assets_rappen,
@@ -2533,6 +2527,7 @@ def _projection_context_snapshot(
     external_goal_funding_series_rappen: list[int],
 ) -> dict:
     """Canonical effective inputs for reporting and total-scope goal paths."""
+    from services.retirement_phase import retirement_phase_snapshot_fields
     normalized_target_currency = str(
         target_currency or "CHF"
     ).upper().strip()
@@ -2568,10 +2563,7 @@ def _projection_context_snapshot(
             int(value)
             for value in optimizer_cashflow_projection_series_rappen
         ],
-        "external_foundation_projection": {
-            key: [int(value) for value in values]
-            for key, values in sorted(external_foundation_projection.items())
-        },
+        "external_foundation_projection": canonical_foundation_projection(external_foundation_projection),
         "external_goal_funding_series_rappen": [
             int(value) for value in external_goal_funding_series_rappen
         ],
@@ -2602,12 +2594,9 @@ def _projection_context_snapshot(
                 getattr(mandate, "use_mortality_simulation", 0) or 0
             ),
             "opened_at": str(getattr(mandate, "opened_at", None) or ""),
-            "retirement_year": int(
-                getattr(mandate, "retirement_year", 0) or 0
-            ),
-            "life_expectancy_year": int(
-                getattr(mandate, "life_expectancy_year", 0) or 0
-            ),
+            "retirement_year": int(getattr(mandate, "retirement_year", 0) or 0),
+            "life_expectancy_year": int(getattr(mandate, "life_expectancy_year", 0) or 0),
+            **retirement_phase_snapshot_fields(mandate),  # DYNAMIC-RETIREMENT-PHASE-001
         },
     }
 
@@ -2773,7 +2762,7 @@ def _compute_input_snapshot_hash(
                 getattr(g, "linked_position_id", "") or ""
             ),
             "is_active": _nullable_int(getattr(g, "is_active", None)),
-        }
+        } | goal_revision_hash_part(g)  # GOAL-REVISION-DECISION-001
 
     def _wealth_inflow_v3(inflow) -> tuple:
         return (
@@ -3152,20 +3141,26 @@ def generate_target_allocation(
     # _apply_goal_and_reserve_tilts den Reserve-Split gleich vornimmt -- der
     # stochastische Floor unten muss genau diesen internen Betrag halten.
     saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(maximums["liquidity"])
-    reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
-        targets=targets,
-        minimums=minimums,
-        maximums=maximums,
+    reserve_inputs = dict(
         goals=goals,
         limits_prefs=prefs["limits"],
         asset_class_prefs=prefs["assetClasses"],
         recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
         recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
         advisory_wealth_rappen=advisory_wealth_rappen,
-        reasoning=reasoning,
         unlocked_other_assets_rappen=int(inputs.get("unlocked_other_assets_rappen") or 0),
         # Sprint U-P2 Fix H11: Wealth-Inflows in Reserve berücksichtigen
         inflow_projection_series_rappen=inputs.get("inflow_projection_series_rappen"),
+    )
+    reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
+        targets=targets, minimums=minimums, maximums=maximums, reasoning=reasoning, **reserve_inputs,
+    )
+    uncertain_inflow_info = uncertain_inflow_sensitivity(  # INFLOW-CERTAINTY-001: nur Info
+        uncertain_inflows=inputs.get("uncertain_wealth_inflows") or [], projection_years=len(cashflow_projection_series_rappen),
+        start_year=cashflow_totals["year"], inflation_series_bps=inputs.get("cashflow_inflation_series_bps"),
+        reserve_inputs=reserve_inputs, saa_liquidity_ceiling_bps=saa_liquidity_ceiling_bps,
+        reserve_needed_rappen=reserve_needed_rappen, external_reserve_rappen=external_reserve_rappen,
+        currency=str(inputs.get("cashflow_target_currency") or "CHF"), reasoning=reasoning,
     )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
 
@@ -3778,7 +3773,7 @@ def generate_target_allocation(
     )
     sub_asset_class_assumptions_reference = _build_sub_asset_class_assumption_reference(
         sub_allocations,
-        cma,
+        cma, reasoning,
     )
     simulation = _build_simulation_payload(
         advisory_summary=advisory_summary,
@@ -3868,7 +3863,7 @@ def generate_target_allocation(
         monte_carlo,
         summaries_key="current_goal_summaries",
     )
-    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
+    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo, achievability=goal_achievability)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
     reasoning.append(inputs["projection_horizon"]["sentence"])
 
@@ -4066,12 +4061,7 @@ def generate_target_allocation(
             logger.warning("Shadow-optimization JSON-serialization failed: %s", exc)
             shadow_optimization_json = None
 
-    sub_allocations_json = json.dumps(
-        sub_allocations,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
+    sub_allocations_json = json.dumps(sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     effective_constraints_payload = {
         "engine_version": "stochastic_core_v2",
         "bounds_bps": {
@@ -4107,11 +4097,10 @@ def generate_target_allocation(
         "reporting_model_basis": dict(model_basis["reporting"]),
         "reserve_funding_ledger": ledger_reference(reserve_ledger),  # RESERVE-LEDGER-SNAPSHOT-001
     }
+    pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
+        effective_constraints_payload, external_foundation_projection)
     effective_constraints_json = json.dumps(
-        effective_constraints_payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
+        effective_constraints_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
     )
     allocation_context_hash = allocation_context_hash_for(  # MANUAL-SAVE-DEADEND-001: eine Hash-Form fuer alle Schreibpfade
         engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
@@ -4147,6 +4136,7 @@ def generate_target_allocation(
         goal_achievability_json=goal_achievability_json,
         sub_allocations_json=sub_allocations_json,
         effective_constraints_json=effective_constraints_json,
+        pension_transfer_ledger_snapshot_json=pension_ledger_snapshot_json,
         allocation_context_hash=allocation_context_hash,
         context_artifacts_required=1,
         based_on_assessment_id=assessment.id,
@@ -4268,7 +4258,9 @@ def generate_target_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
+        "uncertain_inflow_sensitivity": uncertain_inflow_info,  # INFLOW-CERTAINTY-001
         "reserve_funding_ledger": reserve_ledger.to_dict(),
+        "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(target_allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
@@ -5520,10 +5512,9 @@ def build_target_payload_from_allocation(
     ).order_by(Goal.rank.asc()).all()
     goals = _strictly_active_rows(goal_rows, label="Ziel")
     _validate_active_goal_inputs(goals)
-    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar in
-    # _load_allocation_inputs -- is_included=0 bleibt sichtbar, fliesst aber
-    # in keine Berechnung ein.
-    goals = [g for g in goals if getattr(g, "is_included", 1) == 1]
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001 + GOAL-REVISION-DECISION-001: siehe
+    # identischen Kommentar in _load_allocation_inputs.
+    goals = included_goals_with_revisions(db, goals)
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
     )
@@ -5560,28 +5551,10 @@ def build_target_payload_from_allocation(
     # erscheinen. Sonst koennte ein Reload alte Zielgewichte mit einer
     # unvollstaendigen Live-Projektion publizieren und deren Provenienz nicht
     # mehr belegen.
-    rebuild_wealth_inflows = db.query(WealthInflow).filter(
-        WealthInflow.client_id == mandate.client_id,
-        WealthInflow.deleted_at.is_(None),
-    ).all()
-    scoped_rebuild_inflows = []
-    for inflow in rebuild_wealth_inflows:
-        active = getattr(inflow, "is_active", None)
-        if isinstance(active, bool) or not isinstance(active, int) or active not in (0, 1):
-            raise ValueError("Vermoegenszufluss: is_active muss exakt 0 oder 1 sein.")
-        inflow_mandate_id = getattr(inflow, "mandate_id", None)
-        if inflow_mandate_id:
-            inflow_mandate = db.query(Mandate).filter(Mandate.id == inflow_mandate_id).first()
-            if inflow_mandate is None or inflow_mandate.client_id != mandate.client_id:
-                raise ValueError(
-                    "Vermoegenszufluss verweist auf ein Mandat eines anderen "
-                    "Kunden oder auf ein fehlendes Mandat."
-                )
-            if inflow_mandate_id != mandate.id:
-                continue
-        if active == 1:
-            scoped_rebuild_inflows.append(inflow)
-    rebuild_wealth_inflows = scoped_rebuild_inflows
+    # INFLOW-CERTAINTY-001: wie generate-Pfad nur sichere Zufluesse.
+    rebuild_wealth_inflows = certain_inflows(scope_active_mandate_inflows(db, mandate, db.query(WealthInflow).filter(
+        WealthInflow.client_id == mandate.client_id, WealthInflow.deleted_at.is_(None),
+    ).all()))
     external_foundation_projection = _build_external_foundation_projection(  # nach den Zufluessen
         all_positions, horizon_years=projection_years, fx_source=fx_source, target_currency=target_currency,
         wealth_inflows=rebuild_wealth_inflows, start_year=cashflow_totals["year"], mandate=mandate,
@@ -5876,6 +5849,7 @@ def build_target_payload_from_allocation(
             "total_wealth_rappen": int(total_wealth_rappen),
             "reserve_needed_rappen": int(reserve_needed_rappen),
             "external_reserve_rappen": int(external_reserve_rappen), "reserve_funding_ledger": reserve_ledger,
+            "external_foundation_projection": external_foundation_projection,
         }
     legacy_projection_context = dict(current_projection_context)
     legacy_projection_context.pop("fx_basis", None)
@@ -6026,7 +6000,7 @@ def build_target_payload_from_allocation(
         monte_carlo,
         summaries_key="current_goal_summaries",
     )
-    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
+    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo, achievability=_stored_goal_achievability(allocation, log_invalid=False))
     bucket_response = []
     current_amounts = advisory_summary.amounts_rappen
     label_map = {
@@ -6124,20 +6098,7 @@ def build_target_payload_from_allocation(
                 "Stored optimizer_reasoning_json invalid for allocation %s: %s",
                 getattr(allocation, "id", "?"), exc,
             )
-    goal_achievability: list[dict] = []
-    raw_goal_achievability = getattr(allocation, "goal_achievability_json", None)
-    if raw_goal_achievability:
-        try:
-            parsed_achievability = json.loads(raw_goal_achievability)
-            if isinstance(parsed_achievability, list):
-                goal_achievability = [
-                    item for item in parsed_achievability if isinstance(item, dict)
-                ]
-        except (TypeError, ValueError) as exc:
-            logger.warning(
-                "Stored goal_achievability_json invalid for allocation %s: %s",
-                getattr(allocation, "id", "?"), exc,
-            )
+    goal_achievability: list[dict] = _stored_goal_achievability(allocation)
     messages = persisted_messages or classify_messages(
         allocation,
         goal_achievability,
@@ -6184,6 +6145,7 @@ def build_target_payload_from_allocation(
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
         **reserve_replay.payload,
+        "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
@@ -6712,8 +6674,8 @@ def generate_recommendation_run(
     # der fruehere Suitability-Relaxation-Fallback-Pfad ist entfernt -- ein
     # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
     # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
-    from services.product_eligibility import derive_service_mode, is_eligible_candidate
-    service_mode = derive_service_mode(mandate)
+    from services.product_eligibility import derive_service_mode, is_eligible_candidate, mandate_tenant_id
+    service_mode, run_tenant_id = derive_service_mode(mandate), mandate_tenant_id(mandate)
 
     # Beide Praedikate sind schleifeninvariant (haengen nicht von `sub` ab).
     # Vorher stand die Liste IN der Schleife: 351 statt 36 DB-Abfragen pro
@@ -6721,10 +6683,10 @@ def generate_recommendation_run(
     eligible_products = [
         product for product in products
         if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
-        and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
+        and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction, tenant_id=run_tenant_id)
     ]
 
-    theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx)
+    theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx, tenant_id=run_tenant_id)
     for sub in sub_allocations:
         exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False

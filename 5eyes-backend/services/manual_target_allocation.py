@@ -439,9 +439,18 @@ def build_manual_target_allocation(
     candidate.total_wealth_at_generation_rappen = anchors["total_wealth_rappen"]
     candidate.reserve_needed_at_generation_rappen = anchors["reserve_needed_rappen"]
     candidate.external_reserve_at_generation_rappen = anchors["external_reserve_rappen"]
+    # PENSION-TRANSFER-LEDGER-001: derselbe Vorsorge-Transfer-Snapshot wie
+    # Generate (aus der Live-Foundation des Ankers), Referenz im gehashten
+    # Context.
+    from services.pension_transfer_ledger_snapshot import bind_pension_transfer_ledger_snapshot
+
+    candidate.pension_transfer_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(
+        effective_constraints, anchors.get("external_foundation_projection"),
+    )
     # RESERVE-LEDGER-SNAPSHOT-001: auch der manuelle Anker speichert den
     # Reserve-Funding-Ledger, den der Reload sonst live neu kompilieren muesste,
-    # und bindet seine Referenz im gehashten Context.
+    # und bindet seine Referenz im gehashten Context. Die Constraints werden
+    # nach beiden Bindungen einmal neu serialisiert.
     reserve_ledger = anchors["reserve_funding_ledger"]
     effective_constraints[LEDGER_CONSTRAINTS_KEY] = ledger_reference(reserve_ledger)
     candidate.effective_constraints_json = json.dumps(

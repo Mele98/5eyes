@@ -18,7 +18,7 @@ from models.allocation import TargetAllocation  # noqa: E402
 
 SCHEMA_FILE = BACKEND_ROOT / "5eyes_schema_v4.0_FINAL.sql"
 REVISION = "a3f6c1e8d924"
-DOWN_REVISION = "d7b3f1a9c2e4"
+DOWN_REVISION = "b5e1c7d9a3f2"
 COLUMNS = {"reserve_funding_ledger_json", "reserve_funding_ledger_hash"}
 
 

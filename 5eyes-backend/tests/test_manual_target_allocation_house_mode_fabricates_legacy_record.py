@@ -297,6 +297,8 @@ def test_manual_house_mode_save_fabricates_legacy_looking_allocation(
             "band_liquidity_min_bps": 0, "band_liquidity_max_bps": 10000,
             # UI-Vorbefuellung: unveraendert aus der zuvor generierten Allocation.
             "risky_fraction_bps": prior_risky_fraction_bps,
+            # ALLOC-EDITOR-STALE-001: bearbeitet wird die generierte Allokation.
+            "expected_current_allocation_id": generated_ta_id,
             "override_reason": (
                 "Kunde wuenscht nach Beratungsgespraech eine angepasste "
                 "Gewichtung der Anlageklassen."

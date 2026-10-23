@@ -319,6 +319,49 @@ RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (Codex-Closure-Review PR #653,
+# 2026-10-20): append-only FinancialCoverageAttestationV1
+# (models/wealth.py::FinancialCoverageAttestation). Erfasste Cashflow-Zeilen
+# beweisen keine vollstaendige Haushaltserfassung; erst diese Berater-
+# Bestaetigung (gehasht, an den Cashflow-Fingerprint gebunden) macht die
+# Ausgaben-Coverage zu "recorded". Muster wie risk_override_decisions: kein
+# FK auf mandates/clients (Purge-fest), nur actor_id -> users; dieselbe DDL
+# in 5eyes_schema_v4.0_FINAL.sql, Alembic f3a8d1c6b4e2 fuer PostgreSQL.
+FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_financial_coverage_attestations_no_update "
+    "BEFORE UPDATE ON financial_coverage_attestations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_financial_coverage_attestations_no_delete "
+    "BEFORE DELETE ON financial_coverage_attestations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END",
+)
+
+FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS financial_coverage_attestations (
+    id                          TEXT PRIMARY KEY,
+    schema_version              TEXT NOT NULL DEFAULT 'FinancialCoverageAttestationV1',
+    mandate_id                  TEXT NOT NULL,
+    client_id                   TEXT NOT NULL,
+    household_persons_json      TEXT NOT NULL,
+    income_complete             INTEGER NOT NULL CHECK(income_complete IN (0,1)),
+    expenses_complete           INTEGER NOT NULL CHECK(expenses_complete IN (0,1)),
+    obligations_complete        INTEGER NOT NULL CHECK(obligations_complete IN (0,1)),
+    irregular_expenses_reviewed INTEGER NOT NULL CHECK(irregular_expenses_reviewed IN (0,1)),
+    as_of_date                  TEXT NOT NULL,
+    source                      TEXT NOT NULL,
+    note                        TEXT,
+    cashflow_fingerprint        TEXT NOT NULL,
+    cashflow_row_count          INTEGER NOT NULL,
+    actor_id                    TEXT NOT NULL REFERENCES users(id),
+    attested_at                 TEXT NOT NULL,
+    policy_version              TEXT NOT NULL,
+    attestation_hash            TEXT NOT NULL,
+    created_at                  TEXT NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_financial_coverage_attestations_mandate "
+    "ON financial_coverage_attestations(mandate_id, attested_at)",
+)
+
 # RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 # append-only RiskProfileSignoffV1 (models/profiling.py::RiskProfileSignoff).
 # Gleiches Muster wie risk_override_decisions: Trigger verbieten UPDATE/
@@ -386,6 +429,93 @@ RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL = (
 )
 
 
+# DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Schluessel pro Kunde fuer das
+# Crypto-Shredding der Freitexte in append-only Evidence-Tabellen
+# (services/pii_vault.py). Bewusst VERAENDERBAR (die Erasure muss den
+# Schluessel vernichten koennen), aber nur in eine Richtung: der Trigger
+# erlaubt ausschliesslich das Vernichten (key_material -> NULL), nie das
+# Setzen/Ersetzen eines Schluessels oder das Umhaengen auf einen anderen
+# Kunden -- ein vernichteter Schluessel kann nicht "wiederbelebt" werden.
+# DELETE ist verboten, damit der Tombstone (shredded_at) als Nachweis der
+# Vernichtung stehen bleibt und seal_for_client() fuer geloeschte Kunden
+# fail-closed bleibt. Kein FK auf clients (Purge-fest wie audit_log).
+# Alembic e8a4c2f7d913 fuer PostgreSQL.
+CLIENT_PII_KEYS_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS client_pii_keys (
+    client_id     TEXT PRIMARY KEY,
+    key_id        TEXT NOT NULL UNIQUE,
+    key_material  TEXT,
+    created_at    TEXT NOT NULL,
+    shredded_at   TEXT,
+    CHECK ((key_material IS NULL) = (shredded_at IS NOT NULL))
+)""",
+)
+
+CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_shred_only "
+    "BEFORE UPDATE ON client_pii_keys FOR EACH ROW "
+    "WHEN NEW.client_id IS NOT OLD.client_id OR NEW.key_id IS NOT OLD.key_id "
+    "OR (NEW.key_material IS NOT NULL AND NEW.key_material IS NOT OLD.key_material) "
+    "OR (OLD.shredded_at IS NOT NULL AND NEW.shredded_at IS NOT OLD.shredded_at) "
+    "BEGIN SELECT RAISE(ABORT, 'client_pii_keys is shred-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_no_delete "
+    "BEFORE DELETE ON client_pii_keys FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'client_pii_keys is shred-only'); END",
+)
+
+
+# GOAL-REVISION-DECISION-001 (CIO-Entscheid 2026-10-21, Codex-Closure-Review
+# zu PR #655): append-only GoalRevisionDecisionV1 (models/wealth.py::
+# GoalRevisionDecision). Einzige Quelle einer Herabstufung eines Ziels zum
+# nachrangigen Wunschziel. Gleiches Muster wie risk_override_decisions:
+# Trigger verbieten UPDATE/DELETE, KEIN harter FK auf goals/mandates
+# (Purge-fest), nur actor_id -> users. Die DDL wird hier EINMAL definiert und
+# vom Model (after_create), von ensure_runtime_columns() und -- textgleich --
+# von 5eyes_schema_v4.0_FINAL.sql verwendet; Alembic e3c7a91f5b28 fuer
+# PostgreSQL.
+GOAL_REVISION_DECISION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_update "
+    "BEFORE UPDATE ON goal_revision_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_delete "
+    "BEFORE DELETE ON goal_revision_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END",
+)
+
+GOAL_REVISION_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS goal_revision_decisions (
+    id                            TEXT PRIMARY KEY,
+    schema_version                TEXT NOT NULL DEFAULT 'GoalRevisionDecisionV1',
+    goal_id                       TEXT NOT NULL,
+    mandate_id                    TEXT NOT NULL,
+    client_id                     TEXT,
+    sequence_no                   INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_decision_id          TEXT,
+    goal_snapshot_hash            TEXT NOT NULL,
+    goal_snapshot_json            TEXT NOT NULL,
+    previous_hardness             TEXT NOT NULL,
+    new_status                    TEXT NOT NULL CHECK(new_status IN ('nachrangiges_wunschziel')),
+    reason                        TEXT NOT NULL,
+    evidence_status               TEXT NOT NULL,
+    evidence_best_probability_bps INTEGER,
+    evidence_wilson_upper_bps     INTEGER,
+    evidence_tau_bps              INTEGER,
+    evidence_engine_version       TEXT NOT NULL,
+    evidence_allocation_id        TEXT,
+    evidence_screening_cube_hash  TEXT,
+    actor_id                      TEXT NOT NULL REFERENCES users(id),
+    decided_at                    TEXT NOT NULL,
+    rules_version                 TEXT NOT NULL,
+    decision_hash                 TEXT NOT NULL,
+    created_at                    TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_goal_revision_decision_sequence "
+    "ON goal_revision_decisions(goal_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS ix_goal_revision_decisions_mandate "
+    "ON goal_revision_decisions(mandate_id)",
+)
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -442,6 +572,10 @@ def ensure_runtime_columns() -> None:
             # bleiben funktionsfaehig; neue Tenants starten via
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
+        ],
+        # ELIG-GOVERNANCE-001 (2026-10-22): siehe models/product_eligibility.py.
+        'product_eligibility_rules': [
+            ('approval_mode', 'TEXT'),
         ],
         # 2026-07-27 (Retrozessions-Feature): siehe models/review.py.
         'conflict_of_interest_disclosures': [
@@ -524,6 +658,8 @@ def ensure_runtime_columns() -> None:
             # SIM-HORIZON-FROM-RISK-PROFILE-001 ungenutzt; Spalten bleiben.
             ('sim_horizon_confirmed_at', 'TEXT'),
             ('sim_horizon_confirmed_by', 'TEXT'),
+            # PENSION-TRANSFER-LEDGER-001 (2026-10-21): PensionTransferLedgerSnapshotV1.
+            ('pension_transfer_ledger_snapshot_json', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),
@@ -650,6 +786,8 @@ def ensure_runtime_columns() -> None:
         # (unveraendertes Verhalten fuer Bestandszeilen).
         'wealth_inflows': [
             ('linked_position_id', 'TEXT'),
+            # INFLOW-CERTAINTY-001: NULL = 'sicher' (services/wealth_inflow_certainty.py).
+            ('certainty', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
@@ -934,6 +1072,11 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "override_decision_hash", "TEXT")
         for ddl in RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL + RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
+        # FinancialCoverageAttestationV1 (idempotent; siehe Konstanten oben).
+        for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
+                    + FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS):
+            conn.execute(text(ddl))
         # RISK-PROFILE-SIGNOFF-001 (2026-10-20): Signoff-Pointer/-Status am
         # Assessment + append-only Signoff-Tabelle + Altbestand-Markierung.
         ensure_column(conn, "risk_assessments", "signoff_id", "TEXT")
@@ -942,6 +1085,14 @@ def ensure_runtime_columns() -> None:
         for ddl in RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL + RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
         conn.execute(text(RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL))
+        # DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Kundenschluessel fuer das
+        # Crypto-Shredding (services/pii_vault.py), idempotent.
+        for ddl in CLIENT_PII_KEYS_SQLITE_TABLE_DDL + CLIENT_PII_KEYS_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        # GOAL-REVISION-DECISION-001 (2026-10-21): append-only Herabstufungs-
+        # Entscheidungen (idempotent; siehe Konstanten oben).
+        for ddl in GOAL_REVISION_DECISION_SQLITE_TABLE_DDL + GOAL_REVISION_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
@@ -1942,6 +2093,20 @@ _SQLITE_CURRENT_ANCHOR_INDEXES: tuple[tuple[str, str, str, str], ...] = (
         "wealth_inflows",
         "linked_position_id",
         "linked_position_id IS NOT NULL AND is_active = 1 AND deleted_at IS NULL",
+    ),
+    (
+        # ELIG-GOVERNANCE-001 (2026-10-21): find-or-create-Schluessel der
+        # Produkt-Eignungs-RuleSets, siehe models/product_eligibility.py.
+        "ux_product_eligibility_rule_sets_lineage_tenant",
+        "product_eligibility_rule_sets",
+        "tenant_scope, tenant_id, jurisdiction, created_by, version",
+        "tenant_id IS NOT NULL",
+    ),
+    (
+        "ux_product_eligibility_rule_sets_lineage_global",
+        "product_eligibility_rule_sets",
+        "tenant_scope, jurisdiction, created_by, version",
+        "tenant_id IS NULL",
     ),
 )
 

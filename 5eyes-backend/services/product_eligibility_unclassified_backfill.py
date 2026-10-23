@@ -170,6 +170,9 @@ def classify_and_backfill_unclassified_products(
                     tenant_scope=tenant_scope,
                     tenant_id=product.tenant_id,
                     now=now,
+                    # Owner-autorisierter Backfill-Lauf: bisheriges Verhalten
+                    # (approved durch den autorisierenden Principal) explizit.
+                    approved_by=authored_by,
                 )
                 rule_set_cache[cache_key] = rule_set
             rule = author_default_catalog_rule(

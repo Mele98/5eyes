@@ -66,8 +66,12 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
         document_title="Strategie-Backtest",
     ))
 
+    soll_hidden = bool(data.projection_hidden_hint)
+
     # Meta-Zeile: Zeitraum + SOLL-Allokation
-    weights_summary = _weights_summary(data.soll_weights_bps)
+    weights_summary = (
+        "ausgeblendet" if soll_hidden else _weights_summary(data.soll_weights_bps)
+    )
     bm_summary = _weights_summary(data.benchmark_weights_bps) if data.benchmark_weights_bps else None
     meta_parts = [
         f'<font name="{FONT_BOLD}">Zeitraum:</font> {data.start_year}–{data.end_year}',
@@ -83,6 +87,15 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
         styles["small_muted"],
     ))
     flowables.append(Spacer(1, 3 * mm))
+
+    if soll_hidden:
+        # MC-CONTEXT-001: Soll-Allokation nicht projizierbar -> Hinweis statt
+        # Soll-Pfad. Ein gewaehlter Benchmark-Mix ist von der Soll-Allokation
+        # unabhaengig und wird als eigenstaendige Historie gezeigt.
+        flowables.extend(_build_hidden_soll_flowables(data, styles))
+        flowables.append(PageBreak())
+        flowables.extend(_build_appendix_flowables(ctx, data, styles, advisory_label))
+        return flowables
 
     # Wealth-Index-Chart
     flowables.append(_section_title("Wealth-Index"))
@@ -130,10 +143,44 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
         flowables.extend(fee_block)
 
     flowables.append(PageBreak())
+    flowables.extend(_build_appendix_flowables(ctx, data, styles, advisory_label))
+    return flowables
 
+
+def _build_hidden_soll_flowables(data: BacktestData, styles) -> list:
+    flowables: list = [Paragraph(
+        f'<font name="{FONT_BOLD}" size="10.5" color="#7f1d1d">'
+        f'{_esc(str(data.projection_hidden_hint))}</font>',
+        styles["body"],
+    ), Spacer(1, 4 * mm)]
+    if not data.benchmark_wealth_path_rappen:
+        return flowables
+    flowables.append(_section_title("Benchmark-Historie"))
+    flowables.append(make_wealth_chart(
+        data.benchmark_wealth_path_rappen, None,
+        height_mm=72.0, primary_label="Benchmark",
+    ))
+    flowables.append(Spacer(1, 3 * mm))
+    if data.benchmark_drawdown_path_bps:
+        flowables.append(_section_title("Drawdown-Verlauf Benchmark"))
+        flowables.append(make_drawdown_chart(
+            data.benchmark_drawdown_path_bps, None,
+            height_mm=38.0, primary_label="Benchmark",
+        ))
+        flowables.append(Spacer(1, 4 * mm))
+    if data.benchmark_metrics:
+        flowables.append(_section_title("Kennzahlen Benchmark"))
+        flowables.append(make_backtest_metrics_table(
+            data.benchmark_metrics, None, primary_label="Benchmark",
+        ))
+    return flowables
+
+
+def _build_appendix_flowables(ctx, data: BacktestData, styles, advisory_label) -> list:
     # ============================================================
     # 3. WARNINGS + DISCLAIMER
     # ============================================================
+    flowables: list = []
     flowables.extend(make_wealtharchitekten_header(
         ctx,
         mandate_number=data.mandate_number,

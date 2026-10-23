@@ -13,10 +13,11 @@ from models.wealth import WealthPosition, Cashflow, Goal, PlanningAssumption, We
 from schemas.wealth import (
     WealthPositionCreate, WealthPositionUpdate, WealthPositionResponse,
     CashflowCreate, CashflowUpdate, CashflowResponse,
-    GoalCreate, GoalUpdate, GoalResponse,
+    GoalCreate, GoalUpdate, GoalResponse, GoalRevisionDecisionCreate,
     PlanningAssumptionCreate, PlanningAssumptionResponse,
     WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
     MaxPensionSpendingRequest, MaxPensionSpendingResponse,
+    FinancialCoverageAttestationCreate,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
@@ -1334,6 +1335,107 @@ def delete_goal(
     invalidate_advisory_cache(mandate_id)
 
 
+# ── Goal Revision Decisions (GOAL-REVISION-DECISION-001) ─────────────────────
+
+def _active_goal_or_404(mandate_id: str, goal_id: str, db: Session) -> Goal:
+    goal = db.query(Goal).filter(
+        Goal.id == goal_id,
+        Goal.mandate_id == mandate_id,
+        Goal.deleted_at.is_(None),
+        Goal.is_active == 1,
+    ).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
+    return goal
+
+
+@router.get("/mandates/{mandate_id}/goals/{goal_id}/revision-decisions")
+def list_goal_revision_decisions(
+    mandate_id: str, goal_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Append-only Historie der Herabstufungs-Entscheidungen eines Ziels,
+    juengste zuerst, je mit Gueltigkeit gegen den AKTUELLEN Zielstand."""
+    from models.wealth import GoalRevisionDecision
+    from services.goal_revision_decision import goal_revision_view
+
+    _get_mandate_or_404(mandate_id, db, current_user)
+    goal = _active_goal_or_404(mandate_id, goal_id, db)
+    rows = (
+        db.query(GoalRevisionDecision)
+        .filter(GoalRevisionDecision.goal_id == goal.id)
+        .order_by(GoalRevisionDecision.sequence_no.desc())
+        .all()
+    )
+    return [goal_revision_view(goal, row, db) for row in rows]
+
+
+@router.post("/mandates/{mandate_id}/goals/{goal_id}/revision-decisions", status_code=201)
+def create_goal_revision_decision(
+    mandate_id: str, goal_id: str,
+    body: GoalRevisionDecisionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Ziel als nachrangiges Wunschziel einstufen (GoalRevisionDecisionV1).
+
+    Die Engine schlaegt das nur vor (lokal keine zulaessige Allokation mit
+    ausreichender Sicherheit gefunden); wirksam wird es erst mit dieser
+    expliziten, begruendeten Berater-Entscheidung. Fail-closed vor jeder
+    Mutation: Begruendungsqualitaet (422), Engine-Evidenz der aktuellen
+    Strategie zum aktuellen Zielstand mit Vorschlag (409), keine bereits
+    wirksame Decision (409)."""
+    import json
+
+    from models.allocation import TargetAllocation
+    from services.goal_revision_decision import (
+        GoalRevisionError,
+        decision_snapshot,
+        goal_revision_view,
+        record_goal_revision_decision,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    goal = _active_goal_or_404(mandate_id, goal_id, db)
+    allocation = (
+        db.query(TargetAllocation)
+        .filter(TargetAllocation.mandate_id == mandate_id, TargetAllocation.is_current == 1)
+        .order_by(TargetAllocation.version.desc())
+        .first()
+    )
+    try:
+        decision = record_goal_revision_decision(
+            db, goal=goal, mandate=mandate, allocation=allocation,
+            actor_id=current_user.id, reason=body.reason, new_uuid=new_uuid,
+        )
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="goal_revision_decisions", record_id=decision.id, action="CREATE",
+            field_name="goal_revision", old_value=str(decision.previous_hardness),
+            new_value=json.dumps(decision_snapshot(decision), sort_keys=True, ensure_ascii=False),
+            mandate_id=mandate_id, client_id=mandate.client_id)
+        # Die Ziel-Konkurrenz aendert sich -> gespeicherte Scores veraltet.
+        _invalidate_achievement_scores_for_mandate(mandate_id, db)
+        db.commit()
+    except GoalRevisionError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"reason_code": exc.reason_code, "message": str(exc)},
+        ) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "concurrent_decision",
+                "message": "Parallel wurde bereits eine Entscheidung erfasst. Bitte neu laden.",
+            },
+        ) from exc
+    invalidate_advisory_cache(mandate_id)
+    return goal_revision_view(goal, decision, db)
+
+
 # ── Planning Assumptions ───────────────────────────────────────────────────────
 
 @router.get("/mandates/{mandate_id}/planning-assumptions/current",
@@ -1627,6 +1729,8 @@ def update_wealth_inflow(
         _block_if_pension_source_already_linked(
             inflow.client_id, merged_link, db, exclude_inflow_id=inflow.id,
         )
+    if "certainty" in payload and payload["certainty"] is None:
+        payload["certainty"] = "sicher"  # INFLOW-CERTAINTY-001: null = sicher
     for key, value in payload.items():
         setattr(inflow, key, value)
     inflow.updated_at = _now()
@@ -1823,3 +1927,63 @@ def calculate_max_pension_spending(
         "safety_margin_pct": body.safety_margin_pct,
         "reasoning": reasoning,
     }
+
+
+# ---------------------------------------------------------------------------
+# RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (Codex-Closure-Review PR #653):
+# FinancialCoverageAttestationV1 -- Vollstaendigkeits-Bestaetigung der
+# erfassten Finanzdaten. Append-only: jede Bestaetigung ist eine neue Zeile,
+# die neueste gilt; Cashflow-Aenderungen invalidieren sie automatisch.
+# ---------------------------------------------------------------------------
+
+@router.get("/mandates/{mandate_id}/financial-coverage-attestation")
+def get_financial_coverage_attestation(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from services.financial_coverage_attestation import resolve_attestation
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return resolve_attestation(db, mandate)
+
+
+@router.post("/mandates/{mandate_id}/financial-coverage-attestations", status_code=201)
+def create_financial_coverage_attestation(
+    mandate_id: str,
+    body: FinancialCoverageAttestationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    import json as _json
+
+    from services.financial_coverage_attestation import (
+        attestation_snapshot,
+        create_attestation,
+        resolve_attestation,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        row = create_attestation(
+            db, mandate, actor=current_user,
+            household_persons=body.household_persons,
+            income_complete=body.income_complete,
+            expenses_complete=body.expenses_complete,
+            obligations_complete=body.obligations_complete,
+            irregular_expenses_reviewed=body.irregular_expenses_reviewed,
+            as_of_date=body.as_of_date,
+            source=body.source,
+            note=body.note,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="financial_coverage_attestations", record_id=row.id, action="CREATE",
+        field_name="financial_coverage_attestation",
+        new_value=_json.dumps(attestation_snapshot(row), ensure_ascii=False, sort_keys=True),
+        mandate_id=mandate.id, client_id=mandate.client_id)
+    db.commit()
+    _invalidate_advisory_cache_for_client(mandate.client_id, db)
+    return resolve_attestation(db, mandate)
