@@ -133,7 +133,7 @@ def test_production_run_is_resampled_and_exposes_stability_audit(foundation):
     assert resampling["content_seed"] == result.seed
     # HOUSE-PRIOR-001 (Engine v6): im Default ist die Hausmatrix Prior des
     # Optimierers; der Bootstrap ist Offenlegung + Sicherheitsnetz.
-    assert resampling["engine_version"] == "saa_resampled_v11"
+    assert resampling["engine_version"] == "saa_resampled_v12"
     assert "significance" not in resampling
     house_prior = resampling["house_prior"]
     assert house_prior["decision"] in {"house_prior", "house_prior_guard"}

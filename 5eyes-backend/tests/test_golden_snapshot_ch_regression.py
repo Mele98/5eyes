@@ -254,6 +254,18 @@ den neuen Wuerfel (Version im Inhalts-Seed): Score 7
 6768/1636/804/592/200 -> 6788/1613/797/602/200, Score 9
 7821/912/704/363/200 -> 7819/900/700/381/200; Score 3 und alle drei
 Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-23, VARIANT-GOAL-PRESERVATION-GATE-001, Engine
+``saa_resampled_v12`` = v11 plus Goal-Preservation-Gate): das Gate wirkt nur
+in den Risikomass-Varianten; der Default-Pfad (House-Prior) ist unveraendert.
+Auf dem Linux-CI-Runner (temporaerer Workflow, Threads = 1) unter Haswell UND
+Nehalem neu erzeugt, beide byte-identisch. Geaendert nur durch den neuen
+Wuerfel (Version im Inhalts-Seed), Aktien/Obligationen/Immobilien/
+Alternative/Liquiditaet v11 -> v12: Score 7 6788/1613/797/602/200 ->
+6768/1636/808/588/200 (Vola 1080 -> 1076 bps, Risikoanteil 64.59 ->
+64.43 %), Score 9 7819/900/700/381/200 -> 7832/885/702/381/200 (Vola
+1232 -> 1234 bps, Risikoanteil 68.62 -> 68.70 %); Score 3 und alle drei
+Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 
