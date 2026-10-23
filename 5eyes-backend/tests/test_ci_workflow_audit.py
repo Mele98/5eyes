@@ -47,16 +47,18 @@ def workflow_text() -> str:
 def test_setup_python_uses_pip_cache(workflow_yaml):
     """setup-python@v6 muss cache:pip + cache-dependency-path haben."""
     jobs = workflow_yaml["jobs"]
-    pytest_job = jobs["pytest"]
-    setup_step = next(
-        s for s in pytest_job["steps"]
-        if s.get("uses", "").startswith("actions/setup-python@")
-    )
-    with_config = setup_step.get("with", {})
-    assert with_config.get("cache") == "pip", (
-        "pip-Cache fehlt — CI lädt requirements jedes Mal neu."
-    )
-    assert with_config.get("cache-dependency-path") == "5eyes-backend/requirements.txt"
+    # F0-3: die Suite laeuft in den Shard-/Plan-/Wallclock-Jobs; jeder Job,
+    # der requirements installiert, braucht den pip-Cache.
+    for job_id in ("backend-test-plan", "backend-test-shard", "backend-test-wallclock"):
+        setup_step = next(
+            s for s in jobs[job_id]["steps"]
+            if s.get("uses", "").startswith("actions/setup-python@")
+        )
+        with_config = setup_step.get("with", {})
+        assert with_config.get("cache") == "pip", (
+            f"pip-Cache fehlt in {job_id} — CI lädt requirements jedes Mal neu."
+        )
+        assert with_config.get("cache-dependency-path") == "5eyes-backend/requirements.txt"
 
 
 def test_setup_python_version_at_v6():
@@ -127,8 +129,14 @@ def test_pytest_job_has_timeout(workflow_yaml):
     ~45-80min (Suite >8100 Tests, SAA-Resampling), plus bis zu 60min
     Coverage; Run 38964294815 wurde nach gruenem Gate im Coverage-Schritt
     vom Job-Limit abgebrochen.
+
+    2026-10-24 (F0-3): die Suite laeuft in 6 parallelen Shards (je
+    `-n auto --dist loadfile`); ein Shard braucht ~8-20 min, Limit 60.
+    Der Job `pytest` ist nur noch das Aggregat (Vollstaendigkeits-Gate).
     """
-    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 200
+    assert workflow_yaml["jobs"]["backend-test-shard"].get("timeout-minutes") == 60
+    assert workflow_yaml["jobs"]["backend-test-wallclock"].get("timeout-minutes") == 30
+    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 15
 
 
 def test_pytest_uses_python_3_12(workflow_yaml):
@@ -141,7 +149,9 @@ def test_pytest_runs_with_coverage(workflow_text):
     assert "--cov=routers" in workflow_text
     assert "--cov=schemas" in workflow_text
     assert "--cov=models" in workflow_text
-    assert "--cov-report=xml" in workflow_text
+    # F0-3: Shards schreiben Rohdaten, der Combine-Job erzeugt das XML.
+    assert "coverage combine" in workflow_text
+    assert "coverage xml -o coverage.xml" in workflow_text
 
 
 def test_pytest_maxfail_50(workflow_text):
@@ -156,24 +166,82 @@ def test_pytest_maxfail_50(workflow_text):
 
 
 def test_pytest_uploads_coverage_artifact(workflow_yaml):
-    """CI-COVERAGE-ON-PUSH (2026-10-18): Coverage ist ein eigener, nicht-
-    blockierender Job nur nach Merge (push); der PR-Job laedt nur das
-    pytest-Log hoch und laeuft die Suite genau EINMAL."""
-    cov_job = workflow_yaml["jobs"]["coverage"]
-    cov_uploads = [
-        s for s in cov_job["steps"]
+    """CI-COVERAGE-ON-PUSH (2026-10-18): Coverage ist nicht blockierend und
+    laeuft nur nach Merge (push); das PR-Gate faehrt die Suite genau EINMAL.
+
+    F0-3 (2026-10-24): Coverage-Shards (6x xdist) + Combine-Job, der genau
+    einen Report hochlaedt. Das Gate (Shards) laeuft ohne --cov und laedt
+    seine JUnit-Ergebnisse hoch."""
+    jobs = workflow_yaml["jobs"]
+    for job_id in ("coverage", "coverage-combine"):
+        assert jobs[job_id]["if"].startswith("github.event_name == 'push'")
+        assert jobs[job_id]["continue-on-error"] is True
+    combine_uploads = [
+        s for s in jobs["coverage-combine"]["steps"]
         if s.get("uses", "").startswith("actions/upload-artifact@")
     ]
-    assert len(cov_uploads) == 1
-    assert cov_job["if"] == "github.event_name == 'push'"
-    assert cov_job["continue-on-error"] is True
-    pytest_job = workflow_yaml["jobs"]["pytest"]
-    pytest_runs = [s.get("run", "") for s in pytest_job["steps"] if "pytest tests/" in s.get("run", "")]
-    assert len(pytest_runs) == 1 and "--cov" not in pytest_runs[0]
+    assert len(combine_uploads) == 1
+    shard_job = jobs["backend-test-shard"]
+    shard_runs = [
+        s.get("run", "") for s in shard_job["steps"]
+        if "pytest tests/" in s.get("run", "") and "--collect-only" not in s.get("run", "")
+    ]
+    assert len(shard_runs) == 1 and "--cov" not in shard_runs[0]
     assert any(
         s.get("uses", "").startswith("actions/upload-artifact@")
-        for s in pytest_job["steps"]
-    )  # pytest-log
+        for s in shard_job["steps"]
+    )  # JUnit + Selektion
+
+
+# ---------------------------------------------------------------------------
+# F0-3: paralleles Gate (Shards x xdist) ohne Testverlust
+# ---------------------------------------------------------------------------
+
+_PINNING = {
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_CORETYPE": "Haswell",
+}
+
+
+@pytest.mark.parametrize(
+    "job_id", ["backend-test-plan", "backend-test-shard", "backend-test-wallclock", "coverage"]
+)
+def test_test_jobs_keep_determinism_pinning(workflow_yaml, job_id):
+    """Thread-Pinning + fixer OpenBLAS-Kernel auf Job-Ebene, damit jeder
+    xdist-Worker sie erbt (Golden-Snapshot-ULP-Flake 2026-09-09/16)."""
+    env = workflow_yaml["jobs"][job_id].get("env", {})
+    for key, value in _PINNING.items():
+        assert env.get(key) == value, (job_id, key)
+
+
+def test_shards_run_parallel_per_file(workflow_yaml):
+    job = workflow_yaml["jobs"]["backend-test-shard"]
+    assert job["strategy"]["matrix"]["group"] == [1, 2, 3, 4, 5, 6]
+    assert job["strategy"]["fail-fast"] is False
+    run = next(s["run"] for s in job["steps"] if "-n auto" in s.get("run", ""))
+    assert "--dist loadfile" in run
+    assert '-m "not wallclock_budget"' in run
+    assert "--splits 6" in job["env"]["SPLIT_ARGS"]
+
+
+def test_wallclock_budget_tests_run_serially(workflow_yaml):
+    job = workflow_yaml["jobs"]["backend-test-wallclock"]
+    run = next(s["run"] for s in job["steps"] if "-m wallclock_budget" in s.get("run", "") and "--collect-only" not in s["run"])
+    assert "-p no:xdist" in run and "-n " not in run
+
+
+def test_aggregate_check_keeps_its_name_and_gates_completeness(workflow_yaml):
+    """Pflicht-Check-Name "Backend Tests (3.12)" bleibt stabil (Tooling)."""
+    job = workflow_yaml["jobs"]["pytest"]
+    assert job["name"] == "Backend Tests"
+    assert job["strategy"]["matrix"]["python-version"] == ["3.12"]
+    assert set(job["needs"]) == {"backend-test-plan", "backend-test-shard", "backend-test-wallclock"}
+    assert job["if"] == "always()"
+    runs = " ".join(s.get("run", "") for s in job["steps"])
+    assert "scripts/ci_test_shard_gate.py" in runs
+    assert 'test "$SHARDS" = success' in runs
 
 
 # ---------------------------------------------------------------------------

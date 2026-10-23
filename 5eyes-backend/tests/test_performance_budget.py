@@ -121,6 +121,9 @@ BUDGET_GENERATE_S = 24.0
 BUDGET_REPORT_S = 1.0
 BUDGET_COMBINED_S = 24.0
 
+# Wandzeit-Gates: in CI seriell in eigenem Job (siehe pyproject-Marker).
+pytestmark = pytest.mark.wallclock_budget
+
 
 class _QueryCounter:
     """SQLAlchemy event listener that counts SELECTs (Muster aus
