@@ -314,7 +314,13 @@ def make_concentration_table(positions: list[dict], base_currency: str = "CHF") 
 
 def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> Table:
     rows = [["Kostenart", "Turnus", "Satz", "Betrag", "Datenbasis"]]
-    if not costs or costs.get("data_pending"):
+    if costs and costs.get("evidence_status") == "blocked":
+        # COST-SNAPSHOT-BINDING-001: ausgewiesener Fehler statt "ausstehend".
+        rows.append([
+            "Kostennachweis ungueltig", "-", "-", "-",
+            Paragraph(_esc(str(costs.get("evidence_error") or "-")), _cell_style()),
+        ])
+    elif not costs or costs.get("data_pending"):
         rows.append(["Daten ausstehend", "-", "-", "-", str(costs.get("note") or "-")])
     else:
         for item in costs.get("cost_items") or []:

@@ -300,7 +300,7 @@ class ThemeGapDiagnosis:
     ``raise_if_blocked`` -> 409 THEME_CLASSIFICATION_MISSING, auch unterhalb
     der 50-bps-Toleranz (keine stille Lockerung)."""
 
-    def __init__(self, db, products, prefs, score_bucket, *, service_mode, jurisdiction, jurisdiction_ctx):
+    def __init__(self, db, products, prefs, score_bucket, *, service_mode, jurisdiction, jurisdiction_ctx, tenant_id=None):
         from services.portfolio_engine_payload import effective_theme_screening
         from services.product_eligibility import is_eligible_candidate
 
@@ -309,7 +309,7 @@ class ThemeGapDiagnosis:
         self.jurisdiction_ctx = jurisdiction_ctx
         self.pool = [
             product for product in products
-            if is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
+            if is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction, tenant_id=tenant_id)
         ] if effective_theme_screening(prefs) else []
 
     def hint(self, sub: dict) -> str | None:

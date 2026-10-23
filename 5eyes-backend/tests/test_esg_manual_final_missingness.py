@@ -202,6 +202,40 @@ def _strip_snapshot(SF, ta_id):
         s.commit()
 
 
+def _strip_preference_snapshot_keep_ledger(SF, ta_id):
+    """Legacy-Praeferenz-TA (``preferences_json IS NULL``), deren uebriger
+    Allocation-Context inkl. Reserve-Ledger-Snapshot gueltig gehasht bleibt.
+
+    RESERVE-LEDGER-SNAPSHOT-001: eine TA ganz ohne gehashten Context ist
+    ledger-``unverifiable`` und wird (gewollt) nicht finalisiert. Fuer den
+    ESG-Legacy-Vertrag zaehlt nur der fehlende Praeferenz-Snapshot; der Hash
+    wird deshalb ueber exakt dieselbe kanonische Form neu gebildet.
+    """
+    import json
+
+    from services.portfolio_engine import BUCKET_FIELDS
+    from services.portfolio_engine_allocation_integrity import allocation_context_hash_for
+
+    with SF() as s:
+        row = s.get(TargetAllocation, ta_id)
+        constraints = json.loads(row.effective_constraints_json)
+        row.preferences_json = None
+        row.allocation_context_hash = allocation_context_hash_for(
+            engine_version=constraints["engine_version"],
+            policy_id=row.policy_id,
+            cma_id=row.capital_market_assumptions_id,
+            assessment_id=row.based_on_assessment_id,
+            input_snapshot_hash=row.input_snapshot_hash,
+            preferences_json=None,
+            targets={b: int(getattr(row, f"target_{b}_bps")) for b in BUCKET_FIELDS},
+            sub_allocations=json.loads(row.sub_allocations_json),
+            effective_constraints=constraints,
+            optimization_seed=row.optimization_seed,
+        )
+        assert row.reserve_funding_ledger_hash  # gueltiger Ledger-Snapshot bleibt
+        s.commit()
+
+
 # ===========================================================================
 # P0-3a PREF-MANUAL-001: manuelles Hinzufuegen
 # ===========================================================================
@@ -359,7 +393,7 @@ def test_finalize_legacy_allocation_keeps_behaviour_with_warning(SF):
 
     advisor_id, mandate_id = _seed(SF, "fin-legacy")
     ta_id = _generate_ta(SF, mandate_id, advisor_id, {})
-    _strip_snapshot(SF, ta_id)
+    _strip_preference_snapshot_keep_ledger(SF, ta_id)
     run_id, _pids, _w = _generate_run(SF, mandate_id, advisor_id)
     _finalize(SF, mandate_id, run_id, advisor_id)
     assert _status_of(SF, run_id) == "Final"

@@ -136,7 +136,7 @@ profiles:
     score_to: 8
     name: "Wachstumsorientiert"
     liquidity_min: 0
-    liquidity_target: 150
+    liquidity_target: 200
     liquidity_max: 200
     bonds_min: 1000
     bonds_target: 1600

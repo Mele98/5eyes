@@ -92,6 +92,12 @@ class TargetAllocation(Base):
     total_wealth_at_generation_rappen = Column(Integer)
     reserve_needed_at_generation_rappen = Column(Integer)
     external_reserve_at_generation_rappen = Column(Integer)
+    # RESERVE-LEDGER-SNAPSHOT-001: der beim Generate publizierte
+    # ReserveFundingLedgerV1 als kanonisches JSON + Contract-Hash. Die Referenz
+    # steht zusaetzlich in effective_constraints (-> allocation_context_hash).
+    # NULL = Legacy ohne Snapshot (replay-unverifizierbar).
+    reserve_funding_ledger_json = Column(String)
+    reserve_funding_ledger_hash = Column(String(64))
     # AR-2 (FIDLEG-Report): persistierte Monte-Carlo-Risiko-Kennzahlen auf
     # Beratungsvermoegens-Ebene (target_*), erzeugt beim Strategie-Lauf. Der
     # Report liest sie in _build_key_metrics; NULL bei Alt-TAs -> Karte zeigt "—".
@@ -140,6 +146,11 @@ class TargetAllocation(Base):
     # (keine Down-Migration), werden aber weder geschrieben noch gelesen.
     sim_horizon_confirmed_at = Column(String)
     sim_horizon_confirmed_by = Column(String)
+    # PENSION-TRANSFER-LEDGER-001 (2026-10-21, Alembic b8e4d2a7c913):
+    # unveraenderlicher PensionTransferLedgerSnapshotV1 (kanonisches JSON).
+    # NULL = keine externe Vorsorge im Run; die Referenz liegt gehasht in
+    # effective_constraints_json (siehe services/pension_transfer_ledger_snapshot.py).
+    pension_transfer_ledger_snapshot_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

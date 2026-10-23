@@ -244,17 +244,28 @@ Risikoanteil 64.48 -> 64.44 %), Score 9 7858/855/697/390/200 ->
 7821/912/704/363/200 (575/1238 -> 574/1232 bps, Risikoanteil 68.87 ->
 68.54 %); Score 3 und alle drei Score-5-Varianten unveraendert.
 
-Nachtrag (2026-10-21, VARIANT-GOAL-PRESERVATION-GATE-001, Engine
-``saa_resampled_v12``): Goal-Preservation-Gate nur in den Risikomass-
-Varianten; der Default-Pfad (House-Prior) ist unveraendert. Mit dem v10-Seed
-(Version erzwungen, Experiment) sind ALLE sechs Fixtures byte-identisch zu
-v10. Unter Haswell UND Nehalem (Threads = 1) neu erzeugt, beide
-byte-identisch; geaendert nur durch den neuen Wuerfel (Version im
-Inhalts-Seed): Score 7 6768/1636/804/592/200 -> Immobilien 804 -> 808,
-Alternative 592 -> 588 (Risikoanteil 64.44 -> 64.43 %), Score 9
-7821/912/704/363/200 -> 7832/885/702/381/200 (Vola 1232 -> 1234 bps,
-Risikoanteil 68.54 -> 68.70 %); Score 3 und alle drei Score-5-Varianten
-unveraendert.
+Nachtrag (2026-10-21, GOAL-REVISION-DECISION-001, Engine
+``saa_resampled_v11``): keine automatische Herabstufung mehr (nur per
+Berater-Entscheidung GoalRevisionDecisionV1). Unter Haswell UND Nehalem
+(Threads = 1) neu erzeugt, beide byte-identisch. Mit dem v10-Seed (Version
+erzwungen, Experiment) sind ALLE sechs Fixtures byte-identisch zu v10 -- in
+keiner Golden-Kombination wurde ein Ziel herabgestuft. Geaendert nur durch
+den neuen Wuerfel (Version im Inhalts-Seed): Score 7
+6768/1636/804/592/200 -> 6788/1613/797/602/200, Score 9
+7821/912/704/363/200 -> 7819/900/700/381/200; Score 3 und alle drei
+Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-23, VARIANT-GOAL-PRESERVATION-GATE-001, Engine
+``saa_resampled_v12`` = v11 plus Goal-Preservation-Gate): das Gate wirkt nur
+in den Risikomass-Varianten; der Default-Pfad (House-Prior) ist unveraendert.
+Auf dem Linux-CI-Runner (temporaerer Workflow, Threads = 1) unter Haswell UND
+Nehalem neu erzeugt, beide byte-identisch. Geaendert nur durch den neuen
+Wuerfel (Version im Inhalts-Seed), Aktien/Obligationen/Immobilien/
+Alternative/Liquiditaet v11 -> v12: Score 7 6788/1613/797/602/200 ->
+6768/1636/808/588/200 (Vola 1080 -> 1076 bps, Risikoanteil 64.59 ->
+64.43 %), Score 9 7819/900/700/381/200 -> 7832/885/702/381/200 (Vola
+1232 -> 1234 bps, Risikoanteil 68.62 -> 68.70 %); Score 3 und alle drei
+Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 

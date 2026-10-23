@@ -129,38 +129,70 @@ def resolve_active_rules_for_product(
     tenant_id: str | None,
     as_of: str | None = None,
 ) -> list[ProductEligibilityRule]:
-    """Section 4.3/11 -- only `approved` rules valid at `as_of` apply.
+    """Section 4.3/11 -- only `approved` rules inside an `approved`,
+    currently valid RuleSet, visible to `tenant_id` and matching this
+    product exactly, apply.
 
-    Specificity precedence (2026-10-09, resolves the Section 4.3 gap: "kein
-    dokumentierte Prioritaets-/Konfliktpolitik"): a rule naming this exact
-    `product_id` is strictly more specific than one that only matches via
-    `product_category_selector`, so an exact match always wins over a
-    category-level one -- this mirrors ordinary override/shadowing
-    semantics (most-specific-applicable-rule-wins) and does not relax
-    fail-closed behaviour, it only decides which single governed rule is
-    "the" rule when more than one rule happens to apply at different
-    specificity levels. `evaluate_product_eligibility()` still treats a
-    multi-rule return as `AMBIGUOUS_RULE_MATCH` -- that remains correct for
-    two rules tied at the SAME specificity level (e.g. a tenant-scoped and
-    a global rule both naming this exact product_id), which this function
-    still returns together on purpose.
+    ELIG-TENANT-SCOPE-001 / ELIG-RULESET-GOVERNANCE-001 /
+    ELIG-CATEGORY-SELECTOR-001 (Codex-Audit, Fix 2026-10-21): before, a
+    rule naming the product_id applied regardless of its tenant (a tenant-A
+    policy was evidence in a tenant-B run), the RuleSet status was never
+    read (an approved rule inside a draft RuleSet was active), and any
+    global category-selector rule matched every product. Now:
+
+    * tenant: a global rule without tenant_id applies everywhere; any rule
+      or RuleSet carrying a tenant_id only to exactly that `tenant_id` --
+      never when `tenant_id` is None (mirrors the Postgres RLS predicate,
+      see product_eligibility_governance.rule_visible_to_tenant).
+    * RuleSet: status `approved` and valid at `as_of`.
+    * selector: exact attribute match (selector_matches_product).
+
+    Specificity precedence (2026-10-09): an exact `product_id` rule always
+    wins over a category-level one. Several rules at the same level are
+    returned together; `evaluate_product_eligibility()` narrows them by risk
+    band and otherwise reports `AMBIGUOUS_RULE_MATCH`.
     """
-    as_of = as_of or _now_iso()
-    query = db.query(ProductEligibilityRule).filter(
-        ProductEligibilityRule.status == "approved",
-        ProductEligibilityRule.jurisdiction == jurisdiction,
-        ProductEligibilityRule.valid_from <= as_of,
-    ).filter(
-        (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of)
-    ).filter(
-        (ProductEligibilityRule.product_id == product.id)
-        | (ProductEligibilityRule.tenant_scope == "global")
+    from services.product_eligibility_governance import (
+        rule_visible_to_tenant,
+        selector_matches_product,
     )
-    candidates = query.all()
-    exact_matches = [rule for rule in candidates if rule.product_id == product.id]
+
+    as_of = as_of or _now_iso()
+    rows = (
+        db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+        .join(
+            ProductEligibilityRuleSet,
+            ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+        )
+        .filter(
+            ProductEligibilityRule.status == "approved",
+            ProductEligibilityRule.jurisdiction == jurisdiction,
+            ProductEligibilityRule.valid_from <= as_of,
+            (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
+            ProductEligibilityRuleSet.status == "approved",
+            ProductEligibilityRuleSet.valid_from <= as_of,
+            (ProductEligibilityRuleSet.valid_to.is_(None)) | (ProductEligibilityRuleSet.valid_to > as_of),
+            (ProductEligibilityRule.product_id == product.id)
+            | (
+                ProductEligibilityRule.product_id.is_(None)
+                & ProductEligibilityRule.product_category_selector.isnot(None)
+            ),
+        )
+        .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
+        .all()
+    )
+    visible = [
+        rule for rule, rule_set in rows
+        if rule_visible_to_tenant(rule, rule_set, tenant_id)
+    ]
+    exact_matches = [rule for rule in visible if rule.product_id == product.id]
     if exact_matches:
         return exact_matches
-    return [rule for rule in candidates if rule.product_category_selector is not None]
+    return [
+        rule for rule in visible
+        if rule.product_id is None
+        and selector_matches_product(rule.product_category_selector, product)
+    ]
 
 
 # -- Default-catalog bootstrap rules (2026-10-09) -----------------------------
@@ -206,36 +238,55 @@ def ensure_rule_set(
     tenant_scope: str = "global",
     tenant_id: str | None = None,
     now: str | None = None,
+    approved_by: str | None = None,
 ) -> ProductEligibilityRuleSet:
-    """Find-or-create the one persistent, approved RuleSet that rules
-    authored by a given principal (`authored_by`) for a given (tenant_scope,
-    tenant_id, jurisdiction) bucket belong to. Idempotent and safe to call
-    repeatedly/concurrently within the same or different db sessions --
-    callers must `db.flush()` (not just add) before relying on the returned
-    row being query-visible to a *different* session, exactly like every
-    other id-generation helper in this codebase.
+    """Find-or-create the one persistent RuleSet that rules authored by a
+    given principal (`authored_by`) for a given (tenant_scope, tenant_id,
+    jurisdiction) bucket belong to.
 
     `authored_by` is part of the lookup key (not just an attribute) so a
     bootstrap-identity RuleSet (default catalog) and a real-principal
     RuleSet for the same tenant/jurisdiction never merge into one -- each
     authoring identity gets its own RuleSet lineage.
+
+    ELIG-GOVERNANCE-001 (2026-10-21):
+    * The key is backed by a DB unique index (models/product_eligibility.py,
+      ux_product_eligibility_rule_sets_lineage_*). The insert runs in a
+      SAVEPOINT; losing a concurrent race (IntegrityError) re-reads the
+      winner instead of failing or creating a duplicate lineage.
+    * A newly created RuleSet is `approved` only when `approved_by` is given
+      explicitly (default-catalog bootstrap, owner-authorized backfill);
+      otherwise it starts as `draft` and needs four-eyes approval
+      (services.product_eligibility_governance.approve_rule). An existing
+      draft or approved lineage is reused; retired lineages are not.
     """
-    existing = (
-        db.query(ProductEligibilityRuleSet)
-        .filter(
+    from sqlalchemy import func
+    from sqlalchemy.exc import IntegrityError
+
+    def _lineage_query():
+        return db.query(ProductEligibilityRuleSet).filter(
             ProductEligibilityRuleSet.tenant_scope == tenant_scope,
             ProductEligibilityRuleSet.tenant_id == tenant_id,
             ProductEligibilityRuleSet.jurisdiction == jurisdiction,
             ProductEligibilityRuleSet.created_by == authored_by,
-            ProductEligibilityRuleSet.status == "approved",
         )
-        .order_by(ProductEligibilityRuleSet.version.desc())
-        .first()
-    )
+
+    def _find_open():
+        return (
+            _lineage_query()
+            .filter(ProductEligibilityRuleSet.status.in_(("approved", "draft")))
+            .order_by(ProductEligibilityRuleSet.version.desc())
+            .first()
+        )
+
+    existing = _find_open()
     if existing is not None:
         return existing
 
     now = now or _now_iso()
+    max_version = _lineage_query().with_entities(
+        func.max(ProductEligibilityRuleSet.version)
+    ).scalar()
     rule_set_payload = {
         "source": authored_by,
         "tenant_scope": tenant_scope,
@@ -247,18 +298,25 @@ def ensure_rule_set(
         tenant_scope=tenant_scope,
         tenant_id=tenant_id,
         jurisdiction=jurisdiction,
-        version=1,
-        status="approved",
+        version=int(max_version or 0) + 1,
+        status="approved" if approved_by else "draft",
         valid_from=now,
         created_by=authored_by,
-        approved_by=authored_by,
-        approved_at=now,
+        approved_by=approved_by,
+        approved_at=now if approved_by else None,
         rule_set_hash=canonical_hash(rule_set_payload),
         created_at=now,
         updated_at=now,
     )
-    db.add(rule_set)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(rule_set)
+            db.flush()
+    except IntegrityError:
+        winner = _find_open()
+        if winner is None:
+            raise
+        return winner
     return rule_set
 
 
@@ -274,6 +332,7 @@ def ensure_default_catalog_rule_set(
         tenant_scope="global",
         tenant_id=None,
         now=now,
+        approved_by=DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
     )
 
 
@@ -321,14 +380,7 @@ def seed_default_catalog_suitability_and_rules(
     """
     from models.review import ProductSuitability
 
-    rule_set = ensure_rule_set(
-        db,
-        jurisdiction=jurisdiction,
-        authored_by=DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
-        tenant_scope="global",
-        tenant_id=None,
-        now=now,
-    )
+    rule_set = ensure_default_catalog_rule_set(db, jurisdiction=jurisdiction, now=now)
     for product in products:
         profile_from, profile_to = default_product_risk_band(product)
         max_position_bps = 2500 if product.asset_class == "Aktien" else 4000
@@ -358,6 +410,9 @@ def seed_default_catalog_suitability_and_rules(
     db.flush()
 
 
+_SAME_AS_AUTHOR = "__same_as_author__"
+
+
 def author_default_catalog_rule(
     db: Session,
     *,
@@ -373,8 +428,16 @@ def author_default_catalog_rule(
     authored_by: str = DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
     source_label: str = DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
     now: str | None = None,
+    approved_by: str | None = _SAME_AS_AUTHOR,
 ) -> ProductEligibilityRule:
-    """Author one approved, product-specific governed rule.
+    """Author one product-specific governed rule.
+
+    `approved_by` defaults to `authored_by` (approved immediately) for the
+    bootstrap/backfill callers that existed before four-eyes approval;
+    `approved_by=None` authors a `draft` rule that needs
+    services.product_eligibility_governance.approve_rule() by a different
+    principal (ELIG-GOVERNANCE-001, used by author_tenant_product_rule()).
+    `rule_hash` covers every policy-relevant field (compute_rule_hash).
 
     Originally written for the default-catalog bootstrap path (see module
     note above), this is the one shared rule-authoring primitive -- also
@@ -387,21 +450,17 @@ def author_default_catalog_rule(
     or with a Section 15 legacy-migration row (disjoint product sets by
     construction) or trigger the AMBIGUOUS_RULE_MATCH path.
     """
+    from services.product_eligibility_governance import compute_rule_hash
+
     now = now or _now_iso()
+    if approved_by == _SAME_AS_AUTHOR:
+        approved_by = authored_by
     prohibited = not service_modes
-    rule_payload = {
-        "rule_set_id": rule_set.id,
-        "product_id": product.id,
-        "profile_from": profile_from,
-        "profile_to": profile_to,
-        "service_modes": service_modes,
-        "source": source_label,
-    }
-    rule = ProductEligibilityRule(
-        id=new_uuid(),
+    policy = dict(
         rule_set_id=rule_set.id,
         version=1,
         product_id=product.id,
+        product_category_selector=None,
         tenant_scope=tenant_scope,
         tenant_id=product.tenant_id if tenant_scope == "tenant" else None,
         jurisdiction=rule_set.jurisdiction,
@@ -410,6 +469,7 @@ def author_default_catalog_rule(
         profile_from=profile_from,
         profile_to=profile_to,
         requires_knowledge_categories_json="[]",
+        minimum_experience_level=None,
         requires_appropriateness=int(requires_appropriateness),
         # Consistent with the Section 15 legacy migration's own documented
         # choice: a risk-band gate IS a suitability rule.
@@ -418,11 +478,17 @@ def author_default_catalog_rule(
         max_position_bps=max_position_bps,
         prohibited=int(prohibited),
         valid_from=now,
-        status="approved",
+        valid_to=None,
+        supersedes_id=None,
+    )
+    rule = ProductEligibilityRule(
+        id=new_uuid(),
+        **policy,
+        status="approved" if approved_by else "draft",
         created_by=authored_by,
-        approved_by=authored_by,
-        approved_at=now,
-        rule_hash=canonical_hash(rule_payload),
+        approved_by=approved_by,
+        approved_at=now if approved_by else None,
+        rule_hash=compute_rule_hash(policy, source=source_label),
         created_at=now,
         updated_at=now,
     )
@@ -460,6 +526,12 @@ def author_tenant_product_rule(
 ) -> ProductEligibilityRule:
     """Author the one tenant-scoped governed rule for a product an advisor
     just added to their own tenant's catalog, attributed to that advisor.
+
+    ELIG-GOVERNANCE-001 (2026-10-21): the rule (and a newly created RuleSet)
+    is a `draft` -- the author can no longer approve their own policy. It
+    becomes effective only after a different principal approves it via
+    POST /products/{id}/eligibility-rule/approve (409 for the author).
+    Until then the product stays `indeterminate` (fail-closed).
     """
     rule_set = ensure_rule_set(
         db,
@@ -468,6 +540,7 @@ def author_tenant_product_rule(
         tenant_scope="tenant",
         tenant_id=product.tenant_id,
         now=now,
+        approved_by=None,
     )
     return author_default_catalog_rule(
         db,
@@ -483,6 +556,7 @@ def author_tenant_product_rule(
         authored_by=created_by_user_id,
         source_label=TENANT_PRODUCT_RULE_SOURCE,
         now=now,
+        approved_by=None,
     )
 
 
@@ -530,6 +604,18 @@ def evaluate_product_eligibility(
             decision="indeterminate",
             reason_codes=reason_codes,
         )
+    if len(rules) > 1:
+        # ELIG-RULE-RESOLUTION-001 (2026-10-21): the Section 15 migration
+        # deliberately keeps non-overlapping bands of one product as separate
+        # rules (e.g. 1-3 and 4-10). Exactly one of them covers the client's
+        # score bucket -- that one is the applicable rule. Overlap or no
+        # coverage stays ambiguous (fail-closed).
+        covering = [
+            candidate for candidate in rules
+            if int(candidate.profile_from) <= int(score_bucket) <= int(candidate.profile_to)
+        ]
+        if len(covering) == 1:
+            rules = covering
     if len(rules) > 1:
         reason_codes.append("AMBIGUOUS_RULE_MATCH")
         return ProductEligibilityDecisionV1(
@@ -627,11 +713,10 @@ def evaluate_product_eligibility(
     else:
         decision = "eligible"
 
-    rule_payload = {
-        "rule_id": rule.id, "version": rule.version, "status": rule.status,
-        "profile_from": rule.profile_from, "profile_to": rule.profile_to,
-    }
-    matched_rule_hash = canonical_hash(rule_payload)
+    # ELIG-GOVERNANCE-001 (2026-10-21): the decision references the exact
+    # persisted rule hash (computed over every policy field at authoring
+    # time), not a fresh hash over a handful of fields.
+    matched_rule_hash = rule.rule_hash
 
     return ProductEligibilityDecisionV1(
         product_id=product.id,
@@ -677,6 +762,16 @@ def derive_service_mode(mandate: Mandate) -> ServiceMode:
     )
 
 
+def mandate_tenant_id(mandate: Mandate) -> str:
+    """The run's tenant for rule visibility -- same resolution as the
+    product pool (services.portfolio_engine_payload.
+    _tenant_visible_products_query: mandate.tenant_id, DEFAULT_TENANT_ID
+    fallback), so a tenant's own private products keep their own rules."""
+    from models.tenant import DEFAULT_TENANT_ID
+
+    return getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
+
+
 def is_eligible_candidate(
     db: Session,
     product: Product,
@@ -684,6 +779,7 @@ def is_eligible_candidate(
     service_mode: ServiceMode,
     score_bucket: int,
     jurisdiction: str = "CH",
+    tenant_id: str | None = None,
 ) -> bool:
     """The single eligibility gate Generate's candidate selection consumes
     (services.portfolio_engine.generate_recommendation_run()). Position-
@@ -691,6 +787,10 @@ def is_eligible_candidate(
     aggregated weight per product is known -- this call always passes
     `aggregated_weight_bps=0` because that dimension is not yet decided at
     pre-aggregation candidate-selection time.
+
+    `tenant_id` is the run's tenant (the mandate's, as for the product pool
+    in _tenant_visible_products_query); tenant-scoped rules only count for
+    exactly that tenant, None means global rules only.
 
     `indeterminate` is deliberately NOT eligible -- Section 4.2: "Kein
     Regelmatch... ergibt indeterminate und blockiert staerkere Kanaele."
@@ -703,5 +803,6 @@ def is_eligible_candidate(
         aggregated_weight_bps=0,
         source_sub_allocations=[],
         jurisdiction=jurisdiction,
+        tenant_id=tenant_id,
     )
     return decision.decision == "eligible"

@@ -4,8 +4,14 @@ Folgefix zu PR #642 nach Codex-Review 2026-10-18. Ein Vorsorgebezug ist eine
 UMBUCHUNG von gebundenem in freies Vermoegen. Damit sie genau einmal und
 bilanziell sauber passiert, haelt dieser Ledger pro Quelle eine Zeile:
 
-    opening + deterministisches Wachstum = gross_withdrawal + closing
-    gross_withdrawal                      = lumpsum_tax + net_advisory_inflow
+    projected + valuation_adjustment = gross_withdrawal + closing
+    gross_withdrawal                 = lumpsum_tax + net_advisory_inflow
+
+(``projected`` = opening + deterministisches Wachstum bis zum Bezugsjahr.)
+Beide Identitaeten erzwingt ``PensionTransferRow.__post_init__`` rappengenau
+(PR-#651-Restbefund A, 2026-10-21): eine Differenz zwischen Hochrechnung und
+erfasstem Betrag ist nie mehr unbenannt, sondern eine explizite, gehashte
+``valuation_adjustment_rappen``-Zeile.
 
 Aktuelles Modell = VOLLBEZUG (``transfer_mode = "full"``, closing = 0).
 Teil- und Ratenbezuege sind bewusst NICHT implementiert: dafuer braeuchte es
@@ -24,9 +30,17 @@ Betragsregel (CIO-Entscheid 2026-10-19):
 - automatischer Bezug: Brutto = fortgeschriebener Wert, Steuer = erfasste
   Positionssteuer (CHF vor %, sonst Default), Netto = Brutto - Steuer;
 - verknuepfter Bezug: Netto = vom Berater erfasster Betrag (Steuer darin
-  enthalten), Brutto = fortgeschriebener Wert, Steuer := Brutto - Netto
-  (implizit). Netto > Brutto -> Steuer 0, Brutto = Netto, Hinweis
-  "Bezug hoeher als Hochrechnung".
+  enthalten, massgebend). Ein Brutto wird nicht beobachtet; die Steuer ist
+  deshalb hoechstens ABGELEITET: Positionssteuer auf die Hochrechnung,
+  begrenzt auf die Luecke ``max(0, projected - net)`` (Provenienz
+  ``inferred``; ohne Luecke/Steuer ``unavailable`` mit 0). Brutto := Netto +
+  Steuer; der Rest ist die Bewertungsanpassung
+  ``valuation_adjustment = Brutto - projected`` (positiv: Bezug hoeher als
+  Hochrechnung; negativ: nicht als Steuer erklaerbare Minderbewertung).
+
+Steuer-Provenienz (``tax_provenance``): ``observed`` (CHF-Betrag erfasst und
+direkt angewendet), ``inferred`` (Satz/Default/Ableitung), ``unavailable``
+(keine Steuerevidenz -> Steuer 0, keine Tatsachenbehauptung).
 
 Herkunft der Zeile: ``linked_inflow`` (Berater hat den Bezug als Zufluss mit
 linked_position_id erfasst; hat IMMER Vorrang, auch wenn er hinter dem
@@ -50,6 +64,9 @@ REASON_SOURCE_LINK_ORPHAN = "PENSION_SOURCE_LINK_ORPHAN"
 REASON_SOURCE_MULTIPLE_LINKS = "PENSION_SOURCE_MULTIPLE_LINKS"
 REASON_TRANSFER_NOT_ONE_TIME = "PENSION_TRANSFER_NOT_ONE_TIME"
 REASON_TRANSFER_BEFORE_VALUATION = "PENSION_TRANSFER_BEFORE_VALUATION"
+REASON_TRANSFER_UNRECONCILED = "PENSION_TRANSFER_UNRECONCILED"
+
+TAX_PROVENANCES = ("observed", "inferred", "unavailable")
 
 # Partieller Unique-Index: hoechstens ein aktiver, nicht geloeschter Link je
 # Quelle. Dieselbe Definition in Model (Bootstrap), Runtime-Patch und Alembic.
@@ -99,9 +116,12 @@ class PensionTransferRow:
     opening_bound_balance_rappen: int
     # fortgeschriebener Wert der Quelle im Bezugsjahr (vor Bezug)
     projected_bound_balance_rappen: int
+    # Bruecke Hochrechnung -> Brutto (vorzeichenbehaftet, 0 beim Auto-Bezug)
+    valuation_adjustment_rappen: int
     gross_withdrawal_rappen: int
     lumpsum_tax_rappen: int
     tax_source: str
+    tax_provenance: str
     net_advisory_inflow_rappen: int
     closing_bound_balance_rappen: int
     recorded_inflow_amount_rappen: int | None
@@ -120,8 +140,29 @@ class PensionTransferRow:
         )
         if any(type(value) is not int or value < 0 for value in amounts):
             raise ValueError("PensionTransferRow: Betraege muessen nicht-negative Rappen sein.")
+        if type(self.valuation_adjustment_rappen) is not int:
+            raise ValueError("PensionTransferRow: Bewertungsanpassung muss ganze Rappen sein.")
         if self.gross_withdrawal_rappen != self.lumpsum_tax_rappen + self.net_advisory_inflow_rappen:
-            raise ValueError("PensionTransferRow: Brutto != Steuer + Netto.")
+            raise PensionTransferLedgerError(
+                REASON_TRANSFER_UNRECONCILED, "PensionTransferRow: Brutto != Steuer + Netto.",
+            )
+        if (
+            self.projected_bound_balance_rappen + self.valuation_adjustment_rappen
+            != self.gross_withdrawal_rappen + self.closing_bound_balance_rappen
+        ):
+            raise PensionTransferLedgerError(
+                REASON_TRANSFER_UNRECONCILED,
+                "PensionTransferRow: Hochrechnung + Bewertungsanpassung != Brutto + Restbestand.",
+            )
+        if self.origin == "auto" and self.valuation_adjustment_rappen != 0:
+            raise PensionTransferLedgerError(
+                REASON_TRANSFER_UNRECONCILED,
+                "PensionTransferRow: automatischer Bezug ohne Bewertungsanpassung.",
+            )
+        if self.tax_provenance not in TAX_PROVENANCES:
+            raise ValueError(f"PensionTransferRow: unbekannte Steuer-Provenienz {self.tax_provenance!r}.")
+        if self.tax_provenance == "unavailable" and self.lumpsum_tax_rappen != 0:
+            raise ValueError("PensionTransferRow: Steuer ohne Evidenz muss 0 sein.")
 
     def identity(self) -> dict:
         """Horizontinvariante Felder fuer den Hash (ohne Sichtbarkeitsflag)."""

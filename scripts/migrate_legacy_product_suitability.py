@@ -75,6 +75,7 @@ def main() -> int:
     print(f"=== Legacy-ProductSuitability-Migration {mode} ===")
     print(f"Migriert (verified_migrated_rule): {report.migrated_count}")
     print(f"Quarantaene (ambiguous/conflicting): {report.quarantined_count}")
+    print(f"Bereits geregelt (already_governed, uebersprungen): {report.already_governed_count}")
     if report.rule_set_id:
         print(f"Neues RuleSet: {report.rule_set_id}")
     print()
@@ -83,7 +84,7 @@ def main() -> int:
     for item in report.items:
         by_class.setdefault(item.classification, []).append(item)
 
-    for classification in ("legacy_conflicting", "legacy_ambiguous_scope", "verified_migrated_rule"):
+    for classification in ("legacy_conflicting", "legacy_ambiguous_scope", "verified_migrated_rule", "already_governed"):
         items = by_class.get(classification, [])
         if not items:
             continue

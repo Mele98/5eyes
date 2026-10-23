@@ -114,6 +114,8 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
   }
 
   function setField(key: AllocationBucketKey, field: BandField, raw: string) {
+    // Optimizer-Kennzahlen gelten nur fuer die unveraenderten Vorschlagsgewichte.
+    setMetrics(null);
     setTexts((prev) => (prev ? { ...prev, [key]: { ...prev[key], [field]: raw } } : prev));
     const value = pctInputToBps(raw);
     setDraftState((prev) => (prev ? { ...prev, [key]: { ...prev[key], [field]: value } } : prev));
@@ -161,8 +163,15 @@ export function AllocationEditor({ mandateId }: AllocationEditorProps) {
         based_on_assessment_id: record.based_on_assessment_id,
         risky_fraction_bps: record.risky_fraction_bps,
         override_reason: reason.trim(),
+        // ALLOC-EDITOR-STALE-001: Lost-Update-Schutz -- der Server lehnt mit
+        // 409 ab, wenn inzwischen ein neuerer Stand gespeichert wurde.
+        expected_current_allocation_id: record.id,
+        expected_current_allocation_version: record.version,
       });
       const saved = await saveTargetAllocation(mandateId, payload);
+      // Kennzahlen eines frueheren Optimizer-Laufs gehoeren nicht zu den
+      // manuell gespeicherten Gewichten -- verwerfen statt weiter anzeigen.
+      setMetrics(null);
       setRecord(saved);
       setDraft(draftFromRecord(saved));
       setSaveWarnings(saved.manual_override_warnings ?? []);

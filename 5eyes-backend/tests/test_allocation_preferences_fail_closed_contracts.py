@@ -58,6 +58,9 @@ TOP_LEVEL_KEYS = frozenset(
         # BAND-DEVIATION-REASON-REQUIRED-001: Begruendung einer Abweichung
         # der Mandatsbandbreite von der Hausmatrix (Text, kein Abschnitt).
         "bandDeviationReason",
+        # CMA-CURRENCY-GUARD-001: dokumentierte Bestaetigung einer
+        # Basiswaehrung abweichend von der CMA-Waehrungsbasis (Text).
+        "cmaCurrencyMismatchReason",
         # ESG-PREMIUM-CRITERIA-001: Begruendungen je Thema ("allow" =
         # bewusst zulassen verlangt eine, siehe tests/test_esg_premium_criteria.py).
         "tiltReasons",

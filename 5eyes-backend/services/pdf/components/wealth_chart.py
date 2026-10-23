@@ -37,6 +37,7 @@ def make_wealth_chart(
     width_mm: float | None = None,
     height_mm: float = 70.0,
     title: str | None = None,
+    primary_label: str = "SOLL-Strategie",
 ) -> Drawing:
     """Wealth-Index-Chart als ReportLab Drawing.
 
@@ -72,7 +73,7 @@ def make_wealth_chart(
                            fillColor=COLOR_TEXT))
 
     series: list[tuple[Sequence[Sequence], rl_colors.Color, str]] = [
-        (soll_path, SOLL_COLOR, "SOLL-Strategie"),
+        (soll_path, SOLL_COLOR, primary_label),
     ]
     if benchmark_path:
         series.append((benchmark_path, BENCHMARK_COLOR, "Benchmark"))
