@@ -1962,6 +1962,7 @@ def create_financial_coverage_attestation(
         create_attestation,
         resolve_attestation,
     )
+    from services.pii_vault import PiiVaultError
 
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     try:
@@ -1976,6 +1977,10 @@ def create_financial_coverage_attestation(
             source=body.source,
             note=body.note,
         )
+    except PiiVaultError as exc:
+        # DSG-geloeschter Kunde: Namen/Notiz nicht versiegelbar -> nichts schreiben.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
