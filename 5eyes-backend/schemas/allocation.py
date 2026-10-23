@@ -318,6 +318,19 @@ class TargetAllocationCreate(BaseModel):
     # (services.override_reason_quality) liefern kann statt eines generischen
     # "field required".
     override_reason: Optional[str] = Field(default=None, max_length=2000)
+    # ALLOC-EDITOR-STALE-001 (2026-10-21): Optimistic Concurrency. ID (und
+    # optional Version) der Allokation, die der Editor bearbeitet hat.
+    # Pflicht, sobald eine aktuelle Allokation existiert (Router -> 409
+    # [allocation_version_missing]); Abweichung -> 409
+    # [allocation_version_conflict]. Siehe services/allocation_concurrency.py.
+    # Write-only (exclude=True): Tokens werden nie mitserialisiert, damit ein
+    # aus model_dump() abgeleiteter Folge-Request sie bewusst neu setzen muss.
+    expected_current_allocation_id: Optional[str] = Field(
+        default=None, max_length=64, exclude=True,
+    )
+    expected_current_allocation_version: Optional[int] = Field(
+        default=None, ge=0, exclude=True,
+    )
 
     @model_validator(mode="after")
     def validate_alloc(self):

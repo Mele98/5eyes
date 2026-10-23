@@ -502,8 +502,11 @@ def _risk_payload() -> RiskAssessmentCreate:
     )
 
 
-def _target_payload(policy_id: str) -> TargetAllocationCreate:
+def _target_payload(
+    policy_id: str, expected_current_allocation_id: str | None = None,
+) -> TargetAllocationCreate:
     return TargetAllocationCreate(
+        expected_current_allocation_id=expected_current_allocation_id,
         target_equities_bps=6000,
         target_bonds_bps=3000,
         target_real_estate_bps=0,
@@ -719,7 +722,7 @@ def test_direct_target_allocation_api_rollover_keeps_one_current_anchor(
         )
         second = create_target_allocation(
             "mandate-anchor",
-            _target_payload("policy-anchor"),
+            _target_payload("policy-anchor", first.id),
             _request_stub(),
             db=session,
             current_user=advisor,

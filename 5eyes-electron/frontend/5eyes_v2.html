@@ -8091,6 +8091,18 @@ function currentManualSaveContext(){
   var ta=a&&(a.target_allocation||a);
   return ta&&ta.policy_id?ta:null;
 }
+// ALLOC-EDITOR-STALE-001: Vorgaenger-Token (ID/Version der bearbeiteten
+// Allokation) fuer den Lost-Update-Schutz des Servers. Nach einer manuellen
+// Speicherung ist der gespeicherte Datensatz der neue Vorgaenger -- aber nur,
+// solange die angezeigte Basis-Allokation dieselbe ist (nach Neu-Berechnung
+// gilt wieder die frisch geladene).
+function currentManualSavePredecessor(ta){
+  if(!ta||!ta.id)return {id:null,version:null};
+  var ref=strategyState&&strategyState.manualSaveRef;
+  if(ref&&ref.baseId===String(ta.id)&&ref.id)return {id:ref.id,version:ref.version};
+  var v=Number(ta.version);
+  return {id:String(ta.id),version:Number.isFinite(v)?v:null};
+}
 function computeManualTargetSaveValidation(baseResult){
   var base=baseResult||computeBandEditorValidation();
   var result={valid:false,errors:[],values:null,base:base};
@@ -8149,6 +8161,9 @@ function buildManualTargetAllocationPayload(values,ta,reason){
   body.based_on_assessment_id=ta.based_on_assessment_id!=null?ta.based_on_assessment_id:null;
   body.policy_id=ta.policy_id;
   body.override_reason=reason;
+  var pred=currentManualSavePredecessor(ta);
+  body.expected_current_allocation_id=pred.id;
+  body.expected_current_allocation_version=pred.version;
   return body;
 }
 function renderManualTargetSaveState(result,message,isError){
@@ -8188,7 +8203,11 @@ async function saveManualTargetAllocationFromModal(){
   var btn=document.getElementById('btn-aa-manual-save');
   if(btn)btn.disabled=true;
   try{
+    var saveBase=currentManualSaveContext();
     var saved=await API.post('/mandates/'+encodeURIComponent(mid)+'/target-allocation',payload);
+    if(saved&&saved.id&&saveBase&&saveBase.id){
+      strategyState.manualSaveRef={baseId:String(saveBase.id),id:String(saved.id),version:(saved.version!=null?Number(saved.version):null)};
+    }
     var warnings=(saved&&Array.isArray(saved.manual_override_warnings))?saved.manual_override_warnings:[];
     var msg='Manuelle Soll-Allokation gespeichert'+(saved&&saved.version!=null?' (Version '+saved.version+')':'')+'.'+(warnings.length?' Hinweise: '+warnings.join(' · '):'');
     var reasonEl=document.getElementById('aa-manual-save-reason');
@@ -24222,9 +24241,34 @@ async function downloadServerPdf(reportType, queryString){
   if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'&&reportType!=='cost-disclosure'){
     console.error('downloadServerPdf: unknown reportType', reportType);return;
   }
+  // ALLOC-EDITOR-STALE-001: kennt der Browser einen veralteten Strategie-
+  // Stand (Bandbreiten/Eingaben geaendert, manuelle Speicherung ohne Neu-
+  // berechnung), wird KEIN frisch beschriftetes Beratungs-PDF aus dem alten
+  // persistierten Kontext erzeugt. Nicht an der Soll-Allokation haengen
+  // (CIO-Entscheid 2026-10-22): Risikoprofil und Beratungsvertrag.
+  var _staleState=(typeof strategyState!=='undefined'&&strategyState)?strategyState:null;
+  var _allocationIndependent=(reportType==='risikoprofil'||reportType==='vertrag');
+  if(!_allocationIndependent&&_staleState&&_staleState.dirty){
+    var _staleMsg='PDF nicht erstellt: die angezeigte Strategie ist nicht aktuell'
+      +(_staleState.staleNotice?' ('+String(_staleState.staleNotice)+')':'')
+      +'. Bitte zuerst «Anlagestrategie berechnen». [allocation_stale]';
+    if(window.showAppError)window.showAppError(_staleMsg);
+    return {status:'cancelled', reason:'allocation_stale', message:_staleMsg};
+  }
   var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
-  if(queryString){
-    path += (queryString.indexOf('?')===0 ? queryString : '?' + queryString);
+  var _qs=queryString?String(queryString).replace(/^\?/,''):'';
+  // Server-seitiger Abgleich: die angezeigte Allokation muss die aktuelle
+  // sein (409 [allocation_report_context_stale] sonst).
+  if(reportType==='anlagestrategie'||reportType==='assetallocation'){
+    var _shownAlloc=_staleState&&_staleState.allocation;
+    var _shownTa=_shownAlloc&&_shownAlloc.target_allocation;
+    var _sameMandate=!_staleState||!_staleState.activeMandateId||String(_staleState.activeMandateId)===String(mid);
+    if(_shownTa&&_shownTa.id&&_sameMandate){
+      _qs+=(_qs?'&':'')+'expected_allocation_id='+encodeURIComponent(String(_shownTa.id));
+    }
+  }
+  if(_qs){
+    path += '?' + _qs;
   }
   return _fetchAndSavePdf(path, reportType);
 }
