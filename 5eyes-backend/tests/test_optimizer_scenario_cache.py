@@ -162,6 +162,7 @@ def test_invalidate_cma_removes_only_that_cma_entries():
 # ============================================================================
 
 
+@pytest.mark.wallclock_budget
 def test_cache_hit_at_least_5x_faster_than_build():
     """Cache-Hit sollte mind 5x schneller sein als ein full build."""
     cache = ScenarioCache(max_size=4)

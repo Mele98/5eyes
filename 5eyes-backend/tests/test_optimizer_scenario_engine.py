@@ -438,6 +438,7 @@ def test_scenario_inputs_falls_back_to_zero_when_skew_kurt_none():
 # ============================================================================
 
 
+@pytest.mark.wallclock_budget
 def test_scenario_engine_can_handle_2000_paths_10_years_in_reasonable_time():
     """Performance-Sanity: 2000 paths x 10 years sollte in <1s laufen."""
     import time
@@ -449,6 +450,7 @@ def test_scenario_engine_can_handle_2000_paths_10_years_in_reasonable_time():
     assert elapsed < 1.0, f"Performance regression: {elapsed:.3f}s for 2000x10x5 paths"
 
 
+@pytest.mark.wallclock_budget
 def test_wealth_simulation_vectorized_handles_large_batch():
     """Wealth-Simulation fuer 5000 paths x 30 years sollte <0.5s sein."""
     import time
