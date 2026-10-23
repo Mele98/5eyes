@@ -213,8 +213,6 @@ def _depot_check_gate_blocked(dc: Mapping[str, Any]) -> bool:
 _PROJECTION_CHANNELS = (
     "ausgangslage.key_metrics",
     "goal_based_investing.goals.probability_bps",
-    "goal_based_investing.goals.failure_event_distribution",
-    "goal_based_investing.goals.failure_cause_summary",
     "goal_based_investing.plan_solvency",
     "goal_based_investing.monte_carlo_paths",
     "erkenntnisse.zielkompatibilitaet",
@@ -328,31 +326,6 @@ def _cached_active_goals(db: Session, mandate: Mandate) -> list[Any]:
             .all()
         )
     return _aggregator_cache_get(db, ("active_goals", mandate.id), _factory)
-
-
-def _cached_risk_capacity_plausibility(db: Session, mandate: Mandate) -> Any:
-    """RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
-    pruefung Risikofaehigkeit (gegen das aktuelle Risikoprofil) fuer den
-    Beraterteil; None ohne aktuelles Profil. Hinweis-Layer, blockiert nie.
-
-    Laeuft ueber den Call-Cache: Risikoprofil, Cashflows und Ziele kommen
-    aus denselben gecachten Zeilen wie die uebrigen Sektionen (keine
-    zusaetzlichen Queries, siehe test_aggregator_n1_baseline)."""
-    from services.risk_capacity_plausibility_report import (
-        compact_view, evaluate_for_assessment,
-    )
-
-    def _factory():
-        return compact_view(evaluate_for_assessment(
-            db, mandate, _cached_current_ra_is_current(db, mandate),
-            preloaded_rows={
-                "cashflows": _cached_active_cashflows(db, str(mandate.client_id)),
-                "goals": _cached_active_goals(db, mandate),
-            },
-        ))
-    return _aggregator_cache_get(
-        db, ("risk_capacity_plausibility", mandate.id), _factory,
-    )
 
 
 def _cached_active_cashflows(db: Session, client_id: str) -> list[Any]:
@@ -1059,21 +1032,20 @@ def _compute_goal_achievement_score_bps(db: Session, mandate: Mandate) -> int | 
     # des Befunds. Dann lieber kein Wert bis zur Neuberechnung.
     if not all(is_individual_goal_row(r) for r in rows):
         return None
-    from services.goal_success_status import (
-        report_goal_weight,
-        weighted_success_probability_bps,
-    )
-
     goal_by_id = {str(g.id): g for g in _cached_active_goals(db, mandate)}
-    # GOAL-STATUS-BY-SUCCESS-001: dieselbe Formel wie Cockpit-Kachel und
-    # Zielstatus (services/goal_success_status.py); Gewicht Goal.weight_bps
-    # roh, <= 0 -> gleichgewichtet.
-    pairs = []
+    weighted_sum = 0.0
+    weight_total = 0.0
     for r in rows:
         meta = goal_by_id.get(str(r.get("goal_id", "") or ""))
         probability = float(r.get("probability", 0) or 0)  # 0..1
-        pairs.append((probability, report_goal_weight(getattr(meta, "weight_bps", 0) if meta else 0)))
-    return weighted_success_probability_bps(pairs)
+        weight = float(getattr(meta, "weight_bps", 0) or 0) if meta else 0.0
+        if weight <= 0:
+            weight = 1.0  # gleichgewichtet, falls Goal keine weight_bps hat
+        weighted_sum += probability * weight
+        weight_total += weight
+    if weight_total <= 0:
+        return None
+    return int(round(weighted_sum / weight_total * 10000))
 
 
 def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
@@ -2499,8 +2471,6 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "evaluation_scope": "data_pending",
                 "funding_rank": None,
                 "failure_event_id": None,
-                "failure_event_distribution": None,
-                "failure_cause_summary": None,
             })
         return {
             "goals": goals,
@@ -2556,10 +2526,6 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 else None
             ),
             "failure_event_id": r.get("failure_event_id"),
-            # GOAL-FAILURE-DISTRIBUTION-REPORT-001: volle Ursachenverteilung
-            # (Engine v10) + kompakte Kundengruppen; None bei Altbestand
-            # oder nicht deutbarer Verteilung -> keine Anzeige.
-            **_failure_cause_fields(r),
         })
     # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
     # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
@@ -2578,8 +2544,6 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 evaluation_scope="data_pending",
                 outside_simulation_horizon=False,
                 failure_event_id=None,
-                failure_event_distribution=None,
-                failure_cause_summary=None,
             )
         plan_row = None
 
@@ -2595,27 +2559,6 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
         # mit klarer Begruendung zurueck — UI rendert dann Platzhalter.
         "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
         **staleness,
-    }
-
-
-def _failure_cause_fields(row: Mapping[str, Any]) -> dict[str, Any]:
-    """GOAL-FAILURE-DISTRIBUTION-REPORT-001: Payload-Felder einer Zielzeile."""
-    from services.goal_failure_causes import (
-        normalize_failure_event_distribution,
-        summarize_failure_causes,
-    )
-    from services.optimizer.goal_attribution import is_individual_goal_row
-
-    # Nur zielindividuelle Evidenz (priority_funded) traegt eine
-    # zielbezogene Verteilung; Altbewertungen zeigen nichts.
-    distribution = (
-        normalize_failure_event_distribution(row)
-        if is_individual_goal_row(row)
-        else None
-    )
-    return {
-        "failure_event_distribution": distribution,
-        "failure_cause_summary": summarize_failure_causes(distribution),
     }
 
 
@@ -3112,10 +3055,7 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
     - latest_entry: serialisierter letzter Eintrag oder None
     - last_review_date: Datum des letzten Eintrags (ISO YYYY-MM-DD)
     - suitability_mismatches: aktive Mismatches (Risikobudget, Bands)
-    - has_active_mismatches: True wenn mindestens ein Mismatch oder die
-      HouseMatrix-Cap-Pruefung nicht moeglich war
-    - suitability_cap_check: Status ok/violation/unavailable/not_applicable
-      + reason_code (SUITABILITY-DETECTOR-AVAILABILITY-001)
+    - has_active_mismatches: True wenn mindestens ein Mismatch
     - days_since_last_review: Anzahl Tage seit letzem Eintrag
     - retention_audit_ok: True wenn keine Einträge ablaufen in den nächsten
       30 Tagen (FIDLEG-Aufbewahrungspflicht)
@@ -3124,16 +3064,14 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     from services.advisory_log_service import (
         count_active_entries,
-        evaluate_suitability_mismatches,
+        detect_suitability_mismatches,
         get_latest_active_entry,
         serialize_response,
     )
 
     total_active = count_active_entries(db, mandate_id=mandate.id)
     latest = get_latest_active_entry(db, mandate_id=mandate.id)
-    suitability = evaluate_suitability_mismatches(db, mandate)
-    mismatches = suitability["warnings"]
-    cap_check = suitability["cap_check"]
+    mismatches = detect_suitability_mismatches(db, mandate)
 
     last_review_date: str | None = None
     days_since: int | None = None
@@ -3157,12 +3095,7 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
         "last_review_date": last_review_date,
         "days_since_last_review": days_since,
         "suitability_mismatches": mismatches,
-        # SUITABILITY-DETECTOR-AVAILABILITY-001: eine nicht pruefbare
-        # Cap-Pruefung (status "unavailable") ist ein aktiver Hinweis, nie
-        # "geeignet" -- auch falls die Warnungsliste anders gefiltert wuerde.
-        "has_active_mismatches": bool(mismatches)
-        or cap_check.requires_advisor_attention,
-        "suitability_cap_check": cap_check.to_dict(),
+        "has_active_mismatches": bool(mismatches),
         "retention_audit_ok": retention_audit_ok,
     }
 
@@ -3187,8 +3120,6 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
     Wenn kein Check existiert: stabiles leeres Schema mit has_check=False.
     """
     from models.profiling import SuitabilityCheck
-
-    risk_capacity_plausibility = _cached_risk_capacity_plausibility(db, mandate)
 
     check = (
         db.query(SuitabilityCheck)
@@ -3221,7 +3152,6 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
             "checked_by_id": None,
             "checked_by_name": "—",
             "linked_log_present": False,
-            "risk_capacity_plausibility": risk_capacity_plausibility,
         }
 
     missing = _parse_notes_json_list(getattr(check, "missing_information_json", None))
@@ -3270,7 +3200,6 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
         "checked_by_id": str(getattr(check, "checked_by", "") or "") or None,
         "checked_by_name": checked_by_name,
         "linked_log_present": linked_log_present,
-        "risk_capacity_plausibility": risk_capacity_plausibility,
     }
 
 
@@ -4081,7 +4010,6 @@ def _recompute_reserve_reasoning(
         _unlocked_other_assets_rappen,
         _wealth_inflow_series_rappen,
     )
-    from services.portfolio_engine_pension_positions import pension_payout_view
     from services.wealth_cashflows import derive_tax_cashflow, derive_wealth_cashflows
 
     prefs = _normalize_preferences(_allocation_snapshot_preferences(ta))
@@ -4194,29 +4122,9 @@ def _recompute_reserve_reasoning(
         )
         .all()
     )
-    # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): Zufluss-Scope wie die
-    # Engine (mandatslose + dieses Mandat) und automatische Vorsorgebezuege aus
-    # DERSELBEN Ledger-Quelle (PensionTransferLedgerV1 via pension_payout_view).
-    # INFLOW-CERTAINTY-001: unsichere Zufluesse senken die Reserve nicht
-    # (identisch zum Engine-Pfad, services/wealth_inflow_certainty.py);
-    # verknuepfte Vorsorgebezuege sind immer "sicher".
-    from services.wealth_inflow_certainty import certain_inflows
-
-    inflows = certain_inflows([
-        inflow for inflow in inflows
-        if not getattr(inflow, "mandate_id", None) or inflow.mandate_id == mandate.id
-    ])
-    inflow_projection_series_rappen = pension_payout_view(
-        _wealth_inflow_series_rappen(
-            inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
-        ),
-        positions,
-        inflows,
-        start_year=cashflow_totals["year"],
-        fx_source=fx_source,
-        target_currency=target_currency,
-        mandate=mandate,
-    ).inflow_series_rappen
+    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
+        inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    )
 
     reasoning: list[str] = []
     fresh_needed_rappen, fresh_external_rappen = _compute_reserve_for_inputs(
@@ -4596,6 +4504,7 @@ def _build_performance_attribution(
     try:
         from models.allocation import (
             CapitalMarketAssumption,
+            HouseMatrix,
             OptimizerPolicy,
             TargetAllocation,
         )
@@ -4603,6 +4512,7 @@ def _build_performance_attribution(
             BUCKET_KEYS,
             compute_brinson_attribution,
         )
+        from services.risk_matrix import score_bucket_from_assessment
 
         ta = (
             db.query(TargetAllocation)
@@ -4646,29 +4556,25 @@ def _build_performance_attribution(
         # macht exakt dieselbe 0..100 -> 1..10-Abbildung, die
         # _depotcheck_house_matrix_benchmark() (routers/pdf_reports.py) fuer
         # denselben fachlichen Vergleich bereits korrekt verwendet.
-        # SUITABILITY-DETECTOR-AVAILABILITY-001: dieselbe eindeutige
-        # Bucket-Aufloesung wie Suitability-Detektor und Depotcheck
-        # (services.suitability_cap_check). Vorher ``.first()`` (ueberlappende
-        # Zeilen still nach DB-Reihenfolge) und ``risk_score > 0`` -- ein
-        # gueltiger Score 0 (Kapitalschutz, Bucket 1) bekam nie eine Referenz.
-        # Fehlend/mehrdeutig wird mit Reason-Code ausgewiesen.
-        from services.suitability_cap_check import (
-            resolve_house_matrix_for_assessment,
-        )
-
-        resolution = resolve_house_matrix_for_assessment(
-            db,
-            assessment=ra,
-            policy_id=getattr(ta, "policy_id", None),
-        )
-        if resolution.row is None:
-            empty = _performance_attribution_empty(
-                "Keine eindeutige House-Matrix-Referenz fuer das Risikoprofil "
-                f"({resolution.reason_code}): {resolution.detail}"
+        risk_score = _safe_int(getattr(ra, "final_score_x10", 0)) if ra else 0
+        score_bucket = score_bucket_from_assessment(ra) if ra else 0
+        policy_id = getattr(ta, "policy_id", None)
+        hm_row = None
+        if policy_id and risk_score > 0:
+            hm_row = (
+                db.query(HouseMatrix)
+                .filter(
+                    HouseMatrix.policy_id == policy_id,
+                    HouseMatrix.is_active == 1,
+                    HouseMatrix.score_from <= score_bucket,
+                    HouseMatrix.score_to >= score_bucket,
+                )
+                .first()
             )
-            empty["reason_code"] = resolution.reason_code
-            return empty
-        hm_row = resolution.row
+        if hm_row is None:
+            return _performance_attribution_empty(
+                "Keine House-Matrix-Default fuer das Risikoprofil gefunden."
+            )
         benchmark_weights = {
             "equities": _safe_int(getattr(hm_row, "equity_target_bps", 0)),
             "bonds": _safe_int(getattr(hm_row, "bonds_target_bps", 0)),

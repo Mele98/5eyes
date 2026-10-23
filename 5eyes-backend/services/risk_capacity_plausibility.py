@@ -860,27 +860,6 @@ def _goal_need_within_window(goal: Any, today: date, window_end: date) -> int:
     return 0
 
 
-# RISK-CAPACITY-REPORT-001: ein Aufrufer mit bereits geladenen Zeilen (der
-# Advisory-Report-Aggregator, Call-Cache U-18) kann sie hier fuer GENAU dieses
-# Mandat hinterlegen, damit die Pruefung keine zusaetzlichen Cashflow-/Ziel-
-# Queries ausloest. Erwartet wird eine Obermenge der aktiven, eingeschlossenen
-# Zeilen; is_active/is_included/deleted_at werden unten identisch nachgefiltert.
-PRELOADED_ROWS_KEY = "_risk_capacity_preloaded_rows"
-
-
-def _preloaded_rows(db, mandate) -> dict | None:
-    info = getattr(db, "info", None)
-    entry = info.get(PRELOADED_ROWS_KEY) if isinstance(info, dict) else None
-    if not isinstance(entry, dict):
-        return None
-    if (
-        entry.get("mandate_id") != getattr(mandate, "id", None)
-        or entry.get("client_id") != getattr(mandate, "client_id", None)
-    ):
-        return None
-    return entry
-
-
 def load_recorded_financials(db, mandate, *, today: date | None = None) -> RecordedFinancials:
     """Liest die erfassten Daten des Mandats (read-only) und rechnet in CHF.
 
@@ -924,17 +903,11 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
             elif canonical_position_type(ptype) != "Vorsorge":
                 liquid += value
 
-    preloaded = _preloaded_rows(db, mandate)
-    cashflow_rows = (
-        [cf for cf in preloaded["cashflows"] if getattr(cf, "deleted_at", None) is None]
-        if preloaded is not None
-        else db.query(Cashflow).filter(
+    cashflows = [
+        cf for cf in db.query(Cashflow).filter(
             Cashflow.client_id == mandate.client_id,
             Cashflow.deleted_at.is_(None),
         ).all()
-    )
-    cashflows = [
-        cf for cf in cashflow_rows
         if int(getattr(cf, "is_active", 1) or 0) == 1
         and _included(cf)
     ]
@@ -1010,18 +983,10 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
     window_end = _add_years(today, int(THRESHOLDS["near_term_goal_years"]))
     need = 0
     labels: list[str] = []
-    goal_rows = (
-        sorted(
-            (g for g in preloaded["goals"] if getattr(g, "deleted_at", None) is None),
-            key=lambda g: int(getattr(g, "rank", 0) or 0),
-        )
-        if preloaded is not None
-        else db.query(Goal).filter(
-            Goal.mandate_id == mandate.id,
-            Goal.deleted_at.is_(None),
-        ).order_by(Goal.rank.asc()).all()
-    )
-    for goal in goal_rows:
+    for goal in db.query(Goal).filter(
+        Goal.mandate_id == mandate.id,
+        Goal.deleted_at.is_(None),
+    ).order_by(Goal.rank.asc()).all():
         if int(getattr(goal, "is_active", 1) or 0) != 1:
             continue
         if not _included(goal):

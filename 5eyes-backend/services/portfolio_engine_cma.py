@@ -229,22 +229,7 @@ def _build_cholesky_from_cma(
     return correlation_factor(matrix).tolist()
 
 
-# LIQUIDITY-INSTRUMENT-MODEL-001: Sub-Anlageklassen, deren Kennzahl NUR als
-# Code-Default existiert und nie Teil einer genehmigten CMA-Version war.
-# Anders als die historischen Default-Labels (Rueckwaerts-Kompatibilitaet fuer
-# partielle Alt-Zeilen) duerfen sie NICHT still in eine bereits genehmigte
-# CMA-Version hineingeerbt werden: sonst wuerde ein Code-Default rueckwirkend
-# zu genehmigter Modell-Evidenz. Sie zaehlen nur dann als CMA-Evidenz, wenn
-# die CMA-Version sie ausdruecklich fuehrt. Gerechnet wird weiterhin mit dem
-# (unveraenderten) Code-Default -- aber deklariert, siehe
-# ``_sub_asset_class_code_default_evidence``.
-_UNAPPROVED_CODE_DEFAULT_SUB_ASSET_LABELS: frozenset[str] = frozenset(
-    {"Kontoguthaben"}
-)
-
-
-def _sub_asset_class_model_map(cma: CapitalMarketAssumption) -> dict[str, dict[str, int | str]]:
-    """Alle Sub-Kennzahlen, mit denen GERECHNET wird (CMA + Code-Defaults)."""
+def _sub_asset_class_assumption_map(cma: CapitalMarketAssumption) -> dict[str, dict[str, int | str]]:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS
 
@@ -253,57 +238,6 @@ def _sub_asset_class_model_map(cma: CapitalMarketAssumption) -> dict[str, dict[s
         defaults=_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS,
         require_complete=True,
     )
-
-
-def _explicit_sub_cma_labels(cma: CapitalMarketAssumption) -> set[str]:
-    raw_payload = getattr(cma, "sub_asset_class_assumptions_json", None)
-    if raw_payload is None or raw_payload == "":
-        return set()
-    parsed = json.loads(raw_payload)
-    return {str(label).strip() for label in parsed} if isinstance(parsed, dict) else set()
-
-
-def _sub_asset_class_assumption_map(cma: CapitalMarketAssumption) -> dict[str, dict[str, int | str]]:
-    """Sub-Kennzahlen, die die CMA-Version tatsaechlich belegt (Evidenz).
-
-    Ohne die nie freigegebenen Code-Defaults, sofern die CMA sie nicht
-    ausdruecklich fuehrt (LIQUIDITY-INSTRUMENT-MODEL-001).
-    """
-    model = _sub_asset_class_model_map(cma)
-    explicit = _explicit_sub_cma_labels(cma)
-    return {
-        label: values
-        for label, values in model.items()
-        if label not in _UNAPPROVED_CODE_DEFAULT_SUB_ASSET_LABELS or label in explicit
-    }
-
-
-def _sub_asset_class_code_default_evidence(
-    cma: CapitalMarketAssumption,
-) -> dict[str, dict[str, object]]:
-    """Code-Defaults, mit denen gerechnet wird, die die CMA aber nicht belegt.
-
-    Je Label: die verwendeten Werte und ein SHA-256 ueber deren kanonisches
-    JSON, damit der Nachweis den Code-Stand eindeutig benennt.
-    """
-    import hashlib
-
-    model = _sub_asset_class_model_map(cma)
-    evidence = _sub_asset_class_assumption_map(cma)
-    result: dict[str, dict[str, object]] = {}
-    for label, values in model.items():
-        if label in evidence:
-            continue
-        canonical = json.dumps(
-            {"sub_asset_class": label, **dict(values)},
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        result[label] = {
-            "values": dict(values),
-            "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-        }
-    return result
 
 
 def _sub_asset_class_metrics(
@@ -316,7 +250,7 @@ def _sub_asset_class_metrics(
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _ASSET_CLASS_LABEL_TO_BUCKET
 
-    assumptions = _sub_asset_class_model_map(cma)
+    assumptions = _sub_asset_class_assumption_map(cma)
     item = assumptions.get(str(sub_asset_class))
     bucket = _ASSET_CLASS_LABEL_TO_BUCKET.get(str(asset_class), "liquidity")
     if item:
@@ -545,7 +479,7 @@ def _weighted_bucket_metrics(
     )
     # Parse before the no-sleeve return: a present malformed Sub-CMA payload
     # is corrupted model input even when this call only needs bucket totals.
-    assumptions = _sub_asset_class_model_map(cma)
+    assumptions = _sub_asset_class_assumption_map(cma)
     if not sub_allocations:
         return _apply_cma_market_adjustments(fallback_returns, cma), fallback_vols
     weighted_ret_bps: dict[str, int] = {key: 0 for key in fallback_returns}

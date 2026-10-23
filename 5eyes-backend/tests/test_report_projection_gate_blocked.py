@@ -88,9 +88,6 @@ def _assert_all_projections_hidden(report: dict, *, status: str) -> None:
     for goal in gbi["goals"]:
         assert goal["probability_bps"] is None
         assert goal["status"] == "data_pending"
-        # GOAL-FAILURE-DISTRIBUTION-REPORT-001
-        assert goal["failure_event_distribution"] is None
-        assert goal["failure_cause_summary"] is None
 
     key_metrics = report["ausgangslage"]["key_metrics"]
     assert all(value is None for value in key_metrics.values()), key_metrics
@@ -378,68 +375,3 @@ def test_strategy_pdf_is_fail_closed_when_blocked(
     with session_factory() as s:
         with pytest.raises(ValueError, match="Risikoprofil"):
             _build_anlagestrategie_data(s.get(Mandate, mid), s)
-
-
-@pytest.mark.timeout(180)
-def test_failure_distribution_visible_then_hidden_when_blocked(
-    session_factory, advisor_user, house_matrix  # noqa: F811
-):
-    """GOAL-FAILURE-DISTRIBUTION-REPORT-001: die Ursachenverteilung ist ein
-    Projektionskanal. Positivkontrolle (current: sichtbar) und ``blocked``
-    (ausgeblendet, auch im PDF) auf derselben Fixture."""
-    import json
-
-    from models.allocation import TargetAllocation
-    from reportlab.platypus import Paragraph
-
-    from services.pdf.documents.advisory_report import (
-        _build_goals_flowables,
-        make_advisory_styles,
-    )
-
-    mid = _seed_mandate(session_factory, advisor_user.id)
-    _generate(session_factory, mid, advisor_user.id)
-    with session_factory() as session:
-        ta = (
-            session.query(TargetAllocation)
-            .filter(TargetAllocation.mandate_id == mid, TargetAllocation.is_current == 1)
-            .one()
-        )
-        ta.goal_achievability_json = json.dumps([{
-            "goal_id": "g-fd", "label": "Hauskauf", "probability": 0.6,
-            "status": "knapp", "hardness": "Hart",
-            "evaluation_scope": "priority_funded", "funding_rank": 1,
-            "failure_event_id": "liquiditaetsengpass-jahr-4",
-            "failure_event_share": 0.75,
-            "failure_event_distribution": [
-                {"event_id": "liquiditaetsengpass-jahr-4", "weighted_mass": 3.0, "share": 0.75},
-                {"event_id": "zielschwelle-g-fd", "weighted_mass": 1.0, "share": 0.25},
-            ],
-        }])
-        session.commit()
-
-    def _pdf_text(gbi: dict) -> str:
-        return " ".join(
-            f.getPlainText()
-            for f in _build_goals_flowables(gbi, make_advisory_styles())
-            if isinstance(f, Paragraph)
-        )
-
-    fresh = _report(session_factory, mid)
-    assert fresh["projection_gate"]["status"] == "current"
-    goal = next(g for g in fresh["goal_based_investing"]["goals"] if g["goal_id"] == "g-fd")
-    assert [g["share_bps"] for g in goal["failure_cause_summary"]] == [7500, 2500]
-    assert "Verfehlte Verläufe" in _pdf_text(fresh["goal_based_investing"])
-    assert (
-        "goal_based_investing.goals.failure_cause_summary"
-        not in fresh["projection_gate"]["hidden_channels"]
-    )
-
-    _drop_current_assessment(session_factory, mid)
-    report = _report(session_factory, mid)
-    _assert_all_projections_hidden(report, status="blocked")
-    assert (
-        "goal_based_investing.goals.failure_cause_summary"
-        in report["projection_gate"]["hidden_channels"]
-    )
-    assert "Verfehlte Verläufe" not in _pdf_text(report["goal_based_investing"])

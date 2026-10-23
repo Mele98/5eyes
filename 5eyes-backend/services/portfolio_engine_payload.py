@@ -121,12 +121,6 @@ from models.review import Product, ProductUniverseEntry
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import future_value_with_cashflow_series, normalize_frequency
-from services.goal_success_status import (
-    SUCCESS_SOURCE_OPTIMIZER,
-    SUCCESS_SOURCE_SIMULATION,
-    canonical_success_by_goal,
-    goal_status_from_success_pct,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -191,29 +185,16 @@ def _build_asset_class_assumptions(
 def _build_sub_asset_class_assumption_reference(
     sub_allocations: list[dict],
     cma: CapitalMarketAssumption,
-    reasoning: list[str] | None = None,
 ) -> list[dict]:
-    """Herkunft je Sub-Anlageklasse fuer den Nachweis.
-
-    LIQUIDITY-INSTRUMENT-MODEL-001: ``"CMA Sub-Asset-Class"`` nur, wenn die
-    CMA-Version die Kennzahl belegt. Ein nie freigegebener Code-Default wird
-    als ``"unapproved_code_default"`` mit SHA-256 deklariert und -- wenn ein
-    ``reasoning``-Kanal uebergeben wird -- dort sichtbar gemacht. Die Zahlen
-    selbst bleiben unveraendert.
-    """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
         _asset_class_expected_metrics,
         _sub_asset_class_assumption_map,
         _sub_asset_class_metrics,
     )
-    from services.portfolio_engine_cma import (
-        _sub_asset_class_code_default_evidence,
-    )
 
     returns, vols = _asset_class_expected_metrics(cma)
     assumption_map = _sub_asset_class_assumption_map(cma)
-    code_defaults = _sub_asset_class_code_default_evidence(cma)
     seen: set[tuple[str, str]] = set()
     items: list[dict] = []
     for item in sub_allocations:
@@ -232,26 +213,15 @@ def _build_sub_asset_class_assumption_reference(
             returns,
             vols,
         )
-        entry = {
-            "asset_class": asset_class,
-            "sub_asset_class": sub_asset_class,
-            "expected_return_bps": expected_return_bps,
-            "expected_volatility_bps": expected_volatility_bps,
-            "source": "CMA Sub-Asset-Class" if sub_asset_class in assumption_map else "Asset-Class fallback",
-        }
-        code_default = code_defaults.get(sub_asset_class)
-        if code_default is not None:
-            entry["source"] = "unapproved_code_default"
-            entry["approval_status"] = "not_approved"
-            entry["evidence_sha256"] = code_default["sha256"]
-            if reasoning is not None:
-                reasoning.append(
-                    f"Sub-Anlageklasse {sub_asset_class}: Rendite/Volatilitaet "
-                    "stammen aus einem Code-Default, nicht aus der genehmigten "
-                    "CMA-Version (nicht freigegeben, Evidenz-Hash "
-                    f"{code_default['sha256'][:12]})."
-                )
-        items.append(entry)
+        items.append(
+            {
+                "asset_class": asset_class,
+                "sub_asset_class": sub_asset_class,
+                "expected_return_bps": expected_return_bps,
+                "expected_volatility_bps": expected_volatility_bps,
+                "source": "CMA Sub-Asset-Class" if sub_asset_class in assumption_map else "Asset-Class fallback",
+            }
+        )
     return items
 
 
@@ -650,8 +620,6 @@ def _build_goal_analysis(
                 funded_ratio_pct=funded_ratio_pct,
                 hardness_key=hardness_key,
             )
-        # Vorlaeufig (ohne Simulation keine Erfolgs-Wkt.); in Produktion ersetzt
-        # _merge_goal_analysis_with_monte_carlo ihn (GOAL-STATUS-BY-SUCCESS-001).
         status = "On Track" if score >= 70 else ("Pruefen" if score >= 45 else "Gefaehrdet")
         analysis.append(
             {
@@ -663,8 +631,6 @@ def _build_goal_analysis(
                 "hardness": getattr(goal, "hardness", None),
                 "rank": int(goal.rank or 0),
                 "weight_bps": _goal_weight(goal),
-                # Gewicht der Erfolgs-Wkt. gesamt wie im Bericht (AR-2): roh.
-                "success_weight_bps": int(goal.weight_bps or 0),
                 "target_amount_rappen": target_rappen,
                 "target_wealth_rappen": int(goal.target_wealth_rappen) if goal.target_wealth_rappen is not None else None,
                 "target_return_bps": int(goal.target_return_bps) if goal.target_return_bps is not None else None,
@@ -687,26 +653,25 @@ def _merge_goal_analysis_with_monte_carlo(
     monte_carlo: dict | None,
     *,
     summaries_key: str = "goal_summaries",
-    achievability: list[dict] | None = None,
 ) -> list[dict]:
-    """Simulationswerte je Ziel einmischen und die Erfolgswahrscheinlichkeit
-    samt Status setzen (GOAL-STATUS-BY-SUCCESS-001, CIO-Entscheid #667):
-    kanonisch die priorisierte Optimizer-Evidenz (``achievability``), sonst
-    ``success_rate_pct`` der Simulation als Schaetzung. ``path_success_rate_pct``
-    bleibt der Simulationswert (SOLL/IST-Vergleich auf gleicher Basis)."""
+    if not monte_carlo:
+        return goal_analysis
     summaries = {
         item["goal_id"]: item
-        for item in ((monte_carlo or {}).get(summaries_key) or [])
+        for item in (monte_carlo.get(summaries_key) or [])
         if item.get("goal_id")
     }
-    canonical = canonical_success_by_goal(achievability)
     merged = []
     for item in goal_analysis:
         summary = summaries.get(item.get("goal_id"))
-        row = dict(item)
-        if summary:
-            row.update({
+        if not summary:
+            merged.append(item)
+            continue
+        merged.append(
+            {
+                **item,
                 "achievement_score": int(summary.get("score", item.get("achievement_score") or 0)),
+                "status": "On Track" if int(summary.get("score", 0)) >= 70 else ("Pruefen" if int(summary.get("score", 0)) >= 45 else "Gefaehrdet"),
                 "success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "path_success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "funded_ratio_p50": float(summary.get("funded_ratio_p50") or 0),
@@ -717,39 +682,9 @@ def _merge_goal_analysis_with_monte_carlo(
                 "projected_value_p90_rappen": int(summary.get("projected_value_p90_rappen") or 0),
                 "projected_value_rappen": int(summary.get("projected_value_p50_rappen") or item.get("projected_value_rappen") or 0),
                 "evaluation_note": summary.get("evaluation_note") or item.get("evaluation_note"),
-            })
-        probability = canonical.get(str(item.get("goal_id") or ""))
-        source = SUCCESS_SOURCE_OPTIMIZER
-        if probability is None and summary:
-            probability = max(0.0, min(1.0, float(summary.get("success_rate_pct") or 0) / 100.0))
-            source = SUCCESS_SOURCE_SIMULATION
-        if probability is not None:
-            pct = int(round(probability * 100))
-            row.update({
-                "success_probability": probability,
-                "success_probability_pct": pct,
-                "success_probability_source": source,
-                "status": goal_status_from_success_pct(pct),
-            })
-        merged.append(row)
+            }
+        )
     return merged
-
-
-def _stored_goal_achievability(allocation, *, log_invalid: bool = True) -> list[dict]:
-    """Persistierte Optimizer-Evidenz (``goal_achievability_json``) als Liste."""
-    raw = getattr(allocation, "goal_achievability_json", None)
-    if not raw:
-        return []
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError) as exc:
-        if log_invalid:
-            logger.warning(
-                "Stored goal_achievability_json invalid for allocation %s: %s",
-                getattr(allocation, "id", "?"), exc,
-            )
-        return []
-    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
 
 
 def _build_bucket_response(

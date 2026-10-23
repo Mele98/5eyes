@@ -107,10 +107,5 @@ def test_override_apply_rerenders_fan():
     html = _html()
     start = html.find("async function applyIstHorizonOverride(")
     assert start != -1
-    # Ganze Funktion statt festem Zeichenfenster: zusaetzliche Zeilen im Body
-    # (z.B. Vorsorgebezugs-Zeilen) duerfen den Aufruf nicht hinausschieben.
-    end = html.find("\nasync function ", start + 1)
-    end2 = html.find("\nfunction ", start + 1)
-    end = min(e for e in (end, end2, len(html)) if e != -1)
-    body = html[start:end]
+    body = html[start:start + 1400]
     assert "upgradeFanChartWithMonteCarlo(" in body

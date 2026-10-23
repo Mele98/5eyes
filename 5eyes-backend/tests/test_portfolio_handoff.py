@@ -82,31 +82,6 @@ def advisor_user():
     )
 
 
-def _budget_compliant_allocation(mandate_id: str, set_by: str, allocation_id: str):
-    """RISK-BUDGET-RELEASE-GATE (2026-10-21): create_portfolio_handoff ruft
-    das zentrale Freigabe-Gate auf, das die im Run verankerte Allokation
-    samt Risikobudget-Nachweis verlangt. Ein Run ohne Allokation ist in
-    Produktion ohnehin nicht weiterleitbar (build_recommendation_payload_from_run
-    wirft dann); die Fixtures verankern darum eine budgetkonforme TA."""
-    from models.allocation import TargetAllocation
-
-    ts = "2026-08-08T00:00:00.000Z"
-    return TargetAllocation(
-        id=allocation_id, mandate_id=mandate_id, version=1, is_current=1,
-        target_equities_bps=5500, target_bonds_bps=2500,
-        target_real_estate_bps=1000, target_alternatives_bps=500,
-        target_liquidity_bps=500,
-        band_equities_min_bps=5000, band_equities_max_bps=6000,
-        band_bonds_min_bps=2000, band_bonds_max_bps=3000,
-        band_real_estate_min_bps=500, band_real_estate_max_bps=1500,
-        band_alternatives_min_bps=0, band_alternatives_max_bps=1000,
-        band_liquidity_min_bps=0, band_liquidity_max_bps=1000,
-        risk_budget_bps_at_generation=7000, risky_fraction_bps_at_generation=6000,
-        policy_id="policy-1", set_by=set_by, set_at=ts,
-        created_at=ts, updated_at=ts,
-    )
-
-
 def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1", run_id="run-1", mandate_type="Vermögensverwaltung") -> None:
     with session_factory() as session:
         session.add(User(
@@ -127,10 +102,8 @@ def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1",
             advisory_language="DE", opened_at="2026-08-08",
             created_at="2026-08-08T00:00:00.000Z", updated_at="2026-08-08T00:00:00.000Z",
         ))
-        session.add(_budget_compliant_allocation(mandate_id, advisor_user.id, f"ta-{run_id}"))
         session.add(RecommendationRun(
             id=run_id, mandate_id=mandate_id, client_id="client-1", policy_id="policy-1",
-            target_allocation_id=f"ta-{run_id}",
             run_type="Initial", result_status="Final", created_by=advisor_user.id,
             created_at="2026-08-08T00:00:00.000Z", updated_at="2026-08-08T00:00:00.000Z",
         ))

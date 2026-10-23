@@ -4914,18 +4914,7 @@ def test_refresh_system_review_triggers_raises_on_invalid_persisted_anchor_date(
             refresh_system_review_triggers(session, mandate, advisor_user.id)
 
 
-# GOAL-STATUS-BY-SUCCESS-001 (CIO-Entscheid #667): der Ziel-Trigger folgt der
-# Erfolgswahrscheinlichkeit (< 45 % = Ampel kritisch), nicht mehr dem Mischwert
-# achievement_score. Vorher stand hier nur {"achievement_score": 40}; jetzt
-# belegen zwei Faelle, dass der Mischwert keine Rolle mehr spielt.
-@pytest.mark.parametrize(
-    "goal_row,expect_goal_trigger",
-    [
-        ({"label": "Fruehpensionierung", "achievement_score": 90, "success_probability_pct": 40}, True),
-        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 80}, False),
-    ],
-)
-def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(session_factory, advisor_user, monkeypatch, goal_row, expect_goal_trigger):
+def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     with session_factory() as session:
@@ -4987,7 +4976,9 @@ def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(sessi
             mandate,
             advisor_user.id,
             allocation_payload={
-                "goal_analysis": [goal_row],
+                "goal_analysis": [
+                    {"label": "Fruehpensionierung", "achievement_score": 40},
+                ],
                 "buckets": [
                     {"asset_class": "Aktien", "current_weight_bps": 6000, "band_min_bps": 5000, "band_max_bps": 7000},
                     {"asset_class": "Obligationen", "current_weight_bps": 3000, "band_min_bps": 2000, "band_max_bps": 4000},
@@ -5000,11 +4991,7 @@ def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(sessi
 
     names = {trigger.trigger_name for trigger in triggers}
     assert SYSTEM_TRIGGER_REVIEW in names
-    assert (SYSTEM_TRIGGER_GOALS in names) is expect_goal_trigger
-    if expect_goal_trigger:
-        goal_trigger = next(t for t in triggers if t.trigger_name == SYSTEM_TRIGGER_GOALS)
-        assert goal_trigger.triggered_value == "Fruehpensionierung: 40%"
-        assert "Erfolgswahrscheinlichkeit" in (goal_trigger.triggered_notes or "")
+    assert SYSTEM_TRIGGER_GOALS in names
 
 
 def test_refresh_system_review_triggers_ignores_unconfigured_zero_bands(session_factory, advisor_user):

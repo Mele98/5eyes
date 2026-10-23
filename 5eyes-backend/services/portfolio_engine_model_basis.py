@@ -97,17 +97,6 @@ def _build_allocation_model_basis(
         or stored_method
         or ("house_matrix" if optimizer_mode == "house_matrix" else optimizer_mode)
     )
-    # RISK-FALLBACK-CONTEXT-001 (Rest): ein erzwungener Hausmatrix-Fallback
-    # ersetzt die GESAMTE Auswahl-Herkunft. Der Kontext des gescheiterten
-    # bzw. verworfenen Solver-Laufs hat diese Allokation nicht ausgewaehlt;
-    # liesse man ihn stehen, trueg die Basis gleichzeitig
-    # ``active_method=fallback_house_matrix`` und
-    # ``basis_id=stochastic_decision_v2`` (samt Solver-Zielfunktion,
-    # Liability-Pfaden und Importance-Sampling) -- ein Widerspruch im
-    # Nachweis. Seed/Pfadzahl des verworfenen Laufs bleiben als Audit-Spur
-    # ueber ``optimizer_result`` erhalten.
-    if active_method == "fallback_house_matrix":
-        context = None
     # A status/method string alone is not proof that a stochastic context ever
     # existed. In particular, an import/startup failure can produce an audited
     # House fallback with ``context=None`` and no stochastic analytics.

@@ -458,8 +458,7 @@ def count_active_entries(db: Session, *, mandate_id: str) -> int:
 
 def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
     """Liefert eine Liste menschenlesbarer Warnings, wenn die aktuelle
-    Empfehlung das Risikoprofil-Budget oder die Toleranzbänder verlässt --
-    oder wenn die HouseMatrix-Cap-Pruefung nicht moeglich ist.
+    Empfehlung das Risikoprofil-Budget oder die Toleranzbänder verlässt.
 
     FINMA-relevant: jeder Mismatch sollte im nächsten Beratungsprotokoll
     als gegebener Risikohinweis dokumentiert werden.
@@ -467,23 +466,9 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
     Beispiele:
     - „Risky-Fraction 47 % überschreitet HouseMatrix-Cap 45 % (Defensiv)"
     - „Aktien-Anteil 28 % verlässt Toleranzband 15-25 %"
-    - „HouseMatrix-Cap nicht pruefbar (SCORE_BUCKET_MISSING): ..."
     """
-    return evaluate_suitability_mismatches(db, mandate)["warnings"]
-
-
-def evaluate_suitability_mismatches(db: Session, mandate) -> dict:
-    """Wie ``detect_suitability_mismatches``, plus strukturierter Status der
-    HouseMatrix-Cap-Pruefung (``services.suitability_cap_check``).
-
-    Rueckgabe: ``{"warnings": list[str], "cap_check": SuitabilityCapCheck}``.
-    """
-    from models.allocation import TargetAllocation
+    from models.allocation import HouseMatrix, OptimizerPolicy, TargetAllocation
     from models.profiling import RiskAssessment
-    from services.suitability_cap_check import (
-        evaluate_house_matrix_cap,
-        not_applicable,
-    )
 
     warnings: list[str] = []
 
@@ -497,8 +482,7 @@ def evaluate_suitability_mismatches(db: Session, mandate) -> dict:
         .first()
     )
     if ta is None:
-        # kein aktiver Allokations-Stand → kein Mismatch erfassbar
-        return {"warnings": warnings, "cap_check": not_applicable()}
+        return warnings  # kein aktiver Allokations-Stand → kein Mismatch erfassbar
 
     ra = (
         db.query(RiskAssessment)
@@ -510,8 +494,7 @@ def evaluate_suitability_mismatches(db: Session, mandate) -> dict:
         .first()
     )
 
-    raw_risky_fraction = getattr(ta, "risky_fraction_bps", None)
-    risky_fraction = _safe_int(raw_risky_fraction)
+    risky_fraction = _safe_int(getattr(ta, "risky_fraction_bps", 0))
     risk_budget = _safe_int(getattr(ta, "risk_budget_bps_at_generation", 0))
     # Wenn risk_budget verfuegbar → direkter Check (war zum Generate-Zeitpunkt aktiv)
     if risky_fraction and risk_budget and risky_fraction > risk_budget:
@@ -522,23 +505,62 @@ def evaluate_suitability_mismatches(db: Session, mandate) -> dict:
         )
 
     # Plus: vergleich mit aktueller HouseMatrix (kann sich nach Generate geaendert haben)
-    # Kontrollrunde 2026-09-20: override-bewusst (score_bucket_from_assessment
-    # nutzt bei aktivem Override override_score_x10).
-    # SUITABILITY-DETECTOR-SCALE-001 (2026-10-14): 0..100 -> 1..10-Bucket.
-    # SUITABILITY-DETECTOR-AVAILABILITY-001 (2026-10-21): fehlende Policy,
-    # fehlender/mehrdeutiger Score-Bucket, fehlendes Risikoprofil oder
-    # fehlender Risiko-Anteil wurden vorher still uebersprungen (leere Liste
-    # = "geeignet", fail-open). Jetzt expliziter Status ``unavailable`` mit
-    # Reason-Code und Berater-Hinweis (fail-closed).
-    cap_check = evaluate_house_matrix_cap(
-        db,
-        assessment=ra,
-        risky_fraction_bps=(
-            None if raw_risky_fraction is None else risky_fraction
-        ),
-    )
-    if cap_check.requires_advisor_attention and cap_check.message:
-        warnings.append(cap_check.message)
+    if ra is not None:
+        # Kontrollrunde 2026-09-20: override-bewusst -- die tatsaechliche
+        # Allokation (services.risk_assessment_semantics.
+        # validate_risk_assessment_model_input, ueber _risk_score_bucket)
+        # wird bei aktivem Override mit override_score_x10 gebudgetiert, nicht
+        # mit final_score_x10. Vorher verglich dieser FINMA-relevante Detektor
+        # IMMER gegen final_score_x10 (das Vor-Override-Budget): nach einem
+        # Override nach OBEN (z.B. Defensiv->Wachstumsorientiert) erzeugte das
+        # spurious "Cap ueberschritten"-Warnungen obwohl die Allokation korrekt
+        # innerhalb des (hoeheren) Override-Caps lag; nach einem Override nach
+        # UNTEN (konservativer) wurde umgekehrt eine echte Ueberschreitung des
+        # (niedrigeren) Override-Caps NIE erkannt (Fail-Open).
+        #
+        # SUITABILITY-DETECTOR-SCALE-001 (2026-10-14): HouseMatrix.score_from/
+        # score_to sind 1..10-skaliert, score_x10 ist 0..100. Vorher wurde der
+        # Rohwert direkt verglichen: Score 11..100 fand keine Zeile (Cap-
+        # Warnung feuerte nie, fail-open), Score 10 (Kapitalschutz) traf die
+        # Zeile (10,10) "Aktien" mit 100 % Cap, Score 0 wurde uebersprungen.
+        # score_bucket_from_assessment() ist dieselbe override-bewusste
+        # 0..100 -> 1..10-Abbildung wie bei BENCHMARK-ATTRIBUTION-SCORE-001
+        # und max_risky_fraction_for_mandate(). Ein nicht herleitbares
+        # Risikoprofil wird gemeldet statt still uebersprungen (fail-closed).
+        from services.risk_assessment_semantics import RiskAssessmentInputError
+        from services.risk_matrix import score_bucket_from_assessment
+
+        policy = (
+            db.query(OptimizerPolicy)
+            .filter(OptimizerPolicy.is_current == 1)
+            .first()
+        )
+        score_bucket = None
+        if policy:
+            try:
+                score_bucket = score_bucket_from_assessment(ra)
+            except RiskAssessmentInputError as exc:
+                warnings.append(
+                    "HouseMatrix-Cap nicht pruefbar: Risikoprofil ist nicht "
+                    f"konsistent herleitbar ({exc})."
+                )
+        if policy and score_bucket is not None:
+            hm = (
+                db.query(HouseMatrix)
+                .filter(
+                    HouseMatrix.policy_id == policy.id,
+                    HouseMatrix.score_from <= score_bucket,
+                    HouseMatrix.score_to >= score_bucket,
+                    HouseMatrix.is_active == 1,
+                )
+                .first()
+            )
+            if hm and risky_fraction and risky_fraction > hm.max_risky_fraction_bps:
+                warnings.append(
+                    f"Aktueller Risiko-Anteil {risky_fraction / 100:.1f} % "
+                    f"überschreitet HouseMatrix-Cap {hm.max_risky_fraction_bps / 100:.1f} % "
+                    f"({hm.profile_name})."
+                )
 
     # Buckets gegen Bänder pruefen
     for bucket_key in ("equities", "bonds", "real_estate", "alternatives", "liquidity"):
@@ -553,7 +575,7 @@ def evaluate_suitability_mismatches(db: Session, mandate) -> dict:
                     f"Toleranzband {band_min / 100:.1f}-{band_max / 100:.1f} %."
                 )
 
-    return {"warnings": warnings, "cap_check": cap_check}
+    return warnings
 
 
 def build_auto_log_payload(

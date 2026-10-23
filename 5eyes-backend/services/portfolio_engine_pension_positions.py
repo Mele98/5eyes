@@ -705,10 +705,8 @@ def pension_foundation_keys(
         target_currency=target_currency,
         mandate=mandate,
     )
-    return {} if pension is None else _foundation_keys(pension)
-
-
-def _foundation_keys(pension: PensionProjection) -> dict[str, list[int]]:
+    if pension is None:
+        return {}
     return {
         "pension_series_rappen": list(pension.series_rappen),
         "pension_payout_series_rappen": list(pension.payout_series_rappen),
@@ -765,80 +763,3 @@ def with_pension_notes(
     if pension is None:
         return total_summary
     return replace(total_summary, assumption_notes=tuple(pension.notes))
-
-
-# ---------------------------------------------------------------------------
-# CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): Cashflow-Ansicht und
-# Report-Reserve lesen die Vorsorgebezuege aus DERSELBEN Ledger-Quelle wie die
-# Engine (keine zweite Formel). Vorher zeigten /cashflow-projection und die
-# Reserve-Nachrechnung im Advisory-Report nur die rohen Vermoegenszufluesse --
-# automatische 3a/FZ/Policen-Bezuege fehlten dort, waehrend die Engine sie
-# genau einmal als freies Vermoegen buchte.
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class PensionPayoutView:
-    # = Engine-Zufluss-Serie: roh - verknuepfter Rohbetrag + Ledger-Netto
-    inflow_series_rappen: list[int]
-    # = inflow_series - roh: was die Ledger-Quelle ZUSAETZLICH zu den erfassten
-    # Zufluessen bucht (automatische Netto-Bezuege; verknuepfte Bezuege sind
-    # bereits als erfasster Zufluss enthalten und zaehlen hier nicht doppelt).
-    pension_payout_series_rappen: list[int]
-    transfers: tuple[dict, ...] = ()
-    ledger_hash: str | None = None
-
-
-def pension_payout_view(
-    raw_inflow_series_rappen: list[int],
-    positions,
-    wealth_inflows,
-    *,
-    start_year: int,
-    fx_source=None,
-    target_currency: str = "CHF",
-    mandate=None,
-) -> PensionPayoutView:
-    """Zufluss-Serie inkl. Vorsorgebezuegen fuer Nicht-Engine-Konsumenten.
-
-    Horizont = Laenge der rohen Serie. Rechnet ausschliesslich ueber
-    external_pension_projection -> PensionTransferLedgerV1 und
-    with_pension_payouts (identisch zum Engine-Pfad). Fail-closed:
-    PensionTransferLedgerError wird durchgereicht."""
-    raw = [int(value) for value in raw_inflow_series_rappen or []]
-    pension = external_pension_projection(
-        positions,
-        wealth_inflows,
-        start_year=start_year,
-        horizon_years=len(raw),
-        fx_source=fx_source,
-        target_currency=target_currency,
-        mandate=mandate,
-    )
-    if pension is None:
-        return PensionPayoutView(inflow_series_rappen=raw, pension_payout_series_rappen=[0] * len(raw))
-    combined = with_pension_payouts(list(raw), _foundation_keys(pension))
-    ledger = pension.ledger
-    transfers = tuple(
-        {
-            "year": row.payout_year,
-            "source_position_id": row.source_position_id,
-            "source_label": row.source_label,
-            "pension_type": row.pension_type,
-            "origin": row.origin,
-            "linked_inflow_id": row.linked_inflow_id,
-            "gross_withdrawal_rappen": row.gross_withdrawal_rappen,
-            "lumpsum_tax_rappen": row.lumpsum_tax_rappen,
-            "tax_source": row.tax_source,
-            "net_advisory_inflow_rappen": row.net_advisory_inflow_rappen,
-            "currency": row.currency,
-        }
-        for row in (ledger.rows if ledger is not None else ())
-        if row.within_horizon
-    )
-    return PensionPayoutView(
-        inflow_series_rappen=[int(value) for value in combined],
-        pension_payout_series_rappen=[int(c) - int(r) for c, r in zip(combined, raw)],
-        transfers=transfers,
-        ledger_hash=ledger.input_hash if ledger is not None else None,
-    )

@@ -878,9 +878,6 @@ class SubAssetClassAssumptionResponse(BaseModel):
     expected_return_bps: int
     expected_volatility_bps: int
     source: str
-    # LIQUIDITY-INSTRUMENT-MODEL-001: nur bei nicht freigegebenem Code-Default.
-    approval_status: Optional[str] = None
-    evidence_sha256: Optional[str] = None
 
 
 class AllocationBandOverridePayload(BaseModel):
@@ -1366,12 +1363,6 @@ class GoalAnalysisResponse(BaseModel):
     timing_label: Optional[str] = None
     success_rate_pct: Optional[int] = None
     path_success_rate_pct: Optional[int] = None
-    # GOAL-STATUS-BY-SUCCESS-001: kanonische Erfolgs-Wkt. (Optimizer-Evidenz,
-    # sonst Simulation) + Quelle; Gewicht wie im Bericht (Goal.weight_bps roh).
-    success_probability: Optional[float] = None
-    success_probability_pct: Optional[int] = None
-    success_probability_source: Optional[str] = None
-    success_weight_bps: Optional[int] = None
     funded_ratio_p50: Optional[float] = None
     median_achievement_pct: Optional[int] = None
     pessimistic_shortfall_rappen: Optional[int] = None
@@ -1667,9 +1658,6 @@ class TargetAllocationGenerateResponse(BaseModel):
     external_reserve_rappen: int = 0
     # RESERVE-FUNDING-LEDGER-001: Herkunft/Release der externen Reserve.
     reserve_funding_ledger: Optional[dict] = None
-    # INFLOW-CERTAINTY-001: Info-Sensitivitaet "mit Zufluss" fuer unsichere
-    # Vermoegenszufluesse (nicht eingerechnet). None = keine unsicheren Zufluesse.
-    uncertain_inflow_sensitivity: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int
@@ -1682,9 +1670,6 @@ class TargetAllocationGenerateResponse(BaseModel):
     # RISK-CAPACITY-PLAUSIBILITY-001: Fragebogen <-> erfasste Finanzdaten
     # (Hinweis, Reason-Code RISK_CAPACITY_INCONSISTENT; aendert nichts).
     risk_capacity_plausibility: Optional[dict] = None
-    # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Anlageklassen ohne dokumentierte
-    # Kenntnis/Aufklaerung (Reason-Code KNOWLEDGE_GAP_ASSET_CLASS; Hinweis).
-    knowledge_asset_class_check: Optional[dict] = None
     asset_class_risky_weights_bps: dict[str, int]
     expected_return_bps: int
     expected_volatility_bps: int

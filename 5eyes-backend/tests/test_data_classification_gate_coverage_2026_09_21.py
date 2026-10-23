@@ -349,13 +349,8 @@ def _seed_handoff_prereqs(session_factory, *, mandate_id="mandate-handoff", run_
             advisory_language="DE", opened_at="2026-09-21",
             created_at=_now(), updated_at=_now(),
         ))
-        # RISK-BUDGET-RELEASE-GATE: Handoff verlangt eine verankerte,
-        # budgetkonforme Allokation (siehe test_portfolio_handoff).
-        from test_portfolio_handoff import _budget_compliant_allocation
-        db.add(_budget_compliant_allocation(mandate_id, "advisor-handoff", f"ta-{run_id}"))
         db.add(RecommendationRun(
             id=run_id, mandate_id=mandate_id, client_id="client-handoff", policy_id="policy-1",
-            target_allocation_id=f"ta-{run_id}",
             run_type="Initial", result_status="Final", created_by="advisor-handoff",
             created_at=_now(), updated_at=_now(),
         ))

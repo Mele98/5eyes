@@ -1,6 +1,6 @@
-from sqlalchemy import DDL, CheckConstraint, Column, String, Integer, ForeignKey, event
+from sqlalchemy import Column, String, Integer, ForeignKey
 from sqlalchemy.orm import relationship
-from database import CLIENT_PII_KEYS_SQLITE_TRIGGERS, Base
+from database import Base
 
 
 class Client(Base):
@@ -147,39 +147,3 @@ class ClientTaxResidency(Base):
     created_at = Column(String, nullable=False)
 
     client = relationship("Client", back_populates="tax_residencies")
-
-
-class ClientPiiKey(Base):
-    """DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Schluessel pro Kunde fuer das
-    Crypto-Shredding der Freitexte in append-only Evidence-Tabellen
-    (risk_override_decisions.reason, risk_profile_signoffs.note und die
-    zugehoerigen audit_log-Snapshots), siehe services/pii_vault.py.
-
-    Shred-only: die DSG-Art.-32-Erasure setzt key_material auf NULL und
-    shredded_at; ein Trigger verbietet jedes andere UPDATE (kein Ersetzen,
-    kein Wiederbeleben) und jedes DELETE (der Tombstone belegt die
-    Vernichtung und haelt seal_for_client() fuer geloeschte Kunden
-    fail-closed). Kein FK auf clients (Purge-fest wie audit_log).
-    """
-
-    __tablename__ = "client_pii_keys"
-    __table_args__ = (
-        CheckConstraint(
-            "(key_material IS NULL) = (shredded_at IS NOT NULL)",
-            name="ck_client_pii_keys_shredded",
-        ),
-    )
-
-    client_id = Column(String, primary_key=True)
-    key_id = Column(String, nullable=False, unique=True)
-    key_material = Column(String)
-    created_at = Column(String, nullable=False)
-    shredded_at = Column(String)
-
-
-for _trigger_ddl in CLIENT_PII_KEYS_SQLITE_TRIGGERS:
-    event.listen(
-        ClientPiiKey.__table__,
-        "after_create",
-        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
-    )

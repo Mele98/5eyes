@@ -32,10 +32,6 @@ from schemas.portfolio_handoff import (
 from services.audit import log
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.portfolio_handoff import NoTradeListAvailableError, snapshot_handoff_trades
-from services.recommendation_release_gate import (
-    CHANNEL_HANDOFF,
-    assert_recommendation_release_eligible,
-)
 
 router = APIRouter(tags=["Weiterleitung Asset Management"])
 logger = logging.getLogger(__name__)
@@ -166,13 +162,6 @@ def create_portfolio_handoff(
             ),
         )
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
-    # RISK-BUDGET-RELEASE-GATE (2026-10-21): keine Weiterleitung zur
-    # Ausfuehrung, wenn die verankerte Allokation des Runs ihr Risikobudget
-    # verletzt oder der Nachweis fehlt -- zentrales Gate, VOR Snapshot und
-    # Persistierung.
-    assert_recommendation_release_eligible(
-        db, mandate, channel=CHANNEL_HANDOFF, run=run,
-    )
     try:
         trades, total_value_rappen = snapshot_handoff_trades(db, mandate, run, current_user.id)
     except NoTradeListAvailableError as exc:

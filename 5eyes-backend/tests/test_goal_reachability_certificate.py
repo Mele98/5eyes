@@ -14,13 +14,6 @@ Risikobudget, Multi-Start inkl. aller Screen-Kandidaten und des Zentrums der
 zulaessigen Menge), ausgewertet auf dem eigenen Screening-Wuerfel; demoted
 nur, wenn die obere Wilson-Grenze (Kish-ESS) des besten gefundenen Punktes
 < tau/2 liegt.
-
-Engine v11 (GOAL-REVISION-DECISION-001, Codex-Closure-Review zu PR #655):
-die lokale Suche bleibt unveraendert, ihr Miss stuft aber NIE mehr herab
-(``not_found_reachable_locally`` + Vorschlag). Herabgestuft wird nur per
-Berater-Entscheidung GoalRevisionDecisionV1 (tests/test_goal_revision_
-decision.py). Angepasst sind nur die Tests, die die alte automatische
-Herabstufung als Positivkontrolle pinnten.
 """
 from __future__ import annotations
 
@@ -225,29 +218,21 @@ def test_candidate_order_extra_or_removed_starts_do_not_change_the_protection_cl
     assert solver_module._stage1_liabilities(context) == [goal]
 
 
-def test_truly_unreachable_goal_is_suggested_but_never_auto_demoted(monkeypatch):
-    """Ziel ueber dem globalen Maximum (1000 + Rauschen). Bis v10 die
-    Positivkontrolle der automatischen Herabstufung; seit v11 (CIO-Entscheid
-    nach Codex-Review zu #655) weiss die lokale Suche auch hier nur "lokal
-    nicht gefunden" -- sie kann diesen Fall nicht vom Insel-Gegenfall
-    unterscheiden. Das Ziel bleibt Stufe 1, die Engine schlaegt die
-    Einstufung als nachrangiges Wunschziel vor."""
+def test_truly_unreachable_goal_is_certified_and_demoted(monkeypatch):
+    """Positivkontrolle: Ziel ueber dem globalen Maximum (1000 + Rauschen)."""
     context, goal = _bump_context(monkeypatch, target=5_000.0)
     screen = reachability.goal_reachability_screen(context)
     row = screen["goals"][0]
     certificate = row["certificate"]
-    assert certificate["status"] == "not_found_reachable_locally"
-    assert certificate["global_certificate"] == "unavailable_local_search_only"
+    assert certificate["status"] == "certified_unreachable_on_screen_cube"
     assert certificate["max_upper_bound"] < 0.5 * row["tau"]
     assert certificate["n_eff"] == pytest.approx(400.0)
     assert certificate["screening_cube_hash"] == "bump-cube"
     assert certificate["n_starts"] == 6  # 5 Kandidaten + Zentrum
-    assert screen["demoted_goal_ids"] == []
-    assert screen["certified_unreachable_goal_ids"] == []
-    assert screen["revision_suggested_goal_ids"] == ["hard-goal"]
-    assert row["revision_suggested"] is True
+    assert screen["demoted_goal_ids"] == ["hard-goal"]
+    assert screen["certified_unreachable_goal_ids"] == ["hard-goal"]
     context.goal_reachability = screen
-    assert solver_module._stage1_liabilities(context) == [goal]
+    assert solver_module._stage1_liabilities(context) == []
 
 
 def test_certificate_uses_kish_ess_under_scenario_weights(monkeypatch):
@@ -269,16 +254,15 @@ def test_without_feasible_set_a_screen_miss_is_never_demoted(monkeypatch):
     context, goal = _bump_context(monkeypatch, target=5_000.0)
     del context.bounds
     screen = reachability.goal_reachability_screen(context)
-    assert screen["goals"][0]["certificate"]["status"] == "global_certificate_unavailable"
+    assert screen["goals"][0]["certificate"]["status"] == "certificate_unavailable"
     assert screen["demoted_goal_ids"] == []
     context.goal_reachability = screen
     assert solver_module._stage1_liabilities(context) == [goal]
 
 
 def test_not_found_status_alone_does_not_demote():
-    """``not_found_reachable_goal_ids`` ist reine Offenlegung. Engine v11:
-    auch ``demoted_goal_ids`` im Screen steuert nichts -- nur die
-    Decision-Markierung auf der Liability."""
+    """``not_found_reachable_goal_ids`` ist reine Offenlegung: nur
+    ``demoted_goal_ids`` (zertifiziert) steuert die Stufe 1."""
     goal = _hard_wealth_goal()
     context = SimpleNamespace(
         liabilities=[goal], horizon_years=1,
@@ -298,8 +282,8 @@ def test_policy_versions_are_bound_in_the_objective_contract():
 
     evidence = resolve_objective_contract().as_evidence()
     assert evidence["goal_reachability_policy"] == reachability.GOAL_REACHABILITY_SCREEN_VERSION
-    # v11 (GOAL-REVISION-DECISION-001): keine automatische Herabstufung.
-    assert "no_auto_demotion" in reachability.GOAL_REACHABILITY_SCREEN_VERSION
+    assert "certif" in reachability.GOAL_REACHABILITY_SCREEN_VERSION
     assert evidence["goal_demotion_policy"] == DEMOTED_GOAL_POLICY_VERSION
-    assert DEMOTED_GOAL_POLICY_VERSION.startswith("goal_revision_decision_")
-    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v11"
+    assert DEMOTED_GOAL_POLICY_VERSION.startswith("certified_unreachable_")
+    # v10: Priority-Scope-Replay (GOAL-ATTRIBUTION-CASHFLOW-INVERSION-001) auf v9.
+    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v10"

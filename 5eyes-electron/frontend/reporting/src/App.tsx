@@ -431,17 +431,10 @@ function renderSection(
     );
   }
   if (sectionId === 'goals') {
-    return (
-      <Goals data={data.goal_based_investing} projectionGate={data.projection_gate} />
-    );
+    return <Goals data={data.goal_based_investing} />;
   }
   if (sectionId === 'risikoprofil') {
-    return (
-      <Risikoprofil
-        data={data.risikoprofilierung}
-        capacityPlausibility={data.suitability_summary?.risk_capacity_plausibility ?? null}
-      />
-    );
+    return <Risikoprofil data={data.risikoprofilierung} />;
   }
   if (sectionId === 'building-blocks') {
     return <BuildingBlocks data={data.building_blocks} />;

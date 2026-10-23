@@ -116,19 +116,12 @@ class GoalLiability:
     # (goal_to_liability/goals_to_liabilities) setzt ihn immer.
     lifecycle_status: str | None = None
     # GOAL-HIERARCHY-002 / DEMOTED-GOAL-WEIGHT-001 (CIO-Entscheid 2026-10-19):
-    # herabgestuftes Ziel -- zaehlt unabhaengig vom erfassten Haertegrad wie
-    # ein Wunschziel (Gewicht 0.2 auf Fehlbetrag UND Chance-Strafe, W0-Deckel,
-    # nicht Stufe 1). Der erfasste Haertegrad bleibt fuer Anzeige/Offenlegung
-    # unveraendert. Engine v11 (GOAL-REVISION-DECISION-001): gesetzt NUR bei
-    # gueltiger Berater-Entscheidung GoalRevisionDecisionV1
-    # (services/goal_revision_decision.py::apply_to_liabilities), nie mehr
-    # automatisch aus der Reachability-Suche.
+    # vom Reachability-Screen auf der Pruefmenge nicht erreichbar gefunden.
+    # Gesetzt nur von ``solver.build_optimizer_context``; dann zaehlt das Ziel
+    # unabhaengig vom erfassten Haertegrad wie ein Wunschziel (Gewicht 0.2
+    # auf Fehlbetrag UND Chance-Strafe, nicht Stufe 1). Der erfasste
+    # Haertegrad bleibt fuer Anzeige/Offenlegung unveraendert.
     demoted: bool = False
-    # GOAL-REVISION-DECISION-001: Referenz der wirksamen Decision und der
-    # Ziel-Snapshot-Hash, gegen den sie geprueft wurde (Evidenz/Replay).
-    revision_decision_id: str | None = None
-    revision_decision_hash: str | None = None
-    goal_snapshot_hash: str | None = None
 
 
 # ============================================================================

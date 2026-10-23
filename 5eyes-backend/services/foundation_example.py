@@ -19,7 +19,6 @@ from models.review import (
 )
 from models.users import User
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthPosition
-from services.goal_success_status import GOAL_SUCCESS_WARN_PCT, goal_items_weighted_success_bps
 from services.portfolio_engine import (
     build_recommendation_payload_from_run,
     build_target_payload_from_allocation,
@@ -133,15 +132,12 @@ def _build_foundation_summary(db: Session, user: User, client: Client, mandate: 
     triggers = refresh_system_review_triggers(db, mandate, user.id, allocation_payload=allocation_result)
     db.flush()
     goal_analysis = allocation_result.get("goal_analysis") or []
-    # GOAL-STATUS-BY-SUCCESS-001: gewichtete Erfolgswahrscheinlichkeit und
-    # kritische Ziele (< 45 %) wie Cockpit, Bericht und Review-Trigger.
-    weighted_success_bps = goal_items_weighted_success_bps(goal_analysis)
-    goal_score_weighted_pct = int(round(weighted_success_bps / 100)) if weighted_success_bps is not None else 0
-    goal_path_at_risk_count = len([
-        item for item in goal_analysis
-        if item.get("success_probability_pct") is not None
-        and int(item.get("success_probability_pct")) < GOAL_SUCCESS_WARN_PCT
-    ])
+    goal_weight_total = sum(max(1, int(item.get("weight_bps") or 0)) for item in goal_analysis)
+    goal_score_weighted_pct = int(round(
+        sum(max(1, int(item.get("weight_bps") or 0)) * int(item.get("achievement_score") or 0) for item in goal_analysis)
+        / goal_weight_total
+    )) if goal_weight_total else 0
+    goal_path_at_risk_count = len([item for item in goal_analysis if int(item.get("achievement_score") or 0) < 45])
     monte_carlo = allocation_result.get("monte_carlo") or {}
     mc_target_series = monte_carlo.get("target_p50_series_rappen") or []
     mc_year_labels = monte_carlo.get("year_labels") or []

@@ -570,39 +570,7 @@ def test_reachability_is_published_on_goal_rows(monkeypatch):
     assert rows["Unerreichbar"]["feasible_set_reachable"] is False
     hints = [line for line in result.reasoning if line.startswith("Beraterhinweis: Ziel 'Unerreichbar'")]
     assert len(hints) == 1
-    # Engine v11 (GOAL-REVISION-DECISION-001, CIO-Entscheid 2026-10-21): ohne
-    # Berater-Entscheidung wird nicht mehr automatisch herabgestuft -- der
-    # Hinweis ist ein Vorschlag mit der vom CIO vorgegebenen Formulierung
-    # (statt "nicht mit der Mindestsicherheit erreichbar"); "nachrangig
-    # verfolgt" gilt erst mit Decision (zweiter Teil unten).
-    assert "mit den geprueften Allokationen nicht mit ausreichender Sicherheit erreicht" in hints[0]
+    assert "mit der Mindestsicherheit erreichbar" in hints[0]
     assert "Ziel mit dem Kunden ueberpruefen (Betrag, Termin, Prioritaet)" in hints[0]
-    assert "als nachrangiges Wunschziel einstufen" in hints[0]
-    assert rows["Unerreichbar"]["goal_revision"]["revision_suggested"] is True
-
-    from test_goal_revision_decision import _decision_for
-
-    decided_goal = _unreachable_goal()
-    decided_goal.goal_revision_decision = _decision_for(decided_goal)
-    decided = run_solver(
-        cma=_cma(id="cma-reach-pub"),
-        goals=[_pension_goal(), decided_goal],
-        house_matrix_row=_house_matrix(),
-        score_x10=70,
-        advisory_wealth_rappen=500_000_00,
-        cashflow_series_rappen=[20_000_00] * 10,
-        horizon_years=10,
-        n_paths=400,
-        seed=8081,
-        resampling=SINGLE_CUBE,
-    )
-    decided_rows = {r["label"]: r for r in decided.goal_achievability if r.get("goal_id")}
-    assert decided_rows["Unerreichbar"]["feasible_set_reachable"] is False
-    decided_hints = [
-        line for line in decided.reasoning
-        if line.startswith("Beraterhinweis: Ziel 'Unerreichbar'")
-    ]
-    assert len(decided_hints) == 1
-    assert "Ziel mit dem Kunden ueberpruefen (Betrag, Termin, Prioritaet)" in decided_hints[0]
-    assert "als nachrangiges Wunschziel verfolgt" in decided_hints[0]
-    assert "verdraengt keine erreichbaren Ziele" in decided_hints[0]
+    assert "als nachrangiges Wunschziel verfolgt" in hints[0]
+    assert "verdraengt keine erreichbaren Ziele" in hints[0]

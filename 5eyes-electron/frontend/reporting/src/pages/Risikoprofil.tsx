@@ -9,24 +9,14 @@
  * in der Sub-App. Override geht über die Hauptapp 5eyes_v2.html.
  */
 import type { RisikoprofilierungData, RiskQuestion } from '@/api/types';
-import type { RiskCapacityPlausibilityCompact } from '@/api/riskCapacityPlausibility';
-import { useUserRole } from '@/api/useUserRole';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatInteger } from '@/lib/format';
-import { RiskCapacityPlausibilityNotice } from '@/sections/profiling/RiskCapacityPlausibilityPanel';
 
 interface RisikoprofilProps {
   data: RisikoprofilierungData;
-  /**
-   * RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
-   * pruefung (suitability_summary.risk_capacity_plausibility). Nur in der
-   * Berater-Ansicht (canEdit) sichtbar und nie im Druck.
-   */
-  capacityPlausibility?: RiskCapacityPlausibilityCompact | null;
 }
 
-export function Risikoprofil({ data, capacityPlausibility }: RisikoprofilProps) {
-  const { canEdit } = useUserRole();
+export function Risikoprofil({ data }: RisikoprofilProps) {
   return (
     <ReportPage
       nr={12}
@@ -45,12 +35,6 @@ export function Risikoprofil({ data, capacityPlausibility }: RisikoprofilProps) 
       </section>
 
       {data.is_overridden ? <OverrideNotice reason={data.override_reason} /> : null}
-
-      {canEdit ? (
-        <div className="mt-section">
-          <RiskCapacityPlausibilityNotice data={capacityPlausibility} />
-        </div>
-      ) : null}
 
       {data.questions && data.questions.length > 0 ? (
         <section className="mt-section">

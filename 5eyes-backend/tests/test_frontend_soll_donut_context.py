@@ -36,8 +36,6 @@ def test_reinvermoegen_context_populated_from_total_allocation():
     block = html.split("function syncAllocationDonutFromStrategyState(", 1)[1].split("\nlet charts=", 1)[0]
     assert "alloc-rein-context" in block
     assert "total_allocation" in block
-    # TOTAL-WEALTH-LIABILITY-001: Netto-Fundament statt Brutto-foundation_rappen.
-    assert "foundation_in_net_wealth_rappen" in block
-    assert "foundation_rappen||0" not in block
+    assert "foundation_rappen" in block
     assert "total_wealth_rappen" in block
     assert "advisory_wealth_rappen" in block

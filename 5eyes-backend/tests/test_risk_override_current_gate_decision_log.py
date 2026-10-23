@@ -410,12 +410,7 @@ def test_decision_rows_bind_basis_rules_and_chain(session_factory):
             assert decision.basis_final_score_x10 == basis_final
             assert decision.basis_capacity_score_x10 == basis_capacity
             assert decision.basis_willingness_score_x10 == basis_willingness
-            # DSG-ERASURE-APPEND-ONLY-001: Begruendung nur versiegelt in der
-            # append-only Zeile (Crypto-Shredding), lesbar ueber den Vault.
-            from services.pii_vault import is_sealed, reveal
-
-            assert is_sealed(decision.reason)
-            assert reveal(session, decision.reason) == VALID_REASON
+            assert decision.reason == VALID_REASON
             assert decision.actor_id == advisor.id
             assert decision.rules_version == OVERRIDE_DOCUMENTATION_RULES_VERSION
             assert decision.decision_hash == compute_decision_hash(decision)

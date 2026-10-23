@@ -91,24 +91,15 @@ export function fmtSharpe(value: number | null | undefined): string {
   return fmtNumber(value, 2);
 }
 
-/**
- * CHF-Betrag kompakt OHNE Waehrungspraefix: „2.85 Mio." / „850'000"
- * (Monolith: formatCompactCHFAmount). Nicht-endlich -> „—".
- */
-export function fmtChfCompactAmount(chf: number | null | undefined): string {
+/** CHF (ganze Franken) kompakt: ab 1 Mio. „CHF 2.85 Mio.", darunter voll. */
+export function fmtChfCompact(chf: number | null | undefined): string {
   if (chf === null || chf === undefined) return '—';
   const n = Number(chf);
   if (!Number.isFinite(n)) return '—';
   const a = Math.abs(n);
   const sign = n < 0 && Math.round(a) > 0 ? MINUS : '';
-  if (a >= 1_000_000) return `${sign}${fmtNumber(a / 1_000_000, 2)} Mio.`;
-  return `${sign}${fmtNumber(Math.round(a), 0)}`;
-}
-
-/** CHF (ganze Franken) kompakt: ab 1 Mio. „CHF 2.85 Mio.", darunter voll. */
-export function fmtChfCompact(chf: number | null | undefined): string {
-  const amount = fmtChfCompactAmount(chf);
-  return amount === '—' ? amount : `CHF ${amount}`;
+  if (a >= 1_000_000) return `CHF ${sign}${fmtNumber(a / 1_000_000, 2)} Mio.`;
+  return `CHF ${sign}${fmtNumber(Math.round(a), 0)}`;
 }
 
 export function formatChfRappen(

@@ -312,7 +312,7 @@ describe('MonteCarloPathsChart — Zielmarker ausserhalb der Skala', () => {
     expect(marker.querySelector('circle')).toBeNull();
     expect(screen.getByTestId('goal-marker-arrow-hard')).toBeInTheDocument();
     expect(screen.getByTestId('goal-marker-value-hard')).toHaveTextContent(
-      '▲ CHF 50.00 Mio. über Skala',
+      "▲ Ziel CHF 50'000'000 (über Skala)",
     );
     expect(screen.getByTestId('mc-paths-legend-above-scale')).toBeInTheDocument();
   });

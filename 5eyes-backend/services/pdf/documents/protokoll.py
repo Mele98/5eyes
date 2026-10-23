@@ -147,27 +147,6 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
             ))
             flowables.append(Spacer(1, 2 * mm))
 
-    # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Anlageklassen, zu denen weder
-    # Kenntnisse noch eine Aufklaerung dokumentiert sind. Hinweis, kein Block.
-    knowledge_gap_hints = [
-        str(h).strip() for h in list(getattr(data, "knowledge_gap_hints", []) or []) if str(h).strip()
-    ]
-    if knowledge_gap_hints:
-        flowables.append(Spacer(1, 4 * mm))
-        flowables.append(_section_title("Kenntnisse zu den Anlageklassen der Strategie"))
-        for hint in knowledge_gap_hints:
-            flowables.append(Paragraph(
-                f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#92400e">{_esc(hint)}</font>',
-                styles["body"],
-            ))
-            flowables.append(Spacer(1, 2 * mm))
-        flowables.append(Paragraph(
-            f'<font name="{FONT_DEFAULT}" size="8" color="#64748b">'
-            'Hinweis: Die Allokation wurde dadurch nicht verändert. Information und '
-            'Dokumentation erfolgen im Beratungsgespräch.</font>',
-            styles["small_muted"],
-        ))
-
     # RISK-PROFILE-SIGNOFF-001: Signoff-/Decision-Referenz des aktuellen
     # Risikoprofils -- dieselben Zeilen wie im Risikoprofil-PDF.
     signoff_lines = tuple(getattr(data, "risk_signoff_lines", ()) or ())

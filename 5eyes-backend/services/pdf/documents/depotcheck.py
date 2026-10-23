@@ -200,14 +200,6 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         flowables.append(_fallback(
             str(performance.get("note") or "Performancevergleich noch nicht verfuegbar.")
         ))
-    # SUITABILITY-DETECTOR-AVAILABILITY-001: fehlende HouseMatrix-Referenz
-    # wird auf der Vergleichsseite ausgewiesen, nicht still weggelassen.
-    hm_benchmark = performance.get("house_matrix_benchmark") or {}
-    if hm_benchmark.get("status") not in (None, "available"):
-        flowables.append(Spacer(1, 3 * mm))
-        flowables.append(_fallback(
-            str(hm_benchmark.get("note") or "Vergleich mit der Hausmatrix nicht möglich.")
-        ))
     flowables.append(PageBreak())
 
     _start_page(
