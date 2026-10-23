@@ -509,6 +509,7 @@ def test_core_initial_value_matches_initial_wealth(session_factory):
     assert result["p75"][0] == 42_000_000
 
 
+@pytest.mark.wallclock_budget
 def test_core_runs_under_performance_budget(session_factory):
     """1000 Pfade x 20 Jahre Horizont muss in < 1.0s laufen (numpy-
     vektorisiert, antithetic). Real bei meiner Workstation ~50ms.
