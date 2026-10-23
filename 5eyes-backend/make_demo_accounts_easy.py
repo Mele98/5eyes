@@ -20,6 +20,9 @@ from pathlib import Path
 
 _default = str(Path.home() / "5eyes" / "5eyes-staging.db")
 _db_path = sys.argv[1] if len(sys.argv) > 1 else _default
+from core.db_location import refuse_live_db  # noqa: E402
+
+refuse_live_db(_db_path, context=Path(__file__).name)
 os.environ["DB_PATH"] = _db_path
 os.environ.setdefault("APP_ENV", "development")
 

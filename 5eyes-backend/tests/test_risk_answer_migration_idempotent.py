@@ -102,12 +102,10 @@ def test_interrupted_state_with_nonempty_new_table_fails_loudly(tmp_path):
 
 
 def test_test_suite_never_points_at_the_live_database():
-    from pathlib import Path
-
     from config import settings
+    from core.db_location import is_live_db_path
 
-    live = (Path.home() / "5eyes" / "5eyes.db").resolve()
-    assert Path(settings.db_path).expanduser().resolve() != live
+    assert not is_live_db_path(settings.db_path)
 
 
 def test_migration_preserves_the_connection_foreign_key_mode(tmp_path):

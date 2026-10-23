@@ -28,7 +28,23 @@ $home5   = Join-Path $env:USERPROFILE '5eyes'
 if (-not (Test-Path $home5)) { New-Item -ItemType Directory -Path $home5 | Out-Null }
 $secretFile = Join-Path $home5 '.external-secret.txt'
 $cfExe      = Join-Path $home5 'cloudflared.exe'
-$realDbPath = Join-Path $home5 '5eyes.db'
+
+# --- Python finden ---
+$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+if (-not $pyCmd) { $pyCmd = Get-Command py -ErrorAction SilentlyContinue }
+if (-not $pyCmd) { Write-Host 'Python nicht gefunden. Bitte Python 3.11+ installieren.' -ForegroundColor Red; exit 1 }
+$pyExe = $pyCmd.Source
+
+# Produktivpfad NICHT als Literal: dieselbe Quelle wie config.Settings.db_path
+# (core/db_location.py). Der Vergleich (check) erkennt auch Symlinks,
+# Junctions, Hardlinks und Gross-/Kleinschreibungs-Varianten. Fail-closed:
+# ist die Ableitung nicht moeglich, startet das Skript nicht.
+$dbLocation = Join-Path $backend 'core\db_location.py'
+$realDbPath = (& $pyExe $dbLocation live-path | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $realDbPath) {
+  Write-Host 'Produktiver DB-Pfad nicht ermittelbar (core/db_location.py) -- abgebrochen.' -ForegroundColor Red
+  exit 1
+}
 
 if (-not $env:DB_PATH) {
   # Kein DB_PATH gesetzt -> sicherer Default: eigene Staging-DB, niemals
@@ -36,9 +52,17 @@ if (-not $env:DB_PATH) {
   # separat mit synthetischen Demo-Mandaten befuellen.
   $env:DB_PATH = Join-Path $home5 'external-demo.db'
   Write-Host "DB_PATH nicht gesetzt -> nutze separate Staging-DB: $($env:DB_PATH)" -ForegroundColor Cyan
-} elseif ((Resolve-Path -LiteralPath $env:DB_PATH -ErrorAction SilentlyContinue).Path -eq $realDbPath) {
+}
+& $pyExe $dbLocation check $env:DB_PATH
+$dbCheck = $LASTEXITCODE
+if ($dbCheck -ne 0 -and $dbCheck -ne 3) {
+  Write-Host 'DB_PATH-Pruefung fehlgeschlagen (core/db_location.py) -- abgebrochen.' -ForegroundColor Red
+  exit 1
+}
+if ($dbCheck -eq 3) {
   Write-Host '====================================================================' -ForegroundColor Red
   Write-Host ' WARNUNG: DB_PATH zeigt auf die produktive Electron-Desktop-DB!'      -ForegroundColor Red
+  Write-Host " ($realDbPath)"                                                      -ForegroundColor Red
   Write-Host ' Der Cloudflare-Tunnel macht diese DB oeffentlich erreichbar (nur'    -ForegroundColor Red
   Write-Host ' Login/2FA schuetzen sie). ALLOW_REAL_CLIENT_DATA blockt dabei NUR'   -ForegroundColor Red
   Write-Host ' neue Schreibzugriffe, keine Lesezugriffe auf bestehende Kundendaten.' -ForegroundColor Red
@@ -49,12 +73,6 @@ if (-not $env:DB_PATH) {
     exit 1
   }
 }
-
-# --- Python finden ---
-$pyCmd = Get-Command python -ErrorAction SilentlyContinue
-if (-not $pyCmd) { $pyCmd = Get-Command py -ErrorAction SilentlyContinue }
-if (-not $pyCmd) { Write-Host 'Python nicht gefunden. Bitte Python 3.11+ installieren.' -ForegroundColor Red; exit 1 }
-$pyExe = $pyCmd.Source
 
 # --- Stabiles Secret (einmalig erzeugt, ueber Neustarts gleich) ---
 if (-not (Test-Path $secretFile)) {

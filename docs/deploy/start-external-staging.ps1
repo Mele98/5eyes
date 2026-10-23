@@ -26,6 +26,20 @@ if (-not $pyCmd) { $pyCmd = Get-Command py -ErrorAction SilentlyContinue }
 if (-not $pyCmd) { Write-Host 'Python nicht gefunden.' -ForegroundColor Red; exit 1 }
 $pyExe = $pyCmd.Source
 
+# Die Staging-DB darf nie (auch nicht per Symlink/Junction/Hardlink oder
+# andere Schreibweise) die produktive DB sein. Produktivpfad aus derselben
+# Quelle wie config.Settings.db_path (core/db_location.py); fail-closed.
+& $pyExe (Join-Path $backend 'core\db_location.py') check $stagingDb
+$dbCheck = $LASTEXITCODE
+if ($dbCheck -ne 0) {
+  if ($dbCheck -eq 3) {
+    Write-Host "Staging-DB $stagingDb ist die produktive DB -- abgebrochen." -ForegroundColor Red
+  } else {
+    Write-Host 'DB-Pfad-Pruefung fehlgeschlagen (core/db_location.py) -- abgebrochen.' -ForegroundColor Red
+  }
+  exit 1
+}
+
 # Staging-DB muss existieren (sonst Hinweis zum Seeden).
 if (-not (Test-Path $stagingDb)) {
   Write-Host "Staging-DB fehlt: $stagingDb" -ForegroundColor Yellow

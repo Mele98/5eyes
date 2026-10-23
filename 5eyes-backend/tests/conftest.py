@@ -9,28 +9,52 @@ migrations against real client data and left an interrupted table rebuild
 This conftest is imported by pytest before any test module, i.e. before
 ``config`` builds its settings: every session gets its own throwaway DB path.
 If the live path is reached anyway, the session aborts instead of touching it.
+
+The live path is NOT a literal here: it comes from
+``core.db_location.default_db_path()`` -- the same function that supplies the
+``config`` default -- and is compared via ``core.db_location.is_live_db_path``
+(resolve + normcase + samefile, i.e. symlinks, junctions, hardlinks and
+Windows case variants are caught as well). A later rename of the data path
+therefore cannot silently disarm this guard.
 """
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
-_LIVE_DB = (Path.home() / "5eyes" / "5eyes.db").resolve()
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
-if not os.environ.get("DB_PATH") or Path(os.environ["DB_PATH"]).expanduser().resolve() == _LIVE_DB:
+from core.db_location import default_db_path, is_live_db_path, sqlite_url_file  # noqa: E402
+
+if not os.environ.get("DB_PATH") or is_live_db_path(os.environ["DB_PATH"]):
     _session_dir = tempfile.mkdtemp(prefix="5eyes-tests-")
     os.environ["DB_PATH"] = str(Path(_session_dir) / "5eyes-test.db")
+
+
+def live_db_violation(db_path, database_url=None):
+    """Name of the setting that points at the live DB, else ``None``."""
+    if is_live_db_path(db_path):
+        return "DB_PATH"
+    url_file = sqlite_url_file(database_url)
+    if url_file is not None and is_live_db_path(url_file):
+        return "DATABASE_URL"
+    return None
 
 
 def pytest_sessionstart(session):  # noqa: D103
     from config import settings
 
-    if Path(settings.db_path).expanduser().resolve() == _LIVE_DB:
+    violation = live_db_violation(settings.db_path, getattr(settings, "database_url", None))
+    if violation:
         import pytest
 
         pytest.exit(
-            "Test-Session wuerde die LIVE-Datenbank ~/5eyes/5eyes.db verwenden -- abgebrochen.",
+            f"Test-Session wuerde die LIVE-Datenbank {default_db_path()} verwenden "
+            f"({violation}) -- abgebrochen.",
             returncode=3,
         )
 

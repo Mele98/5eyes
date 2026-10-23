@@ -10,8 +10,16 @@ damit die DB nicht gelockt ist.
 import os
 import sqlite3
 import sys
+from pathlib import Path
 
-DB = os.path.expanduser("~/5eyes/5eyes.db")
+_BACKEND = Path(__file__).resolve().parents[2] / "5eyes-backend"
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from core.db_location import default_db_path  # noqa: E402
+
+# Produktivpfad aus derselben Quelle wie config.Settings.db_path.
+DB = str(default_db_path())
 
 
 def main() -> int:
