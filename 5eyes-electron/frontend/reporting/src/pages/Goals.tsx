@@ -7,7 +7,12 @@
  */
 import { useMemo, useState } from 'react';
 
-import type { GoalBasedInvestingData, GoalEntry, GoalStatus } from '@/api/types';
+import type {
+  GoalBasedInvestingData,
+  GoalEntry,
+  GoalStatus,
+  ProjectionGateData,
+} from '@/api/types';
 import { AmpelPill } from '@/components/AmpelPill';
 import { MonteCarloPathsChart } from '@/components/MonteCarloPathsChart';
 import { ReportPage } from '@/components/ReportPage';
@@ -21,9 +26,12 @@ import {
 
 interface GoalsProps {
   data: GoalBasedInvestingData;
+  /** AA-UX-HONEST-FAN-001: bei projections_hidden kein Faecher. */
+  projectionGate?: ProjectionGateData;
 }
 
-export function Goals({ data }: GoalsProps) {
+export function Goals({ data, projectionGate }: GoalsProps) {
+  const projectionsHidden = projectionGate?.projections_hidden === true;
   const goals = data.goals ?? [];
   // Sprint U-48: Three-State-Sort (asc/desc/reset) pro Spalte
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
@@ -62,8 +70,8 @@ export function Goals({ data }: GoalsProps) {
       <AchievementScoreKpi scoreBps={data.goal_achievement_score_bps} />
       <PlanSolvencyKpi plan={data.plan_solvency ?? null} />
 
-      {hasRealPaths ? (
-        <MonteCarloPathsChart paths={mc!} goals={goals} />
+      {projectionsHidden ? null : hasRealPaths ? (
+        <MonteCarloPathsChart paths={mc!} goals={goals} projectionsHidden={projectionsHidden} />
       ) : (
         <McPathsHint data={data} />
       )}

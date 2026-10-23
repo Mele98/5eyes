@@ -327,10 +327,16 @@ def classify_messages(
         decision_hash = _get(assessment, "override_decision_hash")
         override_message["override_decision_id"] = decision_id
         override_message["override_decision_hash"] = decision_hash
+        # RISK-OVERRIDE-LEGACY-REMEDIATION-001: Altbestand blockiert die
+        # Strategie bewusst NICHT, die Meldung verlangt aber die Bestaetigung
+        # (Risikoprofil-Ansicht -> "Override bestaetigen").
+        override_message["legacy_remediation_required"] = not decision_id
         override_message["body_advisor"] += (
             f" Override-Entscheid: {decision_reference(decision_id, decision_hash)}."
             if decision_id
-            else " Override ohne Decision-Nachweis (Altbestand vor RiskOverrideDecisionV1)."
+            else " Override aus Altbestand (ohne Decision-Nachweis vor RiskOverrideDecisionV1)"
+            " -- bitte bestaetigen: Risikoprofil-Ansicht, Aktion \"Override bestaetigen\"."
+            " Bis dahin ist keine Signatur des Risikoprofils moeglich."
         )
         # RISK-PROFILE-SIGNOFF-001: Signoff-Zustand des uebersteuerten Profils
         # -- nach jedem Override ist eine neue Signatur Pflicht, bis ein an
@@ -347,11 +353,12 @@ def classify_messages(
         override_message["signoff_state"] = state
         override_message["signoff_id"] = signoff_id
         override_message["signoff_hash"] = signoff_hash
-        override_message["body_advisor"] += (
-            f" Signoff: {signoff_reference(signoff_id, signoff_hash)}."
-            if state == STATUS_SIGNED
-            else " Neue Signatur des Risikoprofils erforderlich (aktueller Override ist nicht signiert)."
-        )
+        if decision_id or state == STATUS_SIGNED:
+            override_message["body_advisor"] += (
+                f" Signoff: {signoff_reference(signoff_id, signoff_hash)}."
+                if state == STATUS_SIGNED
+                else " Neue Signatur des Risikoprofils erforderlich (aktueller Override ist nicht signiert)."
+            )
         messages.append(override_message)
 
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: die Plan-Solvenz-Zeile
