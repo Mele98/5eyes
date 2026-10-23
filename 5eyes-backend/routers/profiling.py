@@ -51,6 +51,7 @@ from services.risk_override_decision import (
     decision_snapshot,
 )
 from services import risk_profile_signoff as signoff_service
+from services.pii_vault import PiiVaultError, seal_for_client
 
 router = APIRouter(tags=["Risikoprofilierung"])
 
@@ -464,6 +465,15 @@ def override_risk_assessment(
     now = _now()
     previous_decision_id = ra.override_decision_id
     assessment_version = int(ra.version or 0)
+    # DSG-ERASURE-APPEND-ONLY-001: die append-only Decision (und damit der
+    # Audit-Snapshot) traegt die Begruendung nur versiegelt (Crypto-Shredding
+    # bei DSG-Art.-32-Loeschung, services/pii_vault.py); die veraenderbare
+    # Projektion am Assessment bleibt lesbar (PDF/Monolith) und wird von der
+    # Erasure redigiert. Fail-closed VOR jeder Mutation.
+    try:
+        sealed_reason = seal_for_client(db, mandate.client_id, body.override_reason)
+    except PiiVaultError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     sequence_no = int(
         db.query(func.max(RiskOverrideDecision.sequence_no))
         .filter(RiskOverrideDecision.assessment_id == ra.id)
@@ -484,7 +494,7 @@ def override_risk_assessment(
         basis_willingness_score_x10=ra.risk_willingness_score_x10,
         requested_score_x10=int(body.override_score_x10),
         requested_profile=body.override_profile,
-        reason=body.override_reason,
+        reason=sealed_reason,
         client_confirmed=1 if body.override_client_confirmed else 0,
         warning_delivered=1 if body.override_warning_delivered else 0,
         warning_document_id=body.override_warning_document_id,
@@ -519,7 +529,7 @@ def override_risk_assessment(
         RiskAssessment.override_profile: decision.requested_profile,
         RiskAssessment.override_by: current_user.id,
         RiskAssessment.override_at: now,
-        RiskAssessment.override_reason: decision.reason,
+        RiskAssessment.override_reason: body.override_reason,
         RiskAssessment.override_client_confirmed: decision.client_confirmed,
         RiskAssessment.override_warning_delivered: decision.warning_delivered,
         RiskAssessment.override_warning_document_id: decision.warning_document_id,
@@ -580,6 +590,7 @@ def override_risk_assessment(
                 field_name="client_signed_invalidated",
                 new_value=signoff_service.invalidation_audit_value(
                     ra, decision_id=decision.id, decision_hash=decision.decision_hash,
+                    db=db, client_id=mandate.client_id,
                 ),
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))

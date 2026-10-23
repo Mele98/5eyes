@@ -350,21 +350,20 @@ def test_finalize_recommendation_passes_when_allocation_is_within_budget(session
     )
 
 
-def test_missing_realized_risky_fraction_warns_instead_of_claiming_compliance(
+def test_missing_realized_risky_fraction_blocks_instead_of_warning(
     session_factory
 ):
-    """Fehlender IST-Risikoanteil: Warnung, nicht stilles Durchwinken.
+    """Fehlender IST-Risikoanteil: harter Fehler, nicht stilles Durchwinken.
 
-    Dieser Fall ist bewusst der einzige, den das neue Gate selbst behandelt.
-    Nachgemessen: ein fehlendes typisiertes BUDGET ist schon abgedeckt --
-    ``_verified_persisted_allocation_context()`` wirft dafuer
-    "Persistiertes Risikobudget widerspricht der typisierten
-    TargetAllocation-Spalte", also einen harten Fehler. Dort zusaetzlich zu
-    warnen waere eine zweite Meldung fuer denselben Sachverhalt.
-
-    Der IST-Risikoanteil ist dagegen NICHT validiert. Ohne ihn ist die
-    Budget-Treue nicht belegbar, und "nicht belegbar" darf nicht als
-    "eingehalten" durchgehen.
+    Frueher (bis 2026-10-21) war das hier bewusst nur eine Warnung -- dieser
+    Test schrieb damit das Umgehen fest: eine Empfehlung ohne Nachweis der
+    Budget-Treue liess sich trotzdem finalisieren. Der Codex-Reproducer
+    tests/test_risk_budget_release_gate_reproducers.py zeigt, warum das
+    nicht reicht: wer die Nachweis-Spalten samt Diskriminator auf "legacy"
+    zurueckschreibt, verwandelt einen Pflicht-Nachweis in eine Warnung.
+    "Nicht belegbar" ist nicht "eingehalten" -- jetzt Fehler, gemeinsam
+    mit Advisory-PDF/Signatur/Handoff ueber
+    services/recommendation_release_gate.py.
     """
     advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(
         session_factory, suffix="risk-budget-finalization-unprovable",
@@ -394,5 +393,5 @@ def test_missing_realized_risky_fraction_warns_instead_of_claiming_compliance(
             db, mandate, run
         )
 
-    assert not [e for e in errors if "Risikobudget" in e], errors
-    assert [w for w in warnings if "nicht belegbar" in w], warnings
+    assert [e for e in errors if "Risikobudget" in e], errors
+    assert not [w for w in warnings if "Risikobudget" in w], warnings

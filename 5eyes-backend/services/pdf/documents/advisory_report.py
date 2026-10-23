@@ -1434,12 +1434,59 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
             "gemeinsam finanziert sind.",
             _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
         ))
+        out.extend(_failure_cause_flowables(goals, styles))
     else:
         out.append(Paragraph(
             "<i>Keine Ziele erfasst.</i>",
             styles["caption"],
         ))
     return out
+
+
+def _failure_cause_flowables(goals: list[dict], styles: dict) -> list[Any]:
+    """GOAL-FAILURE-DISTRIBUTION-REPORT-001: verfehlte Verlaeufe je Ziel.
+
+    Nur Ziele mit nicht-leerer ``failure_cause_summary`` (Engine v10);
+    Altbestand / ausgeblendete Projektionen (``None``) zeigen nichts.
+    Beschreibend (erstes eingetretenes Ereignis), keine Kausalaussage.
+    """
+    from services.goal_failure_causes import FAILURE_CAUSE_INTRO, FAILURE_CAUSE_NOTE
+
+    lines: list[Any] = []
+    for g in goals:
+        summary = g.get("failure_cause_summary")
+        if not isinstance(summary, list) or not summary:
+            continue
+        parts = [
+            f"{_escape(str(item.get('label') or ''))} "
+            f"({_escape(format_bps_as_pct(item.get('share_bps'), decimals=0))})"
+            for item in summary
+            if isinstance(item, dict) and item.get("share_bps") is not None
+        ]
+        if not parts:
+            continue
+        label = _safe_string(g.get("label")) or "Ziel"
+        lines.append(Paragraph(
+            f"<b>{_escape(label)}:</b> {_escape(FAILURE_CAUSE_INTRO)}: "
+            + "; ".join(parts) + ".",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+        ))
+    if not lines:
+        return []
+    return [
+        Spacer(1, 4 * mm),
+        Paragraph(
+            "Verfehlte Verläufe nach erstem Ereignis",
+            _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
+        ),
+        Spacer(1, 1.5 * mm),
+        *lines,
+        Spacer(1, 1.5 * mm),
+        Paragraph(
+            _escape(FAILURE_CAUSE_NOTE),
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ),
+    ]
 
 
 def _plan_solvency_line(plan: dict, styles: dict) -> Paragraph:
@@ -2921,6 +2968,22 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
     out.append(Spacer(1, 4 * mm))
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
+
+    # RISK-CAPACITY-REPORT-001: Beraterhinweis der Plausibilitaetspruefung
+    # Risikofaehigkeit -- unabhaengig davon, ob ein SuitabilityCheck existiert
+    # (geschuetzte Sektion, nie per HUD ausblendbar). Betragsfreier Text aus
+    # services/risk_capacity_plausibility_report.advisor_report_note.
+    rcp_block = (ss or {}).get("risk_capacity_plausibility")
+    rcp_note = (
+        str(rcp_block.get("note") or "").strip()
+        if isinstance(rcp_block, dict) else ""
+    )
+    if rcp_note:
+        out.append(Paragraph(
+            _escape(rcp_note),
+            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
+        ))
+        out.append(Spacer(1, 4 * mm))
 
     if not ss or not ss.get("has_check"):
         out.append(_ss_empty_state(styles))
