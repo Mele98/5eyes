@@ -437,6 +437,7 @@ def test_b2_binned_deterministisch():
 # ===========================================================================
 
 
+@pytest.mark.wallclock_budget
 def test_b2_per_path_performance_akzeptabel():
     """Per-Path mit 500 Pfaden × 10 Jahren = 5000 TaxRegime-Calls.
     Sollte < 2 Sekunden bleiben (Konfigurations-Reasonable)."""
