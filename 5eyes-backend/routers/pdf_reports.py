@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -359,6 +359,30 @@ def _latest_target_allocation(mandate: Mandate, db: Session):
     # A historic non-current allocation is an audit record, never a valid
     # substitute for the customer's active strategy.
     return current_rows[0] if current_rows else None
+
+
+def _assert_report_allocation_context(
+    mandate: Mandate, db: Session, expected_allocation_id: str | None
+) -> None:
+    """ALLOC-EDITOR-STALE-001: ein Strategie-PDF darf nur aus genau der
+    Allokation entstehen, die der Browser anzeigt. Abweichung -> 409
+    ``... [allocation_report_context_stale]``. Ohne Token keine Pruefung;
+    die Persistenz-Staleness (Risikoprofil/Inputs) prueft weiterhin der
+    Payload-Pfad fail-closed."""
+    # Direktaufrufe (Tests/interne Pfade) uebergeben den Query-Default
+    # (FieldInfo) statt None -- nur echte Zeichenketten sind ein Token.
+    if not isinstance(expected_allocation_id, str) or not expected_allocation_id.strip():
+        return
+    from services.allocation_concurrency import (
+        AllocationVersionConflict,
+        assert_report_allocation_matches,
+    )
+
+    try:
+        current = _latest_target_allocation(mandate, db)
+        assert_report_allocation_matches(current, expected_allocation_id)
+    except (AllocationVersionConflict, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
@@ -711,9 +735,16 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 )
                 .all()
             )
+            from services.wealth_inflow_certainty import is_uncertain
+
             for inf in inflows:
+                # INFLOW-CERTAINTY-001: unsichere Zufluesse sichtbar, aber als
+                # nicht eingerechnet gekennzeichnet.
+                inf_name = str(getattr(inf, "label", "—") or "—")
+                if is_uncertain(inf):
+                    inf_name += " (unsicher, nicht eingerechnet)"
                 cashflow_events.append({
-                    "name": str(getattr(inf, "label", "—") or "—"),
+                    "name": inf_name,
                     "household_member": "",
                     "recurrence": "Einmalig" if not getattr(inf, "is_recurring", 0) else
                                   str(getattr(inf, "frequency", "") or "Wiederkehrend"),
@@ -937,9 +968,11 @@ def get_anlagestrategie_pdf(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    expected_allocation_id: str | None = Query(default=None, max_length=64),
 ):
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     try:
@@ -975,9 +1008,11 @@ def get_assetallocation_pdf(
     mandate_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    expected_allocation_id: str | None = Query(default=None, max_length=64),
 ):
     """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     try:
@@ -1733,6 +1768,15 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         logger.warning("Protokoll data: risk signoff load failed: %s", exc)
         risk_signoff_view = {"state": None, "lines": _SIGNOFF_LOAD_FAILED}
 
+    # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Klassen ohne dokumentierte Kenntnis.
+    knowledge_gap_hints: list[str] = []
+    try:
+        from services.knowledge_asset_class_gap import protocol_hints_for_mandate
+
+        knowledge_gap_hints = protocol_hints_for_mandate(db, mandate, ta)
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -1744,6 +1788,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_id=risk_signoff_view.get("signoff_id"),
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
+        knowledge_gap_hints=knowledge_gap_hints,
     )
 
 
@@ -1968,8 +2013,18 @@ def _cost_item_rate(costs: dict, key: str) -> int:
 
 
 def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
+    # SUITABILITY-DETECTOR-AVAILABILITY-001: die HouseMatrix-Referenz hat
+    # einen ausgewiesenen Status. Fehlt sie, wird der Vergleich NICHT still
+    # ohne Referenz gezeigt, sondern mit Hinweis (warnings + Status-Block).
+    benchmark, benchmark_status = _depotcheck_house_matrix_benchmark_with_status(
+        mandate, db,
+    )
+    benchmark_warnings = (
+        [benchmark_status["note"]]
+        if benchmark_status.get("status") != "available" and benchmark_status.get("note")
+        else []
+    )
     try:
-        benchmark = _depotcheck_house_matrix_benchmark(mandate, db)
         data = _build_backtest_data(
             mandate,
             db,
@@ -1989,57 +2044,48 @@ def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
             "metrics": dict(data.soll_metrics or {}),
             "benchmark_metrics": dict(data.benchmark_metrics or {}),
             "benchmark_weights_bps": dict(data.benchmark_weights_bps or {}),
-            "warnings": list(data.warnings or []),
+            "house_matrix_benchmark": benchmark_status,
+            "warnings": list(data.warnings or []) + benchmark_warnings,
         }
     except Exception as exc:  # noqa: BLE001 - PDF must fail soft
         logger.warning("Depotcheck performance unavailable: %s", exc)
         return {
             "data_pending": True,
             "note": "Historischer Vergleich ist fuer diese Strategie noch nicht verfuegbar.",
+            "house_matrix_benchmark": benchmark_status,
+            "warnings": benchmark_warnings,
         }
 
 
-def _depotcheck_house_matrix_benchmark(mandate: Mandate, db: Session) -> dict:
-    from models.allocation import HouseMatrix
-    from models.profiling import RiskAssessment
-    from services.risk_matrix import score_bucket_from_assessment
+def _depotcheck_benchmark_resolution(mandate: Mandate, db: Session):
+    from services.house_matrix_benchmark import resolve_depotcheck_benchmark
 
     ta = _latest_target_allocation(mandate, db)
-    if ta is None:
-        return {}
-    assessment = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.mandate_id == mandate.id,
-            RiskAssessment.is_current == 1,
-            RiskAssessment.deleted_at.is_(None),
-        )
-        .order_by(RiskAssessment.created_at.desc())
-        .first()
+    return resolve_depotcheck_benchmark(
+        db, mandate, target_allocation=ta, use_current_target_allocation=False,
     )
-    if assessment is None:
-        return {}
-    score = score_bucket_from_assessment(assessment)
-    matrix = (
-        db.query(HouseMatrix)
-        .filter(
-            HouseMatrix.policy_id == getattr(ta, "policy_id", None),
-            HouseMatrix.score_from <= int(score),
-            HouseMatrix.score_to >= int(score),
-            HouseMatrix.is_active == 1,
-        )
-        .order_by(HouseMatrix.score_from.desc())
-        .first()
-    )
-    if matrix is None:
-        return {}
-    return {
-        "equities": int(getattr(matrix, "equity_target_bps", 0) or 0),
-        "bonds": int(getattr(matrix, "bonds_target_bps", 0) or 0),
-        "real_estate": int(getattr(matrix, "real_estate_target_bps", 0) or 0),
-        "alternatives": int(getattr(matrix, "alt_target_bps", 0) or 0),
-        "liquidity": int(getattr(matrix, "liq_target_bps", 0) or 0),
-    }
+
+
+def _depotcheck_house_matrix_benchmark_with_status(
+    mandate: Mandate, db: Session,
+) -> tuple[dict, dict]:
+    """(Gewichte oder ``{}``, Status-Block) aus EINER Aufloesung."""
+    try:
+        resolution = _depotcheck_benchmark_resolution(mandate, db)
+        weights = dict(resolution.weights_bps) if resolution.available else {}
+        return weights, resolution.public()
+    except Exception as exc:  # noqa: BLE001 - PDF must fail soft, aber sichtbar
+        logger.warning("Depotcheck house-matrix benchmark unresolved: %s", exc)
+        return {}, {
+            "status": "unavailable",
+            "reason_code": "BENCHMARK_RESOLUTION_FAILED",
+            "note": (
+                "Vergleich mit der Hausmatrix nicht möglich – Policy/Profil "
+                "fehlt (BENCHMARK_RESOLUTION_FAILED)."
+            ),
+            "score_bucket": None,
+            "profile_name": None,
+        }
 
 
 def _depotcheck_data_quality_warnings(costs: dict, performance: dict) -> list[str]:
@@ -2271,7 +2317,18 @@ def get_advisory_report_pdf(
     """
     from services.pdf.documents.advisory_report import render_advisory_report_pdf
 
+    from services.recommendation_release_gate import (
+        CHANNEL_ADVISORY_PDF,
+        assert_recommendation_release_eligible,
+    )
+
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    # RISK-BUDGET-RELEASE-GATE (2026-10-21): kein client-ready PDF einer
+    # Strategie, deren Risikobudget-Treue verletzt oder nicht belegt ist --
+    # zentrales Gate, VOR dem Rendern.
+    assert_recommendation_release_eligible(
+        db, mandate, channel=CHANNEL_ADVISORY_PDF,
+    )
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
     pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
     if pdf_bytes is None:
@@ -2338,6 +2395,26 @@ def get_cost_disclosure_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     payload = build_cost_disclosure(db, mandate)
+    if payload.get("evidence_status") == "blocked":
+        # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger
+        # Kostennachweis (fremder Lauf, unbekannte Version, Hash-Bruch) ist
+        # ein eigener, ausgewiesener Fehler -- nicht "noch keine Empfehlung"
+        # und schon gar kein live neu gerechnetes Dokument.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_EVIDENCE_INVALID",
+                "evidence_error": payload.get("evidence_error"),
+                "source_run_id": payload.get("source_run_id"),
+                "message": (
+                    "Der eingefrorene Kostennachweis des freigegebenen "
+                    "Empfehlungslaufs ist ungueltig "
+                    f"({payload.get('evidence_error')}). Der Kostenausweis "
+                    "wird nicht erstellt -- Strategie neu berechnen und "
+                    "finalisieren."
+                ),
+            },
+        )
     if payload.get("data_pending"):
         raise HTTPException(
             status_code=409,

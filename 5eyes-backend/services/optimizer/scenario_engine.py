@@ -31,7 +31,7 @@ bleibt nominal stehen bis Cashflow positiv wird.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import numpy as np
 
@@ -49,6 +49,7 @@ from services.return_moments import (
 )
 
 from .distributions import _MAX_EXCESS_KURT, _MAX_SKEW, cornish_fisher_is_monotonic
+from services.retirement_phase import is_retired_in_year
 
 
 # Konsistent zu services.portfolio_engine.BUCKET_FIELDS
@@ -565,6 +566,7 @@ def simulate_wealth_paths(
     tax_mode: str = "median",
     tax_n_bins: int = 20,
     portfolio_factors: np.ndarray | None = None,
+    is_retired_series: Sequence[bool] | None = None,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
 
@@ -585,7 +587,12 @@ def simulate_wealth_paths(
         (TaxContext.calendar_year = base_calendar_year + t).
     mandate_age_at_start: optionales Alter des Mandanten zu t=0 fuer
         altersabhaengige Steuern (CH-Pension-Lumpsum, AHV-Alter).
-    is_retired: Decumulation-Phase Flag (CH-Pillar-3a-Befreiung).
+    is_retired: Decumulation-Phase Flag (CH-Pillar-3a-Befreiung) -- statisch
+        fuer alle Jahre, wenn ``is_retired_series`` fehlt (Vor-Verhalten).
+    is_retired_series: optional Ruhestandsstatus je Jahr t
+        (DYNAMIC-RETIREMENT-PHASE-001, services.retirement_phase). Gesetzt
+        bestimmt er ``TaxContext.is_retired`` jahresweise; jenseits der Serie
+        gilt ihr letzter Wert.
     death_year_index_per_path: optional shape (n_paths,) integer-Array
         mit Sterbe-Jahr-Index pro Pfad. Wenn gesetzt, werden Cashflow
         und Liability nach death_year_index auf 0 gesetzt (pro Pfad).
@@ -719,7 +726,9 @@ def simulate_wealth_paths(
                 year_index=t,
                 calendar_year=base_calendar_year + t,
                 age=age_t,
-                is_retired=is_retired,
+                is_retired=is_retired_in_year(
+                    is_retired_series, t, default=is_retired,
+                ),
             )
             # Dividenden-Steuer-Drag bleibt repraesentativ (Yield ist ein
             # Asset-Charakteristikum, nicht wealth-skaliert wie Vermoegensteuer).

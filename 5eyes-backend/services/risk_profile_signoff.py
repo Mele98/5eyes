@@ -265,9 +265,29 @@ def had_signature(assessment: Any) -> bool:
     return bool(_value(assessment, "client_signed_at") or _value(assessment, "signoff_id"))
 
 
-def invalidation_audit_value(assessment: Any, *, decision_id: str, decision_hash: str) -> str:
+def invalidation_audit_value(
+    assessment: Any,
+    *,
+    decision_id: str,
+    decision_hash: str,
+    db=None,
+    client_id: str | None = None,
+) -> str:
     """Audit-Snapshot der Invalidierung inkl. der bisherigen (Alt-)Signatur,
-    damit auch eine Altsignatur ohne Snapshot nicht spurlos verschwindet."""
+    damit auch eine Altsignatur ohne Snapshot nicht spurlos verschwindet.
+
+    DSG-ERASURE-APPEND-ONLY-001: ``client_signed_ref`` ist bei Berater-
+    Signaturen die Freitext-Notiz -- sie geht nur versiegelt (services/
+    pii_vault.py) ins unveraenderliche audit_log, sonst waere sie nach einer
+    DSG-Art.-32-Loeschung dort unloeschbar. Die Portal-Referenz ist eine
+    User-ID (Pseudonym) und bleibt unversiegelt."""
+    signed_ref = _value(assessment, "client_signed_ref")
+    if signed_ref and _value(assessment, "client_signed_method") != METHOD_PORTAL:
+        from services.pii_vault import seal_for_client
+
+        # Ohne Session/Kunde nie Klartext ins Audit-Log: dann entfaellt die
+        # Notiz (der Signoff-Pointer oben referenziert sie weiterhin).
+        signed_ref = seal_for_client(db, client_id, signed_ref) if db is not None and client_id else None
     return json.dumps({
         "signoff_status": STATUS_SIGNATURE_REQUIRED,
         "reason": "override_changed_effective_profile",
@@ -275,7 +295,7 @@ def invalidation_audit_value(assessment: Any, *, decision_id: str, decision_hash
         "invalidated_signoff_hash": _value(assessment, "signoff_hash"),
         "invalidated_client_signed_at": _value(assessment, "client_signed_at"),
         "invalidated_client_signed_method": _value(assessment, "client_signed_method"),
-        "invalidated_client_signed_ref": _value(assessment, "client_signed_ref"),
+        "invalidated_client_signed_ref": signed_ref,
         "override_decision_id": decision_id,
         "override_decision_hash": decision_hash,
     }, ensure_ascii=False)
@@ -426,8 +446,9 @@ def signoff_view_lines(view: dict[str, Any]) -> list[tuple[str, str]]:
     elif state == STATE_REMEDIATION_REQUIRED:
         lines.append((
             "Hinweis",
-            "Override ohne verifizierbaren Decision-Nachweis (Altbestand). Bitte den "
-            "Override neu erfassen, bevor das Risikoprofil signiert wird.",
+            "Override aus Altbestand ohne verifizierbaren Decision-Nachweis -- bitte "
+            "bestaetigen (Risikoprofil-Ansicht, Aktion \"Override bestaetigen\"), bevor "
+            "das Risikoprofil signiert wird.",
         ))
     return lines
 
@@ -513,7 +534,8 @@ def record_signoff(
             _conflict(
                 "RISK_OVERRIDE_DECISION_UNVERIFIABLE",
                 "Der Override hat keinen Decision-Nachweis (Altbestand) und kann nicht "
-                "signiert werden. Bitte den Override neu erfassen (remediation_required).",
+                "signiert werden. Bitte den Override aus Altbestand bestaetigen "
+                "(Risikoprofil-Ansicht, remediation=legacy_remediation; remediation_required).",
                 assessment_id=ra.id, signoff_state=STATE_REMEDIATION_REQUIRED,
             )
         if decision_verified is not True:
@@ -564,6 +586,17 @@ def record_signoff(
                 detail="Das Dokument hat keinen Hash und kann nicht an die Signatur gebunden werden.",
             )
 
+    # DSG-ERASURE-APPEND-ONLY-001: die Notiz steht in der append-only Zeile und
+    # im Audit-Snapshot nur versiegelt (Crypto-Shredding bei DSG-Art.-32-
+    # Loeschung); die veraenderbare Projektion client_signed_ref bleibt lesbar
+    # und wird von der Erasure redigiert. Fail-closed VOR jeder Mutation.
+    from services.pii_vault import PiiVaultError, seal_for_client
+
+    try:
+        sealed_note = seal_for_client(db, mandate.client_id, note)
+    except PiiVaultError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     now = _now()
     previous_signoff_id = ra.signoff_id
     previous_signoff_hash = ra.signoff_hash
@@ -599,7 +632,7 @@ def record_signoff(
         evidence_level=EVIDENCE_BY_METHOD[method],
         actor_id=actor.id,
         actor_role=getattr(actor, "role", None),
-        note=note,
+        note=sealed_note,
         signed_at=now,
         rules_version=RULES_VERSION,
         created_at=now,

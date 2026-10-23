@@ -113,9 +113,41 @@ def build_hash_payload(entry: AdvisoryLog) -> dict:
 ADVISORY_LOG_COST_SNAPSHOT_SCHEMA_VERSION = 2
 
 
+class AdvisoryLogCostEvidenceError(ValueError):
+    """COST-SNAPSHOT-BINDING-001: `cost_disclosure_given=True`, aber der
+    Kostennachweis des genannten (bzw. aktuellen) Laufs ist vorhanden und
+    ungueltig. Der Router mappt das auf 409 -- ein Protokoll darf weder einen
+    ungueltigen Nachweis noch heute live gerechnete Ersatzzahlen als
+    "gezeigte Kosten" festhalten."""
+
+    def __init__(self, reason: str, run_id: str | None) -> None:
+        self.reason = reason
+        self.run_id = run_id
+        super().__init__(
+            "Der eingefrorene Kostennachweis des Empfehlungslaufs "
+            f"{run_id or '(aktuell)'} ist ungueltig ({reason}). Eine "
+            "Kostenoffenlegung kann damit nicht belegt werden -- Strategie "
+            "neu berechnen und finalisieren."
+        )
+
+
 def _build_cost_disclosure_snapshot(
     db: Session, mandate, *, recommendation_run_id: str | None = None,
 ) -> str | None:
+    """Wie `_resolve_cost_disclosure_snapshot`, aber nur der JSON-String.
+
+    Bei ungueltigem Nachweis `None` -- nie ein Live-Ersatz
+    (COST-SNAPSHOT-BINDING-001).
+    """
+    snapshot_json, _block_reason = _resolve_cost_disclosure_snapshot(
+        db, mandate, recommendation_run_id=recommendation_run_id,
+    )
+    return snapshot_json
+
+
+def _resolve_cost_disclosure_snapshot(
+    db: Session, mandate, *, recommendation_run_id: str | None = None,
+) -> tuple[str | None, str | None]:
     """Nachweis der Kostenzahlen, die in dieser Beratung gezeigt wurden.
 
     Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): `cost_disclosure_given` war ein
@@ -149,7 +181,7 @@ def _build_cost_disclosure_snapshot(
     verlangt.
     """
     if mandate is None:
-        return None
+        return None, None
     try:
         from services.cost_disclosure import (
             build_cost_disclosure,
@@ -174,7 +206,13 @@ def _build_cost_disclosure_snapshot(
             )
 
         if run is not None:
-            frozen, _reason = load_frozen_cost_disclosure(run)
+            frozen, reason = load_frozen_cost_disclosure(run)
+            if reason is not None:
+                # COST-SNAPSHOT-BINDING-001 (Codex-Befund 3): vorher wurde
+                # `reason` ignoriert und ein korrupter Final-Nachweis still
+                # durch heute live gerechnete Zahlen ersetzt -- mit eigenem,
+                # gueltigem Hash. Jetzt: kein Snapshot, ausgewiesener Grund.
+                return None, reason
             payload = frozen if frozen is not None else build_cost_disclosure_for_run(
                 db, mandate, run,
             )
@@ -185,10 +223,12 @@ def _build_cost_disclosure_snapshot(
             # mandatsweite Bauer. Die Bindung bleibt dann ausdruecklich
             # leer, statt einen Lauf zu behaupten.
             payload = build_cost_disclosure(db, mandate)
+            if payload.get("evidence_status") == "blocked":
+                return None, str(payload.get("evidence_error") or "snapshot_invalid")
             bound_run_id = str(payload.get("source_run_id") or "") or None
             bound_status = str(payload.get("source_run_status") or "") or None
     except Exception:  # noqa: BLE001 -- siehe Docstring: fail-soft
-        return None
+        return None, None
 
     totals = payload.get("totals") or {}
     snapshot = {
@@ -217,7 +257,7 @@ def _build_cost_disclosure_snapshot(
     # Kostenausweis. `generated_at` ist Teil des Inhalts: zwei Protokolle
     # ueber dieselben Zahlen sind zwei verschiedene Nachweise.
     snapshot["content_hash"] = cost_disclosure_content_hash(snapshot)
-    return json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+    return json.dumps(snapshot, ensure_ascii=False, sort_keys=True), None
 
 
 def create_advisory_log(
@@ -238,17 +278,21 @@ def create_advisory_log(
     now = _now_iso()
     entry_datetime = payload.entry_datetime
     entry_date = payload.entry_date or entry_datetime[:10]
-    cost_disclosure_snapshot_json = (
-        _build_cost_disclosure_snapshot(
+    cost_disclosure_snapshot_json = None
+    if payload.cost_disclosure_given:
+        named_run_id = getattr(payload, "recommendation_run_id", None)
+        cost_disclosure_snapshot_json, block_reason = _resolve_cost_disclosure_snapshot(
             db, mandate,
             # COST-EVIDENCE-001: an den Lauf binden, auf den sich DIESER
             # Eintrag beruft -- nicht an den, den der mandatsweite Bauer
             # gerade waehlen wuerde.
-            recommendation_run_id=getattr(payload, "recommendation_run_id", None),
+            recommendation_run_id=named_run_id,
         )
-        if payload.cost_disclosure_given
-        else None
-    )
+        if block_reason is not None:
+            # COST-SNAPSHOT-BINDING-001: fail-closed. Ein ungueltiger
+            # Nachweis darf weder still durch Live-Zahlen ersetzt noch als
+            # nachweisloses `cost_disclosure_given=True` gespeichert werden.
+            raise AdvisoryLogCostEvidenceError(block_reason, named_run_id)
 
     entry = AdvisoryLog(
         id=new_uuid(),
@@ -414,7 +458,8 @@ def count_active_entries(db: Session, *, mandate_id: str) -> int:
 
 def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
     """Liefert eine Liste menschenlesbarer Warnings, wenn die aktuelle
-    Empfehlung das Risikoprofil-Budget oder die Toleranzbänder verlässt.
+    Empfehlung das Risikoprofil-Budget oder die Toleranzbänder verlässt --
+    oder wenn die HouseMatrix-Cap-Pruefung nicht moeglich ist.
 
     FINMA-relevant: jeder Mismatch sollte im nächsten Beratungsprotokoll
     als gegebener Risikohinweis dokumentiert werden.
@@ -422,9 +467,23 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
     Beispiele:
     - „Risky-Fraction 47 % überschreitet HouseMatrix-Cap 45 % (Defensiv)"
     - „Aktien-Anteil 28 % verlässt Toleranzband 15-25 %"
+    - „HouseMatrix-Cap nicht pruefbar (SCORE_BUCKET_MISSING): ..."
     """
-    from models.allocation import HouseMatrix, OptimizerPolicy, TargetAllocation
+    return evaluate_suitability_mismatches(db, mandate)["warnings"]
+
+
+def evaluate_suitability_mismatches(db: Session, mandate) -> dict:
+    """Wie ``detect_suitability_mismatches``, plus strukturierter Status der
+    HouseMatrix-Cap-Pruefung (``services.suitability_cap_check``).
+
+    Rueckgabe: ``{"warnings": list[str], "cap_check": SuitabilityCapCheck}``.
+    """
+    from models.allocation import TargetAllocation
     from models.profiling import RiskAssessment
+    from services.suitability_cap_check import (
+        evaluate_house_matrix_cap,
+        not_applicable,
+    )
 
     warnings: list[str] = []
 
@@ -438,7 +497,8 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
         .first()
     )
     if ta is None:
-        return warnings  # kein aktiver Allokations-Stand → kein Mismatch erfassbar
+        # kein aktiver Allokations-Stand → kein Mismatch erfassbar
+        return {"warnings": warnings, "cap_check": not_applicable()}
 
     ra = (
         db.query(RiskAssessment)
@@ -450,7 +510,8 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
         .first()
     )
 
-    risky_fraction = _safe_int(getattr(ta, "risky_fraction_bps", 0))
+    raw_risky_fraction = getattr(ta, "risky_fraction_bps", None)
+    risky_fraction = _safe_int(raw_risky_fraction)
     risk_budget = _safe_int(getattr(ta, "risk_budget_bps_at_generation", 0))
     # Wenn risk_budget verfuegbar → direkter Check (war zum Generate-Zeitpunkt aktiv)
     if risky_fraction and risk_budget and risky_fraction > risk_budget:
@@ -461,62 +522,23 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
         )
 
     # Plus: vergleich mit aktueller HouseMatrix (kann sich nach Generate geaendert haben)
-    if ra is not None:
-        # Kontrollrunde 2026-09-20: override-bewusst -- die tatsaechliche
-        # Allokation (services.risk_assessment_semantics.
-        # validate_risk_assessment_model_input, ueber _risk_score_bucket)
-        # wird bei aktivem Override mit override_score_x10 gebudgetiert, nicht
-        # mit final_score_x10. Vorher verglich dieser FINMA-relevante Detektor
-        # IMMER gegen final_score_x10 (das Vor-Override-Budget): nach einem
-        # Override nach OBEN (z.B. Defensiv->Wachstumsorientiert) erzeugte das
-        # spurious "Cap ueberschritten"-Warnungen obwohl die Allokation korrekt
-        # innerhalb des (hoeheren) Override-Caps lag; nach einem Override nach
-        # UNTEN (konservativer) wurde umgekehrt eine echte Ueberschreitung des
-        # (niedrigeren) Override-Caps NIE erkannt (Fail-Open).
-        #
-        # SUITABILITY-DETECTOR-SCALE-001 (2026-10-14): HouseMatrix.score_from/
-        # score_to sind 1..10-skaliert, score_x10 ist 0..100. Vorher wurde der
-        # Rohwert direkt verglichen: Score 11..100 fand keine Zeile (Cap-
-        # Warnung feuerte nie, fail-open), Score 10 (Kapitalschutz) traf die
-        # Zeile (10,10) "Aktien" mit 100 % Cap, Score 0 wurde uebersprungen.
-        # score_bucket_from_assessment() ist dieselbe override-bewusste
-        # 0..100 -> 1..10-Abbildung wie bei BENCHMARK-ATTRIBUTION-SCORE-001
-        # und max_risky_fraction_for_mandate(). Ein nicht herleitbares
-        # Risikoprofil wird gemeldet statt still uebersprungen (fail-closed).
-        from services.risk_assessment_semantics import RiskAssessmentInputError
-        from services.risk_matrix import score_bucket_from_assessment
-
-        policy = (
-            db.query(OptimizerPolicy)
-            .filter(OptimizerPolicy.is_current == 1)
-            .first()
-        )
-        score_bucket = None
-        if policy:
-            try:
-                score_bucket = score_bucket_from_assessment(ra)
-            except RiskAssessmentInputError as exc:
-                warnings.append(
-                    "HouseMatrix-Cap nicht pruefbar: Risikoprofil ist nicht "
-                    f"konsistent herleitbar ({exc})."
-                )
-        if policy and score_bucket is not None:
-            hm = (
-                db.query(HouseMatrix)
-                .filter(
-                    HouseMatrix.policy_id == policy.id,
-                    HouseMatrix.score_from <= score_bucket,
-                    HouseMatrix.score_to >= score_bucket,
-                    HouseMatrix.is_active == 1,
-                )
-                .first()
-            )
-            if hm and risky_fraction and risky_fraction > hm.max_risky_fraction_bps:
-                warnings.append(
-                    f"Aktueller Risiko-Anteil {risky_fraction / 100:.1f} % "
-                    f"überschreitet HouseMatrix-Cap {hm.max_risky_fraction_bps / 100:.1f} % "
-                    f"({hm.profile_name})."
-                )
+    # Kontrollrunde 2026-09-20: override-bewusst (score_bucket_from_assessment
+    # nutzt bei aktivem Override override_score_x10).
+    # SUITABILITY-DETECTOR-SCALE-001 (2026-10-14): 0..100 -> 1..10-Bucket.
+    # SUITABILITY-DETECTOR-AVAILABILITY-001 (2026-10-21): fehlende Policy,
+    # fehlender/mehrdeutiger Score-Bucket, fehlendes Risikoprofil oder
+    # fehlender Risiko-Anteil wurden vorher still uebersprungen (leere Liste
+    # = "geeignet", fail-open). Jetzt expliziter Status ``unavailable`` mit
+    # Reason-Code und Berater-Hinweis (fail-closed).
+    cap_check = evaluate_house_matrix_cap(
+        db,
+        assessment=ra,
+        risky_fraction_bps=(
+            None if raw_risky_fraction is None else risky_fraction
+        ),
+    )
+    if cap_check.requires_advisor_attention and cap_check.message:
+        warnings.append(cap_check.message)
 
     # Buckets gegen Bänder pruefen
     for bucket_key in ("equities", "bonds", "real_estate", "alternatives", "liquidity"):
@@ -531,7 +553,7 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
                     f"Toleranzband {band_min / 100:.1f}-{band_max / 100:.1f} %."
                 )
 
-    return warnings
+    return {"warnings": warnings, "cap_check": cap_check}
 
 
 def build_auto_log_payload(
