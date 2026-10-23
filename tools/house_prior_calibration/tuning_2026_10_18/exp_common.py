@@ -1,7 +1,9 @@
 """Gemeinsamer Harness fuer das House-Shrinkage-Experiment (KEIN Produktcode).
 
-Importiert die Engine aus dem Worktree C:/tmp/5eyes-shrink-design (Branch
-origin/fix/importance-sampling-ess, Engine saa_resampled_v5). Schreibt keine
+Importiert die Engine standardmaessig aus dem Backend DIESES Repos. Fuer eine
+exakte Reproduktion des Experiments (Branch origin/fix/importance-sampling-ess,
+Engine saa_resampled_v5) zeigt ``SHRINK_EXPERIMENT_BACKEND`` auf das Backend
+eines entsprechenden Worktrees; ein Absolutpfad ist nicht kodiert. Schreibt keine
 Datenbank: DB_PATH zeigt auf eine Scratchpad-Datei, die Optimizer-Module
 oeffnen ohnehin keine Session.
 """
@@ -12,6 +14,7 @@ import os
 import sys
 from dataclasses import replace
 from datetime import date, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 SCRATCH = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +22,9 @@ os.environ["DB_PATH"] = os.path.join(SCRATCH, "shrink.db")
 for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_k, "1")
 
-BACKEND = "C:/tmp/5eyes-shrink-design/5eyes-backend"
+BACKEND = os.environ.get("SHRINK_EXPERIMENT_BACKEND") or str(
+    Path(__file__).resolve().parents[3] / "5eyes-backend"
+)
 if BACKEND not in sys.path:
     sys.path.insert(0, BACKEND)
 

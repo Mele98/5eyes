@@ -3,8 +3,8 @@
 Audit source (NOT mirrored into this worktree — read it in the Ares
 worktree): ``docs/audits/2026-10-05-depotcheck-end-to-end-product-identity-
 and-publication-integrity-audit.md`` in
-``C:\\Users\\Emanuele\\Documents\\ChatGPT\\5eyes wird zu Ares\\
-asset-allocation-stochastic-core``.
+the Codex audit checkout (branch ``codex/asset-allocation-stochastic-core``;
+a local path outside this repository, not encoded here).
 
 Finding (P1; closed by PDF-RUN-RESOLVER-001, which routes every client
 document through services/recommendation_run_resolver.py and lets the
