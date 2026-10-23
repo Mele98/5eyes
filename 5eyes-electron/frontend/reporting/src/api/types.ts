@@ -9,6 +9,8 @@
  * hochsetzen. Tests verhindern stilles Drift via Top-Level-Key-Vergleich.
  */
 
+import type { RiskCapacityPlausibilityCompact } from './riskCapacityPlausibility';
+
 // ---------------------------------------------------------------------------
 // Gemeinsame Bausteine
 // ---------------------------------------------------------------------------
@@ -680,7 +682,28 @@ export interface BeratungsprotokollData {
   days_since_last_review: number | null;
   suitability_mismatches: string[];
   has_active_mismatches: boolean;
+  /** SUITABILITY-DETECTOR-AVAILABILITY-001: Status der HouseMatrix-Cap-Pruefung.
+   *  "unavailable" zaehlt nie als geeignet; die Meldung steht zusaetzlich in
+   *  suitability_mismatches (Banner). */
+  suitability_cap_check?: SuitabilityCapCheckData;
   retention_audit_ok: boolean;
+}
+
+export type SuitabilityCapCheckStatus =
+  | 'ok'
+  | 'violation'
+  | 'unavailable'
+  | 'not_applicable';
+
+export interface SuitabilityCapCheckData {
+  status: SuitabilityCapCheckStatus;
+  reason_code: string | null;
+  message: string | null;
+  score_bucket: number | null;
+  cap_bps: number | null;
+  profile_name: string | null;
+  risky_fraction_bps: number | null;
+  counts_as_suitable: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -874,6 +897,12 @@ export interface SuitabilitySummaryData {
   checked_by_id: string | null;
   checked_by_name: string;
   linked_log_present: boolean;
+  /**
+   * RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
+   * pruefung Risikofaehigkeit; null ohne aktuelles Risikoprofil. Optional,
+   * damit aeltere Payloads weiter validieren.
+   */
+  risk_capacity_plausibility?: RiskCapacityPlausibilityCompact | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1158,6 +1187,9 @@ export type PerformanceAttributionData = {
   benchmark_source: string;
   fidleg_basis: string;
   error?: string;
+  /** SUITABILITY-DETECTOR-AVAILABILITY-001: Grund, wenn keine eindeutige
+   *  House-Matrix-Referenz aufloesbar ist (z.B. SCORE_BUCKET_AMBIGUOUS). */
+  reason_code?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -1660,6 +1692,7 @@ export type WealthInflowSourceType =
   | 'Verkaufserloes'
   | 'Andere';
 export type WealthInflowFrequency = 'einmalig' | 'jaehrlich' | 'monatlich';
+export type WealthInflowCertainty = 'sicher' | 'unsicher';
 
 export interface WealthInflowCreatePayload {
   label: string;
@@ -1674,6 +1707,8 @@ export interface WealthInflowCreatePayload {
   notes?: string | null;
   /** VORSORGE-PROJECTION-001: Zufluss ist der Bezug dieser Vorsorge-Position. */
   linked_position_id?: string | null;
+  /** INFLOW-CERTAINTY-001: 'unsicher' = weder Reserve noch Simulation. */
+  certainty?: WealthInflowCertainty | null;
 }
 
 export type WealthInflowUpdatePayload = Partial<
@@ -1696,6 +1731,7 @@ export interface WealthInflowRecord {
   value_mode: string;
   notes: string | null;
   linked_position_id?: string | null;
+  certainty?: WealthInflowCertainty;
   is_active: number;
   created_at: string;
   updated_at: string;
