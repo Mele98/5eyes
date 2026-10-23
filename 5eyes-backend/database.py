@@ -343,6 +343,7 @@ FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     mandate_id                  TEXT NOT NULL,
     client_id                   TEXT NOT NULL,
     household_persons_json      TEXT NOT NULL,
+    household_person_count      INTEGER,
     income_complete             INTEGER NOT NULL CHECK(income_complete IN (0,1)),
     expenses_complete           INTEGER NOT NULL CHECK(expenses_complete IN (0,1)),
     obligations_complete        INTEGER NOT NULL CHECK(obligations_complete IN (0,1)),
@@ -1077,6 +1078,9 @@ def ensure_runtime_columns() -> None:
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
                     + FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS):
             conn.execute(text(ddl))
+        # DSG-ERASURE-NEW-EVIDENCE-001: hash-gebundene Personenzahl (Schema V2;
+        # Namen/Notiz versiegelt). ADD COLUMN feuert den UPDATE-Trigger nicht.
+        ensure_column(conn, "financial_coverage_attestations", "household_person_count", "INTEGER")
         # RISK-PROFILE-SIGNOFF-001 (2026-10-20): Signoff-Pointer/-Status am
         # Assessment + append-only Signoff-Tabelle + Altbestand-Markierung.
         ensure_column(conn, "risk_assessments", "signoff_id", "TEXT")

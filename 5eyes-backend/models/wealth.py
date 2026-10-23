@@ -399,14 +399,18 @@ class FinancialCoverageAttestation(Base):
     schema_version = Column(String, nullable=False, default="FinancialCoverageAttestationV1")
     mandate_id = Column(String, nullable=False)
     client_id = Column(String, nullable=False)
+    # Versiegelt (services/pii_vault.py) ab Schema V2; Altbestand V1 Klartext.
     household_persons_json = Column(String, nullable=False)
+    # V2: hash-gebundene Personenzahl (Gueltigkeit ohne Klartext-Namen);
+    # NULL beim V1-Altbestand (DSG-ERASURE-NEW-EVIDENCE-001).
+    household_person_count = Column(Integer)
     income_complete = Column(Integer, nullable=False)
     expenses_complete = Column(Integer, nullable=False)
     obligations_complete = Column(Integer, nullable=False)
     irregular_expenses_reviewed = Column(Integer, nullable=False)
     as_of_date = Column(String, nullable=False)
     source = Column(String, nullable=False)
-    note = Column(String)
+    note = Column(String)  # versiegelt ab Schema V2
     cashflow_fingerprint = Column(String(64), nullable=False)
     cashflow_row_count = Column(Integer, nullable=False)
     actor_id = Column(String, ForeignKey("users.id"), nullable=False)

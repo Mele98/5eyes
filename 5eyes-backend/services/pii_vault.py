@@ -63,6 +63,10 @@ ENVELOPE_PREFIX = "pii-sealed:v1:"
 SEALED_APPEND_ONLY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("risk_override_decisions", "reason"),
     ("risk_profile_signoffs", "note"),
+    # DSG-ERASURE-NEW-EVIDENCE-001 (Nachzug, 2026-10-23):
+    ("goal_revision_decisions", "reason"),
+    ("financial_coverage_attestations", "household_persons_json"),
+    ("financial_coverage_attestations", "note"),
 )
 
 
@@ -203,11 +207,15 @@ def count_unsealed_rows(db: Session, client_id: str, mandate_ids: list[str]) -> 
 
     Diese Zeilen koennen ohne Aufweichung der Trigger nicht redigiert werden
     und werden deshalb gemeldet (Owner-/Legal-Entscheid), nie still
-    uebergangen."""
+    uebergangen. Pro Tabelle EINE Abfrage ueber alle Freitextspalten: eine
+    Zeile mit mehreren Klartextspalten zaehlt einmal."""
     from services.client_erasure import _in_params, _table_exists
 
-    counts: dict[str, int] = {}
+    by_table: dict[str, list[str]] = {}
     for table, column in SEALED_APPEND_ONLY_COLUMNS:
+        by_table.setdefault(table, []).append(column)
+    counts: dict[str, int] = {}
+    for table, columns in by_table.items():
         if not _table_exists(db, table):
             continue
         scope = "client_id = :client_id"
@@ -216,12 +224,12 @@ def count_unsealed_rows(db: Session, client_id: str, mandate_ids: list[str]) -> 
             clause, id_params = _in_params("m", mandate_ids)
             scope = f"({scope} OR mandate_id IN ({clause}))"
             params.update(id_params)
+        unsealed = " OR ".join(
+            f"(\"{column}\" IS NOT NULL AND \"{column}\" <> '' AND \"{column}\" NOT LIKE :prefix)"
+            for column in columns
+        )
         n = db.execute(
-            text(
-                f'SELECT COUNT(*) FROM "{table}" WHERE {scope} '
-                f'AND "{column}" IS NOT NULL AND "{column}" <> \'\' '
-                f'AND "{column}" NOT LIKE :prefix'
-            ),
+            text(f'SELECT COUNT(*) FROM "{table}" WHERE {scope} AND ({unsealed})'),
             params,
         ).scalar()
         if n:
