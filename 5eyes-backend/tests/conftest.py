@@ -23,6 +23,26 @@ if not os.environ.get("DB_PATH") or Path(os.environ["DB_PATH"]).expanduser().res
     os.environ["DB_PATH"] = str(Path(_session_dir) / "5eyes-test.db")
 
 
+def _register_all_orm_models() -> None:
+    """Import every module of the ``models`` package once per test process.
+
+    ``Base.metadata`` only knows the tables of model modules that happen to be
+    imported. Test files that call ``Base.metadata.create_all()`` without
+    importing e.g. ``models.tenant`` were green only when an earlier file in
+    the same process had imported it (``NoReferencedTableError`` on
+    ``tenants`` when run alone, under sharding or with ``--dist loadfile``).
+    Registering all models up front makes every file independent of the
+    collection order. Test-only; the application import path is unchanged.
+    """
+    import importlib
+    import pkgutil
+
+    import models
+
+    for module_info in sorted(pkgutil.iter_modules(models.__path__), key=lambda m: m.name):
+        importlib.import_module(f"{models.__name__}.{module_info.name}")
+
+
 def pytest_sessionstart(session):  # noqa: D103
     from config import settings
 
@@ -33,6 +53,8 @@ def pytest_sessionstart(session):  # noqa: D103
             "Test-Session wuerde die LIVE-Datenbank ~/5eyes/5eyes.db verwenden -- abgebrochen.",
             returncode=3,
         )
+
+    _register_all_orm_models()
 
 
 # --- Hintergrund-Ressourcen-Guard (Teardown-Hang-Befund 2026-10-20) --------
