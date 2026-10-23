@@ -6674,8 +6674,8 @@ def generate_recommendation_run(
     # der fruehere Suitability-Relaxation-Fallback-Pfad ist entfernt -- ein
     # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
     # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
-    from services.product_eligibility import derive_service_mode, is_eligible_candidate
-    service_mode = derive_service_mode(mandate)
+    from services.product_eligibility import derive_service_mode, is_eligible_candidate, mandate_tenant_id
+    service_mode, run_tenant_id = derive_service_mode(mandate), mandate_tenant_id(mandate)
 
     # Beide Praedikate sind schleifeninvariant (haengen nicht von `sub` ab).
     # Vorher stand die Liste IN der Schleife: 351 statt 36 DB-Abfragen pro
@@ -6683,10 +6683,10 @@ def generate_recommendation_run(
     eligible_products = [
         product for product in products
         if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
-        and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
+        and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction, tenant_id=run_tenant_id)
     ]
 
-    theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx)
+    theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx, tenant_id=run_tenant_id)
     for sub in sub_allocations:
         exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False

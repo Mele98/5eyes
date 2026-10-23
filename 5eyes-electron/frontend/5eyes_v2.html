@@ -2254,6 +2254,26 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
   <div class="mhd"><div class="mtitle">Review-Kalender abonnieren</div><button class="mx" onclick="cm('m-cal-feed')">&#10005;</button></div>
   <div class="mbody" id="m-cal-feed-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
 </div></div>
+<!-- ELIG-GOVERNANCE-001 (2026-10-22): Freigabe der Eignungsregel eines eigenen Fonds -->
+<div id="m-fund-approve" class="overlay"><div class="modal" style="max-width:520px">
+  <div class="mhd"><div class="mtitle">Eignungsregel freigeben</div><button class="mx" onclick="cm('m-fund-approve')">&#10005;</button></div>
+  <div class="mbody">
+    <div id="m-fund-approve-name" style="font-size:12px;font-weight:600;margin-bottom:8px"></div>
+    <div id="m-fund-approve-info" style="font-size:11px;color:var(--n5);margin-bottom:10px"></div>
+    <div id="m-fund-approve-attest-wrap" style="display:none;border:1px solid var(--bg2);border-radius:6px;padding:10px;margin-bottom:10px">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:11px">
+        <input type="checkbox" id="m-fund-approve-attest">
+        <span>Ich bestaetige, dass ich in dieser Verwaltung die einzige freigabeberechtigte Person bin und die Eignungsregel (Risikoband, Dienstleistungsart, Limiten) selbst geprueft habe.</span>
+      </label>
+      <textarea id="m-fund-approve-reason" rows="3" style="width:100%;margin-top:8px;font-size:11px" placeholder="Begruendung (mindestens 20 Zeichen), erscheint im Audit-Log"></textarea>
+    </div>
+    <div id="m-fund-approve-error" style="display:none;color:var(--neg);font-size:11px;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="cm('m-fund-approve')">Abbrechen</button>
+      <button class="btn" id="m-fund-approve-submit" onclick="adminSubmitFundApproval()">Freigeben</button>
+    </div>
+  </div>
+</div></div>
 <!-- E1: 2FA-Setup-Modal -->
 <div id="m-2fa" class="overlay"><div class="modal" style="max-width:430px">
   <div class="mhd"><div class="mtitle">Zwei-Faktor-Authentifizierung</div><button class="mx" onclick="cm('m-2fa')">&#10005;</button></div>
@@ -12742,8 +12762,9 @@ function adminToggleFundCreateForm(){
 // falscher TER) nur ueber einen rohen API-Call oder erneuten CSV-Upload
 // korrigieren. adminFundSearchState cached die zuletzt geladenen Fonds, damit
 // "Bearbeiten" das Formular ohne einen zusaetzlichen GET befuellen kann.
-var adminFundSearchState = { products: [] };
+var adminFundSearchState = { products: [], drafts: {}, soleApprover: false };
 var adminFundEditingId = null;
+var adminFundApprovalProductId = null;
 
 function adminRenderFundSearchTable(products){
   var tbody = document.getElementById('pf-search-tbody');
@@ -12766,6 +12787,12 @@ function adminRenderFundSearchTable(products){
     } else if (p.esg_data_status === 'maintained_no_source') {
       origin += ' <span class="tag tn" title="ESG-Angaben gepflegt; Quelle/Stichtag werden im Katalog nicht erfasst.">ESG ohne Quellenangabe</span>';
     }
+    // ELIG-GOVERNANCE-001 (2026-10-22): Eignungsregel noch nicht freigegeben
+    // -> Fonds ist fuer Empfehlungen gesperrt, bis jemand freigibt.
+    var draft = adminFundSearchState.drafts[String(p.id || '')];
+    if (draft) {
+      origin += ' <span class="tag ta" title="Die Eignungsregel dieses Fonds ist noch nicht freigegeben. Bis zur Freigabe wird der Fonds in Empfehlungen nicht verwendet.">Entwurf – Freigabe ausstehend</span>';
+    }
     var isActive = p.is_active === undefined || p.is_active === null || !!Number(p.is_active);
     var pid = escapeHtml(String(p.id || ''));
     html += '<tr' + (isActive ? '' : ' style="opacity:.55"') + '>'
@@ -12776,6 +12803,7 @@ function adminRenderFundSearchTable(products){
       + '<td>' + origin + '</td>'
       + '<td style="white-space:nowrap">'
       + '<button class="btn" style="font-size:10px;padding:3px 8px" onclick="adminEditFund(\'' + pid + '\')">Bearbeiten</button> '
+      + (draft ? '<button class="btn" style="font-size:10px;padding:3px 8px" onclick="adminOpenFundApproval(\'' + pid + '\')">Freigeben</button> ' : '')
       + '<button class="btn" style="font-size:10px;padding:3px 8px;background:var(--bg2);color:var(--n6)" onclick="adminToggleFundActive(\'' + pid + '\',' + (isActive ? 'true' : 'false') + ')">' + (isActive ? 'Deaktivieren' : 'Aktivieren') + '</button>'
       + '</td>'
       + '</tr>';
@@ -12793,6 +12821,7 @@ async function adminSearchFunds(){
     var products = await API.get(path);
     products = Array.isArray(products) ? products : [];
     adminFundSearchState.products = products;
+    await adminLoadFundDrafts();
     adminRenderFundSearchTable(products);
   } catch(e) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="6">Fehler</td></tr>';
@@ -12832,6 +12861,77 @@ function adminEditFund(productId){
   if (form) form.style.display = 'block';
   var nameInput = document.getElementById('pf-name');
   if (nameInput) nameInput.focus();
+}
+async function adminLoadFundDrafts(){
+  adminFundSearchState.drafts = {};
+  adminFundSearchState.soleApprover = false;
+  try {
+    var res = await API.get('/products/eligibility-drafts');
+    (res && Array.isArray(res.drafts) ? res.drafts : []).forEach(function(d){
+      adminFundSearchState.drafts[String(d.product_id)] = d;
+    });
+    adminFundSearchState.soleApprover = !!(res && res.current_user_is_sole_approver);
+  } catch(e) {
+    // Ohne Entwurfsliste keine Badges/Buttons; das Backend bleibt fail-closed.
+  }
+}
+function adminOpenFundApproval(productId){
+  var draft = adminFundSearchState.drafts[String(productId)];
+  if (!draft) return;
+  var product = adminFundSearchState.products.find(function(p){ return String(p.id) === String(productId); }) || {};
+  adminFundApprovalProductId = String(productId);
+  var nameEl = document.getElementById('m-fund-approve-name');
+  if (nameEl) nameEl.textContent = product.product_name || '';
+  var infoEl = document.getElementById('m-fund-approve-info');
+  var attestWrap = document.getElementById('m-fund-approve-attest-wrap');
+  var attestBox = document.getElementById('m-fund-approve-attest');
+  var reasonEl = document.getElementById('m-fund-approve-reason');
+  var errEl = document.getElementById('m-fund-approve-error');
+  var submit = document.getElementById('m-fund-approve-submit');
+  if (attestBox) attestBox.checked = false;
+  if (reasonEl) reasonEl.value = '';
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  var selfAuthored = !!draft.authored_by_current_user;
+  var single = selfAuthored && adminFundSearchState.soleApprover;
+  if (attestWrap) attestWrap.style.display = single ? 'block' : 'none';
+  if (submit) submit.disabled = selfAuthored && !single;
+  if (infoEl) {
+    infoEl.textContent = !selfAuthored
+      ? 'Vier-Augen-Freigabe: Sie geben die von einer anderen Person erfasste Eignungsregel frei. Danach kann der Fonds in Empfehlungen verwendet werden.'
+      : (single
+        ? 'Sie haben diese Regel selbst erfasst und sind die einzige freigabeberechtigte Person. Eine Einzelfreigabe ist nur mit ausdruecklicher Bestaetigung und Begruendung moeglich; sie wird als Einzelfreigabe gekennzeichnet und protokolliert.'
+        : 'Sie haben diese Regel selbst erfasst. Es gibt weitere freigabeberechtigte Personen, deshalb muss eine andere Person freigeben (Vier-Augen-Prinzip).');
+  }
+  om('m-fund-approve');
+}
+async function adminSubmitFundApproval(){
+  var productId = adminFundApprovalProductId;
+  if (!productId) return;
+  var draft = adminFundSearchState.drafts[productId] || {};
+  var errEl = document.getElementById('m-fund-approve-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  var body = {};
+  if (draft.authored_by_current_user) {
+    var attestBox = document.getElementById('m-fund-approve-attest');
+    var reason = ((document.getElementById('m-fund-approve-reason') || {}).value || '').trim();
+    if (!attestBox || !attestBox.checked) {
+      if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Bitte die Einzelfreigabe ausdruecklich bestaetigen.'; }
+      return;
+    }
+    if (reason.length < 20) {
+      if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Bitte eine Begruendung mit mindestens 20 Zeichen angeben.'; }
+      return;
+    }
+    body = { single_approver_attestation: true, attestation_reason: reason };
+  }
+  try {
+    await API.post('/products/' + encodeURIComponent(productId) + '/eligibility-rule/approve', body);
+    cm('m-fund-approve');
+    adminFundApprovalProductId = null;
+    adminSearchFunds();
+  } catch(e) {
+    if (errEl) { errEl.style.display = 'block'; errEl.textContent = parseApiError(e, 'Freigabe fehlgeschlagen.'); }
+  }
 }
 async function adminToggleFundActive(productId, currentlyActive){
   var errBox = document.getElementById('pf-error');

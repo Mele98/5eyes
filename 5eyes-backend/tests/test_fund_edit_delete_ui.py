@@ -73,7 +73,7 @@ def test_edit_state_is_reset_on_cancel_or_reopen():
 
 def test_search_results_are_cached_for_edit_lookup_without_extra_request():
     text = _html()
-    assert "var adminFundSearchState = { products: [] };" in text
+    assert "var adminFundSearchState = { products: []," in text
     assert "adminFundSearchState.products = products;" in text
 
 
@@ -97,3 +97,22 @@ def test_deactivated_funds_are_visually_marked():
     text = _html()
     assert "(deaktiviert)" in text
     assert "opacity:.55" in text
+
+
+def test_eligibility_draft_badge_and_approval_modal_without_native_dialogs():
+    """ELIG-GOVERNANCE-001 (2026-10-22): Entwurfs-Fonds zeigen den Status und
+    einen Freigabe-Button; die Freigabe laeuft ueber das om/cm-Modal (Electron
+    unterstuetzt kein window.prompt/confirm) mit Bestaetigung + Begruendung
+    fuer die Einzelfreigabe."""
+    text = _html()
+    assert "Entwurf – Freigabe ausstehend" in text
+    assert 'id="m-fund-approve"' in text
+    assert "om('m-fund-approve')" in text
+    assert "API.get('/products/eligibility-drafts')" in text
+    assert "'/eligibility-rule/approve'" in text
+    assert "single_approver_attestation: true, attestation_reason: reason" in text
+    start = text.index("function adminOpenFundApproval(")
+    end = text.index("async function adminToggleFundActive(")
+    block = text[start:end]
+    for native in ("prompt(", "confirm(", "alert("):
+        assert native not in block
