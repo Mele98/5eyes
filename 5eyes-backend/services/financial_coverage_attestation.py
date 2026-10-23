@@ -23,6 +23,16 @@ GUELTIGEN Bestaetigung (``resolve_attestation(...)["status"] == "valid"``):
 
 Ohne gueltige Bestaetigung bleiben erfasste Ausgaben eine UNTERGRENZE: zu
 hohe Werte flaggen weiterhin (einwegig), niedrige Werte sind "nicht pruefbar".
+
+DSG (DSG-ERASURE-NEW-EVIDENCE-001, Nachzug zu #681): die Tabelle ist
+append-only. Personennamen (``household_persons_json``) und die Notiz
+(``note``) werden deshalb VOR dem Hashen pro Kunde versiegelt
+(services/pii_vault.py, Crypto-Shredding); Zeile und audit_log-Snapshot
+tragen nur den Umschlag, der Hash bindet ihn. Die Gueltigkeitspruefung liest
+keine Namen, sondern die hash-gebundene ``household_person_count``
+(Schema V2). Altbestand V1 (Klartext, ohne Personenzahl) bleibt mit dem
+V1-Hashvertrag verifizierbar und gueltig; die Erasure meldet ihn
+(``pii_vault.count_unsealed_rows``).
 """
 from __future__ import annotations
 
@@ -31,7 +41,8 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
-SCHEMA_VERSION = "FinancialCoverageAttestationV1"
+SCHEMA_VERSION = "FinancialCoverageAttestationV2"
+SCHEMA_VERSION_V1 = "FinancialCoverageAttestationV1"
 # CIO-Default, Compliance zu bestaetigen: eine Bestaetigung gilt hoechstens
 # 365 Tage ab Stichtag (jaehrlicher Review-Rhythmus).
 POLICY_VERSION = "FCA-2026-10-20.v1"
@@ -58,7 +69,9 @@ STATUS_REASONS = {
     STATUS_INPUTS_CHANGED: "Erfasste Cashflows wurden nach der Bestätigung geändert.",
 }
 
-HASHED_FIELDS: tuple[str, ...] = (
+# V1 (Altbestand, Klartext). Neue Felder nur mit neuer SCHEMA_VERSION --
+# sonst gaelten bestehende Zeilen faelschlich als manipuliert.
+HASHED_FIELDS_V1: tuple[str, ...] = (
     "id",
     "schema_version",
     "mandate_id",
@@ -77,6 +90,14 @@ HASHED_FIELDS: tuple[str, ...] = (
     "attested_at",
     "policy_version",
 )
+
+# V2: Namen/Notiz versiegelt; die Personenzahl ist strukturiert gebunden.
+HASHED_FIELDS: tuple[str, ...] = HASHED_FIELDS_V1 + ("household_person_count",)
+
+_HASHED_FIELDS_BY_VERSION: dict[str, tuple[str, ...]] = {
+    SCHEMA_VERSION_V1: HASHED_FIELDS_V1,
+    SCHEMA_VERSION: HASHED_FIELDS,
+}
 
 CATEGORY_FIELDS: tuple[str, ...] = (
     "income_complete",
@@ -113,7 +134,10 @@ def _canonical(payload: Any) -> str:
 
 
 def attestation_payload(attestation: Any) -> dict[str, Any]:
-    return {name: _value(attestation, name) for name in HASHED_FIELDS}
+    fields = _HASHED_FIELDS_BY_VERSION.get(
+        str(_value(attestation, "schema_version") or ""), HASHED_FIELDS,
+    )
+    return {name: _value(attestation, name) for name in fields}
 
 
 def compute_attestation_hash(attestation: Any) -> str:
@@ -182,6 +206,7 @@ def create_attestation(
     """
     from database import new_uuid
     from models.wealth import FinancialCoverageAttestation
+    from services.pii_vault import seal_for_client
 
     today = today or date.today()
     persons = _normalize_persons(household_persons)
@@ -199,19 +224,25 @@ def create_attestation(
         raise ValueError("Quelle muss eine von: " + ", ".join(ALLOWED_SOURCES) + ".")
     now = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     fingerprint, row_count = current_cashflow_fingerprint(db, mandate.client_id)
+    note_text = (str(note).strip() or None) if note is not None else None
+    # Versiegeln VOR dem Hashen (PiiVaultError fuer einen DSG-geloeschten
+    # Kunden -> Router 409; es wird nie Klartext geschrieben).
+    sealed_persons = seal_for_client(db, mandate.client_id, _canonical(persons))
+    sealed_note = seal_for_client(db, mandate.client_id, note_text)
     row = FinancialCoverageAttestation(
         id=new_uuid(),
         schema_version=SCHEMA_VERSION,
         mandate_id=mandate.id,
         client_id=mandate.client_id,
-        household_persons_json=_canonical(persons),
+        household_persons_json=sealed_persons,
+        household_person_count=len(persons),
         income_complete=1 if income_complete else 0,
         expenses_complete=1 if expenses_complete else 0,
         obligations_complete=1 if obligations_complete else 0,
         irregular_expenses_reviewed=1 if irregular_expenses_reviewed else 0,
         as_of_date=as_of.isoformat(),
         source=source,
-        note=(str(note).strip() or None) if note is not None else None,
+        note=sealed_note,
         cashflow_fingerprint=fingerprint,
         cashflow_row_count=row_count,
         actor_id=actor.id,
@@ -248,6 +279,21 @@ def _status(code: str, row: Any = None, **extra) -> dict[str, Any]:
     return result
 
 
+def _person_count(row: Any) -> int:
+    """Personenzahl ohne Klartext-Namen: V2 -> hash-gebundene Spalte; V1-
+    Altbestand (Klartext-JSON, keine Spalte) -> Laenge der Namensliste."""
+    if row.schema_version != SCHEMA_VERSION_V1:
+        try:
+            return int(row.household_person_count or 0)
+        except (TypeError, ValueError):
+            return 0
+    try:
+        persons = json.loads(row.household_persons_json or "[]")
+    except (TypeError, ValueError):
+        persons = []
+    return len(_normalize_persons(persons if isinstance(persons, list) else []))
+
+
 def resolve_attestation(db, mandate: Any, *, today: date | None = None) -> dict[str, Any]:
     """Status der neuesten Bestaetigung des Mandats (read-only)."""
     from models.wealth import FinancialCoverageAttestation
@@ -268,13 +314,9 @@ def resolve_attestation(db, mandate: Any, *, today: date | None = None) -> dict[
         return _status(STATUS_HASH_MISMATCH, row)
     if row.client_id != getattr(mandate, "client_id", None):
         return _status(STATUS_HOUSEHOLD_MISMATCH, row)
-    try:
-        persons = json.loads(row.household_persons_json or "[]")
-    except (TypeError, ValueError):
-        persons = []
-    if not _normalize_persons(persons if isinstance(persons, list) else []):
+    if _person_count(row) < 1:
         return _status(STATUS_HOUSEHOLD_MISMATCH, row)
-    if row.policy_version != POLICY_VERSION or row.schema_version != SCHEMA_VERSION:
+    if row.policy_version != POLICY_VERSION or row.schema_version not in _HASHED_FIELDS_BY_VERSION:
         return _status(STATUS_POLICY_OUTDATED, row)
     missing = [name for name in CATEGORY_FIELDS if int(getattr(row, name) or 0) != 1]
     if missing:

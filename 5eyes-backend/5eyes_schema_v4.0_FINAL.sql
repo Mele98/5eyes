@@ -446,6 +446,7 @@ CREATE TABLE IF NOT EXISTS financial_coverage_attestations (
     mandate_id                  TEXT NOT NULL,  -- bewusst ohne FK (Purge-fest)
     client_id                   TEXT NOT NULL,  -- bewusst ohne FK (Purge-fest)
     household_persons_json      TEXT NOT NULL,
+    household_person_count      INTEGER,
     income_complete             INTEGER NOT NULL CHECK(income_complete IN (0,1)),
     expenses_complete           INTEGER NOT NULL CHECK(expenses_complete IN (0,1)),
     obligations_complete        INTEGER NOT NULL CHECK(obligations_complete IN (0,1)),

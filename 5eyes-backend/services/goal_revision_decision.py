@@ -363,28 +363,37 @@ def engine_evidence_for_goal(allocation: Any, goal_id: str) -> dict[str, Any] | 
 
 
 # ---------------------------------------------------------------------------
-# DSG (Vorbereitung, DSG-ERASURE-APPEND-ONLY-001 / PR #681): der Freitext
-# ``reason`` liegt in einer append-only Tabelle und laesst sich bei einer
-# DSG-Loeschung nicht entfernen. Sobald services/pii_vault.py gemergt ist:
-#   * ``stored_reason`` -> ``seal_for_client(db, client_id, reason)`` (VOR dem
-#     Hashen; der Decision-Hash bindet dann den versiegelten Wert, wie bei
-#     risk_override_decisions.reason),
-#   * ``display_reason`` -> ``reveal(db, value)``,
-#   * ``("goal_revision_decisions", "reason")`` in SEALED_APPEND_ONLY_COLUMNS
-#     (Spalte ``client_id`` ist vorhanden -> Shredding-Scope passt).
-# Bis dahin sind beide Funktionen die Identitaet (Klartext wie bisher).
+# DSG (DSG-ERASURE-NEW-EVIDENCE-001, Nachzug zu #681): der Freitext ``reason``
+# liegt in einer append-only Tabelle und laesst sich bei einer DSG-Loeschung
+# nicht entfernen. Er wird deshalb VOR dem Hashen pro Kunde versiegelt
+# (services/pii_vault.py); Decision-Hash und audit_log-Snapshot binden den
+# Umschlag (wie risk_override_decisions.reason). Die Erasure vernichtet den
+# Kundenschluessel -> Hash bleibt verifizierbar, Klartext ist weg.
 # ---------------------------------------------------------------------------
 
 
 def stored_reason(db, client_id: str | None, reason: str) -> str:
-    """Wert, der in ``goal_revision_decisions.reason`` gespeichert und
-    gehasht wird (Seam fuer die Versiegelung, siehe oben)."""
-    return reason
+    """Versiegelter Wert fuer ``goal_revision_decisions.reason`` (wird so
+    gespeichert und gehasht). Fail-closed: ``PiiVaultError`` ohne Kunde oder
+    fuer einen DSG-geloeschten Kunden -- nie Klartext."""
+    from services.pii_vault import seal_for_client
+
+    return seal_for_client(db, client_id, reason)
 
 
 def display_reason(db, value: Any) -> Any:
-    """Anzeigewert einer gespeicherten Begruendung (Seam fuer ``reveal``)."""
-    return value
+    """Anzeigewert einer gespeicherten Begruendung: Klartext ueber den Vault;
+    nach DSG-Loeschung (Schluessel vernichtet) der Redaktions-Platzhalter."""
+    from services.pii_vault import is_sealed, reveal
+
+    if not is_sealed(value):
+        return value  # Altbestand (Klartext) oder leer
+    plain = reveal(db, value) if db is not None else None
+    if plain is None:
+        from services.client_erasure import REDACTION_MARKER
+
+        return REDACTION_MARKER
+    return plain
 
 
 class GoalRevisionError(ValueError):
@@ -416,6 +425,7 @@ def record_goal_revision_decision(
       Zielerreichung der Allokation).
     """
     from models.wealth import GoalRevisionDecision
+    from services.pii_vault import PiiVaultError
     from services.override_reason_quality import (
         OverrideReasonQualityError,
         validate_override_reason_quality,
@@ -456,6 +466,11 @@ def record_goal_revision_decision(
             reason_code="not_suggested",
         )
 
+    try:
+        sealed_reason = stored_reason(db, getattr(mandate, "client_id", None), str(reason).strip())
+    except PiiVaultError as exc:
+        raise GoalRevisionError(str(exc), reason_code="client_erased") from exc
+
     now = _now()
     decision = GoalRevisionDecision(
         id=new_uuid(),
@@ -471,7 +486,7 @@ def record_goal_revision_decision(
         ),
         previous_hardness=str(getattr(goal, "hardness", "") or ""),
         new_status=NEW_STATUS_SUBORDINATE_WISH,
-        reason=stored_reason(db, getattr(mandate, "client_id", None), str(reason).strip()),
+        reason=sealed_reason,
         evidence_status=str(evidence.get("status") or ""),
         evidence_best_probability_bps=_bps(evidence.get("best_probability")),
         evidence_wilson_upper_bps=_bps(evidence.get("wilson_upper_bound")),

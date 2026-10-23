@@ -309,10 +309,15 @@ def test_attestation_row_is_hashed_and_bound_to_household_and_inputs(session_fac
     with session_factory() as session:
         advisor = _seed_budget(session)
         row = _attest(session, advisor)
-        assert row.schema_version == SCHEMA_VERSION == "FinancialCoverageAttestationV1"
+        assert row.schema_version == SCHEMA_VERSION == "FinancialCoverageAttestationV2"
         assert row.policy_version == POLICY_VERSION
         assert row.client_id == "cl-rcp" and row.mandate_id == "m-rcp"
-        assert json.loads(row.household_persons_json) == ["Max Muster"]
+        # DSG-ERASURE-NEW-EVIDENCE-001: Namen versiegelt, Personenzahl gebunden.
+        from services.pii_vault import is_sealed, reveal
+
+        assert is_sealed(row.household_persons_json)
+        assert json.loads(reveal(session, row.household_persons_json)) == ["Max Muster"]
+        assert row.household_person_count == 1
         assert row.actor_id == advisor.id
         assert len(row.cashflow_fingerprint) == 64 and row.cashflow_row_count == 2
         assert row.attestation_hash == compute_attestation_hash(row)
@@ -663,7 +668,10 @@ def test_alembic_single_head_creates_table_and_downgrade_reverts(tmp_path):
     cfg = _alembic_cfg(f"sqlite:///{db_path}")
     command.upgrade(cfg, "f3a8d1c6b4e2")
     engine = create_engine(f"sqlite:///{db_path}")
-    assert {c["name"] for c in inspect(engine).get_columns("financial_coverage_attestations")} == MODEL_COLUMNS
+    # household_person_count kommt erst mit c4d9e2a7f1b6 (DSG-ERASURE-NEW-EVIDENCE-001).
+    assert {c["name"] for c in inspect(engine).get_columns("financial_coverage_attestations")} == (
+        MODEL_COLUMNS - {"household_person_count"}
+    )
     engine.dispose()
     assert _sqlite_triggers(db_path) == TRIGGERS
     command.downgrade(cfg, "f3a8d1c6b4e2-1")
