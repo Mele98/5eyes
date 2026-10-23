@@ -136,6 +136,8 @@ export function buildTargetAllocationPayload(
     risky_fraction_bps?: number | null;
     based_on_assessment_id?: string | null;
     override_reason?: string | null;
+    expected_current_allocation_id?: string | null;
+    expected_current_allocation_version?: number | null;
   } = {},
 ): TargetAllocationCreatePayload {
   return {
@@ -158,6 +160,8 @@ export function buildTargetAllocationPayload(
     based_on_assessment_id: extra.based_on_assessment_id ?? null,
     policy_id: policyId,
     override_reason: extra.override_reason ?? null,
+    expected_current_allocation_id: extra.expected_current_allocation_id ?? null,
+    expected_current_allocation_version: extra.expected_current_allocation_version ?? null,
   };
 }
 

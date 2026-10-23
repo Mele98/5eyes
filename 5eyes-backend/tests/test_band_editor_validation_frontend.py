@@ -228,7 +228,7 @@ def test_editor_wiring_blocks_apply_and_persist_until_valid():
 
 # --- MANUAL-TARGET-SAVE-IN-BAND-EDITOR-001 (CIO-Review #656) -----------------
 
-TA = {"policy_id": "pol-1", "based_on_assessment_id": "ra-1", "risky_fraction_bps": 6100, "version": 3}
+TA = {"id": "ta-1", "policy_id": "pol-1", "based_on_assessment_id": "ra-1", "risky_fraction_bps": 6100, "version": 3}
 
 
 def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict:
@@ -251,6 +251,7 @@ def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict
             "function computeBandEditorValidation(",
             "function escapeHtml(",
             "function currentManualSaveContext(",
+            "function currentManualSavePredecessor(",
             "function computeManualTargetSaveValidation(",
             "function buildManualTargetAllocationPayload(",
             "function renderManualTargetSaveState(",
@@ -335,6 +336,9 @@ def test_manual_save_uses_same_validator_and_posts_exact_bps_body():
         "band_liquidity_min_bps": 200, "band_liquidity_max_bps": 1000,
         "risky_fraction_bps": 6100, "based_on_assessment_id": "ra-1",
         "policy_id": "pol-1", "override_reason": GOOD_REASON,
+        # ALLOC-EDITOR-STALE-001: Vorgaenger-Token der bearbeiteten Allokation.
+        "expected_current_allocation_id": "ta-1",
+        "expected_current_allocation_version": 3,
     }
     # Der Body besteht die Schema-Validierung des Endpunkts.
     from schemas.allocation import TargetAllocationCreate

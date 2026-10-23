@@ -110,6 +110,10 @@ class RiskAssessmentOverride(BaseModel):
     # keinen Override gesehen"); nur ein weggelassenes Feld prueft nichts.
     expected_assessment_version: Optional[int] = None
     expected_override_decision_id: Optional[str] = None
+    # RISK-OVERRIDE-LEGACY-REMEDIATION-001: bestaetigt einen Override aus dem
+    # Altbestand (is_overridden ohne Decision) ueber diesen NORMALEN
+    # Override-Pfad -- alle Pflichtpruefungen gelten, decided_at = jetzt.
+    remediation: Optional[Literal["legacy_remediation"]] = None
 
     @model_validator(mode="after")
     def validate_override_score(self):

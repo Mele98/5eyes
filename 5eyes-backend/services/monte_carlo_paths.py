@@ -393,9 +393,11 @@ def _sub_allocations_missing_cma_coverage(
     Jede andere Fehlerursache (kaputte Eintraege, asset_class-Mismatch,
     korrupte CMA-Basisdaten) ist NICHT hier abgedeckt -- der Aufrufer laesst
     OptimizerInputError in diesen Faellen bewusst propagieren."""
-    from services.portfolio_engine_cma import _sub_asset_class_assumption_map
+    from services.portfolio_engine_cma import _sub_asset_class_model_map
 
-    assumptions = _sub_asset_class_assumption_map(cma)
+    # LIQUIDITY-INSTRUMENT-MODEL-001: Rechen-Abdeckung (inkl. deklarierter
+    # Code-Defaults), nicht Evidenz-Abdeckung.
+    assumptions = _sub_asset_class_model_map(cma)
     for item in sub_allocations:
         if not isinstance(item, dict):
             continue

@@ -243,6 +243,17 @@ Geaendert nur durch den neuen Wuerfel (Version im Inhalts-Seed): Score 7
 Risikoanteil 64.48 -> 64.44 %), Score 9 7858/855/697/390/200 ->
 7821/912/704/363/200 (575/1238 -> 574/1232 bps, Risikoanteil 68.87 ->
 68.54 %); Score 3 und alle drei Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-21, GOAL-REVISION-DECISION-001, Engine
+``saa_resampled_v11``): keine automatische Herabstufung mehr (nur per
+Berater-Entscheidung GoalRevisionDecisionV1). Unter Haswell UND Nehalem
+(Threads = 1) neu erzeugt, beide byte-identisch. Mit dem v10-Seed (Version
+erzwungen, Experiment) sind ALLE sechs Fixtures byte-identisch zu v10 -- in
+keiner Golden-Kombination wurde ein Ziel herabgestuft. Geaendert nur durch
+den neuen Wuerfel (Version im Inhalts-Seed): Score 7
+6768/1636/804/592/200 -> 6788/1613/797/602/200, Score 9
+7821/912/704/363/200 -> 7819/900/700/381/200; Score 3 und alle drei
+Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 

@@ -680,7 +680,7 @@ def test_alembic_emits_postgres_immutability_trigger():
     buffer = io.StringIO()
     cfg = _alembic_cfg("postgresql://user:pass@localhost/db")
     cfg.output_buffer = buffer
-    command.upgrade(cfg, "d7b3f1a9c2e4:f3a8d1c6b4e2", sql=True)
+    command.upgrade(cfg, "e3c7a91f5b28:f3a8d1c6b4e2", sql=True)
     sql = buffer.getvalue()
     assert "CREATE TABLE financial_coverage_attestations" in sql
     assert "BEFORE UPDATE OR DELETE ON financial_coverage_attestations" in sql

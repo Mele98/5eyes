@@ -203,3 +203,31 @@ def compute_stress_replays(db: Session, mandate: Mandate) -> dict:
         "scenarios": compute_stress_for_weights(weights_bps),
         "note": "Replay mit historischen jährlichen Returns pro Asset-Klasse. Foundation-Variante mit hartcodierten Szenarien — volle Marktdaten-Pipeline kommt in Sprint U-P11.",
     }
+
+
+def gated_stress_replays(db: Session, mandate: Mandate, gate=None) -> dict:
+    """MC-CONTEXT-001: Stress-Replays NUR fuer eine projizierbare Soll-
+    Allokation (derselbe Gate-Entscheid wie Advisory-Report/Backtest).
+
+    Bei ``stale``/``blocked`` (fail-closed) keine Szenariozahlen und keine
+    Soll-Gewichte, sondern der Berater-Hinweis; ``projection_gate`` traegt
+    den maschinenlesbaren Kontext. ``gate`` kann von einem Aufrufer, der
+    bereits geurteilt hat, durchgereicht werden.
+    """
+    from services.report_projection_gate import (
+        resolve_current_allocation_projection_gate,
+    )
+
+    if gate is None:
+        gate = resolve_current_allocation_projection_gate(db, mandate)
+    if gate.is_hidden:
+        return {
+            "mandate_id": str(getattr(mandate, "id", "") or ""),
+            "weights_bps": {},
+            "scenarios": [],
+            "warning": gate.advisor_message,
+            "projection_gate": gate.to_payload(),
+        }
+    result = compute_stress_replays(db, mandate)
+    result["projection_gate"] = gate.to_payload()
+    return result

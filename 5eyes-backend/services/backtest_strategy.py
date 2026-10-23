@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_right
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
@@ -1118,7 +1118,7 @@ def _build_sub_asset_path_views(
     return view
 
 
-def run_strategy_backtest(
+def _run_strategy_backtest(
     db: Session,
     mandate: Mandate,
     *,
@@ -1129,8 +1129,18 @@ def run_strategy_backtest(
     strategy_fee_bps: int | None = None,
     benchmark_fee_bps: int | None = None,
     benchmark_sub_weights_bps: Mapping[str, int] | None = None,
+    projection_gate: Any = None,
 ) -> dict:
     """Master-Service: führt den SOLL-Strategie-Backtest für das Mandat aus.
+
+    projection_gate: optional ``services.report_projection_gate.ProjectionGate``
+        (MC-CONTEXT-001). Ist es ausgeblendet (``is_hidden``: stale, blocked,
+        unbekannt), wird KEIN Soll-Pfad, keine Soll-Kennzahl und kein Soll-
+        Gewicht publiziert; ein frei gewaehlter Benchmark-Mix bleibt, weil er
+        nicht von der Soll-Allokation abhaengt. Startkapital ist dann das
+        aktuelle Beratungsvermoegen statt des Allokations-Snapshots. Alle
+        HTTP-/PDF-Routen uebergeben das Gate; ``None`` = reine Rechnung
+        (Service-/Unit-Tests).
 
     Liefert beide Varianten (mit / ohne Rebal) für SOLL und optional für
     einen Benchmark-Mix. Keine DB-Mutation. Falls keine TargetAllocation
@@ -1162,8 +1172,14 @@ def run_strategy_backtest(
             "resolution_used": "annual",
         }
 
-    soll_weights = _soll_weights_bps_from_target_allocation(ta)
-    if sum(soll_weights.values()) <= 0:
+    soll_hidden = bool(projection_gate is not None and projection_gate.is_hidden)
+    if soll_hidden:
+        warnings.append(str(projection_gate.advisor_message))
+
+    soll_weights = (
+        {} if soll_hidden else _soll_weights_bps_from_target_allocation(ta)
+    )
+    if not soll_hidden and sum(soll_weights.values()) <= 0:
         return {
             "mandate_id": str(mandate.id),
             "warnings": ["SOLL-Strategie ist leer (alle Bucket-Gewichte 0)."],
@@ -1173,7 +1189,11 @@ def run_strategy_backtest(
             "resolution_used": "annual",
         }
 
-    initial_value = _resolve_initial_value_rappen(db, mandate, ta)
+    # Bei ausgeblendeter Soll-Allokation auch nicht deren Vermoegens-Snapshot
+    # verwenden: der Benchmark startet auf dem aktuellen Beratungsvermoegen.
+    initial_value = _resolve_initial_value_rappen(
+        db, mandate, None if soll_hidden else ta,
+    )
     if initial_value <= 0:
         # Backtest auf einem Standard-Initial-Kapital (100k CHF in Rappen),
         # damit relative Renditen zumindest sichtbar sind. Warning explizit.
@@ -1206,7 +1226,10 @@ def run_strategy_backtest(
                 "start_year": daily_years[0],
                 "end_year": daily_years[-1],
                 "risk_free_bps": risk_free_bps,
-                "soll": _build_daily_path_views(initial_value, soll_weights, anchor, daily_series, risk_free_bps),
+                "soll": (
+                    None if soll_hidden else
+                    _build_daily_path_views(initial_value, soll_weights, anchor, daily_series, risk_free_bps)
+                ),
                 "benchmark": (
                     _build_daily_path_views(initial_value, benchmark_norm, anchor, daily_series, risk_free_bps)
                     if benchmark_norm is not None else None
@@ -1265,7 +1288,10 @@ def run_strategy_backtest(
     strategy_fee_used = max(0, int(strategy_fee_bps or 0))
     benchmark_fee_used = max(0, int(benchmark_fee_bps or 0))
 
-    soll_view = _build_path_views(initial_value, soll_weights, years_data, risk_free_bps, fee_bps_per_year=strategy_fee_used)
+    soll_view = None if soll_hidden else _build_path_views(
+        initial_value, soll_weights, years_data, risk_free_bps,
+        fee_bps_per_year=strategy_fee_used,
+    )
 
     benchmark_view = None
     benchmark_norm = _normalize_benchmark_weights(benchmark_weights_bps)
@@ -1336,3 +1362,37 @@ def run_strategy_backtest(
             "(soll.gross / benchmark.gross) als Vergleichsbasis verfügbar."
         ),
     }
+
+
+def run_strategy_backtest(
+    db: Session,
+    mandate: Mandate,
+    *,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    benchmark_weights_bps: Mapping[str, int] | None = None,
+    resolution: str = "annual",
+    strategy_fee_bps: int | None = None,
+    benchmark_fee_bps: int | None = None,
+    benchmark_sub_weights_bps: Mapping[str, int] | None = None,
+    projection_gate: Any = None,
+) -> dict:
+    """Oeffentlicher Einstieg; siehe ``_run_strategy_backtest``.
+
+    Mit ``projection_gate`` traegt JEDES Ergebnis (auch die Fruehausstiege)
+    den maschinenlesbaren Gate-Kontext unter ``projection_gate``.
+    """
+    result = _run_strategy_backtest(
+        db, mandate,
+        start_year=start_year,
+        end_year=end_year,
+        benchmark_weights_bps=benchmark_weights_bps,
+        resolution=resolution,
+        strategy_fee_bps=strategy_fee_bps,
+        benchmark_fee_bps=benchmark_fee_bps,
+        benchmark_sub_weights_bps=benchmark_sub_weights_bps,
+        projection_gate=projection_gate,
+    )
+    if projection_gate is not None:
+        result["projection_gate"] = projection_gate.to_payload()
+    return result

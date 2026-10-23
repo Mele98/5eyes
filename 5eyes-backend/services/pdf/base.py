@@ -305,6 +305,11 @@ class ProtokollData:
     risk_signoff_hash: str | None = None
     risk_signoff_lines: tuple = ()
 
+    # KNOWLEDGE-GAP-ASSET-CLASS-001 (2026-10-21): SAA-Anlageklassen ohne
+    # dokumentierte Kenntnis/Aufklaerung (Reason-Code KNOWLEDGE_GAP_ASSET_CLASS).
+    # Reiner Hinweis -- die Allokation wurde dadurch nicht veraendert.
+    knowledge_gap_hints: list = field(default_factory=list)
+
 
 @dataclass(frozen=True)
 class CostDisclosurePDFData:
@@ -459,6 +464,12 @@ class BacktestData:
     soll_gross_metrics: Mapping[str, object] | None = None
     benchmark_gross_wealth_path_rappen: Sequence[Sequence] = field(default_factory=tuple)
     benchmark_gross_metrics: Mapping[str, object] | None = None
+
+    # MC-CONTEXT-001: gesetzt, wenn das Report-Projection-Gate die Soll-
+    # Allokation ausblendet (stale/blocked). Das PDF zeigt dann keinen
+    # Soll-Backtest, sondern diesen Hinweis; ein gewaehlter Benchmark-Mix
+    # bleibt als eigenstaendige Historie sichtbar.
+    projection_hidden_hint: str | None = None
 
 
 @runtime_checkable

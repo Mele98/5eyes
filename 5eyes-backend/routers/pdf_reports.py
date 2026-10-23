@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -105,10 +105,33 @@ def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -
 
     from services.pdf.provisional_notice import resolve_pdf_provisional_notice
 
+    _enforce_cma_currency_release(db, mandate)
     notice = resolve_pdf_provisional_notice(db, mandate)
     if notice is None:
         return ctx
     return replace(ctx, provisional_notice=notice)
+
+
+def _enforce_cma_currency_release(db: Session, mandate: Mandate) -> None:
+    """CMA-CURRENCY-GUARD-001: CMA-abhaengige Kundendokumente nur, wenn die
+    Waehrungsbasis der Kapitalmarktannahmen zur Basiswaehrung passt oder der
+    Berater die Abweichung dokumentiert bestaetigt hat -- sonst 409."""
+    from services.cma_currency_guard import (
+        CmaCurrencyMismatchError,
+        enforce_release,
+        evaluate_for_current_allocation,
+    )
+
+    try:
+        guard = evaluate_for_current_allocation(db, mandate)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if guard is None:
+        return
+    try:
+        enforce_release(guard, context="document")
+    except CmaCurrencyMismatchError as exc:
+        raise HTTPException(status_code=409, detail=exc.http_detail()) from exc
 
 
 def _audit_hash_for_mandate(mandate: Mandate) -> str:
@@ -336,6 +359,30 @@ def _latest_target_allocation(mandate: Mandate, db: Session):
     # A historic non-current allocation is an audit record, never a valid
     # substitute for the customer's active strategy.
     return current_rows[0] if current_rows else None
+
+
+def _assert_report_allocation_context(
+    mandate: Mandate, db: Session, expected_allocation_id: str | None
+) -> None:
+    """ALLOC-EDITOR-STALE-001: ein Strategie-PDF darf nur aus genau der
+    Allokation entstehen, die der Browser anzeigt. Abweichung -> 409
+    ``... [allocation_report_context_stale]``. Ohne Token keine Pruefung;
+    die Persistenz-Staleness (Risikoprofil/Inputs) prueft weiterhin der
+    Payload-Pfad fail-closed."""
+    # Direktaufrufe (Tests/interne Pfade) uebergeben den Query-Default
+    # (FieldInfo) statt None -- nur echte Zeichenketten sind ein Token.
+    if not isinstance(expected_allocation_id, str) or not expected_allocation_id.strip():
+        return
+    from services.allocation_concurrency import (
+        AllocationVersionConflict,
+        assert_report_allocation_matches,
+    )
+
+    try:
+        current = _latest_target_allocation(mandate, db)
+        assert_report_allocation_matches(current, expected_allocation_id)
+    except (AllocationVersionConflict, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
@@ -688,9 +735,16 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 )
                 .all()
             )
+            from services.wealth_inflow_certainty import is_uncertain
+
             for inf in inflows:
+                # INFLOW-CERTAINTY-001: unsichere Zufluesse sichtbar, aber als
+                # nicht eingerechnet gekennzeichnet.
+                inf_name = str(getattr(inf, "label", "—") or "—")
+                if is_uncertain(inf):
+                    inf_name += " (unsicher, nicht eingerechnet)"
                 cashflow_events.append({
-                    "name": str(getattr(inf, "label", "—") or "—"),
+                    "name": inf_name,
                     "household_member": "",
                     "recurrence": "Einmalig" if not getattr(inf, "is_recurring", 0) else
                                   str(getattr(inf, "frequency", "") or "Wiederkehrend"),
@@ -914,9 +968,11 @@ def get_anlagestrategie_pdf(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    expected_allocation_id: str | None = Query(default=None, max_length=64),
 ):
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     try:
@@ -952,9 +1008,11 @@ def get_assetallocation_pdf(
     mandate_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    expected_allocation_id: str | None = Query(default=None, max_length=64),
 ):
     """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     try:
@@ -1710,6 +1768,15 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         logger.warning("Protokoll data: risk signoff load failed: %s", exc)
         risk_signoff_view = {"state": None, "lines": _SIGNOFF_LOAD_FAILED}
 
+    # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Klassen ohne dokumentierte Kenntnis.
+    knowledge_gap_hints: list[str] = []
+    try:
+        from services.knowledge_asset_class_gap import protocol_hints_for_mandate
+
+        knowledge_gap_hints = protocol_hints_for_mandate(db, mandate, ta)
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -1721,6 +1788,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_id=risk_signoff_view.get("signoff_id"),
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
+        knowledge_gap_hints=knowledge_gap_hints,
     )
 
 
@@ -1766,12 +1834,29 @@ def get_protokoll_pdf(
 
 def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
     """Build the client-facing analysis of the recommended target portfolio."""
-    from services.backtest_stress import compute_stress_replays
+    from services.backtest_stress import gated_stress_replays
     from services.cost_disclosure import build_cost_disclosure
     from services.depot_check import compute_depot_check
 
+    from services.report_projection_gate import (
+        STATUS_STALE,
+        resolve_current_allocation_projection_gate,
+    )
+
     dc = compute_depot_check(db, mandate) or {}
-    if dc.get("soll_ausgeblendet"):
+    # MC-CONTEXT-001: derselbe Gate-Entscheid wie Advisory-Report/Backtest.
+    # ``blocked`` (kein eindeutig aktuelles Risikoprofil, Policy nicht
+    # aktuell, Gate-Fehler) mit eigenem Hinweis statt "veraltet"; ``stale``
+    # behaelt die bestehende Begruendung unten.
+    projection_gate = resolve_current_allocation_projection_gate(
+        db, mandate, depot_check=dc,
+    )
+    if projection_gate.is_hidden and projection_gate.status != STATUS_STALE:
+        raise ValueError(
+            "Depot-Check kann nicht erstellt werden: "
+            + str(projection_gate.advisor_message)
+        )
+    if projection_gate.is_hidden or dc.get("soll_ausgeblendet"):
         # STALE-ALLOCATION-HIDE-TARGETS-001: ein Depot-Check-PDF ist ein
         # Soll/Ist-Vergleich. Bei veralteter Soll-Allokation gibt es keine
         # gueltigen Zielzahlen -- blockieren (409) statt alte Ziele zu drucken.
@@ -1789,7 +1874,7 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             f"Depot-Check kann nicht erstellt werden: die Soll-Allokation ist "
             f"veraltet ({grund}). Bitte Strategie neu berechnen."
         )
-    sr = compute_stress_replays(db, mandate) or {}
+    sr = gated_stress_replays(db, mandate, projection_gate) or {}
     fc = dc.get("fund_characteristics") or {}
     strategy = _build_anlagestrategie_data(mandate, db)
     try:
@@ -1816,7 +1901,7 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             "note": "Kostenausweis ist fuer diese Empfehlung noch nicht verfuegbar.",
             "warnings": [],
         }
-    performance = _build_depotcheck_performance(mandate, db)
+    performance = _build_depotcheck_performance(mandate, db, projection_gate)
     soll_country = dc.get("soll_country_exposure_bps") or {}
     soll_sector = dc.get("soll_sector_exposure_bps") or {}
     soll_currency = dc.get("soll_currency_exposure_bps") or {}
@@ -1944,9 +2029,27 @@ def _cost_item_rate(costs: dict, key: str) -> int:
     return 0
 
 
-def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
+def _build_depotcheck_performance(
+    mandate: Mandate, db: Session, projection_gate=None,
+) -> dict:
+    if projection_gate is None:
+        from services.report_projection_gate import (
+            resolve_current_allocation_projection_gate,
+        )
+
+        projection_gate = resolve_current_allocation_projection_gate(db, mandate)
+    # SUITABILITY-DETECTOR-AVAILABILITY-001: die HouseMatrix-Referenz hat
+    # einen ausgewiesenen Status. Fehlt sie, wird der Vergleich NICHT still
+    # ohne Referenz gezeigt, sondern mit Hinweis (warnings + Status-Block).
+    benchmark, benchmark_status = _depotcheck_house_matrix_benchmark_with_status(
+        mandate, db,
+    )
+    benchmark_warnings = (
+        [benchmark_status["note"]]
+        if benchmark_status.get("status") != "available" and benchmark_status.get("note")
+        else []
+    )
     try:
-        benchmark = _depotcheck_house_matrix_benchmark(mandate, db)
         data = _build_backtest_data(
             mandate,
             db,
@@ -1954,7 +2057,15 @@ def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
             end_year=None,
             benchmark_weights_bps=benchmark or None,
             resolution="annual",
+            projection_gate=projection_gate,
         )
+        if projection_gate.is_hidden:
+            return {
+                "data_pending": True,
+                "note": str(projection_gate.advisor_message),
+                "house_matrix_benchmark": benchmark_status,
+                "warnings": benchmark_warnings,
+            }
         return {
             "data_pending": False,
             "start_year": data.start_year,
@@ -1966,57 +2077,48 @@ def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
             "metrics": dict(data.soll_metrics or {}),
             "benchmark_metrics": dict(data.benchmark_metrics or {}),
             "benchmark_weights_bps": dict(data.benchmark_weights_bps or {}),
-            "warnings": list(data.warnings or []),
+            "house_matrix_benchmark": benchmark_status,
+            "warnings": list(data.warnings or []) + benchmark_warnings,
         }
     except Exception as exc:  # noqa: BLE001 - PDF must fail soft
         logger.warning("Depotcheck performance unavailable: %s", exc)
         return {
             "data_pending": True,
             "note": "Historischer Vergleich ist fuer diese Strategie noch nicht verfuegbar.",
+            "house_matrix_benchmark": benchmark_status,
+            "warnings": benchmark_warnings,
         }
 
 
-def _depotcheck_house_matrix_benchmark(mandate: Mandate, db: Session) -> dict:
-    from models.allocation import HouseMatrix
-    from models.profiling import RiskAssessment
-    from services.risk_matrix import score_bucket_from_assessment
+def _depotcheck_benchmark_resolution(mandate: Mandate, db: Session):
+    from services.house_matrix_benchmark import resolve_depotcheck_benchmark
 
     ta = _latest_target_allocation(mandate, db)
-    if ta is None:
-        return {}
-    assessment = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.mandate_id == mandate.id,
-            RiskAssessment.is_current == 1,
-            RiskAssessment.deleted_at.is_(None),
-        )
-        .order_by(RiskAssessment.created_at.desc())
-        .first()
+    return resolve_depotcheck_benchmark(
+        db, mandate, target_allocation=ta, use_current_target_allocation=False,
     )
-    if assessment is None:
-        return {}
-    score = score_bucket_from_assessment(assessment)
-    matrix = (
-        db.query(HouseMatrix)
-        .filter(
-            HouseMatrix.policy_id == getattr(ta, "policy_id", None),
-            HouseMatrix.score_from <= int(score),
-            HouseMatrix.score_to >= int(score),
-            HouseMatrix.is_active == 1,
-        )
-        .order_by(HouseMatrix.score_from.desc())
-        .first()
-    )
-    if matrix is None:
-        return {}
-    return {
-        "equities": int(getattr(matrix, "equity_target_bps", 0) or 0),
-        "bonds": int(getattr(matrix, "bonds_target_bps", 0) or 0),
-        "real_estate": int(getattr(matrix, "real_estate_target_bps", 0) or 0),
-        "alternatives": int(getattr(matrix, "alt_target_bps", 0) or 0),
-        "liquidity": int(getattr(matrix, "liq_target_bps", 0) or 0),
-    }
+
+
+def _depotcheck_house_matrix_benchmark_with_status(
+    mandate: Mandate, db: Session,
+) -> tuple[dict, dict]:
+    """(Gewichte oder ``{}``, Status-Block) aus EINER Aufloesung."""
+    try:
+        resolution = _depotcheck_benchmark_resolution(mandate, db)
+        weights = dict(resolution.weights_bps) if resolution.available else {}
+        return weights, resolution.public()
+    except Exception as exc:  # noqa: BLE001 - PDF must fail soft, aber sichtbar
+        logger.warning("Depotcheck house-matrix benchmark unresolved: %s", exc)
+        return {}, {
+            "status": "unavailable",
+            "reason_code": "BENCHMARK_RESOLUTION_FAILED",
+            "note": (
+                "Vergleich mit der Hausmatrix nicht möglich – Policy/Profil "
+                "fehlt (BENCHMARK_RESOLUTION_FAILED)."
+            ),
+            "score_bucket": None,
+            "profile_name": None,
+        }
 
 
 def _depotcheck_data_quality_warnings(costs: dict, performance: dict) -> list[str]:
@@ -2104,6 +2206,7 @@ def _build_backtest_data(
     resolution: str = "annual",
     strategy_fee_bps: int | None = None,
     benchmark_fee_bps: int | None = None,
+    projection_gate=None,
 ) -> BacktestData:
     """Wendet run_strategy_backtest an und mappt das Resultat auf BacktestData.
 
@@ -2124,6 +2227,7 @@ def _build_backtest_data(
         resolution=resolution,
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
+        projection_gate=projection_gate,
     )
     soll = result.get("soll") or {}
     rebal = (soll.get("rebalanced") if isinstance(soll, dict) else None) or {}
@@ -2156,6 +2260,12 @@ def _build_backtest_data(
         soll_gross_metrics=(soll_gross or {}).get("metrics") if soll_gross else None,
         benchmark_gross_wealth_path_rappen=tuple((bm_gross or {}).get("wealth_path_rappen") or []),
         benchmark_gross_metrics=(bm_gross or {}).get("metrics") if bm_gross else None,
+        # MC-CONTEXT-001: Gate-Hinweis, wenn der Soll-Backtest ausgeblendet ist.
+        projection_hidden_hint=(
+            projection_gate.advisor_message
+            if projection_gate is not None and projection_gate.is_hidden
+            else None
+        ),
     )
 
 
@@ -2207,6 +2317,14 @@ def get_backtest_pdf(
         if any(v is not None for v in bm_inputs.values())
         else None
     )
+    # MC-CONTEXT-001: derselbe fail-closed Gate-Entscheid wie Advisory-Report
+    # und Backtest-API -- bei stale/blocked kein Soll-Backtest, nur Hinweis
+    # plus (falls gewaehlt) die von der Soll-Allokation unabhaengige
+    # Benchmark-Historie.
+    from services.report_projection_gate import (
+        resolve_current_allocation_projection_gate,
+    )
+
     data = _build_backtest_data(
         mandate, db,
         start_year=start_year, end_year=end_year,
@@ -2214,6 +2332,7 @@ def get_backtest_pdf(
         resolution=resolution,
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
+        projection_gate=resolve_current_allocation_projection_gate(db, mandate),
     )
     pdf_bytes = ReportLabRenderer().render_backtest(ctx, data)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -2248,7 +2367,19 @@ def get_advisory_report_pdf(
     """
     from services.pdf.documents.advisory_report import render_advisory_report_pdf
 
+    from services.recommendation_release_gate import (
+        CHANNEL_ADVISORY_PDF,
+        assert_recommendation_release_eligible,
+    )
+
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    # RISK-BUDGET-RELEASE-GATE (2026-10-21): kein client-ready PDF einer
+    # Strategie, deren Risikobudget-Treue verletzt oder nicht belegt ist --
+    # zentrales Gate, VOR dem Rendern.
+    assert_recommendation_release_eligible(
+        db, mandate, channel=CHANNEL_ADVISORY_PDF,
+    )
+    _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
     pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
@@ -2314,6 +2445,26 @@ def get_cost_disclosure_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     payload = build_cost_disclosure(db, mandate)
+    if payload.get("evidence_status") == "blocked":
+        # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger
+        # Kostennachweis (fremder Lauf, unbekannte Version, Hash-Bruch) ist
+        # ein eigener, ausgewiesener Fehler -- nicht "noch keine Empfehlung"
+        # und schon gar kein live neu gerechnetes Dokument.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_EVIDENCE_INVALID",
+                "evidence_error": payload.get("evidence_error"),
+                "source_run_id": payload.get("source_run_id"),
+                "message": (
+                    "Der eingefrorene Kostennachweis des freigegebenen "
+                    "Empfehlungslaufs ist ungueltig "
+                    f"({payload.get('evidence_error')}). Der Kostenausweis "
+                    "wird nicht erstellt -- Strategie neu berechnen und "
+                    "finalisieren."
+                ),
+            },
+        )
     if payload.get("data_pending"):
         raise HTTPException(
             status_code=409,

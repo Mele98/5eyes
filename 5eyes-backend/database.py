@@ -429,6 +429,93 @@ RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL = (
 )
 
 
+# DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Schluessel pro Kunde fuer das
+# Crypto-Shredding der Freitexte in append-only Evidence-Tabellen
+# (services/pii_vault.py). Bewusst VERAENDERBAR (die Erasure muss den
+# Schluessel vernichten koennen), aber nur in eine Richtung: der Trigger
+# erlaubt ausschliesslich das Vernichten (key_material -> NULL), nie das
+# Setzen/Ersetzen eines Schluessels oder das Umhaengen auf einen anderen
+# Kunden -- ein vernichteter Schluessel kann nicht "wiederbelebt" werden.
+# DELETE ist verboten, damit der Tombstone (shredded_at) als Nachweis der
+# Vernichtung stehen bleibt und seal_for_client() fuer geloeschte Kunden
+# fail-closed bleibt. Kein FK auf clients (Purge-fest wie audit_log).
+# Alembic e8a4c2f7d913 fuer PostgreSQL.
+CLIENT_PII_KEYS_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS client_pii_keys (
+    client_id     TEXT PRIMARY KEY,
+    key_id        TEXT NOT NULL UNIQUE,
+    key_material  TEXT,
+    created_at    TEXT NOT NULL,
+    shredded_at   TEXT,
+    CHECK ((key_material IS NULL) = (shredded_at IS NOT NULL))
+)""",
+)
+
+CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_shred_only "
+    "BEFORE UPDATE ON client_pii_keys FOR EACH ROW "
+    "WHEN NEW.client_id IS NOT OLD.client_id OR NEW.key_id IS NOT OLD.key_id "
+    "OR (NEW.key_material IS NOT NULL AND NEW.key_material IS NOT OLD.key_material) "
+    "OR (OLD.shredded_at IS NOT NULL AND NEW.shredded_at IS NOT OLD.shredded_at) "
+    "BEGIN SELECT RAISE(ABORT, 'client_pii_keys is shred-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_no_delete "
+    "BEFORE DELETE ON client_pii_keys FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'client_pii_keys is shred-only'); END",
+)
+
+
+# GOAL-REVISION-DECISION-001 (CIO-Entscheid 2026-10-21, Codex-Closure-Review
+# zu PR #655): append-only GoalRevisionDecisionV1 (models/wealth.py::
+# GoalRevisionDecision). Einzige Quelle einer Herabstufung eines Ziels zum
+# nachrangigen Wunschziel. Gleiches Muster wie risk_override_decisions:
+# Trigger verbieten UPDATE/DELETE, KEIN harter FK auf goals/mandates
+# (Purge-fest), nur actor_id -> users. Die DDL wird hier EINMAL definiert und
+# vom Model (after_create), von ensure_runtime_columns() und -- textgleich --
+# von 5eyes_schema_v4.0_FINAL.sql verwendet; Alembic e3c7a91f5b28 fuer
+# PostgreSQL.
+GOAL_REVISION_DECISION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_update "
+    "BEFORE UPDATE ON goal_revision_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_goal_revision_decisions_no_delete "
+    "BEFORE DELETE ON goal_revision_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'goal_revision_decisions is immutable'); END",
+)
+
+GOAL_REVISION_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS goal_revision_decisions (
+    id                            TEXT PRIMARY KEY,
+    schema_version                TEXT NOT NULL DEFAULT 'GoalRevisionDecisionV1',
+    goal_id                       TEXT NOT NULL,
+    mandate_id                    TEXT NOT NULL,
+    client_id                     TEXT,
+    sequence_no                   INTEGER NOT NULL CHECK(sequence_no >= 1),
+    previous_decision_id          TEXT,
+    goal_snapshot_hash            TEXT NOT NULL,
+    goal_snapshot_json            TEXT NOT NULL,
+    previous_hardness             TEXT NOT NULL,
+    new_status                    TEXT NOT NULL CHECK(new_status IN ('nachrangiges_wunschziel')),
+    reason                        TEXT NOT NULL,
+    evidence_status               TEXT NOT NULL,
+    evidence_best_probability_bps INTEGER,
+    evidence_wilson_upper_bps     INTEGER,
+    evidence_tau_bps              INTEGER,
+    evidence_engine_version       TEXT NOT NULL,
+    evidence_allocation_id        TEXT,
+    evidence_screening_cube_hash  TEXT,
+    actor_id                      TEXT NOT NULL REFERENCES users(id),
+    decided_at                    TEXT NOT NULL,
+    rules_version                 TEXT NOT NULL,
+    decision_hash                 TEXT NOT NULL,
+    created_at                    TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_goal_revision_decision_sequence "
+    "ON goal_revision_decisions(goal_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS ix_goal_revision_decisions_mandate "
+    "ON goal_revision_decisions(mandate_id)",
+)
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -690,6 +777,8 @@ def ensure_runtime_columns() -> None:
         # (unveraendertes Verhalten fuer Bestandszeilen).
         'wealth_inflows': [
             ('linked_position_id', 'TEXT'),
+            # INFLOW-CERTAINTY-001: NULL = 'sicher' (services/wealth_inflow_certainty.py).
+            ('certainty', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
@@ -987,6 +1076,14 @@ def ensure_runtime_columns() -> None:
         for ddl in RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL + RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
         conn.execute(text(RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL))
+        # DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Kundenschluessel fuer das
+        # Crypto-Shredding (services/pii_vault.py), idempotent.
+        for ddl in CLIENT_PII_KEYS_SQLITE_TABLE_DDL + CLIENT_PII_KEYS_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        # GOAL-REVISION-DECISION-001 (2026-10-21): append-only Herabstufungs-
+        # Entscheidungen (idempotent; siehe Konstanten oben).
+        for ddl in GOAL_REVISION_DECISION_SQLITE_TABLE_DDL + GOAL_REVISION_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
