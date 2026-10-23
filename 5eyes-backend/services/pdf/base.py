@@ -465,6 +465,12 @@ class BacktestData:
     benchmark_gross_wealth_path_rappen: Sequence[Sequence] = field(default_factory=tuple)
     benchmark_gross_metrics: Mapping[str, object] | None = None
 
+    # MC-CONTEXT-001: gesetzt, wenn das Report-Projection-Gate die Soll-
+    # Allokation ausblendet (stale/blocked). Das PDF zeigt dann keinen
+    # Soll-Backtest, sondern diesen Hinweis; ein gewaehlter Benchmark-Mix
+    # bleibt als eigenstaendige Historie sichtbar.
+    projection_hidden_hint: str | None = None
+
 
 @runtime_checkable
 class PDFRenderer(Protocol):

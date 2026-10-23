@@ -37,6 +37,7 @@ def make_drawdown_chart(
     width_mm: float | None = None,
     height_mm: float = 38.0,
     title: str | None = None,
+    primary_label: str = "SOLL-Strategie",
 ) -> Drawing:
     """Drawdown-Chart als ReportLab Drawing.
 
@@ -69,7 +70,7 @@ def make_drawdown_chart(
                            fillColor=COLOR_TEXT))
 
     series: list[tuple[Sequence[Mapping], rl_colors.Color, str]] = [
-        (soll_dd, SOLL_COLOR, "SOLL-Strategie"),
+        (soll_dd, SOLL_COLOR, primary_label),
     ]
     if benchmark_dd:
         series.append((benchmark_dd, BENCHMARK_COLOR, "Benchmark"))
