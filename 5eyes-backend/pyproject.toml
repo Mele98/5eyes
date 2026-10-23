@@ -18,4 +18,5 @@ addopts = "--tb=short -ra"
 faulthandler_timeout = 300
 markers = [
     "network: Test benoetigt echten Netzwerkzugriff (externe Marktdaten-Provider). In Offline-CI via -m 'not network' abwaehlbar.",
+    "wallclock_budget: Test prueft eine Wandzeit-Schranke (time.perf_counter). Laeuft in CI seriell in einem eigenen Job ohne parallele Nachbarprozesse, damit CPU-Konkurrenz durch xdist-Worker die Messung nicht verfaelscht.",
 ]

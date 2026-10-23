@@ -583,6 +583,7 @@ def test_solver_restart_results_deterministic_except_elapsed_ms():
 # ============================================================================
 
 
+@pytest.mark.wallclock_budget
 def test_solver_under_performance_budget_5s():
     """5-Goal-Mandant, 10J Horizon, 2000 Pfade muss <5s dauern (Spec-Budget)."""
     cma = _make_cma()

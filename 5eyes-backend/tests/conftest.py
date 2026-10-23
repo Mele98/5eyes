@@ -9,6 +9,15 @@ migrations against real client data and left an interrupted table rebuild
 This conftest is imported by pytest before any test module, i.e. before
 ``config`` builds its settings: every session gets its own throwaway DB path.
 If the live path is reached anyway, the session aborts instead of touching it.
+
+Parallel runs (pytest-xdist): the controller imports this conftest first and
+its ``DB_PATH`` is inherited by every worker process. Without the worker
+branch below all workers would share ONE SQLite file and run ``init_db()``
+on it concurrently (lock conflicts, migration races). Each worker
+(``PYTEST_XDIST_WORKER`` = ``gw0``, ``gw1`` ...) therefore gets its own fresh
+temporary directory and DB file. A caller-provided (non-live) ``DB_PATH`` only
+decides where those directories are created. A serial run never takes the
+worker branch and behaves exactly as before.
 """
 from __future__ import annotations
 
@@ -17,8 +26,27 @@ import tempfile
 from pathlib import Path
 
 _LIVE_DB = (Path.home() / "5eyes" / "5eyes.db").resolve()
+_XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
 
-if not os.environ.get("DB_PATH") or Path(os.environ["DB_PATH"]).expanduser().resolve() == _LIVE_DB:
+
+def _is_live_db(raw_path: str) -> bool:
+    return Path(raw_path).expanduser().resolve() == _LIVE_DB
+
+
+def _worker_db_path(worker: str, inherited: str | None) -> str:
+    """Fresh, worker-private throwaway DB path (never the live DB)."""
+    base_dir = None
+    if inherited and not _is_live_db(inherited):
+        parent = Path(inherited).expanduser().resolve().parent
+        if parent.is_dir():
+            base_dir = str(parent)
+    worker_dir = tempfile.mkdtemp(prefix=f"tests-{worker}-", dir=base_dir)
+    return str(Path(worker_dir) / "test.db")
+
+
+if _XDIST_WORKER:
+    os.environ["DB_PATH"] = _worker_db_path(_XDIST_WORKER, os.environ.get("DB_PATH"))
+elif not os.environ.get("DB_PATH") or _is_live_db(os.environ["DB_PATH"]):
     _session_dir = tempfile.mkdtemp(prefix="5eyes-tests-")
     os.environ["DB_PATH"] = str(Path(_session_dir) / "5eyes-test.db")
 
@@ -68,24 +96,48 @@ import pytest as _pytest
 _LEAK_REPORT_KEY = _pytest.StashKey[object]()
 
 
+_WORKER_LEAK_LINES_KEY = _pytest.StashKey[list]()
+# Key in xdist's ``workeroutput`` channel (worker -> controller).
+_WORKEROUTPUT_LEAK_KEY = "session_leak_guard_lines"
+
+
 @_pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):  # noqa: D103
     import _session_leak_guard as guard
 
     report = guard.collect()
     session.config.stash[_LEAK_REPORT_KEY] = report
-    if not report.empty and guard.strict_enabled() and session.exitstatus == 0:
+    workeroutput = getattr(session.config, "workeroutput", None)
+    if workeroutput is not None:
+        # xdist worker: the controller prints the summary and owns the exit
+        # status, so the findings travel back over the workeroutput channel.
+        workeroutput[_WORKEROUTPUT_LEAK_KEY] = report.lines()
+    lines = report.lines() + session.config.stash.get(_WORKER_LEAK_LINES_KEY, [])
+    if lines and guard.strict_enabled() and session.exitstatus == 0:
         session.exitstatus = _pytest.ExitCode.TESTS_FAILED
+
+
+@_pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):  # noqa: D103  (xdist controller only)
+    worker_lines = getattr(node, "workeroutput", {}).get(_WORKEROUTPUT_LEAK_KEY) or []
+    if not worker_lines:
+        return
+    worker_id = getattr(node, "gateway", None)
+    worker_id = getattr(worker_id, "id", "worker")
+    collected = node.config.stash.setdefault(_WORKER_LEAK_LINES_KEY, [])
+    collected.extend(f"[{worker_id}] {line}" for line in worker_lines)
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):  # noqa: D103
     import _session_leak_guard as guard
 
     report = config.stash.get(_LEAK_REPORT_KEY, None)
-    if report is None or report.empty:
+    lines = [] if report is None else report.lines()
+    lines += config.stash.get(_WORKER_LEAK_LINES_KEY, [])
+    if not lines:
         return
     terminalreporter.section("Hintergrund-Ressourcen nach Testende", sep="-", yellow=True)
-    for line in report.lines():
+    for line in lines:
         terminalreporter.line(line)
     hint = (
         f"{guard.STRICT_ENV}=1 aktiv: Lauf als fehlgeschlagen gewertet."
