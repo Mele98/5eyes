@@ -14,22 +14,37 @@ This module only *observes*; ``tests/conftest.py`` wires it into
 * APScheduler instances of ``price_updater`` / ``backup_scheduler`` that are
   still running after the run are reported (their threads are daemon threads,
   but a running backup scheduler would write into the real backup directory);
-* an exit watchdog dumps all thread stacks to stderr if the process is still
-  alive N seconds after pytest finished (``FIVEEYES_PYTEST_EXIT_WATCHDOG_S``,
-  default 60, ``0`` disables), so the next hang names its culprit instead of
-  just "no output".
+* an exit watchdog bounds the interpreter exit: if the process is still alive
+  N seconds after pytest finished (``FIVEEYES_PYTEST_EXIT_WATCHDOG_S``,
+  default 60, ``0`` disables) it dumps all thread stacks ONCE to stderr and
+  terminates the process non-zero. The exit code keeps an already failed
+  pytest status; a green run that hangs at exit ends with
+  ``EXIT_WATCHDOG_CODE``. Phases before ``pytest_unconfigure`` (test body,
+  fixture teardown, session finish) are bounded by the external supervisor
+  ``scripts/pytest_supervisor.py`` (see ``tests/_session_supervision.py``).
 """
 from __future__ import annotations
 
 import faulthandler
+import json
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
 
 STRICT_ENV = "FIVEEYES_STRICT_LEAK_GUARD"
 WATCHDOG_ENV = "FIVEEYES_PYTEST_EXIT_WATCHDOG_S"
 DEFAULT_WATCHDOG_SECONDS = 60.0
+# Exit code of a run whose pytest status was green but whose interpreter exit
+# hung past the watchdog deadline. Same value as the supervisor's
+# ``interpreter_exit_timeout`` code (scripts/pytest_supervisor.py).
+EXIT_WATCHDOG_CODE = 93
+# Hard C-level backstop (faulthandler, needs no GIL) after the Python-level
+# watchdog: covers a hang that holds the GIL. Exits with code 1.
+_BACKSTOP_EXTRA_SECONDS = 5.0
 
 # (module name, attribute holding the scheduler instance)
 _SCHEDULER_SLOTS = (
@@ -100,18 +115,100 @@ def watchdog_seconds() -> float:
         return DEFAULT_WATCHDOG_SECONDS
 
 
-def arm_exit_watchdog() -> bool:
-    """Dump every thread's stack to stderr if the process outlives pytest by N s.
+def watchdog_exit_code(exit_status: object) -> int:
+    """Non-zero exit code for a watchdog kill that keeps the first failure."""
+    try:
+        status = int(exit_status)  # pytest.ExitCode is an IntEnum
+    except (TypeError, ValueError):
+        status = 0
+    return status if status != 0 else EXIT_WATCHDOG_CODE
 
-    The timer is cancelled automatically when the interpreter finalizes, so a
-    process that exits normally never prints anything.
+
+def arm_exit_watchdog(
+    exit_status: object = None,
+    on_fire: Callable[[float, int], None] | None = None,
+) -> bool:
+    """Bound the interpreter exit: dump all stacks once, then exit non-zero.
+
+    Armed after pytest finished. A daemon timer thread keeps running while
+    ``threading._shutdown`` joins a leaked non-daemon thread; after N seconds
+    it writes every thread's stack ONCE to stderr and ends the process with
+    :func:`watchdog_exit_code` (never 0). A faulthandler timer a few seconds
+    later is the backstop for a hang that holds the GIL. A process that exits
+    normally never prints anything (both timers die with the interpreter).
     """
     seconds = watchdog_seconds()
     stream = sys.__stderr__
     if seconds <= 0 or stream is None:
         return False
+    code = watchdog_exit_code(exit_status)
+
+    def _fire() -> None:
+        try:
+            stream.write(
+                f"\n[exit-watchdog] Prozess lebt {seconds:g} s nach pytest-Ende noch; "
+                f"Thread-Stacks (einmalig), danach Exit {code}:\n"
+            )
+            stream.flush()
+            faulthandler.dump_traceback(file=stream, all_threads=True)
+            if on_fire is not None:
+                on_fire(seconds, code)
+        except Exception:  # noqa: BLE001 - the exit below must happen regardless
+            pass
+        finally:
+            for handle in (sys.__stdout__, stream):
+                try:
+                    handle.flush()
+                except Exception:  # noqa: BLE001
+                    pass
+            os._exit(code)
+
+    timer = threading.Timer(seconds, _fire)
+    timer.name = "pytest-exit-watchdog"
+    timer.daemon = True
     try:
-        faulthandler.dump_traceback_later(seconds, repeat=True, file=stream, exit=False)
-    except (ValueError, OSError, RuntimeError):
+        timer.start()
+    except RuntimeError:
         return False
+    try:
+        faulthandler.dump_traceback_later(
+            seconds + _BACKSTOP_EXTRA_SECONDS, repeat=False, file=stream, exit=True
+        )
+    except (ValueError, OSError, RuntimeError):
+        pass
     return True
+
+
+def write_leak_report_json(
+    path: Path,
+    report: LeakReport,
+    *,
+    role: str,
+    exit_status: object,
+    worker_lines: list[str] | tuple[str, ...] = (),
+) -> None:
+    """Persist the leak inventory as JSON already in ``pytest_sessionfinish``.
+
+    Written before the interpreter exit, so a later exit hang (or the
+    watchdog kill) cannot lose the evidence.
+    """
+    try:
+        status = int(exit_status)
+    except (TypeError, ValueError):
+        status = None
+    payload = {
+        "schema": "session-leak-report/v1",
+        "role": role,
+        "pid": os.getpid(),
+        "written_at": time.time(),
+        "strict": strict_enabled(),
+        "exit_status": status,
+        "threads": list(report.threads),
+        "schedulers": list(report.schedulers),
+        "worker_lines": list(worker_lines),
+        "leak_detected": bool(not report.empty or worker_lines),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
