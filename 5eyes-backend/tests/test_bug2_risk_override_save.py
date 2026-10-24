@@ -43,7 +43,7 @@ from main import app
 from models.profiling import RiskAssessment
 from models.users import User
 from services.auth import get_current_user
-from tests.risk_fixture_helpers import CURRENT_RISK_ANSWERS
+from tests.risk_fixture_helpers import standard_risk_payload
 
 
 def _utc_now_iso() -> str:
@@ -113,28 +113,10 @@ def _setup_full(auth_client, advisor_user) -> tuple[str, str, str]:
     assert mandate_resp.status_code == 201, mandate_resp.text
     mandate_id = mandate_resp.json()["id"]
     # Risikoprofilierung erstellen — Voraussetzung fuer Override.
-    # Payload analog zu CURRENT_RISK_ANSWERS auf RiskAssessmentCreate-Schema mappen.
-    answers_dicts = [
-        {"question_number": qn, "answer_label": lbl, "answer_points": pts}
-        for (qn, lbl, pts) in CURRENT_RISK_ANSWERS
-    ]
+    # Payload wie der Standard-Fragebogen ihn sendet (Punkte = Antworten).
     ra_resp = auth_client.post(
         f"/mandates/{mandate_id}/risk-assessments",
-        json={
-            "q_income_points": 3,
-            "q_obligations_points": 3,
-            "q_savings_points": 9,
-            "q_wealth_points": 9,
-            "investment_horizon_label": "Mehr als 12 Jahre",
-            "investment_horizon_years": 15,
-            "q_investment_goal_points": 3,
-            "q_risk_preference_points": 3,
-            "q_risk_behavior_points": 3,
-            "answers": answers_dicts,
-            "knowledge_services_json": "{}",
-            "knowledge_instruments_json": "{}",
-            "income_sources_json": '["Berufliche Taetigkeit"]',
-        },
+        json=standard_risk_payload(),
     )
     assert ra_resp.status_code == 201, ra_resp.text
     return client_id, mandate_id, ra_resp.json()["id"]

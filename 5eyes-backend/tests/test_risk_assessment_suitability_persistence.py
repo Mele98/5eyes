@@ -27,6 +27,7 @@ from database import Base, get_db
 from main import app
 from models.users import User
 from services.auth import get_current_user
+from tests.risk_fixture_helpers import standard_risk_payload
 
 
 def _utc_now_iso() -> str:
@@ -103,38 +104,11 @@ def _setup_mandate(auth_client: TestClient, advisor_user: User) -> str:
 
 
 def _valid_payload(**overrides) -> dict:
-    base = {
-        "q_income_points": 3,
-        "q_obligations_points": 2,
-        "q_savings_points": 8,
-        "q_wealth_points": 8,
-        "investment_horizon_years": 12,
-        "investment_horizon_label": "5 bis 10 Jahre",
-        "q_investment_goal_points": 3,
-        "q_risk_preference_points": 3,
-        "q_risk_behavior_points": 3,
-        "answers": [
-            {"question_number": 1, "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
-            {"question_number": 2, "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
-            {"question_number": 3, "answer_label": "CHF 12'000 bis 20'000", "answer_points": 3},
-            {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
-            {"question_number": 5, "answer_label": "CHF 3'000 bis 5'000", "answer_points": 3},
-            {"question_number": 6, "answer_label": "CHF 1'000'000 bis 2'000'000", "answer_points": 9},
-            {"question_number": 7, "answer_label": "25 bis 50 %", "answer_points": 9},
-            {"question_number": 8, "answer_label": "5 bis 7 Jahre - Matrix-Faktor", "answer_points": 0},
-            {"question_number": 9, "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
-            {
-                "question_number": 10,
-                "answer_label": "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.",
-                "answer_points": 3,
-            },
-            {
-                "question_number": 11,
-                "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.",
-                "answer_points": 3,
-            },
-        ],
-    }
+    # Standard-Fragebogen (O-1/O-2); die Kenntnis-/Herkunfts-Felder fehlen wie
+    # bei alten Aufrufen und werden je Test gesetzt.
+    base = standard_risk_payload(horizon=3)
+    for key in ("knowledge_services_json", "knowledge_instruments_json", "income_sources_json"):
+        base.pop(key)
     base.update(overrides)
     return base
 

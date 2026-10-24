@@ -21,7 +21,6 @@ from routers.profiling import create_risk_assessment, override_risk_assessment
 from schemas.profiling import RiskAssessmentCreate, RiskAssessmentOverride
 from services.portfolio_engine import risk_assessment_ready_for_strategy
 from services.risk_scoring import profile_for_score_x10
-from tests.risk_fixture_helpers import CURRENT_RISK_ANSWERS
 
 
 VALID_OVERRIDE_REASON = "Kundenwunsch ausdruecklich dokumentiert"
@@ -54,15 +53,10 @@ class _FakeRequest:
 
 
 def _answers() -> list[dict]:
-    return [
-        {
-            "question_number": question_number,
-            "question_section": "Risikoprofil",
-            "answer_label": label,
-            "answer_points": points,
-        }
-        for question_number, label, points in CURRENT_RISK_ANSWERS
-    ]
+    # Standard-Fragebogen (O-1/O-2): passt zu 3/3/9/9, > 12 Jahre, 3/3/3.
+    from tests.risk_fixture_helpers import standard_risk_payload
+
+    return standard_risk_payload()["answers"]
 
 
 def test_risk_override_endpoint_persists_and_keeps_assessment_strategy_ready(session_factory):

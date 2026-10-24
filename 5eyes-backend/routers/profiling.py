@@ -39,6 +39,10 @@ from services.portfolio_engine import (
     risk_assessment_ready_for_strategy,
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
+from services.risk_questionnaire_integrity import (
+    RiskQuestionnaireIntegrityError,
+    validate_standard_submission,
+)
 from services.risk_capacity_plausibility import audit_if_inconsistent, evaluate_mandate_safely
 from services.risk_assessment_semantics import (
     OVERRIDE_DOCUMENTATION_RULES_VERSION,
@@ -251,6 +255,13 @@ def create_risk_assessment(
                 "anklicken und das Risikoprofil erneut speichern."
             ),
         )
+    # O-1/O-2: nur Antworten aus dem Standard-Fragebogen; der Server leitet die
+    # Punkte selbst aus den gewaehlten Optionen ab und lehnt Abweichungen ab
+    # (kein stilles Korrigieren).
+    try:
+        validate_standard_submission(body)
+    except RiskQuestionnaireIntegrityError as exc:
+        raise HTTPException(status_code=422, detail=exc.as_detail()) from exc
 
     # Supersede previous (Race-Hardening, siehe ClientKnowledge oben).
     try:

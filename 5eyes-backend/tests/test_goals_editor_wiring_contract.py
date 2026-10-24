@@ -111,7 +111,8 @@ def test_html_bridge_reuses_same_token_handoff_as_advisory_report_bridge():
     # openCrmEditor, openCrmEditorForClient, openWealthInflowEditor).
     # UX-15 (#656): der Allokations-Editor nutzt keine eigene React-Bridge mehr
     # (ein einziger Bandbreiten-Editor im Monolith-Modal) -> 8 Bridges.
-    assert html.count("await resolveReportingAppUrl(path)") == 8
+    # O-1: Risikoprofil-Editor gesperrt (keine Bruecke mehr) -> 7 Bridges.
+    assert html.count("await resolveReportingAppUrl(path)") == 7
 
 
 def test_goals_editor_entry_point_is_reachable_from_cashflow_ziele_section():

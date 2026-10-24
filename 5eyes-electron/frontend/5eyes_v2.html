@@ -3134,7 +3134,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: RISIKOPROFIL -->
     <div id="page-rp" class="page">
-      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button><details class="ph-more"><summary title="Weitere Risikoprofil-Optionen" aria-label="Weitere Risikoprofil-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil');this.closest('details').removeAttribute('open')" title="Risikoprofil-PDF erstellen">PDF</button><button class="btn" id="btn-rp-react-editor" onclick="openProfilingEditor();this.closest('details').removeAttribute('open')" title="Risikoprofil-Editor (React, Beta) in neuem Browser-Tab">Editor (Beta)</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button><details class="ph-more"><summary title="Weitere Risikoprofil-Optionen" aria-label="Weitere Risikoprofil-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil');this.closest('details').removeAttribute('open')" title="Risikoprofil-PDF erstellen">PDF</button><button class="btn" id="btn-rp-react-editor" hidden disabled style="display:none" onclick="openProfilingEditor();this.closest('details').removeAttribute('open')" title="Risikoprofil-Editor (Beta) gesperrt">Editor (Beta)</button></div></details></div></div>
       <div class="pad">
         <!-- CLASS-01 (2026-10-07, FIDLEG Art. 13 Abs. 3): Klassifikations-Hinweise.
              Default (Privatkunde / keine Klassifikation) zeigt beide Banner NICHT,
@@ -14271,7 +14271,7 @@ var DC_GENERIC_COLORS = ['var(--ac-eq)','var(--ac-bd)','var(--ac-re)','var(--ac-
 //
 // Roadmap #63 / ADR-008 Track 2 (2026-07-23): der Token-Handoff wird in
 // resolveReportingAppUrl() extrahiert, damit weitere Editor-Workflows
-// (z.B. openProfilingEditor()) dieselbe Bruecke zur React-Sub-App nutzen
+// (z.B. openGoalsEditor()) dieselbe Bruecke zur React-Sub-App nutzen
 // koennen, ohne die Logik zu duplizieren.
 async function resolveReportingAppUrl(path){
   // Token aus der gleichen Quelle wie API.js: erst Electron (window.desktop),
@@ -14316,24 +14316,11 @@ async function openReportingApp(){
   window.open(url, '_blank', 'noopener');
 }
 
-// Roadmap #63 / ADR-008 Track 2 (2026-07-23): Migration Profiling-Workflow.
-// Oeffnet den neuen React-Risikoprofil-Editor (Schema-First-Migration, PR #306)
-// in einem neuen Browser-Tab statt des Inline-HTML-Fragebogens. Der Editor ruft
-// exakt dieselben Backend-Endpunkte auf wie saveRiskProfile() unten
-// (POST /mandates/{id}/risk-assessments, GET .../risk-assessments/current) --
-// keine Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
-// Uebergangs-Strategie gemaess ADR-008 Track 2: der Inline-Fragebogen bleibt
-// vorerst aktiv (Zwei-Stack-Betrieb), bis die React-Seite im Alltag erprobt ist.
+// O-1 (CIO-Entscheid): Der Risikoprofil-Editor (Beta) ist gesperrt. Er wich
+// vom Standard-Fragebogen ab (Texte, Fragen 6/7, pauschale Antworten). Erfasst
+// wird nur im Standard-Fragebogen dieser Seite; der Server lehnt Fremdprofile ab.
 async function openProfilingEditor(){
-  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
-  if(!mid){
-    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
-    return;
-  }
-  var path = '/mandates/' + encodeURIComponent(mid) + '/risikoprofil-editor';
-  var url = await resolveReportingAppUrl(path);
-  window.open(url, '_blank', 'noopener');
+  uiAlert({level:'error',message:'Der Risikoprofil-Editor (Beta) ist gesperrt. Bitte das Risikoprofil im Standard-Fragebogen erfassen.'});
 }
 
 // Track #64 / ADR-008 Track 2: Migration Goal-Wizard.
@@ -14417,7 +14404,7 @@ async function openCrmEditor(){
 
 // Per-Client-Variante: oeffnet den React-CRM-Editor direkt mit dem aktuell
 // aktiven Kunden vorselektiert (Deep-Link, analog getActiveMandateId() bei
-// openProfilingEditor()).
+// openGoalsEditor()).
 async function openCrmEditorForClient(){
   var cid = typeof getActiveClientId==='function' ? getActiveClientId() : null;
   if(!cid){

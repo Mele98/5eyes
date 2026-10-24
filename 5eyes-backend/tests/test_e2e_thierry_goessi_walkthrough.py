@@ -336,43 +336,15 @@ def _seed_risk_profile(api, mandate_id: str) -> dict:
     passiert. Das ist gewollt: ein halb angeklickter Fragebogen darf keine
     Strategie tragen.
     """
-    answers = [
-        (1, "Kenntnisse", "Finanzdienstleistungen: Anlageberatung, Vermögensverwaltung", 0),
-        (2, "Kenntnisse", "Finanzinstrumente: Aktien, Obligationen, Anlagefonds", 0),
-        (3, "Tragfähigkeit", "Einkommen CHF 180'000 pro Jahr", 4),
-        (4, "Tragfähigkeit", "Herkunft: Erwerbseinkommen und Sparguthaben", 0),
-        (5, "Tragfähigkeit", "Fixe Verpflichtungen CHF 104'400 pro Jahr", 3),
-        (6, "Tragfähigkeit", "Sparquote CHF 60'000 pro Jahr", 6),
-        (7, "Tragfähigkeit", "Anlagebetrag entspricht 25 % des Gesamtvermögens", 6),
-        (8, "Horizont", "Matrix: Mehr als 12 Jahre", 0),
-        (9, "Bereitschaft", "Vermögen langfristig vermehren (Wachstum)", 3),
-        (10, "Bereitschaft", "Höhere Rendite gegen Wertschwankung akzeptiert", 3),
-        (11, "Bereitschaft", "Verluste aushalten, nicht verkaufen", 3),
-    ]
-    resp = api.post(
-        f"/mandates/{mandate_id}/risk-assessments",
-        json={
-            "q_income_points": 4, "q_obligations_points": 3,
-            "q_savings_points": 6, "q_wealth_points": 6,
-            "investment_horizon_label": "Mehr als 12 Jahre",
-            "investment_horizon_years": 20,
-            "q_investment_goal_points": 3, "q_risk_preference_points": 3,
-            "q_risk_behavior_points": 3,
-            "knowledge_services_json": "{}",
-            "knowledge_instruments_json": "{}",
-            "income_sources_json": "[]",
-            "answers": [
-                {
-                    "question_number": number,
-                    "question_section": section,
-                    "answer_label": label,
-                    "answer_points": points,
-                }
-                for number, section, label, points in answers
-            ],
-            "data_classification": "synthetic",
-        },
-    )
+    # Seit O-1/O-2 nimmt der Server nur Antworten des Standard-Fragebogens an
+    # und leitet die Punkte selbst ab: Payload exakt wie das Desktop-Frontend
+    # (Einkommen 4, Verpflichtungen 3, Sparquote 6, Vermoegen 6, > 12 Jahre,
+    # Bereitschaft 3/3/3).
+    from tests.risk_fixture_helpers import standard_risk_payload
+
+    payload = standard_risk_payload(income=4, oblig=1, savings=2, wealth=2, horizon=5)
+    payload["data_classification"] = "synthetic"
+    resp = api.post(f"/mandates/{mandate_id}/risk-assessments", json=payload)
     assert resp.status_code in (200, 201), resp.text
     return resp.json()
 

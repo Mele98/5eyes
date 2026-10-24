@@ -51,7 +51,12 @@ from services.auth import get_current_user
 TESTS_ROOT = Path(__file__).resolve().parent
 if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
-from test_runtime_contracts import complete_risk_questionnaire_answers as _complete_risk_questionnaire_answers
+from tests.risk_fixture_helpers import standard_risk_payload
+
+
+def _max_standard_risk_payload() -> dict:
+    """Standard-Fragebogen mit Hoechstwerten (Punkte = Antworten, O-2)."""
+    return standard_risk_payload(income=4, oblig=0, savings=4, wealth=4, horizon=5, goal=3, pref=3, behav=3)
 
 
 _NOW = "2026-05-31T08:00:00.000Z"
@@ -530,15 +535,7 @@ def test_risk_assessment_override_invalidates_cache(http_client):
     client, seeded = http_client
     mid = seeded["mandate_id"]
 
-    created = client.post(f"/mandates/{mid}/risk-assessments", json={
-        "q_income_points": 4, "q_obligations_points": 4,
-        "q_savings_points": 12, "q_wealth_points": 12,
-        "investment_horizon_label": "Mehr als 12 Jahre",
-        "investment_horizon_years": 15,
-        "q_investment_goal_points": 4, "q_risk_preference_points": 4,
-        "q_risk_behavior_points": 4,
-        "answers": _complete_risk_questionnaire_answers(),
-    })
+    created = client.post(f"/mandates/{mid}/risk-assessments", json=_max_standard_risk_payload())
     assert created.status_code == 201, created.text
     ra_id = created.json()["id"]
     client.get(f"/mandates/{mid}/advisory-report")
@@ -565,15 +562,7 @@ def test_target_allocation_direct_create_invalidates_cache(http_client, session_
     mid = seeded["mandate_id"]
     monkeypatch.setattr(_settings, "optimizer_mode", "house_matrix")
 
-    created = client.post(f"/mandates/{mid}/risk-assessments", json={
-        "q_income_points": 4, "q_obligations_points": 4,
-        "q_savings_points": 12, "q_wealth_points": 12,
-        "investment_horizon_label": "Mehr als 12 Jahre",
-        "investment_horizon_years": 15,
-        "q_investment_goal_points": 4, "q_risk_preference_points": 4,
-        "q_risk_behavior_points": 4,
-        "answers": _complete_risk_questionnaire_answers(),
-    })
+    created = client.post(f"/mandates/{mid}/risk-assessments", json=_max_standard_risk_payload())
     assert created.status_code == 201, created.text
 
     with session_factory() as db:

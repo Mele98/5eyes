@@ -33,6 +33,7 @@ from main import app
 from models.profiling import RiskAssessment, RiskAssessmentAnswer
 from models.users import User
 from services.auth import get_current_user
+from tests.risk_fixture_helpers import standard_risk_payload
 
 
 def _utc_now_iso() -> str:
@@ -109,34 +110,14 @@ def _setup_mandate(auth_client: TestClient, advisor_user: User) -> str:
 
 
 def _full_answers() -> list[dict]:
-    return [
-        {"question_number": 1, "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
-        {"question_number": 2, "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
-        {"question_number": 3, "answer_label": "CHF 12'000 bis 20'000", "answer_points": 3},
-        {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
-        {"question_number": 5, "answer_label": "CHF 3'000 bis 5'000", "answer_points": 3},
-        {"question_number": 6, "answer_label": "CHF 1'000'000 bis 2'000'000", "answer_points": 9},
-        {"question_number": 7, "answer_label": "25 bis 50 %", "answer_points": 9},
-        {"question_number": 8, "answer_label": "5 bis 7 Jahre - Matrix-Faktor", "answer_points": 0},
-        {"question_number": 9, "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
-        {"question_number": 10, "answer_label": "Ich strebe eine hoehere Rendite an und gehe erhoehtes Risiko ein.", "answer_points": 3},
-        {"question_number": 11, "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte fest.", "answer_points": 3},
-    ]
+    # Standard-Fragebogen (O-1/O-2): Punkte passen zu den gewaehlten Antworten.
+    return standard_risk_payload(horizon=3)["answers"]
 
 
 def _base_payload(answers: list[dict]) -> dict:
-    return {
-        "q_income_points": 3,
-        "q_obligations_points": 2,
-        "q_savings_points": 8,
-        "q_wealth_points": 8,
-        "investment_horizon_years": 12,
-        "investment_horizon_label": "5 bis 10 Jahre",
-        "q_investment_goal_points": 3,
-        "q_risk_preference_points": 3,
-        "q_risk_behavior_points": 3,
-        "answers": answers,
-    }
+    payload = standard_risk_payload(horizon=3)
+    payload["answers"] = answers
+    return payload
 
 
 @pytest.mark.parametrize(

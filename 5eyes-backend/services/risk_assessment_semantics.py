@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from services.override_reason_quality import validate_override_reason_quality
+from services.risk_questionnaire_integrity import (
+    REASON_NOT_STANDARD, known_nonstandard_evidence, nonstandard_profile_message,
+)
 from services.risk_scoring import (
     HORIZON_YEARS,
     canonicalize_horizon_label,
@@ -15,6 +18,12 @@ from services.risk_scoring import (
 
 class RiskAssessmentInputError(ValueError):
     """Persisted risk-profile state is ambiguous or internally inconsistent."""
+
+
+class RiskQuestionnaireNotStandardError(RiskAssessmentInputError):
+    """Profil stammt nachweislich nicht aus dem Standard-Fragebogen (O-1)."""
+
+    reason_code = REASON_NOT_STANDARD
 
 
 _PROFILE_BAND = {
@@ -341,6 +350,9 @@ def validate_risk_assessment_model_input(
 
     if assessment is None:
         raise RiskAssessmentInputError("Aktuelles Risikoprofil fehlt.")
+    evidence = known_nonstandard_evidence(assessment)
+    if evidence:
+        raise RiskQuestionnaireNotStandardError(nonstandard_profile_message(evidence))
 
     final_score = _exact_int(
         getattr(assessment, "final_score_x10", None),

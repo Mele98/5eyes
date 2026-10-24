@@ -247,28 +247,19 @@ def seed_foreign_client_and_mandate(session_factory, other_advisor_user) -> tupl
     return "client-foreign-1", "mandate-foreign-1"
 
 
-def complete_risk_questionnaire_answers() -> list[dict]:
-    return [
-        {"question_number": 1, "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
-        {"question_number": 2, "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
-        {"question_number": 3, "answer_label": "CHF 12'000 bis 20'000", "answer_points": 3},
-        {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
-        {"question_number": 5, "answer_label": "CHF 3'000 bis 5'000", "answer_points": 3},
-        {"question_number": 6, "answer_label": "CHF 1'000'000 bis 2'000'000", "answer_points": 9},
-        {"question_number": 7, "answer_label": "25 bis 50 %", "answer_points": 9},
-        {"question_number": 8, "answer_label": "Mehr als 12 Jahre - Matrix-Faktor", "answer_points": 0},
-        {"question_number": 9, "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
-        {
-            "question_number": 10,
-            "answer_label": "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.",
-            "answer_points": 3,
-        },
-        {
-            "question_number": 11,
-            "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.",
-            "answer_points": 3,
-        },
-    ]
+def complete_risk_questionnaire_answers(*, willingness_points: int = 4, **indices) -> list[dict]:
+    """Antworten des Standard-Fragebogens (O-1/O-2: Punkte = Antworten).
+
+    Default passt zu q_income 4 / q_obligations 4 / q_savings 12 / q_wealth 12 /
+    "Mehr als 12 Jahre" und Bereitschaft je ``willingness_points``; andere
+    Kombinationen ueber Options-Indizes (siehe standard_risk_payload).
+    """
+    from tests.risk_fixture_helpers import standard_risk_payload
+
+    choice = dict(income=4, oblig=0, savings=4, wealth=4, horizon=5)
+    choice.update(goal=willingness_points - 1, pref=willingness_points - 1, behav=willingness_points - 1)
+    choice.update(indices)
+    return standard_risk_payload(**choice)["answers"]
 
 
 def test_runtime_routes_expose_frontend_contracts():
@@ -995,7 +986,7 @@ def test_risk_assessment_current_includes_raw_points_and_answers(session_factory
         q_investment_goal_points=3,
         q_risk_preference_points=3,
         q_risk_behavior_points=4,
-        answers=complete_risk_questionnaire_answers(),
+        answers=complete_risk_questionnaire_answers(income=3, oblig=4, savings=3, wealth=2, horizon=4, goal=2, pref=2, behav=3),
     )
 
     with session_factory() as session:
@@ -1021,7 +1012,8 @@ def test_risk_assessment_current_includes_raw_points_and_answers(session_factory
     assert current.q_risk_behavior_points == 4
     assert [answer.question_number for answer in current.answers] == list(range(1, 12))
     assert current.answers[0].answer_label.startswith("Finanzdienstleistungen:")
-    assert current.answers[-1].answer_points == 3
+    # O-2: Antwortpunkte == Score-Feld (q_risk_behavior_points).
+    assert current.answers[-1].answer_points == 4
 
 
 def test_generate_target_allocation_requires_complete_risk_questionnaire(session_factory, advisor_user):
@@ -4626,14 +4618,14 @@ def test_refresh_system_review_triggers_creates_review_and_goal_alerts(session_f
     payload = RiskAssessmentCreate(
         q_income_points=2,
         q_obligations_points=2,
-        q_savings_points=4,
-        q_wealth_points=4,
+        q_savings_points=3,
+        q_wealth_points=3,
         investment_horizon_label="4 bis 5 Jahre",
-        investment_horizon_years=5,
+        investment_horizon_years=4,
         q_investment_goal_points=2,
         q_risk_preference_points=2,
         q_risk_behavior_points=2,
-        answers=complete_risk_questionnaire_answers(),
+        answers=complete_risk_questionnaire_answers(income=2, oblig=2, savings=1, wealth=1, horizon=2, goal=1, pref=1, behav=1),
     )
 
     with session_factory() as session:
@@ -4938,11 +4930,11 @@ def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(sessi
                 q_savings_points=6,
                 q_wealth_points=6,
                 investment_horizon_label="6 bis 7 Jahre",
-                investment_horizon_years=7,
+                investment_horizon_years=6,
                 q_investment_goal_points=3,
                 q_risk_preference_points=3,
                 q_risk_behavior_points=3,
-                answers=complete_risk_questionnaire_answers(),
+                answers=complete_risk_questionnaire_answers(income=3, oblig=1, savings=2, wealth=2, horizon=3, goal=2, pref=2, behav=2),
             ),
             db=session,
             current_user=advisor_user,
@@ -5020,11 +5012,11 @@ def test_refresh_system_review_triggers_ignores_unconfigured_zero_bands(session_
                 q_savings_points=6,
                 q_wealth_points=6,
                 investment_horizon_label="6 bis 7 Jahre",
-                investment_horizon_years=7,
+                investment_horizon_years=6,
                 q_investment_goal_points=3,
                 q_risk_preference_points=3,
                 q_risk_behavior_points=3,
-                answers=complete_risk_questionnaire_answers(),
+                answers=complete_risk_questionnaire_answers(income=3, oblig=1, savings=2, wealth=2, horizon=3, goal=2, pref=2, behav=2),
             ),
             db=session,
             current_user=advisor_user,
