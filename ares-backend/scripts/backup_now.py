@@ -28,7 +28,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="5eyes DB-Backup-CLI")
+    parser = argparse.ArgumentParser(description="Ares DB-Backup-CLI")
     parser.add_argument(
         "--source",
         type=str,

@@ -20,7 +20,7 @@ def utc_now():
 
 
 def main():
-    parser = argparse.ArgumentParser(description='5Eyes Ersteinrichtung')
+    parser = argparse.ArgumentParser(description='Ares Ersteinrichtung')
     parser.add_argument('--username', default='admin', help='Benutzername (default: admin)')
     parser.add_argument('--password', default=None, help='Passwort (wird abgefragt wenn nicht angegeben)')
     parser.add_argument('--name', default='Administrator', help='Vollständiger Name')
@@ -28,7 +28,7 @@ def main():
     args = parser.parse_args()
 
     print('=' * 60)
-    print('  5Eyes WealthArchitekten — Ersteinrichtung')
+    print('  Ares — Ersteinrichtung')
     print('=' * 60)
     print()
 

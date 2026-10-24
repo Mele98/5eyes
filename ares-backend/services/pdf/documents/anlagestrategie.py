@@ -20,7 +20,7 @@ from services.pdf.components.goal_achievability import (
     make_plan_solvency_line,
     make_limiting_factor_line,
 )
-from services.pdf.components.header import make_wealtharchitekten_header
+from services.pdf.components.header import make_banner_header
 from services.pdf.components.produkte import make_produkte_section
 from services.pdf.components.risiko_metriken import make_risiko_metriken_section
 from services.pdf.components.risikoprofil_box import make_risikoprofil_box
@@ -105,7 +105,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # A.1 Vermoegensuebersicht
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -124,7 +124,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # A.2 Kapitalzufluesse + Ziele
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -146,7 +146,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # A.3 Eignungspruefung
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -166,7 +166,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # A.4 Risikoprofil-Box (eigene Seite wie Referenzvorlage)
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -188,7 +188,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # A.5 Anlagepraeferenzen
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -202,7 +202,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # B.1 Soll-Allokation Bar-Tabelle + 2-Donut-Vergleich
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -216,7 +216,7 @@ def build_anlagestrategie_flowables(
             show_bands=_has_band_overrides(data.allocation_preferences),
         ))
         flowables.append(PageBreak())
-        flowables.extend(make_wealtharchitekten_header(
+        flowables.extend(make_banner_header(
             ctx, mandate_number=data.mandate_number,
             advisory_wealth_label=advisory_label,
         ))
@@ -254,7 +254,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # B.2 Produkte (ISIN-Tabelle gruppiert mit Subtotalen)
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -264,7 +264,7 @@ def build_anlagestrategie_flowables(
     flowables.append(PageBreak())
 
     # B.3 Risiko-Metriken + Zielerreichung
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -290,7 +290,7 @@ def build_anlagestrategie_flowables(
         ))
     flowables.append(PageBreak())
 
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
@@ -345,7 +345,7 @@ def _build_anlagestrategie_flowables_template_order(
     flowables: list = []
 
     def header(document_title: str):
-        flowables.extend(make_wealtharchitekten_header(
+        flowables.extend(make_banner_header(
             ctx,
             mandate_number=data.mandate_number,
             advisory_wealth_label=advisory_label,

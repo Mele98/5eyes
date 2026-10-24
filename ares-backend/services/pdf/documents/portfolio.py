@@ -6,7 +6,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.base import PDFContext
-from services.pdf.components.header import _esc, make_wealtharchitekten_header
+from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.single_report_disclaimer import (
     make_single_report_cover,
     make_single_report_disclaimer,
@@ -62,7 +62,7 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
         scope="Portfolio",
     ))
     flowables.append(PageBreak())
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx,
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,

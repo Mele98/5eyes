@@ -12,7 +12,7 @@ from services.pdf.components.depotcheck_soll import (
     make_summary_text,
     make_target_allocation_bars,
 )
-from services.pdf.components.header import _esc, make_wealtharchitekten_header
+from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.styles import (
@@ -169,7 +169,7 @@ def _start_page(
     advisory_label: str | None,
     title: str,
 ) -> None:
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx,
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
