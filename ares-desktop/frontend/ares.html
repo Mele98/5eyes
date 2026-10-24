@@ -5379,8 +5379,8 @@ const API = {
   _handling401: false,
   async baseUrl() {
     if (!this._baseUrl) {
-      if (window.FiveEyesAPI && typeof window.FiveEyesAPI.resolveBaseUrl === 'function') {
-        this._baseUrl = await window.FiveEyesAPI.resolveBaseUrl();
+      if (window.AresAPI && typeof window.AresAPI.resolveBaseUrl === 'function') {
+        this._baseUrl = await window.AresAPI.resolveBaseUrl();
       } else if (window.desktop && typeof window.desktop.getBackendBaseUrl === 'function') {
         this._baseUrl = await window.desktop.getBackendBaseUrl();
       } else if (typeof window !== 'undefined' && window.location &&
@@ -6215,7 +6215,7 @@ function applyUpdateState(state) {
     renderAdminDashboard();
   }
   // Auto-Update ist nur in installierten Electron-Releases aktiv. In Dev/Browser
-  // (kein FiveEyesAPI) sind die Buttons No-Ops -> klar kommunizieren + sperren.
+  // (kein AresAPI) sind die Buttons No-Ops -> klar kommunizieren + sperren.
   if (!state.enabled) {
     label.textContent = 'Auto-Update ist nur in installierten Releases aktiv.';
     if (installBtn) installBtn.style.display = 'none';
@@ -6242,8 +6242,8 @@ async function adminCheckUpdates() {
   const btn = document.getElementById('btn-check-updates');
   if (btn) { btn.disabled = true; btn.textContent = 'Prüfe…'; }
   try {
-    if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
-      const state = await window.FiveEyesAPI.updates.check();
+    if (window.AresAPI && window.AresAPI.updates) {
+      const state = await window.AresAPI.updates.check();
       applyUpdateState(state);
     }
   } catch(e) {
@@ -6256,8 +6256,8 @@ async function adminCheckUpdates() {
 async function adminInstallUpdate() {
   if (!(await adminConfirmRisk('Update installieren?', 'Die App kann neu starten oder sich kurz beenden. Erstelle vorher ein Backup, wenn gerade fachliche Daten geaendert wurden.'))) return;
   try {
-    if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
-      await window.FiveEyesAPI.updates.install();
+    if (window.AresAPI && window.AresAPI.updates) {
+      await window.AresAPI.updates.install();
     }
   } catch(e) {
     console.warn('Update install failed:', e);
@@ -6270,9 +6270,9 @@ if (window.desktop && typeof window.desktop.onUpdateStateChanged === 'function')
 }
 // Also init update state on admin modal open
 (async () => {
-  if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
+  if (window.AresAPI && window.AresAPI.updates) {
     try {
-      const state = await window.FiveEyesAPI.updates.getState();
+      const state = await window.AresAPI.updates.getState();
       applyUpdateState(state);
     } catch(e) {}
   } else {
@@ -11609,7 +11609,7 @@ async function adminLoadSystemHealth(showLog) {
     API.get('/admin/system/compliance'),
     API.get('/admin/system/backups'),
     API.get('/admin/system/paths'),
-    (window.FiveEyesAPI && window.FiveEyesAPI.updates ? window.FiveEyesAPI.updates.getState() : Promise.resolve({ enabled: false }))
+    (window.AresAPI && window.AresAPI.updates ? window.AresAPI.updates.getState() : Promise.resolve({ enabled: false }))
   ]);
   if (results[0].status === 'fulfilled') adminSystemState.compliance = results[0].value;
   if (results[1].status === 'fulfilled') adminSystemState.backups = results[1].value;
@@ -14286,7 +14286,7 @@ async function resolveReportingAppUrl(path){
     try { token = sessionStorage.getItem('5eyes_token') || ''; } catch(e){}
   }
   // Bug-#6: Backend-Mount statt Vite-Dev-Server. Backend-URL aus der
-  // gleichen Quelle wie API.js (FiveEyesAPI.resolveBaseUrl / desktop),
+  // gleichen Quelle wie API.js (AresAPI.resolveBaseUrl / desktop),
   // faellt sonst auf 127.0.0.1:8000 zurueck.
   var apiBase = 'http://127.0.0.1:8000';
   try {
@@ -16691,7 +16691,7 @@ async function adminSupportBundle() {
 
 async function adminUpdateStatus() {
   try {
-    const state = window.FiveEyesAPI && window.FiveEyesAPI.updates ? await window.FiveEyesAPI.updates.getState() : { enabled:false };
+    const state = window.AresAPI && window.AresAPI.updates ? await window.AresAPI.updates.getState() : { enabled:false };
     adminSystemState.update = state;
     renderAdminDashboard();
     const lines = [
