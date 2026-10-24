@@ -154,7 +154,7 @@ def compile_reserve_funding_ledger(
     ``goal_needs``: [{"goal_id", "need_rappen", "rank", "hardness"}].
     ``goal_liability_paths``: goal_id -> Liability-Pfad (Index wie Cashflows).
     """
-    from services.portfolio_engine_reserve import _external_reserve_release_series
+    from services.portfolio_engine_reserve import _tranche_release_series
 
     external = int(external_reserve_rappen or 0)
     needed = int(reserve_needed_rappen or 0)
@@ -213,7 +213,7 @@ def compile_reserve_funding_ledger(
             goal_rank=None if entry["rank"] is None else int(entry["rank"]),
             hardness=None if entry["hardness"] is None else str(entry["hardness"]),
         ))
-        tranche_release = _external_reserve_release_series(amount, outflow_cf, outflow_liab)
+        tranche_release = _tranche_release_series(amount, outflow_cf, outflow_liab)
         for year_index, released in enumerate(tranche_release):
             if released > 0:
                 release_series[year_index] += released
