@@ -100,6 +100,94 @@ def normalize_failure_event_distribution(row: Mapping[str, Any] | None) -> list[
     return entries
 
 
+_PRIMARY_SHARE_TOL = 1e-4  # 1 Basispunkt
+_PROBABILITY_ONE_TOL = 1e-12
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
+
+
+def _mode_order(event_id: str) -> tuple[int, str]:
+    # Gleiche Reihenfolge wie die Engine (goal_attribution._failure_event_
+    # distribution): Anteil absteigend, dann frueheres Jahr, dann eigenes Ziel.
+    match = _LIQUIDITY_RE.match(event_id)
+    return (int(match.group(1)), event_id) if match else (10**9, event_id)
+
+
+def is_bound_to_goal_row(row: Mapping[str, Any] | None, entries: list[dict] | None) -> bool:
+    """Semantische Bindung einer normalisierten Verteilung an IHRE Zielzeile.
+
+    Closure-Review PR #671 (GOAL-ACHIEVABILITY-ATTRIBUTION-001). Die Syntax
+    prueft ``normalize_failure_event_distribution``; hier gilt zusaetzlich:
+
+    * zielspezifische Ereignisse (``zielschwelle-*``/``renditeziel-*``)
+      tragen exakt die ``goal_id`` der Zeile (und die zur ``target_kind``
+      passende Art, falls angegeben);
+    * keine doppelten Event-IDs;
+    * ``failure_event_id`` ist der deterministische Modus der Verteilung und
+      ``failure_event_share`` dessen Anteil (Toleranz 1 bp); leere
+      Verteilung -> kein primaeres Ereignis;
+    * Wahrscheinlichkeit 100 % verlangt eine leere Verteilung; unter 100 %
+      verlangt sie Failure-Evidence (ausser ausserhalb des Simulations-
+      horizonts bzw. bei Maximierungszielen, die keine Verteilung tragen).
+
+    ``False`` -> die Verteilung wird nicht publiziert (fail-closed).
+    """
+    if not isinstance(row, Mapping) or entries is None:
+        return False
+    goal_id = str(row.get("goal_id") or "").strip()
+    if not goal_id:
+        return False
+    raw = row.get("failure_event_distribution")
+    if not isinstance(raw, (list, tuple)) or len(raw) != len(entries):
+        return False
+    target_kind = str(row.get("target_kind") or "").strip()
+    own_kinds = (
+        {KIND_RETURN} if target_kind == "return_rate"
+        else {KIND_THRESHOLD} if target_kind
+        else {KIND_THRESHOLD, KIND_RETURN}
+    )
+    seen: set[str] = set()
+    for entry in entries:
+        event_id = entry["event_id"]
+        if event_id in seen:
+            return False
+        seen.add(event_id)
+        kind = entry["kind"]
+        if kind in (KIND_THRESHOLD, KIND_RETURN):
+            if kind not in own_kinds or event_id != f"{kind}-{goal_id}":
+                return False
+
+    primary_id = row.get("failure_event_id")
+    primary_share = row.get("failure_event_share")
+    probability = _float_or_none(row.get("probability"))
+    if not entries:
+        if primary_id is not None or primary_share is not None:
+            return False
+        exempt = bool(row.get("outside_simulation_horizon")) or target_kind == "maximize"
+        if probability is not None and probability < 1.0 - _PROBABILITY_ONE_TOL and not exempt:
+            return False
+        return True
+
+    if probability is not None and probability >= 1.0 - _PROBABILITY_ONE_TOL:
+        return False
+    shares = {item["event_id"]: float(item["share"]) for item in raw}
+    mode_id = min(shares, key=lambda eid: (-shares[eid], _mode_order(eid)))
+    if primary_id != mode_id:
+        return False
+    primary = _float_or_none(primary_share)
+    if primary is None or abs(primary - shares[mode_id]) > _PRIMARY_SHARE_TOL:
+        return False
+    return True
+
+
 def _plan_year_span(years: list[int]) -> str:
     lo, hi = min(years), max(years)
     if lo == hi:

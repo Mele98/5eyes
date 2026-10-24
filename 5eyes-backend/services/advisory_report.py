@@ -2501,6 +2501,7 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "failure_event_id": None,
                 "failure_event_distribution": None,
                 "failure_cause_summary": None,
+                "failure_evidence_status": "unavailable",
             })
         return {
             "goals": goals,
@@ -2580,6 +2581,7 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 failure_event_id=None,
                 failure_event_distribution=None,
                 failure_cause_summary=None,
+                failure_evidence_status="unavailable",
             )
         plan_row = None
 
@@ -2601,6 +2603,7 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
 def _failure_cause_fields(row: Mapping[str, Any]) -> dict[str, Any]:
     """GOAL-FAILURE-DISTRIBUTION-REPORT-001: Payload-Felder einer Zielzeile."""
     from services.goal_failure_causes import (
+        is_bound_to_goal_row,
         normalize_failure_event_distribution,
         summarize_failure_causes,
     )
@@ -2613,10 +2616,25 @@ def _failure_cause_fields(row: Mapping[str, Any]) -> dict[str, Any]:
         if is_individual_goal_row(row)
         else None
     )
-    return {
+    # Closure-Review PR #671: nur an dieselbe Zielzeile gebundene, mit
+    # primaerem Ereignis/Anteil/Wahrscheinlichkeit widerspruchsfreie Evidenz
+    # wird publiziert -- sonst nichts (fail-closed).
+    # Der Status bindet nur die Zeile in sich; eine dauerhafte Snapshot-
+    # Bindung (Run/Goal-Set/Hash) ist damit NICHT belegt.
+    evidence_status = "row_consistent" if distribution is not None else "unavailable"
+    fields: dict[str, Any] = {}
+    if distribution is not None and not is_bound_to_goal_row(row, distribution):
+        distribution = None
+        evidence_status = "integrity_mismatch"
+        # Widerspruechliches primaeres Ereignis wird ebenfalls nicht
+        # publiziert -- kein Consumer darf ein Feld derselben Zeile waehlen.
+        fields["failure_event_id"] = None
+    fields.update({
         "failure_event_distribution": distribution,
         "failure_cause_summary": summarize_failure_causes(distribution),
-    }
+        "failure_evidence_status": evidence_status,
+    })
+    return fields
 
 
 def _goal_section_staleness(db: Session, mandate: Mandate) -> dict[str, Any]:
