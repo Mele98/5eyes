@@ -1724,6 +1724,11 @@ class TargetAllocationGenerateResponse(BaseModel):
     # RESERVE-LEDGER-SNAPSHOT-001: Historical Replay vs. Live-Preview
     # (mode/status verified|stale|unverifiable, snapshot_hash, live_preview).
     reserve_funding_ledger_replay: Optional[dict] = None
+    # RESERVE-CEILING-001: gespeicherter ReserveSplitSnapshotV1 (intern/extern/
+    # absorbiert/Deckungsluecke, Ceiling bps+Rappen) und Replay-Status mit
+    # getrennter Neubewertung (live_re_evaluation, Drift).
+    reserve_split: Optional[dict] = None
+    reserve_split_replay: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int
