@@ -41,7 +41,7 @@ def escape_sql_string(value: str) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='SQLite → SQLCipher Migration für 5Eyes')
+    parser = argparse.ArgumentParser(description='SQLite → SQLCipher Migration für Ares')
     parser.add_argument('--db-path', default=None, help='Pfad zur bestehenden SQLite-DB')
     parser.add_argument('--key', required=True, help='SQLCipher Key / Passphrase')
     parser.add_argument(
@@ -83,7 +83,7 @@ def main():
     backup_path = db_path.with_suffix(db_path.suffix + '.pre-sqlcipher-backup')
     encrypted_path = db_path.with_suffix(db_path.suffix + '.encrypted')
     print('=' * 60)
-    print('  5Eyes — SQLite → SQLCipher Migration')
+    print('  Ares — SQLite → SQLCipher Migration')
     print('=' * 60)
     print(f'\n1. Backup erstellen → {backup_path}')
     shutil.copy2(db_path, backup_path)
