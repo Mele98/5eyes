@@ -125,7 +125,7 @@ Bei Zeitknappheit: Priorisiere #14, #15 (Bugs) und Sprint B (#3-#8) — das gibt
 stash@{0}: On codex/optimizer-runs-table: WIP-Codex-during-optimizer-runs-2026-05-09
 stash@{1}: On codex/shadow-stochastic-c4: WIP-Codex-pre-bugfix-2026-05-08
 stash@{2}: On codex/shadow-stochastic-c4: WIP-Codex-during-c4
-stash@{3}: On codex/fe-b6-conditional-goals: WIP-FE-styling-pre-B3 5eyes_v2.html
+stash@{3}: On codex/fe-b6-conditional-goals: WIP-FE-styling-pre-B3 ares.html
 ```
 - Diese sind Codex-Snapshots vor riskanten Operationen.
 - **Empfehlung:** Nach Merge-Sprint pruefen ob noch was relevant ist, sonst `git stash drop`.

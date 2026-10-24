@@ -330,13 +330,13 @@ Das bestehende `Promise.all` mit 2 Calls NICHT anfassen.
 
 ## Implementierungs-Checkliste für Codex
 
-1. `grep -n "from schemas.clients import" 5eyes-backend/routers/clients.py`
+1. `grep -n "from schemas.clients import" ares-backend/routers/clients.py`
    → Schema-Import-Zeile finden und CashflowYearRow, CashflowProjectionResponse ergänzen
-2. `grep -n "totals_for_year" 5eyes-backend/routers/clients.py`
+2. `grep -n "totals_for_year" ares-backend/routers/clients.py`
    → Bereits importiert (Zeile 17) — kein doppelter Import
-3. `grep -n "^class Cashflow" 5eyes-backend/models/wealth.py`
+3. `grep -n "^class Cashflow" ares-backend/models/wealth.py`
    → Cashflow ist in models.wealth (NICHT models.clients) — Test-Import entsprechend
 4. HTML-Container: nach `id="abfluss-rows"` schliessen, NICHT darin
-5. `node --check 5eyes-electron/frontend/5eyes_v2.html` muss grün sein
+5. `node --check ares-desktop/frontend/ares.html` muss grün sein
 6. `python -m pytest tests/test_cashflow_projection.py tests/test_runtime_contracts.py -q`
    muss grün sein

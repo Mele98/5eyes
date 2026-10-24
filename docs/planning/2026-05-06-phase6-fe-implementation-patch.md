@@ -8,7 +8,7 @@
 **Backend-Status:** FERTIG — siehe Spec, alle Endpoints/Felder live.
 
 Diese Datei ist die **fertige Implementation** zum 1:1-Übernehmen.
-Drei Edit-Operationen in `5eyes-electron/frontend/5eyes_v2.html` plus ein Mock-Eintrag.
+Drei Edit-Operationen in `ares-desktop/frontend/ares.html` plus ein Mock-Eintrag.
 
 ---
 
@@ -279,7 +279,7 @@ So wird das Panel jedes Mal neu gerendert, wenn eine Allocation geladen oder neu
 
 ## Edit 4: desktop-api.js Mock (Offline-Demo)
 
-**Datei:** `5eyes-electron/desktop-api.js`
+**Datei:** `ares-desktop/desktop-api.js`
 
 **Suche** nach existierenden Mock-Patterns (z.B. `target-allocation/generate` Mock) und ergänze für `target-allocation/sensitivity`:
 

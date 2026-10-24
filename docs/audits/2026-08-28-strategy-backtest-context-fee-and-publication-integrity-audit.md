@@ -4,7 +4,7 @@ document_role: "release-blocking-strategy-backtest-context-fee-and-publication-i
 status_as_of: "2026-08-28"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "ab6615eea2d2119b1c34516b14434ee537e1c6a1"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -123,23 +123,23 @@ zuvor sichtbare Modal.
 
 | Bereich | Codeanker |
 |---|---|
-| JSON-Route und freie Queryparameter | `5eyes-backend/routers/allocation.py:889-984` |
-| Malformed Sub-Asset-Einträge werden übersprungen | `5eyes-backend/routers/allocation.py:889-913` |
-| Backtest wählt Current-TA per `.first()` | `5eyes-backend/services/backtest_strategy.py:1121-1173` |
-| Live-Wealth- und CHF-100.000-Fallback | `5eyes-backend/services/backtest_strategy.py:937-961`; `:1175-1185` |
-| Beliebige Current-CMA beziehungsweise 80-bps-Default | `5eyes-backend/services/backtest_strategy.py:963-979`; `:1187` |
-| Tippfehler bei Resolution werden Annual | `5eyes-backend/services/backtest_strategy.py:1144` |
-| Negative/unsummierte Benchmarkgewichte werden normalisiert | `5eyes-backend/services/backtest_strategy.py:982-1005` |
-| Daily-Builder besitzt keinen Fee-Parameter | `5eyes-backend/services/backtest_strategy.py:898-926` |
-| Daily-Early-Return reicht Gebühren nicht durch | `5eyes-backend/services/backtest_strategy.py:1190-1228` |
-| Annual-Pfad übernimmt rohe Fees, Math-Helper kappen separat | `5eyes-backend/services/backtest_strategy.py:233`; `:357`; `:1261-1323` |
-| PDF-Builder/Route kennen keinen Sub-Asset-Benchmark | `5eyes-backend/routers/pdf_reports.py:1803-1865`; `:1874-1926` |
-| PDF-Datenmodell verliert Resolution, Provenienz und Sub-Benchmark | `5eyes-backend/services/pdf/base.py:367-418` |
-| PDF-Methodentext behauptet immer Annual Returns/Year-End | `5eyes-backend/services/pdf/documents/backtest.py:141-160` |
-| UI erlaubt je Kostenfeld bis 500 Prozent | `5eyes-electron/frontend/5eyes_v2.html:4268-4328` |
-| UI multipliziert Prozent in bps und sendet an JSON/PDF | `5eyes-electron/frontend/5eyes_v2.html:13641-13717`; `:13914-13947` |
-| UI sendet Sub-Asset-Query auch an inkompatible PDF-Route | `5eyes-electron/frontend/5eyes_v2.html:13920-13931` |
-| Korrekte moderne Allocation-Context-Prüfung existiert bereits | `5eyes-backend/services/portfolio_engine.py:4160-4365`; `:5386-6164` |
+| JSON-Route und freie Queryparameter | `ares-backend/routers/allocation.py:889-984` |
+| Malformed Sub-Asset-Einträge werden übersprungen | `ares-backend/routers/allocation.py:889-913` |
+| Backtest wählt Current-TA per `.first()` | `ares-backend/services/backtest_strategy.py:1121-1173` |
+| Live-Wealth- und CHF-100.000-Fallback | `ares-backend/services/backtest_strategy.py:937-961`; `:1175-1185` |
+| Beliebige Current-CMA beziehungsweise 80-bps-Default | `ares-backend/services/backtest_strategy.py:963-979`; `:1187` |
+| Tippfehler bei Resolution werden Annual | `ares-backend/services/backtest_strategy.py:1144` |
+| Negative/unsummierte Benchmarkgewichte werden normalisiert | `ares-backend/services/backtest_strategy.py:982-1005` |
+| Daily-Builder besitzt keinen Fee-Parameter | `ares-backend/services/backtest_strategy.py:898-926` |
+| Daily-Early-Return reicht Gebühren nicht durch | `ares-backend/services/backtest_strategy.py:1190-1228` |
+| Annual-Pfad übernimmt rohe Fees, Math-Helper kappen separat | `ares-backend/services/backtest_strategy.py:233`; `:357`; `:1261-1323` |
+| PDF-Builder/Route kennen keinen Sub-Asset-Benchmark | `ares-backend/routers/pdf_reports.py:1803-1865`; `:1874-1926` |
+| PDF-Datenmodell verliert Resolution, Provenienz und Sub-Benchmark | `ares-backend/services/pdf/base.py:367-418` |
+| PDF-Methodentext behauptet immer Annual Returns/Year-End | `ares-backend/services/pdf/documents/backtest.py:141-160` |
+| UI erlaubt je Kostenfeld bis 500 Prozent | `ares-desktop/frontend/ares.html:4268-4328` |
+| UI multipliziert Prozent in bps und sendet an JSON/PDF | `ares-desktop/frontend/ares.html:13641-13717`; `:13914-13947` |
+| UI sendet Sub-Asset-Query auch an inkompatible PDF-Route | `ares-desktop/frontend/ares.html:13920-13931` |
+| Korrekte moderne Allocation-Context-Prüfung existiert bereits | `ares-backend/services/portfolio_engine.py:4160-4365`; `:5386-6164` |
 
 ## `BACKTEST-CONTEXT-001` – Performance ohne Entscheidungscontext
 

@@ -285,17 +285,17 @@ Code-/Scope-Key noch eine Deduplizierung.
 
 | Grenze | Relevanz |
 |---|---|
-| `5eyes-backend/services/portfolio_engine.py:3443-3624` | Risk-Budget-Fallback, Best-Effort und doppelter Warning-Append |
-| `5eyes-backend/services/portfolio_engine.py:2552-2665` | Ableitung von `active_method`, Basis-ID und Purpose |
-| `5eyes-backend/services/portfolio_engine.py:3718-3728` | Model Basis wird mit House-Modus/ohne Fallback-Methode gebaut |
-| `5eyes-backend/services/portfolio_engine.py:3789-3802` | spätere separate Audit-Feld-Überschreibung |
-| `5eyes-backend/services/portfolio_engine.py:3937-3988` | gemischter immutable Context und Hashbildung |
-| `5eyes-backend/services/portfolio_engine.py:3990-4033` | Typisierung/Persistenz der widersprüchlichen TA |
-| `5eyes-backend/services/portfolio_engine.py:4175-4364` | korrekte Reload-/Hash-/Model-Basis-Verifikation |
-| `5eyes-backend/services/portfolio_engine.py:6519-6528` | Recommendation-Generate konsumiert denselben Reloadvertrag |
-| `5eyes-backend/services/mandate_lock_audit.py:62-138` | korrekte, aber read-only Erkennung der Budgetverletzung |
-| `5eyes-backend/routers/review.py:137-235` | Finalisierungsvalidator ohne Risk-Budget-/Lock-Gate |
-| `5eyes-backend/routers/review.py:2290-2327` | atomarer Statuswechsel auf `Final` nach unvollständigem Gate |
+| `ares-backend/services/portfolio_engine.py:3443-3624` | Risk-Budget-Fallback, Best-Effort und doppelter Warning-Append |
+| `ares-backend/services/portfolio_engine.py:2552-2665` | Ableitung von `active_method`, Basis-ID und Purpose |
+| `ares-backend/services/portfolio_engine.py:3718-3728` | Model Basis wird mit House-Modus/ohne Fallback-Methode gebaut |
+| `ares-backend/services/portfolio_engine.py:3789-3802` | spätere separate Audit-Feld-Überschreibung |
+| `ares-backend/services/portfolio_engine.py:3937-3988` | gemischter immutable Context und Hashbildung |
+| `ares-backend/services/portfolio_engine.py:3990-4033` | Typisierung/Persistenz der widersprüchlichen TA |
+| `ares-backend/services/portfolio_engine.py:4175-4364` | korrekte Reload-/Hash-/Model-Basis-Verifikation |
+| `ares-backend/services/portfolio_engine.py:6519-6528` | Recommendation-Generate konsumiert denselben Reloadvertrag |
+| `ares-backend/services/mandate_lock_audit.py:62-138` | korrekte, aber read-only Erkennung der Budgetverletzung |
+| `ares-backend/routers/review.py:137-235` | Finalisierungsvalidator ohne Risk-Budget-/Lock-Gate |
+| `ares-backend/routers/review.py:2290-2327` | atomarer Statuswechsel auf `Final` nach unvollständigem Gate |
 
 ## Verbindlicher Fixvertrag für Claude
 

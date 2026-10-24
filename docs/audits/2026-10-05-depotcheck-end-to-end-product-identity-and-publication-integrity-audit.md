@@ -5,8 +5,8 @@ status_as_of: "2026-10-05"
 audit_started_on: "2026-10-05"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "eb5c9d6cc2a53c414af1c948dea01f9f408235b5"
 prior_release_audit_path: "docs/audits/2026-10-05-cross-consumer-benchmark-governance-integrity-audit.md"
@@ -140,23 +140,23 @@ Publication-Fingerprint.
 
 | Bereich | Anker | Beobachtung |
 |---|---|---|
-| API-Versprechen | `5eyes-backend/routers/allocation.py:592-615` | Nennt den Endpoint vollstaendigen Depot-Check mit IST-SOLL, Exposures, HHI, Top-Positionen, Liquiditaet und Warnungen. |
-| API-IST-Quelle | `5eyes-backend/services/depot_check.py:243-308` | Neuester beliebiger Run; Current<=0 wird Target; fehlende Produkte verschwinden; Wealth-Fallback ist clientweit. |
-| API-SOLL-Quelle | `5eyes-backend/services/depot_check.py:479-535` | Separat gelesene Current-TA und Zielbetraege desselben ungebundenen Run. |
-| Modal-Produkt | `5eyes-electron/frontend/5eyes_v2.html:4097-4165` | Titel, IST-vs-SOLL-Drift und PDF-Tooltip versprechen einen gemeinsamen Depotcheck samt Drift. |
-| Modal-Erfolg | `5eyes-electron/frontend/5eyes_v2.html:12993-13008` | Keine Warnung bedeutet visuell "Depot-Check ohne Auffaelligkeiten". |
-| Modal-Waehrung | `5eyes-electron/frontend/5eyes_v2.html:12506-12509` | Positionsbetraege werden hart als CHF formatiert. |
-| Modal-Stressaussage | `5eyes-electron/frontend/5eyes_v2.html:13129-13150` | Behauptet Replay der aktuellen Bucket-Gewichtung und des aktuellen Depots. |
-| Stress-Wahrheit | `5eyes-backend/services/backtest_stress.py:135-170` | Verwendet ausdruecklich Current-TargetAllocation/SOLL, keine reale Position-History; Foundation-Hardcode. |
-| PDF-Builder | `5eyes-backend/routers/pdf_reports.py:1513-1608` | Beschreibt target portfolio; mischt Depotcheck, Stress, Strategie, Portfolio, Kosten und Performance aus separaten Reads. |
-| PDF-Fail-open | `5eyes-backend/routers/pdf_reports.py:1523-1530` | Jeder Portfolio-HTTP-Fehler fuehrt zu `strategy.products`. |
-| PDF-Warnungsverlust | `5eyes-backend/routers/pdf_reports.py:1593-1601` | `warnings` enthaelt nur `_depotcheck_data_quality_warnings(costs, performance)`, nie `dc.warnings`. |
-| Portfolio-Aufloesung | `5eyes-backend/routers/pdf_reports.py:1012-1149` | Current-TA-gebundener Final-oder-Draft-Run und RecommendationHolding; andere Wahrheit als Depotcheck-Service. |
-| PDF-Datenmodell | `5eyes-backend/services/pdf/base.py:298-332` | Nennt sich reine SOLL-Analyse, traegt aber zugleich unpublizierte IST-Felder. |
-| PDF-Produkt | `5eyes-backend/services/pdf/documents/depotcheck.py:1-49` | Target-only, Titel dennoch Depot-Check. |
-| PDF-SOLL-Abschnitte | `5eyes-backend/services/pdf/documents/depotcheck.py:52-174` | Rendert Zielallokation, Ziel-Exposures, Zielrisiko und Zielpositionen; maximal sechs gefilterte Warnungen. |
-| PDF-Methodik | `5eyes-backend/services/pdf/documents/depotcheck.py:205-233` | Erklaert erst am Ende, dass ausschliesslich das Zielportfolio analysiert wird. |
-| Kodifizierte Semantik | `5eyes-backend/tests/pdf/test_depotcheck_soll_analysis.py:183-230` | Fordert target-only ohne IST-vs und erfolgreiches Rendering bei degradierten Daten. |
+| API-Versprechen | `ares-backend/routers/allocation.py:592-615` | Nennt den Endpoint vollstaendigen Depot-Check mit IST-SOLL, Exposures, HHI, Top-Positionen, Liquiditaet und Warnungen. |
+| API-IST-Quelle | `ares-backend/services/depot_check.py:243-308` | Neuester beliebiger Run; Current<=0 wird Target; fehlende Produkte verschwinden; Wealth-Fallback ist clientweit. |
+| API-SOLL-Quelle | `ares-backend/services/depot_check.py:479-535` | Separat gelesene Current-TA und Zielbetraege desselben ungebundenen Run. |
+| Modal-Produkt | `ares-desktop/frontend/ares.html:4097-4165` | Titel, IST-vs-SOLL-Drift und PDF-Tooltip versprechen einen gemeinsamen Depotcheck samt Drift. |
+| Modal-Erfolg | `ares-desktop/frontend/ares.html:12993-13008` | Keine Warnung bedeutet visuell "Depot-Check ohne Auffaelligkeiten". |
+| Modal-Waehrung | `ares-desktop/frontend/ares.html:12506-12509` | Positionsbetraege werden hart als CHF formatiert. |
+| Modal-Stressaussage | `ares-desktop/frontend/ares.html:13129-13150` | Behauptet Replay der aktuellen Bucket-Gewichtung und des aktuellen Depots. |
+| Stress-Wahrheit | `ares-backend/services/backtest_stress.py:135-170` | Verwendet ausdruecklich Current-TargetAllocation/SOLL, keine reale Position-History; Foundation-Hardcode. |
+| PDF-Builder | `ares-backend/routers/pdf_reports.py:1513-1608` | Beschreibt target portfolio; mischt Depotcheck, Stress, Strategie, Portfolio, Kosten und Performance aus separaten Reads. |
+| PDF-Fail-open | `ares-backend/routers/pdf_reports.py:1523-1530` | Jeder Portfolio-HTTP-Fehler fuehrt zu `strategy.products`. |
+| PDF-Warnungsverlust | `ares-backend/routers/pdf_reports.py:1593-1601` | `warnings` enthaelt nur `_depotcheck_data_quality_warnings(costs, performance)`, nie `dc.warnings`. |
+| Portfolio-Aufloesung | `ares-backend/routers/pdf_reports.py:1012-1149` | Current-TA-gebundener Final-oder-Draft-Run und RecommendationHolding; andere Wahrheit als Depotcheck-Service. |
+| PDF-Datenmodell | `ares-backend/services/pdf/base.py:298-332` | Nennt sich reine SOLL-Analyse, traegt aber zugleich unpublizierte IST-Felder. |
+| PDF-Produkt | `ares-backend/services/pdf/documents/depotcheck.py:1-49` | Target-only, Titel dennoch Depot-Check. |
+| PDF-SOLL-Abschnitte | `ares-backend/services/pdf/documents/depotcheck.py:52-174` | Rendert Zielallokation, Ziel-Exposures, Zielrisiko und Zielpositionen; maximal sechs gefilterte Warnungen. |
+| PDF-Methodik | `ares-backend/services/pdf/documents/depotcheck.py:205-233` | Erklaert erst am Ende, dass ausschliesslich das Zielportfolio analysiert wird. |
+| Kodifizierte Semantik | `ares-backend/tests/pdf/test_depotcheck_soll_analysis.py:183-230` | Fordert target-only ohne IST-vs und erfolgreiches Rendering bei degradierten Daten. |
 
 ## `DEPOT-E2E-IDENTITY-001` – Ein Name, zwei inkompatible Produkte
 

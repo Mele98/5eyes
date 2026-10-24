@@ -1,0 +1,58 @@
+"""Regressions-Sperre: Projektions-/X-Achsen-Horizont = Geburtsjahr + 83 (Mann)
+/ + 85 (Frau), bei Paaren die laengere Lebenserwartung. Greift fuer SOLL/IST-
+Vergleich (Sim-Horizont) UND Verzehr-Chart (Cashflow-Projektion). Verhindert,
+dass die X-Achse wieder vor dem Kurvenende endet (Bug: Achse bis ~2036).
+"""
+from pathlib import Path
+
+
+HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
+
+
+def _html() -> str:
+    return HTML_PATH.read_text(encoding="utf-8")
+
+
+def test_life_expectancy_helpers_exist():
+    html = _html()
+    assert "function _lifeExpectancyEndYear()" in html
+    assert "function _lifeExpectancyHorizonYears()" in html
+
+
+def test_life_expectancy_rule_83_85_by_salutation():
+    html = _html()
+    # Maenner (Anrede "Herr") +83, sonst (Frau/unbekannt) +85.
+    assert "indexOf('herr')" in html
+    assert "by+(isMale?83:85)" in html
+
+
+def test_household_uses_longer_life_expectancy():
+    html = _html()
+    # Partner einbeziehen + Maximum (Verzehr bis beide Personen weg).
+    # arrMax (stack-sicher, A1-Fix #362) ersetzt das fruehere Math.max.apply(null,ends).
+    assert "currentPersona.partner_date_of_birth" in html
+    assert "arrMax(ends)" in html
+
+
+def test_cashflow_horizon_falls_back_to_life_expectancy():
+    html = _html()
+    assert "function effectiveCashflowProjectionHorizon()" in html
+    # Berater-Override hat Vorrang, danach Lebenserwartung.
+    assert "_lifeExpectancyHorizonYears()" in html
+
+
+def test_simulation_horizon_reaches_life_expectancy():
+    html = _html()
+    # SIM-HORIZON-FROM-RISK-PROFILE-001: der Sim-Horizont (SOLL/IST-Vergleich)
+    # wird nicht mehr im Monolithen gesetzt; das Backend leitet ihn her
+    # (max(7, Risikoprofil, Ziele, Lebenserwartung)). Der Monolith sendet
+    # keinen horizonYears-Key mehr -- Verhaltenstest:
+    # tests/test_sim_horizon_frontend_no_preference.py.
+    assert "readSimulationHorizonOverride" not in html
+    assert "stripLegacySimulationHorizon(live);" in html
+
+
+def test_compare_axis_never_shorter_than_data():
+    html = _html()
+    # Defensives Netz: X-Achse mind. so lang wie die laengste Datenreihe.
+    assert "X-Achse" in html and "längste" in html

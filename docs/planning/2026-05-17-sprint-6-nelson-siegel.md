@@ -39,7 +39,7 @@ Wobei:
 ## 2. Modul-Struktur (Phase 1)
 
 ```
-5eyes-backend/
+ares-backend/
 ├── services/rates/
 │   ├── __init__.py
 │   ├── nelson_siegel.py     # NelsonSiegelCurve + Calibration

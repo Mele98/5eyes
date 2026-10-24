@@ -5,7 +5,7 @@ aktiviert wird, und wie Releases publiziert werden.
 
 **Stand:** 2026-06-06
 **Roadmap-Punkt:** #65 (OPS, ~2-3h)
-**Status:** Implementiert in `5eyes-electron/main.js` (autoUpdater),
+**Status:** Implementiert in `ares-desktop/main.js` (autoUpdater),
 opt-in via Environment-Variable.
 
 ---
@@ -24,7 +24,7 @@ Vite-Dev) laeuft NIE Auto-Update.
 
 ## Provider-Konfiguration
 
-`5eyes-electron/package.json` (`build.publish`):
+`ares-desktop/package.json` (`build.publish`):
 
 ```json
 {
@@ -99,6 +99,6 @@ Renderer kommuniziert via `notifyRendererUpdateState()` (siehe
 ## Weiterfuehrendes
 
 - [electron-updater docs](https://www.electron.build/auto-update)
-- `5eyes-electron/main.js#L60-L180` — Implementation
+- `ares-desktop/main.js#L60-L180` — Implementation
 - `docs/RELEASE_TAGS.md` — Versionierungs-Workflow
-- `5eyes-electron/PACKAGING.md` — Build-Pipeline-Diagramm
+- `ares-desktop/PACKAGING.md` — Build-Pipeline-Diagramm

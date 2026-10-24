@@ -4,7 +4,7 @@ document_role: "release-blocking-stress-replay-and-policy-ab-model-integrity-fol
 status_as_of: "2026-08-28"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "cc990669a2de96a2a9c1976a1faf147dd29ae1c5"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -126,24 +126,24 @@ stammen.
 
 | Bereich | Codeanker |
 |---|---|
-| Fünf unversionierte historische Hardcode-Szenarien | `5eyes-backend/services/backtest_stress.py:32-84` |
-| Jahresendpunkt-Drawdown und feste Recovery Months | `5eyes-backend/services/backtest_stress.py:87-121` |
-| Reiner Helper ohne Gewichtsdomäne | `5eyes-backend/services/backtest_stress.py:125-132` |
-| Stress-Reader wählt Current-TA per `.first()` | `5eyes-backend/services/backtest_stress.py:135-169` |
-| Öffentliche Stress-Route reicht Service unverändert durch | `5eyes-backend/routers/allocation.py:819-833` |
-| Advisory macht jeden Stressfehler zu `data_pending` | `5eyes-backend/services/advisory_report.py:2588-2644` |
-| Depotcheck berechnet denselben Legacy-Stress live | `5eyes-backend/routers/pdf_reports.py:1514-1521`; `:1599` |
-| Separater Solver-Stresskatalog mit drei Szenarien | `5eyes-backend/services/optimizer/stress_scenarios.py:31-70` |
-| Solver-Stress nutzt Wealth, Cashflows, Liabilities und Horizon | `5eyes-backend/services/optimizer/stress_scenarios.py:110-161` |
-| Solver-Stress wird an Allocation persistiert | `5eyes-backend/services/portfolio_engine.py:3829-3843`; `:4034` |
-| A/B liest Policy per ID und rechnet reinen House-Matrix-Pfad | `5eyes-backend/services/backtest_ab.py:50-93` |
-| A/B setzt Sub-Allokationen und Produkte ausdrücklich auf `None` | `5eyes-backend/services/backtest_ab.py:74` |
-| A/B lädt globale Current-CMA per `.first()` | `5eyes-backend/services/backtest_ab.py:151-194` |
-| A/B-Note schließt Goals, Reserve und Tilts aus | `5eyes-backend/services/backtest_ab.py:210-220` |
-| Advisory wählt automatisch Global-Current plus jüngste andere Policy | `5eyes-backend/services/advisory_report.py:2652-2704` |
-| Advisory verschluckt A/B-Domain-/Integritätsfehler | `5eyes-backend/services/advisory_report.py:2703-2717` |
-| UI nennt House-Matrix, aber publiziert Netto-/Stressmetrik | `5eyes-electron/frontend/5eyes_v2.html:4169-4208`; `:13314` |
-| Korrekte jurisdiktions-/tenantgebundene CMA-Auflösung existiert | `5eyes-backend/services/jurisdiction/resolve.py:42-145` |
+| Fünf unversionierte historische Hardcode-Szenarien | `ares-backend/services/backtest_stress.py:32-84` |
+| Jahresendpunkt-Drawdown und feste Recovery Months | `ares-backend/services/backtest_stress.py:87-121` |
+| Reiner Helper ohne Gewichtsdomäne | `ares-backend/services/backtest_stress.py:125-132` |
+| Stress-Reader wählt Current-TA per `.first()` | `ares-backend/services/backtest_stress.py:135-169` |
+| Öffentliche Stress-Route reicht Service unverändert durch | `ares-backend/routers/allocation.py:819-833` |
+| Advisory macht jeden Stressfehler zu `data_pending` | `ares-backend/services/advisory_report.py:2588-2644` |
+| Depotcheck berechnet denselben Legacy-Stress live | `ares-backend/routers/pdf_reports.py:1514-1521`; `:1599` |
+| Separater Solver-Stresskatalog mit drei Szenarien | `ares-backend/services/optimizer/stress_scenarios.py:31-70` |
+| Solver-Stress nutzt Wealth, Cashflows, Liabilities und Horizon | `ares-backend/services/optimizer/stress_scenarios.py:110-161` |
+| Solver-Stress wird an Allocation persistiert | `ares-backend/services/portfolio_engine.py:3829-3843`; `:4034` |
+| A/B liest Policy per ID und rechnet reinen House-Matrix-Pfad | `ares-backend/services/backtest_ab.py:50-93` |
+| A/B setzt Sub-Allokationen und Produkte ausdrücklich auf `None` | `ares-backend/services/backtest_ab.py:74` |
+| A/B lädt globale Current-CMA per `.first()` | `ares-backend/services/backtest_ab.py:151-194` |
+| A/B-Note schließt Goals, Reserve und Tilts aus | `ares-backend/services/backtest_ab.py:210-220` |
+| Advisory wählt automatisch Global-Current plus jüngste andere Policy | `ares-backend/services/advisory_report.py:2652-2704` |
+| Advisory verschluckt A/B-Domain-/Integritätsfehler | `ares-backend/services/advisory_report.py:2703-2717` |
+| UI nennt House-Matrix, aber publiziert Netto-/Stressmetrik | `ares-desktop/frontend/ares.html:4169-4208`; `:13314` |
+| Korrekte jurisdiktions-/tenantgebundene CMA-Auflösung existiert | `ares-backend/services/jurisdiction/resolve.py:42-145` |
 
 ## `STRESS-CONTEXT-001` – Fünf Szenarien ohne Strategieanker
 

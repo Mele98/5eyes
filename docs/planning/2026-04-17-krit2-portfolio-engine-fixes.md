@@ -36,7 +36,7 @@ aber `SCORE_TO_PROFILE` in `risk_scoring.py` und das Frontend verwenden
 
 ## Scope
 
-Nur `5eyes-backend/services/portfolio_engine.py`. Keine anderen Dateien.
+Nur `ares-backend/services/portfolio_engine.py`. Keine anderen Dateien.
 
 ---
 
@@ -44,7 +44,7 @@ Nur `5eyes-backend/services/portfolio_engine.py`. Keine anderen Dateien.
 
 | Datei | Art |
 |---|---|
-| `5eyes-backend/services/portfolio_engine.py` | ÄNDERN |
+| `ares-backend/services/portfolio_engine.py` | ÄNDERN |
 
 ---
 
@@ -52,7 +52,7 @@ Nur `5eyes-backend/services/portfolio_engine.py`. Keine anderen Dateien.
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "Aktien Global\|Obligationen CHF IG\|Obligationen Emerging\|Immobilien Schweiz" 5eyes-backend/services/portfolio_engine.py
+grep -n "Aktien Global\|Obligationen CHF IG\|Obligationen Emerging\|Immobilien Schweiz" ares-backend/services/portfolio_engine.py
 ```
 Erwartete Treffer: ~Zeilen 972, 981, 984, 985.
 
@@ -106,7 +106,7 @@ Erwartete Treffer: ~Zeilen 972, 981, 984, 985.
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "bonds_chf_ig_return_bps\|equity_intl_return_bps\|real_estate_ch_return_bps" 5eyes-backend/services/portfolio_engine.py
+grep -n "bonds_chf_ig_return_bps\|equity_intl_return_bps\|real_estate_ch_return_bps" ares-backend/services/portfolio_engine.py
 ```
 
 ### 2a: bonds_chf_ig_return_bps im `if not cma:` Block
@@ -152,7 +152,7 @@ vollständig gelöscht werden.
 
 **Grep zum Lokalisieren der Grenzen:**
 ```
-grep -n "elif cma.assumption_set_name == DEFAULT_CMA_NAME" 5eyes-backend/services/portfolio_engine.py
+grep -n "elif cma.assumption_set_name == DEFAULT_CMA_NAME" ares-backend/services/portfolio_engine.py
 ```
 Erwartet: eine einzige Zeile, ~Zeile 2434. Der Block endet bei `cma.updated_at = now` (~Zeile 2476).
 
@@ -219,7 +219,7 @@ Nach der Löschung muss die Struktur so aussehen (kein elif mehr zwischen `db.ad
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "Wachstum" 5eyes-backend/services/portfolio_engine.py
+grep -n "Wachstum" ares-backend/services/portfolio_engine.py
 ```
 Erwartete Treffer: Zeile ~64 (ALLOWED_HOUSE_MATRIX_PROFILES) und Zeile ~2312 (Seed-Tupel).
 

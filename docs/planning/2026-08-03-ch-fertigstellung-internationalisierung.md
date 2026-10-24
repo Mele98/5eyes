@@ -59,7 +59,7 @@ Deutschland ist seit dem 1. August (`8679c9c`, `b8884fc`, `c71124e`, `fa79d09`) 
 | `services/advisory_report.py` | 27 | 0 |
 | `services/cost_disclosure.py` | 4 | 0 |
 | Restliche `services/` (40 Dateien insgesamt) | — | 0 |
-| `5eyes_v2.html` (Frontend) | 20 | 0 |
+| `ares.html` (Frontend) | 20 | 0 |
 
 Ein deutsches Mandat generiert heute einen "Kostenausweis" und ein Advisory-Report-PDF, die **Schweizer Gesetzesartikel (FIDLEG Art. 8/9 etc.) zitieren**, obwohl für einen deutschen Kunden das deutsche Wertpapierhandelsgesetz (WpHG) bzw. direkt MiFID II einschlägig wären. Das ist kein Stil-, sondern ein **Rechtsrisiko** — genau die Art Fehler, die bei einer echten Prüfung durch eine deutsche Aufsichtsbehörde oder einen Rechtsberater sofort auffällt. *(Ich nenne hier bewusst keine konkreten deutschen Artikelnummern — das braucht echte Rechtsprüfung durch eine Fachperson, analog zur AVV-Vorlage.)*
 

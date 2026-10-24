@@ -27,17 +27,17 @@ git status --short
 
 | Datei | Änderung |
 |---|---|
-| `5eyes-backend/models/profiling.py` | 3 neue optionale Spalten |
-| `5eyes-backend/schemas/profiling.py` | 3 neue optionale Felder |
-| `5eyes-backend/database.py` | 3 ALTER TABLE in ensure_runtime_columns() |
-| `5eyes-electron/frontend/5eyes_v2.html` | 9 Änderungen (Konstanten + HTML + JS) |
+| `ares-backend/models/profiling.py` | 3 neue optionale Spalten |
+| `ares-backend/schemas/profiling.py` | 3 neue optionale Felder |
+| `ares-backend/database.py` | 3 ALTER TABLE in ensure_runtime_columns() |
+| `ares-desktop/frontend/ares.html` | 9 Änderungen (Konstanten + HTML + JS) |
 
 ### Feature 2: Portfolio ETF Phase 1
 **Warum:** Phase 1 verwendet nur ETFs & Fonds — keine Einzeltitel. Das muss im UI sichtbar sein.
 
 | Datei | Änderung |
 |---|---|
-| `5eyes-electron/frontend/5eyes_v2.html` | 2 Änderungen (Header + Checkbox) |
+| `ares-desktop/frontend/ares.html` | 2 Änderungen (Header + Checkbox) |
 
 ---
 
@@ -67,11 +67,11 @@ Das finale Scoring bleibt: `finalScore = MIN(capScore, willScore)` — FIDLEG-ko
 
 ---
 
-## B1 — `5eyes-backend/models/profiling.py`
+## B1 — `ares-backend/models/profiling.py`
 
 **Grep für Einfügeposition:**
 ```
-grep -n "override_warning_document_id" 5eyes-backend/models/profiling.py
+grep -n "override_warning_document_id" ares-backend/models/profiling.py
 ```
 
 **Suche genau diesen Block (eindeutig):**
@@ -93,13 +93,13 @@ grep -n "override_warning_document_id" 5eyes-backend/models/profiling.py
 
 ---
 
-## B2 — `5eyes-backend/schemas/profiling.py`
+## B2 — `ares-backend/schemas/profiling.py`
 
 ### In `RiskAssessmentCreate`
 
 **Grep:**
 ```
-grep -n "answers: Optional\[list\[dict\]\]" 5eyes-backend/schemas/profiling.py
+grep -n "answers: Optional\[list\[dict\]\]" ares-backend/schemas/profiling.py
 ```
 
 **Suche:**
@@ -120,7 +120,7 @@ grep -n "answers: Optional\[list\[dict\]\]" 5eyes-backend/schemas/profiling.py
 
 **Grep:**
 ```
-grep -n "answers: list\[RiskAssessmentAnswerResponse\]" 5eyes-backend/schemas/profiling.py
+grep -n "answers: list\[RiskAssessmentAnswerResponse\]" ares-backend/schemas/profiling.py
 ```
 
 **Suche:**
@@ -138,11 +138,11 @@ grep -n "answers: list\[RiskAssessmentAnswerResponse\]" 5eyes-backend/schemas/pr
 
 ---
 
-## B3 — `5eyes-backend/database.py`
+## B3 — `ares-backend/database.py`
 
 **Grep für Einfügeposition:**
 ```
-grep -n "ensure_column\|def ensure_runtime_columns\|correlation_matrix_json" 5eyes-backend/database.py | tail -10
+grep -n "ensure_column\|def ensure_runtime_columns\|correlation_matrix_json" ares-backend/database.py | tail -10
 ```
 
 Suche den letzten `ensure_column`-Aufruf in `ensure_runtime_columns()`.
@@ -166,7 +166,7 @@ Suche den letzten `ensure_column`-Aufruf in `ensure_runtime_columns()`.
 
 **Prüfung Backend:**
 ```bash
-cd 5eyes-backend && python -c "from database import engine; print('DB OK')"
+cd ares-backend && python -c "from database import engine; print('DB OK')"
 ```
 
 ---
@@ -181,7 +181,7 @@ cd 5eyes-backend && python -c "from database import engine; print('DB OK')"
 
 **Grep:**
 ```
-grep -n "var RISK_HORIZON_OPTIONS" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "var RISK_HORIZON_OPTIONS" ares-desktop/frontend/ares.html
 ```
 
 **Suche exakt (4 Einträge):**
@@ -216,7 +216,7 @@ Zeilen der `RISK_CAPACITY_MATRIX` — keine Änderung an der Matrix nötig.
 
 **Grep:**
 ```
-grep -n "var RISK_SAVINGS_POINTS\|var RISK_RESERVE_POINTS\|var RISK_FREE_WEALTH" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "var RISK_SAVINGS_POINTS\|var RISK_RESERVE_POINTS\|var RISK_FREE_WEALTH" ares-desktop/frontend/ares.html
 ```
 
 **Suche exakt:**
@@ -261,7 +261,7 @@ var RISK_FREE_WEALTH_POINTS = [0, 3, 6, 9];
 
 ### Grep für Start des Blocks:
 ```
-grep -n "TAB 1: KENNTNISSE" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "TAB 1: KENNTNISSE" ares-desktop/frontend/ares.html
 ```
 
 **Suche exakt (Beginn-Marker):**
@@ -355,7 +355,7 @@ grep -n "TAB 1: KENNTNISSE" 5eyes-electron/frontend/5eyes_v2.html
 
 ### Grep für Start:
 ```
-grep -n "TAB 2: RISIKOFÄHIGKEIT" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "TAB 2: RISIKOFÄHIGKEIT" ares-desktop/frontend/ares.html
 ```
 
 **Suche (Beginn-Marker):**
@@ -491,7 +491,7 @@ Horizont-Gruppe heisst `'rf-horizon'` — muss ebenfalls erfasst werden.
 
 **Grep:**
 ```
-grep -n "function sq(el,g)" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function sq(el,g)" ares-desktop/frontend/ares.html
 ```
 
 **Suche exakt:**
@@ -514,7 +514,7 @@ Die Funktion wird nur zum Speichern des Defaults beim ersten Laden verwendet.
 
 **Grep:**
 ```
-grep -n "function captureRiskQuestionnaireState" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function captureRiskQuestionnaireState" ares-desktop/frontend/ares.html
 ```
 
 **Gesamte Funktion ersetzen:**
@@ -543,7 +543,7 @@ function captureRiskQuestionnaireState(){
 
 **Grep:**
 ```
-grep -n "function collectRiskAssessmentUiState" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function collectRiskAssessmentUiState" ares-desktop/frontend/ares.html
 ```
 
 **Gesamte Funktion ersetzen:**
@@ -621,7 +621,7 @@ function collectRiskAssessmentUiState(){
 
 **Grep:**
 ```
-grep -n "function collectRiskAssessmentUiIssues" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function collectRiskAssessmentUiIssues" ares-desktop/frontend/ares.html
 ```
 
 **Gesamte Funktion ersetzen:**
@@ -647,7 +647,7 @@ function collectRiskAssessmentUiIssues(state){
 
 **Grep:**
 ```
-grep -n "function buildRiskAssessmentPayloadFromUI" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function buildRiskAssessmentPayloadFromUI" ares-desktop/frontend/ares.html
 ```
 
 **Gesamte Funktion ersetzen:**
@@ -747,7 +747,7 @@ function buildRiskAssessmentPayloadFromUI(){
 
 **Grep:**
 ```
-grep -n "function resetRiskQuestionnaireToDefaults" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function resetRiskQuestionnaireToDefaults" ares-desktop/frontend/ares.html
 ```
 
 **Gesamte Funktion ersetzen:**
@@ -776,7 +776,7 @@ Risk-Assessment wieder her. Sie muss auf die neue DOM-Struktur angepasst werden.
 
 **Grep:**
 ```
-grep -n "function hydrateRiskQuestionnaire" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function hydrateRiskQuestionnaire" ares-desktop/frontend/ares.html
 ```
 
 **Gesamte Funktion ersetzen:**
@@ -870,7 +870,7 @@ function hydrateRiskQuestionnaire(saved){
 
 **Grep für Einfügeposition im PDF:**
 ```
-grep -n "Section 2: Risikoprofil" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "Section 2: Risikoprofil" ares-desktop/frontend/ares.html
 ```
 
 **Suche exakt diese Zeile (eindeutig):**
@@ -917,7 +917,7 @@ grep -n "Section 2: Risikoprofil" 5eyes-electron/frontend/5eyes_v2.html
 
 **Grep für den Output-Zusammenbau:**
 ```
-grep -n "riskHtml\+\|keHtml\|docContent\s*=" 5eyes-electron/frontend/5eyes_v2.html | head -10
+grep -n "riskHtml\+\|keHtml\|docContent\s*=" ares-desktop/frontend/ares.html | head -10
 ```
 
 Suche den Block wo `riskHtml` in den finalen HTML-String eingefügt wird.
@@ -944,7 +944,7 @@ var docContent = headerHtml + keHtml + riskHtml + allocHtml + ...
 
 **Grep:**
 ```
-grep -n "Portfolio.*Einzeltitel" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "Portfolio.*Einzeltitel" ares-desktop/frontend/ares.html
 ```
 
 **Suche:**
@@ -963,7 +963,7 @@ Portfolio — ETFs &amp; Fonds
 
 **Grep:**
 ```
-grep -n "aa-product-funds-only" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "aa-product-funds-only" ares-desktop/frontend/ares.html
 ```
 
 **Suche:**
@@ -986,20 +986,20 @@ grep -n "aa-product-funds-only" 5eyes-electron/frontend/5eyes_v2.html
 
 ## Schritt A — JS-Syntax prüfen
 ```bash
-node --check 5eyes-electron/frontend/5eyes_v2.html
+node --check ares-desktop/frontend/ares.html
 ```
 **Erwartetes Ergebnis:** Keine Ausgabe (0 Fehler).
 
 ## Schritt B — Backend starten
 ```bash
-cd 5eyes-backend
+cd ares-backend
 python -m uvicorn main:app --reload --port 8000
 ```
 **Erwartetes Ergebnis:** Kein Fehler beim Start, DB-Migration läuft durch.
 
 ## Schritt C — DB-Spalten prüfen
 ```bash
-cd 5eyes-backend
+cd ares-backend
 python -c "
 from sqlalchemy import text
 from database import SessionLocal
@@ -1093,7 +1093,7 @@ Manuelle Rechnung für Verifikation:
 - [ ] Checkbox `aa-product-funds-only` hat `checked`-Attribut
 
 **Abschlusskontrolle:**
-- [ ] `node --check 5eyes-electron/frontend/5eyes_v2.html` → 0 Fehler
+- [ ] `node --check ares-desktop/frontend/ares.html` → 0 Fehler
 - [ ] Backend startet ohne Fehler
 - [ ] DB-Spalten vorhanden (Schritt C bestanden)
 

@@ -4,7 +4,7 @@ document_role: "release-blocking-client-classification-and-compliance-state-foll
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "03c727bb8230b77471988e3128760bdc1cdf2ab3"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -101,14 +101,14 @@ Audit zählt sie nicht erneut, sondern schließt die bisher separat offene
 
 | Bereich | Codeanker |
 |---|---|
-| Client-Update-Bypass | `5eyes-backend/schemas/clients.py:36-65`; `5eyes-backend/routers/clients.py:126-148` |
-| Opt-History-Schema und Mutation | `5eyes-backend/schemas/clients.py:111-130`; `5eyes-backend/routers/clients.py:211-254`; `5eyes-backend/models/clients.py:61-76` |
-| Advisory-Create-/Updateschema | `5eyes-backend/schemas/review.py:70-187` |
-| Advisory-Create und Übergangsmatrix | `5eyes-backend/routers/review.py:762-805`, `:815-821`, `:876-949` |
-| Advisory-Versionierung | `5eyes-backend/services/advisory_log_service.py:201-267` |
-| Suitability-Request und Persistenz | `5eyes-backend/schemas/profiling.py:185-210`; `5eyes-backend/routers/profiling.py:398-445` |
-| Suitability-Compliance-Quelle | `5eyes-backend/services/suitability_audit.py:59-89`, `:132-263` |
-| kanonischer strikter RA-Vergleichspfad | `5eyes-backend/services/portfolio_engine.py:380-402`; `5eyes-backend/routers/profiling.py:127-148` |
+| Client-Update-Bypass | `ares-backend/schemas/clients.py:36-65`; `ares-backend/routers/clients.py:126-148` |
+| Opt-History-Schema und Mutation | `ares-backend/schemas/clients.py:111-130`; `ares-backend/routers/clients.py:211-254`; `ares-backend/models/clients.py:61-76` |
+| Advisory-Create-/Updateschema | `ares-backend/schemas/review.py:70-187` |
+| Advisory-Create und Übergangsmatrix | `ares-backend/routers/review.py:762-805`, `:815-821`, `:876-949` |
+| Advisory-Versionierung | `ares-backend/services/advisory_log_service.py:201-267` |
+| Suitability-Request und Persistenz | `ares-backend/schemas/profiling.py:185-210`; `ares-backend/routers/profiling.py:398-445` |
+| Suitability-Compliance-Quelle | `ares-backend/services/suitability_audit.py:59-89`, `:132-263` |
+| kanonischer strikter RA-Vergleichspfad | `ares-backend/services/portfolio_engine.py:380-402`; `ares-backend/routers/profiling.py:127-148` |
 
 Die Zeilenangaben sind an `audited_repository_head` gebunden. Nach einem Fix
 müssen Tests, Migrationen und stabile Funktionsnamen die Traceability tragen.
@@ -371,13 +371,13 @@ Das ist ein kundenrelevanter Hybridzustand, kein bloßer Diagnosefehler.
 
 Neue oder erweiterte Suites mindestens:
 
-- `5eyes-backend/tests/test_client_classification_transition.py`
-- `5eyes-backend/tests/test_client_opt_history_integrity.py`
-- `5eyes-backend/tests/test_advisory_state_machine_integrity.py`
-- `5eyes-backend/tests/test_advisory_client_confirmation_evidence.py`
-- `5eyes-backend/tests/test_suitability_context_integrity.py`
-- `5eyes-backend/tests/test_suitability_publication_consistency.py`
-- `5eyes-backend/tests/test_fidleg_state_postgres_concurrency.py`
+- `ares-backend/tests/test_client_classification_transition.py`
+- `ares-backend/tests/test_client_opt_history_integrity.py`
+- `ares-backend/tests/test_advisory_state_machine_integrity.py`
+- `ares-backend/tests/test_advisory_client_confirmation_evidence.py`
+- `ares-backend/tests/test_suitability_context_integrity.py`
+- `ares-backend/tests/test_suitability_publication_consistency.py`
+- `ares-backend/tests/test_fidleg_state_postgres_concurrency.py`
 
 Pflichtfälle:
 

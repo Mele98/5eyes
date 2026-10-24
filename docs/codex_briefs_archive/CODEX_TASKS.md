@@ -9,7 +9,7 @@ Jeder Task ist eigenständig beschrieben — kein implizites Wissen vorausgesetz
 ---
 
 ## TASK 1 — KRITISCH | ALTER TABLE Whitelist-Guards
-**Datei:** `5eyes-backend/database.py`
+**Datei:** `ares-backend/database.py`
 
 ### Problem
 Zeile 199 führt `ALTER TABLE` mit f-String aus, ohne Eingaben zu validieren:
@@ -37,7 +37,7 @@ Alle bestehenden `additive_columns`-Einträge sind lowercase mit Unterstrichen, 
 ---
 
 ## TASK 2 — HOCH | Frontend/Backend IST-Allokation Divergenz
-**Dateien:** `5eyes-electron/frontend/5eyes_v2.html` (~Zeile 2951) + `5eyes-backend/services/portfolio_engine.py` (~Zeile 204)
+**Dateien:** `ares-desktop/frontend/ares.html` (~Zeile 2951) + `ares-backend/services/portfolio_engine.py` (~Zeile 204)
 
 ### Problem
 Wenn eine Vermögensposition keine expliziten `alloc_*_bps`-Felder hat, greifen Fallback-Werte. Diese sind in Frontend und Backend **unterschiedlich**:
@@ -52,7 +52,7 @@ Wenn eine Vermögensposition keine expliziten `alloc_*_bps`-Felder hat, greifen 
 Das bedeutet: Das IST im Frontend-Chart und die IST-Berechnung der Engine divergieren für diese Positionen. Berater sieht falsche Ausgangslage.
 
 ### Fix
-**In `5eyes_v2.html`, Funktion `inferPositionBucketMixBps()` (~Zeile 2951):**
+**In `ares.html`, Funktion `inferPositionBucketMixBps()` (~Zeile 2951):**
 
 Den `switch`-Block anpassen:
 ```javascript
@@ -78,7 +78,7 @@ Nach dem Fix: IST-Chart im Frontend zeigt dieselben Werte wie `bucket.current_we
 ---
 
 ## TASK 3 — MITTEL | Tilt-Subtraktion ohne Floor-Check im Optimizer
-**Datei:** `5eyes-backend/services/portfolio_engine.py`
+**Datei:** `ares-backend/services/portfolio_engine.py`
 
 ### Problem A — Equity-Tilt (Zeile 2818-2822)
 ```python
@@ -147,7 +147,7 @@ Bestehende Tests in `tests/test_allocation_rebalance_normalization.py` laufen du
 ---
 
 ## TASK 4 — MITTEL | SR-Page zeigt falschen Advisory-Log
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html`
+**Datei:** `ares-desktop/frontend/ares.html`
 
 ### Problem
 `renderSrImplementationDecision()` nimmt immer `currentReviewState.logs[0]` ohne Status-Filter:
@@ -182,7 +182,7 @@ In Demo-Modus: Advisory-Log-Eintrag erfassen (Status `Empfohlen`), dann Status a
 ---
 
 ## TASK 5 — MITTEL | CORS Regex zu breit
-**Datei:** `5eyes-backend/config.py` Zeile 74
+**Datei:** `ares-backend/config.py` Zeile 74
 
 ### Problem
 ```python
@@ -201,7 +201,7 @@ App starten, normal einloggen und Strategie berechnen → funktioniert. Kein 403
 ---
 
 ## TASK 6 — NIEDRIG | Frontend IST-Projektion ignoriert Backend-CMA
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html` (~Zeile 2959)
+**Datei:** `ares-desktop/frontend/ares.html` (~Zeile 2959)
 
 ### Problem
 `wealthProjectionInputs()` baut die IST-Gesamtvermögens-Projektion mit hartcodierten Renditen aus `ADMIN_CMA_DEFAULTS`:
@@ -251,7 +251,7 @@ Strategie berechnen → IST- und SOLL-Projektionslinie verwenden dieselben CMA-R
 ---
 
 ## TASK 7 — NIEDRIG | buildMonteCarloGoalsHtml() nie aufgerufen
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html`
+**Datei:** `ares-desktop/frontend/ares.html`
 
 ### Problem
 Funktion `buildMonteCarloGoalsHtml(mc)` (~Zeile 3337) ist vollständig implementiert und rendert Ziel-Scores mit Pfaderfolg und Funded-Ratio. Wird aber **nirgends aufgerufen**.
@@ -286,7 +286,7 @@ Nach Strategie-Berechnung: Im Engine-Panel erscheint ein neues "Ziel-Pfadanalyse
 ---
 
 ## TASK 8 — NIEDRIG | Admin-CMA-UI: 6 Thema-Sub-Asset-Klassen fehlen
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html` (~Zeile 5032, `ADMIN_CMA_SUBASSET_DEFAULTS`)
+**Datei:** `ares-desktop/frontend/ares.html` (~Zeile 5032, `ADMIN_CMA_SUBASSET_DEFAULTS`)
 
 ### Problem
 Backend hat 24 Einträge in `_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS`. Frontend hat 18 in `ADMIN_CMA_SUBASSET_DEFAULTS`. Es fehlen:
@@ -324,7 +324,7 @@ Empfohlene Abarbeitungsreihenfolge nach Prio und Abhängigkeit:
 
 **Nach jedem Task:**
 ```bash
-cd C:\5eyes\5eyes_stage9_release_ready\5eyes-backend
+cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
 python -m pytest tests/ -v
 git add <exakte Dateipfade>
 git commit -m "<type>: <beschreibung>"

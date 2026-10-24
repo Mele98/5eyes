@@ -8,7 +8,7 @@
 | Punkt | Status | Ergebnis |
 |---|---|---|
 | 0.1 Repo-Hygiene | ✅ gemerged | `.tmp_*` ignoriert, 3 Junk-Dateien (520 KB) entfernt |
-| 0.2 Zentrale Test-Konfig | ✅ gemerged | `5eyes-backend/pyproject.toml` (testpaths, marker, tb=short); CI-neutral |
+| 0.2 Zentrale Test-Konfig | ✅ gemerged | `ares-backend/pyproject.toml` (testpaths, marker, tb=short); CI-neutral |
 | 1.1 python-jose → PyJWT | ✅ gemerged | PyJWT[crypto] 2.10.1; Security-Gate grün (150); neuer Algorithm-Allowlist-Guard |
 | 1.2 Fail-open → Fail-closed | ✅ gemerged | Audit-Exception liefert `is_compliant=None`+`audit_degraded`; Renderer zeigt „Prüfung nicht möglich"; 4 Pin-Tests |
 | 1.3 Engine-/Report-Korrektheit | ✅ verifiziert | **AR-1, OPT-1, RES-1 bereits behoben** (datierte Fix-Kommentare im Code); RES-2-Risiken geguardet. Juni-Audit-Doc ist stale. Offen nur AR-2 (siehe unten) |
@@ -91,7 +91,7 @@ Am **gemergten** Code prüfen (nach #299/#305 umgeschrieben — Findings evtl. v
 
 Erst starten, wenn Welle 0–1 durch ist. **Nie big-bang.**
 
-### 3.1 Frontend-Monolith `5eyes_v2.html` → React · Schwere: HOCH · Wochen
+### 3.1 Frontend-Monolith `ares.html` → React · Schwere: HOCH · Wochen
 Split-Plan existiert (ADR-008 + `2026-06-02-sprint-u-35-modul-split-plan.md`) — abarbeiten, nicht neu planen.
 1. **Sicherheitsnetz aktiv halten:** vor/nach jeder Änderung `python scripts/audit_html_monolith.py` → Drift-Test grün.
 2. Reihenfolge nach ADR-008 (Roadmap #63–69): Profiling → Goal-Wizard → Mandate-Edit → CRM → Asset-Allocation → Cashflow → App-Shell **zuletzt**.

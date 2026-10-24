@@ -50,12 +50,12 @@ Der Admin kann im Admin-Modal bestehende Benutzer auflisten, bearbeiten (Name, E
 ## Betroffene Module / Dateien
 
 - **Backend:**
-  - `5eyes-backend/schemas/users.py` — neues `UserPasswordReset`
-  - `5eyes-backend/routers/auth.py` — neuer `PUT /users/{user_id}/password` Endpoint; Guards in `PUT /users/{user_id}` für eigene-Rolle und eigene-Deaktivierung
-  - `5eyes-backend/tests/test_user_management.py` — neue Testdatei (neu anlegen)
-  - `5eyes-backend/tests/test_runtime_contracts.py` — neuer Route-Eintrag prüfen
+  - `ares-backend/schemas/users.py` — neues `UserPasswordReset`
+  - `ares-backend/routers/auth.py` — neuer `PUT /users/{user_id}/password` Endpoint; Guards in `PUT /users/{user_id}` für eigene-Rolle und eigene-Deaktivierung
+  - `ares-backend/tests/test_user_management.py` — neue Testdatei (neu anlegen)
+  - `ares-backend/tests/test_runtime_contracts.py` — neuer Route-Eintrag prüfen
 - **Frontend:**
-  - `5eyes-electron/frontend/5eyes_v2.html` — neuer Abschnitt im Admin-Modal (unter "Neuer Benutzer anlegen")
+  - `ares-desktop/frontend/ares.html` — neuer Abschnitt im Admin-Modal (unter "Neuer Benutzer anlegen")
 - **Datenmodell:** Keine Änderung (Felder bereits vorhanden)
 
 ## API / Schnittstellen
@@ -152,7 +152,7 @@ Position: Im `<div class="mfooter">` des Admin-Modals (`id="m-admin"`), **vor** 
 
 ## Testfälle
 
-**Neue Datei: `5eyes-backend/tests/test_user_management.py`**
+**Neue Datei: `ares-backend/tests/test_user_management.py`**
 
 - `test_admin_can_reset_password` — PUT /users/{id}/password → 200, Login mit neuem PW erfolgreich
 - `test_password_reset_requires_min_length` — PUT /users/{id}/password mit 9-Zeichen-PW → 422
@@ -162,7 +162,7 @@ Position: Im `<div class="mfooter">` des Admin-Modals (`id="m-admin"`), **vor** 
 - `test_can_deactivate_other_user` — PUT /users/{other_id} mit `is_active: false` → 200
 - `test_deactivated_user_cannot_login` — nach Deaktivierung → POST /auth/login → 401
 
-**`5eyes-backend/tests/test_runtime_contracts.py`** (bestehend):
+**`ares-backend/tests/test_runtime_contracts.py`** (bestehend):
 - Eintrag hinzufügen: `assert ("/users/{user_id}/password", ("PUT",)) in route_map`
 
 ## Implementierungsdetails für Codex
@@ -225,7 +225,7 @@ def reset_user_password(
     return user
 ```
 
-### Frontend: `5eyes-electron/frontend/5eyes_v2.html`
+### Frontend: `ares-desktop/frontend/ares.html`
 
 **Position für neuen HTML-Block:**
 Im Admin-Modal `<div id="m-admin">`, im `<div class="mfooter">`, **direkt vor** dem Block mit `id="nu-"` Inputs (Zeile ~7830). Neuen Abschnitt einfügen:

@@ -164,15 +164,15 @@ function simulationCagrBps(series){
 5. IST-Linie: gestrichelt braun (rgba(146,64,14,0.65)), 1.5px
 6. Legende zeigt P90 / P50 (Median) / P10 / IST-Prognose
 7. Wenn `monteCarloPayload(result)` null → kein Absturz, Chart bleibt 2-Dataset-Modus
-8. `node --check 5eyes-electron/frontend/5eyes_v2.html` muss grün sein
+8. `node --check ares-desktop/frontend/ares.html` muss grün sein
 
 ---
 
 ## Implementierungs-Checkliste für Codex
 
-1. `grep -n "function simulationCagrBps" 5eyes-electron/frontend/5eyes_v2.html`
+1. `grep -n "function simulationCagrBps" ares-desktop/frontend/ares.html`
    → Zeile ~6365 finden, neue Funktion DAVOR einfügen
-2. `grep -n "updateProjectionChartsFromSimulation(result);" 5eyes-electron/frontend/5eyes_v2.html`
+2. `grep -n "updateProjectionChartsFromSimulation(result);" ares-desktop/frontend/ares.html`
    → Zeile ~6756 finden, Call `upgradeFanChartWithMonteCarlo(result);` dahinter einfügen
 3. Kein Import, kein Backend, kein Test nötig
-4. `node --check 5eyes-electron/frontend/5eyes_v2.html` → muss 0 Fehler zeigen
+4. `node --check ares-desktop/frontend/ares.html` → muss 0 Fehler zeigen

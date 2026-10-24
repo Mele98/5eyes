@@ -5,7 +5,7 @@
 - **Datum:** 2026-05-24
 - **Auslöser:** Berater-Wunschliste für institutionelles Family-Office-Reporting
   (User-Spec mit 15-Seiten-Struktur, Tech-Stack React + Tailwind + Recharts).
-- **Scope:** **Backend-Datenquelle only.** React-Sub-App (5eyes-electron/
+- **Scope:** **Backend-Datenquelle only.** React-Sub-App (ares-desktop/
   frontend/reporting/) folgt in U-P22. Server-PDF folgt in U-P26.
 - **Branding:** Keine Dritt-Marken in Code/Texten/PDF (Memory-Regel),
   designerische Inspiration aus institutionellem Wealth-Management ist OK.

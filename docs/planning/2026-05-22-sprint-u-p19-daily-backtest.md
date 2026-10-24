@@ -104,7 +104,7 @@ Annual bleibt als Modus erhalten und ist Fallback, wenn keine täglichen Daten g
   - `routers/allocation.py` (`resolution`-Query-Param im strategy-Endpoint durchreichen)
   - `services/pdf/components/wealth_chart.py` + `drawdown_chart.py` (Downsampling)
 - Frontend:
-  - `5eyes-electron/frontend/5eyes_v2.html` (`m-bt`-Modal: Resolution-Toggle,
+  - `ares-desktop/frontend/ares.html` (`m-bt`-Modal: Resolution-Toggle,
     Label-Cleanup, `&resolution=` an `btRunBacktest`/`downloadBacktestPdf`)
 - Datenmodell:
   - `models/snapshots.py` → `AssetClassPriceHistory` (**neu**)

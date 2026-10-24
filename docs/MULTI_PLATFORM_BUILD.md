@@ -65,22 +65,22 @@ Heute NICHT in CI weil:
 
 ```powershell
 # Windows (auf Win11)
-cd 5eyes-electron
+cd ares-desktop
 npm ci
 npm run dist:win
 
 # macOS (auf macOS-Host)
-cd 5eyes-electron
+cd ares-desktop
 npm ci
 npm run dist:mac
 
 # Linux (auf Ubuntu)
-cd 5eyes-electron
+cd ares-desktop
 npm ci
 npm run dist:linux
 ```
 
-Output landet unter `5eyes-electron/dist/`:
+Output landet unter `ares-desktop/dist/`:
 - `5Eyes-0.4.0-x64.exe` (NSIS-Setup)
 - `5Eyes-0.4.0-x64.dmg` (macOS)
 - `5Eyes-0.4.0-x64.AppImage` (Linux)
@@ -116,5 +116,5 @@ Berater stellt alle 3 + ihre Setup-Binaries unter den gleichen
 ## Weiterfuehrendes
 
 - [electron-builder Multi-Platform docs](https://www.electron.build/multi-platform-build)
-- `5eyes-electron/PACKAGING.md` — Build-Pipeline-Diagramm
+- `ares-desktop/PACKAGING.md` — Build-Pipeline-Diagramm
 - `docs/AUTO_UPDATE.md` — Auto-Update-Workflow

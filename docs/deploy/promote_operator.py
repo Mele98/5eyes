@@ -12,7 +12,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-_BACKEND = Path(__file__).resolve().parents[2] / "5eyes-backend"
+_BACKEND = Path(__file__).resolve().parents[2] / "ares-backend"
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 

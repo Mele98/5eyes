@@ -11,7 +11,7 @@
 ## Warum diese Spec existiert — Fachlicher Kontext
 
 `RISK_CAPACITY_BANDS` und `RISK_CAPACITY_MATRIX` sind heute **hardcoded** in
-`5eyes_v2.html`. Das bedeutet: Wenn Emanuele die Scoring-Parameter anpassen will
+`ares.html`. Das bedeutet: Wenn Emanuele die Scoring-Parameter anpassen will
 (z.B. weil ein Compliance-Review neue Bandbreiten fordert, oder weil Advisory-Methodik
 die Horizont-Matrix aktualisiert), muss er den JS-Code direkt editieren.
 
@@ -51,9 +51,9 @@ Nur die Quelle der Werte ändert sich: DB → JS-Konstanten statt hardcoded.
 
 | Datei | Art |
 |---|---|
-| `5eyes-backend/models/review.py` | ÄNDERN — SystemParam-Modell hinzufügen |
-| `5eyes-backend/routers/system.py` | ÄNDERN — 2 neue Endpoints |
-| `5eyes-electron/frontend/5eyes_v2.html` | ÄNDERN — Admin-Sektion + JS |
+| `ares-backend/models/review.py` | ÄNDERN — SystemParam-Modell hinzufügen |
+| `ares-backend/routers/system.py` | ÄNDERN — 2 neue Endpoints |
+| `ares-desktop/frontend/ares.html` | ÄNDERN — Admin-Sektion + JS |
 
 ---
 
@@ -83,11 +83,11 @@ CREATE TABLE IF NOT EXISTS system_params (
 
 ## Backend — Schritt B1: SystemParam-Modell
 
-### Datei: `5eyes-backend/models/review.py`
+### Datei: `ares-backend/models/review.py`
 
 ### Grep (Datei-Ende finden):
 ```
-grep -n "class.*Base\|__tablename__" 5eyes-backend/models/review.py
+grep -n "class.*Base\|__tablename__" ares-backend/models/review.py
 ```
 
 ### Am Ende der Datei hinzufügen:
@@ -106,11 +106,11 @@ class SystemParam(Base):
 
 ## Backend — Schritt B2: DB-Migration (auto create table)
 
-### Datei: `5eyes-backend/database.py`
+### Datei: `ares-backend/database.py`
 
 ### Grep:
 ```
-grep -n "create_all\|Base.metadata" 5eyes-backend/database.py
+grep -n "create_all\|Base.metadata" ares-backend/database.py
 ```
 
 Prüfen ob `Base.metadata.create_all(bind=engine)` bereits vorhanden ist.
@@ -127,7 +127,7 @@ Prüfen ob `models/review.py` bereits in den Imports ist — normalerweise via
 
 ### Grep (Datei-Ende finden):
 ```
-grep -n "^@router\|^def \|^async def " 5eyes-backend/routers/system.py
+grep -n "^@router\|^def \|^async def " ares-backend/routers/system.py
 ```
 
 ### Import hinzufügen (oben in system.py):
@@ -181,7 +181,7 @@ def set_system_params(
 
 ### Grep (Startup-Funktion finden):
 ```
-grep -n "async function initApp\|function initApp\|window.onload\|DOMContentLoaded" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "async function initApp\|function initApp\|window.onload\|DOMContentLoaded" ares-desktop/frontend/ares.html
 ```
 
 ### Neue JS-Funktion `loadScoringParams()` — NACH den hardcodierten Konstanten einfügen
@@ -224,7 +224,7 @@ async function loadScoringParams() {
 
 Der FZK-Cap ist aktuell hardcoded an zwei Stellen als `75`. Codex sucht:
 ```
-grep -n "finalScore.*FZK\|FZK.*Math.min\|min.*75" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "finalScore.*FZK\|FZK.*Math.min\|min.*75" ares-desktop/frontend/ares.html
 ```
 Erwartet Treffer bei ca. Zeile 7234 und 7413:
 ```javascript
@@ -239,7 +239,7 @@ if(mandateType === 'FZK') finalScore = Math.min(finalScore, window.FZK_CAP_OVERR
 
 Grep:
 ```
-grep -n "loadScoringParams\|initApp\|async function.*app\|loadCMA\|loadInitial" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "loadScoringParams\|initApp\|async function.*app\|loadCMA\|loadInitial" ares-desktop/frontend/ares.html
 ```
 
 In der App-Initialisierung (wo auch CMA geladen wird, um Zeile 6219 in `openAdminModal`
@@ -252,7 +252,7 @@ loadScoringParams();
 **Wo genau einfügen:** In der Funktion die nach erfolgreichem Login aufgerufen wird.
 Grep dafür:
 ```
-grep -n "after.*login\|postLogin\|onLoginSuccess\|loginSuccess\|after_login" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "after.*login\|postLogin\|onLoginSuccess\|loginSuccess\|after_login" ares-desktop/frontend/ares.html
 ```
 Falls keine dedizierte post-login Funktion: Am Ende von `openAdminModal()` nach
 dem bestehenden `loadAdminCapitalMarketAssumptions`-Aufruf.
@@ -268,7 +268,7 @@ In `m-admin` (`id="m-admin"`), NACH der bestehenden CMA-Sektion
 
 ### Grep zum exakten Einfügepunkt:
 ```
-grep -n "admin-cma-error\|admin-result\|id=\"admin-result\"" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "admin-cma-error\|admin-result\|id=\"admin-result\"" ares-desktop/frontend/ares.html
 ```
 Erwartet Treffer bei ca. Zeile 13951-13953.
 
@@ -311,7 +311,7 @@ Erwartet Treffer bei ca. Zeile 13951-13953.
 
 Grep:
 ```
-grep -n "async function saveAdminCapitalMarketAssumptions\|function saveAdminCapitalMarket" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "async function saveAdminCapitalMarketAssumptions\|function saveAdminCapitalMarket" ares-desktop/frontend/ares.html
 ```
 
 ### JS-Code:
@@ -447,7 +447,7 @@ async function saveAdminScoringParams() {
 
 ### Grep:
 ```
-grep -n "function openAdminModal\|async function openAdminModal" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function openAdminModal\|async function openAdminModal" ares-desktop/frontend/ares.html
 ```
 Erwartet Treffer ca. Zeile 6219.
 
@@ -475,13 +475,13 @@ Erwartet Treffer ca. Zeile 6219.
 3. `routers/system.py` — `datetime`-Import + `SystemParam`-Import oben hinzufügen
 4. `routers/system.py` — GET `/admin/system/params` Endpoint hinzufügen
 5. `routers/system.py` — PUT `/admin/system/params` Endpoint hinzufügen
-6. `5eyes_v2.html` — `loadScoringParams()` Funktion nach `RISK_CAPACITY_MATRIX`-Konstante einfügen
-7. `5eyes_v2.html` — Beide FZK-`Math.min(finalScore, 75)` auf `window.FZK_CAP_OVERRIDE || 75` ändern
-8. `5eyes_v2.html` — `loadScoringParams()` in App-Init aufrufen (nach Login)
-9. `5eyes_v2.html` — Admin-Sektion HTML in `m-admin` einfügen (nach `admin-cma-error`)
-10. `5eyes_v2.html` — JS-Funktionen (`renderAdminScoringMatrixGrid`, etc.) nach CMA-Funktionen einfügen
-11. `5eyes_v2.html` — `loadAdminScoringParams(false)` in `openAdminModal()` aufrufen
-12. `node --check 5eyes-electron/frontend/5eyes_v2.html` → 0 Fehler
+6. `ares.html` — `loadScoringParams()` Funktion nach `RISK_CAPACITY_MATRIX`-Konstante einfügen
+7. `ares.html` — Beide FZK-`Math.min(finalScore, 75)` auf `window.FZK_CAP_OVERRIDE || 75` ändern
+8. `ares.html` — `loadScoringParams()` in App-Init aufrufen (nach Login)
+9. `ares.html` — Admin-Sektion HTML in `m-admin` einfügen (nach `admin-cma-error`)
+10. `ares.html` — JS-Funktionen (`renderAdminScoringMatrixGrid`, etc.) nach CMA-Funktionen einfügen
+11. `ares.html` — `loadAdminScoringParams(false)` in `openAdminModal()` aufrufen
+12. `node --check ares-desktop/frontend/ares.html` → 0 Fehler
 
 ---
 

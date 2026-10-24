@@ -110,7 +110,7 @@ Gemessen am 3eyes-/iSAA-Q&A (Markowitz-Start → Simulation → Zielerreichung i
 
 | Thema | Schwere | Befund & Richtung |
 |---|---|---|
-| **Frontend-Monolith** `5eyes_v2.html` (25'593 Zeilen) | **Hoch** | Grösstes Artefakt, funktional ungetestet (nur Struktur-Snapshot). Split-Plan (ADR-008) existiert seit 6 Wochen, unbegonnen. Schrittweise React-Migration. |
+| **Frontend-Monolith** `ares.html` (25'593 Zeilen) | **Hoch** | Grösstes Artefakt, funktional ungetestet (nur Struktur-Snapshot). Split-Plan (ADR-008) existiert seit 6 Wochen, unbegonnen. Schrittweise React-Migration. |
 | **Engine-God-Module** `portfolio_engine.py` (8'227 Zeilen) | Mittel | ~15% der Service-LOC in einer Datei, *kein* Split-Plan. Gut getestet (16 Engine-Test-Dateien). Eigenes Backend-Tech-Debt-Item. |
 | **python-jose 3.3.0** (JWT-Auth-Pfad) | **Hoch** | Bekannte CVEs (Algorithm-Confusion, JWE-DoS). Migration zu `pyjwt` prüfen. *(Aus Versionskenntnis, nicht per Scanner verifiziert.)* |
 | **Fail-open Compliance-Defaults** (`is_compliant: True` bei Exception) | Mittel | Report-Builder maskieren im Fehlerfall einen Verstoss als „compliant". Auf Fail-closed umstellen. |

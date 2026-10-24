@@ -5,8 +5,8 @@ status_as_of: "2026-09-03"
 audit_started_on: "2026-09-03"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "2d364de372e65aa16739a3301777b12bb2808850"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -201,29 +201,29 @@ Stand repräsentieren.
 
 | Bereich | Pfad |
 |---|---|
-| ContractDocument-ORM | `5eyes-backend/models/review.py:31-69` |
-| Create-/Sign-Schemas | `5eyes-backend/schemas/review.py:233-295` |
-| Dokument-Create | `5eyes-backend/routers/review.py:963-995` |
-| Dokument-Signatur | `5eyes-backend/routers/review.py:998-1042` |
-| Recommendation-Finalisierungsgate | `5eyes-backend/routers/review.py:137-216` |
-| Recommendation-Finalisierung | `5eyes-backend/routers/review.py:2290-2338` |
-| Vertrags-PDF-Datenparser | `5eyes-backend/routers/pdf_reports.py:1177-1251` |
-| Vertrags-PDF-Endpoint | `5eyes-backend/routers/pdf_reports.py:1253-1275` |
-| Contract-Signoff-Daten | `5eyes-backend/routers/pdf_reports.py:1278-1310` |
-| Contract-Signoff-Endpoint | `5eyes-backend/routers/pdf_reports.py:1336-1362` |
-| Protokoll-/Recommendation-Auswahl | `5eyes-backend/routers/pdf_reports.py:1365-1482` |
-| PDF-Datenklassen | `5eyes-backend/services/pdf/base.py:208-241` |
-| Signoff-Claims/Unterschriftslinien | `5eyes-backend/services/pdf/documents/contract_signoff.py:28-146` |
-| Standardbestätigungen | `5eyes-backend/services/pdf/documents/contract_signoff.py:274-282` |
-| Frontend-Dokumentgrid/Druck | `5eyes-electron/frontend/5eyes_v2.html:24240-24284` |
-| Frontend-Entwurfspayload | `5eyes-electron/frontend/5eyes_v2.html:24839-24888` |
-| Frontend-E-Signatur | `5eyes-electron/frontend/5eyes_v2.html:24890-25015` |
-| Frontend-Kapiteldruck | `5eyes-electron/frontend/5eyes_v2.html:8096-8106` |
-| Raw-SQL-Bootstrap | `5eyes-backend/5eyes_schema_v4.0_FINAL.sql:957-994` |
-| Alembic-Baseline | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:734-768` |
-| additive SQLite-Signaturspalten | `5eyes-backend/database.py:630-642` |
-| bestehende Signaturtests | `5eyes-backend/tests/test_runtime_contracts.py:3916-4030` |
-| bestehende Signoff-PDF-Tests | `5eyes-backend/tests/pdf/test_contract_signoff.py:1-146` |
+| ContractDocument-ORM | `ares-backend/models/review.py:31-69` |
+| Create-/Sign-Schemas | `ares-backend/schemas/review.py:233-295` |
+| Dokument-Create | `ares-backend/routers/review.py:963-995` |
+| Dokument-Signatur | `ares-backend/routers/review.py:998-1042` |
+| Recommendation-Finalisierungsgate | `ares-backend/routers/review.py:137-216` |
+| Recommendation-Finalisierung | `ares-backend/routers/review.py:2290-2338` |
+| Vertrags-PDF-Datenparser | `ares-backend/routers/pdf_reports.py:1177-1251` |
+| Vertrags-PDF-Endpoint | `ares-backend/routers/pdf_reports.py:1253-1275` |
+| Contract-Signoff-Daten | `ares-backend/routers/pdf_reports.py:1278-1310` |
+| Contract-Signoff-Endpoint | `ares-backend/routers/pdf_reports.py:1336-1362` |
+| Protokoll-/Recommendation-Auswahl | `ares-backend/routers/pdf_reports.py:1365-1482` |
+| PDF-Datenklassen | `ares-backend/services/pdf/base.py:208-241` |
+| Signoff-Claims/Unterschriftslinien | `ares-backend/services/pdf/documents/contract_signoff.py:28-146` |
+| Standardbestätigungen | `ares-backend/services/pdf/documents/contract_signoff.py:274-282` |
+| Frontend-Dokumentgrid/Druck | `ares-desktop/frontend/ares.html:24240-24284` |
+| Frontend-Entwurfspayload | `ares-desktop/frontend/ares.html:24839-24888` |
+| Frontend-E-Signatur | `ares-desktop/frontend/ares.html:24890-25015` |
+| Frontend-Kapiteldruck | `ares-desktop/frontend/ares.html:8096-8106` |
+| Raw-SQL-Bootstrap | `ares-backend/ares_schema.sql:957-994` |
+| Alembic-Baseline | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:734-768` |
+| additive SQLite-Signaturspalten | `ares-backend/database.py:630-642` |
+| bestehende Signaturtests | `ares-backend/tests/test_runtime_contracts.py:3916-4030` |
+| bestehende Signoff-PDF-Tests | `ares-backend/tests/pdf/test_contract_signoff.py:1-146` |
 
 ## `SIGN-CONTEXT-001` – Signatur ohne signierten Entscheidungskontext
 
@@ -524,7 +524,7 @@ unveränderlichen Events berechnet.
 1. SQLAlchemy `Base.metadata.create_all()` besitzt für `contract_documents`
    keine CHECK- oder Unique-Invarianten außer Primär-/Foreign Keys.
 2. Die Alembic-Baseline erzeugt die Tabelle ebenfalls ohne die Raw-SQL-CHECKs.
-3. `5eyes_schema_v4.0_FINAL.sql` prüft einige Domains, aber nicht die Bindung
+3. `ares_schema.sql` prüft einige Domains, aber nicht die Bindung
    von `Unterzeichnet` an beide vollständigen Artefakte und nicht den
    Snapshot-/Hashvertrag.
 
@@ -966,7 +966,7 @@ archived_mandate_sign_status: Teilweise unterzeichnet
 
 ### Fokussierter Bestands-Gate
 
-Ausgeführt aus `5eyes-backend` mit externem Basetemp:
+Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `

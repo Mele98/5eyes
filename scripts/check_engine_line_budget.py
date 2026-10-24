@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ENGINE_FILE = REPO_ROOT / "5eyes-backend" / "services" / "portfolio_engine.py"
+ENGINE_FILE = REPO_ROOT / "ares-backend" / "services" / "portfolio_engine.py"
 
 # Ist-Stand bei Einfuehrung dieses Gates (2026-09-27, verifiziert per `wc -l`):
 # 7'215 Zeilen. Kleiner Puffer bis 7'300 faengt triviale Kommentar-/Docstring-

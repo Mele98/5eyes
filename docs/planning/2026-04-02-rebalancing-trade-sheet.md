@@ -220,16 +220,16 @@ Schritt 3 bereits angewendet wurde (er sucht nach `renderStrategySummary();\n}\n
 7. Kein XSS: alle Werte über `escapeHtml()` gerendert
 8. "Drucken / PDF"-Button: `window.print()`
 9. Wenn keine Recommendation / kein live rebalancing: Modal zeigt Hinweis, kein Absturz
-10. `node --check 5eyes-electron/frontend/5eyes_v2.html` muss grün sein
+10. `node --check ares-desktop/frontend/ares.html` muss grün sein
 
 ---
 
 ## Implementierungs-Checkliste für Codex
 
-1. Änderung 1 (Modal): `grep -n "function showAwFields" 5eyes-electron/frontend/5eyes_v2.html`
+1. Änderung 1 (Modal): `grep -n "function showAwFields" ares-desktop/frontend/ares.html`
    → sicherstellen, dass Suchstring einmalig ist, dann einfügen
-2. Änderung 2 (Button): `grep -n "Handlungsempfehlungen" 5eyes-electron/frontend/5eyes_v2.html`
+2. Änderung 2 (Button): `grep -n "Handlungsempfehlungen" ares-desktop/frontend/ares.html`
    → nur 1 Treffer bei Zeile ~905 → sicher
 3. Änderung 3 (`openTradeList`): Suchstring `renderStrategySummary();\n}\nasync function loadCurrentAllocationResult`
 4. Änderung 4 (Button-Toggle): NACH Schritt 3 ausführen; sucht `renderStrategySummary();\n}\nfunction openTradeList()`
-5. `node --check 5eyes-electron/frontend/5eyes_v2.html` → muss 0 Fehler zeigen
+5. `node --check ares-desktop/frontend/ares.html` → muss 0 Fehler zeigen

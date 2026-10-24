@@ -172,7 +172,7 @@ Solver-Ranking, VaR/CVaR, Zielwahrscheinlichkeit und Eignungsaussagen ändern.
 
 Der Electron-Editor meldet bei fehlendem Payload nur „Standardmatrix“ und
 lädt die gleiche hartcodierte Matrix in das Grid
-(`5eyes_v2.html:10721-10736`, `11060-11066`). Ein späteres Speichern sendet
+(`ares.html:10721-10736`, `11060-11066`). Ein späteres Speichern sendet
 sie als explizites JSON (`11233-11269`). Dadurch kann ein technisch
 impliziter, unprovenancierter Fallback durch eine sachfremde Admin-Änderung zur
 scheinbar bewusst gepflegten CMA-Eingabe werden. Die Anzeige nennt weder
@@ -320,11 +320,11 @@ Clamp-Verdict je Consumer.
   sein (`portfolio_engine.py:2648-2785`).
 - Der Electron-Client zeigt beim Reporting zwar den resultierenden
   `tail_model`, bezeichnet ihn aber nur als von der Allokationsentscheidung
-  getrennte Umsetzungsprojektion (`5eyes_v2.html:7349-7364`).
+  getrennte Umsetzungsprojektion (`ares.html:7349-7364`).
 - Im Electron-Frontend existiert kein `tailRisk`-/`cornishFisher`-Steuerelement
   und keine Eingabe/Anzeige der zehn Tail-CMA-Felder. Der Admin-Payload
   `collectAdminCapitalMarketAssumptionsPayload()` lässt sie aus
-  (`5eyes_v2.html:11233-11284`). Der Router bewahrt unsichtbare Altwerte beim
+  (`ares.html:11233-11284`). Der Router bewahrt unsichtbare Altwerte beim
   Versionsupdate zwar technisch, macht sie damit aber nicht reviewbar.
 
 ### Wirkung

@@ -6,8 +6,8 @@ audit_started_on: "2026-10-04"
 audit_completed_on: "2026-10-04"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "0697cf696f3ae564eafd3107708435ed982490a8"
 prior_cma_audit_path: "docs/audits/2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md"
@@ -297,26 +297,26 @@ registrierten, gehashten Runtimevertrag verbunden.
 
 | Bereich | Codeanker |
 |---|---|
-| Archiv erhält neue ID und kopiert nur skalare Policyspalten | `5eyes-backend/routers/allocation.py:67-99` |
-| Aktives Policy-PUT archiviert und mutiert dieselbe ID auf Version +1 | `5eyes-backend/routers/allocation.py:1113-1147` |
-| Nur House-Matrix-PUT blockiert aktive Policy | `5eyes-backend/routers/allocation.py:1149-1173` |
-| TA bindet nur `policy_id`, keine Policyversion/-hash | `5eyes-backend/models/allocation.py:76-107` |
-| Context-Hash enthält `policy_id`, aber keinen Policy-Content-Hash | `5eyes-backend/services/portfolio_engine.py:3963-3988` |
-| Context-Verifikation rekonstruiert erneut nur mit `allocation.policy_id` | `5eyes-backend/services/portfolio_engine.py:4338-4364` |
-| Current-TA-Gate prüft nur Existenz und `is_current` | `5eyes-backend/routers/allocation.py:161-171` |
-| Recommendation akzeptiert Policy derselben ID als current | `5eyes-backend/services/portfolio_engine.py:6479-6491` |
-| Run übernimmt Live-Engine-/Fee-Felder aus der Policy | `5eyes-backend/services/portfolio_engine.py:6561-6579` |
-| Cost Disclosure löst Run-Policy erneut live per ID auf | `5eyes-backend/services/cost_disclosure.py:74-83` |
-| Schema behauptet bei leerer Matrix Backend-Default-Seeds | `5eyes-backend/schemas/allocation.py:451-477` |
-| Create legt nur übergebene House-Matrix-Zeilen und nie Building Blocks an | `5eyes-backend/routers/allocation.py:1053-1110` |
-| Aktivierung besitzt keinen Aggregate-Readiness-Preflight | `5eyes-backend/routers/allocation.py:1193-1230` |
-| Clone kopiert ausschließlich House Matrix | `5eyes-backend/routers/allocation.py:1232-1310` |
-| Runtime seedet Matrix/Building Blocks nur beim Erzeugen einer fehlenden Policy | `5eyes-backend/services/portfolio_engine.py:1630-1666` |
-| Vorhandene unvollständige Policy wird unverändert zurückgegeben | `5eyes-backend/services/portfolio_engine.py:1667-1731` |
-| Fehlende Scoreabdeckung blockiert erst im Strategielauf | `5eyes-backend/services/portfolio_engine_house_matrix.py:1217-1231` |
-| CH erlaubt leere Building-Block-Auflösung als Bestandsfall | `5eyes-backend/services/jurisdiction/resolve.py:229-251` |
-| Sub-Allokation verlangt später strikt eine Risikofraktion je Subklasse | `5eyes-backend/services/portfolio_engine_house_matrix.py:318-352` |
-| Tatsächlicher Solvermodus stammt aus globalen Settings | `5eyes-backend/services/portfolio_engine.py:3137-3139` |
+| Archiv erhält neue ID und kopiert nur skalare Policyspalten | `ares-backend/routers/allocation.py:67-99` |
+| Aktives Policy-PUT archiviert und mutiert dieselbe ID auf Version +1 | `ares-backend/routers/allocation.py:1113-1147` |
+| Nur House-Matrix-PUT blockiert aktive Policy | `ares-backend/routers/allocation.py:1149-1173` |
+| TA bindet nur `policy_id`, keine Policyversion/-hash | `ares-backend/models/allocation.py:76-107` |
+| Context-Hash enthält `policy_id`, aber keinen Policy-Content-Hash | `ares-backend/services/portfolio_engine.py:3963-3988` |
+| Context-Verifikation rekonstruiert erneut nur mit `allocation.policy_id` | `ares-backend/services/portfolio_engine.py:4338-4364` |
+| Current-TA-Gate prüft nur Existenz und `is_current` | `ares-backend/routers/allocation.py:161-171` |
+| Recommendation akzeptiert Policy derselben ID als current | `ares-backend/services/portfolio_engine.py:6479-6491` |
+| Run übernimmt Live-Engine-/Fee-Felder aus der Policy | `ares-backend/services/portfolio_engine.py:6561-6579` |
+| Cost Disclosure löst Run-Policy erneut live per ID auf | `ares-backend/services/cost_disclosure.py:74-83` |
+| Schema behauptet bei leerer Matrix Backend-Default-Seeds | `ares-backend/schemas/allocation.py:451-477` |
+| Create legt nur übergebene House-Matrix-Zeilen und nie Building Blocks an | `ares-backend/routers/allocation.py:1053-1110` |
+| Aktivierung besitzt keinen Aggregate-Readiness-Preflight | `ares-backend/routers/allocation.py:1193-1230` |
+| Clone kopiert ausschließlich House Matrix | `ares-backend/routers/allocation.py:1232-1310` |
+| Runtime seedet Matrix/Building Blocks nur beim Erzeugen einer fehlenden Policy | `ares-backend/services/portfolio_engine.py:1630-1666` |
+| Vorhandene unvollständige Policy wird unverändert zurückgegeben | `ares-backend/services/portfolio_engine.py:1667-1731` |
+| Fehlende Scoreabdeckung blockiert erst im Strategielauf | `ares-backend/services/portfolio_engine_house_matrix.py:1217-1231` |
+| CH erlaubt leere Building-Block-Auflösung als Bestandsfall | `ares-backend/services/jurisdiction/resolve.py:229-251` |
+| Sub-Allokation verlangt später strikt eine Risikofraktion je Subklasse | `ares-backend/services/portfolio_engine_house_matrix.py:318-352` |
+| Tatsächlicher Solvermodus stammt aus globalen Settings | `ares-backend/services/portfolio_engine.py:3137-3139` |
 
 ## Warum bestehende Schutzmechanismen nicht genügen
 

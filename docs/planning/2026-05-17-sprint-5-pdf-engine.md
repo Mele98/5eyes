@@ -33,7 +33,7 @@ keine externen Dependencies.
 ## 2. Modul-Struktur
 
 ```
-5eyes-backend/
+ares-backend/
 ├── services/pdf/
 │   ├── __init__.py
 │   ├── base.py                   # PDFRenderer-Protocol + PDFContext

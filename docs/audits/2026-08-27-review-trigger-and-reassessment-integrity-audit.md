@@ -4,7 +4,7 @@ document_role: "release-blocking-review-trigger-and-reassessment-integrity-follo
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "04a716764e50326a9028d054b0cfe4d09b41c0d7"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -100,16 +100,16 @@ separate **Fristen-, Review-Anker- und Trigger-Transitionslücke**.
 
 | Bereich | Codeanker |
 |---|---|
-| öffentliches Review-Ereignisvokabular | `5eyes-backend/schemas/review.py:46-58` |
-| inkompatible Jahresreview-Abfrage | `5eyes-backend/services/review_engine.py:168-182` |
-| ungültiges Datum fällt auf heute zurück | `5eyes-backend/services/review_engine.py:77-84` |
-| manuelles Trigger-Schema | `5eyes-backend/schemas/review.py:7-17` |
-| Frequenznormalisierung und stiller Jahresfallback | `5eyes-backend/routers/review.py:562-590` |
-| Trigger-Create | `5eyes-backend/routers/review.py:630-669` |
-| Resolve ohne Decision-/CAS-Vertrag | `5eyes-backend/routers/review.py:682-709` |
-| persistiertes Trigger-Modell ohne Decision-Evidence | `5eyes-backend/models/review.py:6-28` |
-| Baseline ohne Trigger-Domain-/Eindeutigkeitsconstraints | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:907-927` |
-| bestehender Test mit nicht öffentlichem Legacy-Typ | `5eyes-backend/tests/test_runtime_contracts.py:4119-4156` |
+| öffentliches Review-Ereignisvokabular | `ares-backend/schemas/review.py:46-58` |
+| inkompatible Jahresreview-Abfrage | `ares-backend/services/review_engine.py:168-182` |
+| ungültiges Datum fällt auf heute zurück | `ares-backend/services/review_engine.py:77-84` |
+| manuelles Trigger-Schema | `ares-backend/schemas/review.py:7-17` |
+| Frequenznormalisierung und stiller Jahresfallback | `ares-backend/routers/review.py:562-590` |
+| Trigger-Create | `ares-backend/routers/review.py:630-669` |
+| Resolve ohne Decision-/CAS-Vertrag | `ares-backend/routers/review.py:682-709` |
+| persistiertes Trigger-Modell ohne Decision-Evidence | `ares-backend/models/review.py:6-28` |
+| Baseline ohne Trigger-Domain-/Eindeutigkeitsconstraints | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:907-927` |
+| bestehender Test mit nicht öffentlichem Legacy-Typ | `ares-backend/tests/test_runtime_contracts.py:4119-4156` |
 
 Die Zeilenangaben sind an `audited_repository_head` gebunden. Nach einem Fix
 müssen Tests, Migrationen und stabile Funktionsnamen die Traceability tragen.

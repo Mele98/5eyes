@@ -4,7 +4,7 @@ document_role: "release-blocking-strategy-snapshot-provenance-and-temporal-integ
 status_as_of: "2026-08-28"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "520baf1b8c40eb5c2f2d14a99b9da9db31692af3"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -115,19 +115,19 @@ reproduziert werden.
 
 | Bereich | Codeanker |
 |---|---|
-| Create-Schema mit freien/koerziven Feldern und ±50-bps-Summe | `5eyes-backend/schemas/snapshots.py:6-43` |
-| Persistenzmodell ohne Entscheidungsanker, Hashes oder DB-Checks | `5eyes-backend/models/snapshots.py:6-34` |
-| POST übernimmt den Request unverändert und prüft nur Mandatszugriff | `5eyes-backend/routers/snapshots.py:89-139` |
-| Auditlog-Call enthält weder Ausgangskontext noch Payload-Hash | `5eyes-backend/routers/snapshots.py:130-139`; `5eyes-backend/services/audit.py:59-119` |
-| Listen-/Latest-Sortierung auf clientgesetztem String | `5eyes-backend/routers/snapshots.py:143-182` |
-| Vier-Zeichen-Year-Parsing und kalenderjährlicher Cutoff | `5eyes-backend/routers/snapshots.py:185-206` |
-| Drift normalisiert die Snapshotgewichte erst nach vorhandenen Returns | `5eyes-backend/routers/snapshots.py:208-236` |
-| Chart verwendet dasselbe volle Snapshot-Jahr | `5eyes-backend/routers/snapshots.py:238-262` |
-| Bewährte exactly-one Resolver für aktuelle RA/TA existieren bereits | `5eyes-backend/services/portfolio_engine.py:380-434` |
-| Strikter Risikoableitungsvertrag existiert bereits | `5eyes-backend/services/risk_assessment_semantics.py:198-270` |
-| Aktive UI-Aktion „Portfolio umsetzen“ | `5eyes-electron/frontend/5eyes_v2.html:3238`; `:8868-9015`; `:25414-25446` |
-| UI sendet Gewichte, Bänder und Risiko erneut als frei änderbaren Body | `5eyes-electron/frontend/5eyes_v2.html:8926-9007` |
-| Data Export behandelt Rows als zehn Jahre aufzubewahrende Mandatsdaten | `5eyes-backend/services/data_export.py:61`; `:583-600` |
+| Create-Schema mit freien/koerziven Feldern und ±50-bps-Summe | `ares-backend/schemas/snapshots.py:6-43` |
+| Persistenzmodell ohne Entscheidungsanker, Hashes oder DB-Checks | `ares-backend/models/snapshots.py:6-34` |
+| POST übernimmt den Request unverändert und prüft nur Mandatszugriff | `ares-backend/routers/snapshots.py:89-139` |
+| Auditlog-Call enthält weder Ausgangskontext noch Payload-Hash | `ares-backend/routers/snapshots.py:130-139`; `ares-backend/services/audit.py:59-119` |
+| Listen-/Latest-Sortierung auf clientgesetztem String | `ares-backend/routers/snapshots.py:143-182` |
+| Vier-Zeichen-Year-Parsing und kalenderjährlicher Cutoff | `ares-backend/routers/snapshots.py:185-206` |
+| Drift normalisiert die Snapshotgewichte erst nach vorhandenen Returns | `ares-backend/routers/snapshots.py:208-236` |
+| Chart verwendet dasselbe volle Snapshot-Jahr | `ares-backend/routers/snapshots.py:238-262` |
+| Bewährte exactly-one Resolver für aktuelle RA/TA existieren bereits | `ares-backend/services/portfolio_engine.py:380-434` |
+| Strikter Risikoableitungsvertrag existiert bereits | `ares-backend/services/risk_assessment_semantics.py:198-270` |
+| Aktive UI-Aktion „Portfolio umsetzen“ | `ares-desktop/frontend/ares.html:3238`; `:8868-9015`; `:25414-25446` |
+| UI sendet Gewichte, Bänder und Risiko erneut als frei änderbaren Body | `ares-desktop/frontend/ares.html:8926-9007` |
+| Data Export behandelt Rows als zehn Jahre aufzubewahrende Mandatsdaten | `ares-backend/services/data_export.py:61`; `:583-600` |
 
 ## `SNAPSHOT-ANCHOR-001` – „Verbindlich“ ist nicht an den Entscheid gebunden
 

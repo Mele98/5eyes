@@ -4,7 +4,7 @@ document_role: "release-blocking-post-commit-integrity-audit"
 status_as_of: "2026-08-25"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "5216c583becf7a1f93950c81d4a5a40915723db3"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -116,8 +116,8 @@ JWT, sondern die gesamte öffentliche Auth-Familie muss `users` oder
 - Passwort-Reset Request/Confirm;
 - Invite Preview/Accept.
 
-Belege: `5eyes-backend/routers/auth.py:60,194,256,360,615,650,872,879,895`
-und `5eyes-backend/services/auth.py:122-152`.
+Belege: `ares-backend/routers/auth.py:60,194,256,360,615,650,872,879,895`
+und `ares-backend/services/auth.py:122-152`.
 
 Unter einer echten unprivilegierten Runtime-Rolle liefert die RLS-Policy ohne
 Tenant-GUC keine Zeile. Zusätzlich erzeugt der Bootstrap-Pfad einen Benutzer ohne
@@ -171,7 +171,7 @@ zwei Tenants prüfen direkte Queries auf Eltern und Kindern.
 
 ### P0.3 [`PG-003`] Pauschaler NULL-Backfill zerstört Scope und Audit
 
-`5eyes-backend/services/postgres_rls.py` setzt jede direkte
+`ares-backend/services/postgres_rls.py` setzt jede direkte
 `tenant_id IS NULL` auf den Tenant `main` und erzwingt danach `NOT NULL`.
 `NULL` ist im Fachmodell jedoch absichtlich belegt:
 
@@ -316,7 +316,7 @@ Exactly-one-Vertrag.
 
 ### P1.1 [`REP-001`] Der allgemeine Report umgeht den Strategie-/Hash-Preflight
 
-`5eyes-backend/services/monte_carlo_paths.py` lädt aktuelle TargetAllocation und
+`ares-backend/services/monte_carlo_paths.py` lädt aktuelle TargetAllocation und
 globale aktuelle CMA getrennt. Der Pfad prüft weder
 `context_artifacts_required`, `allocation_context_hash`, `input_snapshot_hash`
 noch die verankerte Snapshot-CMA.

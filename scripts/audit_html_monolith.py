@@ -1,4 +1,4 @@
-"""Inventory snapshot generator for the 5eyes_v2.html monolith.
+"""Inventory snapshot generator for the ares.html monolith.
 
 Sprint U-35: before splitting the large HTML file into modules, capture a
 deterministic inventory of DOM ids, inline event handlers, JS declarations,
@@ -17,7 +17,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_HTML = REPO_ROOT / "5eyes-electron" / "frontend" / "5eyes_v2.html"
+DEFAULT_HTML = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.json"
 
 _JS_PATTERNS = (
