@@ -1,4 +1,4 @@
-# Code-Signing fuer 5eyes-Electron (Windows + macOS)
+# Code-Signing fuer Ares-Electron (Windows + macOS)
 
 Setup-Anleitung sobald der User ein Code-Signing-Zertifikat besorgt hat.
 
@@ -90,8 +90,8 @@ Plus Notarization via `notarytool` (separater Step):
 
 ```powershell
 npx electron-notarize \
-  --bundle-id ch.5eyes.wealtharchitekten \
-  --app dist/mac/5Eyes.app \
+  --bundle-id <COMPANY_REVERSE_DNS>.ares \
+  --app "dist/mac/<productName>.app" \
   --apple-id <email> \
   --apple-id-password <app-specific-pwd> \
   --team-id <TEAMID>

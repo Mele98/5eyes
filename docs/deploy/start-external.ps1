@@ -1,5 +1,5 @@
 # =============================================================================
-# 5eyes — Externer Zugriff von deinem PC (Phase-0: nur synthetische Daten)
+# Ares — Externer Zugriff von deinem PC (Phase-0: nur synthetische Daten)
 #
 # Startet das Backend im Staging-/Browser-Hosting-Modus auf 127.0.0.1:8000 und
 # oeffnet einen Cloudflare-Quick-Tunnel mit HTTPS (kein Account, kein Port-

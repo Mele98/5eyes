@@ -1,5 +1,5 @@
 # =============================================================================
-# 5eyes — EXTERNER TEST mit SEPARATER Staging-DB (garantiert KEINE echten Mandanten)
+# Ares — EXTERNER TEST mit SEPARATER Staging-DB (garantiert KEINE echten Mandanten)
 #
 # Wie start-external.ps1, aber zeigt auf ~/ares/ares-staging.db (DB_PATH) — eine
 # eigene DB mit NUR synthetischen Demo-Tenants/Accounts. Selbst wenn die

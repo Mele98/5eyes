@@ -1,4 +1,4 @@
-# 5eyes Reporting Sub-App — Design System
+# Ares Reporting Sub-App — Design System
 
 **Sprint U-46 (2026-06-04)** · Living-Documentation für Berater, Designer und Entwickler.
 
@@ -12,7 +12,7 @@ Diese Doku spiegelt den Stand von `tailwind.config.ts` + `src/styles/globals.css
 |--------|-----------|
 | **Swiss Private Banking** | Institutionell, präzise, leise. Kein Fintech-Look. |
 | **Editorial** | Viel Weissraum. Typografie führt das Auge. |
-| **Branding-Disziplin** | Keine Dritt-Marken (UBS, Swiss Life, 3eyes, etc.). Keine Verkaufsargumente. |
+| **Branding-Disziplin** | Keine Dritt-Marken (UBS, Swiss Life, etc.). Keine Verkaufsargumente. |
 | **FINMA-bewusst** | Keine Garantieversprechen. Keine Emotionalisierung. |
 | **Print-tauglich** | Jede Sektion muss als PDF identisch wirken. |
 
@@ -249,7 +249,6 @@ Bei Token-Änderung (z.B. neue Farbe, neuer Spacing-Wert):
 - `ares-desktop/frontend/reporting/src/styles/globals.css` — Component-Klassen + Print-CSS
 - `ares-desktop/frontend/reporting/tailwind.config.ts` — Token-Definitionen
 - `ares-backend/services/pdf/fonts.py` (U-15) — Server-PDF TTF-Registration
-- Memory `feedback_5eyes_branding.md` — Branding-Disziplin
 
 ---
 

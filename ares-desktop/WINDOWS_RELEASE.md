@@ -20,7 +20,7 @@ npm run preflight:release
 
 ## 3) Finalize publish URL for auto-update
 Edit `package.json` and replace:
-- `https://updates.example.invalid/5eyes/windows`
+- the placeholder URL in `build.publish.url` (host `updates.example.invalid`)
 
 with your real generic update feed URL.
 

@@ -1,6 +1,6 @@
-# 5Eyes Electron Wrapper (Windows skeleton)
+# Ares Electron Wrapper (Windows skeleton)
 
-This desktop shell starts the local FastAPI backend, verifies that the reachable service is really the 5Eyes API, chooses a free localhost port when 8000 is already occupied by something else, and then opens the current `ares.html` frontend inside Electron.
+This desktop shell starts the local FastAPI backend, verifies that the reachable service is really the Ares API, chooses a free localhost port when 8000 is already occupied by something else, and then opens the current `ares.html` frontend inside Electron.
 
 ## What is included
 
@@ -36,7 +36,7 @@ This desktop shell starts the local FastAPI backend, verifies that the reachable
 - Placeholder Windows app icon is included under `assets/icons/` and can be replaced later without changing code.
 - The backend scheduler only needs to run while the app is open.
 - SQLCipher is controlled centrally through `DB_USE_SQLCIPHER=true` and `DB_KEY=...` in `.env`.
-- Electron writes a local support log to `%APPDATA%/5Eyes WealthArchitekten/logs/electron.log` (or the platform equivalent).
+- Electron writes a local support log to `%APPDATA%/<productName>/logs/electron.log` (`productName` from `package.json`; or the platform equivalent).
 - The packaged backend looks for a `.env` file next to the bundled backend executable first, then falls back to the normal project locations. The build never ships a real `.env` there — see "Secrets are never bundled" below.
 - The frontend contains an in-app bootstrap flow for the first admin account if the database has no users yet.
 - For a fully offline release, run `python vendor_assets.py` successfully before the final installer build.

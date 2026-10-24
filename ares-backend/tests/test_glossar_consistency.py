@@ -185,8 +185,10 @@ def test_glossar_documents_forbidden_third_party_brands():
     lowered = text.lower()
     # Verbots-Sektion muss existieren
     assert "nicht auftauchen" in lowered or "verboten" in lowered
-    # Die verbotenen Begriffe muessen im Verbot gelistet sein
-    for brand in ("swiss life", "3eyes"):
+    # Die verbotenen Begriffe muessen im Verbot gelistet sein. Fruehere
+    # Produkt- und Vorlagennamen nennt das Glossar nicht mehr; sie prueft das
+    # externe Zero-Trace-Gate.
+    for brand in ("swiss life",):
         assert brand in lowered, f"Verbotsregel fuer {brand!r} fehlt"
 
 

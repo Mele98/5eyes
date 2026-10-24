@@ -1,14 +1,14 @@
-# 5eyes — Methodik der Anlagestrategie-Engine
+# Ares — Methodik der Anlagestrategie-Engine
 
 **Whitepaper · Stand 2026-06-17 · Roadmap PAR-11**
 
 Dieses Dokument erklärt die wissenschaftliche und technische Grundlage der
-5eyes-Engine, die aus Risikoprofil, Lebenszielen, Vermögens- und Cashflow-Situation
+Ares-Engine, die aus Risikoprofil, Lebenszielen, Vermögens- und Cashflow-Situation
 eine strategische Asset-Allokation (SAA) herleitet. Zielpublikum: Berater, Compliance/
 Revision, Aufsicht. Alle Aussagen sind im Quellcode verankert (Modul-/Funktionsangaben
 in Klammern), damit die Methodik prüfbar ist.
 
-> Hinweis: 5eyes verfolgt eine **zielbasierte, stochastische** Methodik. Es findet
+> Hinweis: Ares verfolgt eine **zielbasierte, stochastische** Methodik. Es findet
 > **kein Markt-Timing** und **keine aktive Einzeltitel-Spekulation** statt
 > (siehe ADR-003). Die Engine ist deterministisch reproduzierbar (Abschnitt 9).
 
@@ -18,7 +18,7 @@ in Klammern), damit die Methodik prüfbar ist.
 
 Klassische Mean-Variance-Optimierung (Markowitz 1952) maximiert Rendite je
 Risiko-Einheit, ohne die **konkreten Lebensziele** und **Verbindlichkeiten** des
-Kunden zu kennen. 5eyes optimiert stattdessen direkt auf **Zielerreichung**:
+Kunden zu kennen. Ares optimiert stattdessen direkt auf **Zielerreichung**:
 Wie hoch ist die Wahrscheinlichkeit (und der Grad), dass der Kunde mit der gewählten
 Allokation seine Ziele — Pensionierung, Eigenheim, Schenkung, Vermögenserhalt —
 über Tausende simulierte Kapitalmarktpfade erreicht?
