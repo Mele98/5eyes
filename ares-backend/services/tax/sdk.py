@@ -34,7 +34,7 @@ tax-plugin-sdk.md`.
 # Distribution als pip-Paket
     # setup.cfg / pyproject.toml:
     # [options.entry_points]
-    # 5eyes.tax_regime =
+    # ares.tax_regime =
     #     vn = my_5eyes_vn_tax:VNTaxRegime
     # 5eyes ruft beim Boot discover_external_regimes() auf und
     # findet alle eingetragenen Entry-Points.

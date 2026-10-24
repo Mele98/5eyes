@@ -90,3 +90,12 @@ def test_doc_links_to_auto_update():
 def test_doc_links_to_code_signing_gap():
     text = MULTI_PLATFORM_DOC.read_text(encoding="utf-8")
     assert "#109" in text
+
+
+def test_package_and_lockfile_names_match():
+    """npm-Name des Desktop-Pakets steht gleich in package.json und Lockfile."""
+    pkg = json.loads(ELECTRON_PKG.read_text(encoding="utf-8"))
+    lock = json.loads((ELECTRON_PKG.parent / "package-lock.json").read_text(encoding="utf-8"))
+    assert pkg["name"] == "ares-desktop"
+    assert lock["name"] == pkg["name"]
+    assert lock["packages"][""]["name"] == pkg["name"]
