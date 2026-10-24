@@ -14,7 +14,9 @@ dieses Fixes.
 Kernrisiko dieses Fixes: ein bestehender, real eingerichteter 2FA-Nutzer
 darf NIEMALS durch diese Aenderung ausgesperrt werden. Mehrere Tests
 reproduzieren genau dieses Szenario (Tier-1 ohne tenant_id, Dual-Read
-bestehender Klartext-Secrets, defensiver Fallback bei Krypto-Fehlern).
+bestehender Klartext-Secrets). Krypto-Fehler sind seit dem AUDIT-FIX
+2026-10-23 fail-closed (typisierter Fehler statt Klartext bzw. "") -- siehe
+tests/test_totp_secret_storage_fail_closed.py.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ from models.users import User  # noqa: E402
 from services import totp  # noqa: E402
 from services.tenant_crypto import TenantCryptoError  # noqa: E402
 from services.totp_secret_storage import (  # noqa: E402
+    TotpSecretStorageError,
     _ENC_PREFIX,
     load_totp_secret,
     store_totp_secret,
@@ -160,20 +163,21 @@ def test_load_dual_reads_legacy_plaintext_secret_even_with_tenant_id(session_fac
 
 
 # ---------------------------------------------------------------------------
-# Fail-safe: Krypto-Fehler duerfen 2FA-Setup/-Verify NIE hart crashen lassen.
+# Fail-closed: Krypto-Fehler liefern einen typisierten Fehler -- nie still
+# Klartext (Schreiben) oder "" (Lesen).
 # ---------------------------------------------------------------------------
 
-def test_store_falls_back_to_plaintext_when_tenant_missing(session_factory):
+def test_store_raises_instead_of_plaintext_when_tenant_missing(session_factory):
     """tenant_id zeigt auf keinen existierenden Tenant (Race/Datenfehler) --
-    store_totp_secret() darf trotzdem nicht werfen."""
+    kein stiller Klartext-Fallback mehr."""
     with session_factory() as db:
         user = _seed_user(db, "u7", tenant_id="ghost-tenant")
         secret = totp.generate_secret()
-        stored = store_totp_secret(db, user, secret)
-        assert stored == secret  # Fallback: Klartext statt Exception
+        with pytest.raises(TotpSecretStorageError):
+            store_totp_secret(db, user, secret)
 
 
-def test_load_returns_empty_string_on_decrypt_failure_instead_of_raising(session_factory, monkeypatch):
+def test_load_raises_on_decrypt_failure_instead_of_empty_string(session_factory, monkeypatch):
     import services.totp_secret_storage as storage_mod
 
     with session_factory() as db:
@@ -185,19 +189,18 @@ def test_load_returns_empty_string_on_decrypt_failure_instead_of_raising(session
             raise TenantCryptoError("simulierter Entschluesselungsfehler")
 
         monkeypatch.setattr(storage_mod, "decrypt_for_tenant", _boom)
-        result = load_totp_secret(db, user)
-        assert result == ""
-        # totp_verify() lehnt konsistent ab statt zu crashen.
-        assert totp.verify(result, "123456") is False
+        with pytest.raises(TotpSecretStorageError):
+            load_totp_secret(db, user)
 
 
-def test_load_returns_empty_string_when_enc_prefix_but_no_tenant_id(session_factory):
+def test_load_raises_when_enc_prefix_but_no_tenant_id(session_factory):
     """Kann eigentlich nicht vorkommen (nur wir schreiben den Prefix, und nur
-    mit tenant_id) -- defensiv trotzdem kein Crash bei Inkonsistenz."""
+    mit tenant_id) -- bei Inkonsistenz typisierter Fehler statt still ""."""
     with session_factory() as db:
         user = _seed_user(db, "u9", tenant_id=None)
         user.totp_secret = _ENC_PREFIX + "whatever"
-        assert load_totp_secret(db, user) == ""
+        with pytest.raises(TotpSecretStorageError):
+            load_totp_secret(db, user)
 
 
 # ---------------------------------------------------------------------------
