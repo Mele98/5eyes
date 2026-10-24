@@ -452,11 +452,12 @@ def build_manual_target_allocation(
     # und bindet seine Referenz im gehashten Context. Die Constraints werden
     # nach beiden Bindungen einmal neu serialisiert.
     reserve_ledger = anchors["reserve_funding_ledger"]
-    effective_constraints[LEDGER_CONSTRAINTS_KEY] = ledger_reference(reserve_ledger)
+    reserve_split = anchors.get("reserve_split")  # RESERVE-CEILING-001: Split-Snapshot mitpersistieren
+    effective_constraints[LEDGER_CONSTRAINTS_KEY] = ledger_reference(reserve_ledger, reserve_split)
     candidate.effective_constraints_json = json.dumps(
         effective_constraints, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
     )
-    for column, value in ledger_snapshot_columns(reserve_ledger).items():
+    for column, value in ledger_snapshot_columns(reserve_ledger, reserve_split).items():
         setattr(candidate, column, value)
     candidate.allocation_context_hash = allocation_context_hash_for(
         engine_version=MANUAL_OVERRIDE_ENGINE_VERSION,

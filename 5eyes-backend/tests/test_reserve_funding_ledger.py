@@ -39,7 +39,10 @@ import services.portfolio_engine as pe
 import services.portfolio_engine_mc_simulation as mc_simulation
 from models.wealth import Goal
 from services.portfolio_engine import PortfolioSummary
-from services.portfolio_engine_reserve import _external_reserve_release_series
+from services.portfolio_engine_reserve import (
+    _external_reserve_release_series,
+    _tranche_release_series,
+)
 from services.reserve_funding_ledger import (
     RESERVE_ACCOUNTING_BASIS,
     compile_reserve_funding_ledger,
@@ -74,9 +77,16 @@ def test_pure_floor_reserve_is_not_released_into_an_unrelated_late_goal():
     assert floor.source_kind == "policy_floor" and floor.releasable is False
 
 
-def test_aggregate_primitive_still_documents_why_provenance_is_needed():
-    """The per-tranche primitive itself is source-blind (kept from PR #638)."""
+def test_aggregate_reserve_without_provenance_is_never_released():
+    """Aggregate E carries no source: fail-closed, it stays a floor.
+
+    The per-tranche primitive is greedy only for the outflows of its own
+    source; the source-blind aggregate entry point no longer relabels.
+    """
     assert _external_reserve_release_series(
+        50_000_00, [0] * 10, [0] * 8 + [100_000_00, 0]
+    ) == [0] * 10
+    assert _tranche_release_series(
         50_000_00, [0] * 10, [0] * 8 + [100_000_00, 0]
     )[8] == 50_000_00
 

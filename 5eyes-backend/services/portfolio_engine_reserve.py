@@ -328,41 +328,36 @@ def _saa_internal_reserve_rappen(
     vermoegens reserviert. Zwei Herleitungen desselben Werts koennen immer
     auseinanderlaufen, eine gemeinsame nicht.
     """
-    from services.portfolio_engine import _bps
+    from services.reserve_split_snapshot import exact_internal_reserve_rappen
 
-    if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:
-        return 0
-    if _bps(reserve_needed_rappen, advisory_wealth_rappen) > saa_liquidity_ceiling_bps:
-        return int(round(saa_liquidity_ceiling_bps * advisory_wealth_rappen / 10000))
-    return int(reserve_needed_rappen)
+    # RESERVE-CEILING-001 (Rest, Codex-Re-Audit 2026-10-17): frueher wurde
+    # der Bedarf in bereits GERUNDETEN bps mit dem Ceiling verglichen -- ein
+    # Ueberhang < 0.5 bp lockerte das monetaere Cap. Jetzt exakt in Rappen.
+    return exact_internal_reserve_rappen(
+        reserve_needed_rappen, advisory_wealth_rappen, saa_liquidity_ceiling_bps,
+    )
 
 
-def _external_reserve_release_series(
-    external_reserve_rappen: int,
+def _tranche_release_series(
+    tranche_amount_rappen: int,
     cashflow_series_rappen: list[int],
     liability_path_rappen: list[int],
 ) -> list[int]:
-    """RESERVE-DOUBLE-COUNT-001: Rueckbuchung der externen Reserve im Solver.
+    """Release-Primitiv EINER quellengebundenen Reservetranche.
 
-    Die externe Reserve E wird vor dem Solver aus dem Beratungsvermoegen
-    herausgeloest (Start = A - E), ist aber Geld des Kunden, das genau fuer
-    die nahen Abfluesse (Nahziele, Cashflow-Defizite) gebildet wurde. Diese
-    Abfluesse stehen weiter voll als Liability/Cashflow im Solver. Ohne
-    Rueckbuchung waere E doppelt verbraucht. Hier fliesst E als Bargeld
-    (ohne Rendite, konservativ) chronologisch genau in den Jahren zurueck, in
-    denen Abfluesse faellig werden: release_t = min(Rest-E, Outflow_t) mit
-    Outflow_t = Liability_t + max(0, -Cashflow_t). Summe <= E.
+    RESERVE-DOUBLE-COUNT-001: Die externe Reserve E wird vor dem Solver aus dem
+    Beratungsvermoegen herausgeloest (Start = A - E), ist aber Geld des Kunden.
+    Eine Tranche fliesst als Bargeld (ohne Rendite, konservativ)
+    chronologisch genau in den Jahren zurueck, in denen die Abfluesse IHRER
+    Quelle faellig werden: release_t = min(Rest, Outflow_t) mit
+    Outflow_t = Liability_t + max(0, -Cashflow_t). Summe <= Tranche.
 
-    RESERVE-FUNDING-LEDGER-001: Das ist nur noch das Release-Primitiv EINER
-    quellengebundenen Tranche. Mit aggregiertem E aufgerufen wuerde es einen
-    reinen Policy-Floor in jeden sachfremden spaeteren Abfluss umetikettieren
-    (Codex-Review PR #638). Produktionscode ruft es ausschliesslich ueber
-    ``services.reserve_funding_ledger.compile_reserve_funding_ledger`` auf --
-    je Tranche mit genau den Abfluessen ihrer eigenen Quelle.
+    Aufrufer uebergeben ausschliesslich die Abfluesse der eigenen Quelle
+    (``services.reserve_funding_ledger.compile_reserve_funding_ledger``).
     """
-    remaining = int(external_reserve_rappen or 0)
+    remaining = int(tranche_amount_rappen or 0)
     if remaining < 0:
-        raise ValueError("external_reserve_rappen must be >= 0")
+        raise ValueError("tranche_amount_rappen must be >= 0")
     horizon = len(cashflow_series_rappen)
     release: list[int] = []
     for t in range(horizon):
@@ -372,6 +367,27 @@ def _external_reserve_release_series(
         remaining -= amount
         release.append(amount)
     return release
+
+
+def _external_reserve_release_series(
+    external_reserve_rappen: int,
+    cashflow_series_rappen: list[int],
+    liability_path_rappen: list[int],
+) -> list[int]:
+    """Aggregierte externe Reserve ohne Herkunft: fail-closed, keine Freigabe.
+
+    RESERVE-DOUBLE-COUNT-001 (Codex-Review PR #638, Vertrag 1): Ein
+    aggregierter Betrag E traegt keine Quelle. Frueher buchte diese Funktion E
+    greedy in JEDEN spaeteren Abfluss zurueck und etikettierte damit einen
+    reinen Policy-/minReserve-Floor in ein sachfremdes Ziel um -- derselbe
+    Franken konnte so als Mindestbestand UND als Zielfinanzierung wirken.
+    Ohne Herkunft ist E konservativ ein dauerhafter Mindestbestand: er bleibt
+    als Reservekonto beim Kunden und wird nie freigegeben. Freigaben entstehen
+    nur im quellengebundenen Ledger (``_tranche_release_series`` je Tranche).
+    """
+    if int(external_reserve_rappen or 0) < 0:
+        raise ValueError("external_reserve_rappen must be >= 0")
+    return [0] * len(cashflow_series_rappen)
 
 
 def _compute_reserve_for_inputs(
@@ -406,11 +422,11 @@ def _compute_reserve_for_inputs(
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
         _annualize_goal_amount,
-        _bps,
         _goal_projection_years,
         _norm_text,
         _parse_rappen,
     )
+    from services.reserve_split_snapshot import split_reserve
 
     reserve_candidates: list[int] = [0]
     manual_reserve = _parse_rappen(limits_prefs.get("minReserve"))
@@ -549,59 +565,51 @@ def _compute_reserve_for_inputs(
     if computed_liquidity_need > 0:
         reserve_candidates.append(computed_liquidity_need)
     reserve_needed_rappen = max(reserve_candidates)
-    external_reserve_rappen = 0
+    # RESERVE-CEILING-001: die Aufteilung (intern -> anderes Vermoegen ->
+    # extern -> Deckungsluecke) liegt in EINER Funktion; Generate persistiert
+    # genau diesen Split als Snapshot (services/reserve_split_snapshot.py).
+    split = split_reserve(
+        reserve_needed_rappen=reserve_needed_rappen,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        ceiling_bps=saa_liquidity_ceiling_bps,
+        unlocked_other_assets_rappen=unlocked_other_assets_rappen,
+    )
+    if need_breakdown is not None:
+        need_breakdown["reserve_split"] = split
     if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:
         return reserve_needed_rappen, 0
-
-    saa_reserve_rappen = _saa_internal_reserve_rappen(
-        reserve_needed_rappen,
-        advisory_wealth_rappen,
-        saa_liquidity_ceiling_bps,
-    )
-    if saa_reserve_rappen < reserve_needed_rappen:
-        external_reserve_rappen = max(0, reserve_needed_rappen - saa_reserve_rappen)
+    external_reserve_rappen = split.external_rappen
+    if reasoning is not None:
         # Sprint B2: Anderes-Vermoegen-Schloss reduziert die externe Reserve,
         # weil verfuegbares 'anderes Vermoegen' den Reserve-Bedarf decken kann.
-        unlocked = max(0, int(unlocked_other_assets_rappen or 0))
-        if unlocked > 0 and external_reserve_rappen > 0:
-            absorbed = min(unlocked, external_reserve_rappen)
-            external_reserve_rappen = max(0, external_reserve_rappen - absorbed)
-            if reasoning is not None and absorbed > 0:
-                # AA-UX-FORMAT-001: Tausendertrennung gerades Apostroph (wie PDFs).
-                chf_unlocked = f"{absorbed // 100:,}".replace(",", "'")
-                reasoning.append(
-                    f"Anderes Vermoegen mit Goal-Funding-Schloss (CHF {chf_unlocked}) "
-                    "deckt einen Teil des externen Reservebedarfs."
-                )
-        if reasoning is not None and external_reserve_rappen > 0:
+        # AA-UX-FORMAT-001: Tausendertrennung gerades Apostroph (wie PDFs).
+        if split.absorbed_rappen > 0:
+            chf_unlocked = f"{split.absorbed_rappen // 100:,}".replace(",", "'")
+            reasoning.append(
+                f"Anderes Vermoegen mit Goal-Funding-Schloss (CHF {chf_unlocked}) "
+                "deckt einen Teil des externen Reservebedarfs."
+            )
+        if external_reserve_rappen > 0:
             chf_external = f"{external_reserve_rappen // 100:,}".replace(",", "'")
             reasoning.append(
                 f"Ein Liquiditaetsbedarf von CHF {chf_external} wird als externe Reserve ausserhalb "
                 f"des Beratungsmandats empfohlen. Die SAA-Liquiditaet bleibt auf {saa_liquidity_ceiling_bps / 100:.1f}%."
             )
-        # 2026-07-24 (RES-2, Formel-Audit): external_reserve_rappen war bisher
-        # ungecappt gegen advisory_wealth_rappen. Bei mehreren summierten
-        # Nahzielen (#AA-8) oder einem hohen manuellen Reserve-Override kann
-        # der berechnete Bedarf das GESAMTE Beratungsvermoegen uebersteigen ->
-        # investable_advisory_wealth_rappen faellt auf 0, die SOLL-Simulation
-        # laeuft mit Start=0, und das Frontend schlaegt eine externe Reserve
-        # oben auf die SOLL-Kurve, die > 100% des Vermoegens waere -- ohne
-        # jede Warnung an den Berater. Fix: hart auf advisory_wealth_rappen
-        # cappen + Warnung, damit die Deckungsluecke sichtbar bleibt statt
-        # sich in einer unplausiblen Kennzahl zu verstecken.
-        if external_reserve_rappen > advisory_wealth_rappen:
-            if reasoning is not None:
-                chf_needed = f"{reserve_needed_rappen // 100:,}".replace(",", "'")
-                chf_available = f"{advisory_wealth_rappen // 100:,}".replace(",", "'")
-                reasoning.append(
-                    f"Der berechnete Liquiditaetsbedarf (CHF {chf_needed}) uebersteigt das "
-                    f"gesamte Beratungsvermoegen (CHF {chf_available}) -- nicht alle Nahziele "
-                    "sind aus diesem Mandat allein deckbar. Die externe Reserve wird auf das "
-                    "verfuegbare Vermoegen begrenzt; die Deckungsluecke muss ausserhalb des "
-                    "Mandats geschlossen werden (z.B. anderes Vermoegen, zusaetzliches Sparen)."
-                )
-            external_reserve_rappen = advisory_wealth_rappen
-
+        # 2026-07-24 (RES-2, Formel-Audit): ein Bedarf ueber dem Beratungs-
+        # vermoegen wird nicht als unplausible Kennzahl versteckt, sondern als
+        # Deckungsluecke ausgewiesen. Seit RESERVE-CEILING-001 ist extern auf
+        # A - intern begrenzt: die intern gehaltene Reserve liegt bereits in A
+        # und darf nicht ein zweites Mal als externes Geld zaehlen.
+        if split.coverage_gap_rappen > 0:
+            chf_needed = f"{reserve_needed_rappen // 100:,}".replace(",", "'")
+            chf_available = f"{advisory_wealth_rappen // 100:,}".replace(",", "'")
+            reasoning.append(
+                f"Der berechnete Liquiditaetsbedarf (CHF {chf_needed}) uebersteigt das "
+                f"gesamte Beratungsvermoegen (CHF {chf_available}) -- nicht alle Nahziele "
+                "sind aus diesem Mandat allein deckbar. Die externe Reserve wird auf das "
+                "verfuegbare Vermoegen begrenzt; die Deckungsluecke muss ausserhalb des "
+                "Mandats geschlossen werden (z.B. anderes Vermoegen, zusaetzliches Sparen)."
+            )
     return reserve_needed_rappen, external_reserve_rappen
 
 

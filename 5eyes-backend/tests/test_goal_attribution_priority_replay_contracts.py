@@ -121,13 +121,28 @@ def test_priority_publication_must_use_replay_exact_wealth():
 
 
 def test_priority_publication_without_replay_context_fails_closed():
-    """Kein Replay-Kontext -> keine Zahl (statt Rueckwaertsrekonstruktion)."""
+    """Kein Replay-Kontext -> keine Zahl (statt Rueckwaertsrekonstruktion).
+
+    Ein unveraenderter Pfad aus ``simulate_wealth_paths`` traegt seinen
+    festgehaltenen Kontext (``retained_simulation_context``); ohne Kontext
+    ist hier eine Kopie des Pfads -- sie hat keinen.
+    """
     from services.optimizer.goal_attribution import publish_goal_achievability
 
     joint, _expected = _cashflow_replay()
     goal = _wealth_goal_with_scopes(n_paths=joint.shape[0])
     with pytest.raises(PriorityScopeUnavailableError):
-        publish_goal_achievability(joint, [goal], 100)
+        publish_goal_achievability(joint.copy(), [goal], 100)
+
+
+def test_priority_scope_on_unmodified_simulated_path_uses_retained_context():
+    """Derselbe Pfad unveraendert: direkter Replay aus dem festgehaltenen Kontext."""
+    from services.optimizer.priority_scope import scope_wealth_for
+
+    joint, expected = _cashflow_replay()
+    goal = _wealth_goal_with_scopes(n_paths=joint.shape[0])
+    scoped = scope_wealth_for(joint, [goal], None).for_goal(goal)
+    np.testing.assert_array_equal(scoped, expected)
 
 
 def test_priority_publication_rejects_joint_path_from_another_context():

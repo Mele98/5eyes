@@ -18,11 +18,15 @@ import hashlib
 import json
 from typing import Any
 
-SCHEMA_VERSION = "RiskOverrideDecisionV1"
+SCHEMA_VERSION_V1 = "RiskOverrideDecisionV1"
+# PG-002 (Codex-Closure-Review PR #662): V2 bindet zusaetzlich den aus dem
+# Mandat abgeleiteten tenant_id. V1-Zeilen bleiben mit ihrer Feldliste
+# verifizierbar.
+SCHEMA_VERSION = "RiskOverrideDecisionV2"
 
 # Genau diese Felder gehen in den Hash ein (Reihenfolge irrelevant, die
 # Serialisierung sortiert). Neue Felder nur mit neuer SCHEMA_VERSION.
-HASHED_FIELDS: tuple[str, ...] = (
+HASHED_FIELDS_V1: tuple[str, ...] = (
     "id",
     "schema_version",
     "assessment_id",
@@ -47,6 +51,12 @@ HASHED_FIELDS: tuple[str, ...] = (
     "decided_at",
     "rules_version",
 )
+HASHED_FIELDS: tuple[str, ...] = HASHED_FIELDS_V1 + ("tenant_id",)
+
+_HASHED_FIELDS_BY_VERSION: dict[str, tuple[str, ...]] = {
+    SCHEMA_VERSION_V1: HASHED_FIELDS_V1,
+    SCHEMA_VERSION: HASHED_FIELDS,
+}
 
 
 def _value(decision: Any, name: str) -> Any:
@@ -55,9 +65,16 @@ def _value(decision: Any, name: str) -> Any:
     return getattr(decision, name, None)
 
 
+def _hashed_fields(decision: Any) -> tuple[str, ...] | None:
+    """Versionsspezifische Feldliste; None = unbekannte Schema-Version."""
+    version = _value(decision, "schema_version") or SCHEMA_VERSION
+    return _HASHED_FIELDS_BY_VERSION.get(str(version))
+
+
 def decision_payload(decision: Any) -> dict[str, Any]:
     """Kanonischer Snapshot (ohne Hash) eines Decision-Objekts oder -Dicts."""
-    return {name: _value(decision, name) for name in HASHED_FIELDS}
+    fields = _hashed_fields(decision) or HASHED_FIELDS
+    return {name: _value(decision, name) for name in fields}
 
 
 def compute_decision_hash(decision: Any) -> str:
@@ -69,7 +86,9 @@ def compute_decision_hash(decision: Any) -> str:
 
 def verify_decision(decision: Any) -> bool:
     stored = _value(decision, "decision_hash")
-    return bool(stored) and stored == compute_decision_hash(decision)
+    if not stored or _hashed_fields(decision) is None:
+        return False
+    return stored == compute_decision_hash(decision)
 
 
 def decision_snapshot(decision: Any) -> dict[str, Any]:
@@ -103,9 +122,12 @@ def resolve_assessment_decision(db, assessment: Any) -> tuple[str | None, str | 
     """(decision_id, decision_hash, verified) fuer den wirksamen Override.
 
     verified ist nur True, wenn die Decision-Zeile existiert, zum Assessment
-    gehoert, ihr neu berechneter Hash dem gespeicherten UND dem Pointer am
-    Assessment entspricht und die Projektion (Score/Profil) mit ihr
-    uebereinstimmt. (None, None, None) = kein Decision-Nachweis (Altbestand).
+    UND dessen Mandat gehoert, ihr neu berechneter Hash dem gespeicherten UND
+    dem Pointer am Assessment entspricht und die Projektion (Score/Profil) mit
+    ihr uebereinstimmt. Ab Schema V2 (bzw. bei gesetztem tenant_id) muss
+    zusaetzlich der Mandant der Zeile dem Mandanten des Mandats entsprechen
+    (PG-002, Codex-Closure-Review PR #662). (None, None, None) = kein
+    Decision-Nachweis (Altbestand).
     """
     decision_id = getattr(assessment, "override_decision_id", None)
     pointer_hash = getattr(assessment, "override_decision_hash", None)
@@ -117,9 +139,23 @@ def resolve_assessment_decision(db, assessment: Any) -> tuple[str | None, str | 
     verified = bool(
         decision is not None
         and decision.assessment_id == getattr(assessment, "id", None)
+        and decision.mandate_id == getattr(assessment, "mandate_id", None)
         and decision.decision_hash == pointer_hash
         and verify_decision(decision)
         and decision.requested_score_x10 == getattr(assessment, "override_score_x10", None)
         and decision.requested_profile == getattr(assessment, "override_profile", None)
+        and _tenant_matches(db, decision)
     )
     return decision_id, pointer_hash, verified
+
+
+def _tenant_matches(db, decision: Any) -> bool:
+    """V1 band keinen Mandanten; ab V2 (oder gesetztem tenant_id) muss er dem
+    Mandanten des Mandats entsprechen -- sonst ist die Decision mandantenfremd."""
+    tenant = getattr(decision, "tenant_id", None)
+    if str(getattr(decision, "schema_version", "")) == SCHEMA_VERSION_V1 and tenant is None:
+        return True
+    from models.mandates import Mandate
+
+    mandate = db.get(Mandate, decision.mandate_id)
+    return mandate is not None and tenant == mandate.tenant_id

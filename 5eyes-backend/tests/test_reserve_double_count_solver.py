@@ -138,19 +138,19 @@ def test_carved_out_reserve_reenters_solver_exactly_once(session_factory, adviso
 
 
 def test_release_series_is_chronological_capped_and_conservative():
-    from services.portfolio_engine_reserve import _external_reserve_release_series
+    from services.portfolio_engine_reserve import _tranche_release_series
 
     # Outflows: cashflow deficit 20k in year 0, goal 100k in year 2, 30k in year 5.
     cf = [-20_000, 10_000, 0, 0, 0, 0]
     liab = [0, 0, 100_000, 0, 0, 30_000]
-    assert _external_reserve_release_series(85_000, cf, liab) == [20_000, 0, 65_000, 0, 0, 0]
+    assert _tranche_release_series(85_000, cf, liab) == [20_000, 0, 65_000, 0, 0, 0]
     # Reserve larger than all outflows: unreleased remainder stays outside (floor).
-    assert _external_reserve_release_series(500_000, cf, liab) == [20_000, 0, 100_000, 0, 0, 30_000]
+    assert _tranche_release_series(500_000, cf, liab) == [20_000, 0, 100_000, 0, 0, 30_000]
     # No reserve -> no release; no outflows -> no release.
-    assert _external_reserve_release_series(0, cf, liab) == [0] * 6
-    assert _external_reserve_release_series(50_000, [5, 5], [0, 0]) == [0, 0]
+    assert _tranche_release_series(0, cf, liab) == [0] * 6
+    assert _tranche_release_series(50_000, [5, 5], [0, 0]) == [0, 0]
     with pytest.raises(ValueError):
-        _external_reserve_release_series(-1, cf, liab)
+        _tranche_release_series(-1, cf, liab)
 
 
 def test_generate_publishes_the_ledger_the_solver_consumed(session_factory, advisor_user, monkeypatch):

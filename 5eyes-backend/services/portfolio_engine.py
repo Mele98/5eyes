@@ -2954,6 +2954,7 @@ from services.portfolio_engine_reserve import (  # noqa: F401,E402
 )
 from services.reserve_funding_ledger import compile_goal_set_funding, compile_reserve_funding_ledger_for_inputs  # noqa: E402
 from services.reserve_funding_ledger_snapshot import ledger_reference, ledger_snapshot_columns, replay_reserve_funding_ledger  # noqa: E402
+from services.reserve_split_snapshot import generation_reserve_ceiling_bps, generation_reserve_split, replay_allocation_reserve_split  # noqa: E402
 
 
 def _target_allocation_reserve_warnings(allocation, *, external_reserve_rappen):
@@ -3155,6 +3156,7 @@ def generate_target_allocation(
     reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
         targets=targets, minimums=minimums, maximums=maximums, reasoning=reasoning, **reserve_inputs,
     )
+    reserve_split = generation_reserve_split(reserve_needed_rappen, external_reserve_rappen, ceiling_bps=saa_liquidity_ceiling_bps, **reserve_inputs)  # RESERVE-CEILING-001
     uncertain_inflow_info = uncertain_inflow_sensitivity(  # INFLOW-CERTAINTY-001: nur Info
         uncertain_inflows=inputs.get("uncertain_wealth_inflows") or [], projection_years=len(cashflow_projection_series_rappen),
         start_year=cashflow_totals["year"], inflation_series_bps=inputs.get("cashflow_inflation_series_bps"),
@@ -3299,11 +3301,7 @@ def generate_target_allocation(
         # 300 bps here reserved R + 1 % of A for every 200-bps House row),
         # and its normalized weight must use the actually investable
         # denominator. Otherwise the carve-out silently underfunds liquidity.
-        saa_reserve_rappen = _saa_internal_reserve_rappen(
-            int(reserve_needed_rappen),
-            int(advisory_wealth_rappen),
-            saa_liquidity_ceiling_bps,
-        )
+        saa_reserve_rappen = reserve_split.internal_rappen  # derselbe Split wie persistiert
         reserve_floor_bps = min(
             10000,
             (
@@ -4095,7 +4093,7 @@ def generate_target_allocation(
         # Live-Payload. Ein gespeicherter Wert war damit nicht mehr
         # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
         "reporting_model_basis": dict(model_basis["reporting"]),
-        "reserve_funding_ledger": ledger_reference(reserve_ledger),  # RESERVE-LEDGER-SNAPSHOT-001
+        "reserve_funding_ledger": ledger_reference(reserve_ledger, reserve_split),  # RESERVE-LEDGER-SNAPSHOT-001 / RESERVE-CEILING-001
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)
@@ -4148,7 +4146,7 @@ def generate_target_allocation(
         total_wealth_at_generation_rappen=total_wealth_rappen,
         reserve_needed_at_generation_rappen=reserve_needed_rappen,
         external_reserve_at_generation_rappen=external_reserve_rappen,
-        **ledger_snapshot_columns(reserve_ledger),  # RESERVE-LEDGER-SNAPSHOT-001: durable Ledger-Evidence
+        **ledger_snapshot_columns(reserve_ledger, reserve_split),  # RESERVE-LEDGER-SNAPSHOT-001: durable Ledger-/Split-Evidence
         # Phase 4 Optimizer-Audit-Anchor (None wenn house_matrix-Modus)
         optimization_method=optimizer_audit.get("optimization_method"),
         optimization_objective_value_milli=optimizer_audit.get("optimization_objective_value_milli"),
@@ -4258,7 +4256,7 @@ def generate_target_allocation(
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
         "uncertain_inflow_sensitivity": uncertain_inflow_info,  # INFLOW-CERTAINTY-001
-        "reserve_funding_ledger": reserve_ledger.to_dict(),
+        "reserve_funding_ledger": reserve_ledger.to_dict(), "reserve_split": reserve_split.to_dict(),
         "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(target_allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
@@ -4950,14 +4948,10 @@ def evaluate_goal_sensitivity(
             "live_canonical_stochastic_context"
         )
     else:
-        # RESERVE-CEILING-001: das persistierte Liquiditaetsband ist bereits
-        # um den Reserve-Floor geliftet (Nenner I statt A) und taugt nicht als
-        # Ceiling; rekonstruiert wird der Wert, den Generate beim Split sah.
-        sensitivity_reserve_ceiling_bps = _saa_liquidity_ceiling_bps(
-            _pre_reserve_liquidity_max_bps(
-                house_matrix, policy, sensitivity_prefs["bands"]
-            )
-        )
+        # RESERVE-CEILING-001: Ceiling des Generation-Snapshots (das persistierte
+        # Band ist um den Reserve-Floor geliftet); Legacy rekonstruiert es.
+        sensitivity_reserve_ceiling_bps = generation_reserve_ceiling_bps(current_allocation, verified_constraints, lambda: _saa_liquidity_ceiling_bps(
+            _pre_reserve_liquidity_max_bps(house_matrix, policy, sensitivity_prefs["bands"])))
         if sensitivity_effective_bounds is None:
             # Genuine legacy allocation without persisted stochastic context.
             # This path remains explicit and strict: malformed BB data fails
@@ -5643,13 +5637,9 @@ def build_target_payload_from_allocation(
         int(maximums["liquidity"] or house_matrix.liq_max_bps or _SAA_LIQUIDITY_HARD_CAP_BPS),
         _SAA_LIQUIDITY_HARD_CAP_BPS,
     )
-    # RESERVE-CEILING-001: fuer den Reserve-Split ist ``maximums`` das
-    # falsche Band -- es stammt aus der persistierten Allokation, deren
-    # Liquiditaets-Max der stochastische Reserve-Floor bereits auf der Basis
-    # I = A - E geliftet hat. Als Ceiling auf A gelesen ergab das eine
-    # zweite, abweichende externe Reserve (Generate 546k vs. Payload 519k im
-    # Foundation-Beispiel). Massgeblich ist das Band VOR dem Lift. Die
-    # Legacy-Normalisierung oben bleibt bewusst unveraendert.
+    # RESERVE-CEILING-001: ``maximums`` ist um den Reserve-Floor geliftet (Basis
+    # I = A - E) und taugt nicht als Ceiling; massgeblich ist das Band VOR dem
+    # Lift. Das ergibt nur die Live-Neubewertung, der Reload replayt den Snapshot.
     reserve_saa_liq_ceil_bps = _saa_liquidity_ceiling_bps(
         _pre_reserve_liquidity_max_bps(house_matrix, policy, prefs["bands"])
     )
@@ -5725,9 +5715,11 @@ def build_target_payload_from_allocation(
         saa_liquidity_ceiling_bps=reserve_saa_liq_ceil_bps,
         reasoning=None,
         unlocked_other_assets_rappen=unlocked_other_assets_rappen,
-        # Sprint U-P2 Fix H11: Wealth-Inflows in Reserve berücksichtigen (rebuild-Pfad)
-        inflow_projection_series_rappen=inflow_projection_series_rappen,
+        inflow_projection_series_rappen=inflow_projection_series_rappen,  # Sprint U-P2 Fix H11
+        need_breakdown=(live_reserve_breakdown := {}),
     )
+    split_replay = replay_allocation_reserve_split(allocation, _stored_constraints, live_reserve_breakdown["reserve_split"])  # RESERVE-CEILING-001: Historical Replay, Neubewertung getrennt
+    reserve_needed_rappen, external_reserve_rappen = split_replay.reserve_needed_rappen, split_replay.external_reserve_rappen
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
     goal_inflation_series_bps = _goal_inflation_series_bps(
         cma,
@@ -5845,7 +5837,7 @@ def build_target_payload_from_allocation(
             "advisory_wealth_rappen": int(advisory_wealth_rappen),
             "total_wealth_rappen": int(total_wealth_rappen),
             "reserve_needed_rappen": int(reserve_needed_rappen),
-            "external_reserve_rappen": int(external_reserve_rappen), "reserve_funding_ledger": reserve_ledger,
+            "external_reserve_rappen": int(external_reserve_rappen), "reserve_funding_ledger": reserve_ledger, "reserve_split": live_reserve_breakdown["reserve_split"],
             "external_foundation_projection": external_foundation_projection,
         }
     legacy_projection_context = dict(current_projection_context)
@@ -6051,7 +6043,7 @@ def build_target_payload_from_allocation(
         current_input_snapshot_hash=accepted_current_snapshot_hashes,
         current_preferences_json=current_preferences_json,
         current_advisory_wealth_rappen=advisory_wealth_rappen,
-        current_external_reserve_rappen=external_reserve_rappen,
+        current_external_reserve_rappen=live_reserve_breakdown["reserve_split"].external_rappen,
     )
     # Phase 6: persistierte Stress-Auswertungen aus der Allocation deserialisieren.
     # NULL bei pre-Optimizer-Allocations oder house_matrix-Modus.
@@ -6140,7 +6132,7 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
-        **reserve_replay.payload,
+        **reserve_replay.payload, **split_replay.payload,
         "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
