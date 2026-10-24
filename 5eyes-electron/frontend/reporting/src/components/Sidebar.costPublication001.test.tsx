@@ -2,7 +2,7 @@
  * CERT-COST-PUBLICATION-001 -- permanent repository reproducer.
  *
  * Source of truth: the Ares/Codex audit worktree
- * `C:\Users\Emanuele\Documents\ChatGPT\5eyes wird zu Ares\asset-allocation-stochastic-core`
+ * (a local checkout outside this repository; its path is not encoded here)
  * (branch `codex/asset-allocation-stochastic-core`),
  * `docs/audits/2026-10-09-cost-publication-channel-delivery-artifact-certification-spec.md`,
  * finding `COST-PUBLICATION-001` (1 xfail): the backend aggregator

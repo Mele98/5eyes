@@ -175,9 +175,13 @@ def test_filter_by_sub_asset_class(sqlite_db):
 def test_ensure_runtime_columns_is_idempotent():
     """ensure_runtime_columns auf einer Live-DB (file) zweimal aufrufen ist
     safe — fuegt sub_asset_class hinzu wenn fehlend, no-op wenn schon da."""
-    from database import ensure_runtime_columns, SessionLocal, engine
+    from database import ensure_runtime_columns, SessionLocal, engine, init_db
 
     # Original-engine wird genutzt; wir checken nur dass kein Crash.
+    # Vollstaendiges Ausgangsschema anlegen: der Test darf nicht davon
+    # abhaengen, dass ein frueherer Test derselben Session init_db() lief
+    # (reihenfolgeabhaengig rot unter Sharding/xdist).
+    init_db()
     # Erster Aufruf
     ensure_runtime_columns()
     # Zweiter Aufruf (idempotent)

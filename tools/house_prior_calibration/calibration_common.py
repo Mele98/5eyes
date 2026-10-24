@@ -21,17 +21,18 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
-_LIVE_DB = (Path.home() / "5eyes" / "5eyes.db").resolve()
-if not os.environ.get("DB_PATH"):
-    os.environ["DB_PATH"] = str(Path(tempfile.mkdtemp(prefix="kappa_calib_")) / "calib.db")
-if Path(os.environ["DB_PATH"]).expanduser().resolve() == _LIVE_DB:
-    raise SystemExit("DB_PATH zeigt auf die Live-Datenbank -- abgebrochen.")
-for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-    os.environ.setdefault(_key, "1")
-
 BACKEND = Path(__file__).resolve().parents[2] / "5eyes-backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
+
+# Live-DB-Waechter: Produktivpfad aus derselben Quelle wie ``config``.
+from core.db_location import refuse_live_db  # noqa: E402
+
+if not os.environ.get("DB_PATH"):
+    os.environ["DB_PATH"] = str(Path(tempfile.mkdtemp(prefix="kappa_calib_")) / "calib.db")
+refuse_live_db(os.environ["DB_PATH"], context="calibration_common")
+for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_key, "1")
 
 import numpy as np  # noqa: E402
 

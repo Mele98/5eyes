@@ -40,17 +40,18 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-_LIVE_DB = (Path.home() / "5eyes" / "5eyes.db").resolve()
-if not os.environ.get("DB_PATH"):
-    raise SystemExit("DB_PATH muss auf eine Wegwerf-Datei zeigen.")
-if Path(os.environ["DB_PATH"]).expanduser().resolve() == _LIVE_DB:
-    raise SystemExit("DB_PATH zeigt auf die Live-Datenbank -- abgebrochen.")
-for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-    os.environ.setdefault(_key, "1")
-
 BACKEND = Path(__file__).resolve().parents[2] / "5eyes-backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
+
+# Live-DB-Waechter: Produktivpfad aus derselben Quelle wie ``config``.
+from core.db_location import refuse_live_db  # noqa: E402
+
+if not os.environ.get("DB_PATH"):
+    raise SystemExit("DB_PATH muss auf eine Wegwerf-Datei zeigen.")
+refuse_live_db(os.environ["DB_PATH"], context="analytic_gradient_experiment")
+for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_key, "1")
 
 import numpy as np  # noqa: E402
 from scipy.optimize import minimize  # noqa: E402

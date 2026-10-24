@@ -5,6 +5,8 @@ import sys
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import core.db_location as _db_location
+
 
 DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 
@@ -140,7 +142,9 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str | None = None
-    db_path: str = str(Path.home() / '5eyes' / '5eyes.db')
+    # Default aus EINER Quelle (core/db_location.py); die Live-DB-Waechter
+    # vergleichen gegen dieselbe Funktion.
+    db_path: str = Field(default_factory=lambda: str(_db_location.default_db_path()))
     db_echo: bool = False
     db_key: str | None = None
     db_use_sqlcipher: bool = False

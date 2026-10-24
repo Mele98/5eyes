@@ -117,13 +117,24 @@ def scan_orphans(conn: sqlite3.Connection) -> list[dict]:
     return findings
 
 
+def _default_db_path() -> Path:
+    """Produktivpfad aus derselben Quelle wie config.Settings.db_path."""
+    backend = Path(__file__).resolve().parents[1] / "5eyes-backend"
+    if str(backend) not in sys.path:
+        sys.path.insert(0, str(backend))
+    from core.db_location import default_db_path
+
+    return default_db_path()
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="Daten-Integritäts-Audit (FINMA-Hygiene).")
-    ap.add_argument("--db", default=str(Path.home() / "5eyes" / "5eyes.db"))
+    ap.add_argument("--db", default=None,
+                    help="Default: produktiver Pfad (core/db_location.py)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
-    db_path = Path(args.db)
+    db_path = Path(args.db) if args.db else _default_db_path()
     if not db_path.exists():
         print(f"DB nicht gefunden: {db_path}", file=sys.stderr)
         return 2
