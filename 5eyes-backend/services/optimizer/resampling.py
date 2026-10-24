@@ -77,6 +77,7 @@ Engine ``saa_resampled_v7`` (Codex-Review 2026-10-18):
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from typing import Callable
 
@@ -195,8 +196,26 @@ DEFAULT_BAG_N_PATHS = 500
 # (``missingness_sensitivity_bps`` = f * 2 * sigma_bag je Bucket).
 # Outcomes bei 40 Bags: 40/40, 39/40, 36/40 -> Mittel; 35/40, 30/40, 20/40,
 # 19/40 -> House-Fallback. Bis v6 reichten 20/40.
+#
+# Engine v14 (RESAMPLING-SUCCESS-SURVIVOR-BIAS-001, Restvertrag Codex-Review
+# 2026-10-19): die 2-Sigma-Annahme ist KEINE Schranke -- sie leitet die
+# Abweichung der fehlenden Bags aus der Streuung der ERFOLGREICHEN ab und
+# meldet bei identischen Erfolgen 0 bp, obwohl die fehlenden Outcomes
+# vollstaendig unbeobachtet sind. Ersetzt durch den identifizierten Bereich
+# (``missingness_identified_set``): ein fehlender Bag haette -- wie jeder
+# erfolgreiche -- eine zulaessige Allokation geliefert, liegt also in
+# Bandbreiten und Simplex. Das ist bewiesen, keine Annahme; weitere
+# Constraints (Risikobudget, Illiquiditaet) wuerden den Bereich nur
+# verengen und werden bewusst NICHT verwendet (konservativ, Obermenge).
+# Die Mindestquote bleibt als erste Schranke; zusaetzlich darf die so
+# bewiesene Ausfall-Schranke das bisher dokumentierte Praezisionsziel der
+# publizierten Quote (1 pp, s. oben) in keinem Bucket ueberschreiten, sonst
+# fail-closed (``reason = missingness_bound_exceeds_budget``).
 MIN_SUCCESSFUL_BAG_SHARE = 0.9
-MISSINGNESS_STRESS_SIGMAS = 2.0
+MISSINGNESS_BOUND_BUDGET_BPS = 100.0
+MISSINGNESS_BOUND_METHOD = "identified_set_bounds_simplex_v1"
+ESTIMAND_ALL_BAGS = "mean_over_all_bags"
+ESTIMAND_CONDITIONAL_ON_SUCCESS = "conditional_on_solver_success"
 DEFAULT_SIGNIFICANCE_ALPHA = 0.05
 # Engine v7 (RESAMPLING-PVALUE-SEMANTICS-001): B = 999 statt 400.
 # * alpha (B + 1) = 50 ist ganzzahlig -> der (1 + k)/(B + 1)-Test haelt das
@@ -256,6 +275,75 @@ def bag_seeds(content_seed: int, n_bags: int) -> list[int]:
 
 def bootstrap_seed(validation_seed: int) -> int:
     return _domain_seed(BOOTSTRAP_SEED_DOMAIN, int(validation_seed))
+
+
+def feasible_bucket_range(bounds) -> tuple[np.ndarray, np.ndarray]:
+    """Kleinstes/groesstes Gewicht je Bucket auf ``Bandbreiten ∩ Simplex``.
+
+    ``lo_i' = max(lo_i, 1 - sum_{j != i} hi_j)``,
+    ``hi_i' = min(hi_i, 1 - sum_{j != i} lo_j)`` -- exakt die Extrema der
+    Koordinate i auf dem Polytop (Box geschnitten mit sum w = 1).
+    """
+    arr = np.asarray(bounds, dtype=np.float64).reshape(-1, 2)
+    lo, hi = arr[:, 0], arr[:, 1]
+    lo_feasible = np.maximum(lo, 1.0 - (hi.sum() - hi))
+    hi_feasible = np.minimum(hi, 1.0 - (lo.sum() - lo))
+    return lo_feasible, hi_feasible
+
+
+def missingness_identified_set(
+    mean_weights: np.ndarray,
+    bounds,
+    *,
+    n_bags: int,
+    n_succeeded: int,
+) -> dict:
+    """Identifizierter Bereich des Mittels ueber ALLE Bags bei fehlenden Bags.
+
+    Das Mittel ueber alle ``n`` Bags ist ``(1 - f) m + f mu_fehlend``
+    (``f`` Ausfallanteil, ``m`` Mittel der Erfolge). ``mu_fehlend`` ist
+    unbeobachtet, liegt aber im zulaessigen Bereich ``[lo', hi']``
+    (``feasible_bucket_range``). Daraus, ohne jede Verteilungsannahme:
+
+    * ``lower``/``upper``: ``(1 - f) m + f lo'`` bzw. ``(1 - f) m + f hi'``;
+    * ``bound``: groesste moegliche Abweichung des publizierten bedingten
+      Mittels vom Mittel ueber alle Bags, ``f * max(m - lo', hi' - m)``.
+
+    Scharf: jede Grenze wird von einer Ecke des Polytops angenommen. 0 genau
+    bei vollstaendigem Lauf.
+    """
+    n_bags = int(n_bags)
+    n_succeeded = int(n_succeeded)
+    if n_bags <= 0 or not 0 <= n_succeeded <= n_bags:
+        raise ValueError("n_bags/n_succeeded ungueltig.")
+    mean = np.asarray(mean_weights, dtype=np.float64).reshape(-1)
+    lo, hi = feasible_bucket_range(bounds)
+    if lo.shape != mean.shape:
+        raise ValueError("bounds passt nicht zu mean_weights.")
+    share = float(n_bags - n_succeeded) / float(n_bags)
+    bound = share * np.maximum(np.maximum(mean - lo, hi - mean), 0.0)
+    return {
+        "estimand": (
+            ESTIMAND_ALL_BAGS if n_succeeded == n_bags
+            else ESTIMAND_CONDITIONAL_ON_SUCCESS
+        ),
+        "failure_share": share,
+        "lower": (1.0 - share) * mean + share * lo,
+        "upper": (1.0 - share) * mean + share * hi,
+        "bound": bound,
+    }
+
+
+def ceil_bps(value: float) -> float:
+    """Auf 0.01 bps AUFgerundet: eine Schranke darf durch Rundung nie enger
+    werden. Vorher auf 1e-6 Rundungseinheiten geglaettet, damit reine
+    Gleitkomma-Artefakte (0.4 * 1e6 = 400000.00000000006) nicht aufrunden."""
+    return math.ceil(round(float(value) * 10000.0 * 100.0, 6)) / 100.0
+
+
+def floor_bps(value: float) -> float:
+    """Gegenstueck zu ``ceil_bps`` fuer Untergrenzen."""
+    return math.floor(round(float(value) * 10000.0 * 100.0, 6)) / 100.0
 
 
 def build_bag_paths(
@@ -607,6 +695,14 @@ _MODEL_BASIS_FIELDS = (
     "conditional_bag_mean_standard_error_bps",
     "min_successful_bag_share",
     "missingness_sensitivity_bps",
+    # Engine v14: Schaetzgroesse des Mittels und bewiesene Ausfall-Schranke
+    # (Methode, Budget, Bereich des Mittels ueber alle Bags) sowie der Grund
+    # eines Fallbacks sind Entscheidungsbasis und replaybar gebunden.
+    "estimand",
+    "missingness_bound_method",
+    "missingness_bound_budget_bps",
+    "all_bags_mean_bounds_bps",
+    "reason",
     "projection_distance_bps",
     "resampled_weights_bps",
     "final_weights_bps",

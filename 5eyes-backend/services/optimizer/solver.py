@@ -122,13 +122,17 @@ from .resampling import (
     DEFAULT_RESAMPLING,
     RISK_MEASURE_MATERIALITY,
     MIN_SUCCESSFUL_BAG_SHARE,
-    MISSINGNESS_STRESS_SIGMAS,
+    MISSINGNESS_BOUND_BUDGET_BPS,
+    MISSINGNESS_BOUND_METHOD,
     RESAMPLING_SCHEME_VERSION,
     ResamplingConfig,
     _domain_seed,
     bag_seeds,
     bootstrap_seed,
     build_bag_paths,
+    ceil_bps,
+    floor_bps,
+    missingness_identified_set,
     paired_bootstrap_improvement,
 )
 from .scenario_engine import (
@@ -4285,6 +4289,47 @@ def _run_resampled_solver(
     dispersion = (
         stacked.std(axis=0, ddof=1) if n_succeeded > 1 else np.zeros(N_BUCKETS)
     )
+    # RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 (Engine v14): fehlende Bags gehen
+    # mit ihrem bewiesenen Worst Case in die Unsicherheit ein (identifizierter
+    # Bereich auf Bandbreiten + Simplex, keine Annahme aus der Streuung der
+    # Erfolge). Schaetzgroesse explizit: Mittel ueber alle Bags nur bei
+    # vollstaendigem Lauf, sonst bedingt auf Solver-Erfolg.
+    identified = missingness_identified_set(
+        mean_w, context.bounds, n_bags=n_bags, n_succeeded=n_succeeded,
+    )
+    payload["estimand"] = identified["estimand"]
+    payload["missingness_bound_method"] = MISSINGNESS_BOUND_METHOD
+    payload["missingness_bound_budget_bps"] = float(MISSINGNESS_BOUND_BUDGET_BPS)
+    payload["missingness_sensitivity_bps"] = {
+        bucket: ceil_bps(identified["bound"][i])
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    payload["all_bags_mean_bounds_bps"] = {
+        bucket: [floor_bps(identified["lower"][i]), ceil_bps(identified["upper"][i])]
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    worst_bucket = max(
+        BUCKET_ORDER, key=lambda b: payload["missingness_sensitivity_bps"][b],
+    )
+    worst_bps = payload["missingness_sensitivity_bps"][worst_bucket]
+    if worst_bps > MISSINGNESS_BOUND_BUDGET_BPS:
+        payload["decision"] = "fallback_house_matrix"
+        payload["reason"] = "missingness_bound_exceeds_budget"
+        payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
+        return _house_midpoint_fallback_result(
+            context,
+            aggregate_selection,
+            extra_reasoning=[
+                f"Resampling: {n_bags - n_succeeded} von {n_bags} Bags ohne "
+                "zulaessige Allokation. Ihr unbeobachtetes Ergebnis kann die "
+                f"Quote ({worst_bucket}) um bis zu {worst_bps / 100.0:.2f} pp "
+                "verschieben (Worst Case auf Bandbreiten und Summe 100 %), "
+                f"mehr als das Praezisionsziel von "
+                f"{MISSINGNESS_BOUND_BUDGET_BPS / 100.0:.0f} pp -- kein "
+                "Mittelwert publiziert."
+            ],
+            resampling_payload=payload,
+        )
     payload["mean_weights_bps"] = {
         bucket: round(float(mean_w[i]) * 10000.0, 2)
         for i, bucket in enumerate(BUCKET_ORDER)
@@ -4299,18 +4344,6 @@ def _run_resampled_solver(
     # Unsicherheit durch Bag-Ausfall noch Projektion oder Hausmatrix-Gate.
     payload["conditional_bag_mean_standard_error_bps"] = {
         bucket: round(float(dispersion[i]) * 10000.0 / float(np.sqrt(n_succeeded)), 2)
-        for i, bucket in enumerate(BUCKET_ORDER)
-    }
-    # Sensitivitaetsschranke fuer nicht zufaelligen Ausfall: liegen die
-    # fehlenden Bags bis zu MISSINGNESS_STRESS_SIGMAS Bag-Standardabweichungen
-    # neben dem Mittel, verschiebt das die Quote um hoechstens
-    # f * k * sigma_bag (f = Ausfallanteil). 0 bei vollstaendigem Lauf.
-    missing_share = float(n_bags - n_succeeded) / float(n_bags)
-    payload["missingness_sensitivity_bps"] = {
-        bucket: round(
-            missing_share * MISSINGNESS_STRESS_SIGMAS * float(dispersion[i]) * 10000.0,
-            2,
-        )
         for i, bucket in enumerate(BUCKET_ORDER)
     }
 
@@ -4367,6 +4400,14 @@ def _run_resampled_solver(
         f"Standardfehler der Quote (bedingt auf die erfolgreichen Bags) max. "
         f"{max_standard_error_pp:.2f} pp."
     )
+    if n_succeeded < n_bags:
+        reasoning.append(
+            f"{n_bags - n_succeeded} Bag(s) ohne zulaessige Allokation: die Quote "
+            "ist das Mittel der erfolgreichen Bags (bedingt auf Solver-Erfolg); "
+            f"die fehlenden Bags koennen sie um hoechstens {worst_bps / 100.0:.2f} pp "
+            f"({worst_bucket}, Worst Case auf Bandbreiten und Summe 100 %) "
+            "verschieben."
+        )
     if house_prior_anchor_bps is not None:
         # HOUSE-PRIOR-001: kein Schalter -- das (projizierte) Bag-Mittel IST
         # das Ergebnis; der Bootstrap legt nur offen und faengt als

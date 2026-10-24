@@ -349,34 +349,42 @@ def _run_with_successes(monkeypatch, n_bags: int, n_success: int):
 
 
 @pytest.mark.parametrize(
-    "n_success, publishes_mean",
-    [(40, True), (39, True), (36, True), (35, False), (30, False), (20, False), (19, False)],
+    "n_success, expected_reason",
+    [(40, None),
+     # Engine v14: ueber der Quote, aber auf [0,1]-Bandbreiten kann der
+     # fehlende Bag die Quote um f * max(m, 1 - m) >= 250 bps verschieben
+     # (> Praezisionsziel 100 bps) -> fail-closed; bis v13 wurde das Mittel
+     # mit einer 2-Sigma-"Schranke" von 0 bp publiziert.
+     (39, "missingness_bound_exceeds_budget"),
+     (36, "missingness_bound_exceeds_budget"),
+     (35, "insufficient_successful_bags"), (30, "insufficient_successful_bags"),
+     (20, "insufficient_successful_bags"), (19, "insufficient_successful_bags")],
 )
-def test_survivor_threshold_outcomes_for_40_bags(monkeypatch, n_success, publishes_mean):
+def test_survivor_threshold_outcomes_for_40_bags(monkeypatch, n_success, expected_reason):
     result = _run_with_successes(monkeypatch, 40, n_success)
     payload = result.resampling
     assert payload["n_bags_succeeded"] == n_success
     assert payload["min_successful_bag_share"] == pytest.approx(0.9)
-    if publishes_mean:
+    if expected_reason is None:
         assert "mean_weights_bps" in payload
         assert "conditional_bag_mean_standard_error_bps" in payload
         assert "standard_error_bps" not in payload
         sensitivity = payload["missingness_sensitivity_bps"]
-        if n_success == 40:
-            assert all(value == 0.0 for value in sensitivity.values())
+        assert all(value == 0.0 for value in sensitivity.values())
+        assert payload["estimand"] == rs.ESTIMAND_ALL_BAGS
     else:
         assert result.status == "fallback_house_matrix"
         assert payload["decision"] == "fallback_house_matrix"
-        assert payload["reason"] == "insufficient_successful_bags"
+        assert payload["reason"] == expected_reason
         assert "mean_weights_bps" not in payload
 
 
-def test_missingness_sensitivity_is_share_times_two_bag_sigmas():
-    """f * 2 * sigma_bag: mit 39/40 und einer Bag-Streuung s je Bucket."""
-    f = 1 / 40
-    sigma_bps = 450.0
-    assert round(f * rs.MISSINGNESS_STRESS_SIGMAS * sigma_bps, 2) == 22.5
+def test_minimum_successful_bag_quota_is_36_of_40():
+    """Die Quote bleibt erste Schranke; die Ausfall-Schranke selbst ist seit
+    v14 der identifizierte Bereich (tests/test_resampling_missingness_identified_set.py)."""
     assert rs.MIN_SUCCESSFUL_BAG_SHARE * 40 == pytest.approx(36)
+    assert rs.MISSINGNESS_BOUND_BUDGET_BPS == 100.0
+    assert not hasattr(rs, "MISSINGNESS_STRESS_SIGMAS")
 
 
 # ---------------------------------------------------------------------------
