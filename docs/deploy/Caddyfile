@@ -1,6 +1,6 @@
 # Phase-0 Reverse-Proxy mit automatischem Let's-Encrypt-TLS.
 # Domain anpassen. Caddy holt + erneuert das Zertifikat selbstständig.
-app.5eyes.ch {
+app.<ARES_DOMAIN> {
 	encode zstd gzip
 
 	# Sicherheits-Header (Basis; CSP wird in E1 verschärft).

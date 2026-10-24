@@ -1,7 +1,7 @@
-# 5eyes WealthArchitekten — Methodik-Whitepaper
+# Ares — Methodik-Whitepaper
 
 **Version:** 2026-07-19 · **Zweck:** Nachvollziehbare Offenlegung der Berechnungs- und
-Beratungsmethodik der 5eyes-Engine für Aufsicht (FINMA), Compliance und Berater.
+Beratungsmethodik der Ares-Engine für Aufsicht (FINMA), Compliance und Berater.
 **Charakter:** Faktenbelegt, konservativ. Jeder Abschnitt nennt die tragende
 Code-Referenz (Datei : Funktion), damit Aussagen am Quellcode überprüfbar sind.
 
@@ -16,7 +16,7 @@ Code-Referenz (Datei : Funktion), damit Aussagen am Quellcode überprüfbar sind
 
 ## Zusammenfassung
 
-Die 5eyes-Engine bildet eine strukturierte, regelbasierte Vermögensberatung ab.
+Die Ares-Engine bildet eine strukturierte, regelbasierte Vermögensberatung ab.
 Sie führt den Berater von der Situationsanalyse über Cashflows und Ziele, das
 Risikoprofil und die strategische Asset-Allokation (SAA) bis zum konkreten
 Portfoliovorschlag. Die Zukunftsprojektion beruht auf einer Monte-Carlo-Simulation
@@ -345,7 +345,7 @@ ergänzt werden können. Zwei bewusst getrennte Schnittstellen (beide als
 generisches Flatrate-Regime zurück. Jurisdiktionen werden per
 `register_jurisdiction` nach ISO-Ländercode registriert. Neben dem
 Built-in-Discovery (`discover_builtin_jurisdictions`, Import per `pkgutil`) gibt
-es ein **externes Entry-Point-Discovery** (Gruppe `5eyes.tax_regime`), das
+es ein **externes Entry-Point-Discovery** (Gruppe `ares.tax_regime`), das
 fehlerhafte Plugins abfängt, ohne den Start zu gefährden.
 
 **Aktuell implementiert.** Regimes: `CHTaxRegime` (registriert für `CH`/`CH-*`,
@@ -385,7 +385,7 @@ hinterlegt.
 **Eignungsprüfung (Art. 10 / 12).** Der Suitability-Audit prüft **mandatsbezogen**,
 ob für ein Mandat eine Eignungsprüfung erforderlich ist (Execution-only-Mandate
 sind nach Art. 13 ausgenommen). Grundlage ist das **aktuelle Risikoprofil**: Der
-Audit lädt die als „current" markierte `RiskAssessment` (die 5eyes-seitige
+Audit lädt die als „current" markierte `RiskAssessment` (die Ares-seitige
 Eignungsprüfung nach Art. 12: finanzielle Verhältnisse, Anlageziel/Horizont,
 Risikofähigkeit/-bereitschaft). Die **regelmässige Aktualisierung** wird über eine
 Frische-Prüfung sichergestellt (`SUITABILITY_FRESHNESS_MAX_DAYS = 365`, 12 Monate
@@ -434,7 +434,7 @@ die als Risikohinweis ins nächste Protokoll einfliessen.
 
 ## 10. Anlagephilosophie: Kein Markt-Timing, Rebalancing nur via Eignungsprüfung
 
-Die 5eyes-Beratung folgt einer regelbasierten, langfristigen Philosophie und
+Die Ares-Beratung folgt einer regelbasierten, langfristigen Philosophie und
 setzt diese technisch durch (ADR-003, Status *Accepted*):
 
 - **Keine Auto-Trigger:** Es existiert kein Cron-Job, Watcher oder

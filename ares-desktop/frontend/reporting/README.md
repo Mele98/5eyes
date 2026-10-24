@@ -1,4 +1,4 @@
-# 5eyes Reporting Sub-App
+# Ares Reporting Sub-App
 
 Institutioneller Depotcheck und Advisory-Report (15 Sektionen). Konsumiert
 den Backend-Endpoint `GET /mandates/{id}/advisory-report` (Sprint U-P21).
@@ -43,12 +43,14 @@ Electron-App folgt dieser Checkliste:
 
 ### Pfade die der Token nimmt
 
+`TOKEN_STORAGE_KEY` ist der Storage-Key aus `src/api/handoff.ts`.
+
 ```
 Hauptapp openReportingApp()            Sub-App main.tsx
     |                                       |
     | window.desktop.getAuthToken()         |
     | (Electron) ODER                       |
-    | sessionStorage['5eyes_token']         |
+    | sessionStorage[TOKEN_STORAGE_KEY]     |
     |                                       |
     v                                       |
 http://localhost:5173/...                   |
@@ -59,14 +61,14 @@ http://localhost:5173/...                   |
                                             v
                               consumeHandoffFromUrlFragment()
                                 |
-                                |--> sessionStorage['5eyes_token']
+                                |--> sessionStorage[TOKEN_STORAGE_KEY]
                                 |--> history.replaceState (URL Cleanup)
                                 v
                               resolveAuthToken() (bei jedem fetch)
                                 |
                                 |  1. window.desktop.getAuthToken()
-                                |  2. sessionStorage['5eyes_token']
-                                |  3. localStorage['5eyes_token']
+                                |  2. sessionStorage[TOKEN_STORAGE_KEY]
+                                |  3. localStorage[TOKEN_STORAGE_KEY]
                                 |  4. import.meta.env.VITE_ARES_TOKEN
                                 v
                               Authorization: Bearer <JWT>
@@ -83,7 +85,7 @@ http://localhost:5173/...                   |
 6. **Im neuen Tab DevTools oeffnen**, Console:
    ```js
    window.location.hash  // sollte "" sein (URL-Cleanup hat gegriffen)
-   sessionStorage.getItem('5eyes_token')  // sollte den JWT zeigen
+   sessionStorage.getItem('<TOKEN_STORAGE_KEY>')  // sollte den JWT zeigen
    ```
 7. **Network-Tab** → erster `/mandates/<ID>/advisory-report`-Request muss
    einen `Authorization: Bearer <JWT>`-Header haben → Status **200**.
@@ -125,8 +127,8 @@ Shell-Integration folgt in U-P27 (Polish-Sprint), wenn alle 15 Sektionen
    uvicorn main:app --reload --port 8000
    ```
 
-2. **Login in 5eyes-Hauptapp**, damit der Bearer-Token vorhanden ist
-   (`window.desktop.getAuthToken` in Electron, `sessionStorage['5eyes_token']`
+2. **Login in Ares-Hauptapp**, damit der Bearer-Token vorhanden ist
+   (`window.desktop.getAuthToken` in Electron, `sessionStorage[TOKEN_STORAGE_KEY]`
    im Browser-Dev-Fallback).
    (die Reporting-Sub-App nutzt dieselbe Session). Hauptapp normal über
    Electron oder `http://localhost:8000` starten und einloggen.
@@ -186,7 +188,7 @@ vor Commits.
 | **Single Source of Truth** | Alle Daten kommen aus `/advisory-report`. Keine Frontend-State-Logik für Geschäfts-Aggregation. |
 | **Design-Tokens** | Farben/Typo/Spacing in `tailwind.config.ts` + `src/design/tokens.ts`. Beide synchron halten. |
 | **Print-ready** | Bildschirm- und Print-Layout identisch (siehe `@media print` in `globals.css`). |
-| **Branding-Disziplin** | Keine Dritt-Marken in Code, Texten oder Assets (per 5eyes-Memory-Regel). |
+| **Branding-Disziplin** | Keine Dritt-Marken in Code, Texten oder Assets. |
 | **Editorial / institutional** | Serif Headlines, Sans Body, viel Weissraum, keine Fintech-Pills. |
 
 ---

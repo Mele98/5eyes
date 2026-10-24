@@ -2,14 +2,14 @@
 
 - **Status:** Accepted
 - **Datum:** 2026-06-18
-- **Sprint:** Kontroll-Audit + 3eyes-Parität + Verzehr-Realismus
+- **Sprint:** Kontroll-Audit + Referenzmethodik-Parität + Verzehr-Realismus
 
 ## Kontext
 
 Nach dem Kontroll-Audit der Beratungs-Engine (Vermögen → Cashflow → Ziele →
 Reserve/SAA → Risikoprofil → Asset-Allocation → Monte-Carlo) und dem Abgleich mit
 der etablierten Goal-Based-Methodik wurden mehrere Stellschrauben identifiziert, bei
-denen 5eyes von der konservativen, methodikkonformen Praxis abwich oder inkonsistent
+denen Ares von der konservativen, methodikkonformen Praxis abwich oder inkonsistent
 darstellte. Da die Engine FINMA-relevante Zahlen für die Kundenberatung erzeugt, sind
 Korrektheit, Konsistenz und nachvollziehbare Konservativität entscheidend.
 
@@ -19,7 +19,7 @@ Sechs methodische Festlegungen (alle 2026-06-17/18 umgesetzt + test-abgesichert)
 
 1. **Pessimistischer CHF-Fehlbetrag = schlechtestes Quartil (P25), nicht P10.**
    Für Nicht-Cashflow-Ziele weist die etablierte Methodik das schlechteste Quartil
-   aus. 5eyes nutzte P10 (untere 10 %) — strenger als nötig und nicht methodikkonform.
+   aus. Ares nutzte P10 (untere 10 %) — strenger als nötig und nicht methodikkonform.
    Umgesetzt in `_monte_carlo_goal_summary`.
 
 2. **Ziel-Gewichtung = Gleichgewichtung (Default), Härtegrad opt-in.**
@@ -52,7 +52,7 @@ Sechs methodische Festlegungen (alle 2026-06-17/18 umgesetzt + test-abgesichert)
 ## Alternativen (verworfen)
 
 - **P10 beibehalten** (Entscheid 1): strenger, aber nicht methodikkonform; verwirrt im
-  Vergleich mit 3eyes-orientierten Mandaten.
+  Vergleich mit an der Referenzmethodik orientierten Mandaten.
 - **Härtegrad als Default** (Entscheid 2): bevorzugt harte Ziele, weicht aber von der
   Gleichgewichtungs-Lehre ab → als opt-in degradiert statt entfernt.
 - **Arithmetische Hauptlinie** (Entscheid 3): einfacher, aber inkonsistent zum Median-Fächer
@@ -77,4 +77,3 @@ Sechs methodische Festlegungen (alle 2026-06-17/18 umgesetzt + test-abgesichert)
 
 - Whitepaper: `docs/methodology/engine-whitepaper.md`
 - Anlagephilosophie: ADR-003
-- Roadmap: `docs/planning/2026-06-18-roadmap-200-detailliert.md`
