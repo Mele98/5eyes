@@ -13,6 +13,14 @@ Erfasst sind jede Datei unter `docs/` und jede `*.md` ausserhalb von `docs/`.
 Dateien ausserhalb dieses Umfangs gelten als `KEEP`, sofern sie hier nicht
 ausdruecklich als `ARCHIVE` gefuehrt sind.
 
+Auswertung: `python scripts/clean_room_export_list.py` gibt die Liste der zu
+exportierenden Pfade aus (alles ausser `ARCHIVE`), sortiert und
+deterministisch. Mit `--check` bricht das Skript ab, wenn eine Datei im
+Umfang weder in der Dateitabelle noch von einer Regel erfasst ist, wenn ein
+Pfad doppelt steht oder wenn eine KEEP-Zeile auf einen Pfad zeigt, den es
+nicht gibt. ARCHIVE-Zeilen ohne Datei sind erlaubt; im Clean-Room-Export
+fehlen diese Dateien.
+
 Vorrang: Ein Eintrag in der Dateitabelle geht einer Regel vor. Regeln erfassen
 ausserdem Dateien, die in der Dateitabelle nicht einzeln stehen. Das betrifft
 derzeit 3 Dateien, deren Pfad einen frueheren Produktnamen enthaelt.
