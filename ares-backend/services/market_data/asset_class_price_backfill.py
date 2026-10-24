@@ -33,7 +33,7 @@ from services.market_data.aggregator import MarketDataAggregator
 from services.market_data.annual_returns_backfill import DEFAULT_SYMBOL_MAP
 from services.market_data.exceptions import MarketDataError
 
-# Basis-Währung des Backtests (5eyes-Standard). Assets in dieser Währung brauchen
+# Basis-Währung des Backtests (Ares-Standard). Assets in dieser Währung brauchen
 # keine FX-Konvertierung.
 BASE_CURRENCY = "CHF"
 

@@ -35,7 +35,7 @@ function check(name, fn) {
 }
 
 function makeTmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-bundle-secret-scan-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'ares-bundle-secret-scan-'));
 }
 
 check('leeres/nicht existentes Verzeichnis -> keine Funde', () => {

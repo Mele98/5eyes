@@ -1,4 +1,4 @@
-"""FXRateSource — liefert Wechselkurse zu CHF (Basis-Waehrung 5eyes).
+"""FXRateSource — liefert Wechselkurse zu CHF (Basis-Waehrung Ares).
 
 Konvention: rate ist 'wie viele CHF pro 1 Einheit Fremdwaehrung'.
 - EUR-Rate 0.95 → 1 EUR = 0.95 CHF

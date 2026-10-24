@@ -1,6 +1,6 @@
 """Weiterleitung ans Asset Management (User-Direktive, 2026-08-08).
 
-5eyes berechnet nur die Zielallokation/Handelsliste -- die tatsaechliche
+Ares berechnet nur die Zielallokation/Handelsliste -- die tatsaechliche
 Ausfuehrung (Kauf/Verkauf in den echten Kundendepots) liegt bei der
 Depotbank/dem internen Asset Management. Diese Router-Datei liefert den
 formalen, auditierbaren Nachweis der Uebergabe: ein unveraenderlicher

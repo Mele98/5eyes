@@ -10,7 +10,7 @@ from database import Base
 
 
 class FXRate(Base):
-    """Wechselkurs zu CHF (Basis-Waehrung 5eyes).
+    """Wechselkurs zu CHF (Basis-Waehrung Ares).
 
     Konvention: rate_x10000 = rate * 10000 (Integer-DB-Persistierung).
     Bei rate=0.95: rate_x10000=9500.

@@ -2,11 +2,11 @@
 
 # Konzept
 Externe Pakete (pip-installiert) registrieren ein Entry-Point unter
-der Group `ares.tax_regime`. Beim 5eyes-Boot wird `discover_external_
+der Group `ares.tax_regime`. Beim Ares-Boot wird `discover_external_
 regimes()` aufgerufen — laedt jedes Plugin-Modul und triggert dessen
 `@register_regime`-Decorators.
 
-# Beispiel: Drittanbieter `5eyes-tax-vietnam`
+# Beispiel: Drittanbieter `ares-tax-vietnam`
     # In pyproject.toml des externen Pakets:
     # [project.entry-points."ares.tax_regime"]
     # vn = "tax_vietnam.regime"

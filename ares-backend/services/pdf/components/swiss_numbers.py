@@ -1,6 +1,6 @@
 """Sprint U-P26 — Helpers fuer Schweizer Zahlen-Formatierung.
 
-Im 5eyes-PDF nutzen wir konsequent das Schweizer Tausenderzeichen
+Im Ares-PDF nutzen wir konsequent das Schweizer Tausenderzeichen
 (Apostroph), nicht Komma oder Punkt. Plus: Rappen → CHF mit 0 Nachkomma
 fuer Anzeige in Beratungs-PDFs.
 """

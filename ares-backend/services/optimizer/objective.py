@@ -193,7 +193,7 @@ def resolve_goal_weighting_mode() -> str:
     GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine v7): Default
     ist ``hardness`` (config.DEFAULT_GOAL_WEIGHTING_MODE) -- hart 10x /
     primaer 1x / opportunistisch 0.2x auf den ganzen Zielbeitrag. Bis v6 war
-    ``equal`` der Default (3eyes-Methodik "Alle Ziele sind gleich wichtig
+    ``equal`` der Default (Referenzmethodik "Alle Ziele sind gleich wichtig
     (Mittelung)", ADR-011 Entscheid 2); er bleibt als Opt-out
     OPTIMIZER_GOAL_WEIGHTING=equal erhalten. Die Gewichtung NACH WICHTIGKEIT
     bleibt beim Rang (weight_bps); der Haertegrad steuert, wie stark ein

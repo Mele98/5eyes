@@ -5,7 +5,7 @@
  * erzwingt nur die Literals (cashflow_type, nature); die fachliche
  * Plausibilität (Betrag, Datumsspanne) prüfen wir clientseitig.
  *
- * Konvention (Memory project_5eyes_cashflow_konventionen): valid_until ist
+ * Konvention (Fachlogik-Notiz Cashflow-Konventionen): valid_until ist
  * INKLUSIV — der letzte Gültigkeitstag zählt noch dazu.
  */
 import { formatChfFromRappen, parseNumberInputCH } from './format';

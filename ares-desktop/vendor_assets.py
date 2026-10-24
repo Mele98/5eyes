@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-5Eyes — Assets lokal vendoren
+Ares — Assets lokal vendoren
 ==============================
 Lädt Chart.js herunter und ersetzt Google Fonts mit System-Font-Fallbacks.
 Macht das Frontend vollständig offline-fähig für den Windows-Installer.

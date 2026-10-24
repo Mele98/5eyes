@@ -802,7 +802,7 @@ def cashflow_projection(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None),
     ).first()
-    # Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle fuer
+    # Indexierungs-Schalter (2026-07-19, wie Referenzmethodik): Globaler Master-Toggle fuer
     # die Cashflow-Projektions-Ansicht. indexation=True (Default) = heutiges
     # CF-Verhalten (is_inflation_linked-Cashflows werden per CMA-Inflationspfad
     # aufgezinst, gilt fuer Einnahmen UND Ausgaben sowie Wealth-Inflows).

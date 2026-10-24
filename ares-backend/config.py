@@ -26,7 +26,7 @@ DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 GOAL_WEIGHTING_MODES = ("equal", "hardness")
 # GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine
 # ``saa_resampled_v7``): der Haertegrad wirkt standardmaessig. Vorher war
-# "equal" der Default (ADR-011 Entscheid 2, 3eyes-"Mittelung"), womit ein
+# "equal" der Default (ADR-011 Entscheid 2, "Mittelung" der Referenzmethodik), womit ein
 # als "hart" erfasstes Ziel rechnerisch identisch mit "primaer" war, obwohl
 # die Erfassungsmaske die Wahl anbietet. "equal" bleibt als expliziter
 # Opt-out erhalten. Begruendung: docs/planning/2026-10-18-maximize-goal-and-

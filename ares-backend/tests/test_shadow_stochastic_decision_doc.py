@@ -68,9 +68,9 @@ def test_documents_shadow_comparison_endpoint():
     assert "shadow-comparison-aggregate" in text
 
 
-def test_links_to_relevant_memory():
+def test_links_to_relevant_sources():
     text = _read()
-    assert "project_5eyes_optimizer" in text
+    assert "services/shadow_comparison.py" in text
 
 
 def test_documents_bewusst_nicht_in_scope():

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 /**
- * Vite-Konfiguration der 5eyes Reporting-Sub-App.
+ * Vite-Konfiguration der Ares Reporting-Sub-App.
  *
  * Build-Output landet in `dist/` relativ zu diesem Verzeichnis. Die
  * Electron-Shell (ares-desktop/main/electron-main.cjs) lädt das
@@ -15,7 +15,7 @@ import path from 'node:path';
  */
 export default defineConfig({
   plugins: [react()],
-  // Bug-#6 (2026-06-07): Reporting-App wird vom 5eyes-Backend unter
+  // Bug-#6 (2026-06-07): Reporting-App wird vom Ares-Backend unter
   // /reporting/ als Static-Mount serviert (keine separate Vite-Instanz im
   // Demo/Production). `base` muss daher mit dem Backend-Mount-Pfad
   // uebereinstimmen, sonst zeigen Asset-URLs ins Leere.

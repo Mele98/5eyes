@@ -64,7 +64,7 @@ def test_non_subclass_fails_check():
 # ============================================================
 
 def test_discover_returns_empty_when_no_entry_points():
-    """In Test-Env sind normalerweise keine 5eyes-Provider-Pakete
+    """In Test-Env sind normalerweise keine Ares-Provider-Pakete
     installiert. discover_external_providers liefert leere Liste."""
     providers = discover_external_providers()
     # Im Standard-Test-Env keine externen Provider erwartet

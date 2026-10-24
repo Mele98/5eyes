@@ -3,7 +3,7 @@ Kalender-Abo-Feed fuer faellige/bald faellige Review-Trigger.
 
 Nutzer-Anforderung: der Berater soll auf faellige Jahresreviews/Drift-/
 Ereignis-Trigger automatisch (via Outlook-Kalenderabo) aufmerksam gemacht
-werden, ohne dass 5eyes eine kostenpflichtige oder registrierungspflichtige
+werden, ohne dass Ares eine kostenpflichtige oder registrierungspflichtige
 Microsoft-Graph-Anbindung braucht. Outlook kann einen beliebigen HTTP(S)-
 Endpoint, der einen gueltigen .ics-Text liefert, als "Internetkalender
 abonnieren" und aktualisiert ihn danach selbststaendig periodisch.

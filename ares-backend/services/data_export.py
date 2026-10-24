@@ -11,7 +11,7 @@ lichen elektronischen Format" sein.
 
 Was dieser Service liefert
 --------------------------
-Eine stabile JSON-Struktur mit allen Daten, die das 5eyes-System zu
+Eine stabile JSON-Struktur mit allen Daten, die das Ares-System zu
 einem Kunden gespeichert hat. Aufgeteilt in thematische Sektionen,
 sodass der Berater dem Kunden den Export verstaendlich erklaeren kann.
 
