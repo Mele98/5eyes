@@ -63,7 +63,7 @@ _CHECK_IN_RE = re.compile(
 )
 _LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
 _LINE_COMMENT_RE = re.compile(r"--[^\n]*")
-BACKUP_PREFIX = "5eyes_pre_check_upgrade_"
+BACKUP_PREFIX = "ares_pre_check_upgrade_"
 
 
 def _matching_paren(sql: str, open_index: int) -> int:
@@ -307,11 +307,11 @@ def ensure_sqlite_check_in_lists_current(
 
     Ablauf (nur wenn wirklich etwas fehlt):
       1. Konsistente Sicherung per SQLite-Backup-API nach
-         ``<backup_dir>/5eyes_pre_check_upgrade_<UTC-Zeitstempel>.db``
+         ``<backup_dir>/ares_pre_check_upgrade_<UTC-Zeitstempel>.db``
          (Default ``settings.backup_dir``, ueber
          ``services.backup._perform_atomic_copy``: Temp-Datei,
          integrity_check, atomarer Rename; SQLCipher-faehig). Das Praefix
-         faellt bewusst NICHT unter das Rotations-Glob ``5eyes-backup-*.db``,
+         faellt bewusst NICHT unter das Rotations-Glob ``ares-backup-*.db``,
          wird also nicht automatisch weggeraeumt. Scheitert die Sicherung:
          KEINE Aenderung.
       2. Aenderung in einer Transaktion (writable_schema).

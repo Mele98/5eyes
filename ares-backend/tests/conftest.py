@@ -2,7 +2,7 @@
 
 Many tests start the FastAPI app via ``TestClient(app)``; its lifespan calls
 ``init_db()`` on ``settings.db_path``, whose default is the LIVE desktop
-database ``~/5eyes/5eyes.db``. Parallel test runs therefore executed startup
+database ``~/ares/ares.db``. Parallel test runs therefore executed startup
 migrations against real client data and left an interrupted table rebuild
 (ANSWERS-MIGRATION-IDEMPOTENT-001).
 
