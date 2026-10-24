@@ -40,10 +40,7 @@ export function Cover({ data }: CoverProps) {
           eingebunden, heute nur typografische Wordmark als Platzhalter. */}
       <header className="flex items-center justify-between">
         <span className="font-serif text-h3 tracking-tight text-ink">
-          5eyes
-        </span>
-        <span className="text-micro uppercase tracking-widest text-ink-subtle">
-          Wealth Architects
+          Ares
         </span>
       </header>
 

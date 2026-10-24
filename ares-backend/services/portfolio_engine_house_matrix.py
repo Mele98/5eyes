@@ -1193,7 +1193,7 @@ def _apply_illiquid_cap(
 ) -> tuple[list[dict], dict[str, int]]:
     """Deckelt den ECHT illiquiden Anteil (Private Equity) auf max_illiquid_bps.
 
-    Methodik-konform (3eyes): nur der illiquide Baustein wird reduziert, nicht
+    Methodik-konform (Referenzmethodik): nur der illiquide Baustein wird reduziert, nicht
     die ganze Alternatives-Quote. Der freiwerdende Anteil wird primaer innerhalb
     der Alternativen zu liquiden Sleeves (Gold, Liquid Alts, ...) verschoben — die
     Alternatives-Quote bleibt dann unveraendert, nur ihre Zusammensetzung wird

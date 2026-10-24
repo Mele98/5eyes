@@ -1157,7 +1157,7 @@ def get_my_review_calendar_feed(
     return Response(
         content=ics_text,
         media_type="text/calendar; charset=utf-8",
-        headers={"Content-Disposition": "inline; filename=5eyes-reviews.ics"},
+        headers={"Content-Disposition": "inline; filename=ares-reviews.ics"},
     )
 
 

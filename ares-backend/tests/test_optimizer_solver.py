@@ -179,7 +179,7 @@ def test_build_initial_guesses_with_loose_bounds_returns_all_5():
 
 
 # ============================================================================
-# PAR-5: Markowitz-informierter Multi-Start-Kandidat (3eyes-Parity)
+# PAR-5: Markowitz-informierter Multi-Start-Kandidat (Referenz-Paritaet)
 # ============================================================================
 
 

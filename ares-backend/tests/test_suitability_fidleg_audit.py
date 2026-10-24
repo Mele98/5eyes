@@ -3,11 +3,11 @@
 Hintergrund
 -----------
 FIDLEG Art. 10 (Pruefpflicht) + Art. 12 (Eignungspruefung): Wer portfolio-
-bezogene Anlageberatung oder Vermoegensverwaltung erbringt — 5eyes tut das —
+bezogene Anlageberatung oder Vermoegensverwaltung erbringt — Ares tut das —
 muss eine Eignungspruefung durchfuehren und REGELMAESSIG aktualisieren.
 
 Umstellung (Option A): Der Audit prueft auf MANDATSEBENE, ob ein AKTUELLES
-Risikoprofil (RiskAssessment = 5eyes-Eignungspruefung) existiert. Der fruehere
+Risikoprofil (RiskAssessment = Ares-Eignungspruefung) existiert. Der fruehere
 Per-Log-Ansatz las AdvisoryLog.duty_type/.suitability_check_id — Spalten, die es
 auf AdvisoryLog gar nicht gibt -> der Audit war blind (immer 'compliant').
 
@@ -144,7 +144,7 @@ def test_duty_types_exclude_execution_only():
 # ---------------------------------------------------------------------------
 
 def _risk_assessment(**overrides):
-    """Synthetisches RiskAssessment (= 5eyes-Eignungspruefung). Default: heute
+    """Synthetisches RiskAssessment (= Ares-Eignungspruefung). Default: heute
     erstellt (frisch). assessed_at via _days_ago fuer deterministische Frische."""
     base = {
         "id": "ra-001",

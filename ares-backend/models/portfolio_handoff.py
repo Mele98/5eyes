@@ -1,6 +1,6 @@
 """Weiterleitung ans Asset Management (User-Direktive, 2026-08-08).
 
-5eyes ist eine Beratungs-/Allokations-Engine, keine Depotstelle -- es haelt
+Ares ist eine Beratungs-/Allokations-Engine, keine Depotstelle -- es haelt
 keine echten Konten/Depots. Die Handelsliste (Rebalancing-Trades), die im
 Review bei einem discretionaeren Mandat entsteht, war bislang nur eine
 Anzeige/PDF-Ausgabe (openTradeList() in ares.html) ohne jeden Nachweis,

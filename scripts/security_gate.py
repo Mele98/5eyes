@@ -98,7 +98,7 @@ def _seed_clean_integrity_db(path: Path) -> None:
 
 
 def _run_data_integrity_audit_smoke(repo: Path) -> int:
-    with tempfile.TemporaryDirectory(prefix="5eyes-integrity-gate-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ares-integrity-gate-") as tmp:
         db_path = Path(tmp) / "fresh_test.db"
         _seed_clean_integrity_db(db_path)
         cmd = [

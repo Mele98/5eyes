@@ -1,8 +1,8 @@
-"""3eyes-Parität: der pessimistische CHF-Fehlbetrag eines Vermoegensziels basiert
+"""Referenz-Parität: der pessimistische CHF-Fehlbetrag eines Vermoegensziels basiert
 auf dem SCHLECHTESTEN QUARTIL (P25), nicht mehr auf P10.
 
 Methodik (Q&A iSAA): fuer Nicht-Cashflow-Ziele wird das schlechteste Quartil
-ausgewiesen. Vorher nutzte 5eyes P10 (untere 10%) — strenger als die Methodik.
+ausgewiesen. Vorher nutzte Ares P10 (untere 10%) — strenger als die Methodik.
 Dieser Test fixiert die Umstellung target − P25 und sichert, dass NICHT mehr
 target − P10 verwendet wird.
 """

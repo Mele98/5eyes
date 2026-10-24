@@ -37,7 +37,7 @@ Industrie-Empfehlung 2026
 -------------------------
 - OWASP: bcrypt rounds >= 10 (4 sec/hash auf Server-CPU)
 - BSI TR-02102: regelmaessige Kostenfaktor-Anhebung
-- 5eyes-Default: 12 (bewusst hoeher als OWASP-Min)
+- Ares-Default: 12 (bewusst hoeher als OWASP-Min)
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 
-# 5eyes Default Cost-Factor — beim Login wird gegen diese Zahl geprueft.
+# Ares Default Cost-Factor — beim Login wird gegen diese Zahl geprueft.
 # Hashes mit kleineren rounds gelten als "rehash needed".
 BCRYPT_TARGET_ROUNDS = 12
 

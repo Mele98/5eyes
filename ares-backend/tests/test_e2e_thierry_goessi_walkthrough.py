@@ -178,7 +178,7 @@ def _seed_cashflows(api, client_id: str) -> list[dict]:
     Die Mischung ist absichtlich: ein unbefristeter Erwerbsfluss, eine erst
     spaeter beginnende Rente, laufende Ausgaben und eine Einmalausgabe. Genau
     an dieser Mischung haengen die Horizont- und Bucket-Achsen
-    (`valid_until` INKLUSIV, siehe project_5eyes_cashflow_konventionen).
+    (`valid_until` INKLUSIV, siehe Fachlogik-Notiz Cashflow-Konventionen).
     """
     rows = [
         {

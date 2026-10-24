@@ -26,7 +26,7 @@ def http_json(method: str, url: str, payload: dict | None = None, token: str | N
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Quick smoke test for the 5Eyes backend.')
+    parser = argparse.ArgumentParser(description='Quick smoke test for the Ares backend.')
     parser.add_argument('--base-url', default=DEFAULT_BASE_URL)
     parser.add_argument('--username', required=True)
     parser.add_argument('--password', required=True)

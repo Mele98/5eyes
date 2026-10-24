@@ -7,7 +7,7 @@ einer betroffenen Person das Recht, von jedem Verantwortlichen die
 Loeschung ihrer Personendaten zu verlangen. Dieses Recht ist -- wie das
 strukturell verwandte "Recht auf Vergessenwerden" der DSGVO (Art. 17) --
 NICHT absolut: es steht zurueck, wo eine gesetzliche Aufbewahrungspflicht
-entgegensteht. Fuer 5eyes als Vermoegensverwaltungs-/Beratungs-Software
+entgegensteht. Fuer Ares als Vermoegensverwaltungs-/Beratungs-Software
 sind das insbesondere:
 
 - FIDLEG Art. 11/12/16/19/21 (Dokumentationspflicht Beratung, Eignungs-

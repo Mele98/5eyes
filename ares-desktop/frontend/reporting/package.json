@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "5eyes Reporting Sub-App. React + Vite + Tailwind. Konsumiert /mandates/{id}/advisory-report (Backend-Endpoint, Sprint U-P21).",
+  "description": "Ares Reporting Sub-App. React + Vite + Tailwind. Konsumiert /mandates/{id}/advisory-report (Backend-Endpoint, Sprint U-P21).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
