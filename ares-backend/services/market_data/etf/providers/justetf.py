@@ -16,6 +16,7 @@ from typing import Any
 
 import requests
 
+from services.http_identity import browser_compatible_user_agent
 from ...exceptions import ProviderError, RateLimitError, SymbolNotFound
 from ..base import ETFInfo, ETFProvider
 
@@ -67,7 +68,7 @@ class JustetfScraper(ETFProvider):
             )
         self._respect_rate_limit()
         headers = {
-            "User-Agent": "Mozilla/5.0 (5eyes-inhouse-research)",
+            "User-Agent": browser_compatible_user_agent(),
             "Accept": "text/html,application/xhtml+xml",
         }
         params = {"isin": isin}
