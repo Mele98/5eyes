@@ -105,7 +105,7 @@ def test_discovery_skip_plugins_filter(monkeypatch):
 def test_discovery_entry_point_group_constant():
     """Group-Konstante muss stabil bleiben — Drittanbieter pinnen sie."""
     from services.tax.discovery import EXTERNAL_REGIME_ENTRY_POINT_GROUP
-    assert EXTERNAL_REGIME_ENTRY_POINT_GROUP == "5eyes.tax_regime"
+    assert EXTERNAL_REGIME_ENTRY_POINT_GROUP == "ares.tax_regime"
 
 
 def test_discovery_handles_entry_points_api_failure(monkeypatch):
@@ -119,3 +119,20 @@ def test_discovery_handles_entry_points_api_failure(monkeypatch):
     result = discovery.discover_external_regimes()
     assert result.discovered_count == 0
     assert result.loaded_plugins == ()
+
+
+def test_discovery_lookup_queries_only_the_product_group(monkeypatch):
+    """Der Lookup fragt genau `ares.tax_regime` ab, ohne Alias-Gruppe."""
+    from importlib import metadata
+
+    from services.tax import discovery
+
+    queried: list[str] = []
+
+    def fake_entry_points(*, group):
+        queried.append(group)
+        return []
+
+    monkeypatch.setattr(metadata, "entry_points", fake_entry_points)
+    assert discovery._list_entry_points() == []
+    assert queried == ["ares.tax_regime"]

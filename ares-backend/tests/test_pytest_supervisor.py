@@ -3,7 +3,7 @@
 Contracts:
 
 1. Every blocking CI job that executes the backend suite runs it under the
-   external supervisor with ``FIVEEYES_STRICT_LEAK_GUARD=1``; the aggregate
+   external supervisor with ``ARES_STRICT_LEAK_GUARD=1``; the aggregate
    job re-checks the evidence strictly. The GitHub job timeout is only the
    emergency brake above the supervisor deadlines.
 2. The in-process exit watchdog dumps ONCE and terminates a process stuck in
@@ -88,7 +88,7 @@ def test_blocking_backend_ci_enables_strict_leak_guard() -> None:
     # Original audit gate: the aggregate "Backend Tests" job section.
     workflow_text = _workflow_text()
     backend_job = workflow_text.split("\n  coverage:", 1)[0].split("\n  pytest:", 1)[1]
-    assert "FIVEEYES_STRICT_LEAK_GUARD" in backend_job, (
+    assert "ARES_STRICT_LEAK_GUARD" in backend_job, (
         "the blocking pytest job never opts into the guard's failing mode"
     )
 
@@ -499,3 +499,13 @@ def test_python_support_matrix_matches_ci_and_rejects_others(monkeypatch):
     assert message and "3.14" in message and "3.12" in message
     monkeypatch.setenv(supervision.ALLOW_UNSUPPORTED_PYTHON_ENV, "1")
     assert supervision.unsupported_python_message((3, 14)) is None
+
+
+def test_supervisor_switch_names_use_product_prefix_and_agree() -> None:
+    """Supervisor und Prozess-Seite lesen dieselben ARES_*-Schalter."""
+    assert sup.STRICT_ENV == guard.STRICT_ENV == "ARES_STRICT_LEAK_GUARD"
+    assert sup.SUPERVISOR_DIR_ENV == supervision.SUPERVISOR_DIR_ENV == "ARES_SUPERVISOR_DIR"
+    assert supervision.ALLOW_UNSUPPORTED_PYTHON_ENV == "ARES_ALLOW_UNSUPPORTED_PYTHON"
+    for job_name, job in _workflow()["jobs"].items():
+        for key in (job.get("env") or {}):
+            assert not key.endswith("_STRICT_LEAK_GUARD") or key == sup.STRICT_ENV, (job_name, key)

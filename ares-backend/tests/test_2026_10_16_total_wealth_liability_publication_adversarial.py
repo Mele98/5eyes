@@ -13,7 +13,7 @@ import pytest
 # Umgebungsvariable bleibt als Override fuer externe Pruefungen erhalten. Kein
 # fest verdrahteter App-Ordner mehr (las sonst still einen fremden Checkout).
 PRODUCT_ROOT = Path(
-    os.environ.get("FIVEEYES_PRODUCT_ROOT") or Path(__file__).resolve().parents[2]
+    os.environ.get("ARES_PRODUCT_ROOT") or Path(__file__).resolve().parents[2]
 ).resolve()
 HTML_PATH = PRODUCT_ROOT / "ares-desktop" / "frontend" / "ares.html"
 if not HTML_PATH.is_file():

@@ -128,7 +128,7 @@ def test_client_sends_bearer_token_for_backend_auth():
     Token-Quellen-Hierarchie:
       1. Electron: window.desktop.getAuthToken()
       2. Browser-Dev: sessionStorage['5eyes_token'] / localStorage['5eyes_token']
-      3. Build-Env: VITE_5EYES_TOKEN (nur DEV)
+      3. Build-Env: VITE_ARES_TOKEN (nur DEV)
     credentials:'include' bleibt drin, falls Backend später zusätzlich
     Cookie-Auth unterstützt — kein Regress-Risiko."""
     content = _read("api/client.ts")

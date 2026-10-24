@@ -85,7 +85,7 @@ def test_postgres_url_dispatches_to_alembic_upgrade(monkeypatch):
 
     monkeypatch.setattr(alembic_command, "upgrade", _fake_upgrade)
 
-    _create_or_migrate_schema("postgresql://user:pw@localhost/fivetest")
+    _create_or_migrate_schema("postgresql://user:pw@localhost/ares_test")
 
     assert calls == {"create_all": 0, "alembic_upgrade": 1, "upgraded_to": "head"}
 
