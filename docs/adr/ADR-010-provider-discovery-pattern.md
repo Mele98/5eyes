@@ -45,10 +45,15 @@ ares-backend/services/market_data/
 Externe pip-Pakete deklarieren in ihrer `pyproject.toml`:
 
 ```toml
-[project.entry-points."5eyes.market_data_provider"]
+[project.entry-points."ares.market_data_provider"]
 bloomberg = "fivee_eyes_bloomberg:BloombergProvider"
 refinitiv = "fivee_eyes_refinitiv:RefinitivProvider"
 ```
+
+> **Breaking (2026-10, Welle W2-d):** Die Entry-Point-Gruppe heisst
+> `ares.market_data_provider`. Die fruehere Gruppe wird nicht mehr
+> gelesen, es gibt keinen Alias. Dritt-Pakete muessen ihre
+> `pyproject.toml` auf den neuen Gruppennamen umstellen.
 
 Beim Boot scannt 5eyes diese Entry-Group, instanziiert konforme Provider
 und fuegt sie in die Aggregator-Cascade. Konformanz-Check:
