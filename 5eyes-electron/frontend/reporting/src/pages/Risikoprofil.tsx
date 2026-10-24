@@ -8,7 +8,11 @@
  * FINMA-Disziplin: §2 Risikoprofil ist nur ANGEZEIGT, nicht editierbar
  * in der Sub-App. Override geht über die Hauptapp 5eyes_v2.html.
  */
-import type { RisikoprofilierungData, RiskQuestion } from '@/api/types';
+import type {
+  ProjectionGateData,
+  RisikoprofilierungData,
+  RiskQuestion,
+} from '@/api/types';
 import type { RiskCapacityPlausibilityCompact } from '@/api/riskCapacityPlausibility';
 import { useUserRole } from '@/api/useUserRole';
 import { ReportPage } from '@/components/ReportPage';
@@ -23,9 +27,16 @@ interface RisikoprofilProps {
    * Berater-Ansicht (canEdit) sichtbar und nie im Druck.
    */
   capacityPlausibility?: RiskCapacityPlausibilityCompact | null;
+  /**
+   * MC-CONTEXT-001 (Codex-Closure-Review PR #663): das Risikobudget stammt
+   * aus der Soll-Allokation. Bei projections_hidden (z.B. neues Profil nach
+   * der Allokation) wird es nicht gezeigt, sondern der Gate-Hinweis.
+   */
+  projectionGate?: ProjectionGateData;
 }
 
-export function Risikoprofil({ data, capacityPlausibility }: RisikoprofilProps) {
+export function Risikoprofil({ data, capacityPlausibility, projectionGate }: RisikoprofilProps) {
+  const projectionsHidden = projectionGate?.projections_hidden === true;
   const { canEdit } = useUserRole();
   return (
     <ReportPage
@@ -34,7 +45,12 @@ export function Risikoprofil({ data, capacityPlausibility }: RisikoprofilProps) 
       title="Risikoprofilierung"
       subtitle="FINMA-konforme Eignungsprüfung — Score, Profil, Begründung."
     >
-      <SummaryBox data={data} />
+      <SummaryBox data={data} projectionsHidden={projectionsHidden} />
+      {projectionsHidden ? (
+        <p className="mt-3 text-caption text-ink-muted" data-testid="risk-budget-gate-hint">
+          Risikobudget: {projectionGate?.hinweis || 'Projektionen ausgeblendet.'}
+        </p>
+      ) : null}
 
       <section className="mt-section">
         <h2 className="font-serif text-h2 text-ink">Score-Komponenten</h2>
@@ -64,13 +80,19 @@ export function Risikoprofil({ data, capacityPlausibility }: RisikoprofilProps) 
 
 // ---------------------------------------------------------------------------
 
-function SummaryBox({ data }: { data: RisikoprofilierungData }) {
+function SummaryBox({
+  data,
+  projectionsHidden,
+}: {
+  data: RisikoprofilierungData;
+  projectionsHidden: boolean;
+}) {
   const profile = data.final_profile || '—';
   const scoreText =
     data.final_score_x10 && data.final_score_x10 > 0
       ? `${data.final_score_x10} / 100`
       : '—';
-  const riskyText = formatBpsAsPct(data.risky_fraction_bps);
+  const riskyText = formatBpsAsPct(projectionsHidden ? null : data.risky_fraction_bps);
 
   return (
     <section className="grid grid-cols-1 gap-block border-l-4 border-accent bg-canvas-subtle p-6 md:grid-cols-3">
