@@ -340,3 +340,14 @@ def test_rls_dynamic_table_coverage_guard_is_wired_in(workflow_yaml):
     tatsaechlich durchgesetzt. Dieser Test schuetzt dagegen, dass die
     Verdrahtung je wieder stillschweigend verschwindet."""
     assert "tests/test_rls_dynamic_table_coverage_guard.py" in _postgres_rls_run_command(workflow_yaml)
+
+
+def test_coverage_job_uses_sysmon_and_16_shards(workflow_yaml):
+    """Coverage-Shards liefen mit dem klassischen Tracer in den 90-min-Timeout.
+    sys.monitoring plus 16 Shards haelt den nicht blockierenden Job im Rahmen."""
+    job = workflow_yaml["jobs"]["coverage"]
+    assert job["env"].get("COVERAGE_CORE") == "sysmon"
+    assert job["strategy"]["matrix"]["group"] == list(range(1, 17))
+    run = next(s["run"] for s in job["steps"] if "--cov=" in s.get("run", ""))
+    assert "--splits 16" in run
+    assert job["continue-on-error"] is True

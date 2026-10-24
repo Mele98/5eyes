@@ -356,20 +356,24 @@ jobs:
     # F0-3 (2026-10-24): parallel wie das Gate (8 Shards x xdist-Worker,
     # pytest-cov kombiniert die Worker je Shard), danach `coverage combine`
     # ueber alle Shards im Job coverage-combine. Weiterhin nicht blockierend.
-    name: Backend Coverage Shard ${{ matrix.group }}/8 (push only, non-blocking)
+    name: Backend Coverage Shard ${{ matrix.group }}/16 (push only, non-blocking)
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2, 3, 4, 5, 6, 7, 8]
+        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     env:
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
+      # Coverage ueber sys.monitoring (PEP 669, Python >= 3.12): deutlich
+      # weniger Overhead als der klassische Tracer; 8 Shards liefen in den
+      # 90-min-Timeout (develop-Run 40114563402).
+      COVERAGE_CORE: "sysmon"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -391,7 +395,7 @@ jobs:
         working-directory: 5eyes-backend
         run: |
           python -m pytest tests/ --tb=short -n auto --dist loadfile \
-            --splits 8 --group ${{ matrix.group }} --splitting-algorithm duration_based_chunks \
+            --splits 16 --group ${{ matrix.group }} --splitting-algorithm duration_based_chunks \
             --durations-path .test_durations \
             --cov=services --cov=routers --cov=schemas --cov=models --cov-report=
 
