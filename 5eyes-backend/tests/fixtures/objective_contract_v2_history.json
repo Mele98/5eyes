@@ -1,0 +1,161 @@
+{
+ "_comment": "Persistierte objective-contract-v2-Nachweise, erzeugt aus dem Produktcode der genannten Commits (as_evidence()). Nie aus heutigem Code neu erzeugen.",
+ "entries": [
+  {
+   "evidence": {
+    "chance_penalty_policy": "linear_wilson_lb_soft_regret_v1",
+    "chance_penalty_weight": 1.0,
+    "demoted_goal_weight": 0.2,
+    "goal_demotion_policy": "certified_unreachable_demoted_wish_weight_v3",
+    "goal_erosion_numeric_tol": 1e-09,
+    "goal_erosion_z": 1.6448536269514722,
+    "goal_hardness_policy": "hardness_scales_shortfall_and_protection_v1",
+    "goal_hierarchy_policy": "protected_goals_lexicographic_v2_reachable_only",
+    "goal_hierarchy_scope": "goal_shortfall_mode_only",
+    "goal_normalization": "relative_to_initial_wealth_squared_v1",
+    "goal_reachability_policy": "goal_reachability_screen_v5_certified_demotion",
+    "goal_weighting_mode": "hardness",
+    "hardness_weights": {
+     "hart": 10.0,
+     "opportunistisch": 0.2,
+     "primaer": 1.0
+    },
+    "house_prior_kappa": 300.0,
+    "house_prior_policy": "house_prior_ridge_tracking_error_v2",
+    "maximize_goal_policy": "maximize_log_growth_v1",
+    "maximize_growth_weight": 1.0,
+    "objective_contract_hash": "78419c3e53c3d9959e69ea1d756738f7ce6d7f1cb0703389ae67c8bea0bcb8eb",
+    "objective_contract_version": "objective-contract-v2",
+    "objective_mode": "goal_shortfall",
+    "protected_hardness": [
+     "hart",
+     "primaer"
+    ],
+    "soft_preference_lambda_default": 2.0,
+    "soft_preference_policy": "soft-preference-default-v1",
+    "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
+    "tiebreak_policy": "portfolio_variance_one_year_v1",
+    "tiebreak_weight": 1.0
+   },
+   "source_commit": "61077c041edf"
+  },
+  {
+   "evidence": {
+    "chance_penalty_policy": "linear_wilson_lb_soft_regret_v1",
+    "chance_penalty_weight": 1.0,
+    "demoted_goal_weight": 0.2,
+    "goal_demotion_policy": "certified_unreachable_demoted_wish_weight_v3",
+    "goal_erosion_numeric_tol": 1e-09,
+    "goal_erosion_z": 1.6448536269514722,
+    "goal_hardness_policy": "hardness_scales_shortfall_and_protection_v1",
+    "goal_hierarchy_policy": "protected_goals_lexicographic_v2_reachable_only",
+    "goal_hierarchy_scope": "goal_shortfall_mode_only",
+    "goal_normalization": "relative_to_initial_wealth_squared_v1",
+    "goal_reachability_policy": "goal_reachability_screen_v5_certified_demotion",
+    "goal_weighting_mode": "equal",
+    "hardness_weights": {
+     "hart": 10.0,
+     "opportunistisch": 0.2,
+     "primaer": 1.0
+    },
+    "house_prior_kappa": 300.0,
+    "house_prior_policy": "house_prior_ridge_tracking_error_v2",
+    "maximize_goal_policy": "maximize_log_growth_v1",
+    "maximize_growth_weight": 1.0,
+    "objective_contract_hash": "4b986085ad2f848d66950d479fab2a68beb8fe3e7682ef61ffc417b0056f7387",
+    "objective_contract_version": "objective-contract-v2",
+    "objective_mode": "goal_shortfall",
+    "protected_hardness": [
+     "hart",
+     "primaer"
+    ],
+    "soft_preference_lambda_default": 2.0,
+    "soft_preference_policy": "soft-preference-default-v1",
+    "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
+    "tiebreak_policy": "portfolio_variance_one_year_v1",
+    "tiebreak_weight": 1.0
+   },
+   "source_commit": "61077c041edf"
+  },
+  {
+   "evidence": {
+    "chance_penalty_policy": "linear_wilson_lb_soft_regret_v1",
+    "chance_penalty_weight": 1.0,
+    "demoted_goal_weight": 0.2,
+    "goal_demotion_policy": "certified_unreachable_demoted_wish_weight_v3",
+    "goal_erosion_numeric_tol": 1e-09,
+    "goal_erosion_z": 1.6448536269514722,
+    "goal_evaluation_scope": "priority_funded",
+    "goal_hardness_policy": "hardness_scales_shortfall_and_protection_v1",
+    "goal_hierarchy_policy": "protected_goals_lexicographic_v2_reachable_only",
+    "goal_hierarchy_scope": "goal_shortfall_mode_only",
+    "goal_normalization": "relative_to_initial_wealth_squared_v1",
+    "goal_reachability_policy": "goal_reachability_screen_v5_certified_demotion",
+    "goal_scope_replay_policy": "direct_crn_replay_per_rank_v1",
+    "goal_weighting_mode": "hardness",
+    "hardness_weights": {
+     "hart": 10.0,
+     "opportunistisch": 0.2,
+     "primaer": 1.0
+    },
+    "house_prior_kappa": 300.0,
+    "house_prior_policy": "house_prior_ridge_tracking_error_v2",
+    "maximize_goal_policy": "maximize_log_growth_v1",
+    "maximize_growth_weight": 1.0,
+    "objective_contract_hash": "304cd0e7bad647ba0c8bdd87d1dddfaaf6c076edf71618709b5eb7f6293400e1",
+    "objective_contract_version": "objective-contract-v2",
+    "objective_mode": "goal_shortfall",
+    "protected_hardness": [
+     "hart",
+     "primaer"
+    ],
+    "soft_preference_lambda_default": 2.0,
+    "soft_preference_policy": "soft-preference-default-v1",
+    "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
+    "tiebreak_policy": "portfolio_variance_one_year_v1",
+    "tiebreak_weight": 1.0
+   },
+   "source_commit": "0df048400cba"
+  },
+  {
+   "evidence": {
+    "chance_penalty_policy": "linear_wilson_lb_soft_regret_v1",
+    "chance_penalty_weight": 1.0,
+    "demoted_goal_weight": 0.2,
+    "goal_demotion_policy": "goal_revision_decision_demoted_wish_weight_v4",
+    "goal_erosion_numeric_tol": 1e-09,
+    "goal_erosion_z": 1.6448536269514722,
+    "goal_evaluation_scope": "priority_funded",
+    "goal_hardness_policy": "hardness_scales_shortfall_and_protection_v1",
+    "goal_hierarchy_policy": "protected_goals_lexicographic_v2_reachable_only",
+    "goal_hierarchy_scope": "goal_shortfall_mode_only",
+    "goal_normalization": "relative_to_initial_wealth_squared_v1",
+    "goal_reachability_policy": "goal_reachability_screen_v6_local_search_no_auto_demotion",
+    "goal_scope_replay_policy": "direct_crn_replay_per_rank_v1",
+    "goal_weighting_mode": "hardness",
+    "hardness_weights": {
+     "hart": 10.0,
+     "opportunistisch": 0.2,
+     "primaer": 1.0
+    },
+    "house_prior_kappa": 300.0,
+    "house_prior_policy": "house_prior_ridge_tracking_error_v2",
+    "maximize_goal_policy": "maximize_log_growth_v1",
+    "maximize_growth_weight": 1.0,
+    "objective_contract_hash": "87645b9fe2be830cf9cd2c4b54bd5843896bab28eb3205377f67318e4060a534",
+    "objective_contract_version": "objective-contract-v2",
+    "objective_mode": "goal_shortfall",
+    "protected_hardness": [
+     "hart",
+     "primaer"
+    ],
+    "soft_preference_lambda_default": 2.0,
+    "soft_preference_policy": "soft-preference-default-v1",
+    "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
+    "tiebreak_policy": "portfolio_variance_one_year_v1",
+    "tiebreak_weight": 1.0
+   },
+   "source_commit": "5461aa705ec7"
+  }
+ ]
+}

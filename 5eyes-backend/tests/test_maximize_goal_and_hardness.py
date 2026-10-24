@@ -128,7 +128,9 @@ def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     resampling = result.resampling
     assert resampling["engine_version"] == "saa_resampled_v12"
     contract = resampling["objective_contract"]
-    assert contract["objective_contract_version"] == "objective-contract-v2"
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (Review PR #659): das um den
+    # Ziel-Scope erweiterte Schema traegt eine eigene Kennung.
+    assert contract["objective_contract_version"] == "objective-contract-v3"
     assert contract["goal_weighting_mode"] == "hardness"
     assert contract["goal_hardness_policy"] == (
         "hardness_scales_shortfall_and_protection_v1")
