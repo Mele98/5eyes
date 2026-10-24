@@ -21,6 +21,7 @@ from pathlib import Path
 _default = str(Path.home() / "ares" / "ares-staging.db")
 _db_path = sys.argv[1] if len(sys.argv) > 1 else _default
 from core.db_location import refuse_live_db  # noqa: E402
+from core.demo_credentials import demo_password  # noqa: E402
 
 refuse_live_db(_db_path, context=Path(__file__).name)
 os.environ["DB_PATH"] = _db_path
@@ -51,7 +52,9 @@ def _now() -> str:
 
 
 # Initial-Passwort fuer alle Demo-Accounts (beim 1. Login Wechsel + 2FA erzwungen).
-INITIAL_PW = "Start-5eyes-2026!"
+# Kein Passwort im Quellcode: aus DEMO_INITIAL_PASSWORD oder pro Lauf zufaellig
+# erzeugt und einmal ausgegeben (core/demo_credentials.py).
+INITIAL_PW_ENV = "DEMO_INITIAL_PASSWORD"
 
 TENANTS = [
     ("tnt-internal", "Intern (Demo)", "demo-intern"),
@@ -90,7 +93,8 @@ def main() -> int:
         s.commit()
 
         existing_u = {u.username for u in s.query(User).all()}
-        pw_hash = hash_password(INITIAL_PW)
+        initial_pw, pw_source = demo_password(INITIAL_PW_ENV)
+        pw_hash = hash_password(initial_pw)
         for username, full_name, role, tenant_id in USERS:
             if username in existing_u:
                 continue
@@ -105,7 +109,10 @@ def main() -> int:
         s.commit()
 
     print(f"Angelegt: {created_t} Tenants, {created_u} Accounts.")
-    print(f"Initial-Passwort fuer ALLE: {INITIAL_PW}  (Wechsel + 2FA beim 1. Login erzwungen)")
+    if created_u:
+        hint = pw_source if pw_source != "zufaellig" else "zufaellig erzeugt, nur jetzt sichtbar"
+        print(f"Initial-Passwort fuer die neu angelegten Accounts ({hint}): {initial_pw}")
+        print("  (Wechsel + 2FA beim 1. Login erzwungen)")
     print("Accounts:")
     for username, full_name, role, tenant_id in USERS:
         print(f"  - {username:12s} | {role:11s} | {tenant_id}  ({full_name})")
