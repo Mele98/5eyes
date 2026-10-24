@@ -60,26 +60,93 @@ def quote_identifier(identifier: str) -> str:
     return f'"{identifier}"'
 
 
+# Globale Referenzdaten (RLS-GLOBAL-REFERENCE-ROWS, 2026-10-24).
+#
+# In diesen Tabellen bedeutet ``tenant_id IS NULL`` "fuer alle Mandanten
+# gueltig" (globales Produktuniversum, freigegebene globale CMA inkl. der
+# CH-Zeile, die ``services/jurisdiction/resolve.py`` ausdruecklich mit
+# ``tenant_id IS NULL`` sucht, globale Eignungsregelwerke und -regeln). Das
+# einheitliche Praedikat ``tenant_id::text = <tenant>`` liess diese Zeilen
+# fuer jede Tenant-Session verschwinden (NULL = 'x' ist nie wahr).
+#
+# Soll: lesen duerfen alle Sessions die globalen Zeilen, schreiben darf sie
+# nur der explizite Operator-Bypass. Deshalb hier getrennte Policies je
+# Kommando: SELECT laesst zusaetzlich ``tenant_id IS NULL`` zu, INSERT/
+# UPDATE/DELETE nur den eigenen Tenant (oder Bypass).
+#
+# NIE eine Tabelle mit Kunden-, Benutzer- oder Audit-Daten hier eintragen:
+# dort sind NULL-Zeilen Altbestand oder System-Eintraege, keine geteilten
+# Referenzdaten. ``protocol_bausteine`` bleibt bewusst strikt (der
+# Strict-Modus zeigt globale Bausteine auch in der App nicht an).
+GLOBAL_REFERENCE_TABLES: frozenset[str] = frozenset({
+    "capital_market_assumptions",
+    "product_eligibility_rule_sets",
+    "product_eligibility_rules",
+    "products",
+})
+
+STRICT_POLICY_NAME = "tenant_isolation"
+REFERENCE_POLICY_NAMES: tuple[str, ...] = (
+    "tenant_reference_select",
+    "tenant_reference_insert",
+    "tenant_reference_update",
+    "tenant_reference_delete",
+)
+
+
 def _policy_predicate() -> str:
     tenant_expr = f"NULLIF(current_setting('{TENANT_GUC}', true), '')"
     bypass_expr = f"current_setting('{BYPASS_GUC}', true) = 'on'"
     return f"(tenant_id::text = {tenant_expr} OR {bypass_expr})"
 
 
+def _reference_read_predicate() -> str:
+    tenant_expr = f"NULLIF(current_setting('{TENANT_GUC}', true), '')"
+    bypass_expr = f"current_setting('{BYPASS_GUC}', true) = 'on'"
+    return f"(tenant_id::text = {tenant_expr} OR tenant_id IS NULL OR {bypass_expr})"
+
+
+def is_global_reference_table(table_name: str) -> bool:
+    return table_name in GLOBAL_REFERENCE_TABLES
+
+
 def rls_policy_sql(table_name: str) -> tuple[str, ...]:
-    """DDL statements for one tenant table, deterministic for tests."""
+    """DDL statements for one tenant table, deterministic for tests.
+
+    Idempotent: jede Variante entfernt zuerst saemtliche Policies beider
+    Varianten, damit ein Wechsel der Klassifikation (oder ein Downgrade)
+    keine veraltete, zu weite Policy stehen laesst.
+    """
 
     q_table = quote_identifier(table_name)
     predicate = _policy_predicate()
-    return (
+    statements: list[str] = [
         f"ALTER TABLE {q_table} ENABLE ROW LEVEL SECURITY",
         f"ALTER TABLE {q_table} FORCE ROW LEVEL SECURITY",
-        f"DROP POLICY IF EXISTS tenant_isolation ON {q_table}",
+        f"DROP POLICY IF EXISTS {STRICT_POLICY_NAME} ON {q_table}",
+    ]
+    statements.extend(
+        f"DROP POLICY IF EXISTS {name} ON {q_table}" for name in REFERENCE_POLICY_NAMES
+    )
+    if not is_global_reference_table(table_name):
+        statements.append(
+            f"CREATE POLICY {STRICT_POLICY_NAME} ON {q_table} "
+            f"USING ({predicate}) WITH CHECK ({predicate})"
+        )
+        return tuple(statements)
+
+    read_predicate = _reference_read_predicate()
+    select_name, insert_name, update_name, delete_name = REFERENCE_POLICY_NAMES
+    statements.extend((
+        f"CREATE POLICY {select_name} ON {q_table} FOR SELECT USING ({read_predicate})",
+        f"CREATE POLICY {insert_name} ON {q_table} FOR INSERT WITH CHECK ({predicate})",
         (
-            f"CREATE POLICY tenant_isolation ON {q_table} "
+            f"CREATE POLICY {update_name} ON {q_table} FOR UPDATE "
             f"USING ({predicate}) WITH CHECK ({predicate})"
         ),
-    )
+        f"CREATE POLICY {delete_name} ON {q_table} FOR DELETE USING ({predicate})",
+    ))
+    return tuple(statements)
 
 
 def tenant_not_null_sql(table_name: str) -> tuple[str, str]:

@@ -8,7 +8,7 @@
  * Visueller Stil: dezent, Editorial, gleiche Design-Tokens wie der Rest
  * der Sub-App (offwhite, navy, Petrol-Akzent).
  */
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { buildDirtyCloseMessage, dirtyFields } from '@/lib/drawerDraft';
 
@@ -23,8 +23,9 @@ export interface NotesDrawerProps {
   /**
    * Sprint U-24 (2026-06-04): Dirty-State-Confirm.
    * Wenn currentValues != originalValues und User versucht zu schliessen
-   * (Backdrop-Click, ESC, X-Button) -> window.confirm-Dialog mit Hinweis
-   * auf Datenverlust.
+   * (Backdrop-Click, ESC, X-Button) -> Bestaetigungsdialog im Drawer mit
+   * Hinweis auf Datenverlust (kein nativer Browser-Dialog, Electron
+   * unterstuetzt diese nicht).
    */
   currentValues?: Record<string, unknown>;
   originalValues?: Record<string, unknown>;
@@ -40,21 +41,38 @@ export function NotesDrawer({
   currentValues,
   originalValues,
 }: NotesDrawerProps) {
-  // Sprint U-24: confirm-guard wenn dirty.
+  // Sprint U-24: confirm-guard wenn dirty. Die Rueckfrage erscheint als
+  // Dialog im Drawer: Abbrechen/ESC = weiter bearbeiten, Schliessen = onClose.
+  const [pendingCloseMessage, setPendingCloseMessage] = useState<string | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!open) setPendingCloseMessage(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (pendingCloseMessage !== null) cancelButtonRef.current?.focus();
+  }, [pendingCloseMessage]);
+
   const handleClose = useCallback(() => {
+    if (pendingCloseMessage !== null) {
+      setPendingCloseMessage(null);
+      return;
+    }
     if (currentValues && originalValues) {
       const changed = dirtyFields(currentValues, originalValues);
       if (changed.length > 0) {
-        const msg = buildDirtyCloseMessage(changed);
-        // Im Browser: window.confirm; in jsdom-Test ueberschreibbar
-        const ok = typeof window !== 'undefined' && window.confirm
-          ? window.confirm(msg)
-          : true;
-        if (!ok) return;
+        setPendingCloseMessage(buildDirtyCloseMessage(changed));
+        return;
       }
     }
     onClose();
-  }, [currentValues, originalValues, onClose]);
+  }, [currentValues, originalValues, onClose, pendingCloseMessage]);
+
+  const confirmClose = useCallback(() => {
+    setPendingCloseMessage(null);
+    onClose();
+  }, [onClose]);
 
   // ESC-Handler nur registrieren, solange der Drawer offen ist
   useEffect(() => {
@@ -106,6 +124,35 @@ export function NotesDrawer({
         <footer className="border-t border-rule bg-canvas-subtle px-page-x py-block">
           {footer}
         </footer>
+        {pendingCloseMessage !== null ? (
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="notes-drawer-close-confirm-msg"
+            className="border-t border-rule bg-canvas-panel px-page-x py-block"
+          >
+            <p id="notes-drawer-close-confirm-msg" className="text-caption text-ink">
+              {pendingCloseMessage}
+            </p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                ref={cancelButtonRef}
+                type="button"
+                onClick={() => setPendingCloseMessage(null)}
+                className="rounded-card border border-rule px-4 py-2 text-caption text-ink-muted transition hover:text-ink"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={confirmClose}
+                className="rounded-card bg-accent px-4 py-2 text-caption font-medium text-canvas-panel shadow-sm transition hover:bg-ink"
+              >
+                Schliessen
+              </button>
+            </div>
+          </div>
+        ) : null}
       </aside>
     </div>
   );

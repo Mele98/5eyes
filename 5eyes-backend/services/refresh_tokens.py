@@ -124,6 +124,17 @@ def rotate_refresh_token(
     if user is None or not user.is_active:
         return None
 
+    # AF-6 (2026-10-23): Widerrufs-Untergrenze (global settings.
+    # token_revoked_before bzw. users.token_revoked_before) gilt auch fuer
+    # Refresh-Tokens: vor der Untergrenze ausgestellt -> ungueltig. Kein
+    # Reuse-Signal (der Token wurde nie verbraucht), daher nur None -> 401.
+    from services.session_revocation import effective_revoked_before_ts, parse_iso_ts
+    floor_ts = effective_revoked_before_ts(user)
+    if floor_ts is not None:
+        created_ts = parse_iso_ts(row.created_at)
+        if created_ts is None or created_ts < floor_ts:
+            return None
+
     # AUTH-TEN-02 (Codex-Audit 2026-08-25): atomarer CAS statt read-then-write.
     # Ohne dies koennten zwei parallele Rotationsversuche mit demselben Token
     # BEIDE die revoked_at-Pruefung oben bestehen, bevor irgendeiner committet,

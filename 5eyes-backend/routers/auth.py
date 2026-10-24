@@ -27,7 +27,11 @@ from services.password_audit import needs_rehash
 from services.totp import (
     generate_secret, provisioning_uri, qr_svg_data_uri, match_counter as totp_match_counter,
 )
-from services.totp_secret_storage import store_totp_secret, load_totp_secret
+from services.totp_secret_storage import (
+    TotpSecretStorageError,
+    load_totp_secret,
+    store_totp_secret,
+)
 from services.mailer import send_invite_email, send_password_reset_email
 from services.quota import assert_within_quota
 from services.refresh_tokens import (
@@ -51,6 +55,34 @@ users_router = APIRouter(prefix="/users", tags=["Benutzer"])
 
 
 logger = logging.getLogger(__name__)
+
+# AUDIT-FIX 2026-10-23 (TOTP-Speicher fail-closed): verstaendliche Antworten,
+# wenn das TOTP-Secret nicht ver-/entschluesselt werden kann. Nie mit Secret.
+_TOTP_SETUP_UNAVAILABLE_DETAIL = (
+    "2FA-Einrichtung derzeit nicht moeglich – Schluesselkonfiguration pruefen."
+)
+_TOTP_VERIFY_UNAVAILABLE_DETAIL = (
+    "2FA-Pruefung derzeit nicht moeglich – Schluesselkonfiguration pruefen "
+    "(Administrator kontaktieren; Recovery-Codes bleiben beim Login nutzbar)."
+)
+
+
+def _totp_storage_http_error(
+    exc: TotpSecretStorageError, *, user, context: str, detail: str,
+    request: Request | None = None,
+) -> HTTPException:
+    """Protokolliert einen TOTP-Speicherfehler (ohne Secret) und liefert die
+    passende 503-Antwort. `reason_code` steht im Header X-2FA-Error."""
+    logger.error(
+        "2FA-Secret-Speicher nicht verfuegbar | context=%s reason=%s user_id=%s "
+        "tenant_id=%s request_id=%s",
+        context, exc.reason_code, getattr(user, "id", "?"),
+        getattr(user, "tenant_id", None),
+        getattr(getattr(request, "state", None), "request_id", "n/a"),
+    )
+    return HTTPException(
+        status_code=503, detail=detail, headers={"X-2FA-Error": exc.reason_code},
+    )
 
 
 def _now() -> str:
@@ -387,7 +419,14 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
                 status_code=401, detail="2FA-Code erforderlich",
                 headers={"X-2FA-Required": "1"},
             )
-        code_counter = totp_match_counter(load_totp_secret(db, user), code)
+        secret_error: TotpSecretStorageError | None = None
+        try:
+            code_counter = totp_match_counter(load_totp_secret(db, user), code)
+        except TotpSecretStorageError as exc:
+            # Fail-closed: kein TOTP-Code kann akzeptiert werden. Nur ein
+            # (vom Schluessel unabhaengiger) Recovery-Code bleibt moeglich.
+            code_counter = None
+            secret_error = exc
         if code_counter is None:
             # #25 Fallback: 2FA-Recovery-Code (Backup, falls Authenticator weg).
             # Single-use — verbrauchter Code wird entfernt + persistiert.
@@ -400,6 +439,11 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
                 db.commit()
             else:
                 failure = login_attempt_guard.register_failure(guard_key)
+                if secret_error is not None:
+                    raise _totp_storage_http_error(
+                        secret_error, user=user, context="login",
+                        detail=_TOTP_VERIFY_UNAVAILABLE_DETAIL, request=request,
+                    )
                 headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
                 raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
         else:
@@ -446,6 +490,63 @@ def logout(
     revoke_all_for_user(db, current_user.id)
     db.commit()
     return {"message": "Erfolgreich abgemeldet"}
+
+
+class _RevokeAllSessionsRequest(_BaseModel):
+    tenant_id: str | None = None
+
+
+@router.post("/admin/revoke-all-sessions")
+def revoke_all_sessions_endpoint(
+    request: Request,
+    body: _RevokeAllSessionsRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """AF-6 (2026-10-23): Massenwiderruf je Mandant. Alle Access- und
+    Refresh-Tokens aller Benutzer des Mandanten werden ungueltig (inkl. des
+    aufrufenden Admins -- bewusst: danach Neuanmeldung).
+
+    Mandantentrennung: ein admin wirkt nur auf den eigenen Mandanten (ein
+    fremder tenant_id im Body -> 403). Ein super_admin muss tenant_id
+    explizit angeben. Der globale Widerruf ueber alle Mandanten ist bewusst
+    NUR als Betreiber-CLI verfuegbar (scripts/revoke_all_sessions.py)."""
+    from models.tenant import DEFAULT_TENANT_ID
+    from services.session_revocation import revoke_all_sessions
+    from services.tenant_context import set_tenant_context
+
+    requested = str((body.tenant_id if body else None) or "").strip() or None
+    if current_user.role == "super_admin":
+        if requested is None:
+            raise HTTPException(
+                status_code=422,
+                detail="tenant_id ist Pflicht; globaler Widerruf nur ueber die Betreiber-CLI.",
+            )
+        if db.query(Tenant).filter(Tenant.id == requested).first() is None:
+            raise HTTPException(status_code=404, detail="Mandant nicht gefunden.")
+        set_tenant_context(db, requested)
+        target = requested
+    else:
+        own = str(getattr(current_user, "tenant_id", None) or "").strip() or DEFAULT_TENANT_ID
+        if requested is not None and requested != own:
+            raise HTTPException(status_code=403, detail="Nur der eigene Mandant ist erlaubt.")
+        target = own
+
+    result = revoke_all_sessions(
+        db,
+        actor_user_id=current_user.id,
+        actor_name=current_user.full_name,
+        tenant_id=target,
+        ip_address=_extract_client_ip(request),
+    )
+    db.commit()
+    return {
+        "scope": result.scope,
+        "tenant_id": result.tenant_id,
+        "revoked_before": result.revoked_before,
+        "users": result.users,
+        "refresh_tokens": result.refresh_tokens,
+    }
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -580,7 +681,17 @@ def twofa_setup(db: Session = Depends(get_db), current_user: User = Depends(get_
     # NUR wenn der User einen tenant_id mit echtem Tenant hat -- Tier-1
     # bleibt unveraendert Klartext. `secret` (lokale Variable, Klartext)
     # bleibt fuer otpauth_uri/QR unten unangetastet.
-    current_user.totp_secret = store_totp_secret(db, current_user, secret)
+    # Fail-closed: laesst sich das Secret nicht verschluesseln, wird NICHTS
+    # gespeichert (kein Klartext-Fallback) und 503 geantwortet.
+    try:
+        stored_secret = store_totp_secret(db, current_user, secret)
+    except TotpSecretStorageError as exc:
+        db.rollback()
+        raise _totp_storage_http_error(
+            exc, user=current_user, context="2fa_setup",
+            detail=_TOTP_SETUP_UNAVAILABLE_DETAIL,
+        ) from None
+    current_user.totp_secret = stored_secret
     current_user.updated_at = _now()
     db.commit()
     uri = provisioning_uri(secret, current_user.username or current_user.id, issuer="5eyes")
@@ -610,7 +721,13 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
             detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
-    code_counter = totp_match_counter(load_totp_secret(db, current_user), body.code)
+    try:
+        code_counter = totp_match_counter(load_totp_secret(db, current_user), body.code)
+    except TotpSecretStorageError as exc:
+        raise _totp_storage_http_error(
+            exc, user=current_user, context="2fa_enable",
+            detail=_TOTP_VERIFY_UNAVAILABLE_DETAIL,
+        ) from None
     if code_counter is None:
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
@@ -650,7 +767,13 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
             detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
-    code_counter = totp_match_counter(load_totp_secret(db, current_user), body.code)
+    try:
+        code_counter = totp_match_counter(load_totp_secret(db, current_user), body.code)
+    except TotpSecretStorageError as exc:
+        raise _totp_storage_http_error(
+            exc, user=current_user, context="2fa_disable",
+            detail=_TOTP_VERIFY_UNAVAILABLE_DETAIL,
+        ) from None
     if code_counter is None:
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None

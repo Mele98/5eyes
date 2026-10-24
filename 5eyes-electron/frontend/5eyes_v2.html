@@ -2498,7 +2498,7 @@ function provMsg(t,ok){var m=document.getElementById('prov-msg');if(m){m.style.c
 async function provToggleVvLicense(tenantId,currentlyLicensed){
   var next=!currentlyLicensed;
   var verb=next?'freischalten':'zurückziehen';
-  if(!window.confirm('FINIG-Freischaltung für diese Firma '+verb+'? Betrifft alle künftigen Vermögensverwaltungsmandate dieser Firma.'))return;
+  if(!(await uiConfirm('FINIG-Freischaltung für diese Firma '+verb+'? Betrifft alle künftigen Vermögensverwaltungsmandate dieser Firma.')))return;
   try{
     await API.put('/tenants/'+encodeURIComponent(tenantId),{discretionary_management_licensed:next});
     await provRender();
@@ -2951,7 +2951,7 @@ function exportSollIstComparePng(){
   try{
     var cs=charts&&charts.sollistSoll&&charts.sollistSoll.canvas;
     var ci=charts&&charts.sollistIst&&charts.sollistIst.canvas;
-    if(!cs||!ci){ try{alert('Bitte zuerst die Vergleichsgrafik öffnen.');}catch(_){ } return; }
+    if(!cs||!ci){ try{uiAlert({level:'warn',message:'Bitte zuerst die Vergleichsgrafik öffnen.'});}catch(_){ } return; }
     var pad=24, gap=24, headH=66, labH=26;
     var w=cs.width+ci.width+pad*2+gap;
     var h=Math.max(cs.height,ci.height)+headH+labH+pad;
@@ -2977,7 +2977,7 @@ function exportSollIstComparePng(){
     a.download='SOLL-IST-Vergleich'+(name?('-'+name.replace(/\s+/g,'_')):'')+'.png';
     a.href=out.toDataURL('image/png');
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  }catch(e){ try{alert('Export fehlgeschlagen: '+(e&&e.message||e));}catch(_){ } }
+  }catch(e){ try{uiAlert({level:'error',message:'Export fehlgeschlagen: '+(e&&e.message||e)});}catch(_){ } }
 }
 function _wireSollIstHover(){
   try{
@@ -6254,7 +6254,7 @@ async function adminCheckUpdates() {
 }
 
 async function adminInstallUpdate() {
-  if (!adminConfirmRisk('Update installieren?', 'Die App kann neu starten oder sich kurz beenden. Erstelle vorher ein Backup, wenn gerade fachliche Daten geaendert wurden.')) return;
+  if (!(await adminConfirmRisk('Update installieren?', 'Die App kann neu starten oder sich kurz beenden. Erstelle vorher ein Backup, wenn gerade fachliche Daten geaendert wurden.'))) return;
   try {
     if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
       await window.FiveEyesAPI.updates.install();
@@ -6964,6 +6964,181 @@ function cm(id){
   const el=document.getElementById(id);
   if(el)el.classList.remove('open');
   if(id&&typeof cleanupModalAfterClose==='function')cleanupModalAfterClose(id);
+}
+// UI-DIALOG-SERVICE (AUDIT-FIX no-native-dialogs): Electron unterstuetzt die
+// nativen Browser-Dialoge (Eingabe, Bestaetigung, Hinweis) nicht. Dieser
+// Service ersetzt sie durch die bestehende Modal-Komponente (om/cm):
+//   uiConfirm(opts) -> Promise<boolean>     (Abbrechen/ESC/Backdrop = false)
+//   uiPrompt(opts)  -> Promise<string|null> (Abbrechen/ESC/Backdrop = null;
+//                      opts.required / opts.minLength werden geprueft)
+//   uiAlert(opts)   -> Promise<void>; Toast nach Schwere (opts.level), Modal
+//                      bei opts.modal===true oder ohne Toast-Bereich.
+// opts darf auch ein String sein (= message). Ein Dialog gleichzeitig,
+// weitere Aufrufe werden eingereiht. Enter bestaetigt, ESC bricht ab,
+// Tab bleibt im Dialog, der Fokus kehrt danach zum Ausloeser zurueck.
+var uiDialogState={active:null,queue:[]};
+function uiDialogNormalizeOpts(opts){
+  if(opts==null||typeof opts!=='object')return {message:String(opts==null?'':opts)};
+  return opts;
+}
+function uiDialogValidate(value,opts){
+  var o=opts||{};
+  var v=String(value==null?'':value).trim();
+  var min=Number(o.minLength||0);
+  if(o.required&&!v)return String(o.requiredMessage||'Bitte ausfuellen.');
+  if(min>0&&v.length<min)return String(o.minLengthMessage||('Bitte mindestens '+min+' Zeichen eingeben.'));
+  return '';
+}
+function uiDialogEnsure(){
+  var existing=document.getElementById('m-ui-dialog');
+  if(existing)return existing;
+  if(!document.createElement||!document.body)return null;
+  var wrap=document.createElement('div');
+  wrap.id='m-ui-dialog';
+  wrap.className='overlay';
+  wrap.dataset.locked='1';
+  wrap.style.zIndex='9500';
+  wrap.setAttribute('onclick','if(event.target===this)uiDialogCancel();');
+  wrap.setAttribute('onkeydown','uiDialogKeydown(event)');
+  wrap.innerHTML='<div class="modal" id="m-ui-dialog-box" role="dialog" aria-modal="true" aria-labelledby="m-ui-dialog-title" aria-describedby="m-ui-dialog-msg" style="max-width:460px">'
+    + '<div class="mhd"><div class="mtitle" id="m-ui-dialog-title"></div><button class="mx" type="button" id="m-ui-dialog-x" aria-label="Schliessen" onclick="uiDialogCancel()">&#10005;</button></div>'
+    + '<div class="mbody">'
+    + '<div id="m-ui-dialog-msg" style="font-size:12px;color:var(--n7);white-space:pre-wrap;line-height:1.45"></div>'
+    + '<div id="m-ui-dialog-input-wrap" style="display:none;margin-top:10px">'
+    + '<input class="fi" id="m-ui-dialog-input" type="text" autocomplete="off" aria-describedby="m-ui-dialog-error" style="width:100%;box-sizing:border-box">'
+    + '<div id="m-ui-dialog-error" role="alert" style="display:none;font-size:10px;color:var(--neg);margin-top:6px"></div>'
+    + '</div>'
+    + '</div>'
+    + '<div class="mfooter"><button class="btn" type="button" id="m-ui-dialog-cancel" onclick="uiDialogCancel()">Abbrechen</button><button class="btn-p" type="button" id="m-ui-dialog-ok" onclick="uiDialogSubmit()">OK</button></div>'
+    + '</div>';
+  document.body.appendChild(wrap);
+  return wrap;
+}
+function uiDialogSetVisible(el,visible){if(el&&el.style)el.style.display=visible?'':'none';}
+function uiDialogShow(req){
+  uiDialogState.active=req;
+  var o=req.opts;
+  try{req.returnFocus=document.activeElement||null;}catch(e){req.returnFocus=null;}
+  var title=document.getElementById('m-ui-dialog-title');
+  var box=document.getElementById('m-ui-dialog-box');
+  var msg=document.getElementById('m-ui-dialog-msg');
+  var wrap=document.getElementById('m-ui-dialog-input-wrap');
+  var input=document.getElementById('m-ui-dialog-input');
+  var err=document.getElementById('m-ui-dialog-error');
+  var ok=document.getElementById('m-ui-dialog-ok');
+  var cancel=document.getElementById('m-ui-dialog-cancel');
+  var fallbackTitle=req.kind==='prompt'?'Eingabe':(req.kind==='alert'?'Hinweis':'Bestaetigung');
+  if(title)title.textContent=String(o.title||fallbackTitle);
+  if(box&&box.setAttribute)box.setAttribute('role',req.kind==='prompt'?'dialog':'alertdialog');
+  if(msg)msg.textContent=String(o.message||'');
+  uiDialogSetVisible(wrap,req.kind==='prompt');
+  if(input){
+    input.value=o.defaultValue!=null?String(o.defaultValue):'';
+    if(input.setAttribute){
+      input.setAttribute('aria-label',String(o.inputLabel||o.message||fallbackTitle));
+      input.setAttribute('aria-invalid','false');
+      if(o.required||Number(o.minLength||0)>0)input.setAttribute('aria-required','true');
+      else if(input.removeAttribute)input.removeAttribute('aria-required');
+    }
+  }
+  if(err){err.textContent='';uiDialogSetVisible(err,false);}
+  if(ok)ok.textContent=String(o.okLabel||'OK');
+  if(cancel){cancel.textContent=String(o.cancelLabel||'Abbrechen');uiDialogSetVisible(cancel,req.kind!=='alert');}
+  var overlay=document.getElementById('m-ui-dialog');
+  try{if(overlay&&document.body&&overlay.parentNode===document.body)document.body.appendChild(overlay);}catch(e){}
+  om('m-ui-dialog');
+  try{
+    if(req.kind==='prompt'&&input){input.focus();if(input.select)input.select();}
+    else if(ok&&ok.focus)ok.focus();
+  }catch(e){}
+}
+function uiDialogClose(result){
+  var req=uiDialogState.active;
+  if(!req)return;
+  uiDialogState.active=null;
+  cm('m-ui-dialog');
+  try{if(req.returnFocus&&req.returnFocus.focus)req.returnFocus.focus();}catch(e){}
+  try{req.resolve(result);}catch(e){}
+  var next=uiDialogState.queue.shift();
+  if(next)uiDialogShow(next);
+}
+function uiDialogOpen(kind,opts){
+  return new Promise(function(resolve){
+    var req={kind:kind,opts:uiDialogNormalizeOpts(opts),resolve:resolve};
+    if(!uiDialogEnsure()){
+      // Ohne DOM kein Dialog: fail-closed (keine Aktion, keine Eingabe).
+      resolve(kind==='confirm'?false:(kind==='prompt'?null:undefined));
+      return;
+    }
+    if(uiDialogState.active){uiDialogState.queue.push(req);return;}
+    uiDialogShow(req);
+  });
+}
+function uiDialogSubmit(){
+  var req=uiDialogState.active;
+  if(!req)return;
+  if(req.kind==='prompt'){
+    var input=document.getElementById('m-ui-dialog-input');
+    var value=String(input&&input.value!=null?input.value:'');
+    var issue=uiDialogValidate(value,req.opts);
+    if(issue){
+      var err=document.getElementById('m-ui-dialog-error');
+      if(err){err.textContent=issue;uiDialogSetVisible(err,true);}
+      try{if(input){if(input.setAttribute)input.setAttribute('aria-invalid','true');input.focus();}}catch(e){}
+      return;
+    }
+    uiDialogClose(value);
+    return;
+  }
+  uiDialogClose(req.kind==='confirm'?true:undefined);
+}
+function uiDialogCancel(){
+  var req=uiDialogState.active;
+  if(!req)return;
+  uiDialogClose(req.kind==='confirm'?false:(req.kind==='prompt'?null:undefined));
+}
+function uiDialogKeydown(event){
+  if(!uiDialogState.active||!event)return;
+  var target=event.target||null;
+  var targetId=target&&target.id?String(target.id):'';
+  if(event.key==='Escape'){
+    if(event.preventDefault)event.preventDefault();
+    if(event.stopPropagation)event.stopPropagation();
+    uiDialogCancel();
+    return;
+  }
+  if(event.key==='Enter'){
+    // Enter auf Abbrechen/Schliessen loest deren eigenen Klick aus.
+    if(targetId==='m-ui-dialog-cancel'||targetId==='m-ui-dialog-x')return;
+    if(event.preventDefault)event.preventDefault();
+    uiDialogSubmit();
+    return;
+  }
+  if(event.key==='Tab'){
+    var ids=['m-ui-dialog-x'];
+    if(uiDialogState.active.kind==='prompt')ids.push('m-ui-dialog-input');
+    if(uiDialogState.active.kind!=='alert')ids.push('m-ui-dialog-cancel');
+    ids.push('m-ui-dialog-ok');
+    var idx=ids.indexOf(targetId);
+    var nextIdx=event.shiftKey?(idx<=0?ids.length-1:idx-1):(idx<0||idx>=ids.length-1?0:idx+1);
+    var nextEl=document.getElementById(ids[nextIdx]);
+    if(nextEl&&nextEl.focus){
+      if(event.preventDefault)event.preventDefault();
+      nextEl.focus();
+    }
+  }
+}
+function uiConfirm(opts){return uiDialogOpen('confirm',opts);}
+function uiPrompt(opts){return uiDialogOpen('prompt',opts);}
+function uiAlert(opts){
+  var o=uiDialogNormalizeOpts(opts);
+  var level=String(o.level||'info').toLowerCase();
+  if(o.modal!==true&&typeof showAppNotice==='function'){
+    var notice=null;
+    try{notice=showAppNotice({level:level,message:o.message,title:o.title});}catch(e){notice=null;}
+    if(notice)return Promise.resolve();
+  }
+  return uiDialogOpen('alert',o);
 }
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',function(e){if(e.target===this&&this.dataset.locked!=='1')this.classList.remove('open');}));
 
@@ -9900,7 +10075,7 @@ function syncPortfolioUmsetzenButtonVisibility(){
 function openPortfolioUmsetzenModal(){
   var alloc=strategyState&&strategyState.allocation;
   if(!alloc||!Array.isArray(alloc.buckets)||!alloc.buckets.length){
-    alert('Bitte zuerst Anlagestrategie berechnen.');
+    uiAlert({level:'warn',message:'Bitte zuerst Anlagestrategie berechnen.'});
     return;
   }
   var now=new Date();
@@ -10742,7 +10917,7 @@ async function openOverrideModal(opts){
       'FIDLEG verlangt ein dokumentiertes Original-Profil als Basis fuer den Override.',
       {title:'Risikoprofil fehlt'}
     );}catch(e){
-      alert('Bitte zuerst das Risikoprofil erfassen, bevor du es ueberschreibst.');
+      uiAlert({level:'warn',modal:true,message:'Bitte zuerst das Risikoprofil erfassen, bevor du es ueberschreibst.'});
     }
     return;
   }
@@ -11212,7 +11387,7 @@ function adminRiskNotice(title, body, tone) {
 }
 
 function adminConfirmRisk(title, body) {
-  return window.confirm(String(title || 'Aktion bestaetigen') + '\n\n' + String(body || 'Diese Aktion veraendert systemweite Daten.'));
+  return uiConfirm({title: String(title || 'Aktion bestaetigen'), message: String(body || 'Diese Aktion veraendert systemweite Daten.')});
 }
 
 function adminDaysSince(value) {
@@ -12505,10 +12680,10 @@ async function saveAdminCapitalMarketAssumptions() {
   if (btn) { btn.disabled = true; btn.textContent = 'Speichert...'; }
   try {
     var payload = collectAdminCapitalMarketAssumptionsPayload();
-    if (!adminConfirmRisk(
+    if (!(await adminConfirmRisk(
       'Kapitalmarktannahmen speichern?',
       'Diese Version beeinflusst kuenftige Strategien, Simulationen, erwartete Renditen und Risikoauswertungen. Bitte nur speichern, wenn Quelle und Notiz sauber gepflegt sind.'
-    )) return;
+    ))) return;
     var saved = await API.put('/capital-market-assumptions', payload);
     applyAdminCapitalMarketAssumptions(saved);
     previewAdminCapitalMarketAssumptions();
@@ -12527,10 +12702,10 @@ async function adminRunOpenfigiAutoApply(dryRun) {
   var btnId = dryRun ? 'btn-admin-openfigi-preview' : 'btn-admin-openfigi-apply';
   var btn = document.getElementById(btnId);
   var flags = readAdminMappingFlags();
-  if (!dryRun && !adminConfirmRisk(
+  if (!dryRun && !(await adminConfirmRisk(
     'OpenFIGI-Mapping anwenden?',
     'Diese Aktion veraendert Produkt-Stammdaten und kann kuenftige Preisabrufe, Bewertungen und Drift-Anzeigen beeinflussen. Dry Run vorher pruefen.'
-  )) return;
+  ))) return;
   if (btn) { btn.disabled = true; btn.textContent = dryRun ? 'Prueft...' : 'Mapped...'; }
   try {
     var payload = await API.post('/products/openfigi/auto-apply', {
@@ -12551,10 +12726,10 @@ async function adminRunEodhdAutoApply(dryRun) {
   var btnId = dryRun ? 'btn-admin-eodhd-preview' : 'btn-admin-eodhd-apply';
   var btn = document.getElementById(btnId);
   var flags = readAdminMappingFlags();
-  if (!dryRun && !adminConfirmRisk(
+  if (!dryRun && !(await adminConfirmRisk(
     'EODHD-Referenzdaten anwenden?',
     'Diese Aktion kann Symbol, Produktname oder Waehrung aktualisieren. Bei aktivierten Ueberschreibungen bitte besonders auf betroffene Produkte achten.'
-  )) return;
+  ))) return;
   if (btn) { btn.disabled = true; btn.textContent = dryRun ? 'Prueft...' : 'Sync...'; }
   try {
     var payload = await API.post('/products/eodhd/auto-apply', {
@@ -12583,10 +12758,10 @@ async function adminClearProductOverride() {
     setAdminOverrideError('Produkt-ID oder Name ist Pflicht.');
     return;
   }
-  if (!adminConfirmRisk(
+  if (!(await adminConfirmRisk(
     'Override entfernen?',
     'Das Produkt faellt auf automatisches Mapping (OpenFIGI/EODHD) zurueck. Beim naechsten Preisabruf wird das Symbol neu aufgeloest.'
-  )) return;
+  ))) return;
   var btn = document.getElementById('btn-admin-override-clear');
   if (btn) { btn.disabled = true; btn.textContent = 'Entfernt...'; }
   try {
@@ -12623,10 +12798,10 @@ async function adminSetProductOverride() {
     setAdminOverrideError('Produkt-ID oder Name ist Pflicht.');
     return;
   }
-  if (!adminConfirmRisk(
+  if (!(await adminConfirmRisk(
     'Produkt-Override speichern?',
     'Overrides haben Vorrang vor automatischem Mapping und beeinflussen alle kuenftigen Preisabrufe fuer dieses Produkt. Bitte Symbol und Modus vorher pruefen.'
-  )) return;
+  ))) return;
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Speichert...';
@@ -13131,7 +13306,7 @@ async function adminDownloadFundImportTemplate(){
     URL.revokeObjectURL(url);
   } catch(e) {
     if (window.showAppError) showAppError('Vorlage konnte nicht heruntergeladen werden.');
-    else alert('Vorlage konnte nicht heruntergeladen werden.');
+    else uiAlert({level:'error',message:'Vorlage konnte nicht heruntergeladen werden.'});
   }
 }
 
@@ -13254,7 +13429,7 @@ async function adminUpdateProductUniverseEntry(entryId){
 }
 
 async function adminDeleteProductUniverseEntry(entryId){
-  if (!adminConfirmRisk('Eintrag entfernen', 'Dieses Produkt faellt fuer die betroffene Jurisdiktion auf den vollen Katalog zurueck, sobald keine weiteren Eintraege mehr existieren.')) return;
+  if (!(await adminConfirmRisk('Eintrag entfernen', 'Dieses Produkt faellt fuer die betroffene Jurisdiktion auf den vollen Katalog zurueck, sobald keine weiteren Eintraege mehr existieren.'))) return;
   var errBox = document.getElementById('pu-error');
   if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
   try {
@@ -13515,7 +13690,7 @@ async function adminUpdateHomeBiasDefault(code, rowId){
 }
 
 async function adminDeleteHomeBiasDefault(code, rowId){
-  if (!adminConfirmRisk('Home-Bias-Default entfernen', 'Diese Zeile faellt bei der naechsten Ziel-Allokations-Berechnung fuer diese Jurisdiktion weg. Nur entfernen, wenn ein Ersatz existiert oder die Praeferenz absichtlich nicht mehr unterstuetzt wird.')) return;
+  if (!(await adminConfirmRisk('Home-Bias-Default entfernen', 'Diese Zeile faellt bei der naechsten Ziel-Allokations-Berechnung fuer diese Jurisdiktion weg. Nur entfernen, wenn ein Ersatz existiert oder die Praeferenz absichtlich nicht mehr unterstuetzt wird.'))) return;
   var errBox = document.getElementById('hbd-error');
   if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
   try {
@@ -13604,10 +13779,10 @@ async function adminComputeCmaCandidate(){
   var errBox = document.getElementById('cma-nonch-error');
   if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
   if (!code || code === 'CH') return;
-  if (!adminConfirmRisk(
+  if (!(await adminConfirmRisk(
     'Kandidat aus Marktdaten berechnen?',
     'Erzeugt eine neue, NICHT aktive Kapitalmarktannahme aus echten Marktdaten (Zinskurve + Aktienbewertung). Muss anschliessend vom Investment Committee freigegeben werden, bevor sie in Kundendokumente einfliessen darf.'
-  )) return;
+  ))) return;
   var btn = document.getElementById('btn-cma-compute-candidate');
   if (btn) { btn.disabled = true; btn.textContent = 'Berechnet...'; }
   try {
@@ -13625,10 +13800,10 @@ async function adminComputeCmaCandidate(){
 async function adminApproveCma(id){
   var errBox = document.getElementById('cma-nonch-error');
   if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
-  if (!adminConfirmRisk(
+  if (!(await adminConfirmRisk(
     'Kapitalmarktannahme freigeben?',
     'Setzt den Status auf "IC-freigegeben" und aktiviert diese Version sofort. Erst danach duerfen diese Annahmen in finale Kundendokumente einfliessen.'
-  )) return;
+  ))) return;
   try {
     var cma = await API.post('/capital-market-assumptions/' + encodeURIComponent(id) + '/approve', {});
     adminCmaJurisdictionState.current = cma;
@@ -14058,7 +14233,7 @@ async function adminPolicySaveRows(){
 
 async function adminPolicyActivate(){
   if(!adminPolicyState.selectedId) return;
-  if(!adminConfirmRisk('Policy als aktiv setzen?', 'Die bisher aktive Policy wird auf historic gesetzt. Mandate behalten ihre TargetAllocation-Snapshots — aber neue Strategien nutzen dann diese Policy.')) return;
+  if(!(await adminConfirmRisk('Policy als aktiv setzen?', 'Die bisher aktive Policy wird auf historic gesetzt. Mandate behalten ihre TargetAllocation-Snapshots — aber neue Strategien nutzen dann diese Policy.'))) return;
   var status = document.getElementById('admin-policy-status');
   try {
     await API.post('/admin/optimizer-policies/' + encodeURIComponent(adminPolicyState.selectedId) + '/activate', {});
@@ -14133,7 +14308,7 @@ async function openReportingApp(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   var path = '/mandates/' + encodeURIComponent(mid) + '/report';
@@ -14153,7 +14328,7 @@ async function openProfilingEditor(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   var path = '/mandates/' + encodeURIComponent(mid) + '/risikoprofil-editor';
@@ -14172,7 +14347,7 @@ async function openGoalsEditor(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   var path = '/mandates/' + encodeURIComponent(mid) + '/goals-editor';
@@ -14192,7 +14367,7 @@ async function openCashflowEditor(){
   var cid = typeof getActiveClientId==='function' ? getActiveClientId() : null;
   if(!cid){
     if(window.showAppError) showAppError('Bitte zuerst einen Kunden oeffnen.');
-    else alert('Bitte zuerst einen Kunden oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst einen Kunden oeffnen.'});
     return;
   }
   var path = '/clients/' + encodeURIComponent(cid) + '/cashflow-editor';
@@ -14219,7 +14394,7 @@ async function openMandateEditor(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   var path = '/mandates/' + encodeURIComponent(mid) + '/mandate-editor';
@@ -14247,7 +14422,7 @@ async function openCrmEditorForClient(){
   var cid = typeof getActiveClientId==='function' ? getActiveClientId() : null;
   if(!cid){
     if(window.showAppError) showAppError('Bitte zuerst einen Kunden oeffnen.');
-    else alert('Bitte zuerst einen Kunden oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst einen Kunden oeffnen.'});
     return;
   }
   var path = '/clients/' + encodeURIComponent(cid) + '/crm-editor';
@@ -14265,7 +14440,7 @@ async function openWealthInflowEditor(){
   var cid = typeof getActiveClientId==='function' ? getActiveClientId() : null;
   if(!cid){
     if(window.showAppError) showAppError('Bitte zuerst einen Kunden oeffnen.');
-    else alert('Bitte zuerst einen Kunden oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst einen Kunden oeffnen.'});
     return;
   }
   var path = '/clients/' + encodeURIComponent(cid) + '/wealth-inflows-editor';
@@ -14298,7 +14473,7 @@ async function openCostDisclosureModal(){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   om('m-cost-disclosure');
@@ -14489,7 +14664,7 @@ async function openBausteineModal(){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   om('m-bausteine');
@@ -14555,7 +14730,7 @@ async function createBausteinFromModal(){
   var title=(titleEl&&titleEl.value||'').trim();
   if(!title){
     if(window.showAppError) showAppError('Bitte einen Titel angeben.');
-    else alert('Bitte einen Titel angeben.');
+    else uiAlert({level:'error',message:'Bitte einen Titel angeben.'});
     return;
   }
   try{
@@ -14572,7 +14747,7 @@ async function createBausteinFromModal(){
 }
 
 async function deleteBausteinFromModal(bausteinId){
-  if(!confirm('Baustein wirklich loeschen?'))return;
+  if(!(await uiConfirm('Baustein wirklich loeschen?')))return;
   try{
     await API.del('/protocol-bausteine/'+encodeURIComponent(bausteinId));
     _bausteineCache.library=_bausteineCache.library.filter(function(b){return b.id!==bausteinId;});
@@ -14605,7 +14780,7 @@ async function openDepotCheck(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   om('m-dc');
@@ -14819,7 +14994,7 @@ async function openAbBacktest(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   om('m-ab');
@@ -15061,7 +15236,7 @@ async function openStrategyBacktest(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   om('m-bt');
@@ -15823,7 +15998,7 @@ function btAttachChartHover(container, meta){
 }
 
 // ADMIN-HOUSE-MATRIX-PERCENT-001 (CIO-Entscheid 2): Electron unterstuetzt
-// window.prompt nicht -- der Einstieg "Aktive klonen & bearbeiten" war dort
+// den nativen Eingabedialog nicht -- der Einstieg "Aktive klonen & bearbeiten" war dort
 // blockiert. Name jetzt ueber die bestehende Modal-Komponente (om/cm). Das
 // Overlay wird am <body> angehaengt, damit es ueber dem Admin-Modal liegt.
 function adminPolicyEnsureCloneModal(){
@@ -15928,12 +16103,12 @@ async function backfillAdminAnnualReturns() {
   var btn = document.getElementById('btn-admin-ar-backfill');
   var errEl = document.getElementById('admin-ar-error');
   var gapsOnly = !!(document.getElementById('admin-ar-gaps-only') || {}).checked;
-  if (!adminConfirmRisk(
+  if (!(await adminConfirmRisk(
     'Annual-Returns aus Marktdaten laden?',
     'Lädt die letzten 20 Jahre via yfinance/stooq (USD-Total-Return-Approximation). '
       + (gapsOnly ? 'Nur fehlende Werte werden ergänzt — manuell gepflegte Zellen bleiben erhalten.'
                   : 'ACHTUNG: Bestehende Werte (auch manuell gepflegte) werden überschrieben.')
-  )) return;
+  ))) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt…'; }
   if (errEl) errEl.style.display = 'none';
   try {
@@ -15949,7 +16124,7 @@ async function backfillAdminAnnualReturns() {
       msg += '. Beispiele: ' + sample;
     }
     if (window.showAppSuccess) showAppSuccess(msg, {title:'Marktdaten-Backfill'});
-    else alert(msg);
+    else uiAlert({level:'success',message:msg});
     await loadAdminAnnualReturns();
   } catch(e) {
     var reason = (e && (e.detail||e.message)) || 'unbekannter Fehler';
@@ -16053,11 +16228,11 @@ async function backfillAdminAssetClassPrices() {
   var btn = document.getElementById('btn-admin-acp-backfill');
   var summaryEl = document.getElementById('admin-acp-summary');
   var gapsOnly = !!(document.getElementById('admin-acp-gaps-only') || {}).checked;
-  if (!adminConfirmRisk(
+  if (!(await adminConfirmRisk(
     'Tageskurse aus Marktdaten füllen?',
     'Lädt bis zu 20 Jahre tägliche Asset-Class-Preise via Marktdaten-Aggregator. Das kann länger dauern. '
       + (gapsOnly ? 'Nur fehlende Tagespunkte werden ergänzt.' : 'Bestehende Tagespunkte werden aktualisiert.')
-  )) return;
+  ))) return;
   setAdminAssetClassPriceError('');
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
   if (summaryEl) summaryEl.textContent = 'Daily-Backfill läuft. Bitte warten...';
@@ -16080,7 +16255,7 @@ async function backfillAdminAssetClassPrices() {
       msg += '. Beispiele: ' + sample;
     }
     if (window.showAppSuccess) showAppSuccess(msg, {title:'Daily-Backfill'});
-    else alert(msg);
+    else uiAlert({level:'success',message:msg});
     showAdminResult('OK: ' + msg, false);
     await loadAdminAssetClassPriceStatus(false);
   } catch(e) {
@@ -16096,10 +16271,10 @@ async function backfillAdminAssetClassPrices() {
 async function saveAdminAnnualReturns() {
   var btn = document.getElementById('btn-admin-ar-save');
   var errEl = document.getElementById('admin-ar-error');
-  if (!adminConfirmRisk(
+  if (!(await adminConfirmRisk(
     'Historische Jahresrenditen speichern?',
     'Diese Werte veraendern die theoretische Drift seit Strategie-Snapshot und koennen historische Review-Ampeln rueckwirkend beeinflussen.'
-  )) return;
+  ))) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Speichert…'; }
   if (errEl) errEl.style.display = 'none';
   var inputs = document.querySelectorAll('[data-ar-year][data-ar-ac]');
@@ -18326,8 +18501,8 @@ async function saveAdminUser(userId) {
   if (emailEl) body.email = emailEl.value.trim() || null;
   if (roleEl && !roleEl.disabled) body.role = roleEl.value;
   if (activeEl && !activeEl.disabled) body.is_active = activeEl.checked;
-  if (body.role === 'admin' && !adminConfirmRisk('Admin-Rolle vergeben?', 'Administratorinnen und Administratoren sehen alle Kunden und koennen System- sowie Beratungsannahmen aendern.')) return;
-  if (body.is_active === false && !adminConfirmRisk('Benutzer deaktivieren?', 'Deaktivierte Benutzer koennen sich nicht mehr anmelden. Bestehende Audit-Eintraege bleiben erhalten.')) return;
+  if (body.role === 'admin' && !(await adminConfirmRisk('Admin-Rolle vergeben?', 'Administratorinnen und Administratoren sehen alle Kunden und koennen System- sowie Beratungsannahmen aendern.'))) return;
+  if (body.is_active === false && !(await adminConfirmRisk('Benutzer deaktivieren?', 'Deaktivierte Benutzer koennen sich nicht mehr anmelden. Bestehende Audit-Eintraege bleiben erhalten.'))) return;
   try {
     await API.put('/users/' + userId, body);
     showAdminResult('✓ Benutzer gespeichert', false);
@@ -18542,7 +18717,7 @@ async function createNewUser() {
     if (errEl) { errEl.textContent = 'Passwort muss mindestens 10 Zeichen lang sein.'; errEl.style.display='block'; }
     return;
   }
-  if (role === 'admin' && !adminConfirmRisk('Neuen Administrator anlegen?', 'Diese Rolle hat globale Kundensicht und darf Systemdaten, Benutzer und Beratungsannahmen verwalten.')) return;
+  if (role === 'admin' && !(await adminConfirmRisk('Neuen Administrator anlegen?', 'Diese Rolle hat globale Kundensicht und darf Systemdaten, Benutzer und Beratungsannahmen verwalten.'))) return;
   if (errEl) errEl.style.display = 'none';
   if (btn) { btn.disabled = true; btn.textContent = 'Wird angelegt...'; }
 
@@ -18975,7 +19150,7 @@ var liveClientLoadToken=0;
     if(!positionId)return;
     var cid=getActiveClientId();
     var isDemo=isDemoClientId(positionId)||isDemoClientId(cid);
-    if(!confirm(isDemo?'Position entfernen (Demo)?':'Vermögensposition wirklich löschen?'))return;
+    if(!(await uiConfirm(isDemo?'Position entfernen (Demo)?':'Vermögensposition wirklich löschen?')))return;
     if(isDemo){
       currentWealthPositions=currentWealthPositions.filter(function(pos){return String(pos.id||'')!==String(positionId);});
       renderWealthPositions(currentWealthPositions);
@@ -19839,7 +20014,7 @@ async function openMandateSettingsModal(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid){
     if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return;
   }
   // Felder leeren
@@ -23089,7 +23264,7 @@ async function refreshLivePricesForMandate(){
   var mid=getActiveMandateId();
   if(!mid){
     if(window.showAppError)showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
+    else uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});
     return false;
   }
   if(typeof isDemoMandateId==='function' && isDemoMandateId(mid)){
@@ -23172,11 +23347,11 @@ function toggleCashflowIncluded(input,cid){
       input.disabled=false;
     });
 }
-function dcf(btn){
+async function dcf(btn){
   var row=btn&&btn.closest?btn.closest('.cf-row'):null,cfId=row?row.dataset.cfid:null;
   var cid=getActiveClientId();
   var isDemo=isDemoClientId(cfId)||isDemoClientId(cid);
-  if(!confirm(isDemo?'Eintrag entfernen (Demo)?':'Cashflow wirklich löschen?'))return;
+  if(!(await uiConfirm(isDemo?'Eintrag entfernen (Demo)?':'Cashflow wirklich löschen?')))return;
   if(!isDemo){
     if(!cid){console.error('dcf DELETE skipped: no active client id');return;}
     API.del('/clients/'+cid+'/cashflows/'+cfId)
@@ -23188,11 +23363,11 @@ function dcf(btn){
       .catch(function(e){console.error('dcf DELETE failed:',e.status,e.message);});
   }else if(row)row.remove();
 }
-function dg(btn){
+async function dg(btn){
   var g=btn&&btn.closest?btn.closest('.goal'):null,gId=g?g.dataset.goalid:null;
   var mid=getActiveMandateId();
   var isDemo=isDemoClientId(gId)||isDemoMandateId(mid);
-  if(!confirm(isDemo?'Ziel entfernen (Demo)?':'Ziel wirklich löschen?'))return;
+  if(!(await uiConfirm(isDemo?'Ziel entfernen (Demo)?':'Ziel wirklich löschen?')))return;
   if(!isDemo){
     if(!mid){console.error('dg DELETE skipped: no active mandate id');return;}
     API.del('/mandates/'+mid+'/goals/'+gId)
@@ -24059,7 +24234,7 @@ async function markPortfolioHandoffExecuted(handoffId){
   }
 }
 async function cancelPortfolioHandoffPrompt(handoffId){
-  var reason=window.prompt('Grund für die Stornierung:');
+  var reason=await uiPrompt({message:'Grund für die Stornierung:',required:true});
   if(!reason||!reason.trim())return;
   if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId)return;
   try{
@@ -24454,7 +24629,7 @@ async function downloadServerPdf(reportType, queryString){
   var mid=getActiveMandateId();
   if(!mid){
     if(window.showAppError){showAppError('Bitte zuerst ein Mandat oeffnen.');}
-    else{alert('Bitte zuerst ein Mandat oeffnen.');}
+    else{uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});}
     return;
   }
   if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'&&reportType!=='cost-disclosure'){
@@ -24500,7 +24675,7 @@ async function downloadArchivedDocumentPdf(docId, filenamePrefix){
   var mid=getActiveMandateId();
   if(!mid||!docId){
     if(window.showAppError){showAppError('Bitte zuerst ein Mandat oeffnen.');}
-    else{alert('Bitte zuerst ein Mandat oeffnen.');}
+    else{uiAlert({level:'error',message:'Bitte zuerst ein Mandat oeffnen.'});}
     return;
   }
   var path='/mandates/'+encodeURIComponent(mid)+'/documents/'+encodeURIComponent(docId)+'/pdf';
@@ -24564,7 +24739,7 @@ async function _fetchAndSavePdf(path, filenamePrefix){
           msg+=': '+detailText.slice(0,500);
         }
       }catch(readErr){}
-      if(window.showAppError){showAppError(msg);}else{alert(msg);}
+      if(window.showAppError){showAppError(msg);}else{uiAlert({level:'error',message:msg});}
       return {status:'failed', reason:msg};
     }
     var blob=await res.blob();
@@ -24629,7 +24804,7 @@ async function _fetchAndSavePdf(path, filenamePrefix){
       reason='Backend nicht erreichbar. Bitte App neu starten oder kurz warten und erneut versuchen.';
     }
     var emsg='PDF-Generierung fehlgeschlagen: '+reason;
-    if(window.showAppError){showAppError(emsg);}else{alert(emsg);}
+    if(window.showAppError){showAppError(emsg);}else{uiAlert({level:'error',message:emsg});}
     return {status:'failed', reason:String(reason)};
   } finally {
     // U-25: Loading-State immer zurueck — auch bei early-return oder Exception
@@ -28040,7 +28215,7 @@ async function signRiskProfile(){
   }
   var note='';
   try{
-    var raw=window.prompt('Notiz zur Signatur (optional):','');
+    var raw=await uiPrompt({message:'Notiz zur Signatur (optional):',defaultValue:''});
     if(raw===null)return; // Berater hat abgebrochen
     note=String(raw||'');
   }catch(e){note='';}
