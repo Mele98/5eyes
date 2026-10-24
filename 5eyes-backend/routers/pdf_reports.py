@@ -958,6 +958,18 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     )
 
 
+def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
+    """Kunden-PDF fail-closed sperren, wenn die Risikoprofil-Signatur nicht
+    mehr zum gespeicherten Profil passt (zentrales Release-Gate, VOR jedem
+    Render/Archiv). Der interne Advisory-Report ist bewusst nicht gesperrt."""
+    from services.recommendation_release_gate import (
+        CHANNEL_CLIENT_PDF,
+        assert_risk_signoff_release_eligible,
+    )
+
+    assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PDF)
+
+
 @router.get(
     "/mandates/{mandate_id}/reports/anlagestrategie.pdf",
     response_class=Response,
@@ -972,6 +984,7 @@ def get_anlagestrategie_pdf(
 ):
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_signoff(db, mandate)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
@@ -1046,6 +1059,7 @@ def get_risikoprofil_pdf(
 ):
     """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
@@ -1594,6 +1608,7 @@ def get_contract_signoff_pdf(
 ):
     """Final customer sign-off for the documented advisory decision."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
         data = _build_contract_signoff_data(mandate, db)
@@ -1805,6 +1820,7 @@ def get_protokoll_pdf(
 ):
     """Beratungsprotokoll-PDF mit AdvisoryLog und Unterschrift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_protokoll_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
@@ -2444,6 +2460,7 @@ def get_cost_disclosure_pdf(
     from services.cost_disclosure import build_cost_disclosure
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_signoff(db, mandate)
     payload = build_cost_disclosure(db, mandate)
     if payload.get("evidence_status") == "blocked":
         # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger

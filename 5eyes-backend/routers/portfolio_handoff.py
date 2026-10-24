@@ -35,6 +35,7 @@ from services.portfolio_handoff import NoTradeListAvailableError, snapshot_hando
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
     assert_recommendation_release_eligible,
+    assert_risk_signoff_release_eligible,
 )
 
 router = APIRouter(tags=["Weiterleitung Asset Management"])
@@ -166,6 +167,9 @@ def create_portfolio_handoff(
             ),
         )
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    # CIO-Entscheid 2026-10-24: keine Weiterleitung, solange die
+    # Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt.
+    assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_HANDOFF)
     # RISK-BUDGET-RELEASE-GATE (2026-10-21): keine Weiterleitung zur
     # Ausfuehrung, wenn die verankerte Allokation des Runs ihr Risikobudget
     # verletzt oder der Nachweis fehlt -- zentrales Gate, VOR Snapshot und

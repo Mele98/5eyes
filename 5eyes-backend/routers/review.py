@@ -77,7 +77,9 @@ from services.product_market_data import currency_mismatch_warning, resolve_mark
 from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
     RECOMMENDATION_DOCUMENT_TYPES,
+    SIGNOFF_BOUND_DOCUMENT_TYPES,
     assert_recommendation_release_eligible,
+    assert_risk_signoff_release_eligible,
     risk_budget_release_errors,
 )
 from services.review_engine import (
@@ -1588,6 +1590,13 @@ def sign_document(
     # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
+    # CIO-Entscheid 2026-10-24: kein kundensignierbares Dokument, solange die
+    # Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt
+    # (integrity_mismatch) -- zentrales Gate, VOR jeder Mutation.
+    if str(doc.document_type or "") in SIGNOFF_BOUND_DOCUMENT_TYPES:
+        assert_risk_signoff_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+        )
     # RISK-BUDGET-RELEASE-GATE (2026-10-21): ein Empfehlungsdokument darf
     # nur unterzeichnet werden, wenn die Soll-Allokation, die es
     # verkoerpert, ihr Risikobudget nachweislich einhaelt -- dasselbe
