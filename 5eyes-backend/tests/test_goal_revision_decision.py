@@ -351,7 +351,7 @@ def test_reasoning_and_published_rows_carry_suggestion_without_impossibility_cla
     evidence = far_row["goal_revision"]
     assert evidence["revision_suggested"] is True
     assert evidence["status"] == "not_found_reachable_locally"
-    assert evidence["engine_version"] == "saa_resampled_v14"
+    assert evidence["engine_version"] == "saa_resampled_v15"
     assert evidence["goal_snapshot_hash"] == revision.goal_snapshot_hash(far)
     assert evidence["upper_bound_kind"] == "sampling_wilson_at_best_found_point"
     assert 0.0 <= evidence["best_probability"] <= evidence["wilson_upper_bound"] < evidence["threshold"]
@@ -372,7 +372,7 @@ def test_engine_version_and_policies_are_v11():
     from services.optimizer.objective import DEMOTED_GOAL_POLICY_VERSION
     from services.optimizer.objective_contract import resolve_objective_contract
 
-    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v14"
+    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v15"
     evidence = resolve_objective_contract().as_evidence()
     assert evidence["goal_reachability_policy"] == reachability.GOAL_REACHABILITY_SCREEN_VERSION
     assert "no_auto_demotion" in reachability.GOAL_REACHABILITY_SCREEN_VERSION

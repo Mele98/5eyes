@@ -1606,7 +1606,17 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Holm/Bonferroni gefuehrt (je Test alpha/2). Vollstaendige Laeufe im
 # Default-Modus sind bis auf den neuen Wuerfel (Version im Inhalts-Seed)
 # unveraendert.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v14"
+#
+# v15 (2026-10-24, CIO-Entscheide zu den Codex-Befunden 2026-10-18):
+# GOAL-HIERARCHY-ALL-OBJECTIVES-001 -- die Stufe-1-Zielhierarchie gilt auch
+# in den Risikomass-Varianten (max_return, min_volatility, max_drawdown,
+# cvar_return); ein hartes/primaeres Ziel kann in keinem Modus gegen Rendite
+# oder Risiko getauscht werden. WISH-GOAL-SOFT-TRADEOFF-001 -- Wunschziele
+# bleiben weiche Terme, ehrlich benannt (ObjectiveContractV4,
+# wish_goal_soft_tradeoff_v1). GOAL-REACHABILITY-FIELD-HONESTY-001 --
+# screen_upper_bound_meets_half_tau + reachable_at_tau. Der Default-Pfad
+# rechnet unveraendert; neu ist nur der Wuerfel (Version im Inhalts-Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v15"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
