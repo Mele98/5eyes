@@ -107,6 +107,20 @@ def _as_int_tuple(values: Iterable[int] | None) -> tuple[int, ...]:
     return tuple(int(v) for v in (values or ()))
 
 
+def _batch_identity(goal: GoalLiability) -> tuple:
+    """Was ein Ziel im Batch bestimmt (Scope-, Rang- und Pfadbezug)."""
+    return (
+        str(goal.goal_id),
+        int(getattr(goal, "rank", 1) or 1),
+        str(goal.target_kind),
+        int(goal.target_amount_rappen or 0),
+        int(goal.target_year_index or 0),
+        _as_int_tuple(goal.liability_path_rappen),
+        _as_int_tuple(goal.priority_scope_liability_path_rappen),
+        _as_int_tuple(goal.joint_liability_path_rappen),
+    )
+
+
 @dataclass(frozen=True)
 class ScopeReplayInputs:
     """Alles, was ``simulate_wealth_paths`` fuer den gemeinsamen Pfad bekam,
@@ -496,6 +510,39 @@ class PriorityScopeWealth:
         subset._cache = {key: value[index] for key, value in self._cache.items()}
         subset._keys = self._keys
         return subset
+
+    def verify_publication_binding(
+        self,
+        wealth_paths: np.ndarray,
+        liabilities: Sequence[GoalLiability],
+    ) -> None:
+        """Bindet eine Publikation an genau diesen Wrapper (fail-closed).
+
+        GOAL-ACHIEVABILITY-ATTRIBUTION-001 (Restbefund PR #659): die
+        Zielzeilen lesen ``for_goal`` (also ``self.joint`` oder einen Replay
+        davon), die Plan-Solvenz liest den separat uebergebenen
+        ``wealth_paths``. Beide muessen derselbe Pfad sein -- bit-genau, nicht
+        nur im Endwert -- und die publizierten Ziele derselbe Batch, aus dem
+        die Scopes gebildet wurden. Sonst stammen Zielzeilen und Plan-Solvenz
+        aus zwei verschiedenen Plaenen. Reine Pruefung, keine Rechnung.
+        """
+        joint = np.asarray(self.joint)
+        if wealth_paths is not self.joint and not (
+            joint.shape == np.shape(wealth_paths)
+            and np.array_equal(joint, wealth_paths, equal_nan=True)
+        ):
+            raise PriorityScopeUnavailableError(
+                "Publizierter gemeinsamer Vermoegenspfad und Scope-Wrapper "
+                "stammen nicht aus demselben Plan; keine Zielzeile ohne "
+                "eindeutige Pfadquelle."
+            )
+        if sorted(map(_batch_identity, liabilities)) != sorted(
+            map(_batch_identity, self.liabilities)
+        ):
+            raise PriorityScopeUnavailableError(
+                "Publizierte Ziele und Scope-Wrapper stammen aus "
+                "verschiedenen Ziel-Batches."
+            )
 
     def verify_joint_parity(self) -> None:
         """Bindet ``joint`` an den Replay-Kontext (fail-closed bei Abweichung).
