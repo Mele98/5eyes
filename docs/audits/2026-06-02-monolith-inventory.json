@@ -4496,7 +4496,7 @@
       "class": "fi",
       "handler": "onblur",
       "id": "admin-override-product",
-      "line": 29327,
+      "line": 29330,
       "tag": "input",
       "value": "adminLoadProductOverrideContext()"
     },
@@ -4664,7 +4664,7 @@
       "class": "fi",
       "handler": "onchange",
       "id": "admin-override-product",
-      "line": 29327,
+      "line": 29330,
       "tag": "input",
       "value": "adminLoadProductOverrideContext()"
     },
@@ -4672,7 +4672,7 @@
       "class": "fsel",
       "handler": "onchange",
       "id": "al-action-filter",
-      "line": 29234,
+      "line": 29237,
       "tag": "select",
       "value": "loadAdminAuditLog(0)"
     },
@@ -4784,7 +4784,7 @@
       "class": "fsel",
       "handler": "onchange",
       "id": "cma-filter-jurisdiction",
-      "line": 29570,
+      "line": 29573,
       "tag": "select",
       "value": "adminCmaJurisdictionChanged()"
     },
@@ -4792,7 +4792,7 @@
       "class": "fsel",
       "handler": "onchange",
       "id": "hbd-filter-jurisdiction",
-      "line": 29523,
+      "line": 29526,
       "tag": "select",
       "value": "loadAdminHomeBiasDefaults()"
     },
@@ -4824,7 +4824,7 @@
       "class": "fsel",
       "handler": "onchange",
       "id": "nu-role",
-      "line": 29810,
+      "line": 29813,
       "tag": "select",
       "value": "adminUpdateNewUserRoleHint()"
     },
@@ -4864,7 +4864,7 @@
       "class": "fsel",
       "handler": "onchange",
       "id": "pu-filter-jurisdiction",
-      "line": 29485,
+      "line": 29488,
       "tag": "select",
       "value": "loadAdminProductUniverseEntries()"
     },
@@ -4888,7 +4888,7 @@
       "class": "fsel",
       "handler": "onchange",
       "id": "ul-role-filter",
-      "line": 29780,
+      "line": 29783,
       "tag": "select",
       "value": "adminFilterUserList()"
     },
@@ -4896,7 +4896,7 @@
       "class": "",
       "handler": "onchange",
       "id": "ul-show-inactive",
-      "line": 29787,
+      "line": 29790,
       "tag": "input",
       "value": "adminFilterUserList()"
     },
@@ -6776,7 +6776,7 @@
       "class": "mx",
       "handler": "onclick",
       "id": "",
-      "line": 29074,
+      "line": 29077,
       "tag": "button",
       "value": "cm('m-pu')"
     },
@@ -6784,7 +6784,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29101,
+      "line": 29104,
       "tag": "button",
       "value": "cm('m-pu')"
     },
@@ -6792,7 +6792,7 @@
       "class": "mx",
       "handler": "onclick",
       "id": "",
-      "line": 29110,
+      "line": 29113,
       "tag": "button",
       "value": "cm('m-admin')"
     },
@@ -6800,7 +6800,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29409,
+      "line": 29412,
       "tag": "button",
       "value": "adminSearchFunds()"
     },
@@ -6808,7 +6808,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29435,
+      "line": 29438,
       "tag": "button",
       "value": "adminToggleFundCreateForm()"
     },
@@ -6816,7 +6816,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29456,
+      "line": 29459,
       "tag": "button",
       "value": "adminDownloadFundImportTemplate()"
     },
@@ -6824,7 +6824,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29490,
+      "line": 29493,
       "tag": "button",
       "value": "loadAdminProductUniverseEntries()"
     },
@@ -6832,7 +6832,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29506,
+      "line": 29509,
       "tag": "button",
       "value": "loadAdminJurisdictions()"
     },
@@ -6840,7 +6840,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29524,
+      "line": 29527,
       "tag": "button",
       "value": "loadAdminHomeBiasDefaults()"
     },
@@ -6848,7 +6848,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 29556,
+      "line": 29559,
       "tag": "button",
       "value": "loadAdminCapitalMarketAssumptionDefaults()"
     },
@@ -6856,7 +6856,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 29557,
+      "line": 29560,
       "tag": "button",
       "value": "previewAdminCapitalMarketAssumptions()"
     },
@@ -6864,7 +6864,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29589,
+      "line": 29592,
       "tag": "button",
       "value": "loadAdminCmaForJurisdiction(adminCmaJurisdictionState.code)"
     },
@@ -6872,7 +6872,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29665,
+      "line": 29668,
       "tag": "button",
       "value": "loadAdminFxRates()"
     },
@@ -6880,7 +6880,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 29666,
+      "line": 29669,
       "tag": "button",
       "value": "saveAdminFxRates()"
     },
@@ -6888,7 +6888,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 29671,
+      "line": 29674,
       "tag": "button",
       "value": "previewAdminCapitalMarketAssumptions()"
     },
@@ -6896,7 +6896,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "",
-      "line": 29672,
+      "line": 29675,
       "tag": "button",
       "value": "saveAdminCapitalMarketAssumptions()"
     },
@@ -6904,7 +6904,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "",
-      "line": 29706,
+      "line": 29709,
       "tag": "button",
       "value": "saveAdminCapitalMarketAssumptions()"
     },
@@ -6912,7 +6912,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "",
-      "line": 29727,
+      "line": 29730,
       "tag": "button",
       "value": "saveAdminCapitalMarketAssumptions()"
     },
@@ -6920,7 +6920,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29768,
+      "line": 29771,
       "tag": "button",
       "value": "loadAdminUserList()"
     },
@@ -6928,7 +6928,7 @@
       "class": "admin-icon-btn",
       "handler": "onclick",
       "id": "",
-      "line": 29804,
+      "line": 29807,
       "tag": "button",
       "value": "adminTogglePwVisibility('nu-password',this)"
     },
@@ -6936,7 +6936,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "",
-      "line": 29836,
+      "line": 29839,
       "tag": "button",
       "value": "adminLogs()"
     },
@@ -6944,7 +6944,7 @@
       "class": "admin-icon-btn",
       "handler": "onclick",
       "id": "",
-      "line": 29852,
+      "line": 29855,
       "tag": "button",
       "value": "adminUpdateStatus()"
     },
@@ -6952,7 +6952,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
-      "line": 29863,
+      "line": 29866,
       "tag": "button",
       "value": "cm('m-admin')"
     },
@@ -6968,7 +6968,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-acprices",
-      "line": 29138,
+      "line": 29141,
       "tag": "button",
       "value": "adminShowSection('sec-acprices')"
     },
@@ -6976,7 +6976,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-audit",
-      "line": 29131,
+      "line": 29134,
       "tag": "button",
       "value": "adminShowSection('sec-audit')"
     },
@@ -6984,7 +6984,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-cma",
-      "line": 29144,
+      "line": 29147,
       "tag": "button",
       "value": "adminShowSection('sec-cma')"
     },
@@ -6992,7 +6992,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-cma-inf",
-      "line": 29146,
+      "line": 29149,
       "tag": "button",
       "value": "adminShowSection('sec-cma-inf')"
     },
@@ -7000,7 +7000,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-cma-rv",
-      "line": 29145,
+      "line": 29148,
       "tag": "button",
       "value": "adminShowSection('sec-cma-rv')"
     },
@@ -7008,7 +7008,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-cma-sub",
-      "line": 29147,
+      "line": 29150,
       "tag": "button",
       "value": "adminShowSection('sec-cma-sub')"
     },
@@ -7016,7 +7016,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-db",
-      "line": 29155,
+      "line": 29158,
       "tag": "button",
       "value": "adminShowSection('sec-db')"
     },
@@ -7024,7 +7024,7 @@
       "class": "admin-sec-btn admin-active",
       "handler": "onclick",
       "id": "asec-health",
-      "line": 29127,
+      "line": 29130,
       "tag": "button",
       "value": "adminShowSection('sec-health')"
     },
@@ -7032,7 +7032,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-home-bias-defaults",
-      "line": 29141,
+      "line": 29144,
       "tag": "button",
       "value": "adminShowSection('sec-home-bias-defaults')"
     },
@@ -7040,7 +7040,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-jurisdictions",
-      "line": 29140,
+      "line": 29143,
       "tag": "button",
       "value": "adminShowSection('sec-jurisdictions')"
     },
@@ -7048,7 +7048,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-market-data",
-      "line": 29135,
+      "line": 29138,
       "tag": "button",
       "value": "adminShowSection('sec-market-data')"
     },
@@ -7056,7 +7056,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-markt",
-      "line": 29134,
+      "line": 29137,
       "tag": "button",
       "value": "adminShowSection('sec-markt')"
     },
@@ -7064,7 +7064,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-newuser",
-      "line": 29152,
+      "line": 29155,
       "tag": "button",
       "value": "adminShowSection('sec-newuser')"
     },
@@ -7072,7 +7072,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-override",
-      "line": 29136,
+      "line": 29139,
       "tag": "button",
       "value": "adminShowSection('sec-override')"
     },
@@ -7080,7 +7080,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-policy",
-      "line": 29148,
+      "line": 29151,
       "tag": "button",
       "value": "adminShowSection('sec-policy')"
     },
@@ -7088,7 +7088,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-product-universe",
-      "line": 29139,
+      "line": 29142,
       "tag": "button",
       "value": "adminShowSection('sec-product-universe')"
     },
@@ -7096,7 +7096,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-returns",
-      "line": 29137,
+      "line": 29140,
       "tag": "button",
       "value": "adminShowSection('sec-returns')"
     },
@@ -7104,7 +7104,7 @@
       "class": "admin-sec-btn adm-nav-btn",
       "handler": "onclick",
       "id": "asec-shadow-comparison-aggregate",
-      "line": 29130,
+      "line": 29133,
       "tag": "button",
       "value": "adminShowSection('sec-shadow-comparison-aggregate')"
     },
@@ -7112,7 +7112,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-update",
-      "line": 29156,
+      "line": 29159,
       "tag": "button",
       "value": "adminShowSection('sec-update')"
     },
@@ -7120,7 +7120,7 @@
       "class": "admin-sec-btn",
       "handler": "onclick",
       "id": "asec-users",
-      "line": 29151,
+      "line": 29154,
       "tag": "button",
       "value": "adminShowSection('sec-users')"
     },
@@ -7208,7 +7208,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-admin-acp-backfill",
-      "line": 29384,
+      "line": 29387,
       "tag": "button",
       "value": "backfillAdminAssetClassPrices()"
     },
@@ -7216,7 +7216,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-admin-acp-load",
-      "line": 29383,
+      "line": 29386,
       "tag": "button",
       "value": "loadAdminAssetClassPriceStatus(true)"
     },
@@ -7224,7 +7224,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-ar-backfill",
-      "line": 29361,
+      "line": 29364,
       "tag": "button",
       "value": "backfillAdminAnnualReturns()"
     },
@@ -7232,7 +7232,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-ar-load",
-      "line": 29360,
+      "line": 29363,
       "tag": "button",
       "value": "loadAdminAnnualReturns()"
     },
@@ -7240,7 +7240,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-admin-ar-save",
-      "line": 29362,
+      "line": 29365,
       "tag": "button",
       "value": "saveAdminAnnualReturns()"
     },
@@ -7248,7 +7248,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-backup",
-      "line": 29833,
+      "line": 29836,
       "tag": "button",
       "value": "adminBackup()"
     },
@@ -7256,7 +7256,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-cma-refresh",
-      "line": 29555,
+      "line": 29558,
       "tag": "button",
       "value": "loadAdminCapitalMarketAssumptions(true)"
     },
@@ -7264,7 +7264,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-admin-cma-save",
-      "line": 29558,
+      "line": 29561,
       "tag": "button",
       "value": "saveAdminCapitalMarketAssumptions()"
     },
@@ -7272,7 +7272,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-admin-eodhd-apply",
-      "line": 29280,
+      "line": 29283,
       "tag": "button",
       "value": "adminRunEodhdAutoApply(false)"
     },
@@ -7280,7 +7280,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-eodhd-preview",
-      "line": 29279,
+      "line": 29282,
       "tag": "button",
       "value": "adminRunEodhdAutoApply(true)"
     },
@@ -7288,7 +7288,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-integrity",
-      "line": 29834,
+      "line": 29837,
       "tag": "button",
       "value": "adminIntegrity()"
     },
@@ -7296,7 +7296,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-market-status",
-      "line": 29257,
+      "line": 29260,
       "tag": "button",
       "value": "adminRefreshMarketStatus(true)"
     },
@@ -7304,7 +7304,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-admin-mdata-refresh",
-      "line": 29291,
+      "line": 29294,
       "tag": "button",
       "value": "loadMarketDataStatus(true)"
     },
@@ -7320,7 +7320,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-admin-openfigi-apply",
-      "line": 29278,
+      "line": 29281,
       "tag": "button",
       "value": "adminRunOpenfigiAutoApply(false)"
     },
@@ -7328,7 +7328,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-openfigi-preview",
-      "line": 29277,
+      "line": 29280,
       "tag": "button",
       "value": "adminRunOpenfigiAutoApply(true)"
     },
@@ -7336,7 +7336,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-optimize",
-      "line": 29835,
+      "line": 29838,
       "tag": "button",
       "value": "adminOptimize()"
     },
@@ -7344,7 +7344,7 @@
       "class": "admin-icon-btn danger",
       "handler": "onclick",
       "id": "btn-admin-override-clear",
-      "line": 29344,
+      "line": 29347,
       "tag": "button",
       "value": "adminClearProductOverride()"
     },
@@ -7352,7 +7352,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-admin-override-save",
-      "line": 29343,
+      "line": 29346,
       "tag": "button",
       "value": "adminSetProductOverride()"
     },
@@ -7360,7 +7360,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-price-refresh",
-      "line": 29258,
+      "line": 29261,
       "tag": "button",
       "value": "adminRefreshPricesNow()"
     },
@@ -7368,7 +7368,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-admin-shadow-aggregate-refresh",
-      "line": 29181,
+      "line": 29184,
       "tag": "button",
       "value": "loadShadowAggregate(true)"
     },
@@ -7376,7 +7376,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-admin-support",
-      "line": 29837,
+      "line": 29840,
       "tag": "button",
       "value": "adminSupportBundle()"
     },
@@ -7384,7 +7384,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-al-load",
-      "line": 29244,
+      "line": 29247,
       "tag": "button",
       "value": "loadAdminAuditLog(0)"
     },
@@ -7456,7 +7456,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-check-updates",
-      "line": 29850,
+      "line": 29853,
       "tag": "button",
       "value": "adminCheckUpdates()"
     },
@@ -7464,7 +7464,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-cma-compute-candidate",
-      "line": 29588,
+      "line": 29591,
       "tag": "button",
       "value": "adminComputeCmaCandidate()"
     },
@@ -7504,7 +7504,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-hbd-create",
-      "line": 29534,
+      "line": 29537,
       "tag": "button",
       "value": "adminCreateHomeBiasDefault()"
     },
@@ -7512,7 +7512,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-install-update",
-      "line": 29851,
+      "line": 29854,
       "tag": "button",
       "value": "adminInstallUpdate()"
     },
@@ -7568,7 +7568,7 @@
       "class": "btn-p",
       "handler": "onclick",
       "id": "btn-nu-submit",
-      "line": 29821,
+      "line": 29824,
       "tag": "button",
       "value": "createNewUser()"
     },
@@ -7584,7 +7584,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-pf-create",
-      "line": 29434,
+      "line": 29437,
       "tag": "button",
       "value": "adminCreateFund()"
     },
@@ -7592,7 +7592,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-pf-import",
-      "line": 29455,
+      "line": 29458,
       "tag": "button",
       "value": "adminImportFundsCsv()"
     },
@@ -7600,7 +7600,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-pf-toggle-create",
-      "line": 29410,
+      "line": 29413,
       "tag": "button",
       "value": "adminToggleFundCreateForm()"
     },
@@ -7672,7 +7672,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-policy-activate",
-      "line": 29749,
+      "line": 29752,
       "tag": "button",
       "value": "adminPolicyActivate()"
     },
@@ -7680,7 +7680,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-policy-clone-active",
-      "line": 29738,
+      "line": 29741,
       "tag": "button",
       "value": "adminPolicyCloneActive()"
     },
@@ -7688,7 +7688,7 @@
       "class": "btn",
       "handler": "onclick",
       "id": "btn-policy-save",
-      "line": 29748,
+      "line": 29751,
       "tag": "button",
       "value": "adminPolicySaveRows()"
     },
@@ -7720,7 +7720,7 @@
       "class": "btn-p admin-primary-btn",
       "handler": "onclick",
       "id": "btn-pu-create",
-      "line": 29481,
+      "line": 29484,
       "tag": "button",
       "value": "adminCreateProductUniverseEntry()"
     },
@@ -7728,7 +7728,7 @@
       "class": "btn-g",
       "handler": "onclick",
       "id": "btn-pu-save",
-      "line": 29102,
+      "line": 29105,
       "tag": "button",
       "value": "savePortfolioUmsetzen()"
     },
@@ -7864,7 +7864,7 @@
       "class": "fi",
       "handler": "oninput",
       "id": "al-q-filter",
-      "line": 29243,
+      "line": 29246,
       "tag": "input",
       "value": "adminAuditFilterChanged()"
     },
@@ -7960,7 +7960,7 @@
       "class": "fi",
       "handler": "oninput",
       "id": "nu-password",
-      "line": 29803,
+      "line": 29806,
       "tag": "input",
       "value": "adminPwHint('nu-password','nu-pwhint')"
     },
@@ -8056,7 +8056,7 @@
       "class": "fi",
       "handler": "oninput",
       "id": "ul-search",
-      "line": 29779,
+      "line": 29782,
       "tag": "input",
       "value": "adminFilterUserList()"
     },
@@ -8120,7 +8120,7 @@
       "class": "fi",
       "handler": "onkeydown",
       "id": "al-q-filter",
-      "line": 29243,
+      "line": 29246,
       "tag": "input",
       "value": "if(event.key==='Enter'){event.preventDefault();loadAdminAuditLog(0);}"
     },
@@ -8160,7 +8160,7 @@
       "class": "fi",
       "handler": "onkeydown",
       "id": "pf-search-input",
-      "line": 29408,
+      "line": 29411,
       "tag": "input",
       "value": "if(event.key==='Enter')adminSearchFunds()"
     },
@@ -8168,7 +8168,7 @@
       "class": "",
       "handler": "ontoggle",
       "id": "admin-fx-rates-details",
-      "line": 29655,
+      "line": 29658,
       "tag": "details",
       "value": "if(this.open && !this._loaded){this._loaded=true;loadAdminFxRates();}"
     }
@@ -8939,625 +8939,625 @@
     {
       "class": "admin-risk-note danger",
       "id": "admin-acp-error",
-      "line": 29394,
+      "line": 29397,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-acp-gaps-only",
-      "line": 29388,
+      "line": 29391,
       "tag": "input"
     },
     {
       "class": "admin-compact-grid",
       "id": "admin-acp-grid",
-      "line": 29393,
+      "line": 29396,
       "tag": "div"
     },
     {
       "class": "admin-summary-panel",
       "id": "admin-acp-summary",
-      "line": 29392,
+      "line": 29395,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-ar-error",
-      "line": 29371,
+      "line": 29374,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-ar-gaps-only",
-      "line": 29366,
+      "line": 29369,
       "tag": "input"
     },
     {
       "class": "",
       "id": "admin-ar-grid",
-      "line": 29370,
+      "line": 29373,
       "tag": "div"
     },
     {
       "class": "admin-audit-summary",
       "id": "admin-audit-summary",
-      "line": 29232,
+      "line": 29235,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "admin-cma-alt-premium",
-      "line": 29649,
+      "line": 29652,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "admin-cma-bond-chf-return",
-      "line": 29601,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-bond-chf-vol",
-      "line": 29602,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-bond-hedged-return",
       "line": 29604,
       "tag": "input"
     },
     {
       "class": "fi",
-      "id": "admin-cma-bond-hedged-vol",
+      "id": "admin-cma-bond-chf-vol",
       "line": 29605,
       "tag": "input"
     },
     {
       "class": "fi",
+      "id": "admin-cma-bond-hedged-return",
+      "line": 29607,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-bond-hedged-vol",
+      "line": 29608,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
       "id": "admin-cma-bond-hy-return",
-      "line": 29606,
+      "line": 29609,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "admin-cma-bond-hy-vol",
-      "line": 29607,
+      "line": 29610,
       "tag": "input"
     },
     {
       "class": "fi admin-code-input",
       "id": "admin-cma-correlation",
-      "line": 29699,
+      "line": 29702,
       "tag": "textarea"
     },
     {
       "class": "",
       "id": "admin-cma-correlation-grid",
-      "line": 29694,
+      "line": 29697,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-cma-correlation-preview",
-      "line": 29700,
+      "line": 29703,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-cma-correlation-status",
-      "line": 29695,
+      "line": 29698,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "admin-cma-equity-ch-return",
-      "line": 29610,
+      "line": 29613,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "admin-cma-equity-ch-vol",
-      "line": 29611,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-equity-em-return",
       "line": 29614,
       "tag": "input"
     },
     {
       "class": "fi",
+      "id": "admin-cma-equity-em-return",
+      "line": 29617,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
       "id": "admin-cma-equity-em-vol",
-      "line": 29615,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-equity-intl-return",
-      "line": 29612,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-equity-intl-vol",
-      "line": 29613,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "admin-cma-error",
-      "line": 29583,
-      "tag": "div"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-gold-return",
-      "line": 29620,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-gold-vol",
-      "line": 29621,
-      "tag": "input"
-    },
-    {
-      "class": "fi admin-code-input",
-      "id": "admin-cma-inflation",
-      "line": 29687,
-      "tag": "textarea"
-    },
-    {
-      "class": "",
-      "id": "admin-cma-inflation-grid",
-      "line": 29682,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "admin-cma-inflation-preview",
-      "line": 29683,
-      "tag": "div"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-kgv-alpha",
-      "line": 29642,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-kgv-current",
-      "line": 29640,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-kgv-fair",
-      "line": 29641,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-liquidity-return",
-      "line": 29622,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-liquidity-vol",
-      "line": 29623,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-name",
-      "line": 29575,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-notes",
-      "line": 29581,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-ns-beta0",
-      "line": 29632,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-ns-beta1",
-      "line": 29633,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-ns-beta2",
-      "line": 29634,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-ns-lambda",
-      "line": 29635,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-re-premium",
-      "line": 29648,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "admin-cma-real-estate-return",
       "line": 29618,
       "tag": "input"
     },
     {
       "class": "fi",
+      "id": "admin-cma-equity-intl-return",
+      "line": 29615,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-equity-intl-vol",
+      "line": 29616,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "admin-cma-error",
+      "line": 29586,
+      "tag": "div"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-gold-return",
+      "line": 29623,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-gold-vol",
+      "line": 29624,
+      "tag": "input"
+    },
+    {
+      "class": "fi admin-code-input",
+      "id": "admin-cma-inflation",
+      "line": 29690,
+      "tag": "textarea"
+    },
+    {
+      "class": "",
+      "id": "admin-cma-inflation-grid",
+      "line": 29685,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "admin-cma-inflation-preview",
+      "line": 29686,
+      "tag": "div"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-kgv-alpha",
+      "line": 29645,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-kgv-current",
+      "line": 29643,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-kgv-fair",
+      "line": 29644,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-liquidity-return",
+      "line": 29625,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-liquidity-vol",
+      "line": 29626,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-name",
+      "line": 29578,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-notes",
+      "line": 29584,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-ns-beta0",
+      "line": 29635,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-ns-beta1",
+      "line": 29636,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-ns-beta2",
+      "line": 29637,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-ns-lambda",
+      "line": 29638,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-re-premium",
+      "line": 29651,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "admin-cma-real-estate-return",
+      "line": 29621,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
       "id": "admin-cma-real-estate-vol",
-      "line": 29619,
+      "line": 29622,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "admin-cma-source",
-      "line": 29580,
+      "line": 29583,
       "tag": "input"
     },
     {
       "class": "",
       "id": "admin-cma-subasset-grid",
-      "line": 29719,
+      "line": 29722,
       "tag": "div"
     },
     {
       "class": "fi admin-code-input",
       "id": "admin-cma-subasset-json",
-      "line": 29723,
+      "line": 29726,
       "tag": "textarea"
     },
     {
       "class": "",
       "id": "admin-cma-subasset-preview",
-      "line": 29717,
+      "line": 29720,
       "tag": "div"
     },
     {
       "class": "admin-summary-panel",
       "id": "admin-cma-summary",
-      "line": 29573,
+      "line": 29576,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "admin-cma-valid-from",
-      "line": 29576,
+      "line": 29579,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "admin-cma-valid-until",
-      "line": 29577,
+      "line": 29580,
       "tag": "input"
     },
     {
       "class": "",
       "id": "admin-db-status",
-      "line": 29830,
+      "line": 29833,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-fx-rates-details",
-      "line": 29655,
+      "line": 29658,
       "tag": "details"
     },
     {
       "class": "",
       "id": "admin-fx-rates-grid",
-      "line": 29660,
+      "line": 29663,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-fx-rates-status",
-      "line": 29668,
+      "line": 29671,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-health-dashboard",
-      "line": 29165,
+      "line": 29168,
       "tag": "div"
     },
     {
       "class": "admin-worklist",
       "id": "admin-mapping-gaps",
-      "line": 29263,
+      "line": 29266,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "admin-mapping-limit",
-      "line": 29268,
+      "line": 29271,
       "tag": "input"
     },
     {
       "class": "admin-summary-panel",
       "id": "admin-market-summary",
-      "line": 29260,
+      "line": 29263,
       "tag": "div"
     },
     {
       "class": "admin-metric-value",
       "id": "admin-mdata-cache",
-      "line": 29301,
+      "line": 29304,
       "tag": "div"
     },
     {
       "class": "admin-metric-value",
       "id": "admin-mdata-jobs",
-      "line": 29310,
+      "line": 29313,
       "tag": "div"
     },
     {
       "class": "admin-metric-meta",
       "id": "admin-mdata-meta",
-      "line": 29316,
+      "line": 29319,
       "tag": "div"
     },
     {
       "class": "admin-metric-value",
       "id": "admin-mdata-providers",
-      "line": 29296,
+      "line": 29299,
       "tag": "div"
     },
     {
       "class": "admin-metric-meta",
       "id": "admin-mdata-providers-config",
-      "line": 29297,
+      "line": 29300,
       "tag": "div"
     },
     {
       "class": "admin-metric-value",
       "id": "admin-mdata-validation",
-      "line": 29305,
+      "line": 29308,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-mdata-validation-table",
-      "line": 29314,
+      "line": 29317,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-override-badge",
-      "line": 29347,
+      "line": 29350,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-override-error",
-      "line": 29348,
+      "line": 29351,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "admin-override-mode",
-      "line": 29331,
+      "line": 29334,
       "tag": "select"
     },
     {
       "class": "fi",
       "id": "admin-override-product",
-      "line": 29327,
+      "line": 29330,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "admin-override-symbol",
-      "line": 29340,
+      "line": 29343,
       "tag": "input"
     },
     {
       "class": "",
       "id": "admin-overwrite-currency",
-      "line": 29273,
+      "line": 29276,
       "tag": "input"
     },
     {
       "class": "",
       "id": "admin-overwrite-name",
-      "line": 29272,
+      "line": 29275,
       "tag": "input"
     },
     {
       "class": "",
       "id": "admin-overwrite-symbol",
-      "line": 29271,
+      "line": 29274,
       "tag": "input"
     },
     {
       "class": "admin-risk-note warn",
       "id": "admin-policy-active-warning",
-      "line": 29752,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "admin-policy-detail",
-      "line": 29741,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "admin-policy-detail-sub",
-      "line": 29745,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "admin-policy-detail-title",
-      "line": 29744,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "admin-policy-grid",
-      "line": 29756,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "admin-policy-list",
-      "line": 29740,
-      "tag": "div"
-    },
-    {
-      "class": "",
-      "id": "admin-policy-save-hint",
       "line": 29755,
       "tag": "div"
     },
     {
       "class": "",
+      "id": "admin-policy-detail",
+      "line": 29744,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "admin-policy-detail-sub",
+      "line": 29748,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "admin-policy-detail-title",
+      "line": 29747,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "admin-policy-grid",
+      "line": 29759,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "admin-policy-list",
+      "line": 29743,
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "admin-policy-save-hint",
+      "line": 29758,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "admin-policy-status",
-      "line": 29757,
+      "line": 29760,
       "tag": "div"
     },
     {
       "class": "admin-result-bar",
       "id": "admin-result",
-      "line": 29860,
+      "line": 29863,
       "tag": "div"
     },
     {
       "class": "admin-risk-note warn",
       "id": "admin-shadow-aggregate-errors",
-      "line": 29225,
+      "line": 29228,
       "tag": "div"
     },
     {
       "class": "admin-metric-meta",
       "id": "admin-shadow-aggregate-meta",
-      "line": 29226,
+      "line": 29229,
       "tag": "div"
     },
     {
       "class": "admin-pill",
       "id": "admin-shadow-aggregate-status-pill",
-      "line": 29177,
+      "line": 29180,
       "tag": "span"
     },
     {
       "class": "",
       "id": "admin-shadow-bar",
-      "line": 29193,
+      "line": 29196,
       "tag": "div"
     },
     {
       "class": "admin-compact-grid",
       "id": "admin-shadow-counts-grid",
-      "line": 29194,
+      "line": 29197,
       "tag": "div"
     },
     {
       "class": "admin-pill",
       "id": "admin-shadow-default-badge",
-      "line": 29190,
+      "line": 29193,
       "tag": "span"
     },
     {
       "class": "",
       "id": "admin-shadow-default-reason",
-      "line": 29191,
+      "line": 29194,
       "tag": "div"
     },
     {
       "class": "admin-empty",
       "id": "admin-shadow-empty",
-      "line": 29183,
+      "line": 29186,
       "tag": "div"
     },
     {
       "class": "admin-worklist",
       "id": "admin-shadow-examples-green",
-      "line": 29214,
+      "line": 29217,
       "tag": "div"
     },
     {
       "class": "admin-compact-grid",
       "id": "admin-shadow-examples-grid",
-      "line": 29211,
+      "line": 29214,
       "tag": "div"
     },
     {
       "class": "admin-worklist",
       "id": "admin-shadow-examples-red",
-      "line": 29222,
+      "line": 29225,
       "tag": "div"
     },
     {
       "class": "admin-worklist",
       "id": "admin-shadow-examples-yellow",
-      "line": 29218,
+      "line": 29221,
       "tag": "div"
     },
     {
       "class": "admin-health-v",
       "id": "admin-shadow-green-count",
-      "line": 29197,
+      "line": 29200,
       "tag": "div"
     },
     {
       "class": "admin-metric-meta",
       "id": "admin-shadow-green-pct",
-      "line": 29198,
+      "line": 29201,
       "tag": "div"
     },
     {
       "class": "admin-health-v",
       "id": "admin-shadow-red-count",
-      "line": 29207,
+      "line": 29210,
       "tag": "div"
     },
     {
       "class": "admin-metric-meta",
       "id": "admin-shadow-red-pct",
-      "line": 29208,
+      "line": 29211,
       "tag": "div"
     },
     {
       "class": "admin-health-v",
       "id": "admin-shadow-yellow-count",
-      "line": 29202,
+      "line": 29205,
       "tag": "div"
     },
     {
       "class": "admin-metric-meta",
       "id": "admin-shadow-yellow-pct",
-      "line": 29203,
+      "line": 29206,
       "tag": "div"
     },
     {
       "class": "",
       "id": "admin-user-summary",
-      "line": 29770,
+      "line": 29773,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "al-action-filter",
-      "line": 29234,
+      "line": 29237,
       "tag": "select"
     },
     {
@@ -9575,7 +9575,7 @@
     {
       "class": "",
       "id": "al-error",
-      "line": 29246,
+      "line": 29249,
       "tag": "div"
     },
     {
@@ -9599,7 +9599,7 @@
     {
       "class": "",
       "id": "al-pagination",
-      "line": 29248,
+      "line": 29251,
       "tag": "div"
     },
     {
@@ -9611,13 +9611,13 @@
     {
       "class": "fi",
       "id": "al-q-filter",
-      "line": 29243,
+      "line": 29246,
       "tag": "input"
     },
     {
       "class": "",
       "id": "al-table",
-      "line": 29247,
+      "line": 29250,
       "tag": "div"
     },
     {
@@ -9725,121 +9725,121 @@
     {
       "class": "admin-sec-btn",
       "id": "asec-acprices",
-      "line": 29138,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-audit",
-      "line": 29131,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma",
-      "line": 29144,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma-inf",
-      "line": 29146,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma-rv",
-      "line": 29145,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma-sub",
-      "line": 29147,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-db",
-      "line": 29155,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn admin-active",
-      "id": "asec-health",
-      "line": 29127,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-home-bias-defaults",
       "line": 29141,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-jurisdictions",
-      "line": 29140,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-market-data",
-      "line": 29135,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-markt",
+      "id": "asec-audit",
       "line": 29134,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-newuser",
-      "line": 29152,
+      "id": "asec-cma",
+      "line": 29147,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-override",
-      "line": 29136,
+      "id": "asec-cma-inf",
+      "line": 29149,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-policy",
+      "id": "asec-cma-rv",
       "line": 29148,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-product-universe",
-      "line": 29139,
+      "id": "asec-cma-sub",
+      "line": 29150,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-returns",
-      "line": 29137,
+      "id": "asec-db",
+      "line": 29158,
       "tag": "button"
     },
     {
-      "class": "admin-sec-btn adm-nav-btn",
-      "id": "asec-shadow-comparison-aggregate",
+      "class": "admin-sec-btn admin-active",
+      "id": "asec-health",
       "line": 29130,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
+      "id": "asec-home-bias-defaults",
+      "line": 29144,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-jurisdictions",
+      "line": 29143,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-market-data",
+      "line": 29138,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-markt",
+      "line": 29137,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-newuser",
+      "line": 29155,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-override",
+      "line": 29139,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-policy",
+      "line": 29151,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-product-universe",
+      "line": 29142,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-returns",
+      "line": 29140,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn adm-nav-btn",
+      "id": "asec-shadow-comparison-aggregate",
+      "line": 29133,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
       "id": "asec-update",
-      "line": 29156,
+      "line": 29159,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
       "id": "asec-users",
-      "line": 29151,
+      "line": 29154,
       "tag": "button"
     },
     {
@@ -10343,79 +10343,79 @@
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-admin-acp-backfill",
-      "line": 29384,
+      "line": 29387,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-admin-acp-load",
-      "line": 29383,
+      "line": 29386,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-ar-backfill",
-      "line": 29361,
+      "line": 29364,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-ar-load",
-      "line": 29360,
+      "line": 29363,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-admin-ar-save",
-      "line": 29362,
+      "line": 29365,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-backup",
-      "line": 29833,
+      "line": 29836,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-cma-refresh",
-      "line": 29555,
-      "tag": "button"
-    },
-    {
-      "class": "btn-p admin-primary-btn",
-      "id": "btn-admin-cma-save",
       "line": 29558,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
+      "id": "btn-admin-cma-save",
+      "line": 29561,
+      "tag": "button"
+    },
+    {
+      "class": "btn-p admin-primary-btn",
       "id": "btn-admin-eodhd-apply",
-      "line": 29280,
+      "line": 29283,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-eodhd-preview",
-      "line": 29279,
+      "line": 29282,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-integrity",
-      "line": 29834,
+      "line": 29837,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-market-status",
-      "line": 29257,
+      "line": 29260,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-admin-mdata-refresh",
-      "line": 29291,
+      "line": 29294,
       "tag": "button"
     },
     {
@@ -10427,55 +10427,55 @@
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-admin-openfigi-apply",
-      "line": 29278,
+      "line": 29281,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-openfigi-preview",
-      "line": 29277,
+      "line": 29280,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-optimize",
-      "line": 29835,
+      "line": 29838,
       "tag": "button"
     },
     {
       "class": "admin-icon-btn danger",
       "id": "btn-admin-override-clear",
-      "line": 29344,
+      "line": 29347,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-admin-override-save",
-      "line": 29343,
+      "line": 29346,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-price-refresh",
-      "line": 29258,
+      "line": 29261,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-admin-shadow-aggregate-refresh",
-      "line": 29181,
+      "line": 29184,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-admin-support",
-      "line": 29837,
+      "line": 29840,
       "tag": "button"
     },
     {
       "class": "btn-p",
       "id": "btn-al-load",
-      "line": 29244,
+      "line": 29247,
       "tag": "button"
     },
     {
@@ -10529,13 +10529,13 @@
     {
       "class": "btn-p",
       "id": "btn-check-updates",
-      "line": 29850,
+      "line": 29853,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-cma-compute-candidate",
-      "line": 29588,
+      "line": 29591,
       "tag": "button"
     },
     {
@@ -10565,13 +10565,13 @@
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-hbd-create",
-      "line": 29534,
+      "line": 29537,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-install-update",
-      "line": 29851,
+      "line": 29854,
       "tag": "button"
     },
     {
@@ -10613,7 +10613,7 @@
     {
       "class": "btn-p",
       "id": "btn-nu-submit",
-      "line": 29821,
+      "line": 29824,
       "tag": "button"
     },
     {
@@ -10625,19 +10625,19 @@
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-pf-create",
-      "line": 29434,
+      "line": 29437,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-pf-import",
-      "line": 29455,
+      "line": 29458,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-pf-toggle-create",
-      "line": 29410,
+      "line": 29413,
       "tag": "button"
     },
     {
@@ -10691,19 +10691,19 @@
     {
       "class": "btn",
       "id": "btn-policy-activate",
-      "line": 29749,
+      "line": 29752,
       "tag": "button"
     },
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-policy-clone-active",
-      "line": 29738,
+      "line": 29741,
       "tag": "button"
     },
     {
       "class": "btn",
       "id": "btn-policy-save",
-      "line": 29748,
+      "line": 29751,
       "tag": "button"
     },
     {
@@ -10727,13 +10727,13 @@
     {
       "class": "btn-p admin-primary-btn",
       "id": "btn-pu-create",
-      "line": 29481,
+      "line": 29484,
       "tag": "button"
     },
     {
       "class": "btn-g",
       "id": "btn-pu-save",
-      "line": 29102,
+      "line": 29105,
       "tag": "button"
     },
     {
@@ -11033,31 +11033,31 @@
     {
       "class": "",
       "id": "cma-ch-form",
-      "line": 29572,
+      "line": 29575,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "cma-filter-jurisdiction",
-      "line": 29570,
+      "line": 29573,
       "tag": "select"
     },
     {
       "class": "",
       "id": "cma-nonch-error",
-      "line": 29592,
+      "line": 29595,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cma-nonch-panel",
-      "line": 29585,
+      "line": 29588,
       "tag": "div"
     },
     {
       "class": "",
       "id": "cma-nonch-summary",
-      "line": 29591,
+      "line": 29594,
       "tag": "div"
     },
     {
@@ -11393,61 +11393,61 @@
     {
       "class": "admin-risk-note",
       "id": "hbd-ch-hint",
-      "line": 29526,
+      "line": 29529,
       "tag": "div"
     },
     {
       "class": "",
       "id": "hbd-content",
-      "line": 29527,
+      "line": 29530,
       "tag": "div"
     },
     {
       "class": "",
       "id": "hbd-error",
-      "line": 29543,
+      "line": 29546,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "hbd-filter-jurisdiction",
-      "line": 29523,
+      "line": 29526,
       "tag": "select"
     },
     {
       "class": "",
       "id": "hbd-list-tbody",
-      "line": 29539,
+      "line": 29542,
       "tag": "tbody"
     },
     {
       "class": "admin-tbl-wrap",
       "id": "hbd-list-wrap",
-      "line": 29536,
+      "line": 29539,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "hbd-new-key",
-      "line": 29530,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "hbd-new-split",
       "line": 29533,
       "tag": "input"
     },
     {
       "class": "fi",
+      "id": "hbd-new-split",
+      "line": 29536,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
       "id": "hbd-new-subclass",
-      "line": 29532,
+      "line": 29535,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "hbd-new-value",
-      "line": 29531,
+      "line": 29534,
       "tag": "input"
     },
     {
@@ -11477,19 +11477,19 @@
     {
       "class": "",
       "id": "jur-error",
-      "line": 29514,
+      "line": 29517,
       "tag": "div"
     },
     {
       "class": "",
       "id": "jur-list-tbody",
-      "line": 29511,
+      "line": 29514,
       "tag": "tbody"
     },
     {
       "class": "admin-tbl-wrap",
       "id": "jur-list-wrap",
-      "line": 29508,
+      "line": 29511,
       "tag": "div"
     },
     {
@@ -11603,7 +11603,7 @@
     {
       "class": "overlay",
       "id": "m-admin",
-      "line": 29106,
+      "line": 29109,
       "tag": "div"
     },
     {
@@ -11855,7 +11855,7 @@
     {
       "class": "overlay",
       "id": "m-pu",
-      "line": 29070,
+      "line": 29073,
       "tag": "div"
     },
     {
@@ -12473,49 +12473,49 @@
     {
       "class": "fi",
       "id": "nu-email",
-      "line": 29818,
+      "line": 29821,
       "tag": "input"
     },
     {
       "class": "",
       "id": "nu-error",
-      "line": 29820,
+      "line": 29823,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "nu-fullname",
-      "line": 29799,
+      "line": 29802,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "nu-password",
-      "line": 29803,
+      "line": 29806,
       "tag": "input"
     },
     {
       "class": "",
       "id": "nu-pwhint",
-      "line": 29806,
+      "line": 29809,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "nu-role",
-      "line": 29810,
+      "line": 29813,
       "tag": "select"
     },
     {
       "class": "",
       "id": "nu-role-hint",
-      "line": 29816,
+      "line": 29819,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "nu-username",
-      "line": 29800,
+      "line": 29803,
       "tag": "input"
     },
     {
@@ -13001,151 +13001,151 @@
     {
       "class": "fsel",
       "id": "pf-asset-class",
-      "line": 29419,
+      "line": 29422,
       "tag": "select"
     },
     {
       "class": "fsel",
       "id": "pf-climate-benchmark",
-      "line": 29429,
+      "line": 29432,
       "tag": "select"
     },
     {
       "class": "",
       "id": "pf-create-form",
-      "line": 29412,
+      "line": 29415,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "pf-currency",
-      "line": 29421,
+      "line": 29424,
       "tag": "input"
     },
     {
       "class": "",
       "id": "pf-error",
-      "line": 29438,
+      "line": 29441,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "pf-esg-rating",
-      "line": 29427,
+      "line": 29430,
       "tag": "select"
     },
     {
       "class": "fi",
       "id": "pf-esg-score",
-      "line": 29428,
+      "line": 29431,
       "tag": "input"
     },
     {
       "class": "admin-section-title",
       "id": "pf-form-title",
-      "line": 29413,
+      "line": 29416,
       "tag": "div"
     },
     {
       "class": "",
       "id": "pf-import-error",
-      "line": 29458,
+      "line": 29461,
       "tag": "div"
     },
     {
       "class": "",
       "id": "pf-import-file",
-      "line": 29454,
+      "line": 29457,
       "tag": "input"
     },
     {
       "class": "",
       "id": "pf-import-result",
-      "line": 29459,
+      "line": 29462,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "pf-isin",
-      "line": 29424,
+      "line": 29427,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "pf-name",
-      "line": 29416,
+      "line": 29419,
       "tag": "input"
     },
     {
       "class": "fsel",
       "id": "pf-product-type",
-      "line": 29418,
+      "line": 29421,
       "tag": "select"
     },
     {
       "class": "fi",
       "id": "pf-provider",
-      "line": 29417,
-      "tag": "input"
-    },
-    {
-      "class": "fi",
-      "id": "pf-search-input",
-      "line": 29408,
-      "tag": "input"
-    },
-    {
-      "class": "",
-      "id": "pf-search-tbody",
-      "line": 29442,
-      "tag": "tbody"
-    },
-    {
-      "class": "admin-tbl-wrap",
-      "id": "pf-search-wrap",
-      "line": 29439,
-      "tag": "div"
-    },
-    {
-      "class": "fsel",
-      "id": "pf-sfdr",
-      "line": 29426,
-      "tag": "select"
-    },
-    {
-      "class": "fi",
-      "id": "pf-sub-asset-class",
       "line": 29420,
       "tag": "input"
     },
     {
       "class": "fi",
-      "id": "pf-suit-from",
+      "id": "pf-search-input",
+      "line": 29411,
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "pf-search-tbody",
+      "line": 29445,
+      "tag": "tbody"
+    },
+    {
+      "class": "admin-tbl-wrap",
+      "id": "pf-search-wrap",
+      "line": 29442,
+      "tag": "div"
+    },
+    {
+      "class": "fsel",
+      "id": "pf-sfdr",
+      "line": 29429,
+      "tag": "select"
+    },
+    {
+      "class": "fi",
+      "id": "pf-sub-asset-class",
       "line": 29423,
+      "tag": "input"
+    },
+    {
+      "class": "fi",
+      "id": "pf-suit-from",
+      "line": 29426,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "pf-suit-to",
-      "line": 29423,
+      "line": 29426,
       "tag": "input"
     },
     {
       "class": "",
       "id": "pf-suit-wrap",
-      "line": 29423,
+      "line": 29426,
       "tag": "div"
     },
     {
       "class": "fi",
       "id": "pf-symbol",
-      "line": 29425,
+      "line": 29428,
       "tag": "input"
     },
     {
       "class": "fi",
       "id": "pf-ter",
-      "line": 29422,
+      "line": 29425,
       "tag": "input"
     },
     {
@@ -13217,79 +13217,79 @@
     {
       "class": "fi",
       "id": "pu-date",
-      "line": 29083,
+      "line": 29086,
       "tag": "input"
     },
     {
       "class": "",
       "id": "pu-error",
-      "line": 29098,
+      "line": 29101,
       "tag": "div"
     },
     {
       "class": "",
       "id": "pu-error",
-      "line": 29498,
+      "line": 29501,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "pu-filter-jurisdiction",
-      "line": 29485,
+      "line": 29488,
       "tag": "select"
     },
     {
       "class": "",
       "id": "pu-list-tbody",
-      "line": 29495,
+      "line": 29498,
       "tag": "tbody"
     },
     {
       "class": "admin-tbl-wrap",
       "id": "pu-list-wrap",
-      "line": 29492,
+      "line": 29495,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "pu-new-jurisdiction",
-      "line": 29468,
+      "line": 29471,
       "tag": "select"
     },
     {
       "class": "fsel",
       "id": "pu-new-product",
-      "line": 29475,
+      "line": 29478,
       "tag": "select"
     },
     {
       "class": "fi",
       "id": "pu-new-ter",
-      "line": 29479,
+      "line": 29482,
       "tag": "input"
     },
     {
       "class": "fta",
       "id": "pu-note",
-      "line": 29092,
+      "line": 29095,
       "tag": "textarea"
     },
     {
       "class": "",
       "id": "pu-risk-display",
-      "line": 29087,
+      "line": 29090,
       "tag": "div"
     },
     {
       "class": "",
       "id": "pu-summary",
-      "line": 29094,
+      "line": 29097,
       "tag": "div"
     },
     {
       "class": "",
       "id": "pu-summary-rows",
-      "line": 29096,
+      "line": 29099,
       "tag": "div"
     },
     {
@@ -13781,121 +13781,121 @@
     {
       "class": "admin-sec-panel",
       "id": "sec-acprices",
-      "line": 29375,
+      "line": 29378,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-audit",
-      "line": 29230,
+      "line": 29233,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma",
-      "line": 29547,
+      "line": 29550,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma-inf",
-      "line": 29677,
+      "line": 29680,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma-rv",
-      "line": 29597,
+      "line": 29600,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma-sub",
-      "line": 29711,
+      "line": 29714,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-db",
-      "line": 29825,
+      "line": 29828,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-health",
-      "line": 29164,
+      "line": 29167,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-home-bias-defaults",
-      "line": 29518,
+      "line": 29521,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-jurisdictions",
-      "line": 29502,
+      "line": 29505,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-market-data",
-      "line": 29285,
+      "line": 29288,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-markt",
-      "line": 29252,
+      "line": 29255,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-newuser",
-      "line": 29793,
+      "line": 29796,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-override",
-      "line": 29320,
+      "line": 29323,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-policy",
-      "line": 29732,
+      "line": 29735,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-product-universe",
-      "line": 29398,
+      "line": 29401,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-returns",
-      "line": 29352,
+      "line": 29355,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-shadow-comparison-aggregate",
-      "line": 29172,
+      "line": 29175,
       "tag": "section"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-update",
-      "line": 29842,
+      "line": 29845,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-users",
-      "line": 29762,
+      "line": 29765,
       "tag": "div"
     },
     {
@@ -14165,31 +14165,31 @@
     {
       "class": "",
       "id": "ul-list",
-      "line": 29789,
+      "line": 29792,
       "tag": "div"
     },
     {
       "class": "fsel",
       "id": "ul-role-filter",
-      "line": 29780,
+      "line": 29783,
       "tag": "select"
     },
     {
       "class": "fi",
       "id": "ul-search",
-      "line": 29779,
+      "line": 29782,
       "tag": "input"
     },
     {
       "class": "",
       "id": "ul-show-inactive",
-      "line": 29787,
+      "line": 29790,
       "tag": "input"
     },
     {
       "class": "admin-metric-meta",
       "id": "update-status-label",
-      "line": 29849,
+      "line": 29852,
       "tag": "span"
     },
     {
@@ -14274,12 +14274,12 @@
     },
     {
       "declaration": "function",
-      "line": 28498,
+      "line": 28501,
       "name": "_esignCanvasCtx"
     },
     {
       "declaration": "function",
-      "line": 28509,
+      "line": 28512,
       "name": "_esignCanvasPoint"
     },
     {
@@ -14384,12 +14384,12 @@
     },
     {
       "declaration": "function",
-      "line": 31217,
+      "line": 31220,
       "name": "_reviewIsDiscretionaryMandate"
     },
     {
       "declaration": "function",
-      "line": 31213,
+      "line": 31216,
       "name": "_reviewIsIlliquidAssetClass"
     },
     {
@@ -14469,7 +14469,7 @@
     },
     {
       "declaration": "function",
-      "line": 30655,
+      "line": 30658,
       "name": "aaActionCardHtml"
     },
     {
@@ -14494,7 +14494,7 @@
     },
     {
       "declaration": "function",
-      "line": 31114,
+      "line": 31117,
       "name": "aaKnowledgeGapCardBody"
     },
     {
@@ -15419,7 +15419,7 @@
     },
     {
       "declaration": "function",
-      "line": 29971,
+      "line": 29974,
       "name": "applyGoalTypeVisibility"
     },
     {
@@ -15564,7 +15564,7 @@
     },
     {
       "declaration": "function",
-      "line": 30013,
+      "line": 30016,
       "name": "bindGoalEditorTyping"
     },
     {
@@ -15814,12 +15814,12 @@
     },
     {
       "declaration": "function",
-      "line": 30347,
+      "line": 30350,
       "name": "buildDemoGoalRecord"
     },
     {
       "declaration": "function",
-      "line": 28250,
+      "line": 28253,
       "name": "buildDemoReviewState"
     },
     {
@@ -15904,7 +15904,7 @@
     },
     {
       "declaration": "function",
-      "line": 28393,
+      "line": 28396,
       "name": "buildTriggerPayload"
     },
     {
@@ -15934,7 +15934,7 @@
     },
     {
       "declaration": "function",
-      "line": 28763,
+      "line": 28766,
       "name": "calculateAgeFromBirthdate"
     },
     {
@@ -15944,7 +15944,7 @@
     },
     {
       "declaration": "function",
-      "line": 28730,
+      "line": 28733,
       "name": "canAutoUpdateStammdatenHorizonField"
     },
     {
@@ -16104,7 +16104,7 @@
     },
     {
       "declaration": "function",
-      "line": 28502,
+      "line": 28505,
       "name": "clearEsignCanvas"
     },
     {
@@ -16214,7 +16214,7 @@
     },
     {
       "declaration": "function",
-      "line": 28777,
+      "line": 28780,
       "name": "computeStammdatenCompleteness"
     },
     {
@@ -16284,7 +16284,7 @@
     },
     {
       "declaration": "function",
-      "line": 30672,
+      "line": 30675,
       "name": "currentCashflowCoverageInfo"
     },
     {
@@ -16434,7 +16434,7 @@
     },
     {
       "declaration": "function",
-      "line": 30705,
+      "line": 30708,
       "name": "decumulationCapitalBridgeRows"
     },
     {
@@ -16484,7 +16484,7 @@
     },
     {
       "declaration": "function",
-      "line": 28707,
+      "line": 28710,
       "name": "deriveSuggestedMandateHorizonFromModal"
     },
     {
@@ -16604,7 +16604,7 @@
     },
     {
       "declaration": "function",
-      "line": 28618,
+      "line": 28621,
       "name": "documentDecisionTemplate"
     },
     {
@@ -16714,7 +16714,7 @@
     },
     {
       "declaration": "function",
-      "line": 28543,
+      "line": 28546,
       "name": "end"
     },
     {
@@ -16819,7 +16819,7 @@
     },
     {
       "declaration": "function",
-      "line": 28683,
+      "line": 28686,
       "name": "ensureStammdatenPartnerFields"
     },
     {
@@ -17194,7 +17194,7 @@
     },
     {
       "declaration": "function",
-      "line": 31339,
+      "line": 31342,
       "name": "getColor"
     },
     {
@@ -17269,12 +17269,12 @@
     },
     {
       "declaration": "function",
-      "line": 29943,
+      "line": 29946,
       "name": "goalAmountLabel"
     },
     {
       "declaration": "function",
-      "line": 30057,
+      "line": 30060,
       "name": "goalAmountSummary"
     },
     {
@@ -17284,7 +17284,7 @@
     },
     {
       "declaration": "function",
-      "line": 29904,
+      "line": 29907,
       "name": "goalBadgeHtml"
     },
     {
@@ -17299,32 +17299,32 @@
     },
     {
       "declaration": "function",
-      "line": 29933,
+      "line": 29936,
       "name": "goalDisplayFrequency"
     },
     {
       "declaration": "function",
-      "line": 29993,
+      "line": 29996,
       "name": "goalEditorHorizonYears"
     },
     {
       "declaration": "function",
-      "line": 29985,
+      "line": 29988,
       "name": "goalEditorInitialRappen"
     },
     {
       "declaration": "function",
-      "line": 30650,
+      "line": 30653,
       "name": "goalEvaluationNoteHtml"
     },
     {
       "declaration": "function",
-      "line": 29870,
+      "line": 29873,
       "name": "goalFrequencyKey"
     },
     {
       "declaration": "function",
-      "line": 29888,
+      "line": 29891,
       "name": "goalHardnessTone"
     },
     {
@@ -17349,7 +17349,7 @@
     },
     {
       "declaration": "function",
-      "line": 30392,
+      "line": 30395,
       "name": "goalSaveErrorText"
     },
     {
@@ -17394,22 +17394,22 @@
     },
     {
       "declaration": "function",
-      "line": 30066,
+      "line": 30069,
       "name": "goalTimingLabel"
     },
     {
       "declaration": "function",
-      "line": 29894,
+      "line": 29897,
       "name": "goalTypeDisplayLabel"
     },
     {
       "declaration": "function",
-      "line": 29960,
+      "line": 29963,
       "name": "goalTypeVisibilityConfig"
     },
     {
       "declaration": "function",
-      "line": 29885,
+      "line": 29888,
       "name": "goalValueMode"
     },
     {
@@ -17524,7 +17524,7 @@
     },
     {
       "declaration": "function",
-      "line": 28518,
+      "line": 28521,
       "name": "initEsignCanvas"
     },
     {
@@ -17594,7 +17594,7 @@
     },
     {
       "declaration": "function",
-      "line": 29882,
+      "line": 29885,
       "name": "isMaxGoalType"
     },
     {
@@ -17619,17 +17619,17 @@
     },
     {
       "declaration": "function",
-      "line": 29873,
+      "line": 29876,
       "name": "isRecurringGoalType"
     },
     {
       "declaration": "function",
-      "line": 29879,
+      "line": 29882,
       "name": "isReturnGoalType"
     },
     {
       "declaration": "function",
-      "line": 29876,
+      "line": 29879,
       "name": "isWealthGoalType"
     },
     {
@@ -17779,7 +17779,7 @@
     },
     {
       "declaration": "function",
-      "line": 30579,
+      "line": 30582,
       "name": "loadPlanningAssumptions"
     },
     {
@@ -17789,7 +17789,7 @@
     },
     {
       "declaration": "function",
-      "line": 31378,
+      "line": 31381,
       "name": "loadReviewSpiegel"
     },
     {
@@ -17834,7 +17834,7 @@
     },
     {
       "declaration": "var",
-      "line": 28758,
+      "line": 28761,
       "name": "markManual"
     },
     {
@@ -17884,7 +17884,7 @@
     },
     {
       "declaration": "function",
-      "line": 28532,
+      "line": 28535,
       "name": "move"
     },
     {
@@ -17949,7 +17949,7 @@
     },
     {
       "declaration": "function",
-      "line": 28662,
+      "line": 28665,
       "name": "normalizeHouseholdValue"
     },
     {
@@ -18124,7 +18124,7 @@
     },
     {
       "declaration": "function",
-      "line": 30242,
+      "line": 30245,
       "name": "openGoalEditor"
     },
     {
@@ -18224,7 +18224,7 @@
     },
     {
       "declaration": "function",
-      "line": 28554,
+      "line": 28557,
       "name": "openSignatureModal"
     },
     {
@@ -18234,7 +18234,7 @@
     },
     {
       "declaration": "function",
-      "line": 29023,
+      "line": 29026,
       "name": "openStammdatenModal"
     },
     {
@@ -18529,7 +18529,7 @@
     },
     {
       "declaration": "function",
-      "line": 30659,
+      "line": 30662,
       "name": "projectionRunwayInfo"
     },
     {
@@ -18609,7 +18609,7 @@
     },
     {
       "declaration": "var",
-      "line": 31129,
+      "line": 31132,
       "name": "pushCard"
     },
     {
@@ -18679,7 +18679,7 @@
     },
     {
       "declaration": "function",
-      "line": 30554,
+      "line": 30557,
       "name": "refreshGoalsUI"
     },
     {
@@ -18709,7 +18709,7 @@
     },
     {
       "declaration": "function",
-      "line": 28275,
+      "line": 28278,
       "name": "refreshReviewUI"
     },
     {
@@ -18764,7 +18764,7 @@
     },
     {
       "declaration": "function",
-      "line": 31122,
+      "line": 31125,
       "name": "renderActionCards"
     },
     {
@@ -18844,7 +18844,7 @@
     },
     {
       "declaration": "function",
-      "line": 30763,
+      "line": 30766,
       "name": "renderAllocationMethodComparison"
     },
     {
@@ -18919,7 +18919,7 @@
     },
     {
       "declaration": "function",
-      "line": 28271,
+      "line": 28274,
       "name": "renderDemoReviewUI"
     },
     {
@@ -18954,7 +18954,7 @@
     },
     {
       "declaration": "function",
-      "line": 30291,
+      "line": 30294,
       "name": "renderGoalList"
     },
     {
@@ -18964,7 +18964,7 @@
     },
     {
       "declaration": "function",
-      "line": 28802,
+      "line": 28805,
       "name": "renderHouseholdGridFromCurrentPersona"
     },
     {
@@ -18999,7 +18999,7 @@
     },
     {
       "declaration": "function",
-      "line": 30896,
+      "line": 30899,
       "name": "renderOptimizerPanel"
     },
     {
@@ -19104,7 +19104,7 @@
     },
     {
       "declaration": "function",
-      "line": 31383,
+      "line": 31386,
       "name": "renderReviewStrategyComparison"
     },
     {
@@ -19149,7 +19149,7 @@
     },
     {
       "declaration": "function",
-      "line": 31033,
+      "line": 31036,
       "name": "renderSensitivitySlidersForResult"
     },
     {
@@ -19204,7 +19204,7 @@
     },
     {
       "declaration": "function",
-      "line": 30981,
+      "line": 30984,
       "name": "renderStressTable"
     },
     {
@@ -19309,7 +19309,7 @@
     },
     {
       "declaration": "function",
-      "line": 30207,
+      "line": 30210,
       "name": "resetGoalModal"
     },
     {
@@ -19379,7 +19379,7 @@
     },
     {
       "declaration": "function",
-      "line": 31337,
+      "line": 31340,
       "name": "reviewAllocationPortraitHtml"
     },
     {
@@ -19389,7 +19389,7 @@
     },
     {
       "declaration": "function",
-      "line": 31231,
+      "line": 31234,
       "name": "reviewBandStateMeta"
     },
     {
@@ -19419,7 +19419,7 @@
     },
     {
       "declaration": "function",
-      "line": 31305,
+      "line": 31308,
       "name": "reviewImplementationHotspots"
     },
     {
@@ -19439,7 +19439,7 @@
     },
     {
       "declaration": "function",
-      "line": 31268,
+      "line": 31271,
       "name": "reviewStrategyComparisonRows"
     },
     {
@@ -19544,7 +19544,7 @@
     },
     {
       "declaration": "function",
-      "line": 28196,
+      "line": 28199,
       "name": "riskSignoffState"
     },
     {
@@ -19564,7 +19564,7 @@
     },
     {
       "declaration": "function",
-      "line": 31070,
+      "line": 31073,
       "name": "runSensitivityCall"
     },
     {
@@ -19619,7 +19619,7 @@
     },
     {
       "declaration": "function",
-      "line": 28322,
+      "line": 28325,
       "name": "saveAdvisoryLogEntry"
     },
     {
@@ -19634,7 +19634,7 @@
     },
     {
       "declaration": "function",
-      "line": 28863,
+      "line": 28866,
       "name": "saveClientData"
     },
     {
@@ -19644,12 +19644,12 @@
     },
     {
       "declaration": "function",
-      "line": 28441,
+      "line": 28444,
       "name": "saveContractDocumentDraft"
     },
     {
       "declaration": "function",
-      "line": 30404,
+      "line": 30407,
       "name": "saveGoal"
     },
     {
@@ -19679,7 +19679,7 @@
     },
     {
       "declaration": "function",
-      "line": 30594,
+      "line": 30597,
       "name": "savePlanningAssumptions"
     },
     {
@@ -19694,7 +19694,7 @@
     },
     {
       "declaration": "function",
-      "line": 28416,
+      "line": 28419,
       "name": "saveReviewTrigger"
     },
     {
@@ -19734,7 +19734,7 @@
     },
     {
       "declaration": "function",
-      "line": 31344,
+      "line": 31347,
       "name": "seg"
     },
     {
@@ -19819,7 +19819,7 @@
     },
     {
       "declaration": "function",
-      "line": 29963,
+      "line": 29966,
       "name": "setGoalFieldVisible"
     },
     {
@@ -19879,7 +19879,7 @@
     },
     {
       "declaration": "function",
-      "line": 30736,
+      "line": 30739,
       "name": "setStatusPill"
     },
     {
@@ -19989,7 +19989,7 @@
     },
     {
       "declaration": "function",
-      "line": 28580,
+      "line": 28583,
       "name": "showErr"
     },
     {
@@ -20014,17 +20014,17 @@
     },
     {
       "declaration": "function",
-      "line": 28616,
+      "line": 28619,
       "name": "signDocumentAsAdvisor"
     },
     {
       "declaration": "function",
-      "line": 28617,
+      "line": 28620,
       "name": "signDocumentAsClient"
     },
     {
       "declaration": "function",
-      "line": 28205,
+      "line": 28208,
       "name": "signRiskProfile"
     },
     {
@@ -20074,17 +20074,17 @@
     },
     {
       "declaration": "function",
-      "line": 31419,
+      "line": 31422,
       "name": "srAcColor2"
     },
     {
       "declaration": "function",
-      "line": 28726,
+      "line": 28729,
       "name": "stampStammdatenHorizonAutoState"
     },
     {
       "declaration": "function",
-      "line": 28526,
+      "line": 28529,
       "name": "start"
     },
     {
@@ -20129,7 +20129,7 @@
     },
     {
       "declaration": "function",
-      "line": 30639,
+      "line": 30642,
       "name": "strategyGoalTargetText"
     },
     {
@@ -20144,12 +20144,12 @@
     },
     {
       "declaration": "function",
-      "line": 31005,
+      "line": 31008,
       "name": "stressNum"
     },
     {
       "declaration": "function",
-      "line": 31010,
+      "line": 31013,
       "name": "stressSigned"
     },
     {
@@ -20164,7 +20164,7 @@
     },
     {
       "declaration": "function",
-      "line": 28576,
+      "line": 28579,
       "name": "submitEsignSignature"
     },
     {
@@ -20254,7 +20254,7 @@
     },
     {
       "declaration": "function",
-      "line": 30093,
+      "line": 30096,
       "name": "syncGoalModalState"
     },
     {
@@ -20289,17 +20289,17 @@
     },
     {
       "declaration": "function",
-      "line": 28676,
+      "line": 28679,
       "name": "syncStammdatenCivilWarning"
     },
     {
       "declaration": "function",
-      "line": 28668,
+      "line": 28671,
       "name": "syncStammdatenPartnerSection"
     },
     {
       "declaration": "function",
-      "line": 28735,
+      "line": 28738,
       "name": "syncStammdatenSuggestedHorizon"
     },
     {
@@ -20589,7 +20589,7 @@
     },
     {
       "declaration": "function",
-      "line": 30026,
+      "line": 30029,
       "name": "updateGoalDerivedDiagnostics"
     },
     {
@@ -20614,17 +20614,17 @@
     },
     {
       "declaration": "function",
-      "line": 28791,
+      "line": 28794,
       "name": "updateStammdatenCompletenessLabel"
     },
     {
       "declaration": "function",
-      "line": 28848,
+      "line": 28851,
       "name": "updateStammdatenHeader"
     },
     {
       "declaration": "function",
-      "line": 28717,
+      "line": 28720,
       "name": "updateStammdatenHorizonHint"
     },
     {
@@ -20649,7 +20649,7 @@
     },
     {
       "declaration": "function",
-      "line": 30371,
+      "line": 30374,
       "name": "upsertSavedGoal"
     },
     {
@@ -20699,7 +20699,7 @@
     },
     {
       "declaration": "function",
-      "line": 28745,
+      "line": 28748,
       "name": "wireStammdatenHorizonAutofill"
     },
     {
@@ -21028,14 +21028,14 @@
     {
       "class": "modal",
       "id": "",
-      "line": 29071,
+      "line": 29074,
       "role": "",
       "tag": "div"
     },
     {
       "class": "modal admin-modal",
       "id": "",
-      "line": 29107,
+      "line": 29110,
       "role": "",
       "tag": "div"
     },
@@ -21105,7 +21105,7 @@
     {
       "class": "overlay",
       "id": "m-admin",
-      "line": 29106,
+      "line": 29109,
       "role": "",
       "tag": "div"
     },
@@ -21399,7 +21399,7 @@
     {
       "class": "overlay",
       "id": "m-pu",
-      "line": 29070,
+      "line": 29073,
       "role": "",
       "tag": "div"
     },
@@ -21496,8 +21496,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "5d23605042c313eae154135d307f2ddfe7cf663d620ebbc223a29aa13202eb00",
-  "source_size_bytes": 1910833,
+  "source_sha256": "ce51d84f16eddd966311c056533f3b1ee04bb333f3481e40f4657b691f2774ee",
+  "source_size_bytes": 1911271,
   "sub_sections": [
     {
       "class": "sbb",
@@ -21508,121 +21508,121 @@
     {
       "class": "admin-sec-btn",
       "id": "asec-acprices",
-      "line": 29138,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-audit",
-      "line": 29131,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma",
-      "line": 29144,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma-inf",
-      "line": 29146,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma-rv",
-      "line": 29145,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-cma-sub",
-      "line": 29147,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-db",
-      "line": 29155,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn admin-active",
-      "id": "asec-health",
-      "line": 29127,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-home-bias-defaults",
       "line": 29141,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-jurisdictions",
-      "line": 29140,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-market-data",
-      "line": 29135,
-      "tag": "button"
-    },
-    {
-      "class": "admin-sec-btn",
-      "id": "asec-markt",
+      "id": "asec-audit",
       "line": 29134,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-newuser",
-      "line": 29152,
+      "id": "asec-cma",
+      "line": 29147,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-override",
-      "line": 29136,
+      "id": "asec-cma-inf",
+      "line": 29149,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-policy",
+      "id": "asec-cma-rv",
       "line": 29148,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-product-universe",
-      "line": 29139,
+      "id": "asec-cma-sub",
+      "line": 29150,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
-      "id": "asec-returns",
-      "line": 29137,
+      "id": "asec-db",
+      "line": 29158,
       "tag": "button"
     },
     {
-      "class": "admin-sec-btn adm-nav-btn",
-      "id": "asec-shadow-comparison-aggregate",
+      "class": "admin-sec-btn admin-active",
+      "id": "asec-health",
       "line": 29130,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
+      "id": "asec-home-bias-defaults",
+      "line": 29144,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-jurisdictions",
+      "line": 29143,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-market-data",
+      "line": 29138,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-markt",
+      "line": 29137,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-newuser",
+      "line": 29155,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-override",
+      "line": 29139,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-policy",
+      "line": 29151,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-product-universe",
+      "line": 29142,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
+      "id": "asec-returns",
+      "line": 29140,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn adm-nav-btn",
+      "id": "asec-shadow-comparison-aggregate",
+      "line": 29133,
+      "tag": "button"
+    },
+    {
+      "class": "admin-sec-btn",
       "id": "asec-update",
-      "line": 29156,
+      "line": 29159,
       "tag": "button"
     },
     {
       "class": "admin-sec-btn",
       "id": "asec-users",
-      "line": 29151,
+      "line": 29154,
       "tag": "button"
     },
     {
@@ -21634,121 +21634,121 @@
     {
       "class": "admin-sec-panel",
       "id": "sec-acprices",
-      "line": 29375,
+      "line": 29378,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-audit",
-      "line": 29230,
+      "line": 29233,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma",
-      "line": 29547,
+      "line": 29550,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma-inf",
-      "line": 29677,
+      "line": 29680,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma-rv",
-      "line": 29597,
+      "line": 29600,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-cma-sub",
-      "line": 29711,
+      "line": 29714,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-db",
-      "line": 29825,
+      "line": 29828,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-health",
-      "line": 29164,
+      "line": 29167,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-home-bias-defaults",
-      "line": 29518,
+      "line": 29521,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-jurisdictions",
-      "line": 29502,
+      "line": 29505,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-market-data",
-      "line": 29285,
+      "line": 29288,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-markt",
-      "line": 29252,
+      "line": 29255,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-newuser",
-      "line": 29793,
+      "line": 29796,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-override",
-      "line": 29320,
+      "line": 29323,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-policy",
-      "line": 29732,
+      "line": 29735,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-product-universe",
-      "line": 29398,
+      "line": 29401,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-returns",
-      "line": 29352,
+      "line": 29355,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-shadow-comparison-aggregate",
-      "line": 29172,
+      "line": 29175,
       "tag": "section"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-update",
-      "line": 29842,
+      "line": 29845,
       "tag": "div"
     },
     {
       "class": "admin-sec-panel",
       "id": "sec-users",
-      "line": 29762,
+      "line": 29765,
       "tag": "div"
     }
   ]
