@@ -46,7 +46,7 @@ from tests.test_risk_override_current_gate_decision_log import _assessment, _ove
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_REVISION = "b5d2e8f41a73"
-MIGRATION_DOWN_REVISION = "94089093281c"
+MIGRATION_DOWN_REVISION = "3960ca037812"
 
 
 def _sign(session, advisor, body=None):

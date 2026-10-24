@@ -100,6 +100,32 @@ def _dummy_value(data_type: str, column: str, row_id: str):
     return f"{column}-{row_id}"
 
 
+# Tabellen mit Mehrspalten-CHECKs, die ein generischer Platzhalter nicht
+# erfuellt: explizit gueltige Werte (Constraints bleiben unveraendert).
+# risk_profile_signoffs: ck_risk_profile_signoff_binding_refs verlangt bei
+# 'decision' eine Decision-Referenz -> gueltige 'no_override'-Bindung.
+_VALID_ROW_VALUES: dict[str, dict[str, object]] = {
+    "risk_profile_signoffs": {
+        "override_binding": "no_override",
+        "override_decision_id": None,
+        "override_decision_hash": None,
+        "method": "advisor_recorded",
+        "evidence_level": "advisor_attested",
+        "effective_score_x10": 50,
+        "is_overridden": 0,
+        "sequence_no": 1,
+    },
+    "risk_override_decisions": {
+        "requested_score_x10": 40,
+        "sequence_no": 1,
+        "client_confirmed": 0,
+        "warning_delivered": 0,
+        "required_client_confirmation": 0,
+        "required_warning": 0,
+    },
+}
+
+
 def _seed_row(conn, schema: str, table: str, row_id: str, tenant_id: str | None) -> None:
     """Minimalzeile mit allen Pflichtspalten. FK-Trigger sind per
     ``session_replication_role = replica`` aus -- es geht hier nur um die
@@ -130,6 +156,7 @@ def _seed_row(conn, schema: str, table: str, row_id: str, tenant_id: str | None)
     values: dict[str, object] = {}
     for name, data_type in cols:
         values[name] = allowed.get(name, _dummy_value(data_type, name, row_id))
+    values.update(_VALID_ROW_VALUES.get(table, {}))
     values["id"] = row_id
     values["tenant_id"] = tenant_id
     names = list(values)

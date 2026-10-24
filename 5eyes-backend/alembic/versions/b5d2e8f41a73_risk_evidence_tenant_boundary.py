@@ -21,7 +21,7 @@ Upgrade, in this order:
    ``tenant_id`` and are part of the plan).
 
 Revision ID: b5d2e8f41a73
-Revises: 94089093281c
+Revises: 3960ca037812
 Create Date: 2026-10-24
 """
 import logging
@@ -35,7 +35,7 @@ from services.tenant_context import BYPASS_GUC
 
 
 revision: str = "b5d2e8f41a73"
-down_revision: Union[str, Sequence[str], None] = "94089093281c"
+down_revision: Union[str, Sequence[str], None] = "3960ca037812"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
