@@ -23,7 +23,7 @@
 $ErrorActionPreference = 'Stop'
 
 $repo    = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$backend = Join-Path $repo '5eyes-backend'
+$backend = Join-Path $repo 'ares-backend'
 $home5   = Join-Path $env:USERPROFILE '5eyes'
 if (-not (Test-Path $home5)) { New-Item -ItemType Directory -Path $home5 | Out-Null }
 $secretFile = Join-Path $home5 '.external-secret.txt'
@@ -124,7 +124,7 @@ for ($i = 0; $i -lt 40; $i++) {
 }
 if (-not $up) {
   Write-Host 'Backend nicht erreichbar. Pruefe das minimierte Backend-Fenster' -ForegroundColor Red
-  Write-Host '(evtl. "pip install -r requirements.txt" im Ordner 5eyes-backend noetig).' -ForegroundColor Red
+  Write-Host '(evtl. "pip install -r requirements.txt" im Ordner ares-backend noetig).' -ForegroundColor Red
   exit 1
 }
 Write-Host 'Backend laeuft.' -ForegroundColor Green
@@ -139,8 +139,8 @@ if (-not (Test-Path $cfExe)) {
 Write-Host ''
 Write-Host '====================================================================' -ForegroundColor Green
 Write-Host ' Gleich erscheint eine  https://<zufall>.trycloudflare.com  URL.'    -ForegroundColor Green
-Write-Host ' Oeffne sie extern (Handy/anderer PC) MIT  /app/5eyes_v2.html :'     -ForegroundColor Green
-Write-Host '   https://<zufall>.trycloudflare.com/app/5eyes_v2.html'             -ForegroundColor White
+Write-Host ' Oeffne sie extern (Handy/anderer PC) MIT  /app/ares.html :'     -ForegroundColor Green
+Write-Host '   https://<zufall>.trycloudflare.com/app/ares.html'             -ForegroundColor White
 Write-Host ' Login wie gewohnt (inkl. 2FA, falls aktiviert).'                    -ForegroundColor Green
 Write-Host '====================================================================' -ForegroundColor Green
 Write-Host ''

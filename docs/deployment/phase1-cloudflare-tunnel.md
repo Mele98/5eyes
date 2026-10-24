@@ -39,7 +39,7 @@ Auf macOS/Linux: `brew install cloudflare/cloudflare/cloudflared` oder
 Fuer Tunnel-Zugriff: auf `0.0.0.0` umstellen via `.env`-Variable:
 
 ```dotenv
-# In 5eyes-backend/.env (oder via PowerShell-Env-Variable)
+# In ares-backend/.env (oder via PowerShell-Env-Variable)
 APP_HOST=0.0.0.0
 APP_PORT=8000
 
@@ -47,7 +47,7 @@ APP_PORT=8000
 # In Production niemals so. Hier OK weil Tunnel-Layer schon TLS macht.
 APP_ENV=development
 
-# Browser-Hosting (2026-06-10): Haupt-App 5eyes_v2.html ueber das Backend
+# Browser-Hosting (2026-06-10): Haupt-App ares.html ueber das Backend
 # ausliefern, damit ein EINZELNER Tunnel die komplette App im Browser
 # bereitstellt (UI + API same-origin). Default AUS — fuer die Demo AN.
 SERVE_MAIN_FRONTEND=true
@@ -55,7 +55,7 @@ SERVE_MAIN_FRONTEND=true
 
 ### 3. CORS-Origin oeffnen (Demo-Phase)
 
-In `5eyes-backend/.env`:
+In `ares-backend/.env`:
 
 ```dotenv
 CORS_ORIGINS=*
@@ -65,7 +65,7 @@ CORS_ORIGINS=*
 ### 4. Backend starten
 
 ```powershell
-cd C:\5eyes\5eyes_stage9_release_ready\5eyes-backend
+cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
 python main.py
 ```
 
@@ -98,7 +98,7 @@ also **kein CORS-Problem** und keine separate Frontend-Konfiguration noetig.
 **Demo-URL zum Teilen:**
 
 ```
-https://random-words-here.trycloudflare.com/app/5eyes_v2.html
+https://random-words-here.trycloudflare.com/app/ares.html
 ```
 
 Der Demo-Kunde oeffnet diese URL im Browser, sieht 5eyes, loggt sich mit

@@ -5,7 +5,7 @@ laeuft, wie Surviving Mutanten interpretiert werden.
 
 **Stand:** 2026-06-05
 **Roadmap-Punkt:** #106 (QA, opt-in)
-**Konfig:** `5eyes-backend/mutmut.cfg`
+**Konfig:** `ares-backend/mutmut.cfg`
 
 ---
 
@@ -51,12 +51,12 @@ Mutmut ist als **opt-in** Tool gedacht — NICHT in requirements.txt.
 Installation manuell wenn du es brauchst:
 
 ```powershell
-cd 5eyes-backend
+cd ares-backend
 .venv\Scripts\Activate.ps1
 pip install mutmut
 ```
 
-Konfig liegt unter `5eyes-backend/mutmut.cfg`. Default-Pfade:
+Konfig liegt unter `ares-backend/mutmut.cfg`. Default-Pfade:
 - `paths_to_mutate=services/,routers/`
 - `tests_dir=tests/`
 - `runner=python -m pytest -x -q`
@@ -64,7 +64,7 @@ Konfig liegt unter `5eyes-backend/mutmut.cfg`. Default-Pfade:
 ## Lauf
 
 ```powershell
-cd 5eyes-backend
+cd ares-backend
 
 # Vollstaendiger Lauf — KANN STUNDEN DAUERN!
 mutmut run

@@ -23,7 +23,7 @@ Anders als ADR-007 (das den Single-Tenant-Status-quo hielt) ist das Fundament in
 | **Rollen**: advisor · admin (Firmen-Admin) · super_admin (Operator) · client (Portal) | ✅ | `services/auth.py:116-146, 308-320` |
 | **Tenant-Admin-API** (Tenant anlegen/listen/ändern, User↔Tenant zuweisen) | ✅ | `routers/tenants.py` (require_super_admin + `tenant_admin_ui_enabled`) |
 | **Tier-Configs** (`deployment_tier`, `tenancy_mode`, `tenant_admin_ui_enabled`) | ✅ | `config.py:206-218` |
-| **Browser-Hosting** (Backend liefert `5eyes_v2.html` same-origin aus) | ✅ gated | `main.py:180-202` `serve_main_frontend` → `/app/5eyes_v2.html` |
+| **Browser-Hosting** (Backend liefert `ares.html` same-origin aus) | ✅ gated | `main.py:180-202` `serve_main_frontend` → `/app/ares.html` |
 | **Client-Portal** (Endkunde read-only, 1:1-Link) | ✅ | `models/client_login.py`, `routers/client_portal.py` |
 | **Production-Config-Guards** (CORS ≠ `*`/localhost, secret_key-Pflicht, SQLCipher+Key-Pflicht, Token-Expiry-Cap) | ✅ | `config.py:354-429` |
 | **DB-Verschlüsselung** SQLCipher (umschaltbar) | ✅ | `config.py:51`, `database.py:50-60` |
@@ -83,13 +83,13 @@ Cloudflare (TLS, WAF, DDoS, Rate-Limit-Edge)         ← CH-Proxy
 Reverse Proxy (Caddy/nginx, Let's-Encrypt)           ← CH-VPS (Infomaniak Genf / Exoscale Lausanne)
    │  same-origin
    ▼
-FastAPI (uvicorn/gunicorn)  ── serve_main_frontend → /app/5eyes_v2.html  +  /…  API
+FastAPI (uvicorn/gunicorn)  ── serve_main_frontend → /app/ares.html  +  /…  API
    │
    ▼
 PostgreSQL (RLS, per-tenant key, encrypted-at-rest)  ← CH, automat. Backups + Off-Site-Replikation (CH)
 ```
 
-- **Ein Host, same-origin:** Frontend (`/app/5eyes_v2.html`) + API auf derselben Origin → kein CORS-Loch nötig.
+- **Ein Host, same-origin:** Frontend (`/app/ares.html`) + API auf derselben Origin → kein CORS-Loch nötig.
 - **TLS überall**, HSTS, sichere Header (CSP, X-Frame-Options, Referrer-Policy), `app_env=production` (aktiviert die bestehenden Config-Guards).
 - **Auth-Härtung fürs Internet:** Login-Guard/Brute-Force (vorhanden) + **2FA/MFA-Pflicht** für advisor/admin + kurze Token-TTL + Refresh + Secret aus Env/Vault (nicht Default).
 - **CH-Datenresidenz** (revDSG/Bankgeheimnis): ausschliesslich Schweizer Rechenzentrum.
@@ -156,7 +156,7 @@ Seit Planfreigabe umgesetzt + getestet (fokussierte Suites grün; voller Lauf gr
 - **§6.3 Deployment-Rezept** — `docs/deploy/` (README, Caddyfile, systemd-Unit, `.env.staging.example`, `promote_operator.py`) + **`docs/deploy/start-external.ps1`**: One-Click-Staging-Backend (APP_ENV=staging, SERVE_MAIN_FRONTEND=true, ALLOW_REAL_CLIENT_DATA=false, STRICT_TENANT_ISOLATION=true, REQUIRE_2FA=true, TENANT_ADMIN_UI_ENABLED=true, stabiles Secret) + Cloudflare-Quick-Tunnel (kein Account, kein Port-Forwarding).
 - **§6.4 2FA (TOTP)** — vollständig: `services/totp.py` (RFC 6238, ohne pyotp, gegen RFC-Vektor verifiziert), Login-Gate (`X-2FA-Required`), `/auth/2fa/{status,setup,enable,disable}`. **Pflicht-Hard-Gate** via `require_2fa`: Frontend `enforce2faGate()` (doLogin + Reload) erzwingt Enrollment-Modal mit verstecktem ✕ + gesperrtem Backdrop (`dataset.locked`). Onboarding: `must_change_password` erzwingt PW-Wechsel beim 1. Login. Tests: `test_2fa_login`, `test_totp`, `test_onboarding_password`.
 - **Audit-Log mandantengetrennt** (war Voll-Leak) + `shadow-comparison-aggregate` → `require_super_admin`; User-Admin (list/update/reset) tenant-ownership-gated. Tests: `test_audit_log_tenant_scoping`, `test_user_admin_tenant_scoping`.
-- **Provisioning + Invite-Link-Onboarding (E2):** `#m-prov`-Modal (super_admin) — Firmen + Mitarbeiter über `/tenants`. Zwei Onboarding-Wege: (a) **Initial-PW** (`/users` + must_change_password=1), (b) **Einladungslink** (`/users/invite` → Account ohne Passwort; Token einmalig, 7 Tage, sha256-gespeichert, tenant-vererbt + assign). Mitarbeiter öffnet `<host>/app/5eyes_v2.html?invite=TOKEN` → Set-Passwort-Maske (`checkInviteParam`) → `/auth/invite/accept` (public, single-use, 404/410) → eingeloggt → 2FA-Hard-Gate erzwingt Enrollment. Tests: `test_invite_onboarding` (8).
+- **Provisioning + Invite-Link-Onboarding (E2):** `#m-prov`-Modal (super_admin) — Firmen + Mitarbeiter über `/tenants`. Zwei Onboarding-Wege: (a) **Initial-PW** (`/users` + must_change_password=1), (b) **Einladungslink** (`/users/invite` → Account ohne Passwort; Token einmalig, 7 Tage, sha256-gespeichert, tenant-vererbt + assign). Mitarbeiter öffnet `<host>/app/ares.html?invite=TOKEN` → Set-Passwort-Maske (`checkInviteParam`) → `/auth/invite/accept` (public, single-use, 404/410) → eingeloggt → 2FA-Hard-Gate erzwingt Enrollment. Tests: `test_invite_onboarding` (8).
 - **2FA-QR (segno):** Setup-Modal zeigt QR-Bild + Text-Secret (graceful Fallback ohne Lib).
 - **CI-Gate für Mandanten-Trennung & Auth (§6.5):** `scripts/security_gate.py` (Single Source of Truth, 16 Test-Dateien / 99 Tests, `--maxfail=1`) + eigener CI-Job „Security Gate" in `.github/workflows/test.yml` (läuft VOR der Vollsuite, failt PR sofort bei Isolations-Regression). Meta-Test `test_security_gate_manifest` schützt die Liste vor stillem Schrumpfen.
 

@@ -1,0 +1,300 @@
+{
+ "_doc": "AA-UX-HONEST-FAN-001: gemeinsame Faecher-Beschriftung App (ares.html) und Report (fanAnnotations.ts). Eingaben in ganzen CHF.",
+ "end_label_cases": [
+  [
+   2410000,
+   "p50",
+   "2.41 Mio. · Median"
+  ],
+  [
+   3400000,
+   "p90",
+   "3.40 Mio. · P90"
+  ],
+  [
+   1600000,
+   "p10",
+   "1.60 Mio. · P10"
+  ],
+  [
+   850000,
+   "p10",
+   "850'000 · P10"
+  ],
+  [
+   0,
+   "p10",
+   "0 · P10"
+  ],
+  [
+   null,
+   "p50",
+   ""
+  ]
+ ],
+ "goal_pill_cases": [
+  [
+   "Ruhestand",
+   82,
+   "Ruhestand · 82 %"
+  ],
+  [
+   "Ruhestand",
+   81.6,
+   "Ruhestand · 82 %"
+  ],
+  [
+   "Eigenheim",
+   0,
+   "Eigenheim · 0 %"
+  ],
+  [
+   "Eigenheim",
+   null,
+   "Eigenheim"
+  ],
+  [
+   "  ",
+   50,
+   "Ziel · 50 %"
+  ],
+  [
+   null,
+   null,
+   "Ziel"
+  ]
+ ],
+ "above_scale_cases": [
+  [
+   5000000,
+   "▲ CHF 5.00 Mio. über Skala"
+  ],
+  [
+   750000,
+   "▲ CHF 750'000 über Skala"
+  ],
+  [
+   null,
+   ""
+  ]
+ ],
+ "range_sentence_cases": [
+  [
+   "2050",
+   1600000,
+   3400000,
+   "In 8 von 10 Verläufen liegt Ihr Vermögen 2050 zwischen CHF 1.60 und 3.40 Mio."
+  ],
+  [
+   2061,
+   850000,
+   1200000,
+   "In 8 von 10 Verläufen liegt Ihr Vermögen 2061 zwischen CHF 850'000 und CHF 1.20 Mio."
+  ],
+  [
+   "2040",
+   120000,
+   480000,
+   "In 8 von 10 Verläufen liegt Ihr Vermögen 2040 zwischen CHF 120'000 und CHF 480'000."
+  ],
+  [
+   "2040",
+   0,
+   480000,
+   "In 8 von 10 Verläufen liegt Ihr Vermögen 2040 zwischen CHF 0 und CHF 480'000."
+  ],
+  [
+   "",
+   1600000,
+   3400000,
+   ""
+  ],
+  [
+   "2050",
+   null,
+   3400000,
+   ""
+  ],
+  [
+   "2050",
+   3400000,
+   1600000,
+   ""
+  ]
+ ],
+ "spread_cases": [
+  [
+   [
+    100,
+    105,
+    200
+   ],
+   12,
+   20,
+   264,
+   [
+    100,
+    112,
+    200
+   ]
+  ],
+  [
+   [
+    50,
+    150,
+    250
+   ],
+   12,
+   20,
+   264,
+   [
+    50,
+    150,
+    250
+   ]
+  ],
+  [
+   [
+    10,
+    12,
+    14
+   ],
+   12,
+   20,
+   264,
+   [
+    20,
+    32,
+    44
+   ]
+  ],
+  [
+   [
+    262,
+    263,
+    264
+   ],
+   12,
+   20,
+   264,
+   [
+    240,
+    252,
+    264
+   ]
+  ],
+  [
+   [
+    105,
+    100
+   ],
+   12,
+   20,
+   264,
+   [
+    112,
+    100
+   ]
+  ]
+ ],
+ "goal_pill_estimate_cases": [
+  [
+   "Ruhestand",
+   82,
+   true,
+   "Ruhestand · ~82 %"
+  ],
+  [
+   "Ruhestand",
+   82,
+   false,
+   "Ruhestand · 82 %"
+  ],
+  [
+   "Ruhestand",
+   null,
+   true,
+   "Ruhestand"
+  ]
+ ],
+ "goal_probability_cases": [
+  [
+   {
+    "probability": 0.82,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 82,
+    "estimate": false
+   }
+  ],
+  [
+   {
+    "probability": 0.0,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 0,
+    "estimate": false
+   }
+  ],
+  [
+   {
+    "probability": 0.0,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": true
+   },
+   64,
+   null
+  ],
+  [
+   {
+    "probability": 0.55,
+    "evaluation_scope": "legacy_aggregate_unknown",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 64,
+    "estimate": true
+   }
+  ],
+  [
+   {
+    "probability": null,
+    "evaluation_scope": "priority_funded",
+    "outside_simulation_horizon": false
+   },
+   64,
+   {
+    "pct": 64,
+    "estimate": true
+   }
+  ],
+  [
+   null,
+   64,
+   {
+    "pct": 64,
+    "estimate": true
+   }
+  ],
+  [
+   null,
+   null,
+   null
+  ],
+  [
+   {
+    "probability": 0.55,
+    "evaluation_scope": "legacy_aggregate_unknown"
+   },
+   null,
+   null
+  ]
+ ]
+}

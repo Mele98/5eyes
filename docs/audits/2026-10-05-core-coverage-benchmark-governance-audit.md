@@ -80,28 +80,28 @@ Mapping-Kette. Kein Test im Repository prüft diese beiden Pfade gegeneinander.
 
 | Bereich | Codeanker |
 |---|---|
-| Backtest: freier Top-Level-/Sub-Asset-Benchmark-Mix, eigener `benchmark_fee_bps` | `5eyes-backend/services/backtest_strategy.py:1121-1131`; `:1265-1266`; `:1271-1273` |
-| Backtest: Gewichtsnormalisierung (negativ→0, Rest auf Liquidity) | `5eyes-backend/services/backtest_strategy.py:982-1002` |
-| Backtest: Risk-free fuer Sharpe aus globaler Current-CMA, 80-bps-Default | `5eyes-backend/services/backtest_strategy.py:963-979`; `:1187` |
-| Backtest: unscoped Current-TA per `.first()`, 100k-CHF-Fallback | `5eyes-backend/services/backtest_strategy.py:1146-1163`; `:1176-1184` |
-| Backtest: FX→CHF-Konvertierung nur im Daily-Pfad, dokumentiert | `5eyes-backend/services/backtest_strategy.py:557-624` |
-| Attribution: Docstring "benchmark_returns == portfolio_returns" | `5eyes-backend/services/advisory_report.py:3789-3802` |
-| Attribution: Portfolio-Weights aus TA per `.first()` | `5eyes-backend/services/advisory_report.py:3818-3837` |
-| Attribution: **fehlerhafter** Score→HouseMatrix-Vergleich | `5eyes-backend/services/advisory_report.py:3839-3864` |
-| Attribution: Benchmark-Returns = Portfolio-Returns (dieselbe CMA-Query) | `5eyes-backend/services/advisory_report.py:3873-3890` |
-| Attribution: Methode/Quelle-Label trotz Degradation immer gesetzt | `5eyes-backend/services/advisory_report.py:3892-3903`; `:3910-3924` |
-| Kanonischer, korrekt validierter Score→Bucket-Helper | `5eyes-backend/services/risk_assessment_semantics.py:330-339` |
-| Kanonischer Score-Bucket-Wrapper (von Depotcheck verwendet) | `5eyes-backend/services/risk_matrix.py:23-31` |
-| House-Matrix-Score-Domaene ist 1..10 (Policy-Validierung) | `5eyes-backend/services/portfolio_engine_house_matrix.py:1220-1287` |
-| Depotcheck: eigene House-Matrix-Benchmark-Konstruktion (3. Query-Kette) | `5eyes-backend/routers/pdf_reports.py:1742-1782` |
-| Depotcheck: eigene, striktere Current-TA-Resolution (exactly-one-or-raise) | `5eyes-backend/routers/pdf_reports.py:250-265` |
-| Depotcheck: Performance-Aufruf ohne Fee-Parameter (0 bps implizit) | `5eyes-backend/routers/pdf_reports.py:1710-1739`; Default in `:1856-1866` |
-| Depotcheck-PDF: "reine Analyse des empfohlenen Zielportfolios" | `5eyes-backend/routers/pdf_reports.py:1834` |
-| Risk-KPI-Fallback: Benchmark = Risk-Free, Tracking-Error = Vol | `5eyes-backend/services/risk_metrics_kpi.py:146-197` |
-| Risk-KPI-Fallback: eigener Docstring nennt es "degenerierten Benchmark" | `5eyes-backend/services/risk_metrics_kpi.py:24-27` |
-| Produktiver Aufruf ohne jemals echten Benchmark zu uebergeben | `5eyes-backend/services/portfolio_engine_cma.py:650-675` |
-| `_expected_metrics()` im Kern-Allocation-Pfad verwendet (2x) | `5eyes-backend/services/portfolio_engine.py:3956`; `:6036` |
-| Kein Test prueft zwei Konstruktionen gegeneinander | kein Treffer in `5eyes-backend/tests/` (siehe Verifikation) |
+| Backtest: freier Top-Level-/Sub-Asset-Benchmark-Mix, eigener `benchmark_fee_bps` | `ares-backend/services/backtest_strategy.py:1121-1131`; `:1265-1266`; `:1271-1273` |
+| Backtest: Gewichtsnormalisierung (negativ→0, Rest auf Liquidity) | `ares-backend/services/backtest_strategy.py:982-1002` |
+| Backtest: Risk-free fuer Sharpe aus globaler Current-CMA, 80-bps-Default | `ares-backend/services/backtest_strategy.py:963-979`; `:1187` |
+| Backtest: unscoped Current-TA per `.first()`, 100k-CHF-Fallback | `ares-backend/services/backtest_strategy.py:1146-1163`; `:1176-1184` |
+| Backtest: FX→CHF-Konvertierung nur im Daily-Pfad, dokumentiert | `ares-backend/services/backtest_strategy.py:557-624` |
+| Attribution: Docstring "benchmark_returns == portfolio_returns" | `ares-backend/services/advisory_report.py:3789-3802` |
+| Attribution: Portfolio-Weights aus TA per `.first()` | `ares-backend/services/advisory_report.py:3818-3837` |
+| Attribution: **fehlerhafter** Score→HouseMatrix-Vergleich | `ares-backend/services/advisory_report.py:3839-3864` |
+| Attribution: Benchmark-Returns = Portfolio-Returns (dieselbe CMA-Query) | `ares-backend/services/advisory_report.py:3873-3890` |
+| Attribution: Methode/Quelle-Label trotz Degradation immer gesetzt | `ares-backend/services/advisory_report.py:3892-3903`; `:3910-3924` |
+| Kanonischer, korrekt validierter Score→Bucket-Helper | `ares-backend/services/risk_assessment_semantics.py:330-339` |
+| Kanonischer Score-Bucket-Wrapper (von Depotcheck verwendet) | `ares-backend/services/risk_matrix.py:23-31` |
+| House-Matrix-Score-Domaene ist 1..10 (Policy-Validierung) | `ares-backend/services/portfolio_engine_house_matrix.py:1220-1287` |
+| Depotcheck: eigene House-Matrix-Benchmark-Konstruktion (3. Query-Kette) | `ares-backend/routers/pdf_reports.py:1742-1782` |
+| Depotcheck: eigene, striktere Current-TA-Resolution (exactly-one-or-raise) | `ares-backend/routers/pdf_reports.py:250-265` |
+| Depotcheck: Performance-Aufruf ohne Fee-Parameter (0 bps implizit) | `ares-backend/routers/pdf_reports.py:1710-1739`; Default in `:1856-1866` |
+| Depotcheck-PDF: "reine Analyse des empfohlenen Zielportfolios" | `ares-backend/routers/pdf_reports.py:1834` |
+| Risk-KPI-Fallback: Benchmark = Risk-Free, Tracking-Error = Vol | `ares-backend/services/risk_metrics_kpi.py:146-197` |
+| Risk-KPI-Fallback: eigener Docstring nennt es "degenerierten Benchmark" | `ares-backend/services/risk_metrics_kpi.py:24-27` |
+| Produktiver Aufruf ohne jemals echten Benchmark zu uebergeben | `ares-backend/services/portfolio_engine_cma.py:650-675` |
+| `_expected_metrics()` im Kern-Allocation-Pfad verwendet (2x) | `ares-backend/services/portfolio_engine.py:3956`; `:6036` |
+| Kein Test prueft zwei Konstruktionen gegeneinander | kein Treffer in `ares-backend/tests/` (siehe Verifikation) |
 
 ## `BENCHMARK-GOV-001` — Vier Fragen, eine Bezeichnung
 
@@ -206,7 +206,7 @@ verweist auf „Kontrollrunde 2026-09-20"), aber die **Score-Bucket-Abbildung
 selbst ist unverändert fehlerhaft**:
 
 ```text
-5eyes-backend/services/advisory_report.py:3847-3864
+ares-backend/services/advisory_report.py:3847-3864
 risk_score = _safe_int(getattr(ra, "final_score_x10", 0)) if ra else 0
 ...
 HouseMatrix.score_from <= risk_score,
@@ -338,7 +338,7 @@ Call-Sites und damit auch keine Kundenfläche.
 
 ### Durchgeführte Prüfung
 
-Es wurde in `5eyes-backend/tests/` nach Tests gesucht, die mehr als eine der
+Es wurde in `ares-backend/tests/` nach Tests gesucht, die mehr als eine der
 vier Konstruktionen gemeinsam aufrufen oder ihre Ergebnisse gegeneinander
 vergleichen (Suchmuster u.a. `compute_brinson_attribution`,
 `_depotcheck_house_matrix_benchmark`, `run_strategy_backtest.*benchmark`,
@@ -391,8 +391,8 @@ hätte fangen können.
 ## Verifikation dieser Runde
 
 Diese Runde hat ausschließlich gelesen: Service- und Router-Quellcode unter
-`5eyes-backend/services/` und `5eyes-backend/routers/`, die zugehörigen
-Testdateien unter `5eyes-backend/tests/`, sowie die beiden vorgelagerten
+`ares-backend/services/` und `ares-backend/routers/`, die zugehörigen
+Testdateien unter `ares-backend/tests/`, sowie die beiden vorgelagerten
 Audits. Es wurden keine Tests ausgeführt, keine Migration angewendet und
 keine Produkt- oder Testdatei verändert (`git status` vor und nach dieser
 Runde zeigt ausschließlich die neue Audit-Datei als Änderung). Die
@@ -424,7 +424,7 @@ mutierender Fix-Audit sie schließt.
   dieser Konstruktion gilt weiterhin der Backtest-Audit als führendes
   Dokument.
 - Die Aussage zu `BENCHMARK-CROSSCONSUMER-TEST-001` ist eine Abwesenheits-
-  feststellung über Grep-/Dateisuche in `5eyes-backend/tests/`, nicht über
+  feststellung über Grep-/Dateisuche in `ares-backend/tests/`, nicht über
   eine vollständige Testausführung mit Coverage-Messung. Ein Test, der
   dieselbe Semantik unter einem nicht gesuchten Namen prüft, könnte
   theoretisch übersehen worden sein; die Suche deckte jedoch sowohl

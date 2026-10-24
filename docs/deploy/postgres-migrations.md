@@ -43,7 +43,7 @@ Sobald ein neues Model-Feld/eine neue Tabelle zu `models/*.py` hinzukommt,
 muss eine neue Alembic-Revision dazu:
 
 ```bash
-cd 5eyes-backend
+cd ares-backend
 # gegen eine leere Wegwerf-DB generieren, NICHT gegen die echte Dev-DB:
 ALEMBIC_DATABASE_URL_OVERRIDE="sqlite:///$(mktemp -u).db" \
   python -m alembic revision --autogenerate -m "kurze beschreibung"

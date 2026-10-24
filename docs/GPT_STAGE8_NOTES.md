@@ -3,11 +3,11 @@
 ## What was added in this stage
 
 ### 1) Real backend EXE entrypoint
-- `5eyes-backend/main.py` now has a real `run()` + `if __name__ == '__main__':` entrypoint.
+- `ares-backend/main.py` now has a real `run()` + `if __name__ == '__main__':` entrypoint.
 - This fixes the packaging risk where a PyInstaller-built EXE would otherwise start, define `app`, and exit immediately.
 
 ### 2) Dynamic backend runtime selection in Electron
-- `5eyes-electron/main.js` no longer blindly assumes `127.0.0.1:8000`.
+- `ares-desktop/main.js` no longer blindly assumes `127.0.0.1:8000`.
 - It now:
   - loads `.env` values into the Electron process if present,
   - probes `APP_HOST`/`APP_PORT`,

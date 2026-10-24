@@ -225,7 +225,7 @@ Codex unten:
 > Korrektur 2026-05-16: Frühere Listung (`sr-approval-grid`, `sr-decision-grid`,
 > `sr-allocation-compare`, `sr-portfolio-print`, `sr-goals`, `sr-conclusion`)
 > war Plan-Wording — diese IDs wurden nie implementiert. Die Liste oben ist
-> der echte Bestand aus `5eyes_v2.html`.
+> der echte Bestand aus `ares.html`.
 
 Nicht anfassen durch Codex:
 
@@ -354,7 +354,7 @@ Erledigt, ohne Asset-Allocation-UX/Fachlogik anzufassen:
 24. Foundation-Case, Ereignis-Erfassung, Vermoegenspositionen und Ziele nutzen bei Speicherfehlern einheitliche `parseApiError`-Meldungen via `showModalFeedback()`.
 25. Login, Bootstrap, Admin-Audit-Log und Admin-Benutzeranlage nutzen ebenfalls sichtbare, einheitliche Fehlerfuehrung via `showAdminResult()`/`showModalFeedback()` statt roher API-Meldungen.
 26. **2026-05-17 nachgereicht (commit 5d53f34):** `jsAttrArg()`-Helper jetzt
-    implementiert in 5eyes_v2.html (nach `escapeHtml`). 2-Schritt-Escape
+    implementiert in ares.html (nach `escapeHtml`). 2-Schritt-Escape
     (JS-Literal: `\\`, `'`, `\n`; dann HTML-Attribute: `&`, `"`, `<`, `>`).
     Tests in `tests/test_frontend_js_attr_arg.py` (6 Static-Contracts).
     Zwei XSS-Lücken in dynamischen onclick-Handlern gefixt: Z 10200
@@ -375,7 +375,7 @@ Aktuelle technische Absicherung:
 - `tests/test_frontend_admin_market_data_panel.py` (P17 v2)
 - `tests/test_mandate_api_contracts.py` (Mandate-Roundtrip + investment_universe)
 - `tests/test_risk_assessment_suitability_persistence.py` (Eignungsfelder Roundtrip)
-- JS-Syntaxcheck ueber alle Inline-Skripte in `5eyes_v2.html`
+- JS-Syntaxcheck ueber alle Inline-Skripte in `ares.html`
 
 Hinweis 2026-05-15: Die fruehere Referenz auf `tests/test_frontend_summary_contracts.py`
 existiert im aktuellen develop nicht — der Test-File war im wip-fe-review-Snapshot,

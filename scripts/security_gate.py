@@ -6,7 +6,7 @@ Faellt bei der ERSTEN Verletzung (--maxfail=1) — eine Mandanten-Trennungs- ode
 Auth-Regression soll NICHT im 3900-Test-Vollauf untergehen, sondern den PR
 sofort und sichtbar rot machen.
 
-Aufruf (aus Repo-Root ODER 5eyes-backend):
+Aufruf (aus Repo-Root ODER ares-backend):
     python scripts/security_gate.py
     python -m pytest $(python scripts/security_gate.py --list)   # nur die Pfade
 
@@ -20,7 +20,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Relativ zu 5eyes-backend/ — harte Mandanten-Trennung, Auth, 2FA, Onboarding.
+# Relativ zu ares-backend/ — harte Mandanten-Trennung, Auth, 2FA, Onboarding.
 SECURITY_TESTS: list[str] = [
     # — Mandanten-Trennung (oberste Maxime) —
     "tests/test_strict_tenant_isolation.py",
@@ -66,7 +66,7 @@ SECURITY_TESTS: list[str] = [
 def _backend_dir() -> Path:
     here = Path(__file__).resolve().parent          # scripts/
     repo = here.parent                               # repo root
-    backend = repo / "5eyes-backend"
+    backend = repo / "ares-backend"
     return backend if backend.is_dir() else Path.cwd()
 
 

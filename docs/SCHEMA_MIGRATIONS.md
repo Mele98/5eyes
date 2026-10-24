@@ -13,7 +13,7 @@ sehr gut getesteten Pfad.
 
 Der Rest dieses Dokuments (Setup-Schritte, Per-Sprint-Migrations-
 Workflow, SQLite-Batch-Pattern) bleibt als Referenz gueltig -- die
-tatsaechliche env.py/Baseline-Migration im Repo (`5eyes-backend/alembic/`)
+tatsaechliche env.py/Baseline-Migration im Repo (`ares-backend/alembic/`)
 ist die kanonische, ausfuehrbare Version der hier skizzierten Beispiele.
 
 ---
@@ -35,7 +35,7 @@ alembic loest das, kommt aber mit Setup-Overhead. Daher:
 ## Setup (Erst-Init)
 
 ```powershell
-cd 5eyes-backend
+cd ares-backend
 .venv\Scripts\Activate.ps1
 pip install alembic
 
@@ -101,7 +101,7 @@ alembic upgrade head
 
 ## Settings-Integration
 
-`5eyes-backend/config.py` koennte ein Setting bekommen:
+`ares-backend/config.py` koennte ein Setting bekommen:
 
 ```python
 db_migration_strategy: Literal["create_all", "alembic"] = "create_all"

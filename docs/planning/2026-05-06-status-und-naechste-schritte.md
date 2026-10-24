@@ -96,5 +96,5 @@ PR FE-Phase 6   →   merge develop   →   FERTIG
 |---|---|---|
 | Merge-Konflikt rp-ueberarbeitung in `portfolio_engine.py` | hoch | Section-weise mergen, Tests lokal vor push |
 | Solver-Performance bei realem Mandat >10s | mittel | Phase 5.4 Cache + Sensitivity-Caching nachruesten |
-| FE-Patch passt nicht zu Codex' aktuellem `5eyes_v2.html` | mittel | Anker-Strings sind robust; Codex passt manuell an |
+| FE-Patch passt nicht zu Codex' aktuellem `ares.html` | mittel | Anker-Strings sind robust; Codex passt manuell an |
 | gh-Auth bleibt blockiert | niedrig | Bundle-Backup ist vorhanden, kann manuell ueber GitHub-UI |

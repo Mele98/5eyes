@@ -107,7 +107,7 @@ python scripts/import_cma_from_csv.py cma_q2_2026.csv --apply --user-id ${YOUR_U
 
 ```bash
 # Backend-Test-Suite
-cd 5eyes-backend
+cd ares-backend
 .venv/Scripts/python.exe -m pytest tests/test_cma_import.py -q
 ```
 

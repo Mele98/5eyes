@@ -20,10 +20,10 @@ Das Skript:
    (stabiles Login-Secret in `~/5eyes/.external-secret.txt`, `allow_real_client_data=false`),
 2. lädt einmalig **cloudflared** und öffnet einen **HTTPS-Quick-Tunnel** (kein Account).
 
-Es erscheint eine URL `https://<zufall>.trycloudflare.com`. **Extern (Handy/anderer PC) öffnen mit `/app/5eyes_v2.html` dahinter:**
+Es erscheint eine URL `https://<zufall>.trycloudflare.com`. **Extern (Handy/anderer PC) öffnen mit `/app/ares.html` dahinter:**
 
 ```
-https://<zufall>.trycloudflare.com/app/5eyes_v2.html
+https://<zufall>.trycloudflare.com/app/ares.html
 ```
 
 → Login wie gewohnt (inkl. 2FA, falls aktiviert). **Verifiziert:** Backend serviert die volle
@@ -54,7 +54,7 @@ Browser ──HTTPS──> Cloudflare (optional, WAF/DDoS) ──> Caddy (TLS, R
                                                           └─> uvicorn (127.0.0.1:8000)
                                                                 └─> SQLite (SQLCipher) — Phase-0
 ```
-- **Ein Host, same-origin:** Caddy serviert `app.5eyes.ch`; FastAPI liefert Frontend (`/app/5eyes_v2.html`) **und** API auf derselben Origin → kein CORS-Loch.
+- **Ein Host, same-origin:** Caddy serviert `app.5eyes.ch`; FastAPI liefert Frontend (`/app/ares.html`) **und** API auf derselben Origin → kein CORS-Loch.
 - **Phase-0 DB:** SQLCipher-SQLite (reicht für wenige interne User). Postgres+RLS erst in E1 vor echten Daten.
 
 ## Voraussetzungen
@@ -65,12 +65,12 @@ Browser ──HTTPS──> Cloudflare (optional, WAF/DDoS) ──> Caddy (TLS, R
 ## Schritte
 1. **Code + venv**
    ```bash
-   git clone <repo> /opt/5eyes && cd /opt/5eyes/5eyes-backend
+   git clone <repo> /opt/5eyes && cd /opt/5eyes/ares-backend
    python3 -m venv .venv && . .venv/bin/activate
    pip install -r requirements.txt
    pip install gunicorn uvicorn
    ```
-2. **Env-Datei** (siehe `.env.staging.example`): nach `/opt/5eyes/5eyes-backend/.env` kopieren und
+2. **Env-Datei** (siehe `.env.staging.example`): nach `/opt/5eyes/ares-backend/.env` kopieren und
    **`secret_key` + `db_key` mit echten Zufallswerten** füllen:
    ```bash
    python3 -c "import secrets;print('SECRET_KEY='+secrets.token_urlsafe(48))"
@@ -90,7 +90,7 @@ Browser ──HTTPS──> Cloudflare (optional, WAF/DDoS) ──> Caddy (TLS, R
    ```
 5. **Demo-Tenants + Operator** anlegen (Super-Admin) und je 1 synthetischen Kunden (wie Leart).
 6. **Smoke-Test:** `https://app.5eyes.ch/` → JSON mit `"allow_real_client_data": false`.
-   `https://app.5eyes.ch/app/5eyes_v2.html` → App lädt, **gelbes Banner sichtbar**.
+   `https://app.5eyes.ch/app/ares.html` → App lädt, **gelbes Banner sichtbar**.
 
 ## Sicherheits-Checkliste Phase-0
 - [ ] `app_env=staging`, `secret_key` ≠ Default, `db_use_sqlcipher=true` + `db_key` gesetzt.

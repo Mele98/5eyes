@@ -10,10 +10,10 @@ on:
     - cron: '30 4 * * 0'
   pull_request:
     paths:
-      - '5eyes-backend/services/market_data/**'
-      - '5eyes-backend/price_updater.py'
+      - 'ares-backend/services/market_data/**'
+      - 'ares-backend/price_updater.py'
       - 'scripts/smoketest_market_data.py'
-      - '5eyes-backend/requirements.txt'
+      - 'ares-backend/requirements.txt'
       - '.github/workflows/market_data_smoketest.yml'
   workflow_dispatch:
     inputs:
@@ -40,10 +40,10 @@ jobs:
           # erfordert Python >=3.12.
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: '5eyes-backend/requirements.txt'
+          cache-dependency-path: 'ares-backend/requirements.txt'
 
       - name: Install dependencies
-        working-directory: 5eyes-backend
+        working-directory: ares-backend
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt

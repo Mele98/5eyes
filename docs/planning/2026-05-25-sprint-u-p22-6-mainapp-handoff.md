@@ -8,7 +8,7 @@
   mit gültigem Token** in der Reporting-Sub-App — keine manuelle DevTools-
   Aktion nötig.
 - **Konflikt-Vermeidung:** Genau **eine** Button-Zeile und **eine** JS-Funktion
-  in `5eyes_v2.html`, minimal-invasiv neben dem bestehenden Depot-Check.
+  in `ares.html`, minimal-invasiv neben dem bestehenden Depot-Check.
 
 ## Zweck
 
@@ -25,7 +25,7 @@ Daten. Der Token wandert sicher über das URL-Fragment, wird sofort in
 
 ```
 5eyes-Hauptapp                          Reporting-Sub-App
-(Electron + 5eyes_v2.html)              (React + Vite-Dev :5173)
+(Electron + ares.html)              (React + Vite-Dev :5173)
 ─────────────────────────                ──────────────────────────
 [Portfolio ⋯-Menü]
    ├─ Depot-Check          ──── (bestehend, unverändert)
@@ -65,10 +65,10 @@ Daten. Der Token wandert sicher über das URL-Fragment, wird sofort in
 
 | Datei | Zweck |
 |---|---|
-| `5eyes-electron/frontend/reporting/src/api/handoff.ts` (NEU) | `consumeHandoffFromUrlFragment()` mit Defensive (no-window, no-fragment, no-token = no-op) |
-| `5eyes-electron/frontend/reporting/src/main.tsx` | Call vor `ReactDOM.createRoot` |
-| `5eyes-electron/frontend/5eyes_v2.html` | +1 Button + 1 JS-Funktion neben Depot-Check |
-| `5eyes-backend/tests/test_reporting_mainapp_handoff.py` (NEU) | 11 statische Contract-Tests |
+| `ares-desktop/frontend/reporting/src/api/handoff.ts` (NEU) | `consumeHandoffFromUrlFragment()` mit Defensive (no-window, no-fragment, no-token = no-op) |
+| `ares-desktop/frontend/reporting/src/main.tsx` | Call vor `ReactDOM.createRoot` |
+| `ares-desktop/frontend/ares.html` | +1 Button + 1 JS-Funktion neben Depot-Check |
+| `ares-backend/tests/test_reporting_mainapp_handoff.py` (NEU) | 11 statische Contract-Tests |
 
 ## Sicherheits-Disziplin
 
@@ -120,7 +120,7 @@ Kompletter Reporting-Test-Suite: **76 Tests, alle grün in 0.19s**.
 ```
 
 Wenn du den Look ändern willst: Korrektur in
-`5eyes-electron/frontend/reporting/tailwind.config.ts` + `src/design/tokens.ts`
+`ares-desktop/frontend/reporting/tailwind.config.ts` + `src/design/tokens.ts`
 (beide synchron — Test verhindert Drift).
 
 ## Folge-Sprints (unverändert)

@@ -8,10 +8,10 @@ After=network.target
 Type=simple
 User=fiveeyes
 Group=fiveeyes
-WorkingDirectory=/opt/5eyes/5eyes-backend
-EnvironmentFile=/opt/5eyes/5eyes-backend/.env
+WorkingDirectory=/opt/5eyes/ares-backend
+EnvironmentFile=/opt/5eyes/ares-backend/.env
 # Gunicorn mit uvicorn-Workern; Bind NUR lokal (Caddy ist der öffentliche Eintritt).
-ExecStart=/opt/5eyes/5eyes-backend/.venv/bin/gunicorn main:app \
+ExecStart=/opt/5eyes/ares-backend/.venv/bin/gunicorn main:app \
     --workers 2 \
     --worker-class uvicorn.workers.UvicornWorker \
     --bind 127.0.0.1:8000 \

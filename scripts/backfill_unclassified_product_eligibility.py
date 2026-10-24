@@ -32,7 +32,7 @@ from pathlib import Path
 
 def _ensure_backend_on_path() -> None:
     here = Path(__file__).resolve()
-    backend = here.parent.parent / "5eyes-backend"
+    backend = here.parent.parent / "ares-backend"
     if backend.exists() and str(backend) not in sys.path:
         sys.path.insert(0, str(backend))
 

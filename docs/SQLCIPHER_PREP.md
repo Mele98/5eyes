@@ -2,7 +2,7 @@
 
 ## Aktivierung
 
-In `5eyes-backend/.env`:
+In `ares-backend/.env`:
 
 ```env
 DB_USE_SQLCIPHER=true
@@ -16,7 +16,7 @@ Das Backend schaltet dann zentral im bestehenden `database.py` auf SQLCipher um.
 Für einen verschlüsselten Windows-Build:
 
 ```bat
-cd 5eyes-electron
+cd ares-desktop
 set BUILD_WITH_SQLCIPHER=1
 npm run dist:win
 ```

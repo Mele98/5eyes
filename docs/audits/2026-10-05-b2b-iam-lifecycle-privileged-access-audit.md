@@ -4,7 +4,7 @@ document_role: "b2b-iam-lifecycle-privileged-access-and-support-audit"
 status_as_of: "2026-10-05"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/b2b-iam-lifecycle-privileged-access-audit"
 audited_repository_head: "8dfd6cc13a7869e1996331e5d226551fc441a6ee"
 prior_audit_path: "docs/audits/2026-10-05-b2b-trust-compliance-pre-implementation-coverage-audit.md"
@@ -209,7 +209,7 @@ einer Stelle geschrieben: `routers/auth.py:402`
 repository-weite Suche nach Lesezugriffen auf dieses Feld außerhalb von
 Tests/Schema-Exposition fand nur `schemas/users.py:55`
 (`UserResponse.last_login_at`, reine Anzeige) und
-`5eyes_schema_v4.0_FINAL.sql:50`/`alembic/versions/c91f2c722881_baseline_schema.py:229`
+`ares_schema.sql:50`/`alembic/versions/c91f2c722881_baseline_schema.py:229`
 (Spaltendefinition). Es gibt **keinen** Scheduler-Job, keinen
 Health-/Readiness-Check und keinen Admin-UI-Hinweis, der inaktive Accounts
 (z. B. "kein Login seit 90 Tagen") erkennt, meldet oder automatisch

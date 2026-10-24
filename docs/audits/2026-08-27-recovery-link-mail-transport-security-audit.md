@@ -4,7 +4,7 @@ document_role: "release-blocking-recovery-link-and-mail-transport-security-follo
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "497f19f276c2e1cb8f4e7ce64ffb50483db6d470"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -107,8 +107,8 @@ Die deterministische Link-Reproduktion ergab:
 ```json
 {
   "base_url": "https://evil-attacker.example/",
-  "reset": "https://evil-attacker.example/app/5eyes_v2.html?reset=RESET_CANARY",
-  "invite": "https://evil-attacker.example/app/5eyes_v2.html?invite=INVITE_CANARY"
+  "reset": "https://evil-attacker.example/app/ares.html?reset=RESET_CANARY",
+  "invite": "https://evil-attacker.example/app/ares.html?invite=INVITE_CANARY"
 }
 ```
 
@@ -131,7 +131,7 @@ SMTP-Server, Account, Token, Schlüssel oder Kundendatensatz wurde kontaktiert.
 
 ### `RECOV-001` – Der Request-Host bestimmt versendete Bearer-Links
 
-`5eyes-backend/routers/auth.py:597-611` bevorzugt zwar eine konfigurierte
+`ares-backend/routers/auth.py:597-611` bevorzugt zwar eine konfigurierte
 `public_base_url`, fällt bei leerem Wert aber auf `request.base_url` zurück.
 `password_reset_request()` ist öffentlich erreichbar, erzeugt einen gültigen
 Reset-Token und übergibt den so gebauten Link an den Mailer
@@ -139,7 +139,7 @@ Reset-Token und übergibt den so gebauten Link an den Mailer
 Mechanismus (`auth.py:768-782,785-840,1040-1081`).
 
 Starlette bildet `request.base_url` aus Scheme und `Host`. Der konkrete
-Backend-Stack registriert in `5eyes-backend/main.py:121-131` Request-Context und
+Backend-Stack registriert in `ares-backend/main.py:121-131` Request-Context und
 CORS, aber keine `TrustedHostMiddleware`. CORS validiert Browser-Origins, nicht
 den HTTP-Host und schützt auch keinen serverseitig versendeten Link.
 
@@ -181,13 +181,13 @@ Uvicorn-Zugriff. Invite und Resend-Invite erhalten denselben Negativvertrag.
 
 ### `RECOV-002` – Produktion erlaubt Klartext-SMTP für Recovery-Bearer
 
-`5eyes-backend/config.py:296-306` modelliert `smtp_use_tls` als frei
+`ares-backend/config.py:296-306` modelliert `smtp_use_tls` als frei
 abschaltbares Boolean. Der Produktionsvalidator `config.py:516-557` koppelt
 weder SMTP an TLS noch SMTP an eine gültige öffentliche HTTPS-Origin. Die
 ausgeführte Settings-Probe bestätigte, dass die unsichere Kombination akzeptiert
 wird. Auch syntaktisch beliebige `public_base_url`-Werte bleiben unverändert.
 
-`5eyes-backend/services/mailer.py:28-42` öffnet immer zunächst
+`ares-backend/services/mailer.py:28-42` öffnet immer zunächst
 `smtplib.SMTP`. Nur wenn `smtp_use_tls` truthy ist, wird `starttls()` ausgeführt.
 Bei `false` folgen `login()` und `send_message()` direkt auf der
 unverschlüsselten Verbindung. Die Mailtexte enthalten den vollständigen
@@ -278,11 +278,11 @@ Defense-in-depth, sind aber nicht Teil des neuen P1-Registers dieser Runde.
 
 Neue oder erweiterte Suites mindestens:
 
-- `5eyes-backend/tests/test_recovery_link_origin_security.py`
-- `5eyes-backend/tests/test_mailer_transport_security.py`
-- `5eyes-backend/tests/test_deployment_config_matrix.py`
-- `5eyes-backend/tests/test_account_recovery.py`
-- `5eyes-backend/tests/test_invite_onboarding.py`
+- `ares-backend/tests/test_recovery_link_origin_security.py`
+- `ares-backend/tests/test_mailer_transport_security.py`
+- `ares-backend/tests/test_deployment_config_matrix.py`
+- `ares-backend/tests/test_account_recovery.py`
+- `ares-backend/tests/test_invite_onboarding.py`
 
 Der Recovery-Test muss den kompletten Endpoint mit realem Mail-Capture und
 synthetischem existierendem Benutzer ausführen. Ein direkter Helper-Test allein

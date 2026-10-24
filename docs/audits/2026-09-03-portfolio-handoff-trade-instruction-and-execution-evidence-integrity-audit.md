@@ -5,8 +5,8 @@ status_as_of: "2026-09-03"
 audit_started_on: "2026-09-03"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "57da24112132ec2e16c74488f22517b63da2d91f"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -209,27 +209,27 @@ Es gibt keinen unveränderlichen gemeinsamen Vertrag aus
 
 | Bereich | Anker | Beobachtung |
 |---|---|---|
-| Run-/Handoff-Lookup | `5eyes-backend/routers/portfolio_handoff.py:47-72` | Prüft nur Mandatszugehörigkeit, keinen Run-Status oder Publikationscontext. |
-| Create | `5eyes-backend/routers/portfolio_handoff.py:89-160` | Prüft nur Mandatstyp, setzt ohne Transport sofort `Gesendet`, loggt nur Anzahl und Empfängername. |
-| Execute/Cancel | `5eyes-backend/routers/portfolio_handoff.py:162-243` | Read-then-write ohne Lock/CAS; Execute-Note optional. |
-| Snapshotfelder | `5eyes-backend/services/portfolio_handoff.py:18-38` | Kuratierte Liste entfernt Holding-, Preis-, FX-, Coverage- und Instrumentdetails. |
-| Schwelle/Snapshot | `5eyes-backend/services/portfolio_handoff.py:41-77` | Filtert nur Betragsschwelle; kein Evidence-/Publication-ready-Gate. |
-| Handoff-Modell | `5eyes-backend/models/portfolio_handoff.py:12-36`, `42-81` | Behauptet Unveränderlichkeit/nullable Cleanup, besitzt aber keinen Hash, State-Version oder Constraint. |
-| API-Schema | `5eyes-backend/schemas/portfolio_handoff.py:8-63` | Snapshot bleibt unvalidierter String; Status ist freier String; Execute-Body darf leer sein. |
-| Alembic | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:1234-1262` | Nur Spalten/FKs/Index; keine Status-/Kohärenz-/Hash-/Idempotenzconstraints und kein `ON DELETE SET NULL`. |
-| Run-Rebuild | `5eyes-backend/services/portfolio_engine.py:6167-6294` | Legacy-Fallbacks auf Current-TA/RA/CMA; Live-Bewertung wird zum Handoff-Zeitpunkt neu aufgelöst. |
-| Implied Holding | `5eyes-backend/services/portfolio_engine_live_rebalancing.py:315-460` | Ohne Holding werden Units und Current Market Value aus Target/Referenzpreis abgeleitet. |
-| Live-SOLL/Delta | `5eyes-backend/services/portfolio_engine_live_rebalancing.py:520-542` | Delta nutzt `live_total * target_weight`; `target_amount_rappen` im Entry wird nicht ersetzt. |
-| Action-Vertrag | `5eyes-backend/services/portfolio_engine_live_rebalancing.py:220-229`, `528-541` | Liefert Code und lokalisiertes Label, setzt `rebalance_action` auf das Label. |
-| Coverage | `5eyes-backend/services/portfolio_engine_live_rebalancing.py:560-675` | Kennt missing/stale/implied counts, Handoff ignoriert sie. |
-| Handelslisten-HTML | `5eyes-electron/frontend/5eyes_v2.html:21166-21237` | Summiert/färbt `rebalance_action` als BUY/SELL und formatiert alle Beträge hart als CHF. |
-| Handoff-HTML | `5eyes-electron/frontend/5eyes_v2.html:21239-21363` | Behauptet echten Versand, akzeptiert freien Empfänger/Kanal und führt Execute mit `{}` aus. |
-| Handoff-Fixture | `5eyes-backend/tests/test_portfolio_handoff.py:117-131` | Setzt Label und Code beide auf BUY/SELL und bildet Produktionspayload nicht nach. |
-| Handoff-Tests | `5eyes-backend/tests/test_portfolio_handoff.py:142-377` | Engine monkeypatched; nur sequentielle Happy-/Basic-Negativpfade. |
-| Frontendtests | `5eyes-backend/tests/test_frontend_portfolio_handoff.py:20-102` | Prüfen Funktions-/Stringvorkommen, keine DOM-/Payload-/Summen-Semantik. |
-| Cleanup | `5eyes-backend/services/recommendation_run_cleanup.py:119-181` | Löscht Positions und Runs, aber keine Holdings/Handoffs und nullt keine Referenzen. |
-| Auditlog-Hash | `5eyes-backend/services/audit.py:8-121` | Hasht Auditzeilenfelder; Create-Log enthält den Handoff-Snapshot/Hash nicht. |
-| Mandatszugriff | `5eyes-backend/services/auth.py:376-393` | Filtert soft-deleted und Zugriff, aber nicht Mandatsstatus. |
+| Run-/Handoff-Lookup | `ares-backend/routers/portfolio_handoff.py:47-72` | Prüft nur Mandatszugehörigkeit, keinen Run-Status oder Publikationscontext. |
+| Create | `ares-backend/routers/portfolio_handoff.py:89-160` | Prüft nur Mandatstyp, setzt ohne Transport sofort `Gesendet`, loggt nur Anzahl und Empfängername. |
+| Execute/Cancel | `ares-backend/routers/portfolio_handoff.py:162-243` | Read-then-write ohne Lock/CAS; Execute-Note optional. |
+| Snapshotfelder | `ares-backend/services/portfolio_handoff.py:18-38` | Kuratierte Liste entfernt Holding-, Preis-, FX-, Coverage- und Instrumentdetails. |
+| Schwelle/Snapshot | `ares-backend/services/portfolio_handoff.py:41-77` | Filtert nur Betragsschwelle; kein Evidence-/Publication-ready-Gate. |
+| Handoff-Modell | `ares-backend/models/portfolio_handoff.py:12-36`, `42-81` | Behauptet Unveränderlichkeit/nullable Cleanup, besitzt aber keinen Hash, State-Version oder Constraint. |
+| API-Schema | `ares-backend/schemas/portfolio_handoff.py:8-63` | Snapshot bleibt unvalidierter String; Status ist freier String; Execute-Body darf leer sein. |
+| Alembic | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:1234-1262` | Nur Spalten/FKs/Index; keine Status-/Kohärenz-/Hash-/Idempotenzconstraints und kein `ON DELETE SET NULL`. |
+| Run-Rebuild | `ares-backend/services/portfolio_engine.py:6167-6294` | Legacy-Fallbacks auf Current-TA/RA/CMA; Live-Bewertung wird zum Handoff-Zeitpunkt neu aufgelöst. |
+| Implied Holding | `ares-backend/services/portfolio_engine_live_rebalancing.py:315-460` | Ohne Holding werden Units und Current Market Value aus Target/Referenzpreis abgeleitet. |
+| Live-SOLL/Delta | `ares-backend/services/portfolio_engine_live_rebalancing.py:520-542` | Delta nutzt `live_total * target_weight`; `target_amount_rappen` im Entry wird nicht ersetzt. |
+| Action-Vertrag | `ares-backend/services/portfolio_engine_live_rebalancing.py:220-229`, `528-541` | Liefert Code und lokalisiertes Label, setzt `rebalance_action` auf das Label. |
+| Coverage | `ares-backend/services/portfolio_engine_live_rebalancing.py:560-675` | Kennt missing/stale/implied counts, Handoff ignoriert sie. |
+| Handelslisten-HTML | `ares-desktop/frontend/ares.html:21166-21237` | Summiert/färbt `rebalance_action` als BUY/SELL und formatiert alle Beträge hart als CHF. |
+| Handoff-HTML | `ares-desktop/frontend/ares.html:21239-21363` | Behauptet echten Versand, akzeptiert freien Empfänger/Kanal und führt Execute mit `{}` aus. |
+| Handoff-Fixture | `ares-backend/tests/test_portfolio_handoff.py:117-131` | Setzt Label und Code beide auf BUY/SELL und bildet Produktionspayload nicht nach. |
+| Handoff-Tests | `ares-backend/tests/test_portfolio_handoff.py:142-377` | Engine monkeypatched; nur sequentielle Happy-/Basic-Negativpfade. |
+| Frontendtests | `ares-backend/tests/test_frontend_portfolio_handoff.py:20-102` | Prüfen Funktions-/Stringvorkommen, keine DOM-/Payload-/Summen-Semantik. |
+| Cleanup | `ares-backend/services/recommendation_run_cleanup.py:119-181` | Löscht Positions und Runs, aber keine Holdings/Handoffs und nullt keine Referenzen. |
+| Auditlog-Hash | `ares-backend/services/audit.py:8-121` | Hasht Auditzeilenfelder; Create-Log enthält den Handoff-Snapshot/Hash nicht. |
+| Mandatszugriff | `ares-backend/services/auth.py:376-393` | Filtert soft-deleted und Zugriff, aber nicht Mandatsstatus. |
 
 ## `HANDOFF-CONTEXT-001` – Nicht freigegebene Zustände werden ausführungsnah
 
@@ -947,7 +947,7 @@ die unveränderte Summenlogik aus `openTradeList()` ausgewertet.
 
 ### Fokussierter Gate
 
-Ausgeführt aus `5eyes-backend` mit externem Basetemp:
+Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `

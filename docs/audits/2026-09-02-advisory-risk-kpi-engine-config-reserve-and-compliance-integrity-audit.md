@@ -5,8 +5,8 @@ status_as_of: "2026-09-02"
 audit_started_on: "2026-08-31"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend/reporting"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend/reporting"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "2ba969b34061430df760cae3ea57f745af079db6"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -165,39 +165,39 @@ gezählt.
 
 | Bereich | Codeanker |
 |---|---|
-| Current-TA wird call-scoped gecacht, aber nicht gegen Live-Inputdrift geprüft | `5eyes-backend/services/advisory_report.py:106-120` |
-| Key-Metrics lesen Rohfelder und machen `0` mit `or None` zu Missing | `5eyes-backend/services/advisory_report.py:738-771` |
-| Persistierte KPI-Semantik: 1y-Vol, annualisierter Median, Median-MaxDD, 1y-VaR95 | `5eyes-backend/models/allocation.py:95-106` |
-| PDF-Datenmodell setzt Risk-free standardmäßig auf 80 bp | `5eyes-backend/services/pdf/base.py:202-204` |
-| PDF-Router setzt `risk_free_bps` nicht aus Snapshot-CMA | `5eyes-backend/routers/pdf_reports.py:778-821` |
-| Strategie-PDF berechnet Sharpe mit dem PDF-Feld | `5eyes-backend/services/pdf/anlagestrategie.py:545-577` |
-| Soll/Ist-PDF nutzt denselben Wert | `5eyes-backend/services/pdf/sollist_vergleich.py:35-44` |
-| HTML-Monolith hardcodiert `_RF_BPS = 80` | `5eyes_v2.html:21095-21102` |
-| Engine nimmt Risk-free aus der gelösten Snapshot-CMA | `5eyes-backend/services/portfolio_engine_cma.py:640-647` |
-| Methodology lädt globale Current-CMA per `.first()` | `5eyes-backend/services/methodology_audit.py:139-180` |
-| Model „active“ prüft Präsenz, nicht Runtime-Domain | `5eyes-backend/services/methodology_audit.py:40-98` |
-| Nelson-Siegel-Runtimevalidierung lehnt ungültige Parameter ab | `5eyes-backend/services/cma_validation.py:171-225` |
-| Recommendation ohne Run oder ohne active Run gilt als compliant | `5eyes-backend/services/recommendation_audit.py:91-169` |
-| TA persistiert den tatsächlich verwendeten Optimizer-Run | `5eyes-backend/models/allocation.py:112-143` |
-| Engine-Konfiguration lädt jüngsten beliebigen Run statt TA-Run | `5eyes-backend/services/advisory_report.py:3559-3615` |
-| Tax-Disclosure liest Live-Setting | `5eyes-backend/services/advisory_report.py:3517-3529` |
-| Solver übergibt keinen Tax-Modus; Scenario-Default ist `median` | `5eyes-backend/services/optimizer/solver.py:270-283`; `5eyes-backend/services/optimizer/scenario_engine.py:406-420` |
-| Suballocation-Erkennung liest falschen Singularnamen | `5eyes-backend/services/advisory_report.py:3541-3555`; `5eyes-backend/models/allocation.py:78-81` |
-| Reserve-Rebuild liest Live-Goals/-Positions/-Cashflows/-Inflows und globale CMA | `5eyes-backend/services/advisory_report.py:3158-3255` |
-| Reserve vergleicht nur zwei Totale | `5eyes-backend/services/advisory_report.py:3363-3376` |
-| Reserve-Output enthält keine TA-/CMA-/Input-/Context-Provenienz | `5eyes-backend/services/advisory_report.py:3401-3414` |
-| `_safe_int` kollabiert malformed und Missing zu null | `5eyes-backend/services/advisory_report.py:2925-2929` |
-| Liquidity-Classifier macht `hard_cap` unerreichbar | `5eyes-backend/services/liquidity_cascade_audit.py:31-78` |
-| Liquidity-Audit klassifiziert nur Current-TA-Zielgewicht | `5eyes-backend/services/liquidity_cascade_audit.py:81-169` |
-| React-Gesamtstatus ignoriert Methodology und Reserve | `5eyes-electron/frontend/reporting/src/pages/Compliance.tsx:52-73` |
-| Banner behauptet fünf Prüfungen, während sechs Cards gerendert werden | `5eyes-electron/frontend/reporting/src/pages/Compliance.tsx:82-99` |
-| Reserve-UI macht Nullable-Betrag via `?? 0` zu „kein Bedarf“ | `5eyes-electron/frontend/reporting/src/pages/Compliance.tsx:332-375` |
-| Pflicht-Analytics sind typisiert und im API-Keycheck verlangt | `5eyes-electron/frontend/reporting/src/api/types.ts:695-726`; `5eyes-electron/frontend/reporting/src/api/client.ts:126-170` |
-| Pflicht-Analytics besitzen keinen vollständigen App-/Sidebar-Renderpfad | `5eyes-electron/frontend/reporting/src/components/Sidebar.tsx:13-37`; `5eyes-electron/frontend/reporting/src/App.tsx:448-477` |
-| KPI-Karten filtern Nullable-Werte vollständig heraus | `5eyes-electron/frontend/reporting/src/pages/Ausgangslage.tsx:29-64` |
-| Reserve-Type erlaubt widersprüchliche Zustände | `5eyes-electron/frontend/reporting/src/api/types.ts:788-801` |
-| Extended ratios sind Heuristik-Proxys | `5eyes-backend/services/risk_metrics_kpi.py:1-160` |
-| Ratio-Ergebnis wird vor API/Persistenz weitgehend verworfen | `5eyes-backend/services/portfolio_engine_cma.py:648-665`; `5eyes-backend/services/portfolio_engine.py:4129-4130` |
+| Current-TA wird call-scoped gecacht, aber nicht gegen Live-Inputdrift geprüft | `ares-backend/services/advisory_report.py:106-120` |
+| Key-Metrics lesen Rohfelder und machen `0` mit `or None` zu Missing | `ares-backend/services/advisory_report.py:738-771` |
+| Persistierte KPI-Semantik: 1y-Vol, annualisierter Median, Median-MaxDD, 1y-VaR95 | `ares-backend/models/allocation.py:95-106` |
+| PDF-Datenmodell setzt Risk-free standardmäßig auf 80 bp | `ares-backend/services/pdf/base.py:202-204` |
+| PDF-Router setzt `risk_free_bps` nicht aus Snapshot-CMA | `ares-backend/routers/pdf_reports.py:778-821` |
+| Strategie-PDF berechnet Sharpe mit dem PDF-Feld | `ares-backend/services/pdf/anlagestrategie.py:545-577` |
+| Soll/Ist-PDF nutzt denselben Wert | `ares-backend/services/pdf/sollist_vergleich.py:35-44` |
+| HTML-Monolith hardcodiert `_RF_BPS = 80` | `ares.html:21095-21102` |
+| Engine nimmt Risk-free aus der gelösten Snapshot-CMA | `ares-backend/services/portfolio_engine_cma.py:640-647` |
+| Methodology lädt globale Current-CMA per `.first()` | `ares-backend/services/methodology_audit.py:139-180` |
+| Model „active“ prüft Präsenz, nicht Runtime-Domain | `ares-backend/services/methodology_audit.py:40-98` |
+| Nelson-Siegel-Runtimevalidierung lehnt ungültige Parameter ab | `ares-backend/services/cma_validation.py:171-225` |
+| Recommendation ohne Run oder ohne active Run gilt als compliant | `ares-backend/services/recommendation_audit.py:91-169` |
+| TA persistiert den tatsächlich verwendeten Optimizer-Run | `ares-backend/models/allocation.py:112-143` |
+| Engine-Konfiguration lädt jüngsten beliebigen Run statt TA-Run | `ares-backend/services/advisory_report.py:3559-3615` |
+| Tax-Disclosure liest Live-Setting | `ares-backend/services/advisory_report.py:3517-3529` |
+| Solver übergibt keinen Tax-Modus; Scenario-Default ist `median` | `ares-backend/services/optimizer/solver.py:270-283`; `ares-backend/services/optimizer/scenario_engine.py:406-420` |
+| Suballocation-Erkennung liest falschen Singularnamen | `ares-backend/services/advisory_report.py:3541-3555`; `ares-backend/models/allocation.py:78-81` |
+| Reserve-Rebuild liest Live-Goals/-Positions/-Cashflows/-Inflows und globale CMA | `ares-backend/services/advisory_report.py:3158-3255` |
+| Reserve vergleicht nur zwei Totale | `ares-backend/services/advisory_report.py:3363-3376` |
+| Reserve-Output enthält keine TA-/CMA-/Input-/Context-Provenienz | `ares-backend/services/advisory_report.py:3401-3414` |
+| `_safe_int` kollabiert malformed und Missing zu null | `ares-backend/services/advisory_report.py:2925-2929` |
+| Liquidity-Classifier macht `hard_cap` unerreichbar | `ares-backend/services/liquidity_cascade_audit.py:31-78` |
+| Liquidity-Audit klassifiziert nur Current-TA-Zielgewicht | `ares-backend/services/liquidity_cascade_audit.py:81-169` |
+| React-Gesamtstatus ignoriert Methodology und Reserve | `ares-desktop/frontend/reporting/src/pages/Compliance.tsx:52-73` |
+| Banner behauptet fünf Prüfungen, während sechs Cards gerendert werden | `ares-desktop/frontend/reporting/src/pages/Compliance.tsx:82-99` |
+| Reserve-UI macht Nullable-Betrag via `?? 0` zu „kein Bedarf“ | `ares-desktop/frontend/reporting/src/pages/Compliance.tsx:332-375` |
+| Pflicht-Analytics sind typisiert und im API-Keycheck verlangt | `ares-desktop/frontend/reporting/src/api/types.ts:695-726`; `ares-desktop/frontend/reporting/src/api/client.ts:126-170` |
+| Pflicht-Analytics besitzen keinen vollständigen App-/Sidebar-Renderpfad | `ares-desktop/frontend/reporting/src/components/Sidebar.tsx:13-37`; `ares-desktop/frontend/reporting/src/App.tsx:448-477` |
+| KPI-Karten filtern Nullable-Werte vollständig heraus | `ares-desktop/frontend/reporting/src/pages/Ausgangslage.tsx:29-64` |
+| Reserve-Type erlaubt widersprüchliche Zustände | `ares-desktop/frontend/reporting/src/api/types.ts:788-801` |
+| Extended ratios sind Heuristik-Proxys | `ares-backend/services/risk_metrics_kpi.py:1-160` |
+| Ratio-Ergebnis wird vor API/Persistenz weitgehend verworfen | `ares-backend/services/portfolio_engine_cma.py:648-665`; `ares-backend/services/portfolio_engine.py:4129-4130` |
 
 ## `KPI-CONTEXT-001` – Persistierte Zahlen ohne gültigen Publication-Context
 

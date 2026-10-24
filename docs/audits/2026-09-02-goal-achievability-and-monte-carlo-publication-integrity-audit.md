@@ -5,8 +5,8 @@ status_as_of: "2026-09-02"
 audit_started_on: "2026-09-02"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend/reporting"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend/reporting"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "db763b50123fbdc1dd4580c8182f3532e7359e59"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -168,40 +168,40 @@ blockiert Final-/Kundenpublikation unabhängig vom grünen Unit-Teststand.
 
 Die wichtigsten Anker sind:
 
-- `5eyes-backend/routers/wealth.py:346-377`, `780-814`, `817-853`,
+- `ares-backend/routers/wealth.py:346-377`, `780-814`, `817-853`,
   `856-878`: Goal-Mutationen nullen nur `Goal.achievement_score`.
-- `5eyes-backend/services/advisory_report.py:704-735`: Report-Score aus
+- `ares-backend/services/advisory_report.py:704-735`: Report-Score aus
   persistierter Probability und aktuellem `Goal.weight_bps`.
-- `5eyes-backend/services/advisory_report.py:1964-2058`: persistierte
+- `ares-backend/services/advisory_report.py:1964-2058`: persistierte
   Goal-Zeilen werden mit aktuellen Goal-Metadaten gemischt; Missing-Score wird
   zu `0`.
-- `5eyes-backend/services/advisory_report.py:2061-2104`: Live-Wealth und
+- `ares-backend/services/advisory_report.py:2061-2104`: Live-Wealth und
   Live-Horizont starten eine neue MC-Berechnung; Wealth wird ohne FX summiert.
-- `5eyes-backend/services/optimizer/objective.py:335-405`: Probability,
+- `ares-backend/services/optimizer/objective.py:335-405`: Probability,
   `tau` und Optimizer-Status des persistierten Achievability-Objekts.
-- `5eyes-backend/services/optimizer/goal_liabilities.py:91-130`,
+- `ares-backend/services/optimizer/goal_liabilities.py:91-130`,
   `350-484`: Default-Rank-Gewichte und Pro-rata-Skalierung bedingter Ziele.
-- `5eyes-backend/services/portfolio_engine_payload.py:244-322`: bereits
+- `ares-backend/services/portfolio_engine_payload.py:244-322`: bereits
   vorhandene kanonische Goal-Score- und Mandats-Score-Formeln.
-- `5eyes-backend/models/allocation.py:77-90`: rohes Goal-JSON neben modernen
+- `ares-backend/models/allocation.py:77-90`: rohes Goal-JSON neben modernen
   Allocation-Context-Ankern.
-- `5eyes-backend/services/portfolio_engine.py:3803-3813`, `3976-4023`:
+- `ares-backend/services/portfolio_engine.py:3803-3813`, `3976-4023`:
   Persistierung des rohen Goal-JSON und des Allocation-Contexts.
-- `5eyes-backend/services/monte_carlo_paths.py:68-172`, `217-345`: eigene
+- `ares-backend/services/monte_carlo_paths.py:68-172`, `217-345`: eigene
   Current-CMA-, Weight-, Cashflow- und Simulationspipeline des Reports.
-- `5eyes-electron/frontend/reporting/src/api/types.ts:360-397`: Goal-/MC-
+- `ares-desktop/frontend/reporting/src/api/types.ts:360-397`: Goal-/MC-
   Payload ohne Currency-, Context-, Modell- oder Probability-Semantik.
-- `5eyes-electron/frontend/reporting/src/lib/goalClassification.ts:1-20`,
+- `ares-desktop/frontend/reporting/src/lib/goalClassification.ts:1-20`,
   `52-119`: zweite, p50/p75-basierte Statusdefinition.
-- `5eyes-electron/frontend/reporting/src/components/MonteCarloPathsChart.tsx:1-20`,
+- `ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx:1-20`,
   `118-136`, `264-277`, `300-306`: CHF-, Confidence- und 90-Prozent-Labels.
-- `5eyes-electron/frontend/reporting/src/pages/Goals.tsx:55-84`, `152-204`:
+- `ares-desktop/frontend/reporting/src/pages/Goals.tsx:55-84`, `152-204`:
   kundenorientierte Score-/Probability-Ausgabe und CHF-Zielwerte.
-- `5eyes-backend/services/pdf/documents/advisory_report.py:1279-1420`:
+- `ares-backend/services/pdf/documents/advisory_report.py:1279-1420`:
   Advisory-PDF mit eigenem MC-Status neben persistiertem Status.
-- `5eyes-backend/services/pdf/components/goal_achievability.py:119-205`:
+- `ares-backend/services/pdf/components/goal_achievability.py:119-205`:
   Strategie-PDF klemmt Probability still auf `[0,1]`.
-- `5eyes-backend/routers/pdf_reports.py:752-777`, `804-815`: Strategie-PDF
+- `ares-backend/routers/pdf_reports.py:752-777`, `804-815`: Strategie-PDF
   übernimmt das rohe TA-Goal-JSON direkt.
 
 ## `GOAL-SNAPSHOT-001` – Goal-Invalidierung erreicht die Publikation nicht

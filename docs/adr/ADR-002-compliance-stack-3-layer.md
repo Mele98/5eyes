@@ -25,9 +25,9 @@ Compliance wird auf 3 Schichten getrennt, jede mit klarem Zweck:
 
 | Schicht | Pfad | Verantwortung |
 |---------|------|---------------|
-| **1. Backend-Aggregator** | `5eyes-backend/services/advisory_report.py` | Berechnung der Compliance-Datenstruktur (Sektionen 19-23) — Single-Source |
-| **2. PDF-Renderer** | `5eyes-backend/services/pdf/components/compliance_audit.py` | Layout der Compliance-Daten für Druck (Editorial-Stil) |
-| **3. Sub-App-Page** | `5eyes-electron/frontend/reporting/src/pages/Compliance.tsx` | Interaktive Anzeige für Berater inkl. Drilldown |
+| **1. Backend-Aggregator** | `ares-backend/services/advisory_report.py` | Berechnung der Compliance-Datenstruktur (Sektionen 19-23) — Single-Source |
+| **2. PDF-Renderer** | `ares-backend/services/pdf/components/compliance_audit.py` | Layout der Compliance-Daten für Druck (Editorial-Stil) |
+| **3. Sub-App-Page** | `ares-desktop/frontend/reporting/src/pages/Compliance.tsx` | Interaktive Anzeige für Berater inkl. Drilldown |
 
 Sub-App-Sektion 17 ist die **Aggregation** der Backend-Sektionen 19-23
 (siehe PR #163 + #165).

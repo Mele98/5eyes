@@ -167,7 +167,7 @@ Charts, falsche „alles in Band"-Meldungen.
 
 ## Teil C — Frontend Sektionen 2 + 3 + 4 + 5
 
-Erstelle in `5eyes-electron/frontend/reporting/src/pages/`:
+Erstelle in `ares-desktop/frontend/reporting/src/pages/`:
 
 ### C.1 `Disclaimer.tsx` (Sektion 2 — neu)
 - Editorial Layout: kleine Schrift, viel Whitespace
@@ -318,7 +318,7 @@ gemerged, rebase B-E auf neuen develop.
 - **NICHT die echten Charts** (U-P24 Asset Allocation etc.) jetzt schon
   bauen — die kommen in einem späteren Sprint. Nur die
   `BarChartIstSoll`-Komponente als REUSABLE-Foundation.
-- **NICHT** `openReportingApp()` in `5eyes_v2.html` refactoren — das ist
+- **NICHT** `openReportingApp()` in `ares.html` refactoren — das ist
   Stand U-P22.6/.7 und funktioniert.
 - **KEIN Server-PDF** (U-P26) — separater Sprint, du machst das später.
 - **KEIN Refactoring** des bestehenden Stochastic-Stage-9-Codes (deine

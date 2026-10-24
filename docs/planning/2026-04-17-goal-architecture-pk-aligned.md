@@ -23,7 +23,7 @@ Portfolio-Engine verankert.
 
 ### Bug 1 — value_mode ist hardcoded «nominal» im Frontend
 
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html`
+**Datei:** `ares-desktop/frontend/ares.html`
 **Zeile:** 14776
 ```js
 value_mode:'nominal',   // <-- niemals vom User wählbar
@@ -33,7 +33,7 @@ nie gesetzt. Realer Kapitalerhalt ist daher mehr Versprechen als echte Logik.
 
 ### Bug 2 — Kapitalerhalt real inflationiert das Ziel nicht
 
-**Datei:** `5eyes-backend/services/portfolio_engine.py`
+**Datei:** `ares-backend/services/portfolio_engine.py`
 **Zeile ~1785:**
 ```python
 elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
@@ -44,7 +44,7 @@ Aktuell wird `value_mode` im Scoring vollständig ignoriert.
 
 ### Bug 3 — Renditeziel hat Default-Härtegrad «Primär»
 
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html`
+**Datei:** `ares-desktop/frontend/ares.html`
 **Zeile ~14760:**
 ```js
 var hardnessMap = {'1':'Hart','2':'Primär','3':'Opportunistisch'};
@@ -54,7 +54,7 @@ Fachlich ist Renditeziel immer Opportunistisch — nie Hart, selten Primär.
 
 ### Systemisches Problem — Härtegradgewichtung fehlt in Portfolio-Konstruktion
 
-**Datei:** `5eyes-backend/services/portfolio_engine.py`
+**Datei:** `ares-backend/services/portfolio_engine.py`
 **Zeile 2799:**
 ```python
 growth_goals = [goal for goal in goals if _norm_text(goal.goal_type) in
@@ -152,7 +152,7 @@ STUFE 3 — Opportunistisch (Weich)
 
 ### Frontend
 
-- **`5eyes-electron/frontend/5eyes_v2.html`**
+- **`ares-desktop/frontend/ares.html`**
   - Ziel-Formular (`m-nz`): value_mode-Toggle hinzufügen
   - `saveGoal()` / Payload (Zeile ~14776): `value_mode` aus Formular lesen
   - Renditeziel: Priority-Select Default auf `3` (Opportunistisch) setzen

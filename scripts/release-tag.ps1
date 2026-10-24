@@ -52,8 +52,8 @@ if ($ExistingTag) {
 Write-Host "OK Tag $TagName ist neu" -ForegroundColor Green
 
 # --- 4. Version-Konsistenz Backend <-> Electron <-> Arg
-$BackendConfigPath = Join-Path $PSScriptRoot "..\5eyes-backend\config.py"
-$ElectronPkgPath = Join-Path $PSScriptRoot "..\5eyes-electron\package.json"
+$BackendConfigPath = Join-Path $PSScriptRoot "..\ares-backend\config.py"
+$ElectronPkgPath = Join-Path $PSScriptRoot "..\ares-desktop\package.json"
 
 if (-not (Test-Path $BackendConfigPath)) {
     Write-Error "Backend config.py nicht gefunden: $BackendConfigPath"
