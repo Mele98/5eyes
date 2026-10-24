@@ -25,7 +25,7 @@ from main import app  # noqa: F401,E402  (registriert alle Models)
 from models.tenant import Tenant  # noqa: E402
 
 KEK_VERSION_REVISION = "2cbc77503cd9"
-KEK_VERSION_DOWN_REVISION = "c4d9e2a7f1b6"
+KEK_VERSION_DOWN_REVISION = "e2b7c4f9a1d6"
 
 
 def _now() -> str:

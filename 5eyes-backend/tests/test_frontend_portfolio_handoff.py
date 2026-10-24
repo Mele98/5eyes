@@ -61,11 +61,13 @@ def test_mark_executed_and_cancel_call_correct_endpoints():
     html = _html()
     assert "/portfolio-handoffs/'+handoffId+'/mark-executed'" in html
     assert "/portfolio-handoffs/'+handoffId+'/cancel'" in html
-    # Stornierung verlangt eine Begruendung (window.prompt), kein stiller Abbruch.
+    # Stornierung verlangt eine Begruendung ueber den Dialog-Service (Pflichtfeld),
+    # kein stiller Abbruch und kein nativer Dialog (in Electron nicht unterstuetzt).
     start = html.index("async function cancelPortfolioHandoffPrompt(handoffId)")
     end = html.index("\n}", start)
     body = html[start:end]
-    assert "window.prompt(" in body
+    assert "await uiPrompt({message:'Grund für die Stornierung:',required:true})" in body
+    assert "window.prompt(" not in body
     assert "cancelled_reason:reason.trim()" in body
 
 

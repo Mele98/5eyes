@@ -2229,11 +2229,14 @@ def init_db() -> None:
     # nach 'main' + anschliessendes NOT NULL haette diese Semantik
     # UNUMKEHRBAR zerstoert.
     #
-    # User-Entscheid 2026-08-26: statt implizitem globalem Teilen soll jeder
+    # User-Entscheid 2026-08-26: statt implizitem globalem Teilen sollte jeder
     # Tenant unter Postgres explizit provisionierte eigene Kopien bekommen.
-    # Fuer products ist das machbar (services/portfolio_engine.py::
-    # ensure_default_products() um tenant_id erweitert, siehe
-    # provision_tenant_product_catalog() unten). Fuer capital_market_
+    # Die dafuer vorgesehene Provisioning-Funktion wurde nie gebaut.
+    # Stattdessen (RLS-GLOBAL-REFERENCE-ROWS, 2026-10-24): globale Zeilen
+    # (tenant_id IS NULL) der Referenztabellen products, capital_market_
+    # assumptions und product_eligibility_rule_sets/_rules sind per RLS fuer
+    # alle Sessions LESBAR, schreibbar nur per Operator-Bypass (siehe
+    # services/postgres_rls.py::GLOBAL_REFERENCE_TABLES). Fuer capital_market_
     # assumptions/optimizer_policies GEHT das mit dem heutigen Schema NICHT
     # ohne groessere Aenderung: beide haben eine GLOBALE (nicht tenant-
     # gescopte) Unique-Constraint auf is_current allein (ux_optimizer_one_

@@ -100,6 +100,7 @@ def test_create_access_token_includes_iat():
     token = create_access_token({'sub': 'user-x'})
     payload = jwt.decode(
         token, settings.secret_key, algorithms=[settings.algorithm],
+        audience=settings.jwt_audience,
         options={'verify_exp': False},
     )
     assert 'iat' in payload, "Token muss 'iat' (issued-at) enthalten"
@@ -112,6 +113,7 @@ def test_create_access_token_iat_is_close_to_now():
     after = datetime.now(timezone.utc).timestamp()
     payload = jwt.decode(
         token, settings.secret_key, algorithms=[settings.algorithm],
+        audience=settings.jwt_audience,
         options={'verify_exp': False},
     )
     iat = float(payload['iat'])
@@ -125,6 +127,7 @@ def test_create_access_token_exp_respects_ttl():
     token = create_access_token({'sub': 'user-x'})
     payload = jwt.decode(
         token, settings.secret_key, algorithms=[settings.algorithm],
+        audience=settings.jwt_audience,
         options={'verify_exp': False},
     )
     iat = float(payload['iat'])
@@ -143,6 +146,7 @@ def test_create_access_token_custom_expires_delta_overrides_default():
     )
     payload = jwt.decode(
         token, settings.secret_key, algorithms=[settings.algorithm],
+        audience=settings.jwt_audience,
         options={'verify_exp': False},
     )
     iat = float(payload['iat'])

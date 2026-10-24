@@ -9,7 +9,7 @@ Reine Schema-Erweiterung, keine Logikaenderung: die Version wird nur
 gespeichert. ADD COLUMN mit Server-Default fuellt Bestandszeilen mit 1.
 
 Revision ID: 2cbc77503cd9
-Revises: c4d9e2a7f1b6
+Revises: e2b7c4f9a1d6
 Create Date: 2026-10-23
 """
 from typing import Sequence, Union
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 
 
 revision: str = "2cbc77503cd9"
-down_revision: Union[str, Sequence[str], None] = "c4d9e2a7f1b6"
+down_revision: Union[str, Sequence[str], None] = "e2b7c4f9a1d6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
