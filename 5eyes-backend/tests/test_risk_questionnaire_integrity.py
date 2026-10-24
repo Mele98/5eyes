@@ -46,6 +46,8 @@ from tests.risk_fixture_helpers import (
 )
 
 NOT_STANDARD = "RISK_QUESTIONNAIRE_NOT_STANDARD"
+POINTS_MISMATCH = "RISK_ANSWER_POINTS_MISMATCH"
+HORIZON_MISMATCH = "RISK_ANSWER_HORIZON_MISMATCH"
 
 
 def _now() -> str:
@@ -191,6 +193,45 @@ def test_nonstandard_answer_structure_is_rejected(client, mandate_id, mutate):
     resp = _post(client, mandate_id, payload)
     assert resp.status_code == 422, resp.text
     assert _reason(resp) == NOT_STANDARD
+
+
+# ── O-2: Server leitet die Punkte ab, Abweichung -> 422 ─────────────────────────
+
+@pytest.mark.parametrize("mutate", [
+    pytest.param(lambda p: p.update(q_income_points=4), id="score-field"),
+    pytest.param(lambda p: _answer(p, 3).update(answer_points=4), id="answer-points"),
+    pytest.param(lambda p: (p.update(q_income_points=4), _answer(p, 3).update(answer_points=4)), id="both-consistent-but-wrong"),
+    pytest.param(lambda p: p.update(q_obligations_points=1), id="inverse-obligations"),
+    pytest.param(lambda p: p.update(q_wealth_points=p["q_savings_points"] + 3), id="wealth"),
+    pytest.param(lambda p: p.update(q_risk_behavior_points=4), id="willingness"),
+])
+def test_points_not_matching_selected_answers_are_rejected(client, mandate_id, mutate):
+    payload = standard_risk_payload()
+    mutate(payload)
+    resp = _post(client, mandate_id, payload)
+    assert resp.status_code == 422, resp.text
+    assert _reason(resp) == POINTS_MISMATCH
+    assert resp.json()["detail"]["mismatches"]
+
+
+@pytest.mark.parametrize("mutate", [
+    pytest.param(lambda p: p.update(investment_horizon_label="Mehr als 12 Jahre", investment_horizon_years=15), id="label"),
+    pytest.param(lambda p: p.update(investment_horizon_years=15), id="years"),
+])
+def test_horizon_not_matching_question_8_is_rejected(client, mandate_id, mutate):
+    payload = standard_risk_payload(horizon=4)
+    mutate(payload)
+    resp = _post(client, mandate_id, payload)
+    assert resp.status_code == 422, resp.text
+    assert _reason(resp) == HORIZON_MISMATCH
+
+
+def test_rejected_submission_persists_nothing(client, mandate_id, session_factory):
+    payload = standard_risk_payload()
+    payload["q_income_points"] = 4
+    assert _post(client, mandate_id, payload).status_code == 422
+    with session_factory() as s:
+        assert s.query(RiskAssessment).count() == 0
 
 
 # ── Gespeicherte Profile (Bestand) ──────────────────────────────────────────────

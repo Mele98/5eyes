@@ -27,7 +27,11 @@ import re
 import unicodedata
 from typing import Any, Iterable
 
+from services.risk_scoring import HORIZON_YEARS, canonicalize_horizon_label
+
 REASON_NOT_STANDARD = "RISK_QUESTIONNAIRE_NOT_STANDARD"
+REASON_POINTS_MISMATCH = "RISK_ANSWER_POINTS_MISMATCH"
+REASON_HORIZON_MISMATCH = "RISK_ANSWER_HORIZON_MISMATCH"
 RECAPTURE_HINT = "Risikoprofil mit dem Standard-Fragebogen neu erfassen."
 
 REQUIRED_QUESTIONS = tuple(range(1, 12))
@@ -252,11 +256,44 @@ def derive_standard_points(answers: Iterable | None) -> tuple[dict[str, int], st
 
 
 def validate_standard_submission(body) -> dict[str, int]:
-    """Antwortstruktur gegen den Standard-Fragebogen pruefen."""
+    """Antwortstruktur pruefen, Punkte ableiten und gegen den Client abgleichen."""
     for raw in (getattr(body, "knowledge_services_json", None), getattr(body, "knowledge_instruments_json", None)):
         if _has_nonstandard_source_marker(raw):
             raise _not_standard("Quelle ist nicht der Standard-Fragebogen")
-    derived, _horizon = derive_standard_points(getattr(body, "answers", None) or [])
+    answers = getattr(body, "answers", None) or []
+    derived, horizon_option = derive_standard_points(answers)
+
+    mismatches = []
+    for answer in _persistable_answers(answers):
+        question = _int_or_none(_answer_value(answer, "question_number"))
+        expected = derived.get(POINT_FIELD_BY_QUESTION.get(question, ""), 0)
+        sent = _int_or_none(_answer_value(answer, "answer_points"))
+        if sent != expected:
+            mismatches.append({"field": f"answers[{question}].answer_points", "sent": sent, "derived": expected})
+    for field, expected in derived.items():
+        sent = _int_or_none(getattr(body, field, None))
+        if sent != expected:
+            mismatches.append({"field": field, "sent": sent, "derived": expected})
+    if mismatches:
+        raise RiskQuestionnaireIntegrityError(
+            REASON_POINTS_MISMATCH,
+            "Die mitgesendeten Punkte passen nicht zu den gewaehlten Antworten. "
+            "Bitte den Fragebogen neu laden und erneut speichern.",
+            mismatches=mismatches,
+        )
+
+    expected_years = HORIZON_YEARS[canonicalize_horizon_label(horizon_option)]
+    label = canonicalize_horizon_label(getattr(body, "investment_horizon_label", ""))
+    sent_years = _int_or_none(getattr(body, "investment_horizon_years", None))
+    if HORIZON_YEARS.get(label) != expected_years or sent_years != expected_years:
+        raise RiskQuestionnaireIntegrityError(
+            REASON_HORIZON_MISMATCH,
+            "Der Anlagehorizont passt nicht zur gewaehlten Antwort in Frage 8. "
+            "Bitte den Fragebogen neu laden und erneut speichern.",
+            answer_horizon=horizon_option,
+            investment_horizon_label=getattr(body, "investment_horizon_label", None),
+            investment_horizon_years=sent_years,
+        )
     return derived
 
 
