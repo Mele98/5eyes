@@ -684,6 +684,8 @@ def _simulate_context_wealth(
         mandate_age_at_start=context.mandate_age_at_start,
         is_retired=context.is_retired,
         is_retired_series=context.is_retired_series,
+        # Explizite Replays (inkl. Reserve-Freigaben) statt festgehaltenem Kontext.
+        retain_scope_context=False,
     )
 
 

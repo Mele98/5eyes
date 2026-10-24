@@ -37,6 +37,7 @@ from services.report_projection_gate import (
     HINT_NO_ASSESSMENT,
     ProjectionGate,
 )
+from services.report_projection_redaction import numeric_projection_leaks
 from tests.test_report_mc_allocation_staleness import (
     _generate,
     _replace_current_assessment,
@@ -84,7 +85,9 @@ def _assert_all_projections_hidden(report: dict, *, status: str) -> None:
     assert mc["p50"] == []
     assert gbi["target_allocation_stale"] is True
     assert gbi["plan_solvency"] is None
-    assert gbi["goal_achievement_score_bps"] == 0
+    # MC-CONTEXT-001 (Codex-Closure-Review PR #663): nicht verfuegbar ist
+    # None, nie eine gemessene Erfolgswahrscheinlichkeit von 0 %.
+    assert gbi["goal_achievement_score_bps"] is None
     for goal in gbi["goals"]:
         assert goal["probability_bps"] is None
         assert goal["status"] == "data_pending"
@@ -121,6 +124,18 @@ def _assert_all_projections_hidden(report: dict, *, status: str) -> None:
     checks = {c["pruefpunkt"]: c for c in report["erkenntnisse"]["checks"]}
     assert checks["Asset Allocation"]["bewertung"] == "nicht_beurteilbar"
     assert checks["Zielkompatibilität"]["bewertung"] == "nicht_beurteilbar"
+
+    # MC-CONTEXT-001 (PR #663): die Risikoquote der Allokation ist kein
+    # Assessmentwert; das Profil bleibt sichtbar, das Risikobudget nicht.
+    rp = report["risikoprofilierung"]
+    assert rp["risky_fraction_bps"] is None
+    for channel in (
+        "goal_based_investing.goal_achievement_score_bps",
+        "risikoprofilierung.risky_fraction_bps",
+    ):
+        assert channel in gate["hidden_channels"], channel
+    # Zentrale Publikationsgrenze: kein Manifest-Feld bleibt numerisch.
+    assert numeric_projection_leaks(report) == []
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +221,10 @@ def test_current_context_publishes_every_channel_then_blocked_hides_all(
     assert gate["hidden_channels"] == []
     assert fresh["goal_based_investing"]["monte_carlo_paths"]["data_pending"] is False
     assert fresh["ausgangslage"]["key_metrics"]["risky_fraction_bps"] is not None
+    # PR #663 Positivkontrolle: aktueller Kontext publiziert das Risikobudget
+    # (Score-Positivkontrolle mit bewerteten Zielen:
+    # tests/test_report_projection_redaction.py).
+    assert isinstance(fresh["risikoprofilierung"]["risky_fraction_bps"], int)
     assert fresh["stress_replay"]["scenarios"], fresh["stress_replay"]
     assert any(
         b["target_bps"] for b in fresh["building_blocks"]["blocks"]

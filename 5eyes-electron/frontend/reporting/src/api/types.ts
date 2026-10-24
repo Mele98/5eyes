@@ -552,8 +552,10 @@ export interface MonteCarloPaths {
 
 export interface GoalBasedInvestingData {
   goals: GoalEntry[];
-  /** Gewichteter Achievement-Score in bps (10000 = 100%) */
-  goal_achievement_score_bps: number;
+  /** Gewichteter Achievement-Score in bps (10000 = 100%). MC-CONTEXT-001
+   * (PR #663): null = nicht verfuegbar (keine Bewertung oder Projection-Gate
+   * ausgeblendet) -- nie als 0 % darstellen. */
+  goal_achievement_score_bps: number | null;
   /** GOAL-ACHIEVABILITY-ATTRIBUTION-001: Plan-Solvenz, null ohne Bewertung. */
   plan_solvency: PlanSolvency | null;
   monte_carlo_paths: MonteCarloPaths;

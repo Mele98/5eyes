@@ -130,10 +130,14 @@ class RiskAssessment(Base):
 
     @property
     def signoff_state(self) -> str:
-        """Fachlicher Signoff-Zustand (services/risk_profile_signoff.py)."""
-        from services.risk_profile_signoff import signoff_state
+        """Fachlicher Signoff-Zustand (services/risk_profile_signoff.py).
 
-        return signoff_state(self)
+        Codex-Closure-Review PR #662: ``signed`` nur, wenn der Signoff-Nachweis
+        noch semantisch zu diesem Assessment passt (sonst
+        ``integrity_mismatch``) -- dieselbe Pruefung wie PDFs/Strategie."""
+        from services.risk_profile_signoff import verified_signoff_state
+
+        return verified_signoff_state(None, self)
 
 
 class RiskOverrideDecision(Base):
@@ -168,6 +172,7 @@ class RiskOverrideDecision(Base):
             unique=True,
         ),
         Index("ix_risk_override_decisions_mandate", "mandate_id"),
+        Index("ix_risk_override_decisions_tenant_id", "tenant_id"),
     )
 
     id = Column(String, primary_key=True)
@@ -179,6 +184,10 @@ class RiskOverrideDecision(Base):
     assessment_id = Column(String, nullable=False)
     mandate_id = Column(String, nullable=False)
     client_id = Column(String)
+    # PG-002 (Codex-Closure-Review PR #662): Mandant aus dem Mandat abgeleitet
+    # (services/risk_evidence_tenant_boundary.py), ab Schema V2 im Hash.
+    # NULL nur fuer quarantaenierten Altbestand ohne ableitbares Mandat.
+    tenant_id = Column(String)
     assessment_version = Column(Integer, nullable=False)
     sequence_no = Column(Integer, nullable=False)
     previous_decision_id = Column(String)
@@ -237,6 +246,7 @@ class RiskProfileSignoff(Base):
             unique=True,
         ),
         Index("ix_risk_profile_signoffs_mandate", "mandate_id"),
+        Index("ix_risk_profile_signoffs_tenant_id", "tenant_id"),
         CheckConstraint(
             "override_binding IN ('decision','no_override')",
             name="ck_risk_profile_signoff_binding",
@@ -262,6 +272,8 @@ class RiskProfileSignoff(Base):
     assessment_id = Column(String, nullable=False)
     mandate_id = Column(String, nullable=False)
     client_id = Column(String)
+    # PG-002 (Codex-Closure-Review PR #662): siehe RiskOverrideDecision.tenant_id.
+    tenant_id = Column(String)
     assessment_version = Column(Integer, nullable=False)
     sequence_no = Column(Integer, nullable=False)
     previous_signoff_id = Column(String)
@@ -294,6 +306,12 @@ for _trigger_ddl in RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )
+
+# PG-002: Mandanten-/Kombinationsschutz beim INSERT (nach create_all, wenn
+# mandates und risk_assessments sicher existieren).
+from services import risk_evidence_tenant_boundary as _retb  # noqa: E402
+
+event.listen(Base.metadata, "after_create", _retb.create_sqlite_guards_after_metadata_create)
 
 
 class RiskAssessmentAnswer(Base):

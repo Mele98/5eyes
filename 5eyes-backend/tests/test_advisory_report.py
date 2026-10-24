@@ -1284,14 +1284,15 @@ def _make_ta_with_goals(
 # ---------------------------------------------------------------------------
 
 def test_goal_based_investing_empty_without_ta(session_factory):
-    """Ohne TA: leere Goal-Liste, achievement_score=0, MC-Paths-Flag gesetzt."""
+    """Ohne TA: leere Goal-Liste, achievement_score=None (nicht verfuegbar,
+    MC-CONTEXT-001 PR #663), MC-Paths-Flag gesetzt."""
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     gbi = report["goal_based_investing"]
     assert gbi["goals"] == []
-    assert gbi["goal_achievement_score_bps"] == 0
+    assert gbi["goal_achievement_score_bps"] is None
     assert gbi["monte_carlo_paths"]["data_pending"] is True
 
 
@@ -1443,7 +1444,7 @@ def test_goal_based_investing_returns_data_pending_goals_without_achievability(s
     assert gbi["goals"][0]["label"] == "Pension"
     assert gbi["goals"][0]["probability_bps"] is None
     assert gbi["goals"][0]["status"] == "data_pending"
-    assert gbi["goal_achievement_score_bps"] == 0
+    assert gbi["goal_achievement_score_bps"] is None
 
 
 def test_goal_based_investing_aggregates_persisted_achievability(session_factory):

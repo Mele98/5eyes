@@ -338,32 +338,26 @@ def _saa_internal_reserve_rappen(
     )
 
 
-def _external_reserve_release_series(
-    external_reserve_rappen: int,
+def _tranche_release_series(
+    tranche_amount_rappen: int,
     cashflow_series_rappen: list[int],
     liability_path_rappen: list[int],
 ) -> list[int]:
-    """RESERVE-DOUBLE-COUNT-001: Rueckbuchung der externen Reserve im Solver.
+    """Release-Primitiv EINER quellengebundenen Reservetranche.
 
-    Die externe Reserve E wird vor dem Solver aus dem Beratungsvermoegen
-    herausgeloest (Start = A - E), ist aber Geld des Kunden, das genau fuer
-    die nahen Abfluesse (Nahziele, Cashflow-Defizite) gebildet wurde. Diese
-    Abfluesse stehen weiter voll als Liability/Cashflow im Solver. Ohne
-    Rueckbuchung waere E doppelt verbraucht. Hier fliesst E als Bargeld
-    (ohne Rendite, konservativ) chronologisch genau in den Jahren zurueck, in
-    denen Abfluesse faellig werden: release_t = min(Rest-E, Outflow_t) mit
-    Outflow_t = Liability_t + max(0, -Cashflow_t). Summe <= E.
+    RESERVE-DOUBLE-COUNT-001: Die externe Reserve E wird vor dem Solver aus dem
+    Beratungsvermoegen herausgeloest (Start = A - E), ist aber Geld des Kunden.
+    Eine Tranche fliesst als Bargeld (ohne Rendite, konservativ)
+    chronologisch genau in den Jahren zurueck, in denen die Abfluesse IHRER
+    Quelle faellig werden: release_t = min(Rest, Outflow_t) mit
+    Outflow_t = Liability_t + max(0, -Cashflow_t). Summe <= Tranche.
 
-    RESERVE-FUNDING-LEDGER-001: Das ist nur noch das Release-Primitiv EINER
-    quellengebundenen Tranche. Mit aggregiertem E aufgerufen wuerde es einen
-    reinen Policy-Floor in jeden sachfremden spaeteren Abfluss umetikettieren
-    (Codex-Review PR #638). Produktionscode ruft es ausschliesslich ueber
-    ``services.reserve_funding_ledger.compile_reserve_funding_ledger`` auf --
-    je Tranche mit genau den Abfluessen ihrer eigenen Quelle.
+    Aufrufer uebergeben ausschliesslich die Abfluesse der eigenen Quelle
+    (``services.reserve_funding_ledger.compile_reserve_funding_ledger``).
     """
-    remaining = int(external_reserve_rappen or 0)
+    remaining = int(tranche_amount_rappen or 0)
     if remaining < 0:
-        raise ValueError("external_reserve_rappen must be >= 0")
+        raise ValueError("tranche_amount_rappen must be >= 0")
     horizon = len(cashflow_series_rappen)
     release: list[int] = []
     for t in range(horizon):
@@ -373,6 +367,27 @@ def _external_reserve_release_series(
         remaining -= amount
         release.append(amount)
     return release
+
+
+def _external_reserve_release_series(
+    external_reserve_rappen: int,
+    cashflow_series_rappen: list[int],
+    liability_path_rappen: list[int],
+) -> list[int]:
+    """Aggregierte externe Reserve ohne Herkunft: fail-closed, keine Freigabe.
+
+    RESERVE-DOUBLE-COUNT-001 (Codex-Review PR #638, Vertrag 1): Ein
+    aggregierter Betrag E traegt keine Quelle. Frueher buchte diese Funktion E
+    greedy in JEDEN spaeteren Abfluss zurueck und etikettierte damit einen
+    reinen Policy-/minReserve-Floor in ein sachfremdes Ziel um -- derselbe
+    Franken konnte so als Mindestbestand UND als Zielfinanzierung wirken.
+    Ohne Herkunft ist E konservativ ein dauerhafter Mindestbestand: er bleibt
+    als Reservekonto beim Kunden und wird nie freigegeben. Freigaben entstehen
+    nur im quellengebundenen Ledger (``_tranche_release_series`` je Tranche).
+    """
+    if int(external_reserve_rappen or 0) < 0:
+        raise ValueError("external_reserve_rappen must be >= 0")
+    return [0] * len(cashflow_series_rappen)
 
 
 def _compute_reserve_for_inputs(
