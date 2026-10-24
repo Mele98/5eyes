@@ -2,7 +2,7 @@
 
 Many tests start the FastAPI app via ``TestClient(app)``; its lifespan calls
 ``init_db()`` on ``settings.db_path``, whose default is the LIVE desktop
-database ``~/5eyes/5eyes.db``. Parallel test runs therefore executed startup
+database ``~/ares/ares.db``. Parallel test runs therefore executed startup
 migrations against real client data and left an interrupted table rebuild
 (ANSWERS-MIGRATION-IDEMPOTENT-001).
 
@@ -58,6 +58,16 @@ if _XDIST_WORKER:
 elif not os.environ.get("DB_PATH") or is_live_db_path(os.environ["DB_PATH"]):
     _session_dir = tempfile.mkdtemp(prefix="ares-tests-")
     os.environ["DB_PATH"] = str(Path(_session_dir) / "ares_test.db")
+
+
+# W4-c: Die Master-KEK ist Pflicht (kein Rueckfall auf SECRET_KEY). Jede
+# Test-Session bekommt eine eigene, zufaellige Test-KEK, bevor ``config`` seine
+# Settings baut; eine explizit gesetzte KEK bleibt unberuehrt. xdist-Worker
+# erben sie vom Controller.
+if not os.environ.get("TENANT_MASTER_KEK", "").strip():
+    from cryptography.fernet import Fernet
+
+    os.environ["TENANT_MASTER_KEK"] = Fernet.generate_key().decode("ascii")
 
 
 def live_db_violation(db_path, database_url=None):

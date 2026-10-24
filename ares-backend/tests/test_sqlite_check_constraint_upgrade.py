@@ -135,7 +135,7 @@ def test_legacy_maintenance_path_widens_stale_check_lists(tmp_path, monkeypatch)
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("SELECT role FROM users WHERE id='u-legacy'").fetchone()[0] == "readonly"
     assert _schema_objects(db_path) == objects_before
-    assert len(list((tmp_path / "bk").glob("5eyes_pre_check_upgrade_*.db"))) == 1
+    assert len(list((tmp_path / "bk").glob("ares_pre_check_upgrade_*.db"))) == 1
 
 
 _EXPECTED_ADDED = {
@@ -164,7 +164,7 @@ def test_widening_is_idempotent_union_only_with_backup_and_protocol(tmp_path):
     # Zweiter Lauf: nichts zu tun, KEINE weitere Sicherung.
     assert ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE, backup_dir=backup_dir) == {}
     engine.dispose()
-    backups = sorted(backup_dir.glob("5eyes_pre_check_upgrade_*.db"))
+    backups = sorted(backup_dir.glob("ares_pre_check_upgrade_*.db"))
     assert len(backups) == 1
     assert not list(backup_dir.glob("*.partial*"))  # keine verwaisten Temp-Reste
     # Sicherung = Zustand VOR der Aenderung.

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 import sys
 
 from pydantic import Field, field_validator, model_validator
@@ -122,6 +123,9 @@ def resolve_env_file() -> str:
         if candidate.exists():
             return str(candidate)
     return '.env'
+
+
+_HOSTNAME_RE = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
 
 
 class Settings(BaseSettings):
@@ -335,7 +339,7 @@ class Settings(BaseSettings):
 
     # U-8 — DB-Backup-Strategie (PR #106).
     backup_enabled: bool = True
-    backup_dir: str = str(Path.home() / '5eyes' / 'backups')
+    backup_dir: str = str(Path.home() / 'ares' / 'backups')
     backup_retain_days: int = 30
     backup_keep_minimum: int = 3
     backup_scheduler_enabled: bool = True
@@ -349,7 +353,7 @@ class Settings(BaseSettings):
     # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
     # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
     backup_offsite_enabled: bool = False
-    # rsync-Zielangabe, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/"
+    # rsync-Zielangabe, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/"
     backup_offsite_target: str = ''
     backup_offsite_ssh_key_path: str = ''
     backup_offsite_ssh_port: int = 22
@@ -464,7 +468,13 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ''
     smtp_password: str = ''
-    smtp_from: str = '5eyes <no-reply@5eyes.local>'
+    # W4-d: kein erfundener Absender. Ohne SMTP_FROM (<ARES_NO_REPLY_EMAIL>,
+    # Owner-Wert) verschickt services/mailer.py nichts (fail-closed, klare
+    # Meldung im Log); der Invite-Flow faellt auf Link-Copy zurueck.
+    smtp_from: str = ''
+    # W4-d: kontrollierte Hauptdomain (<ARES_DOMAIN>, Owner-Wert, kein Default).
+    # Wird z.B. als Domain-Teil der ICS-UIDs verwendet; leer = UIDs ohne Domain.
+    ares_domain: str = ''
     smtp_use_tls: bool = True        # STARTTLS auf smtp_port
     smtp_timeout_seconds: int = 10
 
@@ -698,6 +708,14 @@ class Settings(BaseSettings):
     def validate_backup_retain_days(cls, value: int) -> int:
         if value < 0:
             raise ValueError('backup_retain_days must be >= 0 (0 = nie aufraeumen)')
+        return value
+
+    @field_validator('ares_domain')
+    @classmethod
+    def validate_ares_domain(cls, value: str) -> str:
+        value = (value or '').strip().lower()
+        if value and not _HOSTNAME_RE.fullmatch(value):
+            raise ValueError('ARES_DOMAIN muss ein reiner Hostname sein (z.B. firma.example), ohne Schema, Pfad oder @')
         return value
 
     @field_validator('backup_keep_minimum')

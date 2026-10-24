@@ -1,6 +1,6 @@
 """Seed fuer den EXTERNEN TEST (Phase 0) — eigene Staging-DB, NUR synthetische Daten.
 
-Legt eine SEPARATE DB (Default: ~/5eyes/5eyes-staging.db) mit Demo-Tenants + Accounts an
+Legt eine SEPARATE DB (Default: ~/ares/ares-staging.db) mit Demo-Tenants + Accounts an
 — voellig getrennt von der Live-DB mit echten Mandanten. So kann beim Extern-Test
 GARANTIERT keine echte Kundendaten exponiert werden (es ist schlicht keine da).
 
@@ -18,9 +18,10 @@ import datetime
 from pathlib import Path
 
 # --- Staging-DB-Pfad VOR dem Import von database/config setzen ---
-_default = str(Path.home() / "5eyes" / "5eyes-staging.db")
+_default = str(Path.home() / "ares" / "ares-staging.db")
 _db_path = sys.argv[1] if len(sys.argv) > 1 else _default
 from core.db_location import refuse_live_db  # noqa: E402
+from core.demo_credentials import demo_password  # noqa: E402
 
 refuse_live_db(_db_path, context=Path(__file__).name)
 os.environ["DB_PATH"] = _db_path
@@ -51,10 +52,12 @@ def _now() -> str:
 
 
 # Initial-Passwort fuer alle Demo-Accounts (beim 1. Login Wechsel + 2FA erzwungen).
-INITIAL_PW = "Start-5eyes-2026!"
+# Kein Passwort im Quellcode: aus DEMO_INITIAL_PASSWORD oder pro Lauf zufaellig
+# erzeugt und einmal ausgegeben (core/demo_credentials.py).
+INITIAL_PW_ENV = "DEMO_INITIAL_PASSWORD"
 
 TENANTS = [
-    ("tnt-internal", "5eyes Intern (Demo)", "5eyes-internal"),
+    ("tnt-internal", "Intern (Demo)", "demo-intern"),
     ("tnt-firma-a", "Demo Firma A (Treuhand)", "demo-firma-a"),
     ("tnt-firma-b", "Demo Firma B (VV)", "demo-firma-b"),
 ]
@@ -90,14 +93,15 @@ def main() -> int:
         s.commit()
 
         existing_u = {u.username for u in s.query(User).all()}
-        pw_hash = hash_password(INITIAL_PW)
+        initial_pw, pw_source = demo_password(INITIAL_PW_ENV)
+        pw_hash = hash_password(initial_pw)
         for username, full_name, role, tenant_id in USERS:
             if username in existing_u:
                 continue
             s.add(User(
                 id=str(uuid.uuid4()), tenant_id=tenant_id, username=username,
                 password_hash=pw_hash, full_name=full_name,
-                email=f"{username}@demo.5eyes.local", role=role, is_active=1,
+                email=f"{username}@demo.invalid", role=role, is_active=1,
                 must_change_password=1, totp_enabled=0,
                 created_at=_now(), updated_at=_now(),
             ))
@@ -105,7 +109,10 @@ def main() -> int:
         s.commit()
 
     print(f"Angelegt: {created_t} Tenants, {created_u} Accounts.")
-    print(f"Initial-Passwort fuer ALLE: {INITIAL_PW}  (Wechsel + 2FA beim 1. Login erzwungen)")
+    if created_u:
+        hint = pw_source if pw_source != "zufaellig" else "zufaellig erzeugt, nur jetzt sichtbar"
+        print(f"Initial-Passwort fuer die neu angelegten Accounts ({hint}): {initial_pw}")
+        print("  (Wechsel + 2FA beim 1. Login erzwungen)")
     print("Accounts:")
     for username, full_name, role, tenant_id in USERS:
         print(f"  - {username:12s} | {role:11s} | {tenant_id}  ({full_name})")
