@@ -56,8 +56,8 @@ def _worker_db_path(worker: str, inherited: str | None) -> str:
 if _XDIST_WORKER:
     os.environ["DB_PATH"] = _worker_db_path(_XDIST_WORKER, os.environ.get("DB_PATH"))
 elif not os.environ.get("DB_PATH") or is_live_db_path(os.environ["DB_PATH"]):
-    _session_dir = tempfile.mkdtemp(prefix="5eyes-tests-")
-    os.environ["DB_PATH"] = str(Path(_session_dir) / "5eyes-test.db")
+    _session_dir = tempfile.mkdtemp(prefix="ares-tests-")
+    os.environ["DB_PATH"] = str(Path(_session_dir) / "ares_test.db")
 
 
 def live_db_violation(db_path, database_url=None):

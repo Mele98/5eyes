@@ -340,3 +340,14 @@ def test_rls_dynamic_table_coverage_guard_is_wired_in(workflow_yaml):
     tatsaechlich durchgesetzt. Dieser Test schuetzt dagegen, dass die
     Verdrahtung je wieder stillschweigend verschwindet."""
     assert "tests/test_rls_dynamic_table_coverage_guard.py" in _postgres_rls_run_command(workflow_yaml)
+
+
+def test_postgres_rls_database_name_is_consistent(workflow_yaml):
+    """Service-DB, Health-Check und Test-URL nennen dieselbe DB `ares_rls`."""
+    job = workflow_yaml["jobs"]["postgres-rls"]
+    service = job["services"]["postgres"]
+    assert service["env"]["POSTGRES_DB"] == "ares_rls"
+    assert '--health-cmd "pg_isready -U postgres -d ares_rls"' in service["options"]
+    run_step = next(s for s in job["steps"] if "run" in s and "pytest" in s["run"])
+    url = run_step["env"]["POSTGRES_TEST_DATABASE_URL"]
+    assert url.rsplit("/", 1)[-1] == "ares_rls"
