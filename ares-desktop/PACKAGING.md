@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten — Packaging-Anleitung
+# Ares — Packaging-Anleitung
 
 > Roadmap-Punkt 6 (2026-05-29): Build-Pipeline wurde seit Sprint 11 nicht
 > mehr aktuell gehalten. Drift in `hiddenImports` und fehlender Sub-App-
@@ -86,12 +86,12 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
    npm run preflight:release   # statische Checks
    npm run pack                # baut Installer-Layout ohne NSIS
    npm run dist:win            # voller NSIS-Installer
-   ls dist/                    # 5Eyes-Setup-<version>-x64.exe
+   ls dist/                    # *-Setup-<version>-x64.exe (Name gemaess artifactName)
    ```
 
 5. **Installer-Smoke:**
    - Installer doppelklicken
-   - Im Installer-Pfad: `5Eyes WealthArchitekten` -> Programm Files
+   - Im Installer-Pfad: `<productName>` (aus `package.json`) -> Programm Files
    - Desktop-Shortcut wird angelegt
    - App startet, zeigt Login-Screen
    - Login mit Test-User
@@ -140,7 +140,7 @@ jobs:
       - actions/download-artifact backend-bundle
       - cd ares-desktop && npm ci
       - STRICT_RELEASE=1 npm run dist:win
-      - actions/upload-artifact 5Eyes-Setup
+      - actions/upload-artifact <Setup-Datei>
 ```
 
 Heute laeuft noch kein CI fuer Packaging (das gehoert zur Backend-Tests-
