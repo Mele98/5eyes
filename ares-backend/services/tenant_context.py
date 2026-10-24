@@ -64,7 +64,7 @@ def attach_tenant_context_reset(target_engine: Engine) -> None:
     if not is_postgres_bind(target_engine):
         return
 
-    marker = "_5eyes_tenant_context_reset_attached"
+    marker = "_ares_tenant_context_reset_attached"
     if getattr(target_engine, marker, False):
         return
     setattr(target_engine, marker, True)
