@@ -6,10 +6,10 @@
   },
   "implementation_steps": [
     "Aktien aufbauen: ca. CHF 191'550",
-    "Obligationen reduzieren: ca. CHF 104'900",
+    "Obligationen reduzieren: ca. CHF 104'800",
     "Liquiditaet reduzieren: ca. CHF 90'000",
-    "Immobilien aufbauen: ca. CHF 34'500",
-    "Alternative reduzieren: ca. CHF 31'150"
+    "Immobilien aufbauen: ca. CHF 34'350",
+    "Alternative reduzieren: ca. CHF 31'100"
   ],
   "positions": [
     {
@@ -22,8 +22,8 @@
         "Obligationen CHF IG"
       ],
       "sub_asset_class": "Obligationen CHF IG",
-      "target_amount_rappen": 2755000,
-      "target_weight_bps": 551,
+      "target_amount_rappen": 2760000,
+      "target_weight_bps": 552,
       "ter_bps": 32
     },
     {
@@ -36,8 +36,8 @@
         "Immobilien Schweiz"
       ],
       "sub_asset_class": "Immobilien Schweiz",
-      "target_amount_rappen": 2760000,
-      "target_weight_bps": 552,
+      "target_amount_rappen": 2750000,
+      "target_weight_bps": 550,
       "ter_bps": 52
     },
     {
@@ -78,8 +78,8 @@
         "Gold / Rohstoffe"
       ],
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_amount_rappen": 1885000,
-      "target_weight_bps": 377,
+      "target_amount_rappen": 1890000,
+      "target_weight_bps": 378,
       "ter_bps": 40
     },
     {
@@ -134,8 +134,8 @@
         "Immobilien Global"
       ],
       "sub_asset_class": "Immobilien Global",
-      "target_amount_rappen": 690000,
-      "target_weight_bps": 138,
+      "target_amount_rappen": 685000,
+      "target_weight_bps": 137,
       "ter_bps": 48
     },
     {
@@ -148,8 +148,8 @@
         "Obligationen Global Hedged"
       ],
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_amount_rappen": 1755000,
-      "target_weight_bps": 351,
+      "target_amount_rappen": 1760000,
+      "target_weight_bps": 352,
       "ter_bps": 10
     }
   ],
@@ -183,19 +183,19 @@
       "asset_class": "Alternative",
       "rationale": "Standardbaustein fuer Alternative Anlagen",
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_weight_bps": 377
+      "target_weight_bps": 378
     },
     {
       "asset_class": "Immobilien",
       "rationale": "Ergaenzende Diversifikation",
       "sub_asset_class": "Immobilien Global",
-      "target_weight_bps": 138
+      "target_weight_bps": 137
     },
     {
       "asset_class": "Immobilien",
       "rationale": "Schweizer Immobilienfokus",
       "sub_asset_class": "Immobilien Schweiz",
-      "target_weight_bps": 552
+      "target_weight_bps": 550
     },
     {
       "asset_class": "Liquiditaet",
@@ -207,13 +207,13 @@
       "asset_class": "Obligationen",
       "rationale": "Langfristiger CHF-Kern",
       "sub_asset_class": "Obligationen CHF IG",
-      "target_weight_bps": 551
+      "target_weight_bps": 552
     },
     {
       "asset_class": "Obligationen",
       "rationale": "Globale Diversifikation",
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_weight_bps": 351
+      "target_weight_bps": 352
     }
   ],
   "target_allocation": {
@@ -250,14 +250,14 @@
     "optimization_method": "stochastic",
     "optimization_status": "converged",
     "reserve_needed_rappen": 0,
-    "risky_fraction_bps": 6863,
+    "risky_fraction_bps": 6862,
     "score_bucket": 9,
     "targets_bps": {
-      "alternatives": 377,
-      "bonds": 902,
+      "alternatives": 378,
+      "bonds": 904,
       "equities": 7831,
       "liquidity": 200,
-      "real_estate": 690
+      "real_estate": 687
     }
   },
   "target_allocation_warnings": [],
