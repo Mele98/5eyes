@@ -83,7 +83,7 @@ def test_keep_workdir_flag_preserves_sandbox(monkeypatch, capsys, tmp_path):
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "--keep-workdir gesetzt: Sandbox bleibt erhalten" in captured.out
-    sandboxes = list(tmp_path.glob("5eyes-restore-drill-*"))
+    sandboxes = list(tmp_path.glob("ares-restore-drill-*"))
     assert len(sandboxes) == 1
     assert (sandboxes[0] / "source" / "drill.db").is_file()
     assert list((sandboxes[0] / "backups").glob("*.db"))
@@ -97,7 +97,7 @@ def test_sandbox_is_removed_without_keep_flag(monkeypatch, tmp_path):
     exit_code = drill.main()
 
     assert exit_code == 0
-    assert list(tmp_path.glob("5eyes-restore-drill-*")) == []
+    assert list(tmp_path.glob("ares-restore-drill-*")) == []
 
 
 def test_integrity_check_helper_reports_ok_on_healthy_db(tmp_path):

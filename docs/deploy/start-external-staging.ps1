@@ -1,7 +1,7 @@
 # =============================================================================
 # 5eyes — EXTERNER TEST mit SEPARATER Staging-DB (garantiert KEINE echten Mandanten)
 #
-# Wie start-external.ps1, aber zeigt auf ~/5eyes/5eyes-staging.db (DB_PATH) — eine
+# Wie start-external.ps1, aber zeigt auf ~/ares/ares-staging.db (DB_PATH) — eine
 # eigene DB mit NUR synthetischen Demo-Tenants/Accounts. Selbst wenn die
 # Tenant-Isolation versagte, gibt es hier schlicht KEINE echten Kundendaten.
 #
@@ -15,11 +15,11 @@ $ErrorActionPreference = 'Stop'
 
 $repo    = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $backend = Join-Path $repo 'ares-backend'
-$home5   = Join-Path $env:USERPROFILE '5eyes'
-if (-not (Test-Path $home5)) { New-Item -ItemType Directory -Path $home5 | Out-Null }
-$secretFile = Join-Path $home5 '.external-secret.txt'
-$cfExe      = Join-Path $home5 'cloudflared.exe'
-$stagingDb  = Join-Path $home5 '5eyes-staging.db'
+$aresHome = Join-Path $env:USERPROFILE 'ares'
+if (-not (Test-Path $aresHome)) { New-Item -ItemType Directory -Path $aresHome | Out-Null }
+$secretFile = Join-Path $aresHome '.external-secret.txt'
+$cfExe      = Join-Path $aresHome 'cloudflared.exe'
+$stagingDb  = Join-Path $aresHome 'ares-staging.db'
 
 $pyCmd = Get-Command python -ErrorAction SilentlyContinue
 if (-not $pyCmd) { $pyCmd = Get-Command py -ErrorAction SilentlyContinue }
