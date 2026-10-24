@@ -507,4 +507,4 @@ def test_objective_contract_binds_the_priority_scope_policy():
     evidence = resolve_objective_contract().as_evidence()
     assert evidence["goal_evaluation_scope"] == "priority_funded"
     assert evidence["goal_scope_replay_policy"] == PRIORITY_SCOPE_POLICY_VERSION
-    assert OPTIMIZER_ENGINE_VERSION == "saa_resampled_v12"
+    assert OPTIMIZER_ENGINE_VERSION == "saa_resampled_v13"

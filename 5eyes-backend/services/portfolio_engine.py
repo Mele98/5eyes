@@ -6646,7 +6646,7 @@ def generate_recommendation_run(
     # services/portfolio_engine_payload.py fuer die volle Herleitung.
     products = _tenant_visible_products_query(db, mandate).all()
     products = _filter_products_by_universe(db, mandate, products)
-    sub_allocations = target_payload["sub_allocations"]
+    sub_allocations = [s for s in target_payload["sub_allocations"] if int(s.get("target_weight_bps") or 0) > 0]  # Kontextzeilen (0 bps) ohne Position
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
     prefs = _normalize_preferences(preferences)

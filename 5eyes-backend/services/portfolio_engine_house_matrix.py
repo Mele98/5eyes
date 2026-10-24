@@ -826,26 +826,29 @@ def _normalize_splits(
     C4: Vor dem Fix wurde nach Filterung (z.B. !bondsHighYield, !noEm)
     der Rest dem letzten Eintrag zugeschlagen ('letzter bekommt
     remainder'), was diesen unbeabsichtigt uebergewichtete. Hier
-    skalieren wir proportional, der Rundungsrest geht an den
-    groessten Eintrag (stabil und reproduzierbar).
+    skalieren wir proportional.
+
+    SUB-SPLIT-ROUNDING-001: die Rundung folgt der einen kanonischen
+    Aufteilungsregel ``apportion_bps`` (Largest Remainder, Tie-Break
+    Gewicht/Label) -- dieselbe wie Builder, Kanonisierung und
+    Materialisierung.
     """
+    from services.sub_allocation_apportionment import apportion_bps
+
     if not splits:
         return []
     total = sum(int(bps) for _, bps, _ in splits)
     if total == 10000 or total <= 0:
         return list(splits)
-    scaled: list[tuple[str, int, str]] = []
-    accumulated = 0
-    for label, bps, rationale in splits:
-        new_bps = int(round(int(bps) * 10000 / total))
-        scaled.append((label, new_bps, rationale))
-        accumulated += new_bps
-    delta = 10000 - accumulated
-    if delta != 0 and scaled:
-        idx_max = max(range(len(scaled)), key=lambda i: scaled[i][1])
-        label, bps, rationale = scaled[idx_max]
-        scaled[idx_max] = (label, bps + delta, rationale)
-    return scaled
+    weights = apportion_bps(
+        10000,
+        [max(0, int(bps)) for _l, bps, _r in splits],
+        [str(label) for label, _b, _r in splits],
+    )
+    return [
+        (label, weight, rationale)
+        for (label, _bps, rationale), weight in zip(splits, weights)
+    ]
 
 
 def _preference_choice(value, fallback: str) -> str:
@@ -886,6 +889,7 @@ def _build_sub_allocations(
     aufgebaut (siehe Kommentare unten).
     """
     from services.portfolio_engine import _normalize_preferences, _resolve_home_equity_label
+    from services.sub_allocation_apportionment import apportion_bps
 
     prefs = _normalize_preferences(preferences)
     asset_prefs = prefs["assetClasses"]
@@ -922,37 +926,30 @@ def _build_sub_allocations(
         # damit Filter (HY/EM raus etc.) keine Uebergewichtung des
         # letzten Eintrags erzeugen.
         normalized = _normalize_splits(splits)
-        weights: list[int] = []
-        remaining = bucket_weight
-        for idx, (_label, split_bps, _rationale) in enumerate(normalized):
-            if idx == len(normalized) - 1:
-                weight = remaining
-            else:
-                weight = int(round(bucket_weight * split_bps / 10000))
-                remaining -= weight
-            weights.append(weight)
-        if any(weight < 0 for weight in weights):
-            # SUB-SPLIT-ROUNDING-001: bei kleinen Buckets ueberstiegen die
-            # einzeln gerundeten Sleeves bereits das Bucket (13 bps Aktien mit
-            # drei Thema-Tilts -> 6+4+1+1+1+1 = 14), der Rest wurde negativ und
-            # verworfen -- das Bucket behielt den Ueberschuss. Dann exakte
-            # Largest-Remainder-Verteilung (wie _materialize_sub_allocation_plan);
-            # fuer alle anderen Gewichte bleibt die bisherige Rundung unveraendert.
-            floors = [bucket_weight * split_bps // 10000 for _l, split_bps, _r in normalized]
-            remainders = [bucket_weight * split_bps % 10000 for _l, split_bps, _r in normalized]
-            missing = bucket_weight - sum(floors)
-            order = sorted(range(len(normalized)), key=lambda i: (-remainders[i], i))
-            for i in order[:missing]:
-                floors[i] += 1
-            weights = floors
-        for (label, _split_bps, rationale), weight in zip(normalized, weights):
-            if weight <= 0:
+        # SUB-SPLIT-ROUNDING-001: immer die eine kanonische Aufteilung
+        # (Largest Remainder, Tie-Break Gewicht/Label) -- identisch zu
+        # _materialize_sub_allocation_plan. Vorher: Einzelrundung mit Rest an
+        # den letzten Sleeve (positionsabhaengig), Largest Remainder nur bei
+        # negativem Rest.
+        weights = apportion_bps(
+            bucket_weight,
+            [max(0, int(split_bps)) for _l, split_bps, _r in normalized],
+            [str(label) for label, _s, _r in normalized],
+        )
+        for (label, split_bps, rationale), weight in zip(normalized, weights):
+            if split_bps <= 0:
                 continue
+            # Zeilen mit Gewicht 0 bleiben als Kontextzeilen des Mix erhalten
+            # (wie in _materialize_sub_allocation_plan); Positionen entstehen
+            # nur aus Zeilen mit Gewicht > 0. ``within_bucket_weight_bps`` ist
+            # der kanonische Mix (Summe 10'000 je Bucket) -- dieselbe Basis
+            # fuer Sub-CMA und Risky Fraction wie im stochastischen Pfad.
             sub_allocations.append(
                 {
                     "asset_class": asset_class,
                     "sub_asset_class": label,
                     "target_weight_bps": weight,
+                    "within_bucket_weight_bps": int(split_bps),
                     "rationale": rationale,
                 }
             )
@@ -1246,6 +1243,12 @@ def _apply_illiquid_cap(
         sub["target_weight_bps"] = new
     if freed <= 0:
         return sub_allocations, targets
+    # SUB-SPLIT-ROUNDING-001: der Deckel aendert die Aufteilung von
+    # Alternativen/Liquiditaet; deren Mix ist ab jetzt die gedeckelte
+    # Aufteilung selbst, nicht mehr der urspruengliche Split.
+    for sub in sub_allocations:
+        if _norm_text(sub.get("asset_class")) in (_norm_text("Alternative"), _norm_text("Liquiditaet")):
+            sub.pop("within_bucket_weight_bps", None)
 
     if liquidity_capped:
         reasoning.append(
@@ -1306,6 +1309,7 @@ def _canonicalize_sub_allocation_mix(
     also their safest input format.
     """
     from services.portfolio_engine import _bucket_key
+    from services.sub_allocation_apportionment import apportion_bps
 
     by_bucket: dict[str, list[dict]] = {}
     bucket_order: list[str] = []
@@ -1342,32 +1346,17 @@ def _canonicalize_sub_allocation_mix(
         total = sum(source_weights)
         if total <= 0:
             continue
-        scaled: list[dict] = []
-        remainders: list[int] = []
-        for row, source_weight in zip(rows, source_weights):
-            numerator = source_weight * 10000
-            weight = numerator // total
-            remainders.append(numerator % total)
-            scaled.append({
-                **row,
-                "target_weight_bps": weight,
-                "within_bucket_weight_bps": weight,
-            })
-        residual = 10000 - sum(
-            int(row["target_weight_bps"]) for row in scaled
+        # SUB-SPLIT-ROUNDING-001: dieselbe Aufteilungsregel wie Builder und
+        # Materialisierung.
+        weights = apportion_bps(
+            10000,
+            source_weights,
+            [str(row.get("sub_asset_class") or "") for row in rows],
         )
-        order = sorted(
-            range(len(scaled)),
-            key=lambda idx: (
-                -remainders[idx],
-                int(scaled[idx].get("risky_fraction_bps") or 0),
-                idx,
-            ),
+        canonical.extend(
+            {**row, "target_weight_bps": weight, "within_bucket_weight_bps": weight}
+            for row, weight in zip(rows, weights)
         )
-        for idx in order[:residual]:
-            scaled[idx]["target_weight_bps"] += 1
-            scaled[idx]["within_bucket_weight_bps"] += 1
-        canonical.extend(scaled)
     return canonical
 
 
@@ -1382,6 +1371,7 @@ def _materialize_sub_allocation_plan(
     solver CMA/risk inputs and all downstream metrics on the same sub-mix.
     """
     from services.portfolio_engine import BUCKET_FIELDS, _bucket_key
+    from services.sub_allocation_apportionment import apportion_bps
 
     by_bucket: dict[str, list[dict]] = {bucket: [] for bucket in BUCKET_FIELDS}
     for item in plan or []:
@@ -1420,30 +1410,18 @@ def _materialize_sub_allocation_plan(
                 "within_bucket_weight_bps": mix_weight,
             } for row, mix_weight in zip(rows, mix_weights))
             continue
-        scaled: list[dict] = []
-        remainders: list[int] = []
-        for row, mix_weight in zip(rows, mix_weights):
-            numerator = bucket_target * mix_weight
-            weight = numerator // plan_total
-            remainders.append(numerator % plan_total)
-            scaled.append({
-                **row,
-                "target_weight_bps": weight,
-                "within_bucket_weight_bps": mix_weight,
-            })
-        residual = bucket_target - sum(
-            int(row["target_weight_bps"]) for row in scaled
+        # SUB-SPLIT-ROUNDING-001: dieselbe Aufteilungsregel wie der direkte
+        # Builder (_build_sub_allocations) -- gleiche Quote, gleicher Mix,
+        # gleiche Sub-Allokation.
+        weights = apportion_bps(
+            bucket_target,
+            mix_weights,
+            [str(row.get("sub_asset_class") or "") for row in rows],
         )
-        order = sorted(
-            range(len(scaled)),
-            key=lambda idx: (
-                -remainders[idx],
-                int(scaled[idx].get("risky_fraction_bps") or 0),
-                idx,
-            ),
-        )
-        for idx in order[:residual]:
-            scaled[idx]["target_weight_bps"] += 1
+        scaled = [
+            {**row, "target_weight_bps": weight, "within_bucket_weight_bps": mix_weight}
+            for row, weight, mix_weight in zip(rows, weights, mix_weights)
+        ]
         # Keep zero-weight sleeves as immutable context rows. They contribute
         # nothing to the active portfolio but retain the accepted model mix.
         materialized.extend(scaled)
@@ -1564,12 +1542,39 @@ def _build_stochastic_sub_allocation_plan(
         # Mixed alternatives: reduce PE at the worst-case reachable alternatives
         # weight and redistribute within the bucket.  The canonicalised mix is
         # then safe at all lower weights as well.
+        before_cap = (
+            [(row.get("sub_asset_class"), int(row.get("target_weight_bps") or 0)) for row in raw],
+            dict(reference_targets),
+        )
         raw, reference_targets = _apply_illiquid_cap(
             raw,
             reference_targets,
             max_illiquid_bps,
             reasoning,
             maximums=effective_maximums,
+        )
+        mix_capped = before_cap != (
+            [(row.get("sub_asset_class"), int(row.get("target_weight_bps") or 0)) for row in raw],
+            dict(reference_targets),
+        )
+    else:
+        mix_capped = False
+
+    if not mix_capped:
+        # SUB-SPLIT-ROUNDING-001: der kanonische Mix ist der normalisierte
+        # Split selbst (Bucket = 10'000), nicht die bei der Referenzquote
+        # gerundete und danach reskalierte Aufteilung. Damit liefert die
+        # Materialisierung bei jeder Quote exakt dieselbe Sub-Allokation wie
+        # der direkte Builder. Ein durch den Illiquiditaets-Deckel geaenderter
+        # Mix bleibt sein eigener kanonischer Mix.
+        raw = _build_sub_allocations(
+            {
+                bucket: (10000 if int(reference_targets[bucket]) > 0 else 0)
+                for bucket in BUCKET_FIELDS
+            },
+            preferences,
+            jurisdiction=jurisdiction,
+            db=db,
         )
 
     if sum(int(effective_maximums[bucket]) for bucket in BUCKET_FIELDS) < 10000:
