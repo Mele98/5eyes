@@ -325,6 +325,19 @@ def _build_allocation_model_basis(
     optimization_basis["objective"] = objective_basis(
         run_contract.objective_mode if run_contract is not None else None
     )
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: der Lauf-Vertrag als EIN
+    # atomarer Nachweisblock (Version, alle gebundenen Felder, Hash). Er liegt
+    # damit in effective_constraints_json und im allocation_context_hash und
+    # traegt denselben Hash wie die OptimizerRun-Zeile. Ohne Solver-Context
+    # gibt es keinen Vertrag (None) -- nichts aus der heutigen Umgebung.
+    contract_evidence = run_contract.as_evidence() if run_contract is not None else None
+    optimization_basis["objective_contract"] = contract_evidence
+    optimization_basis["objective_contract_version"] = (
+        contract_evidence["objective_contract_version"] if contract_evidence else None
+    )
+    optimization_basis["objective_contract_hash"] = (
+        contract_evidence["objective_contract_hash"] if contract_evidence else None
+    )
     # SAA-RESAMPLED-STABILITY-001: Stabilitaets-Audit des Resamplings
     # (Bags, Streuung je Bucket, Signifikanztest gegen die Hausmatrix,
     # Entscheid). Additiv und nur in der FRISCHEN stochastischen Basis --

@@ -151,6 +151,10 @@ class TargetAllocation(Base):
     # NULL = keine externe Vorsorge im Run; die Referenz liegt gehasht in
     # effective_constraints_json (siehe services/pension_transfer_ledger_snapshot.py).
     pension_transfer_ledger_snapshot_json = Column(String)
+    # OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-24): gehashter,
+    # an den Objective-Vertrag gebundener Goal-Driver-Snapshot
+    # (services/allocation_evidence_replay.py). NULL = Bestand ohne Snapshot.
+    goal_driver_evidence_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
@@ -216,6 +220,12 @@ class OptimizerRun(Base):
     validation_seed = Column(Integer)
     validation_cube_hash = Column(String)
     validation_n_paths = Column(Integer)
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (2026-10-24): der eingefrorene
+    # Objective-Vertrag des Laufs (Version, Hash, vollstaendiger Nachweis-
+    # block). NULL = Bestand ohne Vertragsnachweis ("unverifiable").
+    objective_contract_version = Column(String)
+    objective_contract_hash = Column(String)
+    objective_contract_json = Column(String)
     set_by = Column(String, ForeignKey("users.id"))
     created_at = Column(String, nullable=False)
 

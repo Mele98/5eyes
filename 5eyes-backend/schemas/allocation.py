@@ -413,6 +413,8 @@ class TargetAllocationResponse(BaseResponse):
     # mit converged Solver). NULL bei house_matrix oder shadow_stochastic.
     optimization_run_id: Optional[str] = None
     shadow_optimization_json: Optional[str] = None
+    # OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001: gehashter Driver-Snapshot.
+    goal_driver_evidence_json: Optional[str] = None
     # MANUAL-SAVE-DEADEND-001: nur in der Antwort des manuellen Speicherns
     # gesetzt -- Bandbreiten ausserhalb der Hausmatrix-Zeile (persistiert in
     # effective_constraints_json/optimizer_reasoning_json).
@@ -447,6 +449,10 @@ class OptimizerRunResponse(BaseResponse):
     stress_evaluations_json: Optional[str] = None
     restart_results_json: Optional[str] = None
     robustification_json: Optional[str] = None
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: None = Bestand ohne Nachweis.
+    objective_contract_version: Optional[str] = None
+    objective_contract_hash: Optional[str] = None
+    objective_contract_json: Optional[str] = None
     set_by: Optional[str] = None
     created_at: str
 
@@ -1592,6 +1598,34 @@ class OptimizerGoalDriverResponse(BaseModel):
     # gespeicherte Zeilen tragen weiter ``..._under_joint_path``.
     evaluation_scope: str = "weighted_loss_component_under_priority_scope"
 
+    @model_validator(mode="after")
+    def _lossless_pair_is_one_value(self):
+        """OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001: Decimal und Hex sind EIN Wert.
+
+        Beide fehlen (unavailable) oder beide sind da, endlich, kanonisch
+        (``repr(float)`` bzw. ``float.hex()``) und bit-gleich -- inklusive
+        Vorzeichen (``-0.0`` ist nicht ``0.0``). Zwei widerspruechliche
+        "verlustfreie" Werte sind kein Nachweis.
+        """
+        decimal_text = self.weighted_objective_contribution_decimal
+        hex_text = self.weighted_objective_contribution_binary64_hex
+        if decimal_text is None and hex_text is None:
+            return self
+        if decimal_text is None or hex_text is None:
+            raise ValueError("goal_driver_lossless_pair_incomplete")
+        try:
+            from_decimal = float(decimal_text)
+            from_hex = float.fromhex(hex_text)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("goal_driver_lossless_pair_unparseable") from exc
+        if not (math.isfinite(from_decimal) and math.isfinite(from_hex)):
+            raise ValueError("goal_driver_lossless_pair_not_finite")
+        if repr(from_decimal) != decimal_text or from_hex.hex() != hex_text:
+            raise ValueError("goal_driver_lossless_pair_not_canonical")
+        if from_decimal.hex() != hex_text:
+            raise ValueError("goal_driver_lossless_pair_contradictory")
+        return self
+
 
 class AllocationMethodCandidateResponse(BaseModel):
     method: str
@@ -1656,6 +1690,14 @@ class TargetAllocationGenerateResponse(BaseModel):
     # (OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001).
     # Nur befuellt wenn Solver lief; sonst leere Liste.
     optimizer_goal_drivers: list[OptimizerGoalDriverResponse] = Field(default_factory=list)
+    # OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001: Zustand der persistierten
+    # Driver-Evidenz (verified | unverifiable | unavailable | corrupt |
+    # not_applicable, Hash, Vertragsbindung). Unterscheidet "keine Driver"
+    # von "Driver nicht abspielbar".
+    optimizer_goal_driver_evidence: Optional[dict] = None
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: versionsgenau verifizierter
+    # Objective-Vertrag der Allokation (Status, Version, Hash).
+    objective_contract_evidence: Optional[dict] = None
     # C6: explizit benannte Basis fuer Target-/Sim-/MC-Berechnung
     # (= Beratungsvermoegen abzueglich externer Reserve).
     strategy_base_rappen: Optional[int] = None
