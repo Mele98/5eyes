@@ -460,11 +460,19 @@ def test_migration_upgrade_downgrade_is_idempotent_and_matches_runtime(migration
     cfg, engine, schema = (
         migration_schema["cfg"], migration_schema["engine"], migration_schema["schema"],
     )
-    command.upgrade(cfg, "head")
+    # Kettenbasiert statt "ist Head": spaetere Revisionen duerfen folgen.
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(cfg)
+    heads = script.get_heads()
+    assert len(heads) == 1, heads
+    chain = {rev.revision for rev in script.walk_revisions("base", heads[0])}
+    assert MIGRATION_REVISION in chain
+    assert script.get_revision(MIGRATION_REVISION).down_revision == MIGRATION_DOWN_REVISION
+
+    command.upgrade(cfg, MIGRATION_REVISION)
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == MIGRATION_REVISION, (
-            "Diese Revision ist nicht (mehr) Head -- Test auf die neue Kette anpassen, nicht loeschen."
-        )
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == MIGRATION_REVISION
     after_migration = _reference_policies(engine, schema)
     assert {name for (_t, name) in after_migration} == {
         "tenant_reference_select", "tenant_reference_insert",
@@ -482,5 +490,5 @@ def test_migration_upgrade_downgrade_is_idempotent_and_matches_runtime(migration
     assert set(downgraded) == {(t, "tenant_isolation") for t in EXPECTED_REFERENCE_TABLES}
     assert all(cmd == "ALL" and "IS NULL" not in qual for cmd, qual, _ in downgraded.values())
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, MIGRATION_REVISION)
     assert _reference_policies(engine, schema) == after_migration
