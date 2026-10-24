@@ -1655,6 +1655,17 @@ def _persist_optimizer_run(
             logger.warning("OptimizerRun: robustification_json failed (%s)", exc)
             robustification_json = None
 
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001: der eingefrorene Vertrag des
+    # Laufs, atomar (Version + Hash + Nachweisblock). Ohne Solver-Context gibt
+    # es keinen Vertrag -- NULL, nie ein Vertrag aus der heutigen Umgebung.
+    from services.allocation_evidence_replay import run_objective_contract_evidence
+
+    contract_evidence = run_objective_contract_evidence(optimizer_result)
+    objective_contract_json = (
+        json.dumps(contract_evidence, sort_keys=True, separators=(",", ":"))
+        if contract_evidence is not None
+        else None
+    )
     run = OptimizerRun(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -1682,6 +1693,9 @@ def _persist_optimizer_run(
         validation_seed=getattr(optimizer_result, "validation_seed", None),
         validation_cube_hash=getattr(optimizer_result, "validation_cube_hash", None),
         validation_n_paths=getattr(optimizer_result, "validation_n_paths", None),
+        objective_contract_version=(contract_evidence or {}).get("objective_contract_version"),
+        objective_contract_hash=(contract_evidence or {}).get("objective_contract_hash"),
+        objective_contract_json=objective_contract_json,
         set_by=user_id,
         created_at=now,
     )
