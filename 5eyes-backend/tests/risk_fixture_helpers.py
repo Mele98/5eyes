@@ -90,3 +90,86 @@ def add_current_risk_answers(session, assessment_id: str, created_at: str, *, se
 @asynccontextmanager
 async def noop_lifespan(_app):
     yield
+
+
+# ── Standard-Fragebogen aus der Desktop-Frontend-Quelle ────────────────────────
+# Liest Optionstexte und Punkttabellen direkt aus dem Monolithen, damit Tests
+# echte Fragebogen-Payloads bauen (wie buildRiskAssessmentPayloadFromUI) ohne
+# den Server-Katalog zu spiegeln.
+
+import html as _html
+import json as _json
+import re as _re
+from pathlib import Path as _Path
+
+MONOLITH_PATH = _Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "5eyes_v2.html"
+_OPTION_GROUPS = ("rf-income", "rf-oblig", "rf-wealth", "rf-savings", "rf-horizon", "q9", "q10", "q11")
+
+
+def monolith_risk_questionnaire() -> dict:
+    src = MONOLITH_PATH.read_text(encoding="utf-8")
+    options = {}
+    for group in _OPTION_GROUPS:
+        found = _re.findall(
+            r"<div class=\"qopt\" onclick=\"sq\(this,'" + _re.escape(group)
+            + r"'\)\"><div class=\"qrad\"></div><span class=\"qtxt\">(.*?)</span></div>",
+            src,
+        )
+        assert found, group
+        options[group] = [_html.unescape(text).strip() for text in found]
+    sources = [
+        _html.unescape(text).strip()
+        for text in _re.findall(r"<div class=\"qcb\" onclick=\"[^\"]*\"><div class=\"qbox\"></div>(.*?)</div>", src)
+    ]
+    points = {}
+    for name in ("RISK_INCOME_POINTS", "RISK_OBLIGATIONS_POINTS", "RISK_WEALTH_POINTS", "RISK_SAVINGS_POINTS"):
+        match = _re.search(r"^var " + name + r" = \[([^\]]*)\];", src, _re.M)
+        assert match, name
+        points[name] = [int(v) for v in match.group(1).split(",")]
+    horizon_years = [
+        int(v) for v in _re.findall(r"\{label:'[^']*',\s*years:(\d+)\}", src.split("var RISK_HORIZON_OPTIONS = [", 1)[1].split("];", 1)[0])
+    ]
+    return {"options": options, "sources": sources, "points": points, "horizon_years": horizon_years}
+
+
+def standard_risk_payload(
+    *, income=3, oblig=1, wealth=3, savings=3, horizon=5, goal=2, pref=2, behav=2,
+    sources=(0,), knowledge=None,
+) -> dict:
+    """Payload wie buildRiskAssessmentPayloadFromUI fuer die gewaehlten Indizes."""
+    q = monolith_risk_questionnaire()
+    o, p = q["options"], q["points"]
+    knowledge = knowledge if knowledge is not None else {"Anlageberatung": {"known": 1, "informed": 1}}
+    instruments = {"Anlagefonds": {"known": 1, "informed": 0}}
+    src_labels = [q["sources"][i] for i in sources]
+    horizon_label = o["rf-horizon"][horizon]
+    points = {
+        "q_income_points": p["RISK_INCOME_POINTS"][income],
+        "q_obligations_points": p["RISK_OBLIGATIONS_POINTS"][oblig],
+        "q_wealth_points": p["RISK_WEALTH_POINTS"][wealth],
+        "q_savings_points": p["RISK_SAVINGS_POINTS"][savings],
+        "q_investment_goal_points": goal + 1,
+        "q_risk_preference_points": pref + 1,
+        "q_risk_behavior_points": behav + 1,
+    }
+    return {
+        **points,
+        "investment_horizon_label": horizon_label,
+        "investment_horizon_years": q["horizon_years"][horizon],
+        "knowledge_services_json": _json.dumps(knowledge),
+        "knowledge_instruments_json": _json.dumps(instruments),
+        "income_sources_json": _json.dumps(src_labels),
+        "answers": [
+            {"question_number": 1, "question_section": "Kenntnisse & Erfahrungen", "answer_label": "Finanzdienstleistungen: " + _json.dumps(knowledge, separators=(",", ":")), "answer_points": 0},
+            {"question_number": 2, "question_section": "Kenntnisse & Erfahrungen", "answer_label": "Finanzinstrumente: " + _json.dumps(instruments, separators=(",", ":")), "answer_points": 0},
+            {"question_number": 3, "question_section": "Risikofähigkeit", "answer_label": o["rf-income"][income], "answer_points": points["q_income_points"]},
+            {"question_number": 4, "question_section": "Risikofähigkeit", "answer_label": "Herkunft: " + (", ".join(src_labels) or "Keine Angabe"), "answer_points": 0},
+            {"question_number": 5, "question_section": "Risikofähigkeit", "answer_label": o["rf-oblig"][oblig], "answer_points": points["q_obligations_points"]},
+            {"question_number": 6, "question_section": "Risikofähigkeit", "answer_label": o["rf-wealth"][wealth], "answer_points": points["q_wealth_points"]},
+            {"question_number": 7, "question_section": "Risikofähigkeit", "answer_label": o["rf-savings"][savings], "answer_points": points["q_savings_points"]},
+            {"question_number": 8, "question_section": "Risikofähigkeit", "answer_label": horizon_label + " · Matrix-Faktor", "answer_points": 0},
+            {"question_number": 9, "question_section": "Risikobereitschaft", "answer_label": o["q9"][goal], "answer_points": goal + 1},
+            {"question_number": 10, "question_section": "Risikobereitschaft", "answer_label": o["q10"][pref], "answer_points": pref + 1},
+            {"question_number": 11, "question_section": "Risikobereitschaft", "answer_label": o["q11"][behav], "answer_points": behav + 1},
+        ],
+    }
