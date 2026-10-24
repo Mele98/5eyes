@@ -10,12 +10,13 @@
 #   - Curl im PATH (oder via Invoke-RestMethod, was unten verwendet wird)
 #
 # Bedienung:
-#   cd C:\5eyes\5eyes_stage9_release_ready_develop_security
+#   cd <Repo-Wurzel>
 #   .\scripts\smoke_test_phase6_optimizer.ps1
+#   (-BackendDir ist optional; Default = ares-backend relativ zum Skript)
 #   ENTER drücken nach Backend-Start, Skript faehrt fort.
 
 param(
-    [string]$BackendDir = "C:\5eyes\5eyes_stage9_release_ready_develop_security\ares-backend",
+    [string]$BackendDir = (Join-Path $PSScriptRoot "..\ares-backend"),
     [string]$BaseUrl = "http://127.0.0.1:8765",
     [string]$Username = "admin",
     [string]$Password = "admin",
