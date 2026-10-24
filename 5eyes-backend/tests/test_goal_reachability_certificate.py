@@ -302,4 +302,4 @@ def test_policy_versions_are_bound_in_the_objective_contract():
     assert "no_auto_demotion" in reachability.GOAL_REACHABILITY_SCREEN_VERSION
     assert evidence["goal_demotion_policy"] == DEMOTED_GOAL_POLICY_VERSION
     assert DEMOTED_GOAL_POLICY_VERSION.startswith("goal_revision_decision_")
-    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v13"
+    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v14"

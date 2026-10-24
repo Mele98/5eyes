@@ -122,14 +122,19 @@ from .resampling import (
     DEFAULT_RESAMPLING,
     RISK_MEASURE_MATERIALITY,
     MIN_SUCCESSFUL_BAG_SHARE,
-    MISSINGNESS_STRESS_SIGMAS,
+    MISSINGNESS_BOUND_BUDGET_BPS,
+    MISSINGNESS_BOUND_METHOD,
     RESAMPLING_SCHEME_VERSION,
     ResamplingConfig,
     _domain_seed,
     bag_seeds,
     bootstrap_seed,
     build_bag_paths,
+    ceil_bps,
+    floor_bps,
+    missingness_identified_set,
     paired_bootstrap_improvement,
+    superiority_test_family,
 )
 from .scenario_engine import (
     SAMPLING_UNIT_ANTITHETIC_PAIR,
@@ -1591,7 +1596,17 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # und Materialisierung; der stochastische Plan-Mix ist der normalisierte
 # Split selbst. Kann Sub-Mix, Sub-CMA und Risky Fraction um Rundungs-bps
 # verschieben; die Version trennt alte von neuen Allokationen.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v13"
+#
+# v14 (2026-10-24, RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 Restvertrag +
+# SIGNIFICANCE-MULTIPLICITY-001): fehlende Bags gehen mit dem bewiesenen
+# Worst Case (identifizierter Bereich auf Bandbreiten + Simplex) in die
+# Unsicherheit ein, Schaetzgroesse explizit, fail-closed ueber dem
+# Praezisionsziel; in den Risikomass-Varianten werden die beiden
+# Ueberlegenheitstests (Zielebene ODER Risikomass) familienweise mit
+# Holm/Bonferroni gefuehrt (je Test alpha/2). Vollstaendige Laeufe im
+# Default-Modus sind bis auf den neuen Wuerfel (Version im Inhalts-Seed)
+# unveraendert.
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v14"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -3961,13 +3976,24 @@ def _significance_vs_house_anchor(
         sampling_unit_ids=unit_ids,
         sampling_unit=unit_name,
     )
+    # SIGNIFICANCE-MULTIPLICITY-001 (Engine v14): jede Ueberlegenheits-
+    # Hypothese, deren Ablehnung allein die Abweichung von der Hausquote
+    # begruendet, gehoert zur Testfamilie (Varianten: Zielebene ODER
+    # Risikomass). Familienweises Niveau alpha -> Holm/Bonferroni.
+    family = superiority_test_family(
+        objective_mode, float(config.significance_alpha),
+    )
+    superiority_kwargs = {
+        **bootstrap_kwargs, "alpha": family["per_test_alpha"],
+    }
     goal_stats = paired_bootstrap_improvement(
         lambda idx: tuple(parts[0] for parts in component_pair(idx)),
-        **bootstrap_kwargs,
+        **superiority_kwargs,
     )
     result = {
         **block,
         **goal_stats,
+        "multiple_comparison": family,
         "comparison": COMPARISON_GOAL_LEVEL,
         "decision_level": COMPARISON_GOAL_LEVEL,
         "cube_role": CUBE_ROLE_FINAL,
@@ -4000,7 +4026,7 @@ def _significance_vs_house_anchor(
     material = bool(risk_improvement >= RISK_MEASURE_MATERIALITY)
     risk_stats = paired_bootstrap_improvement(
         lambda idx: tuple(parts[1] for parts in component_pair(idx)),
-        **bootstrap_kwargs,
+        **superiority_kwargs,
     )
     result["risk_measure_test"] = {
         **{
@@ -4285,6 +4311,47 @@ def _run_resampled_solver(
     dispersion = (
         stacked.std(axis=0, ddof=1) if n_succeeded > 1 else np.zeros(N_BUCKETS)
     )
+    # RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 (Engine v14): fehlende Bags gehen
+    # mit ihrem bewiesenen Worst Case in die Unsicherheit ein (identifizierter
+    # Bereich auf Bandbreiten + Simplex, keine Annahme aus der Streuung der
+    # Erfolge). Schaetzgroesse explizit: Mittel ueber alle Bags nur bei
+    # vollstaendigem Lauf, sonst bedingt auf Solver-Erfolg.
+    identified = missingness_identified_set(
+        mean_w, context.bounds, n_bags=n_bags, n_succeeded=n_succeeded,
+    )
+    payload["estimand"] = identified["estimand"]
+    payload["missingness_bound_method"] = MISSINGNESS_BOUND_METHOD
+    payload["missingness_bound_budget_bps"] = float(MISSINGNESS_BOUND_BUDGET_BPS)
+    payload["missingness_sensitivity_bps"] = {
+        bucket: ceil_bps(identified["bound"][i])
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    payload["all_bags_mean_bounds_bps"] = {
+        bucket: [floor_bps(identified["lower"][i]), ceil_bps(identified["upper"][i])]
+        for i, bucket in enumerate(BUCKET_ORDER)
+    }
+    worst_bucket = max(
+        BUCKET_ORDER, key=lambda b: payload["missingness_sensitivity_bps"][b],
+    )
+    worst_bps = payload["missingness_sensitivity_bps"][worst_bucket]
+    if worst_bps > MISSINGNESS_BOUND_BUDGET_BPS:
+        payload["decision"] = "fallback_house_matrix"
+        payload["reason"] = "missingness_bound_exceeds_budget"
+        payload["elapsed_ms"] = int(round((time.perf_counter() - started) * 1000))
+        return _house_midpoint_fallback_result(
+            context,
+            aggregate_selection,
+            extra_reasoning=[
+                f"Resampling: {n_bags - n_succeeded} von {n_bags} Bags ohne "
+                "zulaessige Allokation. Ihr unbeobachtetes Ergebnis kann die "
+                f"Quote ({worst_bucket}) um bis zu {worst_bps / 100.0:.2f} pp "
+                "verschieben (Worst Case auf Bandbreiten und Summe 100 %), "
+                f"mehr als das Praezisionsziel von "
+                f"{MISSINGNESS_BOUND_BUDGET_BPS / 100.0:.0f} pp -- kein "
+                "Mittelwert publiziert."
+            ],
+            resampling_payload=payload,
+        )
     payload["mean_weights_bps"] = {
         bucket: round(float(mean_w[i]) * 10000.0, 2)
         for i, bucket in enumerate(BUCKET_ORDER)
@@ -4299,18 +4366,6 @@ def _run_resampled_solver(
     # Unsicherheit durch Bag-Ausfall noch Projektion oder Hausmatrix-Gate.
     payload["conditional_bag_mean_standard_error_bps"] = {
         bucket: round(float(dispersion[i]) * 10000.0 / float(np.sqrt(n_succeeded)), 2)
-        for i, bucket in enumerate(BUCKET_ORDER)
-    }
-    # Sensitivitaetsschranke fuer nicht zufaelligen Ausfall: liegen die
-    # fehlenden Bags bis zu MISSINGNESS_STRESS_SIGMAS Bag-Standardabweichungen
-    # neben dem Mittel, verschiebt das die Quote um hoechstens
-    # f * k * sigma_bag (f = Ausfallanteil). 0 bei vollstaendigem Lauf.
-    missing_share = float(n_bags - n_succeeded) / float(n_bags)
-    payload["missingness_sensitivity_bps"] = {
-        bucket: round(
-            missing_share * MISSINGNESS_STRESS_SIGMAS * float(dispersion[i]) * 10000.0,
-            2,
-        )
         for i, bucket in enumerate(BUCKET_ORDER)
     }
 
@@ -4367,6 +4422,14 @@ def _run_resampled_solver(
         f"Standardfehler der Quote (bedingt auf die erfolgreichen Bags) max. "
         f"{max_standard_error_pp:.2f} pp."
     )
+    if n_succeeded < n_bags:
+        reasoning.append(
+            f"{n_bags - n_succeeded} Bag(s) ohne zulaessige Allokation: die Quote "
+            "ist das Mittel der erfolgreichen Bags (bedingt auf Solver-Erfolg); "
+            f"die fehlenden Bags koennen sie um hoechstens {worst_bps / 100.0:.2f} pp "
+            f"({worst_bucket}, Worst Case auf Bandbreiten und Summe 100 %) "
+            "verschieben."
+        )
     if house_prior_anchor_bps is not None:
         # HOUSE-PRIOR-001: kein Schalter -- das (projizierte) Bag-Mittel IST
         # das Ergebnis; der Bootstrap legt nur offen und faengt als
@@ -4628,9 +4691,19 @@ def _significance_sentence(significance: Mapping) -> str:
         if units is not None
         else ""
     )
+    family = significance.get("multiple_comparison")
+    if isinstance(family, Mapping) and int(family.get("family_size") or 1) > 1:
+        # SIGNIFICANCE-MULTIPLICITY-001: Niveau je Test und Familie benennen.
+        alpha_text = (
+            f"alpha je Test={alpha:.1%}, Holm-korrigiert fuer "
+            f"{int(family['family_size'])} Ueberlegenheitstests, familienweise "
+            f"{float(family.get('family_alpha') or 0.05):.0%}"
+        )
+    else:
+        alpha_text = f"alpha={alpha:.0%}"
     parts = [
         f"Gepaarter Bootstrap (B={significance.get('n_bootstrap')}, einseitig, "
-        f"alpha={alpha:.0%}{unit_text}) auf dem finalen, unabhaengigen "
+        f"{alpha_text}{unit_text}) auf dem finalen, unabhaengigen "
         f"Validierungs-Cube ({significance.get('validation_n_paths')} Pfade):"
     ]
     if significance.get("comparison") == "goal_level":
@@ -4642,7 +4715,8 @@ def _significance_sentence(significance: Mapping) -> str:
         parts.append(f"Verbesserung der Zielebene {float(improvement):.6e}")
     if lower is not None:
         parts.append(
-            f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
+            f"untere {1 - alpha:.{0 if alpha * 100 == round(alpha * 100) else 1}%}"
+            f"-Konfidenzgrenze {float(lower):.6e}"
         )
     if p_value is not None:
         parts.append(
