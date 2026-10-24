@@ -177,7 +177,7 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
-      FIVEEYES_STRICT_LEAK_GUARD: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
       SPLIT_ARGS: >-
         --splits 8 --group ${{ matrix.group }}
         --splitting-algorithm duration_based_chunks
@@ -235,7 +235,7 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
-      FIVEEYES_STRICT_LEAK_GUARD: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -288,7 +288,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      FIVEEYES_STRICT_LEAK_GUARD: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
     strategy:
       matrix:
         python-version: ['3.12']
