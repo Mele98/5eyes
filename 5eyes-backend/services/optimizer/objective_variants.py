@@ -70,11 +70,21 @@ IST eine Frage an das Vermoegen inklusive Cashflows.
 Was ``min_volatility`` genau misst
 ----------------------------------
 
-Gemessen wird die Streuung der **Einperioden**-Portfoliorendite ueber Pfade
-und Jahre -- die Jahr-zu-Jahr-Volatilitaet, also die Unruhe des Verlaufs. Das
-ist, was ein Kunde mit "so wenig Schwankung wie moeglich" meint, und dieselbe
-Groesse, die ``sqrt(w' Sigma w)`` analytisch liefert. Nachgemessen gegen
-vorgegebene Sigmas von 12 % bis 40 %: Abweichung hoechstens 0.0002.
+Gemessen wird die Streuung der **Einperioden**-Portfoliorendite um den
+Erwartungswert JEDER Periode, gepoolt ueber die Perioden (gepoolte
+Innerhalb-Perioden-Varianz, siehe ``_one_period_return_dispersion``). Das ist,
+was ein Kunde mit "so wenig Schwankung wie moeglich" meint, und je Periode
+dieselbe Groesse, die ``sqrt(w' Sigma_t w)`` analytisch liefert.
+
+Korrektur 2026-10-25 (MIN-VOLATILITY-WITHIN-PERIOD-001, CIO-Entscheid)
+......................................................................
+
+Bis Engine v15 wurde ueber Pfade UND Jahre um einen globalen Mittelwert
+gepoolt. Das zaehlte die deterministische Streuung der Periodenmittel
+(Zinsstruktur, Mean-Pfad) als Risiko mit: ``Var(R) = E_t[Var(R_t|t)] +
+Var_t(E[R_t|t])``. Jetzt zaehlt nur der erste Summand; ein Wuerfel mit rein
+deterministischen, periodenweise verschiedenen Renditen hat Vola 0, und eine
+deterministische Mean-Verschiebung je Periode aendert das Mass nicht.
 
 Korrektur 2026-10-14 (OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001)
 .............................................................
@@ -146,6 +156,12 @@ DEFAULT_OBJECTIVE_MODE = OBJECTIVE_GOAL_SHORTFALL
 # Tail-Anteil fuer cvar_return. 0.05 = Mittel der schlechtesten 5 % Pfade.
 CVAR_TAIL_FRACTION = 0.05
 
+# MIN-VOLATILITY-WITHIN-PERIOD-001: Kennung des min_volatility-Schaetzers
+# (gepoolte Innerhalb-Perioden-Varianz, ddof/Kish-korrigiert, quadratisches
+# Zeitmittel). Steht im Nachweis-Block; ein Schaetzerwechsel braucht eine
+# neue Kennung.
+MIN_VOLATILITY_ESTIMATOR_VERSION = "within_period_pooled_variance_v1"
+
 # Menschenlesbare Begruendung pro Variante -- landet im Nachweis, damit im
 # Bericht nicht nur ein Schluessel steht, sondern wonach optimiert wurde.
 OBJECTIVE_DESCRIPTIONS: dict[str, str] = {
@@ -167,8 +183,11 @@ OBJECTIVE_DESCRIPTIONS: dict[str, str] = {
         # Nachweis-Block (objective_basis) und damit in Modellbasis, API und
         # PDF -- eine falsche Beschreibung dort ist kein Schoenheitsfehler,
         # sondern ein falscher Nachweis darueber, wonach optimiert wurde.
-        "Minimiert die Jahr-zu-Jahr-Schwankung der Portfoliorendite "
-        "(Einperioden-Volatilitaet) ueber die Szenarien."
+        # MIN-VOLATILITY-WITHIN-PERIOD-001: ein deterministischer
+        # Renditeverlauf ueber die Jahre ist keine Schwankung.
+        "Minimiert die Einperioden-Volatilitaet der Portfoliorendite: die "
+        "Streuung ueber die Szenarien um den Erwartungswert jedes Jahres; "
+        "deterministische Renditeverlaeufe zaehlen nicht als Schwankung."
     ),
     OBJECTIVE_MAX_RETURN: (
         "Maximiert die erwartete annualisierte Portfoliorendite innerhalb "
@@ -237,7 +256,7 @@ def objective_basis(mode: str | None = None) -> dict[str, object]:
     Ziel-Gewichtung geschlossen hat.
     """
     resolved = validate_objective_mode(mode) if mode is not None else resolve_objective_mode()
-    return {
+    basis: dict[str, object] = {
         "mode": resolved,
         "description": OBJECTIVE_DESCRIPTIONS[resolved],
         "goal_chance_constraint_active": True,
@@ -248,6 +267,10 @@ def objective_basis(mode: str | None = None) -> dict[str, object]:
         ),
         "available_modes": list(OBJECTIVE_MODES),
     }
+    if resolved == OBJECTIVE_MIN_VOLATILITY:
+        # Nur in diesem Modus: der Default-Nachweis bleibt bytegleich.
+        basis["risk_measure_estimator"] = MIN_VOLATILITY_ESTIMATOR_VERSION
+    return basis
 
 
 # ── Gewichtete Schaetzer (Importance Sampling) ───────────────────────────────
@@ -492,58 +515,90 @@ def _require_valid_growth_factors(factors: np.ndarray) -> None:
 def _one_period_return_dispersion(
     factors: np.ndarray, weights: np.ndarray | None,
 ) -> float:
-    """Streuung der EINPERIODEN-Renditen, ueber Pfade UND Jahre.
+    """Gepoolte Innerhalb-Perioden-Streuung der Einperiodenrenditen.
 
-    OPTIMIZER-MIN-VOLATILITY-SEMANTICS-001: das ist "die Unruhe des Verlaufs"
-    -- die Groesse, die der Modul-Docstring selbst als die benennt, die ein
-    Kunde mit "so wenig Schwankung wie moeglich" meint, und die
-    ``sqrt(w' Sigma w)`` analytisch liefert.
+    MIN-VOLATILITY-WITHIN-PERIOD-001 (CIO-Entscheid 2026-10-25):
+    deterministische, periodenabhaengige Erwartungswerte (Zinsstruktur,
+    Mean-Pfad) sind KEINE Volatilitaet. Gemessen wird nur die stochastische
+    Streuung jeder Periode um IHREN eigenen Erwartungswert:
 
-    Bei iid-Jahren ist der gepoolte Stichproben-Std der Jahresrenditen deren
-    direkter Schaetzer. Nachgemessen gegen vorgegebene Einperioden-Sigmas von
-    12 % bis 40 %: Abweichung hoechstens 0.0002 bei 200'000 Pfaden und 12
-    Jahren.
+        m_t   = sum_i w_i r_it                      (Periodenmittel)
+        s_t^2 = sum_i w_i (r_it - m_t)^2 / (1 - sum_i w_i^2)
+        sigma = sqrt( (1/T) * sum_t s_t^2 )
 
-    Vorher wurde hier die Streuung der ANNUALISIERTEN Endrendite gemessen.
-    Die ist bei lognormalen Faktoren MEAN-ABHAENGIG: mit
-    ``R_ann = exp(X/T)``, ``X ~ N(T*l, T*s^2)`` ist ``R_ann`` lognormal mit
-    ``(l, s^2/T)``, also
+    mit normierten Pfadgewichten ``w`` (ohne IS: ``w_i = 1/n``, dann ist
+    ``s_t^2`` die Stichprobenvarianz mit ``ddof = 1``). Das ist der klassische
+    gepoolte Within-Group-Schaetzer; jede Periode des Horizonts zaehlt gleich.
 
-        sd(R_ann) = exp(l + s^2/(2T)) * sqrt(exp(s^2/T) - 1)
+    Warum nicht mehr global gepoolt: Bis Engine v15 wurden alle Pfad-Jahr-
+    Beobachtungen um EINEN globalen Mittelwert zentriert. Das misst
 
-    Der Faktor ``exp(l + ...)`` waechst mit dem Log-Mean -- ein Portfolio mit
-    hoeherer erwarteter Rendite bekommt allein dadurch mehr "Volatilitaet"
-    zugeschrieben. Gemessen mit der echten Produktfunktion (12 Jahre,
-    200'000 Pfade, Seed 20261011):
+        Var(R) = E_t[Var(R_t | t)] + Var_t(E[R_t | t])
 
-        A: Mean +5.5 %, Einperioden-Std 0.39983  ->  altes Mass 0.105348
-        B: Mean -5.0 %, Einperioden-Std 0.40032  ->  altes Mass 0.103446
+    und der zweite Summand ist die deterministische Streuung der
+    Periodenmittel, kein Marktrisiko. Audit-Gegenbeispiel 2026-10-14: gleiche
+    Innerhalb-Perioden-Schocks (-10/0/+10 %), einmal stationaer, einmal mit
+    der Kurve -20/0/+20 %: 0.0816 gegen 0.1826. Ein Wuerfel mit rein
+    deterministischen, periodenweise verschiedenen Renditen hat jetzt Vola 0.
 
-    A schwankt WENIGER und wurde schlechter bewertet; B hatte sogar die
-    hoehere Log-Varianz (0.1636 vs. 0.1342) und gewann, nur weil sein
-    Erwartungswert niedriger war. Der Modus ordnete damit teilweise nach
-    Rendite statt nach Risiko -- und das innerhalb der iid-Annahme, unter der
-    der Docstring Ranggleichheit mit ``a' Sigma a`` behauptete.
+    Konservative Konventionen, bewusst gewaehlt:
 
-    ``weights`` sind Likelihood-Ratios aus Importance Sampling und gelten pro
-    PFAD. Jede Jahresbeobachtung eines Pfades traegt daher dasselbe Gewicht;
-    deshalb ``np.repeat`` ueber die Jahre und nicht ``np.tile``, dessen
-    Reihenfolge nicht zur zeilenweisen Flachlegung passen wuerde.
+    * Freiheitsgrad-Korrektur (Bessel ohne IS; unter IS die Standard-
+      korrektur ``1 - sum w^2`` fuer normierte Zuverlaessigkeitsgewichte):
+      ohne IS erwartungstreu fuer die Varianz; der Populationsschaetzer
+      (``ddof = 0``) wuerde die Streuung systematisch unterschaetzen.
+    * Zeitaggregation als quadratisches Mittel der Periodenvolas: bei
+      zeitvariabler Vola ist das mindestens das arithmetische Mittel der
+      Periodenvolas, unabhaengig von der Horizontlaenge.
+    * Die IS-Gewichte gelten pro PFAD und werden in JEDER Periode separat
+      angewandt (Mittel und Streuung je Periode unter der Zielverteilung);
+      ein zeituebergreifender gewichteter Mittelwert wird nie gebildet.
+    * Nicht schaetzbar (weniger als zwei Pfade bzw. alle Masse auf einem
+      Pfad): fail-closed mit ``objective_dispersion_not_estimable`` statt
+      eines stillen Werts 0.
+
+    Unveraendert gilt: Einperioden-Skala (nicht annualisierte Endrendite, die
+    mean-abhaengig ist, siehe Modul-Docstring) -- fuer stationaere Wuerfel
+    trifft der Wert die vorgegebene Einperioden-Sigma.
+
+    Die Kennung dieses Schaetzers steht als ``risk_measure_estimator`` im
+    Nachweis-Block (``objective_basis``) und damit in Modellbasis und
+    ``allocation_context_hash``; zusaetzlich traegt jeder Lauf die
+    Engine-Version.
     """
     one_period_returns = np.asarray(factors, dtype=np.float64) - 1.0
-    flat = one_period_returns.reshape(-1)
+    _require_finite_values(one_period_returns)
+    n_paths, n_periods = one_period_returns.shape
     if weights is None:
-        return float(np.std(flat))
-    path_weights = np.asarray(weights, dtype=np.float64).reshape(-1)
-    n_paths, n_years = one_period_returns.shape
-    if path_weights.shape[0] != n_paths:
-        # Eigene Pruefung mit eigener Meldung: `weighted_std` saehe nur die
-        # flachgelegte Laenge (pfade*jahre) und wuerde eine irrefuehrende
-        # Zahl nennen.
-        raise ValueError(
-            f"weights.shape[0]={path_weights.shape[0]} != n_paths={n_paths}"
+        normalized = np.full(n_paths, 1.0 / n_paths, dtype=np.float64)
+    else:
+        path_weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+        if path_weights.shape[0] != n_paths:
+            # Eigene Meldung mit der PFADzahl (nicht pfade*jahre).
+            raise ValueError(
+                f"weights.shape[0]={path_weights.shape[0]} != n_paths={n_paths}"
+            )
+        normalized = _normalized_weights(path_weights, n_paths)
+    correction = 1.0 - float(np.sum(normalized * normalized))
+    if n_paths < 2 or correction <= 0.0:
+        raise ObjectiveDomainError(
+            "objective_dispersion_not_estimable",
+            "Die Innerhalb-Perioden-Streuung braucht mindestens zwei Pfade "
+            f"mit positiver Masse (Pfade: {n_paths}, effektive Masse auf "
+            "einem Pfad).",
         )
-    return weighted_std(flat, np.repeat(path_weights, n_years))
+    # Vorab je Periode um einen Referenzpfad verschieben: mathematisch ohne
+    # Wirkung (die Varianz ist verschiebungsinvariant), numerisch aber so,
+    # dass identische Pfade EXAKT 0 liefern und eine deterministische
+    # Periodenkurve schon vor der Mittelung bitgenau herausfaellt.
+    anchored = one_period_returns - one_period_returns[0:1, :]
+    period_means = normalized @ anchored  # (perioden,)
+    deviations = anchored - period_means[None, :]
+    period_variances = (normalized @ (deviations * deviations)) / correction
+    pooled_variance = float(np.sum(period_variances)) / n_periods
+    return _require_finite_estimate(
+        float(np.sqrt(max(0.0, pooled_variance))), "within_period_dispersion",
+    )
 
 
 def _annual_grid_max_drawdowns(factors: np.ndarray) -> np.ndarray:

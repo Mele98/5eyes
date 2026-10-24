@@ -209,12 +209,15 @@ def test_finite_primary_objectives_are_unchanged(mode):
         ann = np.exp(np.mean(np.log(factors), axis=1)) - 1.0
         expected = -float(np.sum(ann * w))
     elif mode == OBJECTIVE_MIN_VOLATILITY:
-        flat = (factors - 1.0).reshape(-1)
-        fw = np.repeat(weights, factors.shape[1])
-        fw = fw / fw.sum()
-        mean = float(np.sum(flat * fw))
-        dev = flat - mean
-        expected = float(np.sqrt(max(0.0, np.sum(fw * dev * dev))))
+        # MIN-VOLATILITY-WITHIN-PERIOD-001: Referenz ist die gepoolte
+        # Innerhalb-Perioden-Varianz (Zentrierung je Periode, Kish-Korrektur),
+        # in derselben Rechenreihenfolge wie das Produkt.
+        r = factors - 1.0
+        anchored = r - r[0:1, :]
+        means = w @ anchored
+        dev = anchored - means[None, :]
+        var_t = (w @ (dev * dev)) / (1.0 - float(np.sum(w * w)))
+        expected = float(np.sqrt(max(0.0, float(np.sum(var_t)) / r.shape[1])))
     elif mode == OBJECTIVE_MAX_DRAWDOWN:
         index = np.concatenate([np.ones((40, 1)), np.cumprod(factors, axis=1)], axis=1)
         peak = np.maximum.accumulate(index, axis=1)

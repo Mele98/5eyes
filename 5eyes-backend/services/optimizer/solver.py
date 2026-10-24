@@ -1616,7 +1616,14 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # wish_goal_soft_tradeoff_v1). GOAL-REACHABILITY-FIELD-HONESTY-001 --
 # screen_upper_bound_meets_half_tau + reachable_at_tau. Der Default-Pfad
 # rechnet unveraendert; neu ist nur der Wuerfel (Version im Inhalts-Seed).
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v15"
+#
+# v16 (2026-10-25, MIN-VOLATILITY-WITHIN-PERIOD-001, CIO-Entscheid):
+# min_volatility misst die gepoolte Innerhalb-Perioden-Varianz (Zentrierung
+# je Periode, Bessel/Kish, quadratisches Zeitmittel); deterministische
+# Periodenmittel zaehlen nicht mehr als Vola. Nur die Variante rechnet
+# anders; der Default-Pfad rechnet unveraendert, neu ist nur der Wuerfel
+# (Version im Inhalts-Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v16"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
