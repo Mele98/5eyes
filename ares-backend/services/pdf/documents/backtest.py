@@ -15,7 +15,7 @@ from services.pdf.base import BacktestData, PDFContext
 from services.pdf.components.backtest_metrics import make_backtest_metrics_table
 from services.pdf.components.cover import make_cover_page
 from services.pdf.components.drawdown_chart import make_drawdown_chart
-from services.pdf.components.header import _esc, make_wealtharchitekten_header
+from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.text_sections import make_disclaimer_section
 from services.pdf.components.wealth_chart import make_wealth_chart
 from services.pdf.provisional_notice import make_provisional_notice_flowables
@@ -59,7 +59,7 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
     # ============================================================
     # 2. HAUPTSEITE — META + CHARTS + KENNZAHLEN
     # ============================================================
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx,
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
@@ -181,7 +181,7 @@ def _build_appendix_flowables(ctx, data: BacktestData, styles, advisory_label) -
     # 3. WARNINGS + DISCLAIMER
     # ============================================================
     flowables: list = []
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx,
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,

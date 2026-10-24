@@ -60,7 +60,7 @@ def download_file(url: str, dest: Path) -> bool:
 
 def vendor_assets() -> int:
     print('=' * 60)
-    print('  5Eyes — Vendoring Assets für Offline-Build')
+    print('  Ares — Vendoring Assets für Offline-Build')
     print('=' * 60)
 
     if not HTML_FILE.exists():

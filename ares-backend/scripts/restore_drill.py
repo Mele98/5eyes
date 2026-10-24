@@ -91,7 +91,7 @@ def _integrity_check(db_path: Path) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="5eyes Restore-Drill (DRP Abschnitt 5)")
+    parser = argparse.ArgumentParser(description="Ares Restore-Drill (DRP Abschnitt 5)")
     parser.add_argument(
         "--keep-workdir",
         action="store_true",

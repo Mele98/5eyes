@@ -59,7 +59,7 @@ def test_payload_filters_only_alerts():
     assert p["checked"] == 4
     assert p["threshold_bps"] == 300
     assert p["on_date"] == "2026-05-10"
-    assert "5eyes" in p["text"]
+    assert "Ares" in p["text"]
     assert "2 von 4" in p["text"]
 
 

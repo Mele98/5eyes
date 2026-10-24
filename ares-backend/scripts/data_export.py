@@ -25,7 +25,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="5eyes DSG-Datenexport CLI")
+    parser = argparse.ArgumentParser(description="Ares DSG-Datenexport CLI")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--client-id", type=str, help="Client.id (UUID)")
     group.add_argument(
