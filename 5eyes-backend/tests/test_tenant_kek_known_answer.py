@@ -169,12 +169,17 @@ def test_negative_control_changed_salt_breaks_passphrase_kat(
     with pytest.raises(TenantCryptoError):
         _decrypt_dek(KAT_ENCRYPTED_DEK_PASSPHRASE, KAT_PASSPHRASE)
 
-    # Und die stille Folge im Betrieb: das TOTP-Secret wird unlesbar ("").
+    # Und die Folge im Betrieb: das TOTP-Secret ist mit diesem KEK unlesbar.
     monkeypatch.setenv("TENANT_MASTER_KEK", KAT_PASSPHRASE)
     with session_factory() as db:
         _seed_tenant(db, "kat-salt", KAT_ENCRYPTED_DEK_PASSPHRASE)
         user = User(tenant_id="kat-salt", totp_secret=KAT_TOTP_STORED)
-        assert load_totp_secret(db, user) == ""
+        # Seit AF-3 (fail-closed) liefert ein falscher KEK keinen leeren
+        # String mehr, sondern einen typisierten Fehler.
+        from services.totp_secret_storage import TotpSecretStorageError
+
+        with pytest.raises(TotpSecretStorageError):
+            load_totp_secret(db, user)
 
 
 def test_negative_control_changed_iterations_breaks_passphrase_kat(monkeypatch):
