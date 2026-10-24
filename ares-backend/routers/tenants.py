@@ -9,7 +9,7 @@ Tier 3 sind diese Endpoints deaktiviert via settings.tenant_admin_ui_enabled.
 - Tenant-Aenderungen werden auditiert via services.audit.log
 
 # Workflow (Tier 2)
-1. Super-Admin (5eyes-Operator) erstellt Tenant via POST /tenants
+1. Super-Admin (Ares-Operator) erstellt Tenant via POST /tenants
 2. Super-Admin erstellt einen Tenant-Admin-User via existing /auth
 3. Super-Admin weist den User dem Tenant zu via PUT /users/{id}/tenant
 4. Tenant-Admin loggt sich ein, sieht nur seinen Tenant (via Auth-Layer T2+T3)

@@ -15,7 +15,7 @@ Da Stooq keine Currency in der CSV liefert, leiten wir sie aus dem Suffix ab.
 """
 from __future__ import annotations
 
-# 5eyes-Boersen-Code -> Stooq-Suffix.
+# Ares-Boersen-Code -> Stooq-Suffix.
 EXCHANGE_TO_STOOQ_SUFFIX: dict[str, str] = {
     "SIX": ".ch", "VTX": ".ch", "BRN": ".ch", "SW": ".ch", "CH": ".ch",
     "FRA": ".de", "XETRA": ".de", "DE": ".de", "MUN": ".de", "BER": ".de", "STU": ".de",

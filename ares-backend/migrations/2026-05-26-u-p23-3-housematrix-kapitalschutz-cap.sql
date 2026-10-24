@@ -10,7 +10,7 @@
 -- Fix: Cap auf 30 % anheben (= ASIP-Obergrenze für „Sicherheit/Kapitalschutz").
 --   Quelle: ASIP / Schweizerischer Pensionskassenverband. „Sicherheit"-
 --   Profile haben in der Schweizer Konvention typischerweise 0-30 % risky.
---   3eyes-Spec (Score X von 10 → X × 10 % risky-Cap) liefert für Score 2
+--   Referenz-Spec (Score X von 10 → X × 10 % risky-Cap) liefert für Score 2
 --   → 20 %; Toleranz-Puffer von 10 pp ist innerhalb Marktstandard für
 --   Mid-Allocation-Rundung.
 

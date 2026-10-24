@@ -1,7 +1,7 @@
-"""3eyes-Parität: maxIlliquid deckelt NUR den echt illiquiden Baustein (Private
+"""Referenz-Parität: maxIlliquid deckelt NUR den echt illiquiden Baustein (Private
 Equity), nicht die ganze Alternatives-Quote.
 
-Methodik (drei augen.pdf): Illiquidität ist eine Baustein-Eigenschaft.
+Methodik (Vorlagen-PDF): Illiquidität ist eine Baustein-Eigenschaft.
 Direktimmobilien laufen extern über das Gesamtvermögen; der einzige illiquide
 Baustein in der handelbaren SAA ist Private Equity. Gold / Liquid Alts sind
 liquide und dürfen vom Illiquiditäts-Limit NICHT getroffen werden.

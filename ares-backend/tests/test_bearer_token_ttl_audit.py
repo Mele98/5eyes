@@ -48,7 +48,7 @@ def _set_production_security_env(monkeypatch):
     monkeypatch.setenv('SECRET_KEY', 'strong-random-key-1234567890abcdefghij')
     monkeypatch.setenv('DB_USE_SQLCIPHER', 'true')
     monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890')
-    monkeypatch.setenv('CORS_ORIGINS', '["https://app.5eyes.local"]')
+    monkeypatch.setenv('CORS_ORIGINS', '["https://app.example.test"]')
 
 
 # ---------------------------------------------------------------------------

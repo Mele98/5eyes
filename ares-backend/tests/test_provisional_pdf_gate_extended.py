@@ -141,7 +141,7 @@ def test_attach_provisional_notice_sets_notice_for_de_data_derived(session_facto
 def _ctx(*, provisional_notice: dict | None = None) -> PDFContext:
     return PDFContext(
         mandate_name="DE Test Mandant", advisor_name="Test Berater",
-        advisor_org="WealthArchitekten Test", report_date=date.today(),
+        advisor_org="Muster & Partner AG Test", report_date=date.today(),
         base_currency="EUR", provisional_notice=provisional_notice,
     )
 

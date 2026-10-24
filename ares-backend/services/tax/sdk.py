@@ -1,8 +1,8 @@
-"""5eyes Tax-Plugin-SDK — Public API fuer Dritt-Anbieter.
+"""Ares Tax-Plugin-SDK — Public API fuer Dritt-Anbieter.
 
 Dieses Modul ist die OEFFENTLICHE Schnittstelle fuer externe
 Entwickler, die ein neues Land/eine neue Steuer-Jurisdiction zu
-5eyes hinzufuegen wollen, ohne den Core-Code zu modifizieren.
+Ares hinzufuegen wollen, ohne den Core-Code zu modifizieren.
 
 # Wer dieses Modul nutzt
 - Inhouse-Entwickler die ein neues Land hinzufuegen
@@ -35,8 +35,8 @@ tax-plugin-sdk.md`.
     # setup.cfg / pyproject.toml:
     # [options.entry_points]
     # ares.tax_regime =
-    #     vn = my_5eyes_vn_tax:VNTaxRegime
-    # 5eyes ruft beim Boot discover_external_regimes() auf und
+    #     vn = my_ares_vn_tax:VNTaxRegime
+    # Ares ruft beim Boot discover_external_regimes() auf und
     # findet alle eingetragenen Entry-Points.
 """
 from __future__ import annotations

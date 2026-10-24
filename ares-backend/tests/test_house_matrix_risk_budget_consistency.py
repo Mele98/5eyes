@@ -56,7 +56,7 @@ if str(BACKEND_ROOT) not in sys.path:
 # wird durch die Korrektur also nicht schwaecher.
 BB_RISKY_FRACTION_BPS = {
     "equities":    7500,   # 75% — Mittel aus den DB-Werten (7000-10000)
-    "bonds":       2250,   # 22.5% — leicht unter dem 3eyes-Wert
+    "bonds":       2250,   # 22.5% — leicht unter dem Referenzwert
     "real_estate": 6000,   # 60%
     "alternatives": 6000,  # 60%
     "liquidity":   0,

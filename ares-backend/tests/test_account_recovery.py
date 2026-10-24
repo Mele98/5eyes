@@ -138,7 +138,7 @@ def test_reset_link_ignores_attacker_host_header_when_public_base_url_configured
     from config import settings
     import services.mailer as mailer_mod
 
-    monkeypatch.setattr(settings, "public_base_url", "https://trusted.5eyes.example")
+    monkeypatch.setattr(settings, "public_base_url", "https://trusted.example.test")
     _seed_user(session_factory, "r2", "pw", email="victim@example.test")
 
     captured = {}
@@ -157,7 +157,7 @@ def test_reset_link_ignores_attacker_host_header_when_public_base_url_configured
         headers={"Host": "evil-attacker.test", "X-Forwarded-Host": "evil-attacker.test"},
     )
     assert r.status_code == 200
-    assert captured["link"].startswith("https://trusted.5eyes.example/")
+    assert captured["link"].startswith("https://trusted.example.test/")
     assert "evil-attacker.test" not in captured["link"]
 
 
@@ -245,7 +245,7 @@ def test_reset_link_still_sent_in_strict_mode_when_public_base_url_configured(
     """Strict-Modus ist kein pauschales Versand-Verbot -- mit korrekt
     konfiguriertem public_base_url funktioniert der Versand wie gewohnt."""
     from config import settings
-    monkeypatch.setattr(settings, "public_base_url", "https://trusted.5eyes.example")
+    monkeypatch.setattr(settings, "public_base_url", "https://trusted.example.test")
     monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
     _seed_user(session_factory, "r6", "pw", email="user6@example.test")
 
@@ -258,7 +258,7 @@ def test_reset_link_still_sent_in_strict_mode_when_public_base_url_configured(
 
     r = client.post("/auth/password-reset/request", json={"username": "r6"})
     assert r.status_code == 200
-    assert captured["link"].startswith("https://trusted.5eyes.example/")
+    assert captured["link"].startswith("https://trusted.example.test/")
 
 
 def test_reset_confirm_sets_new_password_and_is_single_use(client, session_factory):

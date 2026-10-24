@@ -2,7 +2,7 @@
  * U-FE-2: Ampel-Pill für Status-Anzeigen.
  *
  * Mapping: backend liefert `bewertung ∈ {gruen, gelb, rot, nicht_beurteilbar}`,
- * die Pill rendert das mit mattem 5eyes-Status-Farbtoken (NICHT signal-grün/-rot).
+ * die Pill rendert das mit mattem Ares-Status-Farbtoken (NICHT signal-grün/-rot).
  *
  * Wiederverwendbar in Sektion 7 (Erkenntnisse) und Sektion 11 (Goal-Status).
  */
