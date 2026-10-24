@@ -558,6 +558,8 @@ def ensure_runtime_columns() -> None:
             ('encrypted_dek', 'TEXT'),
             ('dek_version', 'INTEGER'),
             ('dek_rotated_at', 'TEXT'),
+            # AF-5: Generation der Master-KEK (siehe models/tenant.py).
+            ('kek_version', 'INTEGER', 1),
             # 2026-07-27 (Retrozessions-Feature): Firmenweite Vorbelegung,
             # siehe models/tenant.py.
             ('default_retrocession_reimbursement', 'INTEGER', 0),

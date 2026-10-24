@@ -40,6 +40,11 @@ def _now_iso() -> str:
 _KEK_KDF_SALT = b"5eyes.tenant.kek.pbkdf2.v1"
 _KEK_KDF_ITERATIONS = 200_000
 
+# AF-5: Generation der Master-KEK, unter der neu angelegte DEKs verpackt
+# werden (Spalte tenants.kek_version). Wird nur gespeichert; ein spaeterer
+# KEK-Rewrap (Migrator) setzt die neue Generation.
+CURRENT_KEK_VERSION = 1
+
 
 def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
     raw = (
@@ -150,6 +155,7 @@ def _provision_tenant_dek_committed(
             return str(tenant.encrypted_dek)  # paralleler Request war schneller
         tenant.encrypted_dek = _master_fernet(master_kek).encrypt(_new_dek()).decode("utf-8")
         tenant.dek_version = int(getattr(tenant, "dek_version", None) or 1)
+        tenant.kek_version = CURRENT_KEK_VERSION
         tenant.dek_rotated_at = _now_iso()
         session.commit()
         return str(tenant.encrypted_dek)
@@ -198,6 +204,7 @@ def rotate_tenant_dek(db: Session, tenant_id: str, *, master_kek: str | bytes | 
     dek = _new_dek()
     tenant.encrypted_dek = _master_fernet(master_kek).encrypt(dek).decode("utf-8")
     tenant.dek_version = int(getattr(tenant, "dek_version", None) or 0) + 1
+    tenant.kek_version = CURRENT_KEK_VERSION
     tenant.dek_rotated_at = _now_iso()
     db.flush()
     return dek
