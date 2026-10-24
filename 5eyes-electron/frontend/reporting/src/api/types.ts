@@ -58,44 +58,6 @@ export type RiskProfileName =
   | 'Dynamisch'
   | 'Aktien';
 
-export type InvestmentHorizonLabel =
-  | 'Bis 2 Jahre'
-  | '2 bis 3 Jahre'
-  | '4 bis 5 Jahre'
-  | '6 bis 7 Jahre'
-  | '8 bis 11 Jahre'
-  | 'Mehr als 12 Jahre'
-  | '0 bis 4 Jahre'
-  | '5 bis 7 Jahre'
-  | '12 Jahre und mehr'
-  | '1 bis 3 Jahre'
-  | '3 bis 5 Jahre'
-  | '5 bis 10 Jahre'
-  | '10 Jahre und mehr';
-
-export interface RiskAssessmentAnswerCreate {
-  question_number: number;
-  question_section: string;
-  answer_label: string;
-  answer_points: number;
-}
-
-export interface RiskAssessmentCreate {
-  q_income_points: number;
-  q_obligations_points: number;
-  q_savings_points: number;
-  q_wealth_points: number;
-  investment_horizon_label: InvestmentHorizonLabel;
-  investment_horizon_years: number;
-  q_investment_goal_points: number;
-  q_risk_preference_points: number;
-  q_risk_behavior_points: number;
-  answers?: RiskAssessmentAnswerCreate[];
-  knowledge_services_json?: string | null;
-  knowledge_instruments_json?: string | null;
-  income_sources_json?: string | null;
-}
-
 export interface RiskOverride {
   override_score_x10: number;
   override_profile: RiskProfileName;

@@ -49,7 +49,6 @@ from services.risk_capacity_plausibility import (  # noqa: E402
     pdf_advisor_note,
     strategy_reasoning_lines,
 )
-from tests.risk_fixture_helpers import CURRENT_RISK_ANSWERS  # noqa: E402
 
 CHF = 100  # Rappen
 TODAY = date(2026, 10, 18)
@@ -423,25 +422,24 @@ def _cashflow(cid, cf_type, amount_chf, frequency="monatlich", **extra):
 def _risk_body(**overrides):
     from schemas.profiling import RiskAssessmentCreate
 
-    body = dict(
-        q_income_points=3,           # CHF 12'000 bis 20'000
-        q_obligations_points=3,      # CHF 3'000 bis 5'000
-        q_savings_points=9,          # 25 bis 50 %
-        q_wealth_points=9,           # CHF 1 Mio bis 2 Mio
-        investment_horizon_label="Mehr als 12 Jahre",
-        investment_horizon_years=15,
-        q_investment_goal_points=3,
-        q_risk_preference_points=3,
-        q_risk_behavior_points=3,
-        knowledge_services_json="{}",
-        knowledge_instruments_json="{}",
-        income_sources_json='["Berufliche Taetigkeit"]',
-        answers=[
-            {"question_number": n, "question_section": "Risikoprofil",
-             "answer_label": label, "answer_points": points}
-            for n, label, points in CURRENT_RISK_ANSWERS
-        ],
-    )
+    from tests.risk_fixture_helpers import standard_risk_payload
+
+    # Standard-Fragebogen (O-1/O-2): Einkommen CHF 12'000 bis 20'000 (3),
+    # Verpflichtungen CHF 3'000 bis 5'000 (3), Sparquote 25 bis 50 % (9),
+    # Vermoegen CHF 1 Mio bis 2 Mio (9), mehr als 12 Jahre, Bereitschaft 3/3/3.
+    # Punkt-Overrides werden auf die passende Antwortoption abgebildet, damit
+    # Antworten und Punkte konsistent bleiben.
+    point_index = {
+        "q_income_points": ("income", [0, 1, 2, 3, 4]),
+        "q_obligations_points": ("oblig", [4, 3, 2, 1, 0]),
+        "q_wealth_points": ("wealth", [0, 3, 6, 9, 12]),
+        "q_savings_points": ("savings", [0, 3, 6, 9, 12]),
+    }
+    choice = {
+        point_index[k][0]: point_index[k][1].index(overrides.pop(k))
+        for k in list(overrides) if k in point_index
+    }
+    body = standard_risk_payload(**choice)
     body.update(overrides)
     return RiskAssessmentCreate(**body)
 

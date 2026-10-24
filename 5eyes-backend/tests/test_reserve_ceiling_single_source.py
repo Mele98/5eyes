@@ -54,7 +54,7 @@ def _generate(session_factory, advisor_user, willingness_points: int):
         q_investment_goal_points=willingness_points,
         q_risk_preference_points=willingness_points,
         q_risk_behavior_points=willingness_points,
-        answers=complete_risk_questionnaire_answers(),
+        answers=complete_risk_questionnaire_answers(willingness_points=willingness_points),
     )
     with session_factory() as session:
         create_risk_assessment(request=_FakeSignRequest(), mandate_id=mandate_id, body=payload,

@@ -36,8 +36,9 @@ import {
   SectionSkeleton,
   preloadSection,
 } from '@/pages/lazySections';
-const ProfilingPage = lazy(() =>
-  import('@/sections/profiling/ProfilingPage').then((m) => ({ default: m.ProfilingPage })));
+// O-1: Risikoprofil-Editor (Beta) gesperrt -- die Route zeigt nur einen Hinweis.
+const ProfilingEditorLocked = lazy(() =>
+  import('@/sections/profiling/ProfilingEditorLocked').then((m) => ({ default: m.ProfilingEditorLocked })));
 // Editor-Workflows lazy laden (U-56 Bundle-Budget): der Report-Viewer lädt den
 // Editor-Code nicht mit — jede Sektion wird als eigener Chunk on-demand geholt.
 const GoalsEditor = lazy(() =>
@@ -77,7 +78,7 @@ function App() {
         />
         <Route
           path="/mandates/:mandateId/risikoprofil-editor"
-          element={<ProfilingPage />}
+          element={<ProfilingEditorLocked />}
         />
         {SECTION_ROUTES.filter((route) => route.path).map((route) => (
           <Route

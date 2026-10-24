@@ -116,7 +116,8 @@ def test_html_bridge_reuses_same_token_handoff_as_other_editor_bridges():
     # openCashflowEditor, openMandateEditor, openCrmEditor,
     # openCrmEditorForClient, openWealthInflowEditor). openAllocationEditor
     # gehoert seit BAND-EDITOR-SINGLE-001 nicht mehr dazu.
-    assert html.count("await resolveReportingAppUrl(path)") == 8
+    # O-1: Risikoprofil-Editor gesperrt (keine Bruecke mehr) -> 7 Bridges.
+    assert html.count("await resolveReportingAppUrl(path)") == 7
 
 
 def test_asset_allocation_section_offers_exactly_one_band_editor_entry():
