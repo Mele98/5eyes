@@ -104,8 +104,11 @@ def test_no_frontend_or_report_consumer_reads_the_reachability_fields():
     """Statischer Nachweis: weder Monolith noch React-Report noch PDF-Schicht
     lesen das alte oder die neuen Felder (reine API-/Audit-Offenlegung)."""
     names = ("feasible_set_reachable", "screen_upper_bound_meets_half_tau", "reachable_at_tau")
-    sources = [REPO_ROOT / "5eyes-electron" / "frontend" / "5eyes_v2.html"]
-    sources += sorted((REPO_ROOT / "5eyes-electron" / "frontend" / "reporting" / "src").rglob("*.ts*"))
+    frontends = sorted(REPO_ROOT.glob("*-electron/frontend"))
+    assert len(frontends) == 1
+    frontend = frontends[0]
+    sources = sorted(frontend.glob("*.html"))
+    sources += sorted((frontend / "reporting" / "src").rglob("*.ts*"))
     sources += sorted((BACKEND_ROOT / "services" / "pdf").rglob("*.py"))
     sources += sorted((BACKEND_ROOT / "routers").rglob("*.py"))
     readers = [
