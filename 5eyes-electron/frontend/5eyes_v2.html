@@ -28166,12 +28166,9 @@ function renderReviewRiskProfileCard(){
     if(signoffState==='signed'){
       sigEl.innerHTML='<span class="tag tg">&#10003; signiert am '+escapeHtml(formatDateSwiss(String(signedAt||'').slice(0,10)))+' ('+escapeHtml(methodTxt)+')</span>'
         +'<div id="sr-riskprofile-signoff-ref" style="font-size:9px;color:var(--n5);margin-top:4px;line-height:1.4">Signoff '+escapeHtml(String(risk.signoff_id||''))+' &middot; SHA-256 '+escapeHtml(String(risk.signoff_hash||'-').slice(0,12))+'<br>'+decisionRef+'</div>';
-    }else if(signoffState==='integrity_mismatch'){
-      sigEl.innerHTML='<span class="tag ta" style="color:var(--neg)">&#9888; Signatur-Nachweis passt nicht</span>';
-    }else if(signoffState==='signature_required'){
-      sigEl.innerHTML='<span class="tag ta">&#9888; neue Signatur erforderlich</span>';
-    }else if(signoffState==='legacy_unbound'){
-      sigEl.innerHTML='<span class="tag ta">Altsignatur, nicht an Decision gebunden</span>';
+    }else if(signoffState==='integrity_mismatch'){sigEl.innerHTML='<span class="tag ta" style="color:var(--neg)">&#9888; Signatur-Nachweis passt nicht</span>';
+    }else if(signoffState==='signature_required'){sigEl.innerHTML='<span class="tag ta">&#9888; neue Signatur erforderlich</span>';
+    }else if(signoffState==='legacy_unbound'){sigEl.innerHTML='<span class="tag ta">Altsignatur, nicht an Decision gebunden</span>';
     }else if(signoffState==='remediation_required'){
       sigEl.innerHTML='<span class="tag ta" style="color:var(--neg)">&#9888; Signatur gesperrt</span>';
     }else{
