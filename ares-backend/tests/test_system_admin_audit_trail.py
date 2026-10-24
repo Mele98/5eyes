@@ -344,7 +344,7 @@ def test_audit_log_filter_rejects_unknown_action(session_factory):
 # ---------------------------------------------------------------------------
 
 def test_recent_logs_endpoint_redacts_bearer_token(session_factory, monkeypatch, tmp_path):
-    log_file = tmp_path / "5eyes-app.log"
+    log_file = tmp_path / "ares-app.log"
     log_file.write_text(
         'INFO Request | path=/mandates/1 headers={"Authorization: Bearer supersecrettoken123"}\n'
         "INFO normal log line with no secrets\n",
@@ -363,7 +363,7 @@ def test_recent_logs_endpoint_redacts_bearer_token(session_factory, monkeypatch,
 
 
 def test_recent_logs_endpoint_redacts_invite_token_path(session_factory, monkeypatch, tmp_path):
-    log_file = tmp_path / "5eyes-app.log"
+    log_file = tmp_path / "ares-app.log"
     log_file.write_text(
         "INFO Request completed | method=GET path=/auth/invite/abc123SECRETTOKEN status=200\n",
         encoding="utf-8",
