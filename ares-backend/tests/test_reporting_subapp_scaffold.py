@@ -60,7 +60,10 @@ def test_scaffold_file_exists(relative: str):
 
 def test_package_json_is_valid_and_declares_required_dependencies():
     pkg = json.loads(_read("package.json"))
-    assert pkg["name"] == "5eyes-reporting"
+    assert pkg["name"] == "ares-reporting"
+    lock = json.loads(_read("package-lock.json"))
+    assert lock["name"] == pkg["name"]
+    assert lock["packages"][""]["name"] == pkg["name"]
     assert pkg["type"] == "module"
     # Pflicht-Dependencies aus User-Spec
     deps = pkg.get("dependencies") or {}
