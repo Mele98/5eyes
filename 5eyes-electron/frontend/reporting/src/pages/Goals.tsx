@@ -67,7 +67,14 @@ export function Goals({ data, projectionGate }: GoalsProps) {
       title="Zielbasierte Optimierung"
       subtitle="Erfolgswahrscheinlichkeit je Ziel (nach Priorität) und Plan-Solvenz aller Ziele gemeinsam."
     >
-      <AchievementScoreKpi scoreBps={data.goal_achievement_score_bps} />
+      <AchievementScoreKpi
+        scoreBps={projectionsHidden ? null : data.goal_achievement_score_bps}
+        hiddenHint={
+          projectionsHidden
+            ? projectionGate?.hinweis || 'Projektionen ausgeblendet.'
+            : null
+        }
+      />
       <PlanSolvencyKpi plan={data.plan_solvency ?? null} />
 
       {projectionsHidden ? null : hasRealPaths ? (
@@ -174,16 +181,27 @@ function SortableTh({
 
 // ---------------------------------------------------------------------------
 
-function AchievementScoreKpi({ scoreBps }: { scoreBps: number | null | undefined }) {
+// MC-CONTEXT-001 (Codex-Closure-Review PR #663): null = nicht verfuegbar
+// ("—"), nie eine gemessene 0 %. Bei ausgeblendetem Projection-Gate ersetzt
+// der gemeinsame Gate-Hinweis die Beschreibung.
+function AchievementScoreKpi({
+  scoreBps,
+  hiddenHint,
+}: {
+  scoreBps: number | null | undefined;
+  hiddenHint: string | null;
+}) {
   const display = formatBpsAsPct(scoreBps, { decimals: 0 });
   return (
     <section className="border-l-4 border-accent bg-canvas-subtle px-6 py-5">
       <p className="text-micro uppercase tracking-widest text-ink-subtle">
         Erfolgswahrscheinlichkeit gesamt (gewichtet)
       </p>
-      <p className="mt-2 font-serif text-display text-ink">{display}</p>
-      <p className="mt-1 text-caption text-ink-muted">
-        Nach Zielgewicht gemittelte Erfolgswahrscheinlichkeit aller Ziele.
+      <p className="mt-2 font-serif text-display text-ink" data-testid="achievement-score-value">
+        {display}
+      </p>
+      <p className="mt-1 text-caption text-ink-muted" data-testid="achievement-score-note">
+        {hiddenHint ?? 'Nach Zielgewicht gemittelte Erfolgswahrscheinlichkeit aller Ziele.'}
       </p>
     </section>
   );

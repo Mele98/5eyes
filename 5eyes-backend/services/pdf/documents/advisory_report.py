@@ -328,7 +328,10 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     if "risikoprofilierung" in payload:
         flowables.append(_toc_anchor(toc_collector, "risikoprofilierung", "Risikoprofilierung"))
-        flowables.extend(_build_risikoprofil_flowables(payload.get("risikoprofilierung") or {}, styles))
+        flowables.extend(_build_risikoprofil_flowables(
+            payload.get("risikoprofilierung") or {}, styles,
+            projection_gate=payload.get("projection_gate"),
+        ))
         flowables.append(PageBreak())
     if "building_blocks" in payload:
         flowables.append(_toc_anchor(toc_collector, "building_blocks", "Building Blocks / iSAA"))
@@ -1650,9 +1653,15 @@ def _goal_status_pill(status: str, styles: dict):
 # Sektion 12 — Risikoprofilierung
 # ---------------------------------------------------------------------------
 
-def _build_risikoprofil_flowables(rp: dict, styles: dict) -> list[Any]:
+def _build_risikoprofil_flowables(
+    rp: dict, styles: dict, *, projection_gate: dict | None = None,
+) -> list[Any]:
     """Risikoprofil-Box (final_profile + 3 Scores) + Override-Hinweis +
-    Fragen-Liste."""
+    Fragen-Liste.
+
+    MC-CONTEXT-001 (Codex-Closure-Review PR #663): ist der Projection-Gate
+    ausgeblendet, liefert der Aggregator kein Risikobudget der (alten)
+    Allokation; statt einer leeren Zelle erscheint der gemeinsame Hinweis."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 12", styles["kicker"]))
     out.append(Paragraph("Risikoprofilierung", styles["h1"]))
@@ -1687,6 +1696,13 @@ def _build_risikoprofil_flowables(rp: dict, styles: dict) -> list[Any]:
     out.append(_risikoprofil_summary(
         profile_label, final_score, risky_bps, styles,
     ))
+    gate = projection_gate if isinstance(projection_gate, dict) else {}
+    gate_hint = str(gate.get("hinweis") or "").strip()
+    if gate.get("projections_hidden") and gate_hint:
+        out.append(Spacer(1, 2 * mm))
+        out.append(Paragraph(
+            "<b>Risikobudget:</b> " + _escape(gate_hint), styles["body"],
+        ))
     out.append(Spacer(1, 4 * mm))
 
     out.append(_risikoprofil_scores_block(capacity, willingness, styles))

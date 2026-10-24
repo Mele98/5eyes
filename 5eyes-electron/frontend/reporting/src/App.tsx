@@ -440,6 +440,7 @@ function renderSection(
       <Risikoprofil
         data={data.risikoprofilierung}
         capacityPlausibility={data.suitability_summary?.risk_capacity_plausibility ?? null}
+        projectionGate={data.projection_gate}
       />
     );
   }
