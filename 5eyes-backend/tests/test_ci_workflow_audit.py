@@ -130,7 +130,7 @@ def test_pytest_job_has_timeout(workflow_yaml):
     Coverage; Run 38964294815 wurde nach gruenem Gate im Coverage-Schritt
     vom Job-Limit abgebrochen.
 
-    2026-10-24 (F0-3): die Suite laeuft in 6 parallelen Shards (je
+    2026-10-24 (F0-3): die Suite laeuft in 8 parallelen Shards (je
     `-n auto --dist loadfile`); ein Shard braucht ~8-20 min, Limit 60.
     Der Job `pytest` ist nur noch das Aggregat (Vollstaendigkeits-Gate).
     """
@@ -218,12 +218,12 @@ def test_test_jobs_keep_determinism_pinning(workflow_yaml, job_id):
 
 def test_shards_run_parallel_per_file(workflow_yaml):
     job = workflow_yaml["jobs"]["backend-test-shard"]
-    assert job["strategy"]["matrix"]["group"] == [1, 2, 3, 4, 5, 6]
+    assert job["strategy"]["matrix"]["group"] == [1, 2, 3, 4, 5, 6, 7, 8]
     assert job["strategy"]["fail-fast"] is False
     run = next(s["run"] for s in job["steps"] if "-n auto" in s.get("run", ""))
     assert "--dist loadfile" in run
     assert '-m "not wallclock_budget"' in run
-    assert "--splits 6" in job["env"]["SPLIT_ARGS"]
+    assert "--splits 8" in job["env"]["SPLIT_ARGS"]
 
 
 def test_wallclock_budget_tests_run_serially(workflow_yaml):

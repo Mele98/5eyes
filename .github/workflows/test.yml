@@ -73,7 +73,7 @@ jobs:
   # `pytest tests/` mit zuletzt ~157 min Wandzeit (Run 40005758865) und
   # 200 min Job-Timeout. Jetzt:
   #   backend-test-plan      volle Collection (Referenzliste aller Node-IDs)
-  #   backend-test-shard     6 Matrix-Shards (pytest-split nach .test_durations,
+  #   backend-test-shard     8 Matrix-Shards (pytest-split nach .test_durations,
   #                          Algorithmus duration_based_chunks = Dateien bleiben
   #                          zusammenhaengend), je Shard `-n auto --dist loadfile`
   #                          (pytest-xdist; eigene DB je Worker, tests/conftest.py)
@@ -126,14 +126,15 @@ jobs:
           retention-days: 14
 
   backend-test-shard:
-    name: Backend Test Shard ${{ matrix.group }}/6
+    name: Backend Test Shard ${{ matrix.group }}/8
     runs-on: ubuntu-latest
-    # Erwartung je Shard ~10-20 min (Gesamtlaufzeit / 6 Shards / 4 vCPU).
+    # Erwartung je Shard ~8-16 min (Gesamtlaufzeit / 8 Shards / 4 vCPU; Untergrenze = laengste
+    # Einzeldatei, gemessen bis ~14 min unter Last, da --dist loadfile Dateien nicht teilt).
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2, 3, 4, 5, 6]
+        group: [1, 2, 3, 4, 5, 6, 7, 8]
     # OMP/OPENBLAS/MKL_NUM_THREADS=1 (2026-09-09): golden-snapshot-Test
     # bucket5_ausgewogen_default_prefs flakte wiederholt auf CI (396 vs.
     # 397 bps, ULP-Differenz), obwohl die Monte-Carlo-Inputs deterministisch
@@ -167,7 +168,7 @@ jobs:
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
       SPLIT_ARGS: >-
-        --splits 6 --group ${{ matrix.group }}
+        --splits 8 --group ${{ matrix.group }}
         --splitting-algorithm duration_based_chunks
         --durations-path .test_durations
     steps:
@@ -328,10 +329,10 @@ jobs:
     # bei >8100 Tests jedes Mal am eigenen Timeout ab -- kein Report, aber
     # 60 min Runner-Zeit pro PR. Jetzt eigener, nicht-blockierender Job nur
     # nach Merge (push auf develop/main) mit ausreichend Zeit.
-    # F0-3 (2026-10-24): parallel wie das Gate (6 Shards x xdist-Worker,
+    # F0-3 (2026-10-24): parallel wie das Gate (8 Shards x xdist-Worker,
     # pytest-cov kombiniert die Worker je Shard), danach `coverage combine`
     # ueber alle Shards im Job coverage-combine. Weiterhin nicht blockierend.
-    name: Backend Coverage Shard ${{ matrix.group }}/6 (push only, non-blocking)
+    name: Backend Coverage Shard ${{ matrix.group }}/8 (push only, non-blocking)
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -339,7 +340,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2, 3, 4, 5, 6]
+        group: [1, 2, 3, 4, 5, 6, 7, 8]
     env:
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
@@ -366,7 +367,7 @@ jobs:
         working-directory: 5eyes-backend
         run: |
           python -m pytest tests/ --tb=short -n auto --dist loadfile \
-            --splits 6 --group ${{ matrix.group }} --splitting-algorithm duration_based_chunks \
+            --splits 8 --group ${{ matrix.group }} --splitting-algorithm duration_based_chunks \
             --durations-path .test_durations \
             --cov=services --cov=routers --cov=schemas --cov=models --cov-report=
 
