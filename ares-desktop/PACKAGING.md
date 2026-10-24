@@ -23,7 +23,7 @@ preflight:release   (release-check.js: Icons, HTML, Reporting-dist, Bundle-Exe)
 build:reporting     (cd frontend/reporting && npm run build  -> dist/)
     |
     v
-build:backend       (PyInstaller im ares-backend/ -> bundle/backend/5eyes-api.exe)
+build:backend       (PyInstaller im ares-backend/ -> bundle/backend/ares-api.exe)
     |
     v
 electron-builder    (NSIS-Installer in ares-desktop/dist/)
@@ -60,13 +60,13 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
    ```bash
    cd ares-desktop
    npm run build:backend
-   ls ../ares-backend/dist/        # 5eyes-api.exe
-   ls bundle/backend/                # 5eyes-api.exe (Kopie)
+   ls ../ares-backend/dist/        # ares-api.exe
+   ls bundle/backend/                # ares-api.exe (Kopie)
    ```
 
 3. **Backend-EXE smoke-testen (vor electron-builder):**
    ```bash
-   bundle/backend/5eyes-api.exe
+   bundle/backend/ares-api.exe
    # Sollte uvicorn auf 127.0.0.1:8000 starten
    # Im zweiten Terminal:
    curl http://127.0.0.1:8000/health/ready
@@ -109,7 +109,7 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
 | Reporting-Sub-App im Installer war veraltet oder fehlte ganz | `pack`/`dist:win` chained kein `npm run build` der Sub-App | Neues `build:reporting`-Script, in Pack/Dist-Chains eingehaengt |
 | Installer war unnoetig gross (Sub-App-Source + node_modules ungewollt mitgepackt) | `files: ["frontend/**/*"]` Wildcard | Explizite includes + Negativ-Patterns fuer src/, node_modules/, configs |
 | Veralteter Sub-App-Build wurde stillschweigend mitgepackt | release-check.js prueft nichts dazu | Check ergaenzt: `reporting/dist` muss aktueller als `reporting/src/main.tsx` sein |
-| Fehlende `bundle/backend/5eyes-api.exe` brach electron-builder im 4. Schritt | release-check warnte nicht | Check ergaenzt, mit `STRICT_RELEASE=1` als Error |
+| Fehlende `bundle/backend/ares-api.exe` brach electron-builder im 4. Schritt | release-check warnte nicht | Check ergaenzt, mit `STRICT_RELEASE=1` als Error |
 
 ---
 
