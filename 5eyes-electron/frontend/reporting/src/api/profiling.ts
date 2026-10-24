@@ -6,7 +6,6 @@ import {
 } from './client';
 import type {
   RiskAssessment,
-  RiskAssessmentCreate,
   RiskOverride,
 } from './types';
 
@@ -91,38 +90,6 @@ async function requestRiskAssessment(
   const data = await response.json();
   validateRiskAssessment(data);
   return data;
-}
-
-export async function fetchCurrentRiskAssessment(
-  mandateId: string,
-  options: RequestOptions = {},
-): Promise<RiskAssessment> {
-  return requestRiskAssessment(
-    endpoint(mandateId, '/risk-assessments/current', options.baseUrl),
-    {
-      method: 'GET',
-      credentials: 'include',
-      headers: await authHeaders(),
-      signal: options.signal,
-    },
-  );
-}
-
-export async function createRiskAssessment(
-  mandateId: string,
-  body: RiskAssessmentCreate,
-  options: RequestOptions = {},
-): Promise<RiskAssessment> {
-  return requestRiskAssessment(
-    endpoint(mandateId, '/risk-assessments', options.baseUrl),
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: await authHeaders(true),
-      body: JSON.stringify(body),
-      signal: options.signal,
-    },
-  );
 }
 
 export async function overrideRiskAssessment(

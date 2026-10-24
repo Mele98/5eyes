@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -17,5 +17,10 @@ describe('Risikoprofil-Editor gesperrt (O-1)', () => {
     const route = app.split('path="/mandates/:mandateId/risikoprofil-editor"')[1].slice(0, 120);
     expect(route).toContain('<ProfilingEditorLocked');
     expect(app).not.toContain('<ProfilingPage');
+  });
+
+  it('die abweichende Editor-Komponente ist entfernt', () => {
+    expect(existsSync(join(__dirname, 'ProfilingPage.tsx'))).toBe(false);
+    expect(existsSync(join(__dirname, 'RiskSummary.tsx'))).toBe(false);
   });
 });

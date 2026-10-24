@@ -112,24 +112,20 @@ def test_profiling_editor_button_is_hidden_and_disabled():
     assert "saveRiskProfile()" in rp_header
 
 
-def test_react_profiling_api_client_calls_same_endpoints_as_html_monolith():
-    html = _read(HTML_PATH)
+def test_nonconforming_react_questionnaire_is_removed():
+    """CIO-Entscheid: die abweichende React-Komponente ist ganz entfernt,
+    nicht angepasst. Es gibt nur den Standard-Fragebogen im Monolithen."""
+    profiling_dir = PROFILING_PAGE_PATH.parent
+    assert not PROFILING_PAGE_PATH.exists()
+    assert not (profiling_dir / "RiskSummary.tsx").exists()
     profiling_api = _read(PROFILING_API_PATH)
-
-    # HTML (saveRiskProfile) und React (createRiskAssessment) muessen exakt
-    # denselben Endpunkt-Suffix ansprechen.
-    assert "'/risk-assessments'" in html or '"/risk-assessments"' in html
-    assert "'/risk-assessments'" in profiling_api
-
-    assert "/risk-assessments/current" in html
-    assert "/risk-assessments/current" in profiling_api
-
-
-def test_react_profiling_page_does_not_reimplement_scoring_formulas():
-    """Reine UI-Migration: die React-Seite darf keine eigene Scoring-Logik
-    fuehren, sondern muss risk_capacity_score_x10 / final_profile etc. vom
-    Backend uebernehmen (siehe RiskSummary.tsx / api/types.ts)."""
-    page = _read(PROFILING_PAGE_PATH)
-
-    forbidden_score_math = re.compile(r"score\s*=\s*[^=]*[+\-*/]")
-    assert not forbidden_score_math.search(page)
+    assert "createRiskAssessment" not in profiling_api
+    assert "fetchCurrentRiskAssessment" not in profiling_api
+    react_src = PROFILING_API_PATH.parents[1]
+    offenders = [
+        str(path.relative_to(react_src))
+        for path in react_src.rglob("*.ts*")
+        if "buildRiskAssessmentPayload" in path.read_text(encoding="utf-8")
+        or "/ProfilingPage'" in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, offenders
