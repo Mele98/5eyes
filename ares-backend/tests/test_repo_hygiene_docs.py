@@ -7,7 +7,8 @@ Stand-Audit
 - 1 Worktree (Main, kein extra Marker)
 
 Diese Tests verifizieren:
-1. Audit-Doku existiert + dokumentiert beide Quellen (Stashes + Branches)
+1. (Doku-Tests auf die Bestandsaufnahme liegen im Archiv-Modul
+   ``test_archived_docs_contract.py``, siehe docs/DOCS_MANIFEST.md.)
 2. Cleanup-Scripts existieren + sind defensiv (DryRun-Support)
 3. Scripts loeschen nur das was sicher ist (Memory-Pin nicht antasten)
 """
@@ -19,13 +20,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
-# Doku-Existenz
+# Script-Existenz
 # ---------------------------------------------------------------------------
-
-def test_repo_hygiene_doc_exists():
-    doc = REPO_ROOT / "docs" / "REPO_HYGIENE_2026-06-04.md"
-    assert doc.exists(), "Audit-Doku fehlt — Bestandsaufnahme nicht persistiert."
-
 
 def test_cleanup_recent_stashes_script_exists():
     script = REPO_ROOT / "scripts" / "cleanup-recent-race-stashes.ps1"
@@ -35,35 +31,6 @@ def test_cleanup_recent_stashes_script_exists():
 def test_cleanup_branches_script_exists():
     script = REPO_ROOT / "scripts" / "cleanup-codex-branches-safe.ps1"
     assert script.exists()
-
-
-# ---------------------------------------------------------------------------
-# Doku-Content
-# ---------------------------------------------------------------------------
-
-def test_doc_classifies_28_stashes_and_5_branches():
-    doc = (REPO_ROOT / "docs" / "REPO_HYGIENE_2026-06-04.md").read_text(
-        encoding="utf-8",
-    )
-    assert "28 Stashes" in doc or "28 Total" in doc
-    assert "5 codex/* Branches" in doc or "5 Lokale Total" in doc
-
-
-def test_doc_distinguishes_race_recovery_from_codex_wip():
-    doc = (REPO_ROOT / "docs" / "REPO_HYGIENE_2026-06-04.md").read_text(
-        encoding="utf-8",
-    )
-    assert "Race-Recovery" in doc
-    assert "Codex-WIP" in doc
-
-
-def test_doc_classifies_branches_by_ahead_count():
-    doc = (REPO_ROOT / "docs" / "REPO_HYGIENE_2026-06-04.md").read_text(
-        encoding="utf-8",
-    )
-    # Mind. die 2 ahead=0 Branches namentlich genannt
-    assert "codex/u-p23-pr-a-schema-toc" in doc
-    assert "codex/u-p23-pr-c-report-navigation" in doc
 
 
 # ---------------------------------------------------------------------------
@@ -126,14 +93,3 @@ def test_branch_script_prefers_safe_minus_d_flag():
         encoding="utf-8",
     )
     assert "branch -d" in script
-
-
-# ---------------------------------------------------------------------------
-# Folge-Sprint Trail
-# ---------------------------------------------------------------------------
-
-def test_doc_lists_folge_sprints():
-    doc = (REPO_ROOT / "docs" / "REPO_HYGIENE_2026-06-04.md").read_text(
-        encoding="utf-8",
-    )
-    assert "Folge-Sprints" in doc

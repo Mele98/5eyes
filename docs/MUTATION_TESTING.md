@@ -1,4 +1,4 @@
-# Mutation-Testing fuer 5eyes-Backend
+# Mutation-Testing fuer Ares-Backend
 
 Wegweiser fuer Mutation-Testing mit `mutmut` — wann es lohnt, wie es
 laeuft, wie Surviving Mutanten interpretiert werden.

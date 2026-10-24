@@ -2,8 +2,7 @@
 
 > **Verwendung:** Pro Mandat einmal **kopieren** und ausfüllen. Datei-Name nach
 > Konvention `shadow-vergleich-<YYYY-MM-DD>-<pseudonym>.md` in `docs/compliance/`
-> ablegen. Bezug: Methodology
-> `docs/planning/2026-05-23-stochastic-shadow-comparison-methodology.md` §6.
+> ablegen.
 >
 > **Pseudonymisierung:** Mandat-Nr. und Kundenname dürfen NICHT im Report
 > stehen. Stattdessen `archetype-<n>` (`archetype-1`, `archetype-2`, …) oder

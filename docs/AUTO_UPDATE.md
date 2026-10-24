@@ -1,6 +1,6 @@
 # Electron Auto-Update — Operations-Doku
 
-Wie das Auto-Update der 5eyes-Electron-App funktioniert, wie es
+Wie das Auto-Update der Ares-Electron-App funktioniert, wie es
 aktiviert wird, und wie Releases publiziert werden.
 
 **Stand:** 2026-06-06
@@ -29,7 +29,7 @@ Vite-Dev) laeuft NIE Auto-Update.
 ```json
 {
   "provider": "generic",
-  "url": "https://updates.5eyes.local"
+  "url": "<ARES_UPDATE_URL>"
 }
 ```
 
@@ -66,7 +66,7 @@ Renderer kommuniziert via `notifyRendererUpdateState()` (siehe
    `test_release_version_consistency.py` faengt Drift)
 2. **CHANGELOG:** `docs/CHANGELOG_TEMPLATE.md` Pattern befolgen
 3. **Build:** `npm run dist:win` baut NSIS-Setup
-4. **Publish:** Upload `latest.yml` + `5eyes-Setup-X.Y.Z.exe` auf
+4. **Publish:** Upload `latest.yml` + die Setup-Datei (`*-Setup-X.Y.Z.exe`) auf
    den `generic`-URL-Endpoint
 5. **Smoke-Test:** alte Installation startet, Auto-Update findet
    Update, Restart installiert sauber

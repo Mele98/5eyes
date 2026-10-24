@@ -50,7 +50,7 @@ APP_PORT=8000
 # DB-Verschluesselung
 DB_USE_SQLCIPHER=true
 DB_KEY=<32-byte-hex-key-aus-secrets-manager>
-DB_PATH=C:\5eyes-data\production.sqlite
+DB_PATH=C:\ares-data\production.sqlite
 
 # JWT-Secret (NIE im Repository)
 SECRET_KEY=<lange-zufaellige-string-mind-32-zeichen>
@@ -79,10 +79,10 @@ Backup-Strategie pflichtig.
 
 ```powershell
 # Beispiel-Backup-Script (Windows Task Scheduler taeglich)
-$source = "C:\5eyes-data\production.sqlite"
+$source = "C:\ares-data\production.sqlite"
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$local_dest = "D:\5eyes-backups\local\$timestamp.sqlite"
-$nas_dest = "\\nas01\backups\5eyes\$timestamp.sqlite"
+$local_dest = "D:\ares-backups\local\$timestamp.sqlite"
+$nas_dest = "\\nas01\backups\ares\$timestamp.sqlite"
 
 Copy-Item $source $local_dest
 Copy-Item $source $nas_dest
@@ -95,7 +95,7 @@ Copy-Item $source $nas_dest
 
 ```powershell
 # Vor jedem Update: Backup machen!
-cd C:\5eyes_stage9_release_ready
+cd <Repo-Root>
 git pull origin develop
 cd ares-backend
 pip install -r requirements.txt
@@ -160,7 +160,7 @@ Wenn der Berater spaeter zu Tier 2 wechseln will:
 
 1. Aktuelles Backup machen
 2. SQLite-DB-Export via `services.export.export_mandate_data()`
-3. Bei 5eyes-Operator melden, Tier-2-Tenant wird angelegt
+3. Bei Ares-Operator melden, Tier-2-Tenant wird angelegt
 4. Daten-Import in Tier-2-Postgres
 5. Tier-1-Backend deaktivieren (oder als Read-Only-Archive)
 
@@ -175,6 +175,6 @@ Self-Hosted bedeutet: Berater ist verantwortlich fuer:
 - Sicherheits-Patches
 - Notfall-Wiederherstellung
 
-Empfehlung: **Wartungsvertrag mit 5eyes** kann diese Aufgaben uebernehmen
+Empfehlung: **Wartungsvertrag mit Ares** kann diese Aufgaben uebernehmen
 (monatliche Fee). Vertraglich geregelt, kein FINMA-Outsourcing-Risiko da
 Berater Datenherr bleibt.

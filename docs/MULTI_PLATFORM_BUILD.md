@@ -80,10 +80,10 @@ npm ci
 npm run dist:linux
 ```
 
-Output landet unter `ares-desktop/dist/`:
-- `5Eyes-0.4.0-x64.exe` (NSIS-Setup)
-- `5Eyes-0.4.0-x64.dmg` (macOS)
-- `5Eyes-0.4.0-x64.AppImage` (Linux)
+Output landet unter `ares-desktop/dist/` (Dateinamen gemaess `artifactName` in `package.json`):
+- `*-0.4.0-x64.exe` (NSIS-Setup)
+- `*-0.4.0-x64.dmg` (macOS)
+- `*-0.4.0-x64.AppImage` (Linux)
 
 ## Auto-Update Multi-Platform
 
@@ -96,7 +96,7 @@ Platform eigene `latest-*.yml`:
 - `latest-linux.yml`
 
 Berater stellt alle 3 + ihre Setup-Binaries unter den gleichen
-`https://updates.5eyes.local/` Endpoint.
+`<ARES_UPDATE_URL>` Endpoint.
 
 ## Bewusst NICHT in Scope (U-108)
 

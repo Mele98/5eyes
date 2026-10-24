@@ -1,4 +1,4 @@
-# 5eyes Deployment-Recipes
+# Ares Deployment-Recipes
 
 Diese Sammlung bietet **Schritt-fuer-Schritt-Anleitungen** fuer alle drei
 Hosting-Tiers aus ADR-009.
@@ -9,7 +9,7 @@ Hosting-Tiers aus ADR-009.
 |------|-------|------|
 | Phase-1 Demo | [phase1-cloudflare-tunnel.md](phase1-cloudflare-tunnel.md) | Schnelle Demo aus Self-Hosted heraus |
 | Tier 1 | [tier1-self-hosted.md](tier1-self-hosted.md) | Berater hostet auf eigener Hardware |
-| Tier 2 | [tier2-shared-cloud.md](tier2-shared-cloud.md) | 5eyes-Operator hostet fuer mehrere Berater (Infomaniak/Exoscale) |
+| Tier 2 | [tier2-shared-cloud.md](tier2-shared-cloud.md) | Ares-Operator hostet fuer mehrere Berater (Infomaniak/Exoscale) |
 | Tier 3 | [tier3-dedicated.md](tier3-dedicated.md) | Premium: dedicated VPS pro Berater |
 
 ## Konfigurations-Cheatsheet
@@ -76,7 +76,7 @@ Wenn Berater fragt:
 
 - HTTPS in jedem Setup das uebers Internet erreichbar ist
 - JWT-Secret in `.env` (NIE im Repository)
-- Bcrypt-Hashed Passworter (default in 5eyes)
+- Bcrypt-Hashed Passworter (default in Ares)
 - Audit-Log-Integritaets-Hash (default aktiv)
 - SQLCipher optional fuer SQLite-Verschluesselung-at-Rest
 - Backups in jedem Tier (siehe tier-spezifische Empfehlungen)
