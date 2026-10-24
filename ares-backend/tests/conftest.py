@@ -108,9 +108,9 @@ def pytest_sessionstart(session):  # noqa: D103
 
 # --- Hintergrund-Ressourcen-Guard (Teardown-Hang-Befund 2026-10-20) --------
 # Siehe tests/_session_leak_guard.py. Meldet nach dem Lauf noch laufende
-# nicht-daemonische Threads und Produkt-Scheduler; FIVEEYES_STRICT_LEAK_GUARD=1
+# nicht-daemonische Threads und Produkt-Scheduler; ARES_STRICT_LEAK_GUARD=1
 # macht daraus einen roten Lauf. Ein Exit-Watchdog dumpt alle Thread-Stacks,
-# falls der Prozess pytest um FIVEEYES_PYTEST_EXIT_WATCHDOG_S (Default 60 s)
+# falls der Prozess pytest um ARES_PYTEST_EXIT_WATCHDOG_S (Default 60 s)
 # ueberlebt.
 import pytest as _pytest
 

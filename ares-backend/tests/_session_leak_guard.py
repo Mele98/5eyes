@@ -10,12 +10,12 @@ This module only *observes*; ``tests/conftest.py`` wires it into
 ``pytest_sessionfinish`` / ``pytest_terminal_summary`` / ``pytest_unconfigure``:
 
 * non-daemon, non-main threads still alive after the run are reported
-  (``FIVEEYES_STRICT_LEAK_GUARD=1`` turns the report into a failed session);
+  (``ARES_STRICT_LEAK_GUARD=1`` turns the report into a failed session);
 * APScheduler instances of ``price_updater`` / ``backup_scheduler`` that are
   still running after the run are reported (their threads are daemon threads,
   but a running backup scheduler would write into the real backup directory);
 * an exit watchdog dumps all thread stacks to stderr if the process is still
-  alive N seconds after pytest finished (``FIVEEYES_PYTEST_EXIT_WATCHDOG_S``,
+  alive N seconds after pytest finished (``ARES_PYTEST_EXIT_WATCHDOG_S``,
   default 60, ``0`` disables), so the next hang names its culprit instead of
   just "no output".
 """
@@ -27,8 +27,8 @@ import sys
 import threading
 from dataclasses import dataclass
 
-STRICT_ENV = "FIVEEYES_STRICT_LEAK_GUARD"
-WATCHDOG_ENV = "FIVEEYES_PYTEST_EXIT_WATCHDOG_S"
+STRICT_ENV = "ARES_STRICT_LEAK_GUARD"
+WATCHDOG_ENV = "ARES_PYTEST_EXIT_WATCHDOG_S"
 DEFAULT_WATCHDOG_SECONDS = 60.0
 
 # (module name, attribute holding the scheduler instance)
