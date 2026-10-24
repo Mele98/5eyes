@@ -71,10 +71,10 @@ Sechs methodische Festlegungen (alle 2026-06-17/18 umgesetzt + test-abgesichert)
   (`test_engine_methodik_invariants`, `test_deterministic_ito_growth`,
   `test_goal_pessimistic_quartile`, `test_cma_conservative_alternatives`,
   `test_illiquid_cap`, `test_anlagephilosophie_no_timing`).
-- Methodik-Transparenz: siehe `docs/methodology/5eyes-engine-whitepaper.md`.
+- Methodik-Transparenz: siehe `docs/methodology/engine-whitepaper.md`.
 
 ## Referenzen
 
-- Whitepaper: `docs/methodology/5eyes-engine-whitepaper.md`
+- Whitepaper: `docs/methodology/engine-whitepaper.md`
 - Anlagephilosophie: ADR-003
 - Roadmap: `docs/planning/2026-06-18-roadmap-200-detailliert.md`
