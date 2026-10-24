@@ -494,7 +494,7 @@ jobs:
         # durch die gesamte Suite; genau so blieben die drei fehlenden
         # Reporting-Views unbemerkt. Laeuft auf derselben Postgres-Instanz,
         # eigenes Schema pro Lauf.
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py -q
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
