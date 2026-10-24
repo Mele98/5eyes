@@ -266,6 +266,19 @@ Alternative/Liquiditaet v11 -> v12: Score 7 6788/1613/797/602/200 ->
 64.43 %), Score 9 7819/900/700/381/200 -> 7832/885/702/381/200 (Vola
 1232 -> 1234 bps, Risikoanteil 68.62 -> 68.70 %); Score 3 und alle drei
 Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-24, SUB-SPLIT-ROUNDING-001, Engine ``saa_resampled_v13``):
+eine kanonische Largest-Remainder-Aufteilung fuer Builder, Kanonisierung und
+Materialisierung. Mit dem v12-Seed waren alle sechs Fixtures byte-identisch
+(lokal erzeugt, gleich den eingecheckten Dateien bis auf Zeilenenden). Auf
+dem Linux-CI-Runner (temporaerer Workflow, Threads = 1) unter Haswell UND
+Nehalem neu erzeugt, beide byte-identisch. Geaendert nur durch den neuen
+Wuerfel (Version im Inhalts-Seed), Aktien/Obligationen/Immobilien/
+Alternative/Liquiditaet v12 -> v13: Score 7 6768/1636/808/588/200 ->
+6780/1611/805/604/200 (Vola 1076 -> 1079 bps, Risikoanteil 64.43 ->
+64.58 %), Score 9 7832/885/702/381/200 -> 7810/940/675/375/200 (Rendite
+574 -> 573 bps, Vola 1234 -> 1229 bps, Risikoanteil 68.70 -> 68.45 %);
+Score 3 und alle drei Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 

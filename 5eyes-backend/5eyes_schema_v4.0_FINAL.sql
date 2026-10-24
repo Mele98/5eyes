@@ -359,6 +359,7 @@ CREATE TABLE IF NOT EXISTS risk_override_decisions (
     assessment_id                TEXT NOT NULL,  -- bewusst ohne FK (Muster audit_log, Purge-fest)
     mandate_id                   TEXT NOT NULL,  -- bewusst ohne FK (Muster audit_log, Purge-fest)
     client_id                    TEXT,
+    tenant_id                    TEXT,  -- PG-002: aus mandates.tenant_id abgeleitet
     assessment_version           INTEGER NOT NULL,
     sequence_no                  INTEGER NOT NULL CHECK(sequence_no >= 1),
     previous_decision_id         TEXT,
@@ -486,6 +487,7 @@ CREATE TABLE IF NOT EXISTS risk_profile_signoffs (
     assessment_id          TEXT NOT NULL,
     mandate_id             TEXT NOT NULL,
     client_id              TEXT,
+    tenant_id              TEXT,  -- PG-002: aus mandates.tenant_id abgeleitet
     assessment_version     INTEGER NOT NULL,
     sequence_no            INTEGER NOT NULL CHECK(sequence_no >= 1),
     previous_signoff_id    TEXT,

@@ -496,6 +496,9 @@ def override_risk_assessment(
         assessment_id=ra.id,
         mandate_id=mandate_id,
         client_id=mandate.client_id,
+        # PG-002 (Codex-Closure-Review PR #662): Mandant aus dem validierten
+        # Mandat; Teil des V2-Hashes, DB-Trigger prueft/erzwingt ihn.
+        tenant_id=mandate.tenant_id,
         assessment_version=assessment_version,
         sequence_no=sequence_no,
         previous_decision_id=previous_decision_id,

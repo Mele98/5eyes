@@ -28153,10 +28153,9 @@ function renderReviewRiskProfileCard(){
     if(signoffState==='signed'){
       sigEl.innerHTML='<span class="tag tg">&#10003; signiert am '+escapeHtml(formatDateSwiss(String(signedAt||'').slice(0,10)))+' ('+escapeHtml(methodTxt)+')</span>'
         +'<div id="sr-riskprofile-signoff-ref" style="font-size:9px;color:var(--n5);margin-top:4px;line-height:1.4">Signoff '+escapeHtml(String(risk.signoff_id||''))+' &middot; SHA-256 '+escapeHtml(String(risk.signoff_hash||'-').slice(0,12))+'<br>'+decisionRef+'</div>';
-    }else if(signoffState==='signature_required'){
-      sigEl.innerHTML='<span class="tag ta">&#9888; neue Signatur erforderlich</span>';
-    }else if(signoffState==='legacy_unbound'){
-      sigEl.innerHTML='<span class="tag ta">Altsignatur, nicht an Decision gebunden</span>';
+    }else if(signoffState==='integrity_mismatch'){sigEl.innerHTML='<span class="tag ta" style="color:var(--neg)">&#9888; Signatur-Nachweis passt nicht</span>';
+    }else if(signoffState==='signature_required'){sigEl.innerHTML='<span class="tag ta">&#9888; neue Signatur erforderlich</span>';
+    }else if(signoffState==='legacy_unbound'){sigEl.innerHTML='<span class="tag ta">Altsignatur, nicht an Decision gebunden</span>';
     }else if(signoffState==='remediation_required'){
       sigEl.innerHTML='<span class="tag ta" style="color:var(--neg)">&#9888; Signatur gesperrt</span>';
     }else{
@@ -28166,6 +28165,7 @@ function renderReviewRiskProfileCard(){
   if(hintEl){
     var hints={
       signed:'Die Bestaetigung zum aktuellen Risikoprofil ist dokumentiert und an '+(risk.override_decision_id?'den aktuellen Override-Entscheid':'das Fragebogenergebnis (kein Override)')+' gebunden.',
+      integrity_mismatch:'Der gespeicherte Signatur-Nachweis passt nicht mehr zum aktuellen Risikoprofil (Inhalt seit der Signatur veraendert). Er gilt nicht als gueltige Bestaetigung -- bitte pruefen und die Signatur neu erfassen.',
       signature_required:'Das wirksame Risikoprofil wurde nach der letzten Signatur uebersteuert ('+(risk.override_decision_id?('Override-Entscheid '+String(risk.override_decision_id)):'Override')+'). Die fruehere Signatur gilt nicht fuer das aktuelle Profil -- bitte die Bestaetigung neu erfassen.',
       legacy_unbound:'Altsignatur vom '+formatDateSwiss(String(signedAt||'').slice(0,10))+' ('+methodTxt+') ohne Signoff-Nachweis -- nicht an einen Override-Entscheid gebunden. Mit «Signatur erneuern» wird ein gebundener Signoff erfasst.',
       remediation_required:'Override aus Altbestand – bitte bestätigen: Der Override hat keinen verifizierbaren Decision-Nachweis. Auf der Seite Risikoprofil mit «Override bestätigen» einen Entscheid erfassen, danach ist die Signatur möglich.',
@@ -28177,7 +28177,7 @@ function renderReviewRiskProfileCard(){
     if(isDemo){btn.disabled=true;btn.title='Signatur nur fuer ein gespeichertes Mandat moeglich.';}
     else if(signoffState==='remediation_required'){btn.disabled=true;btn.title='Override aus Altbestand zuerst auf der Seite Risikoprofil bestätigen (kein verifizierbarer Decision-Nachweis).';}
     else{btn.disabled=false;btn.title='';}
-    btn.textContent=(signoffState==='signed'||signoffState==='legacy_unbound')?'Signatur erneuern':'Signatur erfassen';
+    btn.textContent=(signoffState==='signed'||signoffState==='legacy_unbound'||signoffState==='integrity_mismatch')?'Signatur erneuern':'Signatur erfassen';
   }
 }
 function riskSignoffState(risk){

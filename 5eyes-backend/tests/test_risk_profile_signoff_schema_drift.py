@@ -31,6 +31,10 @@ TRIGGERS = {
     "trg_risk_profile_signoffs_no_update",
     "trg_risk_profile_signoffs_no_delete",
 }
+# PG-002 (Codex-Closure-Review PR #662): Mandanten-/Kombinationsschutz beim
+# INSERT; ORM create_all und Alembic installieren ihn zusaetzlich (Bootstrap-SQL
+# kennt mandates.tenant_id noch nicht, dort folgt er per Runtime-Patch).
+TENANT_GUARD = "trg_risk_profile_signoffs_tenant_guard"
 POINTER_COLUMNS = {"signoff_id", "signoff_hash", "signoff_status"}
 MODEL_COLUMNS = {c.name for c in RiskProfileSignoff.__table__.columns}
 
@@ -130,7 +134,7 @@ def test_orm_create_all_installs_append_only_triggers(tmp_path):
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(bind=engine)
     engine.dispose()
-    assert _triggers(db_path) == TRIGGERS
+    assert _triggers(db_path) == TRIGGERS | {TENANT_GUARD}
 
 
 def test_alembic_head_creates_signoff_table_backfills_and_downgrade_is_reversible(tmp_path):
@@ -166,7 +170,7 @@ def test_alembic_head_creates_signoff_table_backfills_and_downgrade_is_reversibl
     }["ux_risk_profile_signoff_sequence"]
     assert unique["unique"] and unique["column_names"] == ["assessment_id", "sequence_no"]
     engine.dispose()
-    assert _triggers(db_path) == TRIGGERS
+    assert _triggers(db_path) == TRIGGERS | {TENANT_GUARD}
     with sqlite3.connect(str(db_path)) as conn:
         assert conn.execute(
             "SELECT signoff_status FROM risk_assessments WHERE id='ra-legacy'"

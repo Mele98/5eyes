@@ -122,10 +122,13 @@ def test_snapshot_is_bytewise_available_after_new_session_and_hash_bound(
         assert allocation.reserve_funding_ledger_hash == ledger["contract_hash"]
         assert snapshot["ledger"] == json.loads(json.dumps(ledger))
         assert constraints[CONSTRAINTS_KEY] == {
-            "snapshot_version": "reserve_funding_ledger_snapshot_v1",
+            # RESERVE-CEILING-001: v2 bindet zusaetzlich den Reserve-Split.
+            "snapshot_version": "reserve_funding_ledger_snapshot_v2",
             "version": ledger["version"],
             "policy_version": ledger["policy_version"],
             "contract_hash": ledger["contract_hash"],
+            "reserve_split_version": "reserve_split_snapshot_v1",
+            "reserve_split_hash": generated["reserve_split"]["contract_hash"],
         }
         reloaded = _reload_payload(session, allocation)
     assert reloaded["reserve_funding_ledger"] == ledger

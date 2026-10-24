@@ -684,6 +684,8 @@ def _simulate_context_wealth(
         mandate_age_at_start=context.mandate_age_at_start,
         is_retired=context.is_retired,
         is_retired_series=context.is_retired_series,
+        # Explizite Replays (inkl. Reserve-Freigaben) statt festgehaltenem Kontext.
+        retain_scope_context=False,
     )
 
 
@@ -1582,7 +1584,14 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Risikotest auf dem Risikomass ALLEIN (kein Skalar Ziel + Risiko) mit 50-bps-
 # Materialitaet. Default-Pfad (House-Prior) unveraendert. v12 = v11 (keine
 # Auto-Herabstufung) plus Goal-Preservation-Gate.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v12"
+#
+# v13 (2026-10-24, SUB-SPLIT-ROUNDING-001): eine kanonische Aufteilung der
+# Sub-Allokation (services/sub_allocation_apportionment.py, Largest Remainder,
+# Tie-Break Gewicht/Label) fuer Builder, Split-Normalisierung, Kanonisierung
+# und Materialisierung; der stochastische Plan-Mix ist der normalisierte
+# Split selbst. Kann Sub-Mix, Sub-CMA und Risky Fraction um Rundungs-bps
+# verschieben; die Version trennt alte von neuen Allokationen.
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v13"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und

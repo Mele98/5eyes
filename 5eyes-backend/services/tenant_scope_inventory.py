@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-24.1"
+INVENTORY_VERSION = "2026-10-24.2"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -42,6 +42,10 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "product_eligibility_snapshots",
     "product_universe_entries",
     "protocol_bausteine",
+    # PG-002 (Closure-Review PR #662): append-only Risiko-Evidence, Mandant
+    # aus dem Mandat abgeleitet (services/risk_evidence_tenant_boundary.py).
+    "risk_override_decisions",
+    "risk_profile_signoffs",
     "users",
     # PG-002 (Closure-Review PR #666): bisher nur transitiv ueber clients.
     "wealth_inflows",
@@ -114,10 +118,6 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "review_triggers": ("mandate_id", "mandates"),
     "risk_assessment_answers": ("assessment_id", "risk_assessments"),
     "risk_assessments": ("mandate_id", "mandates"),
-    # Evidence tables of the #662 review: direct tenant binding needs a new
-    # hash representation (V2) -- open PG-002 item, see PR description.
-    "risk_override_decisions": ("mandate_id", "mandates"),
-    "risk_profile_signoffs": ("mandate_id", "mandates"),
     "strategy_snapshots": ("mandate_id", "mandates"),
     "suitability_checks": ("mandate_id", "mandates"),
     "target_allocations": ("mandate_id", "mandates"),

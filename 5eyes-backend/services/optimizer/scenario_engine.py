@@ -50,6 +50,7 @@ from services.return_moments import (
 
 from .distributions import _MAX_EXCESS_KURT, _MAX_SKEW, cornish_fisher_is_monotonic
 from services.retirement_phase import is_retired_in_year
+from .retained_simulation_context import retain as _retain_context
 
 
 # Konsistent zu services.portfolio_engine.BUCKET_FIELDS
@@ -567,6 +568,7 @@ def simulate_wealth_paths(
     tax_n_bins: int = 20,
     portfolio_factors: np.ndarray | None = None,
     is_retired_series: Sequence[bool] | None = None,
+    retain_scope_context: bool = True,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
 
@@ -600,6 +602,13 @@ def simulate_wealth_paths(
         Konvention: death_year_index[p]=5 → Pfad p lebt in t=0..4 (cashflow
         aktiv), ab t=5 cashflow=0. Wachstum laeuft weiter (Erbschaft, aber
         keine weiteren Einnahmen/Ausgaben).
+
+    retain_scope_context: haelt den eingefrorenen Simulationskontext zum
+        zurueckgegebenen Array fest (``retained_simulation_context``), damit
+        abweichende Prioritaets-Scopes ohne expliziten Replay-Kontext exakt
+        -- inklusive pfadweiser Todesmaske -- direkt simuliert werden
+        koennen. Aendert keine Zahl des Pfads. Der Solver setzt ``False``
+        (er reicht seinen Replay-Kontext immer explizit weiter).
 
     portfolio_factors: optional shape (n_paths, horizon) -- die bereits
         abgeleiteten Jahres-Wachstumsfaktoren ``return_paths @ weights``
@@ -694,15 +703,39 @@ def simulate_wealth_paths(
                 f"({n_paths}, {horizon}), got {portfolio_factors.shape}"
             )
 
+    def _retained(wealth_out: np.ndarray) -> np.ndarray:
+        if not retain_scope_context or tax_mode != "median" or int(tax_n_bins) != 20:
+            return wealth_out
+        return _retain_context(wealth_out, {
+            "initial_wealth_rappen": initial_wealth_rappen,
+            "weights": weights.copy(),
+            "return_paths": return_paths,
+            "cashflow_series_rappen": tuple(cashflow.tolist()),
+            "liability_path_rappen": tuple(liability.tolist()),
+            "death_year_index_per_path": (
+                None if death_year_index_per_path is None
+                else np.array(death_year_index_per_path, dtype=np.int32, copy=True)
+            ),
+            "tax_regime": tax_regime,
+            "dividend_yield_bps_per_bucket": dividend_yield_bps_per_bucket,
+            "base_calendar_year": base_calendar_year,
+            "mandate_age_at_start": mandate_age_at_start,
+            "is_retired": is_retired,
+            "is_retired_series": (
+                None if is_retired_series is None else tuple(is_retired_series)
+            ),
+            "portfolio_factors": portfolio_factors,
+        })
+
     if tax_regime is None:
-        return _simulate_wealth_paths_untaxed(
+        return _retained(_simulate_wealth_paths_untaxed(
             initial_wealth_rappen=initial_wealth_rappen,
             portfolio_factors=portfolio_factors,
             cashflow=cashflow,
             liability=liability,
             cashflow_per_path=cashflow_per_path,
             liability_per_path=liability_per_path,
-        )
+        ))
 
     wealth = np.empty((n_paths, horizon + 1), dtype=np.float64)
     wealth[:, 0] = float(initial_wealth_rappen)
@@ -765,7 +798,7 @@ def simulate_wealth_paths(
         else:
             wealth[:, t + 1] = grown + cashflow[t] - liability[t]
 
-    return wealth
+    return _retained(wealth)
 
 
 def _simulate_wealth_paths_untaxed(

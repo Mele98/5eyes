@@ -342,18 +342,26 @@ def classify_messages(
         # -- nach jedem Override ist eine neue Signatur Pflicht, bis ein an
         # genau diese Decision gebundener RiskProfileSignoffV1 vorliegt.
         from services.risk_profile_signoff import (
+            STATE_INTEGRITY_MISMATCH,
             STATUS_SIGNED,
             signoff_reference,
-            signoff_state,
+            verified_signoff_state,
         )
 
-        state = signoff_state(assessment)
+        # Codex-Closure-Review PR #662: derselbe Binding-Verifier wie API/PDF
+        # -- ein nicht mehr passender Signoff wird nie als gueltig gemeldet.
+        state = verified_signoff_state(None, assessment)
         signoff_id = _get(assessment, "signoff_id") if state == STATUS_SIGNED else None
         signoff_hash = _get(assessment, "signoff_hash") if state == STATUS_SIGNED else None
         override_message["signoff_state"] = state
         override_message["signoff_id"] = signoff_id
         override_message["signoff_hash"] = signoff_hash
-        if decision_id or state == STATUS_SIGNED:
+        if state == STATE_INTEGRITY_MISMATCH:
+            override_message["body_advisor"] += (
+                " Signatur-Nachweis passt nicht zum aktuellen Risikoprofil -- "
+                "neue Signatur des Risikoprofils erforderlich."
+            )
+        elif decision_id or state == STATUS_SIGNED:
             override_message["body_advisor"] += (
                 f" Signoff: {signoff_reference(signoff_id, signoff_hash)}."
                 if state == STATUS_SIGNED

@@ -25,6 +25,11 @@ Vertrag (``ReserveFundingLedgerSnapshotV1``):
 * Legacy ohne Snapshot ist ehrlich ``unverifiable``: kein historischer Ledger
   wird erfunden, die Analyse laeuft sichtbar auf der Live-Preview und eine
   Finalisierung verlangt eine Neuberechnung.
+
+RESERVE-CEILING-001 (Snapshot-Version 2): derselbe Snapshot traegt den
+``ReserveSplitSnapshotV1`` (intern/extern/absorbiert/Luecke, Ceiling in bps
+und Rappen). Sein Hash steht zusaetzlich in der Constraint-Referenz; v1-
+Snapshots ohne Split bleiben lesbar.
 """
 from __future__ import annotations
 
@@ -37,8 +42,10 @@ from services.reserve_funding_ledger import (
     ReserveTranche,
     ledger_contract_hash,
 )
+from services.reserve_split_snapshot import ReserveSplitSnapshotV1, split_from_dict
 
 RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION = "reserve_funding_ledger_snapshot_v1"
+RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION_V2 = "reserve_funding_ledger_snapshot_v2"
 # Schluessel der Referenz in effective_constraints (-> allocation_context_hash).
 CONSTRAINTS_KEY = "reserve_funding_ledger"
 
@@ -72,24 +79,40 @@ def ledger_from_dict(data: dict) -> ReserveFundingLedgerV1:
     return ReserveFundingLedgerV1(**values)
 
 
-def ledger_reference(ledger: ReserveFundingLedgerV1) -> dict:
+def ledger_reference(ledger: ReserveFundingLedgerV1, split: ReserveSplitSnapshotV1 | None = None) -> dict:
     """Kompakte Referenz fuer ``effective_constraints`` (hash-gebunden)."""
-    return {
+    reference = {
         "snapshot_version": RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION,
         "version": str(ledger.version),
         "policy_version": str(ledger.policy_version),
         "contract_hash": str(ledger.contract_hash),
     }
+    if split is not None:
+        reference["snapshot_version"] = RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION_V2
+        reference["reserve_split_version"] = str(split.version)
+        reference["reserve_split_hash"] = str(split.contract_hash)
+    return reference
 
 
-def ledger_snapshot_columns(ledger: ReserveFundingLedgerV1) -> dict:
-    """Spaltenwerte der ``TargetAllocation`` fuer den publizierten Ledger."""
+def _check_split_matches_ledger(split: ReserveSplitSnapshotV1, ledger: ReserveFundingLedgerV1) -> None:
+    if (split.external_rappen, split.reserve_needed_rappen) != (
+        int(ledger.total_external_rappen), int(ledger.reserve_needed_rappen)
+    ):
+        raise ValueError("Reserve-Split und Reserve-Funding-Ledger nennen verschiedene Betraege.")
+
+
+def ledger_snapshot_columns(ledger: ReserveFundingLedgerV1, split: ReserveSplitSnapshotV1 | None = None) -> dict:
+    """Spaltenwerte der ``TargetAllocation`` fuer den publizierten Ledger (+ Split)."""
     if ledger_contract_hash(ledger) != ledger.contract_hash:
         raise ValueError("Reserve-Funding-Ledger: Contract-Hash stimmt nicht mit den Zeilen ueberein.")
     snapshot = {
         "snapshot_version": RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION,
         "ledger": ledger.to_dict(),
     }
+    if split is not None:
+        _check_split_matches_ledger(split_from_dict(split.to_dict()), ledger)
+        snapshot["snapshot_version"] = RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION_V2
+        snapshot["reserve_split"] = split.to_dict()
     return {
         "reserve_funding_ledger_json": _canonical(snapshot),
         "reserve_funding_ledger_hash": str(ledger.contract_hash),
@@ -97,7 +120,14 @@ def ledger_snapshot_columns(ledger: ReserveFundingLedgerV1) -> dict:
 
 
 def verify_persisted_ledger_snapshot(allocation, stored_constraints: dict | None) -> ReserveFundingLedgerV1 | None:
-    """Gespeicherten Snapshot verifizieren; ``None`` = Legacy ohne Snapshot.
+    """Gespeicherten Ledger verifizieren; ``None`` = Legacy ohne Snapshot."""
+    return verify_persisted_reserve_snapshot(allocation, stored_constraints)[0]
+
+
+def verify_persisted_reserve_snapshot(
+    allocation, stored_constraints: dict | None,
+) -> tuple[ReserveFundingLedgerV1 | None, ReserveSplitSnapshotV1 | None]:
+    """Gespeicherten Snapshot verifizieren -> (Ledger, Split); Legacy -> (None, None).
 
     Jede Teilmenge (Spalte ohne Referenz, Referenz ohne Spalte) und jede
     Abweichung zwischen Zeilen-Hash, Ledger-Feld, Hash-Spalte und
@@ -107,7 +137,7 @@ def verify_persisted_ledger_snapshot(allocation, stored_constraints: dict | None
     raw_hash = getattr(allocation, "reserve_funding_ledger_hash", None)
     reference = (stored_constraints or {}).get(CONSTRAINTS_KEY)
     if raw_json is None and raw_hash is None and reference is None:
-        return None
+        return None, None
     if not (isinstance(raw_json, str) and raw_json.strip() and isinstance(raw_hash, str)
             and raw_hash.strip() and isinstance(reference, dict)):
         raise ValueError(
@@ -116,9 +146,18 @@ def verify_persisted_ledger_snapshot(allocation, stored_constraints: dict | None
         )
     try:
         snapshot = json.loads(raw_json)
-        if not isinstance(snapshot, dict) or snapshot.get("snapshot_version") != RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION:
+        version = snapshot.get("snapshot_version") if isinstance(snapshot, dict) else None
+        expected_keys = {"snapshot_version", "ledger"} | (
+            {"reserve_split"} if version == RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION_V2 else set()
+        )
+        if version not in (RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION, RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION_V2) or (
+            set(snapshot) != expected_keys
+        ):
             raise ValueError("unknown reserve ledger snapshot version")
         ledger = ledger_from_dict(snapshot.get("ledger"))
+        split = split_from_dict(snapshot["reserve_split"]) if "reserve_split" in snapshot else None
+        if split is not None:
+            _check_split_matches_ledger(split, ledger)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError(f"Persistierter Reserve-Funding-Ledger ist ungueltig: {exc}") from exc
     recomputed = ledger_contract_hash(ledger)
@@ -127,11 +166,14 @@ def verify_persisted_ledger_snapshot(allocation, stored_constraints: dict | None
             "Reserve-Funding-Ledger-Hash stimmt nicht mit den persistierten "
             "Ledger-Zeilen bzw. der gehashten Referenz ueberein."
         )
-    if reference != ledger_reference(ledger):
+    if reference != ledger_reference(ledger, split):
         raise ValueError(
             "Reserve-Funding-Ledger-Version/Policy widerspricht der gehashten Referenz."
         )
-    return ledger
+    stored_external = getattr(allocation, "external_reserve_at_generation_rappen", None)
+    if split is not None and stored_external is not None and int(stored_external) != split.external_rappen:
+        raise ValueError("Reserve-Split widerspricht der gespeicherten externen Reserve.")
+    return ledger, split
 
 
 @dataclass(frozen=True)
@@ -234,6 +276,11 @@ def reserve_ledger_finalization_block(payload: dict | None) -> tuple[str, str] |
     """
     replay = (payload or {}).get("reserve_funding_ledger_replay") or {}
     status = replay.get("status")
+    # RESERVE-CEILING-001: heutige Referenzdaten teilen die Reserve anders auf
+    # als der gespeicherte Entscheid -> wie ein veralteter Ledger behandeln.
+    split_status = ((payload or {}).get("reserve_split_replay") or {}).get("status")
+    if status == REPLAY_VERIFIED and split_status == "stale":
+        status = REPLAY_STALE
     if status == REPLAY_VERIFIED:
         return None
     code = REASON_LEDGER_STALE if status == REPLAY_STALE else REASON_RECALCULATION_REQUIRED
