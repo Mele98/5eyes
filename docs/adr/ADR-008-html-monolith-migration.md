@@ -6,7 +6,7 @@
 
 ## Kontext
 
-Die ursprueliche 5eyes-Frontend-Code-Basis ist `ares-desktop/frontend/
+Die ursprueliche Ares-Frontend-Code-Basis ist `ares-desktop/frontend/
 ares.html` — eine **1.29 MB grosse Single-HTML-Datei** mit inline
 CSS+JS, manuell DOM-manipuliert. Sie deckt alle Beratungs-Workflows ab,
 ist aber:
@@ -111,7 +111,7 @@ Grund:
 ## Konsequenzen
 
 **Positiv:**
-- 5eyes bleibt durchgaengig nutzbar waehrend Migration
+- Ares bleibt durchgaengig nutzbar waehrend Migration
 - Neue Features sind in React (testbar, wartbar)
 - Pro Sektion ein eigenes PR -> reviewbar
 - Visual-Regression-Tests fangen Drift
@@ -182,4 +182,3 @@ Drift-Test) durchlaufen hat:
   Components (11)
 - `ares-backend/tests/test_frontend_*_contracts.py` — Drift-Tests
 - ADR-004 (Editorial-No-Recharts) — Chart-Architektur-Entscheidung
-- Memory `project_5eyes_audit.md` — Track-Migration-Status
