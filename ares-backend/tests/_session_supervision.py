@@ -17,14 +17,14 @@ things from inside pytest, both provided here and wired in
   that signal does not exist (Windows), when ``<dir>/dump-request`` appears
   (polled by a daemon thread).
 
-Without ``FIVEEYES_SUPERVISOR_DIR`` everything here is a no-op, so a plain
+Without ``ARES_SUPERVISOR_DIR`` everything here is a no-op, so a plain
 local ``pytest`` run behaves as before.
 
 The module also gates the supported Python runtimes (``SUPPORTED_PYTHON``,
 same matrix as CI): an unsupported interpreter stops the session before
 collection with a clear message instead of hanging later (a local Python
 3.14 run blocked inside the AnyIO/Proactor socketpair setup of
-``TestClient``). ``FIVEEYES_ALLOW_UNSUPPORTED_PYTHON=1`` overrides it.
+``TestClient``). ``ARES_ALLOW_UNSUPPORTED_PYTHON=1`` overrides it.
 """
 from __future__ import annotations
 
@@ -40,8 +40,8 @@ from typing import IO
 
 import pytest
 
-SUPERVISOR_DIR_ENV = "FIVEEYES_SUPERVISOR_DIR"
-ALLOW_UNSUPPORTED_PYTHON_ENV = "FIVEEYES_ALLOW_UNSUPPORTED_PYTHON"
+SUPERVISOR_DIR_ENV = "ARES_SUPERVISOR_DIR"
+ALLOW_UNSUPPORTED_PYTHON_ENV = "ARES_ALLOW_UNSUPPORTED_PYTHON"
 EVENTS_FILE = "events.jsonl"
 DUMP_REQUEST_FILE = "dump-request"
 STACK_FILE_PREFIX = "stacks-"
