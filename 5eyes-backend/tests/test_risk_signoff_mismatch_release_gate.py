@@ -67,6 +67,7 @@ _CLIENT_DOCUMENT_TYPES = (
     "Eignungsprüfung",
     "Override-Zustimmung",
     "Kostenausweis",
+    "Anlagerezept",
 )
 
 
@@ -185,6 +186,9 @@ _PDF_ROUTES = {
     "cost_disclosure": lambda db, user: pdf_reports.get_cost_disclosure_pdf(
         mandate_id=_MID, request=_FakeRequest(), db=db, current_user=user,
     ),
+    "portfolio": lambda db, user: pdf_reports.get_portfolio_pdf(
+        mandate_id=_MID, request=_FakeRequest(), db=db, current_user=user,
+    ),
 }
 
 
@@ -207,6 +211,18 @@ def test_risikoprofil_pdf_renders_with_valid_signoff(seeded, monkeypatch):
     response = _PDF_ROUTES["risikoprofil"](session, advisor)
     assert response.status_code == 200
     assert "render_risikoprofil" in calls
+
+
+def test_portfolio_pdf_with_valid_signoff_passes_signoff_gate(seeded, monkeypatch):
+    """Gegenprobe: das Signoff-Gate laesst durch; die Fixture hat keine
+    Soll-Allokation, also greift erst der bestehende Allokations-Fehler."""
+    session, advisor = seeded
+    _sign_profile(session, advisor)
+    _no_render(monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        _PDF_ROUTES["portfolio"](session, advisor)
+    assert "Soll-Allokation" in str(exc.value.detail)
+    assert RISK_PROFILE_SIGNOFF_MISMATCH not in str(exc.value.detail)
 
 
 @pytest.mark.parametrize("legacy", ["unsigned", "legacy_unbound"])
@@ -330,3 +346,76 @@ def test_internal_advisory_report_not_blocked_by_signoff(mismatch):
     assert_recommendation_release_eligible(
         session, _mandate(session), channel=CHANNEL_ADVISORY_PDF,
     )
+
+
+# ── Kundenportal ──────────────────────────────────────────────────────────
+
+
+def _portal(session, monkeypatch):
+    from models.clients import Client
+    from models.users import User
+    from routers import client_portal
+
+    client_user = User(
+        id="usr-client", username="kunde", password_hash="hash", full_name="Max Muster",
+        role="client", is_active=1, created_at=NOW, updated_at=NOW,
+    )
+    session.add(client_user)
+    session.commit()
+    client = session.get(Client, "cl-rcp")
+    monkeypatch.setattr(client_portal, "get_linked_client_for_user_or_404", lambda *a, **k: client)
+    computed: list = []
+    monkeypatch.setattr(
+        client_portal, "compute_advisory_report",
+        lambda *a, **k: computed.append(k) or {"ok": True},
+    )
+
+    def call():
+        return client_portal.client_portal_mandate_report(
+            mandate_id=_MID, db=session, current_user=client_user,
+        )
+
+    return call, computed
+
+
+def _portal_audit_rows(session):
+    from models.review import AuditLog
+
+    return session.query(AuditLog).filter(
+        AuditLog.record_id == _MID, AuditLog.field_name == "client_portal_report_blocked",
+    ).all()
+
+
+def test_client_portal_report_blocked_with_neutral_message(mismatch, monkeypatch):
+    session, _advisor = mismatch
+    call, computed = _portal(session, monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        call()
+    assert exc.value.status_code == 409
+    detail = exc.value.detail
+    assert isinstance(detail, str)
+    assert "Ihr Bericht wird derzeit aktualisiert" in detail
+    assert "Beraterin oder Ihren Berater" in detail
+    for internal in (RISK_PROFILE_SIGNOFF_MISMATCH, "Signatur", "final_profile", "signoff"):
+        assert internal not in detail
+    assert computed == [], "kein Report-Aggregat bei gesperrtem Gate"
+    session.expire_all()
+    rows = _portal_audit_rows(session)
+    assert len(rows) == 1
+    assert rows[0].new_value == RISK_PROFILE_SIGNOFF_MISMATCH
+
+
+def test_client_portal_report_with_valid_signoff(seeded, monkeypatch):
+    session, advisor = seeded
+    _sign_profile(session, advisor)
+    call, computed = _portal(session, monkeypatch)
+    assert call() == {"ok": True}
+    assert computed == [{"client_facing": True}]
+    assert _portal_audit_rows(session) == []
+
+
+def test_client_portal_report_legacy_unsigned(seeded, monkeypatch):
+    session, _advisor = seeded
+    call, computed = _portal(session, monkeypatch)
+    assert call() == {"ok": True}
+    assert len(computed) == 1

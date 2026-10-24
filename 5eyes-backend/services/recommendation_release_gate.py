@@ -198,12 +198,22 @@ def assert_recommendation_release_eligible(
 # gueltig" ausgewiesen. Jetzt sperren dieselben Freigabekanaele fail-closed.
 # Legacy-Zustaende (unsigniert, Altsignatur ohne Signoff, "neue Signatur
 # erforderlich") bleiben wie bisher -- sie behaupten keine gueltige Signatur.
-# Interne Beraterdokumente (Advisory-Report) zeigen den Zustand weiter an.
+# Der interne Advisory-Report zeigt den Zustand weiter an; die
+# Kundenportal-Sicht desselben Reports ist gesperrt (neutrale Meldung).
 
 RISK_PROFILE_SIGNOFF_MISMATCH = "RISK_PROFILE_SIGNOFF_MISMATCH"
 
 CHANNEL_CLIENT_PDF = "client_pdf"
 _CHANNEL_LABELS[CHANNEL_CLIENT_PDF] = "Das Kundendokument kann nicht erstellt werden"
+CHANNEL_CLIENT_PORTAL = "client_portal"
+_CHANNEL_LABELS[CHANNEL_CLIENT_PORTAL] = "Der Kundenportal-Bericht kann nicht angezeigt werden"
+
+# Neutrale Kundenmeldung (Kundenportal): keine internen Details, der
+# Reason-Code steht nur in Log und Audit.
+CLIENT_PORTAL_UNAVAILABLE_MESSAGE = (
+    "Ihr Bericht wird derzeit aktualisiert – bitte wenden Sie sich an Ihre "
+    "Beraterin oder Ihren Berater."
+)
 
 # Kundenrelevante bzw. kundensignierbare Dokumenttypen, die das Risikoprofil
 # des Kunden tragen und deshalb eine gueltige Signoff-Bindung voraussetzen.
@@ -214,6 +224,7 @@ SIGNOFF_BOUND_DOCUMENT_TYPES = frozenset({
     "Eignungsprüfung",
     "Override-Zustimmung",
     "Kostenausweis",
+    "Anlagerezept",
 })
 
 _SIGNOFF_MISMATCH_MESSAGE = (

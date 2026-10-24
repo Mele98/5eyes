@@ -12,6 +12,7 @@ Admin-Tabellen. Pure Read-Only-Sicht.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -27,6 +28,8 @@ from services.advisory_report import compute_advisory_report
 from routers.auth import _extract_client_ip
 from services.auth import get_linked_client_for_user_or_404, require_client
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/client-portal", tags=["Kunden-Portal"])
 
@@ -114,7 +117,39 @@ def client_portal_mandate_report(
     # REP-002 (Codex-Audit 2026-08-25): Kundenportal darf ausschliesslich
     # eine finalisierte, an die aktuelle Zielallokation gebundene Empfehlung
     # zeigen -- niemals einen Entwurf oder eine ueberholte Version.
+    _assert_portal_report_releasable(db, mandate, client, current_user)
     return compute_advisory_report(db, mandate, client_facing=True)
+
+
+def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Client, user: User) -> None:
+    """CIO-Entscheid 2026-10-24: kein Kundenbericht, solange die
+    Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt --
+    dasselbe zentrale Gate wie Kunden-PDFs, E-Signing und Handoff. Der Kunde
+    sieht nur eine neutrale Meldung; Reason-Code nur in Log und Audit."""
+    from services.audit import log as audit_log
+    from services.recommendation_release_gate import (
+        CHANNEL_CLIENT_PORTAL,
+        CLIENT_PORTAL_UNAVAILABLE_MESSAGE,
+        assert_risk_signoff_release_eligible,
+    )
+
+    try:
+        assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PORTAL)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        reason_code = str(detail.get("reason_code") or "RELEASE_BLOCKED")
+        logger.warning(
+            "Client-portal report blocked for mandate %s: %s (%s)",
+            mandate.id, reason_code, ", ".join(detail.get("integrity_mismatches") or []),
+        )
+        audit_log(
+            db, user_id=user.id, user_name=user.full_name or user.username,
+            table_name="mandates", record_id=mandate.id, action="EXPORT",
+            field_name="client_portal_report_blocked", new_value=reason_code,
+            mandate_id=mandate.id, client_id=client.id,
+        )
+        db.commit()
+        raise HTTPException(status_code=409, detail=CLIENT_PORTAL_UNAVAILABLE_MESSAGE) from None
 
 
 @router.post("/mandates/{mandate_id}/risk-profile/sign")
