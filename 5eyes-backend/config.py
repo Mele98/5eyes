@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
@@ -166,6 +167,21 @@ class Settings(BaseSettings):
     # LANGEN, aber rotierenden (Reuse-Detection) Refresh-Token zu kombinieren,
     # statt ein einzelnes langlebiges Access-Token zu haben.
     refresh_token_expire_days: int = 30
+    # AF-6 (2026-10-23): Token-Bindung an diese Installation. Jedes Access-
+    # Token traegt iss/aud (Payload) und kid (Header); die Validierung
+    # verlangt exakt diese Werte. Bewusste Wirkung beim Einfuehren bzw. beim
+    # Aendern eines Werts: alle bisher ausgestellten Access-Tokens werden
+    # abgelehnt -> einmalige Neuanmeldung. jwt_key_id benennt die Version
+    # von secret_key; beim Schluesselwechsel mitwechseln.
+    jwt_issuer: str = 'local-advisory-backend'
+    jwt_audience: str = 'advisory-app'
+    jwt_key_id: str = 'k1'
+    # AF-6: globale Widerrufs-Untergrenze (ISO-8601 UTC, z.B.
+    # 2026-10-23T12:00:00.000Z). Jedes Access-Token mit iat davor und jedes
+    # Refresh-Token mit created_at davor wird abgelehnt -- fuer alle
+    # Benutzer, ohne DB-Schreibzugriff. Leer = aus. Ergaenzt den
+    # Widerruf je Benutzer (users.token_revoked_before).
+    token_revoked_before: str | None = None
     login_rate_limit_enabled: bool = True
     login_max_attempts: int = 5
     login_window_seconds: int = 60
@@ -493,6 +509,31 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             raise ValueError(f"app_env must be one of: {', '.join(sorted(allowed))}")
         return normalized
+
+    @field_validator('jwt_issuer', 'jwt_audience', 'jwt_key_id')
+    @classmethod
+    def validate_jwt_binding(cls, value: str) -> str:
+        cleaned = str(value or '').strip()
+        if not cleaned:
+            raise ValueError('jwt_issuer, jwt_audience and jwt_key_id must not be empty')
+        return cleaned
+
+    @field_validator('token_revoked_before')
+    @classmethod
+    def validate_token_revoked_before(cls, value: str | None) -> str | None:
+        # Fail-closed: ein unlesbarer Wert wuerde sonst still ignoriert und
+        # der beabsichtigte Massenwiderruf liefe ins Leere.
+        cleaned = str(value or '').strip()
+        if not cleaned:
+            return None
+        raw = cleaned[:-1] + '+00:00' if cleaned.endswith('Z') else cleaned
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError('token_revoked_before must be an ISO-8601 timestamp') from exc
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
     @field_validator('log_level')
     @classmethod

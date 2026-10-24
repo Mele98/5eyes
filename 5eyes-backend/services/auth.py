@@ -47,7 +47,52 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     )
     to_encode["exp"] = expire
     to_encode["iat"] = now
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+    # AF-6 (2026-10-23): Bindung an diese Installation (iss/aud) und an die
+    # Schluesselversion (kid im Header). Ueberschreibt allfaellige Werte des
+    # Aufrufers bewusst.
+    to_encode["iss"] = settings.jwt_issuer
+    to_encode["aud"] = settings.jwt_audience
+    return jwt.encode(
+        to_encode,
+        settings.secret_key,
+        algorithm=settings.algorithm,
+        headers={"kid": settings.jwt_key_id},
+    )
+
+
+class UnknownKeyIdError(jwt.InvalidTokenError):
+    """AF-6: Token-Header nennt kein (oder ein unbekanntes) kid."""
+
+
+def accepted_key_ids() -> frozenset[str]:
+    """Bekannte Schluesselversionen. Heute genau eine (secret_key <-> jwt_key_id);
+    ein unbekanntes kid wird vor der Signaturpruefung abgelehnt."""
+    return frozenset({settings.jwt_key_id})
+
+
+def decode_access_token(token: str) -> dict:
+    """AF-6: einziger Decode-Pfad fuer Access-Tokens.
+
+    Prueft kid (Header), Signatur (nur settings.algorithm), iss, aud und
+    verlangt iss/aud/iat/exp als Pflicht-Claims. ``exp`` wird -- wie bisher --
+    vom Aufrufer gegen die aktuelle Zeit geprueft (verify_exp=False hier),
+    damit ein fehlendes/kaputtes exp denselben 401-Pfad nimmt.
+    Wirft jwt.PyJWTError (inkl. UnknownKeyIdError) bei jeder Abweichung.
+    Folge: Tokens ohne diese Claims (alter Stand) werden einmalig
+    abgelehnt -> Neuanmeldung.
+    """
+    header = jwt.get_unverified_header(token)
+    kid = header.get("kid")
+    if not isinstance(kid, str) or kid not in accepted_key_ids():
+        raise UnknownKeyIdError("unknown or missing kid")
+    return jwt.decode(
+        token,
+        settings.secret_key,
+        algorithms=[settings.algorithm],
+        audience=settings.jwt_audience,
+        issuer=settings.jwt_issuer,
+        options={"verify_exp": False, "require": ["exp", "iat", "iss", "aud"]},
+    )
 
 
 def _resolve_tenant_id_for_user(user: User) -> str:
@@ -131,12 +176,7 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key,
-            algorithms=[settings.algorithm],
-            options={"verify_exp": False},
-        )
+        payload = decode_access_token(token)
         try:
             exp_ts = float(payload.get("exp"))
         except (TypeError, ValueError):
@@ -156,13 +196,17 @@ def get_current_user(
     # token_revoked_before = now; jedes Token, das VOR diesem Zeitpunkt
     # ausgestellt wurde (iat < revoked_before), ist ab sofort ungueltig —
     # unabhaengig von seiner exp. Pragmatisch ohne jti/Blacklist-Tabelle.
-    revoked_before_ts = _parse_iso_timestamp(getattr(user, "token_revoked_before", None))
+    # AF-6 (2026-10-23): effektive Untergrenze = max(je Benutzer, global
+    # settings.token_revoked_before). iat ist seit AF-6 Pflicht-Claim; ein
+    # unlesbares iat gilt bei gesetzter Untergrenze als widerrufen.
+    from services.session_revocation import effective_revoked_before_ts
+    revoked_before_ts = effective_revoked_before_ts(user)
     if revoked_before_ts is not None:
         try:
             iat_ts = float(payload.get("iat"))
         except (TypeError, ValueError):
             iat_ts = None
-        if iat_ts is not None and iat_ts < revoked_before_ts:
+        if iat_ts is None or iat_ts < revoked_before_ts:
             raise credentials_exception
     # Sprint T2 (2026-06-08): Tenant-Cross-Check.
     # Wenn das Token einen tid-Claim enthaelt und der User in der DB einen
@@ -602,11 +646,7 @@ def get_current_tenant_id(
 
     token = credentials.credentials
     try:
-        payload = jwt.decode(
-            token, settings.secret_key,
-            algorithms=[settings.algorithm],
-            options={"verify_exp": False},
-        )
+        payload = decode_access_token(token)
         try:
             exp_ts = float(payload.get("exp"))
         except (TypeError, ValueError):

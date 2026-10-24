@@ -38,7 +38,12 @@ DB_LOCATION = BACKEND_ROOT / "core" / "db_location.py"
 
 def _fake_home_env(home: Path, **extra: str) -> dict[str, str]:
     """Subprozess-Umgebung mit umgebogenem Home (=> umgebogener Default-Pfad)."""
-    env = {k: v for k, v in os.environ.items() if k not in {"DB_PATH", "DATABASE_URL"}}
+    # Ohne xdist-Worker-Kennung: der Subprozess ist eine eigene, serielle
+    # Test-Session (sonst greift dort der Worker-Zweig der conftest).
+    env = {
+        k: v for k, v in os.environ.items()
+        if k not in {"DB_PATH", "DATABASE_URL", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT"}
+    }
     env["HOME"] = str(home)
     env["USERPROFILE"] = str(home)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
