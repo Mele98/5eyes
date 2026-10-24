@@ -102,7 +102,13 @@ import json as _json
 import re as _re
 from pathlib import Path as _Path
 
-MONOLITH_PATH = _Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "5eyes_v2.html"
+_REPO_ROOT = _Path(__file__).resolve().parents[2]
+# Strukturbasiert (neuer Desktop-Pfad zuerst, sonst der bisherige Monolith).
+MONOLITH_PATH = next(
+    p for p in [_REPO_ROOT / "ares-desktop" / "frontend" / "ares.html",
+                *sorted(_REPO_ROOT.glob("*-electron/frontend/*_v2.html"))]
+    if p.is_file()
+)
 _OPTION_GROUPS = ("rf-income", "rf-oblig", "rf-wealth", "rf-savings", "rf-horizon", "q9", "q10", "q11")
 
 
