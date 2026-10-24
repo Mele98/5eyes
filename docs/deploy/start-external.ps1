@@ -82,6 +82,16 @@ if (-not (Test-Path $secretFile)) {
 }
 $secret = (Get-Content $secretFile -Raw).Trim()
 
+# --- Stabile Master-KEK (Pflicht; einmalig erzeugt, getrennt vom Login-Secret) ---
+# Ohne TENANT_MASTER_KEK startet das Backend nicht (kein Rueckfall auf SECRET_KEY).
+$kekFile = Join-Path $aresHome '.external-kek.txt'
+if (-not (Test-Path $kekFile)) {
+  $newKek = (& $pyExe -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())").Trim()
+  Set-Content -Path $kekFile -Value $newKek -NoNewline -Encoding ascii
+  Write-Host "Neue Master-KEK erzeugt: $kekFile" -ForegroundColor Yellow
+}
+$kek = (Get-Content $kekFile -Raw).Trim()
+
 # --- Staging-/Browser-Hosting-Env (Prozess-lokal; .env bleibt unberuehrt) ---
 $env:APP_ENV               = 'staging'
 $env:SERVE_MAIN_FRONTEND   = 'true'
@@ -89,6 +99,7 @@ $env:ALLOW_REAL_CLIENT_DATA = 'false'
 $env:APP_HOST              = '127.0.0.1'
 $env:APP_PORT              = '8000'
 $env:SECRET_KEY            = $secret
+$env:TENANT_MASTER_KEK     = $kek
 $env:DEPLOYMENT_TIER       = 'tier2'   # Multi-Firma
 $env:TENANCY_MODE          = 'multi'
 $env:TENANT_ADMIN_UI_ENABLED = 'true'  # Operator-Provisioning (Firmen/Mitarbeiter)
