@@ -186,3 +186,97 @@ def assert_recommendation_release_eligible(
             "target_allocation_id": getattr(allocation, "id", None),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Risikoprofil-Signoff (CIO-Entscheid 2026-10-24)
+# ---------------------------------------------------------------------------
+#
+# Ein Signoff im Zustand ``integrity_mismatch`` (Zeile oder fachliche Bindung
+# passt nicht mehr zum Assessment, services/risk_profile_signoff.py::
+# verify_signoff_binding) wurde in Kundendokumenten bisher nur als "nicht
+# gueltig" ausgewiesen. Jetzt sperren dieselben Freigabekanaele fail-closed.
+# Legacy-Zustaende (unsigniert, Altsignatur ohne Signoff, "neue Signatur
+# erforderlich") bleiben wie bisher -- sie behaupten keine gueltige Signatur.
+# Der interne Advisory-Report zeigt den Zustand weiter an; die
+# Kundenportal-Sicht desselben Reports ist gesperrt (neutrale Meldung).
+
+RISK_PROFILE_SIGNOFF_MISMATCH = "RISK_PROFILE_SIGNOFF_MISMATCH"
+
+CHANNEL_CLIENT_PDF = "client_pdf"
+_CHANNEL_LABELS[CHANNEL_CLIENT_PDF] = "Das Kundendokument kann nicht erstellt werden"
+CHANNEL_CLIENT_PORTAL = "client_portal"
+_CHANNEL_LABELS[CHANNEL_CLIENT_PORTAL] = "Der Kundenportal-Bericht kann nicht angezeigt werden"
+
+# Neutrale Kundenmeldung (Kundenportal): keine internen Details, der
+# Reason-Code steht nur in Log und Audit.
+CLIENT_PORTAL_UNAVAILABLE_MESSAGE = (
+    "Ihr Bericht wird derzeit aktualisiert – bitte wenden Sie sich an Ihre "
+    "Beraterin oder Ihren Berater."
+)
+
+# Kundenrelevante bzw. kundensignierbare Dokumenttypen, die das Risikoprofil
+# des Kunden tragen und deshalb eine gueltige Signoff-Bindung voraussetzen.
+SIGNOFF_BOUND_DOCUMENT_TYPES = frozenset({
+    "Anlagestrategie",
+    "Risikoprofilierung",
+    "Beratungsprotokoll",
+    "Eignungsprüfung",
+    "Override-Zustimmung",
+    "Kostenausweis",
+    "Anlagerezept",
+})
+
+_SIGNOFF_MISMATCH_MESSAGE = (
+    "Die Risikoprofil-Signatur passt nicht mehr zum gespeicherten Profil – "
+    "Profil prüfen und neu signieren."
+)
+
+
+def assert_risk_signoff_release_eligible(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+) -> None:
+    """409, wenn der Signoff des aktuellen Risikoprofils ``integrity_mismatch``
+    ist -- dieselbe Pruefung wie API/PDF-Anzeige (``signoff_state`` +
+    ``resolve_signoff_binding``), VOR jeder Wirkung des Kanals.
+
+    Ohne aktuelles Risikoprofil oder ohne gebundene Signatur passiert nichts
+    (unveraendertes Verhalten; andere Gates sind dafuer zustaendig)."""
+    from services.portfolio_engine import _current_risk_assessment_or_none
+    from services.risk_profile_signoff import (
+        STATUS_SIGNED,
+        resolve_signoff_binding,
+        signoff_state,
+    )
+
+    try:
+        assessment = _current_risk_assessment_or_none(db, mandate.id)
+    except ValueError:
+        # Mehrdeutiger Anker: eigener Fehlerpfad der Kanaele, hier nichts
+        # zusaetzlich zu belegen.
+        return
+    if assessment is None or signoff_state(assessment) != STATUS_SIGNED:
+        return
+    binding = resolve_signoff_binding(db, assessment)
+    if binding is not None and binding.verified:
+        return
+    mismatches = list(binding.mismatches) if binding is not None else ["signoff_missing"]
+    if binding is not None and not binding.row_verified and "signoff_row" not in mismatches:
+        mismatches.append("signoff_row")
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "reason_code": RISK_PROFILE_SIGNOFF_MISMATCH,
+            "message": (
+                f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}. "
+                f"{_SIGNOFF_MISMATCH_MESSAGE}"
+            ),
+            "channel": channel,
+            "risk_assessment_id": getattr(assessment, "id", None),
+            "signoff_id": getattr(assessment, "signoff_id", None),
+            "integrity_mismatches": mismatches,
+        },
+    )
