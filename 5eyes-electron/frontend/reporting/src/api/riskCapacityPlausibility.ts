@@ -46,6 +46,8 @@ export interface RiskCapacityPlausibility {
   override_down: boolean;
   capacity_binding: boolean | null;
   version: string | null;
+  /** Bewertetes Risikoprofil (Bindung, Closure-Review PR #677). */
+  risk_assessment_id: string | null;
   /** Optional (Coverage-Attestation, PR #664): Code fuer "noch nicht verifiziert". */
   verification_code?: string | null;
   /** Optional (Coverage-Attestation, PR #664): naechste Schritte fuer den Berater. */
@@ -64,6 +66,36 @@ export interface RiskCapacityPlausibilityCompact {
   verification_code?: string | null;
   /** Neutraler Beraterhinweis (nur partial/inconsistent), sonst leer. */
   note: string;
+  /** Bewertetes Risikoprofil; null ohne aktuelles Profil. */
+  risk_assessment_id?: string | null;
+  /** evaluated | missing_input | unavailable | integrity_mismatch */
+  availability?: RiskCapacityAvailability;
+  evaluation_basis?: string;
+  rules_version?: string | null;
+  evaluation_hash?: string | null;
+  /** true/false = gleiches/anderes Profil als die Suitability-Referenz. */
+  suitability_reference_match?: boolean | null;
+}
+
+export type RiskCapacityAvailability =
+  | 'evaluated'
+  | 'missing_input'
+  | 'unavailable'
+  | 'integrity_mismatch';
+
+/**
+ * Bindung (Closure-Review PR #677): ein gepruefter Status gilt nur, wenn er
+ * das erwartete Risikoprofil nennt. `not_evaluable` ist nie positiv und darf
+ * ohne Bindung angezeigt werden.
+ */
+export function isBoundToAssessment(
+  result: Pick<RiskCapacityPlausibility, 'status' | 'risk_assessment_id'>,
+  expectedAssessmentId: string,
+): boolean {
+  if (result.status === 'not_evaluable') {
+    return result.risk_assessment_id == null || result.risk_assessment_id === expectedAssessmentId;
+  }
+  return result.risk_assessment_id === expectedAssessmentId;
 }
 
 /** Kurzlabels je Pruef-ID (gespiegelt aus CHECK_SHORT_LABELS im Backend). */
@@ -121,6 +153,10 @@ export function normalizeRiskCapacityPlausibility(data: unknown): RiskCapacityPl
     override_down: raw.override_down === true,
     capacity_binding: typeof raw.capacity_binding === 'boolean' ? raw.capacity_binding : null,
     version: raw.version == null ? null : asString(raw.version),
+    risk_assessment_id:
+      raw.risk_assessment_id == null || raw.risk_assessment_id === ''
+        ? null
+        : asString(raw.risk_assessment_id),
   };
   if ('verification_code' in raw) {
     result.verification_code = raw.verification_code == null ? null : asString(raw.verification_code);

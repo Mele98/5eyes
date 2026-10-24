@@ -39,6 +39,7 @@ const INCONSISTENT_RAW = {
   thresholds: {},
   data_basis: {},
   advisor_text: 'Plausibilitätsprüfung Risikofähigkeit (RISK_CAPACITY_INCONSISTENT): 1 Angabe weicht ab.',
+  risk_assessment_id: 'ra-1',
 };
 
 const PARTIAL_RAW = {
@@ -73,6 +74,8 @@ describe('normalizeRiskCapacityPlausibility', () => {
   it('is fail-closed: unknown or missing status is never consistent', () => {
     expect(normalizeRiskCapacityPlausibility({ status: 'ok' }).status).toBe('not_evaluable');
     expect(normalizeRiskCapacityPlausibility(null).status).toBe('not_evaluable');
+    expect(normalizeRiskCapacityPlausibility(null).risk_assessment_id).toBeNull();
+    expect(normalizeRiskCapacityPlausibility(INCONSISTENT_RAW).risk_assessment_id).toBe('ra-1');
     expect(normalizeRiskCapacityPlausibility({ status: 'consistent', findings: 'x' }).findings).toEqual([]);
   });
 });
@@ -161,6 +164,31 @@ describe('RiskCapacityPlausibilityNotice (Report, kompakt)', () => {
     expect(screen.getByText(/mangels Daten nicht prüfbar – Finanzdaten erfassen/)).toBeInTheDocument();
   });
 
+  it('renders a capture request when no current assessment exists', () => {
+    render(
+      <RiskCapacityPlausibilityNotice
+        data={{
+          ...compact('not_evaluable'),
+          reason_code: 'NO_CURRENT_RISK_ASSESSMENT',
+          availability: 'missing_input',
+          risk_assessment_id: null,
+        }}
+      />,
+    );
+    expect(screen.getByText('Nicht prüfbar')).toBeInTheDocument();
+    expect(screen.getByText(/Kein aktuelles Risikoprofil vorhanden – Risikoprofil erfassen/)).toBeInTheDocument();
+    expect(screen.getByText('NO_CURRENT_RISK_ASSESSMENT')).toBeInTheDocument();
+  });
+
+  it('labels a block that evaluates another profile than the suitability reference', () => {
+    render(
+      <RiskCapacityPlausibilityNotice
+        data={{ ...compact('partial'), risk_assessment_id: 'ra-2', suitability_reference_match: false }}
+      />,
+    );
+    expect(screen.getByText(/nicht auf das in der Eignungsprüfung referenzierte Profil/)).toBeInTheDocument();
+  });
+
   it('renders nothing without data', () => {
     const { container } = render(<RiskCapacityPlausibilityNotice data={null} />);
     expect(container).toBeEmptyDOMElement();
@@ -199,10 +227,34 @@ describe('RiskCapacityPlausibilityPanel (laedt Endpoint)', () => {
   it('loads and refetches when the assessment changes', async () => {
     const { rerender } = render(<RiskCapacityPlausibilityPanel mandateId="m1" assessmentId="ra-1" />);
     expect(await screen.findByText('Widerspruch')).toBeInTheDocument();
-    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(PARTIAL_RAW), { status: 200 }));
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ ...PARTIAL_RAW, risk_assessment_id: 'ra-2' }), { status: 200 }),
+    );
     rerender(<RiskCapacityPlausibilityPanel mandateId="m1" assessmentId="ra-2" />);
     expect(await screen.findByText('Teilweise geprüft')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('discards a response bound to another assessment (never shown under the current profile)', async () => {
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ ...INCONSISTENT_RAW, risk_assessment_id: 'ra-old' }), { status: 200 }),
+    );
+    render(<RiskCapacityPlausibilityPanel mandateId="m1" assessmentId="ra-1" />);
+    const panel = await screen.findByRole('region', { name: 'Plausibilitätsprüfung Risikofähigkeit' });
+    await waitFor(() => expect(panel).toHaveAttribute('data-status', 'integrity_mismatch'));
+    expect(screen.getByText(/keinem aktuellen Risikoprofil eindeutig zuordenbar/)).toBeInTheDocument();
+    expect(screen.queryByText('Widerspruch')).toBeNull();
+  });
+
+  it('discards an evaluated status without assessment identity', async () => {
+    const unbound: Record<string, unknown> = { ...INCONSISTENT_RAW };
+    delete unbound.risk_assessment_id;
+    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(unbound), { status: 200 }));
+    render(<RiskCapacityPlausibilityPanel mandateId="m1" assessmentId="ra-1" />);
+    expect(await screen.findByText(/keinem aktuellen Risikoprofil eindeutig zuordenbar/)).toBeInTheDocument();
+    expect(screen.queryByText('Widerspruch')).toBeNull();
   });
 
   it('shows an explicit unknown state on errors (never consistent)', async () => {
