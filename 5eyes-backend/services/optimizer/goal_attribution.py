@@ -301,6 +301,9 @@ def publish_goal_achievability(
     wealth_paths = np.asarray(wealth_paths, dtype=np.float64)
     scoped = scope_wealth_for(wealth_paths, goal_liabilities, scope_wealth)
     if scope_wealth is not None:
+        # Eine autoritative Pfadquelle: Zielzeilen (Wrapper) und Plan-Solvenz
+        # (``wealth_paths``) muessen derselbe Plan sein, vor jeder Zeile.
+        scoped.verify_publication_binding(wealth_paths, goal_liabilities)
         scoped.verify_joint_parity()
     n_paths = int(wealth_paths.shape[0]) if wealth_paths.ndim == 2 else 0
     n_cols = int(wealth_paths.shape[1]) if wealth_paths.ndim == 2 else 0
