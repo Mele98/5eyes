@@ -60,6 +60,16 @@ elif not os.environ.get("DB_PATH") or is_live_db_path(os.environ["DB_PATH"]):
     os.environ["DB_PATH"] = str(Path(_session_dir) / "ares_test.db")
 
 
+# W4-c: Die Master-KEK ist Pflicht (kein Rueckfall auf SECRET_KEY). Jede
+# Test-Session bekommt eine eigene, zufaellige Test-KEK, bevor ``config`` seine
+# Settings baut; eine explizit gesetzte KEK bleibt unberuehrt. xdist-Worker
+# erben sie vom Controller.
+if not os.environ.get("TENANT_MASTER_KEK", "").strip():
+    from cryptography.fernet import Fernet
+
+    os.environ["TENANT_MASTER_KEK"] = Fernet.generate_key().decode("ascii")
+
+
 def live_db_violation(db_path, database_url=None):
     """Name of the setting that points at the live DB, else ``None``."""
     if is_live_db_path(db_path):

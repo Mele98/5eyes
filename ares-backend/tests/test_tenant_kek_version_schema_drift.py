@@ -3,7 +3,8 @@
 ``kek_version`` haelt die Generation der Master-KEK, unter der
 ``tenants.encrypted_dek`` verpackt ist. Vertrag: ``INTEGER NOT NULL DEFAULT 1``
 auf allen Pfaden (ORM/create_all, frischer SQLite-Bootstrap, Runtime-Patch fuer
-Bestands-DBs, Alembic). Noch keine Logik: neue DEKs werden mit 1 angelegt.
+Bestands-DBs, Alembic). Der Spalten-Default bleibt 1 (Generation des
+Bestands); neu verpackte DEKs schreibt das Produkt seit W4-c mit 2.
 """
 from __future__ import annotations
 
@@ -170,7 +171,7 @@ def session_factory(tmp_path):
         engine.dispose()
 
 
-def test_new_dek_is_stored_with_kek_version_1(session_factory):
+def test_new_dek_is_stored_with_current_kek_version_2(session_factory):
     pytest.importorskip("cryptography.fernet")
     from services.tenant_crypto import get_tenant_dek, rotate_tenant_dek
 
@@ -193,7 +194,7 @@ def test_new_dek_is_stored_with_kek_version_1(session_factory):
         get_tenant_dek(db, "kv-firm", master_kek="kv-test-master")
         assert db.execute(
             text("SELECT kek_version FROM tenants WHERE id = 'kv-firm'")
-        ).scalar_one() == 1
+        ).scalar_one() == 2
         rotate_tenant_dek(db, "kv-firm", master_kek="kv-test-master")
         db.commit()
-        assert db.get(Tenant, "kv-firm").kek_version == 1
+        assert db.get(Tenant, "kv-firm").kek_version == 2
