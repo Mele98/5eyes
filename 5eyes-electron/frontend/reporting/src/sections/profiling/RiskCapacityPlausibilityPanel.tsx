@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   fetchRiskCapacityPlausibility,
+  isBoundToAssessment,
   riskCapacityCheckLabel,
 } from '@/api/riskCapacityPlausibility';
 import type {
@@ -46,6 +47,14 @@ const STATUS_META: Record<
 };
 
 const NOT_EVALUABLE_HINT = 'Risikofähigkeit mangels Daten nicht prüfbar – Finanzdaten erfassen.';
+
+const NO_ASSESSMENT_HINT = 'Kein aktuelles Risikoprofil vorhanden – Risikoprofil erfassen.';
+
+const BINDING_MISMATCH_HINT =
+  'Prüfergebnis ist keinem aktuellen Risikoprofil eindeutig zuordenbar – nicht als geprüft werten.';
+
+const REFERENCE_MISMATCH_HINT =
+  'Die Prüfung bezieht sich auf das aktuelle Risikoprofil, nicht auf das in der Eignungsprüfung referenzierte Profil.';
 
 const NO_AUTO_CHANGE = 'Das Risikoprofil wird dadurch nicht automatisch geändert.';
 
@@ -126,15 +135,28 @@ export function RiskCapacityPlausibilityNotice({
   return (
     <PanelFrame status={data.status} label={meta.label} tone={meta.tone} printHidden>
       <p className="mt-3 text-caption text-ink-muted">
-        {data.status === 'not_evaluable' ? NOT_EVALUABLE_HINT : meta.summary}
+        {data.status === 'not_evaluable' ? compactNotEvaluableHint(data) : meta.summary}
       </p>
       {topics ? <p className="mt-2 text-caption text-ink">{topics}</p> : null}
+      {data.suitability_reference_match === false ? (
+        <p className="mt-2 text-caption text-ink-muted">{REFERENCE_MISMATCH_HINT}</p>
+      ) : null}
       <Footer
         reasonCode={data.reason_code}
         verificationCode={data.verification_code ?? null}
       />
     </PanelFrame>
   );
+}
+
+function compactNotEvaluableHint(data: RiskCapacityPlausibilityCompact): string {
+  if (data.availability === 'missing_input' || data.reason_code === 'NO_CURRENT_RISK_ASSESSMENT') {
+    return NO_ASSESSMENT_HINT;
+  }
+  if (data.availability === 'integrity_mismatch') {
+    return BINDING_MISMATCH_HINT;
+  }
+  return NOT_EVALUABLE_HINT;
 }
 
 function PanelFrame({
@@ -189,10 +211,12 @@ type LoadState =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'ready'; result: RiskCapacityPlausibility }
+  | { kind: 'mismatch' }
   | { kind: 'error' };
 
 /**
- * Laedt die Pruefung fuer das Mandat. `assessmentId` dient als Refresh-Key:
+ * Laedt die Pruefung fuer das Mandat. `assessmentId` ist Refresh-Key und
+ * Bindung: die Antwort muss dasselbe Profil nennen (sonst kein Status);
  * nach dem Speichern eines neuen Profils wird neu geladen; ohne aktuelles
  * Profil (null) wird nichts angezeigt.
  */
@@ -214,7 +238,14 @@ export function RiskCapacityPlausibilityPanel({
     setState({ kind: 'loading' });
     fetchRiskCapacityPlausibility(mandateId, { signal: controller.signal })
       .then((result) => {
-        if (!controller.signal.aborted) setState({ kind: 'ready', result });
+        if (controller.signal.aborted) return;
+        // Bindung: eine Antwort fuer ein anderes Profil (z.B. paralleles
+        // Speichern) wird nie unter dem angezeigten Profil dargestellt.
+        setState(
+          isBoundToAssessment(result, assessmentId)
+            ? { kind: 'ready', result }
+            : { kind: 'mismatch' },
+        );
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
@@ -246,6 +277,17 @@ export function RiskCapacityPlausibilityPanel({
       >
         Plausibilitätsprüfung Risikofähigkeit konnte nicht geladen werden –
         Status unbekannt, nicht als geprüft werten.
+      </section>
+    );
+  }
+  if (state.kind === 'mismatch') {
+    return (
+      <section
+        aria-label="Plausibilitätsprüfung Risikofähigkeit"
+        data-status="integrity_mismatch"
+        className="border border-status-neutral bg-canvas-panel p-5 text-caption text-ink-muted"
+      >
+        {BINDING_MISMATCH_HINT} Ansicht neu laden.
       </section>
     );
   }

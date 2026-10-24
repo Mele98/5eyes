@@ -333,7 +333,12 @@ def _cached_active_goals(db: Session, mandate: Mandate) -> list[Any]:
 def _cached_risk_capacity_plausibility(db: Session, mandate: Mandate) -> Any:
     """RISK-CAPACITY-REPORT-001: betragsfreier Auszug der Plausibilitaets-
     pruefung Risikofaehigkeit (gegen das aktuelle Risikoprofil) fuer den
-    Beraterteil; None ohne aktuelles Profil. Hinweis-Layer, blockiert nie.
+    Beraterteil. Ohne aktuelles Profil sichtbar ``not_evaluable`` mit
+    ``NO_CURRENT_RISK_ASSESSMENT``; der Block traegt die bewertete
+    ``risk_assessment_id``. Hinweis-Layer, blockiert nie.
+
+    Kundenkanal (``client_facing``): ``None`` -- Beraterhinweise bleiben
+    intern (CIO-Entscheid PR #677, Kundensicht ruhig).
 
     Laeuft ueber den Call-Cache: Risikoprofil, Cashflows und Ziele kommen
     aus denselben gecachten Zeilen wie die uebrigen Sektionen (keine
@@ -341,6 +346,10 @@ def _cached_risk_capacity_plausibility(db: Session, mandate: Mandate) -> Any:
     from services.risk_capacity_plausibility_report import (
         compact_view, evaluate_for_assessment,
     )
+
+    cache = db.info.get(_CACHE_KEY) or {}
+    if cache.get("_client_facing"):
+        return None
 
     def _factory():
         return compact_view(evaluate_for_assessment(
@@ -3188,6 +3197,10 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
     """
     from models.profiling import SuitabilityCheck
 
+    from services.risk_capacity_plausibility_report import (
+        bind_to_suitability_reference,
+    )
+
     risk_capacity_plausibility = _cached_risk_capacity_plausibility(db, mandate)
 
     check = (
@@ -3221,7 +3234,9 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
             "checked_by_id": None,
             "checked_by_name": "—",
             "linked_log_present": False,
-            "risk_capacity_plausibility": risk_capacity_plausibility,
+            "risk_capacity_plausibility": bind_to_suitability_reference(
+                risk_capacity_plausibility, None,
+            ),
         }
 
     missing = _parse_notes_json_list(getattr(check, "missing_information_json", None))
@@ -3270,7 +3285,9 @@ def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
         "checked_by_id": str(getattr(check, "checked_by", "") or "") or None,
         "checked_by_name": checked_by_name,
         "linked_log_present": linked_log_present,
-        "risk_capacity_plausibility": risk_capacity_plausibility,
+        "risk_capacity_plausibility": bind_to_suitability_reference(
+            risk_capacity_plausibility, getattr(check, "risk_assessment_id", None),
+        ),
     }
 
 
