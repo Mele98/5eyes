@@ -134,6 +134,7 @@ from .resampling import (
     floor_bps,
     missingness_identified_set,
     paired_bootstrap_improvement,
+    superiority_test_family,
 )
 from .scenario_engine import (
     SAMPLING_UNIT_ANTITHETIC_PAIR,
@@ -1595,7 +1596,17 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # und Materialisierung; der stochastische Plan-Mix ist der normalisierte
 # Split selbst. Kann Sub-Mix, Sub-CMA und Risky Fraction um Rundungs-bps
 # verschieben; die Version trennt alte von neuen Allokationen.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v13"
+#
+# v14 (2026-10-24, RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 Restvertrag +
+# SIGNIFICANCE-MULTIPLICITY-001): fehlende Bags gehen mit dem bewiesenen
+# Worst Case (identifizierter Bereich auf Bandbreiten + Simplex) in die
+# Unsicherheit ein, Schaetzgroesse explizit, fail-closed ueber dem
+# Praezisionsziel; in den Risikomass-Varianten werden die beiden
+# Ueberlegenheitstests (Zielebene ODER Risikomass) familienweise mit
+# Holm/Bonferroni gefuehrt (je Test alpha/2). Vollstaendige Laeufe im
+# Default-Modus sind bis auf den neuen Wuerfel (Version im Inhalts-Seed)
+# unveraendert.
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v14"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -3965,13 +3976,24 @@ def _significance_vs_house_anchor(
         sampling_unit_ids=unit_ids,
         sampling_unit=unit_name,
     )
+    # SIGNIFICANCE-MULTIPLICITY-001 (Engine v14): jede Ueberlegenheits-
+    # Hypothese, deren Ablehnung allein die Abweichung von der Hausquote
+    # begruendet, gehoert zur Testfamilie (Varianten: Zielebene ODER
+    # Risikomass). Familienweises Niveau alpha -> Holm/Bonferroni.
+    family = superiority_test_family(
+        objective_mode, float(config.significance_alpha),
+    )
+    superiority_kwargs = {
+        **bootstrap_kwargs, "alpha": family["per_test_alpha"],
+    }
     goal_stats = paired_bootstrap_improvement(
         lambda idx: tuple(parts[0] for parts in component_pair(idx)),
-        **bootstrap_kwargs,
+        **superiority_kwargs,
     )
     result = {
         **block,
         **goal_stats,
+        "multiple_comparison": family,
         "comparison": COMPARISON_GOAL_LEVEL,
         "decision_level": COMPARISON_GOAL_LEVEL,
         "cube_role": CUBE_ROLE_FINAL,
@@ -4004,7 +4026,7 @@ def _significance_vs_house_anchor(
     material = bool(risk_improvement >= RISK_MEASURE_MATERIALITY)
     risk_stats = paired_bootstrap_improvement(
         lambda idx: tuple(parts[1] for parts in component_pair(idx)),
-        **bootstrap_kwargs,
+        **superiority_kwargs,
     )
     result["risk_measure_test"] = {
         **{
@@ -4669,9 +4691,19 @@ def _significance_sentence(significance: Mapping) -> str:
         if units is not None
         else ""
     )
+    family = significance.get("multiple_comparison")
+    if isinstance(family, Mapping) and int(family.get("family_size") or 1) > 1:
+        # SIGNIFICANCE-MULTIPLICITY-001: Niveau je Test und Familie benennen.
+        alpha_text = (
+            f"alpha je Test={alpha:.1%}, Holm-korrigiert fuer "
+            f"{int(family['family_size'])} Ueberlegenheitstests, familienweise "
+            f"{float(family.get('family_alpha') or 0.05):.0%}"
+        )
+    else:
+        alpha_text = f"alpha={alpha:.0%}"
     parts = [
         f"Gepaarter Bootstrap (B={significance.get('n_bootstrap')}, einseitig, "
-        f"alpha={alpha:.0%}{unit_text}) auf dem finalen, unabhaengigen "
+        f"{alpha_text}{unit_text}) auf dem finalen, unabhaengigen "
         f"Validierungs-Cube ({significance.get('validation_n_paths')} Pfade):"
     ]
     if significance.get("comparison") == "goal_level":
@@ -4683,7 +4715,8 @@ def _significance_sentence(significance: Mapping) -> str:
         parts.append(f"Verbesserung der Zielebene {float(improvement):.6e}")
     if lower is not None:
         parts.append(
-            f"untere {1 - alpha:.0%}-Konfidenzgrenze {float(lower):.6e}"
+            f"untere {1 - alpha:.{0 if alpha * 100 == round(alpha * 100) else 1}%}"
+            f"-Konfidenzgrenze {float(lower):.6e}"
         )
     if p_value is not None:
         parts.append(

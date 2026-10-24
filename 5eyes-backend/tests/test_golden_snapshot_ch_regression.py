@@ -279,6 +279,19 @@ Alternative/Liquiditaet v12 -> v13: Score 7 6768/1636/808/588/200 ->
 64.58 %), Score 9 7832/885/702/381/200 -> 7810/940/675/375/200 (Rendite
 574 -> 573 bps, Vola 1234 -> 1229 bps, Risikoanteil 68.70 -> 68.45 %);
 Score 3 und alle drei Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-24, RESAMPLING-SUCCESS-SURVIVOR-BIAS-001 +
+SIGNIFICANCE-MULTIPLICITY-001, Engine ``saa_resampled_v14``): Ausfall-
+Schranke als identifizierter Bereich mit fail-closed, Holm/Bonferroni in den
+Varianten. Fix-Effekt 0: mit erzwungenem v13-Seed alle sechs Fixtures
+byte-identisch (Linux-CI, Haswell und Nehalem; alle Combos 40/40 Bags,
+Default-Modus ohne Variantentest). Seed-Effekt (neuer Wuerfel durch die
+Version im Inhalts-Seed), v13 -> v14, Haswell = Nehalem byte-identisch:
+Score 7 6780/1611/805/604/200 -> 6774/1629/807/590/200 (Vola 1079 -> 1077
+bps, Risikoanteil 64.58 -> 64.47 %), Score 9 7810/940/675/375/200 ->
+7787/966/684/363/200 (Rendite 573 -> 572 bps, Vola 1229 -> 1225 bps,
+Risikoanteil 68.45 -> 68.29 %); Score 3 und alle drei Score-5-Varianten
+unveraendert.
 """
 from __future__ import annotations
 

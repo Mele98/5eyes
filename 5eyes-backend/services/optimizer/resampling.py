@@ -574,6 +574,38 @@ def tail_fraction(replicates: np.ndarray, *, not_better: bool) -> float:
     return (1.0 + float(hits)) / (1.0 + float(finite.size))
 
 
+# SIGNIFICANCE-MULTIPLICITY-001 (Engine v14): in den Risikomass-Varianten
+# begruendet die Ablehnung EINER von zwei Nullhypothesen die Abweichung von
+# der Hausquote -- Zielebene besser ODER Risikomass besser (und material).
+# Ohne Korrektur liegt die Wahrscheinlichkeit einer grundlosen Abweichung bei
+# zwei wahren Nullhypothesen bis 2 alpha (Bonferroni-Ungleichung; Gleichheit
+# bei disjunkten Ablehnbereichen). Holm (1979): die kleinste der m p-Werte
+# gegen alpha/m. Fuer den Entscheid "mindestens eine Ablehnung" ist Holm
+# identisch mit Bonferroni; jede Ueberlegenheitshypothese wird darum mit
+# alpha/m getestet (familienweise Fehlerrate <= alpha bei beliebiger
+# Abhaengigkeit). Nicht zur Familie gehoeren die Goal-Preservation-
+# Pruefungen ("signifikant schlechter"): sie koennen eine Abweichung nur
+# verhindern, nie begruenden -- mehr Pruefungen sind dort konservativ.
+MULTIPLICITY_METHOD = "holm_bonferroni_fwer_v1"
+
+
+def superiority_test_family(objective_mode: str, alpha: float) -> dict:
+    """Testfamilie der Ueberlegenheitsclaims gegen die Hausquote
+    (``objective_mode`` wie ``objective_variants.OBJECTIVE_*``)."""
+    if objective_mode == "goal_shortfall":
+        hypotheses = ["goal_level"]
+    else:
+        hypotheses = ["goal_level", "risk_measure_only"]
+    family_alpha = float(alpha)
+    return {
+        "method": MULTIPLICITY_METHOD,
+        "hypotheses": hypotheses,
+        "family_size": len(hypotheses),
+        "family_alpha": family_alpha,
+        "per_test_alpha": family_alpha / float(len(hypotheses)),
+    }
+
+
 def paired_bootstrap_improvement(
     loss_pair: Callable[[np.ndarray | None], tuple],
     *,
@@ -733,6 +765,8 @@ _SIGNIFICANCE_BASIS_FIELDS = (
     # ("refined_brownian_bridge"); sonst fehlt der Schluessel und die
     # Modellbasis bleibt bit-gleich.
     "drawdown_measure",
+    # SIGNIFICANCE-MULTIPLICITY-001 (Engine v14): Testfamilie und Niveau je Test.
+    "multiple_comparison",
     # RESAMPLING-ANTITHETIC-BOOTSTRAP-001 / RESAMPLING-PVALUE-SEMANTICS-001:
     # Stichprobeneinheit, Methode und p-Wert-Vertrag sind replaybar gebunden.
     "bootstrap_method",
