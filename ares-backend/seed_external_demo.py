@@ -54,7 +54,7 @@ def _now() -> str:
 INITIAL_PW = "Start-5eyes-2026!"
 
 TENANTS = [
-    ("tnt-internal", "5eyes Intern (Demo)", "5eyes-internal"),
+    ("tnt-internal", "Intern (Demo)", "demo-intern"),
     ("tnt-firma-a", "Demo Firma A (Treuhand)", "demo-firma-a"),
     ("tnt-firma-b", "Demo Firma B (VV)", "demo-firma-b"),
 ]
@@ -97,7 +97,7 @@ def main() -> int:
             s.add(User(
                 id=str(uuid.uuid4()), tenant_id=tenant_id, username=username,
                 password_hash=pw_hash, full_name=full_name,
-                email=f"{username}@demo.5eyes.local", role=role, is_active=1,
+                email=f"{username}@demo.invalid", role=role, is_active=1,
                 must_change_password=1, totp_enabled=0,
                 created_at=_now(), updated_at=_now(),
             ))

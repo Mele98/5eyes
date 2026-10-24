@@ -694,7 +694,7 @@ def twofa_setup(db: Session = Depends(get_db), current_user: User = Depends(get_
     current_user.totp_secret = stored_secret
     current_user.updated_at = _now()
     db.commit()
-    uri = provisioning_uri(secret, current_user.username or current_user.id, issuer="5eyes")
+    uri = provisioning_uri(secret, current_user.username or current_user.id, issuer="Ares")
     return {"secret": secret, "otpauth_uri": uri, "qr_svg": qr_svg_data_uri(uri)}
 
 
