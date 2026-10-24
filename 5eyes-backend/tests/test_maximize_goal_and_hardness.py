@@ -130,7 +130,7 @@ def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     contract = resampling["objective_contract"]
     # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (Review PR #659): das um den
     # Ziel-Scope erweiterte Schema traegt eine eigene Kennung.
-    assert contract["objective_contract_version"] == "objective-contract-v3"
+    assert contract["objective_contract_version"] == "objective-contract-v4"
     assert contract["goal_weighting_mode"] == "hardness"
     assert contract["goal_hardness_policy"] == (
         "hardness_scales_shortfall_and_protection_v1")
@@ -166,8 +166,11 @@ def test_objective_contract_v2_binds_every_coefficient_and_fails_closed():
         goal_weighting_mode=contract.goal_weighting_mode,
     )
     assert contract.contract_hash != v1.contract_hash
-    for name, value in implemented_objective_policy().items():
-        assert getattr(contract, name) == value, name
+    implemented = implemented_objective_policy()
+    # Engine v15: V4 bindet seinen eigenen Feldsatz (risk_term_* statt
+    # tiebreak_*, dazu wish_goal_policy).
+    for name in type(contract)._FIELDS:
+        assert getattr(contract, name) == implemented[name], name
     with pytest.raises(ObjectiveContractError):
         ObjectiveContractV2(
             objective_mode="goal_shortfall", goal_weighting_mode="hardness",

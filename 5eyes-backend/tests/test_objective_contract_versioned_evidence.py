@@ -34,6 +34,7 @@ from services.optimizer.objective_contract import (  # noqa: E402
     ObjectiveContractV1,
     ObjectiveContractV2,
     ObjectiveContractV3,
+    ObjectiveContractV4,
     resolve_objective_contract,
     verify_objective_contract_evidence,
 )
@@ -169,11 +170,13 @@ def test_v2_class_is_unchanged_for_its_current_schema():
     assert (result["status"], result["schema"]) == ("verified", "v2_policy_24")
 
 
-def test_new_runs_resolve_v3_and_never_v2():
+def test_new_runs_resolve_v4_and_never_v2_or_v3():
+    # Engine v15 (WISH-GOAL-SOFT-TRADEOFF-001): V4; V3 bleibt verifizierbar.
     contract = resolve_objective_contract()
-    assert type(contract) is ObjectiveContractV3
+    assert type(contract) is ObjectiveContractV4
+    assert type(contract) is not ObjectiveContractV3
     evidence = contract.as_evidence()
-    assert evidence["objective_contract_version"] == "objective-contract-v3"
+    assert evidence["objective_contract_version"] == "objective-contract-v4"
     assert verify_objective_contract_evidence(evidence)["status"] == "verified"
     v2 = ObjectiveContractV2(
         objective_mode=contract.objective_mode,

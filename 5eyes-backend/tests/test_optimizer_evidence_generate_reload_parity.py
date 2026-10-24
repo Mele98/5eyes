@@ -67,7 +67,7 @@ def test_generate_and_reload_deliver_identical_verified_evidence(session_factory
     assert generated["optimizer_goal_drivers"], "realistisches Mandat hat Ziele"
     contract = generated["objective_contract_evidence"]
     assert contract["status"] == "verified"
-    assert contract["objective_contract_version"] == "objective-contract-v3"
+    assert contract["objective_contract_version"] == "objective-contract-v4"
     snapshot = json.loads(ta.goal_driver_evidence_json)
     assert snapshot["objective_contract_hash"] == contract["objective_contract_hash"]
 
@@ -86,7 +86,7 @@ def test_generate_and_reload_deliver_identical_verified_evidence(session_factory
     # OptimizerRun traegt denselben Vertrag wie die Modellbasis.
     assert run is not None
     assert run.objective_contract_hash == contract["objective_contract_hash"]
-    assert run.objective_contract_version == "objective-contract-v3"
+    assert run.objective_contract_version == "objective-contract-v4"
     assert json.loads(run.objective_contract_json)["objective_contract_hash"] == run.objective_contract_hash
     if mode == "stochastic":
         assert reloaded["objective_contract_evidence"].get("optimizer_run_bound") is True

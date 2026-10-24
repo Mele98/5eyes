@@ -9,8 +9,16 @@ makes the primary term dimensionless while retaining absolute goal priority.
 Primary Objective (Advisory-Methodik Slide 18, Priorität 1):
     L(w) = Σ_g h_g · w_g · (1/N) · Σ_n max(0, target_g - wealth_g(w, n))^2
 
-Sekundaer (Priorität 2, als stetiger Tiebreak, OBJECTIVE-NORMALIZATION-001):
-    kappa · w' Sigma w   (einjaehrige Portfolio-Varianz aus der CMA-Kovarianz, immer aktiv)
+Risikoterm (OBJECTIVE-NORMALIZATION-001, immer aktiv):
+    kappa · w' Sigma w   (einjaehrige Portfolio-Varianz aus der CMA-Kovarianz)
+
+Rangfolge (WISH-GOAL-SOFT-TRADEOFF-001, Policy ``wish_goal_soft_tradeoff_v1``):
+harte und primaere Ziele sind als Stufe 1 durch eine Nebenbedingung des
+Solvers geschuetzt (``protected_goal_level``, in jedem Modus). Wunschziele
+(opportunistisch) sind WEICHE Terme: ihr Fehlbetrag und ihre Chance-Strafe
+stehen mit dem Risikoterm (bzw. dem Haus-Prior) in EINER Summe und werden
+gegen ihn getauscht. Es gibt keine lexikographische Vorrangregel
+"Wunschziel vor Varianz"; der Risikoterm ist kein Gleichstandsentscheid.
 
 Chance-Constraint (Ziel-Untergrenze, jeder Modus):
     Σ_g max(0, tau_g - LB_g) · (Zielvolumen_g / W0)^2
@@ -67,7 +75,7 @@ from .priority_scope import (
 # OBJECTIVE-NORMALIZATION-001 (2026-10-18): Gewicht der Chance-Constraint-
 # Strafe. Vorher ``1e6`` auf das QUADRAT des Wahrscheinlichkeitsdefizits --
 # einheitenfremd zu allen anderen Termen (Primaerterm, Risikomass-Varianten
-# und Tiebreak liegen in [1e-9, 10]); gemessen auf dem Fundament-Mandat
+# und Risikoterm liegen in [1e-9, 10]); gemessen auf dem Fundament-Mandat
 # 1.1e6 gegen einen Drawdown-Term von 0.26: die Variante "Max-Drawdown"
 # lieferte dort MEHR Aktien als der Default, weil allein die Strafe zaehlte.
 #
@@ -81,15 +89,16 @@ from .priority_scope import (
 CHANCE_PENALTY_WEIGHT = 1.0
 # Rueckwaertskompatibler Name (Tests/Aufrufer); Semantik siehe oben.
 LAMBDA_CHANCE_DEFAULT = CHANCE_PENALTY_WEIGHT
-# Gewicht des IMMER aktiven Volatilitaets-Tiebreaks (OBJECTIVE-NORMALIZATION-001:
-# stetig, kein Stufen-Schalter).
+# Gewicht des IMMER aktiven Risikoterms (OBJECTIVE-NORMALIZATION-001: stetig,
+# kein Stufen-Schalter). Er steht gleichrangig mit den Wunschziel-Termen in
+# der Summe (WISH-GOAL-SOFT-TRADEOFF-001) und ist kein Gleichstandsentscheid.
 #
 # TIEBREAK-PORTFOLIO-VARIANCE-001 (CIO-Entscheid 2026-10-18): das Mass ist
 # die EINJAEHRIGE Portfolio-Varianz ``w' Sigma w`` aus der CMA-Kovarianz des
 # Laufs (Dezimal^2), nicht mehr ``Var(W_T) / W0^2``. Das alte Mass war
 # mittelwertabhaengig (eine hoehere erwartete Rendite vergroessert ueber 31
 # Jahre auch die Endvermoegens-Streuung; Score 7/9: analytische Vola +3..6
-# bps durch den "Varianz"-Tiebreak) und wurde auf dem IS-Wuerfel mit ~10
+# bps durch den Varianzterm) und wurde auf dem IS-Wuerfel mit ~10
 # effektiven Pfaden geschaetzt. ``w' Sigma w`` ist exakt, glatt, pfadfrei und
 # dieselbe Groesse wie die ausgewiesene erwartete Volatilitaet.
 #
@@ -98,7 +107,14 @@ LAMBDA_CHANCE_DEFAULT = CHANCE_PENALTY_WEIGHT
 # siehe dort -- kleinster Wert, bei dem der Solver auf allen Mandaten den
 # Startpunkt verlaesst, mit mindestens einer Dekade Abstand zur ersten
 # messbaren Ziel-Erosion auf dem Konfliktmandat.
-TIEBREAK_VARIANCE_WEIGHT = 1.0
+RISK_TERM_VARIANCE_WEIGHT = 1.0
+# WISH-GOAL-SOFT-TRADEOFF-001 (CIO-Entscheid, Option B, Engine v15): Policy
+# der Wunschziele -- weiche Terme, gegen den Risikoterm bzw. den Haus-Prior
+# tauschbar; nur harte/primaere Ziele sind Stufe 1. Name im Objective-
+# Vertrag (``wish_goal_policy``); bisher als "Prioritaet 2"/"Tiebreak"
+# bezeichnet, was eine lexikographische Ordnung behauptete, die der
+# Skalar nicht hat.
+WISH_GOAL_TRADEOFF_POLICY_VERSION = "wish_goal_soft_tradeoff_v1"
 TAU_UNREACHABLE = 0.50
 
 # OWNER-DECISION OD-1 (bestaetigt 2026-05-05): 50x zwischen hart/opportunistisch.
@@ -1325,7 +1341,7 @@ def normalized_terminal_variance(
     initial_wealth_rappen: float,
     weights: np.ndarray | None = None,
 ) -> float:
-    """``Var(W_T) / max(1, W0)^2`` -- der Tiebreak in der Einheit des Primaerterms.
+    """``Var(W_T) / max(1, W0)^2`` -- Varianzmass in der Einheit des Primaerterms.
 
     OBJECTIVE-NORMALIZATION-001: vorher ``1e-12 * Var(W_T)`` in Rappen^2.
     Das war an die Waehrungseinheit gekoppelt (Faktor W0^2): bei CHF 500'000
@@ -1342,7 +1358,7 @@ def portfolio_variance_one_year(
     weights: np.ndarray,
     covariance_bps2: np.ndarray,
 ) -> float:
-    """``w' Sigma w`` in Dezimal^2 (Sigma in bps^2): Tiebreak-Mass.
+    """``w' Sigma w`` in Dezimal^2 (Sigma in bps^2): Mass des Risikoterms.
 
     TIEBREAK-PORTFOLIO-VARIANCE-001: einjaehrige Portfolio-Varianz aus der
     CMA-Kovarianz des Laufs -- dieselbe Groesse wie die ausgewiesene
@@ -1371,19 +1387,24 @@ def combined_objective_two_phase(
     portfolio_variance: float | None = None,
     scope_wealth: PriorityScopeWealth | None = None,
 ) -> float:
-    """Skalare Zielfunktion des Solvers: Ziel-Stufe + IMMER aktiver Tiebreak.
+    """Skalare Zielfunktion des Solvers: Zielterme + IMMER aktiver Risikoterm.
 
     ``f(w) = primary_weight * P(w) + C(w) + kappa * w' Sigma w``
 
     * ``P(w)``: Primaerterm des Modus (Default ``goal_shortfall`` = L(w)).
     * ``C(w)``: Chance-Constraint-Strafe (``chance_constraint_penalty``),
       in JEDEM Modus aktiv -- die Ziel-Untergrenze.
-    * Tiebreak nur im Modus ``goal_shortfall`` (in den Varianten uebernimmt
+    * Risikoterm nur im Modus ``goal_shortfall`` (in den Varianten uebernimmt
       der Primaerterm diese Rolle; bei ``min_volatility`` wuerde er die
       Kennzahl doppelt zaehlen). ``kappa`` = ``volatility_weight``, Default
-      ``TIEBREAK_VARIANCE_WEIGHT``.
+      ``RISK_TERM_VARIANCE_WEIGHT``.
 
-    OBJECTIVE-NORMALIZATION-001 (2026-10-18): Vorher wurde der Tiebreak PRO
+    WISH-GOAL-SOFT-TRADEOFF-001: alle Terme stehen in EINER Summe. Ein
+    Wunschziel wird gegen den Risikoterm getauscht (weicher Term); harte und
+    primaere Ziele schuetzt nicht dieser Skalar, sondern die Stufe-1-
+    Nebenbedingung des Solvers (``solver._goal_protection_stage``).
+
+    OBJECTIVE-NORMALIZATION-001 (2026-10-18): Vorher wurde der Varianzterm PRO
     ALLOKATION nur zugeschaltet, wenn deren Ziel-Stufe < 1e-12 war
     (Stufen-Schalter), mit einem Gewicht von 1e-12 auf Rappen^2. Die
     Funktion war damit nicht monoton: eine Allokation mit einem Fehlbetrag
@@ -1392,7 +1413,7 @@ def combined_objective_two_phase(
     CH-Golden-Mandate (Score 5): in 44 von 49 Bags, in denen der Solver
     ueberhaupt einen Punkt mit Ziel-Stufe 0 auswertete, gewann trotzdem eine
     Allokation mit Restfehlbetrag. Jetzt: stetig und Pareto-monoton -- ist
-    eine Allokation auf Ziel-Stufe UND Tiebreak mindestens so gut und auf
+    eine Allokation auf Zielebene UND Risikoterm mindestens so gut und auf
     einem davon besser, ist ihr Wert kleiner. Herleitung von ``kappa``:
     docs/planning/2026-10-18-objective-normalization.md.
 
@@ -1406,7 +1427,7 @@ def combined_objective_two_phase(
     aufrufen; nur innerhalb eines Laufs ist Konstanz eine
     Korrektheitsbedingung.
     """
-    goal_level, tiebreak = two_phase_objective_parts(
+    goal_level, risk_term = two_phase_objective_parts(
         liabilities,
         wealth_paths,
         initial_wealth_rappen=initial_wealth_rappen,
@@ -1422,7 +1443,7 @@ def combined_objective_two_phase(
         portfolio_variance=portfolio_variance,
         scope_wealth=scope_wealth,
     )
-    return goal_level + tiebreak
+    return goal_level + risk_term
 
 
 def two_phase_objective_parts(
@@ -1445,8 +1466,8 @@ def two_phase_objective_parts(
 ) -> tuple[float, float]:
     """Die beiden Terme von ``combined_objective_two_phase`` GETRENNT.
 
-    Rueckgabe ``(goal_level, tiebreak)``: ``goal_level`` = Primaerterm +
-    Chance-Strafe, ``tiebreak`` = gewichteter normierter Volatilitaetsterm
+    Rueckgabe ``(goal_level, risk_term)``: ``goal_level`` = Primaerterm +
+    Chance-Strafe, ``risk_term`` = gewichteter Risikoterm ``kappa * w' Sigma w``
     (nur im Modus ``goal_shortfall``, sonst 0). Ihre Summe ist exakt der
     Skalarwert des Solvers -- fuer Audit und Diagnose, nicht fuer einen
     abweichenden Vergleich.
@@ -1455,7 +1476,7 @@ def two_phase_objective_parts(
     2026-10-18): ersetzt den Primaerterm durch einen extern gemessenen Wert --
     im Modus ``max_drawdown`` der verfeinerte mittlere Max-Drawdown
     (Brownsche Bruecke) statt des Jahresgitter-Proxy. Chance-Strafe und
-    Tiebreak bleiben dieselben; so gibt es fuer die Chance-Strafe genau EINE
+    Risikoterm bleiben dieselben; so gibt es fuer die Chance-Strafe genau EINE
     Implementierung, egal mit welchem Drawdown-Mass verglichen wird.
     """
     from .objective_variants import (
@@ -1507,18 +1528,18 @@ def two_phase_objective_parts(
         scope_wealth=scope_wealth,
     )
     kappa = (
-        TIEBREAK_VARIANCE_WEIGHT if volatility_weight is None else float(volatility_weight)
+        RISK_TERM_VARIANCE_WEIGHT if volatility_weight is None else float(volatility_weight)
     )
     # TIEBREAK-PORTFOLIO-VARIANCE-001: kappa * w' Sigma w (vom Aufrufer, der
     # die Allokation kennt). Ohne Allokation (Konsumenten ausserhalb eines
-    # Laufs) gibt es keinen Tiebreak -- er ordnet nur Allokationen.
-    tiebreak = (
+    # Laufs) gibt es keinen Risikoterm -- er bewertet nur Allokationen.
+    risk_term = (
         kappa * float(portfolio_variance)
         if is_goal_shortfall and kappa != 0.0 and portfolio_variance is not None
         else 0.0
     )
     goal_level = primary_weight * primary + chance
-    return float(goal_level), float(tiebreak)
+    return float(goal_level), float(risk_term)
 
 
 # ============================================================================

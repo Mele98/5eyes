@@ -1,0 +1,45 @@
+{
+ "_comment": "Persistierte objective-contract-v3-Nachweise, erzeugt aus dem Produktcode der genannten Commits (as_evidence()). Nie aus heutigem Code neu erzeugen.",
+ "entries": [
+  {
+   "evidence": {
+    "chance_penalty_policy": "linear_wilson_lb_soft_regret_v1",
+    "chance_penalty_weight": 1.0,
+    "demoted_goal_weight": 0.2,
+    "goal_demotion_policy": "goal_revision_decision_demoted_wish_weight_v4",
+    "goal_erosion_numeric_tol": 1e-09,
+    "goal_erosion_z": 1.6448536269514722,
+    "goal_evaluation_scope": "priority_funded",
+    "goal_hardness_policy": "hardness_scales_shortfall_and_protection_v1",
+    "goal_hierarchy_policy": "protected_goals_lexicographic_v2_reachable_only",
+    "goal_hierarchy_scope": "goal_shortfall_mode_only",
+    "goal_normalization": "relative_to_initial_wealth_squared_v1",
+    "goal_reachability_policy": "goal_reachability_screen_v6_local_search_no_auto_demotion",
+    "goal_scope_replay_policy": "direct_crn_replay_per_rank_v1",
+    "goal_weighting_mode": "hardness",
+    "hardness_weights": {
+     "hart": 10.0,
+     "opportunistisch": 0.2,
+     "primaer": 1.0
+    },
+    "house_prior_kappa": 300.0,
+    "house_prior_policy": "house_prior_ridge_tracking_error_v2",
+    "maximize_goal_policy": "maximize_log_growth_v1",
+    "maximize_growth_weight": 1.0,
+    "objective_contract_hash": "f7bed1a5bc8fa9801095e7f2f8152498bab814f79085935e3d0b5186d3ef6421",
+    "objective_contract_version": "objective-contract-v3",
+    "objective_mode": "goal_shortfall",
+    "protected_hardness": [
+     "hart",
+     "primaer"
+    ],
+    "soft_preference_lambda_default": 2.0,
+    "soft_preference_policy": "soft-preference-default-v1",
+    "stage2_objective_scale_policy": "slsqp_relative_ftol_max1_v1",
+    "tiebreak_policy": "portfolio_variance_one_year_v1",
+    "tiebreak_weight": 1.0
+   },
+   "source_commit": "4a8ce421af1f"
+  }
+ ]
+}

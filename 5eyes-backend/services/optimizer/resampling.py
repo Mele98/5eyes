@@ -34,7 +34,7 @@ Methode (Michaud-artiges Bagging mit Common Random Numbers):
    im Default-Modus ``goal_shortfall`` ist die (auf Zulaessigkeit
    projizierte) Hausmatrix-Zielquote ein PRIOR in der Zielfunktion jedes
    Bags (``house_prior.py``: ``kappa_H * (w - w_H)' Sigma (w - w_H)`` statt
-   des Tiebreaks ``w' Sigma w``); das projizierte Bag-Mittel ist das
+   des Risikoterms ``w' Sigma w``); das projizierte Bag-Mittel ist das
    Ergebnis, ohne Schalter. Der gepaarte Bootstrap auf dem UNABHAENGIGEN
    Validierungswuerfel legt nur offen (Delta Zielebene, Konfidenzgrenzen,
    Zielwahrscheinlichkeiten Haus vs. Ergebnis) und ist Sicherheitsnetz: ist
@@ -396,7 +396,7 @@ def scalar_loss(loss) -> float:
     """Skalar-Zielfunktion eines Verlusts -- dieselbe, die der Solver minimiert.
 
     Ein Skalar wird unveraendert uebernommen. Ein Tupel
-    ``(goal_level, tiebreak[, additiv])`` (Terme aus
+    ``(goal_level, risk_term[, additiv])`` (Terme aus
     ``objective.two_phase_objective_parts`` plus optional Soft-Preference)
     wird SUMMIERT -- ohne Stufen-Schalter.
 
@@ -412,7 +412,7 @@ def scalar_loss(loss) -> float:
     if isinstance(loss, (tuple, list)):
         if len(loss) not in (2, 3):
             raise TypeError(
-                "Tupel-Verlust muss (goal_level, tiebreak[, additiv]) sein."
+                "Tupel-Verlust muss (goal_level, risk_term[, additiv]) sein."
             )
         return float(sum(float(term) for term in loss))
     return float(loss)
@@ -638,7 +638,7 @@ def paired_bootstrap_improvement(
     Entscheid: signifikant genau dann, wenn ``Delta_hat > 0`` UND
     ``p_value <= alpha``.
 
-    ``loss_pair`` darf Skalare oder ``(goal_level, tiebreak[, additiv])``-
+    ``loss_pair`` darf Skalare oder ``(goal_level, risk_term[, additiv])``-
     Tupel liefern; Tupel werden wie im Solver summiert (``scalar_loss``).
     """
     levels: dict[str, int] = {}

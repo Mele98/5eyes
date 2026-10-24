@@ -397,7 +397,7 @@ def test_prior_replaces_the_variance_tiebreak_only_with_an_anchor(small_context)
     w_h = _w(anchor) / 1e4
     # Ohne Anker: v5-Tiebreak w' Sigma w.
     assert small_context.house_prior_weights is None
-    assert solver_module._tiebreak_portfolio_variance(small_context, w) == pytest.approx(
+    assert solver_module._risk_term_portfolio_variance(small_context, w) == pytest.approx(
         portfolio_variance_one_year(w, cov), rel=1e-15,
     )
     prior_ctx = solver_module._with_house_prior(small_context, anchor)
@@ -406,11 +406,11 @@ def test_prior_replaces_the_variance_tiebreak_only_with_an_anchor(small_context)
     # Engine v7 (HOUSE-PRIOR-PSD-NULLSPACE-001): Ridge-Metrik Sigma + eps I.
     from services.optimizer.house_prior import prior_metric_bps2
 
-    assert solver_module._tiebreak_portfolio_variance(prior_ctx, w) == pytest.approx(
+    assert solver_module._risk_term_portfolio_variance(prior_ctx, w) == pytest.approx(
         HOUSE_PRIOR_KAPPA * portfolio_variance_one_year(w - w_h, prior_metric_bps2(cov)),
         rel=1e-12,
     )
-    assert solver_module._tiebreak_portfolio_variance(prior_ctx, w_h) == 0.0
+    assert solver_module._risk_term_portfolio_variance(prior_ctx, w_h) == 0.0
 
 
 def test_solver_objective_equals_evaluate_weights_and_validation_split(small_context):
@@ -437,7 +437,7 @@ def test_solver_objective_equals_evaluate_weights_and_validation_split(small_con
     (_house_goal, house_risk), (goal, risk) = pair(None)
     assert house_risk == 0.0
     assert risk == pytest.approx(
-        solver_module._tiebreak_portfolio_variance(prior_ctx, w), rel=1e-12,
+        solver_module._risk_term_portfolio_variance(prior_ctx, w), rel=1e-12,
     )
     assert goal + risk == pytest.approx(
         solver_module._objective_from_array(validation_ctx, w), rel=1e-9,
@@ -473,7 +473,7 @@ def test_result_binds_the_prior_decision_objective():
     np.testing.assert_array_equal(prior_ctx.house_prior_weights, result.context.house_prior_weights)
     w = _w(result.weights_bps) / 1e4
     assert block["final_prior_penalty"] == pytest.approx(
-        solver_module._tiebreak_portfolio_variance(prior_ctx, w), rel=1e-12,
+        solver_module._risk_term_portfolio_variance(prior_ctx, w), rel=1e-12,
     )
     assert block["final_prior_penalty"] > 0.0
 

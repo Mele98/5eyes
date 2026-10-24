@@ -42,7 +42,7 @@ import pytest
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import (
     LAMBDA_CHANCE_DEFAULT,
-    TIEBREAK_VARIANCE_WEIGHT,
+    RISK_TERM_VARIANCE_WEIGHT,
     chance_constraint_penalty,
     combined_objective_two_phase,
     shortfall_objective,
@@ -230,7 +230,7 @@ def test_default_mode_is_bit_identical_to_the_explicit_composition() -> None:
         expected_vol = volatility_objective(paths) / float(INITIAL_WEALTH) ** 2
         expected = (
             expected_primary + expected_penalty
-            + TIEBREAK_VARIANCE_WEIGHT * expected_vol
+            + RISK_TERM_VARIANCE_WEIGHT * expected_vol
         )
 
         actual = combined_objective_two_phase(
