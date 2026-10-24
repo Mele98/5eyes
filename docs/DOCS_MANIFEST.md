@@ -37,6 +37,7 @@ derzeit 3 Dateien, deren Pfad einen frueheren Produktnamen enthaelt.
 | `ares-backend/BACKUP.md` | KEEP | Betreiber: Backup- und Restore-Ablauf des Backends |
 | `ares-backend/DSG_EXPORT.md` | KEEP | Betreiber/Berater: DSG-Datenexport (Auskunftsrecht) |
 | `ares-backend/README_price_updater.md` | KEEP | Entwickler/Betreiber: Kursaktualisierung |
+| `ares-backend/tests/test_archived_docs_contract.py` | ARCHIVE | Drift-Tests auf ARCHIVE-Dokumente; laufen nur im Archiv-Repo |
 | `ares-desktop/PACKAGING.md` | KEEP | Entwickler: Packaging der Desktop-App |
 | `ares-desktop/README.md` | KEEP | Entwickler: Start und Aufbau der Desktop-Shell |
 | `ares-desktop/WINDOWS_RELEASE.md` | KEEP | Entwickler: Windows-Release-Ablauf |
@@ -383,4 +384,4 @@ derzeit 3 Dateien, deren Pfad einen frueheren Produktnamen enthaelt.
 | `docs/status_snapshot_2026-05-23.md` | ARCHIVE | Statusbericht, historisch |
 | `docs/wip_cleanup_2026-05-13.md` | ARCHIVE | Aufraeumprotokoll, historisch |
 
-Summe: 79 KEEP, 273 ARCHIVE (3 davon nur ueber Regeln erfasst).
+Summe: 79 KEEP, 274 ARCHIVE (3 davon nur ueber Regeln erfasst).
