@@ -41,6 +41,12 @@ beide Rekursionen Operation fuer Operation identisch).
 Ohne Replay-Kontext gibt es fuer abweichende Scopes KEINE Zahl: die
 Bewertung bricht fail-closed ab (``PriorityScopeUnavailableError``) statt aus
 einem aggregierten Pfad etwas zu erfinden.
+
+Ausnahme ohne Rueckwaertsrechnung: stammt der gemeinsame Pfad unveraendert aus
+``simulate_wealth_paths``, liegt dessen eingefrorener Kontext vor
+(``retained_simulation_context``). Er wird -- nach bestandener
+Paritaetspruefung des gemeinsamen Pfads -- als Replay-Kontext verwendet;
+Ergebnis ist derselbe direkte Replay wie mit explizitem Kontext.
 """
 from __future__ import annotations
 
@@ -50,6 +56,7 @@ from typing import Iterable, Mapping, Sequence
 import numpy as np
 
 from .goal_liabilities import GoalLiability
+from .retained_simulation_context import retained as _retained_context
 from .scenario_engine import simulate_wealth_paths
 
 PRIORITY_SCOPE_POLICY_VERSION = "direct_crn_replay_per_rank_v1"
@@ -351,7 +358,36 @@ class ScopeReplayInputs:
             is_retired_series=self.is_retired_series,
             death_year_index_per_path=self.death_year_index_per_path,
             portfolio_factors=self.portfolio_factors,
+            retain_scope_context=False,
         )
+
+
+def retained_replay_inputs(wealth_paths: np.ndarray) -> ScopeReplayInputs | None:
+    """Replay-Kontext aus dem festgehaltenen Kontext von ``simulate_wealth_paths``.
+
+    ``None``, wenn ``wealth_paths`` nicht unveraendert (Identitaet) aus
+    ``simulate_wealth_paths`` stammt. Ziel-gebundene Reserve-Freigaben sind
+    dem festgehaltenen Kontext nicht bekannt (keine); Aufrufer mit solchen
+    Freigaben uebergeben ihren Replay-Kontext explizit (Solver).
+    """
+    context = _retained_context(wealth_paths)
+    if context is None:
+        return None
+    return ScopeReplayInputs(
+        initial_wealth_rappen=context["initial_wealth_rappen"],
+        weights=context["weights"],
+        return_paths=context["return_paths"],
+        cashflow_series_rappen=context["cashflow_series_rappen"],
+        joint_liability_path_rappen=context["liability_path_rappen"],
+        death_year_index_per_path=context["death_year_index_per_path"],
+        tax_regime=context["tax_regime"],
+        dividend_yield_bps_per_bucket=context["dividend_yield_bps_per_bucket"],
+        base_calendar_year=context["base_calendar_year"],
+        mandate_age_at_start=context["mandate_age_at_start"],
+        is_retired=context["is_retired"],
+        portfolio_factors=context["portfolio_factors"],
+        is_retired_series=context["is_retired_series"],
+    )
 
 
 @dataclass
@@ -370,13 +406,22 @@ class PriorityScopeWealth:
     _cache: dict = field(default_factory=dict, repr=False)
     _keys: dict = field(default_factory=dict, repr=False)
     _checked: set = field(default_factory=set, repr=False)
+    # True, solange ein aus ``simulate_wealth_paths`` festgehaltener Kontext
+    # noch nicht gegen ``joint`` geprueft wurde (Pruefung lazy, beim ersten
+    # abweichenden Scope).
+    _retained_unverified: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.replay is None:
+            retained = retained_replay_inputs(self.joint)
+            if retained is None:
+                return
+            self.replay = retained
+            self._retained_unverified = True
+            return
         # Schluessel und Batch-Pruefung je (Liability-Liste, Freigaben,
         # gemeinsamer Pfad) nur einmal -- im Solver entsteht je Auswertung ein
         # neues Objekt fuer denselben Batch.
-        if self.replay is None:
-            return
         signature = (
             self.replay.goal_reserve_release_series_rappen,
             None if self.replay.joint_liability_path_rappen is None
@@ -472,6 +517,11 @@ class PriorityScopeWealth:
                 "Rueckwaertsrekonstruktion aus dem gemeinsamen Pfad ist nicht "
                 "exakt (Cashflows, Mortalitaet, W2.5, Steuer) und entfaellt."
             )
+        if self._retained_unverified:
+            # Festgehaltener Kontext: erst nutzen, wenn er den gemeinsamen
+            # Pfad exakt reproduziert (Array/Eingaben seither unveraendert).
+            self.verify_joint_parity()
+            self._retained_unverified = False
         self._check_batch(goal, replay)
         # Alle noch offenen abweichenden Scopes des Batches in einem Lauf
         # (ein Replay je eindeutigem Scope; steuerfrei ab dem ersten abweichenden Jahr).
@@ -614,5 +664,6 @@ __all__ = [
     "ScopeReplayInputs",
     "goal_release_series_from_ledger",
     "release_mapping",
+    "retained_replay_inputs",
     "scope_wealth_for",
 ]
