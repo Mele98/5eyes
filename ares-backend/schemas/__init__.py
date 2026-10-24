@@ -1,1 +1,1 @@
-# Pydantic request/response schemas for 5Eyes API
+# Pydantic request/response schemas for Ares API

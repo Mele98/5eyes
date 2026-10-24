@@ -9,7 +9,7 @@
 --
 -- Fix: Cap auf 45 % anheben (= ASIP-Obergrenze für „Defensiv"-Profile).
 --   Wissenschaftliche Quelle: ASIP / Schweizerischer Pensionskassenverband
---   Konvention „Defensiv = 25–45 % risikobehaftete Anlagen". 3eyes-Spec
+--   Konvention „Defensiv = 25–45 % risikobehaftete Anlagen". Referenz-Spec
 --   (Score X von 10 → X × 10 % risky) liefert für Score 4 → 40 %; ein
 --   Toleranz-Puffer von 5 pp ist innerhalb Marktstandard.
 --

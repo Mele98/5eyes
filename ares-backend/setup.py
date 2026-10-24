@@ -1,6 +1,6 @@
 ﻿#!/usr/bin/env python3
 """
-5Eyes WealthArchitekten — Ersteinrichtung
+Ares — Ersteinrichtung
 =========================================
 Dieses Script läuft einmalig beim ersten Start.
 Es erstellt die Datenbank, lädt das Schema, und legt den ersten Admin-Benutzer an.

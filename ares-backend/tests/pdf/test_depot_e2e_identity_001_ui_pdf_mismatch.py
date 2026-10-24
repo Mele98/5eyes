@@ -2,7 +2,7 @@
 
 Audit: docs/audits/2026-10-05-depotcheck-end-to-end-product-identity-and-
 publication-integrity-audit.md (Ares worktree
-"5eyes wird zu Ares/asset-allocation-stochastic-core").
+im lokalen Dossier-Ordner).
 
 Finding: the Depot-Check feature is two incompatible products sharing one
 name.

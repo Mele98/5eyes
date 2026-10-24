@@ -1,6 +1,6 @@
 """Sprint U-P17c (2026-05-22): Strategie-Backtest-PDF.
 
-3-Seiten-Composer im A4-Landscape WealthArchitekten-Layout:
+3-Seiten-Composer im A4-Landscape Ares-Layout:
 1. Cover (Brand)
 2. Hauptseite: Header + Meta-Zeile + Wealth-Chart + Drawdown-Chart +
    Kennzahlen-Tabelle (1 oder 2 Spalten)

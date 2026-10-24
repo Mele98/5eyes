@@ -420,7 +420,7 @@ def _invalidate_advisory_cache_for_client(client_id: str, db: Session) -> None:
     """Kontrollrunde 2026-09-21 (Advisory-Report-Cache-Audit): WealthPosition/
     Cashflow/WealthInflow haengen an client_id, nicht mandate_id -- ein Client
     kann mehrere Mandate haben, deren Advisory-Reports alle auf demselben
-    Gesamtvermoegen basieren (siehe project_5eyes_gesamtvermoegen_allokation).
+    Gesamtvermoegen basieren (siehe Fachlogik-Notiz Gesamtvermoegens-Allokation).
     Der Cache (services.advisory_report_cache) ist pro (mandate_id,
     advisor_id) geschluesselt -- ohne diesen Aufruf blieb er bis zu
     aggregator_cache_ttl_seconds (Default 60s) auf dem Stand VOR der

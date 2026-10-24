@@ -96,7 +96,7 @@ def test_resolve_log_file_uses_log_file_name(tmp_log_dir):
     assert log_file.parent == resolve_log_dir()
 
 
-def test_log_file_name_is_5eyes_app_log():
+def test_log_file_name_constant():
     """Drift-Schutz: Dateiname bleibt stabil."""
     assert LOG_FILE_NAME == "5eyes-app.log"
 

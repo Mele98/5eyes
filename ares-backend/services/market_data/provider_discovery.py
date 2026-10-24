@@ -11,7 +11,7 @@ Externe Pakete deklarieren in ihrer pyproject.toml:
     bloomberg = "fivee_eyes_bloomberg:BloombergProvider"
     refinitiv = "fivee_eyes_refinitiv:RefinitivProvider"
 
-Beim Boot scannt 5eyes diese Entry-Group, instanziiert jeden Provider und
+Beim Boot scannt Ares diese Entry-Group, instanziiert jeden Provider und
 fuegt ihn in die Aggregator-Cascade ein. Konformanz-Check (vor Aufnahme):
 - Provider hat einen `name` (str, nicht leer, kollisionsfrei)
 - Provider erbt von MarketDataProvider

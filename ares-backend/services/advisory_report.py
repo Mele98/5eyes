@@ -1,7 +1,7 @@
 """Sprint U-P21 (2026-05-24): Advisory-Report-Aggregator.
 
 Liefert die vollständige Daten-Struktur für den 15-Seiten institutionellen
-Depotcheck-Report. Konsumiert die bestehenden 5eyes-Engines (portfolio_engine,
+Depotcheck-Report. Konsumiert die bestehenden Ares-Engines (portfolio_engine,
 depot_check, foundation_example, risk_matrix etc.) und aggregiert sie in
 ein stabiles JSON-Schema, das sowohl die React-Sub-App (ares-desktop/
 frontend/reporting/) als auch das Server-PDF (services/pdf/documents/
@@ -15,10 +15,10 @@ Architektur-Prinzipien:
   `MandateReportOverrides`-Tabelle persistierbar (folgt in eigenem Sprint).
 - Statische Inhalte (Pruefpunkte-Beschreibungen, Investmentgrundsaetze,
   Disclaimer) leben in Konstanten am Modul-Ende — der Berater darf sie
-  per Admin-UI editieren, default ist 5eyes-Hauspruefung.
+  per Admin-UI editieren, default ist Ares-Hauspruefung.
 
 Branding-Disziplin (per Memory): KEINE Dritt-Marken in Code/Texten/PDF.
-Alle Bezeichnungen sind 5eyes-eigen.
+Alle Bezeichnungen sind Ares-eigen.
 
 Bezug: docs/planning/2026-05-24-sprint-u-p21-advisory-report-backend.md
 """
@@ -1769,7 +1769,7 @@ def _check_waehrungsstruktur(dc: dict[str, Any]) -> dict[str, Any]:
 def _suggest_hedge_ratio_bps(fx_total_bps: int, horizon_years: int | None) -> tuple[int, str]:
     """Sprint U-98 (2026-06-05): konservative Hedge-Ratio-Empfehlung.
 
-    Heuristik (3eyes-light, konservative Variante — Berater bleibt Richter):
+    Heuristik (vereinfachte Referenzmethodik, konservative Variante — Berater bleibt Richter):
       Horizont < 3 J:  hedge 80% der Fremdwaehrungs-Position
       Horizont 3-7 J:  hedge 50%
       Horizont 7-15 J: hedge 25%
@@ -4654,7 +4654,7 @@ def _build_performance_attribution(
     Mandat-Risikoprofils.
     Quelle Returns: aktuelle CMA-Erwartungen pro Bucket.
 
-    In 5eyes' forward-looking Framework sind benchmark_returns == portfolio_returns
+    In Ares' forward-looking Framework sind benchmark_returns == portfolio_returns
     pro Bucket (gleiche CMA). Daher Selection ≈ 0, Interaction ≈ 0; nur
     Allocation-Effekt zeigt den Wert der SAA-Tilts vs Benchmark.
 

@@ -1604,7 +1604,7 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
 
 
 
-# 3eyes-Methodik (drei augen.pdf): Illiquiditaet ist eine Eigenschaft des
+# Referenzmethodik (Vorlagen-PDF): Illiquiditaet ist eine Eigenschaft des
 # Bausteins, kein pauschaler Alternatives-Deckel. Direktimmobilien werden
 # bereits ueber das Gesamtvermoegen (extern) gefuehrt und nicht umgeschichtet;
 # der einzige illiquide Baustein INNERHALB der handelbaren SAA ist Private Equity.
@@ -3352,7 +3352,7 @@ def generate_target_allocation(
             "auf dem effektiv investierbaren Vermoegen normiert."
         )
 
-    # 3eyes-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity)
+    # Referenzmethodik-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity)
     # gedeckelt, nicht pauschal auf der ganzen Alternatives-Quote.
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
 

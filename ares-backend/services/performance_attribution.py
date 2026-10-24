@@ -9,7 +9,7 @@ Rendite eines Portfolios vs eines Benchmarks in 3 Effekte
     'mehr/weniger Aktien als Benchmark')
   - **Selection Effect**: w_B * (r_P - r_B)
     Wirkung der Produkt-Auswahl innerhalb der Bucket
-    (in 5eyes meist 0, da forward-looking CMA-Returns gleich)
+    (in Ares meist 0, da forward-looking CMA-Returns gleich)
   - **Interaction Effect**: (w_P - w_B) * (r_P - r_B)
     Restterm, oft klein wenn Selection klein ist
 
@@ -22,7 +22,7 @@ Konventionen:
     verschleiern wuerde
   - Bei nicht-berechenbaren Faellen (leere Inputs) -> alle Effekte 0
 
-Anwendung in 5eyes:
+Anwendung in Ares:
   - Portfolio = aktuelle TargetAllocation-Weights des Mandats
   - Benchmark = House-Matrix-Default fuer das Risikoprofil
   - Returns = CMA-Erwartungen pro Bucket (gleich fuer P+B, weil
@@ -144,7 +144,7 @@ def compute_brinson_attribution(
         portfolio_returns_bps: erwartete Returns pro Bucket im Portfolio
         benchmark_returns_bps: erwartete Returns im Benchmark.
             Default: gleich wie portfolio_returns_bps (forward-looking-Default
-            in 5eyes — keine Selection-Differenz, nur Allocation).
+            in Ares — keine Selection-Differenz, nur Allocation).
         bucket_keys: zu betrachtende Buckets (Default 5 SAA-Buckets)
 
     Returns:
