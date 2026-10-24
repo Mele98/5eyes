@@ -70,7 +70,7 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
    # Sollte uvicorn auf 127.0.0.1:8000 starten
    # Im zweiten Terminal:
    curl http://127.0.0.1:8000/health/ready
-   # -> {"status":"ok","app":"5Eyes WealthArchitekten API",...}
+   # -> {"status":"ok","app":"Ares API",...}
    ```
 
    **Kritischer Subtest** — Advisory-Report-PDF muss ohne ModuleNotFoundError
