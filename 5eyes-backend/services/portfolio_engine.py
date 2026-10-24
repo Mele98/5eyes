@@ -644,10 +644,9 @@ def _coerce_band_bps(value) -> int | None:
 
 
 def _risk_score_bucket(assessment: RiskAssessment) -> int:
-    # Sprint U-P0 Fix H14: explizit Fail wenn keine Bewertung vorhanden,
-    # statt silent fallback auf Bucket 1 (Kapitalschutz). Der vorherige
-    # Default (`score_x10 or 10` → Bucket 1) konnte unbemerkt extrem
-    # konservative Strategien produzieren.
+    # Sprint U-P0 Fix H14: explizit Fail ohne Bewertung statt silent fallback auf
+    # Bucket 1 (Kapitalschutz); der vorherige Default (`score_x10 or 10`) konnte
+    # unbemerkt extrem konservative Strategien produzieren.
     score_x10 = validate_risk_assessment_model_input(assessment)
     # Validierung 2026-06-11 (#AA-9): round-half-up statt Banker's-round() — sonst
     # bricht die Monotonie an .5-Grenzen (45->4 statt 5, 65->6 statt 7) und divergiert
@@ -664,6 +663,7 @@ from services.portfolio_engine_pension_positions import (  # noqa: E402 -- VORSO
 from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION-TRANSFER-LEDGER-001
     bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
 )
+from services.allocation_evidence_replay import allocation_evidence_payload, build_goal_driver_evidence_json  # noqa: E402
 
 
 def _convert_position_value_to_target_currency(
@@ -4158,6 +4158,7 @@ def generate_target_allocation(
         stress_evaluations_json=stress_evaluations_json,
         optimizer_reasoning_json=optimizer_reasoning_json,
         shadow_optimization_json=shadow_optimization_json,
+        goal_driver_evidence_json=build_goal_driver_evidence_json(optimizer_goal_drivers, optimizer_mode=optimizer_mode, optimizer_result=optimizer_result, model_basis=model_basis),
         # AR-2 (FIDLEG-Report): MC-Risiko-KPIs auf Beratungsvermoegens-Ebene
         # (target_*, NICHT total_*) persistieren, damit _build_key_metrics sie
         # ausweisen kann statt "—". Defensiv: fehlt ein Key -> None. Einheit bps.
@@ -4285,20 +4286,18 @@ def generate_target_allocation(
         "goal_analysis": goal_analysis,
         "current_goal_analysis": current_goal_analysis,
         "mandate_score": _build_mandate_score(goal_analysis),
-        # Phase 6: Stress-Auswertungen fuer FE-Optimizer-Panel.
-        # V3 Sprint 1: Im Shadow-Modus nicht im Top-Level stress_evaluations
-        # (das gehoert zur aktiven TargetAllocation = House Matrix).
-        # Shadow-Stress wird ggf. in allocation_method_comparison gehaengt.
+        # Phase 6 / V3 Sprint 1: Stress nur aktiv (Shadow-Modus: TA = House Matrix;
+        # Shadow-Stress ggf. in allocation_method_comparison).
         "stress_evaluations": (
             optimizer_result.stress_evaluations
             if (optimizer_mode == "stochastic" and optimizer_result is not None)
             else None
         ),
         "allocation_method_comparison": allocation_method_comparison,
-        # V3 Sprint 1d: Constraint Slacks + Goal Drivers fuer die aktive
-        # Allocation. Leere Listen wenn der Solver nicht lief.
+        # V3 Sprint 1d: Constraint Slacks + Goal Drivers (leer ohne Solver-Lauf).
         "optimizer_constraints": optimizer_constraints,
         "optimizer_goal_drivers": optimizer_goal_drivers,
+        **allocation_evidence_payload(db, target_allocation, model_basis),  # Snapshot wie beim Reload
     }
 
 
@@ -6097,6 +6096,7 @@ def build_target_payload_from_allocation(
                 getattr(allocation, "id", "?"), exc,
             )
     goal_achievability: list[dict] = _stored_goal_achievability(allocation)
+    replayed_evidence = allocation_evidence_payload(db, allocation, model_basis, legacy_shadow_json=allocation.shadow_optimization_json)
     messages = persisted_messages or classify_messages(
         allocation,
         goal_achievability,
@@ -6169,12 +6169,9 @@ def build_target_payload_from_allocation(
                 if normalized_legacy_liquidity
                 else []
             )
-            # Phase 6.2: persistiertes Solver-Reasoning anhaengen, damit das
-            # FE-Optimizer-Panel beim Reload den vollen Iter-/Stress-Trace
-            # zeigt (nicht nur die generischen 2 Saetze oben).
+            # Phase 6.2: persistiertes Solver-Reasoning (voller Trace beim Reload).
             + persisted_optimizer_reasoning
-            # C8: zentrale Drift-Warnings (Assessment, CMA, Inputs, Preferences,
-            # Reserve, Legacy-Anker). Konsolidiert ehemalige inline F2-/F3-Logik.
+            # C8: zentrale Drift-Warnings (Assessment, CMA, Inputs, Prefs, Reserve, Legacy).
             + drift_warnings
         ),
         "projection_horizon": projection_horizon,
@@ -6188,6 +6185,9 @@ def build_target_payload_from_allocation(
         "current_goal_analysis": current_goal_analysis,
         "live_rebalancing": live_rebalancing,
         "stress_evaluations": stress_evaluations,
+        "optimizer_goal_drivers": replayed_evidence["optimizer_goal_drivers"],
+        "optimizer_goal_driver_evidence": replayed_evidence["optimizer_goal_driver_evidence"],
+        "objective_contract_evidence": replayed_evidence["objective_contract_evidence"],
     }
 
 

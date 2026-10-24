@@ -678,6 +678,9 @@ def ensure_runtime_columns() -> None:
             ('sim_horizon_confirmed_by', 'TEXT'),
             # PENSION-TRANSFER-LEDGER-001 (2026-10-21): PensionTransferLedgerSnapshotV1.
             ('pension_transfer_ledger_snapshot_json', 'TEXT'),
+            # OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-24): Goal-
+            # Driver-Snapshot, siehe models/allocation.py::TargetAllocation.
+            ('goal_driver_evidence_json', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),
@@ -904,6 +907,11 @@ def ensure_runtime_columns() -> None:
             ('validation_seed', 'INTEGER'),
             ('validation_cube_hash', 'TEXT'),
             ('validation_n_paths', 'INTEGER'),
+            # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (2026-10-24): Objective-
+            # Vertrag des Laufs, siehe models/allocation.py::OptimizerRun.
+            ('objective_contract_version', 'TEXT'),
+            ('objective_contract_hash', 'TEXT'),
+            ('objective_contract_json', 'TEXT'),
         ],
         'products': [
             ('lookup_mode_override', 'TEXT'),

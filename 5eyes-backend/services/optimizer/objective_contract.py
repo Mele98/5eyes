@@ -55,7 +55,9 @@ denselben Hash tragen.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
+from typing import ClassVar
 
 from config import validate_goal_weighting_mode, validate_objective_mode
 
@@ -81,6 +83,12 @@ class ObjectiveContractV1:
     objective_mode: str
     goal_weighting_mode: str
     version: str = OBJECTIVE_CONTRACT_VERSION
+    # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (Re-Audit 2026-10-14): die
+    # WIRKSAMEN Haertegrad-Multiplikatoren beim Bau, eingefroren. Ohne sie
+    # trugen "10x" und "11x" denselben Hash. V1 wurde nie persistiert (die
+    # Persistenz kam erst zusammen mit V2), es gibt also keinen historischen
+    # V1-Hash, den diese Erweiterung umdeuten koennte.
+    hardness_weights: tuple | None = None
 
     def __post_init__(self) -> None:
         # Fail-closed auch beim direkten Bau: ein Vertrag mit einem ungueltigen
@@ -94,18 +102,22 @@ class ObjectiveContractV1:
             raise ObjectiveContractError(
                 f"Unbekannte Objective-Vertragsversion: {self.version!r}"
             )
+        if self.hardness_weights is None:
+            from .objective import HARDNESS_WEIGHT
+
+            object.__setattr__(
+                self, "hardness_weights", _canonical_hardness(HARDNESS_WEIGHT),
+            )
 
     @property
     def contract_hash(self) -> str:
         """SHA-256 ueber die feldbenannte, versionierte Vertragsdarstellung."""
-        payload = "|".join([
-            f"version={self.version}",
-            f"objective_mode={self.objective_mode}",
-            f"goal_weighting_mode={self.goal_weighting_mode}",
-        ])
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return _v1_hash(
+            self.version, self.objective_mode, self.goal_weighting_mode,
+            self.hardness_weights,
+        )
 
-    def as_evidence(self) -> dict[str, str]:
+    def as_evidence(self) -> dict:
         """Nachweis-Block fuer Persistenz und Publikation.
 
         Derselbe Block fuer jeden Kanal -- damit API, Modellbasis,
@@ -116,8 +128,23 @@ class ObjectiveContractV1:
             "objective_contract_version": self.version,
             "objective_mode": self.objective_mode,
             "goal_weighting_mode": self.goal_weighting_mode,
+            "hardness_weights": {str(k): float(v) for k, v in self.hardness_weights},
             "objective_contract_hash": self.contract_hash,
         }
+
+
+def _canonical_hardness(mapping) -> tuple:
+    return tuple(sorted((str(k), float(v)) for k, v in dict(mapping).items()))
+
+
+def _v1_hash(version, objective_mode, goal_weighting_mode, hardness_weights) -> str:
+    payload = "|".join([
+        f"version={version}",
+        f"objective_mode={objective_mode}",
+        f"goal_weighting_mode={goal_weighting_mode}",
+        f"hardness_weights={tuple(hardness_weights)!r}",
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 OBJECTIVE_CONTRACT_V2_VERSION = "objective-contract-v2"
@@ -227,6 +254,9 @@ class ObjectiveContractV2(ObjectiveContractV1):
     neuem Code bricht damit laut ab statt still anders zu rechnen).
     """
 
+    # Versionskennung je Klasse: V3 erbt Felder und Hashrezept, nicht die
+    # Kennung (die Kennung ist Teil der Hash-Eingabe).
+    _CONTRACT_VERSION: ClassVar[str] = OBJECTIVE_CONTRACT_V2_VERSION
     version: str = OBJECTIVE_CONTRACT_V2_VERSION
     goal_hardness_policy: str | None = None
     hardness_weights: tuple | None = None
@@ -256,7 +286,7 @@ class ObjectiveContractV2(ObjectiveContractV1):
     def __post_init__(self) -> None:
         validate_objective_mode(self.objective_mode)
         validate_goal_weighting_mode(self.goal_weighting_mode)
-        if self.version != OBJECTIVE_CONTRACT_V2_VERSION:
+        if self.version != type(self)._CONTRACT_VERSION:
             raise ObjectiveContractError(
                 f"Unbekannte Objective-Vertragsversion: {self.version!r}"
             )
@@ -275,13 +305,11 @@ class ObjectiveContractV2(ObjectiveContractV1):
     @property
     def contract_hash(self) -> str:
         """SHA-256 ueber Version, Modi und ALLE Policy-Felder (feldbenannt)."""
-        parts = [
-            f"version={self.version}",
-            f"objective_mode={self.objective_mode}",
-            f"goal_weighting_mode={self.goal_weighting_mode}",
-        ]
-        parts.extend(f"{name}={getattr(self, name)!r}" for name in _POLICY_FIELDS)
-        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+        return _policy_hash(
+            self.version, self.objective_mode, self.goal_weighting_mode,
+            {name: getattr(self, name) for name in _POLICY_FIELDS},
+            _POLICY_FIELDS,
+        )
 
     def as_evidence(self) -> dict:
         evidence = {
@@ -299,6 +327,153 @@ class ObjectiveContractV2(ObjectiveContractV1):
         return evidence
 
 
+def _policy_hash(version, objective_mode, goal_weighting_mode, values, field_names) -> str:
+    """Hashrezept von V2/V3: feldbenannter String, Werte als Python-``repr``."""
+    parts = [
+        f"version={version}",
+        f"objective_mode={objective_mode}",
+        f"goal_weighting_mode={goal_weighting_mode}",
+    ]
+    parts.extend(f"{name}={values[name]!r}" for name in field_names)
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+OBJECTIVE_CONTRACT_V3_VERSION = "objective-contract-v3"
+
+
+@dataclass(frozen=True)
+class ObjectiveContractV3(ObjectiveContractV2):
+    """V2-Felder inklusive Ziel-Scope, unter einer eigenen Kennung.
+
+    OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001, Restbefund B (Review PR #659):
+    ``goal_evaluation_scope`` und ``goal_scope_replay_policy`` kamen in die
+    Hash-Eingabe von V2, ohne dass die Kennung stieg -- ``objective-contract-v2``
+    bezeichnet damit zwei Schemas (22 bzw. 24 Policy-Felder). Neue Laeufe
+    tragen V3; V2-Evidence beider Schemas bleibt ueber
+    ``verify_objective_contract_evidence`` als V2 pruefbar.
+    """
+
+    _CONTRACT_VERSION: ClassVar[str] = OBJECTIVE_CONTRACT_V3_VERSION
+    version: str = OBJECTIVE_CONTRACT_V3_VERSION
+
+
+# Feldsaetze je Kennung, wie sie persistiert wurden. Die zwei V2-Schemas sind
+# historisch (V2 vor und nach dem Ziel-Scope); beide werden mit ihrem EIGENEN
+# Feldsatz nachgerechnet und nie mit heutigen Defaults aufgefuellt.
+_V2_PRE_SCOPE_FIELDS = tuple(
+    name for name in _POLICY_FIELDS
+    if name not in ("goal_evaluation_scope", "goal_scope_replay_policy")
+)
+_EVIDENCE_SCHEMAS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    OBJECTIVE_CONTRACT_V2_VERSION: (
+        ("v2_policy_22", _V2_PRE_SCOPE_FIELDS),
+        ("v2_policy_24", _POLICY_FIELDS),
+    ),
+    OBJECTIVE_CONTRACT_V3_VERSION: (("v3_policy_24", _POLICY_FIELDS),),
+}
+_EVIDENCE_HEAD = ("objective_contract_version", "objective_mode", "goal_weighting_mode")
+_TUPLE_FIELDS = ("protected_hardness",)
+
+# Status eines persistierten Vertragsnachweises.
+CONTRACT_EVIDENCE_VERIFIED = "verified"
+CONTRACT_EVIDENCE_UNVERIFIABLE = "unverifiable"
+CONTRACT_EVIDENCE_UNKNOWN_VERSION = "unknown_version"
+CONTRACT_EVIDENCE_CORRUPT = "corrupt"
+
+
+def _verification(status: str, evidence, *, schema=None, reason=None) -> dict:
+    evidence = evidence if isinstance(evidence, dict) else {}
+    return {
+        "status": status,
+        "objective_contract_version": evidence.get("objective_contract_version"),
+        "objective_contract_hash": evidence.get("objective_contract_hash"),
+        "schema": schema,
+        "reason": reason,
+    }
+
+
+def _canonical_value(name: str, value):
+    if name == "hardness_weights":
+        if not isinstance(value, dict):
+            raise TypeError("hardness_weights muss ein Mapping sein")
+        for weight in value.values():
+            _canonical_value("hardness_weight", weight)
+        return _canonical_hardness(value)
+    if name in _TUPLE_FIELDS:
+        if not isinstance(value, (list, tuple)):
+            raise TypeError(f"{name} muss eine Liste sein")
+        return tuple(value)
+    if isinstance(value, bool) or value is None:
+        raise TypeError(f"{name} hat keinen zulaessigen Wert")
+    if isinstance(value, (int, float)):
+        number = float(value)
+        if not math.isfinite(number):
+            raise TypeError(f"{name} ist nicht endlich")
+        return number
+    if isinstance(value, str):
+        return value
+    raise TypeError(f"{name} hat einen unzulaessigen Typ")
+
+
+def verify_objective_contract_evidence(evidence) -> dict:
+    """Prueft einen persistierten Vertragsnachweis streng nach seiner Kennung.
+
+    Rechnet den Hash ausschliesslich aus den gespeicherten Feldern nach --
+    nie aus der heutigen Policy oder Umgebung. ``None`` (Bestand ohne
+    Nachweis) ist ``unverifiable``; eine unbekannte Kennung, ein fehlendes
+    oder ueberzaehliges Feld oder ein abweichender Hash sind fail-closed.
+    """
+    if evidence is None:
+        return _verification(
+            CONTRACT_EVIDENCE_UNVERIFIABLE, None,
+            reason="kein Vertragsnachweis persistiert (Bestand)",
+        )
+    if not isinstance(evidence, dict):
+        return _verification(CONTRACT_EVIDENCE_CORRUPT, None, reason="kein Objekt")
+    version = evidence.get("objective_contract_version")
+    stored_hash = evidence.get("objective_contract_hash")
+    if not isinstance(stored_hash, str) or len(stored_hash) != 64:
+        return _verification(CONTRACT_EVIDENCE_CORRUPT, evidence, reason="Hash fehlt")
+    try:
+        validate_objective_mode(evidence.get("objective_mode"))
+        validate_goal_weighting_mode(evidence.get("goal_weighting_mode"))
+    except Exception:  # noqa: BLE001 -- jeder Validierungsfehler ist corrupt
+        return _verification(CONTRACT_EVIDENCE_CORRUPT, evidence, reason="Modus ungueltig")
+    keys = set(evidence)
+    try:
+        if version == OBJECTIVE_CONTRACT_VERSION:
+            if keys != {*_EVIDENCE_HEAD, "hardness_weights", "objective_contract_hash"}:
+                return _verification(CONTRACT_EVIDENCE_CORRUPT, evidence, reason="Feldsatz")
+            schema = "v1"
+            recomputed = _v1_hash(
+                version, evidence["objective_mode"], evidence["goal_weighting_mode"],
+                _canonical_value("hardness_weights", evidence["hardness_weights"]),
+            )
+        elif version in _EVIDENCE_SCHEMAS:
+            for schema, fields in _EVIDENCE_SCHEMAS[version]:
+                if keys == {*_EVIDENCE_HEAD, *fields, "objective_contract_hash"}:
+                    break
+            else:
+                return _verification(CONTRACT_EVIDENCE_CORRUPT, evidence, reason="Feldsatz")
+            recomputed = _policy_hash(
+                version, evidence["objective_mode"], evidence["goal_weighting_mode"],
+                {name: _canonical_value(name, evidence[name]) for name in fields},
+                fields,
+            )
+        else:
+            return _verification(
+                CONTRACT_EVIDENCE_UNKNOWN_VERSION, evidence,
+                reason=f"unbekannte Vertragskennung {version!r}",
+            )
+    except TypeError as exc:
+        return _verification(CONTRACT_EVIDENCE_CORRUPT, evidence, reason=str(exc))
+    if recomputed != stored_hash:
+        return _verification(
+            CONTRACT_EVIDENCE_CORRUPT, evidence, schema=schema, reason="Hash weicht ab",
+        )
+    return _verification(CONTRACT_EVIDENCE_VERIFIED, evidence, schema=schema)
+
+
 def resolve_objective_contract() -> ObjectiveContractV1:
     """Loest den Vertrag aus der Umgebung auf -- GENAU EINMAL pro Lauf.
 
@@ -313,8 +488,9 @@ def resolve_objective_contract() -> ObjectiveContractV1:
     from .objective import resolve_goal_weighting_mode
     from .objective_variants import resolve_objective_mode
 
-    # Engine v7: V2 (alle Koeffizienten/Policies gebunden).
-    return ObjectiveContractV2(
+    # Seit dem priorisierten Ziel-Scope (Engine v10): V3. V2 bleibt nur zum
+    # Verifizieren historischer Evidence.
+    return ObjectiveContractV3(
         objective_mode=resolve_objective_mode(),
         goal_weighting_mode=resolve_goal_weighting_mode(),
     )

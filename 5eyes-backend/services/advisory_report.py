@@ -230,6 +230,7 @@ def _depot_check_gate_blocked(dc: Mapping[str, Any]) -> bool:
 # die IST-/Bestandskanaele bleiben sichtbar (keine Prognose, keine Sollzahl).
 _PROJECTION_CHANNELS = (
     "ausgangslage.key_metrics",
+    "goal_based_investing.goal_achievement_score_bps",
     "goal_based_investing.goals.probability_bps",
     "goal_based_investing.goals.failure_event_distribution",
     "goal_based_investing.goals.failure_cause_summary",
@@ -243,6 +244,10 @@ _PROJECTION_CHANNELS = (
     "building_blocks.blocks",
     "stress_replay.scenarios",
     "performance_attribution",
+    # MC-CONTEXT-001 (Codex-Closure-Review PR #663): Risikoquote der Soll-
+    # Allokation in der Risikoprofil-Sektion -- gehoert zur Allokation, nicht
+    # zum (ggf. neueren) Assessment.
+    "risikoprofilierung.risky_fraction_bps",
 )
 _HISTORICAL_IST_CHANNELS = (
     "ausgangslage.wealth_summary",
@@ -544,7 +549,7 @@ def _compute_advisory_report_inner(
     # zurück (Default-Disziplin, siehe `_override_or_default`).
     notes = _load_report_notes(db, mandate)
 
-    return {
+    payload = {
         "schema_version": 2,
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "generated_at": generated_at,
@@ -643,6 +648,11 @@ def _compute_advisory_report_inner(
         # in Sektion 19, das eine Aggregat-Statistik aller AdvisoryLogs ist).
         "suitability_summary": _build_suitability_summary(db, mandate),
     }
+    # MC-CONTEXT-001 (Codex-Closure-Review PR #663): zentrale Publikations-
+    # grenze nach dem Aggregator -- skalare Projektionsfelder sind bei
+    # ausgeblendetem Gate None, auch wenn ein Builder den Guard vergisst.
+    from services.report_projection_redaction import redact_projection_channels
+    return redact_projection_channels(payload, projection_gate)
 
 
 # ---------------------------------------------------------------------------
@@ -2551,7 +2561,9 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             })
         return {
             "goals": goals,
-            "goal_achievement_score_bps": 0,
+            # MC-CONTEXT-001 (PR #663): keine Bewertung = nicht verfuegbar,
+            # nie eine gemessene 0 %.
+            "goal_achievement_score_bps": None,
             "plan_solvency": None,
             "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
             **_goal_section_staleness(db, mandate),
@@ -2609,9 +2621,10 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             **_failure_cause_fields(r),
         })
     # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
-    # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
-    _score = _compute_goal_achievement_score_bps(db, mandate)
-    goal_achievement_score_bps = _score if _score is not None else 0
+    # Key-Metric-Karte). MC-CONTEXT-001 (Codex-Closure-Review PR #663): None
+    # (Gate ausgeblendet / keine bewertbaren Goals) bleibt None -- "nicht
+    # verfuegbar" ist keine gemessene Erfolgswahrscheinlichkeit von 0 %.
+    goal_achievement_score_bps = _compute_goal_achievement_score_bps(db, mandate)
     staleness = _goal_section_staleness(db, mandate)
     if staleness["target_allocation_stale"]:
         # MC-CONTEXT-001: die gespeicherte Zielerreichung gehoert zu einer
@@ -2881,10 +2894,15 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
         except OverrideReasonQualityError as exc:
             override_reason_quality_issue = str(exc)
 
+    # MC-CONTEXT-001 (Codex-Closure-Review PR #663): die Risikoquote stammt
+    # aus der Soll-Allokation. Ist deren Gate ausgeblendet (z.B. neues
+    # Assessment nach der Allokation), wuerde sie neben dem neuen Profil als
+    # "Risikobudget" erscheinen -> None; Assessmentdaten bleiben sichtbar.
+    risky_fraction_hidden = ta is None or _allocation_projection_hidden(db, mandate)
     return {
         "risky_fraction_bps": (
-            _safe_int(getattr(ta, "risky_fraction_bps", 0)) or None
-            if ta else None
+            None if risky_fraction_hidden
+            else _safe_int(getattr(ta, "risky_fraction_bps", 0)) or None
         ),
         "risk_capacity_score_x10": _safe_int(
             getattr(ra, "risk_capacity_score_x10", 0)

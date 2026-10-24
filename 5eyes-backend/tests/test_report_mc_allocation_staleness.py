@@ -375,7 +375,7 @@ def test_full_report_hides_every_allocation_projection_when_stale(
     assert gbi["target_allocation_stale"] is True
     assert "Strategie neu berechnen" in gbi["staleness_hinweis"]
     assert gbi["plan_solvency"] is None
-    assert gbi["goal_achievement_score_bps"] == 0
+    assert gbi["goal_achievement_score_bps"] is None  # PR #663: nie 0 %
     for goal in gbi["goals"]:
         assert goal["probability_bps"] is None
         assert goal["status"] == "data_pending"
