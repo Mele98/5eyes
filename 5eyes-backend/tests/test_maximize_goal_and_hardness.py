@@ -126,7 +126,7 @@ def _liability(kind: str, *, hardness: str = "primaer", target: int = 0,
 def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     result, context = _run([], 10, key="no_goals_10")
     resampling = result.resampling
-    assert resampling["engine_version"] == "saa_resampled_v12"
+    assert resampling["engine_version"] == "saa_resampled_v13"
     contract = resampling["objective_contract"]
     # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (Review PR #659): das um den
     # Ziel-Scope erweiterte Schema traegt eine eigene Kennung.
