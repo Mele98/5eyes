@@ -3301,11 +3301,7 @@ def generate_target_allocation(
         # 300 bps here reserved R + 1 % of A for every 200-bps House row),
         # and its normalized weight must use the actually investable
         # denominator. Otherwise the carve-out silently underfunds liquidity.
-        saa_reserve_rappen = _saa_internal_reserve_rappen(
-            int(reserve_needed_rappen),
-            int(advisory_wealth_rappen),
-            saa_liquidity_ceiling_bps,
-        )
+        saa_reserve_rappen = reserve_split.internal_rappen  # derselbe Split wie persistiert
         reserve_floor_bps = min(
             10000,
             (

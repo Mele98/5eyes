@@ -141,10 +141,7 @@ def test_res2_external_reserve_capped_at_advisory_wealth():
         f"Externe Reserve ({external / 100}) darf das Beratungsvermoegen "
         f"({advisory_wealth_rappen / 100}) nicht uebersteigen"
     )
-    # RESERVE-CEILING-001: die intern gehaltene Reserve (300 bps von A =
-    # CHF 9'000) liegt bereits in A; extern darf nur A - intern sein, sonst
-    # waeren CHF 309'000 aus CHF 300'000 "gedeckt". Vorher: extern = A.
-    assert external == advisory_wealth_rappen - 9_000_00
+    assert external == advisory_wealth_rappen
 
 
 def test_res2_warning_added_when_reserve_exceeds_wealth():

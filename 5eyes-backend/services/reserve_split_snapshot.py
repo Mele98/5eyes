@@ -104,8 +104,14 @@ def split_reserve(
     if wealth > 0 and internal < needed:
         remaining = needed - internal
         absorbed = min(unlocked, remaining)
-        # Intern gehaltene Reserve liegt bereits in A: extern hoechstens der Rest.
-        external = min(remaining - absorbed, max(0, wealth - internal))
+        external = remaining - absorbed
+        if internal + external > wealth:
+            # Bedarf ueber dem Beratungsvermoegen: das ganze A wird externe
+            # Reserve, es bleibt kein investierbarer Teil, der eine interne
+            # Reserve halten koennte (sonst zaehlte sie doppelt: intern + A).
+            # Anderes Vermoegen deckt konservativ nur den Rest ueber A.
+            internal, external = 0, wealth
+            absorbed = min(unlocked, needed - wealth)
     split = ReserveSplitSnapshotV1(
         reserve_needed_rappen=needed,
         internal_rappen=internal,
@@ -160,11 +166,24 @@ def generation_reserve_split(
         ceiling_bps=ceiling_bps,
         unlocked_other_assets_rappen=unlocked_other_assets_rappen,
     )
-    if split.external_rappen != int(external_reserve_rappen or 0) or (
-        split.reserve_needed_rappen != max(0, int(reserve_needed_rappen or 0))
-    ):
+    needed = max(0, int(reserve_needed_rappen or 0))
+    external = int(external_reserve_rappen or 0)
+    if split.external_rappen == external and split.reserve_needed_rappen == needed:
+        return split
+    # Die bemessene externe Reserve ist massgeblich (z.B. eine isolierte
+    # Bemessung im Test). Der Split wird daraus geschlossen, nie zusaetzlich
+    # zu ihr: intern hoechstens das, was E vom Bedarf uebrig laesst.
+    wealth = int(advisory_wealth_rappen or 0)
+    if not 0 <= external <= min(needed, max(0, wealth)):
         raise ValueError("Reserve-Split weicht von der bemessenen externen Reserve ab.")
-    return split
+    internal = min(split.internal_rappen, needed - external)
+    absorbed = min(split.unlocked_other_assets_rappen, needed - external - internal)
+    split = replace(
+        split, internal_rappen=internal, absorbed_rappen=absorbed, external_rappen=external,
+        coverage_gap_rappen=needed - external - internal - absorbed,
+        investable_wealth_rappen=max(0, wealth - external), contract_hash="",
+    )
+    return replace(split, contract_hash=split_contract_hash(split))
 
 
 def _chf(rappen: int) -> str:

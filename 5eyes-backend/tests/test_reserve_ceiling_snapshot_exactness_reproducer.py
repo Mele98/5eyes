@@ -234,13 +234,25 @@ def test_reserve_above_advisory_wealth_counts_internal_reserve_once():
     )
     split = breakdown["reserve_split"]
     assert needed == 350_000 * CHF
-    assert split.internal_rappen == 9_000 * CHF
-    # Vorher extern = A = CHF 300k, zusaetzlich CHF 9k intern -> CHF 309k "gedeckt"
-    # aus CHF 300k Vermoegen. Jetzt: extern = A - intern, Luecke ehrlich ausgewiesen.
-    assert external == split.external_rappen == 291_000 * CHF
+    # Vorher: extern = A = CHF 300k UND intern CHF 9k (Floor auf I = 0 nie
+    # gehalten, aber ausgewiesen) -> CHF 309k "gedeckt" aus CHF 300k. Jetzt:
+    # ganz A extern, kein investierbarer Teil, keine interne Reserve, Luecke
+    # ehrlich ausgewiesen. E bleibt unveraendert CHF 300k.
+    assert external == split.external_rappen == 300_000 * CHF
+    assert split.internal_rappen == 0
     assert split.internal_rappen + split.external_rappen == 300_000 * CHF
     assert split.coverage_gap_rappen == 50_000 * CHF
-    assert split.investable_wealth_rappen == 9_000 * CHF
+    assert split.investable_wealth_rappen == 0
+
+
+def test_reserve_above_wealth_with_other_assets_absorbs_only_the_excess():
+    split = split_reserve(
+        reserve_needed_rappen=350_000 * CHF, advisory_wealth_rappen=300_000 * CHF,
+        ceiling_bps=300, unlocked_other_assets_rappen=20_000 * CHF,
+    )
+    assert (split.internal_rappen, split.absorbed_rappen, split.external_rappen, split.coverage_gap_rappen) == (
+        0, 20_000 * CHF, 300_000 * CHF, 30_000 * CHF,
+    )
 
 
 def test_absorption_by_other_assets_closes_the_identity():
