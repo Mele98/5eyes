@@ -1,4 +1,4 @@
-# 5eyes Backend — zentrale Test-Konfiguration.
+# Ares Backend — zentrale Test-Konfiguration.
 #
 # Vor dieser Datei lebte die Pytest-Konfiguration ausschliesslich im CI-CLI
 # (.github/workflows/test.yml). Das hier zentralisiert testpaths, Default-Optionen

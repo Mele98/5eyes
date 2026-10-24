@@ -1,4 +1,4 @@
-"""Tax-Plugin-System fuer 5eyes — WM-grade, weltweit.
+"""Tax-Plugin-System fuer Ares — WM-grade, weltweit.
 
 Strategy + Registry Pattern:
 - TaxRegime: abstrakte Basis-Klasse (Protocol)

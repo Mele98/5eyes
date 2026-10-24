@@ -2,7 +2,7 @@
 
 Audit: docs/audits/2026-10-05-depotcheck-end-to-end-product-identity-and-
 publication-integrity-audit.md (Ares worktree:
-"5eyes wird zu Ares"/asset-allocation-stochastic-core).
+im lokalen Dossier-Ordner).
 
 Finding: there is no single, shared, immutable snapshot artifact binding
 together holdings valuation, TargetAllocation, recommendation run, cost

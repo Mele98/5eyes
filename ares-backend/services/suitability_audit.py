@@ -39,7 +39,7 @@ Abs. 3 FIDLEG saezt zwei konkrete, eindeutige Rechtsfolgen:
    die finanzielle Risikofaehigkeit vorhanden sind -- die Anlageziele
    (Risikobereitschaft/Praeferenzen) bleiben individuell zu erheben, weil
    Eignung sich final immer an den TATSAECHLICHEN Zielen des Kunden misst,
-   nicht an dessen Erfahrung. 5eyes' knowledge_services_json/
+   nicht an dessen Erfahrung. Ares' knowledge_services_json/
    knowledge_instruments_json-Felder sind ohnehin bereits optional (fliessen
    NIE in compute_scores()/final_score_x10 ein, siehe services/risk_scoring.py
    -- rein dokumentarisch) und die Risikokapazitaets-Punkte (q_income/
@@ -73,7 +73,7 @@ DUTY_TYPES_REQUIRING_SUITABILITY = {
 
 # Mandatstypen, die KEINE Eignungspruefung verlangen (reines Execution-only /
 # blosse Auftragsuebermittlung -> FIDLEG Art. 13 "Ausnahme von der Pruefpflicht").
-# Alles andere ist in 5eyes portfoliobezogene Anlageberatung bzw. Vermoegens-
+# Alles andere ist in Ares portfoliobezogene Anlageberatung bzw. Vermoegens-
 # verwaltung und faellt damit unter die EIGNUNGSPRUEFUNG (Art. 12).
 MANDATE_TYPES_EXEMPT_FROM_SUITABILITY = {
     "execution_only", "execution-only", "executiononly",
@@ -84,7 +84,7 @@ MANDATE_TYPES_EXEMPT_FROM_SUITABILITY = {
 def _mandate_requires_suitability(mandate: Any) -> bool:
     """FIDLEG Art. 10 (Pruefpflicht) + Art. 12 (Eignungspruefung): Wer
     portfoliobezogene Anlageberatung oder Vermoegensverwaltung erbringt, muss
-    eine Eignungspruefung durchfuehren. 5eyes erbringt genau das (SAA-/Portfolio-
+    eine Eignungspruefung durchfuehren. Ares erbringt genau das (SAA-/Portfolio-
     Methodik), daher verlangt praktisch jedes Mandat eine Eignungspruefung —
     ausgenommen ausdrueckliches Execution-only (Art. 13) ODER einen
     Institutionellen Kunden (CLASS-01-Fix, 2026-10-07, siehe Modul-Docstring
@@ -101,7 +101,7 @@ def _mandate_requires_suitability(mandate: Any) -> bool:
 
 
 def _current_risk_assessment(db: Session, mandate_id: Any):
-    """Aktuelles Risikoprofil (= 5eyes-Eignungspruefung nach Art. 12) fuer ein
+    """Aktuelles Risikoprofil (= Ares-Eignungspruefung nach Art. 12) fuer ein
     Mandat. Das RiskAssessment erfasst finanzielle Verhaeltnisse (Einkommen/
     Verpflichtungen/Ersparnis/Vermoegen), Anlageziel + Horizont und Risiko-
     bereitschaft — die von Art. 12 verlangten Elemente. None NUR wenn schlicht
@@ -177,9 +177,9 @@ def audit_mandate_suitability(
 
     Rechtlich korrekt ist die Eignungspruefung ohnehin eine mandats-/beziehungs-
     bezogene, REGELMAESSIG zu aktualisierende Pflicht (Art. 12): Wer portfolio-
-    bezogene Anlageberatung oder Vermoegensverwaltung erbringt — 5eyes tut das —
+    bezogene Anlageberatung oder Vermoegensverwaltung erbringt — Ares tut das —
     muss finanzielle Verhaeltnisse, Anlageziele und Kenntnisse/Erfahrung erheben
-    und aktuell halten. In 5eyes IST diese Eignungspruefung das aktuelle
+    und aktuell halten. In Ares IST diese Eignungspruefung das aktuelle
     RiskAssessment (Risikoprofil). Der Audit prueft daher: existiert ein
     AKTUELLES (<= SUITABILITY_FRESHNESS_MAX_DAYS Tage) Risikoprofil? Fehlt es
     oder ist es veraltet -> nicht konform.

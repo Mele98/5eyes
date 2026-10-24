@@ -150,7 +150,7 @@ class WealthPositionCreate(BaseModel):
     # ('Direkt','Indirekt (Säule 3a)','Keine')). Exaktes Match inkl.
     # Klammerzusatz -- Kurzform "Indirekt" (ohne Klammer) ist NICHT erlaubt,
     # das war im DB-CHECK schon immer so (siehe auch project-Memory
-    # 5eyes_wealth_view_audit_2026_08_06: Default fehlte hier frueher komplett
+    # Vermoegensansicht-Audit 2026-08-06: Default fehlte hier frueher komplett
     # im CHECK und crashte das Speichern).
     mortgage_amortization_type: Optional[Literal[
         "Direkt", "Indirekt (Säule 3a)", "Keine"

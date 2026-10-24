@@ -22,7 +22,7 @@ body{font-family:var(--f-s);}
 <script src="vendor/chart.min.js"></script>
 <script src="./desktop-api.js"></script>
 <style>
-/* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
+/* ARES / Navy-Gold */
 :root {
   color-scheme: light;
   --n9:#09111f; --n8:#0f1e34; --n7:#162844; --n6:#1d3558;
@@ -1212,7 +1212,7 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
   }catch(e){}
 })();
 </script>
-<!-- 5EYES BROADCAST INTRO (2026-06-14)
+<!-- ARES BROADCAST INTRO (2026-06-14)
      Fullscreen financial world scene. Self-contained, skippable, reduced-motion
      aware and dependency-free so it also works in the packaged desktop app. -->
 <div id="intro-screen" role="dialog" aria-label="Ares wird gestartet">
@@ -3499,7 +3499,7 @@ function _wireSollIstHover(){
                   <span id="cf-horizon-eff" style="color:var(--n6);font-style:italic"></span>
                   <button class="btn" type="button" onclick="resetIstHorizonOverride()" title="Automatisch aus Stammdaten ableiten"
                           style="font-size:9px;padding:2px 6px">Auto</button>
-                  <!-- Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle
+                  <!-- Indexierungs-Schalter (2026-07-19, wie Referenzmethodik): Globaler Master-Toggle
                        fuer die Cashflow-Projektion. AN = inflation-linked Cashflows
                        (Einnahmen UND Ausgaben) werden per CMA-Inflationspfad aufgezinst.
                        AUS = alles nominal. Berechnet die Projektion im Backend neu
@@ -3522,7 +3522,7 @@ function _wireSollIstHover(){
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">CAGR Zielpfad</div><div id="ub-cagr-opt" style="font-family:var(--f-d);font-size:15px">4.5%</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Mehrwert</div><div id="ub-delta-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+700k</div></div>
                 </div>
-                <!-- 3eyes-Paritaet: beide Kurven zeigen Gesamtvermoegen; die Optimierung
+                <!-- Referenz-Paritaet: beide Kurven zeigen Gesamtvermoegen; die Optimierung
                      wirkt auf den Beratungsteil. Hier die zwei Renditesaetze explizit. -->
                 <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b1);font-size:10px;color:var(--n5);display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">
                   <span style="text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-size:9px">Erwartete Rendite p.a.</span>
@@ -5370,7 +5370,7 @@ function _wireSollIstHover(){
 <div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn-p" onclick="cm('m-rp-print');downloadServerPdf('risikoprofil')" title="FINMA-konformes PDF erstellen">PDF erstellen</button></div></div></div>
 
 <script>
-// ─── 5EYES API LAYER ─────────────────────────────────────────────────
+// ─── ARES API LAYER ─────────────────────────────────────────────────
 const API = {
   _token: null,
   _baseUrl: null,
@@ -7513,7 +7513,7 @@ function wealthProjectionInputs(scope,years){
   // Sockel-Modell (2026-06-12): Immobilien bleiben als nicht-verzehrbarer Sockel
   // (optional indexiert); der Konsum zieht nur das verzehrbare FINANZvermoegen ab.
   // So zeigt die Reinvermoegens-Kurve den Vermoegensverzehr (Finanzteil zehrt ab,
-  // Haus bleibt als Boden) — analog 3eyes "Entwicklung Reinvermoegen".
+  // Haus bleibt als Boden) — analog Referenzmethodik "Entwicklung Reinvermoegen".
   var sockelGrossRappen=0,consumableRappen=0,consumableReturnRappenBps=0,sockelIndexRappenBps=0;
   positions.forEach(function(pos){
     var value=Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));
@@ -9221,7 +9221,7 @@ function syncAllocationDonutFromStrategyState(){
     charts.dn.data.datasets[0].data=[100];
     charts.dn.data.datasets[0].backgroundColor=['rgba(122,130,153,0.28)'];
   }
-  // 3eyes-treu: Torte = umschichtbares Beratungsvermögen; Reinvermögen (inkl.
+  // Referenzmethodik-treu: Torte = umschichtbares Beratungsvermögen; Reinvermögen (inkl.
   // Eigenheim-Fundament) als Kontext daneben ausweisen (Etappe 2, total_allocation).
   var _rc=document.getElementById('alloc-rein-context');
   if(_rc){
@@ -9328,7 +9328,7 @@ function initCharts(){
   };
   if(!charts.ist){
     const el=document.getElementById('ch-ist');
-    // 3eyes-Paritaet (2026-06-12): Ziel-Marker auf der Reinvermoegens-Zeitachse.
+    // Referenz-Paritaet (2026-06-12): Ziel-Marker auf der Reinvermoegens-Zeitachse.
     // Lokales Inline-Plugin (kein globales chartjs-plugin-annotation noetig).
     const goalMarkerPlugin={
       id:'goalMarkers',
@@ -9373,7 +9373,7 @@ function initCharts(){
       options:wealthLineOptions(false),
       plugins:[goalMarkerPlugin]
     });
-    // 3eyes-Paritaet: Alters-Achse (Haupt-/Partnerperson) unter den Jahren — nur
+    // Referenz-Paritaet: Alters-Achse (Haupt-/Partnerperson) unter den Jahren — nur
     // auf der IST-Reinvermoegenskurve, nicht auf den AA-Vergleichscharts.
     if(charts.ist&&charts.ist.options&&charts.ist.options.scales&&charts.ist.options.scales.x){
       if(!charts.ist.options.scales.x.ticks)charts.ist.options.scales.x.ticks={};
@@ -16718,7 +16718,7 @@ async function adminUpdateStatus() {
 // ════════════════════════════════════════════════════════════
 // SECTION: RISK SCORING
 // ════════════════════════════════════════════════════════════
-// Implementiert die 5eyes Scoring-Logik aus risk_scoring.py
+// Implementiert die Ares Scoring-Logik aus risk_scoring.py
 // ============================================================
 var _riskScoreResult = null;
 var currentMandateId = null;
@@ -21027,7 +21027,7 @@ function effectiveCashflowProjectionHorizon(){
   var life = _lifeExpectancyHorizonYears();
   return life && life > 0 ? life : null;
 }
-// Indexierungs-Schalter (2026-07-19, 3eyes-like): globaler Zustand. Default AN
+// Indexierungs-Schalter (2026-07-19, wie Referenzmethodik): globaler Zustand. Default AN
 // (= heutiges CF-Verhalten: inflation-linked Cashflows werden aufgezinst).
 var cashflowIndexationOn = true;
 function cashflowProjectionQuery(){
@@ -21301,7 +21301,7 @@ function projectionYearLabels(result,years,preferredLabels){
   var startYear=(new Date()).getFullYear();
   return Array.from({length:years+1},function(_,idx){return String(startYear+idx);});
 }
-// 3eyes-Paritaet (2026-06-12): Alters-Achse + Ziel-Marker auf der IST-Kurve.
+// Referenz-Paritaet (2026-06-12): Alters-Achse + Ziel-Marker auf der IST-Kurve.
 // Mehrzeiliges x-Tick-Label: [Jahr, Alter Hauptperson, Alter Partner/in].
 function projectionAgeAxisLabel(yearLabel){
   var year=parseInt(String(yearLabel),10);
@@ -21933,7 +21933,7 @@ function updateProjectionChartsFromSimulation(result){
     charts.ist.data.datasets[0].data=totalCurrentSeries;
     charts.ist.data.datasets[0].tension=0;
     charts.ist.data.datasets[0].stepped=false;
-    // 3eyes-Paritaet (2026-06-12): "verbesserte Situation" = Gesamtvermoegen mit
+    // Referenz-Paritaet (2026-06-12): "verbesserte Situation" = Gesamtvermoegen mit
     // optimiertem Beratungsteil, als ZWEITE Linie auf DERSELBEN Gesamtvermoegens-
     // Basis. Bei t=0 ist das Optimierungs-Delta 0 -> beide Linien starten identisch
     // (Apfel mit Apfel); danach liegt SOLL leicht ueber IST = der Optimierungs-Hebel
@@ -23916,7 +23916,7 @@ function applyAllocationEngineResult(result){
     targetCagrBps:totalImprovedProjection.cagrBps,
     horizonLabel:projectionHorizonYearLabel(sim)
   });
-  // 3eyes-Paritaet: zwei Renditesaetze — Reinvermoegen (gesamt, optimiert) vs.
+  // Referenz-Paritaet: zwei Renditesaetze — Reinvermoegen (gesamt, optimiert) vs.
   // Beratungsvermoegen (der Teil, auf den die Optimierung wirkt).
   setText('ub-return-rein',(fmtPct(Number(totalImprovedProjection.cagrBps||0),1)));
   setText('ub-return-beratung',(fmtPct(Number(advisoryCagrBps||0),1)));
@@ -24105,7 +24105,7 @@ function openTradeList(){
   _tlHandoffCtx={mandateId:getActiveMandateId(),runId:runId};
   renderPortfolioHandoffSection();
 }
-// 2026-08-08 (User-Direktive): Weiterleitung ans Asset Management. 5eyes
+// 2026-08-08 (User-Direktive): Weiterleitung ans Asset Management. Ares
 // haelt keine echten Depots -- die Umsetzung der Handelsliste erfolgt extern
 // (Depotbank/internes Asset Management). Dieser Block schafft den
 // auditierbaren Nachweis DASS und WANN die Handelsliste tatsaechlich

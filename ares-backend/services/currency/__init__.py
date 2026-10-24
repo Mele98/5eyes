@@ -1,4 +1,4 @@
-"""Multi-Currency-Support fuer 5eyes — FX-Rates + Konvertierung.
+"""Multi-Currency-Support fuer Ares — FX-Rates + Konvertierung.
 
 Spec: docs/planning/2026-05-17-sprint-9-multi-currency.md
 """
