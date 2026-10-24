@@ -85,6 +85,16 @@ jobs:
   #                          und ausgefuehrt wurde (sonst rot).
   # Der Check-Name "Backend Tests (3.12)" bleibt unveraendert (Tooling haengt
   # daran). Historie des seriellen Jobs: git log -- .github/workflows/test.yml.
+  #
+  # TEST-TEARDOWN-HANG-001: Shard- und Wallclock-Lauf laufen unter
+  # scripts/pytest_supervisor.py (externe Prozessgrenze mit getrennten
+  # Fristen fuer Collection, Testkoerper, Fixture-Teardown, Session-Ende und
+  # Interpreter-Exit; einmaliger Stackdump, kurze Grace-Period, Abbruch des
+  # ganzen Prozessbaums inkl. xdist-Worker non-zero, erster Fehlerstatus
+  # bleibt erhalten, JSON-Evidence unter ci-out/supervisor/). Strict-Leak-
+  # Guard ist in Shard-, Wallclock- und Aggregat-Job aktiv; das Aggregat
+  # prueft die Evidence aller 9 Laeufe. Die GitHub-timeout-minutes sind nur
+  # noch Notbremse oberhalb der Supervisor-Fristen.
   # ------------------------------------------------------------------------
   backend-test-plan:
     name: Backend Test Plan (collect)
@@ -167,6 +177,7 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
+      FIVEEYES_STRICT_LEAK_GUARD: "1"
       SPLIT_ARGS: >-
         --splits 8 --group ${{ matrix.group }}
         --splitting-algorithm duration_based_chunks
@@ -199,7 +210,10 @@ jobs:
       - name: Run pytest shard (correctness gate, no coverage)
         working-directory: 5eyes-backend
         run: |
-          python -m pytest tests/ -n auto --dist loadfile $SPLIT_ARGS -m "not wallclock_budget" \
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/shard-${{ matrix.group }} \
+            --startup-timeout 600 --test-timeout 900 --teardown-timeout 180 --session-timeout 300 \
+            --exit-timeout 90 --grace 15 -- \
+            python -m pytest tests/ -n auto --dist loadfile $SPLIT_ARGS -m "not wallclock_budget" \
             --tb=short --maxfail=50 -o junit_family=xunit1 \
             --junit-xml=ci-out/junit/shard-${{ matrix.group }}.xml
 
@@ -221,6 +235,7 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
+      FIVEEYES_STRICT_LEAK_GUARD: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -249,7 +264,10 @@ jobs:
       - name: Run wallclock-budget tests serially
         working-directory: 5eyes-backend
         run: |
-          python -m pytest tests/ -p no:xdist -m wallclock_budget --tb=short --maxfail=50 \
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/wallclock \
+            --startup-timeout 600 --test-timeout 900 --teardown-timeout 180 --session-timeout 300 \
+            --exit-timeout 90 --grace 15 -- \
+            python -m pytest tests/ -p no:xdist -m wallclock_budget --tb=short --maxfail=50 \
             -o junit_family=xunit1 --junit-xml=ci-out/junit/wallclock.xml
 
       - name: Upload results
@@ -269,6 +287,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      FIVEEYES_STRICT_LEAK_GUARD: "1"
     strategy:
       matrix:
         python-version: ['3.12']
@@ -311,6 +331,10 @@ jobs:
             --merged-junit-out ci-gate/junit-merged.xml \
             --durations-out ci-gate/test_durations.json \
             --file-summary 15
+
+      - name: Supervisor evidence gate (every run ended in time, green, without leaks)
+        if: always()
+        run: python scripts/pytest_supervisor.py verify --evidence-root ci-artifacts --expect 9
 
       - name: Upload merged junit and measured durations
         if: always()
