@@ -567,7 +567,13 @@ def test_reachability_is_published_on_goal_rows(monkeypatch):
     )
     assert result.goal_reachability is not None
     rows = {r["label"]: r for r in result.goal_achievability if r.get("goal_id")}
-    assert rows["Unerreichbar"]["feasible_set_reachable"] is False
+    # Engine v15: reachable_at_tau deckungsgleich mit dem Status der Zeile.
+    screened = [r for r in rows.values() if "reachable_at_tau" in r]
+    assert screened
+    for row in screened:
+        assert row["reachable_at_tau"] is (row["status"] == "erreichbar")
+    assert rows["Unerreichbar"]["screen_upper_bound_meets_half_tau"] is False
+    assert rows["Unerreichbar"]["reachable_at_tau"] is False
     hints = [line for line in result.reasoning if line.startswith("Beraterhinweis: Ziel 'Unerreichbar'")]
     assert len(hints) == 1
     # Engine v11 (GOAL-REVISION-DECISION-001, CIO-Entscheid 2026-10-21): ohne
@@ -597,7 +603,7 @@ def test_reachability_is_published_on_goal_rows(monkeypatch):
         resampling=SINGLE_CUBE,
     )
     decided_rows = {r["label"]: r for r in decided.goal_achievability if r.get("goal_id")}
-    assert decided_rows["Unerreichbar"]["feasible_set_reachable"] is False
+    assert decided_rows["Unerreichbar"]["screen_upper_bound_meets_half_tau"] is False
     decided_hints = [
         line for line in decided.reasoning
         if line.startswith("Beraterhinweis: Ziel 'Unerreichbar'")

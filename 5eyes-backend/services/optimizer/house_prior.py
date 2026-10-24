@@ -20,7 +20,7 @@ Formel (je Bag ``b``, Default ``goal_shortfall``)::
 * ``w_H`` -- die zulaessig projizierte Hausmatrix-Zielquote (derselbe Anker,
   gegen den v5 getestet hat; ``solver._project_house_anchor``).
 * ``Sigma`` -- die CMA-Kovarianz des Laufs (``context.scenario_cov_bps2``),
-  dieselbe Matrix wie im bisherigen Tiebreak ``kappa * w' Sigma w``, den der
+  dieselbe Matrix wie im Risikoterm ``kappa * w' Sigma w``, den der
   Prior-Term im Default ERSETZT.
 * Prior-Metrik (HOUSE-PRIOR-PSD-NULLSPACE-001, Engine ``saa_resampled_v7``):
   eine Kovarianz ist nur positiv SEMIdefinit. Bei (nahezu) perfekt
@@ -79,7 +79,7 @@ unter derselben CMA).
 
 Risikomass-Varianten (min_volatility, max_drawdown, cvar_return,
 max_return) bleiben in Phase 1 bei der v5-Regel (Signifikanz + 50 bps
-Materialitaet): dort gibt es keinen w'Sigma w-Tiebreak, und ein additiver
+Materialitaet): dort gibt es keinen w'Sigma w-Risikoterm, und ein additiver
 Prior braucht eine eigene Kalibrierung gegen das Risikomass.
 
 Dieses Modul enthaelt nur reine Funktionen (keine Abhaengigkeit auf den

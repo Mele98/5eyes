@@ -342,16 +342,20 @@ def test_reasoning_and_published_rows_carry_suggestion_without_impossibility_cla
         context.goal_reachability,
     )
     far_row = rows[0]
-    # bool-Vertrag (v7/v9): nicht gefunden; der ehrliche Status steht in goal_revision.
-    assert far_row["feasible_set_reachable"] is False
+    # Engine v15: Screening-Kriterium (UB >= tau/2) nicht erfuellt; der
+    # ehrliche Status steht in goal_revision. Ohne publizierte Grenzen ist
+    # die Zeile nicht "reachable_at_tau".
+    assert far_row["screen_upper_bound_meets_half_tau"] is False
+    assert far_row["reachable_at_tau"] is False
+    assert "feasible_set_reachable" not in far_row
     evidence = far_row["goal_revision"]
     assert evidence["revision_suggested"] is True
     assert evidence["status"] == "not_found_reachable_locally"
-    assert evidence["engine_version"] == "saa_resampled_v14"
+    assert evidence["engine_version"] == "saa_resampled_v15"
     assert evidence["goal_snapshot_hash"] == revision.goal_snapshot_hash(far)
     assert evidence["upper_bound_kind"] == "sampling_wilson_at_best_found_point"
     assert 0.0 <= evidence["best_probability"] <= evidence["wilson_upper_bound"] < evidence["threshold"]
-    assert rows[1]["feasible_set_reachable"] is True
+    assert rows[1]["screen_upper_bound_meets_half_tau"] is True
     assert rows[1]["goal_revision"]["revision_suggested"] is False
 
     far.goal_revision_decision = _decision_for(far)
@@ -368,7 +372,7 @@ def test_engine_version_and_policies_are_v11():
     from services.optimizer.objective import DEMOTED_GOAL_POLICY_VERSION
     from services.optimizer.objective_contract import resolve_objective_contract
 
-    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v14"
+    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v15"
     evidence = resolve_objective_contract().as_evidence()
     assert evidence["goal_reachability_policy"] == reachability.GOAL_REACHABILITY_SCREEN_VERSION
     assert "no_auto_demotion" in reachability.GOAL_REACHABILITY_SCREEN_VERSION

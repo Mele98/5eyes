@@ -571,8 +571,8 @@ class OptimizerContext:
     # Hausmatrix-Zielquote als Prior des Optimierers (read-only, wie
     # scenario_cov_bps2). Gesetzt nur im Resampling-Pfad des Default-Modus
     # ``goal_shortfall`` mit projizierbarem Anker; dann ersetzt
-    # ``house_prior_kappa * (w - w_H)' Sigma (w - w_H)`` den Tiebreak
-    # ``w' Sigma w`` (siehe ``_tiebreak_portfolio_variance``). Bags,
+    # ``house_prior_kappa * (w - w_H)' Sigma (w - w_H)`` den Risikoterm
+    # ``w' Sigma w`` (siehe ``_risk_term_portfolio_variance``). Bags,
     # Validierungswuerfel und ``evaluate_weights(result.context, ...)`` erben
     # ihn ueber ``replace`` -- eine Zielfunktion fuer alle Konsumenten.
     house_prior_weights: np.ndarray | None = None
@@ -1244,7 +1244,7 @@ def build_optimizer_context(
     return replace(context, goal_reachability=screen)
 
 
-def _tiebreak_portfolio_variance(
+def _risk_term_portfolio_variance(
     context: OptimizerContext, w: np.ndarray,
 ) -> float | None:
     """TIEBREAK-PORTFOLIO-VARIANCE-001: ``w' Sigma w`` aus der CMA-Kovarianz
@@ -1375,7 +1375,7 @@ def _objective_from_inputs(
         # auf den cashflow-neutralen Faktoren, nicht auf `wealth` -- sonst
         # wuerde geplanter Verzehr als Marktrisiko bewertet.
         portfolio_return_factors=portfolio_factors,
-        portfolio_variance=_tiebreak_portfolio_variance(context, w),
+        portfolio_variance=_risk_term_portfolio_variance(context, w),
         scope_wealth=scope_wealth,
     ))
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
@@ -1439,7 +1439,7 @@ def evaluate_weights(
         goal_weighting_mode=contract.goal_weighting_mode,
         portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
-        portfolio_variance=_tiebreak_portfolio_variance(context, w),
+        portfolio_variance=_risk_term_portfolio_variance(context, w),
         scope_wealth=scope_wealth,
     )
     # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as
@@ -1606,7 +1606,17 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Holm/Bonferroni gefuehrt (je Test alpha/2). Vollstaendige Laeufe im
 # Default-Modus sind bis auf den neuen Wuerfel (Version im Inhalts-Seed)
 # unveraendert.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v14"
+#
+# v15 (2026-10-24, CIO-Entscheide zu den Codex-Befunden 2026-10-18):
+# GOAL-HIERARCHY-ALL-OBJECTIVES-001 -- die Stufe-1-Zielhierarchie gilt auch
+# in den Risikomass-Varianten (max_return, min_volatility, max_drawdown,
+# cvar_return); ein hartes/primaeres Ziel kann in keinem Modus gegen Rendite
+# oder Risiko getauscht werden. WISH-GOAL-SOFT-TRADEOFF-001 -- Wunschziele
+# bleiben weiche Terme, ehrlich benannt (ObjectiveContractV4,
+# wish_goal_soft_tradeoff_v1). GOAL-REACHABILITY-FIELD-HONESTY-001 --
+# screen_upper_bound_meets_half_tau + reachable_at_tau. Der Default-Pfad
+# rechnet unveraendert; neu ist nur der Wuerfel (Version im Inhalts-Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v15"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -2451,8 +2461,8 @@ class _CubeSelection:
     # Drawdown-Rerank des Einzelwuerfel-Pfads. Im Resampling-Pfad ungenutzt:
     # dort rankt der Rerank {Bag-Mittel, projiziertes Mittel, Hausmatrix-Anker}.
     finalists: list[dict] = field(default_factory=list)
-    # GOAL-HIERARCHY-001: Audit der Stufe 1 (None ohne geschuetzte Ziele bzw.
-    # in den Risikomass-Varianten).
+    # GOAL-HIERARCHY-001: Audit der Stufe 1 (None ohne geschuetzte Ziele;
+    # seit Engine v15 in jedem Modus).
     goal_protection: dict | None = None
 
 
@@ -2505,8 +2515,16 @@ def _goal_protection_stage(
 
     Liefert die Schranke ``G1* + eps`` fuer Stufe 2 und den Stufe-1-
     Minimierer ``w1*`` (zulaessig fuer die Schranke per Konstruktion).
-    None im Risikomass-Modus (Phase 2, eigener Auftrag), ohne geschuetzte
-    Ziele oder ohne zulaessigen Startpunkt.
+    None ohne geschuetzte Ziele oder ohne zulaessigen Startpunkt.
+
+    GOAL-HIERARCHY-ALL-OBJECTIVES-001 (Engine v15, CIO-Entscheid): in JEDEM
+    Modus aktiv, auch in den Risikomass-Varianten (``max_return``,
+    ``min_volatility``, ``max_drawdown``, ``cvar_return``). G1 ist
+    modusunabhaengig (Fehlbetrag + Chance-Strafe der harten/primaeren
+    Ziele); Stufe 2 minimiert die Zielfunktion des Modus unter
+    ``G1 <= G1* + eps``. Ein hartes oder primaeres Ziel kann damit in keinem
+    Modus gegen Rendite oder Risiko getauscht werden. Bis v14 lief die Stufe
+    nur im Modus ``goal_shortfall``; dort ist sie unveraendert.
 
     Suche: exaktes G1 an allen zulaessigen Multi-Start-Punkten und an der
     Hausquote; von den besten Punkten aus SLSQP auf einer glatten Naeherung
@@ -2516,9 +2534,6 @@ def _goal_protection_stage(
     beste GEFUNDENE Minimum, kein globaler Beweis -- die Schranke ist damit
     eher zu weit als zu eng.
     """
-    if objective_contract_of(context).objective_mode != OBJECTIVE_GOAL_SHORTFALL:
-        return None
-    n_cols = int(context.horizon_years) + 1
     protected = _stage1_liabilities(context)
     if not protected:
         return None
@@ -3184,7 +3199,7 @@ def _repair_rounded_bps(
     Liegt ein kontinuierlich zulaessiger Punkt GENAU auf einer linearen
     Nebenbedingung (Risikobudget mit nicht-ganzzahligen Risikoanteilen), kann
     die bps-Rundung sie um Bruchteile eines bps verletzen (gemessen: -5e-6
-    am Referenzmandat M1). Mit dem Varianz-Tiebreak (w' Sigma w) landen
+    am Referenzmandat M1). Mit dem Varianz-Risikoterm (w' Sigma w) landen
     ziel-sichere Mandate systematisch auf solchen Flaechen. Reparatur:
     greedy je 1 bps zwischen zwei Buckets verschieben (Bandbreiten
     eingehalten, Summe bleibt 10'000), jeweils die Verschiebung mit der
@@ -3688,7 +3703,7 @@ def _context_loss_components_on_validation(
       Chance-Strafe, in den Varianten die Chance-Strafe; jeweils plus
       Soft-Preference-Strafe (explizite Berater-Vorgabe, keine
       Schaetzgroesse).
-    * ``risikoebene`` -- im Default der Tiebreak ``kappa * w' Sigma w``, in
+    * ``risikoebene`` -- im Default der Risikoterm ``kappa * w' Sigma w``, in
       den Varianten das Risikomass selbst (Primaerterm).
 
     HOUSE-FIRST-SIGNIFICANCE-001 (CIO-Entscheid 2026-10-18): der
@@ -3737,7 +3752,7 @@ def _context_loss_components_on_validation(
             if refined_drawdown
             else None
         )
-        variance = _tiebreak_portfolio_variance(validation_context, w)
+        variance = _risk_term_portfolio_variance(validation_context, w)
         return wealth, factors, annualized, float(preference), drawdowns, variance, scopes
 
     prepared = (_prepare(anchor_w), _prepare(candidate_w))
@@ -3766,7 +3781,7 @@ def _context_loss_components_on_validation(
                 )
             )
             primary_weight = 0.0
-        goal_level, tiebreak = two_phase_objective_parts(
+        goal_level, risk_term = two_phase_objective_parts(
             validation_context.liabilities,
             wealth,
             initial_wealth_rappen=validation_context.advisory_wealth_rappen,
@@ -3783,7 +3798,7 @@ def _context_loss_components_on_validation(
         )
         goal_total = float(goal_level) + float(preference)
         if is_default:
-            return goal_total, float(tiebreak)
+            return goal_total, float(risk_term)
         # VARIANT-GOAL-PRESERVATION-GATE-001 (Engine v12): in den Varianten
         # zusaetzlich die Stufe-1-Zielebene G1 (harte/primaere Ziele, exakt
         # ``protected_goal_level``) fuer das nicht verrechenbare
@@ -3890,7 +3905,7 @@ def _significance_vs_house_anchor(
 
     1. Zielebene (alle Modi): gepaarter Bootstrap der Verbesserung von
        Ziel-Fehlbetrag + Chance-Strafe (+ Soft-Preference). Signifikant ->
-       Optimierer. Der Volatilitaets-Tiebreak zaehlt hier NICHT: er ist
+       Optimierer. Der Risikoterm zaehlt hier NICHT: er ist
        deterministisch (``kappa * w' Sigma w``), jede noch so kleine
        Differenz waere "signifikant" (p = 1/(B+1)) -- so entstanden
        Eckloesungen auf Schaetzfehlern der Korrelation. Im Solver bleibt er
@@ -4154,7 +4169,7 @@ def _run_resampled_solver(
     # dieselbe Zielfunktion, unter der die Bags selektiert wurden;
     # ``evaluate_weights(result.context, result.weights_bps).objective_value ==
     # result.objective_value``. Ein ohne Prior gebauter Context bewertet
-    # bewusst eine ANDERE Zielfunktion (v5-Tiebreak w' Sigma w).
+    # bewusst eine ANDERE Zielfunktion (v5-Risikoterm w' Sigma w).
     house_prior_anchor_bps: dict[str, int] | None = None
     if objective_contract_of(context).objective_mode == OBJECTIVE_GOAL_SHORTFALL:
         house_prior_anchor_bps, _anchor_reason = _project_house_anchor(

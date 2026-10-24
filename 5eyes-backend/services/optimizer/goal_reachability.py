@@ -138,8 +138,9 @@ Wirkung (JEDER Modus, CIO-Entscheid 2026-10-18)
   Context (eine Zielfunktion).
 * Offenlegung: ``OptimizerResult.goal_reachability``, ein Beraterhinweis je
   Ziel im Reasoning ("Ziel mit dem Kunden ueberpruefen") und
-  ``feasible_set_reachable`` auf den publizierten Zeilen der geprueften
-  Ziele. Die Zielwahrscheinlichkeit selbst wird weiter publiziert.
+  ``screen_upper_bound_meets_half_tau`` / ``reachable_at_tau`` auf den
+  publizierten Zeilen der geprueften Ziele (``annotate_rows``). Die
+  Zielwahrscheinlichkeit selbst wird weiter publiziert.
 """
 from __future__ import annotations
 
@@ -732,15 +733,34 @@ def _revision_evidence(row: dict, screen: dict) -> dict:
     }
 
 
+def _reachable_at_tau(row: dict) -> bool:
+    """Untere Wilson-Grenze >= tau der publizierten Zeile UND Status
+    ``erreichbar`` (der Status verlangt zusaetzlich ausreichende ESS;
+    ``objective.certify_success_indicator``). Fehlende Werte -> False."""
+    lower = row.get("lower_confidence_bound")
+    tau = row.get("tau")
+    if lower is None or tau is None:
+        return False
+    return bool(float(lower) >= float(tau) and row.get("status") == "erreichbar")
+
+
 def annotate_rows(rows, screen: dict | None) -> list[dict]:
-    """Setzt auf jeder GEPRUEFTEN Zielzeile ``feasible_set_reachable`` und
+    """Setzt auf jeder GEPRUEFTEN Zielzeile die Reachability-Felder und
     (Engine v11) ``goal_revision`` (Evidenz + Vorschlag).
 
-    ``feasible_set_reachable`` (bool, Vertrag seit Engine v7/v9): True =
-    eine zulaessige Allokation mit ausreichender Sicherheit (obere Grenze >=
-    tau/2) gefunden -- im Screen oder von der lokalen Suche; False = nicht
-    gefunden. False ist eine Offenlegung, KEIN Unerreichbarkeitsnachweis
-    (Engine v11): der ehrliche Status steht in ``goal_revision.status``."""
+    GOAL-REACHABILITY-FIELD-HONESTY-001 (Engine v15; bis v14 hiess das erste
+    Feld ``feasible_set_reachable`` und behauptete Erreichbarkeit schon bei
+    der halben Schwelle):
+
+    * ``screen_upper_bound_meets_half_tau`` (bool): auf der endlichen
+      Pruefmenge oder von der lokalen Suche wurde eine zulaessige Allokation
+      gefunden, deren OBERE Wilson-Grenze mindestens ``tau/2`` erreicht. Das
+      ist ein Screening-Kriterium, keine Erreichbarkeit; False ist kein
+      Unerreichbarkeitsnachweis (der Status steht in ``goal_revision``).
+    * ``reachable_at_tau`` (bool): die publizierte Allokation erreicht das
+      Ziel mit der geforderten Sicherheit -- untere Wilson-Grenze >= tau bei
+      ausreichender effektiver Stichprobe, deckungsgleich mit
+      ``status == "erreichbar"`` derselben Zeile."""
     screen = screen or {}
     by_goal = {str(row["goal_id"]): row for row in (screen.get("goals") or ())}
     out = []
@@ -755,7 +775,8 @@ def annotate_rows(rows, screen: dict | None) -> list[dict]:
                 (screened.get("certificate") or {}).get("status")
                 == CERTIFICATE_STATUS_REACHABLE
             )
-            row["feasible_set_reachable"] = bool(found)
+            row["screen_upper_bound_meets_half_tau"] = bool(found)
+            row["reachable_at_tau"] = _reachable_at_tau(row)
             row["goal_revision"] = _revision_evidence(screened, screen)
         out.append(row)
     return out

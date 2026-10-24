@@ -30,7 +30,7 @@ from services.optimizer.certification import wilson_lower_bound
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import (
     CHANCE_PENALTY_WEIGHT,
-    TIEBREAK_VARIANCE_WEIGHT,
+    RISK_TERM_VARIANCE_WEIGHT,
     chance_constraint_penalty,
     combined_objective_two_phase,
     goal_volume_rappen,
@@ -129,7 +129,7 @@ def test_tiebreak_is_always_active_not_switched_by_goal_level():
             objective_mode="goal_shortfall", goal_weighting_mode="equal",
             portfolio_variance=variance,
         )
-        assert tiebreak == pytest.approx(TIEBREAK_VARIANCE_WEIGHT * variance)
+        assert tiebreak == pytest.approx(RISK_TERM_VARIANCE_WEIGHT * variance)
         assert tiebreak > 0.0
         assert _objective(
             [goal], paths, w0=W0, portfolio_variance=variance
@@ -157,7 +157,7 @@ def test_tiebreak_is_the_one_year_portfolio_variance_and_mean_independent():
         )[1]
         for paths in (meets, shifted)
     ]
-    assert tiebreaks[0] == tiebreaks[1] == pytest.approx(TIEBREAK_VARIANCE_WEIGHT * expected)
+    assert tiebreaks[0] == tiebreaks[1] == pytest.approx(RISK_TERM_VARIANCE_WEIGHT * expected)
 
 
 def test_objective_is_pareto_monotone_property():
@@ -371,7 +371,7 @@ def test_house_prior_disclosure_compares_the_goal_level_not_the_prior_term():
             objective_mode="goal_shortfall",
             goal_weighting_mode=result.context.objective_contract.goal_weighting_mode,
             portfolio_return_factors=factors,
-            portfolio_variance=solver_module._tiebreak_portfolio_variance(
+            portfolio_variance=solver_module._risk_term_portfolio_variance(
                 validation_context, w
             ),
         )

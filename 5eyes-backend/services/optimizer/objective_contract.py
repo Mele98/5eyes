@@ -176,7 +176,8 @@ def implemented_objective_policy() -> dict:
         HARDNESS_WEIGHT,
         MAXIMIZE_GOAL_POLICY_VERSION,
         MAXIMIZE_GROWTH_WEIGHT,
-        TIEBREAK_VARIANCE_WEIGHT,
+        RISK_TERM_VARIANCE_WEIGHT,
+        WISH_GOAL_TRADEOFF_POLICY_VERSION,
     )
 
     return {
@@ -185,7 +186,9 @@ def implemented_objective_policy() -> dict:
             (str(k), float(v)) for k, v in HARDNESS_WEIGHT.items()
         )),
         "goal_hierarchy_policy": GOAL_HIERARCHY_POLICY_VERSION,
-        "goal_hierarchy_scope": "goal_shortfall_mode_only",
+        # GOAL-HIERARCHY-ALL-OBJECTIVES-001 (Engine v15): Stufe 1 in jedem
+        # Modus; bis v14 "goal_shortfall_mode_only".
+        "goal_hierarchy_scope": "all_objectives",
         "protected_hardness": ("hart", "primaer"),
         "goal_erosion_z": float(GOAL_EROSION_Z),
         "goal_erosion_numeric_tol": float(GOAL_EROSION_NUMERIC_TOL),
@@ -193,8 +196,16 @@ def implemented_objective_policy() -> dict:
         "maximize_growth_weight": float(MAXIMIZE_GROWTH_WEIGHT),
         "chance_penalty_policy": "linear_wilson_lb_soft_regret_v1",
         "chance_penalty_weight": float(CHANCE_PENALTY_WEIGHT),
+        # Historische Feldnamen (V2/V3) fuer denselben Varianzterm; V4 fuehrt
+        # ihn als ``risk_term_*`` und benennt die Wunschziel-Policy.
         "tiebreak_policy": "portfolio_variance_one_year_v1",
-        "tiebreak_weight": float(TIEBREAK_VARIANCE_WEIGHT),
+        "tiebreak_weight": float(RISK_TERM_VARIANCE_WEIGHT),
+        "risk_term_policy": "portfolio_variance_one_year_v1",
+        "risk_term_weight": float(RISK_TERM_VARIANCE_WEIGHT),
+        # WISH-GOAL-SOFT-TRADEOFF-001 (Engine v15): Wunschziele sind weiche
+        # Terme, gegen Risikoterm/Haus-Prior tauschbar; nur harte/primaere
+        # Ziele sind Stufe 1 (``goal_hierarchy_scope``).
+        "wish_goal_policy": WISH_GOAL_TRADEOFF_POLICY_VERSION,
         "house_prior_policy": HOUSE_PRIOR_VERSION,
         "house_prior_kappa": float(HOUSE_PRIOR_KAPPA),
         "soft_preference_policy": SOFT_PREFERENCE_POLICY_VERSION,
@@ -242,6 +253,22 @@ _POLICY_FIELDS = (
 )
 
 
+# WISH-GOAL-SOFT-TRADEOFF-001 (Engine v15): Feldsatz von V4. Der Varianzterm
+# heisst ``risk_term_*`` statt ``tiebreak_*`` (er entscheidet keinen
+# Gleichstand, sondern steht mit den Wunschziel-Termen in einer Summe), dazu
+# die Wunschziel-Policy. Neue Feldmenge -> neue Kennung.
+_V4_POLICY_FIELDS = tuple(
+    replacement
+    for name in _POLICY_FIELDS
+    for replacement in (
+        ("risk_term_policy",) if name == "tiebreak_policy"
+        else ("risk_term_weight", "wish_goal_policy") if name == "tiebreak_weight"
+        else (name,)
+    )
+)
+_ALL_POLICY_FIELDS = tuple(dict.fromkeys(_POLICY_FIELDS + _V4_POLICY_FIELDS))
+
+
 @dataclass(frozen=True)
 class ObjectiveContractV2(ObjectiveContractV1):
     """V1 + alle Koeffizienten, Scopes und Policies (Engine ``saa_resampled_v7``).
@@ -257,6 +284,8 @@ class ObjectiveContractV2(ObjectiveContractV1):
     # Versionskennung je Klasse: V3 erbt Felder und Hashrezept, nicht die
     # Kennung (die Kennung ist Teil der Hash-Eingabe).
     _CONTRACT_VERSION: ClassVar[str] = OBJECTIVE_CONTRACT_V2_VERSION
+    # Gebundene Policy-Felder je Klasse (V2/V3: 24, V4: 25).
+    _FIELDS: ClassVar[tuple[str, ...]] = _POLICY_FIELDS
     version: str = OBJECTIVE_CONTRACT_V2_VERSION
     goal_hardness_policy: str | None = None
     hardness_weights: tuple | None = None
@@ -282,6 +311,10 @@ class ObjectiveContractV2(ObjectiveContractV1):
     stage2_objective_scale_policy: str | None = None
     goal_evaluation_scope: str | None = None
     goal_scope_replay_policy: str | None = None
+    # Nur V4 (``_V4_POLICY_FIELDS``); in V2/V3 nicht gebunden und None.
+    risk_term_policy: str | None = None
+    risk_term_weight: float | None = None
+    wish_goal_policy: str | None = None
 
     def __post_init__(self) -> None:
         validate_objective_mode(self.objective_mode)
@@ -291,7 +324,13 @@ class ObjectiveContractV2(ObjectiveContractV1):
                 f"Unbekannte Objective-Vertragsversion: {self.version!r}"
             )
         implemented = implemented_objective_policy()
-        for name in _POLICY_FIELDS:
+        fields = type(self)._FIELDS
+        for name in _ALL_POLICY_FIELDS:
+            if name not in fields and getattr(self, name) is not None:
+                raise ObjectiveContractError(
+                    f"Feld {name!r} gehoert nicht zu {self.version!r}."
+                )
+        for name in fields:
             value = getattr(self, name)
             if value is None:
                 object.__setattr__(self, name, implemented[name])
@@ -305,10 +344,11 @@ class ObjectiveContractV2(ObjectiveContractV1):
     @property
     def contract_hash(self) -> str:
         """SHA-256 ueber Version, Modi und ALLE Policy-Felder (feldbenannt)."""
+        fields = type(self)._FIELDS
         return _policy_hash(
             self.version, self.objective_mode, self.goal_weighting_mode,
-            {name: getattr(self, name) for name in _POLICY_FIELDS},
-            _POLICY_FIELDS,
+            {name: getattr(self, name) for name in fields},
+            fields,
         )
 
     def as_evidence(self) -> dict:
@@ -317,7 +357,7 @@ class ObjectiveContractV2(ObjectiveContractV1):
             "objective_mode": self.objective_mode,
             "goal_weighting_mode": self.goal_weighting_mode,
         }
-        for name in _POLICY_FIELDS:
+        for name in type(self)._FIELDS:
             value = getattr(self, name)
             evidence[name] = list(value) if isinstance(value, tuple) else value
         evidence["hardness_weights"] = {
@@ -357,6 +397,28 @@ class ObjectiveContractV3(ObjectiveContractV2):
     version: str = OBJECTIVE_CONTRACT_V3_VERSION
 
 
+OBJECTIVE_CONTRACT_V4_VERSION = "objective-contract-v4"
+
+
+@dataclass(frozen=True)
+class ObjectiveContractV4(ObjectiveContractV3):
+    """V3 mit ehrlich benanntem Risikoterm und Wunschziel-Policy (Engine v15).
+
+    WISH-GOAL-SOFT-TRADEOFF-001 (CIO-Entscheid, Option B): ``tiebreak_policy``
+    / ``tiebreak_weight`` hiessen so, als entscheide der Varianzterm nur
+    Gleichstaende hinter den Zielen. Tatsaechlich stehen Wunschziel-Terme und
+    Risikoterm in einer Summe und werden gegeneinander getauscht. V4 bindet
+    denselben Term als ``risk_term_policy`` / ``risk_term_weight`` und die
+    Policy ``wish_goal_policy = "wish_goal_soft_tradeoff_v1"``. Harte und
+    primaere Ziele schuetzt die Stufe-1-Nebenbedingung
+    (``goal_hierarchy_scope = "all_objectives"``).
+    """
+
+    _CONTRACT_VERSION: ClassVar[str] = OBJECTIVE_CONTRACT_V4_VERSION
+    _FIELDS: ClassVar[tuple[str, ...]] = _V4_POLICY_FIELDS
+    version: str = OBJECTIVE_CONTRACT_V4_VERSION
+
+
 # Feldsaetze je Kennung, wie sie persistiert wurden. Die zwei V2-Schemas sind
 # historisch (V2 vor und nach dem Ziel-Scope); beide werden mit ihrem EIGENEN
 # Feldsatz nachgerechnet und nie mit heutigen Defaults aufgefuellt.
@@ -370,6 +432,7 @@ _EVIDENCE_SCHEMAS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("v2_policy_24", _POLICY_FIELDS),
     ),
     OBJECTIVE_CONTRACT_V3_VERSION: (("v3_policy_24", _POLICY_FIELDS),),
+    OBJECTIVE_CONTRACT_V4_VERSION: (("v4_policy_25", _V4_POLICY_FIELDS),),
 }
 _EVIDENCE_HEAD = ("objective_contract_version", "objective_mode", "goal_weighting_mode")
 _TUPLE_FIELDS = ("protected_hardness",)
@@ -488,9 +551,9 @@ def resolve_objective_contract() -> ObjectiveContractV1:
     from .objective import resolve_goal_weighting_mode
     from .objective_variants import resolve_objective_mode
 
-    # Seit dem priorisierten Ziel-Scope (Engine v10): V3. V2 bleibt nur zum
-    # Verifizieren historischer Evidence.
-    return ObjectiveContractV3(
+    # Seit Engine v15 (WISH-GOAL-SOFT-TRADEOFF-001): V4. V2/V3 bleiben nur
+    # zum Verifizieren historischer Evidence.
+    return ObjectiveContractV4(
         objective_mode=resolve_objective_mode(),
         goal_weighting_mode=resolve_goal_weighting_mode(),
     )

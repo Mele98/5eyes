@@ -126,11 +126,11 @@ def _liability(kind: str, *, hardness: str = "primaer", target: int = 0,
 def test_engine_version_is_v7_and_objective_contract_v2_is_disclosed():
     result, context = _run([], 10, key="no_goals_10")
     resampling = result.resampling
-    assert resampling["engine_version"] == "saa_resampled_v14"
+    assert resampling["engine_version"] == "saa_resampled_v15"
     contract = resampling["objective_contract"]
     # OPTIMIZER-OBJECTIVE-CONTRACT-FREEZE-001 (Review PR #659): das um den
     # Ziel-Scope erweiterte Schema traegt eine eigene Kennung.
-    assert contract["objective_contract_version"] == "objective-contract-v3"
+    assert contract["objective_contract_version"] == "objective-contract-v4"
     assert contract["goal_weighting_mode"] == "hardness"
     assert contract["goal_hardness_policy"] == (
         "hardness_scales_shortfall_and_protection_v1")
@@ -166,8 +166,11 @@ def test_objective_contract_v2_binds_every_coefficient_and_fails_closed():
         goal_weighting_mode=contract.goal_weighting_mode,
     )
     assert contract.contract_hash != v1.contract_hash
-    for name, value in implemented_objective_policy().items():
-        assert getattr(contract, name) == value, name
+    implemented = implemented_objective_policy()
+    # Engine v15: V4 bindet seinen eigenen Feldsatz (risk_term_* statt
+    # tiebreak_*, dazu wish_goal_policy).
+    for name in type(contract)._FIELDS:
+        assert getattr(contract, name) == implemented[name], name
     with pytest.raises(ObjectiveContractError):
         ObjectiveContractV2(
             objective_mode="goal_shortfall", goal_weighting_mode="hardness",
@@ -483,13 +486,15 @@ def test_certain_goals_skip_stage_one_and_keep_the_house_quota():
     assert result.weights_bps == HOUSE_ANCHOR
 
 
-def test_risk_measure_variants_have_no_goal_hierarchy_yet(monkeypatch):
-    """Phase 1: die Hierarchie gilt im Default ``goal_shortfall``; das
-    Goal-Preservation-Gate der Varianten (Codex-Befund 4) ist Phase 2."""
+def test_risk_measure_variants_carry_the_goal_hierarchy(monkeypatch):
+    """GOAL-HIERARCHY-ALL-OBJECTIVES-001 (Engine v15): die Hierarchie gilt in
+    jedem Modus; bis v14 nur im Default ``goal_shortfall``. Vertrag im
+    Detail: tests/test_goal_hierarchy_all_objectives.py."""
     monkeypatch.setenv("OPTIMIZER_OBJECTIVE", "min_volatility")
     selection = solver_module._select_cube_candidate(
         _goal_context("Hart"), max_iter=50, ftol=1e-6)
-    assert selection.goal_protection is None
+    assert selection.goal_protection is not None
+    assert selection.goal_protection["protected_goal_ids"] == ["vz"]
 
 
 def test_hardness_orders_the_deviation_from_the_house_quota():

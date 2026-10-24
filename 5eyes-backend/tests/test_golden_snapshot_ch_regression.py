@@ -292,6 +292,19 @@ bps, Risikoanteil 64.58 -> 64.47 %), Score 9 7810/940/675/375/200 ->
 7787/966/684/363/200 (Rendite 573 -> 572 bps, Vola 1229 -> 1225 bps,
 Risikoanteil 68.45 -> 68.29 %); Score 3 und alle drei Score-5-Varianten
 unveraendert.
+
+Nachtrag (2026-10-24, GOAL-HIERARCHY-ALL-OBJECTIVES-001 +
+WISH-GOAL-SOFT-TRADEOFF-001 + GOAL-REACHABILITY-FIELD-HONESTY-001, Engine
+``saa_resampled_v15``): Stufe-1-Zielhierarchie auch in den Risikomass-
+Varianten, Wunschziel-Policy im Vertrag (V4), ehrliche Reachability-Felder.
+Fix-Effekt 0: mit erzwungenem v14-Seed alle sechs Fixtures byte-identisch zu
+den v14-Fixtures (Linux-CI, Default-Modus). Seed-Effekt v14 -> v15, Haswell =
+Nehalem byte-identisch: Score 7 6774/1629/807/590/200 ->
+6744/1641/829/586/200 (Rendite 528 -> 527 bps, Vola 1077 -> 1073 bps,
+Risikoanteil 64.47 -> 64.36 %), Score 9 7787/966/684/363/200 ->
+7831/902/690/377/200 (Rendite 572 -> 574 bps, Vola 1225 -> 1233 bps,
+Risikoanteil 68.29 -> 68.63 %); Score 3 und alle drei Score-5-Varianten
+unveraendert.
 """
 from __future__ import annotations
 
