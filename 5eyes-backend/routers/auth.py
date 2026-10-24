@@ -492,6 +492,63 @@ def logout(
     return {"message": "Erfolgreich abgemeldet"}
 
 
+class _RevokeAllSessionsRequest(_BaseModel):
+    tenant_id: str | None = None
+
+
+@router.post("/admin/revoke-all-sessions")
+def revoke_all_sessions_endpoint(
+    request: Request,
+    body: _RevokeAllSessionsRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """AF-6 (2026-10-23): Massenwiderruf je Mandant. Alle Access- und
+    Refresh-Tokens aller Benutzer des Mandanten werden ungueltig (inkl. des
+    aufrufenden Admins -- bewusst: danach Neuanmeldung).
+
+    Mandantentrennung: ein admin wirkt nur auf den eigenen Mandanten (ein
+    fremder tenant_id im Body -> 403). Ein super_admin muss tenant_id
+    explizit angeben. Der globale Widerruf ueber alle Mandanten ist bewusst
+    NUR als Betreiber-CLI verfuegbar (scripts/revoke_all_sessions.py)."""
+    from models.tenant import DEFAULT_TENANT_ID
+    from services.session_revocation import revoke_all_sessions
+    from services.tenant_context import set_tenant_context
+
+    requested = str((body.tenant_id if body else None) or "").strip() or None
+    if current_user.role == "super_admin":
+        if requested is None:
+            raise HTTPException(
+                status_code=422,
+                detail="tenant_id ist Pflicht; globaler Widerruf nur ueber die Betreiber-CLI.",
+            )
+        if db.query(Tenant).filter(Tenant.id == requested).first() is None:
+            raise HTTPException(status_code=404, detail="Mandant nicht gefunden.")
+        set_tenant_context(db, requested)
+        target = requested
+    else:
+        own = str(getattr(current_user, "tenant_id", None) or "").strip() or DEFAULT_TENANT_ID
+        if requested is not None and requested != own:
+            raise HTTPException(status_code=403, detail="Nur der eigene Mandant ist erlaubt.")
+        target = own
+
+    result = revoke_all_sessions(
+        db,
+        actor_user_id=current_user.id,
+        actor_name=current_user.full_name,
+        tenant_id=target,
+        ip_address=_extract_client_ip(request),
+    )
+    db.commit()
+    return {
+        "scope": result.scope,
+        "tenant_id": result.tenant_id,
+        "revoked_before": result.revoked_before,
+        "users": result.users,
+        "refresh_tokens": result.refresh_tokens,
+    }
+
+
 @router.post("/refresh", response_model=TokenResponse)
 def refresh_access_token(body: RefreshTokenRequest, request: Request, db: Session = Depends(get_db)):
     """Roadmap #28 (Standpunkt 2026-08-07): tauscht einen gueltigen Refresh-

@@ -130,7 +130,7 @@ def test_issue_token_enthaelt_tid_claim_main():
         tenant_id=None,
     )
     token = issue_token_for_user(user)
-    payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+    payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm], audience=settings.jwt_audience)
     assert payload["sub"] == "u5"
     assert payload["tid"] == DEFAULT_TENANT_ID
 
@@ -143,7 +143,7 @@ def test_issue_token_enthaelt_tid_claim_specific_tenant():
         tenant_id="firm-XYZ",
     )
     token = issue_token_for_user(user)
-    payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+    payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm], audience=settings.jwt_audience)
     assert payload["tid"] == "firm-XYZ"
 
 
@@ -251,6 +251,6 @@ def test_get_current_tenant_id_invalid_token_401():
 def test_legacy_create_access_token_ohne_tid_funktioniert():
     """create_access_token({sub: x}) ohne tid liefert valides Token (Legacy)."""
     token = create_access_token({"sub": "old-user"})
-    payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+    payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm], audience=settings.jwt_audience)
     assert payload["sub"] == "old-user"
     assert "tid" not in payload
