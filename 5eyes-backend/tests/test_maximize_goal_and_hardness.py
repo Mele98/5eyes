@@ -483,13 +483,15 @@ def test_certain_goals_skip_stage_one_and_keep_the_house_quota():
     assert result.weights_bps == HOUSE_ANCHOR
 
 
-def test_risk_measure_variants_have_no_goal_hierarchy_yet(monkeypatch):
-    """Phase 1: die Hierarchie gilt im Default ``goal_shortfall``; das
-    Goal-Preservation-Gate der Varianten (Codex-Befund 4) ist Phase 2."""
+def test_risk_measure_variants_carry_the_goal_hierarchy(monkeypatch):
+    """GOAL-HIERARCHY-ALL-OBJECTIVES-001 (Engine v15): die Hierarchie gilt in
+    jedem Modus; bis v14 nur im Default ``goal_shortfall``. Vertrag im
+    Detail: tests/test_goal_hierarchy_all_objectives.py."""
     monkeypatch.setenv("OPTIMIZER_OBJECTIVE", "min_volatility")
     selection = solver_module._select_cube_candidate(
         _goal_context("Hart"), max_iter=50, ftol=1e-6)
-    assert selection.goal_protection is None
+    assert selection.goal_protection is not None
+    assert selection.goal_protection["protected_goal_ids"] == ["vz"]
 
 
 def test_hardness_orders_the_deviation_from_the_house_quota():

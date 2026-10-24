@@ -182,6 +182,14 @@ _MAXIMIZE_MIN_GROWTH_FACTOR = 1e-12
 # erodieren, hart nur um ein Zehntel davon. Opportunistische Ziele sind
 # nicht geschuetzt (Stufe 2). Herleitung:
 # docs/planning/2026-10-18-maximize-goal-and-hardness.md.
+#
+# GOAL-HIERARCHY-ALL-OBJECTIVES-001 (CIO-Entscheid, Engine v15): Stufe 1
+# gilt in JEDEM Modus (Vertragsfeld ``goal_hierarchy_scope =
+# "all_objectives"``). In den Risikomass-Varianten ist Stufe 2 der
+# Primaerterm des Modus (Rendite, Volatilitaet, Drawdown, CVaR) plus
+# Chance-Strafe -- ein hartes oder primaeres Ziel kann auch dort nicht
+# ueber die Erosionstoleranz hinaus gegen Rendite oder Risiko getauscht
+# werden. Bis v14: ``goal_shortfall_mode_only``.
 GOAL_HIERARCHY_POLICY_VERSION = "protected_goals_lexicographic_v2_reachable_only"
 GOAL_EROSION_Z = 1.6448536269514722
 GOAL_EROSION_NUMERIC_TOL = 1e-9

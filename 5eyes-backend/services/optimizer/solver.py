@@ -2451,8 +2451,8 @@ class _CubeSelection:
     # Drawdown-Rerank des Einzelwuerfel-Pfads. Im Resampling-Pfad ungenutzt:
     # dort rankt der Rerank {Bag-Mittel, projiziertes Mittel, Hausmatrix-Anker}.
     finalists: list[dict] = field(default_factory=list)
-    # GOAL-HIERARCHY-001: Audit der Stufe 1 (None ohne geschuetzte Ziele bzw.
-    # in den Risikomass-Varianten).
+    # GOAL-HIERARCHY-001: Audit der Stufe 1 (None ohne geschuetzte Ziele;
+    # seit Engine v15 in jedem Modus).
     goal_protection: dict | None = None
 
 
@@ -2505,8 +2505,16 @@ def _goal_protection_stage(
 
     Liefert die Schranke ``G1* + eps`` fuer Stufe 2 und den Stufe-1-
     Minimierer ``w1*`` (zulaessig fuer die Schranke per Konstruktion).
-    None im Risikomass-Modus (Phase 2, eigener Auftrag), ohne geschuetzte
-    Ziele oder ohne zulaessigen Startpunkt.
+    None ohne geschuetzte Ziele oder ohne zulaessigen Startpunkt.
+
+    GOAL-HIERARCHY-ALL-OBJECTIVES-001 (Engine v15, CIO-Entscheid): in JEDEM
+    Modus aktiv, auch in den Risikomass-Varianten (``max_return``,
+    ``min_volatility``, ``max_drawdown``, ``cvar_return``). G1 ist
+    modusunabhaengig (Fehlbetrag + Chance-Strafe der harten/primaeren
+    Ziele); Stufe 2 minimiert die Zielfunktion des Modus unter
+    ``G1 <= G1* + eps``. Ein hartes oder primaeres Ziel kann damit in keinem
+    Modus gegen Rendite oder Risiko getauscht werden. Bis v14 lief die Stufe
+    nur im Modus ``goal_shortfall``; dort ist sie unveraendert.
 
     Suche: exaktes G1 an allen zulaessigen Multi-Start-Punkten und an der
     Hausquote; von den besten Punkten aus SLSQP auf einer glatten Naeherung
@@ -2516,9 +2524,6 @@ def _goal_protection_stage(
     beste GEFUNDENE Minimum, kein globaler Beweis -- die Schranke ist damit
     eher zu weit als zu eng.
     """
-    if objective_contract_of(context).objective_mode != OBJECTIVE_GOAL_SHORTFALL:
-        return None
-    n_cols = int(context.horizon_years) + 1
     protected = _stage1_liabilities(context)
     if not protected:
         return None

@@ -185,7 +185,9 @@ def implemented_objective_policy() -> dict:
             (str(k), float(v)) for k, v in HARDNESS_WEIGHT.items()
         )),
         "goal_hierarchy_policy": GOAL_HIERARCHY_POLICY_VERSION,
-        "goal_hierarchy_scope": "goal_shortfall_mode_only",
+        # GOAL-HIERARCHY-ALL-OBJECTIVES-001 (Engine v15): Stufe 1 in jedem
+        # Modus; bis v14 "goal_shortfall_mode_only".
+        "goal_hierarchy_scope": "all_objectives",
         "protected_hardness": ("hart", "primaer"),
         "goal_erosion_z": float(GOAL_EROSION_Z),
         "goal_erosion_numeric_tol": float(GOAL_EROSION_NUMERIC_TOL),
