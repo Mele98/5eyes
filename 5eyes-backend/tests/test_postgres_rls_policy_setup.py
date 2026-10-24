@@ -72,3 +72,47 @@ def test_sqlite_tenant_not_null_setup_is_noop_and_nullable(tmp_path):
         col for col in inspect(engine).get_columns("clients") if col["name"] == "tenant_id"
     )
     assert client_tenant["nullable"] is True
+
+
+def test_reference_tables_get_split_policies_with_null_read_only():
+    rendered = " ;; ".join(rls_policy_sql("products"))
+    assert "CREATE POLICY tenant_isolation" not in rendered
+    assert "DROP POLICY IF EXISTS tenant_isolation" in rendered
+    select = next(s for s in rls_policy_sql("products") if "FOR SELECT" in s)
+    assert "tenant_id IS NULL" in select
+    for cmd in ("FOR INSERT", "FOR UPDATE", "FOR DELETE"):
+        stmt = next(s for s in rls_policy_sql("products") if cmd in s)
+        assert "IS NULL" not in stmt, cmd
+
+
+def test_customer_tables_never_admit_null_tenant_rows():
+    from services.postgres_rls import GLOBAL_REFERENCE_TABLES
+
+    assert GLOBAL_REFERENCE_TABLES == {
+        "capital_market_assumptions", "product_eligibility_rule_sets",
+        "product_eligibility_rules", "products",
+    }
+    for table in set(tenant_scoped_table_names()) - GLOBAL_REFERENCE_TABLES:
+        rendered = " ;; ".join(rls_policy_sql(table))
+        assert "IS NULL" not in rendered, table
+        assert "CREATE POLICY tenant_isolation" in rendered, table
+        # Wechsel aus der Referenz-Variante darf keine weite Policy zuruecklassen.
+        assert "DROP POLICY IF EXISTS tenant_reference_select" in rendered, table
+
+
+def test_migration_ddl_matches_runtime_ddl():
+    import importlib.util
+
+    path = BACKEND_ROOT / "alembic" / "versions" / "e2b7c4f9a1d6_rls_global_reference_rows.py"
+    spec = importlib.util.spec_from_file_location("_rls_ref_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    from services.postgres_rls import (
+        GLOBAL_REFERENCE_TABLES, REFERENCE_POLICY_NAMES,
+        _policy_predicate, _reference_read_predicate,
+    )
+
+    assert set(module.REFERENCE_TABLES) == set(GLOBAL_REFERENCE_TABLES)
+    assert tuple(module.REFERENCE_POLICIES) == REFERENCE_POLICY_NAMES
+    assert module._WRITE == _policy_predicate()
+    assert module._READ == _reference_read_predicate()
