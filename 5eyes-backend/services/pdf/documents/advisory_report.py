@@ -2984,6 +2984,19 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
             _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
         ))
         out.append(Spacer(1, 4 * mm))
+    # Closure-Review PR #677: die Plausibilitaetspruefung ist eine Live-
+    # Pruefung des aktuellen Profils; zeigt die Eignungspruefung auf ein
+    # anderes Profil, werden beide nicht als zusammengehoerig dargestellt.
+    if isinstance(rcp_block, dict) and rcp_block.get("suitability_reference_match") is False:
+        from services.risk_capacity_plausibility_report import (
+            REFERENCE_MISMATCH_NOTE as RCP_REFERENCE_MISMATCH_NOTE,
+        )
+
+        out.append(Paragraph(
+            _escape(RCP_REFERENCE_MISMATCH_NOTE),
+            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
+        ))
+        out.append(Spacer(1, 4 * mm))
 
     if not ss or not ss.get("has_check"):
         out.append(_ss_empty_state(styles))

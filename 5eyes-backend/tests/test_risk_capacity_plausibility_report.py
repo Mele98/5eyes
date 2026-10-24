@@ -64,6 +64,7 @@ def _result(status: str, *, findings=(), open_checks=(), **extra) -> dict:
         "thresholds": {},
         "data_basis": {"gross_income_monthly_rappen": 400_000},
         "advisor_text": "",
+        "risk_assessment_id": "ra-test",
     }
     base.update(extra)
     return base
@@ -211,7 +212,7 @@ def test_advisory_report_payload_carries_compact_plausibility(session_factory, m
 
     def _fake(db, mandate, assessment, **_kw):
         seen["assessment_id"] = getattr(assessment, "id", None)
-        return INCONSISTENT
+        return {**INCONSISTENT, "risk_assessment_id": getattr(assessment, "id", None)}
 
     monkeypatch.setattr(rcp, "evaluate_mandate_safely", _fake)
     _adv, _cid, mid, aid = _seed_realistic_mandate(session_factory, "rcr-ar")
@@ -226,7 +227,8 @@ def test_advisory_report_payload_carries_compact_plausibility(session_factory, m
     assert "data_basis" not in block
 
 
-def test_advisory_report_payload_without_current_assessment_is_none(session_factory):
+def test_advisory_report_payload_without_current_assessment_is_not_evaluable(session_factory):
+    """Closure-Review PR #677: fehlendes Profil ist sichtbar, nicht None."""
     from models.mandates import Mandate
     from models.profiling import RiskAssessment
     from services.advisory_report import compute_advisory_report
@@ -239,7 +241,10 @@ def test_advisory_report_payload_without_current_assessment_is_none(session_fact
         db.commit()
         mandate = db.query(Mandate).filter(Mandate.id == mid).one()
         report = compute_advisory_report(db, mandate)
-    assert report["suitability_summary"]["risk_capacity_plausibility"] is None
+    block = report["suitability_summary"]["risk_capacity_plausibility"]
+    assert block["status"] == "not_evaluable"
+    assert block["reason_code"] == "NO_CURRENT_RISK_ASSESSMENT"
+    assert block["availability"] == "missing_input"
 
 
 # ---------------------------------------------------------------------------

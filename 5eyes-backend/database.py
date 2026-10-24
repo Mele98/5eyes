@@ -2173,6 +2173,9 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
     ensure_current_anchor_unique_indexes()
     # UPGRADE-PATH-CHECK-DRIFT-001: erweiterte CHECK-IN-Listen des
     # Referenzschemas erreichten bestehende DBs nie (CREATE TABLE IF NOT EXISTS).
+    # Fail-closed (Closure-Review #675): wirft ManualMigrationRequired bzw.
+    # FatalRecoveryFailed, wenn Vor- oder Zielzustand nicht verifiziert ist --
+    # init_db() faehrt dann bewusst NICHT fort.
     from services.sqlite_check_constraint_upgrade import ensure_sqlite_check_in_lists_current
 
     ensure_sqlite_check_in_lists_current(engine, resolve_schema_path())
@@ -2202,6 +2205,12 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
 
 def init_db() -> None:
     active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+    if is_sqlite_database_url(active_url):
+        # UPGRADE-PATH-CHECK-DRIFT-001: eine quarantaenisierte DB (gescheiterte,
+        # nicht verifizierte Wiederherstellung) blockiert jeden weiteren Start.
+        from services.sqlite_check_constraint_upgrade import raise_if_quarantined
+
+        raise_if_quarantined(settings.db_path)
     if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url):
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
 
