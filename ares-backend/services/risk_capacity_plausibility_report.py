@@ -53,6 +53,42 @@ NOT_EVALUABLE_NOTE = (
     + PDF_NOTE_SUFFIX
 )
 
+# Bindung/Availability (Closure-Review PR #677, RISK-CAPACITY-PLAUSIBILITY-001):
+# jeder publizierte Status nennt das bewertete Risikoprofil; fehlt das aktuelle
+# Profil oder passt die Identitaet nicht, ist das ein sichtbarer Zustand.
+AVAILABILITY_EVALUATED = "evaluated"
+AVAILABILITY_MISSING_INPUT = "missing_input"
+AVAILABILITY_UNAVAILABLE = "unavailable"
+AVAILABILITY_INTEGRITY_MISMATCH = "integrity_mismatch"
+KNOWN_AVAILABILITIES = (
+    AVAILABILITY_EVALUATED, AVAILABILITY_MISSING_INPUT,
+    AVAILABILITY_UNAVAILABLE, AVAILABILITY_INTEGRITY_MISMATCH,
+)
+REASON_NO_CURRENT_RISK_ASSESSMENT = "NO_CURRENT_RISK_ASSESSMENT"
+REASON_ASSESSMENT_BINDING_MISMATCH = "RISK_ASSESSMENT_BINDING_MISMATCH"
+# Der Block ist eine Live-Pruefung gegen das aktuelle Risikoprofil, nicht
+# Teil des (ggf. aelteren) SuitabilityChecks, in dessen Summary er steht.
+EVALUATION_BASIS = "live_current_assessment"
+
+NO_ASSESSMENT_NOTE = (
+    PDF_NOTE_PREFIX
+    + "Kein aktuelles Risikoprofil vorhanden – Risikofähigkeit nicht prüfbar, "
+    "Risikoprofil erfassen."
+    + PDF_NOTE_SUFFIX
+)
+BINDING_MISMATCH_NOTE = (
+    PDF_NOTE_PREFIX
+    + "Prüfergebnis ist keinem aktuellen Risikoprofil eindeutig zuordenbar – "
+    "nicht als geprüft werten, Prüfung erneut ausführen."
+    + PDF_NOTE_SUFFIX
+)
+
+REFERENCE_MISMATCH_NOTE = (
+    PDF_NOTE_PREFIX
+    + "Die Prüfung bezieht sich auf das aktuelle Risikoprofil, nicht auf das in "
+    "der Eignungsprüfung referenzierte Profil."
+)
+
 
 def _short_labels() -> dict[str, str]:
     from services.risk_capacity_plausibility import CHECK_SHORT_LABELS
@@ -102,8 +138,38 @@ def advisor_report_note(result: dict | None) -> str:
             + PDF_NOTE_SUFFIX
         )
     if status == STATUS_NOT_EVALUABLE:
+        reason = result.get("reason_code")
+        if reason == REASON_NO_CURRENT_RISK_ASSESSMENT:
+            return NO_ASSESSMENT_NOTE
+        if reason == REASON_ASSESSMENT_BINDING_MISMATCH:
+            return BINDING_MISMATCH_NOTE
         return NOT_EVALUABLE_NOTE
     return ""
+
+
+def _assessment_id(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _binding_mismatch(assessment_id: str | None) -> dict:
+    return {
+        "status": STATUS_NOT_EVALUABLE,
+        "reason_code": REASON_ASSESSMENT_BINDING_MISMATCH,
+        "availability": AVAILABILITY_INTEGRITY_MISMATCH,
+        "risk_assessment_id": assessment_id,
+        "findings": [],
+        "not_evaluable": [{"check": "ALL"}],
+    }
+
+
+def _availability(result: dict, status: str) -> str:
+    declared = result.get("availability")
+    if declared in KNOWN_AVAILABILITIES:
+        return declared
+    if status == STATUS_NOT_EVALUABLE:
+        return AVAILABILITY_UNAVAILABLE
+    return AVAILABILITY_EVALUATED
 
 
 def compact_view(result: dict | None) -> dict | None:
@@ -114,9 +180,20 @@ def compact_view(result: dict | None) -> dict | None:
     if status not in KNOWN_STATUSES:
         # Unbekannter Status: nie als "konsistent" ausgeben.
         status = STATUS_NOT_EVALUABLE
+    assessment_id = _assessment_id(result.get("risk_assessment_id"))
+    if status != STATUS_NOT_EVALUABLE and assessment_id is None:
+        # Ein bewerteter Status ohne Profil-Identitaet ist nicht zuordenbar:
+        # fail-closed statt eines Live-Status ohne Bindung.
+        result = _binding_mismatch(None)
+        status = STATUS_NOT_EVALUABLE
     return {
         "status": status,
         "reason_code": result.get("reason_code"),
+        "availability": _availability(result, status),
+        "risk_assessment_id": assessment_id,
+        "evaluation_basis": EVALUATION_BASIS,
+        "rules_version": result.get("version"),
+        "evaluation_hash": result.get("evaluation_hash"),
         "finding_checks": _check_ids(result.get("findings")),
         "open_checks": _check_ids(result.get("not_evaluable")),
         "verification_code": result.get("verification_code"),
@@ -127,7 +204,13 @@ def compact_view(result: dict | None) -> dict | None:
 def evaluate_for_assessment(
     db, mandate, assessment, *, preloaded_rows: dict | None = None,
 ) -> dict | None:
-    """Pruefung gegen ein bestimmtes Assessment; None ohne Assessment.
+    """Pruefung gegen ein bestimmtes Assessment.
+
+    Ohne Assessment: typisiertes ``not_evaluable`` mit
+    ``availability=missing_input`` und ``NO_CURRENT_RISK_ASSESSMENT`` -- der
+    fehlende Kerninput wird sichtbar, nicht zu einem leeren Feld. Traegt das
+    Ergebnis eine andere (oder keine) Profil-Identitaet als das uebergebene
+    Assessment, wird es als ``integrity_mismatch`` verworfen.
 
     ``preloaded_rows`` = {"cashflows": [...], "goals": [...]} aus dem
     Aggregator-Cache; sie werden nur fuer die Dauer dieses Aufrufs und nur
@@ -138,7 +221,15 @@ def evaluate_for_assessment(
     ``not_evaluable`` sichtbar -- nie still als "konsistent" oder leer.
     """
     if assessment is None:
-        return None
+        return {
+            "status": STATUS_NOT_EVALUABLE,
+            "reason_code": REASON_NO_CURRENT_RISK_ASSESSMENT,
+            "availability": AVAILABILITY_MISSING_INPUT,
+            "risk_assessment_id": None,
+            "findings": [],
+            "not_evaluable": [{"check": "ALL"}],
+        }
+    expected_id = _assessment_id(getattr(assessment, "id", None))
     try:
         from services import risk_capacity_plausibility as rcp
 
@@ -152,7 +243,7 @@ def evaluate_for_assessment(
                 "goals": list(preloaded_rows.get("goals") or []),
             }
         try:
-            return rcp.evaluate_mandate_safely(db, mandate, assessment)
+            result = rcp.evaluate_mandate_safely(db, mandate, assessment)
         finally:
             if use_preloaded:
                 info.pop(rcp.PRELOADED_ROWS_KEY, None)
@@ -162,15 +253,52 @@ def evaluate_for_assessment(
             getattr(mandate, "id", "?"),
         )
         return {"status": STATUS_NOT_EVALUABLE, "reason_code": None,
+                "availability": AVAILABILITY_UNAVAILABLE,
+                "risk_assessment_id": expected_id,
                 "findings": [], "not_evaluable": [{"check": "ALL"}]}
+    if not isinstance(result, dict):
+        return _binding_mismatch(expected_id)
+    evaluated_id = _assessment_id(result.get("risk_assessment_id"))
+    if result.get("status") == STATUS_NOT_EVALUABLE and evaluated_id is None:
+        # Evaluator-Fehlerpfad ohne eigene Bindung: sichtbar nicht pruefbar,
+        # dem angefragten Profil zugeordnet, nie als Live-Status.
+        return {**result, "risk_assessment_id": expected_id,
+                "availability": AVAILABILITY_UNAVAILABLE}
+    if evaluated_id != expected_id:
+        return _binding_mismatch(expected_id)
+    return result
+
+
+def bind_to_suitability_reference(block: dict | None, reference_id: Any) -> dict | None:
+    """Kennzeichnet, ob der Live-Block dasselbe Profil bewertet wie die
+    Suitability-Referenz (True), ein anderes (False) oder ob eine Seite fehlt
+    (None). Liefert eine Kopie; der Cache-Eintrag bleibt unveraendert."""
+    if not isinstance(block, dict):
+        return block
+    reference = _assessment_id(reference_id)
+    evaluated = _assessment_id(block.get("risk_assessment_id"))
+    match = None if reference is None or evaluated is None else reference == evaluated
+    return {**block, "suitability_reference_match": match}
 
 
 __all__ = [
+    "AVAILABILITY_EVALUATED",
+    "AVAILABILITY_INTEGRITY_MISMATCH",
+    "AVAILABILITY_MISSING_INPUT",
+    "AVAILABILITY_UNAVAILABLE",
+    "BINDING_MISMATCH_NOTE",
+    "EVALUATION_BASIS",
+    "KNOWN_AVAILABILITIES",
     "KNOWN_STATUSES",
     "NOTE_STATUSES",
     "NOT_EVALUABLE_NOTE",
+    "NO_ASSESSMENT_NOTE",
     "PDF_NOTE_PREFIX",
+    "REASON_ASSESSMENT_BINDING_MISMATCH",
+    "REASON_NO_CURRENT_RISK_ASSESSMENT",
+    "REFERENCE_MISMATCH_NOTE",
     "advisor_report_note",
+    "bind_to_suitability_reference",
     "compact_view",
     "evaluate_for_assessment",
 ]

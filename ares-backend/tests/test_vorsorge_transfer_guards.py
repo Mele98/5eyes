@@ -333,17 +333,22 @@ def test_orm_insert_of_second_active_link_violates_unique_index(session_factory)
         values.update(overrides)
         return WealthInflow(**values)
 
+    from tests._wealth_link_legacy import legacy_link_guards_disabled
+
     with session_factory() as session:
         session.execute(text("PRAGMA foreign_keys=OFF"))
-        session.add(_row("i1"))
-        session.add(_row("i-inactive", is_active=0))
-        session.add(_row("i-deleted", deleted_at=_now()))
-        session.add(_row("i-unlinked", linked_position_id=None))
-        session.add(_row("i-unlinked-2", linked_position_id=None))
-        session.commit()
-        session.add(_row("i2"))
-        with pytest.raises(IntegrityError):
+        # Links ohne Position: nur der Unique-Index ist hier Gegenstand
+        # (PG-002-Link-Trigger wuerden sie sonst schon vorher ablehnen).
+        with legacy_link_guards_disabled(session):
+            session.add(_row("i1"))
+            session.add(_row("i-inactive", is_active=0))
+            session.add(_row("i-deleted", deleted_at=_now()))
+            session.add(_row("i-unlinked", linked_position_id=None))
+            session.add(_row("i-unlinked-2", linked_position_id=None))
             session.commit()
+            session.add(_row("i2"))
+            with pytest.raises(IntegrityError):
+                session.commit()
 
 
 # ---------------------------------------------------------------------------

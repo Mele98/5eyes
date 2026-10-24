@@ -483,6 +483,13 @@ export interface GoalEntry {
   failure_event_distribution?: FailureEventShare[] | null;
   /** Kompakte, kundenverständliche Gruppen je Ereignisart (Anteil absteigend). */
   failure_cause_summary?: FailureCauseGroup[] | null;
+  /**
+   * Closure-Review PR #671: `row_consistent` = Verteilung an Ziel-ID,
+   * primäres Ereignis/Anteil und Wahrscheinlichkeit gebunden (keine
+   * dauerhafte Snapshot-Bindung); `integrity_mismatch` = widersprüchliche
+   * Zeile, nichts angezeigt; `unavailable` = keine Verteilung.
+   */
+  failure_evidence_status?: 'row_consistent' | 'integrity_mismatch' | 'unavailable';
 }
 
 export type FailureEventKind = 'liquiditaetsengpass' | 'zielschwelle' | 'renditeziel';

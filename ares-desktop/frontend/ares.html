@@ -7550,36 +7550,36 @@ function wealthProjectionInputs(scope,years){
       Number(mix.alternatives||0)*returnMap.alternatives
     )/10000);
   });
-  // Bug-Fix (2026-06-12): Verbindlichkeiten (Hypotheken) vom Gesamtvermoegen
-  // ABZIEHEN -> Netto-Vermoegen als Projektionsbasis. wealthScopePositions('total')
-  // schliesst Verbindlichkeiten nur aus, zog sie aber nie ab -> die Verzehr-Kurve
-  // startete brutto (z.B. Leart 1.15M statt netto 850k) und war inkonsistent zur
-  // Wealth-Summary (net_worth_rappen). Rendite/Bucket-Gewichte bleiben auf den
-  // Brutto-Assets (totalRappen); nur der Startwert wird auf netto reduziert.
-  // PROPERTY-UI-PROJECTION-001 (Audit 2026-09-14): liabilitiesRappen war
-  // bisher eine einzige, ueber t=0 statische Zahl -- eine bilanziell neutrale
-  // Tilgungszahlung (direkt: Schuld sinkt; indirekt: Pledged-Asset waechst)
-  // wirkte dadurch im sichtbaren Chart wie echter Verzehr, weil die Schuld nie
-  // sank bzw. nie ein Gegenwert entstand, obwohl der Cashflow die Zahlung
-  // schon als Ausgabe abzog. mortgageMortgageSeries liefert dieselbe, jahres-
-  // abhaengige Formel wie das Backend (_build_external_foundation_projection).
-  // TOTAL-WEALTH-LIABILITY-001: die Serie enthaelt ALLE Verbindlichkeiten
-  // (Hypotheken mit Tilgung, uebrige Schulden konstant) -> Startwert netto.
+  // Netto-Startwert (Bug-Fix 2026-06-12); Rendite/Gewichte auf Brutto-Assets. Liability-/Pledged-
+  // Serie jahresabhaengig wie Backend _build_external_foundation_projection (PROPERTY-UI-
+  // PROJECTION-001, Tilgung bilanzneutral), ALLE Schulden (TOTAL-WEALTH-LIABILITY-001).
   var mortgagePositions=scope!=='advisory'?activeClientWealthPositions():[];
   var mortgageSeries=mortgageLiabilityAndPledgedSeriesRappen(mortgagePositions,years);
   var liabilitiesRappen=Number(mortgageSeries.liability[0]||0);
   var startRappen=Math.max(0,totalRappen-liabilitiesRappen+Number(mortgageSeries.pledged[0]||0));
-  // Sockel = Immobilien-Wert abzueglich der Verbindlichkeiten (Hypotheken und
-  // uebrige Schulden; das verzehrbare Finanzvermoegen bleibt brutto und
-  // rentiert, die Schuld bleibt bis zur Tilgung stehen).
-  // consumableReturnBps = gewichtete Rendite NUR des verzehrbaren Finanzvermoegens
-  // (ohne die Immobilien-Buchrendite, die jetzt im Sockel-Index sitzt).
+  // Lokale Vorschau ohne Snapshot: Sockel = Immobilie minus alle Schulden.
   var sockelRappen=Math.max(0,sockelGrossRappen-liabilitiesRappen+Number(mortgageSeries.pledged[0]||0));
   var consumableReturnBps=consumableRappen>0?Math.round(consumableReturnRappenBps/consumableRappen):0;
-  // Sockel-Wertsteigerung p.a. (wertgewichtet ueber die Immobilien): 0 = flach.
   var sockelIndexBps=sockelGrossRappen>0?Math.round(sockelIndexRappenBps/sockelGrossRappen):0;
+  // TOTAL-WEALTH-LIABILITY-001 (Snapshot-Paritaet): mit Backend-Snapshot gelten dessen FX-normalisierte
+  // Netto-Basis und das Fundament NACH der Liability-Kaskade (sonstige Schulden zuerst gegen
+  // Finanzvermoegen) -- keine Browser-Nachbildung. Serien (bevorzugt projection_basis) liefern nur
+  // Tilgungs-Deltas; der Offset verankert Jahr 0 exakt auf foundation_in_net_wealth_rappen.
+  var basisSource='local_preview';
+  var _ta=scope!=='advisory'&&strategyState&&strategyState.allocation&&strategyState.allocation.total_allocation;
+  if(_ta&&Number.isFinite(Number(_ta.total_base_rappen))&&Number.isFinite(Number(_ta.foundation_in_net_wealth_rappen))){
+    var _pb=_ta.projection_basis||{},_has=function(a){return Array.isArray(a)&&a.length>0;};
+    var _L=_has(_pb.liability_series_rappen)?_pb.liability_series_rappen:mortgageSeries.liability;
+    var _P=_has(_pb.pledged_asset_series_rappen)?_pb.pledged_asset_series_rappen:mortgageSeries.pledged;
+    if(_has(_pb.property_series_rappen))sockelGrossRappen=Math.max(0,Number(_pb.property_series_rappen[0]||0));
+    startRappen=Math.max(0,Math.round(Number(_ta.total_base_rappen)));
+    sockelRappen=Math.max(0,Math.min(startRappen,Math.round(Number(_ta.foundation_in_net_wealth_rappen))));
+    var _off=sockelGrossRappen+Number(_P[0]||0)-sockelRappen-Number(_L[0]||0);
+    mortgageSeries={liability:_L.map(function(v){return Number(v||0)+_off;}),pledged:_P.map(Number)};
+    basisSource='backend_snapshot';
+  }
   return {
-    scope:scope,
+    scope:scope,basisSource:basisSource,
     startRappen:startRappen,
     grossRappen:totalRappen,
     sockelRappen:sockelRappen,

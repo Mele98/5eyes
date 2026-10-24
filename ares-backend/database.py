@@ -590,6 +590,9 @@ def ensure_runtime_columns() -> None:
         # erwartet int, nicht NULL).
         'wealth_positions': [
             ('property_rental_inflation_linked', 'INTEGER', 0),
+            # PG-002 (2026-10-24): direkte Mandantenbindung, aus clients.tenant_id
+            # abgeleitet (services/wealth_tenant_boundary.py backfillt + Trigger).
+            ('tenant_id', 'TEXT'),
             # VORSORGE-PROJECTION-001 (2026-10-18): siehe models/wealth.py.
             # Alle NULL = Defaults je Anlageform (unveraendert erfassbar).
             ('pension_vehicle', 'TEXT'),
@@ -789,6 +792,8 @@ def ensure_runtime_columns() -> None:
         # (unveraendertes Verhalten fuer Bestandszeilen).
         'wealth_inflows': [
             ('linked_position_id', 'TEXT'),
+            # PG-002: siehe wealth_positions.tenant_id.
+            ('tenant_id', 'TEXT'),
             # INFLOW-CERTAINTY-001: NULL = 'sicher' (services/wealth_inflow_certainty.py).
             ('certainty', 'TEXT'),
         ],
@@ -2168,9 +2173,17 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
     ensure_current_anchor_unique_indexes()
     # UPGRADE-PATH-CHECK-DRIFT-001: erweiterte CHECK-IN-Listen des
     # Referenzschemas erreichten bestehende DBs nie (CREATE TABLE IF NOT EXISTS).
+    # Fail-closed (Closure-Review #675): wirft ManualMigrationRequired bzw.
+    # FatalRecoveryFailed, wenn Vor- oder Zielzustand nicht verifiziert ist --
+    # init_db() faehrt dann bewusst NICHT fort.
     from services.sqlite_check_constraint_upgrade import ensure_sqlite_check_in_lists_current
 
     ensure_sqlite_check_in_lists_current(engine, resolve_schema_path())
+    # PG-002: Tenant-Backfill + Link-/Tenant-Trigger fuer wealth_positions/
+    # wealth_inflows; nach dem CHECK-Upgrade, das Tabellen neu aufbauen kann.
+    from services.wealth_tenant_boundary import ensure_sqlite_wealth_tenant_boundary
+
+    ensure_sqlite_wealth_tenant_boundary(engine)
     migrate_house_matrix_real_estate_cap_20()
     ensure_snapshot_tables()
     from services.market_data.provider_health_registry import ensure_provider_health_table
@@ -2192,6 +2205,12 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
 
 def init_db() -> None:
     active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+    if is_sqlite_database_url(active_url):
+        # UPGRADE-PATH-CHECK-DRIFT-001: eine quarantaenisierte DB (gescheiterte,
+        # nicht verifizierte Wiederherstellung) blockiert jeden weiteren Start.
+        from services.sqlite_check_constraint_upgrade import raise_if_quarantined
+
+        raise_if_quarantined(settings.db_path)
     if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url):
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
 
@@ -2219,6 +2238,11 @@ def init_db() -> None:
     ensure_client_login_user_tenant_backfill()
     # E1 (2026-06-12): Bestands-Rows ohne tenant_id dem 'main'-Tenant zuweisen.
     ensure_tenant_backfill()
+    if is_sqlite_database_url(active_url):
+        # PG-002: Vermoegens-Tenant erst NACH dem Client-Backfill nachziehen.
+        from services.wealth_tenant_boundary import ensure_sqlite_wealth_tenant_boundary
+
+        ensure_sqlite_wealth_tenant_boundary(engine)
     # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
     # Tenant-Isolation zusaetzlich auf Datenbankebene.
     # PG-003 (Codex-Audit 2026-08-25): ensure_postgres_tenant_not_null() lief

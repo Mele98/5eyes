@@ -202,19 +202,26 @@ def test_wealth_summary_aggregates_correctly_on_postgres(migrated_postgres_schem
         # (`country_of_residence`, das als `default="CH"` definiert ist).
         # Die Spaltenliste hier zu pflegen waere bruechig; das ORM kennt sie.
         from models.clients import Client  # noqa: PLC0415
+        from models.tenant import Tenant  # noqa: PLC0415
         from models.users import User  # noqa: PLC0415
         from models.wealth import WealthPosition  # noqa: PLC0415
         from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
 
         session_factory = sessionmaker(bind=engine, expire_on_commit=False)
         with session_factory() as session:
+            # PG-002: auf Postgres ist wealth_positions.tenant_id NOT NULL und
+            # wird aus dem Kunden abgeleitet -- der Kunde braucht einen Tenant.
+            session.add(Tenant(
+                id="pg-t1", display_name="PG", slug="pg-t1", created_at=now, updated_at=now,
+            ))
+            session.flush()
             session.add(User(
                 id="pg-adv1", username="pg-advisor", password_hash="x",
-                full_name="Beraterin Mock", created_at=now, updated_at=now,
+                full_name="Beraterin Mock", tenant_id="pg-t1", created_at=now, updated_at=now,
             ))
             session.add(Client(
                 id="pg-c1", client_number="PG-1", first_name="Thierry",
-                last_name="Goessi", advisor_id="pg-adv1",
+                last_name="Goessi", advisor_id="pg-adv1", tenant_id="pg-t1",
                 created_at=now, updated_at=now,
             ))
             for position_id, assignment, value in (

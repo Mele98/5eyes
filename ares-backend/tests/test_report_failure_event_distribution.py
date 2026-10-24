@@ -34,11 +34,14 @@ from tests.test_advisory_report import (
     session_factory,  # noqa: F401 - pytest fixture re-export
 )
 
-_DISTRIBUTION = [
-    {"event_id": "liquiditaetsengpass-jahr-7", "weighted_mass": 31.0, "share": 0.5},
-    {"event_id": "zielschwelle-G", "weighted_mass": 18.6, "share": 0.3},
-    {"event_id": "liquiditaetsengpass-jahr-9", "weighted_mass": 12.4, "share": 0.2},
-]
+def _distribution(goal_id: str) -> list[dict]:
+    # Zielspezifische Ereignisse tragen die goal_id der eigenen Zeile
+    # (Closure-Review PR #671: fremde Ziel-IDs werden nicht publiziert).
+    return [
+        {"event_id": "liquiditaetsengpass-jahr-7", "weighted_mass": 31.0, "share": 0.5},
+        {"event_id": f"zielschwelle-{goal_id}", "weighted_mass": 18.6, "share": 0.3},
+        {"event_id": "liquiditaetsengpass-jahr-9", "weighted_mass": 12.4, "share": 0.2},
+    ]
 
 
 def _row(goal_id: str, **extra) -> dict:
@@ -114,13 +117,13 @@ def _pdf_goal_text(gbi: dict) -> str:
 def test_payload_passes_full_distribution_and_compact_summary(session_factory):
     gbi = _goal_payload(
         session_factory,
-        lambda gid: _row(gid, failure_event_distribution=_DISTRIBUTION),
+        lambda gid: _row(gid, failure_event_distribution=_distribution(gid)),
     )
     goal = gbi["goals"][0]
     assert goal["failure_event_distribution"] == [
         {"event_id": "liquiditaetsengpass-jahr-7", "kind": "liquiditaetsengpass",
          "plan_year": 7, "share_bps": 5000},
-        {"event_id": "zielschwelle-G", "kind": "zielschwelle",
+        {"event_id": f"zielschwelle-{goal['goal_id']}", "kind": "zielschwelle",
          "plan_year": None, "share_bps": 3000},
         {"event_id": "liquiditaetsengpass-jahr-9", "kind": "liquiditaetsengpass",
          "plan_year": 9, "share_bps": 2000},
@@ -148,7 +151,7 @@ def test_legacy_scope_row_never_shows_distribution(session_factory):
     gbi = _goal_payload(
         session_factory,
         lambda gid: _row(
-            gid, evaluation_scope=None, failure_event_distribution=_DISTRIBUTION,
+            gid, evaluation_scope=None, failure_event_distribution=_distribution(gid),
         ),
     )
     assert gbi["goals"][0]["failure_cause_summary"] is None
@@ -159,7 +162,9 @@ def test_goal_without_failed_paths_has_empty_distribution_and_no_pdf_block(
 ):
     gbi = _goal_payload(
         session_factory,
-        lambda gid: _row(gid, failure_event_distribution=[],
+        # Kein verfehlter Verlauf <=> 100 % (Closure-Review PR #671: eine
+        # leere Verteilung unter 100 % waere widerspruechlich).
+        lambda gid: _row(gid, probability=1.0, failure_event_distribution=[],
                          failure_event_id=None, failure_event_share=None),
     )
     goal = gbi["goals"][0]
@@ -198,7 +203,7 @@ def test_return_goal_label():
 def test_pdf_renders_compact_customer_text_without_causal_claims(session_factory):
     gbi = _goal_payload(
         session_factory,
-        lambda gid: _row(gid, failure_event_distribution=_DISTRIBUTION),
+        lambda gid: _row(gid, failure_event_distribution=_distribution(gid)),
     )
     text = _pdf_goal_text(gbi)
     assert "Verfehlte Verläufe nach erstem Ereignis" in text

@@ -92,6 +92,7 @@ def _build_total_wealth_allocation(
     target_weights_bps: dict,
     direct_property_rappen: int | None = None,
     other_liabilities_rappen: int = 0,
+    foundation_projection: dict | None = None,
 ) -> dict:
     """Gesamtvermögens-Allokation mit der Immobilie als fixem Fundament (Sockel).
 
@@ -128,6 +129,14 @@ def _build_total_wealth_allocation(
 
     REIN ADDITIV: beeinflusst Optimizer/Reserve/Ziele NICHT — nur die Anzeige.
     Der Optimizer/die Reserve rechnen unverändert auf dem Beratungsvermögen.
+
+    `foundation_projection` (TOTAL-WEALTH-LIABILITY-001, Snapshot-Parität):
+    die FX-normalisierte Fundament-Projektion der Engine
+    (`_build_external_foundation_projection`). Liefert die Direktimmobilie
+    (Jahr 0), falls `direct_property_rappen` fehlt, und wird als
+    `projection_basis` mitpubliziert, damit Browser-Chart und Bericht dieselbe
+    Netto-Basis, dieselbe Fundament-Zerlegung und dieselben Jahresserien
+    verwenden, statt sie aus rohen Positionen nachzubauen.
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS, _bps
@@ -143,6 +152,8 @@ def _build_total_wealth_allocation(
     # Only position_type='Immobilien' is the fixed direct-property foundation.
     # Listed funds/REITs inside depots remain an investable real-estate sleeve.
     real_estate_gross = amounts["real_estate"]
+    if direct_property_rappen is None and foundation_projection:
+        direct_property_rappen = (foundation_projection.get("property_series_rappen") or [0])[0]
     direct_property_gross = (
         real_estate_gross
         if direct_property_rappen is None
@@ -271,7 +282,66 @@ def _build_total_wealth_allocation(
         "net_wealth_non_positive": total_base <= 0,
         "uncovered_liabilities_rappen": int(uncovered_liabilities),
         "allocation": allocation,
+        **(
+            {"projection_basis": total_wealth_projection_basis(
+                foundation_projection,
+                total_base_rappen=total_base,
+                foundation_in_net_wealth_rappen=foundation_in_net_wealth,
+                foundation_charged_other_liabilities_rappen=foundation_charged,
+            )}
+            if foundation_projection is not None
+            else {}
+        ),
     }
+
+
+PROJECTION_BASIS_SCHEMA = "total-wealth-projection-basis/v1"
+
+
+def total_wealth_projection_basis(
+    foundation_projection: dict,
+    *,
+    total_base_rappen: int,
+    foundation_in_net_wealth_rappen: int,
+    foundation_charged_other_liabilities_rappen: int,
+) -> dict:
+    """Kanonische, FX-normalisierte Basis der Gesamtvermögens-Projektion.
+
+    Single Source of Truth für den sichtbaren Chart (Monolith) und den Bericht:
+    - `start_rappen`: Netto-Gesamtvermögen (= `total_base_rappen`, FX-normalisiert);
+    - `foundation_in_net_wealth_rappen`: Fundament NACH der Liability-Kaskade
+      (sonstige Schulden belasten zuerst die Finanz-Buckets, das Fundament
+      zuletzt) -- der Sockel der Projektion;
+    - `financial_net_rappen`: der rentierende Rest (Start minus Sockel);
+    - Jahresserien Direktimmobilie / Verbindlichkeiten (alle, Hypotheken mit
+      Tilgung) / Pledged-Asset aus derselben Engine-Projektion. Konsumenten
+      verwenden nur deren Veränderung gegenüber Jahr 0, damit die
+      Jahr-0-Zerlegung exakt dem Snapshot entspricht.
+    `basis_hash` bindet alle Felder (SHA-256 über kanonisches JSON).
+    """
+    import hashlib
+    import json
+
+    def _series(key: str) -> list[int]:
+        return [int(v) for v in (foundation_projection or {}).get(key) or []]
+
+    start = max(0, int(total_base_rappen or 0))
+    sockel = max(0, min(start, int(foundation_in_net_wealth_rappen or 0)))
+    basis = {
+        "schema": PROJECTION_BASIS_SCHEMA,
+        "start_rappen": start,
+        "foundation_in_net_wealth_rappen": sockel,
+        "foundation_charged_other_liabilities_rappen": max(
+            0, int(foundation_charged_other_liabilities_rappen or 0)
+        ),
+        "financial_net_rappen": start - sockel,
+        "property_series_rappen": _series("property_series_rappen"),
+        "liability_series_rappen": _series("liability_series_rappen"),
+        "pledged_asset_series_rappen": _series("pledged_asset_series_rappen"),
+    }
+    canonical = json.dumps(basis, sort_keys=True, separators=(",", ":"))
+    basis["basis_hash"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return basis
 
 
 def _goal_uses_total_scope(goal) -> bool:
