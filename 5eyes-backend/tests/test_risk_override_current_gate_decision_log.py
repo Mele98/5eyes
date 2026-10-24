@@ -404,7 +404,8 @@ def test_decision_rows_bind_basis_rules_and_chain(session_factory):
         assert decisions[0].previous_decision_id is None
         assert decisions[1].previous_decision_id == decisions[0].id
         for decision in decisions:
-            assert decision.schema_version == "RiskOverrideDecisionV1"
+            # PG-002 (PR #662): V2 bindet zusaetzlich den Mandanten.
+            assert decision.schema_version == "RiskOverrideDecisionV2"
             assert decision.mandate_id == "m-rcp"
             assert decision.assessment_version == 1
             assert decision.basis_final_score_x10 == basis_final

@@ -28,6 +28,10 @@ TRIGGERS = {
     "trg_risk_override_decisions_no_update",
     "trg_risk_override_decisions_no_delete",
 }
+# PG-002 (Codex-Closure-Review PR #662): Mandanten-/Kombinationsschutz beim
+# INSERT; ORM create_all und Alembic installieren ihn zusaetzlich (Bootstrap-SQL
+# kennt mandates.tenant_id noch nicht, dort folgt er per Runtime-Patch).
+TENANT_GUARD = "trg_risk_override_decisions_tenant_guard"
 POINTER_COLUMNS = {"override_decision_id", "override_decision_hash"}
 MODEL_COLUMNS = {c.name for c in RiskOverrideDecision.__table__.columns}
 
@@ -108,7 +112,7 @@ def test_orm_create_all_installs_append_only_triggers(tmp_path):
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(bind=engine)
     engine.dispose()
-    assert _triggers(db_path) == TRIGGERS
+    assert _triggers(db_path) == TRIGGERS | {TENANT_GUARD}
 
 
 def test_alembic_head_creates_decision_table_and_downgrade_is_reversible(tmp_path):
@@ -128,7 +132,7 @@ def test_alembic_head_creates_decision_table_and_downgrade_is_reversible(tmp_pat
     }["ux_risk_override_decision_sequence"]
     assert unique["unique"] and unique["column_names"] == ["assessment_id", "sequence_no"]
     engine.dispose()
-    assert _triggers(db_path) == TRIGGERS
+    assert _triggers(db_path) == TRIGGERS | {TENANT_GUARD}
 
     # Auf die Vorgaenger-Revision der Decision-Migration zurueck (spaetere
     # Revisionen wie d7b3f1a9c2e4/f3a8d1c6b4e2 haengen sich an und werden mit entfernt).

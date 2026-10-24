@@ -291,6 +291,7 @@ RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     assessment_id                TEXT NOT NULL,
     mandate_id                   TEXT NOT NULL,
     client_id                    TEXT,
+    tenant_id                    TEXT,
     assessment_version           INTEGER NOT NULL,
     sequence_no                  INTEGER NOT NULL CHECK(sequence_no >= 1),
     previous_decision_id         TEXT,
@@ -316,6 +317,12 @@ RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     "ON risk_override_decisions(assessment_id, sequence_no)",
     "CREATE INDEX IF NOT EXISTS ix_risk_override_decisions_mandate "
     "ON risk_override_decisions(mandate_id)",
+)
+# PG-002 (Codex-Closure-Review PR #662): Index der nachgezogenen tenant_id;
+# erst NACH ensure_column ausfuehrbar (Alt-DBs ohne die Spalte).
+RISK_OVERRIDE_DECISION_SQLITE_TENANT_INDEX = (
+    "CREATE INDEX IF NOT EXISTS ix_risk_override_decisions_tenant_id "
+    "ON risk_override_decisions(tenant_id)"
 )
 
 
@@ -387,6 +394,7 @@ RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL: tuple[str, ...] = (
     assessment_id          TEXT NOT NULL,
     mandate_id             TEXT NOT NULL,
     client_id              TEXT,
+    tenant_id              TEXT,
     assessment_version     INTEGER NOT NULL,
     sequence_no            INTEGER NOT NULL CHECK(sequence_no >= 1),
     previous_signoff_id    TEXT,
@@ -418,6 +426,10 @@ RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL: tuple[str, ...] = (
     "ON risk_profile_signoffs(assessment_id, sequence_no)",
     "CREATE INDEX IF NOT EXISTS ix_risk_profile_signoffs_mandate "
     "ON risk_profile_signoffs(mandate_id)",
+)
+RISK_PROFILE_SIGNOFF_SQLITE_TENANT_INDEX = (
+    "CREATE INDEX IF NOT EXISTS ix_risk_profile_signoffs_tenant_id "
+    "ON risk_profile_signoffs(tenant_id)"
 )
 
 # Altbestand: eine Signatur ohne RiskProfileSignoffV1-Snapshot bleibt sichtbar,
@@ -1088,6 +1100,11 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "override_decision_hash", "TEXT")
         for ddl in RISK_OVERRIDE_DECISION_SQLITE_TABLE_DDL + RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # PG-002 (Codex-Closure-Review PR #662): direkte Mandantenbindung der
+        # Evidence (ADD COLUMN feuert den UPDATE-Trigger nicht); Backfill +
+        # Guard: services/risk_evidence_tenant_boundary.py.
+        ensure_column(conn, "risk_override_decisions", "tenant_id", "TEXT")
+        conn.execute(text(RISK_OVERRIDE_DECISION_SQLITE_TENANT_INDEX))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
         # FinancialCoverageAttestationV1 (idempotent; siehe Konstanten oben).
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
@@ -1103,6 +1120,8 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "signoff_status", "TEXT")
         for ddl in RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL + RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        ensure_column(conn, "risk_profile_signoffs", "tenant_id", "TEXT")
+        conn.execute(text(RISK_PROFILE_SIGNOFF_SQLITE_TENANT_INDEX))
         conn.execute(text(RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL))
         # DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Kundenschluessel fuer das
         # Crypto-Shredding (services/pii_vault.py), idempotent.
@@ -2192,6 +2211,9 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
     from services.wealth_tenant_boundary import ensure_sqlite_wealth_tenant_boundary
 
     ensure_sqlite_wealth_tenant_boundary(engine)
+    from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
+
+    ensure_sqlite_risk_evidence_tenant_boundary(engine)
     migrate_house_matrix_real_estate_cap_20()
     ensure_snapshot_tables()
     from services.market_data.provider_health_registry import ensure_provider_health_table
@@ -2251,6 +2273,11 @@ def init_db() -> None:
         from services.wealth_tenant_boundary import ensure_sqlite_wealth_tenant_boundary
 
         ensure_sqlite_wealth_tenant_boundary(engine)
+        # PG-002 (PR #662): Risiko-Evidence ebenfalls erst nach dem Mandats-
+        # Backfill an den Mandanten binden.
+        from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
+
+        ensure_sqlite_risk_evidence_tenant_boundary(engine)
     # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
     # Tenant-Isolation zusaetzlich auf Datenbankebene.
     # PG-003 (Codex-Audit 2026-08-25): ensure_postgres_tenant_not_null() lief
