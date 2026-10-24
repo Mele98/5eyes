@@ -59,6 +59,24 @@ def _aggregator_cache_get(db: Session, key: Any, factory) -> Any:
     return cache[key]
 
 
+def _cached_fx_source(db: Session) -> Any:
+    """Eine FX-Quelle je Report-Aufruf (Wealth-Summary und Reserve-Sektion
+    teilen sie; TOTAL-WEALTH-LIABILITY-001 ohne zusaetzliche Query).
+
+    Fallback auf FXRateSource() statt None (Generalaudit 2026-07-24):
+    from_db() faengt Fehler selbst ab; None wuerde die Umrechnung abschalten.
+    """
+    from services.currency.fx_rates import FXRateSource
+
+    def _load():
+        try:
+            return FXRateSource.from_db(db)
+        except Exception:  # noqa: BLE001
+            return FXRateSource()
+
+    return _aggregator_cache_get(db, ("fx_source",), _load)
+
+
 def _cached_latest_recommendation_run(db: Session, mandate: Mandate) -> Any:
     """U-18: einmal pro compute() statt 4x (Sektionen 5, 8-10, 13).
 
@@ -933,14 +951,9 @@ def _build_wealth_summary(
     (`total_allocation.total_base_rappen`) wichen voneinander ab.
     """
     from models.wealth import WealthPosition
-    from services.currency.fx_rates import FXRateSource
     from services.portfolio_engine import _convert_position_amount_to_target_currency
     from services.wealth_position_semantics import is_liability_assignment
 
-    try:
-        fx_source = FXRateSource.from_db(db)
-    except Exception:  # noqa: BLE001 - wie die Reserve-Sektion: Default-Kurse statt Rohsumme
-        fx_source = FXRateSource()
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     wp_rows = (
         db.query(WealthPosition)
@@ -951,6 +964,13 @@ def _build_wealth_summary(
         )
         .all()
     )
+    # FX nur laden, wenn eine Position nicht in der Basiswaehrung liegt (keine
+    # Zusatz-Query im Normalfall; Quelle je Report-Aufruf gecacht).
+    needs_fx = any(
+        str(getattr(wp, "currency", "") or "CHF").upper().strip() != target_currency
+        for wp in wp_rows
+    )
+    fx_source = _cached_fx_source(db) if needs_fx else None
     gesamtvermoegen = 0
     beratungsvermoegen = 0
     immobilien = 0
@@ -4122,12 +4142,7 @@ def _recompute_reserve_reasoning(
     # selbst auf Default-Kurse zurueck; dieser aeussere except greift
     # praktisch nie. fx_source=None wuerde die Konvertierung komplett
     # deaktivieren statt eine Naeherung zu zeigen.
-    from services.currency.fx_rates import FXRateSource
-    fx_source = None
-    try:
-        fx_source = FXRateSource.from_db(db)
-    except Exception:  # noqa: BLE001
-        fx_source = FXRateSource()
+    fx_source = _cached_fx_source(db)
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
 
     # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Summen fielen bisher aus
