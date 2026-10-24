@@ -87,7 +87,15 @@ def _seed(session_factory, *, orphan_link: bool = False):  # noqa: F811
             is_recurring=0, frequency="einmalig", value_mode="nominal",
             is_active=1, created_at=_now(), updated_at=_now(),
         ))
-        s.commit()
+        if orphan_link:
+            # Altbestand: neue verwaiste Links lehnt die DB ab (PG-002), alte
+            # Zeilen koennen existieren -- der Lesepfad muss fail-closed bleiben.
+            from tests._wealth_link_legacy import legacy_link_guards_disabled
+
+            with legacy_link_guards_disabled(s):
+                s.commit()
+        else:
+            s.commit()
         advisor = s.query(User).filter(User.id == advisor_id).one()
     return advisor, client_id, mandate_id, start
 

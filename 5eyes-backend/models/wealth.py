@@ -1,4 +1,6 @@
-from sqlalchemy import DDL, Column, String, Integer, ForeignKey, Index, event, text
+from sqlalchemy import (
+    DDL, Column, ForeignKey, ForeignKeyConstraint, Index, Integer, String, UniqueConstraint, event, inspect, text,
+)
 from sqlalchemy.orm import relationship
 from database import (
     FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS,
@@ -9,9 +11,17 @@ from database import (
 
 class WealthPosition(Base):
     __tablename__ = "wealth_positions"
+    # PG-002 (Closure-Review PR #666): Zielschluessel der zusammengesetzten
+    # Referenz wealth_inflows(linked_position_id, client_id). Gleicher Name wie
+    # das Postgres-Migrationsobjekt (services/wealth_tenant_boundary.py).
+    __table_args__ = (UniqueConstraint("id", "client_id", name="uq_wealth_positions_id_client"),)
 
     id = Column(String, primary_key=True)
     client_id = Column(String, ForeignKey("clients.id"), nullable=False)
+    # PG-002: direkte Mandantenbindung fuer RLS. Immer serverseitig aus
+    # clients.tenant_id des Kunden abgeleitet (ORM-Event unten + DB-Trigger),
+    # nie aus Request-Werten. Postgres: NOT NULL per Migration.
+    tenant_id = Column(String, ForeignKey("tenants.id"), index=True)
     label = Column(String, nullable=False)
     position_type = Column(String, nullable=False)
     assignment = Column(String, nullable=False, default="Anderes Vermögen")
@@ -139,10 +149,22 @@ class WealthInflow(Base):
             sqlite_where=text("linked_position_id IS NOT NULL AND is_active = 1 AND deleted_at IS NULL"),
             postgresql_where=text("linked_position_id IS NOT NULL AND is_active = 1 AND deleted_at IS NULL"),
         ),
+        # PG-002 (Closure-Review PR #666): ein Link zeigt nur auf eine Position
+        # DESSELBEN Kunden (damit desselben Mandanten). Zusammengesetzter FK
+        # (Postgres + frische SQLite-DBs); Trigger in services/
+        # wealth_tenant_boundary.py decken Alt-SQLite-DBs und die Soft-Delete-
+        # Policy ab. MATCH SIMPLE: NULL-Link = kein Vorsorgebezug.
+        ForeignKeyConstraint(
+            ["linked_position_id", "client_id"],
+            ["wealth_positions.id", "wealth_positions.client_id"],
+            name="fk_wealth_inflows_linked_position_client",
+        ),
     )
 
     id = Column(String, primary_key=True)
     client_id = Column(String, ForeignKey("clients.id"), nullable=False)
+    # PG-002: siehe WealthPosition.tenant_id.
+    tenant_id = Column(String, ForeignKey("tenants.id"), index=True)
     mandate_id = Column(String, ForeignKey("mandates.id"))  # optional, falls Mandate-spezifisch
     label = Column(String, nullable=False)
     source_type = Column(String, nullable=False)  # 'Erbschaft' | 'Bonus' | 'Saeule3b' | 'Verkaufserloes' | 'Andere'
@@ -159,6 +181,14 @@ class WealthInflow(Base):
     # des Gesamtvermoegens: die Position wird ab dem Bezugsjahr ausgebucht
     # (services/portfolio_engine_pension_positions.py). NULL = neues Vermoegen.
     linked_position_id = Column(String)
+    # PG-002: nur fuer die Flush-Reihenfolge (Position vor Zufluss in derselben
+    # Session); der Link wird weiterhin ueber linked_position_id gesetzt.
+    linked_position = relationship(
+        "WealthPosition",
+        primaryjoin="WealthInflow.linked_position_id == WealthPosition.id",
+        foreign_keys=[linked_position_id],
+        lazy="noload",
+    )
     # INFLOW-CERTAINTY-001 (2026-10-21): 'sicher' | 'unsicher'. NULL (Bestand
     # vor der Migration / Runtime-Patch) = 'sicher' -> unveraendertes Verhalten.
     # 'unsicher' senkt die Reserve nicht und fliesst nicht in die Simulation
@@ -426,3 +456,32 @@ for _trigger_ddl in FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS:
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )
+
+
+# --- PG-002: Datenbank-Mandantengrenze fuer Vermoegen/Zufluesse -------------
+from services import wealth_tenant_boundary as _wtb  # noqa: E402
+
+
+def _derive_wealth_tenant(mapper, connection, target) -> None:
+    state = inspect(target)
+    if state.persistent:
+        changed = any(
+            state.attrs[name].history.has_changes() for name in ("client_id", "tenant_id")
+        )
+        if not changed:
+            return
+    target.tenant_id = _wtb.derive_tenant_id(connection, target.client_id)
+
+
+for _wealth_model in (WealthPosition, WealthInflow):
+    event.listen(_wealth_model, "before_insert", _derive_wealth_tenant)
+    event.listen(_wealth_model, "before_update", _derive_wealth_tenant)
+    event.listen(_wealth_model.__table__, "after_create", _wtb.create_sqlite_triggers_after_create)
+    for _function_ddl in _wtb.POSTGRES_FUNCTIONS:
+        event.listen(
+            _wealth_model.__table__, "after_create", DDL(_function_ddl).execute_if(dialect="postgresql")
+        )
+    for _trigger_ddl in _wtb.postgres_triggers(_wealth_model.__tablename__):
+        event.listen(
+            _wealth_model.__table__, "after_create", DDL(_trigger_ddl).execute_if(dialect="postgresql")
+        )
