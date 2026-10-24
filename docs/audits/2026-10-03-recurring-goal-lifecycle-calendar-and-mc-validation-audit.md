@@ -6,8 +6,8 @@ audit_started_on: "2026-09-29"
 audit_completed_on: "2026-10-03"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "61965c6e7eb415bc817826352386562cb70205a4"
 prior_goal_funding_audit_path: "docs/audits/2026-09-28-goal-funding-priority-and-achievability-attribution-audit.md"
@@ -285,7 +285,7 @@ kein statistically_uncertain-Zustand
 
 ### React-Editor, Formvertrag und echter API-Guard
 
-- `5eyes-electron/frontend/reporting/src/App.tsx:36-37`, `:84-85` und
+- `ares-desktop/frontend/reporting/src/App.tsx:36-37`, `:84-85` und
   `:130-140` verdrahten `GoalsEditor` und damit `GoalWizard` als echten
   React-Routenpfad.
 - `reporting/src/sections/goals/GoalWizard.tsx:43-62` definiert den
@@ -301,34 +301,34 @@ kein statistically_uncertain-Zustand
   nur die Frequenz, nicht positiven Betrag oder gültiges Timing.
 - `goalForm.ts:180-210` setzt `is_ongoing` standardmäßig auf `false` und
   `target_amount_rappen` ausschließlich beim Einmalziel.
-- `5eyes-backend/services/goal_semantics.py:174-180`, `:212-216` und
+- `ares-backend/services/goal_semantics.py:174-180`, `:212-216` und
   `:250-262` verlangen im Backend positiven Betrag, Stream-Timing und für
   endliche Streams ein Enddatum.
-- `5eyes-backend/routers/wealth.py:261-279` validiert Updates gegen den
+- `ares-backend/routers/wealth.py:261-279` validiert Updates gegen den
   vollständigen gemergten Zustand; `:282-339` normalisiert danach und ruft
   den strengen Domainvertrag auf.
 - `GoalWizard.test.tsx:24-63` baut ein Pensionsziel ohne Betrag und Timing;
   `:70-91` mockt `updateGoal()` erfolgreich und prüft nur drei andere Felder.
 - `goalForm.test.ts` besitzt weder einen validen recurring Positivfall noch
   Betrag-/Timing-/Roundtrip-Negativfälle.
-- `5eyes-electron/frontend/5eyes_v2.html:4690-4733`, `:26280-26294` und
+- `ares-desktop/frontend/ares.html:4690-4733`, `:26280-26294` und
   `:26721-26806` belegen, dass der Classic-Pfad Betrag, Start, Ende,
   Frequenz und laufend bereits erfasst und übergibt.
 
 ### Occurrence-Scheduler und allgemeine Reporting-MC
 
-- `5eyes-backend/services/optimizer/goal_liabilities.py:183-200` berechnet
+- `ares-backend/services/optimizer/goal_liabilities.py:183-200` berechnet
   die Dauer als `target_date.year - start_date.year + 1`.
 - `goal_liabilities.py:233-246` annualisiert den Periodenbetrag pauschal mit
   12, 4, 2 oder 1.
 - `goal_liabilities.py:428-485` schreibt diesen vollen Jahresbetrag in jeden
   so bestimmten Bucket.
-- `5eyes-backend/services/cashflow_timeline.py:93-157` besitzt bereits die
+- `ares-backend/services/cashflow_timeline.py:93-157` besitzt bereits die
   kanonische Occurrence-Enumeration vom echten Startanker bis zum inklusiven
   Ende.
-- `5eyes-backend/tests/test_cashflow_annualization_properties.py:30-95`
+- `ares-backend/tests/test_cashflow_annualization_properties.py:30-95`
   schützt Frequenzen, Fenster, inklusive Endgrenze und Teiljahresmonotonie.
-- `5eyes-backend/services/portfolio_engine_mc_simulation.py:816-841`
+- `ares-backend/services/portfolio_engine_mc_simulation.py:816-841`
   implementiert für Goal-Reporting erneut inklusive Jahreslabel-Dauern.
 - `portfolio_engine_mc_simulation.py:934-967` multipliziert den annualisierten
   Betrag mit dieser Dauer und prüft die kumulierte Summe an einem Zielindex.
@@ -338,7 +338,7 @@ kein statistically_uncertain-Zustand
 
 ### Past-Lifecycle und kanalwidersprüchliche Behandlung
 
-- `5eyes-backend/services/calendar_horizon.py:28-53` gibt für
+- `ares-backend/services/calendar_horizon.py:28-53` gibt für
   `target_date <= as_of` korrekt null zukünftige Buckets zurück.
 - `services/optimizer/goal_liabilities.py:148-180` macht daraus mit
   `max(1, ...)` dennoch Zieljahr eins.
@@ -365,10 +365,10 @@ kein statistically_uncertain-Zustand
   `services/portfolio_engine_payload.py:353-368` rechnen separat mit
   `ceil(delta_days/365)` und klemmen Past auf eins.
 - `reporting/src/lib/goalClassification.ts:73-93` sowie
-  `5eyes-backend/services/pdf/components/goal_classification.py:51-72`
+  `ares-backend/services/pdf/components/goal_classification.py:51-72`
   leiten den Zielindex dagegen nur aus der Differenz der vierstelligen
   Kalenderjahre ab.
-- `5eyes-electron/frontend/5eyes_v2.html:15114-15132` verwendet im Classic-
+- `ares-desktop/frontend/ares.html:15114-15132` verwendet im Classic-
   Pfad zusätzlich eine eigene `365.25`-Tage-Näherung.
 - `portfolio_engine_payload.py:357-365` verwendet für recurring Goals zuerst
   `target_date`, während der Optimizer in `goal_liabilities.py:166-174`

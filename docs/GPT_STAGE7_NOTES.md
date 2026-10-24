@@ -1,7 +1,7 @@
 # GPT Stage 7 notes
 
 Additional Windows release polish added on top of stage 6:
-- placeholder Windows icons in `5eyes-electron/assets/icons/`
+- placeholder Windows icons in `ares-desktop/assets/icons/`
 - electron-builder NSIS/portable polish
 - release preflight check (`scripts/release-check.js`)
 - code-signing placeholders documented

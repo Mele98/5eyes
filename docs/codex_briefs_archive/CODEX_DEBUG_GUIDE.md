@@ -7,8 +7,8 @@
 
 ```
 Electron (main.js)
-  └─ Frontend: 5eyes-electron/frontend/5eyes_v2.html   ← EINZIGE Frontend-Datei (alles in 1 Datei!)
-  └─ Backend:  5eyes-backend/                          ← FastAPI Python
+  └─ Frontend: ares-desktop/frontend/ares.html   ← EINZIGE Frontend-Datei (alles in 1 Datei!)
+  └─ Backend:  ares-backend/                          ← FastAPI Python
        ├─ main.py                                       ← Uvicorn entry point
        ├─ routers/                                      ← API Endpoints
        │    ├─ auth.py          /auth/*
@@ -28,7 +28,7 @@ Electron (main.js)
   └─ Database: ~/5eyes/5eyes.db     ← SQLite (Pfad: config.py → db_path)
 ```
 
-**Wichtig:** Alle Frontend-Änderungen in `5eyes_v2.html`. Backend-Änderungen erfordern Neustart.
+**Wichtig:** Alle Frontend-Änderungen in `ares.html`. Backend-Änderungen erfordern Neustart.
 
 ---
 
@@ -88,7 +88,7 @@ API.del('/endpoint')        → DELETE
 
 ### Code-Lokationen:
 - `main.js:497` → `ipcMain.handle('auth:get-token', ...)`
-- `5eyes_v2.html` → `API`-Objekt (suche `function.*API\s*=` oder `const API`)
+- `ares.html` → `API`-Objekt (suche `function.*API\s*=` oder `const API`)
 
 ---
 
@@ -422,7 +422,7 @@ SCHRITT 7: REVIEW/EMPFEHLUNG
 
 | # | Bug | Status | Fix-Location |
 |---|-----|--------|-------------|
-| 1 | `parseCHF("CHF 120'000")` = NaN | ✅ GEFIXT | `5eyes_v2.html` ~Zeile 6948 |
+| 1 | `parseCHF("CHF 120'000")` = NaN | ✅ GEFIXT | `ares.html` ~Zeile 6948 |
 | 2 | Risikoprofil-Score verschwindet nach Reload | ✅ GEFIXT | `parseRiskAnnualInput()` + `parseCHF()` |
 | 3 | `investment_horizon_label` 422-Fehler | ✅ GEFIXT | Frontend RISK_HORIZON_OPTIONS + Backend Literal |
 | 4 | Vergleichs-Section immer sichtbar | ✅ GEFIXT | `toggleCompareSection()`, hidden by default |
@@ -437,7 +437,7 @@ SCHRITT 7: REVIEW/EMPFEHLUNG
 ## 14. CODEX-SPEZIFISCHE ANWEISUNGEN
 
 ### Wenn du einen Bug debuggst:
-1. **Zuerst lesen:** Die relevante Frontend-Funktion in `5eyes_v2.html` UND den entsprechenden Backend-Router/Service
+1. **Zuerst lesen:** Die relevante Frontend-Funktion in `ares.html` UND den entsprechenden Backend-Router/Service
 2. **Datenpfad verfolgen:** Wo kommt der Wert her? UI → JS-Funktion → API-Call → Backend-Validierung → DB → Response → JS-Render
 3. **Nie blind ändern** ohne den Kontext beider Seiten (Frontend + Backend) zu kennen
 

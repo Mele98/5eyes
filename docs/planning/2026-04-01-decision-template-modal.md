@@ -309,7 +309,7 @@ if(id==='m-ed'){
 ```
 Zeile 5105-5108 prüfen was hier steht. Wenn es ein Redirect oder early-return gibt, muss `openDecisionTemplateModal()` statt `om('m-ed')` verwendet werden. Konkret: alle Stellen wo `om('m-ed')` aufgerufen wird, prüfen ob sie direkt durch `openDecisionTemplateModal(triggerId)` ersetzt werden können.
 
-Grep-Befehl: `grep -n "om('m-ed')\|om(\"m-ed\")" 5eyes_v2.html`
+Grep-Befehl: `grep -n "om('m-ed')\|om(\"m-ed\")" ares.html`
 
 Erwartete Stellen (aus Analyse):
 - Zeile 783: `<button ... onclick="om('m-ed')">Entscheidungsvorlage →</button>` — das ist im **statischen Demo-Strip**, der durch `renderReviewAlertStrip()` ersetzt wird. Trotzdem: auf `onclick="openDecisionTemplateModal('')"` ändern.
@@ -379,7 +379,7 @@ Da es ausschliesslich Frontend-Änderungen sind, gibt es keine neuen Backend-Tes
 
 | Datei | Art der Änderung |
 |---|---|
-| `5eyes-electron/frontend/5eyes_v2.html` | Modal-HTML (Zeile 1414), `getDecisionChoiceMeta()` (Zeile 7460), neue Funktion `renderDecisionTemplateModal()`, `openDecisionTemplateModal()` (Zeile 5522), `om('m-ed')` Aufrufe (~4 Stellen) |
+| `ares-desktop/frontend/ares.html` | Modal-HTML (Zeile 1414), `getDecisionChoiceMeta()` (Zeile 7460), neue Funktion `renderDecisionTemplateModal()`, `openDecisionTemplateModal()` (Zeile 5522), `om('m-ed')` Aufrufe (~4 Stellen) |
 
 **Keine anderen Dateien.** Backend ist vollständig.
 
@@ -387,14 +387,14 @@ Da es ausschliesslich Frontend-Änderungen sind, gibt es keine neuen Backend-Tes
 
 ## Codex-Anweisungen
 
-1. Lese `5eyes_v2.html` vollständig (es ist eine Datei, ~8000 Zeilen)
+1. Lese `ares.html` vollständig (es ist eine Datei, ~8000 Zeilen)
 2. Ersetze den statischen Modal-Body von `#m-ed` (Zeile 1414) mit dem oben gezeigten neuen HTML
 3. Ersetze `getDecisionChoiceMeta(choice)` (Zeile 7460) durch die neue Version mit `bucket`-Parameter
 4. Füge `renderDecisionTemplateModal(triggerId)` direkt nach `resetDecisionTemplateModal()` (nach Zeile 5527) ein
 5. Ersetze `openDecisionTemplateModal(triggerId)` (Zeile 5522) durch die neue Version
 6. Prüfe ob `formatRappen()` bereits existiert (`grep -n "function formatRappen"`); falls nicht, füge sie hinzu
 7. Ersetze alle `om('m-ed')` in HTML-onclick-Attributen durch `openDecisionTemplateModal('')`
-8. Führe `node --check 5eyes_v2.html` aus — kein Syntax-Fehler erlaubt
+8. Führe `node --check ares.html` aus — kein Syntax-Fehler erlaubt
 9. Manuell testen: Modal öffnen in Demo-Modus → keine JS-Fehler, generische Texte erscheinen
 
 **Kein Backend-Code ändern. Keine Tests schreiben (rein Frontend).**

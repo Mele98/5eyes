@@ -5,8 +5,8 @@ status_as_of: "2026-09-04"
 audit_started_on: "2026-09-03"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "fabd8a34de23099addab45a56208042dbb96e426"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -208,26 +208,26 @@ Contract signoff / Portfolio handoff
 
 | Prüfbereich | Codeanker |
 |---|---|
-| Product-/Suitability-Modell | `5eyes-backend/models/review.py:262-271`, `:318-333` |
-| Raw-SQL-Produktregel | `5eyes-backend/5eyes_schema_v4.0_FINAL.sql:1077-1093` |
-| Alembic-Produktregel | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:421-437` |
-| Product Create/Update/Response | `5eyes-backend/schemas/review.py:336-419` |
-| Product Create/Import/Update | `5eyes-backend/routers/review.py:1107-1488` |
-| Default-Produkte und Regeln | `5eyes-backend/services/portfolio_engine.py:1734-1830` |
-| Produktmatcher | `5eyes-backend/services/portfolio_engine_payload.py:712-768` |
-| Relaxed Suitability-Fallback | `5eyes-backend/services/portfolio_engine.py:6593-6654` |
-| Produktaggregation | `5eyes-backend/services/portfolio_engine.py:6656-6693` |
-| Konzentrationsvalidator | `5eyes-backend/services/portfolio_engine_payload.py:923-957` |
-| Knowledge-/Experience-Persistenz | `5eyes-backend/models/profiling.py:84-85`; `5eyes-backend/routers/profiling.py:189-197` |
-| Strategie-Readiness | `5eyes-backend/services/portfolio_engine.py:261-275`, `:367-377` |
-| SuitabilityCheck-Request und Create | `5eyes-backend/schemas/profiling.py:185-210`; `5eyes-backend/routers/profiling.py:410-451` |
-| Compliance-Audit | `5eyes-backend/services/suitability_audit.py:132-257` |
-| Gate-Konfiguration | `5eyes-backend/config.py:289-294` |
-| Gate-Aufrufer | `5eyes-backend/routers/allocation.py:235-248`, `:508-522`; `5eyes-backend/routers/review.py:2045-2058`, `:2179-2187` |
-| Finalisierungsvalidator | `5eyes-backend/routers/review.py:137-234` |
-| Final-Transition | `5eyes-backend/routers/review.py:2298-2322` |
-| Suitability-UI-Request | `5eyes-electron/frontend/5eyes_v2.html:24191-24218` |
-| Suitability-Berichtsleser | `5eyes-backend/services/advisory_report.py:2445-2527` |
+| Product-/Suitability-Modell | `ares-backend/models/review.py:262-271`, `:318-333` |
+| Raw-SQL-Produktregel | `ares-backend/ares_schema.sql:1077-1093` |
+| Alembic-Produktregel | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:421-437` |
+| Product Create/Update/Response | `ares-backend/schemas/review.py:336-419` |
+| Product Create/Import/Update | `ares-backend/routers/review.py:1107-1488` |
+| Default-Produkte und Regeln | `ares-backend/services/portfolio_engine.py:1734-1830` |
+| Produktmatcher | `ares-backend/services/portfolio_engine_payload.py:712-768` |
+| Relaxed Suitability-Fallback | `ares-backend/services/portfolio_engine.py:6593-6654` |
+| Produktaggregation | `ares-backend/services/portfolio_engine.py:6656-6693` |
+| Konzentrationsvalidator | `ares-backend/services/portfolio_engine_payload.py:923-957` |
+| Knowledge-/Experience-Persistenz | `ares-backend/models/profiling.py:84-85`; `ares-backend/routers/profiling.py:189-197` |
+| Strategie-Readiness | `ares-backend/services/portfolio_engine.py:261-275`, `:367-377` |
+| SuitabilityCheck-Request und Create | `ares-backend/schemas/profiling.py:185-210`; `ares-backend/routers/profiling.py:410-451` |
+| Compliance-Audit | `ares-backend/services/suitability_audit.py:132-257` |
+| Gate-Konfiguration | `ares-backend/config.py:289-294` |
+| Gate-Aufrufer | `ares-backend/routers/allocation.py:235-248`, `:508-522`; `ares-backend/routers/review.py:2045-2058`, `:2179-2187` |
+| Finalisierungsvalidator | `ares-backend/routers/review.py:137-234` |
+| Final-Transition | `ares-backend/routers/review.py:2298-2322` |
+| Suitability-UI-Request | `ares-desktop/frontend/ares.html:24191-24218` |
+| Suitability-Berichtsleser | `ares-backend/services/advisory_report.py:2445-2527` |
 
 ## `ELIG-RULE-001` – Vier gespeicherte Produktpflichten sind wirkungslos
 
@@ -935,7 +935,7 @@ reproduzierten angrenzenden Suitability-/Final-/Signatur-/Handoff-Befunde.
 
 ### Fokussierter Bestands-Gate
 
-Ausgeführt aus `5eyes-backend` mit externem Basetemp:
+Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `

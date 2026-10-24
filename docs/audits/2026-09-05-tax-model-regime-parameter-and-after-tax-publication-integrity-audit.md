@@ -5,8 +5,8 @@ status_as_of: "2026-09-05"
 audit_started_on: "2026-09-04"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "2f402b087fa38564fe51644aa8b27b34b949a618"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -270,37 +270,37 @@ Separate PDF engine-configuration path
 
 | Aussage | Beleg |
 |---|---|
-| Freie Mandatsfelder für Steuerjurisdiktion, Overrides und Reportingflag | `5eyes-backend/models/mandates.py:44-71`; `5eyes-backend/schemas/mandates.py:34-36`; `5eyes-backend/schemas/mandates.py:75-84` |
-| Persistenzvalidator prüft nur Abhängigkeiten, nicht Normalform/Support | `5eyes-backend/services/mandate_model_inputs.py:77-100`; `5eyes-backend/routers/mandates.py:148-165` |
-| UI bietet CH, DE und Generic an und behauptet drei Steuerarten | `5eyes-electron/frontend/5eyes_v2.html:4006-4021` |
-| UI speichert keinen Generic-Override | `5eyes-electron/frontend/5eyes_v2.html:17905-17909`; `5eyes-electron/frontend/5eyes_v2.html:17949-17958` |
-| Produktiver Resolver, Generic-Pflichtoverride und Basisjahr aus `opened_at` | `5eyes-backend/services/portfolio_engine_optimizer_integration.py:144-212` |
-| Produktiver Context-Aufbau reicht nur die erzeugten Tax-Kwargs durch | `5eyes-backend/services/portfolio_engine_optimizer_integration.py:337-372` |
-| OptimizerContext besitzt Regime/Yields/Jahr/Alter/Retirement, aber keinen Tax-Mode | `5eyes-backend/services/optimizer/solver.py:132-181` |
-| Solver ruft Scenario-Engine ohne Tax-Mode auf | `5eyes-backend/services/optimizer/solver.py:270-283` |
-| Scenario-Engine-API und Default `tax_mode="median"` | `5eyes-backend/services/optimizer/scenario_engine.py:406-420` |
-| Dividendenertrag wird nur aus optionalem Yield-Array gebildet | `5eyes-backend/services/optimizer/scenario_engine.py:509-515`; `5eyes-backend/services/optimizer/scenario_engine.py:543-559` |
-| Scenario-Loop ruft nur Dividend- und Vermögenssteuer auf | `5eyes-backend/services/optimizer/scenario_engine.py:531-568` |
-| Unbekannter Tax-Mode fällt implizit in Binning statt zu blockieren | `5eyes-backend/services/optimizer/scenario_engine.py:312-403` |
-| DE besitzt Dividenden-/CG-Rate, aber keine Vermögenssteuer | `5eyes-backend/services/tax/regimes/de.py:21-40` |
-| CH-/Kantonregime und pauschale Raten | `5eyes-backend/services/tax/regimes/ch.py:22-115` |
-| Reportingsteuer ist nur fixe Vermögenssteuer-Schätzung | `5eyes-backend/services/wealth_cashflows.py:355-421` |
-| Reporting-Cashflow und dynamischer Optimizerpfad werden bewusst getrennt | `5eyes-backend/services/portfolio_engine.py:1927-2019` |
-| Projection-Snapshot bindet rohe Steuerfelder, Geburts- und Eröffnungsdaten | `5eyes-backend/services/portfolio_engine.py:2237-2324` |
-| Modellbasis speichert nur grobe Tax-Basislabels | `5eyes-backend/services/portfolio_engine.py:2552-2791`; `5eyes-backend/services/portfolio_engine.py:3958-3962` |
-| OptimizerRun besitzt keine Tax-Snapshotfelder | `5eyes-backend/models/allocation.py:146-193`; `5eyes-backend/schemas/allocation.py:355-377` |
-| OptimizerRun-Persistenz schreibt nur allgemeine Solverartefakte | `5eyes-backend/services/portfolio_engine_optimizer_integration.py:1221-1347` |
-| TaxParameterSet ohne Checks/Current-Unique | `5eyes-backend/models/tax.py:13-25`; `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:135-151` |
-| Parameterquery filtert Current/Jahr, sortiert nur Region und überspringt malformed JSON | `5eyes-backend/services/tax/parameters.py:60-91` |
-| Tax-API bindet nur das Parameter-Dict, nicht Zeilenprovenienz | `5eyes-backend/routers/tax.py:22-68` |
-| CH-Country-Plugin behält konstante Version und 2026-Annahme | `5eyes-backend/services/tax/jurisdictions/ch.py:88-118` |
-| CH-Country-Plugin beschriftet Ergebnis mit Requestjahr und CHF | `5eyes-backend/services/tax/jurisdictions/ch.py:145-164`; `5eyes-backend/services/tax/jurisdictions/ch.py:176-194` |
-| Regime-Registry überschreibt doppelte Patterns last-wins | `5eyes-backend/services/tax/registry.py:35-79` |
-| Boot lädt externe Entry-Points ohne Allowlistargument | `5eyes-backend/main.py:82-99`; `5eyes-backend/services/tax/discovery.py:67-125` |
-| ConformanceContract existiert, wird produktiv aber nicht ausgeführt | `5eyes-backend/services/tax/conformance.py:78-115`; `5eyes-backend/tests/tax/test_conformance.py:25-128` |
-| PDF-Steuermodus stammt aus Live-Settings | `5eyes-backend/services/advisory_report.py:3517-3529`; `5eyes-backend/services/advisory_report.py:3559-3607` |
-| PDF rendert diesen Wert als Tax-Modus | `5eyes-backend/services/pdf/components/compliance_audit.py:268-300` |
-| Frontend zeigt Reporting-Methodik, aber nicht deren `tax_basis` | `5eyes-electron/frontend/5eyes_v2.html:7349-7366` |
+| Freie Mandatsfelder für Steuerjurisdiktion, Overrides und Reportingflag | `ares-backend/models/mandates.py:44-71`; `ares-backend/schemas/mandates.py:34-36`; `ares-backend/schemas/mandates.py:75-84` |
+| Persistenzvalidator prüft nur Abhängigkeiten, nicht Normalform/Support | `ares-backend/services/mandate_model_inputs.py:77-100`; `ares-backend/routers/mandates.py:148-165` |
+| UI bietet CH, DE und Generic an und behauptet drei Steuerarten | `ares-desktop/frontend/ares.html:4006-4021` |
+| UI speichert keinen Generic-Override | `ares-desktop/frontend/ares.html:17905-17909`; `ares-desktop/frontend/ares.html:17949-17958` |
+| Produktiver Resolver, Generic-Pflichtoverride und Basisjahr aus `opened_at` | `ares-backend/services/portfolio_engine_optimizer_integration.py:144-212` |
+| Produktiver Context-Aufbau reicht nur die erzeugten Tax-Kwargs durch | `ares-backend/services/portfolio_engine_optimizer_integration.py:337-372` |
+| OptimizerContext besitzt Regime/Yields/Jahr/Alter/Retirement, aber keinen Tax-Mode | `ares-backend/services/optimizer/solver.py:132-181` |
+| Solver ruft Scenario-Engine ohne Tax-Mode auf | `ares-backend/services/optimizer/solver.py:270-283` |
+| Scenario-Engine-API und Default `tax_mode="median"` | `ares-backend/services/optimizer/scenario_engine.py:406-420` |
+| Dividendenertrag wird nur aus optionalem Yield-Array gebildet | `ares-backend/services/optimizer/scenario_engine.py:509-515`; `ares-backend/services/optimizer/scenario_engine.py:543-559` |
+| Scenario-Loop ruft nur Dividend- und Vermögenssteuer auf | `ares-backend/services/optimizer/scenario_engine.py:531-568` |
+| Unbekannter Tax-Mode fällt implizit in Binning statt zu blockieren | `ares-backend/services/optimizer/scenario_engine.py:312-403` |
+| DE besitzt Dividenden-/CG-Rate, aber keine Vermögenssteuer | `ares-backend/services/tax/regimes/de.py:21-40` |
+| CH-/Kantonregime und pauschale Raten | `ares-backend/services/tax/regimes/ch.py:22-115` |
+| Reportingsteuer ist nur fixe Vermögenssteuer-Schätzung | `ares-backend/services/wealth_cashflows.py:355-421` |
+| Reporting-Cashflow und dynamischer Optimizerpfad werden bewusst getrennt | `ares-backend/services/portfolio_engine.py:1927-2019` |
+| Projection-Snapshot bindet rohe Steuerfelder, Geburts- und Eröffnungsdaten | `ares-backend/services/portfolio_engine.py:2237-2324` |
+| Modellbasis speichert nur grobe Tax-Basislabels | `ares-backend/services/portfolio_engine.py:2552-2791`; `ares-backend/services/portfolio_engine.py:3958-3962` |
+| OptimizerRun besitzt keine Tax-Snapshotfelder | `ares-backend/models/allocation.py:146-193`; `ares-backend/schemas/allocation.py:355-377` |
+| OptimizerRun-Persistenz schreibt nur allgemeine Solverartefakte | `ares-backend/services/portfolio_engine_optimizer_integration.py:1221-1347` |
+| TaxParameterSet ohne Checks/Current-Unique | `ares-backend/models/tax.py:13-25`; `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:135-151` |
+| Parameterquery filtert Current/Jahr, sortiert nur Region und überspringt malformed JSON | `ares-backend/services/tax/parameters.py:60-91` |
+| Tax-API bindet nur das Parameter-Dict, nicht Zeilenprovenienz | `ares-backend/routers/tax.py:22-68` |
+| CH-Country-Plugin behält konstante Version und 2026-Annahme | `ares-backend/services/tax/jurisdictions/ch.py:88-118` |
+| CH-Country-Plugin beschriftet Ergebnis mit Requestjahr und CHF | `ares-backend/services/tax/jurisdictions/ch.py:145-164`; `ares-backend/services/tax/jurisdictions/ch.py:176-194` |
+| Regime-Registry überschreibt doppelte Patterns last-wins | `ares-backend/services/tax/registry.py:35-79` |
+| Boot lädt externe Entry-Points ohne Allowlistargument | `ares-backend/main.py:82-99`; `ares-backend/services/tax/discovery.py:67-125` |
+| ConformanceContract existiert, wird produktiv aber nicht ausgeführt | `ares-backend/services/tax/conformance.py:78-115`; `ares-backend/tests/tax/test_conformance.py:25-128` |
+| PDF-Steuermodus stammt aus Live-Settings | `ares-backend/services/advisory_report.py:3517-3529`; `ares-backend/services/advisory_report.py:3559-3607` |
+| PDF rendert diesen Wert als Tax-Modus | `ares-backend/services/pdf/components/compliance_audit.py:268-300` |
+| Frontend zeigt Reporting-Methodik, aber nicht deren `tax_basis` | `ares-desktop/frontend/ares.html:7349-7366` |
 | B2-Bericht erklärte Realisierungs-CG und produktive Mode-Entscheidung ausdrücklich als out of scope | `docs/audits/2026-06-07-b2-per-path-tax-implementation.md:145-152` |
 | Früherer Audit hält Live-Setting-/Solver-Mode-Drift bereits als `ENGCFG-SNAPSHOT-001` offen | `docs/audits/2026-09-02-advisory-risk-kpi-engine-config-reserve-and-compliance-integrity-audit.md:413-450` |
 
@@ -1016,7 +1016,7 @@ aber keine Interest-, Capital-Gains-, Pension- oder Inheritance-Tax-Ausführung.
 
 ### Fokussierter Bestands-Gate
 
-Ausgeführt aus `5eyes-backend` ohne pytest Cache und ohne explizites
+Ausgeführt aus `ares-backend` ohne pytest Cache und ohne explizites
 `--basetemp`:
 
 ```powershell

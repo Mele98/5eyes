@@ -6,8 +6,8 @@ audit_started_on: "2026-09-27"
 audit_completed_on: "2026-09-28"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "dd3ed657ed596ff16930c9687a13449050f4ac45"
 prior_solver_audit_path: "docs/audits/2026-09-23-solver-goal-maximization-and-publication-integrity-audit.md"
@@ -227,75 +227,75 @@ Evidence-Serialisierung und Ergebnisfreigabe sind voneinander entkoppelt.
 
 ### Sensitivity-Service, Schema und Endpoint
 
-- `5eyes-backend/services/portfolio_engine.py:5214-5263` baut den
+- `ares-backend/services/portfolio_engine.py:5214-5263` baut den
   Sensitivity-Input-Hash. Goal-Weighting- und Objective-Vertragsversion fehlen.
-- `5eyes-backend/services/portfolio_engine.py:5276-5315` führt Baseline und
+- `ares-backend/services/portfolio_engine.py:5276-5315` führt Baseline und
   Gegenfaktum über `run_solver()` aus.
-- `5eyes-backend/services/portfolio_engine.py:5317-5331` rundet zuerst beide
+- `ares-backend/services/portfolio_engine.py:5317-5331` rundet zuerst beide
   Objectives auf `value * 1000` als Integer und berechnet erst danach das
   Prozentdelta.
-- `5eyes-backend/services/portfolio_engine.py:5333-5338` wählt für das
+- `ares-backend/services/portfolio_engine.py:5333-5338` wählt für das
   generische Pflichtfeld den ersten truthy Wert aus Betrag, Vermögensziel oder
   Rendite-bps.
-- `5eyes-backend/services/portfolio_engine.py:5372-5382` schreibt dadurch bei
+- `ares-backend/services/portfolio_engine.py:5372-5382` schreibt dadurch bei
   Renditezielen bps in `target_amount_rappen_*`, liefert daneben die korrekt
   benannten Return-Felder und gibt Solvergewichte und Status unverändert aus.
-- `5eyes-backend/schemas/allocation.py:1069-1102` besitzt kein
+- `ares-backend/schemas/allocation.py:1069-1102` besitzt kein
   `goal_type`, `target_kind`, `target_unit`, Feasibility- oder
   discriminated-result-Feld. `target_amount_rappen_*` ist für jeden Zieltyp
   Pflicht.
-- `5eyes-backend/routers/allocation.py:544-588` liefert das Resultat mit HTTP
+- `ares-backend/routers/allocation.py:544-588` liefert das Resultat mit HTTP
   200 und schreibt als „FINMA-Trace“ nur Goal-ID und `target_delta_pct`.
   `horizon_delta_years`, beide Input-Hashes, Seed, Status, Objective und
   angezeigtes Resultat werden nicht gespeichert.
-- `5eyes-backend/tests/test_optimizer_phase6.py:1187-1196` akzeptiert im
+- `ares-backend/tests/test_optimizer_phase6.py:1187-1196` akzeptiert im
   erfolgreichen Endpointtest ausdrücklich `converged`,
   `converged_robustified`, `diverged`, `diverged_infeasible` oder
   `fallback_house_matrix` als `status_new`.
-- `5eyes-backend/tests/test_optimizer_phase6.py:722-772` bestätigt zwar für
+- `ares-backend/tests/test_optimizer_phase6.py:722-772` bestätigt zwar für
   500 bps und `+20 %` das korrekte Return-Feld 600, assertiert aber nicht, dass
   das generische Amount-Feld und die UI ihre Einheit korrekt behandeln.
 
 ### Classic UI und React-Vertrag
 
-- `5eyes-electron/frontend/5eyes_v2.html:27284-27318` erzeugt einen Slider für
+- `ares-desktop/frontend/ares.html:27284-27318` erzeugt einen Slider für
   jede Zeile aus `result.goal_analysis`; Zieltyp und Einheit werden nicht in
   den Buttonvertrag übernommen.
-- `5eyes-electron/frontend/5eyes_v2.html:27321-27341` teilt
+- `ares-desktop/frontend/ares.html:27321-27341` teilt
   `target_amount_rappen_new` immer durch 100, präfixiert immer `CHF` und leitet
   besser/schlechter ausschließlich aus dem Vorzeichen von
   `delta_objective_pct` ab. Beide Statusfelder werden ignoriert.
-- `5eyes-electron/frontend/5eyes_v2.html:27342-27346` reaktiviert die zuvor
+- `ares-desktop/frontend/ares.html:27342-27346` reaktiviert die zuvor
   deaktivierten Buttons korrekt in `Promise.finally()`; diese Positivkontrolle
   ist bei einer UI-Umstellung zu erhalten.
-- `5eyes-electron/frontend/reporting/src/api/types.ts:1039-1052` führt nur den
+- `ares-desktop/frontend/reporting/src/api/types.ts:1039-1052` führt nur den
   alten Amount-/Objective-/Statusvertrag. Return-bps, Horizon-Baseline/-Neu,
   Solverhorizonte, Context-/Input-Hashes, Pairing-, FX-, CMA-, Wealth-,
   Constraint- und Foundation-Basis des Backend-Schemas fehlen.
-- `5eyes-electron/frontend/reporting/src/api/allocation.test.ts:121-127`
+- `ares-desktop/frontend/reporting/src/api/allocation.test.ts:121-127`
   prüft nur URL, Request und `delta_pct`, nicht die Response-Semantik.
 
 ### Objective-Serialisierung
 
-- `5eyes-backend/services/optimizer/objective.py:126-151` normalisiert
+- `ares-backend/services/optimizer/objective.py:126-151` normalisiert
   Rappen-Shortfalls auf eine gemeinsame Context-Skala; das produktive
   Objective ist damit dimensionslos.
-- `5eyes-backend/services/portfolio_engine.py:2206-2209` beschreibt den
+- `ares-backend/services/portfolio_engine.py:2206-2209` beschreibt den
   Persistenz-Cap weiterhin mit historischem `rappen^2`-Overflow.
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py:666-690`
+- `ares-backend/services/portfolio_engine_optimizer_integration.py:666-690`
   serialisiert die aktive Allocation-Objective mit Faktor 1.000 und
   Integer-Rundung.
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py:725-736`
+- `ares-backend/services/portfolio_engine_optimizer_integration.py:725-736`
   wiederholt denselben Konverter für Methodenvergleich, Goal-Driver und
   OptimizerRun.
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py:1183-1207`
+- `ares-backend/services/portfolio_engine_optimizer_integration.py:1183-1207`
   rankt Goal-Beiträge roh, publiziert ihren Zahlenwert aber nur nach der groben
   Milli-Rundung.
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py:1323-1345`
+- `ares-backend/services/portfolio_engine_optimizer_integration.py:1323-1345`
   persistiert den gerundeten Wert in `OptimizerRun`.
-- `5eyes-backend/models/allocation.py:112-118` und `:174-188` speichern nur
+- `ares-backend/models/allocation.py:112-118` und `:174-188` speichern nur
   das Integerfeld ohne Objective-Version, Einheit oder Skala.
-- `5eyes-electron/frontend/5eyes_v2.html:27128-27138` zeigt die gerundeten
+- `ares-desktop/frontend/ares.html:27128-27138` zeigt die gerundeten
   Goal-Driver-Zahlen; `:27236-27241` teilt die gespeicherte Objective wieder
   durch 1.000 und kann einen positiven Wert als `0.000e+0` ausgeben.
 - `docs/planning/2026-05-05-stochastic-optimizer-spec.md:211-218` nennt das
@@ -304,26 +304,26 @@ Evidence-Serialisierung und Ergebnisfreigabe sind voneinander entkoppelt.
 
 ### Zielgewichtungs- und Chance-Constraint-Vertrag
 
-- `5eyes-backend/services/optimizer/objective.py:51-69` liest
+- `ares-backend/services/optimizer/objective.py:51-69` liest
   `OPTIMIZER_GOAL_WEIGHTING` direkt aus `os.environ`; unbekannte Werte werden
   nicht abgelehnt und wirken wie `equal`.
 - Die Repository-Suche findet diesen Konfigurationsschlüssel außerhalb von
   Tests und Methodikdokumenten nur in `objective.py`; er ist kein zentral
   validiertes Setting.
-- `5eyes-backend/services/optimizer/objective.py:409-479` wendet die Methode
+- `ares-backend/services/optimizer/objective.py:409-479` wendet die Methode
   im primären Shortfall an. `max(1, weight_bps)` hält zugleich den bereits
   offenen Zero-Weight-Befund aufrecht.
-- `5eyes-backend/services/optimizer/objective.py:335-406` berechnet die
+- `ares-backend/services/optimizer/objective.py:335-406` berechnet die
   Chance-Penalty mit gewichteter Probability und konstantem Lambda, aber ohne
   Goal-Weight. Das entspricht dem akzeptierten Soft-Strict-Vertrag; die
   Nullgewicht-Semantik bleibt dennoch explizit zu entscheiden.
-- `5eyes-backend/services/portfolio_engine.py:2650-2729` beschreibt die
+- `ares-backend/services/portfolio_engine.py:2650-2729` beschreibt die
   Optimizer-Modellbasis, enthält aber weder Goal-Weighting-Modus noch
   Objective-Version, Normalisierung, Chance-Lambda, Volatilitätsgewicht oder
   Phasen-Epsilon.
-- `5eyes-backend/services/portfolio_engine.py:3937-3988` bindet diese
+- `ares-backend/services/portfolio_engine.py:3937-3988` bindet diese
   unvollständige Modellbasis in den Allocation-Context-Hash.
-- `5eyes-backend/services/portfolio_engine.py:5214-5263` lässt dieselben Felder
+- `ares-backend/services/portfolio_engine.py:5214-5263` lässt dieselben Felder
   auch im Sensitivity-Input-Hash aus.
 - `docs/adr/ADR-011-engine-methodik-2026-06.md:25-28` akzeptiert `equal` als
   Default und `hardness` als Opt-in. Der Audit beanstandet nicht diese

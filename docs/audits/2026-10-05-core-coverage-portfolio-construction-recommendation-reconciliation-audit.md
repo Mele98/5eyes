@@ -4,8 +4,8 @@ document_role: "core-coverage-portfolio-construction-recommendation-reconciliati
 status_as_of: "2026-10-05"
 language: "de"
 repository: "5eyes"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/core-coverage-portfolio-construction-reconciliation-audit"
 audited_repository_head: "83af2a84fbc16cd2ef602bb3d4baa22c04325bc2"
 reference_task: "CORE-COVERAGE-003 (asset-allocation-stochastic-core, 2026-10-05-core-function-audit-coverage-and-release-readiness-reconciliation.md, Abschnitt 3)"
@@ -580,7 +580,7 @@ Befunde stützen sich auf:
   ID, sondern bestätigt, dass die unter `HANDOFF-INSTRUCTION-001` bereits
   dokumentierte Lücke (keine handelsfeste Stückzahl) bereits auf Ebene der
   Empfehlung beginnt, nicht erst beim Handoff.
-- Die React-UI und die Classic-UI (`5eyes_v2.html`) wurden nicht auf eigene,
+- Die React-UI und die Classic-UI (`ares.html`) wurden nicht auf eigene,
   möglicherweise zusätzlich divergierende Refetch-Pfade untersucht; dies
   bleibt eine offene Frage für einen gezielten Frontend-Parity-Audit.
 - Ob ein Produkt zum Selektionszeitpunkt tatsächlich „eligible, verfügbar und

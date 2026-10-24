@@ -42,8 +42,8 @@ p5-p75-Band + p50-Linie + Goal-Marker als reine `<svg><path/></svg>`.
 - Keine Hover-Tooltips für Berater am Bildschirm — Trade-off akzeptiert
 
 **Geltungsbereich:**
-- Gilt für **Reporting Sub-App** (`5eyes-electron/frontend/reporting/`)
-- Hauptapp (`5eyes-electron/frontend/5eyes_v2.html`) ist davon ausgenommen —
+- Gilt für **Reporting Sub-App** (`ares-desktop/frontend/reporting/`)
+- Hauptapp (`ares-desktop/frontend/ares.html`) ist davon ausgenommen —
   dort sind Web-Charts okay (Berater-Workflow, nicht Druck-Surface)
 - DESIGN_SYSTEM.md (`frontend/reporting/DESIGN_SYSTEM.md`) hält die
   Tokens (Farben, Schriften, Spacing)

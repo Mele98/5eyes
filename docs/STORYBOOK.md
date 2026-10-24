@@ -28,7 +28,7 @@ Opt-in (wie U-106/U-107): KEINE neue Dep in `package.json` — Berater
 installieren bei Bedarf:
 
 ```powershell
-cd 5eyes-electron\frontend\reporting
+cd ares-desktop\frontend\reporting
 npx storybook@latest init --type vite
 npm run storybook
 ```
@@ -92,7 +92,7 @@ required + GitHub-Pages-Deploy waere separater Sprint.
 ## Weiterfuehrendes
 
 - [storybook.js docs](https://storybook.js.org)
-- `5eyes-electron/frontend/reporting/DESIGN_SYSTEM.md` —
+- `ares-desktop/frontend/reporting/DESIGN_SYSTEM.md` —
   Tailwind-Tokens-Referenz
 - Roadmap-Punkt #50 (Dark-Mode) — Storybook kann beide Themes zeigen
 - Roadmap-Punkt #90 (a11y) — axe-storybook-Addon als Folge

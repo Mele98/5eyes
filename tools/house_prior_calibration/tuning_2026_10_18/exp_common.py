@@ -23,7 +23,7 @@ for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_k, "1")
 
 BACKEND = os.environ.get("SHRINK_EXPERIMENT_BACKEND") or str(
-    Path(__file__).resolve().parents[3] / "5eyes-backend"
+    Path(__file__).resolve().parents[3] / "ares-backend"
 )
 if BACKEND not in sys.path:
     sys.path.insert(0, BACKEND)

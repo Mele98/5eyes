@@ -24,7 +24,7 @@ if current_amount <= 0:
 ```
 
 Aber `RecommendationPosition` hat **kein** `current_amount_rappen`-Feld im
-DB-Schema (`models/review.py:217`+`5eyes_schema_v4.0_FINAL.sql:1105`).
+DB-Schema (`models/review.py:217`+`ares_schema.sql:1105`).
 `getattr()` liefert immer 0 → Engine fällt auf `target_amount_rappen` zurück
 → IST==SOLL → alle Drift-Werte = 0.
 
@@ -59,7 +59,7 @@ auf `RecommendationPosition`.
 **`migrations/2026-05-24-u-p20-current-amount-rappen.sql`:** ALTER-Statement
 für Production-DBs.
 
-**`5eyes_schema_v4.0_FINAL.sql`:** wird in einem Folge-Edit aktualisiert
+**`ares_schema.sql`:** wird in einem Folge-Edit aktualisiert
 (jetzt nicht, weil Codex parallel am selben File arbeitet — vermeidet
 Merge-Konflikt).
 
@@ -127,7 +127,7 @@ Dimension (Country/Sector/Currency):
 
 ## Was NICHT in U-P20 ist
 
-- **Frontend-Anpassung** (5eyes_v2.html): Modal-Erweiterung für IST/SOLL/Drift-
+- **Frontend-Anpassung** (ares.html): Modal-Erweiterung für IST/SOLL/Drift-
   Visualisierung. → folgt nach User-Spec.
 - **PDF-Anpassung** (`services/pdf/documents/depotcheck.py`): zusätzliche
   Tabellen/Bars für Country/Sector/Currency-Drift. → folgt nach User-Spec.
@@ -135,7 +135,7 @@ Dimension (Country/Sector/Currency):
   Wert direkt via DB-Tool oder via "Empfehlung übernehmen" setzen
   (target_amount wird dann zur Initial-IST). Ein eigener PATCH-Endpoint
   + UI ist sinnvoller Folge-Sprint (U-P21).
-- **Schema-File `5eyes_schema_v4.0_FINAL.sql` Aktualisierung**: wird
+- **Schema-File `ares_schema.sql` Aktualisierung**: wird
   separat nachgezogen, sobald Codex' parallele Edits committed sind
   (vermeidet Merge-Konflikt).
 

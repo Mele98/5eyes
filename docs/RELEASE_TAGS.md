@@ -8,8 +8,8 @@
 
 5eyes hat zwei zusammengehörige Subsysteme:
 
-- **5eyes-backend** (Python/FastAPI) — `settings.app_version`
-- **5eyes-electron** (Node/Electron) — `package.json.version`
+- **ares-backend** (Python/FastAPI) — `settings.app_version`
+- **ares-desktop** (Node/Electron) — `package.json.version`
 
 Ohne Tag-Strategie hatten wir:
 
@@ -86,12 +86,12 @@ Compliance-Review: {Compliance-Officer-Name}, YYYY-MM-DD
 
 1. **Branch-Wahl:** Production-Release auf `main`. RC auf `release/vX.Y.Z`.
 2. **Version-Bumps:**
-   - `5eyes-backend/config.py` → `app_version`
-   - `5eyes-electron/package.json` → `version`
+   - `ares-backend/config.py` → `app_version`
+   - `ares-desktop/package.json` → `version`
    - Sind via `tests/test_release_version_consistency.py` validiert.
 3. **CHANGELOG.md** Eintrag (Template siehe `docs/CHANGELOG_TEMPLATE.md`)
 4. **Smoke-Test:**
-   - Backend startet (`pytest 5eyes-backend/tests/`)
+   - Backend startet (`pytest ares-backend/tests/`)
    - Electron-Build erzeugt (`npm run pack`)
    - MX-FOUNDATION-01 PDF generiert (`POST /mandates/MX-FOUNDATION-01/reports/advisory-report.pdf`)
 5. **Tag erstellen:**
@@ -130,7 +130,7 @@ Stand 2026-06-04: **keine Production-Tags vorhanden**. U-78 etabliert die Discip
 
 ## Verwandte Specs
 
-- `5eyes-backend/config.py` — `app_version` Source-of-Truth Backend
-- `5eyes-electron/package.json` — `version` Source-of-Truth Electron
-- `5eyes-electron/PACKAGING.md` — Build-Pipeline-Doku
+- `ares-backend/config.py` — `app_version` Source-of-Truth Backend
+- `ares-desktop/package.json` — `version` Source-of-Truth Electron
+- `ares-desktop/PACKAGING.md` — Build-Pipeline-Doku
 - `docs/CHANGELOG_TEMPLATE.md` — Changelog-Format

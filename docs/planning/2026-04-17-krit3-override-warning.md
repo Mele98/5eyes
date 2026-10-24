@@ -32,8 +32,8 @@ senden.
 ## Scope
 
 Zwei Dateien:
-1. `5eyes-electron/frontend/5eyes_v2.html` — Override-Modal + `applyOv()` Funktion
-2. `5eyes-backend/schemas/profiling.py` — `RiskAssessmentOverride` Validator
+1. `ares-desktop/frontend/ares.html` — Override-Modal + `applyOv()` Funktion
+2. `ares-backend/schemas/profiling.py` — `RiskAssessmentOverride` Validator
 
 ---
 
@@ -62,7 +62,7 @@ Beispiele:
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "ov-error\|ov-reason\|Override bestätigen" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "ov-error\|ov-reason\|Override bestätigen" ares-desktop/frontend/ares.html
 ```
 Erwartet: Treffer ~Zeile 4832, 4831, 4837.
 
@@ -101,7 +101,7 @@ einen neuen Warning-Block und eine Checkbox einfügen.
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "function updOv" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function updOv" ares-desktop/frontend/ares.html
 ```
 Erwartet: Zeile ~4948.
 
@@ -146,7 +146,7 @@ function updOvWarnBtn(){
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "function openOverrideModal" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function openOverrideModal" ares-desktop/frontend/ares.html
 ```
 Erwartet: Zeile ~4952.
 
@@ -176,7 +176,7 @@ Erwartet: Zeile ~4952.
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "override_warning_delivered\|override_client_confirmed" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "override_warning_delivered\|override_client_confirmed" ares-desktop/frontend/ares.html
 ```
 Erwartet: Zeile ~4987-4988.
 
@@ -207,7 +207,7 @@ Erwartet: Zeile ~4987-4988.
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "override_score_x10\|RiskAssessmentOverride" 5eyes-backend/schemas/profiling.py
+grep -n "override_score_x10\|RiskAssessmentOverride" ares-backend/schemas/profiling.py
 ```
 Erwartet: Zeile ~79-88.
 
@@ -258,7 +258,7 @@ class RiskAssessmentOverride(BaseModel):
 5. JS: `openOverrideModal()` — Warning zurücksetzen beim Öffnen
 6. JS: `applyOv()` — `override_warning_delivered` und `override_client_confirmed` dynamisch berechnen
 7. Python: `RiskAssessmentOverride` — `@model_validator` für override_score_x10 Bounds hinzufügen
-8. Verifikation Frontend: `node --check 5eyes-electron/frontend/5eyes_v2.html` → 0 Fehler
+8. Verifikation Frontend: `node --check ares-desktop/frontend/ares.html` → 0 Fehler
 9. Verifikation Backend: `python -c "from schemas.profiling import RiskAssessmentOverride; print('OK')"` → OK
 
 ---

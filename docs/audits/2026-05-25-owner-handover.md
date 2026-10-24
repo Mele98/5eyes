@@ -44,7 +44,7 @@ Codex arbeitet aktuell an **U-P23 PR B-E**. Erwartete Reihenfolge:
 **Sobald U-P23 PR C gemerged ist** (Disclaimer + TOC + Sidebar):
 
 ```bash
-cd 5eyes-electron/frontend/reporting
+cd ares-desktop/frontend/reporting
 # Falls Vite-Dev-Server noch läuft:
 # Im Terminal: Strg+C → npm run dev
 ```
@@ -124,11 +124,11 @@ Mein Vorschlag: **Option A** — warten, weniger Arbeit.
 ## 5. NPM install + Vite-Restart nach U-P23 PR E
 
 **Wenn Codex U-P23 PR E mergt** (Recharts-Foundation), kommt Recharts als
-neue Dependency in `5eyes-electron/frontend/reporting/package.json`.
+neue Dependency in `ares-desktop/frontend/reporting/package.json`.
 **Du musst einmalig:**
 
 ```bash
-cd 5eyes-electron/frontend/reporting
+cd ares-desktop/frontend/reporting
 npm install      # zieht Recharts nach
 # Strg+C im laufenden Vite-Dev
 npm run dev      # neue Bundle
@@ -200,7 +200,7 @@ Compliance:
 Dev-URLs (lokal):
   Backend FastAPI:        http://localhost:8000
   Reporting-Sub-App Dev:  http://localhost:5173
-  Electron Hauptapp:      über npm start in 5eyes-electron/
+  Electron Hauptapp:      über npm start in ares-desktop/
 
 GitHub:
   https://github.com/Mele98/5eyes

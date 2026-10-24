@@ -1,0 +1,763 @@
+"""Sprint U-P12 (2026-05-20): Depot-Check-Engine.
+
+Analysiert das aktuelle IST-Depot eines Mandanten und liefert eine
+strukturierte Diversifikations-Analyse:
+- Asset-Klassen-Allokation (IST vs SOLL aus TargetAllocation)
+- Sub-Asset-Class-Breakdown
+- Country-, Sector-, Currency-Exposure (aggregiert aus Produkt-Exposures
+  via services.product_exposures)
+- Konzentrations-Scoring (HHI pro Dimension)
+- Top-Positionen-Tabelle
+- Fonds-Charakteristika: gewichtete TER, Duration (Bonds), ESG-Score
+- Drift-zu-Soll (pro Bucket: aktuell vs target_bps + Toleranzband-Verstoß)
+- Liquiditätsprofil (% Cash, % daily-liquide, % illiquide)
+
+KEINE Datenmodell-Änderungen. Nur Service-Layer auf existierenden
+WealthPosition + RecommendationPosition + Product-Tabellen.
+"""
+from __future__ import annotations
+
+from typing import Iterable, Mapping
+
+from sqlalchemy.orm import Session
+
+from models.allocation import TargetAllocation
+from models.mandates import Mandate
+from models.review import Product, RecommendationPosition, RecommendationRun
+from models.wealth import WealthPosition
+from services.product_exposures import (
+    aggregate_exposures,
+    country_exposure_for_product,
+    currency_exposure_for_product,
+    herfindahl_hirschman_index,
+    sector_exposure_for_product,
+)
+
+
+BUCKET_LABELS = {
+    "equities": "Aktien",
+    "bonds": "Obligationen",
+    "real_estate": "Immobilien",
+    "alternatives": "Alternative Anlagen",
+    "liquidity": "Liquidität",
+}
+
+
+# Sprint U-39 (2026-06-06): Schwellen fuer Concentration- und
+# Drift-Warnings als benannte Konstanten — vorher als Magic-Numbers in
+# der grossen compute_depot_check-Funktion verstreut.
+# Kontrollrunde 2026-09-20: 5000 -> 2500. War inkonsistent mit dem PDF-
+# Compliance-Ampel-System (services/advisory_report.py::_check_diversifikation,
+# "rot" bereits ab HHI>2500) -- dieselbe Laender-Konzentration konnte auf der
+# Live-Depot-Check-Seite "alles ok" zeigen, waehrend der gedruckte Bericht
+# fuer dasselbe Mandat bereits "rot" auswies. Jetzt identischer Schwellenwert
+# wie die PDF-Ampel (Sektor-Schwelle war bereits konsistent bei 2500).
+_HHI_COUNTRY_WARNING_THRESHOLD = 2500  # > 2500 = Single-Country-dominiert (= PDF-Ampel "rot")
+_HHI_SECTOR_WARNING_THRESHOLD = 2500   # > 2500 = wenig diversifiziert
+_HHI_TOP_POSITIONS_WARNING_THRESHOLD = 1500
+_ILLIQUID_WARNING_THRESHOLD_BPS = 3000
+# Kontrollrunde 2026-09-20: eine Position ohne klassifizierbare Liquiditaets-
+# Metadaten (weder Produktkatalog- noch WealthPosition-Heuristik greift)
+# landet in "unknown", das bisher NIRGENDS in eine Warnung einfloss. Ein
+# grosser unknown_bps-Anteil koennte echte, nur unklassifizierbare
+# Illiquiditaet verstecken -- absichtlich eine EIGENE, ehrliche Warnung
+# ("Daten unvollstaendig") statt unknown_bps stillschweigend zu
+# illiquid_bps zu addieren (das waere factually falsch: unbekannt heisst
+# nicht illiquide).
+_UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS = 3000
+_DRIFT_WARNING_THRESHOLD_BPS = 1500    # = 15 Prozentpunkte
+_LIQUIDITY_BUCKETS = ("daily", "weekly", "monthly", "illiquid", "unknown")
+
+
+def _norm_liquidity_text(value: object) -> str:
+    return (
+        str(value or "")
+        .strip()
+        .lower()
+        .replace("-", " ")
+        .replace("_", " ")
+    )
+
+
+def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)
+
+
+def _product_liquidity_tier(product: Product, bucket: str) -> str:
+    """Central IST liquidity classification.
+
+    Mirrors the SOLL-methodology: Private Equity and direct real estate are
+    genuinely illiquid. Gold, liquid alternatives, real-estate funds and REITs
+    must not become illiquid because of stale product metadata.
+    """
+    fields = " ".join(
+        _norm_liquidity_text(getattr(product, name, None))
+        for name in ("product_type", "asset_class", "sub_asset_class", "product_name")
+    )
+    if _contains_any(fields, ("private equity",)):
+        return "illiquid"
+    if _contains_any(fields, ("direktimmobilien", "direkt immobilien", "direct real estate", "liegenschaft")):
+        return "illiquid"
+    if _contains_any(fields, ("immobilienfonds", "real estate fund", "reit")):
+        return "weekly"
+    if _contains_any(fields, ("gold", "rohstoffe", "liquid alternatives")):
+        return "monthly"
+
+    tier = _norm_liquidity_text(getattr(product, "liquidity_tier", None))
+    if tier in _LIQUIDITY_BUCKETS:
+        return tier
+    if bucket == "liquidity":
+        return "daily"
+    product_type = str(getattr(product, "product_type", "") or "")
+    if bucket in ("equities", "bonds") and product_type in ("ETF", "Fonds"):
+        return "daily"
+    if bucket == "real_estate" and "fonds" in _norm_liquidity_text(product_type):
+        return "weekly"
+    if bucket == "alternatives":
+        return "monthly"
+    return "unknown"
+
+
+def _wealth_position_liquidity_tier(position: WealthPosition, bucket: str) -> str:
+    fields = " ".join(
+        _norm_liquidity_text(getattr(position, name, None))
+        for name in ("position_type", "asset_subtype", "label", "asset_liquidity")
+    )
+    has_property_data = any(
+        str(getattr(position, name, "") or "").strip()
+        for name in ("property_address", "property_zip_city", "property_usage")
+    )
+    if _contains_any(fields, ("private equity",)):
+        return "illiquid"
+    if (
+        _contains_any(fields, ("direktimmobilien", "direkt immobilien", "direct real estate", "liegenschaft"))
+        or (bucket == "real_estate" and has_property_data)
+    ):
+        return "illiquid"
+    if _contains_any(fields, ("immobilienfonds", "real estate fund", "reit")):
+        return "weekly"
+    if _contains_any(fields, ("gold", "rohstoffe", "liquid alternatives")):
+        return "monthly"
+    tier = _norm_liquidity_text(getattr(position, "asset_liquidity", None))
+    if tier in _LIQUIDITY_BUCKETS:
+        return tier
+    if bucket == "liquidity":
+        return "daily"
+    if bucket == "alternatives":
+        return "monthly"
+    return "unknown"
+
+
+def _bucket_key_from_product(product: Product) -> str:
+    """Mappt Product.asset_class auf den Bucket-Key (englisch)."""
+    raw = str(product.asset_class or "").strip().lower()
+    aliases = {
+        "aktien": "equities", "equities": "equities",
+        "obligationen": "bonds", "anleihen": "bonds", "bonds": "bonds",
+        "immobilien": "real_estate", "real estate": "real_estate", "real_estate": "real_estate",
+        "alternative": "alternatives", "alternativen": "alternatives", "alternatives": "alternatives",
+        "liquidität": "liquidity", "liquiditaet": "liquidity",
+        "liquides vermoegen": "liquidity", "liquides vermögen": "liquidity",
+        "cash": "liquidity", "liquidity": "liquidity",
+    }
+    return aliases.get(raw, "alternatives")
+
+
+def _compute_drift(
+    ist: Mapping[str, int] | None,
+    soll: Mapping[str, int] | None,
+) -> dict[str, int]:
+    """Drift IST − SOLL pro Key. Union-of-Keys, fehlende Werte gelten als 0.
+
+    Positive Werte = Überhang im IST (zu viel von dieser Dimension);
+    negative Werte = Unterhang (zu wenig laut Empfehlung).
+    """
+    ist = dict(ist or {})
+    soll = dict(soll or {})
+    keys = set(ist.keys()) | set(soll.keys())
+    return {
+        key: int(ist.get(key, 0) or 0) - int(soll.get(key, 0) or 0)
+        for key in keys
+    }
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _bucket_from_position_type(position_type: str | None) -> str:
+    """Fallback wenn eine WealthPosition kein Produkt referenziert.
+
+    Kontrollrunde 2026-09-20: die DB-CHECK-Constraint auf WealthPosition.
+    position_type (ares_schema.sql) erlaubt exakt 7 Werte:
+    'Depot','Liquidität','Immobilien','Vorsorge','Alternative','Hypothek',
+    'Custom'. Von diesen fehlten 'Liquidität' (mit Umlaut) UND 'Custom'
+    bisher explizit im Alias-Dict und fielen beide still auf denselben
+    Bare-Fallback -- fuer 'Liquidität' zufaellig korrekt (der alte Fallback
+    war "liquidity"), fuer 'Custom' fachlich falsch: die Datenbank erlaubt
+    'Custom' explizit fuer Alternative-Positionen (siehe Frontend, das
+    'Custom' an zwei Stellen wie 'Alternative' behandelt), wurde hier aber
+    als "Liquidität" eingestuft -- eine echte Risikoposition verschwand
+    dadurch unsichtbar in der sichersten Kategorie, statt in der
+    Compliance-Ampel (services/advisory_report.py::_check_asset_allocation,
+    liest dc["buckets"] direkt) als Risiko zu erscheinen. 'Hypothek' ist
+    absichtlich nicht gemappt: Hypotheken sind assignment='Verbindlichkeit'
+    und erreichen ueber den assignment=='Beratungsvermögen'-Filter in
+    _load_positions diese Funktion nie.
+
+    Der verbleibende Bare-Fallback (fuer Werte ausserhalb der aktuellen
+    Schema-Constraint, z.B. Alt-Daten aus vor deren Einfuehrung) faellt
+    jetzt konsistent mit _bucket_key_from_product (Product-Pfad) auf
+    "alternatives" -- eine unklassifizierbare Position soll als Risiko
+    sichtbar bleiben, nicht in "Liquidität" verschwinden.
+    """
+    raw = str(position_type or "").strip().lower()
+    aliases = {
+        "depot": "equities",
+        "aktien": "equities",
+        "obligationen": "bonds",
+        "anleihen": "bonds",
+        "immobilien": "real_estate",
+        "alternative": "alternatives",
+        "alternativen": "alternatives",
+        "vorsorge": "alternatives",
+        "custom": "alternatives",
+        "liquidität": "liquidity",
+        "liquiditaet": "liquidity",
+        "kontoguthaben": "liquidity",
+        "konto": "liquidity",
+        "cash": "liquidity",
+        "geldmarktfonds": "liquidity",
+    }
+    return aliases.get(raw, "alternatives")
+
+
+def _init_result_dict(mandate: Mandate) -> dict:
+    """Sprint U-39 (2026-06-06): Initialisiert das Result-Dict mit allen
+    erwarteten Top-Level-Keys + Default-Werten. Extrahiert aus
+    compute_depot_check, damit die Hauptfunktion uebersichtlicher wird.
+    """
+    return {
+        "mandate_id": str(getattr(mandate, "id", "") or ""),
+        "total_advisory_wealth_rappen": 0,
+        # Kontrollrunde 2026-09-20: True wenn die fuer die Band-Vergleiche
+        # unten genutzte TargetAllocation unter einem AELTEREN, nicht mehr
+        # aktuellen Risikoprofil erstellt wurde. in_band/Ampel-Konsumenten
+        # muessen das beruecksichtigen statt eine veraltete Band-Uebereinstimmung
+        # als "alles in Ordnung" zu werten.
+        "target_allocation_stale": False,
+        # ALLOCATION-INPUT-STALENESS-001: Grund-Unterscheidung -- True wenn
+        # target_allocation_stale wegen geaenderter Vermoegens-/Cashflow-/
+        # Ziel-Inputs (input_snapshot_hash) gesetzt ist, nicht wegen des
+        # Risikoprofils.
+        "target_allocation_inputs_stale": False,
+        # STALE-ALLOCATION-HIDE-TARGETS-001: True = Bucket-Zielzahlen
+        # (soll/drift/band/in_band) sind genullt, weil veraltet.
+        "soll_ausgeblendet": False,
+        "buckets": {},  # bucket → {ist_bps, soll_bps, ist_rappen, drift_bps, in_band, band}
+        "country_exposure_bps": {},
+        "sector_exposure_bps": {},
+        "currency_exposure_bps": {},
+        # Sprint U-P20 (2026-05-24): SOLL-Exposures + IST-SOLL-Drift pro
+        # Country/Sector/Currency. Berechnet aus RecommendationPositions
+        # target_amount_rappen (statt current_amount_rappen). Bleibt leer,
+        # wenn kein RecommendationRun existiert — dann ist die Vergleichs-
+        # Basis nicht definiert, Warning wird gesetzt.
+        "soll_country_exposure_bps": {},
+        "soll_sector_exposure_bps": {},
+        "soll_currency_exposure_bps": {},
+        "country_exposure_drift_bps": {},
+        "sector_exposure_drift_bps": {},
+        "currency_exposure_drift_bps": {},
+        "concentration_hhi": {
+            "country": 0,
+            "sector": 0,
+            "currency": 0,
+            "top_positions": 0,
+        },
+        "top_positions": [],
+        "fund_characteristics": {
+            "weighted_ter_bps": 0,
+            "weighted_duration_years_x10": 0,
+            "weighted_esg_score_x10": 0,
+            "covered_share_bps": 0,  # % der Positionen mit gepflegtem TER/Duration/ESG
+        },
+        "liquidity_profile": {
+            "daily_bps": 0,
+            "weekly_bps": 0,
+            "monthly_bps": 0,
+            "illiquid_bps": 0,
+            "unknown_bps": 0,
+        },
+        "warnings": [],
+    }
+
+
+def _load_positions(
+    db: Session, mandate: Mandate,
+) -> tuple[list[tuple[RecommendationPosition, Product]], list[tuple[WealthPosition, str]], int]:
+    """Sprint U-39 (2026-06-06): Laedt Holdings + berechnet total_rappen.
+
+    Returns (positions_with_products, wealth_only_positions, total_rappen).
+    Bevorzugt RecommendationRun-basierte Positionen, faellt auf WealthPosition
+    zurueck wenn kein Run vorhanden oder leer. Verhalten 1:1 wie der
+    Original-Block in compute_depot_check.
+    """
+    positions_with_products: list[tuple[RecommendationPosition, Product]] = []
+    wealth_only_positions: list[tuple[WealthPosition, str]] = []
+    total_rappen = 0
+
+    # Kontrollrunde 2026-09-20: RecommendationRun.result_status ist entweder
+    # "Draft" (vorgeschlagen, vom Berater noch nicht freigegeben), "Final"
+    # (freigegeben -- das, was der Kunde tatsaechlich haelt/halten soll) oder
+    # "Superseded" (durch eine neuere Final-Zeile abgeloest, siehe
+    # routers/review.py::finalize_recommendation). Die vorherige Version
+    # waehlte hier einfach die per created_at JUENGSTE Zeile, unabhaengig vom
+    # Status -- ein rein exploratorischer Draft-Lauf (z.B. "was waere wenn
+    # mehr Private Equity") konnte dadurch als das tatsaechliche IST-Depot in
+    # den Depot-Check (inkl. Liquiditaets-Warnung) einfliessen, obwohl der
+    # Kunde diesen Lauf nie hielt. Gleiches Final-zuerst-Fallback-Muster wie
+    # bereits etabliert in routers/review.py:2520-2524 und
+    # services/review_engine.py:396 -- EINE Quelle der Wahrheit fuer "welcher
+    # Lauf gilt gerade" statt einer vierten, divergierenden Auswahl-Logik.
+    runs = (
+        db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id == mandate.id)
+        .order_by(RecommendationRun.created_at.desc())
+        .all()
+    )
+    latest_run = (
+        next((r for r in runs if r.result_status == "Final"), None)
+        or next((r for r in runs if r.result_status == "Draft"), None)
+        or (runs[0] if runs else None)
+    )
+    if latest_run is not None:
+        rec_positions = (
+            db.query(RecommendationPosition)
+            .filter(RecommendationPosition.run_id == latest_run.id)
+            .all()
+        )
+        product_ids = [p.product_id for p in rec_positions if p.product_id]
+        products_map = {}
+        if product_ids:
+            rows = db.query(Product).filter(Product.id.in_(product_ids)).all()
+            products_map = {p.id: p for p in rows}
+        for rec_pos in rec_positions:
+            prod = products_map.get(rec_pos.product_id)
+            if prod is None:
+                continue
+            current_amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
+            if current_amount <= 0:
+                # Fallback auf target_amount wenn current_amount nicht gepflegt
+                current_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+            if current_amount > 0:
+                positions_with_products.append((rec_pos, prod))
+                total_rappen += current_amount
+
+    # Fallback: WealthPositions wenn keine RecommendationPositions
+    if not positions_with_products:
+        client_id = getattr(mandate, "client_id", None)
+        if client_id:
+            wp_rows = (
+                db.query(WealthPosition)
+                .filter(
+                    WealthPosition.client_id == client_id,
+                    WealthPosition.is_active == 1,
+                    WealthPosition.deleted_at.is_(None),
+                    WealthPosition.assignment == "Beratungsvermögen",
+                )
+                .all()
+            )
+            for wp in wp_rows:
+                amount = _safe_int(getattr(wp, "current_value_rappen", 0))
+                if amount > 0:
+                    wealth_only_positions.append(
+                        (wp, _bucket_from_position_type(getattr(wp, "position_type", "")))
+                    )
+                    total_rappen += amount
+
+    return positions_with_products, wealth_only_positions, total_rappen
+
+
+def _aggregate_warnings(result: dict) -> None:
+    """Sprint U-39 (2026-06-06): Sammelt alle Warning-Texte in result['warnings'].
+
+    Mutiert die uebergebene result-Dict (kein Return). Schwellen sind als
+    Modul-Konstanten benannt (siehe oben), nicht mehr Magic-Numbers.
+    """
+    if result.get("target_allocation_inputs_stale"):
+        result["warnings"].append(
+            "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele "
+            "haben sich seit der Berechnung geaendert -- Band-Vergleiche "
+            "unten sind nicht aussagekraeftig. Strategie neu berechnen."
+        )
+    elif result.get("target_allocation_stale"):
+        result["warnings"].append(
+            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
+            "aktuellen Risikoprofil -- Band-Vergleiche unten sind nicht "
+            "aussagekraeftig. Strategie neu berechnen."
+        )
+
+    hhi = result["concentration_hhi"]
+    if hhi["country"] > _HHI_COUNTRY_WARNING_THRESHOLD:
+        result["warnings"].append(
+            f"Hohe Länder-Konzentration (HHI={hhi['country']}, "
+            f">{_HHI_COUNTRY_WARNING_THRESHOLD} = Single-Country-dominiert)"
+        )
+    if hhi["sector"] > _HHI_SECTOR_WARNING_THRESHOLD:
+        result["warnings"].append(
+            f"Hohe Sektor-Konzentration (HHI={hhi['sector']}, "
+            f">{_HHI_SECTOR_WARNING_THRESHOLD} = wenig diversifiziert)"
+        )
+    if hhi["top_positions"] > _HHI_TOP_POSITIONS_WARNING_THRESHOLD:
+        top_3_weight = sum(p["weight_bps"] for p in result["top_positions"][:3])
+        result["warnings"].append(
+            f"Top-3-Positionen = {top_3_weight/100:.1f}% des Depots (Konzentrations-Risiko)"
+        )
+    if result["liquidity_profile"]["illiquid_bps"] > _ILLIQUID_WARNING_THRESHOLD_BPS:
+        result["warnings"].append(
+            f"Illiquider Anteil = {result['liquidity_profile']['illiquid_bps']/100:.1f}% "
+            f"(>{_ILLIQUID_WARNING_THRESHOLD_BPS//100}%)"
+        )
+    if result["liquidity_profile"]["unknown_bps"] > _UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS:
+        result["warnings"].append(
+            f"Liquiditaets-Einstufung unklar fuer "
+            f"{result['liquidity_profile']['unknown_bps']/100:.1f}% des Depots "
+            f"(>{_UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS//100}%) -- Produkt-/"
+            "Positions-Metadaten pflegen, verdeckte Illiquiditaet kann "
+            "andernfalls unerkannt bleiben."
+        )
+
+    # Bandbreiten-Verstoesse
+    for bucket_info in result["buckets"].values():
+        if bucket_info.get("in_band") is False:
+            ist_pct = bucket_info["ist_bps"] / 100
+            band_text = (
+                f"{bucket_info['band_min_bps']/100:.1f}%-"
+                f"{bucket_info['band_max_bps']/100:.1f}%"
+            )
+            result["warnings"].append(
+                f"{bucket_info['label']} außerhalb Toleranzband: "
+                f"{ist_pct:.1f}% (Band: {band_text})"
+            )
+
+    # Drift-Warnings fuer Country/Sector/Currency-Einzelpositionen.
+    # Kontrollrunde 2026-09-20: vorher wurde per max(..., key=abs) nur der
+    # EINE schlimmste Ausreisser pro Dimension gemeldet -- verletzten z.B.
+    # gleichzeitig CH (+18pp) UND US (-19pp) die Toleranz, erschien nur "US"
+    # in der Hinweisliste, "CH" blieb unsichtbar. Die PDF-Ampel selbst war
+    # davon nicht betroffen (rechnet unabhaengig ueber alle Buckets), aber
+    # die Live-Depot-Check-Hinweisliste unterschaetzte den Umfang des
+    # Handlungsbedarfs. Jetzt: ALLE Ausreisser pro Dimension, absteigend
+    # nach Betrag sortiert.
+    for dimension_label, drift_key in (
+        ("Land", "country_exposure_drift_bps"),
+        ("Sektor", "sector_exposure_drift_bps"),
+        ("Währung", "currency_exposure_drift_bps"),
+    ):
+        drift_map = result.get(drift_key) or {}
+        if not drift_map:
+            continue
+        offenders = sorted(
+            (
+                (key, value) for key, value in drift_map.items()
+                if abs(int(value or 0)) >= _DRIFT_WARNING_THRESHOLD_BPS
+            ),
+            key=lambda kv: -abs(int(kv[1] or 0)),
+        )
+        for key, value in offenders:
+            direction = "Überhang" if value > 0 else "Unterhang"
+            result["warnings"].append(
+                f"{dimension_label}-Drift {direction} bei '{key}': "
+                f"{value/100:+.1f} Prozentpunkte gegenüber Empfehlung."
+            )
+
+
+def compute_depot_check(db: Session, mandate: Mandate) -> dict:
+    """Liefert eine vollständige Depot-Check-Analyse für einen Mandanten.
+
+    Verwendet primär RecommendationPositions (aktuelle Holdings mit
+    konkreten Produkten) und fällt zurück auf WealthPositions (allgemeine
+    Beratungs-Positionen ohne ISIN/Produkt-Mapping).
+
+    Sprint U-39 (2026-06-06): Helfer-Extraktion fuer Zyklomatik-Reduktion.
+    Top-Level-Flow nun klar 4-stufig:
+      1. _init_result_dict — Default-Struktur
+      2. _load_positions — Holdings laden + total_rappen
+      3. Aggregation der Buckets/Exposures/HHI/Top-Positionen
+      4. _aggregate_warnings — Warning-Texte zusammenstellen
+    """
+    result = _init_result_dict(mandate)
+
+    # Sprint U-39 (2026-06-06): Step 1+2 extrahiert in _load_positions().
+    positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+
+    result["total_advisory_wealth_rappen"] = total_rappen
+    if total_rappen <= 0:
+        result["warnings"].append("Kein Beratungsvermögen erfasst. Bitte WealthPositions oder RecommendationRun anlegen.")
+        return result
+
+    # 3. Bucket-Aggregation (IST)
+    bucket_amounts_rappen: dict[str, int] = {b: 0 for b in BUCKET_LABELS}
+    # Plus position_weights für aggregate_exposures (key=position_id)
+    position_weights_bps: dict[str, int] = {}
+    position_country_exp: dict[str, dict[str, int]] = {}
+    position_sector_exp: dict[str, dict[str, int]] = {}
+    position_currency_exp: dict[str, dict[str, int]] = {}
+    position_records_for_top: list[dict] = []
+    ter_weighted_sum = 0
+    duration_weighted_sum = 0
+    esg_weighted_sum = 0
+    covered_amount = 0
+    duration_covered_amount = 0
+    esg_covered_amount = 0
+    liquidity_buckets = {"daily": 0, "weekly": 0, "monthly": 0, "illiquid": 0, "unknown": 0}
+
+    for rec_pos, prod in positions_with_products:
+        # Kontrollrunde 2026-09-20: MUSS exakt dieselbe Fallback-Logik wie
+        # _load_positions() (oben, current_amount<=0 -> target_amount)
+        # verwenden, nicht das frueher hier stehende "or"-Idiom. Fuer einen
+        # (aktuell ueber keinen bekannten Schreibpfad erreichbaren, aber von
+        # keiner DB-Constraint verhinderten) NEGATIVEN current_amount_rappen
+        # ist ein Wert wie -100 in Python truthy -- "or" wuerde NICHT auf
+        # target_amount zurueckfallen, obwohl _load_positions das (per <=0)
+        # bereits getan und die Position deshalb ueberhaupt erst in
+        # total_rappen eingerechnet hat. Divergierende Fallback-Logik an
+        # zwei Stellen fuer dieselbe Position haette total_rappen (Nenner
+        # JEDER Prozentangabe im gesamten Depot-Check) von der Summe der
+        # tatsaechlich gebuckten Betraege abkoppeln koennen.
+        amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
+        if amount <= 0:
+            amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        if amount <= 0:
+            continue
+        bucket = _bucket_key_from_product(prod)
+        bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
+        weight_bps = int(round(amount / total_rappen * 10000))
+        position_weights_bps[rec_pos.id] = weight_bps
+        position_country_exp[rec_pos.id] = country_exposure_for_product(
+            getattr(prod, "country_exposure_json", None),
+            getattr(prod, "sub_asset_class", None),
+        )
+        position_sector_exp[rec_pos.id] = sector_exposure_for_product(
+            getattr(prod, "sector_exposure_json", None),
+            getattr(prod, "sub_asset_class", None),
+        )
+        position_currency_exp[rec_pos.id] = currency_exposure_for_product(
+            getattr(prod, "currency_exposure_json", None),
+            getattr(prod, "sub_asset_class", None),
+            fallback_currency=getattr(prod, "currency", None),
+        )
+        position_records_for_top.append({
+            "position_id": rec_pos.id,
+            "product_name": str(getattr(prod, "product_name", "—") or "—"),
+            "isin": str(getattr(prod, "isin", "") or ""),
+            "asset_class": str(getattr(prod, "asset_class", "") or ""),
+            "sub_asset_class": str(getattr(prod, "sub_asset_class", "") or ""),
+            "currency": str(getattr(prod, "currency", "") or ""),
+            "amount_rappen": amount,
+            "weight_bps": weight_bps,
+            "ter_bps": _safe_int(getattr(prod, "ter_bps", 0)),
+        })
+        # Fund-Characteristics gewichtet
+        ter = _safe_int(getattr(prod, "ter_bps", 0))
+        if ter > 0:
+            ter_weighted_sum += ter * amount
+            covered_amount += amount
+        duration = _safe_int(getattr(prod, "duration_years_x10", 0))
+        if duration > 0:
+            duration_weighted_sum += duration * amount
+            duration_covered_amount += amount
+        esg = _safe_int(getattr(prod, "esg_score_x10", 0))
+        if esg > 0:
+            esg_weighted_sum += esg * amount
+            esg_covered_amount += amount
+        tier = _product_liquidity_tier(prod, bucket)
+        liquidity_buckets[tier] += amount
+
+    # Fallback aus WealthPositions (kein Produkt → keine Exposure-Tiefe)
+    for wp, bucket in wealth_only_positions:
+        amount = _safe_int(getattr(wp, "current_value_rappen", 0))
+        bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
+        weight_bps = int(round(amount / total_rappen * 10000))
+        position_records_for_top.append({
+            "position_id": wp.id,
+            "product_name": str(getattr(wp, "label", "—") or "—"),
+            "isin": "",
+            "asset_class": BUCKET_LABELS.get(bucket, bucket),
+            "sub_asset_class": "",
+            "currency": str(getattr(wp, "currency", "") or "CHF"),
+            "amount_rappen": amount,
+            "weight_bps": weight_bps,
+            "ter_bps": 0,
+        })
+        tier = _wealth_position_liquidity_tier(wp, bucket)
+        liquidity_buckets[tier] += amount
+
+    # 4. Bucket-Drift gegen TargetAllocation (Soll)
+    ta = (
+        db.query(TargetAllocation)
+        .filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        )
+        .first()
+    )
+    # Kontrollrunde 2026-09-20 (direkte Folge von SUITABILITY-ALLOCATION-
+    # STALENESS-001 vom selben Tag): compute_depot_check las diese
+    # TargetAllocation bisher OHNE zu pruefen, ob sie noch unter dem
+    # AKTUELLEN Risikoprofil erstellt wurde -- exakt dieselbe Luecke, die
+    # der Compliance-Audit (services/suitability_audit.py, Report-Sektion 19)
+    # bereits erkennt. Ohne diesen Check konnte Sektion 7 "in Band, alles
+    # gruen" zeigen, waehrend Sektion 19 im selben Report bereits nicht-
+    # konform meldete -- ein intern widerspruechliches Dokument. Siehe
+    # services.risk_assessment_semantics.target_allocation_predates_current_
+    # assessment fuer die (jetzt EINE, geteilte) Pruef-Logik.
+    from services.portfolio_engine import _current_risk_assessment_or_none
+    from services.risk_assessment_semantics import (
+        target_allocation_predates_current_assessment,
+    )
+    current_ra = _current_risk_assessment_or_none(db, mandate.id)
+    result["target_allocation_stale"] = target_allocation_predates_current_assessment(
+        ta, getattr(current_ra, "id", None), current_ra
+    )
+    # ALLOCATION-INPUT-STALENESS-001: Payload/Finalisierung/Strategie-PDF
+    # lehnen eine Allokation auch ab, wenn sich Vermoegen, Cashflows oder
+    # Ziele seit der Berechnung geaendert haben (input_snapshot_hash). Ohne
+    # diese Pruefung zeigte der Depot-Check die alten Soll-Werte als aktuell.
+    # Nur pruefen, wenn das Risikoprofil-Kriterium noch nicht greift (spart
+    # die Anker-Neuberechnung).
+    if not result["target_allocation_stale"]:
+        from services.allocation_input_staleness import allocation_inputs_stale
+        result["target_allocation_inputs_stale"] = allocation_inputs_stale(
+            db, mandate, ta, assessment=current_ra
+        )
+        result["target_allocation_stale"] = result["target_allocation_inputs_stale"]
+    for bucket in BUCKET_LABELS:
+        amount_rappen = bucket_amounts_rappen.get(bucket, 0)
+        ist_bps = int(round(amount_rappen / total_rappen * 10000)) if total_rappen > 0 else 0
+        soll_bps = 0
+        band_min_bps = 0
+        band_max_bps = 0
+        if ta is not None:
+            soll_bps = _safe_int(getattr(ta, f"target_{bucket}_bps", 0))
+            band_min_bps = _safe_int(getattr(ta, f"band_{bucket}_min_bps", 0))
+            band_max_bps = _safe_int(getattr(ta, f"band_{bucket}_max_bps", 0))
+        in_band = (band_min_bps <= ist_bps <= band_max_bps) if (band_min_bps or band_max_bps) else None
+        result["buckets"][bucket] = {
+            "label": BUCKET_LABELS[bucket],
+            "ist_bps": ist_bps,
+            "soll_bps": soll_bps,
+            "ist_rappen": amount_rappen,
+            "drift_bps": ist_bps - soll_bps,
+            "band_min_bps": band_min_bps,
+            "band_max_bps": band_max_bps,
+            "in_band": in_band,
+        }
+    # STALE-ALLOCATION-HIDE-TARGETS-001 (CIO-Entscheid): ist die Soll-
+    # Allokation veraltet (Risikoprofil ODER geaenderte Inputs), werden ihre
+    # Zielzahlen nicht ausgeliefert -- weder Soll noch Drift noch Band noch
+    # Band-Status. Konsumenten zeigen stattdessen den Hinweis "Strategie neu
+    # berechnen". Damit entfallen auch die Band-Warnungen gegen alte Baender.
+    result["soll_ausgeblendet"] = bool(result["target_allocation_stale"])
+    if result["soll_ausgeblendet"]:
+        for bucket_info in result["buckets"].values():
+            bucket_info.update(
+                soll_bps=None, drift_bps=None,
+                band_min_bps=None, band_max_bps=None, in_band=None,
+            )
+
+    # 5. Aggregierte Country/Sector/Currency-Exposures (IST)
+    if position_weights_bps:
+        result["country_exposure_bps"] = aggregate_exposures(position_weights_bps, position_country_exp)
+        result["sector_exposure_bps"] = aggregate_exposures(position_weights_bps, position_sector_exp)
+        result["currency_exposure_bps"] = aggregate_exposures(position_weights_bps, position_currency_exp)
+
+    # 5b. Sprint U-P20: SOLL-Exposures + IST-SOLL-Drift pro Dimension.
+    # SOLL = target_amount_rappen aus RecommendationPositions (das was der
+    # Berater empfohlen hat). Wenn kein RecommendationRun existiert oder
+    # alle target_amount == 0 sind, bleiben die SOLL-Maps leer (keine
+    # Vergleichs-Basis möglich).
+    soll_total_target_rappen = 0
+    position_target_weights_bps: dict[str, int] = {}
+    for rec_pos, prod in positions_with_products:
+        target_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        if target_amount > 0:
+            soll_total_target_rappen += target_amount
+    if soll_total_target_rappen > 0:
+        for rec_pos, prod in positions_with_products:
+            target_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+            if target_amount <= 0:
+                continue
+            position_target_weights_bps[rec_pos.id] = int(
+                round(target_amount / soll_total_target_rappen * 10000)
+            )
+        result["soll_country_exposure_bps"] = aggregate_exposures(
+            position_target_weights_bps, position_country_exp
+        )
+        result["soll_sector_exposure_bps"] = aggregate_exposures(
+            position_target_weights_bps, position_sector_exp
+        )
+        result["soll_currency_exposure_bps"] = aggregate_exposures(
+            position_target_weights_bps, position_currency_exp
+        )
+        # Drift = IST - SOLL pro Key. Union beider Key-Sets damit
+        # auch Keys auftauchen, die nur in einem von beiden vorkommen
+        # (z.B. Land, das der Berater empfiehlt aber Kunde noch nicht hat).
+        result["country_exposure_drift_bps"] = _compute_drift(
+            result["country_exposure_bps"], result["soll_country_exposure_bps"]
+        )
+        result["sector_exposure_drift_bps"] = _compute_drift(
+            result["sector_exposure_bps"], result["soll_sector_exposure_bps"]
+        )
+        result["currency_exposure_drift_bps"] = _compute_drift(
+            result["currency_exposure_bps"], result["soll_currency_exposure_bps"]
+        )
+    if result["soll_ausgeblendet"]:
+        # STALE-ALLOCATION-HIDE-TARGETS-001 (Nachtrag Sektion 9/10): die
+        # SOLL-Exposures stammen aus der Empfehlung zur veralteten Allokation
+        # -- wie die Bucket-Ziele nicht ausliefern.
+        for dim in ("country", "sector", "currency"):
+            result[f"soll_{dim}_exposure_bps"] = {}
+            result[f"{dim}_exposure_drift_bps"] = {}
+    elif soll_total_target_rappen <= 0 and positions_with_products:
+        # RecommendationPositions vorhanden, aber kein target_amount gepflegt.
+        # Berater hat noch nicht „Empfehlung übernehmen" geklickt.
+        result["warnings"].append(
+            "SOLL-Vergleich nicht möglich: kein target_amount in den "
+            "Empfehlungs-Positionen gepflegt. Bitte im Portfolio-Tab eine "
+            "Empfehlung generieren und übernehmen."
+        )
+
+    # 6. Konzentrations-HHI pro Dimension
+    result["concentration_hhi"]["country"] = herfindahl_hirschman_index(result["country_exposure_bps"])
+    result["concentration_hhi"]["sector"] = herfindahl_hirschman_index(result["sector_exposure_bps"])
+    result["concentration_hhi"]["currency"] = herfindahl_hirschman_index(result["currency_exposure_bps"])
+    # Top-Positionen-HHI: über alle Position-Weights
+    pos_weight_dict = {rec["position_id"]: rec["weight_bps"] for rec in position_records_for_top}
+    result["concentration_hhi"]["top_positions"] = herfindahl_hirschman_index(pos_weight_dict)
+
+    # 7. Top-Positionen (sortiert nach amount, top 10)
+    position_records_for_top.sort(key=lambda p: -p["amount_rappen"])
+    result["top_positions"] = position_records_for_top[:10]
+
+    # 8. Fund-Characteristics
+    if covered_amount > 0:
+        result["fund_characteristics"]["weighted_ter_bps"] = int(round(ter_weighted_sum / covered_amount))
+        result["fund_characteristics"]["covered_share_bps"] = int(round(covered_amount / total_rappen * 10000))
+    if duration_covered_amount > 0:
+        result["fund_characteristics"]["weighted_duration_years_x10"] = int(round(duration_weighted_sum / duration_covered_amount))
+    if esg_covered_amount > 0:
+        result["fund_characteristics"]["weighted_esg_score_x10"] = int(round(esg_weighted_sum / esg_covered_amount))
+
+    # 9. Liquidity-Profil als bps
+    for tier, amount in liquidity_buckets.items():
+        result["liquidity_profile"][f"{tier}_bps"] = int(round(amount / total_rappen * 10000)) if total_rappen > 0 else 0
+
+    # Sprint U-39 (2026-06-06): Warnings-Aggregation extrahiert.
+    _aggregate_warnings(result)
+    return result

@@ -35,9 +35,9 @@ Es ist `Column(String, nullable=False)`. Das bedeutet:
 ## Scope
 
 ### Was sich ändert
-1. `5eyes_v2.html` — Portfolio-Tab Header-Text ändern
-2. `5eyes_v2.html` — Modal `m-ap`: bestehender Info-Text bleibt, **kein** "Phase 1"-Badge
-3. `5eyes_v2.html` — Checkbox `aa-product-funds-only` auf `checked` by default
+1. `ares.html` — Portfolio-Tab Header-Text ändern
+2. `ares.html` — Modal `m-ap`: bestehender Info-Text bleibt, **kein** "Phase 1"-Badge
+3. `ares.html` — Checkbox `aa-product-funds-only` auf `checked` by default
 
 ### Was NICHT ändert
 - `models/review.py` → `product_type` existiert bereits, keine Änderung
@@ -50,7 +50,7 @@ Es ist `Column(String, nullable=False)`. Das bedeutet:
 
 | Datei | Art |
 |---|---|
-| `5eyes-electron/frontend/5eyes_v2.html` | ÄNDERN |
+| `ares-desktop/frontend/ares.html` | ÄNDERN |
 
 ---
 
@@ -58,7 +58,7 @@ Es ist `Column(String, nullable=False)`. Das bedeutet:
 
 ### Grep:
 ```
-grep -n "Portfolio.*Einzeltitel\|page-po.*ph-t" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "Portfolio.*Einzeltitel\|page-po.*ph-t" ares-desktop/frontend/ares.html
 ```
 
 ### Alten Header suchen:
@@ -90,7 +90,7 @@ Der Berater weiss intern, dass er ETFs/Fonds einträgt — das muss nicht im UI 
 
 ### Grep:
 ```
-grep -n "aa-product-funds-only\|Nur Fonds" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "aa-product-funds-only\|Nur Fonds" ares-desktop/frontend/ares.html
 ```
 
 Das Feld `aa-product-funds-only` existiert bereits in der Asset-Allocation-Seite.
@@ -121,7 +121,7 @@ id="aa-product-funds-only"
 2. Sub-Header: unverändert lassen
 3. Modal `m-ap`: keine Änderung
 4. Checkbox `aa-product-funds-only`: Default auf `checked` setzen
-5. `node --check 5eyes-electron/frontend/5eyes_v2.html` → 0 Fehler
+5. `node --check ares-desktop/frontend/ares.html` → 0 Fehler
 
 ---
 

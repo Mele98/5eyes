@@ -58,7 +58,7 @@ Nur `risk_scoring.py`: 1 Dict, 1 Fallback. Keine anderen Dateien.
 
 | Datei | Art |
 |---|---|
-| `5eyes-backend/services/risk_scoring.py` | ÄNDERN |
+| `ares-backend/services/risk_scoring.py` | ÄNDERN |
 
 ---
 
@@ -66,7 +66,7 @@ Nur `risk_scoring.py`: 1 Dict, 1 Fallback. Keine anderen Dateien.
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "WILLINGNESS_SCORE_TO_PROFILE" 5eyes-backend/services/risk_scoring.py
+grep -n "WILLINGNESS_SCORE_TO_PROFILE" ares-backend/services/risk_scoring.py
 ```
 
 **Alt:**
@@ -97,7 +97,7 @@ WILLINGNESS_SCORE_TO_PROFILE = {
 
 **Grep zum Lokalisieren:**
 ```
-grep -n "_willingness_profile\|return.*Sicherheitsorientiert" 5eyes-backend/services/risk_scoring.py
+grep -n "_willingness_profile\|return.*Sicherheitsorientiert" ares-backend/services/risk_scoring.py
 ```
 
 **Alt:**

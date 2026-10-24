@@ -66,11 +66,11 @@ Quellen fuer die Auftragsdefinition:
   (externes Referenzdokument, Arbeitspaket 7 / `FAIR-04`, `FAIR-07`)
 
 Durchsucht wurden:
-- `5eyes-electron/frontend/5eyes_v2.html` (Classic-Monolith-Frontend)
-- `5eyes-electron/frontend/reporting/src/**` (React-Reporting-Sub-App)
-- `5eyes-backend/services/pdf/**` (PDF-Generator)
-- `5eyes-backend/services/mailer.py` (E-Mail-Versand)
-- `5eyes-backend/routers/clients.py` (Kunden-CRUD inkl. Delete/Erasure)
+- `ares-desktop/frontend/ares.html` (Classic-Monolith-Frontend)
+- `ares-desktop/frontend/reporting/src/**` (React-Reporting-Sub-App)
+- `ares-backend/services/pdf/**` (PDF-Generator)
+- `ares-backend/services/mailer.py` (E-Mail-Versand)
+- `ares-backend/routers/clients.py` (Kunden-CRUD inkl. Delete/Erasure)
 - `docs/compliance/**` (Rechts-/Compliance-Vorlagen)
 - `docs/audits/**` (Dateinamen-Inventar; zwei einschlaegige Folgeaudits im
   Volltext: `2026-08-26-data-lifecycle-crypto-browser-followup-audit.md` und
@@ -98,7 +98,7 @@ Durchsucht wurden:
 
 **Repository-Beleg:**
 
-Classic-Frontend (`5eyes-electron/frontend/5eyes_v2.html`):
+Classic-Frontend (`ares-desktop/frontend/ares.html`):
 - Zeile 2985: `<div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div>`
   — Seitentitel der Risikoprofil-Maske, jedem Berater bei jedem Mandat sichtbar.
 - Zeile 2991: `<span class="cht">Fragebogen FINMA Eignungspruefung</span>`
@@ -113,7 +113,7 @@ Classic-Frontend (`5eyes-electron/frontend/5eyes_v2.html`):
   „FINMA Art. 6 FIDLEG“ neben einer akademischen Quellenangabe
   (siehe `CLAIM-REGISTER-003`).
 
-React-Reporting-App (`5eyes-electron/frontend/reporting/src/pages/`):
+React-Reporting-App (`ares-desktop/frontend/reporting/src/pages/`):
 - `Risikoprofil.tsx:25`: `subtitle="FINMA-konforme Eignungsprüfung — Score,
   Profil, Begründung."`
 - `Eignung.tsx:57`: `subtitle="FINMA-/FIDLEG-konforme Pruefung der
@@ -126,7 +126,7 @@ React-Reporting-App (`5eyes-electron/frontend/reporting/src/pages/`):
 - `Compliance.tsx:64`: `subtitle="Übersicht der FIDLEG/FINMA-relevanten
   Audit-Pruefungen für dieses Mandat."`
 
-Backend-PDF (`5eyes-backend/services/pdf/`):
+Backend-PDF (`ares-backend/services/pdf/`):
 - `documents/advisory_report.py:2034`: Docstring „FINMA-konforme
   Beratungsprotokoll-Übersicht im PDF.“
 - `documents/advisory_report.py:3063-3065`: tatsaechlich gedruckter
@@ -204,16 +204,16 @@ Satzes „bereits umgesetzt“, bis die referenzierten Findings geschlossen sind
 
 **Repository-Beleg:**
 
-`5eyes-electron/frontend/5eyes_v2.html:1190`:
+`ares-desktop/frontend/ares.html:1190`:
 ```html
 <div class="intro-signal"><span>RISK BUDGET</span><em>VALID</em></div>
 ```
-`5eyes-electron/frontend/5eyes_v2.html:1196-1197` (Laufband, zweifach
+`ares-desktop/frontend/ares.html:1196-1197` (Laufband, zweifach
 wiederholt fuer Endlosschleife):
 ```html
 <span>RISK BUDGET VALIDATED</span>
 ```
-`5eyes-electron/frontend/5eyes_v2.html:1228`:
+`ares-desktop/frontend/ares.html:1228`:
 ```js
 var steps=['Wealth structure mapping','Strategic allocation synchronized',
   'Private markets and liquidity mapped','Risk budget and goals validated',
@@ -252,7 +252,7 @@ gekennzeichnet werden.
 
 ## `CLAIM-REGISTER-003` — Gesetzes- und Literaturzitat in Tooltip ohne Belegpfad
 
-**Repository-Beleg:** `5eyes-electron/frontend/5eyes_v2.html:4804-4809`:
+**Repository-Beleg:** `ares-desktop/frontend/ares.html:4804-4809`:
 ```html
 <div id="nz-saa-info" ...>
   <strong>Wissenschaftliche Logik:</strong> Goal-Änderungen beeinflussen die
@@ -279,7 +279,7 @@ Fachowner) im selben Claim-Register wie `CLAIM-REGISTER-001`.
 
 ## `DARKPATTERN-001` — Button-Symmetrie Abbrechen/Bestaetigen (kein Befund)
 
-**Repository-Beleg:** CSS-Definitionen in `5eyes_v2.html`:
+**Repository-Beleg:** CSS-Definitionen in `ares.html`:
 ```css
 .btn{background:none;border:1px solid var(--b2);border-radius:var(--r);
   font-family:var(--f-s);font-size:11px;color:var(--n6);padding:6px 13px;...}
@@ -314,7 +314,7 @@ Button-Groessen-Dark-Pattern im untersuchten UI.
 
 ## `DARKPATTERN-002` — Vorangekreuzte Checkboxen (kein Befund fuer Consent/Marketing)
 
-**Repository-Beleg:** Alle in `5eyes_v2.html` gefundenen standardmaessig
+**Repository-Beleg:** Alle in `ares.html` gefundenen standardmaessig
 `checked`-Checkboxen/Radios wurden einzeln geprueft, u.a.:
 - Zeile 3318-3319 `cf-indexation-toggle` (Cashflow-Indexierung an/aus) —
   fachlicher Rechenmodus, kein Consent.
@@ -340,7 +340,7 @@ Einwilligungen.
 
 ## `DARKPATTERN-003` — Kundenloeschung ohne UI-Pfad
 
-**Repository-Beleg:** `5eyes-backend/routers/clients.py:154-167`:
+**Repository-Beleg:** `ares-backend/routers/clients.py:154-167`:
 ```python
 @router.delete("/{client_id}", status_code=204)
 def delete_client(
@@ -358,15 +358,15 @@ Der Endpunkt existiert und ist ein Soft-Delete (`deleted_at`-Zeitstempel,
 auditiert). Eine gezielte Suche im kompletten Classic-Frontend nach jedem
 Aufruf von `API.del('/clients/...')` ergab ausschliesslich:
 ```
-5eyes-electron/frontend/5eyes_v2.html:17377: API.del('/clients/'+cid+'/wealth-positions/'+positionId)
-5eyes-electron/frontend/5eyes_v2.html:20782: API.del('/clients/'+cid+'/cashflows/'+cfId)
+ares-desktop/frontend/ares.html:17377: API.del('/clients/'+cid+'/wealth-positions/'+positionId)
+ares-desktop/frontend/ares.html:20782: API.del('/clients/'+cid+'/cashflows/'+cfId)
 ```
 — also Loeschaufrufe fuer einzelne Vermoegenspositionen und Cashflows,
 **aber keiner** fuer `DELETE /clients/{client_id}` selbst. Ebenso wurde keine
 Frontend-Funktion mit Namen wie `deleteClient`, `archiveClient` o.ae.
 gefunden, und auch der separate Erasure-Pfad (`services/client_erasure.py`,
 von `clients.py` importiert) hat keine erkennbare UI-Anbindung in
-`5eyes_v2.html` (keine Treffer fuer „erasure“/„anonymisieren“ im Frontend).
+`ares.html` (keine Treffer fuer „erasure“/„anonymisieren“ im Frontend).
 
 Im Vergleich dazu ist das Anlegen eines Kunden ein einzelnes Formular plus
 `API.post('/clients', ...)` (Zeile 76 in `clients.py`, direkt per UI
@@ -395,7 +395,7 @@ dass Kundenloeschung derzeit nur per direktem API-Zugriff moeglich ist.
 **Vorgehen:** Repository-weite Grep-Suche (case-insensitive) nach
 `testimonial`, `stripe`, `paypal`, `credit.?card`, `checkout`,
 `payment_intent`, `star.?rating`, `kundenbewertung` in
-`5eyes-electron/**` und `5eyes-backend/**` (ausserhalb von `docs/`, `.git`,
+`ares-desktop/**` und `ares-backend/**` (ausserhalb von `docs/`, `.git`,
 Node-/Build-Artefakten).
 
 **Ergebnis:** Keine Treffer in Produktcode. (Eine breitere, undifferenzierte
@@ -410,7 +410,7 @@ eigenstaendig bestaetigt.
 
 ## `COMMERCIAL-003` — Mailer sendet ausschliesslich Transaktions-Mails
 
-**Repository-Beleg:** `5eyes-backend/services/mailer.py` definiert genau zwei
+**Repository-Beleg:** `ares-backend/services/mailer.py` definiert genau zwei
 Versandfunktionen:
 - `send_invite_email` (Zeile 102-111) — Betreff „Ihr Zugang zu 5eyes — Konto
   aktivieren“ (Zeile 83), Text mit Aktivierungslink, 7 Tage gueltig.
@@ -433,7 +433,7 @@ im Referenzdokument).
 - Grep-Suche (case-insensitive) nach `FINMA`, `konform`, `compliant`,
   `validated`, `garantiert`, `zertifiziert`, `geprueft`/`geprüft`,
   `BANKING STANDARD`, `bank-grade`, `sicher` ueber
-  `5eyes-electron/frontend/` und `5eyes-backend/services/pdf/`, Treffer
+  `ares-desktop/frontend/` und `ares-backend/services/pdf/`, Treffer
   einzeln gegen den jeweiligen Datei-Kontext gelesen (nicht nur
   Treffer-Zeile).
 - `docs/compliance/finma-outsourcing-anzeige.md` vollstaendig gelesen;
@@ -442,13 +442,13 @@ im Referenzdokument).
 - `docs/audits/2026-10-04-risk-budget-fallback-context-and-finalization-integrity-audit.md`
   Kopfzeilen gelesen zur Bestaetigung des offenen Release-Hold-Status.
 - CSS-Definitionen `.btn`/`.btn-p`/`.btn-g` und alle `checked`-Treffer in
-  `5eyes_v2.html` einzeln gesichtet.
+  `ares.html` einzeln gesichtet.
 - `routers/clients.py` vollstaendig fuer CRUD- und Erasure-Pfade gelesen;
   gezielte Gegen-Suche nach `API.del('/clients/...')`-Aufrufen im Frontend,
   um einen UI-Pfad fuer den Delete-Endpunkt zu finden oder auszuschliessen.
 - `services/mailer.py` vollstaendig gelesen.
 - Repository-weite Grep-Suche nach Review-/Testimonial-/Payment-Begriffen in
-  `5eyes-electron/` und `5eyes-backend/` (ausserhalb `docs/`).
+  `ares-desktop/` und `ares-backend/` (ausserhalb `docs/`).
 - `docs/CLAUDE_HANDOFF.md` oberste ~220 Zeilen gelesen (fachliches
   Entscheidungs-/Uebergabeprotokoll, keine P0/P1-Statusliste — siehe
   Einschraenkung unten).

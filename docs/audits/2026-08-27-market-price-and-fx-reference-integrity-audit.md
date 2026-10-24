@@ -4,7 +4,7 @@ document_role: "release-blocking-market-price-and-fx-reference-integrity-followu
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "2c2a4643a3bb8e42457a611c93b2b8e0b2872c16"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -107,19 +107,19 @@ deterministisch belegt.
 
 | Bereich | Codeanker |
 |---|---|
-| FX-Payload nutzt koerziven Float | `5eyes-backend/routers/fx_rates.py:31-39` |
-| FX-Checks laufen vor Quantisierung | `5eyes-backend/routers/fx_rates.py:101-122` |
-| Quantisierung kann einen geprüften Wert zu null machen | `5eyes-backend/routers/fx_rates.py:143-151` |
-| FX-Tabelle ohne Current-Unique-/Range-CHECK | `5eyes-backend/models/fx_rate.py:12-34` |
-| Modell-Loader blockiert null/duplicate Current-FX | `5eyes-backend/services/currency/fx_rates.py:164-236` |
-| Legacy-/Reporting-Loader überspringt ungültige Zeilen und fällt auf Defaults | `5eyes-backend/services/currency/fx_rates.py:244-277` |
-| PriceHistory erlaubt positive Werte ohne Datums-/Währungsprüfung | `5eyes-backend/price_updater.py:515-554` |
-| Stooq-Fallback übernimmt Datum als ungeprüften String | `5eyes-backend/price_updater.py:207-228` |
-| Future-Datum gilt wegen `age_days <= threshold` als frisch | `5eyes-backend/price_updater.py:643-675` |
-| Live-Rebalancing verwendet dieselbe Freshness-Logik | `5eyes-backend/services/portfolio_engine_live_rebalancing.py:379-403` |
-| Preis-/FX-Unique enthält bewusst `source` | `5eyes-backend/models/snapshots.py:53-104` |
-| Backfill und Daily Refresh schreiben verschiedene Source-Namen | `5eyes-backend/services/market_data/asset_class_price_backfill.py:87-157`; `5eyes-backend/services/market_data_daily_refresh.py:162-245` |
-| Backtest sortiert nur nach Datum und überschreibt pro Datum im Dict | `5eyes-backend/services/backtest_strategy.py:560-690` |
+| FX-Payload nutzt koerziven Float | `ares-backend/routers/fx_rates.py:31-39` |
+| FX-Checks laufen vor Quantisierung | `ares-backend/routers/fx_rates.py:101-122` |
+| Quantisierung kann einen geprüften Wert zu null machen | `ares-backend/routers/fx_rates.py:143-151` |
+| FX-Tabelle ohne Current-Unique-/Range-CHECK | `ares-backend/models/fx_rate.py:12-34` |
+| Modell-Loader blockiert null/duplicate Current-FX | `ares-backend/services/currency/fx_rates.py:164-236` |
+| Legacy-/Reporting-Loader überspringt ungültige Zeilen und fällt auf Defaults | `ares-backend/services/currency/fx_rates.py:244-277` |
+| PriceHistory erlaubt positive Werte ohne Datums-/Währungsprüfung | `ares-backend/price_updater.py:515-554` |
+| Stooq-Fallback übernimmt Datum als ungeprüften String | `ares-backend/price_updater.py:207-228` |
+| Future-Datum gilt wegen `age_days <= threshold` als frisch | `ares-backend/price_updater.py:643-675` |
+| Live-Rebalancing verwendet dieselbe Freshness-Logik | `ares-backend/services/portfolio_engine_live_rebalancing.py:379-403` |
+| Preis-/FX-Unique enthält bewusst `source` | `ares-backend/models/snapshots.py:53-104` |
+| Backfill und Daily Refresh schreiben verschiedene Source-Namen | `ares-backend/services/market_data/asset_class_price_backfill.py:87-157`; `ares-backend/services/market_data_daily_refresh.py:162-245` |
+| Backtest sortiert nur nach Datum und überschreibt pro Datum im Dict | `ares-backend/services/backtest_strategy.py:560-690` |
 
 ## `FX-REF-001` – Der Schreibvertrag kann die globale Modellbasis ungültig machen
 

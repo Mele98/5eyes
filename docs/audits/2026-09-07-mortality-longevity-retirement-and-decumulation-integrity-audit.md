@@ -5,8 +5,8 @@ status_as_of: "2026-09-07"
 audit_started_on: "2026-09-05"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "b769f42b434585cb504a0c86050ec33f88e0ff2e"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -306,7 +306,7 @@ Gelesen und quergeprüft wurden insbesondere:
 - `services/planning_horizon.py` und `advisory_report.py`,
 - Mandats-, Client-, Wealth- und Allocation-Models/Schemas/Router sowie
   Alembic-Baseline,
-- `5eyes-electron/frontend/5eyes_v2.html`,
+- `ares-desktop/frontend/ares.html`,
 - bestehende Planungs-, Handoff-, Audit- und Deploymentdokumente.
 
 ### Offizielle Referenz
@@ -1133,8 +1133,8 @@ Die wichtigsten verifizierten Anker sind:
 - `services/optimizer/importance_sampling.py:262-340` und
   `services/portfolio_engine_optimizer_integration.py:132-212,215-364` –
   Decumulation-Trigger und Tax-Kopplung;
-- `5eyes-electron/frontend/5eyes_v2.html:3962-4004,4387-4411,7339-7377`
-  und `5eyes-electron/frontend/5eyes_v2.html:15041-15081,18530-18556` –
+- `ares-desktop/frontend/ares.html:3962-4004,4387-4411,7339-7377`
+  und `ares-desktop/frontend/ares.html:15041-15081,18530-18556` –
   sichtbare Claims und widersprüchliche Defaults.
 
 ### Fokussierter Bestands-Gate

@@ -49,14 +49,14 @@ git checkout -b codex/integration-phase6 origin/develop
 ```powershell
 git merge origin/codex/audit-master --no-ff -m "Merge: audit-master (Z1-Z9 + B1-B6 + W2.5 + F23 + Security)"
 # Wenn Konflikt: STOP, zuerst pruefen — audit-master sollte aber sauber von alter develop kommen
-pytest 5eyes-backend/tests/ -x -q   # 357+ erwartet
+pytest ares-backend/tests/ -x -q   # 357+ erwartet
 ```
 
 ### 4. Merge stochastic-optimizer (FF erwartet)
 
 ```powershell
 git merge origin/codex/stochastic-optimizer --no-ff -m "Merge: Stochastic Optimizer Phase 1-6.3"
-pytest 5eyes-backend/tests/ -x -q   # 528+ erwartet
+pytest ares-backend/tests/ -x -q   # 528+ erwartet
 ```
 
 ### 5. Merge rp-ueberarbeitung (KONFLIKTE ERWARTET)
@@ -73,7 +73,7 @@ git merge origin/codex/rp-ueberarbeitung --no-ff -m "Merge: RP-Ueberarbeitung"
 | `services/risk_scoring.py` | (minor) | RP-Logik | **RP wins** (eigener Scope) |
 | `models/allocation.py` | Optimizer-Spalten + Phase-6.1+6.2 Persistenz | (minor) | **Audit/Optimizer wins** |
 | `schemas/allocation.py` | TargetAllocationGenerateResponse + Sensitivity-Schemas | minor field changes | **Beide mergen** (additive) |
-| `5eyes-electron/frontend/5eyes_v2.html` | (audit-master minor) | RP-Refactor (umfangreich, ~1200 Zeilen) | **RP wins** structure-mässig |
+| `ares-desktop/frontend/ares.html` | (audit-master minor) | RP-Refactor (umfangreich, ~1200 Zeilen) | **RP wins** structure-mässig |
 | `database.py` | optimizer-Spalten + Phase-6.1+6.2 + Cashflow-Erweiterungen | RP-Erweiterungen | **Beide mergen** (additive in `ensure_runtime_columns()`) |
 | `routers/allocation.py` | Sensitivity-Endpoint | RP-Aenderungen | **Beide mergen** (additive) |
 
@@ -84,16 +84,16 @@ git merge origin/codex/rp-ueberarbeitung --no-ff -m "Merge: RP-Ueberarbeitung"
 4. Nach jeder geloesten Datei: lokale Test-Suite anstossen
 
 ```powershell
-pytest 5eyes-backend/tests/ -x -q   # 800+ erwartet (kombiniert)
+pytest ares-backend/tests/ -x -q   # 800+ erwartet (kombiniert)
 ```
 
-### 6. Merge fe-optimizer-panel (KONFLIKT in 5eyes_v2.html)
+### 6. Merge fe-optimizer-panel (KONFLIKT in ares.html)
 
 ```powershell
 git merge origin/codex/fe-optimizer-panel --no-ff -m "Merge: Phase 6 FE-Optimizer-Panel"
 ```
 
-**Konflikt-Datei:** `5eyes-electron/frontend/5eyes_v2.html`
+**Konflikt-Datei:** `ares-desktop/frontend/ares.html`
 - `fe-optimizer-panel` hat HTML-Container + 4 JS-Funktionen + Hook
 - `rp-ueberarbeitung` hat parallel den HTML-Body und JS umstrukturiert
 - **Strategie:** RP-Struktur als Basis nehmen, Phase-6-FE-Code "draufpatchen":
@@ -103,7 +103,7 @@ git merge origin/codex/fe-optimizer-panel --no-ff -m "Merge: Phase 6 FE-Optimize
   - Vorlage: `docs/planning/2026-05-06-phase6-fe-implementation-patch.md`
 
 ```powershell
-pytest 5eyes-backend/tests/test_frontend_*.py -x -q   # 11+ erwartet
+pytest ares-backend/tests/test_frontend_*.py -x -q   # 11+ erwartet
 ```
 
 ### 7. End-to-End Smoke-Test
@@ -178,7 +178,7 @@ Oder: einzelne Merge-Commits revertieren mit `git revert <commit>`.
 ## Aufwand-Schaetzung
 
 - Schritte 1–4: ~30 min (Routine)
-- Schritte 5: ~60–90 min (umfangreiche Konflikte in portfolio_engine.py + 5eyes_v2.html)
+- Schritte 5: ~60–90 min (umfangreiche Konflikte in portfolio_engine.py + ares.html)
 - Schritte 6: ~15 min (FE-Patch ist klein, Anker stabil)
 - Schritte 7–8: ~20 min (Smoke + UI-Klick)
 - Schritte 9: ~15 min (PRs)

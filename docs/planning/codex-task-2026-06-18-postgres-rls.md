@@ -17,7 +17,7 @@ VERGESSENES App-Filter **physisch wirkungslos**.
 
 ## Harte Regeln (Dual-Agent)
 - **NICHT anfassen:** `services/portfolio_engine.py`, `services/optimizer/*`,
-  `services/wealth_cashflows.py`, `5eyes-electron/frontend/5eyes_v2.html`,
+  `services/wealth_cashflows.py`, `ares-desktop/frontend/ares.html`,
   `docs/methodology/*`, `docs/adr/*` (nur NEUE ADR anlegen ok), `docs/planning/*`,
   `docs/audits/*monolith-inventory*`.
 - Additiv + rückwärtskompatibel. **SQLite muss weiter funktionieren** (RLS ist Postgres-only;

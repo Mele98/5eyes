@@ -4,8 +4,8 @@ document_role: "core-coverage-002-depotcheck-end-to-end-integrity-audit"
 status_as_of: "2026-10-05"
 language: "de"
 repository: "5eyes"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/core-coverage-depotcheck-e2e-audit"
 audited_repository_head: "83af2a84fbc16cd2ef602bb3d4baa22c04325bc2"
 reconciled_reference_document: "asset-allocation-stochastic-core/docs/audits/2026-10-05-core-function-audit-coverage-and-release-readiness-reconciliation.md"
@@ -170,25 +170,25 @@ Die Funktionskette ist an vier unabhängigen Stellen im selben Feature
 wortgleich dokumentiert als SOLL-exklusiv:
 
 ```python
-# 5eyes-backend/services/pdf/base.py:296-298
+# ares-backend/services/pdf/base.py:296-298
 @dataclass(frozen=True)
 class DepotCheckData:
     """Depotcheck-PDF Daten-Bundle fuer die reine SOLL-Analyse."""
 ```
 
 ```python
-# 5eyes-backend/routers/pdf_reports.py:1566-1567
+# ares-backend/routers/pdf_reports.py:1566-1567
 def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
     """Build the client-facing analysis of the recommended target portfolio."""
 ```
 
 ```python
-# 5eyes-backend/routers/pdf_reports.py:1834
+# ares-backend/routers/pdf_reports.py:1834
     """Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios."""
 ```
 
 ```python
-# 5eyes-backend/services/pdf/documents/depotcheck.py:1,29
+# ares-backend/services/pdf/documents/depotcheck.py:1,29
 """Target-only depot analysis for the client consultation."""
 ...
 def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
@@ -199,7 +199,7 @@ Das PDF selbst sagt es dem Leser explizit, auf Seite „Methodik und
 rechtlicher Hinweis":
 
 ```python
-# 5eyes-backend/services/pdf/documents/depotcheck.py:218-223
+# ares-backend/services/pdf/documents/depotcheck.py:218-223
 'Der Depot-Check analysiert ausschliesslich das empfohlene Zielportfolio. '
 'Der Abgleich mit Bank- oder Drittdepotunterlagen erfolgt ausserhalb '
 'dieses Dokuments durch den Berater. ...'
@@ -212,7 +212,7 @@ aus `compute_depot_check()` (inkl. `buckets` mit `ist_bps`/`soll_bps`/
 `concentration_hhi`) und reicht sie 1:1 in `DepotCheckData` weiter:
 
 ```python
-# 5eyes-backend/routers/pdf_reports.py:1612-1632
+# ares-backend/routers/pdf_reports.py:1612-1632
 return DepotCheckData(
     ...
     buckets=dc.get("buckets") or {},
@@ -382,10 +382,10 @@ mit echten — wenn auch laut Kontrollrunde 22 fehlerhaften — IST-Werten) als
 auch den Download-Button für das hier auditierte PDF:
 
 ```html
-<!-- 5eyes-electron/frontend/5eyes_v2.html:4225 -->
+<!-- ares-desktop/frontend/ares.html:4225 -->
 <div class="mhd"><div class="mtitle">Depot-Check &amp; Diversifikation</div>...
 
-<!-- 5eyes-electron/frontend/5eyes_v2.html:4290 -->
+<!-- ares-desktop/frontend/ares.html:4290 -->
 <button class="btn-p" onclick="downloadServerPdf('depotcheck')"
   title="Server-PDF: Depot-Check mit Drift, Diversifikation, Stress-Replays">
   PDF herunterladen
@@ -393,7 +393,7 @@ auch den Download-Button für das hier auditierte PDF:
 ```
 
 ```javascript
-// 5eyes-electron/frontend/5eyes_v2.html:13264
+// ares-desktop/frontend/ares.html:13264
 var data = await API.get('/mandates/' + encodeURIComponent(mid) + '/depot-check');
 ```
 
@@ -584,8 +584,8 @@ dem separaten `CORE-COVERAGE-001`-Auftrag vorbehalten.
   Renderer-Datei unter `services/pdf/` gelesen werden.
 - Vollständige Lektüre von `tests/pdf/test_depotcheck_soll_analysis.py`
   (261 Zeilen) sowie Kopfkommentar/Stichproben aus `tests/test_depot_check.py`.
-- Gezielte Lektüre der Frontend-Stellen `5eyes-electron/frontend/
-  5eyes_v2.html:4223-4292` (Modal/Button) und `:13251-13281`
+- Gezielte Lektüre der Frontend-Stellen `ares-desktop/frontend/
+  ares.html:4223-4292` (Modal/Button) und `:13251-13281`
   (`openDepotCheck`, Live-API-Aufruf).
 - Fokussierter Testlauf (siehe oben): `44 passed`, keine Mutation.
 - Bestätigt per Volltextsuche: `2026-09-03-depot-current-holdings-

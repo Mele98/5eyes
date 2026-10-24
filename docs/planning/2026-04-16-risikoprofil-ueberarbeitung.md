@@ -73,7 +73,7 @@ Sie ist in Tests vorhanden. Einfach nicht mehr aufrufen.
 1. `models/profiling.py` — 3 neue JSON-Felder in `RiskAssessment`
 2. `schemas/profiling.py` — Create + Response erweitern
 3. `database.py` — 3 neue Spalten via `ensure_runtime_columns()`
-4. `5eyes_v2.html` — JS-Konstanten, HTML Tab 1, HTML Tab 2, 5 Funktionen, PDF-Sektion
+4. `ares.html` — JS-Konstanten, HTML Tab 1, HTML Tab 2, 5 Funktionen, PDF-Sektion
 
 ### Was NICHT ändert
 - `risk_scoring.py` → Keine Änderungen! `compute_scores()` nimmt dieselben 4 Parameter
@@ -89,10 +89,10 @@ Sie ist in Tests vorhanden. Einfach nicht mehr aufrufen.
 
 | Datei | Art |
 |---|---|
-| `5eyes-backend/models/profiling.py` | ÄNDERN |
-| `5eyes-backend/schemas/profiling.py` | ÄNDERN |
-| `5eyes-backend/database.py` | ÄNDERN |
-| `5eyes-electron/frontend/5eyes_v2.html` | ÄNDERN (HTML + JS) |
+| `ares-backend/models/profiling.py` | ÄNDERN |
+| `ares-backend/schemas/profiling.py` | ÄNDERN |
+| `ares-backend/database.py` | ÄNDERN |
+| `ares-desktop/frontend/ares.html` | ÄNDERN (HTML + JS) |
 
 ---
 
@@ -100,7 +100,7 @@ Sie ist in Tests vorhanden. Einfach nicht mehr aufrufen.
 
 ### Grep um Einfügeposition zu finden
 ```
-grep -n "override_warning_document_id" 5eyes-backend/models/profiling.py
+grep -n "override_warning_document_id" ares-backend/models/profiling.py
 ```
 Ergibt Zeile mit `override_warning_document_id = Column(String)`.
 
@@ -138,7 +138,7 @@ Ergibt Zeile mit `override_warning_document_id = Column(String)`.
 
 ### Grep um Einfügeposition zu finden
 ```
-grep -n "correlation_matrix_json" 5eyes-backend/database.py
+grep -n "correlation_matrix_json" ares-backend/database.py
 ```
 Die Funktion `ensure_runtime_columns()` enthält bereits ALTER TABLE Statements.
 Nach dem letzten bestehenden `ensure_column`-Block für `capital_market_assumptions` einfügen:
@@ -152,7 +152,7 @@ Nach dem letzten bestehenden `ensure_column`-Block für `capital_market_assumpti
 
 ### Grep um ensure_column-Funktion zu prüfen
 ```
-grep -n "def ensure_column" 5eyes-backend/database.py
+grep -n "def ensure_column" ares-backend/database.py
 ```
 Falls `ensure_column` nicht existiert, stattdessen:
 ```python
@@ -169,7 +169,7 @@ Falls `ensure_column` nicht existiert, stattdessen:
 
 ### Grep um Einfügeposition zu finden
 ```
-grep -n "var RISK_HORIZON_OPTIONS" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "var RISK_HORIZON_OPTIONS" ares-desktop/frontend/ares.html
 ```
 
 ### RISK_HORIZON_OPTIONS: 4 → 6 Optionen (Referenzmodell Eignungspruefung Seite 3)
@@ -229,7 +229,7 @@ var RISK_RESERVE_POINTS = [0, 3, 6, 9];
 
 ### Grep um Einfügeposition zu finden
 ```
-grep -n "id=\"r-ke\"" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "id=\"r-ke\"" ares-desktop/frontend/ares.html
 ```
 
 ### Alten Block suchen (vom `<div id="r-ke"` bis zum schliessenden `</div>` vor `<!-- TAB 2`):
@@ -315,7 +315,7 @@ bis:
 
 ### Grep um Einfügeposition zu finden
 ```
-grep -n "id=\"r-rf\"" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "id=\"r-rf\"" ares-desktop/frontend/ares.html
 ```
 
 ### Alten Block suchen (von `<div id="r-rf"` bis `<!-- TAB 3`):
@@ -411,7 +411,7 @@ grep -n "id=\"r-rf\"" 5eyes-electron/frontend/5eyes_v2.html
 ```css
 .qpts{font-size:9px;color:var(--n4);margin-left:auto;padding-left:8px;white-space:nowrap;font-weight:500;}
 ```
-Grep: `grep -n "\.qtxt{" 5eyes-electron/frontend/5eyes_v2.html` → nach diesem CSS-Block einfügen.
+Grep: `grep -n "\.qtxt{" ares-desktop/frontend/ares.html` → nach diesem CSS-Block einfügen.
 
 ---
 
@@ -419,7 +419,7 @@ Grep: `grep -n "\.qtxt{" 5eyes-electron/frontend/5eyes_v2.html` → nach diesem 
 
 ### Grep:
 ```
-grep -n "function collectRiskAssessmentUiState" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function collectRiskAssessmentUiState" ares-desktop/frontend/ares.html
 ```
 
 ### Gesamte Funktion ersetzen:
@@ -489,7 +489,7 @@ function collectRiskAssessmentUiState(){
 
 ### Grep:
 ```
-grep -n "function collectRiskAssessmentUiIssues" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function collectRiskAssessmentUiIssues" ares-desktop/frontend/ares.html
 ```
 
 ### Gesamte Funktion ersetzen:
@@ -515,7 +515,7 @@ function collectRiskAssessmentUiIssues(state){
 
 ### Grep:
 ```
-grep -n "function buildRiskAssessmentPayloadFromUI" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function buildRiskAssessmentPayloadFromUI" ares-desktop/frontend/ares.html
 ```
 
 ### Gesamte Funktion ersetzen:
@@ -626,7 +626,7 @@ function buildRiskAssessmentPayloadFromUI(){
 
 ### Grep:
 ```
-grep -n "function resetRiskQuestionnaireToDefaults" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function resetRiskQuestionnaireToDefaults" ares-desktop/frontend/ares.html
 ```
 
 ### Gesamte Funktion ersetzen:
@@ -648,7 +648,7 @@ function resetRiskQuestionnaireToDefaults(){
 
 ### Grep:
 ```
-grep -n "function hydrateRiskQuestionnaire" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "function hydrateRiskQuestionnaire" ares-desktop/frontend/ares.html
 ```
 
 ### Gesamte Funktion ersetzen:
@@ -727,12 +727,12 @@ function hydrateRiskQuestionnaire(saved){
 
 ### Grep um PDF-Funktion zu finden:
 ```
-grep -n "buildAnlagestrategieDocHtml\|buildRiskProfilePdf\|Risikoprofil.*PDF\|Section 2.*Risikoprofil" 5eyes-electron/frontend/5eyes_v2.html | head -10
+grep -n "buildAnlagestrategieDocHtml\|buildRiskProfilePdf\|Risikoprofil.*PDF\|Section 2.*Risikoprofil" ares-desktop/frontend/ares.html | head -10
 ```
 
 ### Grep für Einfügeposition im PDF:
 ```
-grep -n "Section 2: Risikoprofil\|// Section 2\|Risikobereitschaft.*Punkte\|Risikofähigkeit.*Punkte" 5eyes-electron/frontend/5eyes_v2.html | head -10
+grep -n "Section 2: Risikoprofil\|// Section 2\|Risikobereitschaft.*Punkte\|Risikofähigkeit.*Punkte" ares-desktop/frontend/ares.html | head -10
 ```
 
 Die PDF-Funktion baut das Risikoprofil-Dokument. Vor dem bestehenden Block der Risikofähigkeits-Antworten eine neue Sektion einfügen:
@@ -788,7 +788,7 @@ if (riskData && (riskData.knowledge_services_json || riskData.knowledge_instrume
 12. `resetRiskQuestionnaireToDefaults()`: Neue Funktion
 13. `hydrateRiskQuestionnaire()`: Neue Funktion
 14. PDF-Funktion: Kenntnisse & Erfahrungen Sektion einfügen
-15. `node --check 5eyes-electron/frontend/5eyes_v2.html` → 0 JS-Fehler
+15. `node --check ares-desktop/frontend/ares.html` → 0 JS-Fehler
 
 ### Tests
 16. `tests/test_risk_scoring.py`: Sicherstellen dass bestehende Tests noch laufen (risk_scoring.py wurde nicht geändert)

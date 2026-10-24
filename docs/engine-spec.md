@@ -335,7 +335,7 @@ dürfen **nicht** gleichgesetzt werden — die UI labelt sie entsprechend.
 Ein Ziel kann deterministisch „On Track" und stochastisch „knapp" sein (Punkt-Schätzer trifft,
 aber das Verteilungsband reicht unter τ). Das ist **kein Widerspruch**, sondern komplementäre
 Information. UI-Badges: deterministisch = „Score", stochastisch = „Zielerreichungs-
-Wahrscheinlichkeit" (5eyes_v2.html: dt. Score ~Z.5483, stoch. ~Z.5035-5043).
+Wahrscheinlichkeit" (ares.html: dt. Score ~Z.5483, stoch. ~Z.5035-5043).
 
 ---
 

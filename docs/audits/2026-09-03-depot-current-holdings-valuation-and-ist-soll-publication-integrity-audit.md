@@ -5,8 +5,8 @@ status_as_of: "2026-09-03"
 audit_started_on: "2026-09-03"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend/reporting"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend/reporting"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "08993953e4f8abd34f28d8ae3adf9fb2e87ec9be"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -183,26 +183,26 @@ Es gibt keinen gemeinsamen `holdings_snapshot_id`, `valuation_as_of`,
 
 | Bereich | Anker | Beobachtung |
 |---|---|---|
-| Advisory-Run | `5eyes-backend/services/advisory_report.py:61-92` | Newest nach `created_at`, kein Final-/Superseded-/Allocation-Vertrag. |
-| Doppelter Read | `5eyes-backend/services/advisory_report.py:280-323` | Depotcheck und Advisory-Cache lösen Context getrennt auf. |
-| Bannerlogik | `5eyes-backend/services/advisory_report.py:464-477` | Fallback bei `current > 0`, Flag nur `all(... is None)`. |
-| Positionen | `5eyes-backend/services/advisory_report.py:941-1044` | SOLL aus latest Run, aber ohne Run-ID, Status, as-of oder Currency-Kontext. |
-| Depot-Run | `5eyes-backend/services/depot_check.py:243-308` | Newest Run; Current<=0 fällt auf Target; erst bei null auflösbaren Rows Wealth-Fallback. |
-| Produktcoverage | `5eyes-backend/services/depot_check.py:263-284` | Nicht gefundene Products werden übersprungen; Product-Read ohne Active-/Deleted-Filter. |
-| IST-Berechnung | `5eyes-backend/services/depot_check.py:389-465` | Ersatzwerte fließen in Total, Buckets, Exposures, HHI, TER und Liquidität. |
-| Unabhängige TA | `5eyes-backend/services/depot_check.py:479-510` | Current-TA wird unabhängig vom gewählten Run geladen. |
-| Wealth-FX | `5eyes-backend/services/depot_check.py:287-307`, `461-515` | Raw Amounts werden addiert; Exposure-Maps entstehen nur für RecommendationPositions. |
-| Ampel | `5eyes-backend/services/advisory_report.py:1151-1187`, `1253-1286` | Erkenntnisse kennen keinen Holdings-/Coverage-State; keine Bandverletzung ergibt grün. |
-| Holding-Modell | `5eyes-backend/models/review.py:387-433` | RecommendationPosition besitzt Current-Skalar; RecommendationHolding besitzt Units, Market Value und as-of. |
-| Live-Valuation | `5eyes-backend/services/portfolio_engine_live_rebalancing.py:288-430`, `560-675` | Verwendet Holdings, Preise, Freshness, FX, Valuation-Basis und as-of. |
-| Preisrefresh | `5eyes-backend/services/market_data_daily_refresh.py:55-94` | Aktualisiert Referenzpreisfelder, nicht RecommendationPosition.current_amount. |
-| Wealth-Scope | `5eyes-backend/models/wealth.py:6-17` | WealthPosition ist clientgebunden und currencytragend, aber nicht mandatgebunden. |
-| React-Banner | `5eyes-electron/frontend/reporting/src/pages/AssetAllocation.tsx:32-63`; `Risikowaehrungen.tsx:42-60`; `Branchen.tsx:38-47` | Zeigt ausschließlich das unzureichende Boolean. |
-| React-Ampel | `5eyes-electron/frontend/reporting/src/pages/Erkenntnisse.tsx:15-78` | Rendert Verdict ohne Datenbasis-/Coverage-Warnung. |
-| React-Currency | `5eyes-electron/frontend/reporting/src/lib/format.ts:9-21`; `pages/Positionen.tsx:70,138,201` | Formatter und Positionenseite setzen CHF fest. |
-| TypeScript | `5eyes-electron/frontend/reporting/src/api/types.ts:673-721` | Top-Level `mandate_currency` fehlt im Vertrag. |
-| PDF | `5eyes-backend/services/pdf/documents/advisory_report.py:258`, `1110-1237` | PDF nutzt Currency, aber denselben Boolean-/Verdict-Payload. |
-| Kodifizierter Bug | `5eyes-backend/tests/test_depot_check.py:321-356` | Test kommentiert Zero-Fallback als bestehenden Bug und vermeidet Zero. |
+| Advisory-Run | `ares-backend/services/advisory_report.py:61-92` | Newest nach `created_at`, kein Final-/Superseded-/Allocation-Vertrag. |
+| Doppelter Read | `ares-backend/services/advisory_report.py:280-323` | Depotcheck und Advisory-Cache lösen Context getrennt auf. |
+| Bannerlogik | `ares-backend/services/advisory_report.py:464-477` | Fallback bei `current > 0`, Flag nur `all(... is None)`. |
+| Positionen | `ares-backend/services/advisory_report.py:941-1044` | SOLL aus latest Run, aber ohne Run-ID, Status, as-of oder Currency-Kontext. |
+| Depot-Run | `ares-backend/services/depot_check.py:243-308` | Newest Run; Current<=0 fällt auf Target; erst bei null auflösbaren Rows Wealth-Fallback. |
+| Produktcoverage | `ares-backend/services/depot_check.py:263-284` | Nicht gefundene Products werden übersprungen; Product-Read ohne Active-/Deleted-Filter. |
+| IST-Berechnung | `ares-backend/services/depot_check.py:389-465` | Ersatzwerte fließen in Total, Buckets, Exposures, HHI, TER und Liquidität. |
+| Unabhängige TA | `ares-backend/services/depot_check.py:479-510` | Current-TA wird unabhängig vom gewählten Run geladen. |
+| Wealth-FX | `ares-backend/services/depot_check.py:287-307`, `461-515` | Raw Amounts werden addiert; Exposure-Maps entstehen nur für RecommendationPositions. |
+| Ampel | `ares-backend/services/advisory_report.py:1151-1187`, `1253-1286` | Erkenntnisse kennen keinen Holdings-/Coverage-State; keine Bandverletzung ergibt grün. |
+| Holding-Modell | `ares-backend/models/review.py:387-433` | RecommendationPosition besitzt Current-Skalar; RecommendationHolding besitzt Units, Market Value und as-of. |
+| Live-Valuation | `ares-backend/services/portfolio_engine_live_rebalancing.py:288-430`, `560-675` | Verwendet Holdings, Preise, Freshness, FX, Valuation-Basis und as-of. |
+| Preisrefresh | `ares-backend/services/market_data_daily_refresh.py:55-94` | Aktualisiert Referenzpreisfelder, nicht RecommendationPosition.current_amount. |
+| Wealth-Scope | `ares-backend/models/wealth.py:6-17` | WealthPosition ist clientgebunden und currencytragend, aber nicht mandatgebunden. |
+| React-Banner | `ares-desktop/frontend/reporting/src/pages/AssetAllocation.tsx:32-63`; `Risikowaehrungen.tsx:42-60`; `Branchen.tsx:38-47` | Zeigt ausschließlich das unzureichende Boolean. |
+| React-Ampel | `ares-desktop/frontend/reporting/src/pages/Erkenntnisse.tsx:15-78` | Rendert Verdict ohne Datenbasis-/Coverage-Warnung. |
+| React-Currency | `ares-desktop/frontend/reporting/src/lib/format.ts:9-21`; `pages/Positionen.tsx:70,138,201` | Formatter und Positionenseite setzen CHF fest. |
+| TypeScript | `ares-desktop/frontend/reporting/src/api/types.ts:673-721` | Top-Level `mandate_currency` fehlt im Vertrag. |
+| PDF | `ares-backend/services/pdf/documents/advisory_report.py:258`, `1110-1237` | PDF nutzt Currency, aber denselben Boolean-/Verdict-Payload. |
+| Kodifizierter Bug | `ares-backend/tests/test_depot_check.py:321-356` | Test kommentiert Zero-Fallback als bestehenden Bug und vermeidet Zero. |
 
 ## `DEPOT-CONTEXT-001` – Run und Soll-Allokation gehören nicht zwingend zusammen
 
@@ -682,7 +682,7 @@ Verzeichnisse wurden nicht betreten, verändert oder bereinigt.
 
 ### Fokussierter Backend-Gate
 
-Ausgeführt aus `5eyes-backend` mit externem Basetemp:
+Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `

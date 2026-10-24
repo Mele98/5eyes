@@ -61,7 +61,7 @@ Länderumriss-Datensatz ist im Dateikopf selbst als „public domain“
 deklariert. Alle drei liegen aber **ausserhalb** jeder maschinenlesbaren
 Lizenzerfassung: Chart.js und die Länderumrisse sind statische
 `vendor/`-Dateien ohne npm-Eintrag, die Fonts sind Binärdateien ohne
-Repository-Metadaten-Pendant. `5eyes-electron/package.json` trägt
+Repository-Metadaten-Pendant. `ares-desktop/package.json` trägt
 `"license": "UNLICENSED"` — das betrifft nachweislich nur das eigene
 Root-Paket (per `package-lock.json` eindeutig identifizierbar), nicht die
 425 übrigen npm-Pakete, die alle ein Lizenzfeld im Lockfile tragen. Für die
@@ -92,24 +92,24 @@ irgendwo im Repository gefunden; keiner der Build-Skripte
 
 | # | Vendor/Mechanismus | Zweck | Trigger/Gate | Codeanker |
 |---:|---|---|---|---|
-| 1 | SMTP (beliebiger konfigurierter Host) | Einladungs-/Onboarding-Mail (aktuell einzige Mail-Art) | `smtp_enabled` + `smtp_host` + `smtp_from` gesetzt, sonst Fallback Link-Copy | `5eyes-backend/services/mailer.py:52-78`; Settings `5eyes-backend/config.py:337-344` |
-| 2 | Sentry (`sentry.io` oder selbstgehostet, je DSN) | Exception-/Message-Telemetrie | `telemetry_enabled` + `telemetry_dsn` gesetzt + `sentry-sdk` installiert | `5eyes-backend/services/telemetry.py:44-98`; Settings `5eyes-backend/config.py:217-221` |
-| 3 | Stooq (`stooq.com`) | Tages-/Rangekurse | immer aktiv (kein Opt-in-Flag im Provider selbst) | `5eyes-backend/services/market_data/providers/stooq_provider.py:7-34`; zweiter Call-Pfad `5eyes-backend/price_updater.py:209` |
-| 4 | Twelve Data (`api.twelvedata.com`) | Kursdaten (Fallback-Provider) | Provider-Registrierung in `factory.py`, API-Key-Konfiguration | `5eyes-backend/services/market_data/providers/twelvedata_provider.py:8-30`; `5eyes-backend/services/twelvedata_client.py:14` |
-| 5 | Alpha Vantage (`www.alphavantage.co`) | Kursdaten (Fallback-Provider) | wie oben | `5eyes-backend/services/market_data/providers/alphavantage_provider.py:6-39,93-95` |
-| 6 | OpenFIGI (`api.openfigi.com`) | ISIN/FIGI-Mapping | wie oben | `5eyes-backend/services/market_data/providers/openfigi_provider.py:7-30`; `5eyes-backend/services/openfigi_client.py:10` |
-| 7 | EZB SDMX-API (`data-api.ecb.europa.eu`) | Makrodaten (Zinsen/Inflation) | Makro-Provider-Pfad | `5eyes-backend/services/market_data/macro/providers/ecb.py:3-28` |
-| 8 | FRED / St. Louis Fed (`api.stlouisfed.org`) | Makrodaten (US-Zinsreihen) | wie oben | `5eyes-backend/services/market_data/macro/providers/fred.py:3-31` |
-| 9 | SNB Datenportal (`data.snb.ch`) | Makrodaten (CH-Referenzzinsen) | wie oben | `5eyes-backend/services/market_data/macro/providers/snb.py:3-28` |
-| 10 | EODHD (`eodhd.com`) | Symbolsuche/Kursdaten | API-Key-Konfiguration | `5eyes-backend/services/eodhd_client.py:13` |
-| 11 | justETF (`www.justetf.com`) | ETF-Stammdaten-Scraping | ETF-Provider-Pfad | `5eyes-backend/services/market_data/etf/providers/justetf.py:7-24` |
-| 12 | SwissFundData (`www.swissfunddata.ch`) | CH-Fonds-Stammdaten-Scraping | wie oben | `5eyes-backend/services/market_data/etf/providers/swissfunddata.py:5-22` |
-| 13 | Yahoo Finance (via `yfinance`-Library) | **Primary-Provider für Tier 1** (Solo-Berater) | Standard-Provider, kein explizites Opt-out-Flag im Provider | `5eyes-backend/services/market_data/providers/yfinance_provider.py:1-18`; Pin `5eyes-backend/requirements.txt:21` |
-| 14 | Bloomberg (Server-API/B-PIPE) | Sub-Anlageklassen-Gold-Quelle | **Stub/inaktiv**: braucht externe `blpapi`-Lizenz+Wheel, nicht in `requirements.txt`, nicht automatisch registriert | `5eyes-backend/services/market_data/providers/bloomberg_provider.py:1-24` |
-| 15 | Konfigurierbarer Webhook (Slack/Discord/generisch) — Markdaten-Validierung | Alert bei Cross-Validation-Abweichung | `market_data_alert_webhook_url` gesetzt, sonst No-op | `5eyes-backend/services/market_data/notifier.py:7-73`; Settings `5eyes-backend/config.py:188-190` |
-| 16 | Konfigurierbarer Webhook (Slack/Discord/generisch) — Backup-Fehler | Alert bei Backup-/Scheduler-Fehlschlag | `backup_alert_webhook_url` gesetzt, sonst No-op | `5eyes-backend/backup_scheduler.py:31-55`; Settings `5eyes-backend/config.py:257-258` |
-| 17 | Offsite-Backup-Ziel (beliebiger `user@host:/pfad` via rsync/SSH) | Zweitstandort-Kopie des SQLCipher-Backups | `backup_offsite_enabled=true` + `backup_offsite_target` gesetzt, sonst No-op | `5eyes-backend/services/backup.py:603-689`; Settings `5eyes-backend/config.py:233-245` |
-| 18 | Electron-Update-Feed (`electron-updater`, `provider: generic`) | Auto-Update-Download/Install | `app.isPackaged && ENABLE_AUTO_UPDATE=1` | `5eyes-electron/main.js:118-120,127-166`; Ziel-URL `5eyes-electron/package.json:121-126` |
+| 1 | SMTP (beliebiger konfigurierter Host) | Einladungs-/Onboarding-Mail (aktuell einzige Mail-Art) | `smtp_enabled` + `smtp_host` + `smtp_from` gesetzt, sonst Fallback Link-Copy | `ares-backend/services/mailer.py:52-78`; Settings `ares-backend/config.py:337-344` |
+| 2 | Sentry (`sentry.io` oder selbstgehostet, je DSN) | Exception-/Message-Telemetrie | `telemetry_enabled` + `telemetry_dsn` gesetzt + `sentry-sdk` installiert | `ares-backend/services/telemetry.py:44-98`; Settings `ares-backend/config.py:217-221` |
+| 3 | Stooq (`stooq.com`) | Tages-/Rangekurse | immer aktiv (kein Opt-in-Flag im Provider selbst) | `ares-backend/services/market_data/providers/stooq_provider.py:7-34`; zweiter Call-Pfad `ares-backend/price_updater.py:209` |
+| 4 | Twelve Data (`api.twelvedata.com`) | Kursdaten (Fallback-Provider) | Provider-Registrierung in `factory.py`, API-Key-Konfiguration | `ares-backend/services/market_data/providers/twelvedata_provider.py:8-30`; `ares-backend/services/twelvedata_client.py:14` |
+| 5 | Alpha Vantage (`www.alphavantage.co`) | Kursdaten (Fallback-Provider) | wie oben | `ares-backend/services/market_data/providers/alphavantage_provider.py:6-39,93-95` |
+| 6 | OpenFIGI (`api.openfigi.com`) | ISIN/FIGI-Mapping | wie oben | `ares-backend/services/market_data/providers/openfigi_provider.py:7-30`; `ares-backend/services/openfigi_client.py:10` |
+| 7 | EZB SDMX-API (`data-api.ecb.europa.eu`) | Makrodaten (Zinsen/Inflation) | Makro-Provider-Pfad | `ares-backend/services/market_data/macro/providers/ecb.py:3-28` |
+| 8 | FRED / St. Louis Fed (`api.stlouisfed.org`) | Makrodaten (US-Zinsreihen) | wie oben | `ares-backend/services/market_data/macro/providers/fred.py:3-31` |
+| 9 | SNB Datenportal (`data.snb.ch`) | Makrodaten (CH-Referenzzinsen) | wie oben | `ares-backend/services/market_data/macro/providers/snb.py:3-28` |
+| 10 | EODHD (`eodhd.com`) | Symbolsuche/Kursdaten | API-Key-Konfiguration | `ares-backend/services/eodhd_client.py:13` |
+| 11 | justETF (`www.justetf.com`) | ETF-Stammdaten-Scraping | ETF-Provider-Pfad | `ares-backend/services/market_data/etf/providers/justetf.py:7-24` |
+| 12 | SwissFundData (`www.swissfunddata.ch`) | CH-Fonds-Stammdaten-Scraping | wie oben | `ares-backend/services/market_data/etf/providers/swissfunddata.py:5-22` |
+| 13 | Yahoo Finance (via `yfinance`-Library) | **Primary-Provider für Tier 1** (Solo-Berater) | Standard-Provider, kein explizites Opt-out-Flag im Provider | `ares-backend/services/market_data/providers/yfinance_provider.py:1-18`; Pin `ares-backend/requirements.txt:21` |
+| 14 | Bloomberg (Server-API/B-PIPE) | Sub-Anlageklassen-Gold-Quelle | **Stub/inaktiv**: braucht externe `blpapi`-Lizenz+Wheel, nicht in `requirements.txt`, nicht automatisch registriert | `ares-backend/services/market_data/providers/bloomberg_provider.py:1-24` |
+| 15 | Konfigurierbarer Webhook (Slack/Discord/generisch) — Markdaten-Validierung | Alert bei Cross-Validation-Abweichung | `market_data_alert_webhook_url` gesetzt, sonst No-op | `ares-backend/services/market_data/notifier.py:7-73`; Settings `ares-backend/config.py:188-190` |
+| 16 | Konfigurierbarer Webhook (Slack/Discord/generisch) — Backup-Fehler | Alert bei Backup-/Scheduler-Fehlschlag | `backup_alert_webhook_url` gesetzt, sonst No-op | `ares-backend/backup_scheduler.py:31-55`; Settings `ares-backend/config.py:257-258` |
+| 17 | Offsite-Backup-Ziel (beliebiger `user@host:/pfad` via rsync/SSH) | Zweitstandort-Kopie des SQLCipher-Backups | `backup_offsite_enabled=true` + `backup_offsite_target` gesetzt, sonst No-op | `ares-backend/services/backup.py:603-689`; Settings `ares-backend/config.py:233-245` |
+| 18 | Electron-Update-Feed (`electron-updater`, `provider: generic`) | Auto-Update-Download/Install | `app.isPackaged && ENABLE_AUTO_UPDATE=1` | `ares-desktop/main.js:118-120,127-166`; Ziel-URL `ares-desktop/package.json:121-126` |
 
 **Keiner** dieser 18 Zeilen ist in `docs/CLIENT_DATA_STORAGE_AND_PROCESSING.md`,
 `docs/compliance/dsfa-datenschutz-folgenabschaetzung.md`,
@@ -156,18 +156,18 @@ Hosts.
 ### Ist-Zustand
 
 Eine gezielte Suche nach einer Allowlist-/Egress-Testabdeckung in
-`5eyes-backend/tests/` und `5eyes-electron/tests/` ergab zwei False
+`ares-backend/tests/` und `ares-desktop/tests/` ergab zwei False
 Positives und keinen echten Treffer:
 
-- `5eyes-backend/tests/test_bearer_token_ttl_audit.py:238` prüft eine
+- `ares-backend/tests/test_bearer_token_ttl_audit.py:238` prüft eine
   **JWT-Algorithmus-Allowlist** (Anti-alg-confusion), keine Netzwerkziele.
-- `5eyes-backend/tests/test_allocation_preferences_fail_closed_contracts.py:332`
+- `ares-backend/tests/test_allocation_preferences_fail_closed_contracts.py:332`
   prüft eine **Optimizer-Feld-Allowlist**, ebenfalls kein Netzwerkbezug.
 - Eine Suche nach dem Wortstamm „egress“ traf ausschliesslich auf das
   deutsche Wort „Regression“ (zufällige Teilzeichenkette), kein Treffer mit
   fachlichem Netzwerkbezug.
 
-`5eyes-electron/tests/bundle-secret-scan.test.js` prüft, dass keine Secrets
+`ares-desktop/tests/bundle-secret-scan.test.js` prüft, dass keine Secrets
 im gepackten Bundle landen — das ist eine verwandte, aber andersartige
 Kontrolle (Secret-Leak, nicht Ziel-Allowlist) und deckt diesen Befund nicht.
 
@@ -187,7 +187,7 @@ im selben Gate wie die übrige Testsuite.
 
 ### Ist-Zustand
 
-`5eyes-electron/package.json:121-126` konfiguriert `electron-updater` mit:
+`ares-desktop/package.json:121-126` konfiguriert `electron-updater` mit:
 
 ```json
 "publish": [
@@ -220,7 +220,7 @@ gesetzt werden könnte.
 
 ### Ist-Zustand
 
-`5eyes-backend/services/telemetry.py:87` initialisiert Sentry explizit mit
+`ares-backend/services/telemetry.py:87` initialisiert Sentry explizit mit
 `send_default_pii=False`. `capture_exception()` (Zeilen 101-119) akzeptiert
 jedoch einen beliebigen `context: dict`, der verlustfrei über
 `scope.set_extra(str(k), v)` (Zeile 114) an Sentry weitergereicht wird, bevor
@@ -232,7 +232,7 @@ Eine repository-weite Suche nach echten Aufrufern ausserhalb von Tests ergab
 **keinen einzigen Call-Site** von `capture_exception(...)` oder
 `capture_message(...)` in `routers/`, `services/` (ausser der Definition
 selbst) oder sonstigem Produktcode — nur
-`5eyes-backend/tests/test_telemetry_opt_in.py:137,152,170,207` ruft die
+`ares-backend/tests/test_telemetry_opt_in.py:137,152,170,207` ruft die
 Funktionen auf, u. a. mit `context={"mandate_id": "MX-1"}` (Zeile 170). Der
 Mechanismus ist damit heute **nicht produktiv verdrahtet**: Ohne Call-Site
 kann aktuell keine PII tatsächlich abfliessen. Das ist jedoch kein
@@ -279,8 +279,8 @@ Subprocessor-Spalte der FINMA-Outsourcing-Vorlage referenziert bzw. in sie
 
 ### Ist-Zustand
 
-`5eyes-electron/package.json:7` trägt `"license": "UNLICENSED"`. Eine
-strukturierte Auswertung von `5eyes-electron/package-lock.json`
+`ares-desktop/package.json:7` trägt `"license": "UNLICENSED"`. Eine
+strukturierte Auswertung von `ares-desktop/package-lock.json`
 (`lockfileVersion: 3`, 426 Paket-Einträge inkl. Root) ergab: **genau ein**
 Eintrag mit `license: "UNLICENSED"` — der Root-Eintrag `""` (Version
 `0.4.0`, identisch mit dem eigenen Produktpaket). Alle **425** übrigen
@@ -309,7 +309,7 @@ wird vor Distribution erzeugt, geprüft und versioniert abgelegt.
 
 ### Ist-Zustand
 
-`5eyes-electron/frontend/vendor/chart.min.js` trägt in den ersten Zeilen
+`ares-desktop/frontend/vendor/chart.min.js` trägt in den ersten Zeilen
 einen unminifizierten Banner-Kommentar:
 
 ```
@@ -324,7 +324,7 @@ sowie einen vorangestellten jsDelivr-Hinweis `Original file:
 /npm/chart.js@4.4.1/dist/chart.umd.js`. Die Lizenz ist damit MIT und im File
 selbst dokumentiert.
 
-`5eyes-electron/frontend/vendor/intro-country-outlines.js` trägt als ersten
+`ares-desktop/frontend/vendor/intro-country-outlines.js` trägt als ersten
 Kommentar:
 
 ```
@@ -352,7 +352,7 @@ Korrektheit der einzelnen Lizenz, ist der Prüfpunkt.
 ### Ist-Zustand
 
 Die `name`-Tabelle (TrueType `name`-Table, Platform-ID 3) jeder der sechs
-Dateien in `5eyes-backend/assets/fonts/` wurde direkt binär ausgelesen
+Dateien in `ares-backend/assets/fonts/` wurde direkt binär ausgelesen
 (nicht aus einer Sekundärquelle übernommen). Ergebnis für alle drei
 Cormorant-Garamond-Dateien (`CormorantGaramond-{Italic,Regular,SemiBold}.ttf`):
 
@@ -388,8 +388,8 @@ Abruf-/Bündelungsdatum, sofern feststellbar.
 
 `docs/design/` enthält 22 UUID-benannte `.jpg`-Dateien (z. B.
 `08f319d0-a9ec-4983-adbb-79888a9c80dc.jpg`). Eine Volltextsuche nach dem
-Pfad `docs/design` in jeglichem Produktcode (`5eyes-backend/`,
-`5eyes-electron/`) ergab **keinen Treffer** — die Bilder werden von keinem
+Pfad `docs/design` in jeglichem Produktcode (`ares-backend/`,
+`ares-desktop/`) ergab **keinen Treffer** — die Bilder werden von keinem
 Code referenziert und landen damit nicht im Distributions-/Installer-
 Artefakt. Eine Stichprobe der ersten 4000 Byte dreier Dateien enthielt keine
 auslesbaren EXIF-/XMP-Textmarker zur Provenienz (Quelle, Urheber, Tool).
@@ -420,13 +420,13 @@ zufällige Teilzeichenkette innerhalb eines Base64-kodierten
 `sha512`-Integritäts-Hashs (`...anSpDXZa...`) und kein echtes SPDX-Tag.
 
 Die einzigen Build-/Package-Skripte in
-`5eyes-electron/package.json:8-21` sind `start`, `dev`, `test`,
+`ares-desktop/package.json:8-21` sind `start`, `dev`, `test`,
 `build:backend`, `build:reporting`, `pack`, `dist:win`, `dist:win:portable`,
 `dist:mac`, `dist:linux`, `preflight:release` und `scan:bundle-secrets`.
 Keines davon ruft ein SBOM- oder Lizenzreport-Tool (`license-checker`,
 `pip-licenses`, `cyclonedx-bom` o. ä.) auf.
 
-Für die 23 Python-Abhängigkeiten in `5eyes-backend/requirements.txt`
+Für die 23 Python-Abhängigkeiten in `ares-backend/requirements.txt`
 existiert zusätzlich **keine** dem npm-Lockfile vergleichbare
 Lizenz-Metadatenquelle irgendwo im Repository — `requirements.txt` listet
 nur Paketnamen und Versions-Constraints, kein Lockfile mit Lizenzfeldern und
@@ -453,7 +453,7 @@ angenommen:
   auditierten Head gelesen und mit Zeilennummern zitiert.
 - Die 426-Paket-Lizenzverteilung und der eine `UNLICENSED`-Treffer wurden
   durch ein kleines, nur-lesendes Python-Skript über
-  `5eyes-electron/package-lock.json` (JSON-Parsing, keine Mutation)
+  `ares-desktop/package-lock.json` (JSON-Parsing, keine Mutation)
   erzeugt, nicht aus Dokumentation übernommen.
 - Die SIL-OFL-1.1-Lizenz der sechs TTF-Dateien wurde durch direktes,
   binäres Parsen der TrueType-`name`-Tabelle jeder Datei ausgelesen (kein
@@ -480,12 +480,12 @@ angenommen:
   funktionale Korrektheit, sondern Vorhandensein/Abwesenheit von Dateien,
   Code-Mustern und Metadaten geprüft wurde.
 - **Konfiguration verändert:** nein.
-- **Was geprüft wurde:** Backend-Python-Quellcode (`5eyes-backend/`,
+- **Was geprüft wurde:** Backend-Python-Quellcode (`ares-backend/`,
   insbesondere `services/`, `routers/`, `config.py`, `backup_scheduler.py`,
-  `price_updater.py`), Electron-Hauptprozess (`5eyes-electron/main.js`,
+  `price_updater.py`), Electron-Hauptprozess (`ares-desktop/main.js`,
   `package.json`, `package-lock.json`), gebündelte Vendor-Assets
-  (`5eyes-electron/frontend/vendor/`), gebündelte Fonts
-  (`5eyes-backend/assets/fonts/*.ttf`, binär geparst), `docs/compliance/*`,
+  (`ares-desktop/frontend/vendor/`), gebündelte Fonts
+  (`ares-backend/assets/fonts/*.ttf`, binär geparst), `docs/compliance/*`,
   `docs/CLIENT_DATA_STORAGE_AND_PROCESSING.md`, sowie eine
   repository-weite Dateinamen- und Musterrecherche für Lizenz-/SBOM-/
   Allowlist-Artefakte.

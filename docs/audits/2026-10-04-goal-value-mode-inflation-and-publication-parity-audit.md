@@ -6,8 +6,8 @@ audit_started_on: "2026-10-04"
 audit_completed_on: "2026-10-04"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "d9bc963298c0bdaf9d487121a995ecc9a284a4fc"
 prior_goal_timing_audit_path: "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
@@ -213,7 +213,7 @@ testet den Wertmodus ausdrücklich nur für Vermögensziele.
 
 Der Classic-Pfad bestätigt dieselbe Ursache unabhängig:
 
-- `5eyes_v2.html:26288-26295`: `GOAL_TYPE_FIELDS` aktiviert Wertmodus nur bei
+- `ares.html:26288-26295`: `GOAL_TYPE_FIELDS` aktiviert Wertmodus nur bei
   Vermögenszielen.
 - `26422-26473`: Der Sync blendet ihn für Ausgaben aus und prüft aktiv
   `nominal`.

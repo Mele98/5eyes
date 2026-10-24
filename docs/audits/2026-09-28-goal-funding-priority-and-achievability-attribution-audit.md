@@ -6,8 +6,8 @@ audit_started_on: "2026-09-28"
 audit_completed_on: "2026-09-28"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "6df808bd018216d3ce2cec2ed7a2d7eab8fed2cf"
 prior_mixed_goal_audit_path: "docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md"
@@ -252,7 +252,7 @@ ein Select schreibt beim Save gleichzeitig:
 
 ### Liability-Aufbau und gemeinsamer Wealth-Pfad
 
-- `5eyes-backend/services/optimizer/goal_liabilities.py:43-66` definiert keine
+- `ares-backend/services/optimizer/goal_liabilities.py:43-66` definiert keine
   Funding-Entscheidung, keinen Rang und keinen funded/unfunded-Zustand in
   `GoalLiability`.
 - `goal_liabilities.py:388-425` materialisiert eine einmalige Ausgabe
@@ -261,17 +261,17 @@ ein Select schreibt beim Save gleichzeitig:
   Pensionsausgaben analog als vollständigen Outflow-Pfad.
 - `goal_liabilities.py:601-614` addiert sämtliche Goal-Pfade kommutativ zu
   genau einer Serie. Rang, Härte und Goal-ID wirken auf die Summe nicht.
-- `5eyes-backend/services/optimizer/solver.py:270-283` simuliert jeden
+- `ares-backend/services/optimizer/solver.py:270-283` simuliert jeden
   Kandidaten mit `context.aggregated_liability_path`.
 - `solver.py:475-523` baut zuerst alle Liabilities und aggregiert sie vor jeder
   Zielauswertung.
-- `5eyes-backend/services/optimizer/scenario_engine.py:573-576` zieht die Summe
+- `ares-backend/services/optimizer/scenario_engine.py:573-576` zieht die Summe
   der materialisierten Liability-Pfade nach Wachstum und Cashflow vom Wealth
   ab, auch bis in negatives Wealth.
 
 ### Shortfall, Probability, Penalty und Attribution
 
-- `5eyes-backend/services/optimizer/objective.py:154-175` selektiert zwar die
+- `ares-backend/services/optimizer/objective.py:154-175` selektiert zwar die
   eigenen Due-Indizes eines Ziels, dokumentiert aber ausdrücklich, dass der
   gelieferte Wealth-Pfad über alle Goals aggregiert ist und keine kausale
   Zuordnung oder Reihenfolge erfunden wird.
@@ -287,7 +287,7 @@ ein Select schreibt beim Save gleichzeitig:
 - `objective.py:521-591` nennt die daraus gebildete Größe
   `GoalShortfallContribution` und beschreibt sie als Beitrag unter dem
   Aggregatepfad, nicht als marginales Gegenfaktum.
-- `5eyes-backend/tests/test_chance_constraint.py:106-114` beweist nur, dass ein
+- `ares-backend/tests/test_chance_constraint.py:106-114` beweist nur, dass ein
   opportunistisches Ziel auf einem extern gelieferten Wealth-Pfad keine
   direkte Penalty bekommt. Der Test simuliert keinen opportunistischen
   Spending-Outflow gemeinsam mit einem harten Ziel.
@@ -296,44 +296,44 @@ ein Select schreibt beim Save gleichzeitig:
 
 ### Downstream-Publikation und Konfliktklassifikation
 
-- `5eyes-backend/services/portfolio_engine.py:3636-3645` reicht die
+- `ares-backend/services/portfolio_engine.py:3636-3645` reicht die
   Goal-Zeilen direkt an `classify_limiting_factor` weiter.
-- `5eyes-backend/services/risk_matrix.py:101-123` erklärt zwei nicht
+- `ares-backend/services/risk_matrix.py:101-123` erklärt zwei nicht
   erreichbare harte/primäre Zeilen zum `zielkonflikt`, ohne gemeinsame
   Failure-Event-ID oder Attributionsbasis.
-- `5eyes-backend/services/allocation_messages.py:262-311` erzeugt aus denselben
+- `ares-backend/services/allocation_messages.py:262-311` erzeugt aus denselben
   Zeilen kunden- und beraterseitige Konflikttexte.
-- `5eyes-backend/services/advisory_report.py:1612-1663` erklärt die
+- `ares-backend/services/advisory_report.py:1612-1663` erklärt die
   Zielkompatibilität anhand der gespeicherten Zeilen rot oder gelb.
-- `5eyes-electron/frontend/5eyes_v2.html:7481-7500` rendert jede Zeile als
+- `ares-desktop/frontend/ares.html:7481-7500` rendert jede Zeile als
   Ziel, Härte, Prozent und Status.
-- `5eyes_v2.html:24319-24336` rendert dieselben Werte im Review erneut als
+- `ares.html:24319-24336` rendert dieselben Werte im Review erneut als
   individuelle Goal-Liste.
-- `5eyes-backend/services/pdf/components/goal_achievability.py:214-269`
+- `ares-backend/services/pdf/components/goal_achievability.py:214-269`
   bezeichnet die Spalte ohne Einschränkung als „Wahrscheinlichkeit“ und zeigt
   pro Goal eine Ampel.
 
 ### Rang, Härte, Reorder und Hauptziel
 
-- `5eyes-backend/services/goal_semantics.py:120-154` validiert `rank` und
+- `ares-backend/services/goal_semantics.py:120-154` validiert `rank` und
   `hardness` unabhängig.
-- `5eyes-backend/routers/wealth.py:380-427` erklärt Rang ausdrücklich als von
+- `ares-backend/routers/wealth.py:380-427` erklärt Rang ausdrücklich als von
   Härte getrennte Sortiergröße und verschiebt Konflikte auf `max(rank)+1`.
-- `5eyes-backend/tests/test_goal_rank_auto_resolution.py:122-175` bestätigt,
+- `ares-backend/tests/test_goal_rank_auto_resolution.py:122-175` bestätigt,
   dass mehrere harte Ziele unterschiedliche Ränge bei unveränderter Härte
   besitzen dürfen.
-- `5eyes-electron/frontend/reporting/src/sections/goals/GoalWizard.tsx:288-314`
+- `ares-desktop/frontend/reporting/src/sections/goals/GoalWizard.tsx:288-314`
   führt Rang und Härte in getrennten Controls.
-- `5eyes-electron/frontend/5eyes_v2.html:26570-26583` lädt die Classic-Auswahl
+- `ares-desktop/frontend/ares.html:26570-26583` lädt die Classic-Auswahl
   dagegen aus `hardness` vor `rank`.
-- `5eyes_v2.html:26721-26806` schreibt aus derselben Auswahl gleichzeitig
+- `ares.html:26721-26806` schreibt aus derselben Auswahl gleichzeitig
   `rank` und `hardness`.
-- `5eyes_v2.html:6392-6405` verschiebt und nummeriert nur DOM-Knoten; kein
+- `ares.html:6392-6405` verschiebt und nummeriert nur DOM-Knoten; kein
   Request, keine `currentGoals`-Mutation und kein Rollback persistieren die
   neue Reihenfolge.
-- `5eyes_v2.html:24286-24299` sortiert für das Review harte Ziele vor allen
+- `ares.html:24286-24299` sortiert für das Review harte Ziele vor allen
   anderen und erst danach nach Rang.
-- `5eyes-backend/tests/test_frontend_review_cockpit.py:11-56` prüft nur DOM-
+- `ares-backend/tests/test_frontend_review_cockpit.py:11-56` prüft nur DOM-
   Anker, Funktionsnamen und Schwellenstrings, nicht die tatsächliche
   Hauptzielauswahl.
 
