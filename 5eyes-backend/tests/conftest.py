@@ -109,12 +109,17 @@ def pytest_sessionstart(session):  # noqa: D103
 # --- Hintergrund-Ressourcen-Guard (Teardown-Hang-Befund 2026-10-20) --------
 # Siehe tests/_session_leak_guard.py. Meldet nach dem Lauf noch laufende
 # nicht-daemonische Threads und Produkt-Scheduler; FIVEEYES_STRICT_LEAK_GUARD=1
-# macht daraus einen roten Lauf. Ein Exit-Watchdog dumpt alle Thread-Stacks,
-# falls der Prozess pytest um FIVEEYES_PYTEST_EXIT_WATCHDOG_S (Default 60 s)
-# ueberlebt.
+# macht daraus einen roten Lauf (Blocking-CI setzt es). Ein Exit-Watchdog
+# dumpt einmal alle Thread-Stacks und beendet den Prozess non-zero, falls er
+# pytest um FIVEEYES_PYTEST_EXIT_WATCHDOG_S (Default 60 s) ueberlebt.
+# Phasen davor (Testkoerper, Fixture-Teardown, Session-Ende) begrenzt der
+# externe Supervisor scripts/pytest_supervisor.py; die Prozess-Seite dazu
+# (Phasen-Events, Stackdump auf Anforderung, Python-Supportmatrix) liegt in
+# tests/_session_supervision.py.
 import pytest as _pytest
 
 _LEAK_REPORT_KEY = _pytest.StashKey[object]()
+_EXIT_STATUS_KEY = _pytest.StashKey[int]()
 
 
 _WORKER_LEAK_LINES_KEY = _pytest.StashKey[list]()
@@ -122,9 +127,22 @@ _WORKER_LEAK_LINES_KEY = _pytest.StashKey[list]()
 _WORKEROUTPUT_LEAK_KEY = "session_leak_guard_lines"
 
 
+def pytest_configure(config):  # noqa: D103
+    import _session_supervision as supervision
+
+    message = supervision.unsupported_python_message()
+    if message:
+        _pytest.exit(message, returncode=_pytest.ExitCode.USAGE_ERROR)
+    supervision.install_stack_dump_handler()
+    if not config.pluginmanager.has_plugin("session-supervision"):
+        config.pluginmanager.register(supervision.SupervisionPlugin(), "session-supervision")
+    supervision.emit("session_start", python=sys.version.split()[0], argv=list(sys.argv))
+
+
 @_pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):  # noqa: D103
     import _session_leak_guard as guard
+    import _session_supervision as supervision
 
     report = guard.collect()
     session.config.stash[_LEAK_REPORT_KEY] = report
@@ -133,9 +151,27 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: D103
         # xdist worker: the controller prints the summary and owns the exit
         # status, so the findings travel back over the workeroutput channel.
         workeroutput[_WORKEROUTPUT_LEAK_KEY] = report.lines()
-    lines = report.lines() + session.config.stash.get(_WORKER_LEAK_LINES_KEY, [])
+    worker_lines = session.config.stash.get(_WORKER_LEAK_LINES_KEY, [])
+    lines = report.lines() + worker_lines
     if lines and guard.strict_enabled() and session.exitstatus == 0:
         session.exitstatus = _pytest.ExitCode.TESTS_FAILED
+    session.config.stash[_EXIT_STATUS_KEY] = int(session.exitstatus)
+    leak_path = supervision.leak_report_path()
+    if leak_path is not None:
+        guard.write_leak_report_json(
+            leak_path,
+            report,
+            role=supervision.process_role(),
+            exit_status=session.exitstatus,
+            worker_lines=worker_lines,
+        )
+    supervision.emit(
+        "session_finish_done",
+        exit_status=int(session.exitstatus),
+        tests_failed=int(getattr(session, "testsfailed", 0) or 0),
+        leak_lines=lines,
+        strict=guard.strict_enabled(),
+    )
 
 
 @_pytest.hookimpl(optionalhook=True)
@@ -171,5 +207,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):  # noqa: D103
 @_pytest.hookimpl(trylast=True)
 def pytest_unconfigure(config):  # noqa: D103
     import _session_leak_guard as guard
+    import _session_supervision as supervision
 
-    guard.arm_exit_watchdog()
+    exit_status = config.stash.get(_EXIT_STATUS_KEY, None)
+    supervision.emit("unconfigure_done", exit_status=exit_status)
+
+    def _on_fire(seconds, code):
+        supervision.emit("exit_watchdog_fired", after_s=seconds, exit_code=code)
+
+    guard.arm_exit_watchdog(exit_status=exit_status, on_fire=_on_fire)
