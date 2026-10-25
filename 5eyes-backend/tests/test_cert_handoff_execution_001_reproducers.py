@@ -153,7 +153,6 @@ def test_snapshot_blocks_when_no_real_holding_backs_any_trade(session_factory, a
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-MATH-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
     entries = [{
         "product_id": "prod-math",
