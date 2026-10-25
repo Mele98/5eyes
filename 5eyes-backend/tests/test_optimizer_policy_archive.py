@@ -1,9 +1,11 @@
-"""Sprint U-103 (2026-06-05): Tests fuer OptimizerPolicy-Archiv-Snapshot.
+"""OptimizerPolicy-Versionierung ueber PUT /admin/optimizer-policies/{id}.
 
-PUT /admin/optimizer-policies/{id} muss vor In-Place-Update einen
-historischen Snapshot schreiben — sonst kann nach einem Update nicht
-mehr rekonstruiert werden mit welchen Bandbreiten eine bestehende
-TargetAllocation generiert wurde.
+POLICY-VERSION-IDENTITY-001: Eine aktive oder referenzierte Policy-Version
+ist unter ihrer ID unveraenderlich. Ein PUT erzeugt dann eine neue
+Entwurfsversion (neue ID, is_current=0); nur ein nie referenzierter Entwurf
+darf in-place editiert werden. Die frueheren Tests dieser Datei pinnten die
+In-place-Mutation der aktiven Zeile (die vom Audit beanstandete Ursache) und
+wurden auf den neuen Vertrag umgestellt.
 """
 from __future__ import annotations
 
@@ -88,7 +90,7 @@ def _client(session_factory) -> TestClient:
 # Archive-Snapshot Tests
 # ---------------------------------------------------------------------------
 
-def test_put_policy_creates_archive_snapshot(session_factory):
+def test_put_on_active_policy_creates_new_draft_version(session_factory):
     pid = _seed_policy(session_factory)
     try:
         with _client(session_factory) as client:
@@ -97,41 +99,37 @@ def test_put_policy_creates_archive_snapshot(session_factory):
                 json={"max_real_estate_bps": 2500, "notes": "after-u103"},
             )
             assert response.status_code == 200, response.text
-            assert response.json()["max_real_estate_bps"] == 2500
+            body = response.json()
+            assert body["max_real_estate_bps"] == 2500
+            assert body["id"] != pid
+            assert body["is_current"] == 0
+            assert body["version"] == 2
     finally:
         app.dependency_overrides.clear()
 
-    # Es muessen jetzt 2 Rows existieren: 1 aktive (version=2) + 1 archiviert (version=1)
     with session_factory() as s:
         rows = s.query(OptimizerPolicy).filter(OptimizerPolicy.policy_name == "U103-Test").all()
     assert len(rows) == 2
+    original = next(r for r in rows if r.id == pid)
+    draft = next(r for r in rows if r.id != pid)
 
-    current_rows = [r for r in rows if r.is_current == 1]
-    archive_rows = [r for r in rows if r.is_current == 0]
-    assert len(current_rows) == 1
-    assert len(archive_rows) == 1
+    # Original: unveraendert und weiterhin aktiv.
+    assert original.is_current == 1
+    assert original.version == 1
+    assert original.max_real_estate_bps == 2000
+    assert original.notes == "seed"
+    assert original.valid_to is None
 
-    current = current_rows[0]
-    archive = archive_rows[0]
-
-    # Current: version bumped, neue Werte
-    assert current.id == pid  # gleiche ID, FK-Integritaet
-    assert current.version == 2
-    assert current.max_real_estate_bps == 2500
-    assert current.notes == "after-u103"
-    assert current.valid_to is None
-
-    # Archive: alte Werte konserviert
-    assert archive.id != pid  # neue ID
-    assert archive.version == 1
-    assert archive.max_real_estate_bps == 2000  # alter Wert
-    assert archive.notes == "seed"  # alter Wert
-    assert archive.valid_to is not None  # Ende-Datum gesetzt
-    assert archive.valid_from is not None  # Anfangs-Datum erhalten
+    # Neue Version: eigener Entwurf mit den neuen Werten.
+    assert draft.is_current == 0
+    assert draft.version == 2
+    assert draft.max_real_estate_bps == 2500
+    assert draft.notes == "after-u103"
+    assert draft.fee_model_json == original.fee_model_json
 
 
 def test_put_policy_no_payload_no_archive(session_factory):
-    """Wenn body leer ist (kein effektives Update), keinen Archive-Snapshot schreiben."""
+    """Wenn body leer ist (kein effektives Update), keine neue Version schreiben."""
     pid = _seed_policy(session_factory)
     try:
         with _client(session_factory) as client:
@@ -145,37 +143,64 @@ def test_put_policy_no_payload_no_archive(session_factory):
 
     with session_factory() as s:
         rows = s.query(OptimizerPolicy).filter(OptimizerPolicy.policy_name == "U103-Test").all()
-    assert len(rows) == 1  # nur die Original-Zeile, kein Archive
+    assert len(rows) == 1  # nur die Original-Zeile
     assert rows[0].version == 1
 
 
-def test_put_policy_multiple_updates_create_chain(session_factory):
-    """Mehrere PUTs hintereinander erzeugen eine Archive-Kette."""
+def test_put_on_unreferenced_draft_edits_in_place(session_factory):
+    """Nach dem ersten PUT wird der Entwurf weiter editiert -- ohne neue Zeilen."""
     pid = _seed_policy(session_factory)
     try:
         with _client(session_factory) as client:
-            client.put(f"/admin/optimizer-policies/{pid}", json={"max_real_estate_bps": 2100})
-            client.put(f"/admin/optimizer-policies/{pid}", json={"max_real_estate_bps": 2200})
-            client.put(f"/admin/optimizer-policies/{pid}", json={"max_real_estate_bps": 2300})
+            draft_id = client.put(
+                f"/admin/optimizer-policies/{pid}", json={"max_real_estate_bps": 2100},
+            ).json()["id"]
+            r2 = client.put(f"/admin/optimizer-policies/{draft_id}", json={"max_real_estate_bps": 2200})
+            r3 = client.put(f"/admin/optimizer-policies/{draft_id}", json={"max_real_estate_bps": 2300})
+            assert r2.json()["id"] == r3.json()["id"] == draft_id
     finally:
         app.dependency_overrides.clear()
 
     with session_factory() as s:
         rows = s.query(OptimizerPolicy).filter(OptimizerPolicy.policy_name == "U103-Test").all()
-    # 1 aktive + 3 archiviert = 4
-    assert len(rows) == 4
+    assert len(rows) == 2
+    original = next(r for r in rows if r.id == pid)
+    draft = next(r for r in rows if r.id == draft_id)
+    assert (original.is_current, original.version, original.max_real_estate_bps) == (1, 1, 2000)
+    assert (draft.is_current, draft.version, draft.max_real_estate_bps) == (0, 2, 2300)
 
-    current_rows = [r for r in rows if r.is_current == 1]
-    archives = sorted(
-        [r for r in rows if r.is_current == 0],
-        key=lambda r: r.version,
-    )
-    assert len(current_rows) == 1
-    assert current_rows[0].version == 4
-    assert current_rows[0].max_real_estate_bps == 2300
 
-    assert [a.version for a in archives] == [1, 2, 3]
-    assert [a.max_real_estate_bps for a in archives] == [2000, 2100, 2200]
+def _reference_policy(session_factory, pid: str) -> None:
+    """Haengt einen RecommendationRun an die Policy (minimaler Referenz-Seed)."""
+    from models.review import RecommendationRun
+
+    now = "2026-06-05T10:00:00.000Z"
+    with session_factory() as s:
+        s.add(RecommendationRun(
+            id=new_uuid(), mandate_id="mandate-u103-ref", client_id="client-u103-ref",
+            policy_id=pid, run_type="Optimizer", result_status="Draft",
+            created_by=_ADMIN_ID, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+
+def test_put_on_referenced_historic_policy_creates_new_version(session_factory):
+    pid = _seed_policy(session_factory)
+    _reference_policy(session_factory, pid)
+    with session_factory() as s:
+        row = s.get(OptimizerPolicy, pid)
+        row.is_current = 0
+        s.commit()
+    try:
+        with _client(session_factory) as client:
+            resp = client.put(f"/admin/optimizer-policies/{pid}", json={"min_liquidity_bps": 500})
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["id"] != pid
+    finally:
+        app.dependency_overrides.clear()
+
+    with session_factory() as s:
+        assert s.get(OptimizerPolicy, pid).min_liquidity_bps == 0
 
 
 # ---------------------------------------------------------------------------
@@ -238,8 +263,8 @@ def test_house_matrix_put_allowed_on_draft_policy(session_factory):
         app.dependency_overrides.clear()
 
 
-def test_put_policy_preserves_id_for_fk_integrity(session_factory):
-    """Bestehende TargetAllocations.policy_id muss weiter gueltig sein."""
+def test_put_policy_keeps_referenced_id_content_for_fk_integrity(session_factory):
+    """Bestehende TargetAllocation.policy_id loest weiter auf den alten Inhalt auf."""
     pid = _seed_policy(session_factory)
     try:
         with _client(session_factory) as client:
@@ -251,4 +276,18 @@ def test_put_policy_preserves_id_for_fk_integrity(session_factory):
         current = s.query(OptimizerPolicy).filter(OptimizerPolicy.id == pid).first()
     assert current is not None  # original ID lebt
     assert current.is_current == 1
-    assert current.min_liquidity_bps == 500
+    assert current.min_liquidity_bps == 0
+
+
+def test_house_matrix_put_blocked_on_referenced_historic_policy(session_factory):
+    pid = _seed_draft_policy(session_factory)
+    _reference_policy(session_factory, pid)
+    try:
+        with _client(session_factory) as client:
+            resp = client.put(
+                f"/admin/optimizer-policies/{pid}/house-matrix",
+                json={"rows": [_VALID_HM_ROW]},
+            )
+            assert resp.status_code == 409, resp.text
+    finally:
+        app.dependency_overrides.clear()

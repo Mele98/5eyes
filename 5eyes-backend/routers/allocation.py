@@ -32,6 +32,11 @@ from services.auth import (
     enforce_cma_cross_tenant_read_scope,
 )
 from services.audit import log
+from services.optimizer_policy_lifecycle import (
+    new_draft_version,
+    policy_is_frozen,
+    policy_is_referenced,
+)
 from services.allocation_concurrency import (
     AllocationVersionConflict,
     assert_expected_predecessor,
@@ -95,42 +100,6 @@ router = APIRouter(tags=["Allokation"])
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-# Sprint U-103 (2026-06-05): Felder die NICHT in den Archiv-Snapshot
-# uebernommen werden (Identitaet/Lifecycle gehoeren zur neuen Zeile).
-_POLICY_NONCLONE_FIELDS = frozenset({"id", "version", "is_current", "valid_from", "valid_to"})
-
-
-def _archive_policy_snapshot(db: Session, policy: OptimizerPolicy, now: str) -> OptimizerPolicy:
-    """Sprint U-103 (2026-06-05): Snapshot der aktuellen Policy in eine
-    archivierte Zeile schreiben (is_current=0, valid_to=now). Damit kann
-    nach einem Update die historische Konfiguration rekonstruiert werden,
-    wie sie zum Zeitpunkt eines bestimmten TargetAllocation-Runs galt.
-
-    Praezise: alle Felder ausser id/version/is_current/valid_from/valid_to
-    werden 1:1 kopiert. Die archivierte Zeile bekommt:
-      - neue id (eigener PK)
-      - dieselbe version wie die aktuelle Zeile (= Stand der Archivierung)
-      - is_current=0
-      - valid_from = bisheriges valid_from der aktuellen Zeile
-      - valid_to   = now (Ende-der-Gueltigkeit)
-    """
-    snapshot_kwargs = {
-        column.name: getattr(policy, column.name)
-        for column in policy.__table__.columns
-        if column.name not in _POLICY_NONCLONE_FIELDS
-    }
-    snapshot = OptimizerPolicy(
-        id=new_uuid(),
-        version=policy.version,
-        is_current=0,
-        valid_from=policy.valid_from,
-        valid_to=now,
-        **snapshot_kwargs,
-    )
-    db.add(snapshot)
-    return snapshot
 
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
@@ -1422,28 +1391,33 @@ def update_optimizer_policy(
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
     payload = body.model_dump(exclude_none=True)
+    if not payload:
+        return policy
     now = _now()
-    # Sprint U-103 (2026-06-05): vor In-Place-Update einen Archive-Snapshot
-    # der bisherigen Policy schreiben. Dadurch bleibt rekonstruierbar welche
-    # Werte zur Generierung einer historischen TargetAllocation in Kraft
-    # waren. Die aktuelle Zeile bleibt unter derselben policy_id erreichbar
-    # (FK-Integritaet bestehender TAs unveraendert).
-    if payload:
-        previous_version = policy.version
-        _archive_policy_snapshot(db, policy, now=now)
-        policy.version = previous_version + 1
-        policy.valid_from = now
-        policy.valid_to = None
-    for field, value in payload.items():
-        setattr(policy, field, value)
-    policy.updated_at = now
+    # POLICY-VERSION-IDENTITY-001: aktive oder referenzierte Versionen sind
+    # unter ihrer ID unveraenderlich. Die Aenderung landet in einer neuen
+    # Entwurfsversion (neue ID, House Matrix + Building Blocks kopiert); die
+    # bisherige Version bleibt unveraendert und aktiv, bis der Entwurf ueber
+    # POST .../activate scharf geschaltet wird.
+    if policy_is_frozen(db, policy):
+        target = new_draft_version(
+            db, policy, now=now, created_by=current_user.id, overrides=payload,
+        )
+        action, old_value = "CLONE", policy.id
+    else:
+        target = policy
+        for field, value in payload.items():
+            setattr(target, field, value)
+        target.updated_at = now
+        action, old_value = "UPDATE", None
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="optimizer_policies", record_id=policy_id, action="UPDATE",
+        table_name="optimizer_policies", record_id=target.id, action=action,
+        old_value=old_value,
         new_value=", ".join(f"{k}={v}" for k, v in payload.items()),
         ip_address=_extract_client_ip(request))
     db.commit()
-    db.refresh(policy)
-    return policy
+    db.refresh(target)
+    return target
 
 
 @router.put("/admin/optimizer-policies/{policy_id}/house-matrix",
@@ -1468,6 +1442,13 @@ def replace_house_matrix_rows(
         raise HTTPException(
             status_code=409,
             detail="Aktive Policy kann nicht direkt überschrieben werden — bitte zuerst klonen und die neue Version aktivieren.",
+        )
+    # POLICY-VERSION-IDENTITY-001: auch eine historische, aber referenzierte
+    # Version darf ihre Bandbreiten nicht nachtraeglich aendern.
+    if policy_is_referenced(db, policy_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Diese Policy-Version wird von bestehenden Allokationen referenziert und ist unveränderlich — bitte klonen.",
         )
 
     now = _now()
