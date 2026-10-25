@@ -137,8 +137,25 @@ def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1",
         session.commit()
 
 
+def _full_valuation_coverage(position_count: int) -> dict:
+    """HANDOFF-VALUATION-001: der Snapshot verlangt die Coverage-Aggregate
+    von build_live_rebalancing_payload (echte Bestaende, frische Preise,
+    erfolgreiche FX). Positivfaelle bilden vollstaendige Abdeckung ab."""
+    return {
+        "holding_positions_count": position_count,
+        "implied_positions_count": 0,
+        "missing_prices_count": 0,
+        "stale_positions_count": 0,
+        "fx_conversion_failed_count": 0,
+    }
+
+
 def _fake_payload(drifts: list[dict], total_value_rappen: int) -> dict:
-    return {"live_rebalancing": {"live_total_value_rappen": total_value_rappen, "position_drifts": drifts}}
+    return {"live_rebalancing": {
+        "live_total_value_rappen": total_value_rappen,
+        "position_drifts": drifts,
+        **_full_valuation_coverage(len(drifts)),
+    }}
 
 
 def _drift(product_id: str, rebalance_amount_rappen: int, **overrides) -> dict:
@@ -450,3 +467,54 @@ def test_handoff_endpoints_404_for_foreign_mandate(session_factory, advisor_user
                 request=_FakeRequest(), db=session, current_user=advisor_user,
             )
     assert exc.value.status_code == 404
+
+
+# ===========================================================================
+# HANDOFF-VALUATION-001 -- Bewertungsabdeckung blockiert fail-closed
+# ===========================================================================
+
+
+@pytest.mark.parametrize("blocker", [
+    "implied_positions_count", "missing_prices_count",
+    "stale_positions_count", "fx_conversion_failed_count",
+])
+def test_snapshot_blocks_on_each_coverage_gap(session_factory, advisor_user, monkeypatch, blocker):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    payload = _fake_payload([_drift("prod-1", 50_000)], 1_000_000)
+    payload["live_rebalancing"][blocker] = 1
+    monkeypatch.setattr(portfolio_handoff_service, "build_recommendation_payload_from_run", lambda **kw: payload)
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == "mandate-1").one()
+        run = session.query(RecommendationRun).filter(RecommendationRun.id == "run-1").one()
+        with pytest.raises(portfolio_handoff_service.HoldingsValuationIncompleteError):
+            portfolio_handoff_service.snapshot_handoff_trades(session, mandate, run, advisor_user.id)
+
+
+def test_snapshot_blocks_when_coverage_aggregates_are_missing(session_factory, advisor_user, monkeypatch):
+    """Ein Payload ohne Coverage-Aggregate belegt keine Abdeckung -- kein
+    stilles 'vollstaendig'."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    payload = {"live_rebalancing": {
+        "live_total_value_rappen": 1_000_000, "position_drifts": [_drift("prod-1", 50_000)],
+    }}
+    monkeypatch.setattr(portfolio_handoff_service, "build_recommendation_payload_from_run", lambda **kw: payload)
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == "mandate-1").one()
+        run = session.query(RecommendationRun).filter(RecommendationRun.id == "run-1").one()
+        with pytest.raises(portfolio_handoff_service.HoldingsValuationIncompleteError):
+            portfolio_handoff_service.snapshot_handoff_trades(session, mandate, run, advisor_user.id)
+
+
+def test_create_handoff_409_without_persisting_when_valuation_incomplete(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    payload = _fake_payload([_drift("prod-1", 50_000)], 1_000_000)
+    payload["live_rebalancing"]["implied_positions_count"] = 1
+    monkeypatch.setattr(portfolio_handoff_service, "build_recommendation_payload_from_run", lambda **kw: payload)
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc:
+            _create_handoff(session, advisor_user)
+        assert exc.value.status_code == 409
+        assert session.query(PortfolioHandoff).count() == 0

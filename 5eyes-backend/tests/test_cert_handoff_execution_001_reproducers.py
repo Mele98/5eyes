@@ -114,7 +114,6 @@ def test_local_insert_must_not_claim_sent_without_transport_evidence(session_fac
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-VALUATION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_snapshot_blocks_when_no_real_holding_backs_any_trade(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     payload = {

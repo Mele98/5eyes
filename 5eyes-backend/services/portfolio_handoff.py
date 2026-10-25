@@ -45,13 +45,62 @@ class NoTradeListAvailableError(ValueError):
     """Kein Rebalancing-Bedarf oder keine Live-Rebalancing-Daten fuer diesen Run."""
 
 
+class HoldingsValuationIncompleteError(ValueError):
+    """HANDOFF-VALUATION-001: die Live-Bewertung ist nicht vollstaendig durch
+    echte Bestaende, Preise und FX belegt -- kein ausfuehrungsnaher Snapshot."""
+
+
+# HANDOFF-VALUATION-001: Coverage-Aggregate aus
+# services/portfolio_engine_live_rebalancing.py::build_live_rebalancing_payload.
+# Fehlt ein Aggregat, ist die Abdeckung nicht belegt (fail-closed).
+_COVERAGE_BLOCKERS = (
+    ("implied_positions_count", "Position(en) ohne erfassten Depotbestand (nur aus dem Zielbetrag abgeleitet)"),
+    ("missing_prices_count", "Position(en) ohne aktuellen Marktpreis"),
+    ("stale_positions_count", "Position(en) mit veraltetem Marktpreis"),
+    ("fx_conversion_failed_count", "Position(en) mit fehlgeschlagener Waehrungsumrechnung"),
+)
+
+
+def assert_holdings_valuation_complete(live: dict) -> None:
+    """Wirft ``HoldingsValuationIncompleteError``, wenn die Live-Bewertung
+    nicht vollstaendig auf echten Bestaenden, frischen Preisen und
+    erfolgreicher FX-Umrechnung beruht."""
+    def _count(key: str):
+        try:
+            return int(live[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    counts = {key: _count(key) for key in ("holding_positions_count",) + tuple(k for k, _ in _COVERAGE_BLOCKERS)}
+    # Reihenfolge: zuerst der inhaltliche Befund (kein Bestand), dann fehlende
+    # Nachweise -- die Meldung nennt den tatsaechlichen Grund.
+    if counts["holding_positions_count"] is not None and counts["holding_positions_count"] <= 0:
+        raise HoldingsValuationIncompleteError(
+            "Kein erfasster Depotbestand: die Handelsliste beruht ausschliesslich "
+            "auf aus dem Ziel abgeleiteten Positionen und ist keine Handelsinstruktion. "
+            "Bitte die Depotbestaende erfassen."
+        )
+    if any(value is None for value in counts.values()):
+        raise HoldingsValuationIncompleteError(
+            "Die Bewertungsabdeckung der Live-Handelsliste ist nicht belegt "
+            "(Bestands-/Preis-/FX-Nachweis fehlt). Keine Weiterleitung moeglich."
+        )
+    problems = [f"{counts[key]} {label}" for key, label in _COVERAGE_BLOCKERS if counts[key] > 0]
+    if problems:
+        raise HoldingsValuationIncompleteError(
+            "Die Live-Bewertung ist nicht vollstaendig belegt: " + "; ".join(problems)
+            + ". Bitte Bestaende und Preise aktualisieren, bevor die Handelsliste weitergeleitet wird."
+        )
+
+
 def snapshot_handoff_trades(db: Session, mandate: Mandate, run: RecommendationRun, user_id: str) -> tuple[list[dict], int]:
     """Liefert (trades, live_total_value_rappen) fuer eine neue Weiterleitung.
 
     Wirft ``ValueError`` (z.B. fehlendes Risikoprofil/Soll-Allokation, aus
-    ``build_recommendation_payload_from_run``) oder ``NoTradeListAvailableError``
-    (Live-Rebalancing lieferte keine Trades oberhalb der Anzeige-Schwelle) --
-    beide sind vom Router als 409 zu behandeln.
+    ``build_recommendation_payload_from_run``), ``NoTradeListAvailableError``
+    (Live-Rebalancing lieferte keine Trades oberhalb der Anzeige-Schwelle) oder
+    ``HoldingsValuationIncompleteError`` (Bewertung nicht durch echte
+    Bestaende/Preise/FX belegt) -- alle sind vom Router als 409 zu behandeln.
     """
     payload = build_recommendation_payload_from_run(
         db=db, mandate=mandate, run=run, user_id=user_id, preferences=None,
@@ -61,6 +110,7 @@ def snapshot_handoff_trades(db: Session, mandate: Mandate, run: RecommendationRu
     total_value_rappen = int(live.get("live_total_value_rappen") or 0)
     if not drifts or total_value_rappen <= 0:
         raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten fuer diesen Lauf verfuegbar.")
+    assert_holdings_valuation_complete(live)
 
     threshold_rappen = round(total_value_rappen * _MIN_TRADE_SHARE)
     trades = [

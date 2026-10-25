@@ -364,9 +364,13 @@ def _seed_handoff_prereqs(session_factory, *, mandate_id="mandate-handoff", run_
 
 
 def _patch_handoff_engine(monkeypatch, *, rebalance_amount_rappen=50_000, total_value_rappen=1_000_000):
+    from test_portfolio_handoff import _full_valuation_coverage
+
     payload = {
         "live_rebalancing": {
             "live_total_value_rappen": total_value_rappen,
+            # HANDOFF-VALUATION-001: vollstaendige Bewertungsabdeckung.
+            **_full_valuation_coverage(1),
             "position_drifts": [{
                 "product_id": "prod-dcgate",
                 "product_name": "Produkt DC-Gate",
