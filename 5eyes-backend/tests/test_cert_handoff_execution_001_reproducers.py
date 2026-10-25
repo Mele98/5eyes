@@ -186,7 +186,6 @@ def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-UI-CONTRACT-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_trade_list_ui_compares_action_code_not_localized_label():
     html = _html()
     start = html.index("function openTradeList()")
