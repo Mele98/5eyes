@@ -79,6 +79,15 @@ async def lifespan(app: FastAPI):
         settings.price_scheduler_enabled,
         settings.db_use_sqlcipher,
     )
+    # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
+    # kein Rueckfall auf SECRET_KEY oder einen Platzhalter).
+    from services.tenant_crypto import TenantCryptoError, require_master_kek
+
+    try:
+        require_master_kek()
+    except TenantCryptoError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
     init_db()
     # U-32: Discover externe Tax-Regime-Plugins (Entry-Point group
     # 'ares.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt

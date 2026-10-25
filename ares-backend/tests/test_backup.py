@@ -98,8 +98,8 @@ def test_backup_creates_file_and_sidecar(tmp_path: Path):
     assert sidecar.exists()
     sidecar_content = sidecar.read_text(encoding="utf-8")
     assert result.sha256 in sidecar_content
-    # Filename-Pattern: 5eyes-backup-YYYYMMDD-HHMMSS.db
-    assert result.path.name.startswith("5eyes-backup-")
+    # Filename-Pattern: ares-backup-YYYYMMDD-HHMMSS.db
+    assert result.path.name.startswith("ares-backup-")
     assert result.path.suffix == ".db"
 
 
@@ -172,7 +172,7 @@ def test_retention_prunes_old_backups_but_keeps_minimum(tmp_path: Path):
     # Lege 5 "alte" Dummy-Backups an und manipuliere mtime.
     old_ts = time.time() - 60 * 86400  # 60 Tage alt
     for i in range(5):
-        f = target_dir / f"5eyes-backup-20260101-00000{i}.db"
+        f = target_dir / f"ares-backup-20260101-00000{i}.db"
         f.write_bytes(b"FAKE")
         os.utime(f, (old_ts, old_ts))
 
@@ -200,7 +200,7 @@ def test_retention_zero_means_never_prune(tmp_path: Path):
     target_dir.mkdir()
 
     old_ts = time.time() - 365 * 86400
-    f = target_dir / "5eyes-backup-20250101-000000.db"
+    f = target_dir / "ares-backup-20250101-000000.db"
     f.write_bytes(b"ANCIENT")
     os.utime(f, (old_ts, old_ts))
 
