@@ -24195,7 +24195,7 @@ function renderPortfolioHandoffHistory(items){
       +' &middot; '+escapeHtml(String(h.position_count||0))+' Positionen'
       +' &middot; an '+escapeHtml(h.recipient_name||'')
       +(h.recipient_channel?(' ('+escapeHtml(h.recipient_channel)+')'):'')
-      +' &middot; '+escapeHtml(when)
+      +' &middot; '+escapeHtml(when)+(h.execution_external_reference?(' &middot; manuell bestätigt, Ref. '+escapeHtml(h.execution_external_reference)):'')
       +actions
       +'</div>';
   }).join('');
@@ -24212,13 +24212,13 @@ async function loadPortfolioHandoffHistory(){
 }
 async function markPortfolioHandoffExecuted(handoffId){
   if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId)return;
+  var ref=await uiPrompt({message:'Auftrags-/Bestätigungsnummer der ausführenden Stelle:',required:true,minLength:3});if(!ref||!ref.trim())return;
+  var day=await uiPrompt({message:'Ausführungsdatum (JJJJ-MM-TT):',required:true,defaultValue:new Date().toISOString().slice(0,10)});if(!day||!day.trim())return;
   try{
-    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/mark-executed',{});
+    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/mark-executed',{external_order_reference:ref.trim(),executed_on:day.trim()});
     await loadPortfolioHandoffHistory();
-    try{showAppSuccess('Ausführung bestätigt',{title:'Weiterleitung'});}catch(noticeErr){}
-  }catch(e){
-    try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Bestätigung fehlgeschlagen'});}catch(noticeErr){}
-  }
+    try{showAppSuccess('Ausführung manuell bestätigt',{title:'Weiterleitung'});}catch(noticeErr){}
+  }catch(e){try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Bestätigung fehlgeschlagen'});}catch(noticeErr){}}
 }
 async function cancelPortfolioHandoffPrompt(handoffId){
   var reason=await uiPrompt({message:'Grund für die Stornierung:',required:true});

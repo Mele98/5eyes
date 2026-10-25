@@ -284,7 +284,6 @@ def test_identical_create_retry_produces_exactly_one_open_handoff(session_factor
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-EXECUTION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_mark_executed_requires_fill_evidence_not_empty_body():
     # Soll (Spec Section 3.7/4.5): "Ausgefuehrt" muss aus vollstaendigen
     # Fill-Ereignissen (externe Order-ID, Menge, Preis, Settlement) abgeleitet

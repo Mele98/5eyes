@@ -23,6 +23,7 @@ from models.portfolio_handoff import (
     HANDOFF_STATUS_CANCELLED,
     HANDOFF_STATUS_EXECUTED,
     HANDOFF_STATUS_PREPARED,
+    EXECUTION_EVIDENCE_MANUAL_ATTESTATION,
     PortfolioHandoff,
 )
 from models.review import RecommendationRun
@@ -241,13 +242,24 @@ def mark_portfolio_handoff_executed(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    previous_status = _get_handoff_or_404(mandate_id, handoff_id, db, current_user).status
+    handoff = _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
+    previous_status = handoff.status
+    # HANDOFF-EXECUTION-001: eine Ausfuehrung vor dem Anlegen der
+    # Weiterleitung ist kein Nachweis fuer genau diese Handelsliste.
+    if body.executed_on.isoformat() < str(handoff.created_at or "")[:10]:
+        raise HTTPException(
+            status_code=422,
+            detail="Das Ausfuehrungsdatum liegt vor dem Anlegen der Weiterleitung.",
+        )
     now = _now()
     _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={
         "status": HANDOFF_STATUS_EXECUTED,
         "executed_at": now,
         "executed_by": current_user.id,
         "executed_note": body.executed_note,
+        "execution_evidence_kind": EXECUTION_EVIDENCE_MANUAL_ATTESTATION,
+        "execution_external_reference": body.external_order_reference,
+        "execution_confirmed_on": body.executed_on.isoformat(),
         "updated_at": now,
     })
     log(

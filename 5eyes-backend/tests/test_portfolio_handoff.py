@@ -324,6 +324,12 @@ def test_create_handoff_404_for_unknown_run(session_factory, advisor_user, monke
     assert exc.value.status_code == 404
 
 
+# HANDOFF-EXECUTION-001: manuelle Ausfuehrungsbestaetigung mit Referenz
+# (Datum = heute UTC, wie der Zeitstempel der neu angelegten Weiterleitung).
+_TODAY = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).date().isoformat()
+_EVIDENCE = PortfolioHandoffMarkExecuted(external_order_reference="ORD-4700", executed_on=_TODAY)
+
+
 def _create_handoff(session, advisor_user):
     return create_portfolio_handoff(
         mandate_id="mandate-1", run_id="run-1",
@@ -340,18 +346,21 @@ def test_mark_executed_transitions_status_and_is_not_repeatable(session_factory,
         created = _create_handoff(session, advisor_user)
         executed = mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=created.id,
-            body=PortfolioHandoffMarkExecuted(executed_note="Bank bestaetigt per Telefon"),
+            body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-4711", executed_on=_TODAY, executed_note="Bank bestaetigt per Telefon"),
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
         assert executed.status == "Ausgeführt"
         assert executed.executed_by == advisor_user.id
         assert executed.executed_note == "Bank bestaetigt per Telefon"
+        assert executed.execution_evidence_kind == "manual_attestation"
+        assert executed.execution_external_reference == "ORD-4711"
+        assert executed.execution_confirmed_on == _TODAY
 
         # Zweiter Aufruf auf denselben (nicht mehr offenen) Handoff -> 409, kein Doppel-Transition.
         with pytest.raises(HTTPException) as exc:
             mark_portfolio_handoff_executed(
                 mandate_id="mandate-1", handoff_id=created.id,
-                body=PortfolioHandoffMarkExecuted(),
+                body=_EVIDENCE,
                 request=_FakeRequest(), db=session, current_user=advisor_user,
             )
         assert exc.value.status_code == 409
@@ -365,7 +374,7 @@ def test_cancel_requires_reason_and_blocks_after_execution(session_factory, advi
         created = _create_handoff(session, advisor_user)
         mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=created.id,
-            body=PortfolioHandoffMarkExecuted(),
+            body=_EVIDENCE,
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
         # Ein bereits ausgefuehrter Handoff darf nicht mehr storniert werden.
@@ -403,7 +412,7 @@ def test_concurrent_mark_executed_and_cancel_do_not_both_succeed(session_factory
 
         executed = mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=handoff_id,
-            body=PortfolioHandoffMarkExecuted(executed_note="Bank bestaetigt"),
+            body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-4712", executed_on=_TODAY, executed_note="Bank bestaetigt"),
             request=_FakeRequest(), db=session_a, current_user=advisor_user,
         )
         assert executed.status == "Ausgeführt"
@@ -599,3 +608,40 @@ def test_legacy_sent_handoff_stays_closable(session_factory, advisor_user, monke
             AuditLog.table_name == "portfolio_handoffs", AuditLog.action == "UPDATE",
         ).one()
         assert audit.old_value == "Gesendet"
+
+
+
+# ===========================================================================
+# HANDOFF-EXECUTION-001 -- Ausfuehrung nur mit Evidence
+# ===========================================================================
+
+
+@pytest.mark.parametrize("payload", [
+    {},
+    {"executed_note": "Bank bestaetigt"},
+    {"external_order_reference": "  ", "executed_on": "2026-08-09"},
+    {"external_order_reference": "ORD-1"},
+    {"external_order_reference": "ORD-1", "executed_on": "2999-01-01"},
+])
+def test_mark_executed_schema_rejects_missing_or_implausible_evidence(payload):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PortfolioHandoffMarkExecuted(**payload)
+
+
+def test_mark_executed_rejects_execution_before_handoff_creation(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        created = _create_handoff(session, advisor_user)
+        with pytest.raises(HTTPException) as exc:
+            mark_portfolio_handoff_executed(
+                mandate_id="mandate-1", handoff_id=created.id,
+                body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-1", executed_on="2020-01-01"),
+                request=_FakeRequest(), db=session, current_user=advisor_user,
+            )
+        assert exc.value.status_code == 422
+        session.expire_all()
+        assert session.query(PortfolioHandoff).filter(PortfolioHandoff.id == created.id).one().status == "Vorbereitet"
