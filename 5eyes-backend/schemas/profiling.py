@@ -236,6 +236,21 @@ class SuitabilityCheckCreate(BaseModel):
             raise ValueError("Wenn Kunde trotzdem fortfährt, muss warning_delivered=True sein")
         if self.warning_delivered and not self.warning_delivered_at:
             raise ValueError("warning_delivered_at ist Pflicht wenn warning_delivered=True")
+        # ELIG-KNOWLEDGE-001: ein positives Angemessenheits-Ergebnis behauptet,
+        # dass Kenntnisse/Erfahrungen geprueft wurden. Ohne Anker (Kenntnis-
+        # Erfassung oder Risikoprofil mit dokumentiertem Kenntnisblock) ist
+        # das eine unbelegte Aussage. Der Router prueft den Anker inhaltlich.
+        # Andere Ergebnisse ("Unvollständige Information" usw.) bleiben frei.
+        if (
+            self.result == "Angemessen"
+            and not self.knowledge_assessment_id
+            and not self.risk_assessment_id
+        ):
+            raise ValueError(
+                "Ein positives Angemessenheits-Ergebnis braucht einen Kenntnis-"
+                "Nachweis (knowledge_assessment_id oder risk_assessment_id mit "
+                "dokumentierten Kenntnissen)."
+            )
         return self
 
 

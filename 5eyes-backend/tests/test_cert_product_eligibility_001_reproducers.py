@@ -253,11 +253,11 @@ def test_ignore_suitability_must_not_resurrect_an_out_of_band_product(session_fa
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-KNOWLEDGE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_positive_appropriateness_requires_a_knowledge_anchor():
-    # Soll: a positive Angemessenheitspruefung without any
-    # knowledge_assessment_id must be schema-rejected. Today
-    # SuitabilityCheckCreate accepts this combination unconditionally.
+    # Soll: a positive Angemessenheitspruefung without any knowledge
+    # anchor must be schema-rejected (closed 2026-10-25: the schema
+    # requires knowledge_assessment_id or a risk_assessment_id, and the
+    # router verifies that the risk profile really documents knowledge).
     with pytest.raises(ValueError):
         SuitabilityCheckCreate(
             duty_type="Angemessenheitsprüfung",
