@@ -305,6 +305,17 @@ Risikoanteil 64.47 -> 64.36 %), Score 9 7787/966/684/363/200 ->
 7831/902/690/377/200 (Rendite 572 -> 574 bps, Vola 1225 -> 1233 bps,
 Risikoanteil 68.29 -> 68.63 %); Score 3 und alle drei Score-5-Varianten
 unveraendert.
+
+Nachtrag (2026-10-25, MIN-VOLATILITY-WITHIN-PERIOD-001, Engine
+``saa_resampled_v16``): min_volatility misst die gepoolte Innerhalb-Perioden-
+Varianz; nur die Variante rechnet anders. Fix-Effekt im Default-Modus 0: mit
+erzwungenem v15-Seed alle sechs Fixtures byte-identisch zu den v15-Fixtures
+(Linux-CI, Run 40144268697). Seed-Effekt v15 -> v16, Haswell = Nehalem
+byte-identisch: Score 7 6744/1641/829/586/200 -> 6778/1612/818/592/200
+(Rendite 527 -> 528 bps, Vola 1073 -> 1078 bps, Risikoanteil 64.36 ->
+64.54 %), Score 9 7831/902/690/377/200 -> 7831/904/687/378/200 (Rendite und
+Vola unveraendert 574/1233 bps, Risikoanteil 68.63 -> 68.62 %); Score 3 und
+alle drei Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 
