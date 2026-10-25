@@ -6,8 +6,8 @@ audit_started_on: "2026-09-16"
 audit_completed_on: "2026-09-21"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "0aec68a5b1069995f5106d7276a1375dad0b3605"
 prior_release_audit_path: "docs/audits/2026-09-14-direct-property-mortgage-amortization-and-publication-integrity-audit.md"
@@ -298,36 +298,36 @@ Liquidity-Instrument-Snapshot existiert nicht.
 
 | Vertrag | Codeanker |
 |---|---|
-| Create-/Update-Freifelder | `5eyes-backend/schemas/wealth.py:12-170` |
-| Response ohne Availability | `5eyes-backend/schemas/wealth.py:173-229` |
-| Persistierte Liquiditätsfelder | `5eyes-backend/models/wealth.py:51-55` |
-| Allgemeine Semantik ohne Liquiditätsmatrix | `5eyes-backend/services/wealth_position_semantics.py:15-52,108-117,160-191` |
-| Statischer SQLite-CHECK | `5eyes-backend/5eyes_schema_v4.0_FINAL.sql:585-592` |
-| Alembic-Baseline ohne CHECK | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:697-701` |
-| Instrumentagnostische Bucket-Zuordnung | `5eyes-backend/services/portfolio_engine.py:592-624` |
-| Advisory-/Liability-/Unlock-Aggregation | `5eyes-backend/services/portfolio_engine.py:1874-1915` |
-| Derived Liquiditätszins | `5eyes-backend/services/wealth_cashflows.py:71-77,285-350` |
-| Advisory-Zins aus Solver-Cashflow entfernt | `5eyes-backend/services/portfolio_engine.py:2018-2050,5771-5798` |
-| Optimizer erhält Solver-Serie | `5eyes-backend/services/portfolio_engine.py:3333-3358` |
-| Reporting/MC erhält volle Serie | `5eyes-backend/services/portfolio_engine.py:3664-3717` |
-| Deterministik/MC nullen Reportingbucket | `5eyes-backend/services/portfolio_engine_mc_simulation.py:522-528,1179-1184` |
-| Optimizer verwendet CMA-Momente | `5eyes-backend/services/optimizer/scenario_engine.py:606-625` |
-| Deklarierte Optimization-/Reportingbasis | `5eyes-backend/services/portfolio_engine.py:2650-2671,2740-2751` |
-| Externe Total-Goal-Serie | `5eyes-backend/services/portfolio_engine.py:3117-3127` |
-| `_pos_v2`-Positionsencoder und aktueller v4-Inputhash | `5eyes-backend/services/portfolio_engine.py:2332-2379,2501-2504,3758-3787` |
-| Report-Rebuild des Unlock-Pools | `5eyes-backend/services/advisory_report.py:3161-3205` |
-| Classic-UI-Instrumente und Availability | `5eyes-electron/frontend/5eyes_v2.html:4811-4833` |
-| Classic-UI-Edit liest fehlendes Feld | `5eyes-electron/frontend/5eyes_v2.html:17008-17036` |
-| Classic-UI überschreibt Assignment beim Öffnen | `5eyes-electron/frontend/5eyes_v2.html:9985-10010,17008-17075` |
-| Classic-UI-Vollpayload | `5eyes-electron/frontend/5eyes_v2.html:23372-23412,23462-23484` |
-| Untypisierter Derived-Endpoint | `5eyes-backend/routers/clients.py:336-357` |
-| Classic zeigt Derived-Quelltopf | `5eyes-electron/frontend/5eyes_v2.html:23127-23144` |
-| React-Derived-Typ/-Tabelle ohne Quelltopf | `5eyes-electron/frontend/reporting/src/api/types.ts:1106-1125`; `5eyes-electron/frontend/reporting/src/sections/cashflow/CashflowEditor.tsx:173-205` |
-| Advisory-Cashflowliste nur aus persistierten Rows | `5eyes-backend/services/advisory_report.py:623-701` |
-| Server-PDF-Cashflowevents nur aus persistierten Rows | `5eyes-backend/routers/pdf_reports.py:584-630` |
-| Warning-only-Duplikat | `5eyes-electron/frontend/5eyes_v2.html:23052-23080` |
-| Tests des Dual-Model-Vertrags | `5eyes-backend/tests/test_engine_cashflow_consistency.py:80-154`; `5eyes-backend/tests/test_optimizer_production_contract.py:648-680` |
-| Tests des Null-Reportingbuckets | `5eyes-backend/tests/test_liquidity_flat_in_projection.py:1-89`; `5eyes-backend/tests/test_liquidity_zero_engine_lock.py:1-41` |
+| Create-/Update-Freifelder | `ares-backend/schemas/wealth.py:12-170` |
+| Response ohne Availability | `ares-backend/schemas/wealth.py:173-229` |
+| Persistierte Liquiditätsfelder | `ares-backend/models/wealth.py:51-55` |
+| Allgemeine Semantik ohne Liquiditätsmatrix | `ares-backend/services/wealth_position_semantics.py:15-52,108-117,160-191` |
+| Statischer SQLite-CHECK | `ares-backend/ares_schema.sql:585-592` |
+| Alembic-Baseline ohne CHECK | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:697-701` |
+| Instrumentagnostische Bucket-Zuordnung | `ares-backend/services/portfolio_engine.py:592-624` |
+| Advisory-/Liability-/Unlock-Aggregation | `ares-backend/services/portfolio_engine.py:1874-1915` |
+| Derived Liquiditätszins | `ares-backend/services/wealth_cashflows.py:71-77,285-350` |
+| Advisory-Zins aus Solver-Cashflow entfernt | `ares-backend/services/portfolio_engine.py:2018-2050,5771-5798` |
+| Optimizer erhält Solver-Serie | `ares-backend/services/portfolio_engine.py:3333-3358` |
+| Reporting/MC erhält volle Serie | `ares-backend/services/portfolio_engine.py:3664-3717` |
+| Deterministik/MC nullen Reportingbucket | `ares-backend/services/portfolio_engine_mc_simulation.py:522-528,1179-1184` |
+| Optimizer verwendet CMA-Momente | `ares-backend/services/optimizer/scenario_engine.py:606-625` |
+| Deklarierte Optimization-/Reportingbasis | `ares-backend/services/portfolio_engine.py:2650-2671,2740-2751` |
+| Externe Total-Goal-Serie | `ares-backend/services/portfolio_engine.py:3117-3127` |
+| `_pos_v2`-Positionsencoder und aktueller v4-Inputhash | `ares-backend/services/portfolio_engine.py:2332-2379,2501-2504,3758-3787` |
+| Report-Rebuild des Unlock-Pools | `ares-backend/services/advisory_report.py:3161-3205` |
+| Classic-UI-Instrumente und Availability | `ares-desktop/frontend/ares.html:4811-4833` |
+| Classic-UI-Edit liest fehlendes Feld | `ares-desktop/frontend/ares.html:17008-17036` |
+| Classic-UI überschreibt Assignment beim Öffnen | `ares-desktop/frontend/ares.html:9985-10010,17008-17075` |
+| Classic-UI-Vollpayload | `ares-desktop/frontend/ares.html:23372-23412,23462-23484` |
+| Untypisierter Derived-Endpoint | `ares-backend/routers/clients.py:336-357` |
+| Classic zeigt Derived-Quelltopf | `ares-desktop/frontend/ares.html:23127-23144` |
+| React-Derived-Typ/-Tabelle ohne Quelltopf | `ares-desktop/frontend/reporting/src/api/types.ts:1106-1125`; `ares-desktop/frontend/reporting/src/sections/cashflow/CashflowEditor.tsx:173-205` |
+| Advisory-Cashflowliste nur aus persistierten Rows | `ares-backend/services/advisory_report.py:623-701` |
+| Server-PDF-Cashflowevents nur aus persistierten Rows | `ares-backend/routers/pdf_reports.py:584-630` |
+| Warning-only-Duplikat | `ares-desktop/frontend/ares.html:23052-23080` |
+| Tests des Dual-Model-Vertrags | `ares-backend/tests/test_engine_cashflow_consistency.py:80-154`; `ares-backend/tests/test_optimizer_production_contract.py:648-680` |
+| Tests des Null-Reportingbuckets | `ares-backend/tests/test_liquidity_flat_in_projection.py:1-89`; `ares-backend/tests/test_liquidity_zero_engine_lock.py:1-41` |
 
 ## `LIQUIDITY-INSTRUMENT-MODEL-001` – Freie Terms erzeugen verschiedene Datenwahrheiten
 
@@ -568,7 +568,7 @@ verlustfrei wartbar.
 
 ### Isolierte Frontend-Reproduktion
 
-Die unveränderten Funktionen aus `5eyes_v2.html` wurden mit einem minimalen
+Die unveränderten Funktionen aus `ares.html` wurden mit einem minimalen
 Mock-DOM ausgeführt. Für eine gespeicherte externe Position ergab sich:
 
 ```text

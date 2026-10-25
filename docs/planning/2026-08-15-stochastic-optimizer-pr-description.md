@@ -8,7 +8,7 @@
 
 Dieser PR macht den stochastischen Monte-Carlo-Optimierer zum produktiven Default
 für die Ziel-Asset-Allokation (`optimizer_mode` wechselt von `house_matrix` auf
-`stochastic` in `5eyes-backend/config.py`). Die House-Matrix bleibt als
+`stochastic` in `ares-backend/config.py`). Die House-Matrix bleibt als
 auditierter, technischer Fallback bestehen; `app_env=production` erzwingt
 `stochastic` per Guard (verhindert versehentlichen Rückfall in Produktion).
 
@@ -33,7 +33,7 @@ Risiko-, Ziel-, CMA- und Mandats-Inputs.
 ## Inhaltliche Änderungen
 
 ### Kernänderung
-- `5eyes-backend/config.py`: `optimizer_mode: str = 'stochastic'` (vorher
+- `ares-backend/config.py`: `optimizer_mode: str = 'stochastic'` (vorher
   `'house_matrix'`). `app_env == 'production'` erzwingt `stochastic` per
   Validierungs-Guard.
 
@@ -110,8 +110,8 @@ minimal.
 Ursache: Diese Datei ist ein **generierter** Snapshot (Sprint U-35,
 `scripts/audit_html_monolith.py`), der Zeilennummern von IDs, Event-Handlern,
 JS-Funktionen usw. innerhalb der Monolith-Datei
-`5eyes-electron/frontend/5eyes_v2.html` festhält. Beide Branches hatten
-`5eyes_v2.html` unabhängig voneinander verändert (das HTML selbst mergte
+`ares-desktop/frontend/ares.html` festhält. Beide Branches hatten
+`ares.html` unabhängig voneinander verändert (das HTML selbst mergte
 automatisch konfliktfrei), wodurch sich in beiden Branches unterschiedliche
 Zeilennummern für dieselben IDs/Handler ergaben — der Git-Merge konnte diese
 reinen Zeilennummer-Diffs nicht automatisch versöhnen (>4000 Konfliktmarker,
@@ -120,7 +120,7 @@ ausschließlich in `"line": N`-Feldern).
 **Auflösung**: Statt die Konflikte Zeile für Zeile manuell aufzulösen (was bei
 einer generierten Datei sachlich falsch wäre und Drift gegenüber dem
 tatsächlichen HTML einführen würde), wurde die Datei nach dem Auto-Merge von
-`5eyes_v2.html` frisch aus dem Generator regeneriert:
+`ares.html` frisch aus dem Generator regeneriert:
 
 ```
 python scripts/audit_html_monolith.py
@@ -130,7 +130,7 @@ Dies ist exakt der Mechanismus, den `tests/test_monolith_inventory_stable.py`
 ohnehin erzwingt (`test_monolith_inventory_snapshot_matches_current_html`
 vergleicht die Snapshot-Datei 1:1 gegen `build_inventory()` auf der aktuellen
 HTML-Datei). Die Regenerierung garantiert, dass der Snapshot exakt den
-gemergten Stand von `5eyes_v2.html` widerspiegelt — keine Handauswahl
+gemergten Stand von `ares.html` widerspiegelt — keine Handauswahl
 zwischen den beiden Konfliktseiten war nötig oder inhaltlich sinnvoll.
 Verifiziert: `test_monolith_inventory_stable.py` (3 Tests) läuft grün als Teil
 der vollen Suite.
@@ -176,7 +176,7 @@ explizit in `alembic.ini`s `[loggers]`-Sektion deklariert ist (dort stehen nur
 bedingungslos, unabhängig von Level/Handlern — exakt das beobachtete Symptom
 (`caplog.text == ''`, `caplog.records == []`).
 
-Das ist **kein reiner Test-Isolationsbug**: `5eyes-backend/database.py:1376`
+Das ist **kein reiner Test-Isolationsbug**: `ares-backend/database.py:1376`
 (`_create_or_migrate_schema`) ruft `alembic.command.upgrade(cfg, "head")` bei
 **jedem Postgres-Produktions-App-Start** auf — und das durchläuft denselben
 `env.py`-Pfad. In echter Postgres-Produktion (Tier 2/3-Hosting) würde also
@@ -193,7 +193,7 @@ diesen Merge eingeführt. Er wurde nur durch DIESEN Merge-Verifikationslauf
 erstmals mit der vollen 5981-Test-Suite in exakt dieser Reihenfolge sichtbar.
 
 **Fix** (in diesem Worktree bereits committet, Teil dieses PRs):
-`5eyes-backend/alembic/env.py` — `fileConfig(config.config_file_name,
+`ares-backend/alembic/env.py` — `fileConfig(config.config_file_name,
 disable_existing_loggers=False)`. Verifiziert: die identifizierte
 905-Test-Bisektions-Slice läuft jetzt 906/906 grün (vorher 1 failed); die
 volle Suite bestätigt beide Telemetrie-Tests und den Font-Test grün.

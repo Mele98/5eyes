@@ -227,7 +227,7 @@ werden:
 - Externer Security-Test-Scope und Vorbereitung:
   [`PENTEST_PREPARATION.md`](../PENTEST_PREPARATION.md)
 - Accessibility-Negativ-/Regressionsnachweis fuer Charts:
-  [`test_frontend_chart_accessibility.py`](../../5eyes-backend/tests/test_frontend_chart_accessibility.py)
+  [`test_frontend_chart_accessibility.py`](../../ares-backend/tests/test_frontend_chart_accessibility.py)
 
 ## 7. Offizielle Primaerquellen fuer die Fachfreigabe
 

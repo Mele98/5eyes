@@ -5,8 +5,8 @@ status_as_of: "2026-09-14"
 audit_started_on: "2026-09-14"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "ae6f089df9be059ff0ea48602056f51fee8c634b"
 prior_release_audit_path: "docs/audits/2026-09-13-retirement-income-pension-withdrawal-and-depletion-integrity-audit.md"
@@ -281,29 +281,29 @@ existiert nicht.
 
 | Vertrag | Codeanker |
 |---|---|
-| Create-/Update-/Response-Domains | `5eyes-backend/schemas/wealth.py:12-230` |
-| Persistierte Property-/Mortgage-Felder und String-Link | `5eyes-backend/models/wealth.py:6-60` |
-| Begrenzte Positionssemantik | `5eyes-backend/services/wealth_position_semantics.py:1-160` |
-| Labelbasierte Double-count-Prüfung | `5eyes-backend/routers/wealth.py:449-483` |
-| Write-time-Linkprüfung | `5eyes-backend/routers/wealth.py:486-501` |
-| Position Create/Update/Soft-Delete | `5eyes-backend/routers/wealth.py:504-656` |
-| Rate, Typ, Laufzeit, Refi-Schedule | `5eyes-backend/services/wealth_cashflows.py:68-185` |
-| Zins- und Amortisations-Adjustments | `5eyes-backend/services/wealth_cashflows.py:188-282` |
-| Derived Miete/Zins/Amortisation | `5eyes-backend/services/wealth_cashflows.py:285-352` |
-| Datumsparser und Jahresaggregation | `5eyes-backend/services/cashflow_timeline.py:33-40,93-157,314-339` |
-| External Foundation | `5eyes-backend/services/portfolio_engine.py:905-997` |
-| Abweichende Goal-Funding-Serie | `5eyes-backend/services/portfolio_engine.py:1000-1045` |
-| Externe Reserveanrechnung | `5eyes-backend/services/portfolio_engine.py:1907-1915`; `5eyes-backend/services/portfolio_engine_reserve.py:285-494` |
-| Manuelle plus Derived Flows | `5eyes-backend/services/portfolio_engine.py:1927-1933,5498-5503` |
-| v2-Positionshash | `5eyes-backend/services/portfolio_engine.py:2364-2379` |
-| Total-Goal-Liability | `5eyes-backend/services/optimizer/goal_liabilities.py:324-385` |
-| MC-Foundation und Pfadkombination | `5eyes-backend/services/portfolio_engine_mc_simulation.py:385-480,1241-1478` |
-| Classic Property-/Debt-Projektion | `5eyes-electron/frontend/5eyes_v2.html:6622-6725,7016-7029` |
-| Warning-only-Duplikathinweis | `5eyes-electron/frontend/5eyes_v2.html:23052-23080` |
-| Property-/Mortgage-Editor und Save | `5eyes-electron/frontend/5eyes_v2.html:4835-4964,23372-23455` |
-| React Derived-Fetch | `5eyes-electron/frontend/reporting/src/sections/cashflow/CashflowEditor.tsx:48-60,173-203` |
-| Advisory-Vermögenssummary | `5eyes-backend/services/advisory_report.py:623-701` |
-| React-/PDF-Publikation | `5eyes-electron/frontend/reporting/src/pages/Ausgangslage.tsx:103-109`; `5eyes-backend/services/pdf/documents/advisory_report.py:674-683` |
+| Create-/Update-/Response-Domains | `ares-backend/schemas/wealth.py:12-230` |
+| Persistierte Property-/Mortgage-Felder und String-Link | `ares-backend/models/wealth.py:6-60` |
+| Begrenzte Positionssemantik | `ares-backend/services/wealth_position_semantics.py:1-160` |
+| Labelbasierte Double-count-Prüfung | `ares-backend/routers/wealth.py:449-483` |
+| Write-time-Linkprüfung | `ares-backend/routers/wealth.py:486-501` |
+| Position Create/Update/Soft-Delete | `ares-backend/routers/wealth.py:504-656` |
+| Rate, Typ, Laufzeit, Refi-Schedule | `ares-backend/services/wealth_cashflows.py:68-185` |
+| Zins- und Amortisations-Adjustments | `ares-backend/services/wealth_cashflows.py:188-282` |
+| Derived Miete/Zins/Amortisation | `ares-backend/services/wealth_cashflows.py:285-352` |
+| Datumsparser und Jahresaggregation | `ares-backend/services/cashflow_timeline.py:33-40,93-157,314-339` |
+| External Foundation | `ares-backend/services/portfolio_engine.py:905-997` |
+| Abweichende Goal-Funding-Serie | `ares-backend/services/portfolio_engine.py:1000-1045` |
+| Externe Reserveanrechnung | `ares-backend/services/portfolio_engine.py:1907-1915`; `ares-backend/services/portfolio_engine_reserve.py:285-494` |
+| Manuelle plus Derived Flows | `ares-backend/services/portfolio_engine.py:1927-1933,5498-5503` |
+| v2-Positionshash | `ares-backend/services/portfolio_engine.py:2364-2379` |
+| Total-Goal-Liability | `ares-backend/services/optimizer/goal_liabilities.py:324-385` |
+| MC-Foundation und Pfadkombination | `ares-backend/services/portfolio_engine_mc_simulation.py:385-480,1241-1478` |
+| Classic Property-/Debt-Projektion | `ares-desktop/frontend/ares.html:6622-6725,7016-7029` |
+| Warning-only-Duplikathinweis | `ares-desktop/frontend/ares.html:23052-23080` |
+| Property-/Mortgage-Editor und Save | `ares-desktop/frontend/ares.html:4835-4964,23372-23455` |
+| React Derived-Fetch | `ares-desktop/frontend/reporting/src/sections/cashflow/CashflowEditor.tsx:48-60,173-203` |
+| Advisory-Vermögenssummary | `ares-backend/services/advisory_report.py:623-701` |
+| React-/PDF-Publikation | `ares-desktop/frontend/reporting/src/pages/Ausgangslage.tsx:103-109`; `ares-backend/services/pdf/documents/advisory_report.py:674-683` |
 
 ## `PROPERTY-FLOW-DUPLICATION-001` – Gleicher wirtschaftlicher Flow wirkt mehrfach
 

@@ -41,7 +41,7 @@ Keine externen Verbindungen (ausser Markt-Daten-Updates via Cron).
 ### 1. Backend-Konfiguration
 
 ```dotenv
-# 5eyes-backend/.env
+# ares-backend/.env
 DEPLOYMENT_TIER=tier1
 APP_ENV=production
 APP_HOST=127.0.0.1
@@ -97,7 +97,7 @@ Copy-Item $source $nas_dest
 # Vor jedem Update: Backup machen!
 cd C:\5eyes_stage9_release_ready
 git pull origin develop
-cd 5eyes-backend
+cd ares-backend
 pip install -r requirements.txt
 
 # Schema-Migration (idempotent)

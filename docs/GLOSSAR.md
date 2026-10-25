@@ -2,7 +2,7 @@
 
 Begriffsregister für Berater, Engineering und Compliance. Wenn ein Begriff
 im Code oder PDF auftaucht, muss er hier definiert sein. Drift-getestet via
-`5eyes-backend/tests/test_glossar_consistency.py`.
+`ares-backend/tests/test_glossar_consistency.py`.
 
 Stand: 2026-06-05
 
@@ -11,7 +11,7 @@ Stand: 2026-06-05
 ## A
 
 **Aggregator** — Backend-Funktion `compute_advisory_report()` in
-`5eyes-backend/services/advisory_report.py`. Liefert ein Dict mit 23
+`ares-backend/services/advisory_report.py`. Liefert ein Dict mit 23
 Sektionen für PDF-Rendering und Sub-App-Anzeige. Single-Source-of-Truth für
 den Beratungsreport.
 
@@ -88,7 +88,7 @@ Begründungspflicht (U-28/U-29).
 
 **Editorial Design** — Sub-App-Design-System: Cormorant Garamond + Inter,
 matte Status-Farben. Siehe
-`5eyes-electron/frontend/reporting/DESIGN_SYSTEM.md`.
+`ares-desktop/frontend/reporting/DESIGN_SYSTEM.md`.
 
 ## F
 
@@ -110,7 +110,7 @@ via Monte-Carlo-Pfade (U-11/U-12).
 
 ## H
 
-**Hauptapp** — `5eyes-electron/frontend/5eyes_v2.html`. Monolithische
+**Hauptapp** — `ares-desktop/frontend/ares.html`. Monolithische
 Electron-App für Berater (Kundenstamm, Mandat, SAA, Reports). Token-Quelle
 für Sub-App.
 
@@ -169,7 +169,7 @@ Markt-Timing-Trigger.
 zustande kommen (Modell, Datenquellen, Annahmen).
 Aggregator-Sektion 21 (`recommendation_methodology`).
 
-**Reporting Sub-App** — `5eyes-electron/frontend/reporting/`. React/Vite,
+**Reporting Sub-App** — `ares-desktop/frontend/reporting/`. React/Vite,
 Advisory-Report-Anzeige. Token-Handoff via URL-Fragment vom Hauptapp.
 
 **Risikoprofil** — Kunden-Risikotragfähigkeit aus standardisiertem

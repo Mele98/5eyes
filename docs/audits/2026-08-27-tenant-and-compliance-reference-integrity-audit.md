@@ -4,7 +4,7 @@ document_role: "release-blocking-tenant-and-compliance-reference-integrity-follo
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "ad8b4b331e0a9f2360154fb96b10f2d662fec688"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -102,12 +102,12 @@ ausgegeben.
 
 | Bereich | Codeanker |
 |---|---|
-| Tenant-Scoping | `5eyes-backend/services/auth.py:291-409`, `:497-551`; `5eyes-backend/models/users.py:9-14` |
-| AdvisoryLog-Request und Speicherung | `5eyes-backend/schemas/review.py:70-130`; `5eyes-backend/routers/review.py:762-805`; `5eyes-backend/services/advisory_log_service.py:163-198` |
-| AdvisoryLog-Referenzfelder/Hash | `5eyes-backend/models/review.py:72-149`; `5eyes-backend/services/advisory_log_service.py:84-109` |
-| Suitability-Request und Speicherung | `5eyes-backend/schemas/profiling.py:185-210`; `5eyes-backend/routers/profiling.py:410-445`; `5eyes-backend/models/profiling.py:121-141` |
-| Conflict-/Retrozessionsinput | `5eyes-backend/schemas/review.py:297-315`; `5eyes-backend/routers/review.py:1063-1098`; `5eyes-backend/models/review.py:168-193` |
-| Kostenminderung und Summen | `5eyes-backend/services/cost_disclosure.py:359-440` |
+| Tenant-Scoping | `ares-backend/services/auth.py:291-409`, `:497-551`; `ares-backend/models/users.py:9-14` |
+| AdvisoryLog-Request und Speicherung | `ares-backend/schemas/review.py:70-130`; `ares-backend/routers/review.py:762-805`; `ares-backend/services/advisory_log_service.py:163-198` |
+| AdvisoryLog-Referenzfelder/Hash | `ares-backend/models/review.py:72-149`; `ares-backend/services/advisory_log_service.py:84-109` |
+| Suitability-Request und Speicherung | `ares-backend/schemas/profiling.py:185-210`; `ares-backend/routers/profiling.py:410-445`; `ares-backend/models/profiling.py:121-141` |
+| Conflict-/Retrozessionsinput | `ares-backend/schemas/review.py:297-315`; `ares-backend/routers/review.py:1063-1098`; `ares-backend/models/review.py:168-193` |
+| Kostenminderung und Summen | `ares-backend/services/cost_disclosure.py:359-440` |
 
 Die Zeilenangaben beziehen sich ausschließlich auf
 `audited_repository_head`. Nach einem Fix müssen Funktionsnamen, Tests und
@@ -382,13 +382,13 @@ verfälschen.
 
 Neue oder erweiterte Suites mindestens:
 
-- `5eyes-backend/tests/test_strict_tenant_principal_contract.py`
-- `5eyes-backend/tests/test_client_portal_tenant_isolation.py`
-- `5eyes-backend/tests/test_compliance_evidence_context.py`
-- `5eyes-backend/tests/test_advisory_log_endpoints.py`
-- `5eyes-backend/tests/test_suitability_evidence_integrity.py`
-- `5eyes-backend/tests/test_cost_disclosure_reimbursement_evidence.py`
-- `5eyes-backend/tests/test_compliance_reference_postgres.py`
+- `ares-backend/tests/test_strict_tenant_principal_contract.py`
+- `ares-backend/tests/test_client_portal_tenant_isolation.py`
+- `ares-backend/tests/test_compliance_evidence_context.py`
+- `ares-backend/tests/test_advisory_log_endpoints.py`
+- `ares-backend/tests/test_suitability_evidence_integrity.py`
+- `ares-backend/tests/test_cost_disclosure_reimbursement_evidence.py`
+- `ares-backend/tests/test_compliance_reference_postgres.py`
 
 Pflichtfälle:
 

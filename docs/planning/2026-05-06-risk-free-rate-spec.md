@@ -22,7 +22,7 @@ Risk-Adjusted Performance im Reporting) ist der Risk-Free aber Pflicht.
 ### CMA-Schema-Erweiterung
 
 ```python
-# 5eyes-backend/models/allocation.py / CapitalMarketAssumption
+# ares-backend/models/allocation.py / CapitalMarketAssumption
 risk_free_rate_chf_bps = Column(Integer)  # SARON spot bzw. Mandat-naehe
 risk_free_rate_eur_bps = Column(Integer)  # ESTR spot
 risk_free_rate_usd_bps = Column(Integer)  # SOFR spot

@@ -4,7 +4,7 @@ document_role: "release-blocking-request-ingestion-and-resource-governance-follo
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "6c2deb44a0105019c4306452a491e8c97866ceef"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -152,7 +152,7 @@ Dienst wurde kontaktiert.
 
 ### `RESOURCE-001` – Request- und Uploadgrößen werden erst nach Vollbufferung begrenzt
 
-`5eyes-backend/main.py:125-132` registriert nur Request-Context- und
+`ares-backend/main.py:125-132` registriert nur Request-Context- und
 CORS-Middleware. `core/middleware.py:54-66` ruft die Anwendung auf, ohne den
 eingehenden ASGI-Body zu zählen. Auch der dokumentierte Reverse-Proxy
 `docs/deploy/Caddyfile:1-20` enthält kein Request-Body-Limit.
@@ -345,13 +345,13 @@ Entscheidungsanker.
 
 Neue oder erweiterte Suites mindestens:
 
-- `5eyes-backend/tests/test_request_body_limits.py`
-- `5eyes-backend/tests/test_product_csv_streaming_limits.py`
-- `5eyes-backend/tests/test_persisted_payload_size_contracts.py`
-- `5eyes-backend/tests/test_report_notes_history_budget.py`
-- `5eyes-backend/tests/test_solver_admission_control.py`
-- `5eyes-backend/tests/test_solver_tenant_fairness.py`
-- `5eyes-backend/tests/test_deployment_proxy_body_limits.py`
+- `ares-backend/tests/test_request_body_limits.py`
+- `ares-backend/tests/test_product_csv_streaming_limits.py`
+- `ares-backend/tests/test_persisted_payload_size_contracts.py`
+- `ares-backend/tests/test_report_notes_history_budget.py`
+- `ares-backend/tests/test_solver_admission_control.py`
+- `ares-backend/tests/test_solver_tenant_fairness.py`
+- `ares-backend/tests/test_deployment_proxy_body_limits.py`
 
 Der Request-Test muss den echten ASGI-Empfangspfad verwenden und darf nicht nur
 einen Header oder Pydantic-Validator aufrufen. Der Solver-Test braucht echte

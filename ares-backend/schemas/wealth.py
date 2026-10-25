@@ -1,0 +1,1051 @@
+from datetime import date as _date
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Optional, Literal
+from schemas.common import BaseResponse
+from services.wealth_position_semantics import (
+    require_supported_mortgage_amortization,
+    require_supported_position_assignment,
+    require_plausible_property_expected_return,
+)
+
+
+def _require_valid_iso_date_or_none(value: Optional[str], *, field_name: str) -> Optional[str]:
+    """Gemeinsamer Validator fuer zwei unabhaengige Audit-Befunde
+    (2026-09-14), beide als reine Eingabevalidierung ohne Aenderung an der
+    jeweiligen Feldbedeutung:
+
+    - MORTGAGE-TERMS-001: mortgage_maturity_date akzeptierte bisher jeden
+      String, dessen erste 4 Zeichen Ziffern sind (siehe
+      services/wealth_cashflows._year_of()) -- z.B. "2027-not-a-date" wurde
+      klaglos als Jahr 2027 interpretiert. _year_of() selbst bleibt
+      unveraendert (liest jetzt aber nur noch echte ISO-Daten oder None).
+    - PROPERTY-VALUATION-001: valuation_date akzeptierte bisher jeden String
+      (z.B. "2099-not-a-date"). Die Bedeutung von valuation_date selbst
+      (Bewertungsstichtag) bleibt unveraendert."""
+    if value is None or value == "":
+        return value
+    try:
+        _date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{field_name} muss ein gueltiges ISO-Datum (JJJJ-MM-TT) sein, "
+            f"erhalten: {value!r}"
+        ) from exc
+    return value
+
+
+# ── Wealth Position ────────────────────────────────────────────────────────────
+
+class WealthPositionCreate(BaseModel):
+    label: str
+    position_type: Literal[
+        "Depot", "Liquidität", "Immobilien", "Vorsorge",
+        "Alternative", "Hypothek", "Custom"
+    ]
+    assignment: Literal["Beratungsvermögen", "Anderes Vermögen", "Verbindlichkeit"] = "Anderes Vermögen"
+    # 2026-07-25 (Generalaudit): kein Bounds-Check -- current_value_rappen
+    # fliesst direkt in die SAA-/MC-Basis-Aggregation ein. Bounds grosszuegig
+    # (bis CHF 100 Mia.), um legitime Grossvermoegen nicht zu blockieren, aber
+    # einen Tippfehler (zusaetzliche Nullen) abzufangen. current_value_rappen
+    # ist IMMER >=0, auch fuer Hypothek/Verbindlichkeit (Vorzeichen laeuft
+    # ueber assignment, siehe services/portfolio_engine.py total_liabilities_rappen).
+    current_value_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    currency: str = "CHF"
+    # PROPERTY-VALUATION-001 (Audit 2026-09-14): siehe _require_valid_iso_date_or_none.
+    valuation_date: Optional[str] = None
+    # Depot
+    depot_bank: Optional[str] = None
+    depot_account_number: Optional[str] = None
+    alloc_equities_bps: int = Field(default=0, ge=0)
+    alloc_bonds_bps: int = Field(default=0, ge=0)
+    alloc_real_estate_bps: int = Field(default=0, ge=0)
+    alloc_liquidity_bps: int = Field(default=0, ge=0)
+    alloc_alternatives_bps: int = Field(default=0, ge=0)
+    # Immobilien
+    property_address: Optional[str] = None
+    property_zip_city: Optional[str] = None
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (ares_schema.sql,
+    # ~Zeile 559f.): property_usage TEXT CHECK(property_usage IN
+    # ('Selbstgenutzt','Renditeobjekt','Ferienimmobilie','Gemischt')).
+    # Vorher Optional[str] -- ein ungueltiger Wert kam an Pydantic vorbei
+    # und crashte erst beim db.commit() mit unbehandeltem 500
+    # (IntegrityError) statt sauberem 422.
+    property_usage: Optional[Literal[
+        "Selbstgenutzt", "Renditeobjekt", "Ferienimmobilie", "Gemischt"
+    ]] = None
+    # 2026-07-25 (Generalaudit): siehe current_value_rappen.
+    property_rental_income_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    # PROPERTY-VALUATION-001 (Audit 2026-09-14): reines 0/1-Flag (inflations-
+    # indexiert oder nicht) -- vorher liess jeder Int-Wert (z.B. 999) durch und
+    # wirkte spaeter truthy. ge=0/le=1 schliesst den Garbage-Input-Fall, ohne
+    # das etablierte int-als-Flag-Muster dieses Feldes (siehe Response-Feld
+    # unten) auf bool umzustellen.
+    property_rental_inflation_linked: int = Field(default=0, ge=0, le=1)
+    # Vorsorge
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 562f.): pension_type
+    # TEXT CHECK(pension_type IN
+    # ('BVG','Säule 3a','Freizügigkeit','Säule 3b','Lebensversicherung')).
+    # Konkret reproduziert: pension_type="3a" (statt "Säule 3a") passierte
+    # Pydantic und crashte erst beim db.commit() mit 500.
+    pension_type: Optional[Literal[
+        "BVG", "Säule 3a", "Freizügigkeit", "Säule 3b", "Lebensversicherung"
+    ]] = None
+    pension_institution: Optional[str] = None
+    # PENSION-POSITION-001 Option A (2026-09-15): technische Zinssaetze fuer
+    # BVG/Freizuegigkeit/3a liegen real im niedrigen Prozentbereich (Seed-Referenz
+    # foundation_example.py: 175 bps = 1.75%). ge=0/le=1000 (0-10%) ist grosszuegig
+    # genug fuer jede realistische Vorsorgeloesung, faengt aber Tippfehler wie den
+    # konkret reproduzierten 999999-bps-Fall ab.
+    pension_technical_rate_bps: Optional[int] = Field(default=None, ge=0, le=1000)
+    # Gleiche Konvention wie PlanningAssumption.retirement_age_primary/_partner
+    # (schemas/wealth.py, Zeile ~700): ge=40/le=100 erlaubt Frueh-/Spaetpensionierung,
+    # faengt aber Unsinn wie -999 oder dreistellige Tippfehler ab. Bleibt Untermenge
+    # des DB-CHECK (pension_retirement_age BETWEEN 0 AND 100).
+    pension_retirement_age: Optional[int] = Field(default=None, ge=40, le=100)
+    # Bugfix A3-Pilot-Nachtrag PENSION-POSITION-001 (2026-09-15): DB-CHECK
+    # (ares_schema.sql, ~Zeile 567) existierte bereits:
+    # pension_payout_form TEXT CHECK(pension_payout_form IN
+    # ('Rente','Kapital','Gemischt','Offen')) -- Pydantic liess bisher trotzdem
+    # jeden String durch (kam vor derselben A3-Pilot-Haertung fuer pension_type
+    # nicht mit). Werte 1:1 aus dem Frontend-Dropdown uebernommen
+    # (ares.html, #maw-pension-payout: Rente/Kapital/Gemischt/Offen).
+    pension_payout_form: Optional[Literal[
+        "Rente", "Kapital", "Gemischt", "Offen"
+    ]] = None
+    pension_wef_possible: bool = False
+    # VORSORGE-PROJECTION-001 (2026-10-18): deterministische Fortschreibung.
+    # pension_vehicle: Anlageform (Konto 0 % / Wertschriften 3 % / Police
+    # Rueckkaufs- -> Ablaufwert); pension_interest_rate_bps: erfasster
+    # NOMINALER Satz p.a. (ueberschreibt den Default der Anlageform);
+    # pension_maturity_*: garantierter Ablaufwert + Faelligkeit einer Police.
+    pension_vehicle: Optional[Literal["Konto", "Wertschriften", "Police"]] = None
+    pension_interest_rate_bps: Optional[int] = Field(default=None, ge=-500, le=1500)
+    pension_maturity_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_maturity_date: Optional[str] = None
+    # Kapitalbezugssteuer aus dem kantonalen Steuerrechner (Betrag hat Vorrang
+    # vor Satz); beides leer = defensiver Default 10 % (3a/FZ/BVG).
+    pension_lumpsum_tax_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_lumpsum_tax_bps: Optional[int] = Field(default=None, ge=0, le=5000)
+    # Hypothek
+    mortgage_bank: Optional[str] = None
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 570): mortgage_type
+    # TEXT CHECK(mortgage_type IN ('Festhypothek','SARON','Gemischt')).
+    mortgage_type: Optional[Literal[
+        "Festhypothek", "SARON", "Gemischt"
+    ]] = None
+    # MORTGAGE-TERMS-001 (Audit 2026-09-14): ein negativer Hypothekarzins
+    # wurde bisher vom Schedule (mortgage_interest_schedule) weitergerechnet,
+    # vom abgeleiteten Basis-Cashflow (derive_wealth_cashflows, amount<=0
+    # verworfen) aber komplett ignoriert -- zwei inkonsistente Verhalten fuer
+    # denselben gespeicherten Wert. Fachentscheid (User, 2026-09-16): negative
+    # Hypothekarzinsen sind in CH praktisch nie real und werden abgelehnt;
+    # liquidity_interest_rate_bps (Bank-/Sparkonti) bleibt bewusst UNERAENDERT
+    # und weiterhin negativ zulaessig (dort real und wichtig).
+    mortgage_interest_rate_bps: Optional[int] = Field(default=None, ge=0, le=10_000)
+    mortgage_maturity_date: Optional[str] = None
+    # 2026-07-25 (Generalaudit): siehe current_value_rappen.
+    mortgage_amortization_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 574):
+    # mortgage_amortization_type TEXT CHECK(mortgage_amortization_type IN
+    # ('Direkt','Indirekt (Säule 3a)','Keine')). Exaktes Match inkl.
+    # Klammerzusatz -- Kurzform "Indirekt" (ohne Klammer) ist NICHT erlaubt,
+    # das war im DB-CHECK schon immer so (siehe auch project-Memory
+    # 5eyes_wealth_view_audit_2026_08_06: Default fehlte hier frueher komplett
+    # im CHECK und crashte das Speichern).
+    mortgage_amortization_type: Optional[Literal[
+        "Direkt", "Indirekt (Säule 3a)", "Keine"
+    ]] = None
+    mortgage_linked_property_id: Optional[str] = None
+    # Alternative
+    # HINWEIS (2026-08-17): asset_subtype hat KEIN DB-CHECK (siehe
+    # ares_schema.sql ~Zeile 576: "asset_subtype TEXT," ohne
+    # CHECK-Klausel, ebenso in der Alembic-Baseline). Bewusst NICHT auf
+    # Literal umgestellt -- ein erfundenes Enum wuerde eine NEUE Inkonsistenz
+    # zur DB schaffen (Werte, die die DB akzeptieren wuerde, aber Pydantic
+    # ablehnt). Bleibt Freitext, bis die DB selbst eine CHECK-Klausel bekommt.
+    asset_subtype: Optional[str] = None
+    asset_expected_return_bps: Optional[int] = Field(
+        default=None,
+        gt=-10_000,
+        le=100_000,
+        strict=True,
+    )
+    # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): asset_liquidity/
+    # asset_valuation_method/liquidity_instrument/goal_funding_method hatten
+    # je ein DB-CHECK (ares_schema.sql) aber WAREN hier Freitext --
+    # exakt dieselbe 500-statt-422-Luecke, die A3-Pilot (2026-08-17) bereits
+    # fuer pension_type/mortgage_type/property_usage geschlossen hat. Werte
+    # 1:1 aus dem jeweiligen DB-CHECK uebernommen.
+    asset_liquidity: Optional[Literal[
+        "Liquide (< 30 Tage)", "Eingeschränkt (30–180 Tage)",
+        "Illiquid (> 180 Tage)", "Gebunden"
+    ]] = None
+    asset_valuation_method: Optional[Literal[
+        "Selbstschätzung", "Fachgutachten", "Versicherungswert", "Marktpreis", "PK-Ausweis"
+    ]] = None
+    asset_location: Optional[str] = None
+    # Liquidität
+    liquidity_instrument: Optional[Literal[
+        "Kontoguthaben", "Sparkonto", "Festgeld", "Kassenobligation", "Geldmarktfonds"
+    ]] = None
+    liquidity_interest_rate_bps: Optional[int] = None
+    liquidity_available_from: Optional[str] = None
+    # Goal Funding
+    is_available_for_goal_funding: bool = False
+    goal_funding_method: Optional[Literal[
+        "Verkauf", "Belehnung", "Ignorieren", "Automatisch"
+    ]] = None
+    notes: Optional[str] = None
+    # Phase-0-Datenklassifizierungs-Sperre (services/data_classification.py):
+    # bislang FEHLTE dieses Feld auf WealthPositionCreate/-Update -> Pydantic
+    # verwarf ein mitgesendetes "data_classification":"real" stillschweigend,
+    # bevor der Endpoint es je sah, und enforce_data_classification() wurde nie
+    # aufgerufen. Vermoegenspositionen (Depot/Hypothek/Immobilie) waren damit
+    # die einzigen sensiblen Datensaetze, die das Phase-0-Gate umgehen konnten.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @field_validator("pension_maturity_date")
+    @classmethod
+    def validate_pension_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="pension_maturity_date")
+
+    @field_validator("mortgage_maturity_date")
+    @classmethod
+    def validate_mortgage_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="mortgage_maturity_date")
+
+    @field_validator("valuation_date")
+    @classmethod
+    def validate_valuation_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="valuation_date")
+
+    @model_validator(mode="after")
+    def validate_depot_alloc(self):
+        require_supported_position_assignment(
+            self.position_type,
+            self.assignment,
+        )
+        require_supported_mortgage_amortization(
+            self.position_type,
+            self.mortgage_amortization_rappen,
+            self.mortgage_amortization_type,
+        )
+        if self.position_type == "Depot":
+            total = (
+                self.alloc_equities_bps + self.alloc_bonds_bps
+                + self.alloc_real_estate_bps + self.alloc_liquidity_bps
+                + self.alloc_alternatives_bps
+            )
+            if total != 10000:
+                raise ValueError(f"Depot Allokation muss 10000 BP ergeben (aktuell: {total})")
+        elif self.position_type == "Vorsorge":
+            # VORSORGE-EXPOSURE-001 (2026-10-18): Vorsorge darf eine
+            # Aufteilung tragen (z.B. 3a-Wertschriftenloesung) -- entweder
+            # vollstaendig (10000) oder gar nicht (0 = Default nach pension_type).
+            total = (
+                self.alloc_equities_bps + self.alloc_bonds_bps
+                + self.alloc_real_estate_bps + self.alloc_liquidity_bps
+                + self.alloc_alternatives_bps
+            )
+            if total not in (0, 10000):
+                raise ValueError(
+                    "Vorsorge-Aufteilung muss 10000 BP oder alle 0 ergeben "
+                    f"(aktuell: {total})"
+                )
+        elif any(
+            (
+                self.alloc_equities_bps,
+                self.alloc_bonds_bps,
+                self.alloc_real_estate_bps,
+                self.alloc_liquidity_bps,
+                self.alloc_alternatives_bps,
+            )
+        ):
+            raise ValueError(
+                "alloc_*-Felder sind ausschliesslich für Depot- und Vorsorge-Positionen zulässig."
+            )
+        if self.position_type == "Hypothek":
+            if self.assignment != "Verbindlichkeit":
+                raise ValueError("Hypothek muss assignment='Verbindlichkeit' haben")
+        require_plausible_property_expected_return(
+            self.position_type, self.asset_expected_return_bps,
+        )
+        return self
+
+
+class WealthPositionUpdate(BaseModel):
+    label: Optional[str] = None
+    assignment: Optional[str] = None
+    current_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    # PROPERTY-VALUATION-001 (Audit 2026-09-14): currency fehlte hier
+    # komplett -- ein mitgesendetes "currency" wurde von Pydantic still
+    # verworfen, bevor der Endpoint es je sah (dieselbe Fehlerklasse wie
+    # data_classification vor dessen eigenem Fix, siehe unten). Eine Position
+    # konnte damit ueber PUT nie auf eine andere Waehrung korrigiert werden.
+    currency: Optional[str] = None
+    valuation_date: Optional[str] = None
+    depot_bank: Optional[str] = None
+    depot_account_number: Optional[str] = None
+    alloc_equities_bps: Optional[int] = None
+    alloc_bonds_bps: Optional[int] = None
+    alloc_real_estate_bps: Optional[int] = None
+    alloc_liquidity_bps: Optional[int] = None
+    alloc_alternatives_bps: Optional[int] = None
+    property_address: Optional[str] = None
+    property_zip_city: Optional[str] = None
+    # PROPERTY-VALUATION-001: an WealthPositionCreate angeglichen (dort schon
+    # als Literal gehaertet, Bugfix A3-Pilot 2026-08-17) -- Update erlaubte
+    # bisher jeden String und crashte erst beim db.commit() mit 500.
+    property_usage: Optional[Literal[
+        "Selbstgenutzt", "Renditeobjekt", "Ferienimmobilie", "Gemischt"
+    ]] = None
+    property_rental_income_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    property_rental_inflation_linked: Optional[int] = Field(default=None, ge=0, le=1)
+    # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): an WealthPosition
+    # Create angeglichen (dort schon als Literal gehaertet, Bugfix A3-Pilot
+    # 2026-08-17, Begruendung siehe dort) -- Update erlaubte bisher jeden
+    # String und crashte erst beim db.commit() mit 500 statt 422.
+    pension_type: Optional[Literal[
+        "BVG", "Säule 3a", "Freizügigkeit", "Säule 3b", "Lebensversicherung"
+    ]] = None
+    pension_institution: Optional[str] = None
+    # PENSION-POSITION-001 Option A (2026-09-15): siehe WealthPositionCreate
+    # oben fuer Begruendung der Bounds/Werte -- identisch gehalten fuer Update.
+    pension_technical_rate_bps: Optional[int] = Field(default=None, ge=0, le=1000)
+    pension_retirement_age: Optional[int] = Field(default=None, ge=40, le=100)
+    pension_payout_form: Optional[Literal[
+        "Rente", "Kapital", "Gemischt", "Offen"
+    ]] = None
+    pension_wef_possible: Optional[bool] = None
+    # VORSORGE-PROJECTION-001: siehe WealthPositionCreate.
+    pension_vehicle: Optional[Literal["Konto", "Wertschriften", "Police"]] = None
+    pension_interest_rate_bps: Optional[int] = Field(default=None, ge=-500, le=1500)
+    pension_maturity_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_maturity_date: Optional[str] = None
+    # Kapitalbezugssteuer aus dem kantonalen Steuerrechner (Betrag hat Vorrang
+    # vor Satz); beides leer = defensiver Default 10 % (3a/FZ/BVG).
+    pension_lumpsum_tax_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    pension_lumpsum_tax_bps: Optional[int] = Field(default=None, ge=0, le=5000)
+    mortgage_bank: Optional[str] = None
+    # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): siehe pension_type
+    # oben -- dieselbe A3-Pilot-Haertung, bisher nur auf Create angewendet.
+    mortgage_type: Optional[Literal[
+        "Festhypothek", "SARON", "Gemischt"
+    ]] = None
+    # MORTGAGE-TERMS-001 (Audit 2026-09-14): siehe WealthPositionCreate oben
+    # fuer Begruendung -- identisch gehalten fuer Update.
+    mortgage_interest_rate_bps: Optional[int] = Field(default=None, ge=0, le=10_000)
+    mortgage_maturity_date: Optional[str] = None
+    mortgage_amortization_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    # SCHEMA-ENUM-HARDENING-001: dieselbe Luecke wie pension_type/mortgage_type
+    # oben, hier zusaetzlich zur bereits gehaerteten Create-Seite gefunden.
+    mortgage_amortization_type: Optional[Literal[
+        "Direkt", "Indirekt (Säule 3a)", "Keine"
+    ]] = None
+    mortgage_linked_property_id: Optional[str] = None
+    asset_subtype: Optional[str] = None
+    asset_expected_return_bps: Optional[int] = Field(
+        default=None,
+        gt=-10_000,
+        le=100_000,
+        strict=True,
+    )
+    asset_liquidity: Optional[Literal[
+        "Liquide (< 30 Tage)", "Eingeschränkt (30–180 Tage)",
+        "Illiquid (> 180 Tage)", "Gebunden"
+    ]] = None
+    asset_valuation_method: Optional[Literal[
+        "Selbstschätzung", "Fachgutachten", "Versicherungswert", "Marktpreis", "PK-Ausweis"
+    ]] = None
+    asset_location: Optional[str] = None
+    liquidity_instrument: Optional[Literal[
+        "Kontoguthaben", "Sparkonto", "Festgeld", "Kassenobligation", "Geldmarktfonds"
+    ]] = None
+    liquidity_interest_rate_bps: Optional[int] = None
+    liquidity_available_from: Optional[str] = None
+    is_available_for_goal_funding: Optional[bool] = None
+    goal_funding_method: Optional[Literal[
+        "Verkauf", "Belehnung", "Ignorieren", "Automatisch"
+    ]] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    @field_validator("pension_maturity_date")
+    @classmethod
+    def validate_pension_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="pension_maturity_date")
+
+    @field_validator("mortgage_maturity_date")
+    @classmethod
+    def validate_mortgage_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="mortgage_maturity_date")
+
+    @field_validator("valuation_date")
+    @classmethod
+    def validate_valuation_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="valuation_date")
+
+
+class WealthPositionResponse(BaseResponse):
+    id: str
+    client_id: str
+    label: str
+    position_type: str
+    assignment: str
+    current_value_rappen: int
+    currency: str
+    valuation_date: Optional[str]
+    depot_bank: Optional[str]
+    depot_account_number: Optional[str]
+    alloc_equities_bps: int
+    alloc_bonds_bps: int
+    alloc_real_estate_bps: int
+    alloc_liquidity_bps: int
+    alloc_alternatives_bps: int
+    property_address: Optional[str]
+    property_zip_city: Optional[str]
+    property_usage: Optional[str]
+    property_rental_income_rappen: int
+    property_rental_inflation_linked: int = 0
+    pension_type: Optional[str]
+    # PENSION-POSITION-001 Option A (2026-09-15): fehlte hier komplett -- die
+    # API schrieb pension_technical_rate_bps klaglos, gab es aber nie zurueck
+    # (response_model streicht undeklarierte Felder). Das Frontend liest es
+    # beim Editieren zurueck (ares.html, setInputValue('maw-pension-rate',
+    # formatInputPercent(pos.pension_technical_rate_bps))) -- Feld war also im
+    # Bearbeiten-Dialog immer leer, unabhaengig vom gespeicherten Wert.
+    pension_technical_rate_bps: Optional[int] = None
+
+    @field_validator("property_rental_inflation_linked", mode="before")
+    @classmethod
+    def _inflation_linked_none_to_zero(cls, v):
+        # WP-500-Fix (2026-07-01): Belt-and-Suspenders. Diese Spalte wurde in einer
+        # frühen Migration ohne Backfill zugefügt -> Bestandszeilen NULL. Der Feld-
+        # Default (=0) greift NUR bei FEHLENDEM Wert, nicht bei present-None; ein
+        # einziges NULL liess `/wealth-positions` (response_model=list[...]) mit 500
+        # fehlschlagen und riss die GESAMTE Positionsliste im Frontend weg. None
+        # defensiv auf 0 (Modell-Default) mappen. Die eigentliche Reparatur macht
+        # der idempotente DB-Backfill in database.ensure_runtime_columns.
+        return 0 if v is None else v
+    pension_institution: Optional[str]
+    pension_retirement_age: Optional[int]
+    pension_payout_form: Optional[str]
+    pension_wef_possible: int
+    # VORSORGE-PROJECTION-001: siehe WealthPositionCreate.
+    pension_vehicle: Optional[str] = None
+    pension_interest_rate_bps: Optional[int] = None
+    pension_maturity_value_rappen: Optional[int] = None
+    pension_maturity_date: Optional[str] = None
+    pension_lumpsum_tax_rappen: Optional[int] = None
+    pension_lumpsum_tax_bps: Optional[int] = None
+    mortgage_bank: Optional[str]
+    mortgage_type: Optional[str]
+    mortgage_interest_rate_bps: Optional[int]
+    mortgage_maturity_date: Optional[str]
+    mortgage_amortization_rappen: int
+    mortgage_amortization_type: Optional[str]
+    mortgage_linked_property_id: Optional[str]
+    asset_subtype: Optional[str]
+    asset_expected_return_bps: Optional[int]
+    asset_liquidity: Optional[str]
+    asset_valuation_method: Optional[str]
+    liquidity_instrument: Optional[str]
+    liquidity_interest_rate_bps: Optional[int]
+    # VORSORGE-PROJECTION-001: wurde geschrieben, aber nie zurueckgegeben --
+    # das Bezugsdatum ("Verfuegbar ab") war im Editor so nicht pflegbar.
+    liquidity_available_from: Optional[str] = None
+    is_available_for_goal_funding: int
+    goal_funding_method: Optional[str]
+    notes: Optional[str]
+    is_active: int
+    created_at: str
+    updated_at: str
+
+
+# ── Cashflow ───────────────────────────────────────────────────────────────────
+
+# 2026-07-25 (Generalaudit, Wave 12): frequency war ein freier String (fuer
+# Alias-Toleranz, z.B. "monthly"/"jaehrlich"/"annual" -- absichtlich KEIN
+# strikter Literal, siehe services.cashflow_timeline.normalize_frequency).
+# Ein unerkannter Wert (Tippfehler wie "monatlic") fiel bisher aber NICHT
+# dort auf, sondern erst tief in annual_amount_for_year() -> months_per_
+# occurrence-Lookup, wo er STILL auf 12 Monate/jaehrlich zurueckfaellt --
+# ein Kunde mit tatsaechlich monatlichem Cashflow bekaeme eine um Faktor 12
+# zu niedrige Jahresprojektion, ohne jede Fehlermeldung. Fix: dieselbe
+# Normalisierungsfunktion hier am API-Rand aufrufen und ablehnen, wenn sie
+# NICHT auf einen der 4 bekannten kanonischen Werte abbildet -- zero Risiko
+# einer abweichenden Logik (identische Funktion, kein Duplikat).
+def _validate_frequency_field(frequency: str) -> None:
+    from services.cashflow_timeline import normalize_frequency
+
+    normalized = normalize_frequency(frequency)
+    if normalized not in {"monatlich", "quartalsweise", "halbjährlich", "jährlich", "einmalig"}:
+        raise ValueError(
+            f"Unbekannte frequency {frequency!r} -- erlaubt sind u.a. "
+            "'monatlich', 'quartalsweise', 'halbjährlich', 'jährlich', 'einmalig' "
+            "(auch englische Varianten wie 'monthly'/'annually')."
+        )
+
+
+class CashflowCreate(BaseModel):
+    cashflow_type: Literal["Income", "Expense"]
+    label: str
+    # amount_rappen ist der BETRAG (Magnitude); die Richtung ergibt sich aus
+    # cashflow_type. Negativ wuerde das Vorzeichen in der Projektion still kippen.
+    amount_rappen: int = Field(ge=0)
+    gross_amount_rappen: Optional[int] = None
+    tax_amount_rappen: Optional[int] = None
+    # WITHDRAWAL-TIMING-001 (Phase 0, Honesty-Fix): "day"/"month" ist eine reine
+    # Dokumentationsangabe zum gespeicherten Referenzdatum. Sie hat KEINE Wirkung
+    # auf die Projektionsrechnung -- contribution_for_year() (services/
+    # cashflow_timeline.py) prueft fuer einmalige Cashflows nur event_date.year
+    # == year; Tag/Monat werden fuer die Jahresprojektion ignoriert.
+    timing_precision: Optional[str] = Field(
+        default=None,
+        description=(
+            "Nur Dokumentationsangabe ('day'|'month') zum Referenzdatum eines "
+            "einmaligen Cashflows -- KEINE Wirkung auf die Projektionsrechnung. "
+            "Die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des "
+            "Datums (WITHDRAWAL-TIMING-001)."
+        ),
+    )
+    currency: str = "CHF"
+    frequency: str = "jährlich"
+    nature: Literal["wiederkehrend", "einmalig"] = "wiederkehrend"
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    is_inflation_linked: bool = False
+    notes: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @model_validator(mode="after")
+    def validate_frequency_recognized(self):
+        _validate_frequency_field(self.frequency)
+        return self
+
+
+class CashflowUpdate(BaseModel):
+    cashflow_type: Optional[Literal["Income", "Expense"]] = None
+    label: Optional[str] = None
+    amount_rappen: Optional[int] = Field(default=None, ge=0)
+    gross_amount_rappen: Optional[int] = None
+    tax_amount_rappen: Optional[int] = None
+    # WITHDRAWAL-TIMING-001: siehe CashflowCreate.timing_precision -- reine
+    # Dokumentationsangabe, keine Wirkung auf die Projektionsrechnung.
+    timing_precision: Optional[str] = Field(
+        default=None,
+        description=(
+            "Nur Dokumentationsangabe ('day'|'month') zum Referenzdatum eines "
+            "einmaligen Cashflows -- KEINE Wirkung auf die Projektionsrechnung. "
+            "Die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des "
+            "Datums (WITHDRAWAL-TIMING-001)."
+        ),
+    )
+    currency: Optional[str] = None
+    frequency: Optional[str] = None
+    nature: Optional[str] = None
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    is_inflation_linked: Optional[bool] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe models/wealth.py::Cashflow.is_included.
+    is_included: Optional[bool] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    @model_validator(mode="after")
+    def validate_frequency_recognized(self):
+        if self.frequency is not None:
+            _validate_frequency_field(self.frequency)
+        return self
+
+
+class CashflowResponse(BaseResponse):
+    id: str
+    client_id: str
+    cashflow_type: str
+    label: str
+    amount_rappen: int
+    gross_amount_rappen: Optional[int]
+    tax_amount_rappen: Optional[int]
+    # WITHDRAWAL-TIMING-001: siehe CashflowCreate.timing_precision.
+    timing_precision: Optional[str] = Field(
+        description=(
+            "Nur Dokumentationsangabe ('day'|'month') zum Referenzdatum eines "
+            "einmaligen Cashflows -- KEINE Wirkung auf die Projektionsrechnung. "
+            "Die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des "
+            "Datums (WITHDRAWAL-TIMING-001)."
+        ),
+    )
+    currency: str
+    frequency: str
+    nature: str
+    valid_from: Optional[str]
+    valid_until: Optional[str]
+    is_inflation_linked: int
+    notes: Optional[str]
+    is_active: int
+    is_included: int
+    created_at: str
+    updated_at: str
+
+
+# ── Max-Pension-Spending Rechner (Sprint A2, 2026-05-06) ───────────────────────
+
+
+class MaxPensionSpendingRequest(BaseModel):
+    retirement_year: int = Field(..., ge=1900, le=2200)
+    life_expectancy_year: int = Field(..., ge=1900, le=2200)
+    value_mode: Literal["nominal", "real"] = "real"
+    safety_margin_pct: int = Field(0, ge=0, le=50)  # zusaetzlicher Discount in %
+
+    @model_validator(mode="after")
+    def _check_years(self):
+        if self.life_expectancy_year <= self.retirement_year:
+            raise ValueError("life_expectancy_year muss nach retirement_year liegen")
+        return self
+
+
+class MaxPensionSpendingResponse(BaseModel):
+    max_monthly_chf_rappen: int
+    max_annual_chf_rappen: int
+    retirement_year: int
+    life_expectancy_year: int
+    years_in_retirement: int
+    value_mode: str
+    expected_return_bps: int
+    expected_volatility_bps: int
+    real_return_bps: int  # realer Modell-Medianwert aus CMA-Momenten
+    inflation_bps: int
+    advisory_wealth_rappen: int
+    safety_margin_pct: int
+    reasoning: list[str]
+
+
+# ── WealthInflow (Sprint A1, 2026-05-06) ───────────────────────────────────────
+
+WEALTH_INFLOW_SOURCE_TYPES = ("Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere")
+
+
+class WealthInflowCreate(BaseModel):
+    label: str = Field(..., min_length=1, max_length=200)
+    source_type: Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]
+    amount_rappen: int = Field(..., gt=0)
+    expected_year: int = Field(..., ge=1900, le=2200)
+    is_recurring: int = Field(0, ge=0, le=1)
+    frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
+    duration_years: Optional[int] = Field(None, ge=1, le=99)
+    value_mode: Literal["nominal", "real"] = "nominal"
+    mandate_id: Optional[str] = None
+    notes: Optional[str] = None
+    # VORSORGE-TRANSFER-001: siehe models/wealth.py::WealthInflow.linked_position_id.
+    linked_position_id: Optional[str] = None
+    # INFLOW-CERTAINTY-001: 'sicher' (Default, vertraglich/fix) | 'unsicher'
+    # (Erbschaft/Bonus ohne Zusage -> weder Reserve noch Simulation).
+    # null = 'sicher' (Bestandszeilen vor der Migration).
+    certainty: Optional[Literal["sicher", "unsicher"]] = "sicher"
+    # rls-3 (2026-07-23): Phase-0-Gate (enforce_data_classification) fehlte fuer
+    # Wealth-Inflows komplett -- analog zu Cashflow/Goal/Wealth-Position nachgezogen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @field_validator("certainty", mode="before")
+    @classmethod
+    def _default_certainty(cls, value):
+        return "sicher" if value is None else value
+
+    @model_validator(mode="after")
+    def _validate_recurring(self):
+        if self.is_recurring:
+            if not self.frequency or self.frequency == "einmalig":
+                raise ValueError("is_recurring=1 erfordert frequency 'jaehrlich' oder 'monatlich'")
+            if not self.duration_years:
+                raise ValueError("is_recurring=1 erfordert duration_years")
+        else:
+            if self.frequency not in (None, "einmalig"):
+                raise ValueError(
+                    "is_recurring=0 erlaubt nur frequency 'einmalig' oder leer"
+                )
+            if self.duration_years is not None:
+                raise ValueError("is_recurring=0 erlaubt keine duration_years")
+        if self.linked_position_id:
+            # PENSION-TRANSFER-LEDGER-001: Vollbezugsmodell -- ein verknuepfter
+            # Zufluss ist genau EIN nominaler Kapitalbezug (422 statt still
+            # mehrfach gebuchtem Kapital).
+            from services.pension_transfer_ledger import linked_transfer_violation
+
+            violation = linked_transfer_violation(
+                is_recurring=self.is_recurring,
+                frequency=self.frequency,
+                duration_years=self.duration_years,
+                value_mode=self.value_mode,
+            )
+            if violation:
+                raise ValueError(violation)
+            if self.certainty == "unsicher":
+                # INFLOW-CERTAINTY-001: ein Vorsorgebezug ist eine Umbuchung
+                # innerhalb des Gesamtvermoegens und immer sicher.
+                raise ValueError(
+                    "Ein mit einer Vorsorge-Position verknuepfter Zufluss ist immer "
+                    "'sicher' (Umbuchung innerhalb des Gesamtvermoegens)."
+                )
+        return self
+
+
+class WealthInflowUpdate(BaseModel):
+    label: Optional[str] = Field(None, min_length=1, max_length=200)
+    source_type: Optional[Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]] = None
+    amount_rappen: Optional[int] = Field(None, gt=0)
+    expected_year: Optional[int] = Field(None, ge=1900, le=2200)
+    is_recurring: Optional[int] = Field(None, ge=0, le=1)
+    frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
+    duration_years: Optional[int] = Field(None, ge=1, le=99)
+    value_mode: Optional[Literal["nominal", "real"]] = None
+    notes: Optional[str] = None
+    linked_position_id: Optional[str] = None
+    certainty: Optional[Literal["sicher", "unsicher"]] = None
+    is_active: Optional[int] = Field(None, ge=0, le=1)
+    # rls-3 (2026-07-23): siehe WealthInflowCreate.
+    data_classification: Optional[Literal["synthetic", "real"]] = None
+
+
+class WealthInflowResponse(BaseResponse):
+    id: str
+    client_id: str
+    mandate_id: Optional[str]
+    label: str
+    source_type: str
+    amount_rappen: int
+    expected_year: int
+    is_recurring: int
+    frequency: Optional[str]
+    duration_years: Optional[int]
+    value_mode: str
+    notes: Optional[str]
+    linked_position_id: Optional[str] = None
+    # INFLOW-CERTAINTY-001: wirksame Gewissheit (NULL-Bestand -> 'sicher').
+    certainty: str = "sicher"
+    is_active: int
+    created_at: str
+    updated_at: str
+
+    @field_validator("certainty", mode="before")
+    @classmethod
+    def _effective_certainty(cls, value):
+        return "sicher" if value in (None, "") else value
+
+
+# ── Goal ───────────────────────────────────────────────────────────────────────
+
+GOAL_FAMILY_TYPE_MAP = {
+    "Vermögen": ["Kapitalerhalt", "Vermögensziel", "Vermoegensziel"],
+    "Cashflow": ["Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"],
+    "Rendite": ["Renditeziel"],
+    "Maximierung": ["Maximierung"],
+}
+
+
+def _goal_type_key(value: str | None) -> str:
+    raw = str(value or "").strip().lower().replace(" ", "_")
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _goal_hardness_key(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _has_value(value) -> bool:
+    return value not in (None, "")
+
+
+def _raise_field_not_allowed(field: str, goal_type: str) -> None:
+    raise ValueError(f"Feld '{field}' ist für Zieltyp '{goal_type}' nicht erlaubt")
+
+
+def _apply_goal_success_probability_default(goal) -> None:
+    if getattr(goal, "success_probability_min_x100", None) is not None:
+        return
+    key = _goal_type_key(getattr(goal, "goal_type", None))
+    if key == "renditeziel":
+        goal.success_probability_min_x100 = 5000
+    elif key in {"kapitalerhalt", "vermoegensziel", "einmalige_ausgabe", "wiederkehrende_ausgabe", "pensionsausgabe"}:
+        goal.success_probability_min_x100 = 8000
+
+
+def _validate_goal_field_isolation(goal, *, require_targets: bool) -> None:
+    goal_type = str(getattr(goal, "goal_type", "") or "")
+    key = _goal_type_key(goal_type)
+    hardness = _goal_hardness_key(getattr(goal, "hardness", None))
+    if hardness and hardness not in {"hart", "primaer", "opportunistisch"}:
+        raise ValueError("hardness muss 'Hart', 'Primär' oder 'Opportunistisch' sein")
+
+    def forbid(*fields: str) -> None:
+        for field in fields:
+            if _has_value(getattr(goal, field, None)):
+                _raise_field_not_allowed(field, goal_type)
+
+    # Positivitaets-Guard fuer Ziel-BETRAEGE: ein gesetzter target_amount/target_wealth
+    # muss > 0 sein (negativer/0-Zielwert verzerrt Zielerreichung/Monte-Carlo still).
+    # target_return_bps hat bereits einen eigenen "positive Zielrendite"-Guard im
+    # Renditeziel-Zweig; die Praesenz-Pflicht je Zieltyp bleibt unten.
+    for _pf in ("target_amount_rappen", "target_wealth_rappen"):
+        _pv = getattr(goal, _pf, None)
+        if _has_value(_pv) and int(_pv) <= 0:
+            raise ValueError(f"{_pf} muss groesser als 0 sein")
+
+    if key == "renditeziel":
+        forbid("target_amount_rappen", "target_wealth_rappen", "frequency")
+        if hardness == "hart":
+            raise ValueError(
+                "Renditeziel darf nicht als 'hart' definiert werden. "
+                "Echte Bedarfsziele (Entnahme/Mindestvermögen) sind hart."
+            )
+        if require_targets and not _has_value(getattr(goal, "target_return_bps", None)):
+            raise ValueError("Renditeziel benötigt target_return_bps")
+    elif key == "einmalige_ausgabe":
+        forbid("target_return_bps", "target_wealth_rappen", "frequency")
+        if require_targets and not _has_value(getattr(goal, "target_amount_rappen", None)):
+            raise ValueError("Einmalige_Ausgabe benötigt target_amount_rappen")
+        if require_targets and not (_has_value(getattr(goal, "target_date", None)) or _has_value(getattr(goal, "horizon_years", None))):
+            raise ValueError("Einmalige_Ausgabe benötigt target_date oder horizon_years")
+    elif key in {"wiederkehrende_ausgabe", "pensionsausgabe"}:
+        forbid("target_return_bps", "target_wealth_rappen")
+        if require_targets and not _has_value(getattr(goal, "frequency", None)):
+            raise ValueError("Cashflow-Ziel benötigt frequency")
+        if _has_value(getattr(goal, "frequency", None)):
+            _validate_frequency_field(getattr(goal, "frequency", None))
+            from services.cashflow_timeline import normalize_frequency
+
+            if normalize_frequency(getattr(goal, "frequency", None)) == "einmalig":
+                raise ValueError(
+                    "Wiederkehrende und Pensions-Ziele erlauben keine "
+                    "einmalige Frequenz"
+                )
+    elif key in {"kapitalerhalt", "vermoegensziel"}:
+        forbid("target_return_bps", "target_amount_rappen", "frequency")
+        if require_targets and not _has_value(getattr(goal, "target_wealth_rappen", None)):
+            raise ValueError("Vermögensziel benötigt target_wealth_rappen")
+        if require_targets and not (_has_value(getattr(goal, "target_date", None)) or _has_value(getattr(goal, "horizon_years", None))):
+            raise ValueError("Vermögensziel benötigt target_date oder horizon_years")
+    elif key == "maximierung":
+        forbid("target_amount_rappen", "target_wealth_rappen", "target_return_bps", "target_date", "frequency")
+
+
+class GoalCreate(BaseModel):
+    goal_family: Literal["Vermögen", "Cashflow", "Rendite", "Maximierung"]
+    goal_type: Literal[
+        "Kapitalerhalt", "Vermögensziel", "Vermoegensziel",
+        "Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe",
+        "Renditeziel", "Maximierung"
+    ]
+    label: str
+    rank: int = Field(ge=1)
+    weight_bps: Optional[int] = None
+    goal_scope: Literal["Beratungsvermögen", "Gesamtvermögen"] = "Beratungsvermögen"
+    value_mode: Literal["nominal", "real"] = "nominal"
+    target_amount_rappen: Optional[int] = None
+    target_wealth_rappen: Optional[int] = None
+    target_return_bps: Optional[int] = None
+    success_probability_min_x100: Optional[int] = Field(default=None, ge=0, le=10000)
+    start_date: Optional[str] = None
+    horizon_years: Optional[int] = None
+    target_date: Optional[str] = None
+    is_ongoing: bool = False
+    frequency: Optional[str] = None
+    hardness: str = "Primär"
+    # Sprint B6: Eintrittswahrscheinlichkeit (0-100). Default 100 = sicher eintretend.
+    probability_pct: int = Field(default=100, ge=0, le=100)
+    # Sprint B3: Vorsorge-Saeule fuer Pensionsausgabe-Goals. Optional.
+    pension_pillar: Optional[Literal["AHV", "BVG", "3a", "1e", "FZG"]] = None
+    linked_position_id: Optional[str] = None
+    notes: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @model_validator(mode="after")
+    def validate_family_type(self):
+        allowed = GOAL_FAMILY_TYPE_MAP.get(self.goal_family, [])
+        if self.goal_type not in allowed:
+            raise ValueError(
+                f"goal_type '{self.goal_type}' ist nicht erlaubt für goal_family '{self.goal_family}'. "
+                f"Erlaubt: {allowed}"
+            )
+        _apply_goal_success_probability_default(self)
+        _validate_goal_field_isolation(self, require_targets=True)
+        return self
+
+
+class GoalUpdate(BaseModel):
+    goal_family: Optional[str] = None
+    goal_type: Optional[str] = None
+    label: Optional[str] = None
+    rank: Optional[int] = None
+    weight_bps: Optional[int] = None
+    goal_scope: Optional[str] = None
+    value_mode: Optional[str] = None
+    target_amount_rappen: Optional[int] = None
+    target_wealth_rappen: Optional[int] = None
+    target_return_bps: Optional[int] = None
+    success_probability_min_x100: Optional[int] = Field(default=None, ge=0, le=10000)
+    start_date: Optional[str] = None
+    horizon_years: Optional[int] = None
+    target_date: Optional[str] = None
+    is_ongoing: Optional[bool] = None
+    frequency: Optional[str] = None
+    hardness: Optional[str] = None
+    probability_pct: Optional[int] = Field(default=None, ge=0, le=100)
+    pension_pillar: Optional[Literal["AHV", "BVG", "3a", "1e", "FZG"]] = None
+    linked_position_id: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe models/wealth.py::Goal.is_included.
+    is_included: Optional[bool] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    @model_validator(mode="after")
+    def validate_goal_update_fields(self):
+        if self.goal_type is not None:
+            _validate_goal_field_isolation(self, require_targets=False)
+        return self
+
+
+class GoalResponse(BaseResponse):
+    id: str
+    mandate_id: str
+    client_id: str
+    goal_family: str
+    goal_type: str
+    label: str
+    rank: int
+    weight_bps: Optional[int]
+    goal_scope: str
+    value_mode: str
+    target_amount_rappen: Optional[int]
+    target_wealth_rappen: Optional[int]
+    target_return_bps: Optional[int]
+    success_probability_min_x100: Optional[int] = None
+    start_date: Optional[str]
+    horizon_years: Optional[int]
+    target_date: Optional[str]
+    is_ongoing: int
+    frequency: Optional[str]
+    hardness: str
+    probability_pct: Optional[int] = None
+    pension_pillar: Optional[str] = None
+    linked_position_id: Optional[str]
+    notes: Optional[str]
+    is_active: int
+    is_included: int
+    achievement_score: Optional[int]
+    last_scored_at: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class GoalRevisionDecisionCreate(BaseModel):
+    """GOAL-REVISION-DECISION-001: Berater stuft ein Ziel als nachrangiges
+    Wunschziel ein. Die Begruendung wird wie eine Override-Begruendung
+    geprueft (services.override_reason_quality); die Engine-Evidenz liest
+    der Server aus der aktuellen Strategie, nie aus dem Request."""
+    reason: str
+
+
+# ── Planning Assumptions ───────────────────────────────────────────────────────
+
+class PlanningAssumptionCreate(BaseModel):
+    # 2026-07-25 (Generalaudit, Wave 13): kein Bounds-Check -- diese Felder
+    # fliessen direkt in die MC-Simulation/Ziel-Projektion JEDES Berichts
+    # fuer dieses Mandat ein. Ein Tippfehler (negatives/absurdes Alter oder
+    # eine Inflation von z.B. -500%) wird unbemerkt persistiert. Bounds
+    # grosszuegig, um legitime Stress-Test-Szenarien nicht zu blockieren.
+    retirement_age_primary: Optional[int] = Field(default=None, ge=40, le=100)
+    retirement_age_partner: Optional[int] = Field(default=None, ge=40, le=100)
+    life_expectancy_primary: Optional[int] = Field(default=None, ge=40, le=120)
+    life_expectancy_partner: Optional[int] = Field(default=None, ge=40, le=120)
+    inflation_assumption_bps: Optional[int] = Field(default=None, ge=-1000, le=3000)
+    # PENSION-INDEXATION-001 (Phase-0-Gate, 2026-09): der Kommentar oben
+    # ("fliesst direkt in MC-Simulation/Ziel-Projektion ein") gilt fuer
+    # dieses Feld NICHT. Repo-weiter Audit (Loader, Liability-Builder,
+    # Cashflow-Timeline, Optimizer, Reporting, PDF, Snapshots) fand KEINEN
+    # produktiven Konsumenten von pension_indexation_bps -- es wird nur
+    # gespeichert und roundgetrippt. Phase 1 (Renten-Indexierungsmethodik:
+    # nominal/real, Basisjahr, Cap/Floor, effektive Jahresreihe) ist eine
+    # eigene produkt-/aktuarielle Entscheidung, bewusst NICHT Teil dieses
+    # Fixes. Feld bleibt bewusst erhalten (statt entfernt, was eine groessere
+    # Migrations-Entscheidung waere) und ist unten explizit als nicht
+    # rechenwirksam markiert.
+    pension_indexation_bps: Optional[int] = Field(
+        default=None,
+        ge=-1000,
+        le=3000,
+        description=(
+            "NICHT rechenwirksam (Stand PENSION-INDEXATION-001): wird "
+            "persistiert und validiert, aber aktuell von KEINER "
+            "Monte-Carlo-Simulation, Ziel-Projektion oder keinem "
+            "Reporting-/PDF-Pfad konsumiert. Rein fuer kuenftige Verwendung "
+            "gespeichert -- hat null Effekt auf heutige Berechnungsergebnisse."
+        ),
+    )
+    notes: Optional[str] = None
+    # sec-f4 (2026-08-02): Phase-0-Gate (enforce_data_classification) fehlte fuer
+    # Planning-Assumptions komplett -- analog zu Wealth-Inflow/Cashflow/Goal
+    # nachgezogen. PlanningAssumption-Model hat keine data_classification-Spalte,
+    # Feld dient nur der Enforcement und wird vor dem Persistieren gepoppt.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+
+class PlanningAssumptionResponse(BaseResponse):
+    id: str
+    mandate_id: str
+    version: int
+    is_current: int
+    valid_from: str
+    retirement_age_primary: Optional[int]
+    retirement_age_partner: Optional[int]
+    life_expectancy_primary: Optional[int]
+    life_expectancy_partner: Optional[int]
+    inflation_assumption_bps: Optional[int]
+    # PENSION-INDEXATION-001: siehe PlanningAssumptionCreate.pension_indexation_bps
+    # -- nicht rechenwirksam, nur gespeichert/roundgetrippt.
+    pension_indexation_bps: Optional[int] = Field(
+        description=(
+            "NICHT rechenwirksam (Stand PENSION-INDEXATION-001): wird "
+            "persistiert, aber aktuell von keiner Simulation, Projektion "
+            "oder keinem Reporting-Pfad konsumiert."
+        ),
+    )
+    notes: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class FinancialCoverageAttestationCreate(BaseModel):
+    """RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (PR #653): Berater bestaetigt,
+    dass Einnahmen, Ausgaben und Verpflichtungen des Haushalts vollstaendig
+    erfasst sind. Alle Kategorien sind Pflichtangaben (explizit ja/nein);
+    nur eine vollstaendig bejahte, aktuelle Bestaetigung zaehlt als Evidence.
+    Fachliche Pruefung (Stichtag, Quelle, Personen) in
+    services/financial_coverage_attestation.create_attestation()."""
+
+    household_persons: list[str] = Field(..., max_length=10)
+    income_complete: bool
+    expenses_complete: bool
+    obligations_complete: bool
+    irregular_expenses_reviewed: bool
+    as_of_date: str
+    source: str
+    note: Optional[str] = Field(default=None, max_length=1000)

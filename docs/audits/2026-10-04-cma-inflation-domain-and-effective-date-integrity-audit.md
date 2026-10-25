@@ -6,8 +6,8 @@ audit_started_on: "2026-10-04"
 audit_completed_on: "2026-10-04"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "f7b69ebc2b6940f7f835aa9228718a665b978805"
 prior_inflation_parity_audit_path: "docs/audits/2026-10-04-goal-value-mode-inflation-and-publication-parity-audit.md"
@@ -210,7 +210,7 @@ Outflow. Ein negativer Wert darf diesen Vertrag niemals erreichen.
 
 Der sichtbare Classic-Adminpfad ist nicht nur eine rohe API-Theorie:
 
-- `5eyes_v2.html:10679-10690` normalisiert Jahr/Wert über `Number()` und
+- `ares.html:10679-10690` normalisiert Jahr/Wert über `Number()` und
   `Math.round()`, ohne Wertebereich oder Bool-Ausschluss.
 - `10846-10864` rendert die fünf Inflationsinputs als `type="number"` mit
   `step="0.1"`, aber ohne `min` oder `max`.

@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--env-file", default=None,
-        help="Pfad zur .env-Datei (default: 5eyes-backend/.env oder ./.env)",
+        help="Pfad zur .env-Datei (default: ares-backend/.env oder ./.env)",
     )
     args = parser.parse_args(argv)
 
@@ -225,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         here = Path(__file__).resolve()
         candidates = [
-            here.parent.parent / "5eyes-backend" / ".env",
+            here.parent.parent / "ares-backend" / ".env",
             here.parent.parent / ".env",
             Path.cwd() / ".env",
         ]

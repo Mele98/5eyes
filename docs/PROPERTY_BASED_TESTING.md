@@ -59,12 +59,12 @@ hypothesis ist als **opt-in** Tool gedacht — NICHT in requirements.txt.
 Installation manuell wenn du es brauchst:
 
 ```powershell
-cd 5eyes-backend
+cd ares-backend
 .venv\Scripts\Activate.ps1
 pip install hypothesis
 ```
 
-Property-Tests liegen unter `5eyes-backend/tests/property/`.
+Property-Tests liegen unter `ares-backend/tests/property/`.
 Datei-Pattern: `test_*_properties.py`.
 
 **Wichtig:** Property-Tests pruefen mit `try: import hypothesis except
@@ -75,7 +75,7 @@ die normale CI gruen ohne hypothesis-Dep.
 ## Lauf
 
 ```powershell
-cd 5eyes-backend
+cd ares-backend
 
 # Alle Property-Tests
 pytest tests/property/
@@ -89,7 +89,7 @@ pytest tests/property/ --hypothesis-show-statistics
 
 ## Beispiel im Repo
 
-`5eyes-backend/tests/property/test_risk_metrics_kpi_properties.py`
+`ares-backend/tests/property/test_risk_metrics_kpi_properties.py`
 enthaelt 4 Properties fuer Sortino/Calmar/Information-Ratio:
 
 1. **Sortino-vs-Sharpe**: bei positive Excess-Return ist Sortino >= Sharpe

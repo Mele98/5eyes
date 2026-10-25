@@ -4,7 +4,7 @@ document_role: "canonical-technical-handoff"
 status_as_of: "2026-08-25"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 base_commit: "ea53a63b8c74f477d1286f2aadfcf1f688e7d206"
 current_head: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -119,9 +119,9 @@ Der Code bleibt die technische Quelle der Wahrheit. Dieses Dokument dient als Na
 
 Relevante Stellen:
 
-- `5eyes-backend/config.py`: Default und Production-Guard.
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py`: technische Fallback-Grenze.
-- `5eyes-backend/services/optimizer/solver.py`: `SolverTechnicalError`.
+- `ares-backend/config.py`: Default und Production-Guard.
+- `ares-backend/services/portfolio_engine_optimizer_integration.py`: technische Fallback-Grenze.
+- `ares-backend/services/optimizer/solver.py`: `SolverTechnicalError`.
 
 ## Peer-Review-Nachlauf vom 20. August 2026
 
@@ -155,23 +155,23 @@ Diese Änderungen sind nicht Teil des oben genannten Referenz-Commits. Sie wurde
 
 | Datei | Verantwortung im Nachlauf |
 |---|---|
-| `5eyes-backend/database.py` | SQLite-Bestandsindex prüfen und idempotent reparieren; bei Duplikaten fail-closed |
-| `5eyes-backend/alembic/env.py` | In-Process-Migrationen dürfen bestehende Applikationslogger nicht deaktivieren |
-| `5eyes-backend/models/allocation.py` | ORM-Partial-Unique-Indizes für TargetAllocation und OptimizerPolicy |
-| `5eyes-backend/models/mandates.py` | Nicht-nullbarer ORM-/Server-Default-Vertrag für den Tax-Cashflow-Opt-in |
-| `5eyes-backend/models/profiling.py` | ORM-Partial-Unique-Index für RiskAssessment |
-| `5eyes-backend/routers/allocation.py` | Vorgänger vor TA-/Policy-Rollover deaktivieren und flushen |
-| `5eyes-backend/routers/profiling.py` | Vorgänger vor RiskAssessment-Rollover deaktivieren und flushen |
-| `5eyes-backend/schemas/allocation.py` | strikte Preference-Wert-, Typ-, Bereichs- und Bandvalidierung |
-| `5eyes-backend/services/goal_semantics.py` | getrennte Zeitanker-Semantik für einmalige/evaluierte Ziele und Streams |
-| `5eyes-backend/services/optimizer/solver.py` | Exceptions erhalten; nur echte `OptimizeResult`-Nichtkonvergenz bleibt normaler Solverzustand |
-| `5eyes-backend/services/portfolio_engine.py` | Preferences-Snapshot, TA-Rollover und Sensitivity-Gegenfaktum |
-| `5eyes-backend/services/portfolio_engine_optimizer_integration.py` | technische Fallback-Allowlist und Activation-Abschlussprüfung |
-| `5eyes-backend/services/risk_assessment_semantics.py` | erneute fachliche Herleitung persistierter Risiko-Scores |
-| `5eyes-backend/5eyes_schema_v4.0_FINAL.sql` | SQLite-Rohschema-Parität für Current-Indizes |
-| `5eyes-backend/alembic/versions/d4e8f1a9c2b7_current_anchor_unique_indexes.py` | PostgreSQL-/SQLite-Migration der drei Partial-Unique-Indizes |
-| `5eyes-backend/alembic/versions/f2a7c91e4b63_mandate_tax_cashflow_flag.py` | PostgreSQL-/Alembic-Nachführung des Mandatsfelds für Bestands- und Neuzeilen |
-| `5eyes-backend/tests/risk_fixture_helpers.py` | zentrale, `compute_scores`-basierte Herleitung fachlich konsistenter Risikoprofil-Fixtures |
+| `ares-backend/database.py` | SQLite-Bestandsindex prüfen und idempotent reparieren; bei Duplikaten fail-closed |
+| `ares-backend/alembic/env.py` | In-Process-Migrationen dürfen bestehende Applikationslogger nicht deaktivieren |
+| `ares-backend/models/allocation.py` | ORM-Partial-Unique-Indizes für TargetAllocation und OptimizerPolicy |
+| `ares-backend/models/mandates.py` | Nicht-nullbarer ORM-/Server-Default-Vertrag für den Tax-Cashflow-Opt-in |
+| `ares-backend/models/profiling.py` | ORM-Partial-Unique-Index für RiskAssessment |
+| `ares-backend/routers/allocation.py` | Vorgänger vor TA-/Policy-Rollover deaktivieren und flushen |
+| `ares-backend/routers/profiling.py` | Vorgänger vor RiskAssessment-Rollover deaktivieren und flushen |
+| `ares-backend/schemas/allocation.py` | strikte Preference-Wert-, Typ-, Bereichs- und Bandvalidierung |
+| `ares-backend/services/goal_semantics.py` | getrennte Zeitanker-Semantik für einmalige/evaluierte Ziele und Streams |
+| `ares-backend/services/optimizer/solver.py` | Exceptions erhalten; nur echte `OptimizeResult`-Nichtkonvergenz bleibt normaler Solverzustand |
+| `ares-backend/services/portfolio_engine.py` | Preferences-Snapshot, TA-Rollover und Sensitivity-Gegenfaktum |
+| `ares-backend/services/portfolio_engine_optimizer_integration.py` | technische Fallback-Allowlist und Activation-Abschlussprüfung |
+| `ares-backend/services/risk_assessment_semantics.py` | erneute fachliche Herleitung persistierter Risiko-Scores |
+| `ares-backend/ares_schema.sql` | SQLite-Rohschema-Parität für Current-Indizes |
+| `ares-backend/alembic/versions/d4e8f1a9c2b7_current_anchor_unique_indexes.py` | PostgreSQL-/SQLite-Migration der drei Partial-Unique-Indizes |
+| `ares-backend/alembic/versions/f2a7c91e4b63_mandate_tax_cashflow_flag.py` | PostgreSQL-/Alembic-Nachführung des Mandatsfelds für Bestands- und Neuzeilen |
+| `ares-backend/tests/risk_fixture_helpers.py` | zentrale, `compute_scores`-basierte Herleitung fachlich konsistenter Risikoprofil-Fixtures |
 
 ## End-to-End-Datenfluss
 
@@ -231,7 +231,7 @@ Damit entsprechen Erwartungswert und Standardabweichung der simulierten einfache
 
 ## Kanonische Input- und Fail-Closed-Verträge
 
-Zentrale Module unter `5eyes-backend/services/`:
+Zentrale Module unter `ares-backend/services/`:
 
 | Modul | Vertrag |
 |---|---|
@@ -399,7 +399,7 @@ Diese Daten dürfen nicht automatisiert auf Defaults umgeschrieben werden.
 ### 2. Migration
 
 ```powershell
-cd 5eyes-backend
+cd ares-backend
 python -m alembic heads
 python -m alembic upgrade head
 python -m alembic current
@@ -540,7 +540,7 @@ Zusätzlich bestanden die subsystembezogenen Gates für die nachträglich gefund
 
 Der finale vollständige Backend-Lauf bestätigt den Inhalt des Implementierungscommits. Er ersetzt weiterhin weder die produktionsähnliche PostgreSQL-Probe noch fachliche/Compliance-Freigabe.
 
-Empfohlene Reproduktionsbefehle aus `5eyes-backend/`:
+Empfohlene Reproduktionsbefehle aus `ares-backend/`:
 
 ```powershell
 python -m pytest -p no:cacheprovider tests/test_optimizer_production_contract.py tests/test_optimizer_strict_core_contract.py tests/test_optimizer_phase6.py -q
@@ -649,70 +649,70 @@ Die folgende Inventur ist Bestandteil der Übergabe. Sie beschreibt die 69 Pfade
 
 ### Produktionscode, Schema und Migration
 
-- `5eyes-backend/5eyes_schema_v4.0_FINAL.sql`
-- `5eyes-backend/alembic/env.py`
-- `5eyes-backend/database.py`
-- `5eyes-backend/models/allocation.py`
-- `5eyes-backend/models/mandates.py`
-- `5eyes-backend/models/profiling.py`
-- `5eyes-backend/routers/allocation.py`
-- `5eyes-backend/routers/profiling.py`
-- `5eyes-backend/schemas/allocation.py`
-- `5eyes-backend/services/goal_semantics.py`
-- `5eyes-backend/services/optimizer/solver.py`
-- `5eyes-backend/services/portfolio_engine.py`
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py`
-- `5eyes-backend/services/risk_assessment_semantics.py`
-- `5eyes-backend/alembic/versions/d4e8f1a9c2b7_current_anchor_unique_indexes.py` *(neu)*
-- `5eyes-backend/alembic/versions/f2a7c91e4b63_mandate_tax_cashflow_flag.py` *(neu)*
+- `ares-backend/ares_schema.sql`
+- `ares-backend/alembic/env.py`
+- `ares-backend/database.py`
+- `ares-backend/models/allocation.py`
+- `ares-backend/models/mandates.py`
+- `ares-backend/models/profiling.py`
+- `ares-backend/routers/allocation.py`
+- `ares-backend/routers/profiling.py`
+- `ares-backend/schemas/allocation.py`
+- `ares-backend/services/goal_semantics.py`
+- `ares-backend/services/optimizer/solver.py`
+- `ares-backend/services/portfolio_engine.py`
+- `ares-backend/services/portfolio_engine_optimizer_integration.py`
+- `ares-backend/services/risk_assessment_semantics.py`
+- `ares-backend/alembic/versions/d4e8f1a9c2b7_current_anchor_unique_indexes.py` *(neu)*
+- `ares-backend/alembic/versions/f2a7c91e4b63_mandate_tax_cashflow_flag.py` *(neu)*
 
 ### Regressionstests und fachlich korrigierte Fixtures
 
-- `5eyes-backend/tests/risk_fixture_helpers.py`
-- `5eyes-backend/tests/test_advisory_report.py`
-- `5eyes-backend/tests/test_alembic_baseline_migration.py`
-- `5eyes-backend/tests/test_allocation_preferences_fail_closed_contracts.py`
-- `5eyes-backend/tests/test_ar2_persist_mc_risk_kpis.py`
-- `5eyes-backend/tests/test_asset_allocation_current_integrity_contracts.py`
-- `5eyes-backend/tests/test_asset_allocation_reference_integrity_edges.py`
-- `5eyes-backend/tests/test_asset_allocation_remaining_integrity_edges.py`
-- `5eyes-backend/tests/test_audit_b4_goal_base_consistency.py`
-- `5eyes-backend/tests/test_audit_b6_mandate_score.py`
-- `5eyes-backend/tests/test_audit_f23_mc_total_paths.py`
-- `5eyes-backend/tests/test_audit_f3_cma_drift.py`
-- `5eyes-backend/tests/test_audit_quick_fixes.py`
-- `5eyes-backend/tests/test_audit_z1_strategy_gates.py`
-- `5eyes-backend/tests/test_audit_z5_strategy_base.py`
-- `5eyes-backend/tests/test_audit_z6_anchors.py`
-- `5eyes-backend/tests/test_audit_z7_strategy_context.py`
-- `5eyes-backend/tests/test_audit_z8_lifegap_series.py`
-- `5eyes-backend/tests/test_backtest_ab.py`
-- `5eyes-backend/tests/test_chance_constraint.py`
-- `5eyes-backend/tests/test_daily_market_data_refresh.py`
-- `5eyes-backend/tests/test_de_onboarding_integration.py`
-- `5eyes-backend/tests/test_depot_check.py`
-- `5eyes-backend/tests/test_e2e_full_pipeline_smoke.py`
-- `5eyes-backend/tests/test_engine_de_jurisdiction_wiring.py`
-- `5eyes-backend/tests/test_finalize_rejects_non_current_policy_and_cma.py`
-- `5eyes-backend/tests/test_goal_domain_fail_closed_contracts.py`
-- `5eyes-backend/tests/test_golden_snapshot_ch_regression.py`
-- `5eyes-backend/tests/test_kapitalschutz_risk_budget_regression.py`
-- `5eyes-backend/tests/test_optimizer_fail_closed_boundaries.py`
-- `5eyes-backend/tests/test_optimizer_ga_fallback.py`
-- `5eyes-backend/tests/test_optimizer_integration.py`
-- `5eyes-backend/tests/test_optimizer_phase6.py`
-- `5eyes-backend/tests/test_optimizer_runs.py`
-- `5eyes-backend/tests/test_optimizer_shadow_mode.py`
-- `5eyes-backend/tests/test_performance_budget.py`
-- `5eyes-backend/tests/test_reference_data_fail_closed_gates.py`
-- `5eyes-backend/tests/test_reserve_explainability_section.py`
-- `5eyes-backend/tests/test_restriktionen_tilts_audit_fixes.py`
-- `5eyes-backend/tests/test_risk_budget_cap.py`
-- `5eyes-backend/tests/test_sequence_of_returns_depletion.py`
-- `5eyes-backend/tests/test_sprint_a_quick_wins.py`
-- `5eyes-backend/tests/test_suitability_optin_gate.py`
-- `5eyes-backend/tests/test_current_anchor_uniqueness.py` *(neu)*
-- `5eyes-backend/tests/test_risk_assessment_derivation_integrity.py` *(neu)*
+- `ares-backend/tests/risk_fixture_helpers.py`
+- `ares-backend/tests/test_advisory_report.py`
+- `ares-backend/tests/test_alembic_baseline_migration.py`
+- `ares-backend/tests/test_allocation_preferences_fail_closed_contracts.py`
+- `ares-backend/tests/test_ar2_persist_mc_risk_kpis.py`
+- `ares-backend/tests/test_asset_allocation_current_integrity_contracts.py`
+- `ares-backend/tests/test_asset_allocation_reference_integrity_edges.py`
+- `ares-backend/tests/test_asset_allocation_remaining_integrity_edges.py`
+- `ares-backend/tests/test_audit_b4_goal_base_consistency.py`
+- `ares-backend/tests/test_audit_b6_mandate_score.py`
+- `ares-backend/tests/test_audit_f23_mc_total_paths.py`
+- `ares-backend/tests/test_audit_f3_cma_drift.py`
+- `ares-backend/tests/test_audit_quick_fixes.py`
+- `ares-backend/tests/test_audit_z1_strategy_gates.py`
+- `ares-backend/tests/test_audit_z5_strategy_base.py`
+- `ares-backend/tests/test_audit_z6_anchors.py`
+- `ares-backend/tests/test_audit_z7_strategy_context.py`
+- `ares-backend/tests/test_audit_z8_lifegap_series.py`
+- `ares-backend/tests/test_backtest_ab.py`
+- `ares-backend/tests/test_chance_constraint.py`
+- `ares-backend/tests/test_daily_market_data_refresh.py`
+- `ares-backend/tests/test_de_onboarding_integration.py`
+- `ares-backend/tests/test_depot_check.py`
+- `ares-backend/tests/test_e2e_full_pipeline_smoke.py`
+- `ares-backend/tests/test_engine_de_jurisdiction_wiring.py`
+- `ares-backend/tests/test_finalize_rejects_non_current_policy_and_cma.py`
+- `ares-backend/tests/test_goal_domain_fail_closed_contracts.py`
+- `ares-backend/tests/test_golden_snapshot_ch_regression.py`
+- `ares-backend/tests/test_kapitalschutz_risk_budget_regression.py`
+- `ares-backend/tests/test_optimizer_fail_closed_boundaries.py`
+- `ares-backend/tests/test_optimizer_ga_fallback.py`
+- `ares-backend/tests/test_optimizer_integration.py`
+- `ares-backend/tests/test_optimizer_phase6.py`
+- `ares-backend/tests/test_optimizer_runs.py`
+- `ares-backend/tests/test_optimizer_shadow_mode.py`
+- `ares-backend/tests/test_performance_budget.py`
+- `ares-backend/tests/test_reference_data_fail_closed_gates.py`
+- `ares-backend/tests/test_reserve_explainability_section.py`
+- `ares-backend/tests/test_restriktionen_tilts_audit_fixes.py`
+- `ares-backend/tests/test_risk_budget_cap.py`
+- `ares-backend/tests/test_sequence_of_returns_depletion.py`
+- `ares-backend/tests/test_sprint_a_quick_wins.py`
+- `ares-backend/tests/test_suitability_optin_gate.py`
+- `ares-backend/tests/test_current_anchor_uniqueness.py` *(neu)*
+- `ares-backend/tests/test_risk_assessment_derivation_integrity.py` *(neu)*
 
 ### Dokumentation und Discoverability
 

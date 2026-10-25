@@ -6,8 +6,8 @@ audit_started_on: "2026-10-04"
 audit_completed_on: "2026-10-04"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "21086ab2ce8ddf6749fdb16871d1d71c7f903a84"
 prior_policy_audit_path: "docs/audits/2026-10-04-optimizer-policy-version-and-activation-integrity-audit.md"
@@ -321,19 +321,19 @@ aktive Strategie noch vollständig kosten- und evidencegebunden.
 
 | Bereich | Verifizierter Anker auf dem auditierten Head |
 |---|---|
-| Policy-Caps erlauben null | `5eyes-backend/schemas/allocation.py:451-486` |
-| House-Risikobudget erlaubt null | `5eyes-backend/schemas/allocation.py:408-448` |
-| Null-Cap wird per `or 10000` aufgehoben | `5eyes-backend/services/portfolio_engine_house_matrix.py:1416-1438` |
-| Rebalancer ohne Inversions-Preflight | `5eyes-backend/services/portfolio_engine_house_matrix.py:277-313` |
-| Generate komponiert Baseline und persistiert nach Rebalance | `5eyes-backend/services/portfolio_engine.py:3041`; `:3418-3429`; `:3991-4010` |
-| Stochastic besitzt strengeren effektiven Bounds-Validator | `5eyes-backend/services/optimizer/constraints.py:136-239` |
-| Contextloser Risiko-Guard macht 0 zu 10000 | `5eyes-backend/services/portfolio_engine_optimizer_integration.py:451-460` |
-| Sensitivity ohne TA baut dieselbe Live-Baseline | `5eyes-backend/services/portfolio_engine.py:4795-4870` |
-| Policy-A/B nutzt rohe Targets direkt | `5eyes-backend/services/backtest_ab.py:61-94` |
-| Max-Pension-Spending verwirft Bands | `5eyes-backend/routers/wealth.py:1188-1265` |
-| Metrik normalisiert Targets nicht und TER fehlt ohne Produkte | `5eyes-backend/services/portfolio_engine_cma.py:601-665` |
-| Bestehender Rebalance-Test prüft Unlösbarkeit, nicht `min > max` | `5eyes-backend/tests/test_allocation_rebalance_normalization.py:6-50` |
-| Pensionstests prüfen Plausibilität/Margin/Datum, nicht Strategiebasis | `5eyes-backend/tests/test_sprint_a_quick_wins.py:291-353` |
+| Policy-Caps erlauben null | `ares-backend/schemas/allocation.py:451-486` |
+| House-Risikobudget erlaubt null | `ares-backend/schemas/allocation.py:408-448` |
+| Null-Cap wird per `or 10000` aufgehoben | `ares-backend/services/portfolio_engine_house_matrix.py:1416-1438` |
+| Rebalancer ohne Inversions-Preflight | `ares-backend/services/portfolio_engine_house_matrix.py:277-313` |
+| Generate komponiert Baseline und persistiert nach Rebalance | `ares-backend/services/portfolio_engine.py:3041`; `:3418-3429`; `:3991-4010` |
+| Stochastic besitzt strengeren effektiven Bounds-Validator | `ares-backend/services/optimizer/constraints.py:136-239` |
+| Contextloser Risiko-Guard macht 0 zu 10000 | `ares-backend/services/portfolio_engine_optimizer_integration.py:451-460` |
+| Sensitivity ohne TA baut dieselbe Live-Baseline | `ares-backend/services/portfolio_engine.py:4795-4870` |
+| Policy-A/B nutzt rohe Targets direkt | `ares-backend/services/backtest_ab.py:61-94` |
+| Max-Pension-Spending verwirft Bands | `ares-backend/routers/wealth.py:1188-1265` |
+| Metrik normalisiert Targets nicht und TER fehlt ohne Produkte | `ares-backend/services/portfolio_engine_cma.py:601-665` |
+| Bestehender Rebalance-Test prüft Unlösbarkeit, nicht `min > max` | `ares-backend/tests/test_allocation_rebalance_normalization.py:6-50` |
+| Pensionstests prüfen Plausibilität/Margin/Datum, nicht Strategiebasis | `ares-backend/tests/test_sprint_a_quick_wins.py:291-353` |
 
 ## Modusparität: verifizierter Owner-Entscheidungspunkt
 

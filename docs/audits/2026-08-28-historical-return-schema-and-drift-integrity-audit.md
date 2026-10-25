@@ -4,7 +4,7 @@ document_role: "release-blocking-historical-return-schema-and-drift-integrity-fo
 status_as_of: "2026-08-28"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "de65d3cca65a4883f6ab1d74f434adebd33273ea"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -108,18 +108,18 @@ deterministisch, granularitätsrein oder zeitlich historisch belegt.
 
 | Bereich | Codeanker |
 |---|---|
-| ORM-Modell ohne Unique-/Domain-Constraint | `5eyes-backend/models/snapshots.py:38-51` |
-| Raw-SQLite-Unique ignoriert `sub_asset_class` | `5eyes-backend/database.py:912-925` |
-| Alembic-Baseline ohne Annual-Return-Unique | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:24-35` |
-| Runtime fügt `sub_asset_class` additiv hinzu, repariert Index aber nicht | `5eyes-backend/database.py:363-375` |
-| Sub-Asset-Helper erwartet logisch einen Dreierschlüssel | `5eyes-backend/services/market_data/sub_asset_backfill.py:111-153` |
-| Top-Level-Loader überschreibt Duplicate-Keys im Dict | `5eyes-backend/services/backtest_strategy.py:72-106` |
-| Sub-Asset-Loader überschreibt Duplicate-Keys ebenso | `5eyes-backend/services/backtest_strategy.py:111-148` |
-| Admin-GET mischt Granularitäten; Admin-PUT sucht ohne `sub_asset_class` | `5eyes-backend/routers/system.py:343-359`; `:413-467` |
-| Drift lädt alle Granularitäten und setzt fehlende Returns implizit null | `5eyes-backend/routers/snapshots.py:185-218`; `:246-262` |
-| Backtest-Default verwendet den gesamten verfügbaren Jahresbereich | `5eyes-backend/services/backtest_strategy.py:279-290`; `:1224-1260` |
-| Öffentlicher Backtest dokumentiert Default „max verfügbarer Bereich“ | `5eyes-backend/routers/allocation.py:916-986` |
-| Backtest-PDF konsumiert denselben Live-Datensatz | `5eyes-backend/routers/pdf_reports.py:1810-1845` |
+| ORM-Modell ohne Unique-/Domain-Constraint | `ares-backend/models/snapshots.py:38-51` |
+| Raw-SQLite-Unique ignoriert `sub_asset_class` | `ares-backend/database.py:912-925` |
+| Alembic-Baseline ohne Annual-Return-Unique | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:24-35` |
+| Runtime fügt `sub_asset_class` additiv hinzu, repariert Index aber nicht | `ares-backend/database.py:363-375` |
+| Sub-Asset-Helper erwartet logisch einen Dreierschlüssel | `ares-backend/services/market_data/sub_asset_backfill.py:111-153` |
+| Top-Level-Loader überschreibt Duplicate-Keys im Dict | `ares-backend/services/backtest_strategy.py:72-106` |
+| Sub-Asset-Loader überschreibt Duplicate-Keys ebenso | `ares-backend/services/backtest_strategy.py:111-148` |
+| Admin-GET mischt Granularitäten; Admin-PUT sucht ohne `sub_asset_class` | `ares-backend/routers/system.py:343-359`; `:413-467` |
+| Drift lädt alle Granularitäten und setzt fehlende Returns implizit null | `ares-backend/routers/snapshots.py:185-218`; `:246-262` |
+| Backtest-Default verwendet den gesamten verfügbaren Jahresbereich | `ares-backend/services/backtest_strategy.py:279-290`; `:1224-1260` |
+| Öffentlicher Backtest dokumentiert Default „max verfügbarer Bereich“ | `ares-backend/routers/allocation.py:916-986` |
+| Backtest-PDF konsumiert denselben Live-Datensatz | `ares-backend/routers/pdf_reports.py:1810-1845` |
 
 ## `RETURN-SCHEMA-001` – Der logische Key widerspricht sich je Datenbankpfad
 

@@ -560,7 +560,7 @@ Reihenfolge ist wichtig — jede Stufe muss grün sein, bevor die nächste start
 
 ### Stufe 6 — Frontend (Goal-Editor + Review)
 
-1. `5eyes_v2.html m-acf` / Goal-Editor: typabhängige Feldsichtbarkeit
+1. `ares.html m-acf` / Goal-Editor: typabhängige Feldsichtbarkeit
    (Renditeziel zeigt `target_return_bps`-Input, blendet `target_amount`
    aus). `hart`-Option in Hardness-Dropdown für Renditeziel disabled.
 2. Live-Anzeige der abgeleiteten Rendite / des implizierten Vermögensziels

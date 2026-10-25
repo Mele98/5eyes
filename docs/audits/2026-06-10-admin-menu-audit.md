@@ -1,7 +1,7 @@
 # System-Administration-Menue der 5eyes-App — Konsolidierter Audit-Report
 
 **Datum:** 2026-06-10 | **Erstellt von:** Multi-Agent-Audit (5 Auditoren + Synthese) | **Adressat:** Product-Owner
-**Audit-Umfang:** 17 Sektionen, 6 Navigations-Gruppen | **Codebasis:** `frontend/5eyes_v2.html` + FastAPI-Router
+**Audit-Umfang:** 17 Sektionen, 6 Navigations-Gruppen | **Codebasis:** `frontend/ares.html` + FastAPI-Router
 
 ---
 
@@ -47,7 +47,7 @@ Das Admin-Menue ist im Kern **gesund und produktiv**: 16 von 17 Sektionen sind v
 Es gibt **keine PLACEHOLDER- oder BROKEN-Sektionen**. Folgendes ist konkret zu beheben:
 
 ### 3.1 PARTIAL — Update-Sektion (einzige nicht-vollwertige Sektion)
-- **Toter Legacy-Anker:** `<div id="update-section" style="display:none">` (`5eyes_v2.html:20425`) — wird von `applyUpdateState()` (`:3592`) referenziert, bleibt aber dauerhaft leer/unsichtbar. Reines Altlast-Element.
+- **Toter Legacy-Anker:** `<div id="update-section" style="display:none">` (`ares.html:20425`) — wird von `applyUpdateState()` (`:3592`) referenziert, bleibt aber dauerhaft leer/unsichtbar. Reines Altlast-Element.
 - **Doppelte/redundante Buttons fuer dieselbe Funktion:**
   - „Auf Updates pruefen" `btn-check-updates` / `adminCheckUpdates` (`:3619`) **vs.** „Nach Updates suchen" `btn-admin-update-check` / `adminCheckForUpdates` (`:11022`)
   - „Update installieren" `btn-install-update` / `adminInstallUpdate` (`:3634`, startet `display:none` `:20415`) **vs.** „Heruntergeladenes Update installieren" `btn-admin-update-install` / `adminInstallDownloadedUpdate` (`:11039`)

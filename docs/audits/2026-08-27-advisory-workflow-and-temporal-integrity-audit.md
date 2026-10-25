@@ -4,7 +4,7 @@ document_role: "release-blocking-advisory-workflow-and-temporal-integrity-follow
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "9f7f642a822a895d08a61891bf60c5071d0d40c9"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -108,18 +108,18 @@ Zeitanker. Diese Befunde werden nicht als behoben betrachtet, nur weil die
 
 | Bereich | Codeanker |
 |---|---|
-| aktiver Ereignisflow und veralteter Entry-Typ | `5eyes-electron/frontend/5eyes_v2.html:9395-9432` |
-| manuelles Review-Cockpit und verschluckter Resolve-Fehler | `5eyes-electron/frontend/5eyes_v2.html:24732-24775` |
-| status-only Cockpit-Transition | `5eyes-electron/frontend/5eyes_v2.html:24083-24112` |
-| Entscheidungsvorlage als Zwei-Request-Workflow | `5eyes-electron/frontend/5eyes_v2.html:25016-25046` |
-| kanonischer AdvisoryLog-Create-Vertrag | `5eyes-backend/schemas/review.py:70-151` |
-| Update-Schema ohne Post-State-Decision-Gate | `5eyes-backend/schemas/review.py:158-188` |
-| Statusmatrix und Update-Route | `5eyes-backend/routers/review.py:815-823`, `:877-947` |
-| Versionierung kopiert fehlenden Entscheid | `5eyes-backend/services/advisory_log_service.py:201-267` |
-| freie Zeitstrings und Retentionfallback | `5eyes-backend/schemas/review.py:89-100`; `5eyes-backend/services/advisory_log_integrity.py:74-96` |
-| lexikografische Latest-Reihenfolge | `5eyes-backend/services/advisory_log_service.py:288-307` |
-| React-Editor bietet Status ohne Decision-Feld | `5eyes-electron/frontend/reporting/src/components/AdvisoryLogEditor.tsx:49-86`, `:157-174` |
-| duplizierter handgeschriebener React-Requesttyp | `5eyes-electron/frontend/reporting/src/api/advisoryLog.ts:44-70` |
+| aktiver Ereignisflow und veralteter Entry-Typ | `ares-desktop/frontend/ares.html:9395-9432` |
+| manuelles Review-Cockpit und verschluckter Resolve-Fehler | `ares-desktop/frontend/ares.html:24732-24775` |
+| status-only Cockpit-Transition | `ares-desktop/frontend/ares.html:24083-24112` |
+| Entscheidungsvorlage als Zwei-Request-Workflow | `ares-desktop/frontend/ares.html:25016-25046` |
+| kanonischer AdvisoryLog-Create-Vertrag | `ares-backend/schemas/review.py:70-151` |
+| Update-Schema ohne Post-State-Decision-Gate | `ares-backend/schemas/review.py:158-188` |
+| Statusmatrix und Update-Route | `ares-backend/routers/review.py:815-823`, `:877-947` |
+| Versionierung kopiert fehlenden Entscheid | `ares-backend/services/advisory_log_service.py:201-267` |
+| freie Zeitstrings und Retentionfallback | `ares-backend/schemas/review.py:89-100`; `ares-backend/services/advisory_log_integrity.py:74-96` |
+| lexikografische Latest-Reihenfolge | `ares-backend/services/advisory_log_service.py:288-307` |
+| React-Editor bietet Status ohne Decision-Feld | `ares-desktop/frontend/reporting/src/components/AdvisoryLogEditor.tsx:49-86`, `:157-174` |
+| duplizierter handgeschriebener React-Requesttyp | `ares-desktop/frontend/reporting/src/api/advisoryLog.ts:44-70` |
 
 Die Zeilenangaben sind an `audited_repository_head` gebunden. Nach einem Fix
 müssen Tests, Migrationen und stabile Funktionsnamen die Traceability tragen.

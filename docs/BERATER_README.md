@@ -78,7 +78,7 @@ Phrase-Blacklist abgelehnt.
 
 **Re-Validierung:** Risikoprofil wird automatisch ROT in der
 Erkenntnisse-Sektion wenn aelter als 12 Monate
-([siehe Sektion 7 in compute_advisory_report](../5eyes-backend/services/advisory_report.py)).
+([siehe Sektion 7 in compute_advisory_report](../ares-backend/services/advisory_report.py)).
 
 ## 4. SAA generieren
 
@@ -141,7 +141,7 @@ PDF wird vom Backend gerendert + heruntergeladen. Quelle ist der
 
 **Aggregator-Sektionen 1-24:** siehe [README.md](../README.md#aggregator-sektionen).
 
-**Sub-App** (`5eyes-electron/frontend/reporting/`) ist die Berater-
+**Sub-App** (`ares-desktop/frontend/reporting/`) ist die Berater-
 interne Anzeige des gleichen Dicts via Vite-Dev-Server. Token-Handoff
 vom Hauptapp via URL-Fragment (`#token=<jwt>`).
 
@@ -250,6 +250,6 @@ Backend laeuft.
 - [DATA_PIPELINE_STATUS.md](DATA_PIPELINE_STATUS.md) — Status der
   Pipeline-Phasen
 - [RELEASE_TAGS.md](RELEASE_TAGS.md) — Versionierungs-Workflow
-- [BACKUP.md](../5eyes-backend/BACKUP.md) — DB-Backup-Strategie
-- `5eyes-electron/frontend/reporting/DESIGN_SYSTEM.md` —
+- [BACKUP.md](../ares-backend/BACKUP.md) — DB-Backup-Strategie
+- `ares-desktop/frontend/reporting/DESIGN_SYSTEM.md` —
   Tailwind-Tokens (fuer Sub-App-Customizing)

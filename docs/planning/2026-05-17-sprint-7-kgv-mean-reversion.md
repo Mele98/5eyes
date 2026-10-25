@@ -39,7 +39,7 @@ Beispiel: KGV-Current 25, KGV-Fair 17, alpha 0.15, horizon 10J
 ## 2. Modul
 
 ```
-5eyes-backend/
+ares-backend/
 ├── services/equity_valuation/
 │   ├── __init__.py
 │   └── mean_reversion.py    # KGVMeanReversionModel

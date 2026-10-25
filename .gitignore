@@ -21,8 +21,8 @@ mutmut-stats.txt
 
 # Node / Electron
 node_modules/
-5eyes-electron/dist/
-5eyes-electron/bundle/backend/
+ares-desktop/dist/
+ares-desktop/bundle/backend/
 
 # Logs
 *.log

@@ -10,7 +10,7 @@ prior_coverage_audit_path: "docs/audits/2026-10-05-b2b-trust-compliance-pre-impl
 prior_coverage_finding_closed: "B2B-COVERAGE-004"
 audit_mode: "read_only_static_code_and_existing_test_review"
 audit_mutated_product_code: false
-scope: "accessibility of the login -> client/mandate -> risk profile -> goals -> asset allocation -> review -> PDF golden path in the Classic monolith (5eyes_v2.html) and the React reporting app, plus PDF/UA tagging posture of ReportLab-based PDF generation"
+scope: "accessibility of the login -> client/mandate -> risk profile -> goals -> asset allocation -> review -> PDF golden path in the Classic monolith (ares.html) and the React reporting app, plus PDF/UA tagging posture of ReportLab-based PDF generation"
 release_decision: "not_a_release_gate_this_round_evidence_and_fix_backlog_only"
 ---
 
@@ -76,16 +76,16 @@ Auditiert wurde Commit `8dfd6cc13a7869e1996331e5d226551fc441a6ee` auf Branch
 
 Gelesen/durchsucht wurden:
 
-- `5eyes-electron/frontend/5eyes_v2.html` (28'228 Zeilen, Classic-Monolith);
-- `5eyes-electron/frontend/reporting/src/**` (React-Reporting-App);
-- `5eyes-backend/tests/test_frontend_chart_accessibility.py` (vollstaendig);
-- `5eyes-electron/frontend/reporting/src/App.a11y.test.tsx`,
+- `ares-desktop/frontend/ares.html` (28'228 Zeilen, Classic-Monolith);
+- `ares-desktop/frontend/reporting/src/**` (React-Reporting-App);
+- `ares-backend/tests/test_frontend_chart_accessibility.py` (vollstaendig);
+- `ares-desktop/frontend/reporting/src/App.a11y.test.tsx`,
   `components/AmpelPill.a11y.test.tsx`, `components/Sidebar.a11y.test.tsx`,
   `sections/goals/GoalsEditor.a11y.test.tsx`,
   `sections/profiling/profiling.a11y.test.tsx` (vollstaendig);
-- `5eyes-backend/services/pdf/**` (Renderer-Protocol, Komponenten,
+- `ares-backend/services/pdf/**` (Renderer-Protocol, Komponenten,
   Bibliotheksnutzung);
-- `5eyes-backend/requirements*.txt` (PDF-Engine-Abhaengigkeit).
+- `ares-backend/requirements*.txt` (PDF-Engine-Abhaengigkeit).
 
 Produktcode, Tests und Konfiguration wurden **nicht** veraendert. Der
 Backend-Chart-Test wurde read-only erneut ausgefuehrt (siehe
@@ -139,7 +139,7 @@ behoben".
 
 - Die Schritt-Navigation des gesamten Golden Path ist sieben `<div
   class="tstep">` mit `onclick="go(...)"`, ohne `role`, `tabindex` oder
-  Keydown-Handler (`5eyes-electron/frontend/5eyes_v2.html:2091-2103`):
+  Keydown-Handler (`ares-desktop/frontend/ares.html:2091-2103`):
 
   ```html
   <div class="tstep active" data-page="sd" onclick="go('sd',this)"><div class="sn">1</div>Stammdaten</div>
@@ -219,7 +219,7 @@ behoben".
 
 - Der komplette Risikoprofil-Fragebogen (`id="r-rf"` ff., Golden-Path-Schritt
   „Risikoprofil") ist ausschliesslich aus `div.qopt`/`div.qcb` gebaut, z.B.
-  Frage 3 „Regelmässiges Einkommen" (`5eyes_v2.html:3081-3087`):
+  Frage 3 „Regelmässiges Einkommen" (`ares.html:3081-3087`):
 
   ```html
   <div class="qopts">
@@ -230,7 +230,7 @@ behoben".
   ```
 
   und Frage 4 „Herkunft des Einkommens" (Mehrfachauswahl,
-  `5eyes_v2.html:3098-3104`):
+  `ares.html:3098-3104`):
 
   ```html
   <div class="qcbs">
@@ -294,7 +294,7 @@ behoben".
   `for=`-Attribut; 225 Treffer fuer `class="fl"` (das generische
   Feld-Label-Pattern der Modals).
 - Beispiel „Ziel erfassen"-Modal (`id="m-nz"`, Golden-Path-Schritt „Ziele"),
-  Pflichtfeld „Bezeichnung *" (`5eyes_v2.html:4758-4761`):
+  Pflichtfeld „Bezeichnung *" (`ares.html:4758-4761`):
 
   ```html
   <div class="fg m-acf-field" id="nz-label-field" data-goal-field="label">
@@ -313,7 +313,7 @@ behoben".
 - Repo-weit: 1 `<input ... required>`-Treffer, 0 `aria-required`, 0
   `aria-invalid`, 0 `aria-describedby` im gesamten Monolith.
 - Fehleranzeige-Mechanismus: ein globaler Toast-Bereich existiert
-  (`5eyes_v2.html:1989`):
+  (`ares.html:1989`):
 
   ```html
   <div id="app-notice-stack" class="app-notice-stack" role="region" aria-live="polite" aria-label="Hinweise"></div>
@@ -360,7 +360,7 @@ behoben".
 
 - Das Signatur-Modal (`id="m-esign"`, Golden-Path-Schritt „Review &
   Abschluss") verlangt eine mit Maus oder Finger gezeichnete Unterschrift auf
-  einem `<canvas>` (`5eyes_v2.html:5113`, Ausschnitt):
+  einem `<canvas>` (`ares.html:5113`, Ausschnitt):
 
   ```html
   <label class="fl">Unterschrift (mit Maus oder Finger zeichnen)</label>
@@ -370,7 +370,7 @@ behoben".
   ```
 
 - Die Event-Bindung auf den Canvas registriert ausschliesslich Maus- und
-  Touch-Events, keine Tastatur-Events (`5eyes_v2.html:25486-25491`):
+  Touch-Events, keine Tastatur-Events (`ares.html:25486-25491`):
 
   ```js
   canvas.addEventListener('mousedown',start);
@@ -382,7 +382,7 @@ behoben".
 
   Der Canvas hat kein `tabindex` und kein `role`.
 - Die Absendefunktion blockiert ohne gezeichnete Signatur hart
-  (`5eyes_v2.html:25515-25525`):
+  (`ares.html:25515-25525`):
 
   ```js
   async function submitEsignSignature(){
@@ -431,11 +431,11 @@ behoben".
 ### Repository-Beleg
 
 - Der bestehende Backend-Contract-Test
-  (`5eyes-backend/tests/test_frontend_chart_accessibility.py`) prueft
+  (`ares-backend/tests/test_frontend_chart_accessibility.py`) prueft
   ausschliesslich Chart.js-`<canvas>`-Elemente im Monolith
-  (`5eyes_v2.html`); er kennt die React-Reporting-App nicht.
+  (`ares.html`); er kennt die React-Reporting-App nicht.
 - Eine Suche nach Canvas-/SVG-Visualisierungen in
-  `5eyes-electron/frontend/reporting/src` findet zwei eigene
+  `ares-desktop/frontend/reporting/src` findet zwei eigene
   SVG-Chart-Komponenten ausserhalb von Chart.js:
   - `components/MonteCarloPathsChart.tsx` — SVG-Wealth-Trajectory mit
     p5/p50/p75-Band und Goal-Markern (Golden-Path-Schritt „Ziele"/"Asset
@@ -480,13 +480,13 @@ behoben".
 ### Repository-Beleg
 
 - Die PDF-Engine ist ReportLab, nicht WeasyPrint:
-  `5eyes-backend/requirements*.txt:42`: `reportlab>=4.0,<5`.
+  `ares-backend/requirements*.txt:42`: `reportlab>=4.0,<5`.
   `services/pdf/base.py:1-5` dokumentiert explizit ein
   Renderer-Protocol, das einen spaeteren Wechsel auf WeasyPrint vorbereiten
   soll, aber aktuell ist ReportLab die einzige implementierte Engine
   (`services/pdf/components/*.py` importieren durchgehend aus `reportlab.*`).
 - Eine repo-weite Suche nach `PDF/UA`, `tagged`, `/MarkInfo`,
-  `StructTreeRoot` in `5eyes-backend` und `5eyes-electron` ergibt **0**
+  `StructTreeRoot` in `ares-backend` und `ares-desktop` ergibt **0**
   Treffer. Es gibt keinen Code-Pfad, der eine Tagged-PDF-Struktur erzeugt.
 - `services/pdf/base.py:14-23` definiert `PDFContext` mit einem
   `locale: str = "de-CH"`-Feld, aber eine Suche nach `setTitle`, `setAuthor`,
@@ -540,9 +540,9 @@ behoben".
 
 ### Repository-Beleg
 
-- Viewport-Meta-Tag ist vorhanden: `5eyes_v2.html:5`
+- Viewport-Meta-Tag ist vorhanden: `ares.html:5`
   `<meta name="viewport" content="width=device-width, initial-scale=1.0">`.
-- 14 `@media`-Regeln existieren, u.a. `5eyes_v2.html:321,333,510,516,754,
+- 14 `@media`-Regeln existieren, u.a. `ares.html:321,333,510,516,754,
   1017,1021,1025` fuer Breakpoints bis 780px sowie zwei `@media print`-Bloecke
   (Zeilen 991, 1001).
 - Repo-weite Zaehlung im selben File: 5999 Treffer fuer ein Pixelmass
@@ -618,7 +618,7 @@ behoben".
 
 ### Durchgefuehrte Pruefungen
 
-- `5eyes-backend/tests/test_frontend_chart_accessibility.py` read-only erneut
+- `ares-backend/tests/test_frontend_chart_accessibility.py` read-only erneut
   ausgefuehrt: **7 passed** (keine Aenderung am Test oder am Monolith).
 - Alle 5 React-A11y-Testdateien vollstaendig gelesen (nicht nur Namen/Pfade),
   Inhalte oben im Abschnitt „Was bereits belegt ist" zusammengefasst.
@@ -657,7 +657,7 @@ behoben".
 - Ausgefuehrt wurde ausschliesslich der bereits bestehende, unveraenderte
   Backend-Test `test_frontend_chart_accessibility.py` (7 passed). Die
   React-A11y-Tests wurden nicht ausgefuehrt, weil `node_modules` in
-  `5eyes-electron/frontend/reporting` in diesem Worktree nicht installiert
+  `ares-desktop/frontend/reporting` in diesem Worktree nicht installiert
   ist; eine Installation wurde als ausserhalb des read-only-Scopes dieser
   Runde bewusst unterlassen. Ihre Aussagekraft wird ausschliesslich aus dem
   gelesenen Testquellcode abgeleitet, nicht aus einem beobachteten

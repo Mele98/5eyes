@@ -157,7 +157,7 @@ Begründung: Realdaten Aktien haben s ≈ −0.5, k ≈ 4–6 (fat left tail). M
 
 ## Betroffene Module / Dateien
 
-### Neu (in `5eyes-backend/services/optimizer/`)
+### Neu (in `ares-backend/services/optimizer/`)
 
 - `__init__.py` — Public API: `optimize_allocation(mandate, goals, ...) → AllocationResult`
 - `distributions.py` — Cornish-Fisher Sampler, Calibration
@@ -347,7 +347,7 @@ Wird **erst** geschrieben wenn Phase 1–3 grün sind. Heute leer gelassen.
 ## Referenz-Implementierung — Pseudo-Code
 
 ```python
-# 5eyes-backend/services/optimizer/__init__.py
+# ares-backend/services/optimizer/__init__.py
 from .distributions import sample_returns
 from .goal_liabilities import goal_to_liability_path
 from .scenario_engine import build_scenarios

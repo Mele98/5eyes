@@ -6,8 +6,8 @@ audit_started_on: "2026-09-21"
 audit_completed_on: "2026-09-21"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "d2a88cfe405f46a6e8f7518c42b368f756293389"
 prior_release_audit_path: "docs/audits/2026-09-02-goal-achievability-and-monte-carlo-publication-integrity-audit.md"
@@ -213,83 +213,83 @@ Die Reparatur darf folgende vorhandene Eigenschaften nicht zurückbauen:
 
 ### Stochastik und Importance Sampling
 
-- `5eyes-backend/services/optimizer/importance_sampling.py:245-340`:
+- `ares-backend/services/optimizer/importance_sampling.py:245-340`:
   Auto-IS ist standardmäßig aktivierbar und greift bei konservativem Profil,
   Retirement oder mindestens einem harten Ziel. Der Befund betrifft damit
   normale Produktkontexte und keinen rein manuellen Sondermodus.
-- `5eyes-backend/services/optimizer/solver.py:592-610` und `613-655`:
+- `ares-backend/services/optimizer/solver.py:592-610` und `613-655`:
   Objective und Evaluation erhalten `context.scenario_weights`; die
   Endvermögensquantile in Zeile 641 verwenden dennoch `np.percentile` ohne
   Gewichte.
-- `5eyes-backend/services/optimizer/objective.py:409-479`:
+- `ares-backend/services/optimizer/objective.py:409-479`:
   `shortfall_objective()` berechnet bei gesetzten Gewichten den gewichteten
   Mittelwert `sum(per_path * weights) / sum(weights)`.
-- `5eyes-backend/services/optimizer/objective.py:549-591`:
+- `ares-backend/services/optimizer/objective.py:549-591`:
   `shortfall_contributions()` besitzt kein `weights`-Argument und verwendet
   immer `1 / n_paths`.
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py:1183-1207`:
+- `ares-backend/services/portfolio_engine_optimizer_integration.py:1183-1207`:
   Die Explainability ruft diese uniforme Contribution-Funktion auf und
   publiziert ihre sortierte Rangfolge als Goal Drivers.
-- `5eyes-electron/frontend/5eyes_v2.html:27122-27141`:
+- `ares-desktop/frontend/ares.html:27122-27141`:
   Die Classic UI rendert genau diese Goal-Driver-Rangfolge.
 
 ### Renditezielhorizont
 
-- `5eyes-backend/services/optimizer/solver.py:286-296`:
+- `ares-backend/services/optimizer/solver.py:286-296`:
   `_annualized_twr_bps_per_path()` mittelt Log-Returns über alle Jahre von
   `context.return_paths` und liefert nur einen Wert je Pfad.
-- `5eyes-backend/services/optimizer/solver.py:601-610`, `626-635` und
+- `ares-backend/services/optimizer/solver.py:601-610`, `626-635` und
   `1548-1557`: Derselbe Vollhorizontwert wird Objective, Evaluation und
   Chance Constraint für sämtliche Goals übergeben.
-- `5eyes-backend/services/optimizer/objective.py:201-234`:
+- `ares-backend/services/optimizer/objective.py:201-234`:
   Der Goal-Horizont wird für das Return-Target verwendet; sobald ein TWR-
   Vektor übergeben wurde, stammt der Vergleichswert aber aus dem gemeinsamen
   Vollhorizontvektor.
-- `5eyes-backend/services/optimizer/objective.py:315-331`:
+- `ares-backend/services/optimizer/objective.py:315-331`:
   Die Probability vergleicht den übergebenen TWR direkt mit dem Goal-Target
   und selektiert keinen `target_year_index`.
-- `5eyes-backend/services/portfolio_engine_mc_simulation.py:1481-1486`:
+- `ares-backend/services/portfolio_engine_mc_simulation.py:1481-1486`:
   Das Haupt-MC materialisiert pro Pfad nur die über den gesamten Run-Horizont
   annualisierte TWR.
-- `5eyes-backend/services/portfolio_engine_mc_simulation.py:871-906` und
+- `ares-backend/services/portfolio_engine_mc_simulation.py:871-906` und
   `1513-1527`: Die Vermögenspfade werden goal-spezifisch indiziert; ein
   Renditeziel erhält dagegen die gemeinsame Vollhorizont-TWR-Liste.
 
 ### Goal-Gewicht und Mandats-Score
 
-- `5eyes-backend/schemas/wealth.py:539-605` und
-  `5eyes-backend/services/goal_semantics.py:120-128`:
+- `ares-backend/schemas/wealth.py:539-605` und
+  `ares-backend/services/goal_semantics.py:120-128`:
   `weight_bps` ist optional; die zentrale Semantik lässt explizit 0 bis
   10.000 zu.
-- `5eyes-backend/services/optimizer/goal_liabilities.py:99-103`:
+- `ares-backend/services/optimizer/goal_liabilities.py:99-103`:
   `if goal.weight_bps` ersetzt `0` durch das Rank-Default.
-- `5eyes-backend/services/portfolio_engine_payload.py:235-241`:
+- `ares-backend/services/portfolio_engine_payload.py:235-241`:
   Derselbe Truthiness-Fallback gilt für die Goal-Analyse; zusätzlich wird
   hier bereits der Hardness-Multiplikator angewandt.
-- `5eyes-backend/services/portfolio_engine_payload.py:266-283`:
+- `ares-backend/services/portfolio_engine_payload.py:266-283`:
   Die Mandatsaggregation behandelt ein angekommenes Nullgewicht als null und
   multipliziert jedes Gewicht nochmals mit Hardness.
-- `5eyes-backend/services/portfolio_engine_payload.py:607-628`:
+- `ares-backend/services/portfolio_engine_payload.py:607-628`:
   Die zuvor hardness-gewichtete `_goal_weight()` wird als `weight_bps` in die
   Goal-Analyse geschrieben und danach an die Aggregation übergeben.
-- `5eyes-backend/services/optimizer/objective.py:464-478` und `570-590`:
+- `ares-backend/services/optimizer/objective.py:464-478` und `570-590`:
   Selbst ein bis dorthin erhaltenes Nullgewicht wird durch `max(1, ...)` zu
   einem positiven Mindestgewicht.
 
 ### Bereits offene Monte-Carlo- und Publikationsverträge
 
-- `5eyes-backend/services/advisory_report.py:2061-2082` startet für den Report
+- `ares-backend/services/advisory_report.py:2061-2082` startet für den Report
   weiterhin eine neue Live-Monte-Carlo-Berechnung statt die unveränderliche
   Evidenz des Allocation-Runs zu verwenden.
-- `5eyes-backend/services/monte_carlo_paths.py:307-344` baut Szenarioinputs
+- `ares-backend/services/monte_carlo_paths.py:307-344` baut Szenarioinputs
   nur aus CMA, ohne exakten Suballocation-Snapshot, und publiziert p5/p50/p75.
-- `5eyes-electron/frontend/reporting/src/components/MonteCarloPathsChart.tsx:135`
+- `ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx:135`
   und `269` nennen p5-p75 ein Konfidenzband beziehungsweise „90% des
   Pfade-Korridors“. Empirisch liegen zwischen p5 und p75 nur 70 Prozent der
   Pfadmasse.
-- `5eyes-electron/frontend/reporting/src/components/MonteCarloPathsChart.tsx:301-306`
+- `ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx:301-306`
   formatiert die Werte hart als CHF.
-- `5eyes-electron/frontend/reporting/src/lib/goalClassification.ts:5-20`
+- `ares-desktop/frontend/reporting/src/lib/goalClassification.ts:5-20`
   definiert einen zusätzlichen p50/p75-Status und bezeichnet p75 als
   „Best-Case“.
 
@@ -781,7 +781,7 @@ Folgende Änderungen schließen den Audit ausdrücklich nicht:
 
 ### Ausgeführtes fokussiertes Bestands-Gate
 
-Aus `5eyes-backend` wurde ein isoliertes, cachefreies Core-Gate ausgeführt:
+Aus `ares-backend` wurde ein isoliertes, cachefreies Core-Gate ausgeführt:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `

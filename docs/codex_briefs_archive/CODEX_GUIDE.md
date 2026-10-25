@@ -18,14 +18,14 @@ Kunden kommen 1–2x/Jahr. Dann Rebalancing-Vergleich: gespeicherte SOLL-Strateg
 
 | Rolle | Pfad | Grösse |
 |---|---|---|
-| **Frontend (alles)** | `5eyes-electron/frontend/5eyes_v2.html` | ~12'000 Zeilen — **eine Datei** |
-| **Electron Host** | `5eyes-electron/main.js` | IPC-Brücke, Token, URL-Guards |
-| **Backend Engine** | `5eyes-backend/services/portfolio_engine.py` | Allokation, Monte Carlo, Simulation |
-| **Risk Scoring** | `5eyes-backend/services/risk_scoring.py` | Score-Formel, Kapazitäts-Matrix |
-| **API Routers** | `5eyes-backend/routers/*.py` | REST-Endpunkte |
-| **DB-Modelle** | `5eyes-backend/models/*.py` | SQLAlchemy |
-| **Pydantic Schemas** | `5eyes-backend/schemas/*.py` | Validation, Request/Response |
-| **DB-Init** | `5eyes-backend/database.py` | Schema-Migration, SQLCipher PRAGMA |
+| **Frontend (alles)** | `ares-desktop/frontend/ares.html` | ~12'000 Zeilen — **eine Datei** |
+| **Electron Host** | `ares-desktop/main.js` | IPC-Brücke, Token, URL-Guards |
+| **Backend Engine** | `ares-backend/services/portfolio_engine.py` | Allokation, Monte Carlo, Simulation |
+| **Risk Scoring** | `ares-backend/services/risk_scoring.py` | Score-Formel, Kapazitäts-Matrix |
+| **API Routers** | `ares-backend/routers/*.py` | REST-Endpunkte |
+| **DB-Modelle** | `ares-backend/models/*.py` | SQLAlchemy |
+| **Pydantic Schemas** | `ares-backend/schemas/*.py` | Validation, Request/Response |
+| **DB-Init** | `ares-backend/database.py` | Schema-Migration, SQLCipher PRAGMA |
 
 **Nie eine zweite Frontend-Datei anlegen. Nie Backend-Logik ins Frontend duplizieren.**
 
@@ -226,7 +226,7 @@ el.textContent = value;         // kein HTML-Parsing
 
 ### Backend-Tests ausführen
 ```bash
-cd C:\5eyes\5eyes_stage9_release_ready\5eyes-backend
+cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
 python -m pytest tests/ -v
 ```
 
@@ -236,7 +236,7 @@ python -m pytest tests/test_cashflow_timeline.py -v
 ```
 
 ### Neuen Test anlegen
-- Datei: `5eyes-backend/tests/test_<feature>.py`
+- Datei: `ares-backend/tests/test_<feature>.py`
 - Pattern: pytest, keine Mocks für DB (echte SQLite in-memory), keine Mocks für Scoring
 - Fixture: `db_session` (in-memory SQLite) + `test_client` (FastAPI TestClient)
 
@@ -250,7 +250,7 @@ sqlite3 $env:USERPROFILE\5eyes\5eyes.db "SELECT * FROM risk_assessments LIMIT 5;
 ```bash
 # Electron killen und neu starten — Backend startet automatisch
 # Oder manuell:
-cd C:\5eyes\5eyes_stage9_release_ready\5eyes-backend
+cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
 uvicorn main:app --reload --port 8000
 ```
 
@@ -359,13 +359,13 @@ house_matrix         id, policy_id, score_from, score_to, equity_target_bps, ...
 | Task | Prio | Datei | Problem |
 |---|---|---|---|
 | 1 | KRITISCH | `database.py:199` | ALTER TABLE ohne `import re` + Whitelist-Guards |
-| 2 | HOCH | `5eyes_v2.html:2951` + `portfolio_engine.py:204` | IST-Allokation Fallbacks divergieren FE vs. BE |
+| 2 | HOCH | `ares.html:2951` + `portfolio_engine.py:204` | IST-Allokation Fallbacks divergieren FE vs. BE |
 | 3 | MITTEL | `portfolio_engine.py:2692,2819,2655` | Tilt-Subtraktion ohne Floor/Cap-Check |
-| 4 | MITTEL | `5eyes_v2.html:9773,11379` | SR-Page `logs[0]` kein Status-Filter |
+| 4 | MITTEL | `ares.html:9773,11379` | SR-Page `logs[0]` kein Status-Filter |
 | 5 | MITTEL | `config.py:74` | CORS Regex `file://.*` zu breit → `^null$` |
-| 6 | NIEDRIG | `5eyes_v2.html:2959` | IST-Projektion ignoriert Backend-CMA |
-| 7 | NIEDRIG | `5eyes_v2.html:~3337` | `buildMonteCarloGoalsHtml()` definiert, nie aufgerufen |
-| 8 | NIEDRIG | `5eyes_v2.html:~5032` | 6 Thema-Sub-Asset-Klassen fehlen in Admin-CMA-UI |
+| 6 | NIEDRIG | `ares.html:2959` | IST-Projektion ignoriert Backend-CMA |
+| 7 | NIEDRIG | `ares.html:~3337` | `buildMonteCarloGoalsHtml()` definiert, nie aufgerufen |
+| 8 | NIEDRIG | `ares.html:~5032` | 6 Thema-Sub-Asset-Klassen fehlen in Admin-CMA-UI |
 
 Detaillierte Beschreibung + exakter Fix-Code: `CODEX_TASKS.md`
 

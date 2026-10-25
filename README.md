@@ -6,10 +6,10 @@ Lokale Beratungssoftware für Schweizer Vermögensberater (Electron + FastAPI).
 
 | Komponente | Pfad | Zweck |
 |------------|------|-------|
-| **Backend** | `5eyes-backend/` | FastAPI + SQLite/SQLCipher (Berater-Workflow, Aggregator, PDF-Rendering) |
-| **Hauptapp** | `5eyes-electron/frontend/5eyes_v2.html` | Monolithische Electron-App (Kunden/Mandat/SAA/Reports) |
-| **Reporting Sub-App** | `5eyes-electron/frontend/reporting/` | React/Vite — Advisory-Report-Anzeige (Vite-Dev → :5173) |
-| **Electron-Shell** | `5eyes-electron/main.js` | Wrapper + safeStorage-Token + Backend-Spawn |
+| **Backend** | `ares-backend/` | FastAPI + SQLite/SQLCipher (Berater-Workflow, Aggregator, PDF-Rendering) |
+| **Hauptapp** | `ares-desktop/frontend/ares.html` | Monolithische Electron-App (Kunden/Mandat/SAA/Reports) |
+| **Reporting Sub-App** | `ares-desktop/frontend/reporting/` | React/Vite — Advisory-Report-Anzeige (Vite-Dev → :5173) |
+| **Electron-Shell** | `ares-desktop/main.js` | Wrapper + safeStorage-Token + Backend-Spawn |
 
 ## Branch-Strategie
 
@@ -20,14 +20,14 @@ Lokale Beratungssoftware für Schweizer Vermögensberater (Electron + FastAPI).
 ## Backend starten (Dev)
 
 ```powershell
-cd 5eyes-backend
+cd ares-backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python main.py
 ```
 
-Backend lauscht standardmäßig auf `http://127.0.0.1:8000` (siehe `5eyes-backend/.env`).
+Backend lauscht standardmäßig auf `http://127.0.0.1:8000` (siehe `ares-backend/.env`).
 
 ## API-Dokumentation (Sprint U-80, 2026-06-05)
 
@@ -49,7 +49,7 @@ Während das Backend läuft, sind diese Endpoints verfügbar:
 ## Reporting Sub-App starten (Dev)
 
 ```powershell
-cd 5eyes-electron/frontend/reporting
+cd ares-desktop/frontend/reporting
 npm install
 npm run dev    # Vite-Dev auf :5173
 ```
@@ -60,11 +60,11 @@ Token-Handoff vom Hauptapp-Button via URL-Fragment (`#token=<jwt>`) — der Sub-
 
 ```powershell
 # Backend
-cd 5eyes-backend
+cd ares-backend
 pytest --maxfail=5 -q
 
 # Reporting Sub-App
-cd 5eyes-electron/frontend/reporting
+cd ares-desktop/frontend/reporting
 npm test       # vitest
 npm run build  # tsc + vite build
 ```
@@ -91,9 +91,9 @@ CI läuft beides parallel (siehe `.github/workflows/test.yml`).
 
 | Schicht | Pfad |
 |---------|------|
-| Backend-Aggregator | `5eyes-backend/services/advisory_report.py` |
-| PDF-Renderer | `5eyes-backend/services/pdf/components/compliance_audit.py` |
-| Sub-App-Page | `5eyes-electron/frontend/reporting/src/pages/Compliance.tsx` (Sub-App Sektion 17) |
+| Backend-Aggregator | `ares-backend/services/advisory_report.py` |
+| PDF-Renderer | `ares-backend/services/pdf/components/compliance_audit.py` |
+| Sub-App-Page | `ares-desktop/frontend/reporting/src/pages/Compliance.tsx` (Sub-App Sektion 17) |
 
 ## Weitere Doku
 
@@ -101,6 +101,6 @@ CI läuft beides parallel (siehe `.github/workflows/test.yml`).
 - `docs/CHANGELOG_TEMPLATE.md` — Changelog-Format
 - `docs/REPO_HYGIENE_2026-06-04.md` — Stash/Branch-Cleanup-Strategie
 - `docs/data_pipeline_README.md` — Multi-Source Marktdaten-Pipeline
-- `5eyes-electron/PACKAGING.md` — Electron-Build-Pipeline
-- `5eyes-electron/frontend/reporting/DESIGN_SYSTEM.md` — Tailwind-Tokens + Editorial-Disziplin
-- `5eyes-backend/README_price_updater.md` — Tägliche Marktdaten-Cron
+- `ares-desktop/PACKAGING.md` — Electron-Build-Pipeline
+- `ares-desktop/frontend/reporting/DESIGN_SYSTEM.md` — Tailwind-Tokens + Editorial-Disziplin
+- `ares-backend/README_price_updater.md` — Tägliche Marktdaten-Cron

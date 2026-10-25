@@ -28,12 +28,12 @@ Entscheidungen, Datenvertrag, UX-Regeln, Testplan und Umsetzungsauftrag.
 
 Codex: Mein Backend für den **Daily-Strategie-Backtest** ist fertig, getestet und
 gegen echte Marktdaten validiert (Commits `5dddcbc` Backend, `10fee38` Netz-Test,
-`07c1293` Regression). Es fehlt **nur noch das Frontend in `5eyes_v2.html`**. Bitte
+`07c1293` Regression). Es fehlt **nur noch das Frontend in `ares.html`**. Bitte
 übernimm das — du bist ohnehin in der Datei.
 
 ### A) WICHTIG zuerst: meine Toggle-Änderungen sind schon im Working-Tree (uncommitted)
 Ich habe den Auflösungs-Umschalter bereits geschrieben. **NICHT löschen/duplizieren** —
-beim Committen erhalten. Vorhandene Marker in `5eyes_v2.html`:
+beim Committen erhalten. Vorhandene Marker in `ares.html`:
 - `bt-fallback-badge` Div (≈ Zeile 2078) — Hinweis bei Fallback auf Jährlich.
 - Radios `bt-res-annual` / `bt-res-daily` (name=`bt-resolution`, ≈ 2099/2100) im
   Zeitraum-Panel des `m-bt`-Modals, mit `onchange="btRunBacktest()"`.

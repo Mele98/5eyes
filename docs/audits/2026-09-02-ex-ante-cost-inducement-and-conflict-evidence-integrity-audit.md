@@ -5,8 +5,8 @@ status_as_of: "2026-09-02"
 audit_started_on: "2026-09-02"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend/reporting"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend/reporting"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "0dea85fc964cfd63e994478d41ed8d3162c0084f"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -191,28 +191,28 @@ einer Kundenpublikation alle Bestandteile auf denselben Entscheid bindet.
 
 | Bereich | Anker | Beobachtung |
 |---|---|---|
-| Run-Auswahl | `5eyes-backend/services/cost_disclosure.py:47-65` | `created_at.desc().first()` ohne Status-, Current-, Final- oder Superseded-Regel. |
-| Besseres vorhandenes Muster | `5eyes-backend/routers/review.py:2227-2254` | Anderer Pfad filtert Current-Allocation/Superseded und bevorzugt Final; Kostenpfad nutzt diese Semantik nicht. |
-| Fee-Fallback | `5eyes-backend/services/cost_disclosure.py:75-83` | Fehlt der Run-Snapshot, wird heutige Policy live gelesen. |
-| TER | `5eyes-backend/services/cost_disclosure.py:84-137` | Produkte und tenant-/jurisdiktionsbezogene TER-Overrides werden live gelesen. |
-| Kostenbasis | `5eyes-backend/services/cost_disclosure.py:139-162` | TA-ID ohne Mandatsfilter; bei Fehlen Fallback auf Current-TA; daraus Wealth. |
-| Konfliktinput | `5eyes-backend/services/cost_disclosure.py:163-183` | Alle aktiven Zeilen mit Betrag; Disclosure, Ack, Waiver und Zahlungsbeleg werden verworfen. |
-| Run-Modell | `5eyes-backend/models/review.py:355-381` | `target_allocation_id` ist ein String ohne DB-Foreign-Key. |
-| Fee-Domain | `5eyes-backend/schemas/allocation.py:452-487` | `fee_model_json` ist freier String ohne fachliche Feldvalidierung. |
-| TER-Domain | `5eyes-backend/schemas/review.py:461-476` | Override-TER besitzt keine fachliche Grenze; Produkt-TER ist separat begrenzt. |
-| Normalisierung | `5eyes-backend/services/cost_disclosure.py:220-247`, `507-546` | Invalid/negativ wird über `_safe_int` und `max(0, ...)` zu null; keine Obergrenze. |
-| Vollständigkeit | `5eyes-backend/services/cost_disclosure.py:432-465` | Nur vorhandener Service-Fee-Key plus 10000 TER-Coverage bestimmt `is_complete`. |
-| Retrozession | `5eyes-backend/services/cost_disclosure.py:368-430` | Rückerstattung wird negativ verrechnet; einbehaltene Vergütung behauptet dokumentierten Verzicht. |
-| Response-Schema | `5eyes-backend/schemas/cost_disclosure.py:15-25` | `CostItem.rate_bps` ist zwingender Integer; Service liefert für Retrozession `None`. |
-| Konflikt-Create | `5eyes-backend/routers/review.py:1047-1099` | Create setzt Disclosure/Ack auf 0; kein Update-/Ack-Arbeitsablauf im öffentlichen Router. |
-| Konfliktaggregation | `5eyes-backend/services/advisory_report.py:2860-2918` | Nur disclosed-but-unacknowledged zählt; Exception liefert leer/false. |
-| Log-Snapshot | `5eyes-backend/services/advisory_log_service.py:112-198` | Builder reduziert den aktuellen Mandatsausweis und speichert ihn auch unabhängig vom ausgewählten Run. |
-| Integrität | `5eyes-backend/models/review.py:130-143`; `5eyes-backend/services/advisory_log_integrity.py:35-60` | Kostensnapshot ist ausdrücklich nicht Teil des Hash-Payloads. |
-| Standalone-PDF | `5eyes-backend/routers/pdf_reports.py:1966-2004` | PDF wird ausgeliefert, ohne Delivery-Event/Log/Hash zu aktualisieren. |
-| PDF-Sprache | `5eyes-backend/services/pdf/components/kostenausweis.py:50-55`, `227-265` | Fixtext nennt CHF und Beratungsvermögen; nur fünf Warnungen; Finaltotal immer grün. |
-| Report-Aggregator | `5eyes-backend/services/advisory_report.py:225-242`, `290-349` | Backend liefert und schützt `cost_disclosure`; React-Vertrag konsumiert ihn nicht. |
-| React-Typ/Validator | `5eyes-electron/frontend/reporting/src/api/types.ts:673-721`; `src/api/client.ts:131-165` | `cost_disclosure` fehlt im Typ und in den erwarteten Keys. |
-| React-Logeditor | `5eyes-electron/frontend/reporting/src/components/AdvisoryLogEditor.tsx:157-174`, `323-331` | Checkbox setzt manuell Delivery-Flag; Konflikt-IDs werden immer als leere Liste gesendet. |
+| Run-Auswahl | `ares-backend/services/cost_disclosure.py:47-65` | `created_at.desc().first()` ohne Status-, Current-, Final- oder Superseded-Regel. |
+| Besseres vorhandenes Muster | `ares-backend/routers/review.py:2227-2254` | Anderer Pfad filtert Current-Allocation/Superseded und bevorzugt Final; Kostenpfad nutzt diese Semantik nicht. |
+| Fee-Fallback | `ares-backend/services/cost_disclosure.py:75-83` | Fehlt der Run-Snapshot, wird heutige Policy live gelesen. |
+| TER | `ares-backend/services/cost_disclosure.py:84-137` | Produkte und tenant-/jurisdiktionsbezogene TER-Overrides werden live gelesen. |
+| Kostenbasis | `ares-backend/services/cost_disclosure.py:139-162` | TA-ID ohne Mandatsfilter; bei Fehlen Fallback auf Current-TA; daraus Wealth. |
+| Konfliktinput | `ares-backend/services/cost_disclosure.py:163-183` | Alle aktiven Zeilen mit Betrag; Disclosure, Ack, Waiver und Zahlungsbeleg werden verworfen. |
+| Run-Modell | `ares-backend/models/review.py:355-381` | `target_allocation_id` ist ein String ohne DB-Foreign-Key. |
+| Fee-Domain | `ares-backend/schemas/allocation.py:452-487` | `fee_model_json` ist freier String ohne fachliche Feldvalidierung. |
+| TER-Domain | `ares-backend/schemas/review.py:461-476` | Override-TER besitzt keine fachliche Grenze; Produkt-TER ist separat begrenzt. |
+| Normalisierung | `ares-backend/services/cost_disclosure.py:220-247`, `507-546` | Invalid/negativ wird über `_safe_int` und `max(0, ...)` zu null; keine Obergrenze. |
+| Vollständigkeit | `ares-backend/services/cost_disclosure.py:432-465` | Nur vorhandener Service-Fee-Key plus 10000 TER-Coverage bestimmt `is_complete`. |
+| Retrozession | `ares-backend/services/cost_disclosure.py:368-430` | Rückerstattung wird negativ verrechnet; einbehaltene Vergütung behauptet dokumentierten Verzicht. |
+| Response-Schema | `ares-backend/schemas/cost_disclosure.py:15-25` | `CostItem.rate_bps` ist zwingender Integer; Service liefert für Retrozession `None`. |
+| Konflikt-Create | `ares-backend/routers/review.py:1047-1099` | Create setzt Disclosure/Ack auf 0; kein Update-/Ack-Arbeitsablauf im öffentlichen Router. |
+| Konfliktaggregation | `ares-backend/services/advisory_report.py:2860-2918` | Nur disclosed-but-unacknowledged zählt; Exception liefert leer/false. |
+| Log-Snapshot | `ares-backend/services/advisory_log_service.py:112-198` | Builder reduziert den aktuellen Mandatsausweis und speichert ihn auch unabhängig vom ausgewählten Run. |
+| Integrität | `ares-backend/models/review.py:130-143`; `ares-backend/services/advisory_log_integrity.py:35-60` | Kostensnapshot ist ausdrücklich nicht Teil des Hash-Payloads. |
+| Standalone-PDF | `ares-backend/routers/pdf_reports.py:1966-2004` | PDF wird ausgeliefert, ohne Delivery-Event/Log/Hash zu aktualisieren. |
+| PDF-Sprache | `ares-backend/services/pdf/components/kostenausweis.py:50-55`, `227-265` | Fixtext nennt CHF und Beratungsvermögen; nur fünf Warnungen; Finaltotal immer grün. |
+| Report-Aggregator | `ares-backend/services/advisory_report.py:225-242`, `290-349` | Backend liefert und schützt `cost_disclosure`; React-Vertrag konsumiert ihn nicht. |
+| React-Typ/Validator | `ares-desktop/frontend/reporting/src/api/types.ts:673-721`; `src/api/client.ts:131-165` | `cost_disclosure` fehlt im Typ und in den erwarteten Keys. |
+| React-Logeditor | `ares-desktop/frontend/reporting/src/components/AdvisoryLogEditor.tsx:157-174`, `323-331` | Checkbox setzt manuell Delivery-Flag; Konflikt-IDs werden immer als leere Liste gesendet. |
 
 ## `COST-CONTEXT-001` – Kosten besitzen keinen unveränderlichen Entscheidungscontext
 
@@ -992,7 +992,7 @@ keine sichtbare Änderung vor der Dokumentation vorlag.
 
 ### Fokussierter Backend-Gate
 
-Ausgeführt aus `5eyes-backend` mit externem Basetemp:
+Ausgeführt aus `ares-backend` mit externem Basetemp:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `
@@ -1019,7 +1019,7 @@ Ergebnis:
 
 ### Fokussierter Frontend-Gate
 
-Ausgeführt aus `5eyes-electron/frontend/reporting`:
+Ausgeführt aus `ares-desktop/frontend/reporting`:
 
 ```powershell
 npm.cmd test -- --run src/api/client.test.ts src/pages/sections.test.tsx

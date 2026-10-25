@@ -5,8 +5,8 @@ status_as_of: "2026-09-04"
 audit_started_on: "2026-09-04"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "b5de5c9fb5cad1daf04f7e861a3f94ae81177db0"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -282,35 +282,35 @@ wirksamer Reader mit einem anderen Snapshot arbeitet.
 
 | Bereich | Beleg |
 |---|---|
-| Striktes Präferenzschema | `5eyes-backend/schemas/allocation.py:818-900` |
-| TargetAllocation-Präferenz-/Hashfelder | `5eyes-backend/models/allocation.py:78-111` |
-| Normalisierung und Snapshot-Parser | `5eyes-backend/services/portfolio_engine.py:457-491` |
-| TA-Snapshot-Persistenz | `5eyes-backend/services/portfolio_engine.py:3757`, `3975-3981`, `4022` |
-| Context-Hash-Verifikation | `5eyes-backend/services/portfolio_engine.py:4160-4365` |
-| Rebuild-Präferenzwahl | `5eyes-backend/services/portfolio_engine.py:5444-5448` |
-| Persistierte Suballokation gewinnt | `5eyes-backend/services/portfolio_engine.py:5645-5700` |
-| Driftwarnung | `5eyes-backend/services/portfolio_engine.py:2794-2853`, `6016-6023` |
-| Recommendation-Doppelsource | `5eyes-backend/services/portfolio_engine.py:6439-6452`, `6519-6529`, `6598-6642` |
-| Warning-Verlust | `5eyes-backend/services/portfolio_engine.py:6591`, `6858-6874` |
-| Produktfilter | `5eyes-backend/services/portfolio_engine_payload.py:712-768` |
-| Produkt-Score und Themenlogik | `5eyes-backend/services/portfolio_engine_payload.py:832-876` |
-| Themen-Sleeve-Erzeugung | `5eyes-backend/services/portfolio_engine_house_matrix.py:680-709` |
-| Konzentrationslimits | `5eyes-backend/services/portfolio_engine_payload.py:923-958` |
-| RecommendationRun ohne Präferenzfelder | `5eyes-backend/models/review.py:355-384` |
-| API-Schema ohne Run-Constraint-Snapshot | `5eyes-backend/schemas/review.py:684-717`, `778-856` |
-| Direct Create | `5eyes-backend/routers/review.py:2027-2161` |
-| Manuelles Add | `5eyes-backend/routers/review.py:2343-2367` |
-| Finalisierungsvalidator | `5eyes-backend/routers/review.py:137-235` |
-| Finalisierung | `5eyes-backend/routers/review.py:2290-2327` |
-| UI gespeicherter Recoverypfad | `5eyes-electron/frontend/5eyes_v2.html:20343-20395` |
-| UI Live-Hydratepfad | `5eyes-electron/frontend/5eyes_v2.html:21521-21532` |
-| Browser-LocalStorage | `5eyes-electron/frontend/5eyes_v2.html:17620-17678`, `18344-18360` |
-| UI ESG-/Home-/FX-Claims | `5eyes-electron/frontend/5eyes_v2.html:3492-3495` |
-| UI Restriktionschips | `5eyes-electron/frontend/5eyes_v2.html:17984-18013` |
-| PDF liest TA-Präferenzen | `5eyes-backend/routers/pdf_reports.py:394-434` |
-| PDF publiziert Präferenzen/Restriktionen | `5eyes-backend/services/pdf/documents/anlagestrategie.py:642-736` |
-| PDF wählt Produkte unabhängig | `5eyes-backend/routers/pdf_reports.py:489-535` |
-| Alembic RecommendationRun ohne Snapshot | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:883-903` |
+| Striktes Präferenzschema | `ares-backend/schemas/allocation.py:818-900` |
+| TargetAllocation-Präferenz-/Hashfelder | `ares-backend/models/allocation.py:78-111` |
+| Normalisierung und Snapshot-Parser | `ares-backend/services/portfolio_engine.py:457-491` |
+| TA-Snapshot-Persistenz | `ares-backend/services/portfolio_engine.py:3757`, `3975-3981`, `4022` |
+| Context-Hash-Verifikation | `ares-backend/services/portfolio_engine.py:4160-4365` |
+| Rebuild-Präferenzwahl | `ares-backend/services/portfolio_engine.py:5444-5448` |
+| Persistierte Suballokation gewinnt | `ares-backend/services/portfolio_engine.py:5645-5700` |
+| Driftwarnung | `ares-backend/services/portfolio_engine.py:2794-2853`, `6016-6023` |
+| Recommendation-Doppelsource | `ares-backend/services/portfolio_engine.py:6439-6452`, `6519-6529`, `6598-6642` |
+| Warning-Verlust | `ares-backend/services/portfolio_engine.py:6591`, `6858-6874` |
+| Produktfilter | `ares-backend/services/portfolio_engine_payload.py:712-768` |
+| Produkt-Score und Themenlogik | `ares-backend/services/portfolio_engine_payload.py:832-876` |
+| Themen-Sleeve-Erzeugung | `ares-backend/services/portfolio_engine_house_matrix.py:680-709` |
+| Konzentrationslimits | `ares-backend/services/portfolio_engine_payload.py:923-958` |
+| RecommendationRun ohne Präferenzfelder | `ares-backend/models/review.py:355-384` |
+| API-Schema ohne Run-Constraint-Snapshot | `ares-backend/schemas/review.py:684-717`, `778-856` |
+| Direct Create | `ares-backend/routers/review.py:2027-2161` |
+| Manuelles Add | `ares-backend/routers/review.py:2343-2367` |
+| Finalisierungsvalidator | `ares-backend/routers/review.py:137-235` |
+| Finalisierung | `ares-backend/routers/review.py:2290-2327` |
+| UI gespeicherter Recoverypfad | `ares-desktop/frontend/ares.html:20343-20395` |
+| UI Live-Hydratepfad | `ares-desktop/frontend/ares.html:21521-21532` |
+| Browser-LocalStorage | `ares-desktop/frontend/ares.html:17620-17678`, `18344-18360` |
+| UI ESG-/Home-/FX-Claims | `ares-desktop/frontend/ares.html:3492-3495` |
+| UI Restriktionschips | `ares-desktop/frontend/ares.html:17984-18013` |
+| PDF liest TA-Präferenzen | `ares-backend/routers/pdf_reports.py:394-434` |
+| PDF publiziert Präferenzen/Restriktionen | `ares-backend/services/pdf/documents/anlagestrategie.py:642-736` |
+| PDF wählt Produkte unabhängig | `ares-backend/routers/pdf_reports.py:489-535` |
+| Alembic RecommendationRun ohne Snapshot | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:883-903` |
 
 ## `PREF-CONTEXT-001` – Recommendation und TargetAllocation verwenden verschiedene Präferenzquellen
 
@@ -1096,7 +1096,7 @@ Quellenvergleich und den fokussierten bestehenden Test-Gate.
 
 ### Fokussierter Bestands-Gate
 
-Ausgeführt aus `5eyes-backend` ohne Cacheprovider:
+Ausgeführt aus `ares-backend` ohne Cacheprovider:
 
 ```powershell
 python -m pytest -p no:cacheprovider `

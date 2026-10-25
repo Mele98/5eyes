@@ -4,7 +4,7 @@ document_role: "release-blocking-product-master-data-and-exposure-integrity-foll
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "25526170228fab30184721fbbde2fac111d7629e"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -102,16 +102,16 @@ separate Tenant-/Produktresolver-Lücke; sie wird hier nicht erneut gezählt.
 
 | Bereich | Codeanker |
 |---|---|
-| freie Produkt-Create-/Update-Felder | `5eyes-backend/schemas/review.py:329-383` |
-| Produktmodell mit unbeschränkten Stammdatenfeldern | `5eyes-backend/models/review.py:203-275` |
-| Admin-Update persistiert Payload ohne Domainprüfung | `5eyes-backend/routers/review.py:1459-1486` |
-| Router dokumentiert ausdrücklich fehlende JSON-Validierung | `5eyes-backend/routers/review.py:1466-1470` |
-| Parser verschluckt ungültige explizite Maps und nimmt Proxy | `5eyes-backend/services/product_exposures.py:171-215` |
-| Exposure-Aggregation erhält negative Werte | `5eyes-backend/services/product_exposures.py:218-252` |
-| Depotcheck konsumiert Maps und numerische Felder live | `5eyes-backend/services/depot_check.py:403-459`, `:532-591` |
-| Advisory-Sektorbild konsumiert dieselbe fail-open Map | `5eyes-backend/services/advisory_report.py:487-541` |
-| unbekannte Liquidität fällt auf heuristische Klassifikation | `5eyes-backend/services/depot_check.py:53-103` |
-| aktive Produktliste verlangt exakt `is_active == 1` | `5eyes-backend/routers/review.py:238-249` |
+| freie Produkt-Create-/Update-Felder | `ares-backend/schemas/review.py:329-383` |
+| Produktmodell mit unbeschränkten Stammdatenfeldern | `ares-backend/models/review.py:203-275` |
+| Admin-Update persistiert Payload ohne Domainprüfung | `ares-backend/routers/review.py:1459-1486` |
+| Router dokumentiert ausdrücklich fehlende JSON-Validierung | `ares-backend/routers/review.py:1466-1470` |
+| Parser verschluckt ungültige explizite Maps und nimmt Proxy | `ares-backend/services/product_exposures.py:171-215` |
+| Exposure-Aggregation erhält negative Werte | `ares-backend/services/product_exposures.py:218-252` |
+| Depotcheck konsumiert Maps und numerische Felder live | `ares-backend/services/depot_check.py:403-459`, `:532-591` |
+| Advisory-Sektorbild konsumiert dieselbe fail-open Map | `ares-backend/services/advisory_report.py:487-541` |
+| unbekannte Liquidität fällt auf heuristische Klassifikation | `ares-backend/services/depot_check.py:53-103` |
+| aktive Produktliste verlangt exakt `is_active == 1` | `ares-backend/routers/review.py:238-249` |
 
 ## `PROD-DOMAIN-001` – Explizit kaputte Produktdaten werden ersetzt oder publiziert
 
