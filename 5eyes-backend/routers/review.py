@@ -88,6 +88,7 @@ from services.review_engine import (
     refresh_system_review_triggers,
 )
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
+from services.product_eligibility_finalization import finalization_eligibility_findings
 from services.review_calendar_feed import (
     build_ics_feed,
     issue_calendar_feed_token,
@@ -489,6 +490,15 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         profile = resolve_market_profile(product)
         if not (profile.get("lookup_symbol") or profile.get("isin")):
             warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    if assessment is not None:
+        # ELIG-FINAL-001: Produkteignung jeder aggregierten Position mit
+        # demselben Kern wie Generate (inkl. Angemessenheit/Override).
+        eligibility_errors, eligibility_warnings = finalization_eligibility_findings(
+            db, mandate=mandate, run=run, assessment=assessment,
+            positions=positions, products=products,
+        )
+        errors.extend(eligibility_errors)
+        warnings.extend(eligibility_warnings)
     quality = summarize_price_quality(db, product_ids)
     if int(quality.get("missing_prices_count") or 0):
         warnings.append("Mindestens eine Position hat keinen aktuellen Marktpreis.")
