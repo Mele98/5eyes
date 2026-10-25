@@ -245,7 +245,6 @@ def test_snapshot_preserves_executable_instruction_fields_when_source_has_them(s
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-IDEMPOTENCY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_identical_create_retry_produces_exactly_one_open_handoff(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])

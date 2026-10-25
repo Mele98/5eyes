@@ -10,6 +10,9 @@ der Snapshot mit dem uebereinstimmt, was der Berater tatsaechlich gesehen hat.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+
 from sqlalchemy.orm import Session
 
 from models.mandates import Mandate
@@ -177,3 +180,26 @@ def _snapshot_trade(entry: dict, isin_by_product: dict) -> dict:
     trade["instruction_kind"] = INSTRUCTION_KIND_RECOMMENDATION if missing else INSTRUCTION_KIND_EXECUTABLE
     trade["missing_instruction_fields"] = missing
     return trade
+
+
+def _normalized_recipient(name: str | None) -> str:
+    return " ".join(str(name or "").split()).casefold()
+
+
+def handoff_business_key_hash(
+    *, mandate_id: str, run_id: str, trades: list[dict], total_value_rappen: int, recipient_name: str,
+) -> str:
+    """HANDOFF-IDEMPOTENCY-001: SHA-256 der fachlichen Identitaet einer
+    Weiterleitung -- Mandat, Run, kanonischer Trade-Snapshot, Live-Total und
+    (normalisierter) Empfaenger. Ein identischer Retry ergibt denselben
+    Schluessel; jede fachliche Aenderung einen neuen."""
+    payload = {
+        "schema": "PortfolioHandoffBusinessKeyV1",
+        "mandate_id": str(mandate_id),
+        "recommendation_run_id": str(run_id),
+        "live_total_value_rappen": int(total_value_rappen),
+        "recipient": _normalized_recipient(recipient_name),
+        "trades": trades,
+    }
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

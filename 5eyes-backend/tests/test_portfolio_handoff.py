@@ -645,3 +645,95 @@ def test_mark_executed_rejects_execution_before_handoff_creation(session_factory
         assert exc.value.status_code == 422
         session.expire_all()
         assert session.query(PortfolioHandoff).filter(PortfolioHandoff.id == created.id).one().status == "Vorbereitet"
+
+
+# ===========================================================================
+# HANDOFF-IDEMPOTENCY-001 -- genau eine offene Weiterleitung je Identitaet
+# ===========================================================================
+
+
+def _create(session, advisor_user, **body):
+    return create_portfolio_handoff(
+        mandate_id="mandate-1", run_id="run-1",
+        body=PortfolioHandoffCreate(**{"recipient_name": "Bank XY", **body}),
+        request=_FakeRequest(), db=session, current_user=advisor_user,
+    )
+
+
+def test_identical_retry_returns_same_handoff_without_second_audit_row(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        first = _create(session, advisor_user, note="Q4")
+        second = _create(session, advisor_user, note="Q4")
+        assert second.id == first.id
+        # Gleiche fachliche Identitaet (Empfaenger normalisiert), aber anderer
+        # Request -> 409 statt zweiter offener Weiterleitung.
+        with pytest.raises(HTTPException) as exc:
+            _create(session, advisor_user, recipient_name="bank   XY", note="Q4")
+        assert exc.value.status_code == 409
+        assert first.business_key_hash and len(first.business_key_hash) == 64
+        assert session.query(PortfolioHandoff).count() == 1
+        assert session.query(AuditLog).filter(AuditLog.table_name == "portfolio_handoffs").count() == 1
+
+
+def test_same_identity_with_different_request_is_409(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        first = _create(session, advisor_user, note="Q4")
+        with pytest.raises(HTTPException) as exc:
+            _create(session, advisor_user, note="anderer Auftrag")
+        assert exc.value.status_code == 409
+        assert exc.value.detail["reason_code"] == "HANDOFF_ALREADY_OPEN"
+        assert exc.value.detail["handoff_id"] == first.id
+        assert session.query(PortfolioHandoff).count() == 1
+
+
+def test_changed_trades_or_closed_handoff_allow_a_new_one(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        first = _create(session, advisor_user)
+        cancel_portfolio_handoff(
+            mandate_id="mandate-1", handoff_id=first.id,
+            body=PortfolioHandoffCancel(cancelled_reason="neu erfassen"),
+            request=_FakeRequest(), db=session, current_user=advisor_user,
+        )
+        again = _create(session, advisor_user)
+        assert again.id != first.id
+        # Neuer fachlicher Inhalt -> neuer Schluessel, neue Zeile.
+        _patch_engine(monkeypatch, [_drift("prod-1", 60_000)])
+        changed = _create(session, advisor_user)
+        assert changed.id not in {first.id, again.id}
+        assert changed.business_key_hash != again.business_key_hash
+
+
+def test_concurrent_identical_create_resolves_to_existing_via_unique_index(session_factory, advisor_user, monkeypatch):
+    """Zwei parallele identische Requests: beide bestehen die Vorpruefung,
+    der partielle Unique-Index laesst nur EINEN Insert zu, der Verlierer
+    liefert das Ergebnis des Gewinners."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session_a:
+        winner = _create(session_a, advisor_user)
+
+    real_lookup = portfolio_handoff_router._open_handoff_with_business_key
+    calls = {"n": 0}
+
+    def _stale_first_lookup(db, mandate_id, business_key):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # Vorpruefung lief, bevor der Gewinner committet hat
+        return real_lookup(db, mandate_id, business_key)
+
+    monkeypatch.setattr(portfolio_handoff_router, "_open_handoff_with_business_key", _stale_first_lookup)
+    with session_factory() as session_b:
+        loser = _create(session_b, advisor_user)
+        assert loser.id == winner.id
+        assert session_b.query(PortfolioHandoff).count() == 1
+    assert calls["n"] == 2

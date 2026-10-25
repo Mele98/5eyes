@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db, new_uuid
@@ -38,7 +39,11 @@ from schemas.portfolio_handoff import (
 )
 from services.audit import log
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
-from services.portfolio_handoff import NoTradeListAvailableError, snapshot_handoff_trades
+from services.portfolio_handoff import (
+    NoTradeListAvailableError,
+    handoff_business_key_hash,
+    snapshot_handoff_trades,
+)
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
     assert_recommendation_release_eligible,
@@ -194,6 +199,14 @@ def create_portfolio_handoff(
         # wie routers/review.py::get_recommendation_payload.
         raise HTTPException(status_code=409, detail=str(exc))
 
+    business_key = handoff_business_key_hash(
+        mandate_id=mandate_id, run_id=run.id, trades=trades,
+        total_value_rappen=total_value_rappen, recipient_name=body.recipient_name,
+    )
+    existing = _open_handoff_with_business_key(db, mandate_id, business_key)
+    if existing is not None:
+        return _idempotent_replay_or_409(existing, body)
+
     now = _now()
     handoff = PortfolioHandoff(
         id=new_uuid(),
@@ -206,6 +219,7 @@ def create_portfolio_handoff(
         recipient_channel=body.recipient_channel,
         note=body.note,
         status=HANDOFF_STATUS_PREPARED,
+        business_key_hash=business_key,
         created_by=current_user.id,
         created_at=now,
         updated_at=now,
@@ -225,9 +239,50 @@ def create_portfolio_handoff(
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Paralleler identischer Request hat zwischen Pruefung und Commit
+        # gewonnen (partieller Unique-Index) -> dessen Ergebnis liefern.
+        db.rollback()
+        existing = _open_handoff_with_business_key(db, mandate_id, business_key)
+        if existing is None:
+            raise
+        return _idempotent_replay_or_409(existing, body)
     db.refresh(handoff)
     return handoff
+
+
+def _open_handoff_with_business_key(db: Session, mandate_id: str, business_key: str):
+    return db.query(PortfolioHandoff).filter(
+        PortfolioHandoff.mandate_id == mandate_id,
+        PortfolioHandoff.business_key_hash == business_key,
+        PortfolioHandoff.status.in_(HANDOFF_OPEN_STATUSES),
+    ).first()
+
+
+def _idempotent_replay_or_409(existing: PortfolioHandoff, body: PortfolioHandoffCreate) -> PortfolioHandoff:
+    """HANDOFF-IDEMPOTENCY-001: identischer Request -> dasselbe Ergebnis;
+    gleiche fachliche Identitaet mit anderem Inhalt -> 409 statt einer
+    zweiten offenen Weiterleitung."""
+    same_request = (
+        existing.recipient_name == body.recipient_name
+        and (existing.recipient_channel or None) == (body.recipient_channel or None)
+        and (existing.note or None) == (body.note or None)
+    )
+    if same_request:
+        return existing
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "reason_code": "HANDOFF_ALREADY_OPEN",
+            "message": (
+                "Fuer diese Handelsliste und diesen Empfaenger besteht bereits eine "
+                "offene Weiterleitung. Bitte diese abschliessen oder stornieren."
+            ),
+            "handoff_id": existing.id,
+        },
+    )
 
 
 @router.post(
