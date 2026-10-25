@@ -5005,7 +5005,7 @@ function _wireSollIstHover(){
           <div id="m-acf-family-hint" style="font-size:10px;color:var(--n5);margin-top:3px;line-height:1.45"></div>
         </div>
         <div class="fg m-acf-field" id="nz-priority-rank-field" data-goal-field="priority-rank" data-stage6-id="m-acf-priority-rank">
-          <label class="fl">Priorität / Härte</label>
+          <label class="fl">Härte (Rang = Reihenfolge in der Zielliste)</label>
           <select class="fsel" id="nz-prio" onchange="syncGoalModalState()">
             <option value="1" id="nz-prio-hart-option">1 – Muss (Hart)</option>
             <option value="2">2 – Wichtig (Primär)</option>
@@ -7181,9 +7181,11 @@ function setupDrag(){
     });
     row.addEventListener('dragend',function(){this.style.opacity='1';});
     row.addEventListener('dragover',e=>e.preventDefault());
-    row.addEventListener('drop',function(e){e.preventDefault();if(drag&&drag!==this){list.insertBefore(drag,this);renum();}});
+    row.addEventListener('drop',function(e){e.preventDefault();if(drag&&drag!==this){list.insertBefore(drag,this);renum();persistGoalOrder();}});
   });
 }
+// GOAL-RANK-HARDNESS-ROUNDTRIP-001: Drag-Reorder schreibt die ganze Reihenfolge atomar (PUT goals/order, CAS ueber expected_goal_ids); bei Fehler sichtbarer Rollback auf den Serverstand.
+async function persistGoalOrder(){var mid=getActiveMandateId();var before=(currentGoals||[]).map(function(g){return String(g.id||'');});var ids=Array.prototype.map.call(document.querySelectorAll('#zl .goal[data-goalid]'),function(r){return r.getAttribute('data-goalid')||'';});var byId={};(currentGoals||[]).forEach(function(g){byId[String(g.id||'')]=g;});if(!mid||isDemoMandateId(mid)){currentGoals=ids.map(function(id,i){return Object.assign({},byId[id],{rank:i+1});});renderGoalList(currentGoals,true);return true;}try{var saved=await API.put('/mandates/'+mid+'/goals/order',{goal_ids:ids,expected_goal_ids:before});if(Array.isArray(saved))currentGoals=saved.slice();renderGoalList(currentGoals,false);syncAllocationPendingViews();markStrategyDirty('Ziel-Reihenfolge geändert. Die angezeigte Soll-Allokation ist noch der alte Stand - bitte Anlagestrategie neu berechnen.',true);return true;}catch(e){try{showAppError('Fehler: '+goalSaveErrorText(e),{title:'Reihenfolge nicht gespeichert'});}catch(noticeErr){}await refreshGoalsUI(mid);return false;}}
 function renum(){
   document.querySelectorAll('#zl .goal').forEach((r,i)=>{
     const pd=r.querySelector('.pd');if(pd){pd.textContent=i+1;pd.className='pd '+(i<2?'p1':i<4?'p2':'p3');}
@@ -27807,9 +27809,6 @@ function mainGoalAchievability(result){
       rankById[String(goal.id||'')]=Number(goal.rank||idx+1);
     });
     return rows.slice().sort(function(a,b){
-      var ah=String(a.hardness||'').toLowerCase().indexOf('hart')===0?0:1;
-      var bh=String(b.hardness||'').toLowerCase().indexOf('hart')===0?0:1;
-      if(ah!==bh)return ah-bh;
       return (rankById[String(a.goal_id||'')]||99)-(rankById[String(b.goal_id||'')]||99);
     })[0];
   }
@@ -30234,7 +30233,7 @@ function openGoalEditor(goalId){
   if(modalTitle)modalTitle.textContent='Ziel bearbeiten';
   var goalType=goal.goal_type||'Einmalige_Ausgabe';
   var priorityMap={'Hart':'1','Prim\u00e4r':'2','Primaer':'2','Opportunistisch':'3'};
-  var storedPriority=priorityMap[goal.hardness]||String(goal.rank||2);
+  var storedPriority=priorityMap[goal.hardness]||'2';
   var legacyHardReturn=isReturnGoalType(goalType)&&storedPriority==='1';
   setInputValue('nz-label',goal.label||'');
   setInputValue('nz-notes',goal.notes||'');
@@ -30479,7 +30478,7 @@ async function saveGoal(options){
     goal_type:type,
     label:label,
     notes:notes||null,
-    rank:parseInt(prio,10)||2,
+    rank:(function(){var own=isEdit?(currentGoals||[]).find(function(g){return String(g.id||'')===String(goalIdBeforeSave||'');}):null;if(own&&Number(own.rank)>0)return Number(own.rank);return (currentGoals||[]).reduce(function(m,g){return Math.max(m,Number(g.rank||0));},0)+1;})(),
     goal_scope:scope,
     value_mode:isWealthGoalType(type)?((document.querySelector('input[name=\"nz-value-mode\"]:checked')||{value:'nominal'}).value||'nominal'):'nominal',
     target_amount_rappen:null,

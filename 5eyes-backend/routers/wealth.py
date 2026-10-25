@@ -13,7 +13,7 @@ from models.wealth import WealthPosition, Cashflow, Goal, PlanningAssumption, We
 from schemas.wealth import (
     WealthPositionCreate, WealthPositionUpdate, WealthPositionResponse,
     CashflowCreate, CashflowUpdate, CashflowResponse,
-    GoalCreate, GoalUpdate, GoalResponse, GoalRevisionDecisionCreate,
+    GoalCreate, GoalUpdate, GoalOrderUpdate, GoalResponse, GoalRevisionDecisionCreate,
     PlanningAssumptionCreate, PlanningAssumptionResponse,
     WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
     MaxPensionSpendingRequest, MaxPensionSpendingResponse,
@@ -530,8 +530,17 @@ def _resolve_goal_rank_conflict(
             kollidiert)
 
     Returns:
-        Den final zu nutzenden Rang. Gleich requested_rank falls frei, sonst
-        max(other_ranks) + 1.
+        Den final zu nutzenden Rang. Gleich requested_rank falls frei. Bei
+        Konflikt: fuer ein NEUES Ziel max(other_ranks) + 1 (anhaengen), fuer
+        ein BESTEHENDES Ziel dessen bisheriger Rang.
+
+    GOAL-RANK-HARDNESS-ROUNDTRIP-001 (2026-10-25): ``rank`` ist die
+    kanonische Prioritaet (Owner-Entscheid 10a), nicht nur Sortierhilfe. Ein
+    Update, dessen Wunschrang belegt ist, schob das Ziel bisher ans Ende
+    (Rang 2 -> 4, Default-Gewicht 5000 -> 1250 bps) -- eine automatische
+    Herabstufung durch einen No-op-Edit. Jetzt behaelt das Ziel seinen Rang;
+    Umsortieren laeuft ausschliesslich ueber die atomare Reihenfolge
+    (``PUT /mandates/{id}/goals/order``).
     """
     query = db.query(Goal).filter(
         Goal.mandate_id == mandate_id,
@@ -543,7 +552,13 @@ def _resolve_goal_rank_conflict(
         query = query.filter(Goal.id != existing_id)
     if not query.first():
         return int(requested_rank)
-    # Conflict: finde max benutzten Rang (excl. self) und vergebe max+1.
+    if existing_id is not None:
+        current = db.query(Goal.rank).filter(
+            Goal.id == existing_id, Goal.mandate_id == mandate_id,
+        ).scalar()
+        if current is not None:
+            return int(current)
+    # Conflict (neues Ziel): finde max benutzten Rang und vergebe max+1.
     max_query = db.query(func.max(Goal.rank)).filter(
         Goal.mandate_id == mandate_id,
         Goal.is_active == 1,
@@ -1283,6 +1298,55 @@ def create_goal(
     db.refresh(goal)
     invalidate_advisory_cache(mandate_id)
     return goal
+
+
+@router.put("/mandates/{mandate_id}/goals/order", response_model=list[GoalResponse])
+def reorder_goals(
+    mandate_id: str,
+    body: GoalOrderUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    """Schreibt die vollstaendige Ziel-Reihenfolge atomar (ADR-10c).
+
+    Muss VOR ``/goals/{goal_id}`` registriert sein, sonst faengt die
+    Einzelziel-Route den Pfad ``order`` ab.
+    """
+    from services.goal_reorder import (
+        GoalOrderConflictError,
+        GoalOrderError,
+        resolve_goal_order,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    goals = db.query(Goal).filter(
+        Goal.mandate_id == mandate_id,
+        Goal.deleted_at.is_(None),
+        Goal.is_active == 1,
+    ).all()
+    try:
+        new_ranks = resolve_goal_order(goals, body.goal_ids, body.expected_goal_ids)
+    except GoalOrderConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except GoalOrderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    now = _now()
+    changed = False
+    for goal in goals:
+        rank = new_ranks[str(goal.id)]
+        if int(goal.rank or 0) != rank:
+            goal.rank = rank
+            goal.updated_at = now
+            changed = True
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="goals", record_id=goal.id, action="UPDATE",
+                mandate_id=mandate_id, client_id=mandate.client_id)
+    if changed:
+        _invalidate_achievement_scores_for_mandate(mandate_id, db)
+    db.commit()
+    if changed:
+        invalidate_advisory_cache(mandate_id)
+    return sorted(goals, key=lambda g: int(g.rank))
 
 
 @router.put("/mandates/{mandate_id}/goals/{goal_id}", response_model=GoalResponse)
