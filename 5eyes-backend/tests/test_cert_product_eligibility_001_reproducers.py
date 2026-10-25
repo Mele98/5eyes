@@ -271,7 +271,6 @@ def test_positive_appropriateness_requires_a_knowledge_anchor():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-GATE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_suitability_hard_gate_is_not_default_off():
     # Soll: recommendation generation must not be able to silently skip
     # eligibility checking. NOTE (spec Section 17): flipping only this

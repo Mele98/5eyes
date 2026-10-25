@@ -79,7 +79,7 @@ from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.report_projection_gate import resolve_current_allocation_projection_gate
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
-from services.suitability_audit import audit_mandate_suitability
+from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.knowledge_asset_class_gap import (
     attach_to_strategy_payload as attach_knowledge_gap_check,
 )
@@ -282,7 +282,7 @@ def create_target_allocation(
     # der direkte POST-Pfad es nicht mehr umgehen kann.
     if settings.require_suitability_before_recommendation:
         suitability = audit_mandate_suitability(db, mandate)
-        if not suitability.get("is_compliant", True):
+        if suitability_gate_blocks(suitability, creates_target_allocation=True):
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -687,7 +687,7 @@ def generate_target_allocation_endpoint(
         # is_compliant=False meldet (fehlende/nicht-konforme Pruefung).
         if settings.require_suitability_before_recommendation:
             suitability = audit_mandate_suitability(db, mandate)
-            if not suitability.get("is_compliant", True):
+            if suitability_gate_blocks(suitability, creates_target_allocation=True):
                 raise HTTPException(
                     status_code=409,
                     detail=(
