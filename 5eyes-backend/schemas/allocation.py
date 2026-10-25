@@ -542,7 +542,10 @@ class OptimizerPolicyCreate(BaseModel):
     def _validate_score_coverage(self):
         # House-Matrix-Rows müssen Score 1..10 vollständig + ohne Lücken/Overlaps abdecken
         if not self.house_matrix_rows:
-            return self  # Leerer Create → fallback auf Default-Seeds beim Backend
+            # Leerer Create ist nur als Entwurf zulaessig; es werden KEINE
+            # Default-Seeds angelegt. Aktivierung verlangt eine vollstaendige
+            # House Matrix (POLICY-ACTIVATION-COMPLETENESS-001).
+            return self
         rows = sorted(self.house_matrix_rows, key=lambda r: r.score_from)
         if rows[0].score_from != 1:
             raise ValueError(f"Erste House-Matrix-Row muss score_from=1 haben, ist {rows[0].score_from}")

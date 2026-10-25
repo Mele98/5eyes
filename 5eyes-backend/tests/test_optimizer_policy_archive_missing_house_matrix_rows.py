@@ -112,12 +112,6 @@ def _client(session_factory) -> TestClient:
     return TestClient(app)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="POLICY-VERSION-IDENTITY-001 — round 40 red test, see audit "
-           "2026-10-04-optimizer-policy-version-and-activation-integrity-audit.md "
-           "(not committed in this repo)",
-)
 def test_archived_policy_snapshot_gets_own_house_matrix_rows(session_factory):
     """Desired behaviour: archiving a policy must also snapshot its HouseMatrix
     rows under the NEW archived row's id, so the archived aggregate is complete

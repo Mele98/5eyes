@@ -205,12 +205,6 @@ def test_clone_copies_house_matrix_rows_completely(session_factory):
 # jurisdiction-universe basis of its own.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="POLICY-ACTIVATION-COMPLETENESS-001 — round 40 red test, see audit "
-           "2026-10-04-optimizer-policy-version-and-activation-integrity-audit.md "
-           "(not committed in this repo)",
-)
 def test_clone_copies_building_block_rows(session_factory):
     pid = _seed_full_policy(session_factory)
     clone_json = _clone(session_factory, pid)
@@ -279,3 +273,22 @@ def test_clone_covers_every_optimizer_policy_content_column(session_factory):
         f"clone_optimizer_policy() silently dropped/defaulted OptimizerPolicy "
         f"content column(s) not in its explicit copy list: {missing}"
     )
+
+
+def test_put_on_active_policy_new_version_carries_building_blocks(session_factory):
+    """POLICY-VERSION-IDENTITY-001: die per PUT erzeugte neue Version ist
+    ebenfalls ein vollstaendiges Aggregat (House Matrix + Building Blocks)."""
+    pid = _seed_full_policy(session_factory)
+    try:
+        with _client(session_factory) as client:
+            resp = client.put(f"/admin/optimizer-policies/{pid}", json={"min_liquidity_bps": 200})
+            assert resp.status_code == 200, resp.text
+            new_id = resp.json()["id"]
+    finally:
+        app.dependency_overrides.clear()
+
+    assert new_id != pid
+    with session_factory() as s:
+        assert s.query(BuildingBlock).filter(BuildingBlock.policy_id == new_id).count() == 2
+        assert s.query(HouseMatrix).filter(HouseMatrix.policy_id == new_id).count() == 1
+        assert s.query(BuildingBlock).filter(BuildingBlock.policy_id == pid).count() == 2
