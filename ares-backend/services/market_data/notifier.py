@@ -10,7 +10,7 @@ Default: leer -> Notifier ist no-op, kein Netzwerkverkehr.
 Format des Payloads (Slack-kompatibel via 'text'-Feld; weitere Felder
 sind generisch verwendbar):
     {
-      "text": "5eyes Cross-Validation Alert: 2 von 12 Symbolen ueber Threshold (300 bps).",
+      "text": "Ares Cross-Validation Alert: 2 von 12 Symbolen ueber Threshold (300 bps).",
       "alerts": [
         {"symbol":"UBSG.SW","diff_bps":418,"median_close":"28.75","n_providers":3},
         ...
@@ -61,7 +61,7 @@ def build_alert_payload(
             "n_providers": getattr(r, "n_providers", 0),
         })
     text = (
-        f"5eyes Cross-Validation Alert: {len(alerts)} von {len(results)} "
+        f"Ares Cross-Validation Alert: {len(alerts)} von {len(results)} "
         f"Symbolen ueber Threshold ({threshold_bps} bps)."
     )
     return {

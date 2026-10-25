@@ -48,7 +48,7 @@ def fake_smtp(monkeypatch):
 
 def _configure(monkeypatch, **over):
     base = dict(smtp_enabled=True, smtp_host="smtp.example.test", smtp_port=587,
-                smtp_user="u", smtp_password="p", smtp_from="5eyes <no-reply@5eyes.test>",
+                smtp_user="u", smtp_password="p", smtp_from="Ares <no-reply@example.test>",
                 smtp_use_tls=True, smtp_timeout_seconds=5)
     base.update(over)
     for k, v in base.items():
@@ -76,7 +76,7 @@ def test_sends_when_configured(monkeypatch, fake_smtp):
     msg = _FakeSMTP.sent[0]
     assert msg["To"] == "mitarbeiter@firma.test"
     assert "TOK" in msg.get_content()
-    assert "5eyes" in msg["From"]
+    assert "Ares" in msg["From"]
 
 
 def test_send_failure_is_swallowed(monkeypatch):

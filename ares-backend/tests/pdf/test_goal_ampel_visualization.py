@@ -1,7 +1,7 @@
 """Sprint C1 (2026-06-07): Goal-Achievability-Ampel im PDF.
 
-Restoriert 3eyes-Style visuelle Schnelle-Erfassung — vorher war die Goal-
-Achievability nur eine Tabelle ohne visuellen Bar (UX-Regression vs 3eyes).
+Restoriert die visuelle Schnellerfassung der Referenz-UX — vorher war die Goal-
+Achievability nur eine Tabelle ohne visuellen Bar (UX-Regression vs Referenz).
 Post-C1: Wahrscheinlichkeit-Cell zeigt Ampel-Balken (gruen/gelb/rot) plus
 Prozent-Text.
 """

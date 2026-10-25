@@ -203,10 +203,11 @@ def render_advisory_report_pdf_from_payload(
             bottomMargin=MARGIN_BOTTOM,
             leftMargin=MARGIN_LEFT,
             rightMargin=MARGIN_RIGHT,
-            title=f"5eyes Advisory Report — {client_name}",
+            title=f"Ares Advisory Report — {client_name}",
             author=str(cover.get("advisor_name") or ""),
             subject="Strategische Portfolioanalyse",
-            creator="5eyes",
+            creator="Ares",
+            producer="Ares",
         )
 
     started = time.perf_counter()
@@ -434,14 +435,10 @@ def _build_cover_flowables(
         out.append(_build_provisional_notice_banner(provisional_notice, styles))
         out.append(Spacer(1, 8 * mm))
 
-    # Wordmark + Tagline (oben)
-    out.append(Paragraph("<b>5eyes</b>", _ar_paragraph_style(
+    # Wortmarke (oben)
+    out.append(Paragraph("<b>Ares</b>", _ar_paragraph_style(
         styles["caption"], font=FONT_SANS_BOLD, color=COLOR_INK, size=FONT_SIZE_CAPTION,
     )))
-    out.append(Paragraph(
-        "Wealth Architects",
-        _ar_paragraph_style(styles["micro"], color=COLOR_INK_SUBTLE),
-    ))
     out.append(Spacer(1, 38 * mm))
 
     # Display-Titel + Subtitle (mittiger Block)

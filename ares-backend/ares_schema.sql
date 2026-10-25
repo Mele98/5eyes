@@ -5,7 +5,7 @@ PRAGMA busy_timeout = 5000;
 PRAGMA recursive_triggers = OFF;
 
 -- ============================================================
--- 5EYES · WEALTHARCHITEKTEN
+-- ARES
 -- Datenbankschema v4.0 — FINAL PRODUCTION
 -- ============================================================
 -- Changelog v4.0 (gegenüber v3.0):

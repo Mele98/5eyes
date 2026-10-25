@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Tailwind-Konfiguration mit Design-Tokens der 5eyes Reporting-Sub-App.
+ * Tailwind-Konfiguration mit Design-Tokens der Ares Reporting-Sub-App.
  *
  * Designstil (per Spec):
  *  - Swiss Private Banking, institutionell, minimalistisch
@@ -10,7 +10,7 @@ import type { Config } from 'tailwindcss';
  *  - matte Gold-Akzente optional
  *  - KEIN knalliges Blau, KEIN Fintech-Look
  *
- * Branding-Disziplin: alle Tokens sind 5eyes-eigen, KEINE Dritt-Marken-
+ * Branding-Disziplin: alle Tokens sind Ares-eigen, KEINE Dritt-Marken-
  * Farben oder -Schriften (Memory-Regel).
  */
 const config: Config = {

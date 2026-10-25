@@ -1,7 +1,7 @@
 /**
- * Fetch-Wrapper für den 5eyes-Backend-Advisory-Report-Endpoint.
+ * Fetch-Wrapper für den Ares-Backend-Advisory-Report-Endpoint.
  *
- * Auth-Strategie: gleicher Bearer-Token wie die 5eyes-Hauptapp. Electron
+ * Auth-Strategie: gleicher Bearer-Token wie die Ares-Hauptapp. Electron
  * liefert ihn via `window.desktop.getAuthToken`; im Browser-Dev-Fallback
  * lesen wir `sessionStorage['5eyes_token']`.
  *

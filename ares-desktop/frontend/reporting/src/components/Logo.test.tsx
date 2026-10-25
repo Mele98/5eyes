@@ -9,57 +9,57 @@ import { Logo } from './Logo';
 describe('Logo', () => {
   it('rendert als img-Rolle mit data-testid', () => {
     render(<Logo />);
-    const logo = screen.getByTestId('logo-5eyes');
+    const logo = screen.getByTestId('logo-ares');
     expect(logo.tagName).toBe('svg');
     expect(logo.getAttribute('role')).toBe('img');
   });
 
-  it('default aria-label nennt 5eyes + WealthArchitekten', () => {
+  it('default aria-label ist "Logo Ares"', () => {
     render(<Logo />);
-    const logo = screen.getByTestId('logo-5eyes');
-    const aria = logo.getAttribute('aria-label');
-    expect(aria).toMatch(/5eyes/);
-    expect(aria).toMatch(/WealthArchitekten/);
+    const logo = screen.getByTestId('logo-ares');
+    expect(logo.getAttribute('aria-label')).toBe('Logo Ares');
   });
 
   it('custom ariaLabel ueberschreibt Default', () => {
     render(<Logo ariaLabel="Mein Custom Logo" />);
-    const logo = screen.getByTestId('logo-5eyes');
+    const logo = screen.getByTestId('logo-ares');
     expect(logo.getAttribute('aria-label')).toBe('Mein Custom Logo');
   });
 
   it('default width=96', () => {
     render(<Logo />);
-    const logo = screen.getByTestId('logo-5eyes');
+    const logo = screen.getByTestId('logo-ares');
     expect(logo.getAttribute('width')).toBe('96');
   });
 
   it('custom width skaliert Hoehe proportional', () => {
     render(<Logo width={240} />);
-    const logo = screen.getByTestId('logo-5eyes');
+    const logo = screen.getByTestId('logo-ares');
     expect(logo.getAttribute('width')).toBe('240');
     // viewBox: 240/80 = 3:1 -> height = width/3
     expect(logo.getAttribute('height')).toBe('80');
   });
 
-  it('rendert SVG-text-Elemente fuer "5" und "eyes"', () => {
+  it('rendert genau ein SVG-text-Element mit dem Schriftzug "Ares"', () => {
     const { container } = render(<Logo />);
     const texts = container.querySelectorAll('text');
-    expect(texts.length).toBe(2);
-    expect(texts[0].textContent).toBe('5');
-    expect(texts[1].textContent).toBe('eyes');
+    expect(texts.length).toBe(1);
+    expect(texts[0].textContent?.trim()).toBe('Ares');
   });
 
-  it('nutzt Cormorant Garamond fuer "5"', () => {
+  it('nutzt Cormorant Garamond fuer den Schriftzug', () => {
     const { container } = render(<Logo />);
-    const fiveText = container.querySelectorAll('text')[0];
-    expect(fiveText.getAttribute('font-family')).toMatch(/Cormorant/);
+    const wordmark = container.querySelectorAll('text')[0];
+    expect(wordmark.getAttribute('font-family')).toMatch(/Cormorant/);
   });
 
-  it('nutzt Inter fuer "eyes"', () => {
+  it('sichtbarer SVG-Text ist exakt der Produktname (keine geteilte Wortmarke)', () => {
     const { container } = render(<Logo />);
-    const eyesText = container.querySelectorAll('text')[1];
-    expect(eyesText.getAttribute('font-family')).toMatch(/Inter/);
+    const visible = Array.from(container.querySelectorAll('text'))
+      .map((t) => t.textContent ?? '')
+      .join('')
+      .trim();
+    expect(visible).toBe('Ares');
   });
 
   it('SVG nutzt currentColor (Theme-aware)', () => {
@@ -74,12 +74,12 @@ describe('Logo', () => {
     const { container } = render(<Logo />);
     const title = container.querySelector('title');
     expect(title).not.toBeNull();
-    expect(title?.textContent).toMatch(/5eyes/);
+    expect(title?.textContent).toBe('Logo Ares');
   });
 
   it('akzeptiert className-Prop', () => {
     render(<Logo className="text-accent extra-class" />);
-    const logo = screen.getByTestId('logo-5eyes');
+    const logo = screen.getByTestId('logo-ares');
     const cls = logo.getAttribute('class') ?? '';
     expect(cls).toContain('text-accent');
     expect(cls).toContain('extra-class');

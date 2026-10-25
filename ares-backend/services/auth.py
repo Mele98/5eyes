@@ -326,7 +326,7 @@ def require_portfolio_management(current_user: User = Depends(get_current_user))
 
     AUTH-TEN-04 (Codex-Audit 2026-08-25): CapitalMarketAssumption ist heute
     (echtes Per-Tenant-CMA ist ein separates, groesseres Architektur-Vorhaben --
-    siehe project_5eyes_gesamtvermoegen_allokation/OPTIMIZER_MODE-Notizen)
+    siehe Fachlogik-Notizen Gesamtvermoegens-Allokation/OPTIMIZER_MODE)
     effektiv ein GLOBALES/geteiltes Datum, keine Tenant-Ressource. Ein
     firmengebundener 'admin' durfte trotzdem via update_cma()/approve()
     JEDE Jurisdiktion/JEDEN tenant_id-Query-Parameter aendern/freigeben --
