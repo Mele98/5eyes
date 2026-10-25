@@ -131,7 +131,7 @@ class Settings(BaseSettings):
         extra='ignore',
     )
 
-    app_name: str = '5Eyes WealthArchitekten API'
+    app_name: str = 'Ares API'
     app_version: str = '1.3.0'
     app_env: str = 'development'
     app_host: str = '127.0.0.1'
