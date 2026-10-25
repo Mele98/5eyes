@@ -403,8 +403,25 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
     # A default horizon is a creation convenience, not permission to erase a
     # persisted target's explicit timing through a partial update. Updates
     # are validated against their complete merged state below.
-    if payload["horizon_years"] is None and existing is None:
+    # GOAL-RECURRING-EDITOR-CONTRACT-001: wiederkehrende und Pensionsziele
+    # bekommen KEINEN Default-Horizont. Ein Strom ohne Start-, End- und
+    # Horizont-Anker ist unvollstaendig und muss abgelehnt werden, statt still
+    # zehn Jahre zugewiesen zu bekommen.
+    is_stream = goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
+    if payload["horizon_years"] is None and existing is None and not is_stream:
         payload["horizon_years"] = 10
+    # GOAL-RECURRING-EDITOR-CONTRACT-001: "laufend" und ein festes Enddatum
+    # schliessen sich aus (genau eine Endsemantik). Geprueft wird der
+    # zusammengefuehrte Zustand, damit auch ein Teil-Update den Widerspruch
+    # nicht herstellen kann.
+    if is_stream and payload["is_ongoing"] and target_date:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ein laufendes wiederkehrendes Ziel darf kein Enddatum haben; "
+                "entweder laufend ohne Enddatum oder endlich mit Enddatum."
+            ),
+        )
     payload["start_date"] = start_date
     payload["target_date"] = target_date
     _validate_goal_payload_semantics(payload, existing)
