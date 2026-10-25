@@ -13,7 +13,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from models.mandates import Mandate
-from models.review import RecommendationRun
+from models.review import Product, RecommendationRun
 from services.portfolio_engine import build_recommendation_payload_from_run
 
 # Fields kept per trade in the immutable snapshot -- a curated subset of the
@@ -34,6 +34,29 @@ _SNAPSHOT_TRADE_FIELDS = (
     "current_weight_bps",
     "target_weight_bps",
 )
+
+# HANDOFF-INSTRUCTION-001: ausfuehrungsrelevante Felder (Instrument, Konto,
+# Menge, Preis-/FX-Anker, Ordertyp). Sie werden uebernommen, wenn die Quelle
+# sie liefert -- nie erfunden oder mit Defaults aufgefuellt.
+_SNAPSHOT_INSTRUCTION_FIELDS = (
+    "isin",
+    "custody_account_id",
+    "holding_depot_bank",
+    "current_units_milli",
+    "valuation_basis",
+    "reference_price_rappen",
+    "reference_price_date",
+    "latest_price_rappen",
+    "latest_price_date",
+    "fx_rate",
+    "order_type",
+)
+
+# Ohne diese Felder ist eine Zeile eine Rebalancing-Empfehlung, keine
+# ausfuehrbare Handelsinstruktion -- pro Zeile ausgewiesen.
+_REQUIRED_INSTRUCTION_FIELDS = ("isin", "custody_account_id", "current_units_milli", "reference_price_rappen")
+INSTRUCTION_KIND_EXECUTABLE = "executable_instruction"
+INSTRUCTION_KIND_RECOMMENDATION = "rebalancing_recommendation"
 
 # Identisch zur Schwelle in openTradeList() (5eyes_v2.html) -- Trades unter
 # 0.5% der Gesamtsumme werden dort ausgeblendet (Rauschen/Rundungsdrift), der
@@ -113,11 +136,12 @@ def snapshot_handoff_trades(db: Session, mandate: Mandate, run: RecommendationRu
     assert_holdings_valuation_complete(live)
 
     threshold_rappen = round(total_value_rappen * _MIN_TRADE_SHARE)
-    trades = [
-        {field: entry.get(field) for field in _SNAPSHOT_TRADE_FIELDS}
-        for entry in drifts
+    selected = [
+        entry for entry in drifts
         if abs(int(entry.get("rebalance_amount_rappen") or 0)) >= threshold_rappen
     ]
+    isin_by_product = _isin_by_product_id(db, [entry.get("product_id") for entry in selected])
+    trades = [_snapshot_trade(entry, isin_by_product) for entry in selected]
     if not trades:
         raise NoTradeListAvailableError(
             "Live-Bewertung liegt aktuell innerhalb der strategischen Zielbandbreiten "
@@ -125,3 +149,31 @@ def snapshot_handoff_trades(db: Session, mandate: Mandate, run: RecommendationRu
         )
     trades.sort(key=lambda item: abs(int(item.get("rebalance_amount_rappen") or 0)), reverse=True)
     return trades, total_value_rappen
+
+
+def _isin_by_product_id(db: Session, product_ids: list) -> dict:
+    ids = sorted({str(pid) for pid in product_ids if pid})
+    if not ids:
+        return {}
+    rows = db.query(Product.id, Product.isin).filter(Product.id.in_(ids)).all()
+    return {row.id: str(row.isin).strip() for row in rows if row.isin and str(row.isin).strip()}
+
+
+def _snapshot_trade(entry: dict, isin_by_product: dict) -> dict:
+    """Kuratierte Tradezeile plus die vorhandenen Instruktionsfelder."""
+    trade = {field: entry.get(field) for field in _SNAPSHOT_TRADE_FIELDS}
+    source = dict(entry)
+    # Quellfelder des Live-Rebalancings auf die Instruktionsnamen abbilden;
+    # ein explizit geliefertes Feld hat Vorrang.
+    if source.get("custody_account_id") is None and source.get("holding_custody_account_number"):
+        source["custody_account_id"] = source.get("holding_custody_account_number")
+    if source.get("isin") is None and isin_by_product.get(str(entry.get("product_id"))):
+        source["isin"] = isin_by_product[str(entry.get("product_id"))]
+    for field in _SNAPSHOT_INSTRUCTION_FIELDS:
+        value = source.get(field)
+        if value is not None and value != "":
+            trade[field] = value
+    missing = [field for field in _REQUIRED_INSTRUCTION_FIELDS if field not in trade]
+    trade["instruction_kind"] = INSTRUCTION_KIND_RECOMMENDATION if missing else INSTRUCTION_KIND_EXECUTABLE
+    trade["missing_instruction_fields"] = missing
+    return trade

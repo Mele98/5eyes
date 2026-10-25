@@ -210,7 +210,6 @@ def test_trade_list_ui_compares_action_code_not_localized_label():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-INSTRUCTION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_snapshot_preserves_executable_instruction_fields_when_source_has_them(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     drift = _drift(

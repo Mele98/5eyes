@@ -206,8 +206,19 @@ def test_snapshot_filters_trades_below_half_percent_threshold(session_factory, a
     assert ids == {"prod-big", "prod-boundary"}
     # Sortiert nach absolutem Betrag absteigend.
     assert [t["product_id"] for t in trades] == ["prod-big", "prod-boundary"]
-    # Nur kuratierte Felder im Snapshot -- kein reference_price_rappen etc.
-    assert set(trades[0].keys()) == set(portfolio_handoff_service._SNAPSHOT_TRADE_FIELDS)
+    # HANDOFF-INSTRUCTION-001: kuratierte Felder plus die von der Quelle
+    # gelieferten Instruktionsfelder (hier nur der Referenzpreis) und die
+    # Einstufung der Zeile -- keine weiteren internen Engine-Felder.
+    allowed = (
+        set(portfolio_handoff_service._SNAPSHOT_TRADE_FIELDS)
+        | set(portfolio_handoff_service._SNAPSHOT_INSTRUCTION_FIELDS)
+        | {"instruction_kind", "missing_instruction_fields"}
+    )
+    assert set(portfolio_handoff_service._SNAPSHOT_TRADE_FIELDS) <= set(trades[0].keys()) <= allowed
+    assert trades[0]["reference_price_rappen"] == 9999
+    # Ohne ISIN/Konto/Menge ist die Zeile eine Empfehlung, keine Instruktion.
+    assert trades[0]["instruction_kind"] == "rebalancing_recommendation"
+    assert trades[0]["missing_instruction_fields"] == ["isin", "custody_account_id", "current_units_milli"]
 
 
 def test_snapshot_raises_when_no_trades_above_threshold(session_factory, advisor_user, monkeypatch):
@@ -518,3 +529,44 @@ def test_create_handoff_409_without_persisting_when_valuation_incomplete(session
             _create_handoff(session, advisor_user)
         assert exc.value.status_code == 409
         assert session.query(PortfolioHandoff).count() == 0
+
+
+# ===========================================================================
+# HANDOFF-INSTRUCTION-001 -- Instruktionsfelder aus den echten Quellfeldern
+# ===========================================================================
+
+
+def test_snapshot_maps_live_source_fields_to_executable_instruction(session_factory, advisor_user, monkeypatch):
+    """Das Live-Rebalancing liefert das Depotkonto als
+    holding_custody_account_number und kennt die ISIN nur ueber das Produkt
+    -- beides landet im Snapshot, die Zeile gilt dann als ausfuehrbar."""
+    from models.review import Product
+
+    _seed_mandate_and_run(session_factory, advisor_user)
+    with session_factory() as session:
+        session.add(Product(
+            id="prod-1", product_name="Produkt prod-1", product_type="ETF", asset_class="Aktien",
+            isin="CH0012032048", currency="CHF",
+            created_at="2026-08-08T00:00:00.000Z", updated_at="2026-08-08T00:00:00.000Z",
+        ))
+        session.commit()
+    drift = _drift(
+        "prod-1", 50_000,
+        holding_custody_account_number="CH93-0076-2011-6238-5295-7",
+        current_units_milli=12_000, valuation_basis="actual_holding_units",
+    )
+    _patch_engine(monkeypatch, [drift])
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == "mandate-1").one()
+        run = session.query(RecommendationRun).filter(RecommendationRun.id == "run-1").one()
+        trades, _ = portfolio_handoff_service.snapshot_handoff_trades(session, mandate, run, advisor_user.id)
+
+    trade = trades[0]
+    assert trade["isin"] == "CH0012032048"
+    assert trade["custody_account_id"] == "CH93-0076-2011-6238-5295-7"
+    assert trade["current_units_milli"] == 12_000
+    assert trade["instruction_kind"] == "executable_instruction"
+    assert trade["missing_instruction_fields"] == []
+    # Nicht gelieferte Felder werden nicht erfunden.
+    assert "order_type" not in trade and "fx_rate" not in trade
