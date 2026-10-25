@@ -35,6 +35,14 @@ unchanged, only the call target moved to where the real decision now
 lives. ELIG-GOVERNANCE-001/KNOWLEDGE-001/GATE-001/LIMIT-001/FINAL-001
 remain untouched and still xfail -- out of scope for this step (Finalize/
 knowledge/hard-gate wiring is steps 8/10/11, not done yet).
+
+UPDATE (2026-10-25): ELIG-KNOWLEDGE-001, ELIG-GATE-001 and ELIG-FINAL-001
+are closed (xfail removed). ELIG-GOVERNANCE-001 was closed by the governed
+rule table (#686) and is re-targeted at it. ELIG-LIMIT-001 stays xfail:
+Finalize checks the aggregated cap but only warns, because blocking needs
+an owner decision (default catalog caps vs. Generate's product split).
+The two finalize reproducers never created a TargetAllocation and crashed
+before reaching the validator; they now generate one first.
 """
 from __future__ import annotations
 
@@ -394,16 +402,39 @@ def test_finalize_rejects_run_missing_required_appropriateness_and_override_evid
 
 
 # ---------------------------------------------------------------------------
-# ELIG-GOVERNANCE-001 -- ProductSuitability has no governance dimensions.
+# ELIG-GOVERNANCE-001 -- the rule that decides eligibility must carry the
+# governance dimensions.
+#
+# Re-targeted 2026-10-25 (same pattern as ELIG-MODE/RULE above): the
+# decision surface no longer reads the legacy, ungoverned
+# `ProductSuitability` table at all -- the governed
+# `ProductEligibilityRule` (#686: tenant scope, approved RuleSet, four-eyes
+# approval, full-field rule_hash) is the only rule source of Generate and
+# Finalize. The required column set is unchanged; it is asserted on the
+# table that actually decides, plus a source-level proof that neither
+# decision surface consults the legacy table.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-GOVERNANCE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_product_suitability_has_governance_columns():
-    columns = {c.name for c in ProductSuitability.__table__.columns}
+    import inspect
+
+    from models.product_eligibility import ProductEligibilityRule as _Rule
+    from services import product_eligibility as _core
+    from services import product_eligibility_finalization as _final
+
+    columns = {c.name for c in _Rule.__table__.columns}
     required = {
         "tenant_id", "jurisdiction", "version", "valid_from", "valid_to",
         "status", "approved_by", "supersedes_id", "rule_hash",
     }
     missing = required - columns
-    assert not missing, f"ProductSuitability fehlt Governance-Spalten: {sorted(missing)}"
+    assert not missing, f"Eignungsregel fehlt Governance-Spalten: {sorted(missing)}"
+
+    decision_sources = (
+        inspect.getsource(_core.resolve_active_rules_for_product)
+        + inspect.getsource(_core.evaluate_product_eligibility)
+        + inspect.getsource(_core.is_eligible_candidate)
+        + inspect.getsource(_final)
+    )
+    assert "ProductSuitability" not in decision_sources
