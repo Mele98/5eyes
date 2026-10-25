@@ -737,3 +737,59 @@ def test_concurrent_identical_create_resolves_to_existing_via_unique_index(sessi
         assert loser.id == winner.id
         assert session_b.query(PortfolioHandoff).count() == 1
     assert calls["n"] == 2
+
+
+# ===========================================================================
+# HANDOFF-INTEGRITY-001 -- Response liefert nur in sich stimmige Datensaetze
+# ===========================================================================
+
+
+def _response_dict(**overrides) -> dict:
+    snapshot = json.dumps([{"product_id": "p"}], ensure_ascii=False)
+    base = dict(
+        id="h", mandate_id="mandate-1", recommendation_run_id="run-1",
+        trade_list_snapshot_json=snapshot, live_total_value_rappen=1, position_count=1,
+        recipient_name="A", recipient_channel=None, note=None, status="Vorbereitet",
+        created_by="u", created_at="t", updated_at="t",
+        executed_at=None, executed_by=None, executed_note=None,
+        cancelled_at=None, cancelled_by=None, cancelled_reason=None,
+        snapshot_sha256=__import__("hashlib").sha256(snapshot.encode("utf-8")).hexdigest(),
+    )
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("overrides", [
+    {"status": "BROKEN"},
+    {"trade_list_snapshot_json": "not-json"},
+    {"trade_list_snapshot_json": "{\"a\": 1}", "snapshot_sha256": None},
+    {"position_count": 2},
+    {"snapshot_sha256": "0" * 64},
+    {"status": "Ausgeführt"},                      # ohne executed_at
+    {"executed_at": "t"},                          # offen, aber "ausgefuehrt"
+    {"status": "Storniert"},                       # ohne cancelled_at
+])
+def test_response_rejects_incoherent_handoff(overrides):
+    from pydantic import ValidationError
+    from schemas.portfolio_handoff import PortfolioHandoffResponse
+
+    with pytest.raises(ValidationError):
+        PortfolioHandoffResponse.model_validate(_response_dict(**overrides))
+
+
+def test_created_and_closed_handoffs_validate_with_their_snapshot_hash(session_factory, advisor_user, monkeypatch):
+    from schemas.portfolio_handoff import PortfolioHandoffResponse
+
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+    with session_factory() as session:
+        created = _create_handoff(session, advisor_user)
+        assert created.snapshot_sha256 and len(created.snapshot_sha256) == 64
+        PortfolioHandoffResponse.model_validate(created)
+        executed = mark_portfolio_handoff_executed(
+            mandate_id="mandate-1", handoff_id=created.id, body=_EVIDENCE,
+            request=_FakeRequest(), db=session, current_user=advisor_user,
+        )
+        PortfolioHandoffResponse.model_validate(executed)
+        # Legacy-Zeilen ohne Hash bleiben lesbar.
+        PortfolioHandoffResponse.model_validate(_response_dict(snapshot_sha256=None, status="Gesendet"))

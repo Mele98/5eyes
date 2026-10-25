@@ -300,7 +300,6 @@ def test_mark_executed_requires_fill_evidence_not_empty_body():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-INTEGRITY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_response_schema_rejects_tampered_status_json_and_count(session_factory, advisor_user):
     _seed_mandate_and_run(session_factory, advisor_user)
     with session_factory() as session:

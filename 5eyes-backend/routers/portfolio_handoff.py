@@ -9,6 +9,7 @@ services/portfolio_handoff.py) plus Status-Lebenszyklus (Vorbereitet ->
 Ausgefuehrt/Storniert; ohne Transportadapter wird kein Versand behauptet). Siehe models/portfolio_handoff.py fuer die
 Rechenschaftsablegungs-Begruendung (Auftragsrecht, Art. 400 OR).
 """
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -208,11 +209,14 @@ def create_portfolio_handoff(
         return _idempotent_replay_or_409(existing, body)
 
     now = _now()
+    snapshot_json = json.dumps(trades, ensure_ascii=False)
     handoff = PortfolioHandoff(
         id=new_uuid(),
         mandate_id=mandate_id,
         recommendation_run_id=run.id,
-        trade_list_snapshot_json=json.dumps(trades, ensure_ascii=False),
+        trade_list_snapshot_json=snapshot_json,
+        # HANDOFF-INTEGRITY-001: Hash ueber exakt die gespeicherten Bytes.
+        snapshot_sha256=hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest(),
         live_total_value_rappen=total_value_rappen,
         position_count=len(trades),
         recipient_name=body.recipient_name,
