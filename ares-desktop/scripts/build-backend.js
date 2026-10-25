@@ -5,7 +5,7 @@ const path = require('path');
 const projectRoot = path.resolve(__dirname, '..', '..');
 const backendRoot = path.join(projectRoot, 'ares-backend');
 const bundleBackendDir = path.join(projectRoot, 'ares-desktop', 'bundle', 'backend');
-const distExe = path.join(backendRoot, 'dist', '5eyes-api.exe');
+const distExe = path.join(backendRoot, 'dist', 'ares-api.exe');
 const isWindows = process.platform === 'win32';
 const buildWithSqlcipher = process.env.BUILD_WITH_SQLCIPHER === '1';
 
@@ -39,7 +39,7 @@ function ensureMainEntrypoint() {
 
 fs.rmSync(path.join(backendRoot, 'build'), { recursive: true, force: true });
 fs.rmSync(path.join(backendRoot, 'dist'), { recursive: true, force: true });
-fs.rmSync(path.join(backendRoot, '5eyes-api.spec'), { force: true });
+fs.rmSync(path.join(backendRoot, 'ares-api.spec'), { force: true });
 fs.rmSync(bundleBackendDir, { recursive: true, force: true });
 fs.mkdirSync(bundleBackendDir, { recursive: true });
 ensureMainEntrypoint();
@@ -144,7 +144,7 @@ const pyInstallerArgs = [
   '--clean',
   '--onefile',
   '--name',
-  '5eyes-api',
+  'ares-api',
   '--add-data',
   addDataArg,
   '--add-data',
@@ -193,7 +193,7 @@ if (!fs.existsSync(distExe)) {
   process.exit(1);
 }
 
-copyIfExists(distExe, path.join(bundleBackendDir, '5eyes-api.exe'));
+copyIfExists(distExe, path.join(bundleBackendDir, 'ares-api.exe'));
 // DESK-002 (Codex-Audit 2026-08-26): frueher wurde ein evtl. vorhandenes
 // ares-backend/.env (mit echten SECRET_KEY/DB_KEY/API-Key-Werten des
 // Build-Rechners) 1:1 in den Bundle-Ordner kopiert. package.json packt
@@ -206,4 +206,4 @@ copyIfExists(distExe, path.join(bundleBackendDir, '5eyes-api.exe'));
 // zusaetzlich als harte Absicherung.
 copyIfExists(path.join(backendRoot, '.env.example'), path.join(bundleBackendDir, '.env.example'));
 copyIfExists(path.join(backendRoot, 'README_price_updater.md'), path.join(bundleBackendDir, 'README_price_updater.md'));
-console.log(`Backend bundle ready at ${path.join(bundleBackendDir, '5eyes-api.exe')}`);
+console.log(`Backend bundle ready at ${path.join(bundleBackendDir, 'ares-api.exe')}`);

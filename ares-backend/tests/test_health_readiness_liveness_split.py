@@ -223,7 +223,7 @@ def test_health_db_returns_200_when_ok(client_ok_db):
 # ---------------------------------------------------------------------------
 
 class _FakePostgresBind:
-    url = "postgresql+psycopg://user:pw@localhost/fivetest"
+    url = "postgresql+psycopg://user:pw@localhost/ares_test"
 
 
 class _FakePostgresSessionMismatchedSchema:

@@ -67,7 +67,7 @@ http://localhost:5173/...                   |
                                 |  1. window.desktop.getAuthToken()
                                 |  2. sessionStorage['5eyes_token']
                                 |  3. localStorage['5eyes_token']
-                                |  4. import.meta.env.VITE_5EYES_TOKEN
+                                |  4. import.meta.env.VITE_ARES_TOKEN
                                 v
                               Authorization: Bearer <JWT>
 ```
@@ -146,7 +146,7 @@ Shell-Integration folgt in U-P27 (Polish-Sprint), wenn alle 15 Sektionen
 5. **Ergebnis:** Cover-Seite wird im institutionellen Editorial-Look
    gerendert. Wenn der Browser einen 401-Fehler zeigt, fehlt der
    Bearer-Token — Schritt 2 wiederholen oder im Dev-Fallback
-   `VITE_5EYES_TOKEN` als Build-Env setzen.
+   `VITE_ARES_TOKEN` als Build-Env setzen.
 
 ### Was du visuell prüfen kannst
 

@@ -177,7 +177,7 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
-      FIVEEYES_STRICT_LEAK_GUARD: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
       SPLIT_ARGS: >-
         --splits 8 --group ${{ matrix.group }}
         --splitting-algorithm duration_based_chunks
@@ -235,7 +235,7 @@ jobs:
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_CORETYPE: "Haswell"
-      FIVEEYES_STRICT_LEAK_GUARD: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -288,7 +288,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      FIVEEYES_STRICT_LEAK_GUARD: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
     strategy:
       matrix:
         python-version: ['3.12']
@@ -473,11 +473,11 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: fiveeyes_rls
+          POSTGRES_DB: ares_rls
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d fiveeyes_rls"
+          --health-cmd "pg_isready -U postgres -d ares_rls"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -502,7 +502,7 @@ jobs:
       - name: Run Postgres RLS adversarial tests
         working-directory: ares-backend
         env:
-          POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/fiveeyes_rls
+          POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/ares_rls
         # RLS-COVERAGE-GUARD-NOT-WIRED-IN-CI-001 (Kontrollrunde 2026-09-27):
         # test_rls_dynamic_table_coverage_guard.py wurde am 2026-08-17 explizit
         # als CI-Guard gebaut ("verhindert, dass eine neue tenant_id-Tabelle

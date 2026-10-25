@@ -33,6 +33,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from services.http_identity import user_agent
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 5.0
@@ -86,7 +88,7 @@ def post_alert(
         req = Request(
             url,
             data=body,
-            headers={"Content-Type": "application/json", "User-Agent": "5eyes-alerter/1"},
+            headers={"Content-Type": "application/json", "User-Agent": user_agent()},
             method="POST",
         )
         with urlopen(req, timeout=timeout_seconds) as resp:

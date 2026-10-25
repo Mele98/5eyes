@@ -6,7 +6,7 @@
  *  1. window.desktop.getAuthToken()   (Electron IPC -> safeStorage)
  *  2. sessionStorage['5eyes_token']    (via Handoff aus URL-Fragment)
  *  3. localStorage['5eyes_token']      (Legacy-Backward-Compat)
- *  4. import.meta.env.VITE_5EYES_TOKEN (Vite Dev-Default)
+ *  4. import.meta.env.VITE_ARES_TOKEN (Vite Dev-Default)
  *
  * Jede Stufe muss bei Exception der vorherigen Stufe weitergehen
  * (Fail-Soft), damit der Berater nie in einem gebrochenen Auth-State
@@ -77,6 +77,16 @@ describe('resolveAuthToken — Cascade-Reihenfolge', () => {
   it('Cascade gibt null wenn nichts gefunden', async () => {
     const token = await resolveAuthToken();
     expect(token).toBeNull();
+  });
+
+  it('Stufe 4: VITE_ARES_TOKEN als Dev-Default', async () => {
+    vi.stubEnv('VITE_ARES_TOKEN', 'dev-env-token');
+    try {
+      const token = await resolveAuthToken();
+      expect(token).toBe('dev-env-token');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

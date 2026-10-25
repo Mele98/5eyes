@@ -90,7 +90,7 @@ name = "5eyes-tax-vietnam"
 version = "1.0.0"
 dependencies = ["5eyes-tax-sdk>=1.0,<2.0"]
 
-[project.entry-points."5eyes.tax_regime"]
+[project.entry-points."ares.tax_regime"]
 vn = "tax_vietnam.regime"
 ```
 
@@ -144,10 +144,15 @@ def test_my_regime():
 
 ## 5. Entry-Point-Discovery
 
+> **Breaking (2026-10, Welle W2-d):** Die Entry-Point-Gruppe heisst
+> `ares.tax_regime`. Die fruehere Gruppe wird nicht mehr gelesen, es
+> gibt keinen Alias. Dritt-Plugins muessen ihre `pyproject.toml` auf den
+> neuen Gruppennamen umstellen.
+
 Beim 5eyes-Boot (`main.py:lifespan()`) ruft 5eyes
 `discover_external_regimes()` auf. Diese Funktion:
 
-1. Sucht alle Entry-Points unter Group `5eyes.tax_regime`.
+1. Sucht alle Entry-Points unter Group `ares.tax_regime`.
 2. Laedt jedes Plugin (`ep.load()` triggert dessen
    `@register_regime`-Decorators).
 3. Returnt einen `DiscoveryResult` mit `loaded_plugins`,

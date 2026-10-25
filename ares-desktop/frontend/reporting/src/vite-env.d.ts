@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_5EYES_TOKEN?: string;
+  readonly VITE_ARES_TOKEN?: string;
 }
 
 interface ImportMeta {

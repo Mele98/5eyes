@@ -351,3 +351,14 @@ def test_coverage_job_uses_sysmon_and_16_shards(workflow_yaml):
     run = next(s["run"] for s in job["steps"] if "--cov=" in s.get("run", ""))
     assert "--splits 16" in run
     assert job["continue-on-error"] is True
+
+
+def test_postgres_rls_database_name_is_consistent(workflow_yaml):
+    """Service-DB, Health-Check und Test-URL nennen dieselbe DB `ares_rls`."""
+    job = workflow_yaml["jobs"]["postgres-rls"]
+    service = job["services"]["postgres"]
+    assert service["env"]["POSTGRES_DB"] == "ares_rls"
+    assert '--health-cmd "pg_isready -U postgres -d ares_rls"' in service["options"]
+    run_step = next(s for s in job["steps"] if "run" in s and "pytest" in s["run"])
+    url = run_step["env"]["POSTGRES_TEST_DATABASE_URL"]
+    assert url.rsplit("/", 1)[-1] == "ares_rls"
