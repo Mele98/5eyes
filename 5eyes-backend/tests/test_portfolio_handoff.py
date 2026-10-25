@@ -264,7 +264,7 @@ def test_create_handoff_persists_snapshot_and_writes_audit_log(session_factory, 
             body=PortfolioHandoffCreate(recipient_name="Bank XY Trading Desk", recipient_channel="E-Mail", note="Quartalsrebalancing"),
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
-        assert result.status == "Gesendet"
+        assert result.status == "Vorbereitet"
         assert result.position_count == 1
         assert result.live_total_value_rappen == 1_000_000
         assert result.recipient_name == "Bank XY Trading Desk"
@@ -399,7 +399,7 @@ def test_concurrent_mark_executed_and_cancel_do_not_both_succeed(session_factory
         _get_handoff_or_404 = portfolio_handoff_router._get_handoff_or_404
         seen_by_a = _get_handoff_or_404("mandate-1", handoff_id, session_a, advisor_user)
         seen_by_b = _get_handoff_or_404("mandate-1", handoff_id, session_b, advisor_user)
-        assert seen_by_a.status == seen_by_b.status == "Gesendet"
+        assert seen_by_a.status == seen_by_b.status == "Vorbereitet"
 
         executed = mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=handoff_id,
@@ -570,3 +570,32 @@ def test_snapshot_maps_live_source_fields_to_executable_instruction(session_fact
     assert trade["missing_instruction_fields"] == []
     # Nicht gelieferte Felder werden nicht erfunden.
     assert "order_type" not in trade and "fx_rate" not in trade
+
+
+# ===========================================================================
+# HANDOFF-DELIVERY-001 -- lokaler Insert behauptet keinen Versand
+# ===========================================================================
+
+
+def test_legacy_sent_handoff_stays_closable(session_factory, advisor_user, monkeypatch):
+    """Vor dem Fix angelegte Zeilen tragen 'Gesendet' -- sie bleiben ein
+    offener Altbestand und lassen sich weiterhin abschliessen."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    with session_factory() as session:
+        session.add(PortfolioHandoff(
+            id="handoff-legacy", mandate_id="mandate-1", recommendation_run_id="run-1",
+            trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
+            recipient_name="A", status="Gesendet", created_by=advisor_user.id,
+            created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
+        ))
+        session.commit()
+        cancelled = cancel_portfolio_handoff(
+            mandate_id="mandate-1", handoff_id="handoff-legacy",
+            body=PortfolioHandoffCancel(cancelled_reason="Altbestand bereinigt"),
+            request=_FakeRequest(), db=session, current_user=advisor_user,
+        )
+        assert cancelled.status == "Storniert"
+        audit = session.query(AuditLog).filter(
+            AuditLog.table_name == "portfolio_handoffs", AuditLog.action == "UPDATE",
+        ).one()
+        assert audit.old_value == "Gesendet"

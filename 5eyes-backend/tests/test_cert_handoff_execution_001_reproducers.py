@@ -88,7 +88,6 @@ def _html() -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-DELIVERY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_local_insert_must_not_claim_sent_without_transport_evidence(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])

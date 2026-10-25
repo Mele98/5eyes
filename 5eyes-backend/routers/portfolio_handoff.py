@@ -4,9 +4,9 @@
 Ausfuehrung (Kauf/Verkauf in den echten Kundendepots) liegt bei der
 Depotbank/dem internen Asset Management. Diese Router-Datei liefert den
 formalen, auditierbaren Nachweis der Uebergabe: ein unveraenderlicher
-Snapshot der zum Sendezeitpunkt serverseitig berechneten Trades (siehe
-services/portfolio_handoff.py) plus Status-Lebenszyklus (Gesendet ->
-Ausgefuehrt/Storniert). Siehe models/portfolio_handoff.py fuer die
+Snapshot der zum Erstellungszeitpunkt serverseitig berechneten Trades (siehe
+services/portfolio_handoff.py) plus Status-Lebenszyklus (Vorbereitet ->
+Ausgefuehrt/Storniert; ohne Transportadapter wird kein Versand behauptet). Siehe models/portfolio_handoff.py fuer die
 Rechenschaftsablegungs-Begruendung (Auftragsrecht, Art. 400 OR).
 """
 import json
@@ -18,7 +18,13 @@ from sqlalchemy.orm import Session
 
 from database import get_db, new_uuid
 from models.mandates import Mandate
-from models.portfolio_handoff import PortfolioHandoff
+from models.portfolio_handoff import (
+    HANDOFF_OPEN_STATUSES,
+    HANDOFF_STATUS_CANCELLED,
+    HANDOFF_STATUS_EXECUTED,
+    HANDOFF_STATUS_PREPARED,
+    PortfolioHandoff,
+)
 from models.review import RecommendationRun
 from models.users import User
 from routers.auth import _extract_client_ip
@@ -41,10 +47,11 @@ from services.recommendation_release_gate import (
 router = APIRouter(tags=["Weiterleitung Asset Management"])
 logger = logging.getLogger(__name__)
 
-# Nur "Gesendet" darf in einen Endzustand wechseln -- weder ein bereits
-# ausgefuehrter noch ein stornierter Handoff ist danach nochmals aenderbar
-# (Audit-Integritaet: der Endzustand ist final).
-_OPEN_STATUS = "Gesendet"
+# Nur ein offener Handoff ("Vorbereitet", Altbestand "Gesendet") darf in
+# einen Endzustand wechseln -- weder ein bereits ausgefuehrter noch ein
+# stornierter Handoff ist danach nochmals aenderbar (Audit-Integritaet: der
+# Endzustand ist final). HANDOFF-DELIVERY-001: ein lokaler Insert behauptet
+# keinen Versand (kein Transportadapter, keine Empfangsquittung).
 
 
 def _now() -> str:
@@ -99,7 +106,7 @@ def _atomically_close_handoff_or_409(
     result = db.query(PortfolioHandoff).filter(
         PortfolioHandoff.id == handoff_id,
         PortfolioHandoff.mandate_id == mandate_id,
-        PortfolioHandoff.status == _OPEN_STATUS,
+        PortfolioHandoff.status.in_(HANDOFF_OPEN_STATUSES),
     # synchronize_session='fetch' (statt False): identifiziert die
     # betroffene(n) Zeile(n) und aktualisiert bereits in dieser Session
     # geladene ORM-Objekte -- sonst haette ein vorheriges _get_handoff_or_404()
@@ -197,7 +204,7 @@ def create_portfolio_handoff(
         recipient_name=body.recipient_name,
         recipient_channel=body.recipient_channel,
         note=body.note,
-        status=_OPEN_STATUS,
+        status=HANDOFF_STATUS_PREPARED,
         created_by=current_user.id,
         created_at=now,
         updated_at=now,
@@ -210,7 +217,10 @@ def create_portfolio_handoff(
         table_name="portfolio_handoffs",
         record_id=handoff.id,
         action="CREATE",
-        new_value=f"{len(trades)} Positionen an '{body.recipient_name}'",
+        new_value=(
+            f"{len(trades)} Positionen fuer '{body.recipient_name}' zur manuellen "
+            "Uebermittlung vorbereitet"
+        ),
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )
@@ -231,10 +241,10 @@ def mark_portfolio_handoff_executed(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
+    previous_status = _get_handoff_or_404(mandate_id, handoff_id, db, current_user).status
     now = _now()
     _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={
-        "status": "Ausgeführt",
+        "status": HANDOFF_STATUS_EXECUTED,
         "executed_at": now,
         "executed_by": current_user.id,
         "executed_note": body.executed_note,
@@ -248,8 +258,8 @@ def mark_portfolio_handoff_executed(
         record_id=handoff_id,
         action="UPDATE",
         field_name="status",
-        old_value=_OPEN_STATUS,
-        new_value="Ausgeführt",
+        old_value=previous_status,
+        new_value=HANDOFF_STATUS_EXECUTED,
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )
@@ -269,10 +279,10 @@ def cancel_portfolio_handoff(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
+    previous_status = _get_handoff_or_404(mandate_id, handoff_id, db, current_user).status
     now = _now()
     _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={
-        "status": "Storniert",
+        "status": HANDOFF_STATUS_CANCELLED,
         "cancelled_at": now,
         "cancelled_by": current_user.id,
         "cancelled_reason": body.cancelled_reason,
@@ -286,8 +296,8 @@ def cancel_portfolio_handoff(
         record_id=handoff_id,
         action="UPDATE",
         field_name="status",
-        old_value=_OPEN_STATUS,
-        new_value="Storniert",
+        old_value=previous_status,
+        new_value=HANDOFF_STATUS_CANCELLED,
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )

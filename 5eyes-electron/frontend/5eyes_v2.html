@@ -24112,7 +24112,7 @@ function openTradeList(){
 // (Depotbank/internes Asset Management). Dieser Block schafft den
 // auditierbaren Nachweis DASS und WANN die Handelsliste tatsaechlich
 // weitergeleitet wurde (Rechenschaftsablegung, Art. 400 OR), inkl. Status-
-// Verlauf (Gesendet -> Ausgefuehrt/Storniert). Nur fuer discretionaere
+// Verlauf (Vorbereitet -> Ausgefuehrt/Storniert). Nur fuer discretionaere
 // Mandate sichtbar (_reviewIsDiscretionaryMandate(), identisches Gate wie
 // die Handelsliste selbst) -- reine Anlageberatung hat keine
 // Ausfuehrungsbefugnis und darf diese Aktion nicht anbieten.
@@ -24132,7 +24132,7 @@ function renderPortfolioHandoffSection(){
     +'</div>'
     +'<textarea id="tl-ho-note" placeholder="Notiz (optional)" style="width:100%;min-height:36px;padding:6px 8px;font-size:11px;margin-bottom:8px"></textarea>'
     +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
-    +'<button class="btn-g" id="tl-ho-submit" onclick="submitPortfolioHandoff()">An Asset Management weiterleiten</button>'
+    +'<button class="btn-g" id="tl-ho-submit" onclick="submitPortfolioHandoff()">Übermittlung vorbereiten</button>'
     +'<span id="tl-ho-feedback" style="font-size:10px"></span>'
     +'</div>'
     +'<div id="tl-ho-history" style="font-size:10px;color:var(--n5)">Lade Verlauf…</div>';
@@ -24150,7 +24150,7 @@ async function submitPortfolioHandoff(){
     return;
   }
   var btn=document.getElementById('tl-ho-submit');
-  if(btn){btn.disabled=true;btn.textContent='Wird gesendet…';}
+  if(btn){btn.disabled=true;btn.textContent='Wird vorbereitet…';}
   var payload={recipient_name:recipient};
   var channel=(channelEl&&channelEl.value||'').trim();
   if(channel)payload.recipient_channel=channel;
@@ -24162,15 +24162,15 @@ async function submitPortfolioHandoff(){
     if(recipientEl)recipientEl.value='';
     if(channelEl)channelEl.value='';
     if(noteEl)noteEl.value='';
-    if(fb){fb.style.color='var(--pos)';fb.textContent='✓ Weitergeleitet.';}
-    try{showAppSuccess('Handelsliste an Asset Management weitergeleitet',{title:'Weiterleitung'});}catch(noticeErr){}
+    if(fb){fb.style.color='var(--pos)';fb.textContent='✓ Zur manuellen Übermittlung vorbereitet (noch nicht gesendet).';}
+    try{showAppSuccess('Handelsliste zur manuellen Übermittlung an das Asset Management vorbereitet',{title:'Weiterleitung'});}catch(noticeErr){}
     await loadPortfolioHandoffHistory();
   }catch(e){
     var msg=releaseGateMessage(e)||('Fehler: '+(e.detail||e.message||'?'));
     if(fb){fb.style.color='var(--neg)';fb.textContent=msg;}
     try{showAppError(msg,{title:'Weiterleitung fehlgeschlagen'});}catch(noticeErr){}
   }finally{
-    if(btn){btn.disabled=false;btn.textContent='An Asset Management weiterleiten';}
+    if(btn){btn.disabled=false;btn.textContent='Übermittlung vorbereiten';}
   }
 }
 function _handoffStatusColor(status){
@@ -24186,7 +24186,7 @@ function renderPortfolioHandoffHistory(items){
     var color=_handoffStatusColor(h.status);
     var when=String(h.created_at||'').slice(0,16).replace('T',' ');
     var actions='';
-    if(h.status==='Gesendet'){
+    if(h.status==='Vorbereitet'||h.status==='Gesendet'){
       actions='<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:6px" onclick="markPortfolioHandoffExecuted(\''+h.id+'\')">Ausführung bestätigen</button>'
         +'<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:4px;color:var(--neg)" onclick="cancelPortfolioHandoffPrompt(\''+h.id+'\')">Stornieren</button>';
     }

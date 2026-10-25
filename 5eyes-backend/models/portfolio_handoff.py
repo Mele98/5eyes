@@ -15,8 +15,9 @@ services.portfolio_engine.build_recommendation_payload_from_run() berechnet
 wurde (derselbe Code-Pfad wie routers/review.py::get_recommendation_payload,
 den auch die Handelsliste-Anzeige im Review nutzt -- keine zweite,
 unabhaengige Berechnung, um Drift zwischen Anzeige und Nachweis
-auszuschliessen), plus einen einfachen Status-Lebenszyklus (Gesendet ->
-Ausgefuehrt/Storniert). Nur die Statusfelder aendern sich nach dem Anlegen;
+auszuschliessen), plus einen einfachen Status-Lebenszyklus (Vorbereitet ->
+Ausgefuehrt/Storniert; "Gesendet" nur Altbestand, HANDOFF-DELIVERY-001).
+Nur die Statusfelder aendern sich nach dem Anlegen;
 Snapshot-Inhalt und Provenienz-Felder werden nie mehr geschrieben (kein
 Router-Endpoint bietet das an).
 
@@ -38,6 +39,17 @@ from sqlalchemy.orm import relationship
 
 from database import Base
 
+# HANDOFF-DELIVERY-001: ohne Transportadapter und Empfangsquittung ist ein
+# lokal angelegter Handoff hoechstens "zur manuellen Uebermittlung
+# vorbereitet" -- nie "Gesendet". "Gesendet" bleibt nur als offener
+# Altbestand (vor diesem Fix angelegte Zeilen) lesbar und abschliessbar.
+HANDOFF_STATUS_PREPARED = "Vorbereitet"
+HANDOFF_STATUS_LEGACY_SENT = "Gesendet"
+HANDOFF_STATUS_EXECUTED = "Ausgeführt"
+HANDOFF_STATUS_CANCELLED = "Storniert"
+HANDOFF_OPEN_STATUSES = (HANDOFF_STATUS_PREPARED, HANDOFF_STATUS_LEGACY_SENT)
+HANDOFF_STATUSES = HANDOFF_OPEN_STATUSES + (HANDOFF_STATUS_EXECUTED, HANDOFF_STATUS_CANCELLED)
+
 
 class PortfolioHandoff(Base):
     __tablename__ = "portfolio_handoffs"
@@ -58,7 +70,7 @@ class PortfolioHandoff(Base):
     recipient_channel = Column(String)
     note = Column(String)
 
-    status = Column(String, nullable=False, default="Gesendet")
+    status = Column(String, nullable=False, default=HANDOFF_STATUS_PREPARED)
 
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
