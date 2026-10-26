@@ -596,6 +596,8 @@ def ensure_runtime_columns() -> None:
             ('execution_evidence_kind', 'TEXT'),
             ('execution_external_reference', 'TEXT'),
             ('execution_confirmed_on', 'TEXT'),
+            # HANDOFF-NEW-PRODUCT-001 (Alembic d2f8b6a1c4e9).
+            ('holdings_basis', 'TEXT'),
         ],
         # ELIG-GOVERNANCE-001 (2026-10-22): siehe models/product_eligibility.py.
         'product_eligibility_rules': [
@@ -1126,6 +1128,12 @@ def ensure_runtime_columns() -> None:
                 f"CREATE UNIQUE INDEX IF NOT EXISTS {HANDOFF_OPEN_BUSINESS_KEY_INDEX} "
                 f"ON portfolio_handoffs(business_key_hash) WHERE {HANDOFF_OPEN_BUSINESS_KEY_PREDICATE}"
             ))
+            # HANDOFF-DB-INVARIANT-001: Status-/Count-/Hash-Invarianten fuer
+            # neue Schreibvorgaenge (Altzeilen bleiben unberuehrt).
+            from models.portfolio_handoff import HANDOFF_INVARIANT_SQLITE_TRIGGERS
+
+            for ddl in HANDOFF_INVARIANT_SQLITE_TRIGGERS:
+                conn.execute(text(ddl))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
         # FinancialCoverageAttestationV1 (idempotent; siehe Konstanten oben).
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL

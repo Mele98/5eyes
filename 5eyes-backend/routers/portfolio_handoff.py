@@ -43,7 +43,7 @@ from services.auth import get_current_user, get_mandate_for_user_or_404, require
 from services.portfolio_handoff import (
     NoTradeListAvailableError,
     handoff_business_key_hash,
-    snapshot_handoff_trades,
+    snapshot_handoff,
 )
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
@@ -192,7 +192,12 @@ def create_portfolio_handoff(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
     )
     try:
-        trades, total_value_rappen = snapshot_handoff_trades(db, mandate, run, current_user.id)
+        # HANDOFF-NEW-PRODUCT-001: nicht gehaltene SOLL-Produkte nur bei
+        # vollstaendig belegtem Depot oder bestaetigtem Neugeld als IST = 0.
+        trades, total_value_rappen, holdings_basis = snapshot_handoff(
+            db, mandate, run, current_user.id,
+            confirm_no_existing_holdings=body.confirm_no_existing_holdings,
+        )
     except NoTradeListAvailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
@@ -224,6 +229,7 @@ def create_portfolio_handoff(
         note=body.note,
         status=HANDOFF_STATUS_PREPARED,
         business_key_hash=business_key,
+        holdings_basis=holdings_basis,
         created_by=current_user.id,
         created_at=now,
         updated_at=now,
@@ -238,7 +244,7 @@ def create_portfolio_handoff(
         action="CREATE",
         new_value=(
             f"{len(trades)} Positionen fuer '{body.recipient_name}' zur manuellen "
-            "Uebermittlung vorbereitet"
+            f"Uebermittlung vorbereitet (Bestandsbasis: {holdings_basis})"
         ),
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
