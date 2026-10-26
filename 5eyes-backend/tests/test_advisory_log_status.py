@@ -665,13 +665,18 @@ def test_advisory_log_update_rejects_client_signed_without_timestamp(session_fac
     assert response.status_code == 422
 
 
-def _create_signed_client_document(auth_client: TestClient, mandate_id: str) -> str:
+def _create_signed_client_document(auth_client: TestClient, mandate_id: str, session_factory) -> str:
     create_response = auth_client.post(
         f"/mandates/{mandate_id}/documents",
         json={"document_type": "Sonstiges", "title": "Beratungsvertrag"},
     )
     assert create_response.status_code == 201
     doc_id = create_response.json()["id"]
+    # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+    from signable_document_fixture import attach_archived_pdf
+
+    with session_factory() as s:
+        attach_archived_pdf(s, s.query(ContractDocument).filter(ContractDocument.id == doc_id).one())
     sign_response = auth_client.post(
         f"/mandates/{mandate_id}/documents/{doc_id}/sign",
         json={
@@ -686,7 +691,7 @@ def _create_signed_client_document(auth_client: TestClient, mandate_id: str) -> 
 
 def test_advisory_log_create_with_signed_document_derives_real_timestamp(session_factory, auth_client, advisor_user):
     mandate_id, _ = _seed_review_context(session_factory, advisor_user)
-    doc_id = _create_signed_client_document(auth_client, mandate_id)
+    doc_id = _create_signed_client_document(auth_client, mandate_id, session_factory)
     with session_factory() as s:
         doc = s.query(ContractDocument).filter(ContractDocument.id == doc_id).one()
         real_signed_at = doc.signature_client_signed_at

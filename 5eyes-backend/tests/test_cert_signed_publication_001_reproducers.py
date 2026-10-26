@@ -146,7 +146,6 @@ def test_advisor_principal_cannot_sign_as_client(session_factory, advisor_user, 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="SIGN-CONTEXT-001 -- CERT-SIGNED-PUBLICATION-001")
 def test_document_without_archived_bytes_or_decision_context_is_not_signable(
     session_factory, advisor_user, monkeypatch
 ):
