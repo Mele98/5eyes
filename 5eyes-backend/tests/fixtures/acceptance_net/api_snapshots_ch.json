@@ -1,0 +1,1156 @@
+{
+ "allocation.current.missing": {
+  "sha256": "ed626efaaec42fc5dbd3832e4fe16f1540b5e8760441d5d165d95ff81c8c150f",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 404
+ },
+ "allocation.generate.no_profile": {
+  "sha256": "d4d8d46da55bc58b999bd64aa1903be993ce24595267bf73d2c5e3e4c1bba340",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 409
+ },
+ "allocation.generate.no_wealth": {
+  "sha256": "b78f22bd3beede53a0a06ddf1356dc78c34fcc786304fe92cf77d5abcf90c8fc",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 409
+ },
+ "building_blocks.current": {
+  "sha256": "6c120310f69febfdbf9ed696be55dac988143b0315676b5e1a4812c0236e71a7",
+  "shape": {
+   "list_of": [
+    {
+     "advisory": "int",
+     "asset_class": "str",
+     "contribution_alternative_bps": "int",
+     "contribution_standard_bps": "int",
+     "created_at": "str",
+     "id": "str",
+     "is_active": "int",
+     "jurisdiction": "null",
+     "policy_id": "str",
+     "risky_fraction_bps": "int",
+     "sub_asset_class": "str",
+     "universe": "str",
+     "updated_at": "str"
+    }
+   ]
+  },
+  "status": 200
+ },
+ "clients.data_export": {
+  "sha256": "f73e62cf830248d006693a5d2e864dd4538540c0af1d5041184060771ca3cb3e",
+  "shape": {
+   "client_id": "str",
+   "client_number": "str",
+   "complete": "bool",
+   "exported_at": "str",
+   "legal_basis": {
+    "format": "str",
+    "primary": "str",
+    "supplementary": {
+     "list_of": [
+      "str"
+     ]
+    }
+   },
+   "manifest": {
+    "advisory_log": "int",
+    "audit_log": "int",
+    "cashflows": "int",
+    "client": "int",
+    "client_knowledge": "int",
+    "client_nationalities": "int",
+    "client_opt_history": "int",
+    "conflict_of_interest_disclosure": "int",
+    "contract_documents": "int",
+    "goals": "int",
+    "mandate_report_notes": "int",
+    "mandates": "int",
+    "planning_assumptions": "int",
+    "protocol_baustein_selections": "int",
+    "recommendation_holdings": "int",
+    "recommendation_positions": "int",
+    "recommendation_runs": "int",
+    "review_trigger": "int",
+    "risk_assessment_answers": "int",
+    "risk_assessments": "int",
+    "strategy_snapshots": "int",
+    "suitability_checks": "int",
+    "target_allocations": "int",
+    "wealth_inflows": "int",
+    "wealth_positions": "int"
+   },
+   "retention_notes": {
+    "advisory_log": "str",
+    "audit_log": "str",
+    "cashflows": "str",
+    "client_knowledge": "str",
+    "client_nationalities": "str",
+    "client_opt_history": "str",
+    "clients": "str",
+    "conflict_of_interest_disclosure": "str",
+    "contract_documents": "str",
+    "goals": "str",
+    "mandate_report_notes": "str",
+    "mandates": "str",
+    "planning_assumptions": "str",
+    "protocol_baustein_selections": "str",
+    "recommendation_holdings": "str",
+    "recommendation_positions": "str",
+    "recommendation_runs": "str",
+    "review_trigger": "str",
+    "risk_assessment_answers": "str",
+    "risk_assessments": "str",
+    "strategy_snapshots": "str",
+    "suitability_checks": "str",
+    "target_allocations": "str",
+    "wealth_inflows": "str",
+    "wealth_positions": "str"
+   },
+   "schema_version": "int",
+   "section_errors": {},
+   "section_status": {
+    "advisory_log": "str",
+    "audit_log": "str",
+    "cashflows": "str",
+    "client_knowledge": "str",
+    "conflict_of_interest_disclosure": "str",
+    "contract_documents": "str",
+    "goals": "str",
+    "mandate_report_notes": "str",
+    "planning_assumptions": "str",
+    "protocol_baustein_selections": "str",
+    "recommendation_holdings": "str",
+    "recommendation_positions": "str",
+    "recommendation_runs": "str",
+    "review_trigger": "str",
+    "risk_assessment_answers": "str",
+    "risk_assessments": "str",
+    "strategy_snapshots": "str",
+    "suitability_checks": "str",
+    "target_allocations": "str",
+    "wealth_inflows": "str",
+    "wealth_positions": "str"
+   },
+   "sections": {
+    "advisory_log": {
+     "list_of": []
+    },
+    "audit_log": {
+     "list_of": [
+      {
+       "action": "str",
+       "client_id": "str",
+       "created_at": "str",
+       "field_name": "null",
+       "id": "str",
+       "integrity_hash": "str",
+       "ip_address": "null",
+       "mandate_id": "null",
+       "new_value": "null",
+       "old_value": "null",
+       "previous_hash": "str",
+       "record_id": "str",
+       "sequence": "int",
+       "table_name": "str",
+       "tenant_id": "str",
+       "user_id": "str",
+       "user_name": "str"
+      },
+      {
+       "action": "str",
+       "client_id": "str",
+       "created_at": "str",
+       "field_name": "null",
+       "id": "str",
+       "integrity_hash": "str",
+       "ip_address": "str",
+       "mandate_id": "null",
+       "new_value": "null",
+       "old_value": "null",
+       "previous_hash": "str",
+       "record_id": "str",
+       "sequence": "int",
+       "table_name": "str",
+       "tenant_id": "str",
+       "user_id": "str",
+       "user_name": "str"
+      },
+      {
+       "action": "str",
+       "client_id": "str",
+       "created_at": "str",
+       "field_name": "null",
+       "id": "str",
+       "integrity_hash": "str",
+       "ip_address": "str",
+       "mandate_id": "str",
+       "new_value": "null",
+       "old_value": "null",
+       "previous_hash": "str",
+       "record_id": "str",
+       "sequence": "int",
+       "table_name": "str",
+       "tenant_id": "str",
+       "user_id": "str",
+       "user_name": "str"
+      },
+      {
+       "action": "str",
+       "client_id": "str",
+       "created_at": "str",
+       "field_name": "str",
+       "id": "str",
+       "integrity_hash": "str",
+       "ip_address": "str",
+       "mandate_id": "str",
+       "new_value": "str",
+       "old_value": "null",
+       "previous_hash": "str",
+       "record_id": "str",
+       "sequence": "int",
+       "table_name": "str",
+       "tenant_id": "str",
+       "user_id": "str",
+       "user_name": "str"
+      }
+     ]
+    },
+    "cashflows": {
+     "list_of": []
+    },
+    "client": {
+     "advisor_id": "str",
+     "canton": "null",
+     "civil_status": "null",
+     "client_classification": "str",
+     "client_number": "str",
+     "country_of_residence": "str",
+     "created_at": "str",
+     "date_of_birth": "null",
+     "deleted_at": "null",
+     "employer": "null",
+     "erased_at": "null",
+     "erasure_reason": "null",
+     "first_name": "str",
+     "household_type": "str",
+     "id": "str",
+     "investment_horizon_end": "null",
+     "investment_horizon_start": "null",
+     "is_professional_opt_out": "int",
+     "is_qualified_investor": "int",
+     "language": "str",
+     "last_name": "str",
+     "notes": "null",
+     "partner_date_of_birth": "null",
+     "partner_first_name": "null",
+     "partner_last_name": "null",
+     "partner_profession": "null",
+     "partner_salutation": "null",
+     "profession": "null",
+     "salutation": "null",
+     "tenant_id": "str",
+     "updated_at": "str"
+    },
+    "client_knowledge": {
+     "list_of": []
+    },
+    "client_nationalities": {
+     "list_of": []
+    },
+    "client_opt_history": {
+     "list_of": []
+    },
+    "conflict_of_interest_disclosure": {
+     "list_of": []
+    },
+    "contract_documents": {
+     "list_of": []
+    },
+    "goals": {
+     "list_of": []
+    },
+    "mandate_report_notes": {
+     "list_of": []
+    },
+    "mandates": {
+     "list_of": [
+      {
+       "advisory_language": "str",
+       "base_currency": "str",
+       "client_birth_year": "null",
+       "client_id": "str",
+       "client_sex": "null",
+       "closed_at": "null",
+       "created_at": "str",
+       "default_building_blocks_json": "null",
+       "deleted_at": "null",
+       "depot_account_number": "null",
+       "depot_bank": "null",
+       "hidden_report_sections": "null",
+       "id": "str",
+       "investment_universe": "str",
+       "jurisdiction": "null",
+       "life_expectancy_year": "null",
+       "mandate_number": "str",
+       "mandate_type": "str",
+       "opened_at": "str",
+       "retirement_year": "null",
+       "status": "str",
+       "tax_estimate_in_cashflow_enabled": "int",
+       "tax_jurisdiction": "null",
+       "tax_overrides_json": "null",
+       "tenant_id": "str",
+       "updated_at": "str",
+       "use_mortality_simulation": "int"
+      }
+     ]
+    },
+    "planning_assumptions": {
+     "list_of": []
+    },
+    "protocol_baustein_selections": {
+     "list_of": []
+    },
+    "recommendation_holdings": {
+     "list_of": []
+    },
+    "recommendation_positions": {
+     "list_of": []
+    },
+    "recommendation_runs": {
+     "list_of": []
+    },
+    "review_trigger": {
+     "list_of": []
+    },
+    "risk_assessment_answers": {
+     "list_of": [
+      {
+       "answer_label": "str",
+       "answer_points": "int",
+       "assessment_id": "str",
+       "created_at": "str",
+       "id": "str",
+       "question_number": "int",
+       "question_section": "str"
+      }
+     ]
+    },
+    "risk_assessments": {
+     "list_of": [
+      {
+       "assessed_at": "str",
+       "assessed_by": "str",
+       "client_signed_at": "null",
+       "client_signed_method": "null",
+       "client_signed_ref": "null",
+       "created_at": "str",
+       "deleted_at": "null",
+       "final_profile": "str",
+       "final_score_x10": "int",
+       "id": "str",
+       "income_sources_json": "str",
+       "investment_horizon_label": "str",
+       "investment_horizon_years": "int",
+       "is_current": "int",
+       "is_overridden": "int",
+       "knowledge_instruments_json": "str",
+       "knowledge_services_json": "str",
+       "mandate_id": "str",
+       "override_at": "null",
+       "override_by": "null",
+       "override_client_confirmed": "int",
+       "override_decision_hash": "null",
+       "override_decision_id": "null",
+       "override_profile": "null",
+       "override_reason": "null",
+       "override_score_x10": "null",
+       "override_warning_delivered": "int",
+       "override_warning_document_id": "null",
+       "q_income_points": "int",
+       "q_investment_goal_points": "int",
+       "q_obligations_points": "int",
+       "q_risk_behavior_points": "int",
+       "q_risk_preference_points": "int",
+       "q_savings_points": "int",
+       "q_wealth_points": "int",
+       "risk_capacity_profile": "str",
+       "risk_capacity_score_x10": "int",
+       "risk_capacity_total": "int",
+       "risk_willingness_profile": "str",
+       "risk_willingness_score_x10": "int",
+       "risk_willingness_total": "int",
+       "signoff_hash": "null",
+       "signoff_id": "null",
+       "signoff_status": "null",
+       "supersedes_id": "null",
+       "updated_at": "str",
+       "valid_from": "str",
+       "valid_to": "null",
+       "version": "int"
+      }
+     ]
+    },
+    "strategy_snapshots": {
+     "list_of": []
+    },
+    "suitability_checks": {
+     "list_of": []
+    },
+    "target_allocations": {
+     "list_of": []
+    },
+    "wealth_inflows": {
+     "list_of": []
+    },
+    "wealth_positions": {
+     "list_of": []
+    }
+   }
+  },
+  "status": 200
+ },
+ "cma.current": {
+  "sha256": "2b50e99ea880d8e7ade8638a7fafa3a930f46cd67443556216567fc1d4a056cc",
+  "shape": {
+   "alternatives_excess_kurt_bps": "null",
+   "alternatives_gold_return_bps": "int",
+   "alternatives_gold_vol_bps": "int",
+   "alternatives_risk_premium_bps": "null",
+   "alternatives_skewness_bps": "null",
+   "assumption_set_name": "str",
+   "bonds_chf_ig_return_bps": "int",
+   "bonds_chf_ig_vol_bps": "int",
+   "bonds_excess_kurt_bps": "null",
+   "bonds_fx_hedged_return_bps": "int",
+   "bonds_fx_hedged_vol_bps": "int",
+   "bonds_home_ig_return_bps": "null",
+   "bonds_home_ig_vol_bps": "null",
+   "bonds_hy_return_bps": "int",
+   "bonds_hy_vol_bps": "int",
+   "bonds_ns_beta0_bps": "null",
+   "bonds_ns_beta1_bps": "null",
+   "bonds_ns_beta2_bps": "null",
+   "bonds_ns_lambda_x100": "null",
+   "bonds_skewness_bps": "null",
+   "computed_at": "null",
+   "computed_by": "null",
+   "correlation_matrix_json": "null",
+   "created_at": "str",
+   "equities_excess_kurt_bps": "null",
+   "equities_skewness_bps": "null",
+   "equity_ch_return_bps": "int",
+   "equity_ch_vol_bps": "int",
+   "equity_em_return_bps": "int",
+   "equity_em_vol_bps": "int",
+   "equity_home_return_bps": "null",
+   "equity_home_vol_bps": "null",
+   "equity_intl_return_bps": "int",
+   "equity_intl_vol_bps": "int",
+   "equity_kgv_alpha_x100": "null",
+   "equity_kgv_current_x10": "null",
+   "equity_kgv_fair_x10": "null",
+   "id": "str",
+   "inflation_path_json": "str",
+   "is_current": "int",
+   "jurisdiction": "null",
+   "liquidity_excess_kurt_bps": "null",
+   "liquidity_return_bps": "int",
+   "liquidity_skewness_bps": "null",
+   "liquidity_vol_bps": "int",
+   "notes": "str",
+   "real_estate_ch_return_bps": "int",
+   "real_estate_ch_vol_bps": "int",
+   "real_estate_excess_kurt_bps": "null",
+   "real_estate_home_return_bps": "null",
+   "real_estate_home_vol_bps": "null",
+   "real_estate_risk_premium_bps": "null",
+   "real_estate_skewness_bps": "null",
+   "source": "str",
+   "source_date": "null",
+   "source_detail": "null",
+   "status": "null",
+   "sub_asset_class_assumptions_json": "str",
+   "tenant_id": "null",
+   "valid_from": "str",
+   "valid_until": "null",
+   "version": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.1": {
+  "sha256": "c28d1726e5e8797eaa849f2330c67c42d1ba1a9c6cb664aeabca206d3a33dfc0",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.10": {
+  "sha256": "c390a772ef4221466131a870e73e692bd9180e39bc3fab5a40c91b9eb38d0b4d",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.2": {
+  "sha256": "c28d1726e5e8797eaa849f2330c67c42d1ba1a9c6cb664aeabca206d3a33dfc0",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.3": {
+  "sha256": "d46b3e7ccf77e336e15c6a1fb582c47b895e6427dbf225bf47753fb602c84d06",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.4": {
+  "sha256": "9bd34f12d3d59b62182f7f8960d2a038c71f8934dfe4acc041c865ac677ab0d0",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.5": {
+  "sha256": "e7051eed94eec34c5d0d50d2aad1509f32b00c7413b35b44f21bedc8af577e2f",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.6": {
+  "sha256": "e7051eed94eec34c5d0d50d2aad1509f32b00c7413b35b44f21bedc8af577e2f",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.7": {
+  "sha256": "3a2a80b26fee8a3a36ad2d543ea8cd7a2ba6642ce123e0abbbdbb4af066cc7a4",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.8": {
+  "sha256": "3a2a80b26fee8a3a36ad2d543ea8cd7a2ba6642ce123e0abbbdbb4af066cc7a4",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "house_matrix.9": {
+  "sha256": "08874731ccd83e06c93438611a91b3ddc00fa1d93b04b1b3059bdc0c357a09b3",
+  "shape": {
+   "alt_max_bps": "int",
+   "alt_min_bps": "int",
+   "alt_target_bps": "int",
+   "bonds_max_bps": "int",
+   "bonds_min_bps": "int",
+   "bonds_target_bps": "int",
+   "equity_max_bps": "int",
+   "equity_min_bps": "int",
+   "equity_minimum_bps": "int",
+   "equity_target_bps": "int",
+   "id": "str",
+   "liq_max_bps": "int",
+   "liq_min_bps": "int",
+   "liq_target_bps": "int",
+   "max_risky_fraction_bps": "int",
+   "policy_id": "str",
+   "profile_name": "str",
+   "real_estate_max_bps": "int",
+   "real_estate_min_bps": "int",
+   "real_estate_target_bps": "int",
+   "score_from": "int",
+   "score_to": "int"
+  },
+  "status": 200
+ },
+ "jurisdictions.ch": {
+  "sha256": "84632c0e40a64bf9fc80d64b18445b34470d0870ffc5ab803fa53ec67c414513",
+  "shape": {
+   "code": "str",
+   "created_at": "str",
+   "display_name": "str",
+   "home_currency": "str",
+   "id": "str",
+   "is_active": "int",
+   "is_provisional": "int",
+   "notes": "null",
+   "status": "str",
+   "updated_at": "str"
+  },
+  "status": 200
+ },
+ "jurisdictions.ch.home_bias": {
+  "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "shape": {
+   "list_of": []
+  },
+  "status": 200
+ },
+ "jurisdictions.list": {
+  "sha256": "cb9a7f9e117faa5da26c7e37f7a24f50f1c2fe05953f280d18bccaa62d9748d4",
+  "shape": {
+   "list_of": [
+    {
+     "code": "str",
+     "created_at": "str",
+     "display_name": "str",
+     "home_currency": "str",
+     "id": "str",
+     "is_active": "int",
+     "is_provisional": "int",
+     "notes": "null",
+     "status": "str",
+     "updated_at": "str"
+    }
+   ]
+  },
+  "status": 200
+ },
+ "jurisdictions.unknown": {
+  "sha256": "0bd7ccde6cebb55bd75e909b9b56a080230ead73c4899faff12da0336d45c258",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 404
+ },
+ "optimizer_policy.current": {
+  "sha256": "5edefb38a6d942328b20361ee12b318c58f0d2bb943851974970c9f65b1cc083",
+  "shape": {
+   "allow_other_assets_for_goals": "int",
+   "created_at": "str",
+   "created_by": "str",
+   "fee_model_json": "str",
+   "id": "str",
+   "is_current": "int",
+   "max_alternatives_bps": "int",
+   "max_real_estate_bps": "int",
+   "min_liquidity_bps": "int",
+   "notes": "str",
+   "optimizer_engine": "str",
+   "policy_name": "str",
+   "updated_at": "str",
+   "valid_from": "str",
+   "valid_to": "null",
+   "version": "int"
+  },
+  "status": 200
+ },
+ "profiling.create.advisory": {
+  "scores": {
+   "final_profile": "Wachstumsorientiert",
+   "final_score_x10": 70,
+   "risk_capacity_score_x10": 100,
+   "risk_willingness_score_x10": 70
+  },
+  "sha256": "f55e05b0123f2a07c62f281fb9314b55111d29c5f913a0fbbb385a43f4d1f49f",
+  "shape": {
+   "answers": {
+    "list_of": [
+     {
+      "answer_label": "str",
+      "answer_points": "int",
+      "created_at": "str",
+      "id": "str",
+      "question_number": "int",
+      "question_section": "str"
+     }
+    ]
+   },
+   "assessed_at": "str",
+   "assessed_by": "str",
+   "client_signed_at": "null",
+   "client_signed_method": "null",
+   "created_at": "str",
+   "final_profile": "str",
+   "final_score_x10": "int",
+   "id": "str",
+   "income_sources_json": "str",
+   "investment_horizon_label": "str",
+   "investment_horizon_years": "int",
+   "is_current": "int",
+   "is_overridden": "int",
+   "knowledge_instruments_json": "str",
+   "knowledge_services_json": "str",
+   "mandate_id": "str",
+   "override_at": "null",
+   "override_client_confirmed": "int",
+   "override_decision_hash": "null",
+   "override_decision_id": "null",
+   "override_profile": "null",
+   "override_reason": "null",
+   "override_score_x10": "null",
+   "override_warning_delivered": "int",
+   "q_income_points": "int",
+   "q_investment_goal_points": "int",
+   "q_obligations_points": "int",
+   "q_risk_behavior_points": "int",
+   "q_risk_preference_points": "int",
+   "q_savings_points": "int",
+   "q_wealth_points": "int",
+   "risk_capacity_profile": "str",
+   "risk_capacity_score_x10": "int",
+   "risk_capacity_total": "int",
+   "risk_willingness_profile": "str",
+   "risk_willingness_score_x10": "int",
+   "risk_willingness_total": "int",
+   "signoff_hash": "null",
+   "signoff_id": "null",
+   "signoff_state": "str",
+   "signoff_status": "null",
+   "valid_from": "str",
+   "version": "int"
+  },
+  "status": 201
+ },
+ "profiling.create.points_mismatch": {
+  "reason_code": "RISK_ANSWER_POINTS_MISMATCH",
+  "sha256": "aa6a117be6f22b27ac0d8af2b02225ce9eca10b6a73adb54c906815f33be3d40",
+  "shape": {
+   "detail": {
+    "message": "str",
+    "mismatches": {
+     "list_of": [
+      {
+       "derived": "int",
+       "field": "str",
+       "sent": "int"
+      }
+     ]
+    },
+    "reason_code": "str"
+   }
+  },
+  "status": 422
+ },
+ "profiling.create.top_score": {
+  "scores": {
+   "final_profile": "Dynamisch",
+   "final_score_x10": 90,
+   "risk_capacity_score_x10": 100,
+   "risk_willingness_score_x10": 90
+  },
+  "sha256": "1c084cf5f380af177449857d76b38748e1dcd12917c0996b28b3eeee82beba00",
+  "shape": {
+   "answers": {
+    "list_of": [
+     {
+      "answer_label": "str",
+      "answer_points": "int",
+      "created_at": "str",
+      "id": "str",
+      "question_number": "int",
+      "question_section": "str"
+     }
+    ]
+   },
+   "assessed_at": "str",
+   "assessed_by": "str",
+   "client_signed_at": "null",
+   "client_signed_method": "null",
+   "created_at": "str",
+   "final_profile": "str",
+   "final_score_x10": "int",
+   "id": "str",
+   "income_sources_json": "str",
+   "investment_horizon_label": "str",
+   "investment_horizon_years": "int",
+   "is_current": "int",
+   "is_overridden": "int",
+   "knowledge_instruments_json": "str",
+   "knowledge_services_json": "str",
+   "mandate_id": "str",
+   "override_at": "null",
+   "override_client_confirmed": "int",
+   "override_decision_hash": "null",
+   "override_decision_id": "null",
+   "override_profile": "null",
+   "override_reason": "null",
+   "override_score_x10": "null",
+   "override_warning_delivered": "int",
+   "q_income_points": "int",
+   "q_investment_goal_points": "int",
+   "q_obligations_points": "int",
+   "q_risk_behavior_points": "int",
+   "q_risk_preference_points": "int",
+   "q_savings_points": "int",
+   "q_wealth_points": "int",
+   "risk_capacity_profile": "str",
+   "risk_capacity_score_x10": "int",
+   "risk_capacity_total": "int",
+   "risk_willingness_profile": "str",
+   "risk_willingness_score_x10": "int",
+   "risk_willingness_total": "int",
+   "signoff_hash": "null",
+   "signoff_id": "null",
+   "signoff_state": "str",
+   "signoff_status": "null",
+   "valid_from": "str",
+   "version": "int"
+  },
+  "status": 201
+ },
+ "profiling.current.advisory": {
+  "scores": {
+   "final_profile": "Wachstumsorientiert",
+   "final_score_x10": 70,
+   "risk_capacity_score_x10": 100,
+   "risk_willingness_score_x10": 70
+  },
+  "sha256": "f55e05b0123f2a07c62f281fb9314b55111d29c5f913a0fbbb385a43f4d1f49f",
+  "shape": {
+   "answers": {
+    "list_of": [
+     {
+      "answer_label": "str",
+      "answer_points": "int",
+      "created_at": "str",
+      "id": "str",
+      "question_number": "int",
+      "question_section": "str"
+     }
+    ]
+   },
+   "assessed_at": "str",
+   "assessed_by": "str",
+   "client_signed_at": "null",
+   "client_signed_method": "null",
+   "created_at": "str",
+   "final_profile": "str",
+   "final_score_x10": "int",
+   "id": "str",
+   "income_sources_json": "str",
+   "investment_horizon_label": "str",
+   "investment_horizon_years": "int",
+   "is_current": "int",
+   "is_overridden": "int",
+   "knowledge_instruments_json": "str",
+   "knowledge_services_json": "str",
+   "mandate_id": "str",
+   "override_at": "null",
+   "override_client_confirmed": "int",
+   "override_decision_hash": "null",
+   "override_decision_id": "null",
+   "override_profile": "null",
+   "override_reason": "null",
+   "override_score_x10": "null",
+   "override_warning_delivered": "int",
+   "q_income_points": "int",
+   "q_investment_goal_points": "int",
+   "q_obligations_points": "int",
+   "q_risk_behavior_points": "int",
+   "q_risk_preference_points": "int",
+   "q_savings_points": "int",
+   "q_wealth_points": "int",
+   "risk_capacity_profile": "str",
+   "risk_capacity_score_x10": "int",
+   "risk_capacity_total": "int",
+   "risk_willingness_profile": "str",
+   "risk_willingness_score_x10": "int",
+   "risk_willingness_total": "int",
+   "signoff_hash": "null",
+   "signoff_id": "null",
+   "signoff_state": "str",
+   "signoff_status": "null",
+   "valid_from": "str",
+   "version": "int"
+  },
+  "status": 200
+ },
+ "profiling.current.missing": {
+  "sha256": "ea80a8dff88eaa26669b63a40f057c57128f5cd7893352e986f591ac5c80a7ac",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 404
+ },
+ "review.cost_disclosure_pdf.no_recommendation": {
+  "reason_code": "COST_DISCLOSURE_PENDING",
+  "sha256": "a299250cc0715094bc7de211d7d2fddbe7b0f7e485c7d71b0eb1addbe3606864",
+  "shape": {
+   "detail": {
+    "message": "str",
+    "reason_code": "str"
+   }
+  },
+  "status": 409
+ },
+ "review.recommendation.generate.no_allocation": {
+  "sha256": "b78f22bd3beede53a0a06ddf1356dc78c34fcc786304fe92cf77d5abcf90c8fc",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 409
+ },
+ "review.unknown_mandate": {
+  "sha256": "da7a16e1888d7ce1f2b35351526a1bbc4948d00aa75bb08857b5819ed9e21d01",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 404
+ },
+ "tax.estimate.ch_zh": {
+  "sha256": "4ee61d9fcfdd49309c2f5a8427cda7d97ad398a8464b17ba91bbb0c1688f1c8b",
+  "shape": {
+   "assumptions": {
+    "list_of": [
+     "str"
+    ]
+   },
+   "breakdown": {
+    "capital_gains": {
+     "capital_gains_realization": "str"
+    },
+    "income": {
+     "cantonal_income_bps": "int",
+     "cantonal_municipal_income_tax_rappen": "int",
+     "direct_federal_tax_rappen": "int"
+    },
+    "wealth": {
+     "taxable_wealth_after_allowance_rappen": "int",
+     "wealth_tax_bps": "int"
+    }
+   },
+   "capital_gains_tax_rappen": "int",
+   "country_code": "str",
+   "currency": "str",
+   "effective_tax_bps": "int",
+   "income_tax_rappen": "int",
+   "marginal_tax_bps": "int",
+   "region": "str",
+   "tariff_version": "str",
+   "total_tax_rappen": "int",
+   "wealth_tax_effective_bps": "int",
+   "wealth_tax_rappen": "int",
+   "year": "int"
+  },
+  "status": 200
+ },
+ "tax.estimate.unknown": {
+  "sha256": "7bd4b1108235c116dbaa95c05c230fbde556645f95071e96e3acf0d4e96a49fa",
+  "shape": {
+   "detail": "str"
+  },
+  "status": 404
+ },
+ "tax.jurisdictions": {
+  "sha256": "6d7d378facafc56bd0a07b63b56e172802f34cbbf747a661f5e20ef824e55dd1",
+  "shape": {
+   "list_of": [
+    {
+     "country_code": "str",
+     "currency": "str",
+     "display_name": "str",
+     "supported_regions": {
+      "list_of": [
+       "str"
+      ]
+     },
+     "version": "str"
+    }
+   ]
+  },
+  "status": 200
+ }
+}

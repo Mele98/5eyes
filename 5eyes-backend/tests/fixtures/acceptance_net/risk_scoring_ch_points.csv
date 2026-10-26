@@ -1,0 +1,1981 @@
+capacity_total,horizon_label,willingness_total,capacity_profile,capacity_score_x10,willingness_profile,willingness_score_x10,final_score_x10,final_profile,fzk_final_score_x10,fzk_final_profile
+0,Bis 2 Jahre,3,Risikoarm,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,4,Risikoarm,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,5,Risikoarm,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,6,Risikoarm,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,7,Risikoarm,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,8,Risikoarm,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,9,Risikoarm,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,10,Risikoarm,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,11,Risikoarm,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+0,Bis 2 Jahre,12,Risikoarm,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+0,2 bis 3 Jahre,3,Risikoarm,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,4,Risikoarm,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,5,Risikoarm,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,6,Risikoarm,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,7,Risikoarm,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,8,Risikoarm,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,9,Risikoarm,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,10,Risikoarm,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,11,Risikoarm,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+0,2 bis 3 Jahre,12,Risikoarm,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,3,Risikoarm,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,4,Risikoarm,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,5,Risikoarm,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,6,Risikoarm,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,7,Risikoarm,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,8,Risikoarm,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,9,Risikoarm,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,10,Risikoarm,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,11,Risikoarm,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+0,3 bis 5 Jahre,12,Risikoarm,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+0,5 bis 7 Jahre,3,Risikoarm,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+0,5 bis 7 Jahre,4,Risikoarm,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,5,Risikoarm,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,6,Risikoarm,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,7,Risikoarm,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,8,Risikoarm,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,9,Risikoarm,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,10,Risikoarm,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,11,Risikoarm,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+0,5 bis 7 Jahre,12,Risikoarm,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,3,Risikoarm,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+0,8 bis 11 Jahre,4,Risikoarm,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,5,Risikoarm,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,6,Risikoarm,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,7,Risikoarm,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,8,Risikoarm,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,9,Risikoarm,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,10,Risikoarm,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,11,Risikoarm,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+0,8 bis 11 Jahre,12,Risikoarm,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+0,Mehr als 12 Jahre,3,Risikoarm,30,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+0,Mehr als 12 Jahre,4,Risikoarm,30,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+0,Mehr als 12 Jahre,5,Risikoarm,30,Defensiv,30,30,Defensiv,30,Defensiv
+0,Mehr als 12 Jahre,6,Risikoarm,30,Defensiv,40,30,Defensiv,30,Defensiv
+0,Mehr als 12 Jahre,7,Risikoarm,30,Ausgewogen,50,30,Defensiv,30,Defensiv
+0,Mehr als 12 Jahre,8,Risikoarm,30,Ausgewogen,60,30,Defensiv,30,Defensiv
+0,Mehr als 12 Jahre,9,Risikoarm,30,Wachstumsorientiert,70,30,Defensiv,30,Defensiv
+0,Mehr als 12 Jahre,10,Risikoarm,30,Wachstumsorientiert,80,30,Defensiv,30,Defensiv
+0,Mehr als 12 Jahre,11,Risikoarm,30,Dynamisch,90,30,Defensiv,30,Defensiv
+0,Mehr als 12 Jahre,12,Risikoarm,30,Aktien,100,30,Defensiv,30,Defensiv
+1,Bis 2 Jahre,3,Risikoarm,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,4,Risikoarm,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,5,Risikoarm,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,6,Risikoarm,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,7,Risikoarm,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,8,Risikoarm,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,9,Risikoarm,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,10,Risikoarm,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,11,Risikoarm,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+1,Bis 2 Jahre,12,Risikoarm,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+1,2 bis 3 Jahre,3,Risikoarm,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,4,Risikoarm,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,5,Risikoarm,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,6,Risikoarm,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,7,Risikoarm,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,8,Risikoarm,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,9,Risikoarm,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,10,Risikoarm,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,11,Risikoarm,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+1,2 bis 3 Jahre,12,Risikoarm,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,3,Risikoarm,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,4,Risikoarm,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,5,Risikoarm,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,6,Risikoarm,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,7,Risikoarm,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,8,Risikoarm,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,9,Risikoarm,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,10,Risikoarm,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,11,Risikoarm,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+1,3 bis 5 Jahre,12,Risikoarm,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+1,5 bis 7 Jahre,3,Risikoarm,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+1,5 bis 7 Jahre,4,Risikoarm,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,5,Risikoarm,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,6,Risikoarm,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,7,Risikoarm,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,8,Risikoarm,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,9,Risikoarm,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,10,Risikoarm,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,11,Risikoarm,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+1,5 bis 7 Jahre,12,Risikoarm,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,3,Risikoarm,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+1,8 bis 11 Jahre,4,Risikoarm,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,5,Risikoarm,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,6,Risikoarm,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,7,Risikoarm,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,8,Risikoarm,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,9,Risikoarm,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,10,Risikoarm,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,11,Risikoarm,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+1,8 bis 11 Jahre,12,Risikoarm,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+1,Mehr als 12 Jahre,3,Risikoarm,30,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+1,Mehr als 12 Jahre,4,Risikoarm,30,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+1,Mehr als 12 Jahre,5,Risikoarm,30,Defensiv,30,30,Defensiv,30,Defensiv
+1,Mehr als 12 Jahre,6,Risikoarm,30,Defensiv,40,30,Defensiv,30,Defensiv
+1,Mehr als 12 Jahre,7,Risikoarm,30,Ausgewogen,50,30,Defensiv,30,Defensiv
+1,Mehr als 12 Jahre,8,Risikoarm,30,Ausgewogen,60,30,Defensiv,30,Defensiv
+1,Mehr als 12 Jahre,9,Risikoarm,30,Wachstumsorientiert,70,30,Defensiv,30,Defensiv
+1,Mehr als 12 Jahre,10,Risikoarm,30,Wachstumsorientiert,80,30,Defensiv,30,Defensiv
+1,Mehr als 12 Jahre,11,Risikoarm,30,Dynamisch,90,30,Defensiv,30,Defensiv
+1,Mehr als 12 Jahre,12,Risikoarm,30,Aktien,100,30,Defensiv,30,Defensiv
+2,Bis 2 Jahre,3,Risikoarm,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,4,Risikoarm,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,5,Risikoarm,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,6,Risikoarm,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,7,Risikoarm,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,8,Risikoarm,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,9,Risikoarm,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,10,Risikoarm,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,11,Risikoarm,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+2,Bis 2 Jahre,12,Risikoarm,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+2,2 bis 3 Jahre,3,Risikoarm,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,4,Risikoarm,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,5,Risikoarm,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,6,Risikoarm,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,7,Risikoarm,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,8,Risikoarm,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,9,Risikoarm,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,10,Risikoarm,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,11,Risikoarm,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+2,2 bis 3 Jahre,12,Risikoarm,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,3,Risikoarm,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,4,Risikoarm,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,5,Risikoarm,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,6,Risikoarm,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,7,Risikoarm,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,8,Risikoarm,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,9,Risikoarm,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,10,Risikoarm,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,11,Risikoarm,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+2,3 bis 5 Jahre,12,Risikoarm,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+2,5 bis 7 Jahre,3,Risikoarm,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+2,5 bis 7 Jahre,4,Risikoarm,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,5,Risikoarm,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,6,Risikoarm,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,7,Risikoarm,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,8,Risikoarm,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,9,Risikoarm,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,10,Risikoarm,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,11,Risikoarm,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+2,5 bis 7 Jahre,12,Risikoarm,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,3,Risikoarm,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+2,8 bis 11 Jahre,4,Risikoarm,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,5,Risikoarm,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,6,Risikoarm,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,7,Risikoarm,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,8,Risikoarm,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,9,Risikoarm,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,10,Risikoarm,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,11,Risikoarm,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+2,8 bis 11 Jahre,12,Risikoarm,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+2,Mehr als 12 Jahre,3,Risikoarm,30,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+2,Mehr als 12 Jahre,4,Risikoarm,30,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+2,Mehr als 12 Jahre,5,Risikoarm,30,Defensiv,30,30,Defensiv,30,Defensiv
+2,Mehr als 12 Jahre,6,Risikoarm,30,Defensiv,40,30,Defensiv,30,Defensiv
+2,Mehr als 12 Jahre,7,Risikoarm,30,Ausgewogen,50,30,Defensiv,30,Defensiv
+2,Mehr als 12 Jahre,8,Risikoarm,30,Ausgewogen,60,30,Defensiv,30,Defensiv
+2,Mehr als 12 Jahre,9,Risikoarm,30,Wachstumsorientiert,70,30,Defensiv,30,Defensiv
+2,Mehr als 12 Jahre,10,Risikoarm,30,Wachstumsorientiert,80,30,Defensiv,30,Defensiv
+2,Mehr als 12 Jahre,11,Risikoarm,30,Dynamisch,90,30,Defensiv,30,Defensiv
+2,Mehr als 12 Jahre,12,Risikoarm,30,Aktien,100,30,Defensiv,30,Defensiv
+3,Bis 2 Jahre,3,Sicherheitsorientiert,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,4,Sicherheitsorientiert,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,5,Sicherheitsorientiert,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,6,Sicherheitsorientiert,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,7,Sicherheitsorientiert,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,8,Sicherheitsorientiert,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,9,Sicherheitsorientiert,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,10,Sicherheitsorientiert,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,11,Sicherheitsorientiert,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+3,Bis 2 Jahre,12,Sicherheitsorientiert,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+3,2 bis 3 Jahre,3,Sicherheitsorientiert,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,4,Sicherheitsorientiert,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,5,Sicherheitsorientiert,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,6,Sicherheitsorientiert,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,7,Sicherheitsorientiert,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,8,Sicherheitsorientiert,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,9,Sicherheitsorientiert,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,10,Sicherheitsorientiert,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,11,Sicherheitsorientiert,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+3,2 bis 3 Jahre,12,Sicherheitsorientiert,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+3,3 bis 5 Jahre,3,Sicherheitsorientiert,40,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+3,3 bis 5 Jahre,4,Sicherheitsorientiert,40,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+3,3 bis 5 Jahre,5,Sicherheitsorientiert,40,Defensiv,30,30,Defensiv,30,Defensiv
+3,3 bis 5 Jahre,6,Sicherheitsorientiert,40,Defensiv,40,40,Defensiv,40,Defensiv
+3,3 bis 5 Jahre,7,Sicherheitsorientiert,40,Ausgewogen,50,40,Defensiv,40,Defensiv
+3,3 bis 5 Jahre,8,Sicherheitsorientiert,40,Ausgewogen,60,40,Defensiv,40,Defensiv
+3,3 bis 5 Jahre,9,Sicherheitsorientiert,40,Wachstumsorientiert,70,40,Defensiv,40,Defensiv
+3,3 bis 5 Jahre,10,Sicherheitsorientiert,40,Wachstumsorientiert,80,40,Defensiv,40,Defensiv
+3,3 bis 5 Jahre,11,Sicherheitsorientiert,40,Dynamisch,90,40,Defensiv,40,Defensiv
+3,3 bis 5 Jahre,12,Sicherheitsorientiert,40,Aktien,100,40,Defensiv,40,Defensiv
+3,5 bis 7 Jahre,3,Sicherheitsorientiert,45,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+3,5 bis 7 Jahre,4,Sicherheitsorientiert,45,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+3,5 bis 7 Jahre,5,Sicherheitsorientiert,45,Defensiv,30,30,Defensiv,30,Defensiv
+3,5 bis 7 Jahre,6,Sicherheitsorientiert,45,Defensiv,40,40,Defensiv,40,Defensiv
+3,5 bis 7 Jahre,7,Sicherheitsorientiert,45,Ausgewogen,50,45,Ausgewogen,45,Ausgewogen
+3,5 bis 7 Jahre,8,Sicherheitsorientiert,45,Ausgewogen,60,45,Ausgewogen,45,Ausgewogen
+3,5 bis 7 Jahre,9,Sicherheitsorientiert,45,Wachstumsorientiert,70,45,Ausgewogen,45,Ausgewogen
+3,5 bis 7 Jahre,10,Sicherheitsorientiert,45,Wachstumsorientiert,80,45,Ausgewogen,45,Ausgewogen
+3,5 bis 7 Jahre,11,Sicherheitsorientiert,45,Dynamisch,90,45,Ausgewogen,45,Ausgewogen
+3,5 bis 7 Jahre,12,Sicherheitsorientiert,45,Aktien,100,45,Ausgewogen,45,Ausgewogen
+3,8 bis 11 Jahre,3,Sicherheitsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+3,8 bis 11 Jahre,4,Sicherheitsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+3,8 bis 11 Jahre,5,Sicherheitsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+3,8 bis 11 Jahre,6,Sicherheitsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+3,8 bis 11 Jahre,7,Sicherheitsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+3,8 bis 11 Jahre,8,Sicherheitsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+3,8 bis 11 Jahre,9,Sicherheitsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+3,8 bis 11 Jahre,10,Sicherheitsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+3,8 bis 11 Jahre,11,Sicherheitsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+3,8 bis 11 Jahre,12,Sicherheitsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+3,Mehr als 12 Jahre,3,Sicherheitsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+3,Mehr als 12 Jahre,4,Sicherheitsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+3,Mehr als 12 Jahre,5,Sicherheitsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+3,Mehr als 12 Jahre,6,Sicherheitsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+3,Mehr als 12 Jahre,7,Sicherheitsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+3,Mehr als 12 Jahre,8,Sicherheitsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+3,Mehr als 12 Jahre,9,Sicherheitsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+3,Mehr als 12 Jahre,10,Sicherheitsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+3,Mehr als 12 Jahre,11,Sicherheitsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+3,Mehr als 12 Jahre,12,Sicherheitsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+4,Bis 2 Jahre,3,Sicherheitsorientiert,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,4,Sicherheitsorientiert,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,5,Sicherheitsorientiert,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,6,Sicherheitsorientiert,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,7,Sicherheitsorientiert,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,8,Sicherheitsorientiert,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,9,Sicherheitsorientiert,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,10,Sicherheitsorientiert,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,11,Sicherheitsorientiert,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+4,Bis 2 Jahre,12,Sicherheitsorientiert,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+4,2 bis 3 Jahre,3,Sicherheitsorientiert,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,4,Sicherheitsorientiert,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,5,Sicherheitsorientiert,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,6,Sicherheitsorientiert,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,7,Sicherheitsorientiert,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,8,Sicherheitsorientiert,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,9,Sicherheitsorientiert,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,10,Sicherheitsorientiert,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,11,Sicherheitsorientiert,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+4,2 bis 3 Jahre,12,Sicherheitsorientiert,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+4,3 bis 5 Jahre,3,Sicherheitsorientiert,40,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+4,3 bis 5 Jahre,4,Sicherheitsorientiert,40,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+4,3 bis 5 Jahre,5,Sicherheitsorientiert,40,Defensiv,30,30,Defensiv,30,Defensiv
+4,3 bis 5 Jahre,6,Sicherheitsorientiert,40,Defensiv,40,40,Defensiv,40,Defensiv
+4,3 bis 5 Jahre,7,Sicherheitsorientiert,40,Ausgewogen,50,40,Defensiv,40,Defensiv
+4,3 bis 5 Jahre,8,Sicherheitsorientiert,40,Ausgewogen,60,40,Defensiv,40,Defensiv
+4,3 bis 5 Jahre,9,Sicherheitsorientiert,40,Wachstumsorientiert,70,40,Defensiv,40,Defensiv
+4,3 bis 5 Jahre,10,Sicherheitsorientiert,40,Wachstumsorientiert,80,40,Defensiv,40,Defensiv
+4,3 bis 5 Jahre,11,Sicherheitsorientiert,40,Dynamisch,90,40,Defensiv,40,Defensiv
+4,3 bis 5 Jahre,12,Sicherheitsorientiert,40,Aktien,100,40,Defensiv,40,Defensiv
+4,5 bis 7 Jahre,3,Sicherheitsorientiert,45,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+4,5 bis 7 Jahre,4,Sicherheitsorientiert,45,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+4,5 bis 7 Jahre,5,Sicherheitsorientiert,45,Defensiv,30,30,Defensiv,30,Defensiv
+4,5 bis 7 Jahre,6,Sicherheitsorientiert,45,Defensiv,40,40,Defensiv,40,Defensiv
+4,5 bis 7 Jahre,7,Sicherheitsorientiert,45,Ausgewogen,50,45,Ausgewogen,45,Ausgewogen
+4,5 bis 7 Jahre,8,Sicherheitsorientiert,45,Ausgewogen,60,45,Ausgewogen,45,Ausgewogen
+4,5 bis 7 Jahre,9,Sicherheitsorientiert,45,Wachstumsorientiert,70,45,Ausgewogen,45,Ausgewogen
+4,5 bis 7 Jahre,10,Sicherheitsorientiert,45,Wachstumsorientiert,80,45,Ausgewogen,45,Ausgewogen
+4,5 bis 7 Jahre,11,Sicherheitsorientiert,45,Dynamisch,90,45,Ausgewogen,45,Ausgewogen
+4,5 bis 7 Jahre,12,Sicherheitsorientiert,45,Aktien,100,45,Ausgewogen,45,Ausgewogen
+4,8 bis 11 Jahre,3,Sicherheitsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+4,8 bis 11 Jahre,4,Sicherheitsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+4,8 bis 11 Jahre,5,Sicherheitsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+4,8 bis 11 Jahre,6,Sicherheitsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+4,8 bis 11 Jahre,7,Sicherheitsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+4,8 bis 11 Jahre,8,Sicherheitsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+4,8 bis 11 Jahre,9,Sicherheitsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+4,8 bis 11 Jahre,10,Sicherheitsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+4,8 bis 11 Jahre,11,Sicherheitsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+4,8 bis 11 Jahre,12,Sicherheitsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+4,Mehr als 12 Jahre,3,Sicherheitsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+4,Mehr als 12 Jahre,4,Sicherheitsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+4,Mehr als 12 Jahre,5,Sicherheitsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+4,Mehr als 12 Jahre,6,Sicherheitsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+4,Mehr als 12 Jahre,7,Sicherheitsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+4,Mehr als 12 Jahre,8,Sicherheitsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+4,Mehr als 12 Jahre,9,Sicherheitsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+4,Mehr als 12 Jahre,10,Sicherheitsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+4,Mehr als 12 Jahre,11,Sicherheitsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+4,Mehr als 12 Jahre,12,Sicherheitsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+5,Bis 2 Jahre,3,Sicherheitsorientiert,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,4,Sicherheitsorientiert,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,5,Sicherheitsorientiert,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,6,Sicherheitsorientiert,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,7,Sicherheitsorientiert,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,8,Sicherheitsorientiert,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,9,Sicherheitsorientiert,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,10,Sicherheitsorientiert,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,11,Sicherheitsorientiert,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+5,Bis 2 Jahre,12,Sicherheitsorientiert,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+5,2 bis 3 Jahre,3,Sicherheitsorientiert,10,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,4,Sicherheitsorientiert,10,Kapitalschutz,20,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,5,Sicherheitsorientiert,10,Defensiv,30,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,6,Sicherheitsorientiert,10,Defensiv,40,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,7,Sicherheitsorientiert,10,Ausgewogen,50,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,8,Sicherheitsorientiert,10,Ausgewogen,60,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,9,Sicherheitsorientiert,10,Wachstumsorientiert,70,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,10,Sicherheitsorientiert,10,Wachstumsorientiert,80,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,11,Sicherheitsorientiert,10,Dynamisch,90,10,Kapitalschutz,10,Kapitalschutz
+5,2 bis 3 Jahre,12,Sicherheitsorientiert,10,Aktien,100,10,Kapitalschutz,10,Kapitalschutz
+5,3 bis 5 Jahre,3,Sicherheitsorientiert,40,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+5,3 bis 5 Jahre,4,Sicherheitsorientiert,40,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+5,3 bis 5 Jahre,5,Sicherheitsorientiert,40,Defensiv,30,30,Defensiv,30,Defensiv
+5,3 bis 5 Jahre,6,Sicherheitsorientiert,40,Defensiv,40,40,Defensiv,40,Defensiv
+5,3 bis 5 Jahre,7,Sicherheitsorientiert,40,Ausgewogen,50,40,Defensiv,40,Defensiv
+5,3 bis 5 Jahre,8,Sicherheitsorientiert,40,Ausgewogen,60,40,Defensiv,40,Defensiv
+5,3 bis 5 Jahre,9,Sicherheitsorientiert,40,Wachstumsorientiert,70,40,Defensiv,40,Defensiv
+5,3 bis 5 Jahre,10,Sicherheitsorientiert,40,Wachstumsorientiert,80,40,Defensiv,40,Defensiv
+5,3 bis 5 Jahre,11,Sicherheitsorientiert,40,Dynamisch,90,40,Defensiv,40,Defensiv
+5,3 bis 5 Jahre,12,Sicherheitsorientiert,40,Aktien,100,40,Defensiv,40,Defensiv
+5,5 bis 7 Jahre,3,Sicherheitsorientiert,45,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+5,5 bis 7 Jahre,4,Sicherheitsorientiert,45,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+5,5 bis 7 Jahre,5,Sicherheitsorientiert,45,Defensiv,30,30,Defensiv,30,Defensiv
+5,5 bis 7 Jahre,6,Sicherheitsorientiert,45,Defensiv,40,40,Defensiv,40,Defensiv
+5,5 bis 7 Jahre,7,Sicherheitsorientiert,45,Ausgewogen,50,45,Ausgewogen,45,Ausgewogen
+5,5 bis 7 Jahre,8,Sicherheitsorientiert,45,Ausgewogen,60,45,Ausgewogen,45,Ausgewogen
+5,5 bis 7 Jahre,9,Sicherheitsorientiert,45,Wachstumsorientiert,70,45,Ausgewogen,45,Ausgewogen
+5,5 bis 7 Jahre,10,Sicherheitsorientiert,45,Wachstumsorientiert,80,45,Ausgewogen,45,Ausgewogen
+5,5 bis 7 Jahre,11,Sicherheitsorientiert,45,Dynamisch,90,45,Ausgewogen,45,Ausgewogen
+5,5 bis 7 Jahre,12,Sicherheitsorientiert,45,Aktien,100,45,Ausgewogen,45,Ausgewogen
+5,8 bis 11 Jahre,3,Sicherheitsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+5,8 bis 11 Jahre,4,Sicherheitsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+5,8 bis 11 Jahre,5,Sicherheitsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+5,8 bis 11 Jahre,6,Sicherheitsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+5,8 bis 11 Jahre,7,Sicherheitsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+5,8 bis 11 Jahre,8,Sicherheitsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+5,8 bis 11 Jahre,9,Sicherheitsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+5,8 bis 11 Jahre,10,Sicherheitsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+5,8 bis 11 Jahre,11,Sicherheitsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+5,8 bis 11 Jahre,12,Sicherheitsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+5,Mehr als 12 Jahre,3,Sicherheitsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+5,Mehr als 12 Jahre,4,Sicherheitsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+5,Mehr als 12 Jahre,5,Sicherheitsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+5,Mehr als 12 Jahre,6,Sicherheitsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+5,Mehr als 12 Jahre,7,Sicherheitsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+5,Mehr als 12 Jahre,8,Sicherheitsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+5,Mehr als 12 Jahre,9,Sicherheitsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+5,Mehr als 12 Jahre,10,Sicherheitsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+5,Mehr als 12 Jahre,11,Sicherheitsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+5,Mehr als 12 Jahre,12,Sicherheitsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+6,Bis 2 Jahre,3,Ausgewogen,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,4,Ausgewogen,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,5,Ausgewogen,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,6,Ausgewogen,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,7,Ausgewogen,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,8,Ausgewogen,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,9,Ausgewogen,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,10,Ausgewogen,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,11,Ausgewogen,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+6,Bis 2 Jahre,12,Ausgewogen,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+6,2 bis 3 Jahre,3,Ausgewogen,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+6,2 bis 3 Jahre,4,Ausgewogen,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,5,Ausgewogen,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,6,Ausgewogen,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,7,Ausgewogen,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,8,Ausgewogen,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,9,Ausgewogen,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,10,Ausgewogen,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,11,Ausgewogen,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+6,2 bis 3 Jahre,12,Ausgewogen,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+6,3 bis 5 Jahre,3,Ausgewogen,45,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+6,3 bis 5 Jahre,4,Ausgewogen,45,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+6,3 bis 5 Jahre,5,Ausgewogen,45,Defensiv,30,30,Defensiv,30,Defensiv
+6,3 bis 5 Jahre,6,Ausgewogen,45,Defensiv,40,40,Defensiv,40,Defensiv
+6,3 bis 5 Jahre,7,Ausgewogen,45,Ausgewogen,50,45,Ausgewogen,45,Ausgewogen
+6,3 bis 5 Jahre,8,Ausgewogen,45,Ausgewogen,60,45,Ausgewogen,45,Ausgewogen
+6,3 bis 5 Jahre,9,Ausgewogen,45,Wachstumsorientiert,70,45,Ausgewogen,45,Ausgewogen
+6,3 bis 5 Jahre,10,Ausgewogen,45,Wachstumsorientiert,80,45,Ausgewogen,45,Ausgewogen
+6,3 bis 5 Jahre,11,Ausgewogen,45,Dynamisch,90,45,Ausgewogen,45,Ausgewogen
+6,3 bis 5 Jahre,12,Ausgewogen,45,Aktien,100,45,Ausgewogen,45,Ausgewogen
+6,5 bis 7 Jahre,3,Ausgewogen,55,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+6,5 bis 7 Jahre,4,Ausgewogen,55,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+6,5 bis 7 Jahre,5,Ausgewogen,55,Defensiv,30,30,Defensiv,30,Defensiv
+6,5 bis 7 Jahre,6,Ausgewogen,55,Defensiv,40,40,Defensiv,40,Defensiv
+6,5 bis 7 Jahre,7,Ausgewogen,55,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+6,5 bis 7 Jahre,8,Ausgewogen,55,Ausgewogen,60,55,Ausgewogen,55,Ausgewogen
+6,5 bis 7 Jahre,9,Ausgewogen,55,Wachstumsorientiert,70,55,Ausgewogen,55,Ausgewogen
+6,5 bis 7 Jahre,10,Ausgewogen,55,Wachstumsorientiert,80,55,Ausgewogen,55,Ausgewogen
+6,5 bis 7 Jahre,11,Ausgewogen,55,Dynamisch,90,55,Ausgewogen,55,Ausgewogen
+6,5 bis 7 Jahre,12,Ausgewogen,55,Aktien,100,55,Ausgewogen,55,Ausgewogen
+6,8 bis 11 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+6,8 bis 11 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+6,8 bis 11 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+6,8 bis 11 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+6,8 bis 11 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+6,8 bis 11 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+6,8 bis 11 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+6,8 bis 11 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+6,8 bis 11 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+6,8 bis 11 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+6,Mehr als 12 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+6,Mehr als 12 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+6,Mehr als 12 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+6,Mehr als 12 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+6,Mehr als 12 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+6,Mehr als 12 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+6,Mehr als 12 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+6,Mehr als 12 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+6,Mehr als 12 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+6,Mehr als 12 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+7,Bis 2 Jahre,3,Ausgewogen,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,4,Ausgewogen,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,5,Ausgewogen,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,6,Ausgewogen,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,7,Ausgewogen,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,8,Ausgewogen,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,9,Ausgewogen,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,10,Ausgewogen,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,11,Ausgewogen,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+7,Bis 2 Jahre,12,Ausgewogen,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+7,2 bis 3 Jahre,3,Ausgewogen,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+7,2 bis 3 Jahre,4,Ausgewogen,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,5,Ausgewogen,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,6,Ausgewogen,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,7,Ausgewogen,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,8,Ausgewogen,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,9,Ausgewogen,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,10,Ausgewogen,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,11,Ausgewogen,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+7,2 bis 3 Jahre,12,Ausgewogen,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+7,3 bis 5 Jahre,3,Ausgewogen,45,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+7,3 bis 5 Jahre,4,Ausgewogen,45,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+7,3 bis 5 Jahre,5,Ausgewogen,45,Defensiv,30,30,Defensiv,30,Defensiv
+7,3 bis 5 Jahre,6,Ausgewogen,45,Defensiv,40,40,Defensiv,40,Defensiv
+7,3 bis 5 Jahre,7,Ausgewogen,45,Ausgewogen,50,45,Ausgewogen,45,Ausgewogen
+7,3 bis 5 Jahre,8,Ausgewogen,45,Ausgewogen,60,45,Ausgewogen,45,Ausgewogen
+7,3 bis 5 Jahre,9,Ausgewogen,45,Wachstumsorientiert,70,45,Ausgewogen,45,Ausgewogen
+7,3 bis 5 Jahre,10,Ausgewogen,45,Wachstumsorientiert,80,45,Ausgewogen,45,Ausgewogen
+7,3 bis 5 Jahre,11,Ausgewogen,45,Dynamisch,90,45,Ausgewogen,45,Ausgewogen
+7,3 bis 5 Jahre,12,Ausgewogen,45,Aktien,100,45,Ausgewogen,45,Ausgewogen
+7,5 bis 7 Jahre,3,Ausgewogen,55,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+7,5 bis 7 Jahre,4,Ausgewogen,55,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+7,5 bis 7 Jahre,5,Ausgewogen,55,Defensiv,30,30,Defensiv,30,Defensiv
+7,5 bis 7 Jahre,6,Ausgewogen,55,Defensiv,40,40,Defensiv,40,Defensiv
+7,5 bis 7 Jahre,7,Ausgewogen,55,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+7,5 bis 7 Jahre,8,Ausgewogen,55,Ausgewogen,60,55,Ausgewogen,55,Ausgewogen
+7,5 bis 7 Jahre,9,Ausgewogen,55,Wachstumsorientiert,70,55,Ausgewogen,55,Ausgewogen
+7,5 bis 7 Jahre,10,Ausgewogen,55,Wachstumsorientiert,80,55,Ausgewogen,55,Ausgewogen
+7,5 bis 7 Jahre,11,Ausgewogen,55,Dynamisch,90,55,Ausgewogen,55,Ausgewogen
+7,5 bis 7 Jahre,12,Ausgewogen,55,Aktien,100,55,Ausgewogen,55,Ausgewogen
+7,8 bis 11 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+7,8 bis 11 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+7,8 bis 11 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+7,8 bis 11 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+7,8 bis 11 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+7,8 bis 11 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+7,8 bis 11 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+7,8 bis 11 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+7,8 bis 11 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+7,8 bis 11 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+7,Mehr als 12 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+7,Mehr als 12 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+7,Mehr als 12 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+7,Mehr als 12 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+7,Mehr als 12 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+7,Mehr als 12 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+7,Mehr als 12 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+7,Mehr als 12 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+7,Mehr als 12 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+7,Mehr als 12 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+8,Bis 2 Jahre,3,Ausgewogen,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,4,Ausgewogen,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,5,Ausgewogen,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,6,Ausgewogen,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,7,Ausgewogen,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,8,Ausgewogen,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,9,Ausgewogen,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,10,Ausgewogen,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,11,Ausgewogen,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+8,Bis 2 Jahre,12,Ausgewogen,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+8,2 bis 3 Jahre,3,Ausgewogen,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+8,2 bis 3 Jahre,4,Ausgewogen,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,5,Ausgewogen,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,6,Ausgewogen,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,7,Ausgewogen,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,8,Ausgewogen,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,9,Ausgewogen,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,10,Ausgewogen,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,11,Ausgewogen,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+8,2 bis 3 Jahre,12,Ausgewogen,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+8,3 bis 5 Jahre,3,Ausgewogen,45,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+8,3 bis 5 Jahre,4,Ausgewogen,45,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+8,3 bis 5 Jahre,5,Ausgewogen,45,Defensiv,30,30,Defensiv,30,Defensiv
+8,3 bis 5 Jahre,6,Ausgewogen,45,Defensiv,40,40,Defensiv,40,Defensiv
+8,3 bis 5 Jahre,7,Ausgewogen,45,Ausgewogen,50,45,Ausgewogen,45,Ausgewogen
+8,3 bis 5 Jahre,8,Ausgewogen,45,Ausgewogen,60,45,Ausgewogen,45,Ausgewogen
+8,3 bis 5 Jahre,9,Ausgewogen,45,Wachstumsorientiert,70,45,Ausgewogen,45,Ausgewogen
+8,3 bis 5 Jahre,10,Ausgewogen,45,Wachstumsorientiert,80,45,Ausgewogen,45,Ausgewogen
+8,3 bis 5 Jahre,11,Ausgewogen,45,Dynamisch,90,45,Ausgewogen,45,Ausgewogen
+8,3 bis 5 Jahre,12,Ausgewogen,45,Aktien,100,45,Ausgewogen,45,Ausgewogen
+8,5 bis 7 Jahre,3,Ausgewogen,55,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+8,5 bis 7 Jahre,4,Ausgewogen,55,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+8,5 bis 7 Jahre,5,Ausgewogen,55,Defensiv,30,30,Defensiv,30,Defensiv
+8,5 bis 7 Jahre,6,Ausgewogen,55,Defensiv,40,40,Defensiv,40,Defensiv
+8,5 bis 7 Jahre,7,Ausgewogen,55,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+8,5 bis 7 Jahre,8,Ausgewogen,55,Ausgewogen,60,55,Ausgewogen,55,Ausgewogen
+8,5 bis 7 Jahre,9,Ausgewogen,55,Wachstumsorientiert,70,55,Ausgewogen,55,Ausgewogen
+8,5 bis 7 Jahre,10,Ausgewogen,55,Wachstumsorientiert,80,55,Ausgewogen,55,Ausgewogen
+8,5 bis 7 Jahre,11,Ausgewogen,55,Dynamisch,90,55,Ausgewogen,55,Ausgewogen
+8,5 bis 7 Jahre,12,Ausgewogen,55,Aktien,100,55,Ausgewogen,55,Ausgewogen
+8,8 bis 11 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+8,8 bis 11 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+8,8 bis 11 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+8,8 bis 11 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+8,8 bis 11 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+8,8 bis 11 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+8,8 bis 11 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+8,8 bis 11 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+8,8 bis 11 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+8,8 bis 11 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+8,Mehr als 12 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+8,Mehr als 12 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+8,Mehr als 12 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+8,Mehr als 12 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+8,Mehr als 12 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+8,Mehr als 12 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+8,Mehr als 12 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+8,Mehr als 12 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+8,Mehr als 12 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+8,Mehr als 12 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+9,Bis 2 Jahre,3,Ausgewogen,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,4,Ausgewogen,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,5,Ausgewogen,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,6,Ausgewogen,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,7,Ausgewogen,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,8,Ausgewogen,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,9,Ausgewogen,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,10,Ausgewogen,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,11,Ausgewogen,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+9,Bis 2 Jahre,12,Ausgewogen,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+9,2 bis 3 Jahre,3,Ausgewogen,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+9,2 bis 3 Jahre,4,Ausgewogen,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,5,Ausgewogen,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,6,Ausgewogen,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,7,Ausgewogen,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,8,Ausgewogen,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,9,Ausgewogen,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,10,Ausgewogen,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,11,Ausgewogen,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+9,2 bis 3 Jahre,12,Ausgewogen,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+9,3 bis 5 Jahre,3,Ausgewogen,45,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+9,3 bis 5 Jahre,4,Ausgewogen,45,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+9,3 bis 5 Jahre,5,Ausgewogen,45,Defensiv,30,30,Defensiv,30,Defensiv
+9,3 bis 5 Jahre,6,Ausgewogen,45,Defensiv,40,40,Defensiv,40,Defensiv
+9,3 bis 5 Jahre,7,Ausgewogen,45,Ausgewogen,50,45,Ausgewogen,45,Ausgewogen
+9,3 bis 5 Jahre,8,Ausgewogen,45,Ausgewogen,60,45,Ausgewogen,45,Ausgewogen
+9,3 bis 5 Jahre,9,Ausgewogen,45,Wachstumsorientiert,70,45,Ausgewogen,45,Ausgewogen
+9,3 bis 5 Jahre,10,Ausgewogen,45,Wachstumsorientiert,80,45,Ausgewogen,45,Ausgewogen
+9,3 bis 5 Jahre,11,Ausgewogen,45,Dynamisch,90,45,Ausgewogen,45,Ausgewogen
+9,3 bis 5 Jahre,12,Ausgewogen,45,Aktien,100,45,Ausgewogen,45,Ausgewogen
+9,5 bis 7 Jahre,3,Ausgewogen,55,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+9,5 bis 7 Jahre,4,Ausgewogen,55,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+9,5 bis 7 Jahre,5,Ausgewogen,55,Defensiv,30,30,Defensiv,30,Defensiv
+9,5 bis 7 Jahre,6,Ausgewogen,55,Defensiv,40,40,Defensiv,40,Defensiv
+9,5 bis 7 Jahre,7,Ausgewogen,55,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+9,5 bis 7 Jahre,8,Ausgewogen,55,Ausgewogen,60,55,Ausgewogen,55,Ausgewogen
+9,5 bis 7 Jahre,9,Ausgewogen,55,Wachstumsorientiert,70,55,Ausgewogen,55,Ausgewogen
+9,5 bis 7 Jahre,10,Ausgewogen,55,Wachstumsorientiert,80,55,Ausgewogen,55,Ausgewogen
+9,5 bis 7 Jahre,11,Ausgewogen,55,Dynamisch,90,55,Ausgewogen,55,Ausgewogen
+9,5 bis 7 Jahre,12,Ausgewogen,55,Aktien,100,55,Ausgewogen,55,Ausgewogen
+9,8 bis 11 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+9,8 bis 11 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+9,8 bis 11 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+9,8 bis 11 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+9,8 bis 11 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+9,8 bis 11 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+9,8 bis 11 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+9,8 bis 11 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+9,8 bis 11 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+9,8 bis 11 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+9,Mehr als 12 Jahre,3,Ausgewogen,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+9,Mehr als 12 Jahre,4,Ausgewogen,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+9,Mehr als 12 Jahre,5,Ausgewogen,60,Defensiv,30,30,Defensiv,30,Defensiv
+9,Mehr als 12 Jahre,6,Ausgewogen,60,Defensiv,40,40,Defensiv,40,Defensiv
+9,Mehr als 12 Jahre,7,Ausgewogen,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+9,Mehr als 12 Jahre,8,Ausgewogen,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+9,Mehr als 12 Jahre,9,Ausgewogen,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+9,Mehr als 12 Jahre,10,Ausgewogen,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+9,Mehr als 12 Jahre,11,Ausgewogen,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+9,Mehr als 12 Jahre,12,Ausgewogen,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+10,Bis 2 Jahre,3,Wachstumsorientiert,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,4,Wachstumsorientiert,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,5,Wachstumsorientiert,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,6,Wachstumsorientiert,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,7,Wachstumsorientiert,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,8,Wachstumsorientiert,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,9,Wachstumsorientiert,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,10,Wachstumsorientiert,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,11,Wachstumsorientiert,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+10,Bis 2 Jahre,12,Wachstumsorientiert,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+10,2 bis 3 Jahre,3,Wachstumsorientiert,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+10,2 bis 3 Jahre,4,Wachstumsorientiert,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,5,Wachstumsorientiert,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,6,Wachstumsorientiert,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,7,Wachstumsorientiert,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,8,Wachstumsorientiert,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,9,Wachstumsorientiert,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,10,Wachstumsorientiert,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,11,Wachstumsorientiert,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+10,2 bis 3 Jahre,12,Wachstumsorientiert,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+10,3 bis 5 Jahre,3,Wachstumsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+10,3 bis 5 Jahre,4,Wachstumsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+10,3 bis 5 Jahre,5,Wachstumsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+10,3 bis 5 Jahre,6,Wachstumsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+10,3 bis 5 Jahre,7,Wachstumsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+10,3 bis 5 Jahre,8,Wachstumsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+10,3 bis 5 Jahre,9,Wachstumsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+10,3 bis 5 Jahre,10,Wachstumsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+10,3 bis 5 Jahre,11,Wachstumsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+10,3 bis 5 Jahre,12,Wachstumsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+10,5 bis 7 Jahre,3,Wachstumsorientiert,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+10,5 bis 7 Jahre,4,Wachstumsorientiert,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+10,5 bis 7 Jahre,5,Wachstumsorientiert,60,Defensiv,30,30,Defensiv,30,Defensiv
+10,5 bis 7 Jahre,6,Wachstumsorientiert,60,Defensiv,40,40,Defensiv,40,Defensiv
+10,5 bis 7 Jahre,7,Wachstumsorientiert,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+10,5 bis 7 Jahre,8,Wachstumsorientiert,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+10,5 bis 7 Jahre,9,Wachstumsorientiert,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+10,5 bis 7 Jahre,10,Wachstumsorientiert,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+10,5 bis 7 Jahre,11,Wachstumsorientiert,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+10,5 bis 7 Jahre,12,Wachstumsorientiert,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+10,8 bis 11 Jahre,3,Wachstumsorientiert,65,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+10,8 bis 11 Jahre,4,Wachstumsorientiert,65,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+10,8 bis 11 Jahre,5,Wachstumsorientiert,65,Defensiv,30,30,Defensiv,30,Defensiv
+10,8 bis 11 Jahre,6,Wachstumsorientiert,65,Defensiv,40,40,Defensiv,40,Defensiv
+10,8 bis 11 Jahre,7,Wachstumsorientiert,65,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+10,8 bis 11 Jahre,8,Wachstumsorientiert,65,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+10,8 bis 11 Jahre,9,Wachstumsorientiert,65,Wachstumsorientiert,70,65,Wachstumsorientiert,65,Wachstumsorientiert
+10,8 bis 11 Jahre,10,Wachstumsorientiert,65,Wachstumsorientiert,80,65,Wachstumsorientiert,65,Wachstumsorientiert
+10,8 bis 11 Jahre,11,Wachstumsorientiert,65,Dynamisch,90,65,Wachstumsorientiert,65,Wachstumsorientiert
+10,8 bis 11 Jahre,12,Wachstumsorientiert,65,Aktien,100,65,Wachstumsorientiert,65,Wachstumsorientiert
+10,Mehr als 12 Jahre,3,Wachstumsorientiert,75,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+10,Mehr als 12 Jahre,4,Wachstumsorientiert,75,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+10,Mehr als 12 Jahre,5,Wachstumsorientiert,75,Defensiv,30,30,Defensiv,30,Defensiv
+10,Mehr als 12 Jahre,6,Wachstumsorientiert,75,Defensiv,40,40,Defensiv,40,Defensiv
+10,Mehr als 12 Jahre,7,Wachstumsorientiert,75,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+10,Mehr als 12 Jahre,8,Wachstumsorientiert,75,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+10,Mehr als 12 Jahre,9,Wachstumsorientiert,75,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+10,Mehr als 12 Jahre,10,Wachstumsorientiert,75,Wachstumsorientiert,80,75,Wachstumsorientiert,75,Wachstumsorientiert
+10,Mehr als 12 Jahre,11,Wachstumsorientiert,75,Dynamisch,90,75,Wachstumsorientiert,75,Wachstumsorientiert
+10,Mehr als 12 Jahre,12,Wachstumsorientiert,75,Aktien,100,75,Wachstumsorientiert,75,Wachstumsorientiert
+11,Bis 2 Jahre,3,Wachstumsorientiert,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,4,Wachstumsorientiert,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,5,Wachstumsorientiert,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,6,Wachstumsorientiert,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,7,Wachstumsorientiert,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,8,Wachstumsorientiert,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,9,Wachstumsorientiert,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,10,Wachstumsorientiert,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,11,Wachstumsorientiert,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+11,Bis 2 Jahre,12,Wachstumsorientiert,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+11,2 bis 3 Jahre,3,Wachstumsorientiert,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+11,2 bis 3 Jahre,4,Wachstumsorientiert,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,5,Wachstumsorientiert,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,6,Wachstumsorientiert,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,7,Wachstumsorientiert,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,8,Wachstumsorientiert,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,9,Wachstumsorientiert,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,10,Wachstumsorientiert,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,11,Wachstumsorientiert,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+11,2 bis 3 Jahre,12,Wachstumsorientiert,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+11,3 bis 5 Jahre,3,Wachstumsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+11,3 bis 5 Jahre,4,Wachstumsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+11,3 bis 5 Jahre,5,Wachstumsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+11,3 bis 5 Jahre,6,Wachstumsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+11,3 bis 5 Jahre,7,Wachstumsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+11,3 bis 5 Jahre,8,Wachstumsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+11,3 bis 5 Jahre,9,Wachstumsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+11,3 bis 5 Jahre,10,Wachstumsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+11,3 bis 5 Jahre,11,Wachstumsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+11,3 bis 5 Jahre,12,Wachstumsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+11,5 bis 7 Jahre,3,Wachstumsorientiert,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+11,5 bis 7 Jahre,4,Wachstumsorientiert,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+11,5 bis 7 Jahre,5,Wachstumsorientiert,60,Defensiv,30,30,Defensiv,30,Defensiv
+11,5 bis 7 Jahre,6,Wachstumsorientiert,60,Defensiv,40,40,Defensiv,40,Defensiv
+11,5 bis 7 Jahre,7,Wachstumsorientiert,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+11,5 bis 7 Jahre,8,Wachstumsorientiert,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+11,5 bis 7 Jahre,9,Wachstumsorientiert,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+11,5 bis 7 Jahre,10,Wachstumsorientiert,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+11,5 bis 7 Jahre,11,Wachstumsorientiert,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+11,5 bis 7 Jahre,12,Wachstumsorientiert,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+11,8 bis 11 Jahre,3,Wachstumsorientiert,65,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+11,8 bis 11 Jahre,4,Wachstumsorientiert,65,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+11,8 bis 11 Jahre,5,Wachstumsorientiert,65,Defensiv,30,30,Defensiv,30,Defensiv
+11,8 bis 11 Jahre,6,Wachstumsorientiert,65,Defensiv,40,40,Defensiv,40,Defensiv
+11,8 bis 11 Jahre,7,Wachstumsorientiert,65,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+11,8 bis 11 Jahre,8,Wachstumsorientiert,65,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+11,8 bis 11 Jahre,9,Wachstumsorientiert,65,Wachstumsorientiert,70,65,Wachstumsorientiert,65,Wachstumsorientiert
+11,8 bis 11 Jahre,10,Wachstumsorientiert,65,Wachstumsorientiert,80,65,Wachstumsorientiert,65,Wachstumsorientiert
+11,8 bis 11 Jahre,11,Wachstumsorientiert,65,Dynamisch,90,65,Wachstumsorientiert,65,Wachstumsorientiert
+11,8 bis 11 Jahre,12,Wachstumsorientiert,65,Aktien,100,65,Wachstumsorientiert,65,Wachstumsorientiert
+11,Mehr als 12 Jahre,3,Wachstumsorientiert,75,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+11,Mehr als 12 Jahre,4,Wachstumsorientiert,75,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+11,Mehr als 12 Jahre,5,Wachstumsorientiert,75,Defensiv,30,30,Defensiv,30,Defensiv
+11,Mehr als 12 Jahre,6,Wachstumsorientiert,75,Defensiv,40,40,Defensiv,40,Defensiv
+11,Mehr als 12 Jahre,7,Wachstumsorientiert,75,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+11,Mehr als 12 Jahre,8,Wachstumsorientiert,75,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+11,Mehr als 12 Jahre,9,Wachstumsorientiert,75,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+11,Mehr als 12 Jahre,10,Wachstumsorientiert,75,Wachstumsorientiert,80,75,Wachstumsorientiert,75,Wachstumsorientiert
+11,Mehr als 12 Jahre,11,Wachstumsorientiert,75,Dynamisch,90,75,Wachstumsorientiert,75,Wachstumsorientiert
+11,Mehr als 12 Jahre,12,Wachstumsorientiert,75,Aktien,100,75,Wachstumsorientiert,75,Wachstumsorientiert
+12,Bis 2 Jahre,3,Wachstumsorientiert,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,4,Wachstumsorientiert,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,5,Wachstumsorientiert,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,6,Wachstumsorientiert,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,7,Wachstumsorientiert,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,8,Wachstumsorientiert,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,9,Wachstumsorientiert,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,10,Wachstumsorientiert,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,11,Wachstumsorientiert,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+12,Bis 2 Jahre,12,Wachstumsorientiert,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+12,2 bis 3 Jahre,3,Wachstumsorientiert,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+12,2 bis 3 Jahre,4,Wachstumsorientiert,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,5,Wachstumsorientiert,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,6,Wachstumsorientiert,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,7,Wachstumsorientiert,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,8,Wachstumsorientiert,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,9,Wachstumsorientiert,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,10,Wachstumsorientiert,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,11,Wachstumsorientiert,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+12,2 bis 3 Jahre,12,Wachstumsorientiert,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+12,3 bis 5 Jahre,3,Wachstumsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+12,3 bis 5 Jahre,4,Wachstumsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+12,3 bis 5 Jahre,5,Wachstumsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+12,3 bis 5 Jahre,6,Wachstumsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+12,3 bis 5 Jahre,7,Wachstumsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+12,3 bis 5 Jahre,8,Wachstumsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+12,3 bis 5 Jahre,9,Wachstumsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+12,3 bis 5 Jahre,10,Wachstumsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+12,3 bis 5 Jahre,11,Wachstumsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+12,3 bis 5 Jahre,12,Wachstumsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+12,5 bis 7 Jahre,3,Wachstumsorientiert,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+12,5 bis 7 Jahre,4,Wachstumsorientiert,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+12,5 bis 7 Jahre,5,Wachstumsorientiert,60,Defensiv,30,30,Defensiv,30,Defensiv
+12,5 bis 7 Jahre,6,Wachstumsorientiert,60,Defensiv,40,40,Defensiv,40,Defensiv
+12,5 bis 7 Jahre,7,Wachstumsorientiert,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+12,5 bis 7 Jahre,8,Wachstumsorientiert,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+12,5 bis 7 Jahre,9,Wachstumsorientiert,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+12,5 bis 7 Jahre,10,Wachstumsorientiert,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+12,5 bis 7 Jahre,11,Wachstumsorientiert,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+12,5 bis 7 Jahre,12,Wachstumsorientiert,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+12,8 bis 11 Jahre,3,Wachstumsorientiert,65,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+12,8 bis 11 Jahre,4,Wachstumsorientiert,65,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+12,8 bis 11 Jahre,5,Wachstumsorientiert,65,Defensiv,30,30,Defensiv,30,Defensiv
+12,8 bis 11 Jahre,6,Wachstumsorientiert,65,Defensiv,40,40,Defensiv,40,Defensiv
+12,8 bis 11 Jahre,7,Wachstumsorientiert,65,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+12,8 bis 11 Jahre,8,Wachstumsorientiert,65,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+12,8 bis 11 Jahre,9,Wachstumsorientiert,65,Wachstumsorientiert,70,65,Wachstumsorientiert,65,Wachstumsorientiert
+12,8 bis 11 Jahre,10,Wachstumsorientiert,65,Wachstumsorientiert,80,65,Wachstumsorientiert,65,Wachstumsorientiert
+12,8 bis 11 Jahre,11,Wachstumsorientiert,65,Dynamisch,90,65,Wachstumsorientiert,65,Wachstumsorientiert
+12,8 bis 11 Jahre,12,Wachstumsorientiert,65,Aktien,100,65,Wachstumsorientiert,65,Wachstumsorientiert
+12,Mehr als 12 Jahre,3,Wachstumsorientiert,75,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+12,Mehr als 12 Jahre,4,Wachstumsorientiert,75,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+12,Mehr als 12 Jahre,5,Wachstumsorientiert,75,Defensiv,30,30,Defensiv,30,Defensiv
+12,Mehr als 12 Jahre,6,Wachstumsorientiert,75,Defensiv,40,40,Defensiv,40,Defensiv
+12,Mehr als 12 Jahre,7,Wachstumsorientiert,75,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+12,Mehr als 12 Jahre,8,Wachstumsorientiert,75,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+12,Mehr als 12 Jahre,9,Wachstumsorientiert,75,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+12,Mehr als 12 Jahre,10,Wachstumsorientiert,75,Wachstumsorientiert,80,75,Wachstumsorientiert,75,Wachstumsorientiert
+12,Mehr als 12 Jahre,11,Wachstumsorientiert,75,Dynamisch,90,75,Wachstumsorientiert,75,Wachstumsorientiert
+12,Mehr als 12 Jahre,12,Wachstumsorientiert,75,Aktien,100,75,Wachstumsorientiert,75,Wachstumsorientiert
+13,Bis 2 Jahre,3,Wachstumsorientiert,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,4,Wachstumsorientiert,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,5,Wachstumsorientiert,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,6,Wachstumsorientiert,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,7,Wachstumsorientiert,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,8,Wachstumsorientiert,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,9,Wachstumsorientiert,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,10,Wachstumsorientiert,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,11,Wachstumsorientiert,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+13,Bis 2 Jahre,12,Wachstumsorientiert,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+13,2 bis 3 Jahre,3,Wachstumsorientiert,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+13,2 bis 3 Jahre,4,Wachstumsorientiert,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,5,Wachstumsorientiert,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,6,Wachstumsorientiert,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,7,Wachstumsorientiert,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,8,Wachstumsorientiert,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,9,Wachstumsorientiert,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,10,Wachstumsorientiert,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,11,Wachstumsorientiert,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+13,2 bis 3 Jahre,12,Wachstumsorientiert,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+13,3 bis 5 Jahre,3,Wachstumsorientiert,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+13,3 bis 5 Jahre,4,Wachstumsorientiert,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+13,3 bis 5 Jahre,5,Wachstumsorientiert,50,Defensiv,30,30,Defensiv,30,Defensiv
+13,3 bis 5 Jahre,6,Wachstumsorientiert,50,Defensiv,40,40,Defensiv,40,Defensiv
+13,3 bis 5 Jahre,7,Wachstumsorientiert,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+13,3 bis 5 Jahre,8,Wachstumsorientiert,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+13,3 bis 5 Jahre,9,Wachstumsorientiert,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+13,3 bis 5 Jahre,10,Wachstumsorientiert,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+13,3 bis 5 Jahre,11,Wachstumsorientiert,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+13,3 bis 5 Jahre,12,Wachstumsorientiert,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+13,5 bis 7 Jahre,3,Wachstumsorientiert,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+13,5 bis 7 Jahre,4,Wachstumsorientiert,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+13,5 bis 7 Jahre,5,Wachstumsorientiert,60,Defensiv,30,30,Defensiv,30,Defensiv
+13,5 bis 7 Jahre,6,Wachstumsorientiert,60,Defensiv,40,40,Defensiv,40,Defensiv
+13,5 bis 7 Jahre,7,Wachstumsorientiert,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+13,5 bis 7 Jahre,8,Wachstumsorientiert,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+13,5 bis 7 Jahre,9,Wachstumsorientiert,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+13,5 bis 7 Jahre,10,Wachstumsorientiert,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+13,5 bis 7 Jahre,11,Wachstumsorientiert,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+13,5 bis 7 Jahre,12,Wachstumsorientiert,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+13,8 bis 11 Jahre,3,Wachstumsorientiert,65,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+13,8 bis 11 Jahre,4,Wachstumsorientiert,65,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+13,8 bis 11 Jahre,5,Wachstumsorientiert,65,Defensiv,30,30,Defensiv,30,Defensiv
+13,8 bis 11 Jahre,6,Wachstumsorientiert,65,Defensiv,40,40,Defensiv,40,Defensiv
+13,8 bis 11 Jahre,7,Wachstumsorientiert,65,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+13,8 bis 11 Jahre,8,Wachstumsorientiert,65,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+13,8 bis 11 Jahre,9,Wachstumsorientiert,65,Wachstumsorientiert,70,65,Wachstumsorientiert,65,Wachstumsorientiert
+13,8 bis 11 Jahre,10,Wachstumsorientiert,65,Wachstumsorientiert,80,65,Wachstumsorientiert,65,Wachstumsorientiert
+13,8 bis 11 Jahre,11,Wachstumsorientiert,65,Dynamisch,90,65,Wachstumsorientiert,65,Wachstumsorientiert
+13,8 bis 11 Jahre,12,Wachstumsorientiert,65,Aktien,100,65,Wachstumsorientiert,65,Wachstumsorientiert
+13,Mehr als 12 Jahre,3,Wachstumsorientiert,75,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+13,Mehr als 12 Jahre,4,Wachstumsorientiert,75,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+13,Mehr als 12 Jahre,5,Wachstumsorientiert,75,Defensiv,30,30,Defensiv,30,Defensiv
+13,Mehr als 12 Jahre,6,Wachstumsorientiert,75,Defensiv,40,40,Defensiv,40,Defensiv
+13,Mehr als 12 Jahre,7,Wachstumsorientiert,75,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+13,Mehr als 12 Jahre,8,Wachstumsorientiert,75,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+13,Mehr als 12 Jahre,9,Wachstumsorientiert,75,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+13,Mehr als 12 Jahre,10,Wachstumsorientiert,75,Wachstumsorientiert,80,75,Wachstumsorientiert,75,Wachstumsorientiert
+13,Mehr als 12 Jahre,11,Wachstumsorientiert,75,Dynamisch,90,75,Wachstumsorientiert,75,Wachstumsorientiert
+13,Mehr als 12 Jahre,12,Wachstumsorientiert,75,Aktien,100,75,Wachstumsorientiert,75,Wachstumsorientiert
+14,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+14,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+14,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+14,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+14,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+14,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+14,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+14,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+14,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+14,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+14,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+14,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+14,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+14,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+14,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+14,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+14,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+14,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+14,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+14,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+14,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+14,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+14,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+14,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+14,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+14,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+14,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+14,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+14,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+14,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+14,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+14,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+14,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+14,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+14,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+14,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+14,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+14,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+14,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+14,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+14,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+14,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+14,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+14,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+14,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+15,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+15,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+15,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+15,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+15,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+15,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+15,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+15,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+15,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+15,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+15,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+15,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+15,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+15,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+15,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+15,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+15,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+15,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+15,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+15,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+15,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+15,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+15,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+15,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+15,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+15,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+15,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+15,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+15,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+15,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+15,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+15,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+15,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+15,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+15,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+15,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+15,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+15,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+15,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+15,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+15,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+15,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+15,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+15,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+15,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+16,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+16,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+16,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+16,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+16,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+16,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+16,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+16,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+16,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+16,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+16,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+16,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+16,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+16,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+16,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+16,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+16,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+16,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+16,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+16,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+16,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+16,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+16,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+16,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+16,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+16,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+16,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+16,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+16,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+16,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+16,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+16,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+16,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+16,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+16,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+16,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+16,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+16,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+16,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+16,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+16,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+16,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+16,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+16,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+16,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+17,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+17,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+17,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+17,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+17,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+17,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+17,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+17,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+17,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+17,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+17,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+17,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+17,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+17,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+17,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+17,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+17,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+17,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+17,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+17,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+17,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+17,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+17,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+17,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+17,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+17,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+17,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+17,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+17,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+17,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+17,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+17,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+17,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+17,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+17,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+17,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+17,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+17,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+17,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+17,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+17,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+17,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+17,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+17,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+17,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+18,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+18,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+18,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+18,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+18,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+18,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+18,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+18,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+18,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+18,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+18,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+18,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+18,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+18,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+18,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+18,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+18,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+18,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+18,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+18,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+18,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+18,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+18,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+18,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+18,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+18,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+18,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+18,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+18,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+18,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+18,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+18,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+18,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+18,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+18,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+18,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+18,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+18,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+18,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+18,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+18,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+18,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+18,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+18,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+18,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+19,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+19,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+19,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+19,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+19,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+19,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+19,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+19,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+19,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+19,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+19,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+19,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+19,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+19,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+19,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+19,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+19,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+19,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+19,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+19,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+19,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+19,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+19,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+19,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+19,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+19,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+19,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+19,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+19,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+19,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+19,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+19,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+19,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+19,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+19,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+19,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+19,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+19,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+19,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+19,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+19,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+19,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+19,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+19,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+19,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+20,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+20,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+20,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+20,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+20,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+20,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+20,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+20,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+20,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+20,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+20,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+20,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+20,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+20,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+20,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+20,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+20,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+20,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+20,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+20,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+20,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+20,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+20,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+20,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+20,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+20,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+20,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+20,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+20,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+20,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+20,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+20,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+20,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+20,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+20,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+20,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+20,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+20,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+20,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+20,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+20,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+20,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+20,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+20,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+20,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+21,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+21,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+21,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+21,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+21,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+21,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+21,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+21,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+21,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+21,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+21,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+21,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+21,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+21,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+21,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+21,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+21,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+21,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+21,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+21,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+21,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+21,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+21,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+21,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+21,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+21,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+21,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+21,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+21,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+21,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+21,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+21,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+21,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+21,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+21,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+21,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+21,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+21,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+21,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+21,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+21,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+21,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+21,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+21,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+21,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+22,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+22,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+22,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+22,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+22,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+22,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+22,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+22,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+22,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+22,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+22,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+22,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+22,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+22,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+22,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+22,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+22,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+22,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+22,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+22,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+22,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+22,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+22,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+22,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+22,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+22,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+22,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+22,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+22,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+22,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+22,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+22,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+22,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+22,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+22,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+22,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+22,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+22,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+22,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+22,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+22,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+22,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+22,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+22,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+22,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+23,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+23,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+23,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+23,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+23,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+23,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+23,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+23,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+23,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+23,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+23,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+23,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+23,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+23,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+23,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+23,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+23,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+23,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+23,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+23,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+23,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+23,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+23,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+23,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+23,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+23,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+23,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+23,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+23,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+23,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+23,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+23,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+23,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+23,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+23,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+23,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+23,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+23,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+23,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+23,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+23,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+23,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+23,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+23,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+23,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+24,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+24,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+24,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+24,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+24,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+24,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+24,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+24,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+24,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+24,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+24,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+24,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+24,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+24,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+24,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+24,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+24,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+24,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+24,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+24,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+24,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+24,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+24,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+24,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+24,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+24,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+24,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+24,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+24,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+24,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+24,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+24,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+24,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+24,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+24,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+24,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+24,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+24,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+24,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+24,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+24,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+24,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+24,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+24,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+24,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+25,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+25,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+25,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+25,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+25,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+25,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+25,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+25,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+25,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+25,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+25,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+25,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+25,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+25,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+25,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+25,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+25,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+25,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+25,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+25,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+25,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+25,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+25,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+25,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+25,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+25,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+25,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+25,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+25,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+25,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+25,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+25,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+25,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+25,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+25,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+25,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+25,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+25,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+25,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+25,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+25,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+25,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+25,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+25,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+25,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+26,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+26,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+26,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+26,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+26,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+26,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+26,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+26,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+26,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+26,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+26,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+26,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+26,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+26,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+26,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+26,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+26,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+26,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+26,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+26,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+26,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+26,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+26,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+26,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+26,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+26,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+26,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+26,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+26,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+26,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+26,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+26,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+26,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+26,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+26,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+26,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+26,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+26,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+26,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+26,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+26,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+26,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+26,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+26,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+26,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+27,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+27,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+27,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+27,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+27,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+27,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+27,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+27,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+27,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+27,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+27,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+27,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+27,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+27,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+27,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+27,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+27,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+27,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+27,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+27,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+27,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+27,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+27,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+27,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+27,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+27,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+27,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+27,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+27,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+27,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+27,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+27,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+27,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+27,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+27,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+27,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+27,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+27,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+27,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+27,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+27,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+27,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+27,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+27,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+27,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+28,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+28,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+28,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+28,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+28,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+28,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+28,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+28,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+28,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+28,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+28,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+28,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+28,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+28,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+28,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+28,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+28,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+28,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+28,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+28,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+28,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+28,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+28,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+28,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+28,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+28,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+28,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+28,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+28,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+28,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+28,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+28,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+28,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+28,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+28,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+28,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+28,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+28,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+28,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+28,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+28,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+28,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+28,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+28,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+28,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+29,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+29,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+29,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+29,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+29,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+29,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+29,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+29,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+29,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+29,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+29,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+29,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+29,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+29,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+29,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+29,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+29,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+29,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+29,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+29,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+29,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+29,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+29,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+29,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+29,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+29,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+29,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+29,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+29,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+29,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+29,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+29,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+29,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+29,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+29,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+29,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+29,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+29,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+29,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+29,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+29,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+29,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+29,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+29,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+29,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+30,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+30,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+30,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+30,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+30,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+30,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+30,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+30,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+30,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+30,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+30,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+30,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+30,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+30,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+30,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+30,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+30,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+30,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+30,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+30,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+30,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+30,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+30,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+30,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+30,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+30,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+30,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+30,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+30,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+30,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+30,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+30,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+30,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+30,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+30,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+30,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+30,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+30,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+30,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+30,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+30,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+30,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+30,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+30,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+30,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+31,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+31,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+31,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+31,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+31,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+31,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+31,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+31,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+31,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+31,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+31,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+31,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+31,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+31,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+31,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+31,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+31,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+31,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+31,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+31,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+31,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+31,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+31,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+31,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+31,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+31,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+31,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+31,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+31,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+31,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+31,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+31,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+31,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+31,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+31,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+31,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+31,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+31,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+31,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+31,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+31,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+31,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+31,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+31,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+31,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert
+32,Bis 2 Jahre,3,Dynamisch,0,Kapitalschutz,10,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,4,Dynamisch,0,Kapitalschutz,20,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,5,Dynamisch,0,Defensiv,30,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,6,Dynamisch,0,Defensiv,40,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,7,Dynamisch,0,Ausgewogen,50,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,8,Dynamisch,0,Ausgewogen,60,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,9,Dynamisch,0,Wachstumsorientiert,70,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,10,Dynamisch,0,Wachstumsorientiert,80,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,11,Dynamisch,0,Dynamisch,90,0,Kapitalschutz,0,Kapitalschutz
+32,Bis 2 Jahre,12,Dynamisch,0,Aktien,100,0,Kapitalschutz,0,Kapitalschutz
+32,2 bis 3 Jahre,3,Dynamisch,20,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+32,2 bis 3 Jahre,4,Dynamisch,20,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,5,Dynamisch,20,Defensiv,30,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,6,Dynamisch,20,Defensiv,40,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,7,Dynamisch,20,Ausgewogen,50,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,8,Dynamisch,20,Ausgewogen,60,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,9,Dynamisch,20,Wachstumsorientiert,70,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,10,Dynamisch,20,Wachstumsorientiert,80,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,11,Dynamisch,20,Dynamisch,90,20,Kapitalschutz,20,Kapitalschutz
+32,2 bis 3 Jahre,12,Dynamisch,20,Aktien,100,20,Kapitalschutz,20,Kapitalschutz
+32,3 bis 5 Jahre,3,Dynamisch,50,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+32,3 bis 5 Jahre,4,Dynamisch,50,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+32,3 bis 5 Jahre,5,Dynamisch,50,Defensiv,30,30,Defensiv,30,Defensiv
+32,3 bis 5 Jahre,6,Dynamisch,50,Defensiv,40,40,Defensiv,40,Defensiv
+32,3 bis 5 Jahre,7,Dynamisch,50,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+32,3 bis 5 Jahre,8,Dynamisch,50,Ausgewogen,60,50,Ausgewogen,50,Ausgewogen
+32,3 bis 5 Jahre,9,Dynamisch,50,Wachstumsorientiert,70,50,Ausgewogen,50,Ausgewogen
+32,3 bis 5 Jahre,10,Dynamisch,50,Wachstumsorientiert,80,50,Ausgewogen,50,Ausgewogen
+32,3 bis 5 Jahre,11,Dynamisch,50,Dynamisch,90,50,Ausgewogen,50,Ausgewogen
+32,3 bis 5 Jahre,12,Dynamisch,50,Aktien,100,50,Ausgewogen,50,Ausgewogen
+32,5 bis 7 Jahre,3,Dynamisch,60,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+32,5 bis 7 Jahre,4,Dynamisch,60,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+32,5 bis 7 Jahre,5,Dynamisch,60,Defensiv,30,30,Defensiv,30,Defensiv
+32,5 bis 7 Jahre,6,Dynamisch,60,Defensiv,40,40,Defensiv,40,Defensiv
+32,5 bis 7 Jahre,7,Dynamisch,60,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+32,5 bis 7 Jahre,8,Dynamisch,60,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+32,5 bis 7 Jahre,9,Dynamisch,60,Wachstumsorientiert,70,60,Ausgewogen,60,Ausgewogen
+32,5 bis 7 Jahre,10,Dynamisch,60,Wachstumsorientiert,80,60,Ausgewogen,60,Ausgewogen
+32,5 bis 7 Jahre,11,Dynamisch,60,Dynamisch,90,60,Ausgewogen,60,Ausgewogen
+32,5 bis 7 Jahre,12,Dynamisch,60,Aktien,100,60,Ausgewogen,60,Ausgewogen
+32,8 bis 11 Jahre,3,Dynamisch,70,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+32,8 bis 11 Jahre,4,Dynamisch,70,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+32,8 bis 11 Jahre,5,Dynamisch,70,Defensiv,30,30,Defensiv,30,Defensiv
+32,8 bis 11 Jahre,6,Dynamisch,70,Defensiv,40,40,Defensiv,40,Defensiv
+32,8 bis 11 Jahre,7,Dynamisch,70,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+32,8 bis 11 Jahre,8,Dynamisch,70,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+32,8 bis 11 Jahre,9,Dynamisch,70,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+32,8 bis 11 Jahre,10,Dynamisch,70,Wachstumsorientiert,80,70,Wachstumsorientiert,70,Wachstumsorientiert
+32,8 bis 11 Jahre,11,Dynamisch,70,Dynamisch,90,70,Wachstumsorientiert,70,Wachstumsorientiert
+32,8 bis 11 Jahre,12,Dynamisch,70,Aktien,100,70,Wachstumsorientiert,70,Wachstumsorientiert
+32,Mehr als 12 Jahre,3,Dynamisch,100,Kapitalschutz,10,10,Kapitalschutz,10,Kapitalschutz
+32,Mehr als 12 Jahre,4,Dynamisch,100,Kapitalschutz,20,20,Kapitalschutz,20,Kapitalschutz
+32,Mehr als 12 Jahre,5,Dynamisch,100,Defensiv,30,30,Defensiv,30,Defensiv
+32,Mehr als 12 Jahre,6,Dynamisch,100,Defensiv,40,40,Defensiv,40,Defensiv
+32,Mehr als 12 Jahre,7,Dynamisch,100,Ausgewogen,50,50,Ausgewogen,50,Ausgewogen
+32,Mehr als 12 Jahre,8,Dynamisch,100,Ausgewogen,60,60,Ausgewogen,60,Ausgewogen
+32,Mehr als 12 Jahre,9,Dynamisch,100,Wachstumsorientiert,70,70,Wachstumsorientiert,70,Wachstumsorientiert
+32,Mehr als 12 Jahre,10,Dynamisch,100,Wachstumsorientiert,80,80,Wachstumsorientiert,75,Wachstumsorientiert
+32,Mehr als 12 Jahre,11,Dynamisch,100,Dynamisch,90,90,Dynamisch,75,Wachstumsorientiert
+32,Mehr als 12 Jahre,12,Dynamisch,100,Aktien,100,100,Aktien,75,Wachstumsorientiert

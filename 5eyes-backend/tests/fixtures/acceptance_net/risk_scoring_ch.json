@@ -1,0 +1,11 @@
+{
+ "exhaustive_cases": 7030400,
+ "exhaustive_sha256": "8d83453fd25a05205ca2cfb5a39741a819e6d11e9b9748dade2602d8d8a5250a",
+ "frontend_reachable": {
+  "cases": 240000,
+  "points_table_rows": 1980,
+  "points_table_sha256": "afefd349bd125b8c623c057110ca03cf8e1f6ccdb6fa46317bdee0b6043f8761",
+  "sha256": "4fc7babd5154d94a5571695f2de99d531b1bd0ced79b6850f101c9dbf7ca1e36"
+ },
+ "jurisdiction": "CH"
+}
