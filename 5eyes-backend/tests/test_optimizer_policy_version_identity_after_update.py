@@ -117,14 +117,6 @@ def _client(session_factory) -> TestClient:
     return TestClient(app)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "POLICY-VERSION-IDENTITY-001 -- round 40 red test, see audit "
-        "2026-10-04-optimizer-policy-version-and-activation-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_policy_update_must_not_mutate_originally_referenced_id_in_place(session_factory):
     """A pre-existing reference to policy_id must keep seeing version-1 values.
 

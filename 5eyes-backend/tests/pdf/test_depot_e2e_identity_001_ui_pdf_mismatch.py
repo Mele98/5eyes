@@ -1,4 +1,4 @@
-"""DEPOT-E2E-IDENTITY-001 (P1, open).
+"""DEPOT-E2E-IDENTITY-001 (P1, geschlossen 2026-10-25).
 
 Audit: docs/audits/2026-10-05-depotcheck-end-to-end-product-identity-and-
 publication-integrity-audit.md (Ares worktree
@@ -29,8 +29,17 @@ bug, not a test bug. Wrapped in xfail(strict=True) so the suite stays green
 while the mismatch remains open pending a product-identity decision (merge
 the two products, or stop promising drift in the PDF-export UI).
 
-Do not "fix" this test by loosening the assertions -- the fix belongs in
-the product (UI copy and/or PDF content), not in the test.
+Closure (2026-10-25): the product decision taken is the audit's Phase-1
+option "target-only PDF heisst Zielportfolioanalyse". The modal keeps its
+live IST-vs-SOLL view, but its export button no longer promises drift; it
+is labelled and tooltipped as the target-portfolio analysis it actually
+renders (the PDF cover already reads "Analyse des empfohlenen
+Zielportfolios"). A real IST-based depot-check PDF needs the holdings
+snapshot from DEPOT-E2E-SNAPSHOT-001 and stays out of scope.
+
+The tests below keep the original contract (a UI drift promise must be
+backed by IST evidence in the PDF) and add the positive identity contract
+(button and PDF name the same target-portfolio scope).
 """
 from __future__ import annotations
 
@@ -39,7 +48,6 @@ from datetime import date
 from io import BytesIO
 from pathlib import Path
 
-import pytest
 from pypdf import PdfReader
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -239,52 +247,52 @@ def _render_pdf_text() -> str:
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
-def test_ui_promise_is_real_and_current():
-    """Sanity check (must stay green): the UI really does promise
-    IST-vs-SOLL drift content for the Depot-Check PDF export today."""
-    modal = _depotcheck_modal(_html_text())
-    assert _ui_promises_ist_vs_soll_drift(modal), (
-        "Modal wirbt nicht (mehr) mit 'IST vs SOLL' -- DEPOT-E2E-IDENTITY-001 "
-        "waere dann obsolet, bitte Audit-Status pruefen."
-    )
-    promise = _pdf_button_promise(modal)
-    assert "Drift" in promise, (
-        "PDF-Export-Button verspricht kein Drift mehr -- "
-        "DEPOT-E2E-IDENTITY-001 waere dann obsolet, bitte Audit-Status pruefen."
-    )
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEPOT-E2E-IDENTITY-001: Das Depot-Check-Modal und sein eigener "
-        "PDF-Export-Button versprechen 'Depot-Check mit Drift, Diversifikation, "
-        "Stress-Replays' / 'Asset-Klassen-Drift (IST vs SOLL)', aber "
-        "ReportLabRenderer.render_depotcheck() ist vertraglich (eigene Testsuite "
-        "tests/pdf/test_depotcheck_soll_analysis.py) auf eine reine SOLL-Analyse "
-        "festgelegt und verbietet 'IST vs.' / 'Drift-Tabelle' im Rendering. Die "
-        "UI verspricht ein Produkt, das der PDF-Renderer nicht liefert. Fix "
-        "erfordert eine Produkt-Identitaets-Entscheidung (Produkte zusammen- "
-        "fuehren oder PDF-Export-Werbung in der UI entschaerfen) -- siehe "
-        "docs/audits/2026-10-05-depotcheck-end-to-end-product-identity-and-"
-        "publication-integrity-audit.md."
-    ),
-)
-def test_pdf_export_delivers_on_ui_drift_promise():
-    modal = _depotcheck_modal(_html_text())
-    assert _ui_promises_ist_vs_soll_drift(modal)
-    promise = _pdf_button_promise(modal)
-    assert "Drift" in promise
-
-    pdf_text = _render_pdf_text()
-
-    # If the UI promises IST-vs-SOLL drift content for the PDF export, the
-    # rendered PDF must actually contain IST/drift evidence somewhere.
-    has_ist_evidence = ("IST vs" in pdf_text) or ("Ist-Wert" in pdf_text) or (
+def _pdf_has_ist_evidence(pdf_text: str) -> bool:
+    return ("IST vs" in pdf_text) or ("Ist-Wert" in pdf_text) or (
         "Drift-Tabelle" in pdf_text
     )
-    assert has_ist_evidence, (
-        "UI verspricht 'Drift'/'IST vs SOLL' fuer den Depot-Check-PDF-Export, "
-        "aber der tatsaechlich gerenderte PDF-Text enthaelt keinen IST/Drift-"
-        "Beleg (render_depotcheck liefert nur eine SOLL-Analyse)."
-    )
+
+
+def _button_label(modal: str) -> str:
+    anchor = "downloadServerPdf('depotcheck')"
+    idx = modal.find(anchor)
+    assert idx > 0, "PDF-Export-Button fuer 'depotcheck' fehlt im Modal"
+    start = modal.find(">", idx) + 1
+    end = modal.find("</button>", start)
+    return modal[start:end]
+
+
+def test_modal_itself_still_shows_live_ist_vs_soll_view():
+    """The modal (not the export) remains the live IST-vs-SOLL view; the
+    fix is in the export's product identity, not in removing the view."""
+    modal = _depotcheck_modal(_html_text())
+    assert _ui_promises_ist_vs_soll_drift(modal)
+
+
+def test_pdf_export_delivers_on_ui_drift_promise():
+    """A drift/IST promise on the export button must be backed by IST
+    evidence in the rendered PDF. The renderer is target-only by contract
+    (tests/pdf/test_depotcheck_soll_analysis.py), so the button must not
+    promise drift at all."""
+    modal = _depotcheck_modal(_html_text())
+    promise = _pdf_button_promise(modal) + " " + _button_label(modal)
+    pdf_text = _render_pdf_text()
+    if not _pdf_has_ist_evidence(pdf_text):
+        promised = [tok for tok in ("Drift", "IST vs", "Ist-Wert") if tok in promise]
+        assert not promised, (
+            "PDF-Export-Button verspricht IST/Drift, das gerenderte PDF "
+            f"liefert nur eine SOLL-Analyse: {promised} in {promise!r}"
+        )
+
+
+def test_export_button_and_pdf_share_the_target_portfolio_identity():
+    """Button label, tooltip and PDF cover name the same scope."""
+    modal = _depotcheck_modal(_html_text())
+    label = _button_label(modal)
+    tooltip = _pdf_button_promise(modal)
+    pdf_text = _render_pdf_text()
+    assert "Zielportfolio" in label, label
+    assert "Zielportfolio" in tooltip, tooltip
+    assert "IST-Abgleich" in tooltip and "keinen" in tooltip, tooltip
+    assert "Zielportfolio" in pdf_text
+    assert not _pdf_has_ist_evidence(pdf_text)

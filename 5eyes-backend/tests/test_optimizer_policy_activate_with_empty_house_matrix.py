@@ -100,14 +100,6 @@ def _base_policy_payload(name: str, house_matrix_rows: list[dict]) -> dict:
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "POLICY-ACTIVATION-COMPLETENESS-001 -- round 40 red test, see audit "
-        "2026-10-04-optimizer-policy-version-and-activation-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_activating_policy_with_empty_house_matrix_is_rejected(session_factory):
     _ensure_admin(session_factory)
 
@@ -157,3 +149,51 @@ def test_activating_policy_with_empty_house_matrix_is_rejected(session_factory):
             "-- the next real strategy-calculation run for any mandate would "
             "fail downstream with 'HouseMatrix unvollstaendig fuer Score ...'"
         )
+
+
+def test_activate_endpoint_rejects_partial_house_matrix_and_keeps_previous_current(session_factory):
+    _ensure_admin(session_factory)
+    partial_row = dict(_VALID_HM_ROW, score_from=1, score_to=5)
+    try:
+        with _client(session_factory) as client:
+            complete_id = client.post(
+                "/admin/optimizer-policies", params={"activate": "true"},
+                json=_base_policy_payload("R40-12-Complete-B", [_VALID_HM_ROW]),
+            ).json()["id"]
+            draft_id = client.post(
+                "/admin/optimizer-policies",
+                json=_base_policy_payload("R40-12-Draft-Empty", []),
+            ).json()["id"]
+            # Entwurf mit Luecke 6..10 direkt in der DB (der Editor-PUT
+            # verlangt bereits volle Abdeckung).
+            from models.allocation import HouseMatrix
+            with session_factory() as s:
+                s.add(HouseMatrix(
+                    id=new_uuid(), policy_id=draft_id, **partial_row, equity_minimum_bps=0,
+                    is_active=1, created_at="2026-10-04T10:00:00.000Z",
+                    updated_at="2026-10-04T10:00:00.000Z",
+                ))
+                s.commit()
+            resp = client.post(f"/admin/optimizer-policies/{draft_id}/activate", json={})
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"]["reason_code"] == "POLICY_HOUSE_MATRIX_INCOMPLETE"
+    finally:
+        app.dependency_overrides.clear()
+
+    with session_factory() as s:
+        assert s.get(OptimizerPolicy, complete_id).is_current == 1
+        assert s.get(OptimizerPolicy, draft_id).is_current == 0
+
+
+def test_house_matrix_coverage_problems_detects_gap_overlap_and_empty():
+    from services.optimizer_policy_lifecycle import house_matrix_coverage_problems
+
+    def band(a, b):
+        return SimpleNamespace(score_from=a, score_to=b)
+
+    assert house_matrix_coverage_problems([band(1, 4), band(5, 10)]) == []
+    assert house_matrix_coverage_problems([])
+    assert house_matrix_coverage_problems([band(1, 4), band(6, 10)])  # Luecke 5
+    assert house_matrix_coverage_problems([band(1, 5), band(5, 10)])  # Overlap 5
+    assert house_matrix_coverage_problems([band(1, 9)])               # 10 fehlt
+    assert house_matrix_coverage_problems([band(2, 10)])              # 1 fehlt
