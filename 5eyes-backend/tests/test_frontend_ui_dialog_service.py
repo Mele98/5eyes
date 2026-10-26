@@ -39,6 +39,7 @@ FUNCTIONS = (
     "function uiPrompt(",
     "function uiAlert(",
     "async function cancelPortfolioHandoffPrompt(",
+    "async function markPortfolioHandoffExecuted(",
     "function riskSignoffState(",
     "async function signRiskProfile(",
 )
@@ -302,3 +303,38 @@ def test_alert_falls_back_to_modal_without_toast_area():
     )
     assert result["calls"]["om"] == ["m-ui-dialog"]
     assert result["DOM"]["m-ui-dialog-msg"]["textContent"] == "Export fehlgeschlagen"
+
+
+
+# ------------------------------------- Ausfuehrung bestaetigen (Evidence)
+
+def test_mark_executed_asks_reference_and_date_then_posts_evidence():
+    """HANDOFF-EXECUTION-001: kein leerer Body mehr -- Referenz der
+    ausfuehrenden Stelle und Ausfuehrungsdatum werden abgefragt."""
+    result = _run(
+        "var p=markPortfolioHandoffExecuted('h-7');await tick();"
+        "R.msg1=DOM['m-ui-dialog-msg'].textContent;"
+        "DOM['m-ui-dialog-input'].value=' ORD-4711 ';"
+        "uiDialogKeydown({key:'Enter',target:DOM['m-ui-dialog-input']});await tick();await tick();"
+        "R.msg2=DOM['m-ui-dialog-msg'].textContent;R.prefill=DOM['m-ui-dialog-input'].value;"
+        "DOM['m-ui-dialog-input'].value='2026-10-24';"
+        "uiDialogKeydown({key:'Enter',target:DOM['m-ui-dialog-input']});await p;"
+    )
+    calls, r = result["calls"], result["R"]
+    assert calls["native"] == 0
+    assert r["msg1"].startswith("Auftrags-/Bestätigungsnummer")
+    assert r["msg2"].startswith("Ausführungsdatum")
+    assert len(r["prefill"]) == 10
+    assert calls["posts"] == [{
+        "url": "/mandates/m-1/portfolio-handoffs/h-7/mark-executed",
+        "body": {"external_order_reference": "ORD-4711", "executed_on": "2026-10-24"},
+    }]
+    assert calls["reloads"] == 1
+
+
+def test_mark_executed_abort_sends_nothing():
+    result = _run(
+        "var p=markPortfolioHandoffExecuted('h-7');await tick();uiDialogCancel();await p;"
+    )
+    assert result["calls"]["posts"] == []
+    assert result["calls"]["reloads"] == 0

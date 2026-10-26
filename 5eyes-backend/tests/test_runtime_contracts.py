@@ -5216,6 +5216,8 @@ def test_generate_recommendation_run_endpoint_reuses_result_allocation_payload(s
             return []
 
         monkeypatch.setattr(review_router, "generate_recommendation_run", fake_generate_recommendation_run)
+        # ELIG-GATE-001: Gate ist Default AN; dieser Test prueft nur das Payload-Plumbing.
+        monkeypatch.setattr(review_router, "audit_mandate_suitability", lambda db, mandate: {"is_compliant": True})
         monkeypatch.setattr(review_router, "refresh_system_review_triggers", fake_refresh)
 
         result = generate_recommendation_run_endpoint(
