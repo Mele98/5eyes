@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-24.2"
+INVENTORY_VERSION = "2026-10-26.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -46,6 +46,9 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # aus dem Mandat abgeleitet (services/risk_evidence_tenant_boundary.py).
     "risk_override_decisions",
     "risk_profile_signoffs",
+    # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only Plausibilitaets-
+    # Evidenz, Mandant aus dem Mandat (hash-gebunden).
+    "risk_capacity_plausibility_evaluations",
     "users",
     # PG-002 (Closure-Review PR #666): bisher nur transitiv ueber clients.
     "wealth_inflows",
