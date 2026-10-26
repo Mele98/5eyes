@@ -258,8 +258,62 @@ def _goal_pension_state_funded(goal: object) -> bool:
     return pillar in PENSION_PILLAR_STATE_FUNDED
 
 
-def _goal_reserve_for_goal(goal: Goal) -> int:
+class RealGoalInflationMissingError(ValueError):
+    """Ein reales Ausgabenziel soll ohne Inflationspfad bewertet werden."""
+
+
+def _real_expense_value_rappen(goal, amount_rappen: int, inflation_series_bps) -> int:
+    """Betrag eines Ausgabenziels in Nominalwerten des Faelligkeitsjahres.
+
+    GOAL-REAL-SPENDING-INFLATION-PARITY-001 / Owner-Entscheid 7b: ein
+    ``value_mode='real'``-Ausgabenziel ist in heutiger Kaufkraft erfasst. Der
+    Solver hebt es mit der CMA-Inflation auf das Faelligkeitsjahr
+    (``goal_liabilities._build_einmalige_ausgabe`` /
+    ``_build_recurring_outflow``); Reserve, deterministische Zielanalyse und
+    Haupt-Monte-Carlo verwendeten den Rohbetrag. Dieselbe reale Ausgabe war
+    damit im Solver 'nicht erreichbar' und in der Reserve 'gedeckt'.
+
+    Konvention wie im Solver: Faktor 1.0 im laufenden Kalenderjahr, danach
+    kumulativ je Kalenderjahr-Bucket bis zur (ersten) Faelligkeit -- Einmal-
+    ausgabe: Zieldatum; Strom: Beginn (sonst Ende); ohne Datum: horizon_years.
+    Dieselben Helfer (``_is_real_value_mode``, ``_inflate_at_year``,
+    ``_calendar_bucket_index``) statt einer zweiten Formel.
+
+    Fail-closed: ohne Inflationspfad gibt es fuer ein reales Ziel KEINE Zahl --
+    der Rohbetrag waere genau die stille Divergenz, die der Befund belegt.
+    """
+    from services.optimizer.goal_liabilities import (
+        _calendar_bucket_index,
+        _inflate_at_year,
+        _is_real_value_mode,
+        _parse_iso,
+    )
+    from services.portfolio_engine import _norm_text
+    from services.valuation_clock import valuation_date
+
+    if not _is_real_value_mode(goal):
+        return int(amount_rappen)
+    if inflation_series_bps is None:
+        raise RealGoalInflationMissingError(
+            f"Ziel '{getattr(goal, 'label', '') or 'Ziel'}': reales Ausgabenziel "
+            "ohne Inflationspfad -- Bewertung nicht moeglich."
+        )
+    if _norm_text(goal.goal_type) in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+        anchor = _parse_iso(goal.start_date) or _parse_iso(goal.target_date)
+    else:
+        anchor = _parse_iso(goal.target_date)
+    if anchor is not None:
+        bucket = _calendar_bucket_index(anchor, valuation_date().year)
+    else:
+        bucket = max(1, int(getattr(goal, "horizon_years", None) or 1))
+    return _inflate_at_year(int(amount_rappen), max(0, bucket - 1), list(inflation_series_bps))
+
+
+def _goal_reserve_for_goal(goal: Goal, inflation_series_bps: list[int] | None = None) -> int:
     """Zielbezogene Liquiditaetsreserve fuer Spending-Goals.
+
+    ``inflation_series_bps``: Inflationspfad der Ziele (wie im Solver);
+    Pflicht fuer reale Ausgabenziele (GOAL-REAL-SPENDING-INFLATION-PARITY-001).
 
     C5: Vor dem Fix wurde im Goal-Scoring der globale reserve_needed_rappen
     (Maximum aller reserve_candidates) als 'available' verwendet, wodurch
@@ -291,11 +345,11 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     goal_type = _norm_text(goal.goal_type)
     if goal_type not in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         return 0
-    base_target = (
+    base_target = _real_expense_value_rappen(goal, (
         _annualize_goal_amount(goal)
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
         else int(goal.target_amount_rappen or 0)
-    )
+    ), inflation_series_bps)
     if _goal_pension_state_funded(goal):
         return int(round(base_target * _goal_probability_factor(goal)))
     target_amount = int(round(base_target * _goal_probability_factor(goal)))
@@ -403,8 +457,13 @@ def _compute_reserve_for_inputs(
     unlocked_other_assets_rappen: int = 0,
     inflow_projection_series_rappen: list[int] | None = None,
     need_breakdown: dict | None = None,
+    goal_inflation_series_bps: list[int] | None = None,
 ) -> tuple[int, int]:
     """C7 StrategyContext: Single Source of Truth fuer Reserve-Berechnung.
+
+    ``goal_inflation_series_bps``: Inflationspfad der Ziele (derselbe wie im
+    Solver); Pflicht, sobald ein reales Ausgabenziel vorliegt
+    (GOAL-REAL-SPENDING-INFLATION-PARITY-001, fail-closed).
 
     Wird sowohl von ``_apply_goal_and_reserve_tilts`` (generate-Pfad)
     als auch von ``build_target_payload_from_allocation`` (rebuild-Pfad)
@@ -499,11 +558,11 @@ def _compute_reserve_for_inputs(
                         "und benoetigt keine Liquiditaetsreserve aus dem Beratungsmandat."
                     )
                 continue
-            base_target = (
+            base_target = _real_expense_value_rappen(goal, (
                 _annualize_goal_amount(goal)
                 if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
                 else int(goal.target_amount_rappen or 0)
-            )
+            ), goal_inflation_series_bps)
             # Sprint B6: bedingte Goals werden linear gewichtet (target * prob/100).
             prob_factor = _goal_probability_factor(goal)
             target_amount = int(round(base_target * prob_factor))

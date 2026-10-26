@@ -4174,11 +4174,11 @@ def _recompute_reserve_reasoning(
 
     Gibt None bei jeglichem Fehler zurueck — der Aufrufer faellt dann auf die
     persistierten Totale ohne granulare Komposition zurueck (fail-closed).
+
+    ADR-1b: Nachrechnung unter dem gespeicherten Bewertungsstichtag der TA;
+    reale Ausgabenziele mit demselben Ziel-Inflationspfad wie die Engine
+    (GOAL-REAL-SPENDING-INFLATION-PARITY-001).
     """
-    from models.allocation import CapitalMarketAssumption
-    from models.wealth import WealthInflow, WealthPosition
-    from services.cashflow_timeline import recurring_net_cashflow_series, totals_for_year
-    from services.portfolio_engine import (
     from services.valuation_clock import (
         bound_valuation_date,
         bound_valuation_date_or_none,
@@ -4189,9 +4189,15 @@ def _recompute_reserve_reasoning(
     if stored is not None and bound_valuation_date_or_none() != stored:
         with bound_valuation_date(stored):
             return _recompute_reserve_reasoning(db, mandate, ta, saa_ceiling_bps)
+    from models.allocation import CapitalMarketAssumption
+    from models.wealth import WealthInflow, WealthPosition
+    from services.cashflow_timeline import recurring_net_cashflow_series, totals_for_year
+    from services.portfolio_engine import (
         _allocation_snapshot_preferences,
         _compute_reserve_for_inputs,
         _convert_position_amount_to_target_currency,
+        _current_planning_inflation_bps,
+        _goal_inflation_series_bps,
         _inflation_path_series,
         _normalize_preferences,
         _simulation_horizon_years,
@@ -4342,6 +4348,10 @@ def _recompute_reserve_reasoning(
         reasoning=reasoning,
         unlocked_other_assets_rappen=unlocked_other_assets_rappen,
         inflow_projection_series_rappen=inflow_projection_series_rappen,
+        goal_inflation_series_bps=_goal_inflation_series_bps(
+            cma, projection_years, cashflow_totals["year"],
+            planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+        ),
     )
     return {
         "reserve_needed_rappen": fresh_needed_rappen,

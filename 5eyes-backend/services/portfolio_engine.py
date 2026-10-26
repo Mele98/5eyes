@@ -3141,8 +3141,14 @@ def generate_target_allocation(
     # _apply_goal_and_reserve_tilts den Reserve-Split gleich vornimmt -- der
     # stochastische Floor unten muss genau diesen internen Betrag halten.
     saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(maximums["liquidity"])
+    goal_inflation_series_bps = _goal_inflation_series_bps(
+        cma,
+        len(cashflow_projection_series_rappen),
+        cashflow_totals["year"],
+        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+    )
     reserve_inputs = dict(
-        goals=goals,
+        goals=goals, goal_inflation_series_bps=goal_inflation_series_bps,  # GOAL-REAL-SPENDING-INFLATION-PARITY-001
         limits_prefs=prefs["limits"],
         asset_class_prefs=prefs["assetClasses"],
         recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
@@ -3200,12 +3206,6 @@ def generate_target_allocation(
             )
         ]
 
-    goal_inflation_series_bps = _goal_inflation_series_bps(
-        cma,
-        len(cashflow_projection_series_rappen),
-        cashflow_totals["year"],
-        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
-    )
     external_goal_funding_series_rappen = (
         _build_external_goal_funding_series(
             external_gross_assets_rappen=max(
@@ -4796,6 +4796,7 @@ def evaluate_goal_sensitivity(
                 inflow_projection_series_rappen=list(
                     inputs.get("inflow_projection_series_rappen") or []
                 ),
+                goal_inflation_series_bps=inflation_series_bps,
             )
         )
 
@@ -5361,8 +5362,8 @@ def evaluate_goal_sensitivity(
     }
 
 
-def build_target_payload_from_allocation(
 @binds_allocation_valuation_date
+def build_target_payload_from_allocation(
     db: Session,
     mandate: Mandate,
     allocation: TargetAllocation,
@@ -5702,10 +5703,15 @@ def build_target_payload_from_allocation(
     )
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
     metrics = _expected_metrics(targets, cma, sub_allocations)
-    # C7: Reserve-Berechnung zentral via _compute_reserve_for_inputs - identisch
-    # zum generate-Pfad, damit Reserve nicht zwischen Generieren und Wiederaufbau driftet.
+    goal_inflation_series_bps = _goal_inflation_series_bps(
+        cma,
+        len(cashflow_projection_series_rappen),
+        cashflow_totals["year"],
+        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+    )
+    # C7: Reserve zentral via _compute_reserve_for_inputs, identisch zum generate-Pfad.
     reserve_needed_rappen, external_reserve_rappen = _compute_reserve_for_inputs(
-        goals=goals,
+        goals=goals, goal_inflation_series_bps=goal_inflation_series_bps,
         limits_prefs=prefs["limits"],
         asset_class_prefs=prefs["assetClasses"],
         recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
@@ -5720,12 +5726,6 @@ def build_target_payload_from_allocation(
     split_replay = replay_allocation_reserve_split(allocation, _stored_constraints, live_reserve_breakdown["reserve_split"])  # RESERVE-CEILING-001: Historical Replay, Neubewertung getrennt
     reserve_needed_rappen, external_reserve_rappen = split_replay.reserve_needed_rappen, split_replay.external_reserve_rappen
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
-    goal_inflation_series_bps = _goal_inflation_series_bps(
-        cma,
-        len(cashflow_projection_series_rappen),
-        cashflow_totals["year"],
-        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
-    )
     external_goal_funding_series_rappen = (
         _build_external_goal_funding_series(
             external_gross_assets_rappen=max(

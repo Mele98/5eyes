@@ -1126,7 +1126,8 @@ def _is_recurring_outflow_goal(goal: Goal) -> bool:
 
 
 def _shared_recurring_series(
-    goal: Goal, start_year: int, horizon_years: int
+    goal: Goal, start_year: int, horizon_years: int,
+    inflation_series_bps: list[int] | None = None,
 ) -> list[int]:
     """Der kanonische Occurrence-Pfad, identisch zum Solver.
 
@@ -1138,9 +1139,10 @@ def _shared_recurring_series(
     beim Solver, nur unabhaengig implementiert.
 
     Index ``i`` ist das Kalenderjahr ``start_year + i``, konsistent zur
-    Cashflow-Serie. Nominal: die Inflationsbehandlung des MC-Pfades steckt
-    in ``_annualize_goal_amount``/``scaled_values`` und wird hier nicht
-    verdoppelt.
+    Cashflow-Serie. ``inflation_series_bps`` (nur fuer value_mode='real'):
+    derselbe Ziel-Inflationspfad wie im Solver, je Bucket kumulativ mit
+    Faktor 1.0 im laufenden Jahr (GOAL-REAL-SPENDING-INFLATION-PARITY-001).
+    Ohne Angabe nominal -- fuer Faelligkeitsindex und Abschneide-Anteil.
 
     Die Wahrscheinlichkeitsgewichtung wird IM Enumerator angewandt, damit
     Solver und Reporting identisch runden (Codex-Review 2026-10-11): vorher
@@ -1163,6 +1165,7 @@ def _shared_recurring_series(
         is_ongoing=bool(int(goal.is_ongoing or 0)),
         base_year=int(start_year),
         horizon_years=int(horizon_years),
+        inflation_series_bps=inflation_series_bps,
         probability_factor=_goal_probability_factor(goal),
     )
 
@@ -1200,7 +1203,8 @@ def _year_index_for_goal(goal: Goal, start_year: int, horizon_years: int) -> int
 
 
 def _recurring_outflow_total_rappen(
-    goal: Goal, start_year: int, horizon_years: int
+    goal: Goal, start_year: int, horizon_years: int,
+    inflation_series_bps: list[int] | None = None,
 ) -> int:
     """In-Horizon-Gesamtbetrag eines wiederkehrenden Ziels, occurrence-exakt.
 
@@ -1208,7 +1212,7 @@ def _recurring_outflow_total_rappen(
     Helfer ``_full_goal_duration_years`` und der wiederkehrende Zweig von
     ``_goal_duration_years`` sind damit ersatzlos entfallen (ADR-2c).
     """
-    return sum(_shared_recurring_series(goal, start_year, horizon_years))
+    return sum(_shared_recurring_series(goal, start_year, horizon_years, inflation_series_bps))
 
 
 def _recurring_outflow_full_total_rappen(
@@ -1288,6 +1292,7 @@ def _monte_carlo_goal_summary(
         _goal_uses_total_scope,
         _norm_text,
     )
+    from services.portfolio_engine_reserve import _real_expense_value_rappen
 
     index = _year_index_for_goal(goal, start_year, horizon_years)
     # Advisory goals use the advised portfolio paths. Total-wealth goals can
@@ -1348,7 +1353,7 @@ def _monte_carlo_goal_summary(
             else int(goal.target_amount_rappen or 0)
         ))
         target = base_target
-        available = _goal_reserve_for_goal(goal)
+        available = _goal_reserve_for_goal(goal, inflation_series_bps)
         success_rate_pct = 100 if available >= base_target else 0
         funded_ratio_p50 = round(available / base_target, 4)
         funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
@@ -1358,7 +1363,9 @@ def _monte_carlo_goal_summary(
             hardness_key=hardness_key,
         )
     elif goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-        target = _annualize_goal_amount(goal)
+        # GOAL-REAL-SPENDING-INFLATION-PARITY-001: reale Ziele in Nominalwerten
+        # des Faelligkeitsjahres, wie im Solver (Pfadwerte sind nominal).
+        target = _real_expense_value_rappen(goal, _annualize_goal_amount(goal), inflation_series_bps)
         # 2026-07-24 (Formel-Audit, Folgefund zu goals-1): bedingte Goals
         # (probability_pct < 100, Sprint B6) wurden im deterministischen Pfad
         # ueber _goal_reserve_for_goal() bereits mit dem Wahrscheinlichkeits-
@@ -1377,7 +1384,8 @@ def _monte_carlo_goal_summary(
             # auf die occurrence-exakte Summe angewandt statt auf das
             # Produkt mit einer Jahreszahl.
             in_horizon_total = _recurring_outflow_total_rappen(
-                goal, start_year, horizon_years
+                goal, start_year, horizon_years,
+                inflation_series_bps if str(getattr(goal, "value_mode", "") or "").strip().lower() == "real" else None,
             )
             if in_horizon_total <= 0:
                 target = max(1, int(target))

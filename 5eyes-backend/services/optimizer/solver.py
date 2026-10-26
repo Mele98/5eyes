@@ -1624,7 +1624,16 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Periodenmittel zaehlen nicht mehr als Vola. Nur die Variante rechnet
 # anders; der Default-Pfad rechnet unveraendert, neu ist nur der Wuerfel
 # (Version im Inhalts-Seed).
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v16"
+#
+# v17 (2026-10-25, GOAL-CALENDAR-HORIZON-PARITY-001 +
+# GOAL-REAL-SPENDING-INFLATION-PARITY-001, Owner-Entscheide 1a-1c, 2, 7b):
+# Bewertungsstichtag je Lauf gebunden und persistiert (ADR-1b), im Input-Hash
+# (ADR-1c); Reserve und Zielanalyse ankern Stroeme auf den BEGINN statt das
+# Ende; reale Ausgabenziele in Reserve, Zielanalyse und Haupt-MC mit demselben
+# Inflationspfad wie im Solver; Haupt-MC/PDF bewerten auf dem Kalenderjahr-
+# Bucket. Solver-relevant ist die Reserve (Liquiditaets-Floor): Fix-Effekt und
+# Seed-Effekt je Golden-Combo im PR getrennt ausgewiesen.
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v17"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
