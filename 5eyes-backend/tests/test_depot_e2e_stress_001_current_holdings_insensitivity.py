@@ -185,7 +185,7 @@ def _seed_mandate_with_actual_holdings(
     return mandate.id
 
 
-# Texte seit PR #__PR__ ehrlich auf SOLL (Modal, Depot-Check-PDF, Advisory-
+# Texte seit PR #751 ehrlich auf SOLL (Modal, Depot-Check-PDF, Advisory-
 # Report-PDF, API scope/scope_label; Vertrag:
 # tests/test_depot_stress_honest_scope_labels.py); IST-Stress = Option 2
 # (zusammen mit DEPOT-E2E-SNAPSHOT-001) -- dieser xfail bleibt bis dahin.
