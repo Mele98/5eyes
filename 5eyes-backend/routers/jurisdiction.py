@@ -305,6 +305,19 @@ def _current_cma_scope_query(db: Session, jurisdiction: str | None, tenant_id: s
     return q
 
 
+def _has_any_return_assumption(cma: CapitalMarketAssumption) -> bool:
+    """Mindestens ein *_return_bps-Feld der Zeile ist gesetzt.
+
+    Bewusst nur die Untergrenze "nicht vollstaendig leer": welche Felder je
+    Jurisdiktion Pflicht sind, ist ein offener Owner-Entscheid und wird hier
+    nicht erfunden."""
+    return any(
+        getattr(cma, column.name, None) is not None
+        for column in CapitalMarketAssumption.__table__.columns
+        if column.name.endswith("_return_bps")
+    )
+
+
 @cma_approval_router.post(
     "/capital-market-assumptions/{id}/approve",
     response_model=CapitalMarketAssumptionResponse,
@@ -337,6 +350,17 @@ def approve_capital_market_assumption(
     if not cma:
         raise HTTPException(status_code=404, detail=f"CapitalMarketAssumption {id} nicht gefunden")
 
+    # CMA-APPROVAL-PREFLIGHT-001: ein Kandidat ohne eine einzige Rendite-
+    # annahme kann keine Marktbasis fuer Solver/MC/Bericht sein -> fail-closed,
+    # Status und is_current bleiben unveraendert.
+    if not _has_any_return_assumption(cma):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"CapitalMarketAssumption {id} enthaelt keine einzige "
+                "Renditeannahme (*_return_bps) und kann nicht freigegeben werden."
+            ),
+        )
     cma.status = _COMMITTEE_APPROVED_STATUS
     if not cma.is_current:
         prev = _current_cma_scope_query(db, cma.jurisdiction, cma.tenant_id).filter(

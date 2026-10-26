@@ -23,6 +23,8 @@ CH-Zahlen fuer ein anderes Land weiterzurechnen.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -71,11 +73,47 @@ def _ch_current_cma_query(db: Session):
     )
 
 
+def _validity_date(raw, *, field: str, row_id) -> date | None:
+    """ISO-Datum (YYYY-MM-DD, optional mit Zeitanteil) -> date.
+
+    CMA-EFFECTIVE-DATE-001: ein nicht lesbares Gueltigkeitsdatum macht die
+    Modellauswahl unentscheidbar -> fail-closed statt stillem Ein-/Ausschluss.
+    """
+    if raw in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except ValueError as exc:
+        raise JurisdictionReferenceDataConflictError(
+            f"CMA-Zeile {row_id}: {field}='{raw}' ist kein gueltiges ISO-Datum; "
+            "die Gueltigkeit ist nicht bestimmbar."
+        ) from exc
+
+
+def _effective_on(rows: list[CapitalMarketAssumption], as_of: date) -> list[CapitalMarketAssumption]:
+    """CMA-EFFECTIVE-DATE-001 (ADR-6b): nur Zeilen, deren Gueltigkeitsfenster
+    ``as_of`` einschliesst (valid_from <= as_of <= valid_until, valid_until
+    leer = offen). Eine vorab erfasste (kuenftige) oder abgelaufene Zeile ist
+    nie die wirksame CMA, auch wenn is_current=1 gesetzt ist. Fehlt
+    valid_from (NOT NULL im Modell), ist die Zeile nicht wirksam."""
+    effective: list[CapitalMarketAssumption] = []
+    for row in rows:
+        valid_from = _validity_date(row.valid_from, field="valid_from", row_id=row.id)
+        valid_until = _validity_date(row.valid_until, field="valid_until", row_id=row.id)
+        if valid_from is None or valid_from > as_of:
+            continue
+        if valid_until is not None and valid_until < as_of:
+            continue
+        effective.append(row)
+    return effective
+
+
 def resolve_cma_for_jurisdiction(
     db: Session,
     jurisdiction: str | None,
     require_committee_approved: bool = False,
     tenant_id: str | None = None,
+    as_of: date | None = None,
 ) -> CapitalMarketAssumption:
     """Loest die aktuelle CapitalMarketAssumption-Zeile fuer eine Jurisdiktion auf.
 
@@ -91,6 +129,11 @@ def resolve_cma_for_jurisdiction(
       Existiert keine solche Zeile, faellt die Suche auf die firmenweite
       Zeile (tenant_id IS NULL) derselben Jurisdiktion zurueck.
 
+    - CMA-EFFECTIVE-DATE-001 (ADR-6b): beruecksichtigt werden nur Zeilen,
+      deren valid_from/valid_until-Fenster ``as_of`` (Default: heute)
+      einschliesst. Kuenftige oder abgelaufene is_current-Zeilen zaehlen
+      nicht; bleibt keine Zeile uebrig, gilt das als "keine Referenzdaten".
+
     Wirft:
     - JurisdictionReferenceDataMissingError, wenn keine passende Zeile
       existiert (fuer KEINE Jurisdiktion, auch nicht CH -- die Funktion
@@ -99,8 +142,9 @@ def resolve_cma_for_jurisdiction(
       und die gefundene Zeile status != "committee_approved" hat.
     """
     label = jurisdiction or "CH"
+    effective_date = as_of or date.today()
     if jurisdiction in (None, "CH"):
-        candidates = _ch_current_cma_query(db).all()
+        candidates = _effective_on(_ch_current_cma_query(db).all(), effective_date)
         if len(candidates) > 1:
             raise JurisdictionReferenceDataConflictError(
                 "Mehrere aktuelle CH-CMA-Referenzzeilen gefunden; die "
@@ -113,9 +157,9 @@ def resolve_cma_for_jurisdiction(
         )
         cma = None
         if tenant_id:
-            tenant_candidates = jurisdiction_query.filter(
+            tenant_candidates = _effective_on(jurisdiction_query.filter(
                 CapitalMarketAssumption.tenant_id == tenant_id,
-            ).all()
+            ).all(), effective_date)
             if len(tenant_candidates) > 1:
                 raise JurisdictionReferenceDataConflictError(
                     f"Mehrere aktuelle {jurisdiction}-CMA-Zeilen fuer Tenant "
@@ -123,9 +167,9 @@ def resolve_cma_for_jurisdiction(
                 )
             cma = tenant_candidates[0] if tenant_candidates else None
         if cma is None:
-            firmwide_candidates = jurisdiction_query.filter(
+            firmwide_candidates = _effective_on(jurisdiction_query.filter(
                 CapitalMarketAssumption.tenant_id.is_(None),
-            ).all()
+            ).all(), effective_date)
             if len(firmwide_candidates) > 1:
                 raise JurisdictionReferenceDataConflictError(
                     f"Mehrere aktuelle firmenweite {jurisdiction}-CMA-Zeilen gefunden."
@@ -135,7 +179,8 @@ def resolve_cma_for_jurisdiction(
     if cma is None:
         raise JurisdictionReferenceDataMissingError(
             f"Keine aktuelle CapitalMarketAssumption-Referenzzeile fuer Jurisdiktion "
-            f"'{label}' gefunden (is_current=1, deleted_at IS NULL"
+            f"'{label}' gefunden (is_current=1, deleted_at IS NULL, "
+            f"gueltig am {effective_date.isoformat()}"
             + ("" if jurisdiction in (None, "CH") else f", jurisdiction='{jurisdiction}'")
             + (f", tenant_id='{tenant_id}' oder firmenweit" if tenant_id and jurisdiction not in (None, "CH") else "")
             + "). Es wird bewusst keine erfundene Zahl zurueckgegeben."
