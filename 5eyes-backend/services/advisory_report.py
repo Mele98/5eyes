@@ -2727,7 +2727,24 @@ def _build_monte_carlo_paths_section(
 
     MORT-CHANNEL-001: Mortalitaets-Cutoff aus demselben Resolver wie der
     Solver; Feature aus -> ``mortality_mode="disabled"``, kein Cutoff.
+
+    GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b: die Simulation laeuft unter dem
+    gespeicherten Bewertungsstichtag der aktuellen Soll-Allokation (Zeitachse,
+    Cashflow-Buckets, Zielspalten). Ein Reprint nach dem Jahreswechsel zeigt
+    damit dieselbe Aussage wie beim Lauf; Bestand ohne Stichtag: Wanduhr.
     """
+    from services.valuation_clock import (
+        bound_valuation_date,
+        bound_valuation_date_or_none,
+        parse_valuation_date,
+    )
+
+    stored = parse_valuation_date(
+        getattr(_cached_current_ta(db, mandate), "valuation_date", None)
+    )
+    if stored is not None and bound_valuation_date_or_none() != stored:
+        with bound_valuation_date(stored):
+            return _build_monte_carlo_paths_section(db, mandate)
     from services.monte_carlo_paths import (
         _data_pending_response,
         compute_quantile_paths,
@@ -4162,6 +4179,16 @@ def _recompute_reserve_reasoning(
     from models.wealth import WealthInflow, WealthPosition
     from services.cashflow_timeline import recurring_net_cashflow_series, totals_for_year
     from services.portfolio_engine import (
+    from services.valuation_clock import (
+        bound_valuation_date,
+        bound_valuation_date_or_none,
+        parse_valuation_date,
+    )
+
+    stored = parse_valuation_date(getattr(ta, "valuation_date", None))
+    if stored is not None and bound_valuation_date_or_none() != stored:
+        with bound_valuation_date(stored):
+            return _recompute_reserve_reasoning(db, mandate, ta, saa_ceiling_bps)
         _allocation_snapshot_preferences,
         _compute_reserve_for_inputs,
         _convert_position_amount_to_target_currency,

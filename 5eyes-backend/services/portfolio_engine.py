@@ -43,6 +43,7 @@ from services.wealth_inflow_certainty import (
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.valuation_clock import binds_allocation_valuation_date, binds_run_valuation_date, valuation_date
 from services.esg_data_provenance import seed_unverified_run_warning
 from services.preference_snapshot import (
     INHERITED_PREFERENCES_NOTE,
@@ -767,7 +768,7 @@ def _position_is_currently_unlocked_for_goal_funding(pos, *, as_of: "date | None
     available_from = _parse_iso_date(getattr(pos, "liquidity_available_from", None))
     if available_from is None:
         return False
-    reference_date = as_of or date.today()
+    reference_date = as_of or valuation_date()
     return available_from <= reference_date
 
 
@@ -2832,10 +2833,7 @@ def _compute_input_snapshot_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-# ADR-014: der Modell-Basis-Block liegt jetzt im Cluster-Submodul
-# services/portfolio_engine_model_basis.py (288 Zeilen). Hier nur noch
-# re-exportiert, damit die bestehenden Aufrufstellen und Tests, die ihn
-# aus diesem Modul importieren, unveraendert bleiben.
+# ADR-014: Modell-Basis-Block in services/portfolio_engine_model_basis.py; Re-Export fuer bestehende Aufrufer/Tests.
 from services.portfolio_engine_model_basis import (  # noqa: E402
     _build_allocation_model_basis,
 )
@@ -3028,6 +3026,7 @@ def _assert_allocation_has_basis(
         )
 
 
+@binds_run_valuation_date
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
@@ -3903,7 +3902,7 @@ def generate_target_allocation(
         external_goal_funding_series_rappen=(
             external_goal_funding_series_rappen
         ),
-    )
+    ) | {"valuation_date": valuation_date().isoformat()}  # ADR-1b/1c: Stichtag im Input-Hash
     input_snapshot_hash = _compute_input_snapshot_hash(
         advisory_positions=inputs["advisory_positions"],
         all_positions=inputs["all_positions"],
@@ -4111,7 +4110,7 @@ def generate_target_allocation(
         id=new_uuid(),
         mandate_id=mandate.id,
         version=previous_version + 1,
-        is_current=1,
+        is_current=1, valuation_date=valuation_date().isoformat(),  # ADR-1b
         target_equities_bps=targets["equities"],
         target_bonds_bps=targets["bonds"],
         target_real_estate_bps=targets["real_estate"],
@@ -4193,10 +4192,8 @@ def generate_target_allocation(
         user_id=user_id,
         now=now,
     )
-    # V3 Sprint 2.1: Verknuepfung herstellen — nur fuer 'active'-Runs (also
-    # stochastic-Modus, in dem der Solver tatsaechlich die TA produziert hat).
-    # Im shadow_stochastic-Modus bleibt optimization_run_id NULL, weil die
-    # TA House-Matrix-basiert ist.
+    # V3 Sprint 2.1: Verknuepfung nur fuer 'active'-Runs (stochastic, der Solver produzierte die TA);
+    # im shadow_stochastic-Modus bleibt optimization_run_id NULL (TA House-Matrix-basiert).
     # REGENERATE-IDEMPOTENT-001: wiederverwendete Allokation behaelt ihren urspruenglichen Solver-Lauf.
     if persisted_run is not None and persisted_run.role == "active" and not reuse_previous_allocation:
         db.flush()  # ensure persisted_run.id ist gesetzt
@@ -4306,6 +4303,7 @@ from services.portfolio_engine_allocation_integrity import (  # noqa: F401,E402
 )
 
 
+@binds_run_valuation_date
 def evaluate_goal_sensitivity(
     db: Session,
     mandate: Mandate,
@@ -4462,7 +4460,7 @@ def evaluate_goal_sensitivity(
                 # calendar_years_until() verschob die Dauer um ein Jahr.
                 original_start_index = max(
                     1,
-                    int(original_start.year) - date.today().year + 1,
+                    int(original_start.year) - valuation_date().year + 1,
                 )
                 stream_duration = max(
                     1,
@@ -5364,6 +5362,7 @@ def evaluate_goal_sensitivity(
 
 
 def build_target_payload_from_allocation(
+@binds_allocation_valuation_date
     db: Session,
     mandate: Mandate,
     allocation: TargetAllocation,
@@ -5819,7 +5818,7 @@ def build_target_payload_from_allocation(
         external_goal_funding_series_rappen=(
             external_goal_funding_series_rappen
         ),
-    )
+    ) | ({"valuation_date": valuation_date().isoformat()} if getattr(allocation, "valuation_date", None) else {})
     current_snapshot_hash = _compute_input_snapshot_hash(
         advisory_positions=advisory_positions,
         all_positions=all_positions,
@@ -6455,6 +6454,7 @@ def build_recommendation_payload_from_run(
 
 
 
+@binds_run_valuation_date
 def generate_recommendation_run(
     db: Session,
     mandate: Mandate,

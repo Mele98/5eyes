@@ -393,9 +393,15 @@ def _goal_projection_years(goal: Goal) -> int:
 
     target_date = _parse_iso_date(goal.target_date)
     start_date = _parse_iso_date(goal.start_date)
-    anchor = target_date or (
-        start_date if _norm_text(goal.goal_type) in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else None
-    )
+    # GOAL-CALENDAR-HORIZON-PARITY-001 (Pflichttest 6): fuer Stroeme ist der
+    # Anker der BEGINN (erste Faelligkeit), wie im Solver
+    # (goal_liabilities._resolve_target_year_index). Vorher stand hier das
+    # Enddatum zuerst: eine Rente ab in 2 Jahren mit Ende in 25 Jahren galt
+    # der Reserve als "in 25 Jahren faellig" und bekam keine Reserve.
+    if _norm_text(goal.goal_type) in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+        anchor = start_date or target_date
+    else:
+        anchor = target_date
     if anchor:
         # ADR-1a (Owner-Entscheid 2026-10-11): dieselbe Tage-Ceiling-Formel wie
         # im Wealth-Router, mit derselben Verzerrung -- an exakten Jahrestagen

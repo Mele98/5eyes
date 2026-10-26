@@ -70,6 +70,7 @@ from .drawdown_certification import (
 from .goal_attribution import publish_goal_achievability
 from .priority_scope import PriorityScopeWealth, ScopeReplayInputs, release_mapping
 from services.retirement_phase import retirement_status_series
+from services.valuation_clock import valuation_date as _bound_valuation_date
 from .house_prior import (
     DECISION_HOUSE_PRIOR,
     DECISION_HOUSE_PRIOR_FAIL_CLOSED,
@@ -1695,7 +1696,7 @@ def goal_economic_fingerprint(
     Datumsfelder relativ zu ``valuation_year`` (Default: laufendes
     Kalenderjahr, wie die Liability-Achse der Engine).
     """
-    year = int(valuation_year) if valuation_year is not None else date.today().year
+    year = int(valuation_year) if valuation_year is not None else _bound_valuation_date().year
     rows = []
     for goal in goals or ():
         if isinstance(goal, Mapping):

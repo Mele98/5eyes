@@ -97,6 +97,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from services.calendar_horizon import calendar_years_until
+from services.valuation_clock import valuation_date
 from services.cashflow_timeline import (
     recurring_occurrence_series,
     required_calendar_buckets,
@@ -138,7 +139,7 @@ def dated_goal_calendar_buckets(goal) -> int:
     zusaetzliches Wachstumsjahr und verschiebt die Allokation Richtung
     Risiko.
     """
-    base_year = date.today().year
+    base_year = valuation_date().year
     candidates = [int(getattr(goal, "horizon_years", 0) or 0)]
 
     if _is_recurring_outflow_goal(goal):
@@ -279,7 +280,7 @@ def _simulation_horizon_derivation(
     life_year = life_expectancy_year_from_mandate(
         mandate, client=getattr(mandate, "client", None),
     )
-    life_horizon = max(0, life_year - date.today().year + 1) if life_year else 0
+    life_horizon = max(0, life_year - valuation_date().year + 1) if life_year else 0
     components = {
         "risk_profile": (
             _risk_profile_horizon_years(mandate)
@@ -1167,9 +1168,6 @@ def _shared_recurring_series(
 
 
 def _year_index_for_goal(goal: Goal, start_year: int, horizon_years: int) -> int:
-    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
-    from services.portfolio_engine import _goal_projection_years
-
     if _is_recurring_outflow_goal(goal):
         # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2: der Auswertungsindex ist das
         # LETZTE Kalenderjahr-Bucket mit einer tatsaechlichen Faelligkeit --
@@ -1184,7 +1182,20 @@ def _year_index_for_goal(goal: Goal, start_year: int, horizon_years: int) -> int
         # irrelevant, _monte_carlo_goal_summary behandelt das separat.
         return max(1, min(int(horizon_years), int(horizon_years)))
 
-    years = _goal_projection_years(goal)
+    # GOAL-CALENDAR-HORIZON-PARITY-001: derselbe KALENDERJAHR-Bucket wie der
+    # Solver (goal_liabilities._resolve_target_year_index /
+    # _build_einmalige_ausgabe): Spalte t ist das Vermoegen am Ende des
+    # Kalenderjahres start_year + t - 1. Vorher stand hier der Jahrestag-
+    # Horizont (_goal_projection_years); er bewertete ein Ziel mit Datum im
+    # Jahr Y meist am Ende von Y - 1, also ein Jahr zu frueh, und konnte fuer
+    # dasselbe Ziel ein anderes Verdikt liefern als der Solver.
+    from services.portfolio_engine import _parse_iso_date
+
+    anchor = _parse_iso_date(goal.target_date)
+    if anchor is not None:
+        years = int(anchor.year) - int(start_year) + 1
+    else:
+        years = int(goal.horizon_years or 1)
     return max(1, min(int(years or 1), int(horizon_years)))
 
 
