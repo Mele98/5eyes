@@ -318,7 +318,6 @@ def test_draft_recommendation_is_not_published_as_final_in_contract_signoff(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="SIGN-ELIGIBILITY-001 -- CERT-SIGNED-PUBLICATION-001")
 def test_draft_recommendation_run_cannot_produce_portfolio_handoff(
     session_factory, advisor_user, monkeypatch
 ):
