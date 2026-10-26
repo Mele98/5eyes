@@ -4,6 +4,7 @@ from __future__ import annotations
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer
 
+from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
 from services.pdf.base import DepotCheckData, PDFContext
 from services.pdf.components.backtest_metrics import make_backtest_metrics_table
 from services.pdf.components.depotcheck_soll import (
@@ -132,6 +133,11 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     flowables.append(Spacer(1, 6 * mm))
     flowables.append(_section_title("Historische Stress-Szenarien"))
     if data.stress_scenarios:
+        flowables.append(_fallback(
+            f"{STRESS_REPLAY_SCOPE_LABEL}: historische Jahresrenditen je "
+            "Anlageklasse, gewichtet mit der empfohlenen Zielquote. "
+            "Bestehende Positionen fliessen nicht ein."
+        ))
         flowables.append(make_stress_table(data.stress_scenarios))
     else:
         flowables.append(_fallback("Noch keine belastbaren Stress-Szenarien verfuegbar."))

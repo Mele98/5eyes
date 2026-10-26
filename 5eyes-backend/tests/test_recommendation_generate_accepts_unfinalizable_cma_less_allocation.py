@@ -48,18 +48,22 @@ Reproduktion
    anwenden: er wird (korrekt) abgelehnt -- aber eben erst hier, nicht beim
    Generate.
 
-Test
-----
-Dokumentiert Schritt 3+4 als IST-Zustand und markiert mit einer expliziten
-``pytest.fail``, dass Generate dies eigentlich schon in Schritt 3 hätte
-verhindern muessen. xfail(strict=True), bis der Fail-Fast-Gate ergaenzt ist.
+Status (2026-10-25): geschlossen
+--------------------------------
+Beide Seiten sind behoben (CERT-TA-WRITE-LIFECYCLE-001):
 
-Minimalfix (nicht Teil dieses rein-roten Tests)
-------------------------------------------------
-``generate_recommendation_run`` sollte, wenn eine explizit/implizit aktuelle
-Allokation KEINE ``capital_market_assumptions_id`` traegt (unabhaengig vom
-``input_snapshot_hash``-Zweig), mit einer klaren ``ValueError`` ablehnen statt
-den Run gegen die Laufzeit-CMA zu generieren.
+* ``generate_recommendation_run`` lehnt jede aktuelle Allokation ohne
+  ``capital_market_assumptions_id`` mit ``ValueError`` ab, bevor ein Draft
+  entsteht (unabhaengig von ``input_snapshot_hash``).
+* ``create_target_allocation`` bindet beim manuellen Save die aktuelle CMA
+  (gleiche Quelle wie Generate) und verlangt seit ALLOC-EDITOR-STALE-001 das
+  Vorgaenger-Token.
+
+Der urspruengliche rote Test lief deshalb nicht mehr bis zum Befund (er
+scheiterte am Lost-Update-Schutz). Die Tests unten pruefen das Soll direkt:
+(1) eine CMA-lose Alt-Allokation erzeugt keinen Draft, (2) ein manueller
+Save bindet die CMA, und der daraus erzeugte Draft scheitert bei der
+Finalisierung nicht am CMA-Abgleich.
 """
 from __future__ import annotations
 
@@ -117,20 +121,67 @@ def _manual_house_matrix_payload(policy_id: str) -> TargetAllocationCreate:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "TA-RECOMMENDATION-DEADEND-001 -- round 46 red test, see audit "
-        "2026-10-04-target-allocation-editor-context-and-release-lifecycle-"
-        "integrity-audit.md (not committed in this repo)"
-    ),
-)
-def test_generate_accepts_cma_less_house_matrix_allocation_that_finalize_always_rejects(
+def _seed_cma_less_current_allocation(session):
+    """Legacy row: the current allocation carries no CMA anchor (pre-context
+    data or a manual save from before the write-lifecycle fix)."""
+    from models.allocation import TargetAllocation
+
+    mandate = _seed_foundation(session)
+    allocation = session.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.is_current == 1,
+    ).one()
+    allocation.capital_market_assumptions_id = None
+    session.commit()
+    return mandate, allocation
+
+
+@pytest.mark.parametrize("explicit_id", [True, False])
+def test_generate_rejects_cma_less_allocation_before_creating_a_draft(
+    session_factory,
+    monkeypatch,
+    explicit_id,
+):
+    """Generate must fail fast instead of creating a permanently
+    unfinalizable Draft for a CMA-less allocation (explicit id or implicit
+    current allocation)."""
+    from models.review import RecommendationRun
+
+    with session_factory() as session:
+        mandate, allocation = _seed_cma_less_current_allocation(session)
+        advisor = session.query(User).filter(User.id == "advisor-1").one()
+        runs_before = session.query(RecommendationRun).filter(
+            RecommendationRun.mandate_id == mandate.id
+        ).count()
+
+        _stub_recommendation_tail(monkeypatch)
+        with pytest.raises(ValueError, match="Kapitalmarktannahmen"):
+            pe.generate_recommendation_run(
+                db=session,
+                mandate=mandate,
+                user_id=advisor.id,
+                preferences=None,
+                target_allocation_id=allocation.id if explicit_id else None,
+                run_type="Optimizer",
+                depot_bank=None,
+            )
+        session.rollback()
+        runs_after = session.query(RecommendationRun).filter(
+            RecommendationRun.mandate_id == mandate.id
+        ).count()
+        assert runs_after == runs_before, (
+            "Generate persisted a Draft for a CMA-less allocation."
+        )
+
+
+def test_manual_house_matrix_save_binds_cma_and_draft_passes_cma_check(
     session_factory,
     monkeypatch,
 ):
-    """Generate must fail fast instead of creating a permanently
-    unfinalizable Draft for a CMA-less manual House-Matrix allocation."""
+    """A manual House-Matrix save binds the current CMA, so the Draft built
+    on it is not rejected by Finalize on CMA grounds."""
+    from models.allocation import TargetAllocation
+
     with session_factory() as session:
         mandate = _seed_foundation(session)
         advisor = session.query(User).filter(User.id == "advisor-1").one()
@@ -140,29 +191,25 @@ def test_generate_accepts_cma_less_house_matrix_allocation_that_finalize_always_
         current_cma = session.query(CapitalMarketAssumption).filter(
             CapitalMarketAssumption.is_current == 1
         ).one()
+        prev = session.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+        ).one()
 
-        # Step 2: manually create a NEW current House-Matrix TargetAllocation
-        # through the real endpoint code -- this is the artefact from the
-        # sibling finding TA-LEGACY-FABRICATION-001. TargetAllocationCreate
-        # has no capital_market_assumptions_id field, so the column stays
-        # NULL no matter what the advisor submits.
+        payload = _manual_house_matrix_payload(policy.id)
+        payload.expected_current_allocation_id = prev.id
+        payload.expected_current_allocation_version = int(prev.version or 0)
         monkeypatch.setattr(allocation_router.settings, "optimizer_mode", "house_matrix")
         manual_ta = allocation_router.create_target_allocation(
             mandate.id,
-            _manual_house_matrix_payload(policy.id),
+            payload,
             _request_stub(),
             db=session,
             current_user=advisor,
         )
         assert manual_ta.is_current == 1
-        assert manual_ta.capital_market_assumptions_id is None, (
-            "Fixture assumption broken: a manually-created House-Matrix "
-            "allocation must never bind a CMA on its own."
-        )
+        assert manual_ta.capital_market_assumptions_id == current_cma.id
 
-        # Step 3: today's actual behaviour -- Recommendation-Generate accepts
-        # this CMA-less allocation and persists a Draft against the CURRENT
-        # runtime CMA, even though the allocation itself never referenced one.
         _stub_recommendation_tail(monkeypatch)
         result = pe.generate_recommendation_run(
             db=session,
@@ -176,28 +223,9 @@ def test_generate_accepts_cma_less_house_matrix_allocation_that_finalize_always_
         session.commit()
         run = result["run"]
         assert run.result_status == "Draft"
-        assert run.capital_market_assumptions_id == current_cma.id, (
-            "Generate bound the Draft to the CURRENT CMA instead of "
-            "refusing the CMA-less allocation."
-        )
+        assert run.capital_market_assumptions_id == manual_ta.capital_market_assumptions_id
 
-        # Step 4: confirm the dead end -- Finalize ALWAYS rejects this exact
-        # Draft, because the allocation it is built on never bound a CMA.
         errors, _warnings = _validate_recommendation_for_finalization(
             session, mandate, run
         )
-        assert any("CMA" in error for error in errors), (
-            f"Expected Finalize to reject this Draft on CMA grounds, got: {errors}"
-        )
-
-        # Desired behaviour (red): Generate must never create a Draft that is
-        # guaranteed, from the moment of its creation, to fail Finalize for
-        # the exact same reason. Today it does -- this failure is the bug.
-        pytest.fail(
-            "TA-RECOMMENDATION-DEADEND-001: generate_recommendation_run() "
-            f"accepted CMA-less allocation {manual_ta.id} and persisted "
-            f"Draft run {run.id} against CURRENT CMA {run.capital_market_assumptions_id}. "
-            f"_validate_recommendation_for_finalization() then always rejects it "
-            f"with: {errors}. Generate must reject up front (fail fast) instead "
-            "of ever creating this permanently unfinalizable Draft."
-        )
+        assert not any("CMA" in error for error in errors), errors
