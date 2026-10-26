@@ -22547,7 +22547,7 @@ function portfolioDriftWeightBps(row,totalRappen){
 }
 function portfolioStatusMeta(row,totalRappen){
   var driftBps=portfolioDriftWeightBps(row,totalRappen);
-  var action=String(row&&row.rebalance_action||'').toUpperCase();
+  var action=String(row&&row.rebalance_action_code||'');
   var hasPrice=!!(row&&(row.latest_price_date||row.reference_price_date||row.reference_price_rappen!==null&&row.reference_price_rappen!==undefined||row.latest_price_rappen!==null&&row.latest_price_rappen!==undefined));
   var staleKnown=!!(row&&row.price_age_days!==null&&row.price_age_days!==undefined&&!row.price_is_fresh);
   if(!hasPrice||staleKnown||action==='CHECK'||action==='REVIEW'){
@@ -23601,7 +23601,7 @@ function renderSrImplementationDecision(entry){
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
   // 2026-07-24: Handelsliste nur bei Ausfuehrungsbefugnis (Vermoegensverwaltung).
   var isDiscretionary=_reviewIsDiscretionaryMandate();
-  var hasTradeList=isDiscretionary&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
+  var hasTradeList=isDiscretionary&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action_code||'')!=='HOLD';}));
   // 2026-08-06 (User-Direktive: "komplett verschiedene HUDS"): WM-Karten sind
   // nummerierte Umsetzungsschritte mit Handelsverb (Reduzieren/Aufstocken/
   // Beobachten fuer illiquide Klassen); Consulting-Karten sind unnummerierte
@@ -24054,8 +24054,8 @@ function openTradeList(){
   var totalBuy=0,totalSell=0;
   trades.forEach(function(p){
     var amt=p.rebalance_amount_rappen||0;
-    if(p.rebalance_action==='BUY')totalBuy+=amt;
-    else if(p.rebalance_action==='SELL')totalSell+=amt;
+    if(p.rebalance_action_code==='BUY')totalBuy+=amt;
+    else if(p.rebalance_action_code==='SELL')totalSell+=amt;
   });
   var actionColor=function(action){
     if(action==='BUY')return 'var(--pos)';
@@ -24070,7 +24070,7 @@ function openTradeList(){
     return sign+'CHF\u00a0'+chf;
   };
   var rows=trades.map(function(p){
-    var color=actionColor(p.rebalance_action);
+    var color=actionColor(p.rebalance_action_code);
     return '<tr style="border-bottom:1px solid var(--b1)">'
       +'<td style="padding:6px 8px;font-size:11px;font-weight:500">'+escapeHtml(p.product_name||'')+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
@@ -24112,7 +24112,7 @@ function openTradeList(){
 // (Depotbank/internes Asset Management). Dieser Block schafft den
 // auditierbaren Nachweis DASS und WANN die Handelsliste tatsaechlich
 // weitergeleitet wurde (Rechenschaftsablegung, Art. 400 OR), inkl. Status-
-// Verlauf (Gesendet -> Ausgefuehrt/Storniert). Nur fuer discretionaere
+// Verlauf (Vorbereitet -> Ausgefuehrt/Storniert). Nur fuer discretionaere
 // Mandate sichtbar (_reviewIsDiscretionaryMandate(), identisches Gate wie
 // die Handelsliste selbst) -- reine Anlageberatung hat keine
 // Ausfuehrungsbefugnis und darf diese Aktion nicht anbieten.
@@ -24132,7 +24132,7 @@ function renderPortfolioHandoffSection(){
     +'</div>'
     +'<textarea id="tl-ho-note" placeholder="Notiz (optional)" style="width:100%;min-height:36px;padding:6px 8px;font-size:11px;margin-bottom:8px"></textarea>'
     +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
-    +'<button class="btn-g" id="tl-ho-submit" onclick="submitPortfolioHandoff()">An Asset Management weiterleiten</button>'
+    +'<button class="btn-g" id="tl-ho-submit" onclick="submitPortfolioHandoff()">Übermittlung vorbereiten</button>'
     +'<span id="tl-ho-feedback" style="font-size:10px"></span>'
     +'</div>'
     +'<div id="tl-ho-history" style="font-size:10px;color:var(--n5)">Lade Verlauf…</div>';
@@ -24150,7 +24150,7 @@ async function submitPortfolioHandoff(){
     return;
   }
   var btn=document.getElementById('tl-ho-submit');
-  if(btn){btn.disabled=true;btn.textContent='Wird gesendet…';}
+  if(btn){btn.disabled=true;btn.textContent='Wird vorbereitet…';}
   var payload={recipient_name:recipient};
   var channel=(channelEl&&channelEl.value||'').trim();
   if(channel)payload.recipient_channel=channel;
@@ -24162,15 +24162,15 @@ async function submitPortfolioHandoff(){
     if(recipientEl)recipientEl.value='';
     if(channelEl)channelEl.value='';
     if(noteEl)noteEl.value='';
-    if(fb){fb.style.color='var(--pos)';fb.textContent='✓ Weitergeleitet.';}
-    try{showAppSuccess('Handelsliste an Asset Management weitergeleitet',{title:'Weiterleitung'});}catch(noticeErr){}
+    if(fb){fb.style.color='var(--pos)';fb.textContent='✓ Zur manuellen Übermittlung vorbereitet (noch nicht gesendet).';}
+    try{showAppSuccess('Handelsliste zur manuellen Übermittlung an das Asset Management vorbereitet',{title:'Weiterleitung'});}catch(noticeErr){}
     await loadPortfolioHandoffHistory();
   }catch(e){
     var msg=releaseGateMessage(e)||('Fehler: '+(e.detail||e.message||'?'));
     if(fb){fb.style.color='var(--neg)';fb.textContent=msg;}
     try{showAppError(msg,{title:'Weiterleitung fehlgeschlagen'});}catch(noticeErr){}
   }finally{
-    if(btn){btn.disabled=false;btn.textContent='An Asset Management weiterleiten';}
+    if(btn){btn.disabled=false;btn.textContent='Übermittlung vorbereiten';}
   }
 }
 function _handoffStatusColor(status){
@@ -24186,7 +24186,7 @@ function renderPortfolioHandoffHistory(items){
     var color=_handoffStatusColor(h.status);
     var when=String(h.created_at||'').slice(0,16).replace('T',' ');
     var actions='';
-    if(h.status==='Gesendet'){
+    if(h.status==='Vorbereitet'||h.status==='Gesendet'){
       actions='<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:6px" onclick="markPortfolioHandoffExecuted(\''+h.id+'\')">Ausführung bestätigen</button>'
         +'<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:4px;color:var(--neg)" onclick="cancelPortfolioHandoffPrompt(\''+h.id+'\')">Stornieren</button>';
     }
@@ -24195,7 +24195,7 @@ function renderPortfolioHandoffHistory(items){
       +' &middot; '+escapeHtml(String(h.position_count||0))+' Positionen'
       +' &middot; an '+escapeHtml(h.recipient_name||'')
       +(h.recipient_channel?(' ('+escapeHtml(h.recipient_channel)+')'):'')
-      +' &middot; '+escapeHtml(when)
+      +' &middot; '+escapeHtml(when)+(h.execution_external_reference?(' &middot; manuell bestätigt, Ref. '+escapeHtml(h.execution_external_reference)):'')
       +actions
       +'</div>';
   }).join('');
@@ -24212,13 +24212,13 @@ async function loadPortfolioHandoffHistory(){
 }
 async function markPortfolioHandoffExecuted(handoffId){
   if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId)return;
+  var ref=await uiPrompt({message:'Auftrags-/Bestätigungsnummer der ausführenden Stelle:',required:true,minLength:3});if(!ref||!ref.trim())return;
+  var day=await uiPrompt({message:'Ausführungsdatum (JJJJ-MM-TT):',required:true,defaultValue:new Date().toISOString().slice(0,10)});if(!day||!day.trim())return;
   try{
-    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/mark-executed',{});
+    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/mark-executed',{external_order_reference:ref.trim(),executed_on:day.trim()});
     await loadPortfolioHandoffHistory();
-    try{showAppSuccess('Ausführung bestätigt',{title:'Weiterleitung'});}catch(noticeErr){}
-  }catch(e){
-    try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Bestätigung fehlgeschlagen'});}catch(noticeErr){}
-  }
+    try{showAppSuccess('Ausführung manuell bestätigt',{title:'Weiterleitung'});}catch(noticeErr){}
+  }catch(e){try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Bestätigung fehlgeschlagen'});}catch(noticeErr){}}
 }
 async function cancelPortfolioHandoffPrompt(handoffId){
   var reason=await uiPrompt({message:'Grund für die Stornierung:',required:true});
@@ -26182,7 +26182,7 @@ function pensionTransferGuardMessage(e){
 var RELEASE_GATE_HINTS={
   RISK_BUDGET_VIOLATED:'Die Soll-Allokation überschreitet das Risikobudget des Risikoprofils. Bitte Risikoprofil oder Bausteine anpassen und die Allokation neu generieren.',
   RISK_BUDGET_EVIDENCE_MISSING:'Für die aktuelle Soll-Allokation fehlt der Nachweis, dass das Risikobudget eingehalten ist. Bitte die Allokation neu generieren.',
-  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.'
+  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.',HANDOFF_ALREADY_OPEN:'Für diese Handelsliste besteht bereits eine offene Weiterleitung.'
 };
 function releaseGateMessage(e){
   var parsed=null;
@@ -27266,7 +27266,7 @@ function renderReviewActionSummary(state){
   // 2026-07-24: Handelsliste ist eine Ausfuehrungs-Aktion -- nur sinnvoll,
   // wenn die Firma selbst Ausfuehrungsbefugnis hat (Vermoegensverwaltung).
   var hasTradeList=_reviewIsDiscretionaryMandate()&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
-    return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
+    return String(row&&row.rebalance_action_code||'')!=='HOLD';
   }));
   if(!items.length){
     root.innerHTML='<div style="background:var(--pos-lt);border:1px solid rgba(14,107,65,0.2);border-radius:var(--r2);padding:12px"><div style="font-size:10px;font-weight:600;color:var(--n8);margin-bottom:4px">Empfehlung heute</div><div style="font-size:11px;color:var(--n7);margin-bottom:8px">Alle Hauptanlageklassen liegen im vereinbarten Band. Heute steht vor allem Governance, Eignung und Dokumentation im Fokus.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="om(\'m-ne\')">Protokoll erfassen</button>'+(hasTradeList?'<button class="btn" onclick="openTradeList()">Handelsliste oeffnen</button>':'')+'</div></div>';
@@ -27955,7 +27955,7 @@ function _rvHeroWealthmanagementHtml(rows,violated,tight,allocation){
     headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
     summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
     var live=liveRebalancingPayload(allocation);
-    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
+    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action_code||'')!=='HOLD';}));
     ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
   } else if(tight.length>0){
     statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
