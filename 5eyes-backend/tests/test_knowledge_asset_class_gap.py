@@ -257,6 +257,8 @@ def test_generate_endpoint_reports_gap_without_blocking(session_factory, monkeyp
             },
         )
         monkeypatch.setattr(allocation_router, "evaluate_mandate_safely", lambda *a, **k: None)
+        # ELIG-GATE-001: Gate ist Default AN; hier zaehlt nur der Hinweis-Layer.
+        monkeypatch.setattr(allocation_router, "audit_mandate_suitability", lambda db, mandate: {"is_compliant": True})
         monkeypatch.setattr(allocation_router, "refresh_system_review_triggers", lambda *a, **k: None)
         monkeypatch.setattr(session, "refresh", lambda obj: None)
         result = allocation_router.generate_target_allocation_endpoint(

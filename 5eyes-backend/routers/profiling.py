@@ -747,6 +747,23 @@ def _get_advisory_log_or_404(mandate_id: str, log_id: str, db: Session) -> Advis
     return entry
 
 
+def _risk_assessment_documents_knowledge(assessment: RiskAssessment | None) -> bool:
+    """ELIG-KNOWLEDGE-001: True wenn das Risikoprofil mindestens einen
+    Instrument-Eintrag mit dokumentierter Kenntnis oder Aufklaerung traegt."""
+    if assessment is None:
+        return False
+    try:
+        instruments = json.loads(assessment.knowledge_instruments_json or "{}")
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(instruments, dict):
+        return False
+    return any(
+        isinstance(entry, dict) and (entry.get("known") or entry.get("informed"))
+        for entry in instruments.values()
+    )
+
+
 def _get_risk_assessment_or_404(mandate_id: str, assessment_id: str, db: Session) -> RiskAssessment:
     assessment = db.query(RiskAssessment).filter(
         RiskAssessment.id == assessment_id,
@@ -806,8 +823,23 @@ def create_suitability_check(
         _get_advisory_log_or_404(mandate_id, body.advisory_log_id, db)
     if body.knowledge_assessment_id:
         _get_knowledge_assessment_or_404(mandate.client_id, body.knowledge_assessment_id, db)
-    if body.risk_assessment_id:
+    risk_anchor = (
         _get_risk_assessment_or_404(mandate_id, body.risk_assessment_id, db)
+        if body.risk_assessment_id else None
+    )
+    if (
+        body.result == "Angemessen"
+        and not body.knowledge_assessment_id
+        and not _risk_assessment_documents_knowledge(risk_anchor)
+    ):
+        # ELIG-KNOWLEDGE-001: ein Risikoprofil ist nur dann Kenntnis-Anker,
+        # wenn es tatsaechlich dokumentierte Kenntnisse/Erfahrungen enthaelt.
+        raise HTTPException(status_code=422, detail=(
+            "Positives Angemessenheits-Ergebnis ohne Kenntnis-Nachweis: das "
+            "referenzierte Risikoprofil enthaelt keine dokumentierten "
+            "Kenntnisse & Erfahrungen. Kenntnisse erfassen oder das Ergebnis "
+            "'Unvollständige Information' waehlen."
+        ))
     if body.document_id:
         _get_document_or_404(mandate_id, body.document_id, db)
     check = SuitabilityCheck(
