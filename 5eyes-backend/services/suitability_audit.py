@@ -380,3 +380,32 @@ def audit_mandate_suitability(
             base["is_compliant"] = False
 
     return base
+
+
+def suitability_gate_blocks(audit: dict[str, Any], *, creates_target_allocation: bool) -> bool:
+    """ELIG-GATE-001: Block-Entscheid des Router-Hard-Gates aus dem Audit.
+
+    Fail-closed: nur ``is_compliant is True`` laesst durch (``None`` = Audit
+    degradiert blockiert). Einzige Ausnahme: Endpunkte, die eine NEUE
+    Soll-Allokation erzeugen, blockieren nicht allein wegen
+    ``allocation_predates_current_risk_assessment`` -- genau dieser Endpunkt
+    behebt den Befund. Sonst gaebe es nach jeder Neuprofilierung eine
+    Sackgasse (alte Allokation sperrt die Erzeugung der neuen).
+    """
+    if audit.get("is_compliant") is True:
+        return False
+    if not creates_target_allocation or audit.get("is_compliant") is None:
+        return True
+    other_issues = (
+        audit.get("logs_without_suitability")
+        or audit.get("freshness_issues")
+        or audit.get("result_issues")
+        or audit.get("override_reason_issues")
+        or audit.get("audit_degraded")
+    )
+    allocation_issues = audit.get("allocation_issues") or []
+    only_stale_allocation = bool(allocation_issues) and all(
+        issue.get("reason") == "allocation_predates_current_risk_assessment"
+        for issue in allocation_issues
+    )
+    return bool(other_issues) or not only_stale_allocation

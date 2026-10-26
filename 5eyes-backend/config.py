@@ -446,15 +446,15 @@ class Settings(BaseSettings):
     # 2FA muessen es nach dem Login zwingend einrichten, bevor sie weiterarbeiten.
     require_2fa: bool = False
 
-    # Welle 2.1 (2026-07): Opt-in FIDLEG-Hard-Gate fuer die Eignungspruefung.
-    # Default FALSE = heutiges Verhalten unveraendert — der Suitability-Check
-    # bleibt ein reiner Sichtbarkeits-/Audit-Layer (services/suitability_audit.py),
-    # ein Empfehlungs-Run wird NICHT blockiert. Wenn TRUE, blockiert der
-    # Router-Endpoint einen Empfehlungs-/Strategie-Run mit HTTP 409, sobald
-    # audit_mandate_suitability() eine fehlende/nicht-konforme Eignungspruefung
-    # meldet (is_compliant=False, FIDLEG Art. 11-13). NON-BREAKING: nur explizit
-    # per Config aktivierbar (z.B. compliance-strenge Deployments).
-    require_suitability_before_recommendation: bool = False
+    # FIDLEG-Hard-Gate fuer die Eignungspruefung (Welle 2.1, 2026-07).
+    # ELIG-GATE-001 (2026-10-25): Default TRUE (fail-closed). Die Strategie-/
+    # Empfehlungs-Endpunkte blockieren mit HTTP 409, solange
+    # audit_mandate_suitability() keine konforme, aktuelle Eignungspruefung
+    # meldet (FIDLEG Art. 11-13); siehe suitability_gate_blocks(). Die
+    # Produkteignung pro Position pruefen Generate (is_eligible_candidate) und
+    # die Finalisierung unabhaengig von
+    # diesem Flag. Abschalten nur explizit per Config.
+    require_suitability_before_recommendation: bool = True
 
     # E1 (2026-06-14): SMTP fuer Einladungs-E-Mails (Onboarding). Default AUS —
     # ist es aus/unkonfiguriert, faellt der Invite-Flow auf Link-Copy zurueck

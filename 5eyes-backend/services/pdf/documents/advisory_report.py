@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from models.mandates import Mandate
 from models.users import User
+from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
 from services.cost_disclosure import build_cost_disclosure
 from services.advisory_report import compute_advisory_report
 from services.pdf.fonts import register_editorial_fonts
@@ -2623,9 +2624,10 @@ def _build_stress_replay_flowables(sr: dict, styles: dict) -> list[Any]:
         return out
 
     out.append(Paragraph(
-        "Die historischen Stress-Szenarien wenden definierte Marktphasen "
-        "auf die aktuelle Zielallokation an. Die Auswertung ist eine "
-        "Szenarioanalyse und kein Renditeversprechen.",
+        f"{STRESS_REPLAY_SCOPE_LABEL}: Die historischen Stress-Szenarien "
+        "wenden definierte Marktphasen auf die Gewichtung der empfohlenen "
+        "Zielallokation an; bestehende Positionen fliessen nicht ein. Die "
+        "Auswertung ist eine Szenarioanalyse und kein Renditeversprechen.",
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
     ))
     out.append(Spacer(1, 5 * mm))

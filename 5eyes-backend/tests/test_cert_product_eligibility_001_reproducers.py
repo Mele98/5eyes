@@ -35,6 +35,14 @@ unchanged, only the call target moved to where the real decision now
 lives. ELIG-GOVERNANCE-001/KNOWLEDGE-001/GATE-001/LIMIT-001/FINAL-001
 remain untouched and still xfail -- out of scope for this step (Finalize/
 knowledge/hard-gate wiring is steps 8/10/11, not done yet).
+
+UPDATE (2026-10-25): ELIG-KNOWLEDGE-001, ELIG-GATE-001 and ELIG-FINAL-001
+are closed (xfail removed). ELIG-GOVERNANCE-001 was closed by the governed
+rule table (#686) and is re-targeted at it. ELIG-LIMIT-001 stays xfail:
+Finalize checks the aggregated cap but only warns, because blocking needs
+an owner decision (default catalog caps vs. Generate's product split).
+The two finalize reproducers never created a TargetAllocation and crashed
+before reaching the validator; they now generate one first.
 """
 from __future__ import annotations
 
@@ -146,6 +154,20 @@ def _make_rule(session, *, product_id: str, rule_set_id: str, **overrides) -> No
     session.flush()
 
 
+def _generate_house_allocation(session_factory, mandate_id, advisor_id, monkeypatch) -> None:
+    """The seeded mandate has no TargetAllocation yet; without one the
+    finalize reproducers crashed on `allocation_row.id` (red for the wrong
+    reason) instead of reaching the validator. House-matrix mode keeps it
+    fast and deterministic."""
+    import services.portfolio_engine as pe
+
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mandate_id).first()
+        pe.generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+
+
 # ---------------------------------------------------------------------------
 # ELIG-MODE-001 -- service mode is not an input to the matcher at all.
 # ---------------------------------------------------------------------------
@@ -253,11 +275,11 @@ def test_ignore_suitability_must_not_resurrect_an_out_of_band_product(session_fa
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-KNOWLEDGE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_positive_appropriateness_requires_a_knowledge_anchor():
-    # Soll: a positive Angemessenheitspruefung without any
-    # knowledge_assessment_id must be schema-rejected. Today
-    # SuitabilityCheckCreate accepts this combination unconditionally.
+    # Soll: a positive Angemessenheitspruefung without any knowledge
+    # anchor must be schema-rejected (closed 2026-10-25: the schema
+    # requires knowledge_assessment_id or a risk_assessment_id, and the
+    # router verifies that the risk profile really documents knowledge).
     with pytest.raises(ValueError):
         SuitabilityCheckCreate(
             duty_type="Angemessenheitsprüfung",
@@ -271,7 +293,6 @@ def test_positive_appropriateness_requires_a_knowledge_anchor():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-GATE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_suitability_hard_gate_is_not_default_off():
     # Soll: recommendation generation must not be able to silently skip
     # eligibility checking. NOTE (spec Section 17): flipping only this
@@ -288,21 +309,23 @@ def test_suitability_hard_gate_is_not_default_off():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-LIMIT-001 -- CERT-PRODUCT-ELIGIBILITY-001")
-def test_finalize_rejects_position_exceeding_aggregated_product_cap(session_factory):
+@pytest.mark.xfail(strict=True, reason="ELIG-LIMIT-001 -- CERT-PRODUCT-ELIGIBILITY-001; Owner-Entscheid: Positionsdeckel vs. Generate-Aufteilung")
+def test_finalize_rejects_position_exceeding_aggregated_product_cap(session_factory, monkeypatch):
     advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(session_factory, suffix="elig-limit")
+    _generate_house_allocation(session_factory, mid, advisor_id, monkeypatch)
     with session_factory() as s:
         from models.allocation import TargetAllocation
         allocation_row = s.query(TargetAllocation).filter(
             TargetAllocation.mandate_id == mid, TargetAllocation.is_current == 1,
         ).first()
         product = _make_product(s, product_id="limit-001-product")
-        s.add(ProductSuitability(
-            id=new_uuid(), product_id=product.id,
-            profile_from=1, profile_to=10, advisory_allowed=1,
-            max_position_bps=500,
-            created_at=_now_iso(), updated_at=_now_iso(),
-        ))
+        # Re-targeted 2026-10-25: the cap lives in the governed rule (the
+        # only rule source of Generate/Finalize). Scenario and assertion
+        # unchanged. Still xfail: Finalize reports the exceeded cap only as
+        # a warning -- blocking needs an owner decision because the default
+        # catalog caps (2500/4000 bps) are exceeded by 4 of 6 golden
+        # standard runs.
+        _make_rule(s, product_id=product.id, rule_set_id=_make_rule_set(s), max_position_bps=500)
         run_id = new_uuid()
         now = _now_iso()
         s.add(RecommendationRun(
@@ -335,21 +358,22 @@ def test_finalize_rejects_position_exceeding_aggregated_product_cap(session_fact
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-FINAL-001 -- CERT-PRODUCT-ELIGIBILITY-001")
-def test_finalize_rejects_run_missing_required_appropriateness_and_override_evidence(session_factory):
+def test_finalize_rejects_run_missing_required_appropriateness_and_override_evidence(session_factory, monkeypatch):
     advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(session_factory, suffix="elig-final")
+    _generate_house_allocation(session_factory, mid, advisor_id, monkeypatch)
     with session_factory() as s:
         from models.allocation import TargetAllocation
         allocation_row = s.query(TargetAllocation).filter(
             TargetAllocation.mandate_id == mid, TargetAllocation.is_current == 1,
         ).first()
         product = _make_product(s, product_id="final-001-product")
-        s.add(ProductSuitability(
-            id=new_uuid(), product_id=product.id,
-            profile_from=1, profile_to=10, advisory_allowed=1,
+        # Re-targeted 2026-10-25: the requirement lives in the governed rule
+        # (the only rule source of Generate/Finalize), not in the legacy
+        # ProductSuitability row. Scenario and assertion unchanged.
+        _make_rule(
+            s, product_id=product.id, rule_set_id=_make_rule_set(s),
             requires_appropriateness=1, requires_override=1,
-            created_at=_now_iso(), updated_at=_now_iso(),
-        ))
+        )
         run_id = new_uuid()
         now = _now_iso()
         s.add(RecommendationRun(
@@ -378,16 +402,39 @@ def test_finalize_rejects_run_missing_required_appropriateness_and_override_evid
 
 
 # ---------------------------------------------------------------------------
-# ELIG-GOVERNANCE-001 -- ProductSuitability has no governance dimensions.
+# ELIG-GOVERNANCE-001 -- the rule that decides eligibility must carry the
+# governance dimensions.
+#
+# Re-targeted 2026-10-25 (same pattern as ELIG-MODE/RULE above): the
+# decision surface no longer reads the legacy, ungoverned
+# `ProductSuitability` table at all -- the governed
+# `ProductEligibilityRule` (#686: tenant scope, approved RuleSet, four-eyes
+# approval, full-field rule_hash) is the only rule source of Generate and
+# Finalize. The required column set is unchanged; it is asserted on the
+# table that actually decides, plus a source-level proof that neither
+# decision surface consults the legacy table.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-GOVERNANCE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_product_suitability_has_governance_columns():
-    columns = {c.name for c in ProductSuitability.__table__.columns}
+    import inspect
+
+    from models.product_eligibility import ProductEligibilityRule as _Rule
+    from services import product_eligibility as _core
+    from services import product_eligibility_finalization as _final
+
+    columns = {c.name for c in _Rule.__table__.columns}
     required = {
         "tenant_id", "jurisdiction", "version", "valid_from", "valid_to",
         "status", "approved_by", "supersedes_id", "rule_hash",
     }
     missing = required - columns
-    assert not missing, f"ProductSuitability fehlt Governance-Spalten: {sorted(missing)}"
+    assert not missing, f"Eignungsregel fehlt Governance-Spalten: {sorted(missing)}"
+
+    decision_sources = (
+        inspect.getsource(_core.resolve_active_rules_for_product)
+        + inspect.getsource(_core.evaluate_product_eligibility)
+        + inspect.getsource(_core.is_eligible_candidate)
+        + inspect.getsource(_final)
+    )
+    assert "ProductSuitability" not in decision_sources

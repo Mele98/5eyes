@@ -137,8 +137,25 @@ def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1",
         session.commit()
 
 
+def _full_valuation_coverage(position_count: int) -> dict:
+    """HANDOFF-VALUATION-001: der Snapshot verlangt die Coverage-Aggregate
+    von build_live_rebalancing_payload (echte Bestaende, frische Preise,
+    erfolgreiche FX). Positivfaelle bilden vollstaendige Abdeckung ab."""
+    return {
+        "holding_positions_count": position_count,
+        "implied_positions_count": 0,
+        "missing_prices_count": 0,
+        "stale_positions_count": 0,
+        "fx_conversion_failed_count": 0,
+    }
+
+
 def _fake_payload(drifts: list[dict], total_value_rappen: int) -> dict:
-    return {"live_rebalancing": {"live_total_value_rappen": total_value_rappen, "position_drifts": drifts}}
+    return {"live_rebalancing": {
+        "live_total_value_rappen": total_value_rappen,
+        "position_drifts": drifts,
+        **_full_valuation_coverage(len(drifts)),
+    }}
 
 
 def _drift(product_id: str, rebalance_amount_rappen: int, **overrides) -> dict:
@@ -189,8 +206,19 @@ def test_snapshot_filters_trades_below_half_percent_threshold(session_factory, a
     assert ids == {"prod-big", "prod-boundary"}
     # Sortiert nach absolutem Betrag absteigend.
     assert [t["product_id"] for t in trades] == ["prod-big", "prod-boundary"]
-    # Nur kuratierte Felder im Snapshot -- kein reference_price_rappen etc.
-    assert set(trades[0].keys()) == set(portfolio_handoff_service._SNAPSHOT_TRADE_FIELDS)
+    # HANDOFF-INSTRUCTION-001: kuratierte Felder plus die von der Quelle
+    # gelieferten Instruktionsfelder (hier nur der Referenzpreis) und die
+    # Einstufung der Zeile -- keine weiteren internen Engine-Felder.
+    allowed = (
+        set(portfolio_handoff_service._SNAPSHOT_TRADE_FIELDS)
+        | set(portfolio_handoff_service._SNAPSHOT_INSTRUCTION_FIELDS)
+        | {"instruction_kind", "missing_instruction_fields"}
+    )
+    assert set(portfolio_handoff_service._SNAPSHOT_TRADE_FIELDS) <= set(trades[0].keys()) <= allowed
+    assert trades[0]["reference_price_rappen"] == 9999
+    # Ohne ISIN/Konto/Menge ist die Zeile eine Empfehlung, keine Instruktion.
+    assert trades[0]["instruction_kind"] == "rebalancing_recommendation"
+    assert trades[0]["missing_instruction_fields"] == ["isin", "custody_account_id", "current_units_milli"]
 
 
 def test_snapshot_raises_when_no_trades_above_threshold(session_factory, advisor_user, monkeypatch):
@@ -236,7 +264,7 @@ def test_create_handoff_persists_snapshot_and_writes_audit_log(session_factory, 
             body=PortfolioHandoffCreate(recipient_name="Bank XY Trading Desk", recipient_channel="E-Mail", note="Quartalsrebalancing"),
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
-        assert result.status == "Gesendet"
+        assert result.status == "Vorbereitet"
         assert result.position_count == 1
         assert result.live_total_value_rappen == 1_000_000
         assert result.recipient_name == "Bank XY Trading Desk"
@@ -296,6 +324,12 @@ def test_create_handoff_404_for_unknown_run(session_factory, advisor_user, monke
     assert exc.value.status_code == 404
 
 
+# HANDOFF-EXECUTION-001: manuelle Ausfuehrungsbestaetigung mit Referenz
+# (Datum = heute UTC, wie der Zeitstempel der neu angelegten Weiterleitung).
+_TODAY = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).date().isoformat()
+_EVIDENCE = PortfolioHandoffMarkExecuted(external_order_reference="ORD-4700", executed_on=_TODAY)
+
+
 def _create_handoff(session, advisor_user):
     return create_portfolio_handoff(
         mandate_id="mandate-1", run_id="run-1",
@@ -312,18 +346,21 @@ def test_mark_executed_transitions_status_and_is_not_repeatable(session_factory,
         created = _create_handoff(session, advisor_user)
         executed = mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=created.id,
-            body=PortfolioHandoffMarkExecuted(executed_note="Bank bestaetigt per Telefon"),
+            body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-4711", executed_on=_TODAY, executed_note="Bank bestaetigt per Telefon"),
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
         assert executed.status == "Ausgeführt"
         assert executed.executed_by == advisor_user.id
         assert executed.executed_note == "Bank bestaetigt per Telefon"
+        assert executed.execution_evidence_kind == "manual_attestation"
+        assert executed.execution_external_reference == "ORD-4711"
+        assert executed.execution_confirmed_on == _TODAY
 
         # Zweiter Aufruf auf denselben (nicht mehr offenen) Handoff -> 409, kein Doppel-Transition.
         with pytest.raises(HTTPException) as exc:
             mark_portfolio_handoff_executed(
                 mandate_id="mandate-1", handoff_id=created.id,
-                body=PortfolioHandoffMarkExecuted(),
+                body=_EVIDENCE,
                 request=_FakeRequest(), db=session, current_user=advisor_user,
             )
         assert exc.value.status_code == 409
@@ -337,7 +374,7 @@ def test_cancel_requires_reason_and_blocks_after_execution(session_factory, advi
         created = _create_handoff(session, advisor_user)
         mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=created.id,
-            body=PortfolioHandoffMarkExecuted(),
+            body=_EVIDENCE,
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
         # Ein bereits ausgefuehrter Handoff darf nicht mehr storniert werden.
@@ -371,11 +408,11 @@ def test_concurrent_mark_executed_and_cancel_do_not_both_succeed(session_factory
         _get_handoff_or_404 = portfolio_handoff_router._get_handoff_or_404
         seen_by_a = _get_handoff_or_404("mandate-1", handoff_id, session_a, advisor_user)
         seen_by_b = _get_handoff_or_404("mandate-1", handoff_id, session_b, advisor_user)
-        assert seen_by_a.status == seen_by_b.status == "Gesendet"
+        assert seen_by_a.status == seen_by_b.status == "Vorbereitet"
 
         executed = mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=handoff_id,
-            body=PortfolioHandoffMarkExecuted(executed_note="Bank bestaetigt"),
+            body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-4712", executed_on=_TODAY, executed_note="Bank bestaetigt"),
             request=_FakeRequest(), db=session_a, current_user=advisor_user,
         )
         assert executed.status == "Ausgeführt"
@@ -450,3 +487,309 @@ def test_handoff_endpoints_404_for_foreign_mandate(session_factory, advisor_user
                 request=_FakeRequest(), db=session, current_user=advisor_user,
             )
     assert exc.value.status_code == 404
+
+
+# ===========================================================================
+# HANDOFF-VALUATION-001 -- Bewertungsabdeckung blockiert fail-closed
+# ===========================================================================
+
+
+@pytest.mark.parametrize("blocker", [
+    "implied_positions_count", "missing_prices_count",
+    "stale_positions_count", "fx_conversion_failed_count",
+])
+def test_snapshot_blocks_on_each_coverage_gap(session_factory, advisor_user, monkeypatch, blocker):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    payload = _fake_payload([_drift("prod-1", 50_000)], 1_000_000)
+    payload["live_rebalancing"][blocker] = 1
+    monkeypatch.setattr(portfolio_handoff_service, "build_recommendation_payload_from_run", lambda **kw: payload)
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == "mandate-1").one()
+        run = session.query(RecommendationRun).filter(RecommendationRun.id == "run-1").one()
+        with pytest.raises(portfolio_handoff_service.HoldingsValuationIncompleteError):
+            portfolio_handoff_service.snapshot_handoff_trades(session, mandate, run, advisor_user.id)
+
+
+def test_snapshot_blocks_when_coverage_aggregates_are_missing(session_factory, advisor_user, monkeypatch):
+    """Ein Payload ohne Coverage-Aggregate belegt keine Abdeckung -- kein
+    stilles 'vollstaendig'."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    payload = {"live_rebalancing": {
+        "live_total_value_rappen": 1_000_000, "position_drifts": [_drift("prod-1", 50_000)],
+    }}
+    monkeypatch.setattr(portfolio_handoff_service, "build_recommendation_payload_from_run", lambda **kw: payload)
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == "mandate-1").one()
+        run = session.query(RecommendationRun).filter(RecommendationRun.id == "run-1").one()
+        with pytest.raises(portfolio_handoff_service.HoldingsValuationIncompleteError):
+            portfolio_handoff_service.snapshot_handoff_trades(session, mandate, run, advisor_user.id)
+
+
+def test_create_handoff_409_without_persisting_when_valuation_incomplete(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    payload = _fake_payload([_drift("prod-1", 50_000)], 1_000_000)
+    payload["live_rebalancing"]["implied_positions_count"] = 1
+    monkeypatch.setattr(portfolio_handoff_service, "build_recommendation_payload_from_run", lambda **kw: payload)
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc:
+            _create_handoff(session, advisor_user)
+        assert exc.value.status_code == 409
+        assert session.query(PortfolioHandoff).count() == 0
+
+
+# ===========================================================================
+# HANDOFF-INSTRUCTION-001 -- Instruktionsfelder aus den echten Quellfeldern
+# ===========================================================================
+
+
+def test_snapshot_maps_live_source_fields_to_executable_instruction(session_factory, advisor_user, monkeypatch):
+    """Das Live-Rebalancing liefert das Depotkonto als
+    holding_custody_account_number und kennt die ISIN nur ueber das Produkt
+    -- beides landet im Snapshot, die Zeile gilt dann als ausfuehrbar."""
+    from models.review import Product
+
+    _seed_mandate_and_run(session_factory, advisor_user)
+    with session_factory() as session:
+        session.add(Product(
+            id="prod-1", product_name="Produkt prod-1", product_type="ETF", asset_class="Aktien",
+            isin="CH0012032048", currency="CHF",
+            created_at="2026-08-08T00:00:00.000Z", updated_at="2026-08-08T00:00:00.000Z",
+        ))
+        session.commit()
+    drift = _drift(
+        "prod-1", 50_000,
+        holding_custody_account_number="CH93-0076-2011-6238-5295-7",
+        current_units_milli=12_000, valuation_basis="actual_holding_units",
+    )
+    _patch_engine(monkeypatch, [drift])
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == "mandate-1").one()
+        run = session.query(RecommendationRun).filter(RecommendationRun.id == "run-1").one()
+        trades, _ = portfolio_handoff_service.snapshot_handoff_trades(session, mandate, run, advisor_user.id)
+
+    trade = trades[0]
+    assert trade["isin"] == "CH0012032048"
+    assert trade["custody_account_id"] == "CH93-0076-2011-6238-5295-7"
+    assert trade["current_units_milli"] == 12_000
+    assert trade["instruction_kind"] == "executable_instruction"
+    assert trade["missing_instruction_fields"] == []
+    # Nicht gelieferte Felder werden nicht erfunden.
+    assert "order_type" not in trade and "fx_rate" not in trade
+
+
+# ===========================================================================
+# HANDOFF-DELIVERY-001 -- lokaler Insert behauptet keinen Versand
+# ===========================================================================
+
+
+def test_legacy_sent_handoff_stays_closable(session_factory, advisor_user, monkeypatch):
+    """Vor dem Fix angelegte Zeilen tragen 'Gesendet' -- sie bleiben ein
+    offener Altbestand und lassen sich weiterhin abschliessen."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    with session_factory() as session:
+        session.add(PortfolioHandoff(
+            id="handoff-legacy", mandate_id="mandate-1", recommendation_run_id="run-1",
+            trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
+            recipient_name="A", status="Gesendet", created_by=advisor_user.id,
+            created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
+        ))
+        session.commit()
+        cancelled = cancel_portfolio_handoff(
+            mandate_id="mandate-1", handoff_id="handoff-legacy",
+            body=PortfolioHandoffCancel(cancelled_reason="Altbestand bereinigt"),
+            request=_FakeRequest(), db=session, current_user=advisor_user,
+        )
+        assert cancelled.status == "Storniert"
+        audit = session.query(AuditLog).filter(
+            AuditLog.table_name == "portfolio_handoffs", AuditLog.action == "UPDATE",
+        ).one()
+        assert audit.old_value == "Gesendet"
+
+
+
+# ===========================================================================
+# HANDOFF-EXECUTION-001 -- Ausfuehrung nur mit Evidence
+# ===========================================================================
+
+
+@pytest.mark.parametrize("payload", [
+    {},
+    {"executed_note": "Bank bestaetigt"},
+    {"external_order_reference": "  ", "executed_on": "2026-08-09"},
+    {"external_order_reference": "ORD-1"},
+    {"external_order_reference": "ORD-1", "executed_on": "2999-01-01"},
+])
+def test_mark_executed_schema_rejects_missing_or_implausible_evidence(payload):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PortfolioHandoffMarkExecuted(**payload)
+
+
+def test_mark_executed_rejects_execution_before_handoff_creation(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        created = _create_handoff(session, advisor_user)
+        with pytest.raises(HTTPException) as exc:
+            mark_portfolio_handoff_executed(
+                mandate_id="mandate-1", handoff_id=created.id,
+                body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-1", executed_on="2020-01-01"),
+                request=_FakeRequest(), db=session, current_user=advisor_user,
+            )
+        assert exc.value.status_code == 422
+        session.expire_all()
+        assert session.query(PortfolioHandoff).filter(PortfolioHandoff.id == created.id).one().status == "Vorbereitet"
+
+
+# ===========================================================================
+# HANDOFF-IDEMPOTENCY-001 -- genau eine offene Weiterleitung je Identitaet
+# ===========================================================================
+
+
+def _create(session, advisor_user, **body):
+    return create_portfolio_handoff(
+        mandate_id="mandate-1", run_id="run-1",
+        body=PortfolioHandoffCreate(**{"recipient_name": "Bank XY", **body}),
+        request=_FakeRequest(), db=session, current_user=advisor_user,
+    )
+
+
+def test_identical_retry_returns_same_handoff_without_second_audit_row(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        first = _create(session, advisor_user, note="Q4")
+        second = _create(session, advisor_user, note="Q4")
+        assert second.id == first.id
+        # Gleiche fachliche Identitaet (Empfaenger normalisiert), aber anderer
+        # Request -> 409 statt zweiter offener Weiterleitung.
+        with pytest.raises(HTTPException) as exc:
+            _create(session, advisor_user, recipient_name="bank   XY", note="Q4")
+        assert exc.value.status_code == 409
+        assert first.business_key_hash and len(first.business_key_hash) == 64
+        assert session.query(PortfolioHandoff).count() == 1
+        assert session.query(AuditLog).filter(AuditLog.table_name == "portfolio_handoffs").count() == 1
+
+
+def test_same_identity_with_different_request_is_409(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        first = _create(session, advisor_user, note="Q4")
+        with pytest.raises(HTTPException) as exc:
+            _create(session, advisor_user, note="anderer Auftrag")
+        assert exc.value.status_code == 409
+        assert exc.value.detail["reason_code"] == "HANDOFF_ALREADY_OPEN"
+        assert exc.value.detail["handoff_id"] == first.id
+        assert session.query(PortfolioHandoff).count() == 1
+
+
+def test_changed_trades_or_closed_handoff_allow_a_new_one(session_factory, advisor_user, monkeypatch):
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session:
+        first = _create(session, advisor_user)
+        cancel_portfolio_handoff(
+            mandate_id="mandate-1", handoff_id=first.id,
+            body=PortfolioHandoffCancel(cancelled_reason="neu erfassen"),
+            request=_FakeRequest(), db=session, current_user=advisor_user,
+        )
+        again = _create(session, advisor_user)
+        assert again.id != first.id
+        # Neuer fachlicher Inhalt -> neuer Schluessel, neue Zeile.
+        _patch_engine(monkeypatch, [_drift("prod-1", 60_000)])
+        changed = _create(session, advisor_user)
+        assert changed.id not in {first.id, again.id}
+        assert changed.business_key_hash != again.business_key_hash
+
+
+def test_concurrent_identical_create_resolves_to_existing_via_unique_index(session_factory, advisor_user, monkeypatch):
+    """Zwei parallele identische Requests: beide bestehen die Vorpruefung,
+    der partielle Unique-Index laesst nur EINEN Insert zu, der Verlierer
+    liefert das Ergebnis des Gewinners."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as session_a:
+        winner = _create(session_a, advisor_user)
+
+    real_lookup = portfolio_handoff_router._open_handoff_with_business_key
+    calls = {"n": 0}
+
+    def _stale_first_lookup(db, mandate_id, business_key):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # Vorpruefung lief, bevor der Gewinner committet hat
+        return real_lookup(db, mandate_id, business_key)
+
+    monkeypatch.setattr(portfolio_handoff_router, "_open_handoff_with_business_key", _stale_first_lookup)
+    with session_factory() as session_b:
+        loser = _create(session_b, advisor_user)
+        assert loser.id == winner.id
+        assert session_b.query(PortfolioHandoff).count() == 1
+    assert calls["n"] == 2
+
+
+# ===========================================================================
+# HANDOFF-INTEGRITY-001 -- Response liefert nur in sich stimmige Datensaetze
+# ===========================================================================
+
+
+def _response_dict(**overrides) -> dict:
+    snapshot = json.dumps([{"product_id": "p"}], ensure_ascii=False)
+    base = dict(
+        id="h", mandate_id="mandate-1", recommendation_run_id="run-1",
+        trade_list_snapshot_json=snapshot, live_total_value_rappen=1, position_count=1,
+        recipient_name="A", recipient_channel=None, note=None, status="Vorbereitet",
+        created_by="u", created_at="t", updated_at="t",
+        executed_at=None, executed_by=None, executed_note=None,
+        cancelled_at=None, cancelled_by=None, cancelled_reason=None,
+        snapshot_sha256=__import__("hashlib").sha256(snapshot.encode("utf-8")).hexdigest(),
+    )
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.parametrize("overrides", [
+    {"status": "BROKEN"},
+    {"trade_list_snapshot_json": "not-json"},
+    {"trade_list_snapshot_json": "{\"a\": 1}", "snapshot_sha256": None},
+    {"position_count": 2},
+    {"snapshot_sha256": "0" * 64},
+    {"status": "Ausgeführt"},                      # ohne executed_at
+    {"executed_at": "t"},                          # offen, aber "ausgefuehrt"
+    {"status": "Storniert"},                       # ohne cancelled_at
+])
+def test_response_rejects_incoherent_handoff(overrides):
+    from pydantic import ValidationError
+    from schemas.portfolio_handoff import PortfolioHandoffResponse
+
+    with pytest.raises(ValidationError):
+        PortfolioHandoffResponse.model_validate(_response_dict(**overrides))
+
+
+def test_created_and_closed_handoffs_validate_with_their_snapshot_hash(session_factory, advisor_user, monkeypatch):
+    from schemas.portfolio_handoff import PortfolioHandoffResponse
+
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+    with session_factory() as session:
+        created = _create_handoff(session, advisor_user)
+        assert created.snapshot_sha256 and len(created.snapshot_sha256) == 64
+        PortfolioHandoffResponse.model_validate(created)
+        executed = mark_portfolio_handoff_executed(
+            mandate_id="mandate-1", handoff_id=created.id, body=_EVIDENCE,
+            request=_FakeRequest(), db=session, current_user=advisor_user,
+        )
+        PortfolioHandoffResponse.model_validate(executed)
+        # Legacy-Zeilen ohne Hash bleiben lesbar.
+        PortfolioHandoffResponse.model_validate(_response_dict(snapshot_sha256=None, status="Gesendet"))
