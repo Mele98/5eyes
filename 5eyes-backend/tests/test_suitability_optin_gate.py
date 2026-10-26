@@ -11,7 +11,7 @@ Diese Suite verifiziert das NEUE opt-in Hard-Gate im Router-Endpoint
 POST /mandates/{id}/target-allocation/generate
 (routers/allocation.py::generate_target_allocation_endpoint):
 
-  (a) Flag AUS (Default) -> Run laeuft wie bisher durch (NON-BREAKING).
+  (a) Flag explizit AUS -> Run laeuft durch (Default seit ELIG-GATE-001: AN).
   (b) Flag AN + fehlende/nicht-konforme Eignungspruefung -> HTTP 409.
   (c) Flag AN + gueltige/konforme Eignungspruefung -> Run laeuft durch.
 
@@ -166,15 +166,20 @@ def _call_generate(session_factory, advisor_id: str, mid: str):
 
 
 # ---------------------------------------------------------------------------
-# (a) Flag AUS (Default) -> Run laeuft durch (NON-BREAKING)
+# (a) Flag explizit AUS -> Run laeuft durch, Audit wird nicht aufgerufen.
+# ELIG-GATE-001 (2026-10-25): Default ist jetzt AN (fail-closed); das
+# Abschalten bleibt nur als explizite Config-Entscheidung moeglich.
 # ---------------------------------------------------------------------------
 
-def test_gate_default_off_run_proceeds(session_factory, monkeypatch):
-    """Default: require_suitability_before_recommendation=False -> kein Gate,
-    Run generiert eine TargetAllocation wie bisher. audit_mandate_suitability
-    darf NICHT aufgerufen werden."""
+def test_gate_default_is_on():
+    assert alloc.settings.require_suitability_before_recommendation is True
+
+
+def test_gate_explicitly_off_run_proceeds(session_factory, monkeypatch):
+    """require_suitability_before_recommendation=False (explizit) -> kein
+    Gate, audit_mandate_suitability darf NICHT aufgerufen werden."""
     advisor_id, _cid, mid = _seed_mandate(session_factory)
-    assert alloc.settings.require_suitability_before_recommendation is False
+    monkeypatch.setattr(alloc.settings, "require_suitability_before_recommendation", False)
 
     def _fail_audit(*_a, **_k):  # pragma: no cover - darf nicht laufen
         raise AssertionError("Audit darf bei ausgeschaltetem Flag nicht laufen")
@@ -231,3 +236,41 @@ def test_gate_on_compliant_suitability_run_proceeds(session_factory, monkeypatch
     result = _call_generate(session_factory, advisor_id, mid)
     assert result["target_allocation"] is not None
     assert result["target_allocation"].id
+
+
+# ---------------------------------------------------------------------------
+# ELIG-GATE-001: Block-Entscheid suitability_gate_blocks()
+# ---------------------------------------------------------------------------
+
+from services.suitability_audit import suitability_gate_blocks  # noqa: E402
+
+_STALE_ALLOC = {"reason": "allocation_predates_current_risk_assessment"}
+
+
+@pytest.mark.parametrize("creates", [True, False])
+def test_gate_helper_compliant_never_blocks(creates):
+    assert suitability_gate_blocks({"is_compliant": True}, creates_target_allocation=creates) is False
+
+
+@pytest.mark.parametrize("creates", [True, False])
+def test_gate_helper_degraded_audit_blocks(creates):
+    audit = {"is_compliant": None, "audit_degraded": True}
+    assert suitability_gate_blocks(audit, creates_target_allocation=creates) is True
+
+
+def test_gate_helper_stale_allocation_does_not_block_new_target_allocation():
+    """Sonst Sackgasse: die alte Allokation sperrt genau den Endpunkt, der
+    die neue (zum aktuellen Profil passende) erzeugt."""
+    audit = {"is_compliant": False, "allocation_issues": [_STALE_ALLOC]}
+    assert suitability_gate_blocks(audit, creates_target_allocation=True) is False
+
+
+def test_gate_helper_stale_allocation_blocks_recommendation():
+    audit = {"is_compliant": False, "allocation_issues": [_STALE_ALLOC]}
+    assert suitability_gate_blocks(audit, creates_target_allocation=False) is True
+
+
+@pytest.mark.parametrize("key", ["logs_without_suitability", "freshness_issues", "override_reason_issues"])
+def test_gate_helper_real_suitability_issue_blocks_target_allocation(key):
+    audit = {"is_compliant": False, "allocation_issues": [_STALE_ALLOC], key: [{"reason": "x"}]}
+    assert suitability_gate_blocks(audit, creates_target_allocation=True) is True
