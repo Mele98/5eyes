@@ -88,7 +88,6 @@ def _html() -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-DELIVERY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_local_insert_must_not_claim_sent_without_transport_evidence(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
@@ -114,7 +113,6 @@ def test_local_insert_must_not_claim_sent_without_transport_evidence(session_fac
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-VALUATION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_snapshot_blocks_when_no_real_holding_backs_any_trade(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     payload = {
@@ -153,7 +151,6 @@ def test_snapshot_blocks_when_no_real_holding_backs_any_trade(session_factory, a
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-MATH-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
     entries = [{
         "product_id": "prod-math",
@@ -187,7 +184,6 @@ def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-UI-CONTRACT-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_trade_list_ui_compares_action_code_not_localized_label():
     html = _html()
     start = html.index("function openTradeList()")
@@ -213,7 +209,6 @@ def test_trade_list_ui_compares_action_code_not_localized_label():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-INSTRUCTION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_snapshot_preserves_executable_instruction_fields_when_source_has_them(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     drift = _drift(
@@ -250,7 +245,6 @@ def test_snapshot_preserves_executable_instruction_fields_when_source_has_them(s
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-IDEMPOTENCY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_identical_create_retry_produces_exactly_one_open_handoff(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
@@ -289,7 +283,6 @@ def test_identical_create_retry_produces_exactly_one_open_handoff(session_factor
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-EXECUTION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_mark_executed_requires_fill_evidence_not_empty_body():
     # Soll (Spec Section 3.7/4.5): "Ausgefuehrt" muss aus vollstaendigen
     # Fill-Ereignissen (externe Order-ID, Menge, Preis, Settlement) abgeleitet
@@ -307,7 +300,6 @@ def test_mark_executed_requires_fill_evidence_not_empty_body():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-INTEGRITY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_response_schema_rejects_tampered_status_json_and_count(session_factory, advisor_user):
     _seed_mandate_and_run(session_factory, advisor_user)
     with session_factory() as session:
