@@ -7,7 +7,7 @@
   "status": 404
  },
  "allocation.generate.no_profile": {
-  "sha256": "d4d8d46da55bc58b999bd64aa1903be993ce24595267bf73d2c5e3e4c1bba340",
+  "sha256": "ce3e9765e0c51358b0e4b5d9aee106dad4160074b0880f8e3347cf05530d921b",
   "shape": {
    "detail": "str"
   },
