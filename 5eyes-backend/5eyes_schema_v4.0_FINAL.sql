@@ -473,6 +473,36 @@ BEFORE DELETE ON financial_coverage_attestations FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
 
 -- ===========================================================================
+-- DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2: DepotSnapshotV1 --
+-- append-only, hash-gebundener IST-Bestand (Positionen, Werte, Waehrung,
+-- Stichtag, FX-Evidenz) als Basis des IST-Stress-Replays.
+-- KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger verboten.
+-- Kein FK auf mandates/clients (Muster audit_log, Purge-fest).
+-- Identisch zu database.py::DEPOT_SNAPSHOT_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS depot_snapshots (
+    id              TEXT PRIMARY KEY,
+    schema_version  TEXT NOT NULL DEFAULT 'DepotSnapshotV1',
+    mandate_id      TEXT NOT NULL,
+    client_id       TEXT NOT NULL,
+    as_of_date      TEXT NOT NULL,
+    currency        TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    snapshot_json   TEXT NOT NULL,
+    snapshot_hash   TEXT NOT NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_depot_snapshots_mandate
+    ON depot_snapshots(mandate_id, as_of_date);
+CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_update
+BEFORE UPDATE ON depot_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_delete
+BEFORE DELETE ON depot_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
+
+-- ===========================================================================
 -- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 -- RiskProfileSignoffV1 -- append-only, gehashter Nachweis JEDER Signatur des
 -- Risikoprofils, gebunden an Assessment-Version, wirksames Profil/Score und

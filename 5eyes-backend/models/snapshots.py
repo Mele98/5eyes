@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import DDL, Column, String, Integer, ForeignKey, UniqueConstraint, Index, event
 from sqlalchemy.orm import relationship
-from database import Base
+from database import DEPOT_SNAPSHOT_SQLITE_TRIGGERS, Base
 
 
 class StrategySnapshot(Base):
@@ -104,3 +104,38 @@ class AssetClassFxHistory(Base):
     source = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+class DepotSnapshot(Base):
+    """DepotSnapshotV1 -- unveraenderlicher, hash-gebundener IST-Bestand eines
+    Mandats (DEPOT-E2E-SNAPSHOT-001, DEPOT-E2E-STRESS-001 Option 2).
+
+    ``snapshot_json`` ist der kanonische Snapshot (services/depot_snapshot.py),
+    ``id`` = ``snapshot_id`` (aus dem Hash abgeleitet, gleicher Inhalt = gleiche
+    Zeile). Append-only (Trigger); kein FK auf mandates/clients (Purge-fest).
+    """
+
+    __tablename__ = "depot_snapshots"
+    __table_args__ = (
+        Index("ix_depot_snapshots_mandate", "mandate_id", "as_of_date"),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="DepotSnapshotV1")
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    as_of_date = Column(String, nullable=False)
+    currency = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    snapshot_json = Column(String, nullable=False)
+    snapshot_hash = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in DEPOT_SNAPSHOT_SQLITE_TRIGGERS:
+    event.listen(
+        DepotSnapshot.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
