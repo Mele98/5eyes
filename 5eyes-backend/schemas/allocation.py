@@ -1471,7 +1471,10 @@ class LiveRebalancingPositionResponse(BaseModel):
     asset_class: str
     sub_asset_class: Optional[str] = None
     target_weight_bps: int
+    # HANDOFF-MATH-001: SOLL auf der Live-Basis (IST + Delta = SOLL);
+    # run_target_amount_rappen ist der historische Betrag des Runs.
     target_amount_rappen: int
+    run_target_amount_rappen: Optional[int] = None
     current_weight_bps: int
     current_market_value_rappen: int
     delta_weight_bps: int

@@ -86,7 +86,7 @@ def _target_allocation_body() -> TargetAllocationCreate:
 
 def test_create_target_allocation_gate_off_proceeds(session_factory, monkeypatch):
     advisor_id, _cid, mid = _seed_mandate(session_factory)
-    assert alloc.settings.require_suitability_before_recommendation is False
+    monkeypatch.setattr(alloc.settings, "require_suitability_before_recommendation", False)
     # 2026-08 (asset-allocation-stochastic-core): manuelles Erzeugen ist im
     # stochastischen Modus (Produktions-Default) grundsaetzlich gesperrt
     # (409, "Bitte den Engine-Generate-Pfad verwenden"). Dieser Test prueft
@@ -150,7 +150,7 @@ def test_create_target_allocation_gate_on_compliant_proceeds(session_factory, mo
 
 def test_create_recommendation_run_gate_off_proceeds(session_factory, monkeypatch):
     advisor_id, _cid, mid = _seed_mandate(session_factory)
-    assert review.settings.require_suitability_before_recommendation is False
+    monkeypatch.setattr(review.settings, "require_suitability_before_recommendation", False)
 
     def _fail_audit(*_a, **_k):  # pragma: no cover
         raise AssertionError("Audit darf bei ausgeschaltetem Flag nicht laufen")
@@ -206,7 +206,7 @@ def test_create_recommendation_run_gate_on_compliant_proceeds(session_factory, m
 
 def test_generate_recommendation_run_gate_off_proceeds(session_factory, monkeypatch):
     advisor_id, _cid, mid = _seed_mandate(session_factory)
-    assert review.settings.require_suitability_before_recommendation is False
+    monkeypatch.setattr(review.settings, "require_suitability_before_recommendation", False)
 
     def _fail_audit(*_a, **_k):  # pragma: no cover
         raise AssertionError("Audit darf bei ausgeschaltetem Flag nicht laufen")
