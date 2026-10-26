@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -8,7 +8,7 @@ class StrategySnapshot(Base):
     id = Column(String, primary_key=True)
     mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
     snapshot_date = Column(String, nullable=False)
-    advisory_assets_rappen = Column(Integer, nullable=False)
+    advisory_assets_rappen = Column(BigInteger, nullable=False)
     risk_profile_score = Column(Integer, nullable=False)
     risk_profile_label = Column(String, nullable=False)
     soll_equities_bps = Column(Integer, nullable=False)
@@ -72,7 +72,7 @@ class AssetClassPriceHistory(Base):
     id = Column(String, primary_key=True)
     asset_class = Column(String, nullable=False)
     price_date = Column(String, nullable=False)  # ISO-Date "YYYY-MM-DD"
-    close_rappen = Column(Integer, nullable=False)
+    close_rappen = Column(BigInteger, nullable=False)
     currency = Column(String)  # U-P19b: native Notierungswährung (ISO-3), z.B. "USD"
     source = Column(String)
     created_at = Column(String, nullable=False)

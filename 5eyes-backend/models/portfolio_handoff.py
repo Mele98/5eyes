@@ -33,7 +33,7 @@ Cleanup-Fall nur die Provenienz-Referenz, nicht seinen eigenen
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, String
+from sqlalchemy import BigInteger, Column, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -49,7 +49,7 @@ class PortfolioHandoff(Base):
     # Unveraenderlicher Snapshot der zum Sendezeitpunkt server-berechneten
     # Trades (services/portfolio_handoff.py::snapshot_handoff_trades()).
     trade_list_snapshot_json = Column(String, nullable=False)
-    live_total_value_rappen = Column(Integer, nullable=False, default=0)
+    live_total_value_rappen = Column(BigInteger, nullable=False, default=0)
     position_count = Column(Integer, nullable=False, default=0)
 
     # Kein Bank-/Custody-API-Zugang in dieser Installation -- rein
