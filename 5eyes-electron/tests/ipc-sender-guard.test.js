@@ -42,8 +42,8 @@ test('gueltige Entry (POSIX) wird akzeptiert', () => {
 });
 
 test('Umlaut/Leerzeichen im Pfad: unterschiedliche Kodierung bleibt derselbe Absender', () => {
-  const entry = 'C:\\Users\\Müller Hans\\App\\frontend\\index_v2.html';
-  assert.strictEqual(checkTrustedRendererUrl('file:///C:/Users/M%C3%BCller%20Hans/App/frontend/index_v2.html', entry, 'win32').ok, true);
+  const entry = 'C:\\Daten\\Müller Hans\\App\\frontend\\index_v2.html';
+  assert.strictEqual(checkTrustedRendererUrl('file:///C:/Daten/M%C3%BCller%20Hans/App/frontend/index_v2.html', entry, 'win32').ok, true);
   assert.strictEqual(checkTrustedRendererUrl('file:///home/M%C3%BCller%20Hans/index_v2.html', '/home/Müller Hans/index_v2.html', 'linux').ok, true);
 });
 
@@ -66,7 +66,7 @@ test('andere lokale Datei wird abgelehnt', () => {
     checkTrustedRendererUrl('file:///C:/Program%20Files/App/resources/app.asar/frontend/evil.html', WIN_ENTRY, 'win32'),
     { ok: false, reason: 'path' },
   );
-  assert.strictEqual(checkTrustedRendererUrl('file:///C:/Users/x/Downloads/index_v2.html', WIN_ENTRY, 'win32').ok, false);
+  assert.strictEqual(checkTrustedRendererUrl('file:///C:/Daten/x/Downloads/index_v2.html', WIN_ENTRY, 'win32').ok, false);
 });
 
 test('Pfad-Tricks mit .. und %2e%2e: nur wenn sie exakt auf die Entry aufloesen', () => {
