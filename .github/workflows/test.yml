@@ -122,6 +122,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # F0-6 / A3 P0-5: api/openapi.json muss dem Code entsprechen. Export
+      # ohne App-Lifespan (kein init_db, keine Seeds/Scheduler, Wegwerf-
+      # DB_PATH). Bei Drift rot mit Regenerationsbefehl. Dieselbe Pruefung
+      # laeuft zusaetzlich als tests/test_openapi_artifact.py in den Shards.
+      - name: OpenAPI artifact drift check
+        working-directory: 5eyes-backend
+        run: python scripts/export_openapi.py --check
+
       - name: Collect full suite (reference list)
         working-directory: 5eyes-backend
         run: |
