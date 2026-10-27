@@ -6,6 +6,7 @@
  *   POST   /mandates/{id}/goals                          (689) → GoalResponse, 201
  *   PUT    /mandates/{id}/goals/{goalId}                 (727) → GoalResponse
  *   DELETE /mandates/{id}/goals/{goalId}                 (766) → 204 (kein Body)
+ *   PUT    /mandates/{id}/goals/order                    → list[GoalResponse] (409 bei Konflikt)
  *   POST   /mandates/{id}/goals/calculate-max-pension-spending (1047)
  *
  * Auth + Fehler-Typen werden aus `./client` wiederverwendet (kein Copy).
@@ -112,6 +113,32 @@ export async function updateGoal(
     return raiseApiError(response);
   }
   return (await response.json()) as GoalRecord;
+}
+
+/**
+ * GOAL-ORDER-REACT-001: schreibt die vollstaendige Ziel-Reihenfolge atomar
+ * (PUT /mandates/{id}/goals/order). `expectedGoalIds` = zuletzt gesehene
+ * Folge; weicht der Serverstand ab, antwortet das Backend mit 409. Nur der
+ * Rang aendert sich, die Haerte bleibt unberuehrt.
+ */
+export async function reorderGoals(
+  mandateId: string,
+  goalIds: string[],
+  expectedGoalIds: string[],
+  options: RequestOptions = {},
+): Promise<GoalRecord[]> {
+  const baseUrl = options.baseUrl ?? '';
+  const response = await request(`${goalsBase(mandateId, baseUrl)}/order`, {
+    method: 'PUT',
+    headers: await authHeaders(),
+    body: JSON.stringify({ goal_ids: goalIds, expected_goal_ids: expectedGoalIds }),
+    signal: options.signal,
+  });
+  if (!response.ok) {
+    return raiseApiError(response);
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? (data as GoalRecord[]) : [];
 }
 
 export async function deleteGoal(
