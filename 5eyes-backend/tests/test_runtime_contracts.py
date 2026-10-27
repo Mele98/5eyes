@@ -4391,6 +4391,9 @@ def test_create_trigger_normalizes_review_frequency_aliases_v2(session_factory, 
     assert result.frequency == "jährlich"
 
 
+from signable_document_fixture import attach_archived_pdf  # noqa: E402
+
+
 class _FakeSignRequest:
     """Minimaler Request-Stub fuer direkte sign_document()-Aufrufe in Tests
     (analog zu tests/test_auth05_bootstrap_admin_rate_limit.py::_FakeRequest) --
@@ -4418,6 +4421,8 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
             db=session,
             current_user=advisor_user,
         )
+        # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+        attach_archived_pdf(session, doc)
         timestamps = iter(
             [
                 "2026-04-19T09:15:00.000Z",
@@ -4489,6 +4494,8 @@ def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session
             db=session,
             current_user=advisor_user,
         )
+        # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+        attach_archived_pdf(session, doc)
         monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
 
         sign_document(
@@ -4540,6 +4547,8 @@ def test_sign_document_rejects_overwriting_an_existing_client_signature(session_
             db=session,
             current_user=advisor_user,
         )
+        # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+        attach_archived_pdf(session, doc)
         monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
 
         sign_document(
