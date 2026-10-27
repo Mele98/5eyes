@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -58,6 +59,7 @@ from services import risk_profile_signoff as signoff_service
 from services.pii_vault import PiiVaultError, seal_for_client
 
 router = APIRouter(tags=["Risikoprofilierung"])
+_logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -373,8 +375,19 @@ def create_risk_assessment(
             mandate=mandate, ip_address=_extract_client_ip(request),
         )
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RISK-PROFILE-SCHEMA-PARITY-001: eine CHECK-Verletzung ist ein
+        # Schema-Defekt, kein paralleles Speichern -- nicht als 409 melden.
+        if _is_check_violation(exc):
+            _logger.error("Risikoprofil verletzt CHECK-Constraint: %s", exc.orig)
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "code": "RISK_PROFILE_CHECK_VIOLATION",
+                    "message": "Das Risikoprofil passt nicht zum Datenbankschema dieser Installation. Bitte den Support kontaktieren.",
+                },
+            ) from exc
         raise HTTPException(
             status_code=409,
             detail="Ein anderes Risikoprofil wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
@@ -383,6 +396,15 @@ def create_risk_assessment(
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
     ).filter(RiskAssessment.id == ra.id).one()
+
+
+def _is_check_violation(exc: IntegrityError) -> bool:
+    """CHECK-Verletzung (SQLite-Meldung bzw. PostgreSQL SQLSTATE 23514 mit Constraint-Namen)."""
+    orig = getattr(exc, "orig", None)
+    if "CHECK constraint failed" in str(orig):
+        return True
+    diag = getattr(orig, "diag", None)
+    return getattr(orig, "pgcode", None) == "23514" and bool(getattr(diag, "constraint_name", None))
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments/{ra_id}/override",

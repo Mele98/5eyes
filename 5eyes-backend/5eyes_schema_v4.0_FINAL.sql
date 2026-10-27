@@ -273,8 +273,11 @@ CREATE TABLE IF NOT EXISTS risk_assessments (
     q_risk_preference_points    INTEGER NOT NULL CHECK(q_risk_preference_points BETWEEN 1 AND 4),
     q_risk_behavior_points      INTEGER NOT NULL CHECK(q_risk_behavior_points BETWEEN 1 AND 4),
     risk_willingness_total      INTEGER NOT NULL CHECK(risk_willingness_total BETWEEN 3 AND 12),
+    -- RISK-PROFILE-SCHEMA-PARITY-001: Werte von risk_scoring.WILLINGNESS_SCORE_TO_PROFILE;
+    -- 'Sicherheitsorientiert' bleibt fuer Bestandszeilen (Upgrade entfernt nie Werte).
     risk_willingness_profile    TEXT NOT NULL CHECK(risk_willingness_profile IN (
-                                    'Sicherheitsorientiert','Ausgewogen','Wachstumsorientiert','Dynamisch')),
+                                    'Kapitalschutz','Sicherheitsorientiert','Defensiv',
+                                    'Ausgewogen','Wachstumsorientiert','Dynamisch','Aktien')),
     risk_willingness_score_x10  INTEGER NOT NULL CHECK(risk_willingness_score_x10 BETWEEN 0 AND 100),
     -- Gesamtergebnis
     final_score_x10             INTEGER NOT NULL CHECK(final_score_x10 BETWEEN 0 AND 100),
