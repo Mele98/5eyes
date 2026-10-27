@@ -263,16 +263,11 @@ def audit_engine_models(db: Session) -> dict[str, Any]:
         "methodology_notes": [],
     }
     try:
-        from models.allocation import CapitalMarketAssumption
-        cma = (
-            db.query(CapitalMarketAssumption)
-            .filter(
-                CapitalMarketAssumption.is_current == 1,
-                CapitalMarketAssumption.deleted_at.is_(None),
-            )
-            .order_by(CapitalMarketAssumption.created_at.desc())
-            .first()
-        )
+        # CMA-EFFECTIVE-DATE-001: wirksame CH-CMA ueber denselben Resolver
+        # wie die Engine (statt juengster is_current-Zeile beliebiger
+        # Jurisdiktion).
+        from services.jurisdiction.resolve import resolve_effective_cma_or_none
+        cma = resolve_effective_cma_or_none(db, "CH")
     except Exception:  # noqa: BLE001
         return empty
 

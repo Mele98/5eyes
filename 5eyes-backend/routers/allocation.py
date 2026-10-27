@@ -49,8 +49,12 @@ from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
-from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
+from services.jurisdiction.exceptions import (
+    CMAValidityWindowError,
+    JurisdictionReferenceDataMissingError,
+)
 from services.jurisdiction.resolve import (
+    assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
     resolve_mandate_jurisdiction,
 )
@@ -610,9 +614,21 @@ def update_cma(
         for column in CapitalMarketAssumption.__table__.columns:
             if column.name not in immutable_or_scope_fields:
                 prev_dict[column.name] = getattr(prev, column.name, None)
-        prev.is_current = 0
         prev_version = prev.version
     merged = {**prev_dict, **payload}
+    # CMA-EFFECTIVE-DATE-001: die neue Version loest die Vorgaengerin sofort
+    # ab -- sie muss heute wirksam sein, sonst blieben alle Allokationen bis
+    # zum Stichtag gesperrt. Pruefung VOR dem Supersede: die Vorgaengerin
+    # bleibt bei Ablehnung unangetastet.
+    try:
+        assert_cma_activatable_on(merged.get("valid_from"), merged.get("valid_until"))
+    except CMAValidityWindowError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason_code": exc.reason_code, "message": exc.message},
+        )
+    if prev:
+        prev.is_current = 0
     cma = CapitalMarketAssumption(
         id=new_uuid(),
         version=prev_version + 1,

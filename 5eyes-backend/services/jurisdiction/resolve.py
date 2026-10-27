@@ -31,6 +31,7 @@ from sqlalchemy import or_
 from models.allocation import BuildingBlock, CapitalMarketAssumption
 from models.jurisdiction import JurisdictionHomeBiasDefault
 from services.jurisdiction.exceptions import (
+    CMAValidityWindowError,
     JurisdictionNotApprovedError,
     JurisdictionReferenceDataConflictError,
     JurisdictionReferenceDataMissingError,
@@ -106,6 +107,55 @@ def _effective_on(rows: list[CapitalMarketAssumption], as_of: date) -> list[Capi
             continue
         effective.append(row)
     return effective
+
+
+CMA_FUTURE_VALID_FROM_NOT_SUPPORTED = "CMA_FUTURE_VALID_FROM_NOT_SUPPORTED"
+CMA_VALID_UNTIL_IN_PAST = "CMA_VALID_UNTIL_IN_PAST"
+CMA_VALIDITY_DATE_INVALID = "CMA_VALIDITY_DATE_INVALID"
+
+
+def assert_cma_activatable_on(valid_from, valid_until, as_of: date | None = None) -> None:
+    """Schreibpfad-Gate (CMA-EFFECTIVE-DATE-001): eine Version, die beim
+    Aktivieren is_current=1 bekommt und ihre Vorgaengerin abloest, muss am
+    Aktivierungstag wirksam sein. Vorab erfasste (kuenftige) Versionen sind
+    erst mit koexistierenden Versionen (ADR-6b) moeglich."""
+    today = as_of or date.today()
+    try:
+        start = _validity_date(valid_from, field="valid_from", row_id="neu")
+        end = _validity_date(valid_until, field="valid_until", row_id="neu")
+    except JurisdictionReferenceDataConflictError as exc:
+        raise CMAValidityWindowError(CMA_VALIDITY_DATE_INVALID, str(exc)) from exc
+    if start is None:
+        raise CMAValidityWindowError(
+            CMA_VALIDITY_DATE_INVALID, "valid_from fehlt; die Gueltigkeit ist nicht bestimmbar."
+        )
+    if start > today:
+        raise CMAValidityWindowError(
+            CMA_FUTURE_VALID_FROM_NOT_SUPPORTED,
+            f"valid_from {start.isoformat()} liegt nach dem Aktivierungstag "
+            f"{today.isoformat()}. Vorab erfasste CMA-Versionen werden noch nicht "
+            "unterstuetzt; die bisherige Version bleibt aktiv.",
+        )
+    if end is not None and end < today:
+        raise CMAValidityWindowError(
+            CMA_VALID_UNTIL_IN_PAST,
+            f"valid_until {end.isoformat()} liegt vor dem Aktivierungstag "
+            f"{today.isoformat()}; die Version waere sofort abgelaufen.",
+        )
+
+
+def resolve_effective_cma_or_none(
+    db: Session,
+    jurisdiction: str | None = None,
+    tenant_id: str | None = None,
+) -> CapitalMarketAssumption | None:
+    """Lesepfad-Variante fuer Anzeigen, die "keine CMA" bereits behandeln:
+    derselbe Resolver wie die Engine, fehlende Referenzdaten -> None.
+    Mehrdeutigkeit/unlesbare Daten werden NICHT verschluckt."""
+    try:
+        return resolve_cma_for_jurisdiction(db, jurisdiction, tenant_id=tenant_id)
+    except JurisdictionReferenceDataMissingError:
+        return None
 
 
 def resolve_cma_for_jurisdiction(

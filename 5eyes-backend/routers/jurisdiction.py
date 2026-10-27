@@ -49,6 +49,8 @@ from services.audit import log
 from services.auth import require_admin, require_advisor, require_portfolio_management
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Jurisdiktions-/CMA-Admin-Aktionen.
 from routers.auth import _extract_client_ip
+from services.jurisdiction.exceptions import CMAValidityWindowError
+from services.jurisdiction.resolve import assert_cma_activatable_on
 from services.jurisdiction.data_pipeline import (
     InsufficientYieldCurveDataError,
     NoYieldCurveSourceConfiguredError,
@@ -361,6 +363,16 @@ def approve_capital_market_assumption(
                 "Renditeannahme (*_return_bps) und kann nicht freigegeben werden."
             ),
         )
+    if not cma.is_current:
+        # CMA-EFFECTIVE-DATE-001: die Freigabe aktiviert den Kandidaten und
+        # loest die Vorgaengerin ab -- nur, wenn er heute wirksam ist.
+        try:
+            assert_cma_activatable_on(cma.valid_from, cma.valid_until)
+        except CMAValidityWindowError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"reason_code": exc.reason_code, "message": exc.message},
+            )
     cma.status = _COMMITTEE_APPROVED_STATUS
     if not cma.is_current:
         prev = _current_cma_scope_query(db, cma.jurisdiction, cma.tenant_id).filter(
