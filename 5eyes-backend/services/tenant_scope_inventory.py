@@ -113,7 +113,9 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "planning_assumptions": ("mandate_id", "mandates"),
     "portfolio_handoffs": ("mandate_id", "mandates"),
     "product_eligibility_decisions": ("snapshot_id", "product_eligibility_snapshots"),
-    "product_eligibility_overrides": ("snapshot_id", "product_eligibility_snapshots"),
+    # ELIG-OVERRIDE-CAPTURE-001: captured overrides carry no snapshot_id; the
+    # always-set route to the tenant is the run.
+    "product_eligibility_overrides": ("recommendation_run_id", "recommendation_runs"),
     "recommendation_holdings": ("run_id", "recommendation_runs"),
     "recommendation_positions": ("run_id", "recommendation_runs"),
     "recommendation_runs": ("mandate_id", "mandates"),
