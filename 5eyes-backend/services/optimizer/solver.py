@@ -1633,7 +1633,13 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Inflationspfad wie im Solver; Haupt-MC/PDF bewerten auf dem Kalenderjahr-
 # Bucket. Solver-relevant ist die Reserve (Liquiditaets-Floor): Fix-Effekt und
 # Seed-Effekt je Golden-Combo im PR getrennt ausgewiesen.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v17"
+#
+# v18 (2026-10-27, GOAL-AXIS-VALUATION-YEAR-001, CIO-Entscheid a): Steuer-,
+# Alters-/Ruhestands- und Mortalitaetsachse beginnen im Jahr des gebundenen
+# Bewertungsstichtags statt im Eroeffnungsjahr des Mandats (eine Uhr mit der
+# Cashflow-/Zielachse, ADR-2). Rechenwirksam nur fuer Mandate aus Vorjahren mit
+# Steuerbasis, Pensionierungsjahr oder Mortalitaets-Simulation.
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v18"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und

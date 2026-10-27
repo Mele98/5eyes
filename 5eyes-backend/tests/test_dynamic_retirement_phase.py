@@ -154,6 +154,15 @@ def test_note_names_the_switch_year() -> None:
 # ── Engine-Verdrahtung ──────────────────────────────────────────────────
 
 
+def _valuation_year_2026():
+    """t = 0 ist das Bewertungsjahr des Laufs (GOAL-AXIS-VALUATION-YEAR-001)."""
+    from datetime import date
+
+    from services.valuation_clock import bound_valuation_date
+
+    return bound_valuation_date(date(2026, 1, 15))
+
+
 def _mandate(**kw):
     base = dict(
         tax_jurisdiction=None, tax_overrides_json=None, opened_at="2026-01-15",
@@ -167,12 +176,13 @@ def test_solver_kwargs_carry_retirement_year_without_tax_jurisdiction() -> None:
     """Vorher: ohne tax_jurisdiction fehlte is_retired ganz (Steuer-Kopplung)."""
     from services.portfolio_engine import _build_tax_solver_kwargs
 
-    retired = _build_tax_solver_kwargs(_mandate(retirement_year=2020))
+    with _valuation_year_2026():
+        retired = _build_tax_solver_kwargs(_mandate(retirement_year=2020))
+        future = _build_tax_solver_kwargs(_mandate(retirement_year=2030))
     assert retired["is_retired"] is True
     assert retired["retirement_calendar_year"] == 2020
     assert retired["base_calendar_year"] == 2026
 
-    future = _build_tax_solver_kwargs(_mandate(retirement_year=2030))
     assert "is_retired" not in future
     assert future["retirement_calendar_year"] == 2030
 
@@ -180,9 +190,10 @@ def test_solver_kwargs_carry_retirement_year_without_tax_jurisdiction() -> None:
 def test_solver_kwargs_with_jurisdiction_keep_start_status() -> None:
     from services.portfolio_engine import _build_tax_solver_kwargs
 
-    kw = _build_tax_solver_kwargs(
-        _mandate(tax_jurisdiction="CH", retirement_year=2029, client_birth_year=1966)
-    )
+    with _valuation_year_2026():
+        kw = _build_tax_solver_kwargs(
+            _mandate(tax_jurisdiction="CH", retirement_year=2029, client_birth_year=1966)
+        )
     assert kw["tax_regime"] is not None
     assert kw["retirement_calendar_year"] == 2029
     assert kw["base_calendar_year"] == 2026

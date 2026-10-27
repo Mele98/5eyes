@@ -74,13 +74,18 @@ def test_tax_context_carries_age_and_is_retired_like_solver_path(monkeypatch):
 
     monkeypatch.setattr(GenericFlatRateRegime, "annual_wealth_tax", _spy)
 
+    from datetime import date
+
+    from services.valuation_clock import bound_valuation_date
+
     mandate = _mandate(
         tax_jurisdiction="CH",
-        opened_at="2040-01-01",
         client_birth_year=1975,
         retirement_year=2038,
     )
-    derive_tax_cashflow(mandate, 1_000_000_00)
+    # GOAL-AXIS-VALUATION-YEAR-001: Steuerjahr/Alter ab dem Bewertungsjahr.
+    with bound_valuation_date(date(2040, 1, 1)):
+        derive_tax_cashflow(mandate, 1_000_000_00)
 
     ctx = captured["ctx"]
     assert ctx.age == 65  # 2040 - 1975, mirrors _build_tax_solver_kwargs
