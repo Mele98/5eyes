@@ -174,6 +174,8 @@ const fakeWindow = {
   },
 };
 let appReadyCallback = null;
+const appListeners = {};
+const openedExternally = [];
 const electronStub = {
   app: {
     getPath: () => tmpUserData,
@@ -182,7 +184,7 @@ const electronStub = {
     setAppUserModelId() {},
     requestSingleInstanceLock: () => true,
     whenReady: () => ({ then: (cb) => { appReadyCallback = cb; } }),
-    on() {},
+    on: (eventName, fn) => { appListeners[eventName] = fn; },
     quit() {},
   },
   BrowserWindow: class { static getAllWindows() { return []; } },
@@ -194,7 +196,7 @@ const electronStub = {
     encryptString: (s) => Buffer.from(`enc:${s}`, 'utf8'),
     decryptString: (buf) => String(buf).replace(/^enc:/, ''),
   },
-  shell: { openExternal: async () => true },
+  shell: { openExternal: async (url) => { openedExternally.push(url); return true; } },
 };
 const updaterStub = { autoUpdater: { on() {}, checkForUpdates() {}, quitAndInstall() {} } };
 
@@ -293,5 +295,116 @@ test('Push-Kanal sendet nur an ein Fenster, das die lokale Entry zeigt', () => {
     assert.strictEqual(sentMessages[0].channel, 'updates:state-changed');
   } finally {
     mainExports._setMainWindowForTest(null);
+  }
+});
+
+// ── Teil 3: Navigation (ELECTRON-NAV-URL-001) ───────────────────────────────
+// will-navigate, will-redirect und window.open entscheiden ueber dieselbe
+// Pruefung (checkTrustedRendererUrl): nur die lokale Entry (inkl. Query und
+// Fragment) darf geladen werden; erlaubte externe Links gehen an den
+// System-Browser, alles andere wird verhindert.
+
+test('Navigationsziele (Windows): Laufwerksbuchstabe, Schreibweise, Kodierung, .., UNC', () => {
+  const ok = (url) => checkTrustedRendererUrl(url, WIN_ENTRY, 'win32').ok;
+  // Entry in Chromium-Form, mit Query/Fragment, kleiner Laufwerksbuchstabe.
+  assert.strictEqual(ok(`${WIN_URL}?intro=1#mandate/3`), true);
+  assert.strictEqual(ok('file:///c:/Program%20Files/App/resources/app.asar/frontend/index_v2.html'), true);
+  // Zwei-Slash-Form, wie sie der fruehere String-Vergleich erzeugte: der
+  // URL-Parser erkennt den Laufwerksbuchstaben, dieselbe Datei bleibt erlaubt.
+  assert.strictEqual(ok('file://C:/Program Files/App/resources/app.asar/frontend/index_v2.html'), true);
+  // Kodierte, aber unkritische Zeichen adressieren dieselbe Datei.
+  assert.strictEqual(ok('file:///C:/Program%20Files/App/resources/app.asar/frontend/index%5Fv2.html'), true);
+  // `..` wird aufgeloest: zurueck zur Entry ist erlaubt, heraus nicht.
+  assert.strictEqual(ok('file:///C:/Program%20Files/App/resources/app.asar/x/../frontend/index_v2.html'), true);
+  assert.strictEqual(ok(`${WIN_URL}/../../../../../Windows/win.ini`), false);
+  assert.strictEqual(ok('file:///C:/Program%20Files/App/resources/app.asar/frontend/%2E%2E/%2E%2E/evil.html'), false);
+  // UNC in allen Schreibweisen.
+  assert.strictEqual(ok('file://fileserver/share/frontend/index_v2.html'), false);
+  assert.strictEqual(ok('file:////fileserver/share/frontend/index_v2.html'), false);
+  assert.strictEqual(ok('file:///%5C%5Cfileserver/share/frontend/index_v2.html'), false);
+  // Fremde file-URL auf anderem Laufwerk / gleicher Dateiname anderswo.
+  assert.strictEqual(ok('file:///D:/Program%20Files/App/resources/app.asar/frontend/index_v2.html'), false);
+  assert.strictEqual(ok('file:///C:/Users/Public/index_v2.html'), false);
+});
+
+test('Navigationsziele: fremde Schemata werden nie als Entry erkannt', () => {
+  for (const url of [
+    'https://example.org/',
+    'http://localhost:8000/app/index_v2.html',
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'blob:file:///6d4c-11ee',
+    'about:blank',
+    `view-source:${WIN_URL}`,
+  ]) {
+    assert.strictEqual(checkTrustedRendererUrl(url, WIN_ENTRY, 'win32').ok, false, url);
+  }
+});
+
+function fakeWebContents() {
+  const listeners = {};
+  const contents = {
+    listeners,
+    windowOpenHandler: null,
+    session: { setPermissionRequestHandler() {} },
+    on(eventName, fn) { (listeners[eventName] = listeners[eventName] || []).push(fn); },
+    setWindowOpenHandler(fn) { contents.windowOpenHandler = fn; },
+  };
+  appListeners['web-contents-created']({}, contents);
+  return contents;
+}
+
+function fire(contents, eventName, url) {
+  const handlers = contents.listeners[eventName] || [];
+  assert.ok(handlers.length > 0, `${eventName}-Hook fehlt`);
+  let prevented = 0;
+  const event = { url, preventDefault: () => { prevented += 1; } };
+  for (const fn of handlers) fn(event, url);
+  return prevented > 0;
+}
+
+const entryUrl = pathToFileURL(entryPath).href;
+const navCases = [
+  // [Bezeichnung, URL, erlaubt?, an System-Browser?]
+  ['Entry', entryUrl, true, false],
+  ['Entry mit ?intro=1', `${entryUrl}?intro=1`, true, false],
+  ['Entry mit Fragment', `${entryUrl}#client/7`, true, false],
+  ['andere Datei im Frontend-Ordner', pathToFileURL(path.join(path.dirname(entryPath), 'evil.html')).href, false, false],
+  ['fremde file-URL', pathToFileURL(path.join(os.tmpdir(), 'evil.html')).href, false, false],
+  ['UNC-Host', 'file://fileserver/share/index_v2.html', false, false],
+  ['Entry ueber .. verlassen', `${entryUrl}/../../evil.html`, false, false],
+  ['https', 'https://example.org/docs', false, true],
+  ['http localhost', 'http://localhost:8000/docs', false, true],
+  ['http fremder Host', 'http://example.org/', false, false],
+  ['javascript:', 'javascript:alert(1)', false, false],
+  ['data:', 'data:text/html,<h1>x</h1>', false, false],
+];
+
+for (const eventName of ['will-navigate', 'will-redirect']) {
+  test(`${eventName}: nur die lokale Entry wird geladen, erlaubte Links gehen an den System-Browser`, () => {
+    const contents = fakeWebContents();
+    for (const [label, url, allowed, external] of navCases) {
+      openedExternally.length = 0;
+      const prevented = fire(contents, eventName, url);
+      assert.strictEqual(prevented, !allowed, `${label}: ${allowed ? 'muss erlaubt' : 'muss verhindert'} werden`);
+      assert.deepStrictEqual(openedExternally, external ? [url] : [], `${label}: System-Browser`);
+    }
+  });
+}
+
+if (process.platform === 'win32') {
+  test('will-navigate (Windows): Entry in anderer Schreibweise bleibt erlaubt', () => {
+    const contents = fakeWebContents();
+    assert.strictEqual(fire(contents, 'will-navigate', entryUrl.toUpperCase().replace(/^FILE:/, 'file:')), false);
+  });
+}
+
+test('window.open: nie ein neues Fenster; erlaubte Links genau einmal an den System-Browser', () => {
+  const contents = fakeWebContents();
+  assert.strictEqual(typeof contents.windowOpenHandler, 'function', 'setWindowOpenHandler fehlt');
+  for (const [label, url, , external] of navCases) {
+    openedExternally.length = 0;
+    assert.deepStrictEqual(contents.windowOpenHandler({ url }), { action: 'deny' }, label);
+    assert.deepStrictEqual(openedExternally, external ? [url] : [], `${label}: System-Browser`);
   }
 });
