@@ -88,7 +88,7 @@ from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.report_projection_gate import resolve_current_allocation_projection_gate
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
-from services.suitability_audit import audit_mandate_suitability
+from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.knowledge_asset_class_gap import (
     attach_to_strategy_payload as attach_knowledge_gap_check,
 )
@@ -96,6 +96,10 @@ from services.risk_capacity_plausibility import (
     attach_to_strategy_payload,
     audit_if_inconsistent,
     evaluate_mandate_safely,
+)
+from services.risk_capacity_evaluation_snapshot import (
+    CONTEXT_ALLOCATION_GENERATED,
+    record_snapshot as record_plausibility_snapshot,
 )
 from services.solver_admission import admit as _admit_solver_slot
 
@@ -255,7 +259,7 @@ def create_target_allocation(
     # der direkte POST-Pfad es nicht mehr umgehen kann.
     if settings.require_suitability_before_recommendation:
         suitability = audit_mandate_suitability(db, mandate)
-        if not suitability.get("is_compliant", True):
+        if suitability_gate_blocks(suitability, creates_target_allocation=True):
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -660,7 +664,7 @@ def generate_target_allocation_endpoint(
         # is_compliant=False meldet (fehlende/nicht-konforme Pruefung).
         if settings.require_suitability_before_recommendation:
             suitability = audit_mandate_suitability(db, mandate)
-            if not suitability.get("is_compliant", True):
+            if suitability_gate_blocks(suitability, creates_target_allocation=True):
                 raise HTTPException(
                     status_code=409,
                     detail=(
@@ -693,7 +697,17 @@ def generate_target_allocation_endpoint(
             # keine Profilaenderung, kein Blockieren.
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
-            plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
+            captured: dict = {}
+            plausibility = evaluate_mandate_safely(
+                db, mandate, result.get("risk_assessment"), capture=captured,
+            )
+            # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: genau diese Bewertung als
+            # unveraenderliche Evidenz an die neue Soll-Allokation binden.
+            record_plausibility_snapshot(
+                db, mandate, result.get("risk_assessment"), plausibility, captured,
+                actor=current_user, binding_context=CONTEXT_ALLOCATION_GENERATED,
+                binding_record_id=result["target_allocation"].id,
+            )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
             # (nach der Plausibilitaet = zuoberst im Reasoning).
@@ -1036,7 +1050,11 @@ def get_backtest_stress_replays(
 ):
     """Sprint U-P13: Historische Stress-Szenarien (Dotcom 2000-2002, GFC
     2008, Covid 2020, Bonds-Crash 2022, Stagflation 1973-74) angewandt
-    auf die aktuelle Target-Allocation des Mandates.
+    auf die SOLL-Gewichtung der gueltigen Target-Allocation des Mandates.
+
+    Stress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen
+    Depots): IST-Bestaende fliessen nicht ein (``scope`` =
+    ``approved_target_allocation``, ``scope_label`` fuer die Anzeige).
 
     Foundation-Variante mit hartcodierten Returns. Voll-Pipeline mit
     historischer Time-Series kommt in Sprint U-P11.
