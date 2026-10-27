@@ -16,10 +16,10 @@
 <title>5eyes / WealthArchitekten v4</title>
 <style>/* Vendored: system fonts replace Google Fonts (DM Sans + EB Garamond) */
 :root{--f-s:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--f-d:Georgia,"Times New Roman",serif;}
-body{font-family:var(--f-s);}
-</style>
+body{font-family:var(--f-s);}</style>
 <script>/* Vendored Chart.js for offline desktop builds */</script>
 <script src="vendor/chart.min.js"></script>
+<script src="./eligibility-overrides.js"></script>
 <script src="./desktop-api.js"></script>
 <style>
 /* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
@@ -24512,7 +24512,7 @@ async function openAllocationEngineModal(){
   om('m-eq');
 }
 async function openImplementationRecipe(){
-  await refreshStrategyData(true,true);
+  if(typeof eligOverrideReset==='function')eligOverrideReset();await refreshStrategyData(true,true);
   om('m-ums');
 }
 async function confirmImplementationRecipe(){
@@ -24530,7 +24530,7 @@ async function confirmImplementationRecipe(){
     cm('m-ums');
     printPortfolioPlan();
   }catch(e){
-    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);
+    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);if(typeof eligOverrideOnFinalizeBlocked==='function')eligOverrideOnFinalizeBlocked(mid,runId,e);
   }
 }
 // RESERVE-LEDGER-SNAPSHOT-001: strukturierte Finalisierungs-Sperre

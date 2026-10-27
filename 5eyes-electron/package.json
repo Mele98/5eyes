@@ -35,6 +35,7 @@
       "preload.js",
       "ipc-sender-guard.js",
       "frontend/5eyes_v2.html",
+      "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/vendor/**/*",
       "frontend/reporting/dist/**/*",
