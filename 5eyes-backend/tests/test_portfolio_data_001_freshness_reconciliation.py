@@ -190,6 +190,22 @@ def test_missing_component_and_missing_source_block(policy):
     assert result["usability"] == "blocked"
 
 
+def test_not_applicable_component_needs_reason(policy):
+    comps = _components("2026-10-23", fx_as_of={"not_applicable": True, "reason": "nur Basiswaehrung"})
+    result = assess_freshness(comps, advice_at="2026-10-26T09:00:00+01:00", policy=policy)
+    assert result["components"]["fx_as_of"]["status"] == "not_applicable"
+    assert result["usability"] == "final"
+
+    comps["fx_as_of"] = {"not_applicable": True}
+    result = assess_freshness(comps, advice_at="2026-10-26T09:00:00+01:00", policy=policy)
+    assert result["usability"] == "blocked"
+
+    only_na = {name: {"not_applicable": True, "reason": "x"} for name in COMPONENTS}
+    result = assess_freshness(only_na, advice_at="2026-10-26T09:00:00+01:00", policy=policy)
+    assert result["usability"] == "blocked"
+    assert result["blocking_reasons"] == ["no_dated_component"]
+
+
 def test_future_as_of_is_blocked(policy):
     result = assess_freshness(_components("2026-10-27"), advice_at="2026-10-26T09:00:00+01:00", policy=policy)
     assert result["usability"] == "blocked"
