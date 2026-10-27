@@ -46,6 +46,9 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # aus dem Mandat abgeleitet (services/risk_evidence_tenant_boundary.py).
     "risk_override_decisions",
     "risk_profile_signoffs",
+    # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only Plausibilitaets-
+    # Evidenz, Mandant aus dem Mandat (hash-gebunden).
+    "risk_capacity_plausibility_evaluations",
     "users",
     # PG-002 (Closure-Review PR #666): bisher nur transitiv ueber clients.
     "wealth_inflows",
