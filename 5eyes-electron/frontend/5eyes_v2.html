@@ -21,6 +21,7 @@ body{font-family:var(--f-s);}
 <script>/* Vendored Chart.js for offline desktop builds */</script>
 <script src="vendor/chart.min.js"></script>
 <script src="./desktop-api.js"></script>
+<script src="./risk-capacity-recheck.js"></script>
 <style>
 /* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
 :root {
@@ -3404,6 +3405,7 @@ function _wireSollIstHover(){
                     <div class="al-banner-body"></div>
                   </div>
                 </div>
+                <div id="rp-capacity-recheck" role="status" style="display:none;margin-top:6px;font-size:11px;color:var(--n5)" data-recheck-code=""></div>
                 <div class="resbox"><div class="res-t">Empfohlene Anlagestrategie</div><div class="res-p" id="res-pname">Growth – Wachstum</div><div class="res-d">Risikoklasse <strong>«Wachstumsorientiert»</strong>. Erhöhtes Kapitalwachstum, erhöhtes Risiko. Horizont min. 8 Jahre. <strong>Risikobereitschaft bindend</strong> – Soll-Aktienquote max. 45%.</div>
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:space-between;">
   <span style="font-size:10px;color:var(--n5)">Berechneter Score: <strong style="color:var(--n8)">7/10</strong></span>
@@ -17837,6 +17839,7 @@ function toggleAaProjectionDetails(){
 // (GET /mandates/{id}/risk-capacity-plausibility). Reiner Berater-Hinweis:
 // das Profil wird nie automatisch geaendert, die Strategie nicht blockiert.
 function renderRiskCapacityPlausibility(result){
+  renderRiskCapacityRecheck(result&&result.bound_evaluation);
   var box=document.getElementById('rp-capacity-plausibility');
   if(!box)return;
   var status=String(result&&result.status||'');
@@ -17922,22 +17925,6 @@ async function submitFinancialCoverageAttestation(mid){
     return res;
   }catch(e){
     if(fb&&String(getActiveMandateId()||'')===mid)fb.textContent=String(e&&e.message||e);
-    return null;
-  }
-}
-async function refreshRiskCapacityPlausibility(mid){
-  var requested=String(mid||'');
-  if(!requested||isDemoMandateId(requested)){
-    renderRiskCapacityPlausibility(null);
-    return null;
-  }
-  try{
-    var res=await API.get('/mandates/'+requested+'/risk-capacity-plausibility');
-    if(String(getActiveMandateId()||'')!==requested)return null;
-    renderRiskCapacityPlausibility(res);
-    return res;
-  }catch(e){
-    if(String(getActiveMandateId()||'')===requested)renderRiskCapacityPlausibility(null);
     return null;
   }
 }
