@@ -97,6 +97,10 @@ from services.risk_capacity_plausibility import (
     audit_if_inconsistent,
     evaluate_mandate_safely,
 )
+from services.risk_capacity_evaluation_snapshot import (
+    CONTEXT_ALLOCATION_GENERATED,
+    record_snapshot as record_plausibility_snapshot,
+)
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
@@ -693,7 +697,17 @@ def generate_target_allocation_endpoint(
             # keine Profilaenderung, kein Blockieren.
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
-            plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
+            captured: dict = {}
+            plausibility = evaluate_mandate_safely(
+                db, mandate, result.get("risk_assessment"), capture=captured,
+            )
+            # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: genau diese Bewertung als
+            # unveraenderliche Evidenz an die neue Soll-Allokation binden.
+            record_plausibility_snapshot(
+                db, mandate, result.get("risk_assessment"), plausibility, captured,
+                actor=current_user, binding_context=CONTEXT_ALLOCATION_GENERATED,
+                binding_record_id=result["target_allocation"].id,
+            )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
             # (nach der Plausibilitaet = zuoberst im Reasoning).
