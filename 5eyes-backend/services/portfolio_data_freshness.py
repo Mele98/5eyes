@@ -115,6 +115,15 @@ def assess_freshness(
         }
         if entry.get("uploaded_at") is not None:
             detail["uploaded_at_ignored"] = True
+        if entry.get("not_applicable") is True:
+            # z. B. fx_as_of bei einem Depot nur in Basiswaehrung; nur mit Begruendung.
+            reason = str(entry.get("reason") or "").strip()
+            detail["status"] = "not_applicable" if reason else "not_applicable_without_reason"
+            detail["reason"] = reason or None
+            if not reason:
+                blocking.append(f"{name}:{detail['status']}")
+            details[name] = detail
+            continue
         if entry.get("as_of") in (None, ""):
             detail["status"] = "missing_as_of"
         elif not str(entry.get("source") or "").strip():
@@ -158,6 +167,8 @@ def assess_freshness(
 
     oldest = max(ages, key=lambda n: (ages[n], n)) if ages else None
     oldest_age = ages[oldest] if oldest else None
+    if oldest is None and not blocking:
+        blocking.append("no_dated_component")
     if blocking:
         usability = USABILITY_BLOCKED
     elif oldest_age <= policy.final_max_business_days:
