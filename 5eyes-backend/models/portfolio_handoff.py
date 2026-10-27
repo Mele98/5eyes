@@ -15,8 +15,9 @@ services.portfolio_engine.build_recommendation_payload_from_run() berechnet
 wurde (derselbe Code-Pfad wie routers/review.py::get_recommendation_payload,
 den auch die Handelsliste-Anzeige im Review nutzt -- keine zweite,
 unabhaengige Berechnung, um Drift zwischen Anzeige und Nachweis
-auszuschliessen), plus einen einfachen Status-Lebenszyklus (Gesendet ->
-Ausgefuehrt/Storniert). Nur die Statusfelder aendern sich nach dem Anlegen;
+auszuschliessen), plus einen einfachen Status-Lebenszyklus (Vorbereitet ->
+Ausgefuehrt/Storniert; "Gesendet" nur Altbestand, HANDOFF-DELIVERY-001).
+Nur die Statusfelder aendern sich nach dem Anlegen;
 Snapshot-Inhalt und Provenienz-Felder werden nie mehr geschrieben (kein
 Router-Endpoint bietet das an).
 
@@ -33,10 +34,33 @@ Cleanup-Fall nur die Provenienz-Referenz, nicht seinen eigenen
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, String
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import relationship
 
 from database import Base
+
+# HANDOFF-DELIVERY-001: ohne Transportadapter und Empfangsquittung ist ein
+# lokal angelegter Handoff hoechstens "zur manuellen Uebermittlung
+# vorbereitet" -- nie "Gesendet". "Gesendet" bleibt nur als offener
+# Altbestand (vor diesem Fix angelegte Zeilen) lesbar und abschliessbar.
+HANDOFF_STATUS_PREPARED = "Vorbereitet"
+HANDOFF_STATUS_LEGACY_SENT = "Gesendet"
+HANDOFF_STATUS_EXECUTED = "Ausgeführt"
+HANDOFF_STATUS_CANCELLED = "Storniert"
+HANDOFF_OPEN_STATUSES = (HANDOFF_STATUS_PREPARED, HANDOFF_STATUS_LEGACY_SENT)
+HANDOFF_STATUSES = HANDOFF_OPEN_STATUSES + (HANDOFF_STATUS_EXECUTED, HANDOFF_STATUS_CANCELLED)
+
+# HANDOFF-IDEMPOTENCY-001: hoechstens EIN offener Handoff je fachlicher
+# Identitaet (Mandat, Run, Snapshot, Empfaenger). Altbestand ohne Schluessel
+# (NULL) bleibt unberuehrt. Textgleich in ORM, Runtime-Patch und Alembic.
+HANDOFF_OPEN_BUSINESS_KEY_INDEX = "ux_portfolio_handoffs_open_business_key"
+HANDOFF_OPEN_BUSINESS_KEY_PREDICATE = (
+    "business_key_hash IS NOT NULL AND status IN ('Vorbereitet', 'Gesendet')"
+)
+
+# HANDOFF-EXECUTION-001: einzige Evidence-Art, die diese Installation kennt
+# (kein Broker-/Custody-Feed): manuelle Bestaetigung mit externer Referenz.
+EXECUTION_EVIDENCE_MANUAL_ATTESTATION = "manual_attestation"
 
 
 class PortfolioHandoff(Base):
@@ -58,7 +82,7 @@ class PortfolioHandoff(Base):
     recipient_channel = Column(String)
     note = Column(String)
 
-    status = Column(String, nullable=False, default="Gesendet")
+    status = Column(String, nullable=False, default=HANDOFF_STATUS_PREPARED)
 
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
@@ -72,10 +96,26 @@ class PortfolioHandoff(Base):
     cancelled_by = Column(String, ForeignKey("users.id"), nullable=True)
     cancelled_reason = Column(String)
 
+    # HANDOFF-INTEGRITY-001: SHA-256 ueber trade_list_snapshot_json (UTF-8),
+    # beim Anlegen gesetzt; NULL nur bei Altbestand.
+    snapshot_sha256 = Column(String)
+    # HANDOFF-IDEMPOTENCY-001: Hash der fachlichen Identitaet, siehe
+    # services/portfolio_handoff.py::handoff_business_key_hash.
+    business_key_hash = Column(String)
+    # HANDOFF-EXECUTION-001: Art und Inhalt der Ausfuehrungs-Evidence.
+    execution_evidence_kind = Column(String)
+    execution_external_reference = Column(String)
+    execution_confirmed_on = Column(String)
+
     mandate = relationship("Mandate", back_populates="portfolio_handoffs")
     recommendation_run = relationship("RecommendationRun")
     creator = relationship("User", foreign_keys=[created_by])
 
     __table_args__ = (
         Index("ix_portfolio_handoffs_mandate_created", "mandate_id", "created_at"),
+        Index(
+            HANDOFF_OPEN_BUSINESS_KEY_INDEX, "business_key_hash", unique=True,
+            sqlite_where=text(HANDOFF_OPEN_BUSINESS_KEY_PREDICATE),
+            postgresql_where=text(HANDOFF_OPEN_BUSINESS_KEY_PREDICATE),
+        ),
     )

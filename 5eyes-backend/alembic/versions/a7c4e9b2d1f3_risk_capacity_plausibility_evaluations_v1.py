@@ -16,7 +16,7 @@ Mandat abgeleitet, Kunde = Kunde des Mandats, Assessment gehoert zum Mandat.
 Neue Tabelle, kein Backfill.
 
 Revision ID: a7c4e9b2d1f3
-Revises: b5d2e8f41a73
+Revises: c7e4a19b3d52
 Create Date: 2026-10-26
 """
 from typing import Sequence, Union
@@ -28,7 +28,7 @@ from services import risk_evidence_tenant_boundary as retb
 
 
 revision: str = "a7c4e9b2d1f3"
-down_revision: Union[str, Sequence[str], None] = "b5d2e8f41a73"
+down_revision: Union[str, Sequence[str], None] = "c7e4a19b3d52"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

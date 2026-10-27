@@ -636,6 +636,15 @@ def ensure_runtime_columns() -> None:
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
         ],
+        # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
+        # und Alembic c7e4a19b3d52. Nullable, kein Backfill.
+        'portfolio_handoffs': [
+            ('snapshot_sha256', 'TEXT'),
+            ('business_key_hash', 'TEXT'),
+            ('execution_evidence_kind', 'TEXT'),
+            ('execution_external_reference', 'TEXT'),
+            ('execution_confirmed_on', 'TEXT'),
+        ],
         # ELIG-GOVERNANCE-001 (2026-10-22): siehe models/product_eligibility.py.
         'product_eligibility_rules': [
             ('approval_mode', 'TEXT'),
@@ -1153,6 +1162,18 @@ def ensure_runtime_columns() -> None:
         # Guard: services/risk_evidence_tenant_boundary.py.
         ensure_column(conn, "risk_override_decisions", "tenant_id", "TEXT")
         conn.execute(text(RISK_OVERRIDE_DECISION_SQLITE_TENANT_INDEX))
+        # HANDOFF-IDEMPOTENCY-001: partieller Unique-Index auf Bestands-DBs
+        # (erst nach dem ADD COLUMN oben ausfuehrbar; frische DBs: create_all).
+        if inspector.has_table("portfolio_handoffs"):
+            from models.portfolio_handoff import (
+                HANDOFF_OPEN_BUSINESS_KEY_INDEX,
+                HANDOFF_OPEN_BUSINESS_KEY_PREDICATE,
+            )
+
+            conn.execute(text(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS {HANDOFF_OPEN_BUSINESS_KEY_INDEX} "
+                f"ON portfolio_handoffs(business_key_hash) WHERE {HANDOFF_OPEN_BUSINESS_KEY_PREDICATE}"
+            ))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
         # FinancialCoverageAttestationV1 (idempotent; siehe Konstanten oben).
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL

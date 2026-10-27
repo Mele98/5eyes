@@ -124,11 +124,15 @@ def _document_count(session) -> int:
 
 
 def _add_document(session, advisor, document_type: str) -> str:
+    from signable_document_fixture import archived_pdf_fields
+
     doc_id = f"doc-{abs(hash(document_type)) % 10_000_000}"
     session.add(ContractDocument(
         id=doc_id, mandate_id=_MID, document_type=document_type, title=document_type,
         status="Entwurf", signed_by_advisor=0, signed_by_client=0, version=1,
         created_by=advisor.id, created_at=NOW, updated_at=NOW,
+        # CERT-SIGNED-PUBLICATION-001: archiviertes, pruefsummengesichertes PDF.
+        **archived_pdf_fields(),
     ))
     session.commit()
     return doc_id
