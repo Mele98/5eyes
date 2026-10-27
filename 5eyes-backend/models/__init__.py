@@ -30,3 +30,7 @@ from . import bootstrap_lock  # noqa: F401,E402
 # RuleSet/Snapshot/Decision/Override -- dito, neue Tabellen muessen an
 # Base.metadata registriert sein.
 from . import product_eligibility  # noqa: F401,E402
+
+# CMA-001 (2026-10-27): versioniertes CMA_POLICY-Modell -- dito, neue
+# Tabellen muessen an Base.metadata registriert sein.
+from . import cma_policy  # noqa: F401,E402

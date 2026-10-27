@@ -456,6 +456,10 @@ class RecommendationRun(Base):
     # fuer Altlaeufe aus der Zeit vor dieser Spalte ebenfalls. Der Leser
     # legt das offen statt es zu verschweigen (`evidence_frozen`).
     cost_disclosure_snapshot_json = Column(String)
+    # CMA-001: die CMA_POLICY (models/cma_policy.py), an die diese
+    # Finalisierung gebunden ist. NULL fuer Entwuerfe und solange das
+    # Policy-Modell nicht aktiv geschaltet ist (services/cma_policy.py).
+    cma_policy_row_id = Column(String)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
