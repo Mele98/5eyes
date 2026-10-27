@@ -130,3 +130,19 @@ class PortfolioHandoffResponse(BaseResponse):
         if executed != bool(self.executed_at) or cancelled != bool(self.cancelled_at):
             raise ValueError("Statusfelder sind nicht kohaerent zum Status")
         return self
+
+
+class PortfolioHandoffPreviewResponse(BaseModel):
+    """HANDOFF-PREVIEW-PARITY-001: read-only Vorschau der Handelsliste.
+
+    Dieselbe Funktion wie die Snapshot-Erzeugung (``snapshot_handoff``), ohne
+    Persistieren. ``trades`` und ``snapshot_sha256`` entsprechen bei gleichen
+    Eingaben exakt dem Snapshot einer anschliessenden Weiterleitung."""
+
+    recommendation_run_id: str
+    holdings_basis: Literal["recorded_depot", "confirmed_no_holdings"]
+    confirm_no_existing_holdings: bool
+    live_total_value_rappen: int
+    position_count: int
+    snapshot_sha256: str
+    trades: list[dict]

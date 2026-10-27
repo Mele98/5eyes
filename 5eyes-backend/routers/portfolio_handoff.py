@@ -9,12 +9,10 @@ services/portfolio_handoff.py) plus Status-Lebenszyklus (Vorbereitet ->
 Ausgefuehrt/Storniert; ohne Transportadapter wird kein Versand behauptet). Siehe models/portfolio_handoff.py fuer die
 Rechenschaftsablegungs-Begruendung (Auftragsrecht, Art. 400 OR).
 """
-import hashlib
-import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -36,14 +34,17 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffCancel,
     PortfolioHandoffCreate,
     PortfolioHandoffMarkExecuted,
+    PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
 from services.audit import log
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.portfolio_handoff import (
+    HoldingsValuationIncompleteError,
     NoTradeListAvailableError,
     handoff_business_key_hash,
     snapshot_handoff,
+    snapshot_json_and_sha256,
 )
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
@@ -149,6 +150,46 @@ def list_portfolio_handoffs(
     ).order_by(PortfolioHandoff.created_at.desc()).all()
 
 
+@router.get(
+    "/mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoff-preview",
+    response_model=PortfolioHandoffPreviewResponse,
+)
+def preview_portfolio_handoff(
+    mandate_id: str,
+    run_id: str,
+    confirm_no_existing_holdings: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """HANDOFF-PREVIEW-PARITY-001: Handelsliste read-only aus derselben
+    Funktion wie die Weiterleitung (kein Persistieren, kein Audit-Eintrag).
+    Ablehnungen kommen als 409 mit ``reason_code``, damit die Anzeige den
+    Grund (z.B. fehlende Neugeld-Bestaetigung) ausweisen kann."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    try:
+        trades, total_value_rappen, holdings_basis = snapshot_handoff(
+            db, mandate, run, current_user.id,
+            confirm_no_existing_holdings=confirm_no_existing_holdings,
+        )
+    except NoTradeListAvailableError as exc:
+        raise HTTPException(status_code=409, detail={"reason_code": "NO_TRADES", "message": str(exc)})
+    except HoldingsValuationIncompleteError as exc:
+        raise HTTPException(status_code=409, detail={"reason_code": exc.reason_code, "message": str(exc)})
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"reason_code": "RECOMMENDATION_UNAVAILABLE", "message": str(exc)})
+    _snapshot_json, snapshot_sha256 = snapshot_json_and_sha256(trades)
+    return PortfolioHandoffPreviewResponse(
+        recommendation_run_id=run.id,
+        holdings_basis=holdings_basis,
+        confirm_no_existing_holdings=confirm_no_existing_holdings,
+        live_total_value_rappen=total_value_rappen,
+        position_count=len(trades),
+        snapshot_sha256=snapshot_sha256,
+        trades=trades,
+    )
+
+
 @router.post(
     "/mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoffs",
     response_model=PortfolioHandoffResponse,
@@ -214,14 +255,14 @@ def create_portfolio_handoff(
         return _idempotent_replay_or_409(existing, body)
 
     now = _now()
-    snapshot_json = json.dumps(trades, ensure_ascii=False)
+    snapshot_json, snapshot_sha256 = snapshot_json_and_sha256(trades)
     handoff = PortfolioHandoff(
         id=new_uuid(),
         mandate_id=mandate_id,
         recommendation_run_id=run.id,
         trade_list_snapshot_json=snapshot_json,
         # HANDOFF-INTEGRITY-001: Hash ueber exakt die gespeicherten Bytes.
-        snapshot_sha256=hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest(),
+        snapshot_sha256=snapshot_sha256,
         live_total_value_rappen=total_value_rappen,
         position_count=len(trades),
         recipient_name=body.recipient_name,

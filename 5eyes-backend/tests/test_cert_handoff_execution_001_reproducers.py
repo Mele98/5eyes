@@ -185,10 +185,9 @@ def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
 
 
 def test_trade_list_ui_compares_action_code_not_localized_label():
-    html = _html()
-    start = html.index("function openTradeList()")
-    end = html.index("function renderPortfolioHandoffSection()", start)
-    body = html[start:end]
+    # HANDOFF-PREVIEW-PARITY-001: die Darstellung liegt im ausgelagerten
+    # Skriptmodul neben dem Monolithen.
+    body = (Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "trade-list-preview.js").read_text(encoding="utf-8")
 
     # Soll (Spec Section 5.1/10): Fachlogik, Summen und Farben konsumieren
     # ausschliesslich rebalance_action_code (BUY/SELL/HOLD/...), niemals das
