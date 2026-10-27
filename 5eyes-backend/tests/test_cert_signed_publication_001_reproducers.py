@@ -146,7 +146,6 @@ def test_advisor_principal_cannot_sign_as_client(session_factory, advisor_user, 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="SIGN-CONTEXT-001 -- CERT-SIGNED-PUBLICATION-001")
 def test_document_without_archived_bytes_or_decision_context_is_not_signable(
     session_factory, advisor_user, monkeypatch
 ):
@@ -196,7 +195,6 @@ def test_document_without_archived_bytes_or_decision_context_is_not_signable(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="SIGN-HASH-001 -- CERT-SIGNED-PUBLICATION-001")
 def test_checksum_mismatch_blocks_signature(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 

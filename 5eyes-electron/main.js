@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+const { checkTrustedIpcSender, checkTrustedRendererUrl, describeSenderForLog } = require('./ipc-sender-guard');
 
 function loadEnvIntoProcess() {
   const candidates = [
@@ -121,6 +122,12 @@ function isAutoUpdateEnabled() {
 
 function notifyRendererUpdateState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  // A3 P2-5: Push nur an ein Fenster, das die lokale Entry zeigt.
+  const verdict = checkTrustedRendererUrl(mainWindow.webContents.getURL(), resolveFrontendPath());
+  if (!verdict.ok) {
+    logLine(`IPC push suppressed | channel=updates:state-changed reason=${verdict.reason}`);
+    return;
+  }
   mainWindow.webContents.send('updates:state-changed', { ...updateState });
 }
 
@@ -636,26 +643,41 @@ async function bootstrap() {
   notifyRendererUpdateState();
 }
 
-ipcMain.handle('app:get-version', () => app.getVersion());
-ipcMain.handle('backend:get-base-url', () => backendRuntime.baseUrl);
-ipcMain.handle('backend:get-runtime', () => ({ ...backendRuntime }));
-ipcMain.handle('backend:health', async () => probeBackend(backendRuntime.host, backendRuntime.port));
-ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
+// A3 P2-5 / U-6: jeder IPC-Kanal laeuft ueber diese zentrale Absender-Pruefung
+// (senderFrame vorhanden, Top-Level-Frame, URL = lokale Entry-Datei). Fremde
+// Absender werden abgelehnt, ohne den Handler auszufuehren; geloggt werden nur
+// Kanal, Grund und Schema/Host -- nie Argumente, Pfad, Query oder Fragment.
+function handleTrustedIpc(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    const verdict = checkTrustedIpcSender(event, resolveFrontendPath());
+    if (!verdict.ok) {
+      logLine(`IPC rejected | channel=${channel} reason=${verdict.reason} ${describeSenderForLog(event)}`);
+      throw new Error('IPC sender not allowed');
+    }
+    return handler(event, ...args);
+  });
+}
+
+handleTrustedIpc('app:get-version', () => app.getVersion());
+handleTrustedIpc('backend:get-base-url', () => backendRuntime.baseUrl);
+handleTrustedIpc('backend:get-runtime', () => ({ ...backendRuntime }));
+handleTrustedIpc('backend:health', async () => probeBackend(backendRuntime.host, backendRuntime.port));
+handleTrustedIpc('shell:open-external', async (_event, targetUrl) => {
   if (!isSafeExternalUrl(targetUrl)) {
     return false;
   }
   await shell.openExternal(targetUrl);
   return true;
 });
-ipcMain.handle('auth:get-token', () => readStoredToken());
-ipcMain.handle('auth:set-token', (_event, token) => writeStoredToken(token));
-ipcMain.handle('auth:clear-token', () => clearStoredToken());
+handleTrustedIpc('auth:get-token', () => readStoredToken());
+handleTrustedIpc('auth:set-token', (_event, token) => writeStoredToken(token));
+handleTrustedIpc('auth:clear-token', () => clearStoredToken());
 // Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token separat gespeichert,
 // siehe Kommentar bei REFRESH_TOKEN_STORE_FILE weiter oben.
-ipcMain.handle('auth:get-refresh-token', () => readStoredRefreshToken());
-ipcMain.handle('auth:set-refresh-token', (_event, token) => writeStoredRefreshToken(token));
-ipcMain.handle('auth:clear-refresh-token', () => clearStoredRefreshToken());
-ipcMain.handle('file:save-pdf', async (_event, payload) => {
+handleTrustedIpc('auth:get-refresh-token', () => readStoredRefreshToken());
+handleTrustedIpc('auth:set-refresh-token', (_event, token) => writeStoredRefreshToken(token));
+handleTrustedIpc('auth:clear-refresh-token', () => clearStoredRefreshToken());
+handleTrustedIpc('file:save-pdf', async (_event, payload) => {
   // EM-2: Handler-Body komplett in try/catch — fehlende Daten und fs-Fehler
   // (ENOSPC, EACCES/EPERM auf gewähltem Pfad) als strukturiertes Ergebnis
   // zurückgeben statt als rejected Promise, das der Renderer als unbehandelte
@@ -691,9 +713,9 @@ ipcMain.handle('file:save-pdf', async (_event, payload) => {
     return { ok: false, error: String((error && error.message) || error) };
   }
 });
-ipcMain.handle('updates:get-state', () => ({ ...updateState }));
-ipcMain.handle('updates:check', async () => checkForUpdates());
-ipcMain.handle('updates:install-downloaded', async () => {
+handleTrustedIpc('updates:get-state', () => ({ ...updateState }));
+handleTrustedIpc('updates:check', async () => checkForUpdates());
+handleTrustedIpc('updates:install-downloaded', async () => {
   if (updateState.downloaded) {
     setImmediate(() => autoUpdater.quitAndInstall(false, true));
     return { ok: true };
@@ -792,4 +814,8 @@ if (typeof module !== 'undefined' && module.exports) {
   // `unknown` safeStorage-Backend (Linux ohne Keyring/KWallet) NICHT als
   // echte Verschluesselung durchgeht.
   module.exports._isStrongEncryptionAvailable = _isStrongEncryptionAvailable;
+  // A3 P2-5: IPC-Absender-Pruefung und Push-Kanal deterministisch testbar.
+  module.exports.resolveFrontendPath = resolveFrontendPath;
+  module.exports.notifyRendererUpdateState = notifyRendererUpdateState;
+  module.exports._setMainWindowForTest = (win) => { mainWindow = win; };
 }

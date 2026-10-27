@@ -529,6 +529,54 @@ GOAL_REVISION_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# RISK-CAPACITY-EVALUATION-SNAPSHOT-001 (Codex-Closure-Reviews PR #647/#653/
+# #677, Residual "Bewertung live und ungehasht"): append-only
+# RiskCapacityPlausibilityEvaluationV1 (models/profiling.py::
+# RiskCapacityPlausibilityEvaluation). Jede beim Speichern des Risikoprofils
+# bzw. bei der Generierung gebundene Plausibilitaetsbewertung mit Eingaben,
+# Regelversion, Ergebnis und kanonischem Hash. Gleiches Muster wie
+# risk_profile_signoffs: Trigger verbieten UPDATE/DELETE, KEIN harter FK auf
+# mandates/risk_assessments (Purge-fest), nur actor_id -> users; tenant_id
+# direkt (RLS). Dieselbe DDL textgleich in 5eyes_schema_v4.0_FINAL.sql,
+# Alembic a7c4e9b2d1f3 fuer PostgreSQL.
+RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_update "
+    "BEFORE UPDATE ON risk_capacity_plausibility_evaluations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_delete "
+    "BEFORE DELETE ON risk_capacity_plausibility_evaluations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END",
+)
+
+RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS risk_capacity_plausibility_evaluations (
+    id                 TEXT PRIMARY KEY,
+    schema_version     TEXT NOT NULL DEFAULT 'RiskCapacityPlausibilityEvaluationV1',
+    tenant_id          TEXT,
+    mandate_id         TEXT NOT NULL,
+    client_id          TEXT,
+    assessment_id      TEXT,
+    binding_context    TEXT NOT NULL CHECK(binding_context IN ('risk_assessment_saved','allocation_generated')),
+    binding_record_id  TEXT NOT NULL,
+    as_of_date         TEXT NOT NULL,
+    rules_version      TEXT NOT NULL,
+    status             TEXT NOT NULL,
+    inputs_json        TEXT,
+    inputs_hash        TEXT,
+    result_json        TEXT NOT NULL,
+    evaluation_hash    TEXT,
+    actor_id           TEXT NOT NULL REFERENCES users(id),
+    evaluated_at       TEXT NOT NULL,
+    snapshot_hash      TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_mandate "
+    "ON risk_capacity_plausibility_evaluations(mandate_id, evaluated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_tenant_id "
+    "ON risk_capacity_plausibility_evaluations(tenant_id)",
+)
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -587,6 +635,15 @@ def ensure_runtime_columns() -> None:
             # bleiben funktionsfaehig; neue Tenants starten via
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
+        ],
+        # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
+        # und Alembic c7e4a19b3d52. Nullable, kein Backfill.
+        'portfolio_handoffs': [
+            ('snapshot_sha256', 'TEXT'),
+            ('business_key_hash', 'TEXT'),
+            ('execution_evidence_kind', 'TEXT'),
+            ('execution_external_reference', 'TEXT'),
+            ('execution_confirmed_on', 'TEXT'),
         ],
         # ELIG-GOVERNANCE-001 (2026-10-22): siehe models/product_eligibility.py.
         'product_eligibility_rules': [
@@ -1105,6 +1162,18 @@ def ensure_runtime_columns() -> None:
         # Guard: services/risk_evidence_tenant_boundary.py.
         ensure_column(conn, "risk_override_decisions", "tenant_id", "TEXT")
         conn.execute(text(RISK_OVERRIDE_DECISION_SQLITE_TENANT_INDEX))
+        # HANDOFF-IDEMPOTENCY-001: partieller Unique-Index auf Bestands-DBs
+        # (erst nach dem ADD COLUMN oben ausfuehrbar; frische DBs: create_all).
+        if inspector.has_table("portfolio_handoffs"):
+            from models.portfolio_handoff import (
+                HANDOFF_OPEN_BUSINESS_KEY_INDEX,
+                HANDOFF_OPEN_BUSINESS_KEY_PREDICATE,
+            )
+
+            conn.execute(text(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS {HANDOFF_OPEN_BUSINESS_KEY_INDEX} "
+                f"ON portfolio_handoffs(business_key_hash) WHERE {HANDOFF_OPEN_BUSINESS_KEY_PREDICATE}"
+            ))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
         # FinancialCoverageAttestationV1 (idempotent; siehe Konstanten oben).
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
@@ -1130,6 +1199,10 @@ def ensure_runtime_columns() -> None:
         # GOAL-REVISION-DECISION-001 (2026-10-21): append-only Herabstufungs-
         # Entscheidungen (idempotent; siehe Konstanten oben).
         for ddl in GOAL_REVISION_DECISION_SQLITE_TABLE_DDL + GOAL_REVISION_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only gebundene
+        # Plausibilitaetsbewertungen (idempotent; siehe Konstanten oben).
+        for ddl in RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL + RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen

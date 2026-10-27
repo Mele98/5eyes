@@ -97,6 +97,10 @@ from services.risk_capacity_plausibility import (
     audit_if_inconsistent,
     evaluate_mandate_safely,
 )
+from services.risk_capacity_evaluation_snapshot import (
+    CONTEXT_ALLOCATION_GENERATED,
+    record_snapshot as record_plausibility_snapshot,
+)
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
@@ -693,7 +697,17 @@ def generate_target_allocation_endpoint(
             # keine Profilaenderung, kein Blockieren.
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
-            plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
+            captured: dict = {}
+            plausibility = evaluate_mandate_safely(
+                db, mandate, result.get("risk_assessment"), capture=captured,
+            )
+            # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: genau diese Bewertung als
+            # unveraenderliche Evidenz an die neue Soll-Allokation binden.
+            record_plausibility_snapshot(
+                db, mandate, result.get("risk_assessment"), plausibility, captured,
+                actor=current_user, binding_context=CONTEXT_ALLOCATION_GENERATED,
+                binding_record_id=result["target_allocation"].id,
+            )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
             # (nach der Plausibilitaet = zuoberst im Reasoning).
@@ -1036,7 +1050,11 @@ def get_backtest_stress_replays(
 ):
     """Sprint U-P13: Historische Stress-Szenarien (Dotcom 2000-2002, GFC
     2008, Covid 2020, Bonds-Crash 2022, Stagflation 1973-74) angewandt
-    auf die aktuelle Target-Allocation des Mandates.
+    auf die SOLL-Gewichtung der gueltigen Target-Allocation des Mandates.
+
+    Stress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen
+    Depots): IST-Bestaende fliessen nicht ein (``scope`` =
+    ``approved_target_allocation``, ``scope_label`` fuer die Anzeige).
 
     Foundation-Variante mit hartcodierten Returns. Voll-Pipeline mit
     historischer Time-Series kommt in Sprint U-P11.

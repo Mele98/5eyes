@@ -33,7 +33,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 MIGRATION_REVISION = "f6b1d4a8c2e7"
-MIGRATION_DOWN_REVISION = "b5d2e8f41a73"
+MIGRATION_DOWN_REVISION = "a7c4e9b2d1f3"
 
 # Rappen-Betraege und milli-skalierte Groessen (Stueckzahl, Zielfunktionswert
 # mit 64-Bit-Kappung in der Engine). Basispunkte, Jahre, Flags und Zaehler

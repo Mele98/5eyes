@@ -25,7 +25,7 @@ View-Definitionen. Bestehen Werte ueber 2'147'483'647, scheitert der Downgrade
 bewusst (kein stilles Abschneiden von Betraegen).
 
 Revision ID: f6b1d4a8c2e7
-Revises: b5d2e8f41a73
+Revises: a7c4e9b2d1f3
 Create Date: 2026-10-26
 """
 from typing import Sequence, Union
@@ -35,7 +35,7 @@ from alembic import op
 
 
 revision: str = "f6b1d4a8c2e7"
-down_revision: Union[str, Sequence[str], None] = "b5d2e8f41a73"
+down_revision: Union[str, Sequence[str], None] = "a7c4e9b2d1f3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
