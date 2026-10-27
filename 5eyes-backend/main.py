@@ -60,6 +60,7 @@ from routers.system import router as system_router
 from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
 from routers.tax import router as tax_router
 from routers.wealth import router as wealth_router
+from routers.onsite_signature import router as onsite_signature_router  # SIGN-001 (2026-10-27)
 
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,7 @@ app.include_router(protocol_bausteine_router)  # Bug-#13a (2026-06-07)
 app.include_router(jurisdiction_router)  # WP3 (2026-07-31)
 app.include_router(cma_approval_router)  # WP3 (2026-07-31)
 app.include_router(cost_disclosure_router)  # FIDLEG Art. 8/9 Ex-ante (2026-06-08)
+app.include_router(onsite_signature_router)  # SIGN-001 (2026-10-27)
 
 
 # ---------------------------------------------------------------------------

@@ -142,7 +142,7 @@ def _sign_doc(session, advisor, doc_id):
     return sign_document(
         mandate_id=_MID, doc_id=doc_id,
         body=ContractDocumentSign(
-            signed_by_client=True, signature_image=_SIGNATURE, signer_name="Kunde",
+            signed_by_advisor=True, signature_image=_SIGNATURE, signer_name="Berater",
         ),
         request=_FakeRequest(), db=session, current_user=advisor,
     )
@@ -256,8 +256,8 @@ def test_signing_bound_document_blocked_without_mutation(mismatch, document_type
     _assert_blocked(exc, CHANNEL_SIGNATURE)
     session.expire_all()
     doc = session.get(ContractDocument, doc_id)
-    assert doc.signed_by_client == 0
-    assert doc.signature_client_image is None
+    assert doc.signed_by_advisor == 0
+    assert doc.signature_advisor_image is None
     assert doc.signed_at is None
     assert doc.status == "Entwurf"
 
@@ -266,7 +266,7 @@ def test_signing_unbound_document_not_gated_by_signoff(mismatch):
     session, advisor = mismatch
     doc_id = _add_document(session, advisor, "Beratungsvertrag")
     doc = _sign_doc(session, advisor, doc_id)
-    assert doc.signed_by_client == 1
+    assert doc.signed_by_advisor == 1
 
 
 def test_signing_risk_profile_document_with_valid_signoff(seeded):
@@ -274,14 +274,14 @@ def test_signing_risk_profile_document_with_valid_signoff(seeded):
     _sign_profile(session, advisor)
     doc_id = _add_document(session, advisor, "Risikoprofilierung")
     doc = _sign_doc(session, advisor, doc_id)
-    assert doc.signed_by_client == 1
+    assert doc.signed_by_advisor == 1
 
 
 def test_signing_risk_profile_document_legacy_unsigned(seeded):
     session, advisor = seeded
     doc_id = _add_document(session, advisor, "Risikoprofilierung")
     doc = _sign_doc(session, advisor, doc_id)
-    assert doc.signed_by_client == 1
+    assert doc.signed_by_advisor == 1
 
 
 # ── Handoff ───────────────────────────────────────────────────────────────

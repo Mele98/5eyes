@@ -677,6 +677,8 @@ def _create_signed_client_document(auth_client: TestClient, mandate_id: str, ses
 
     with session_factory() as s:
         attach_archived_pdf(s, s.query(ContractDocument).filter(ContractDocument.id == doc_id).one())
+    # SIGN-IDENTITY-001: der Berater-Login kann keine Kundensignatur mehr
+    # erfassen (403) -- der Fixture bildet eine Altbestand-Kundensignatur ab.
     sign_response = auth_client.post(
         f"/mandates/{mandate_id}/documents/{doc_id}/sign",
         json={
@@ -685,7 +687,15 @@ def _create_signed_client_document(auth_client: TestClient, mandate_id: str, ses
             "signer_name": "Max Muster",
         },
     )
-    assert sign_response.status_code == 200
+    assert sign_response.status_code == 403
+    with session_factory() as s:
+        doc = s.query(ContractDocument).filter(ContractDocument.id == doc_id).one()
+        doc.signed_by_client = 1
+        doc.signature_client_signer_name = "Max Muster"
+        doc.signature_client_signed_at = "2026-04-19T09:15:00.000Z"
+        doc.signed_at = doc.signature_client_signed_at
+        doc.status = "Teilweise unterzeichnet"
+        s.commit()
     return doc_id
 
 
