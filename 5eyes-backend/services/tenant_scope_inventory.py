@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-26.1"
+INVENTORY_VERSION = "2026-10-27.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -39,6 +39,12 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "audit_log",
     "clients",
     "mandates",
+    # PRIVACY-001: Aufbewahrungsmatrix, Rollen, Legal Holds, Loeschvorgaenge.
+    "privacy_erasure_cases",
+    "privacy_erasure_dispositions",
+    "privacy_legal_holds",
+    "privacy_retention_policies",
+    "privacy_role_designations",
     "product_eligibility_snapshots",
     "product_universe_entries",
     "protocol_bausteine",
