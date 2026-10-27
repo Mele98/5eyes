@@ -402,6 +402,16 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         != str(cma.id)
     ):
         errors.append("Soll-Allokation und RecommendationRun referenzieren verschiedene CMA.")
+    # CMA-001 / ADR-12a-Release-Hold: eine CMA mit ungeklaerter KGV-
+    # Bewertungsanpassung ist bis zum Ausschussentscheid nicht finalisierbar
+    # (services/cma_valuation_hold.py). Fehlt die CMA, meldet das schon die
+    # Pruefung oben.
+    if cma:
+        from services.cma_valuation_hold import adr12a_hold_finding
+
+        hold = adr12a_hold_finding(cma)
+        if hold is not None:
+            errors.append(hold[1])
     if not errors and allocation and assessment and policy and cma:
         try:
             anchored_payload = build_target_payload_from_allocation(
@@ -3427,13 +3437,17 @@ def finalize_recommendation(
     if errors:
         # RESERVE-LEDGER-SNAPSHOT-001: die Ledger-Sperre ist eine Handlungs-
         # anweisung (neu berechnen) -> strukturierte 422 mit reason_code; alle
-        # uebrigen Sperren bleiben unveraendert ein Text.
+        # uebrigen Sperren bleiben unveraendert ein Text. Der ADR-12a-Hold
+        # (CMA-001) hat Vorrang: ohne Ausschussentscheid hilft kein Neuberechnen.
+        from services.cma_valuation_hold import ADR12A_HOLD_MESSAGE, CMA_ADR12A_HOLD
         from services.reserve_funding_ledger_snapshot import finalization_reason_code
 
-        ledger_reason = finalization_reason_code(errors)
-        if ledger_reason:
+        structured_reason = finalization_reason_code(errors)
+        if ADR12A_HOLD_MESSAGE in errors:
+            structured_reason = CMA_ADR12A_HOLD
+        if structured_reason:
             raise HTTPException(status_code=422, detail={
-                "reason_code": ledger_reason,
+                "reason_code": structured_reason,
                 "message": "; ".join(errors),
                 "errors": errors,
             })
