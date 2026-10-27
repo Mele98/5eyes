@@ -1,6 +1,9 @@
+import hashlib
+import json
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from schemas.common import BaseResponse
 
@@ -31,7 +34,31 @@ class PortfolioHandoffCreate(BaseModel):
 
 
 class PortfolioHandoffMarkExecuted(BaseModel):
+    """HANDOFF-EXECUTION-001: ein leerer Klick ist kein Ausfuehrungsnachweis.
+
+    Ohne Broker-/Custody-Anbindung ist die einzige moegliche Evidence eine
+    manuelle Bestaetigung mit der Auftrags-/Bestaetigungsreferenz der
+    ausfuehrenden Stelle und dem Ausfuehrungsdatum. Der Server speichert sie
+    ausdruecklich als ``manual_attestation`` -- nie als Fill-Evidence."""
+
+    external_order_reference: str = Field(min_length=3, max_length=200)
+    executed_on: date
     executed_note: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("external_order_reference")
+    @classmethod
+    def _strip_reference(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 3:
+            raise ValueError("external_order_reference muss die Referenz der ausfuehrenden Stelle enthalten")
+        return stripped
+
+    @field_validator("executed_on")
+    @classmethod
+    def _not_in_future(cls, value: date) -> date:
+        if value > datetime.now(timezone.utc).date():
+            raise ValueError("executed_on darf nicht in der Zukunft liegen")
+        return value
 
 
 class PortfolioHandoffCancel(BaseModel):
@@ -56,7 +83,9 @@ class PortfolioHandoffResponse(BaseResponse):
     recipient_name: str
     recipient_channel: Optional[str]
     note: Optional[str]
-    status: str
+    # HANDOFF-INTEGRITY-001: nur Zustaende der Zustandsmaschine
+    # (models/portfolio_handoff.py::HANDOFF_STATUSES).
+    status: Literal["Vorbereitet", "Gesendet", "Ausgeführt", "Storniert"]
     created_by: str
     created_at: str
     updated_at: str
@@ -66,3 +95,32 @@ class PortfolioHandoffResponse(BaseResponse):
     cancelled_at: Optional[str]
     cancelled_by: Optional[str]
     cancelled_reason: Optional[str]
+    execution_evidence_kind: Optional[str] = None
+    execution_external_reference: Optional[str] = None
+    execution_confirmed_on: Optional[str] = None
+    snapshot_sha256: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _integrity(self):
+        """HANDOFF-INTEGRITY-001: ein Datensatz, der nicht in sich stimmig
+        ist, wird nicht ausgeliefert (fail-closed statt manipulierter
+        Nachweis): Snapshot ist eine JSON-Liste von Tradezeilen,
+        position_count entspricht ihr, ein gespeicherter Hash passt zu den
+        Bytes, Statusfelder sind kohaerent."""
+        try:
+            trades = json.loads(self.trade_list_snapshot_json)
+        except (TypeError, ValueError):
+            raise ValueError("trade_list_snapshot_json ist kein gueltiges JSON") from None
+        if not isinstance(trades, list) or not all(isinstance(item, dict) for item in trades):
+            raise ValueError("trade_list_snapshot_json ist keine Liste von Tradezeilen")
+        if self.position_count != len(trades):
+            raise ValueError("position_count passt nicht zu den gespeicherten Tradezeilen")
+        if self.snapshot_sha256 is not None:
+            actual = hashlib.sha256(self.trade_list_snapshot_json.encode("utf-8")).hexdigest()
+            if actual != self.snapshot_sha256:
+                raise ValueError("snapshot_sha256 passt nicht zum gespeicherten Snapshot")
+        executed = self.status == "Ausgeführt"
+        cancelled = self.status == "Storniert"
+        if executed != bool(self.executed_at) or cancelled != bool(self.cancelled_at):
+            raise ValueError("Statusfelder sind nicht kohaerent zum Status")
+        return self

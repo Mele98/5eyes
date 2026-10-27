@@ -667,7 +667,13 @@ def evaluate_product_eligibility(
 
     if not bool(rule.requires_appropriateness):
         appropriateness_status: DimensionStatus = "not_applicable"
-    elif appropriateness_result == "Angemessen" and knowledge_status == "satisfied":
+    elif appropriateness_result == "Angemessen" and knowledge_status != "unsatisfied":
+        # ELIG-FINAL-001 (2026-10-25): a positive check now always carries a
+        # knowledge anchor (ELIG-KNOWLEDGE-001). Without required
+        # categories (not_applicable) it was wrongly "unsatisfied"; an
+        # unevaluated coverage (indeterminate) stays a hint, not a block
+        # (owner rule "Kenntnisluecke: Hinweis, nicht Sperre"). Proven
+        # missing coverage (unsatisfied) still blocks.
         appropriateness_status = "satisfied"
     elif appropriateness_result is None:
         appropriateness_status = "indeterminate"
