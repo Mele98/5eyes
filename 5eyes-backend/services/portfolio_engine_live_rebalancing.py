@@ -540,13 +540,18 @@ def _build_live_position_drifts(entries: list[dict], live_total_value_rappen: in
     position_drifts = []
     for entry in entries:
         current_weight_bps = _bps(int(entry["current_market_value_rappen"] or 0), live_total_value_rappen)
-        rebalance_amount_rappen = _amount_from_weight_bps(live_total_value_rappen, int(entry["target_weight_bps"] or 0)) - int(entry["current_market_value_rappen"] or 0)
+        # HANDOFF-MATH-001: SOLL, IST und Delta auf DERSELBEN Live-Basis
+        # (wie _build_live_bucket_drifts). Der Run-Betrag bleibt separat.
+        live_target_amount_rappen = _amount_from_weight_bps(live_total_value_rappen, int(entry["target_weight_bps"] or 0))
+        rebalance_amount_rappen = live_target_amount_rappen - int(entry["current_market_value_rappen"] or 0)
         delta_weight_bps = current_weight_bps - int(entry["target_weight_bps"] or 0)
         latest_price_available = entry["latest_price_rappen"] is not None or entry["reference_price_rappen"] is not None
         action_code, action_label = _rebalancing_action_meta(delta_weight_bps, rebalance_amount_rappen, latest_price_available)
         position_drifts.append(
             {
                 **entry,
+                "run_target_amount_rappen": entry["target_amount_rappen"],
+                "target_amount_rappen": live_target_amount_rappen,
                 "current_weight_bps": current_weight_bps,
                 "delta_weight_bps": delta_weight_bps,
                 "rebalance_amount_rappen": rebalance_amount_rappen,
