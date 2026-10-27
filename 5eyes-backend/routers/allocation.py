@@ -1036,7 +1036,11 @@ def get_backtest_stress_replays(
 ):
     """Sprint U-P13: Historische Stress-Szenarien (Dotcom 2000-2002, GFC
     2008, Covid 2020, Bonds-Crash 2022, Stagflation 1973-74) angewandt
-    auf die aktuelle Target-Allocation des Mandates.
+    auf die SOLL-Gewichtung der gueltigen Target-Allocation des Mandates.
+
+    Stress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen
+    Depots): IST-Bestaende fliessen nicht ein (``scope`` =
+    ``approved_target_allocation``, ``scope_label`` fuer die Anzeige).
 
     Foundation-Variante mit hartcodierten Returns. Voll-Pipeline mit
     historischer Time-Series kommt in Sprint U-P11.
