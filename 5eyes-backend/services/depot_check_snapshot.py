@@ -45,9 +45,9 @@ _IDENTITY_KEYS = (
 )
 
 NO_ANALYSIS_MESSAGE = (
-    "Depot-Check-PDF nicht moeglich: es gibt keinen gespeicherten Depot-Check zu "
-    "einem Depot-Snapshot. Bitte zuerst den Depot-Snapshot erfassen und den "
-    "Depot-Check dazu speichern."
+    "Depot-Check-PDF nicht moeglich: zum erfassten Depotbestand gibt es keinen "
+    "gespeicherten Depot-Check (Depot-Snapshot). Ein Berater muss den Depot-Check "
+    "einmal erzeugen."
 )
 
 
@@ -217,3 +217,43 @@ def assert_analysis_matches_current_allocation(db: Session, mandate: Mandate, an
             "dem gespeicherten Depot-Check geaendert. Bitte den Depot-Check zum "
             "Depot-Snapshot neu speichern."
         )
+
+
+def mandate_has_recorded_holdings(db: Session, mandate: Mandate) -> bool:
+    """True, sobald fuer das Mandat ein Depotbestand erfasst ist (neueste
+    Holding je Produkt mit Stueckzahl oder Marktwert > 0) -- derselbe Filter
+    wie die Bestandsbewertung des Depot-Snapshots. Nur bei ``False`` ist ein
+    Depot-Check-PDF ohne Snapshot-Bindung (reine SOLL-Analyse) zulaessig."""
+    from services.portfolio_engine_live_rebalancing import _latest_holdings_by_product_for_mandate
+
+    return any(
+        int(row.units_milli or 0) > 0 or int(row.market_value_rappen or 0) > 0
+        for row in _latest_holdings_by_product_for_mandate(db, mandate.id).values()
+    )
+
+
+def ensure_current_depot_check_analysis(
+    db: Session, mandate: Mandate, *, as_of, created_by: str, created_at: str, fx_source=None,
+) -> tuple[dict, list[tuple[str, str, str]]]:
+    """Ein-Klick-PDF: Depot-Snapshot des aktuellen Bestands und Depot-Check dazu
+    speichern (beides idempotent: gleicher Inhalt = bestehende Zeile).
+
+    Unvollstaendige Bewertung -> ``ValueError`` mit Grund (kein Snapshot).
+    Returns ``(analysis, created)`` mit ``(tabelle, id, hash)`` je neuer Zeile.
+    """
+    from services.depot_snapshot import build_depot_snapshot, persist_depot_snapshot
+
+    snapshot = build_depot_snapshot(db, mandate, as_of=as_of, fx_source=fx_source)
+    snapshot_row, snapshot_created = persist_depot_snapshot(
+        db, snapshot, mandate=mandate, created_by=created_by, created_at=created_at,
+    )
+    analysis = build_depot_check_analysis(db, mandate, snapshot)
+    row, created = persist_depot_check_analysis(
+        db, analysis, mandate=mandate, created_by=created_by, created_at=created_at,
+    )
+    new_rows = []
+    if snapshot_created:
+        new_rows.append(("depot_snapshots", snapshot_row.id, snapshot["snapshot_hash"]))
+    if created:
+        new_rows.append(("depot_check_analysis_snapshots", row.id, analysis["analysis_hash"]))
+    return analysis, new_rows

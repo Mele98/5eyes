@@ -378,6 +378,9 @@ class DepotCheckData:
     snapshot_hash: str | None = None
     as_of: str | None = None
     result_hash: str | None = None
+    # True nur fuer Mandate ohne erfassten Depotbestand: reine SOLL-Analyse
+    # ohne Snapshot-Bindung, im PDF sichtbar gekennzeichnet.
+    without_holdings: bool = False
 
 
 @dataclass(frozen=True)

@@ -9,8 +9,8 @@ Vertrag (CIO-Entscheid):
   Ersatz. SOLL-Vergleichswerte kommen weiter aus dem gueltigen Lauf.
 * JSON-Endpunkt (``GET /depot-check?analysis_snapshot_id=``) und PDF lesen
   denselben gespeicherten Analysis-Snapshot; Manipulation -> 409.
-* Kein Depot-Check-PDF ohne gebundenen Snapshot oder wenn die Soll-Allokation
-  seit dem Snapshot gewechselt hat (fail-closed, verstaendliche Meldung).
+* Kein Depot-Check-PDF bei erfasstem Bestand ohne gebundenen Snapshot oder wenn
+  die Soll-Allokation seit dem Snapshot gewechselt hat (fail-closed).
 """
 from __future__ import annotations
 

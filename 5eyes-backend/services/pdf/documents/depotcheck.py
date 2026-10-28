@@ -40,7 +40,8 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     flowables.extend(make_single_report_cover(
         ctx,
         title="Depot-Check",
-        subtitle="Analyse des empfohlenen Zielportfolios",
+        subtitle="Analyse des empfohlenen Zielportfolios"
+        + (f" - {WITHOUT_HOLDINGS_LABEL}" if data.without_holdings else ""),
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
         focus_points=[
@@ -247,6 +248,13 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         'Kosteninformationen und Vertragsunterlagen.</font>'.format(FONT_DEFAULT),
         make_paragraph_styles()["small"],
     ))
+    if data.without_holdings:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
+            f'Datenstand: {WITHOUT_HOLDINGS_LABEL}. Reine SOLL-Zielportfolioanalyse '
+            'ohne Depot-Snapshot.</font>',
+            make_paragraph_styles()["small"],
+        ))
     if data.snapshot_id:
         # DEPOT-E2E-SNAPSHOT-001: derselbe gespeicherte Depot-Check wie im JSON.
         flowables.append(Paragraph(
@@ -255,6 +263,9 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
             make_paragraph_styles()["small"],
         ))
     return flowables
+
+
+WITHOUT_HOLDINGS_LABEL = "ohne IST-Bestand (kein Depot erfasst)"
 
 
 def _snapshot_identity_line(data: DepotCheckData) -> str:

@@ -13,8 +13,9 @@ Geloester Vertrag (CIO-Entscheid): ein gespeicherter
 DepotCheckAnalysisSnapshot bindet das Ergebnis an genau einen DepotSnapshotV1
 (``snapshot_id`` + ``snapshot_hash``) mit Analyse-Version und Ergebnis-Hash.
 Der JSON-Endpunkt (``GET /depot-check?analysis_snapshot_id=``) und das PDF
-lesen denselben gespeicherten Snapshot; ohne gebundenen Snapshot gibt es kein
-PDF (409 mit verstaendlicher Meldung).
+lesen denselben gespeicherten Snapshot. Ein Klick auf das PDF speichert ihn fuer
+den aktuellen Bestand (idempotent); unvollstaendige Bewertung -> 409 mit Grund.
+Nur ohne erfassten Depotbestand: reine SOLL-Analyse, sichtbar gekennzeichnet.
 
 Fixture: der Foundation-Beispielfall (wie
 ``tests/test_asset_allocation_reference_integrity_edges.py``), weil erst er
@@ -126,14 +127,83 @@ def test_json_depot_check_and_pdf_payload_share_one_snapshot_identity(session_fa
     assert dict(pdf_payload.soll_currency_exposure_bps) == json_payload["soll_currency_exposure_bps"]
 
 
+# --- Ein-Klick-PDF (CIO-Entscheid) ------------------------------------------
+
+def _request():
+    return SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+
+
+def _pdf_text(response) -> str:
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(BytesIO(response.body))
+    return " ".join(" ".join((p.extract_text() or "") for p in reader.pages).split())
+
+
+def _counts(session):
+    from models.snapshots import DepotCheckAnalysisSnapshot, DepotSnapshot
+
+    return (
+        session.query(DepotSnapshot).count(),
+        session.query(DepotCheckAnalysisSnapshot).count(),
+    )
+
+
 @pytest.mark.timeout(300)
-def test_depotcheck_pdf_without_bound_snapshot_is_refused(session_factory):
+def test_pdf_one_click_stores_snapshot_and_analysis_idempotently(session_factory, monkeypatch):
+    # Bewertung mit Testkursen statt DB-Kursen (FX ist nicht Gegenstand).
+    monkeypatch.setattr(FXRateSource, "from_db_for_model", classmethod(lambda cls, db: FX))
+    with session_factory() as session:
+        mandate, advisor = _seed_with_holdings(session)
+        assert _counts(session) == (0, 0)
+        first = get_depotcheck_pdf(
+            mandate.id, _request(), analysis_snapshot_id=None, db=session, current_user=advisor,
+        )
+        assert _counts(session) == (1, 1)
+        analysis = dca.load_depot_check_analysis(session, mandate)
+        second = get_depotcheck_pdf(
+            mandate.id, _request(), analysis_snapshot_id=None, db=session, current_user=advisor,
+        )
+        assert _counts(session) == (1, 1)
+    text = _pdf_text(first)
+    assert analysis["snapshot_id"] in text
+    assert analysis["analysis_snapshot_id"] in text
+    assert "kein Depot erfasst" not in text
+    assert analysis["snapshot_id"] in _pdf_text(second)
+
+
+@pytest.mark.timeout(300)
+def test_pdf_with_incomplete_valuation_is_refused_with_reason(session_factory, monkeypatch):
+    from models.review import PriceHistory
+
+    monkeypatch.setattr(FXRateSource, "from_db_for_model", classmethod(lambda cls, db: FX))
+    with session_factory() as session:
+        mandate, advisor = _seed_with_holdings(session)
+        doomed = session.query(PriceHistory).first()
+        session.delete(doomed)
+        session.commit()
+        with pytest.raises(HTTPException) as exc:
+            get_depotcheck_pdf(
+                mandate.id, _request(), analysis_snapshot_id=None, db=session, current_user=advisor,
+            )
+        assert _counts(session) == (0, 0)
+    assert exc.value.status_code == 409
+    assert "Preis" in exc.value.detail or "Bewertung" in exc.value.detail, exc.value.detail
+
+
+@pytest.mark.timeout(300)
+def test_pdf_without_recorded_holdings_is_marked_target_only(session_factory):
     with session_factory() as session:
         mandate = _seed_foundation(session)
         advisor = session.query(User).filter(User.id == "advisor-1").one()
-        with pytest.raises(HTTPException) as exc:
-            get_depotcheck_pdf(
-                mandate.id, analysis_snapshot_id=None, db=session, current_user=advisor,
-            )
-    assert exc.value.status_code == 409
-    assert "Depot-Snapshot" in exc.value.detail
+        assert dca.mandate_has_recorded_holdings(session, mandate) is False
+        response = get_depotcheck_pdf(
+            mandate.id, _request(), analysis_snapshot_id=None, db=session, current_user=advisor,
+        )
+        assert _counts(session) == (0, 0)
+    text = _pdf_text(response)
+    assert "ohne IST-Bestand (kein Depot erfasst)" in text
+    assert "dps-" not in text
+
