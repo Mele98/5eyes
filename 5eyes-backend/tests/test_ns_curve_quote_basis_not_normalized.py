@@ -113,8 +113,11 @@ def test_yield_curve_points_carry_no_quote_basis_metadata(monkeypatch):
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "NS-CURVE-QUOTE-NORMALIZATION-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-04-bond-curve-quotation-sleeve-and-return-semantics-integrity-audit.md"
+        "NS-CURVE-QUOTE-NORMALIZATION-001 (offen, Owner-Methodik): FRED-Par-"
+        "Renditen (BEY) und ECB-Spot-Zinsen (stetig) brauchen eine kanonische "
+        "Kurvenbasis und eine Par->Zero-Bootstrap-Methode; beides ist ein "
+        "Methodik-Entscheid, kein Codefehler. Audit: docs/audits/2026-10-04-"
+        "bond-curve-quotation-sleeve-and-return-semantics-integrity-audit.md"
     ),
 )
 def test_fit_nelson_siegel_has_no_curve_type_or_compounding_parameter():
@@ -143,8 +146,11 @@ def test_fit_nelson_siegel_has_no_curve_type_or_compounding_parameter():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "NS-CURVE-QUOTE-NORMALIZATION-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-04-bond-curve-quotation-sleeve-and-return-semantics-integrity-audit.md"
+        "NS-CURVE-QUOTE-NORMALIZATION-001 (offen, Owner-Methodik): FRED-Par-"
+        "Renditen (BEY) und ECB-Spot-Zinsen (stetig) brauchen eine kanonische "
+        "Kurvenbasis und eine Par->Zero-Bootstrap-Methode; beides ist ein "
+        "Methodik-Entscheid, kein Codefehler. Audit: docs/audits/2026-10-04-"
+        "bond-curve-quotation-sleeve-and-return-semantics-integrity-audit.md"
     ),
 )
 def test_identical_raw_quotes_different_conventions_yield_different_short_rate(monkeypatch):

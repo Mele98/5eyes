@@ -170,13 +170,41 @@ def _fetch_pe_ticker_info(ticker: str) -> dict:
     return info if isinstance(info, dict) else {}
 
 
-def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[tuple[float, int]]:
+class YieldCurvePoint(tuple):
+    """CMA-MARKET-SNAPSHOT-001: ein Zinskurvenpunkt mit Herkunft.
+
+    Bleibt ein ``(maturity_years, yield_bps)``-Paar (Vergleich, Entpacken und
+    ``dict(points)`` funktionieren wie zuvor), traegt aber zusaetzlich das
+    echte Beobachtungsdatum, den Serien-Code und die Quelle des zugrunde
+    liegenden MacroPoint -- jeder Punkt kann von einem anderen Tag stammen.
+    """
+
+    def __new__(cls, maturity_years, yield_bps, *, observation_date, series_code, source):
+        point = super().__new__(cls, (maturity_years, yield_bps))
+        point.observation_date = observation_date
+        point.series_code = series_code
+        point.source = source
+        return point
+
+    def __getnewargs_ex__(self):
+        return (
+            (self[0], self[1]),
+            {
+                "observation_date": self.observation_date,
+                "series_code": self.series_code,
+                "source": self.source,
+            },
+        )
+
+
+def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[YieldCurvePoint]:
     """Holt eine echte Zinskurve (Maturity in Jahren, Yield in bps) fuer eine
     Jurisdiktion ueber FRED oder ECB (siehe _YIELD_CURVE_REGISTRY fuer die je
     Jurisdiktion konfigurierte, echte oeffentliche Serie).
 
     Returns:
-        Liste von (maturity_years, yield_bps)-Tupeln, mindestens 3 Punkte
+        Liste von YieldCurvePoint ((maturity_years, yield_bps)-Paare mit
+        observation_date/series_code/source), mindestens 3 Punkte
         (Voraussetzung fuer services/rates/nelson_siegel.py::fit_nelson_siegel).
 
     Raises:
@@ -205,7 +233,7 @@ def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[tuple[float, i
             f"Unbekannter Provider-Typ '{provider_name}' fuer Jurisdiktion '{jurisdiction}'."
         )
 
-    points: list[tuple[float, int]] = []
+    points: list[YieldCurvePoint] = []
     for maturity_years, series_code in series:
         series_points = provider.get_series(series_code, window_start, today)
         if not series_points:
@@ -217,7 +245,13 @@ def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[tuple[float, i
         latest = series_points[-1]
         # FRED/ECB liefern Renditen als Prozent (z.B. 4.25 = 4.25%) -> bps.
         yield_bps = int(round(float(latest.value) * 100))
-        points.append((maturity_years, yield_bps))
+        points.append(YieldCurvePoint(
+            maturity_years,
+            yield_bps,
+            observation_date=latest.date,
+            series_code=getattr(latest, "series_code", None) or series_code,
+            source=getattr(latest, "source", None) or provider_name,
+        ))
 
     if len(points) < 3:
         raise InsufficientYieldCurveDataError(
@@ -226,6 +260,61 @@ def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[tuple[float, i
             f"Nelson-Siegel-Fit noetig)."
         )
     return points
+
+
+def _epoch_to_iso_date(raw) -> str | None:
+    """Unix-Zeitstempel (yfinance) -> ISO-Datum (UTC); sonst None."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        return datetime.fromtimestamp(float(raw), tz=timezone.utc).date().isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def fetch_equity_pe_proxy_with_provenance(jurisdiction: str) -> tuple[int | None, dict]:
+    """CMA-MARKET-SNAPSHOT-001: KGV-Proxy plus Stichtags-Provenienz.
+
+    Die Provenienz nennt den Abrufzeitpunkt und -- nur wenn der Provider sie
+    liefert -- den Markt-Stichtag des Kurses (``regularMarketTime``) sowie das
+    Ende der letzten Gewinnperiode (``mostRecentQuarter``). Fehlt eine Angabe,
+    bleibt sie None und ``pe_proxy_as_of_basis`` sagt offen, worauf sich
+    ``pe_proxy_as_of`` stuetzt; es wird kein Datum erfunden.
+    """
+    key = (jurisdiction or "").strip().upper()
+    ticker = _PE_PROXY_TICKERS.get(key)
+    if ticker is None:
+        return None, {}
+    retrieved_at = datetime.now(timezone.utc)
+    try:
+        info = _fetch_pe_ticker_info(ticker)
+    except Exception as exc:  # noqa: BLE001 - PE-Proxy ist optional, nie fatal
+        logger.warning(
+            "PE-Proxy-Abruf fehlgeschlagen fuer Jurisdiktion %s (Ticker %s): %s",
+            key, ticker, exc,
+        )
+        return None, {}
+    if not isinstance(info, dict):
+        return None, {}
+    pe = info.get("trailingPE")
+    if pe is None:
+        return None, {}
+    try:
+        value = int(round(float(pe)))
+    except (TypeError, ValueError):
+        return None, {}
+    market_as_of = _epoch_to_iso_date(info.get("regularMarketTime"))
+    provenance = {
+        "pe_proxy_retrieved_at_utc": retrieved_at.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "market_as_of": market_as_of,
+        "pe_earnings_period_end": _epoch_to_iso_date(info.get("mostRecentQuarter")),
+        "pe_proxy_as_of": market_as_of or retrieved_at.date().isoformat(),
+        "pe_proxy_as_of_basis": (
+            "provider_market_time" if market_as_of else
+            "retrieval_date (Provider lieferte keinen Markt-Stichtag)"
+        ),
+    }
+    return value, provenance
 
 
 def fetch_equity_pe_proxy_for_jurisdiction(jurisdiction: str) -> int | None:
@@ -242,29 +331,8 @@ def fetch_equity_pe_proxy_for_jurisdiction(jurisdiction: str) -> int | None:
     - der Datenabruf fehlschlaegt (yfinance fehlt / Netzwerkfehler / o.ae.),
     - das info-dict kein 'trailingPE' enthaelt.
     """
-    key = (jurisdiction or "").strip().upper()
-    ticker = _PE_PROXY_TICKERS.get(key)
-    if ticker is None:
-        return None
-
-    try:
-        info = _fetch_pe_ticker_info(ticker)
-    except Exception as exc:  # noqa: BLE001 - PE-Proxy ist optional, nie fatal
-        logger.warning(
-            "PE-Proxy-Abruf fehlgeschlagen fuer Jurisdiktion %s (Ticker %s): %s",
-            key, ticker, exc,
-        )
-        return None
-
-    if not isinstance(info, dict):
-        return None
-    pe = info.get("trailingPE")
-    if pe is None:
-        return None
-    try:
-        return int(round(float(pe)))
-    except (TypeError, ValueError):
-        return None
+    value, _provenance = fetch_equity_pe_proxy_with_provenance(jurisdiction)
+    return value
 
 
 def compute_cma_candidate_for_jurisdiction(
@@ -319,7 +387,7 @@ def compute_cma_candidate_for_jurisdiction(
 
     equity_home_return_bps: int | None = None
     kgv_detail: dict | None = None
-    pe_proxy = fetch_equity_pe_proxy_for_jurisdiction(key)
+    pe_proxy, pe_provenance = fetch_equity_pe_proxy_with_provenance(key)
     if pe_proxy is not None:
         risk_free_bps = curve.short_rate_bps()
         model = KGVMeanReversionModel(
@@ -333,6 +401,7 @@ def compute_cma_candidate_for_jurisdiction(
             "pe_proxy_ticker": _PE_PROXY_TICKERS[key],
             "pe_proxy_value_kgv_current": pe_proxy,
             "pe_proxy_kind": "ETF-Trailing-KGV-Proxy (yfinance trailingPE), kein reines Index-KGV",
+            **pe_provenance,
             "kgv_fair_generic_shiller_cape": _GENERIC_SHILLER_CAPE_FAIR_VALUE,
             "kgv_fair_source": (
                 "Genereller, jurisdiktionsunabhaengiger Modell-Referenzwert aus "
@@ -372,8 +441,19 @@ def compute_cma_candidate_for_jurisdiction(
                 {"maturity_years": m, "series_code": c} for m, c in series_registry
             ],
             "fetched_points_bps": [
-                {"maturity_years": m, "yield_bps": y} for m, y in yield_points
+                {
+                    "maturity_years": p[0],
+                    "yield_bps": p[1],
+                    "date": p.observation_date.isoformat(),
+                    "series_code": p.series_code,
+                    "source": p.source,
+                }
+                for p in yield_points
             ],
+            # CMA-MARKET-SNAPSHOT-001: Spannweite der echten Beobachtungstage;
+            # weichen sie ab, ist die Kurve kein Ein-Tages-Snapshot.
+            "observation_date_min": min(p.observation_date for p in yield_points).isoformat(),
+            "observation_date_max": max(p.observation_date for p in yield_points).isoformat(),
             "nelson_siegel_fit": curve.to_dict(),
             "formula": (
                 "bonds_home_ig_return_bps = round(NelsonSiegelCurve.yield_at(5.0)) "

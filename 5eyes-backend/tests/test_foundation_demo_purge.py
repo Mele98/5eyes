@@ -554,11 +554,13 @@ def test_foundation_purge_deletes_portfolio_handoff_without_integrity_error(
             INSERT INTO portfolio_handoffs (
                 id, mandate_id, recommendation_run_id, trade_list_snapshot_json,
                 live_total_value_rappen, position_count, recipient_name, status,
-                created_by, created_at, updated_at
+                created_by, created_at, updated_at, snapshot_sha256
             )
             VALUES ('handoff-foundation', 'mandate-foundation', 'run-foundation', '[]',
                     1000000, 1, 'UBS AG Zuerich', 'Gesendet',
-                    'admin-purge', :now, :now)
+                    'admin-purge', :now, :now,
+                    -- HANDOFF-DB-INVARIANT-001: SHA-256 von '[]'
+                    '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945')
             """,
             {"now": NOW},
         )
@@ -572,6 +574,39 @@ def test_foundation_purge_deletes_portfolio_handoff_without_integrity_error(
     with session_factory() as session:
         assert _scalar(session, "SELECT COUNT(*) FROM portfolio_handoffs") == 0
         assert _scalar(session, "SELECT COUNT(*) FROM mandates") == 0
+
+
+def test_foundation_purge_deletes_eligibility_override_without_integrity_error(
+    admin_client, session_factory,
+):
+    """ELIG-OVERRIDE-CAPTURE-001: a captured product eligibility override
+    references the run by FK and must not block the purge."""
+    with session_factory() as session:
+        _seed_foundation_chain(session)
+        _exec(
+            session,
+            """
+            INSERT INTO product_eligibility_overrides (
+                id, product_id, recommendation_run_id, original_decision,
+                overridden_dimension, reason_code, reason_text, requested_by,
+                approved_by, valid_from, expires_at, evidence_hash,
+                created_at, updated_at
+            )
+            VALUES ('override-foundation', 'product-purge', 'run-foundation', 'indeterminate',
+                    'override', 'ADVISOR_DOCUMENTED_EXCEPTION', 'Demo-Begruendung fuer den Test',
+                    'admin-purge', '', :now, :now, 'hash', :now, :now)
+            """,
+            {"now": NOW},
+        )
+        session.commit()
+
+    response = admin_client.post("/admin/system/foundation-example/purge")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted"]["product_eligibility_overrides"] == 1
+    with session_factory() as session:
+        assert _scalar(session, "SELECT COUNT(*) FROM product_eligibility_overrides") == 0
+        assert _scalar(session, "SELECT COUNT(*) FROM recommendation_runs") == 0
 
 
 def test_table_exists_and_columns_use_dialect_agnostic_inspection(session_factory):

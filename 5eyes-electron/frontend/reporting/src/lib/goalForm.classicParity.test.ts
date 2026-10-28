@@ -1,5 +1,5 @@
 /**
- * Round 38 red test — GOAL-RECURRING-EDITOR-CONTRACT-001, Pflichttest 6+7
+ * Round 38 test (fixed, former red test) — GOAL-RECURRING-EDITOR-CONTRACT-001, Pflichttest 6+7
  * (docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md,
  *  Ares-Worktree "codex/asset-allocation-stochastic-core", Kontrollrunde 38).
  *
@@ -163,7 +163,7 @@ const basePension: GoalFormInput = {
 };
 
 describe('GOAL-RECURRING-EDITOR-CONTRACT-001 Pflichttest 6: React/Classic payload golden parity', () => {
-  test.fails(
+  test(
     'buildGoalPayload matches the Classic contract on target_amount_rappen for Wiederkehrende_Ausgabe (React nulls it, Classic preserves it)',
     () => {
       const reactPayload = buildGoalPayload(baseRecurring);
@@ -172,7 +172,7 @@ describe('GOAL-RECURRING-EDITOR-CONTRACT-001 Pflichttest 6: React/Classic payloa
     },
   );
 
-  test.fails(
+  test(
     'buildGoalPayload matches the Classic contract on target_amount_rappen for Pensionsausgabe (React nulls it, Classic preserves it)',
     () => {
       const reactPayload = buildGoalPayload(basePension);
@@ -191,7 +191,7 @@ describe('GOAL-RECURRING-EDITOR-CONTRACT-001 Pflichttest 6: React/Classic payloa
     expect(reactPayload.horizon_years).toBe(classicPayload.horizon_years);
   });
 
-  test.fails(
+  test(
     'buildGoalPayload matches the Classic contract on target_date for an ongoing pension goal (Classic forces null when is_ongoing, React does not re-derive it)',
     () => {
       // basePension has is_ongoing=true and no target_date supplied, so this
