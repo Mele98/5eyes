@@ -12,7 +12,7 @@
   noetig und nichts wird nachtraeglich "beglaubigt".
 
 Revision ID: d2f8b6a1c4e9
-Revises: c7e4a19b3d52
+Revises: c8e2f4a6b1d3
 Create Date: 2026-10-26
 """
 from typing import Sequence, Union
@@ -28,7 +28,7 @@ from models.portfolio_handoff import (
 
 
 revision: str = "d2f8b6a1c4e9"
-down_revision: Union[str, Sequence[str], None] = "c7e4a19b3d52"
+down_revision: Union[str, Sequence[str], None] = "c8e2f4a6b1d3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

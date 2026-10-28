@@ -704,3 +704,105 @@ def build_live_rebalancing_payload(
         "bucket_drifts": bucket_drifts,
         "position_drifts": position_drifts,
     }
+
+
+def value_mandate_holdings(
+    db: Session,
+    mandate_id: str,
+    *,
+    fx_source,
+    target_currency: str = "CHF",
+) -> dict:
+    """DEPOT-E2E-STRESS-001 Option 2: bewertet den GESAMTEN erfassten
+    Depotbestand des Mandats -- die neueste Holding je Produkt
+    (``_latest_holdings_by_product_for_mandate``), unabhaengig davon, ob das
+    Produkt eine Position des aktuellen Laufs ist.
+
+    Gleiche Regeln wie ``_build_live_rebalancing_entry``: Wert = Stueckzahl x
+    letzter Marktpreis aus PriceHistory, Preis in ``product.currency`` und via
+    ``_convert_price_rappen_to_target_currency`` auf ``target_currency``
+    umgerechnet, Frische gegen ``summarize_price_quality().stale_after_days``.
+    Liefert dieselben Coverage-Aggregate wie ``build_live_rebalancing_payload``
+    (fuer ``assert_holdings_valuation_complete``) plus
+    ``missing_units_count`` und ``missing_product_count``. Eine Position ohne
+    Stueckzahl, Preis oder FX erhaelt ``current_market_value_rappen=None`` --
+    es wird nie ein Wert angenommen.
+    """
+    holdings = [
+        row for row in _latest_holdings_by_product_for_mandate(db, mandate_id).values()
+        if int(row.units_milli or 0) > 0 or int(row.market_value_rappen or 0) > 0
+    ]
+    product_ids = sorted({row.product_id for row in holdings})
+    products = {
+        product.id: product
+        for product in db.query(Product).filter(Product.id.in_(product_ids)).all()
+    } if product_ids else {}
+    quality = summarize_price_quality(db, product_ids) if product_ids else {}
+    stale_after_days = int(quality.get("stale_after_days") or 5)
+    latest_prices = latest_price_snapshot(db, product_ids) if product_ids else {}
+    today = date.today()
+    target = str(target_currency or "CHF").upper().strip() or "CHF"
+
+    counts = {
+        "holding_positions_count": len(holdings),
+        "implied_positions_count": 0,
+        "missing_prices_count": 0,
+        "stale_positions_count": 0,
+        "fx_conversion_failed_count": 0,
+        "missing_units_count": 0,
+        "missing_product_count": 0,
+    }
+    positions: list[dict] = []
+    for holding in holdings:
+        product = products.get(holding.product_id)
+        units_milli = int(holding.units_milli or 0) or None
+        latest = latest_prices.get(holding.product_id)
+        price_rappen = int(latest.price_rappen or 0) if latest else None
+        fx_failed = False
+        fx_converted = False
+        if product is None:
+            counts["missing_product_count"] += 1
+        else:
+            price_rappen, fx_failed = _convert_price_rappen_to_target_currency(
+                price_rappen, product.currency, fx_source, target,
+            )
+            fx_converted = bool(
+                fx_source is not None and not fx_failed
+                and str(product.currency or "CHF").upper().strip() != target
+            )
+        price_date = parse_iso_date(latest.price_date) if latest else None
+        price_is_fresh = bool(price_date and (today - price_date).days <= stale_after_days)
+        if latest is None:
+            counts["missing_prices_count"] += 1
+        elif not price_is_fresh:
+            counts["stale_positions_count"] += 1
+        if fx_failed:
+            counts["fx_conversion_failed_count"] += 1
+        if units_milli is None:
+            counts["missing_units_count"] += 1
+        value = (
+            _value_from_units_milli(units_milli, price_rappen)
+            if units_milli and price_rappen and not fx_failed and product is not None
+            else None
+        )
+        positions.append({
+            "holding_id": holding.id,
+            "product_id": holding.product_id,
+            "product_currency": str(getattr(product, "currency", "") or "").upper().strip() or None,
+            "holding_as_of_date": str(holding.as_of_date or "").strip() or None,
+            "units_milli": units_milli,
+            "latest_price_rappen": price_rappen,
+            "latest_price_date": latest.price_date if latest else None,
+            "price_is_fresh": price_is_fresh if latest else None,
+            "fx_converted": fx_converted,
+            "fx_conversion_failed": fx_failed,
+            "valuation_basis": "actual_holding_units" if units_milli else "holding_market_value_only",
+            "current_market_value_rappen": value,
+        })
+    dates = [p["holding_as_of_date"] for p in positions if p["holding_as_of_date"]]
+    return {
+        **counts,
+        "as_of_date": max(dates) if dates else None,
+        "target_currency": target,
+        "positions": positions,
+    }

@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-24.2"
+INVENTORY_VERSION = "2026-10-26.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -46,6 +46,9 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # aus dem Mandat abgeleitet (services/risk_evidence_tenant_boundary.py).
     "risk_override_decisions",
     "risk_profile_signoffs",
+    # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only Plausibilitaets-
+    # Evidenz, Mandant aus dem Mandat (hash-gebunden).
+    "risk_capacity_plausibility_evaluations",
     "users",
     # PG-002 (Closure-Review PR #666): bisher nur transitiv ueber clients.
     "wealth_inflows",
@@ -100,6 +103,7 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "client_tax_residencies": ("client_id", "clients"),
     "conflict_of_interest_disclosures": ("mandate_id", "mandates"),
     "contract_documents": ("mandate_id", "mandates"),
+    "depot_snapshots": ("mandate_id", "mandates"),
     "financial_coverage_attestations": ("mandate_id", "mandates"),
     "goal_lifecycle_transitions": ("mandate_id", "mandates"),
     "goal_revision_decisions": ("mandate_id", "mandates"),
@@ -110,7 +114,9 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "planning_assumptions": ("mandate_id", "mandates"),
     "portfolio_handoffs": ("mandate_id", "mandates"),
     "product_eligibility_decisions": ("snapshot_id", "product_eligibility_snapshots"),
-    "product_eligibility_overrides": ("snapshot_id", "product_eligibility_snapshots"),
+    # ELIG-OVERRIDE-CAPTURE-001: captured overrides carry no snapshot_id; the
+    # always-set route to the tenant is the run.
+    "product_eligibility_overrides": ("recommendation_run_id", "recommendation_runs"),
     "recommendation_holdings": ("run_id", "recommendation_runs"),
     "recommendation_positions": ("run_id", "recommendation_runs"),
     "recommendation_runs": ("mandate_id", "mandates"),

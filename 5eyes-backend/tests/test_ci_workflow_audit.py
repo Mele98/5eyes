@@ -342,6 +342,12 @@ def test_rls_dynamic_table_coverage_guard_is_wired_in(workflow_yaml):
     assert "tests/test_rls_dynamic_table_coverage_guard.py" in _postgres_rls_run_command(workflow_yaml)
 
 
+def test_postgres_money_bigint_live_test_is_wired_in(workflow_yaml):
+    """MONEY-COLUMN-WIDTH-001: der BIGINT-Beleg (CHF 50 Mio. speicherbar) laeuft
+    nur gegen echtes Postgres und wird ohne diese Verdrahtung uebersprungen."""
+    assert "tests/test_postgres_money_bigint_live.py" in _postgres_rls_run_command(workflow_yaml)
+
+
 def test_coverage_job_uses_sysmon_and_16_shards(workflow_yaml):
     """Coverage-Shards liefen mit dem klassischen Tracer in den 90-min-Timeout.
     sys.monitoring plus 16 Shards haelt den nicht blockierenden Job im Rahmen."""

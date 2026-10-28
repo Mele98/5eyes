@@ -25,7 +25,7 @@ from database import Base  # noqa: E402
 from main import app  # noqa: F401,E402  (registriert alle Models)
 
 REVISION = "d2f8b6a1c4e9"
-DOWN_REVISION = "c7e4a19b3d52"
+DOWN_REVISION = "c8e2f4a6b1d3"
 TRIGGERS = ("trg_portfolio_handoffs_invariants_insert", "trg_portfolio_handoffs_invariants_update")
 VALID_SHA = hashlib.sha256(b"[]").hexdigest()
 

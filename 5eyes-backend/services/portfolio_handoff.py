@@ -118,6 +118,33 @@ def _coverage_counts(live: dict) -> dict:
     return {key: _count(key) for key in _COVERAGE_KEYS}
 
 
+def assert_holdings_valuation_complete(live: dict) -> None:
+    """Strenge Vollstaendigkeitspruefung einer reinen Bestandsbewertung
+    (DepotSnapshotV1 / IST-Stress): mindestens ein echter Bestand, alle
+    Aggregate belegt, keine abgeleiteten, preislosen, veralteten oder
+    FX-fehlerhaften Positionen. Wirft ``HoldingsValuationIncompleteError``.
+
+    Die Handelsliste nutzt ``resolve_handoff_holdings_basis`` (IST = 0 fuer
+    nicht gehaltene SOLL-Produkte); diese Funktion bleibt fuer Pfade, die
+    ausschliesslich den gehaltenen Bestand bewerten."""
+    counts = _coverage_counts(live)
+    held_count = counts["holding_positions_count"]
+    if held_count is not None and held_count <= 0:
+        raise HoldingsValuationIncompleteError(
+            "Kein erfasster Depotbestand. Bitte die Depotbestaende erfassen."
+        )
+    if any(value is None for value in counts.values()):
+        raise HoldingsValuationIncompleteError(
+            "Die Bewertungsabdeckung ist nicht belegt (Bestands-/Preis-/FX-Nachweis fehlt)."
+        )
+    blockers = (("implied_positions_count", "Position(en) ohne erfassten Depotbestand (nur aus dem Zielbetrag abgeleitet)"),) + _PRICE_BLOCKERS
+    problems = [f"{counts[key]} {label}" for key, label in blockers if counts[key] > 0]
+    if problems:
+        raise HoldingsValuationIncompleteError(
+            "Die Bewertung ist nicht vollstaendig belegt: " + "; ".join(problems)
+            + ". Bitte Bestaende und Preise aktualisieren."
+        )
+
 def resolve_handoff_holdings_basis(
     live: dict,
     *,
