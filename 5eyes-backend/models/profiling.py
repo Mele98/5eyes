@@ -1,6 +1,7 @@
 from sqlalchemy import DDL, CheckConstraint, Column, String, Integer, ForeignKey, Index, event, text
 from sqlalchemy.orm import relationship
 from database import (
+    RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS,
     RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS,
     RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS,
     Base,
@@ -303,6 +304,64 @@ class RiskProfileSignoff(Base):
 for _trigger_ddl in RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
     event.listen(
         RiskProfileSignoff.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+class RiskCapacityPlausibilityEvaluation(Base):
+    """RiskCapacityPlausibilityEvaluationV1 -- unveraenderliche Evidenz einer
+    Plausibilitaetspruefung der Risikofaehigkeit
+    (RISK-CAPACITY-EVALUATION-SNAPSHOT-001).
+
+    Gebunden beim Speichern des Risikoprofils (``risk_assessment_saved``)
+    bzw. bei der Generierung der Soll-Allokation (``allocation_generated``):
+    Assessment, verwendete Eingaben (Fragebogen-Baender, erfasste
+    Finanzdaten in CHF-Rappen, Coverage-Bestaetigung, Schwellen; ohne
+    Freitext), Regelversion, strukturiertes Ergebnis und ein SHA-256 ueber
+    den kanonischen Snapshot (services/risk_capacity_evaluation_snapshot.py).
+    Replay rechnet aus den gespeicherten Eingaben neu; aendern sich die
+    Live-Daten, wird die Evidenz "neu zu pruefen", nie ueberschrieben.
+
+    Append-only: KEIN updated_at/deleted_at, UPDATE/DELETE per Trigger
+    verboten (SQLite unten, PostgreSQL Alembic a7c4e9b2d1f3). KEIN FK auf
+    mandates/risk_assessments (Purge-fest), nur actor_id -> users.
+    ``tenant_id`` direkt (RLS-Plan), aus dem Mandat, im Hash gebunden.
+    """
+
+    __tablename__ = "risk_capacity_plausibility_evaluations"
+    __table_args__ = (
+        Index("ix_risk_capacity_plausibility_evaluations_mandate", "mandate_id", "evaluated_at"),
+        Index("ix_risk_capacity_plausibility_evaluations_tenant_id", "tenant_id"),
+        CheckConstraint(
+            "binding_context IN ('risk_assessment_saved','allocation_generated')",
+            name="ck_risk_capacity_evaluation_binding_context",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="RiskCapacityPlausibilityEvaluationV1")
+    tenant_id = Column(String)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String)
+    assessment_id = Column(String)
+    binding_context = Column(String, nullable=False)
+    binding_record_id = Column(String, nullable=False)
+    as_of_date = Column(String, nullable=False)
+    rules_version = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    inputs_json = Column(String)
+    inputs_hash = Column(String(64))
+    result_json = Column(String, nullable=False)
+    evaluation_hash = Column(String(64))
+    actor_id = Column(String, ForeignKey("users.id"), nullable=False)
+    evaluated_at = Column(String, nullable=False)
+    snapshot_hash = Column(String(64), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
+    event.listen(
+        RiskCapacityPlausibilityEvaluation.__table__,
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )
