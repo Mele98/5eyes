@@ -10,7 +10,7 @@ NULL = Bestand vor ADR-1b; diese Allokationen behalten das bisherige
 Verhalten (Wanduhr, Input-Hash ohne Stichtag).
 
 Revision ID: c4e8a2d6f913
-Revises: c7e4a19b3d52
+Revises: d2f8b6a1c4e9
 Create Date: 2026-10-25
 """
 from typing import Sequence, Union
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 
 
 revision: str = "c4e8a2d6f913"
-down_revision: Union[str, Sequence[str], None] = "c7e4a19b3d52"
+down_revision: Union[str, Sequence[str], None] = "d2f8b6a1c4e9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
