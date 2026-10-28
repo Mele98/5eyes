@@ -256,7 +256,6 @@ def test_checksum_mismatch_blocks_signature(session_factory, advisor_user, monke
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="SIGN-CLAIM-001 -- CERT-SIGNED-PUBLICATION-001")
 def test_draft_recommendation_is_not_published_as_final_in_contract_signoff(
     session_factory, advisor_user
 ):
@@ -317,7 +316,6 @@ def test_draft_recommendation_is_not_published_as_final_in_contract_signoff(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="SIGN-ELIGIBILITY-001 -- CERT-SIGNED-PUBLICATION-001")
 def test_draft_recommendation_run_cannot_produce_portfolio_handoff(
     session_factory, advisor_user, monkeypatch
 ):
@@ -345,3 +343,40 @@ def test_draft_recommendation_run_cannot_produce_portfolio_handoff(
                 current_user=advisor_user,
             )
         assert exc_info.value.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# SIGN-CLAIM-001 -- Positivkontrolle: ein Final-Run wird weiterhin ausgewiesen.
+# ---------------------------------------------------------------------------
+
+
+def test_final_recommendation_is_still_published_in_contract_signoff(session_factory, advisor_user):
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        from models.allocation import TargetAllocation
+        session.add(TargetAllocation(
+            id="ta-current-2", mandate_id=mandate_id, version=1, is_current=1,
+            target_equities_bps=5500, target_bonds_bps=2500,
+            target_real_estate_bps=1000, target_alternatives_bps=500,
+            target_liquidity_bps=500,
+            band_equities_min_bps=5000, band_equities_max_bps=6000,
+            band_bonds_min_bps=2000, band_bonds_max_bps=3000,
+            band_real_estate_min_bps=500, band_real_estate_max_bps=1500,
+            band_alternatives_min_bps=0, band_alternatives_max_bps=1000,
+            band_liquidity_min_bps=0, band_liquidity_max_bps=1000,
+            policy_id="policy-1", set_by=advisor_user.id,
+            set_at="2026-10-09T08:00:00.000Z",
+            created_at="2026-10-09T08:00:00.000Z",
+            updated_at="2026-10-09T08:00:00.000Z",
+        ))
+        session.add(RecommendationRun(
+            id="run-final-1", target_allocation_id="ta-current-2", mandate_id=mandate_id,
+            client_id=mandate.client_id, policy_id="policy-1", run_type="Initial",
+            objective_summary="Freigegebene Zielstrategie", result_status="Final",
+            created_by=advisor_user.id,
+            created_at="2026-10-09T09:00:00.000Z", updated_at="2026-10-09T09:00:00.000Z",
+        ))
+        session.commit()
+        protocol = _build_protokoll_data(mandate, session)
+        assert protocol.latest_recommendation_summary == "Freigegebene Zielstrategie"

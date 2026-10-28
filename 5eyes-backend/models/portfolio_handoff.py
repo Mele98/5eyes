@@ -34,7 +34,7 @@ Cleanup-Fall nur die Provenienz-Referenz, nicht seinen eigenen
 """
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, ForeignKey, Index, Integer, String, text
+from sqlalchemy import DDL, BigInteger, Column, ForeignKey, Index, Integer, String, event, text
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -62,6 +62,63 @@ HANDOFF_OPEN_BUSINESS_KEY_PREDICATE = (
 # (kein Broker-/Custody-Feed): manuelle Bestaetigung mit externer Referenz.
 EXECUTION_EVIDENCE_MANUAL_ATTESTATION = "manual_attestation"
 
+# HANDOFF-NEW-PRODUCT-001: worauf das IST des Snapshots beruht -- erfasstes,
+# vollstaendig belegtes Depot oder ausdrueckliche Bestaetigung "kein Bestand"
+# (Neugeld). Konstanten: services/portfolio_handoff.py::HOLDINGS_BASIS_*.
+HANDOFF_HOLDINGS_BASES = ("recorded_depot", "confirmed_no_holdings")
+
+# HANDOFF-DB-INVARIANT-001: DB-seitige Invarianten (Trigger statt CHECK,
+# Repo-Muster fuer Bestandstabellen -- SQLite kann CHECK nicht nachruesten).
+# Geprueft wird jedes INSERT und jedes UPDATE, das die betroffenen Spalten
+# setzt; Altzeilen (z.B. snapshot_sha256 NULL) bleiben lesbar und
+# abschliessbar, weil ein Statuswechsel den Hash nicht beruehrt.
+_STATUS_SQL = ", ".join(f"'{value}'" for value in HANDOFF_STATUSES)
+_BASES_SQL = ", ".join(f"'{value}'" for value in HANDOFF_HOLDINGS_BASES)
+_SQLITE_HASH_INVALID = (
+    "NEW.snapshot_sha256 IS NULL OR length(NEW.snapshot_sha256) <> 64 "
+    "OR NEW.snapshot_sha256 GLOB '*[^0-9a-f]*'"
+)
+_SQLITE_ROW_INVALID = (
+    f"NEW.status IS NULL OR NEW.status NOT IN ({_STATUS_SQL}) "
+    "OR NEW.position_count IS NULL OR NEW.position_count < 0 "
+    f"OR (NEW.holdings_basis IS NOT NULL AND NEW.holdings_basis NOT IN ({_BASES_SQL}))"
+)
+HANDOFF_INVARIANT_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_portfolio_handoffs_invariants_insert "
+    "BEFORE INSERT ON portfolio_handoffs FOR EACH ROW "
+    f"WHEN {_SQLITE_ROW_INVALID} OR {_SQLITE_HASH_INVALID} "
+    "BEGIN SELECT RAISE(ABORT, 'portfolio_handoffs invariant violated'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_portfolio_handoffs_invariants_update "
+    "BEFORE UPDATE OF status, position_count, snapshot_sha256, holdings_basis "
+    "ON portfolio_handoffs FOR EACH ROW "
+    f"WHEN {_SQLITE_ROW_INVALID} OR (NEW.snapshot_sha256 IS NOT OLD.snapshot_sha256 "
+    f"AND ({_SQLITE_HASH_INVALID})) "
+    "BEGIN SELECT RAISE(ABORT, 'portfolio_handoffs invariant violated'); END",
+)
+HANDOFF_INVARIANT_PG_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION portfolio_handoffs_invariants()
+RETURNS trigger AS $$
+BEGIN
+    IF NEW.status IS NULL OR NEW.status NOT IN ({_STATUS_SQL})
+       OR NEW.position_count IS NULL OR NEW.position_count < 0
+       OR (NEW.holdings_basis IS NOT NULL AND NEW.holdings_basis NOT IN ({_BASES_SQL})) THEN
+        RAISE EXCEPTION 'portfolio_handoffs invariant violated';
+    END IF;
+    IF (TG_OP = 'INSERT' OR NEW.snapshot_sha256 IS DISTINCT FROM OLD.snapshot_sha256)
+       AND (NEW.snapshot_sha256 IS NULL OR NEW.snapshot_sha256 !~ '^[0-9a-f]{{64}}$') THEN
+        RAISE EXCEPTION 'portfolio_handoffs invariant violated';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+HANDOFF_INVARIANT_PG_TRIGGER = """
+CREATE TRIGGER trg_portfolio_handoffs_invariants
+BEFORE INSERT OR UPDATE OF status, position_count, snapshot_sha256, holdings_basis
+ON portfolio_handoffs
+FOR EACH ROW EXECUTE FUNCTION portfolio_handoffs_invariants()
+"""
+
 
 class PortfolioHandoff(Base):
     __tablename__ = "portfolio_handoffs"
@@ -71,7 +128,7 @@ class PortfolioHandoff(Base):
     recommendation_run_id = Column(String, ForeignKey("recommendation_runs.id"), nullable=True)
 
     # Unveraenderlicher Snapshot der zum Sendezeitpunkt server-berechneten
-    # Trades (services/portfolio_handoff.py::snapshot_handoff_trades()).
+    # Trades (services/portfolio_handoff.py::snapshot_handoff()).
     trade_list_snapshot_json = Column(String, nullable=False)
     live_total_value_rappen = Column(BigInteger, nullable=False, default=0)
     position_count = Column(Integer, nullable=False, default=0)
@@ -106,6 +163,9 @@ class PortfolioHandoff(Base):
     execution_evidence_kind = Column(String)
     execution_external_reference = Column(String)
     execution_confirmed_on = Column(String)
+    # HANDOFF-NEW-PRODUCT-001: Bestandsbasis des Snapshots
+    # (HANDOFF_HOLDINGS_BASES); NULL nur bei Altbestand.
+    holdings_basis = Column(String)
 
     mandate = relationship("Mandate", back_populates="portfolio_handoffs")
     recommendation_run = relationship("RecommendationRun")
@@ -118,4 +178,18 @@ class PortfolioHandoff(Base):
             sqlite_where=text(HANDOFF_OPEN_BUSINESS_KEY_PREDICATE),
             postgresql_where=text(HANDOFF_OPEN_BUSINESS_KEY_PREDICATE),
         ),
+    )
+
+
+for _trigger_ddl in HANDOFF_INVARIANT_SQLITE_TRIGGERS:
+    event.listen(
+        PortfolioHandoff.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+for _pg_ddl in (HANDOFF_INVARIANT_PG_FUNCTION, HANDOFF_INVARIANT_PG_TRIGGER):
+    event.listen(
+        PortfolioHandoff.__table__,
+        "after_create",
+        DDL(_pg_ddl).execute_if(dialect="postgresql"),
     )

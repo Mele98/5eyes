@@ -23,10 +23,9 @@
  *    to `false` — so even a wizard that DID collect an amount/timing would
  *    still send a payload the real backend rejects with 422.
  *
- * Once GOAL-RECURRING-EDITOR-CONTRACT-001 is fixed (discriminated
- * GoalFormInput union, amount+timing required and threaded through for
- * recurring/pension goals), these `test.fails` assertions will start
- * passing and must be flipped to plain `it(...)`.
+ * Fixed (GOAL-RECURRING-EDITOR-CONTRACT-001, Frontend-Teil): amount and
+ * timing are required and threaded through for recurring/pension goals; the
+ * former `test.fails` reproducers are now regular regression tests.
  */
 import { describe, expect, test } from 'vitest';
 import { buildGoalPayload, validateGoalForm, type GoalFormInput } from './goalForm';
@@ -54,7 +53,7 @@ const basePension: GoalFormInput = {
 };
 
 describe('GOAL-RECURRING-EDITOR-CONTRACT-001: Wizard builder payload gap', () => {
-  test.fails(
+  test(
     'validateGoalForm requires an amount for Wiederkehrende_Ausgabe (real backend does, client does not)',
     () => {
       const noAmount: GoalFormInput = { ...baseRecurring, target_amount_rappen: null };
@@ -63,7 +62,7 @@ describe('GOAL-RECURRING-EDITOR-CONTRACT-001: Wizard builder payload gap', () =>
     },
   );
 
-  test.fails(
+  test(
     'validateGoalForm requires start_date for Wiederkehrende_Ausgabe (real backend does, client does not)',
     () => {
       const noStart: GoalFormInput = { ...baseRecurring, start_date: null };
@@ -72,7 +71,7 @@ describe('GOAL-RECURRING-EDITOR-CONTRACT-001: Wizard builder payload gap', () =>
     },
   );
 
-  test.fails(
+  test(
     'buildGoalPayload preserves a provided amount for Wiederkehrende_Ausgabe instead of nulling it',
     () => {
       const payload = buildGoalPayload(baseRecurring);
@@ -83,7 +82,7 @@ describe('GOAL-RECURRING-EDITOR-CONTRACT-001: Wizard builder payload gap', () =>
     },
   );
 
-  test.fails(
+  test(
     'buildGoalPayload preserves a provided amount for Pensionsausgabe instead of nulling it',
     () => {
       const payload = buildGoalPayload(basePension);
@@ -91,7 +90,7 @@ describe('GOAL-RECURRING-EDITOR-CONTRACT-001: Wizard builder payload gap', () =>
     },
   );
 
-  test.fails(
+  test(
     'buildGoalPayload roundtrips start_date for Wiederkehrende_Ausgabe end-to-end from a complete wizard input',
     () => {
       const payload = buildGoalPayload(baseRecurring);

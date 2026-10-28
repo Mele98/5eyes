@@ -1,5 +1,8 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
-const { autoUpdater } = require('electron-updater');
+// UPDATE-001: electron-updater wird erst geladen, wenn das Build-Gate in der
+// gepackten package.json offen ist (siehe update-gate.js); sonst nie.
+const { evaluateRuntimeUpdateGate } = require('./update-gate');
+let autoUpdater = null;
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
@@ -132,12 +135,14 @@ function notifyRendererUpdateState() {
 }
 
 function configureAutoUpdates() {
-  updateState.enabled = isAutoUpdateEnabled();
+  const gate = evaluateRuntimeUpdateGate({ packageJson: require('./package.json'), isPackaged: app.isPackaged });
+  updateState.enabled = gate.enabled && isAutoUpdateEnabled();
   if (!updateState.enabled) {
-    logLine('Auto-update disabled (set ENABLE_AUTO_UPDATE=1 in packaged app to enable).');
+    logLine(`Auto-update disabled (UPDATE-001 gate: ${gate.enabled ? 'ENABLE_AUTO_UPDATE not set' : gate.reason}).`);
     return;
   }
 
+  ({ autoUpdater } = require('electron-updater'));
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -173,7 +178,7 @@ function configureAutoUpdates() {
 }
 
 async function checkForUpdates() {
-  if (!updateState.enabled) {
+  if (!updateState.enabled || !autoUpdater) {
     return { ...updateState, message: 'Auto-update disabled' };
   }
   try {
@@ -807,6 +812,10 @@ app.on('activate', async () => {
 // Nur für Tests exportiert (Electron ignoriert module.exports am Entrypoint).
 // Erlaubt das deterministische Prüfen der EM-7-Lebendigkeitslogik.
 if (typeof module !== 'undefined' && module.exports) {
+  // UPDATE-001: Update-Gate deterministisch pruefbar (tests/update-gate.test.js).
+  module.exports._configureAutoUpdatesForTest = configureAutoUpdates;
+  module.exports._checkForUpdatesForTest = checkForUpdates;
+  module.exports._getUpdateStateForTest = () => ({ ...updateState });
   module.exports.backendProcessStillAlive = backendProcessStillAlive;
   // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App
   // niemals einen bereits laufenden Fremdprozess als Backend uebernimmt.
