@@ -1,6 +1,8 @@
 """Target-only depot analysis for the client consultation."""
 from __future__ import annotations
 
+from datetime import date
+
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer
 
@@ -245,7 +247,26 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         'Kosteninformationen und Vertragsunterlagen.</font>'.format(FONT_DEFAULT),
         make_paragraph_styles()["small"],
     ))
+    if data.snapshot_id:
+        # DEPOT-E2E-SNAPSHOT-001: derselbe gespeicherte Depot-Check wie im JSON.
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="8.5" color="#475569">'
+            f'{_esc(_snapshot_identity_line(data))}</font>',
+            make_paragraph_styles()["small"],
+        ))
     return flowables
+
+
+def _snapshot_identity_line(data: DepotCheckData) -> str:
+    try:
+        stichtag = date.fromisoformat(str(data.as_of)).strftime("%d.%m.%Y")
+    except ValueError:
+        stichtag = str(data.as_of or "-")
+    return (
+        f"Datenstand: Depot-Snapshot {data.snapshot_id} "
+        f"(Hash {str(data.snapshot_hash or '')[:12]}), Stichtag {stichtag}; "
+        f"Depot-Check {data.analysis_snapshot_id or '-'}."
+    )
 
 
 def _start_page(

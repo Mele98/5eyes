@@ -506,6 +506,37 @@ BEFORE DELETE ON depot_snapshots FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
 
 -- ===========================================================================
+-- DEPOT-E2E-SNAPSHOT-001: DepotCheckAnalysisSnapshot -- append-only
+-- Depot-Check-Ergebnis, gebunden an genau einen DepotSnapshotV1
+-- (snapshot_id + snapshot_hash), mit Analyse-Version und Ergebnis-Hash.
+-- KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger verboten.
+-- Kein FK auf mandates/clients/depot_snapshots (Purge-fest).
+-- Identisch zu database.py::DEPOT_CHECK_ANALYSIS_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS depot_check_analysis_snapshots (
+    id                  TEXT PRIMARY KEY,
+    schema_version      TEXT NOT NULL DEFAULT 'DepotCheckAnalysisV1',
+    mandate_id          TEXT NOT NULL,
+    client_id           TEXT NOT NULL,
+    depot_snapshot_id   TEXT NOT NULL,
+    depot_snapshot_hash TEXT NOT NULL,
+    as_of_date          TEXT NOT NULL,
+    analysis_json       TEXT NOT NULL,
+    analysis_hash       TEXT NOT NULL,
+    result_hash         TEXT NOT NULL,
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_depot_check_analysis_snapshots_mandate
+    ON depot_check_analysis_snapshots(mandate_id, created_at);
+CREATE TRIGGER IF NOT EXISTS trg_depot_check_analysis_snapshots_no_update
+BEFORE UPDATE ON depot_check_analysis_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_check_analysis_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_depot_check_analysis_snapshots_no_delete
+BEFORE DELETE ON depot_check_analysis_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_check_analysis_snapshots is immutable'); END;
+
+-- ===========================================================================
 -- RISK-CAPACITY-EVALUATION-SNAPSHOT-001 (2026-10-26):
 -- RiskCapacityPlausibilityEvaluationV1 -- append-only, gehashte Evidenz jeder
 -- beim Speichern des Risikoprofils bzw. bei der Generierung gebundenen

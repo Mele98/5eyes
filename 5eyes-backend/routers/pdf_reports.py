@@ -1849,10 +1849,9 @@ def get_protokoll_pdf(
 # ============================================================================
 
 
-def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
-    """Build the client-facing analysis of the recommended target portfolio."""
-    from services.backtest_stress import gated_stress_replays
-    from services.cost_disclosure import build_cost_disclosure
+def _depotcheck_gate(mandate: Mandate, db: Session):
+    """Gates des Depot-Check-PDFs auf dem aktuellen Stand (Strategie gueltig,
+    Soll nicht veraltet). Returns ``(live_depot_check, projection_gate)``."""
     from services.depot_check import compute_depot_check
 
     from services.report_projection_gate import (
@@ -1891,6 +1890,28 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             f"Depot-Check kann nicht erstellt werden: die Soll-Allokation ist "
             f"veraltet ({grund}). Bitte Strategie neu berechnen."
         )
+    return dc, projection_gate
+
+
+def _build_depotcheck_data(
+    mandate: Mandate, db: Session, *, analysis: dict | None = None,
+) -> DepotCheckData:
+    """Build the client-facing analysis of the recommended target portfolio.
+
+    DEPOT-E2E-SNAPSHOT-001: mit ``analysis`` (verifizierter, gespeicherter
+    Depot-Check, services/depot_check_snapshot.py) stammen alle
+    bestandsabhaengigen Teile aus genau diesem Snapshot -- demselben, den der
+    JSON-Endpunkt liefert. Der Endpunkt erzeugt ohne ihn kein PDF.
+    """
+    from services.backtest_stress import gated_stress_replays
+    from services.cost_disclosure import build_cost_disclosure
+    from services.depot_check_snapshot import assert_analysis_matches_current_allocation
+
+    dc, projection_gate = _depotcheck_gate(mandate, db)
+    if analysis is not None:
+        assert_analysis_matches_current_allocation(db, mandate, analysis)
+        dc = analysis["result"]
+    identity = analysis or {}
     sr = gated_stress_replays(db, mandate, projection_gate) or {}
     fc = dc.get("fund_characteristics") or {}
     strategy = _build_anlagestrategie_data(mandate, db)
@@ -1997,6 +2018,11 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             positions=positions,
             soll_hhi=soll_hhi,
         ),
+        analysis_snapshot_id=identity.get("analysis_snapshot_id"),
+        snapshot_id=identity.get("snapshot_id"),
+        snapshot_hash=identity.get("snapshot_hash"),
+        as_of=identity.get("as_of"),
+        result_hash=identity.get("result_hash"),
     )
 
 
@@ -2184,14 +2210,32 @@ def _build_depotcheck_qualitative_assessment(
 )
 def get_depotcheck_pdf(
     mandate_id: str,
+    analysis_snapshot_id: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios."""
+    """Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios.
+
+    DEPOT-E2E-SNAPSHOT-001: liest den gespeicherten Depot-Check
+    (``analysis_snapshot_id``, sonst den juengsten des Mandats); ohne
+    gebundenen Snapshot kein PDF (409).
+    """
+    from services.depot_check_snapshot import NO_ANALYSIS_MESSAGE, load_depot_check_analysis
+
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
-        data = _build_depotcheck_data(mandate, db)
+        analysis = load_depot_check_analysis(db, mandate, analysis_snapshot_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:  # Integritaetsfehler
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        if analysis is None:
+            # Erst die Strategie-Gates (ihre Meldung hat Vorrang), dann fail-closed.
+            _depotcheck_gate(mandate, db)
+            raise ValueError(NO_ANALYSIS_MESSAGE)
+        data = _build_depotcheck_data(mandate, db, analysis=analysis)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
