@@ -296,8 +296,8 @@ def _handoff(session, advisor, monkeypatch):
     monkeypatch.setattr(handoff_router, "_get_recommendation_run_or_404", lambda *a, **k: run)
     snapshots: list = []
     monkeypatch.setattr(
-        handoff_router, "snapshot_handoff_trades",
-        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1),
+        handoff_router, "snapshot_handoff",
+        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1, "recorded_depot"),
     )
     with pytest.raises(HTTPException) as exc:
         handoff_router.create_portfolio_handoff(
