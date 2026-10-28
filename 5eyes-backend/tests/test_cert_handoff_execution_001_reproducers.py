@@ -88,7 +88,6 @@ def _html() -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-DELIVERY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_local_insert_must_not_claim_sent_without_transport_evidence(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
@@ -114,7 +113,6 @@ def test_local_insert_must_not_claim_sent_without_transport_evidence(session_fac
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-VALUATION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_snapshot_blocks_when_no_real_holding_backs_any_trade(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     payload = {
@@ -153,7 +151,6 @@ def test_snapshot_blocks_when_no_real_holding_backs_any_trade(session_factory, a
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-MATH-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
     entries = [{
         "product_id": "prod-math",
@@ -187,12 +184,10 @@ def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-UI-CONTRACT-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_trade_list_ui_compares_action_code_not_localized_label():
-    html = _html()
-    start = html.index("function openTradeList()")
-    end = html.index("function renderPortfolioHandoffSection()", start)
-    body = html[start:end]
+    # HANDOFF-PREVIEW-PARITY-001: die Darstellung liegt im ausgelagerten
+    # Skriptmodul neben dem Monolithen.
+    body = (Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "trade-list-preview.js").read_text(encoding="utf-8")
 
     # Soll (Spec Section 5.1/10): Fachlogik, Summen und Farben konsumieren
     # ausschliesslich rebalance_action_code (BUY/SELL/HOLD/...), niemals das
@@ -213,7 +208,6 @@ def test_trade_list_ui_compares_action_code_not_localized_label():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-INSTRUCTION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_snapshot_preserves_executable_instruction_fields_when_source_has_them(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     drift = _drift(
@@ -250,7 +244,6 @@ def test_snapshot_preserves_executable_instruction_fields_when_source_has_them(s
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-IDEMPOTENCY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_identical_create_retry_produces_exactly_one_open_handoff(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
@@ -289,7 +282,6 @@ def test_identical_create_retry_produces_exactly_one_open_handoff(session_factor
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-EXECUTION-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_mark_executed_requires_fill_evidence_not_empty_body():
     # Soll (Spec Section 3.7/4.5): "Ausgefuehrt" muss aus vollstaendigen
     # Fill-Ereignissen (externe Order-ID, Menge, Preis, Settlement) abgeleitet
@@ -307,20 +299,29 @@ def test_mark_executed_requires_fill_evidence_not_empty_body():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="HANDOFF-INTEGRITY-001 -- CERT-HANDOFF-EXECUTION-001")
 def test_response_schema_rejects_tampered_status_json_and_count(session_factory, advisor_user):
+    from sqlalchemy.exc import IntegrityError
+
     _seed_mandate_and_run(session_factory, advisor_user)
-    with session_factory() as session:
-        tampered = PortfolioHandoff(
+
+    def _tampered():
+        return PortfolioHandoff(
             id="handoff-tampered", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="not-json", live_total_value_rappen=1_000_000,
             position_count=999, recipient_name="Bank XY",
             status="BROKEN", created_by=advisor_user.id,
             created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
         )
-        session.add(tampered)
-        session.commit()
-        session.refresh(tampered)
+
+    with session_factory() as session:
+        # HANDOFF-DB-INVARIANT-001: die DB lehnt den manipulierten Datensatz
+        # bereits beim Schreiben ab (Status ausserhalb der Zustandsmaschine,
+        # kein Snapshot-Hash).
+        session.add(_tampered())
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+        tampered = _tampered()
 
         # Soll (Spec Section 3.8/8): ein freier Status ausserhalb der
         # Zustandsmaschine, ungueltiges JSON im Snapshot und ein

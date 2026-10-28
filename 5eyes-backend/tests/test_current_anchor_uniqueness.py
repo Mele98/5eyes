@@ -353,6 +353,27 @@ def _allocation_row(
     }
 
 
+# POLICY-ACTIVATION-COMPLETENESS-001: Aktivierung verlangt eine House Matrix
+# mit voller Score-Abdeckung 1..10; die Anchor-Tests seeden deshalb eine.
+_COMPLETE_HM_BANDS = dict(
+    score_from=1, score_to=10, profile_name="Anchor-Profil",
+    liq_min_bps=0, liq_target_bps=1000, liq_max_bps=2000,
+    bonds_min_bps=2000, bonds_target_bps=3000, bonds_max_bps=4000,
+    equity_min_bps=5000, equity_target_bps=6000, equity_max_bps=7000,
+    real_estate_min_bps=0, real_estate_target_bps=0, real_estate_max_bps=1000,
+    alt_min_bps=0, alt_target_bps=0, alt_max_bps=1000,
+    equity_minimum_bps=0, max_risky_fraction_bps=9000,
+)
+
+
+def _complete_hm_row(policy_id: str) -> dict:
+    now = "2026-08-20T00:00:00Z"
+    return dict(
+        id=f"{policy_id}-hm-anchor", policy_id=policy_id, is_active=1,
+        created_at=now, updated_at=now, **_COMPLETE_HM_BANDS,
+    )
+
+
 def _policy_row(row_id: str, *, policy_name: str, is_current: int = 1):
     return {
         "id": row_id,
@@ -641,6 +662,7 @@ def test_policy_activation_clears_old_anchor_before_setting_new_one(orm_engine):
                 _policy_row("a-draft", policy_name="Draft", is_current=0),
             ],
         )
+        connection.execute(HouseMatrix.__table__.insert(), _complete_hm_row("a-draft"))
 
     with Session(orm_engine) as session:
         activated = activate_optimizer_policy(
@@ -746,7 +768,7 @@ def test_active_policy_create_releases_previous_global_anchor_first(orm_engine):
         session.commit()
         advisor = session.get(User, "advisor-anchor")
         created = create_optimizer_policy(
-            OptimizerPolicyCreate(policy_name="Replacement"),
+            OptimizerPolicyCreate(policy_name="Replacement", house_matrix_rows=[_COMPLETE_HM_BANDS]),
             _request_stub(),
             activate=True,
             db=session,
@@ -877,6 +899,8 @@ def test_activate_optimizer_policy_returns_409_not_500_on_current_anchor_race(
         advisor = session.get(User, "advisor-anchor")
         session.add(OptimizerPolicy(**_policy_row("policy-a", policy_name="A", is_current=0)))
         session.add(OptimizerPolicy(**_policy_row("policy-b", policy_name="B", is_current=0)))
+        session.flush()
+        session.add(HouseMatrix(**_complete_hm_row("policy-b")))
         session.commit()
 
         # Erster OptimizerPolicy-Query im Endpoint ist das harmlose

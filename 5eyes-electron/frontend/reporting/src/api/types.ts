@@ -925,7 +925,7 @@ export interface AdvisoryReport {
   weiteres_vorgehen: WeiteresVorgehenData;
   /** U-FINMA-2.2: FINMA-konforme Beratungsprotokoll-Übersicht */
   beratungsprotokoll: BeratungsprotokollData;
-  /** U-70: Historische Stress-Szenarien auf aktueller Zielallokation */
+  /** U-70: Stress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen Depots) */
   stress_replay: StressReplayData;
   /** U-68: FIDLEG Interessenkonflikt-Offenlegungen */
   conflict_disclosures: ConflictDisclosuresData;

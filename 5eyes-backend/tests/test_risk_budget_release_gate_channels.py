@@ -78,6 +78,8 @@ def _setup(session_factory, suffix: str, *, mode: str):
 
 
 def _add_document(session_factory, mid, advisor_id, document_type) -> str:
+    from signable_document_fixture import archived_pdf_fields
+
     doc_id = new_uuid()
     now = _iso()
     with session_factory() as db:
@@ -86,6 +88,9 @@ def _add_document(session_factory, mid, advisor_id, document_type) -> str:
             title=document_type, status="Entwurf", signed_by_advisor=0,
             signed_by_client=0, version=1, created_by=advisor_id,
             created_at=now, updated_at=now,
+            # CERT-SIGNED-PUBLICATION-001: signierbar ist nur ein
+            # archiviertes, pruefsummengesichertes PDF.
+            **archived_pdf_fields(),
         ))
         db.commit()
     return doc_id
@@ -237,8 +242,8 @@ def test_handoff_blocked_without_persisting(session_factory, monkeypatch, mode, 
     import routers.portfolio_handoff as ho
 
     monkeypatch.setattr(
-        ho, "snapshot_handoff_trades",
-        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1),
+        ho, "snapshot_handoff",
+        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1, "recorded_depot"),
     )
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()

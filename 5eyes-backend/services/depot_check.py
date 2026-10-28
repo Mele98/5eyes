@@ -148,19 +148,24 @@ def _wealth_position_liquidity_tier(position: WealthPosition, bucket: str) -> st
     return "unknown"
 
 
+# Explizite Zuordnung Product.asset_class -> Bucket. Geteilt mit
+# services/depot_snapshot.py, das unbekannte Werte NICHT auf einen Bucket
+# faellt, sondern fail-closed als "nicht zugeordnet" ausweist.
+PRODUCT_ASSET_CLASS_ALIASES: dict[str, str] = {
+    "aktien": "equities", "equities": "equities",
+    "obligationen": "bonds", "anleihen": "bonds", "bonds": "bonds",
+    "immobilien": "real_estate", "real estate": "real_estate", "real_estate": "real_estate",
+    "alternative": "alternatives", "alternativen": "alternatives", "alternatives": "alternatives",
+    "liquidität": "liquidity", "liquiditaet": "liquidity",
+    "liquides vermoegen": "liquidity", "liquides vermögen": "liquidity",
+    "cash": "liquidity", "liquidity": "liquidity",
+}
+
+
 def _bucket_key_from_product(product: Product) -> str:
     """Mappt Product.asset_class auf den Bucket-Key (englisch)."""
     raw = str(product.asset_class or "").strip().lower()
-    aliases = {
-        "aktien": "equities", "equities": "equities",
-        "obligationen": "bonds", "anleihen": "bonds", "bonds": "bonds",
-        "immobilien": "real_estate", "real estate": "real_estate", "real_estate": "real_estate",
-        "alternative": "alternatives", "alternativen": "alternatives", "alternatives": "alternatives",
-        "liquidität": "liquidity", "liquiditaet": "liquidity",
-        "liquides vermoegen": "liquidity", "liquides vermögen": "liquidity",
-        "cash": "liquidity", "liquidity": "liquidity",
-    }
-    return aliases.get(raw, "alternatives")
+    return PRODUCT_ASSET_CLASS_ALIASES.get(raw, "alternatives")
 
 
 def _compute_drift(

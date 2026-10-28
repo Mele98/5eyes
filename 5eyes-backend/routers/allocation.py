@@ -32,6 +32,15 @@ from services.auth import (
     enforce_cma_cross_tenant_read_scope,
 )
 from services.audit import log
+from services.optimizer_policy_lifecycle import (
+    REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
+    copy_policy_children,
+    house_matrix_coverage_problems,
+    new_draft_version,
+    next_policy_version,
+    policy_is_frozen,
+    policy_is_referenced,
+)
 from services.allocation_concurrency import (
     AllocationVersionConflict,
     assert_expected_predecessor,
@@ -79,7 +88,7 @@ from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.report_projection_gate import resolve_current_allocation_projection_gate
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
-from services.suitability_audit import audit_mandate_suitability
+from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.knowledge_asset_class_gap import (
     attach_to_strategy_payload as attach_knowledge_gap_check,
 )
@@ -88,6 +97,10 @@ from services.risk_capacity_plausibility import (
     audit_if_inconsistent,
     evaluate_mandate_safely,
 )
+from services.risk_capacity_evaluation_snapshot import (
+    CONTEXT_ALLOCATION_GENERATED,
+    record_snapshot as record_plausibility_snapshot,
+)
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
@@ -95,42 +108,6 @@ router = APIRouter(tags=["Allokation"])
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-# Sprint U-103 (2026-06-05): Felder die NICHT in den Archiv-Snapshot
-# uebernommen werden (Identitaet/Lifecycle gehoeren zur neuen Zeile).
-_POLICY_NONCLONE_FIELDS = frozenset({"id", "version", "is_current", "valid_from", "valid_to"})
-
-
-def _archive_policy_snapshot(db: Session, policy: OptimizerPolicy, now: str) -> OptimizerPolicy:
-    """Sprint U-103 (2026-06-05): Snapshot der aktuellen Policy in eine
-    archivierte Zeile schreiben (is_current=0, valid_to=now). Damit kann
-    nach einem Update die historische Konfiguration rekonstruiert werden,
-    wie sie zum Zeitpunkt eines bestimmten TargetAllocation-Runs galt.
-
-    Praezise: alle Felder ausser id/version/is_current/valid_from/valid_to
-    werden 1:1 kopiert. Die archivierte Zeile bekommt:
-      - neue id (eigener PK)
-      - dieselbe version wie die aktuelle Zeile (= Stand der Archivierung)
-      - is_current=0
-      - valid_from = bisheriges valid_from der aktuellen Zeile
-      - valid_to   = now (Ende-der-Gueltigkeit)
-    """
-    snapshot_kwargs = {
-        column.name: getattr(policy, column.name)
-        for column in policy.__table__.columns
-        if column.name not in _POLICY_NONCLONE_FIELDS
-    }
-    snapshot = OptimizerPolicy(
-        id=new_uuid(),
-        version=policy.version,
-        is_current=0,
-        valid_from=policy.valid_from,
-        valid_to=now,
-        **snapshot_kwargs,
-    )
-    db.add(snapshot)
-    return snapshot
 
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
@@ -282,7 +259,7 @@ def create_target_allocation(
     # der direkte POST-Pfad es nicht mehr umgehen kann.
     if settings.require_suitability_before_recommendation:
         suitability = audit_mandate_suitability(db, mandate)
-        if not suitability.get("is_compliant", True):
+        if suitability_gate_blocks(suitability, creates_target_allocation=True):
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -687,7 +664,7 @@ def generate_target_allocation_endpoint(
         # is_compliant=False meldet (fehlende/nicht-konforme Pruefung).
         if settings.require_suitability_before_recommendation:
             suitability = audit_mandate_suitability(db, mandate)
-            if not suitability.get("is_compliant", True):
+            if suitability_gate_blocks(suitability, creates_target_allocation=True):
                 raise HTTPException(
                     status_code=409,
                     detail=(
@@ -720,7 +697,17 @@ def generate_target_allocation_endpoint(
             # keine Profilaenderung, kein Blockieren.
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
-            plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
+            captured: dict = {}
+            plausibility = evaluate_mandate_safely(
+                db, mandate, result.get("risk_assessment"), capture=captured,
+            )
+            # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: genau diese Bewertung als
+            # unveraenderliche Evidenz an die neue Soll-Allokation binden.
+            record_plausibility_snapshot(
+                db, mandate, result.get("risk_assessment"), plausibility, captured,
+                actor=current_user, binding_context=CONTEXT_ALLOCATION_GENERATED,
+                binding_record_id=result["target_allocation"].id,
+            )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
             # (nach der Plausibilitaet = zuoberst im Reasoning).
@@ -1063,7 +1050,11 @@ def get_backtest_stress_replays(
 ):
     """Sprint U-P13: Historische Stress-Szenarien (Dotcom 2000-2002, GFC
     2008, Covid 2020, Bonds-Crash 2022, Stagflation 1973-74) angewandt
-    auf die aktuelle Target-Allocation des Mandates.
+    auf die SOLL-Gewichtung der gueltigen Target-Allocation des Mandates.
+
+    Stress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen
+    Depots): IST-Bestaende fliessen nicht ein (``scope`` =
+    ``approved_target_allocation``, ``scope_label`` fuer die Anzeige).
 
     Foundation-Variante mit hartcodierten Returns. Voll-Pipeline mit
     historischer Time-Series kommt in Sprint U-P11.
@@ -1292,6 +1283,25 @@ def get_optimizer_policy_detail(
     return OptimizerPolicyDetailResponse(**payload)
 
 
+def _raise_if_policy_house_matrix_incomplete(house_matrix_rows) -> None:
+    """POLICY-ACTIVATION-COMPLETENESS-001: aktiv wird nur eine Policy, deren
+    aktive House Matrix die Scores 1..10 lueckenlos und ohne Ueberlappung
+    abdeckt. Geprueft wird VOR dem Deaktivieren der bisherigen Policy, damit
+    ein Fehlschlag die funktionierende Current-Policy unveraendert laesst."""
+    problems = house_matrix_coverage_problems(house_matrix_rows)
+    if not problems:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "reason_code": REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
+            "message": "Policy nicht aktiviert: House Matrix unvollstaendig ("
+                       + "; ".join(problems) + ").",
+            "problems": problems,
+        },
+    )
+
+
 def _raise_if_policy_engine_infeasible(house_matrix_rows, policy) -> None:
     """ADMIN-HOUSE-MATRIX-PERCENT-001 (CIO-Entscheid 3): eine Policy, unter der
     die Engine fuer ein Score-Band keine Allokation bilden kann (wirksame
@@ -1338,6 +1348,7 @@ def create_optimizer_policy(
     if activate:
         # Gleiches Gate wie POST .../activate (Create+Aktivieren ist ein
         # zweiter Aktivierungsweg).
+        _raise_if_policy_house_matrix_incomplete(body.house_matrix_rows)
         _raise_if_policy_engine_infeasible(
             [SimpleNamespace(**row.model_dump()) for row in body.house_matrix_rows],
             SimpleNamespace(
@@ -1422,28 +1433,33 @@ def update_optimizer_policy(
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
     payload = body.model_dump(exclude_none=True)
+    if not payload:
+        return policy
     now = _now()
-    # Sprint U-103 (2026-06-05): vor In-Place-Update einen Archive-Snapshot
-    # der bisherigen Policy schreiben. Dadurch bleibt rekonstruierbar welche
-    # Werte zur Generierung einer historischen TargetAllocation in Kraft
-    # waren. Die aktuelle Zeile bleibt unter derselben policy_id erreichbar
-    # (FK-Integritaet bestehender TAs unveraendert).
-    if payload:
-        previous_version = policy.version
-        _archive_policy_snapshot(db, policy, now=now)
-        policy.version = previous_version + 1
-        policy.valid_from = now
-        policy.valid_to = None
-    for field, value in payload.items():
-        setattr(policy, field, value)
-    policy.updated_at = now
+    # POLICY-VERSION-IDENTITY-001: aktive oder referenzierte Versionen sind
+    # unter ihrer ID unveraenderlich. Die Aenderung landet in einer neuen
+    # Entwurfsversion (neue ID, House Matrix + Building Blocks kopiert); die
+    # bisherige Version bleibt unveraendert und aktiv, bis der Entwurf ueber
+    # POST .../activate scharf geschaltet wird.
+    if policy_is_frozen(db, policy):
+        target = new_draft_version(
+            db, policy, now=now, created_by=current_user.id, overrides=payload,
+        )
+        action, old_value = "CLONE", policy.id
+    else:
+        target = policy
+        for field, value in payload.items():
+            setattr(target, field, value)
+        target.updated_at = now
+        action, old_value = "UPDATE", None
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="optimizer_policies", record_id=policy_id, action="UPDATE",
+        table_name="optimizer_policies", record_id=target.id, action=action,
+        old_value=old_value,
         new_value=", ".join(f"{k}={v}" for k, v in payload.items()),
         ip_address=_extract_client_ip(request))
     db.commit()
-    db.refresh(policy)
-    return policy
+    db.refresh(target)
+    return target
 
 
 @router.put("/admin/optimizer-policies/{policy_id}/house-matrix",
@@ -1468,6 +1484,13 @@ def replace_house_matrix_rows(
         raise HTTPException(
             status_code=409,
             detail="Aktive Policy kann nicht direkt überschrieben werden — bitte zuerst klonen und die neue Version aktivieren.",
+        )
+    # POLICY-VERSION-IDENTITY-001: auch eine historische, aber referenzierte
+    # Version darf ihre Bandbreiten nicht nachtraeglich aendern.
+    if policy_is_referenced(db, policy_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Diese Policy-Version wird von bestehenden Allokationen referenziert und ist unveränderlich — bitte klonen.",
         )
 
     now = _now()
@@ -1504,14 +1527,13 @@ def activate_optimizer_policy(
     if policy.is_current == 1:
         return policy
 
+    active_rows = db.query(HouseMatrix).filter(
+        HouseMatrix.policy_id == policy_id,
+        HouseMatrix.is_active == 1,
+    ).all()
+    _raise_if_policy_house_matrix_incomplete(active_rows)
     # ADMIN-HOUSE-MATRIX-PERCENT-001 (CIO-Entscheid 3): fail-closed.
-    _raise_if_policy_engine_infeasible(
-        db.query(HouseMatrix).filter(
-            HouseMatrix.policy_id == policy_id,
-            HouseMatrix.is_active == 1,
-        ).all(),
-        policy,
-    )
+    _raise_if_policy_engine_infeasible(active_rows, policy)
 
     now = _now()
     prev = db.query(OptimizerPolicy).filter(
@@ -1564,15 +1586,10 @@ def clone_optimizer_policy(
         raise HTTPException(status_code=404, detail=f"Source-Policy {policy_id} nicht gefunden")
 
     now = _now()
-    max_version = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.policy_name == source.policy_name,
-    ).order_by(OptimizerPolicy.version.desc()).first()
-    next_version = (int(max_version.version) if max_version else 0) + 1
-
     clone = OptimizerPolicy(
         id=new_uuid(),
         policy_name=(new_name or source.policy_name),
-        version=next_version,
+        version=next_policy_version(db, source.policy_name),
         is_current=0,
         valid_from=now,
         optimizer_engine=source.optimizer_engine,
@@ -1588,40 +1605,10 @@ def clone_optimizer_policy(
     )
     db.add(clone)
     db.flush()
-
-    source_rows = db.query(HouseMatrix).filter(
-        HouseMatrix.policy_id == source.id,
-        HouseMatrix.is_active == 1,
-    ).order_by(HouseMatrix.score_from.asc()).all()
-    for src_row in source_rows:
-        new_row = HouseMatrix(
-            id=new_uuid(),
-            policy_id=clone.id,
-            score_from=src_row.score_from,
-            score_to=src_row.score_to,
-            profile_name=src_row.profile_name,
-            liq_min_bps=src_row.liq_min_bps,
-            liq_target_bps=src_row.liq_target_bps,
-            liq_max_bps=src_row.liq_max_bps,
-            bonds_min_bps=src_row.bonds_min_bps,
-            bonds_target_bps=src_row.bonds_target_bps,
-            bonds_max_bps=src_row.bonds_max_bps,
-            equity_min_bps=src_row.equity_min_bps,
-            equity_target_bps=src_row.equity_target_bps,
-            equity_max_bps=src_row.equity_max_bps,
-            real_estate_min_bps=src_row.real_estate_min_bps,
-            real_estate_target_bps=src_row.real_estate_target_bps,
-            real_estate_max_bps=src_row.real_estate_max_bps,
-            alt_min_bps=src_row.alt_min_bps,
-            alt_target_bps=src_row.alt_target_bps,
-            alt_max_bps=src_row.alt_max_bps,
-            equity_minimum_bps=src_row.equity_minimum_bps,
-            max_risky_fraction_bps=src_row.max_risky_fraction_bps,
-            is_active=1,
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(new_row)
+    # POLICY-ACTIVATION-COMPLETENESS-001: der Klon ist ein vollstaendiges
+    # Aggregat -- House Matrix UND Building Blocks (Risikofraktion,
+    # Jurisdiktion, Universum, Rolle, Provisorik) werden spaltengetreu kopiert.
+    copy_policy_children(db, source_id=source.id, target_id=clone.id, now=now)
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="optimizer_policies", record_id=clone.id, action="CLONE",
@@ -1629,3 +1616,78 @@ def clone_optimizer_policy(
         ip_address=_extract_client_ip(request))
     db.commit()
     return get_optimizer_policy_detail(clone.id, db, current_user)
+
+
+# --- DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2 -----------------
+# IST-Stress: dieselben historischen Szenarien wie der SOLL-Stress-Replay,
+# aber auf den IST-Gewichten eines persistierten, hash-gebundenen
+# DepotSnapshotV1 (services/depot_snapshot.py). Erfassen = POST (idempotent,
+# gleicher Inhalt = gleicher Snapshot), Abspielen = GET mit Verifikation;
+# ein manipulierter Snapshot liefert 409 statt Zahlen.
+
+@router.post("/mandates/{mandate_id}/depot-snapshots", status_code=201)
+def create_depot_snapshot(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    from services.currency.fx_rates import FXRateLoadError
+    from services.depot_snapshot import (
+        DepotSnapshotIntegrityError,
+        build_depot_snapshot,
+        compute_ist_stress,
+        persist_depot_snapshot,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        snapshot = build_depot_snapshot(
+            db, mandate, as_of=datetime.now(timezone.utc).date(),
+        )
+        row, created = persist_depot_snapshot(
+            db, snapshot, mandate=mandate, created_by=current_user.id, created_at=_now(),
+        )
+    except (FXRateLoadError, DepotSnapshotIntegrityError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if created:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="depot_snapshots", record_id=row.id, action="CREATE",
+            new_value=snapshot["snapshot_hash"], mandate_id=mandate.id,
+            client_id=getattr(mandate, "client_id", None),
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    return {"snapshot": snapshot, "created": created, "ist_stress": compute_ist_stress(snapshot)}
+
+
+@router.get("/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays")
+def get_depot_snapshot_stress_replays(
+    mandate_id: str,
+    snapshot_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stress-Replay des IST-Depots aus einem gespeicherten Depot-Snapshot
+    (``scope`` = ``current_holdings_snapshot``). Positionen ohne eindeutige
+    Anlageklasse -> keine Szenariozahlen (fail-closed, ausgewiesen)."""
+    from models.snapshots import DepotSnapshot
+    from services.depot_snapshot import (
+        DepotSnapshotIntegrityError,
+        compute_ist_stress,
+        verify_persisted_depot_snapshot,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    row = (
+        db.query(DepotSnapshot)
+        .filter(DepotSnapshot.id == snapshot_id, DepotSnapshot.mandate_id == mandate.id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Depot-Snapshot nicht gefunden.")
+    try:
+        snapshot = verify_persisted_depot_snapshot(row, mandate_id=mandate.id)
+    except DepotSnapshotIntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return compute_ist_stress(snapshot)

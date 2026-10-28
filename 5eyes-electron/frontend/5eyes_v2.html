@@ -21,6 +21,7 @@ body{font-family:var(--f-s);}
 <script>/* Vendored Chart.js for offline desktop builds */</script>
 <script src="vendor/chart.min.js"></script>
 <script src="./desktop-api.js"></script>
+<script src="./trade-list-preview.js"></script>
 <style>
 /* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
 :root {
@@ -4472,7 +4473,7 @@ function _wireSollIstHover(){
       <div id="dc-liquidity" style="display:flex;height:18px;border-radius:6px;overflow:hidden;border:1px solid var(--b1);margin-bottom:14px"></div>
 
       <!-- Stress-Replays (U-P13) -->
-      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Historische Stress-Szenarien (Replay auf aktueller Bucket-Gewichtung)</div>
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Historische Stress-Szenarien (Replay auf der empfohlenen SOLL-Gewichtung)</div>
       <div id="dc-stress-replays" style="margin-bottom:14px"></div>
 
       <!-- Warnings -->
@@ -4481,7 +4482,7 @@ function _wireSollIstHover(){
   </div>
   <div class="mfooter">
     <button class="btn" onclick="openAbBacktest()" title="A/B-Vergleich zweier Optimizer-Policy-Versionen auf das Risikoprofil dieses Mandates">A/B-Backtest</button>
-    <button class="btn-p" onclick="downloadServerPdf('depotcheck')" title="Server-PDF: Depot-Check mit Drift, Diversifikation, Stress-Replays">PDF herunterladen</button>
+    <button class="btn-p" onclick="downloadServerPdf('depotcheck')" title="Server-PDF: Analyse des empfohlenen Zielportfolios (nur SOLL: Diversifikation, Kosten, Stress-Szenarien). Enthält keinen IST-Abgleich des aktuellen Depots.">PDF: Zielportfolioanalyse</button>
     <button class="btn" onclick="cm('m-dc')">Schliessen</button>
   </div>
 </div></div>
@@ -14954,7 +14955,7 @@ function dcRenderStressReplays(stress){
       + '</tr>';
   });
   html += '</tbody></table>';
-  html += '<div style="font-size:9px;color:var(--n5);margin-top:4px">Stress-Replays: historische Returns je Asset-Klasse, gewichtet mit aktueller Bucket-Gewichtung. Modell zeigt was passieren wäre wenn das aktuelle Depot zu Beginn der Krise gehalten wurde.</div>';
+  html += '<div style="font-size:9px;color:var(--n5);margin-top:4px">' + escapeHtml((stress && stress.scope_label) || 'Stress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen Depots)') + ': historische Returns je Asset-Klasse, gewichtet mit der SOLL-Bucket-Gewichtung der Strategie. Bestehende Positionen fliessen nicht ein.</div>';
   el.innerHTML = html;
 }
 
@@ -22549,7 +22550,7 @@ function portfolioDriftWeightBps(row,totalRappen){
 }
 function portfolioStatusMeta(row,totalRappen){
   var driftBps=portfolioDriftWeightBps(row,totalRappen);
-  var action=String(row&&row.rebalance_action||'').toUpperCase();
+  var action=String(row&&row.rebalance_action_code||'');
   var hasPrice=!!(row&&(row.latest_price_date||row.reference_price_date||row.reference_price_rappen!==null&&row.reference_price_rappen!==undefined||row.latest_price_rappen!==null&&row.latest_price_rappen!==undefined));
   var staleKnown=!!(row&&row.price_age_days!==null&&row.price_age_days!==undefined&&!row.price_is_fresh);
   if(!hasPrice||staleKnown||action==='CHECK'||action==='REVIEW'){
@@ -23603,7 +23604,7 @@ function renderSrImplementationDecision(entry){
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
   // 2026-07-24: Handelsliste nur bei Ausfuehrungsbefugnis (Vermoegensverwaltung).
   var isDiscretionary=_reviewIsDiscretionaryMandate();
-  var hasTradeList=isDiscretionary&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
+  var hasTradeList=isDiscretionary&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action_code||'')!=='HOLD';}));
   // 2026-08-06 (User-Direktive: "komplett verschiedene HUDS"): WM-Karten sind
   // nummerierte Umsetzungsschritte mit Handelsverb (Reduzieren/Aufstocken/
   // Beobachten fuer illiquide Klassen); Consulting-Karten sind unnummerierte
@@ -24036,85 +24037,12 @@ function applyRecommendationEngineResult(result){
   normalizeVisibleMojibake(document.getElementById('page-po')||document.body);
   normalizeVisibleMojibake(document.getElementById('page-rv')||document.body);
 }
-function openTradeList(){
-  var result=strategyState.recommendation;
-  var live=liveRebalancingPayload(result);
-  var body=document.getElementById('m-tl-body');
-  if(!body)return;
-  if(!live||!Array.isArray(live.position_drifts)||!live.position_drifts.length){
-    body.innerHTML='<div style="font-size:11px;color:var(--n5);padding:12px">Keine Live-Rebalancing-Daten verfügbar.</div>';
-    om('m-tl');
-    return;
-  }
-  var totalWealth=live.live_total_value_rappen||0;
-  var minThreshold=Math.round(totalWealth*0.005);
-  var trades=live.position_drifts.filter(function(p){
-    return Math.abs(p.rebalance_amount_rappen||0)>=minThreshold;
-  }).slice().sort(function(a,b){
-    return Math.abs(b.rebalance_amount_rappen||0)-Math.abs(a.rebalance_amount_rappen||0);
-  });
-  var totalBuy=0,totalSell=0;
-  trades.forEach(function(p){
-    var amt=p.rebalance_amount_rappen||0;
-    if(p.rebalance_action==='BUY')totalBuy+=amt;
-    else if(p.rebalance_action==='SELL')totalSell+=amt;
-  });
-  var actionColor=function(action){
-    if(action==='BUY')return 'var(--pos)';
-    if(action==='SELL')return 'var(--neg)';
-    return 'var(--n5)';
-  };
-  var fmtDelta=function(rappen){
-    var chf=Math.round(Math.abs(rappen||0)/100);
-    var sign=(rappen||0)<0?'\u2212':'+';
-    if(chf>=1000000)return sign+'CHF\u00a0'+formatCompactCHFAmount(chf);
-    if(chf>=1000)return sign+'CHF\u00a0'+Math.round(chf/1000)+'k';
-    return sign+'CHF\u00a0'+chf;
-  };
-  var rows=trades.map(function(p){
-    var color=actionColor(p.rebalance_action);
-    return '<tr style="border-bottom:1px solid var(--b1)">'
-      +'<td style="padding:6px 8px;font-size:11px;font-weight:500">'+escapeHtml(p.product_name||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(p.rebalance_action||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.current_market_value_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.target_amount_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right;font-weight:600;color:'+color+'">'+escapeHtml(fmtDelta(p.rebalance_amount_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatBpsPercent(p.target_weight_bps))+'</td>'
-      +'</tr>';
-  }).join('');
-  var thS='padding:6px 8px;text-align:left;font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);border-bottom:2px solid var(--b1)';
-  var thR=thS+';text-align:right';
-  var html='<div style="margin-bottom:10px;font-size:11px;color:var(--n5)">'
-    +escapeHtml(String(trades.length))+' Positionen'
-    +' &middot; Kaufvolumen: <span style="color:var(--pos)">'+escapeHtml(formatRappen(totalBuy))+'</span>'
-    +' &middot; Verkaufsvolumen: <span style="color:var(--neg)">'+escapeHtml(formatRappen(totalSell))+'</span>'
-    +'</div>'
-    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
-    +'<thead><tr>'
-    +'<th style="'+thS+'">Wertpapier</th>'
-    +'<th style="'+thS+'">Anlageklasse</th>'
-    +'<th style="'+thS+'">Aktion</th>'
-    +'<th style="'+thR+'">IST-Wert</th>'
-    +'<th style="'+thR+'">SOLL-Wert</th>'
-    +'<th style="'+thR+'">Delta</th>'
-    +'<th style="'+thR+'">Soll-%</th>'
-    +'</tr></thead>'
-    +'<tbody>'+rows+'</tbody>'
-    +'</table></div>'
-    +'<div id="m-tl-handoff"></div>';
-  body.innerHTML=html;
-  om('m-tl');
-  var runId=result&&result.run&&result.run.id?String(result.run.id):null;
-  _tlHandoffCtx={mandateId:getActiveMandateId(),runId:runId};
-  renderPortfolioHandoffSection();
-}
 // 2026-08-08 (User-Direktive): Weiterleitung ans Asset Management. 5eyes
 // haelt keine echten Depots -- die Umsetzung der Handelsliste erfolgt extern
 // (Depotbank/internes Asset Management). Dieser Block schafft den
 // auditierbaren Nachweis DASS und WANN die Handelsliste tatsaechlich
 // weitergeleitet wurde (Rechenschaftsablegung, Art. 400 OR), inkl. Status-
-// Verlauf (Gesendet -> Ausgefuehrt/Storniert). Nur fuer discretionaere
+// Verlauf (Vorbereitet -> Ausgefuehrt/Storniert). Nur fuer discretionaere
 // Mandate sichtbar (_reviewIsDiscretionaryMandate(), identisches Gate wie
 // die Handelsliste selbst) -- reine Anlageberatung hat keine
 // Ausfuehrungsbefugnis und darf diese Aktion nicht anbieten.
@@ -24134,7 +24062,7 @@ function renderPortfolioHandoffSection(){
     +'</div>'
     +'<textarea id="tl-ho-note" placeholder="Notiz (optional)" style="width:100%;min-height:36px;padding:6px 8px;font-size:11px;margin-bottom:8px"></textarea>'
     +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
-    +'<button class="btn-g" id="tl-ho-submit" onclick="submitPortfolioHandoff()">An Asset Management weiterleiten</button>'
+    +'<button class="btn-g" id="tl-ho-submit" onclick="submitPortfolioHandoff()">Übermittlung vorbereiten</button>'
     +'<span id="tl-ho-feedback" style="font-size:10px"></span>'
     +'</div>'
     +'<div id="tl-ho-history" style="font-size:10px;color:var(--n5)">Lade Verlauf…</div>';
@@ -24152,8 +24080,8 @@ async function submitPortfolioHandoff(){
     return;
   }
   var btn=document.getElementById('tl-ho-submit');
-  if(btn){btn.disabled=true;btn.textContent='Wird gesendet…';}
-  var payload={recipient_name:recipient};
+  if(btn){btn.disabled=true;btn.textContent='Wird vorbereitet…';}
+  var payload={recipient_name:recipient,confirm_no_existing_holdings:!!(_tlHandoffCtx&&_tlHandoffCtx.confirmNoHoldings)};
   var channel=(channelEl&&channelEl.value||'').trim();
   if(channel)payload.recipient_channel=channel;
   var note=(noteEl&&noteEl.value||'').trim();
@@ -24164,15 +24092,15 @@ async function submitPortfolioHandoff(){
     if(recipientEl)recipientEl.value='';
     if(channelEl)channelEl.value='';
     if(noteEl)noteEl.value='';
-    if(fb){fb.style.color='var(--pos)';fb.textContent='✓ Weitergeleitet.';}
-    try{showAppSuccess('Handelsliste an Asset Management weitergeleitet',{title:'Weiterleitung'});}catch(noticeErr){}
+    if(fb){fb.style.color='var(--pos)';fb.textContent='✓ Zur manuellen Übermittlung vorbereitet (noch nicht gesendet).';}
+    try{showAppSuccess('Handelsliste zur manuellen Übermittlung an das Asset Management vorbereitet',{title:'Weiterleitung'});}catch(noticeErr){}
     await loadPortfolioHandoffHistory();
   }catch(e){
     var msg=releaseGateMessage(e)||('Fehler: '+(e.detail||e.message||'?'));
     if(fb){fb.style.color='var(--neg)';fb.textContent=msg;}
     try{showAppError(msg,{title:'Weiterleitung fehlgeschlagen'});}catch(noticeErr){}
   }finally{
-    if(btn){btn.disabled=false;btn.textContent='An Asset Management weiterleiten';}
+    if(btn){btn.disabled=false;btn.textContent='Übermittlung vorbereiten';}
   }
 }
 function _handoffStatusColor(status){
@@ -24188,7 +24116,7 @@ function renderPortfolioHandoffHistory(items){
     var color=_handoffStatusColor(h.status);
     var when=String(h.created_at||'').slice(0,16).replace('T',' ');
     var actions='';
-    if(h.status==='Gesendet'){
+    if(h.status==='Vorbereitet'||h.status==='Gesendet'){
       actions='<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:6px" onclick="markPortfolioHandoffExecuted(\''+h.id+'\')">Ausführung bestätigen</button>'
         +'<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:4px;color:var(--neg)" onclick="cancelPortfolioHandoffPrompt(\''+h.id+'\')">Stornieren</button>';
     }
@@ -24197,7 +24125,7 @@ function renderPortfolioHandoffHistory(items){
       +' &middot; '+escapeHtml(String(h.position_count||0))+' Positionen'
       +' &middot; an '+escapeHtml(h.recipient_name||'')
       +(h.recipient_channel?(' ('+escapeHtml(h.recipient_channel)+')'):'')
-      +' &middot; '+escapeHtml(when)
+      +' &middot; '+escapeHtml(when)+(h.execution_external_reference?(' &middot; manuell bestätigt, Ref. '+escapeHtml(h.execution_external_reference)):'')
       +actions
       +'</div>';
   }).join('');
@@ -24214,13 +24142,13 @@ async function loadPortfolioHandoffHistory(){
 }
 async function markPortfolioHandoffExecuted(handoffId){
   if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId)return;
+  var ref=await uiPrompt({message:'Auftrags-/Bestätigungsnummer der ausführenden Stelle:',required:true,minLength:3});if(!ref||!ref.trim())return;
+  var day=await uiPrompt({message:'Ausführungsdatum (JJJJ-MM-TT):',required:true,defaultValue:new Date().toISOString().slice(0,10)});if(!day||!day.trim())return;
   try{
-    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/mark-executed',{});
+    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/mark-executed',{external_order_reference:ref.trim(),executed_on:day.trim()});
     await loadPortfolioHandoffHistory();
-    try{showAppSuccess('Ausführung bestätigt',{title:'Weiterleitung'});}catch(noticeErr){}
-  }catch(e){
-    try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Bestätigung fehlgeschlagen'});}catch(noticeErr){}
-  }
+    try{showAppSuccess('Ausführung manuell bestätigt',{title:'Weiterleitung'});}catch(noticeErr){}
+  }catch(e){try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Bestätigung fehlgeschlagen'});}catch(noticeErr){}}
 }
 async function cancelPortfolioHandoffPrompt(handoffId){
   var reason=await uiPrompt({message:'Grund für die Stornierung:',required:true});
@@ -26182,9 +26110,9 @@ function pensionTransferGuardMessage(e){
 // wenn die Soll-Allokation ihr Risikobudget verletzt oder der Nachweis
 // fehlt. Verstaendliche Meldung statt "API 409: ... [CODE]".
 var RELEASE_GATE_HINTS={
-  RISK_BUDGET_VIOLATED:'Die Soll-Allokation überschreitet das Risikobudget des Risikoprofils. Bitte Risikoprofil oder Bausteine anpassen und die Allokation neu generieren.',
+  RISK_BUDGET_VIOLATED:'Die Soll-Allokation überschreitet das Risikobudget des Risikoprofils. Bitte Risikoprofil oder Bausteine anpassen und die Allokation neu generieren.',SIGNATURE_ARTIFACT_MISSING:'Signiert wird nur ein archiviertes PDF. Bitte das Dokument zuerst erzeugen.',SIGNATURE_ARTIFACT_HASH_MISMATCH:'Die archivierten PDF-Bytes passen nicht zur Prüfsumme. Bitte das Dokument neu erzeugen.',
   RISK_BUDGET_EVIDENCE_MISSING:'Für die aktuelle Soll-Allokation fehlt der Nachweis, dass das Risikobudget eingehalten ist. Bitte die Allokation neu generieren.',
-  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.'
+  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.',HANDOFF_ALREADY_OPEN:'Für diese Handelsliste besteht bereits eine offene Weiterleitung.'
 };
 function releaseGateMessage(e){
   var parsed=null;
@@ -27268,7 +27196,7 @@ function renderReviewActionSummary(state){
   // 2026-07-24: Handelsliste ist eine Ausfuehrungs-Aktion -- nur sinnvoll,
   // wenn die Firma selbst Ausfuehrungsbefugnis hat (Vermoegensverwaltung).
   var hasTradeList=_reviewIsDiscretionaryMandate()&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
-    return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
+    return String(row&&row.rebalance_action_code||'')!=='HOLD';
   }));
   if(!items.length){
     root.innerHTML='<div style="background:var(--pos-lt);border:1px solid rgba(14,107,65,0.2);border-radius:var(--r2);padding:12px"><div style="font-size:10px;font-weight:600;color:var(--n8);margin-bottom:4px">Empfehlung heute</div><div style="font-size:11px;color:var(--n7);margin-bottom:8px">Alle Hauptanlageklassen liegen im vereinbarten Band. Heute steht vor allem Governance, Eignung und Dokumentation im Fokus.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="om(\'m-ne\')">Protokoll erfassen</button>'+(hasTradeList?'<button class="btn" onclick="openTradeList()">Handelsliste oeffnen</button>':'')+'</div></div>';
@@ -27764,10 +27692,10 @@ function renderDocumentGrid(documents){
     var signedClient=Number(doc.signed_by_client||0)===1;
     var advisorAction=signedAdvisor
       ? '<span class="tag tg" title="'+escapeHtml(doc.signature_advisor_signer_name||'')+'">Berater ✓</span>'
-      : '<button type="button" data-doc-action="sign-advisor" class="btn btn-sm">Berater signieren</button>';
+      : (doc.has_pdf?'<button type="button" data-doc-action="sign-advisor" class="btn btn-sm">Berater signieren</button>':'<span class="tag ta" title="Signiert wird nur ein archiviertes PDF. Bitte das Dokument zuerst erzeugen.">Kein PDF</span>');
     var clientAction=signedClient
       ? '<span class="tag tg" title="'+escapeHtml(doc.signature_client_signer_name||'')+'">Kunde ✓</span>'
-      : '<button type="button" data-doc-action="sign-client" class="btn btn-sm">Kunde signieren</button>';
+      : (doc.has_pdf?'<button type="button" data-doc-action="sign-client" class="btn btn-sm">Kunde signieren</button>':'');
     var statusTag=(signedAdvisor&&signedClient)
       ? '<span class="tag tg">Unterzeichnet</span>'
       : ((signedAdvisor||signedClient)?'<span class="tag ta">Teilweise unterzeichnet</span>':'<span class="tag ta">Entwurf</span>');
@@ -27954,7 +27882,7 @@ function _rvHeroWealthmanagementHtml(rows,violated,tight,allocation){
     headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
     summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
     var live=liveRebalancingPayload(allocation);
-    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
+    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action_code||'')!=='HOLD';}));
     ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
   } else if(tight.length>0){
     statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
