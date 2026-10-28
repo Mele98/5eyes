@@ -191,6 +191,60 @@ def _build_risk_premia_status(
     }
 
 
+def _build_correlation_disclosure(cma: Any) -> dict[str, Any]:
+    """CMA-001 / CMA-CORR-001: Korrelationsannahmen offenlegen statt still
+    verwenden -- Bucket-Matrix (Payload oder benannte Default-Policy) und
+    die globale Intra-Bucket-Korrelation der Sub-Anlageklassen."""
+    from services.cma_correlation_provenance import (
+        CORRELATION_DECISION_ID,
+        jurisdiction_default_correlation_policy,
+        normalized_jurisdiction,
+    )
+    from services.portfolio_engine_cma import _sub_class_intra_correlation_x100
+
+    if getattr(cma, "correlation_matrix_json", None):
+        bucket = {"source": "cma_payload", "policy": None}
+        bucket_note = "Bucket-Korrelationen aus der CMA-Version (eigene Matrix)."
+    else:
+        policy = jurisdiction_default_correlation_policy(cma)
+        if policy is not None:
+            bucket = {"source": "named_default_policy", "policy": policy}
+            bucket_note = (
+                f"Bucket-Korrelationen: benannte Default-Policy {policy['decision_id']} "
+                f"({policy['policy_name']} {policy['version']}, Ausschussfreigabe "
+                "ausstehend) – die CMA-Version enthält keine eigene Matrix."
+            )
+        else:
+            bucket = {"source": "missing", "policy": None}
+            bucket_note = (
+                "Bucket-Korrelationen: keine Matrix für Jurisdiktion "
+                f"{normalized_jurisdiction(cma)} – stochastische Läufe sind "
+                f"gesperrt ({CORRELATION_DECISION_ID})."
+            )
+    rho_x100 = _sub_class_intra_correlation_x100()
+    if rho_x100 >= 100:
+        rho_kind = "no_diversification_stress_case"
+        rho_note = (
+            "Sub-Anlageklassen innerhalb eines Buckets werden ohne "
+            "Diversifikation gerechnet (Intra-Bucket-Korrelation 1.0): "
+            "offengelegter konservativer Stressfall, keine genehmigte "
+            "Sub-Asset-Korrelation."
+        )
+    else:
+        rho_kind = "configured_without_approved_policy"
+        rho_note = (
+            f"Intra-Bucket-Korrelation {rho_x100 / 100:.2f} aus der "
+            "Installationskonfiguration, ohne genehmigte Policy "
+            f"({CORRELATION_DECISION_ID} offen)."
+        )
+    return {
+        "decision_id": CORRELATION_DECISION_ID,
+        "bucket_correlation": bucket,
+        "sub_class_intra_correlation": {"value_x100": rho_x100, "kind": rho_kind},
+        "notes": [bucket_note, rho_note],
+    }
+
+
 def audit_engine_models(db: Session) -> dict[str, Any]:
     """Liefert Methodology-Status fuer die aktuelle CMA-Version.
 
@@ -259,6 +313,8 @@ def audit_engine_models(db: Session) -> dict[str, Any]:
             "Keine erweiterten Engine-Modelle aktiv — Optimizer arbeitet "
             "mit fixen Renditeerwartungen aus der CMA."
         )
+    correlation_disclosure = _build_correlation_disclosure(cma)
+    notes.extend(correlation_disclosure["notes"])
 
     return {
         "cma_id": getattr(cma, "id", None),
@@ -266,4 +322,5 @@ def audit_engine_models(db: Session) -> dict[str, Any]:
         "models": models,
         "active_count": active_count,
         "methodology_notes": notes,
+        "correlation_disclosure": correlation_disclosure,
     }

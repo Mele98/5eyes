@@ -56,6 +56,13 @@ _EQUITY_KGV_FIELDS = (
 _SKEW_KURT_BUCKETS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 
 
+#: Jurisdiktionen mit benannter Default-Korrelations-Policy (CMA-CORR-001).
+#: Muss mit services/cma_correlation_provenance.py::
+#: JURISDICTION_DEFAULT_CORRELATION_POLICIES uebereinstimmen (Test bindet
+#: beide); hier dupliziert, weil das Provenance-Modul dieses Modul importiert.
+CORRELATION_DEFAULT_POLICY_JURISDICTIONS = frozenset({"CH"})
+
+
 class CMAValidationError(ValueError):
     """Invalid capital-market assumption input (never a fallback condition)."""
 
@@ -113,6 +120,19 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
         raise CMAValidationError(
             "Aktuelle CMA ist fuer den stochastischen Lauf unvollstaendig; "
             f"fehlende Modellfelder: {', '.join(missing)}."
+        )
+    # CMA-001 / CMA-CORR-001: die Korrelationsmatrix ist wie Returns und
+    # Volatilitaeten jurisdiktionsgebunden. Eine benannte Default-Policy
+    # existiert nur fuer CH (services/cma_correlation_provenance.py::
+    # JURISDICTION_DEFAULT_CORRELATION_POLICIES); jede andere Jurisdiktion
+    # braucht einen eigenen Payload -- nie den Schweizer Fremdmarkt-Default.
+    if jurisdiction not in CORRELATION_DEFAULT_POLICY_JURISDICTIONS and not getattr(
+        cma, "correlation_matrix_json", None
+    ):
+        raise CMAValidationError(
+            f"Aktuelle CMA ({jurisdiction}) hat keine eigene Korrelationsmatrix "
+            "(correlation_matrix_json) und es gibt keine genehmigte Default-"
+            "Policy fuer diese Jurisdiktion (CMA-CORR-001)."
         )
 
     for field_name in return_fields:
