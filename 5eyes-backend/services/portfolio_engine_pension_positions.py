@@ -617,14 +617,13 @@ def external_pension_projection(
 ) -> PensionProjection | None:
     """Engine-Einstieg: Projektion mit Waehrungsumrechnung, Mandats-
     Geburts-/Pensionierungsjahr und Kapitalbezugssteuer des Mandats."""
-    from datetime import date
-
     from services.portfolio_engine import _convert_position_amount_to_target_currency
+    from services.valuation_clock import valuation_date
 
     return build_pension_projection(
         positions,
         wealth_inflows,
-        start_year=int(start_year if start_year is not None else date.today().year),
+        start_year=int(start_year if start_year is not None else valuation_date().year),
         horizon_years=horizon_years,
         value_of=lambda pos: max(0, _convert_position_amount_to_target_currency(
             pos, fx_source, target_currency,

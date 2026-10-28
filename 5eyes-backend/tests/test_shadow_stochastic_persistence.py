@@ -26,12 +26,19 @@ from test_optimizer_shadow_mode import _seed_realistic_mandate, session_factory
 import services.portfolio_engine as pe
 
 
+# Liquiditaet exakt auf dem Reserve-Floor der Fixtur: seit
+# GOAL-CALENDAR-HORIZON-PARITY-001 ist deren Pension ab +5 J. reservewirksam;
+# das SAA-Liquiditaetsband dieser Hausmatrix-Zeile wird dadurch auf
+# min = max = 201 bps (interner Reserveanteil, Rest extern) gesetzt, wie in
+# den CH-Goldens (Score 7: 201 bps). Ein Kandidat mit 200 bps verletzt das
+# Band und wird vom Konsistenz-Guard zu Recht abgewiesen ("nachtraeglich
+# rebalanciert"); ein Fake ausserhalb der Solver-Bounds prueft nichts.
 FAKE_STOCHASTIC_WEIGHTS = {
-    "equities": 6200,
+    "equities": 6199,
     "bonds": 2400,
     "real_estate": 700,
     "alternatives": 500,
-    "liquidity": 200,
+    "liquidity": 201,
 }
 
 

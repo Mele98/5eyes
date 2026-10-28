@@ -11,6 +11,8 @@ KEINE Datenmodell-Änderungen. Reiner Service auf existierender TargetAllocation
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Mapping
 
 from sqlalchemy.orm import Session
@@ -116,6 +118,13 @@ _SCENARIOS: list[dict] = [
         ],
     },
 ]
+
+
+def stress_catalog_hash() -> str:
+    """SHA-256 ueber den kanonischen Szenariokatalog (bindet ein Stress-
+    Resultat an die Szenario-Parameter, mit denen es gerechnet wurde)."""
+    payload = json.dumps(_SCENARIOS, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _compute_scenario_path(

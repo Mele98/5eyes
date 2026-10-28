@@ -49,8 +49,12 @@ from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
-from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
+from services.jurisdiction.exceptions import (
+    CMAValidityWindowError,
+    JurisdictionReferenceDataMissingError,
+)
 from services.jurisdiction.resolve import (
+    assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
     resolve_mandate_jurisdiction,
 )
@@ -96,6 +100,10 @@ from services.risk_capacity_plausibility import (
     attach_to_strategy_payload,
     audit_if_inconsistent,
     evaluate_mandate_safely,
+)
+from services.risk_capacity_evaluation_snapshot import (
+    CONTEXT_ALLOCATION_GENERATED,
+    record_snapshot as record_plausibility_snapshot,
 )
 from services.solver_admission import admit as _admit_solver_slot
 
@@ -610,9 +618,21 @@ def update_cma(
         for column in CapitalMarketAssumption.__table__.columns:
             if column.name not in immutable_or_scope_fields:
                 prev_dict[column.name] = getattr(prev, column.name, None)
-        prev.is_current = 0
         prev_version = prev.version
     merged = {**prev_dict, **payload}
+    # CMA-EFFECTIVE-DATE-001: die neue Version loest die Vorgaengerin sofort
+    # ab -- sie muss heute wirksam sein, sonst blieben alle Allokationen bis
+    # zum Stichtag gesperrt. Pruefung VOR dem Supersede: die Vorgaengerin
+    # bleibt bei Ablehnung unangetastet.
+    try:
+        assert_cma_activatable_on(merged.get("valid_from"), merged.get("valid_until"))
+    except CMAValidityWindowError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason_code": exc.reason_code, "message": exc.message},
+        )
+    if prev:
+        prev.is_current = 0
     cma = CapitalMarketAssumption(
         id=new_uuid(),
         version=prev_version + 1,
@@ -693,7 +713,17 @@ def generate_target_allocation_endpoint(
             # keine Profilaenderung, kein Blockieren.
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
-            plausibility = evaluate_mandate_safely(db, mandate, result.get("risk_assessment"))
+            captured: dict = {}
+            plausibility = evaluate_mandate_safely(
+                db, mandate, result.get("risk_assessment"), capture=captured,
+            )
+            # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: genau diese Bewertung als
+            # unveraenderliche Evidenz an die neue Soll-Allokation binden.
+            record_plausibility_snapshot(
+                db, mandate, result.get("risk_assessment"), plausibility, captured,
+                actor=current_user, binding_context=CONTEXT_ALLOCATION_GENERATED,
+                binding_record_id=result["target_allocation"].id,
+            )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
             # (nach der Plausibilitaet = zuoberst im Reasoning).
@@ -1602,3 +1632,78 @@ def clone_optimizer_policy(
         ip_address=_extract_client_ip(request))
     db.commit()
     return get_optimizer_policy_detail(clone.id, db, current_user)
+
+
+# --- DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2 -----------------
+# IST-Stress: dieselben historischen Szenarien wie der SOLL-Stress-Replay,
+# aber auf den IST-Gewichten eines persistierten, hash-gebundenen
+# DepotSnapshotV1 (services/depot_snapshot.py). Erfassen = POST (idempotent,
+# gleicher Inhalt = gleicher Snapshot), Abspielen = GET mit Verifikation;
+# ein manipulierter Snapshot liefert 409 statt Zahlen.
+
+@router.post("/mandates/{mandate_id}/depot-snapshots", status_code=201)
+def create_depot_snapshot(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    from services.currency.fx_rates import FXRateLoadError
+    from services.depot_snapshot import (
+        DepotSnapshotIntegrityError,
+        build_depot_snapshot,
+        compute_ist_stress,
+        persist_depot_snapshot,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        snapshot = build_depot_snapshot(
+            db, mandate, as_of=datetime.now(timezone.utc).date(),
+        )
+        row, created = persist_depot_snapshot(
+            db, snapshot, mandate=mandate, created_by=current_user.id, created_at=_now(),
+        )
+    except (FXRateLoadError, DepotSnapshotIntegrityError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if created:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="depot_snapshots", record_id=row.id, action="CREATE",
+            new_value=snapshot["snapshot_hash"], mandate_id=mandate.id,
+            client_id=getattr(mandate, "client_id", None),
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    return {"snapshot": snapshot, "created": created, "ist_stress": compute_ist_stress(snapshot)}
+
+
+@router.get("/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays")
+def get_depot_snapshot_stress_replays(
+    mandate_id: str,
+    snapshot_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stress-Replay des IST-Depots aus einem gespeicherten Depot-Snapshot
+    (``scope`` = ``current_holdings_snapshot``). Positionen ohne eindeutige
+    Anlageklasse -> keine Szenariozahlen (fail-closed, ausgewiesen)."""
+    from models.snapshots import DepotSnapshot
+    from services.depot_snapshot import (
+        DepotSnapshotIntegrityError,
+        compute_ist_stress,
+        verify_persisted_depot_snapshot,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    row = (
+        db.query(DepotSnapshot)
+        .filter(DepotSnapshot.id == snapshot_id, DepotSnapshot.mandate_id == mandate.id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Depot-Snapshot nicht gefunden.")
+    try:
+        snapshot = verify_persisted_depot_snapshot(row, mandate_id=mandate.id)
+    except DepotSnapshotIntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return compute_ist_stress(snapshot)
