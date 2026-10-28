@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 from typing import Any, Optional, Literal
-from schemas.common import BaseResponse
+from schemas.common import BaseResponse, PERSISTABLE_INT_MAX
 from schemas.allocation import AllocationPreferencesPayload, LiveRebalancingResponse
 
 
@@ -1373,7 +1373,7 @@ class RecommendationPositionCreate(BaseModel):
     # kompensierten. Bounds hier am API-Rand (0-10000bps = 0-100% einer
     # Einzelposition) schliessen die Luecke unabhaengig vom Summen-Check.
     target_weight_bps: int = Field(ge=0, le=10000)
-    target_amount_rappen: Optional[int] = Field(default=None, ge=0)
+    target_amount_rappen: Optional[int] = Field(default=None, ge=0, le=PERSISTABLE_INT_MAX)
     rationale: Optional[str] = None
 
 
@@ -1400,9 +1400,9 @@ class RecommendationHoldingUpsert(BaseModel):
     depot_bank: Optional[str] = None
     custody_account_number: Optional[str] = None
     as_of_date: Optional[str] = None
-    units_milli: Optional[int] = None
-    market_value_rappen: Optional[int] = None
-    avg_cost_price_rappen: Optional[int] = None
+    units_milli: Optional[int] = Field(default=None, le=PERSISTABLE_INT_MAX)
+    market_value_rappen: Optional[int] = Field(default=None, le=PERSISTABLE_INT_MAX)
+    avg_cost_price_rappen: Optional[int] = Field(default=None, le=PERSISTABLE_INT_MAX)
     source: Literal["manual", "custody_import"] = "manual"
     notes: Optional[str] = None
 
