@@ -30,6 +30,7 @@ import hashlib
 import json
 
 from models.allocation import TargetAllocation
+from services.goal_analysis_snapshot import bound_analysis_result_hash, verify_goal_analysis
 from services.reserve_funding_ledger_snapshot import verify_persisted_ledger_snapshot
 
 
@@ -43,6 +44,8 @@ STOCHASTIC_ENGINE_VERSIONS = frozenset({"stochastic_core_v1", "stochastic_core_v
 MANUAL_OVERRIDE_ENGINE_VERSION = "manual_override_v1"
 MANUAL_OVERRIDE_METHOD = "manual_override"
 MANUAL_OVERRIDE_STATUS = "manual"
+# GOAL-ANALYSIS-INTEGRITY-001: Hash-Form mit gebundenem Ergebnis-Hash.
+ALLOCATION_CONTEXT_HASH_V2 = "allocation_context_v2"
 
 
 def allocation_context_hash_for(
@@ -57,6 +60,7 @@ def allocation_context_hash_for(
     sub_allocations: list[dict],
     effective_constraints: dict,
     optimization_seed,
+    analysis_result_hash: str | None = None,
 ) -> str:
     """Kanonischer allocation_context_hash -- EINE Form fuer Generate, den
     manuellen Speicherpfad und den Verifier.
@@ -64,6 +68,12 @@ def allocation_context_hash_for(
     Vorher baute jeder Schreibpfad sein eigenes Hash-Dict; der manuelle Pfad
     liess preferences_json/optimization_seed weg und konnte deshalb vom
     Verifier nie bestaetigt werden.
+
+    GOAL-ANALYSIS-INTEGRITY-001: ``analysis_result_hash`` ist der Hash der
+    persistierten Zielanalyse (``services.goal_analysis_snapshot``). Ist er
+    gesetzt, gilt die Hash-Form v2 (``context_hash_version`` +
+    ``analysis_result_hash`` im Payload). Ohne ihn bleibt die v1-Form
+    byte-gleich, damit Bestand unveraendert verifiziert und nie umgehasht wird.
     """
     from services.portfolio_engine import BUCKET_FIELDS
 
@@ -81,6 +91,9 @@ def allocation_context_hash_for(
         "effective_constraints": effective_constraints,
         "optimization_seed": optimization_seed,
     }
+    if analysis_result_hash is not None:
+        payload["context_hash_version"] = ALLOCATION_CONTEXT_HASH_V2
+        payload["analysis_result_hash"] = str(analysis_result_hash)
     return hashlib.sha256(
         json.dumps(
             payload,
@@ -364,6 +377,7 @@ def _verified_persisted_allocation_context(
         sub_allocations=stored_sub_allocations,
         effective_constraints=stored_constraints,
         optimization_seed=getattr(allocation, "optimization_seed", None),
+        analysis_result_hash=bound_analysis_result_hash(stored_constraints),
     )
     if recomputed_context_hash != str(stored_context_hash):
         raise ValueError(
@@ -373,6 +387,9 @@ def _verified_persisted_allocation_context(
     # RESERVE-LEDGER-SNAPSHOT-001: Ledger-Hash aus den gespeicherten Zeilen
     # rekalkulieren und gegen Hash-Spalte + gehashte Referenz pruefen.
     verify_persisted_ledger_snapshot(allocation, stored_constraints)
+    # GOAL-ANALYSIS-INTEGRITY-001: gespeicherte Zielanalyse gegen den
+    # gebundenen Ergebnis-Hash (Bestand ohne Referenz: legacy_unbound).
+    verify_goal_analysis(allocation, stored_constraints)
     return stored_sub_allocations, stored_constraints
 
 

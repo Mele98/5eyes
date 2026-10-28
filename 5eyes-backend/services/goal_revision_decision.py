@@ -334,8 +334,10 @@ def engine_evidence_for_goal(allocation: Any, goal_id: str) -> dict[str, Any] | 
     ``goal_revision`` (``goal_reachability.annotate_rows``)."""
     if allocation is None:
         return None
+    from services.goal_analysis_snapshot import bound_goal_achievability_json
+
     sources: list[list] = []
-    raw = getattr(allocation, "goal_achievability_json", None)
+    raw = bound_goal_achievability_json(allocation)  # GOAL-ANALYSIS-INTEGRITY-001
     if raw:
         try:
             parsed = json.loads(raw)

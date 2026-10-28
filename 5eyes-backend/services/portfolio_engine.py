@@ -665,6 +665,7 @@ from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION
     bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
 )
 from services.allocation_evidence_replay import allocation_evidence_payload, build_goal_driver_evidence_json  # noqa: E402
+from services.goal_analysis_snapshot import bound_analysis_result_hash, goal_analysis_constraints, serialize_goal_achievability  # noqa: E402
 
 
 def _convert_position_value_to_target_currency(
@@ -3930,17 +3931,7 @@ def generate_target_allocation(
             "optimization_method": risk_budget_fallback_method,
             "optimization_status": "fallback_house_matrix",
         }
-    goal_achievability_json: str | None = None
-    if goal_achievability:
-        try:
-            goal_achievability_json = json.dumps(
-                goal_achievability,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-        except (TypeError, ValueError) as exc:
-            logger.warning("Goal-achievability JSON-serialization failed: %s", exc)
-            goal_achievability_json = None
+    goal_achievability_json = serialize_goal_achievability(goal_achievability)  # GOAL-ANALYSIS-INTEGRITY-001: diese Bytes sind die Hash-Grundlage
     message_context = SimpleNamespace(
         limiting_factor=limiting_factor,
         optimization_status=optimization_status_for_limits,
@@ -4093,6 +4084,7 @@ def generate_target_allocation(
         # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
         "reporting_model_basis": dict(model_basis["reporting"]),
         "reserve_funding_ledger": ledger_reference(reserve_ledger, reserve_split),  # RESERVE-LEDGER-SNAPSHOT-001 / RESERVE-CEILING-001
+        **goal_analysis_constraints(goal_achievability_json),  # GOAL-ANALYSIS-INTEGRITY-001: Zielanalyse-Referenz
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)
@@ -4103,7 +4095,7 @@ def generate_target_allocation(
         engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
         input_snapshot_hash=input_snapshot_hash, preferences_json=preferences_json_snapshot, targets=targets,
         sub_allocations=sub_allocations, effective_constraints=effective_constraints_payload,
-        optimization_seed=optimizer_audit.get("optimization_seed"),
+        optimization_seed=optimizer_audit.get("optimization_seed"), analysis_result_hash=bound_analysis_result_hash(effective_constraints_payload),
     )
 
     target_allocation = TargetAllocation(
