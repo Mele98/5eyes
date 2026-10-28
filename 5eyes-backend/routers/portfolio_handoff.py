@@ -232,6 +232,10 @@ def create_portfolio_handoff(
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
     )
+    # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+    from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
+
+    assert_portfolio_data_release_eligible(db, mandate, action="handoff")
     try:
         # HANDOFF-NEW-PRODUCT-001: nicht gehaltene SOLL-Produkte nur bei
         # vollstaendig belegtem Depot oder bestaetigtem Neugeld als IST = 0.
