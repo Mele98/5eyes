@@ -3,10 +3,10 @@
 Berechnet den zu einer Weiterleitung gehoerenden Handelslisten-Snapshot NICHT
 neu (kein zweiter, unabhaengiger Engine-Pfad -- Drift-Risiko), sondern liest
 ihn aus ``services.portfolio_engine.build_recommendation_payload_from_run()``,
-demselben Aufruf, den ``routers/review.py::get_recommendation_payload*`` fuer
-die Handelsliste-Anzeige im Review nutzt. Wendet exakt denselben 0.5%-der-
-Gesamtsumme-Schwellenwert an wie ``openTradeList()`` in 5eyes_v2.html, damit
-der Snapshot mit dem uebereinstimmt, was der Berater tatsaechlich gesehen hat.
+demselben Aufruf, den ``routers/review.py::get_recommendation_payload*`` nutzt.
+HANDOFF-PREVIEW-PARITY-001: die Handelsliste im Monolithen zeigt nur noch die
+serverseitige Vorschau (``snapshot_handoff`` ohne Persistieren), damit der
+Snapshot exakt dem entspricht, was der Berater gesehen hat.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from models.review import Product, RecommendationRun
 from models.wealth import WealthPosition
 from services.portfolio_engine import build_recommendation_payload_from_run
 from services.portfolio_engine_live_rebalancing import _build_live_position_drifts
+from services.portfolio_handoff_cash import AdvisoryCashValuationError, advisory_cash_entries, with_cash_actions
 
 # Fields kept per trade in the immutable snapshot -- a curated subset of the
 # live-rebalancing entry (see services/portfolio_engine_live_rebalancing.py),
@@ -56,6 +57,7 @@ _SNAPSHOT_INSTRUCTION_FIELDS = (
     "latest_price_date",
     "fx_rate",
     "order_type",
+    "wealth_position_id",
 )
 
 # Ohne diese Felder ist eine Zeile eine Rebalancing-Empfehlung, keine
@@ -64,9 +66,8 @@ _REQUIRED_INSTRUCTION_FIELDS = ("isin", "custody_account_id", "current_units_mil
 INSTRUCTION_KIND_EXECUTABLE = "executable_instruction"
 INSTRUCTION_KIND_RECOMMENDATION = "rebalancing_recommendation"
 
-# Identisch zur Schwelle in openTradeList() (5eyes_v2.html) -- Trades unter
-# 0.5% der Gesamtsumme werden dort ausgeblendet (Rauschen/Rundungsdrift), der
-# Snapshot muss exakt dieselbe Liste abbilden.
+# Trades unter 0.5% der Gesamtsumme werden ausgeblendet (Rauschen/Rundungs-
+# drift); Vorschau und Snapshot nutzen dieselbe Funktion und damit dieselbe Liste.
 _MIN_TRADE_SHARE = 0.005
 
 
@@ -83,9 +84,17 @@ class NoTradeListAvailableError(ValueError):
     """Kein Rebalancing-Bedarf oder keine Live-Rebalancing-Daten fuer diesen Run."""
 
 
+REASON_HOLDINGS_INCOMPLETE = "HOLDINGS_VALUATION_INCOMPLETE"
+REASON_NO_HOLDINGS_CONFIRMATION_REQUIRED = "NO_HOLDINGS_CONFIRMATION_REQUIRED"
+
+
 class HoldingsValuationIncompleteError(ValueError):
     """HANDOFF-VALUATION-001: die Live-Bewertung ist nicht vollstaendig durch
     echte Bestaende, Preise und FX belegt -- kein ausfuehrungsnaher Snapshot."""
+
+    def __init__(self, message: str, reason_code: str = REASON_HOLDINGS_INCOMPLETE):
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 # HANDOFF-VALUATION-001: Coverage-Aggregate aus
@@ -142,6 +151,7 @@ def resolve_handoff_holdings_basis(
     confirm_no_existing_holdings: bool = False,
     advisory_depot_recorded: bool = False,
     investable_wealth_rappen: int | None = None,
+    advisory_cash: list[dict] | None = None,
 ) -> tuple[list[dict], int, str]:
     """Liefert (position_drifts, Basis-Total, holdings_basis) fuer den Snapshot.
 
@@ -161,7 +171,13 @@ def resolve_handoff_holdings_basis(
       erfasst sind.
 
     SOLL, IST und Delta werden mit derselben Funktion wie die Live-Ansicht
-    neu gerechnet (IST + Delta = SOLL auf einer Basis)."""
+    neu gerechnet (IST + Delta = SOLL auf einer Basis).
+
+    HANDOFF-CASH-BASIS-001: bei erfasstem Depot zaehlen die bewerteten
+    Liquiditaetspositionen des Beratungsvermoegens (``advisory_cash``, siehe
+    services/portfolio_handoff_cash.py) als eigene Zeilen mit IST = Wert und
+    SOLL = 0 in der Basis. Bei bestaetigtem Neugeld sind sie bereits im
+    investierbaren Beratungsvermoegen enthalten und werden nicht addiert."""
     counts = _coverage_counts(live)
     held_count = counts["holding_positions_count"]
     if held_count is not None and held_count <= 0 and not confirm_no_existing_holdings:
@@ -169,7 +185,8 @@ def resolve_handoff_holdings_basis(
             "Kein erfasster Depotbestand: die Handelsliste beruht ausschliesslich "
             "auf aus dem Ziel abgeleiteten Positionen und ist keine Handelsinstruktion. "
             "Bitte die Depotbestaende erfassen oder -- nur bei Neugeld ohne bestehendes "
-            "Depot -- ausdruecklich bestaetigen (confirm_no_existing_holdings)."
+            "Depot -- ausdruecklich bestaetigen (confirm_no_existing_holdings).",
+            REASON_NO_HOLDINGS_CONFIRMATION_REQUIRED,
         )
     if any(value is None for value in counts.values()):
         raise HoldingsValuationIncompleteError(
@@ -205,7 +222,8 @@ def resolve_handoff_holdings_basis(
             )
         basis = HOLDINGS_BASIS_CONFIRMED_NO_HOLDINGS
 
-    if counts["implied_positions_count"] == 0 and basis == HOLDINGS_BASIS_RECORDED_DEPOT:
+    cash = list(advisory_cash or []) if basis == HOLDINGS_BASIS_RECORDED_DEPOT else []
+    if counts["implied_positions_count"] == 0 and basis == HOLDINGS_BASIS_RECORDED_DEPOT and not cash:
         # Alles gehalten: unveraenderte Live-Zeilen, nur die Herkunft markiert.
         return (
             [{**entry, "holding_origin": HOLDING_ORIGIN_HELD} for entry in drifts],
@@ -238,6 +256,7 @@ def resolve_handoff_holdings_basis(
 
     if basis == HOLDINGS_BASIS_RECORDED_DEPOT:
         total = sum(int(entry["current_market_value_rappen"]) for entry in drifts if entry["holding_present"])
+        total += sum(int(entry["current_market_value_rappen"]) for entry in cash)
     else:
         total = int(investable_wealth_rappen)
     entries = []
@@ -257,7 +276,8 @@ def resolve_handoff_holdings_basis(
                 "current_units_milli": 0,
             })
         entries.append(row)
-    return _build_live_position_drifts(entries, total), total, basis
+    entries.extend(dict(entry) for entry in cash)
+    return with_cash_actions(_build_live_position_drifts(entries, total)), total, basis
 
 
 def _advisory_depot_recorded(db: Session, mandate: Mandate) -> bool:
@@ -299,11 +319,19 @@ def snapshot_handoff(
     live = payload.get("live_rebalancing") or {}
     if not (live.get("position_drifts") or []) or int(live.get("live_total_value_rappen") or 0) <= 0:
         raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten fuer diesen Lauf verfuegbar.")
+    # HANDOFF-CASH-BASIS-001: nur bei erfasstem Depot (sonst Neugeld-Pfad).
+    advisory_cash = []
+    if not confirm_no_existing_holdings and (_coverage_counts(live)["holding_positions_count"] or 0) > 0:
+        try:
+            advisory_cash = advisory_cash_entries(db, mandate)
+        except AdvisoryCashValuationError as exc:
+            raise HoldingsValuationIncompleteError(str(exc)) from exc
     drifts, total_value_rappen, holdings_basis = resolve_handoff_holdings_basis(
         live,
         confirm_no_existing_holdings=confirm_no_existing_holdings,
         advisory_depot_recorded=confirm_no_existing_holdings and _advisory_depot_recorded(db, mandate),
         investable_wealth_rappen=payload.get("investable_advisory_wealth_rappen"),
+        advisory_cash=advisory_cash,
     )
 
     threshold_rappen = round(total_value_rappen * _MIN_TRADE_SHARE)
@@ -320,6 +348,13 @@ def snapshot_handoff(
         )
     trades.sort(key=lambda item: abs(int(item.get("rebalance_amount_rappen") or 0)), reverse=True)
     return trades, total_value_rappen, holdings_basis
+
+
+def snapshot_json_and_sha256(trades: list[dict]) -> tuple[str, str]:
+    """HANDOFF-INTEGRITY-001: gespeicherte Bytes und ihr Hash -- dieselbe
+    Serialisierung fuer Vorschau und Weiterleitung."""
+    snapshot_json = json.dumps(trades, ensure_ascii=False)
+    return snapshot_json, hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest()
 
 
 def _isin_by_product_id(db: Session, product_ids: list) -> dict:
