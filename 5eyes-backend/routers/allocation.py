@@ -1674,7 +1674,31 @@ def create_depot_snapshot(
             client_id=getattr(mandate, "client_id", None),
             ip_address=_extract_client_ip(request))
         db.commit()
-    return {"snapshot": snapshot, "created": created, "ist_stress": compute_ist_stress(snapshot)}
+    from services.portfolio_data_release_gate import assess_mandate_portfolio_data
+
+    return {
+        "snapshot": snapshot,
+        "created": created,
+        "ist_stress": compute_ist_stress(snapshot),
+        # PORTFOLIO-DATA-001: Frische/Abgleich sichtbar; blockiert nur mit aktiver Policy.
+        "portfolio_data": assess_mandate_portfolio_data(db, mandate, snapshot=snapshot),
+    }
+
+
+@router.get("/mandates/{mandate_id}/portfolio-data/assessment")
+def get_portfolio_data_assessment(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """PORTFOLIO-DATA-001: komponentenweise Depot-Frische, Abgleich-Status und
+    Gate je Aktion (Entwurf, Finalisierung, PDF, Signatur, Handoff). Mit einer
+    nicht freigegebenen Policy (heute PROPOSED) nur Anzeige: ``enforced``
+    False, ``would_block`` zeigt, was eine aktive Policy sperren wuerde."""
+    from services.portfolio_data_release_gate import assess_mandate_portfolio_data
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return assess_mandate_portfolio_data(db, mandate)
 
 
 @router.get("/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays")

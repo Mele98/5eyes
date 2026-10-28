@@ -2400,6 +2400,10 @@ def get_advisory_report_pdf(
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_ADVISORY_PDF,
     )
+    # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+    from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
+
+    assert_portfolio_data_release_eligible(db, mandate, action="pdf")
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
     pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
     if pdf_bytes is None:
