@@ -273,8 +273,11 @@ CREATE TABLE IF NOT EXISTS risk_assessments (
     q_risk_preference_points    INTEGER NOT NULL CHECK(q_risk_preference_points BETWEEN 1 AND 4),
     q_risk_behavior_points      INTEGER NOT NULL CHECK(q_risk_behavior_points BETWEEN 1 AND 4),
     risk_willingness_total      INTEGER NOT NULL CHECK(risk_willingness_total BETWEEN 3 AND 12),
+    -- RISK-PROFILE-SCHEMA-PARITY-001: Werte von risk_scoring.WILLINGNESS_SCORE_TO_PROFILE;
+    -- 'Sicherheitsorientiert' bleibt fuer Bestandszeilen (Upgrade entfernt nie Werte).
     risk_willingness_profile    TEXT NOT NULL CHECK(risk_willingness_profile IN (
-                                    'Sicherheitsorientiert','Ausgewogen','Wachstumsorientiert','Dynamisch')),
+                                    'Kapitalschutz','Sicherheitsorientiert','Defensiv',
+                                    'Ausgewogen','Wachstumsorientiert','Dynamisch','Aktien')),
     risk_willingness_score_x10  INTEGER NOT NULL CHECK(risk_willingness_score_x10 BETWEEN 0 AND 100),
     -- Gesamtergebnis
     final_score_x10             INTEGER NOT NULL CHECK(final_score_x10 BETWEEN 0 AND 100),
@@ -501,6 +504,47 @@ BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_delete
 BEFORE DELETE ON depot_snapshots FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
+
+-- ===========================================================================
+-- RISK-CAPACITY-EVALUATION-SNAPSHOT-001 (2026-10-26):
+-- RiskCapacityPlausibilityEvaluationV1 -- append-only, gehashte Evidenz jeder
+-- beim Speichern des Risikoprofils bzw. bei der Generierung gebundenen
+-- Plausibilitaetspruefung der Risikofaehigkeit (Eingaben, Regelversion,
+-- Ergebnis). KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger
+-- verboten. Kein FK auf mandates/risk_assessments (Purge-fest).
+-- Identisch zu database.py::RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS risk_capacity_plausibility_evaluations (
+    id                 TEXT PRIMARY KEY,
+    schema_version     TEXT NOT NULL DEFAULT 'RiskCapacityPlausibilityEvaluationV1',
+    tenant_id          TEXT,
+    mandate_id         TEXT NOT NULL,  -- bewusst ohne FK (Purge-fest)
+    client_id          TEXT,           -- bewusst ohne FK (Purge-fest)
+    assessment_id      TEXT,           -- bewusst ohne FK (Purge-fest)
+    binding_context    TEXT NOT NULL CHECK(binding_context IN ('risk_assessment_saved','allocation_generated')),
+    binding_record_id  TEXT NOT NULL,
+    as_of_date         TEXT NOT NULL,
+    rules_version      TEXT NOT NULL,
+    status             TEXT NOT NULL,
+    inputs_json        TEXT,
+    inputs_hash        TEXT,
+    result_json        TEXT NOT NULL,
+    evaluation_hash    TEXT,
+    actor_id           TEXT NOT NULL REFERENCES users(id),
+    evaluated_at       TEXT NOT NULL,
+    snapshot_hash      TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_mandate
+    ON risk_capacity_plausibility_evaluations(mandate_id, evaluated_at);
+CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_tenant_id
+    ON risk_capacity_plausibility_evaluations(tenant_id);
+CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_update
+BEFORE UPDATE ON risk_capacity_plausibility_evaluations FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_delete
+BEFORE DELETE ON risk_capacity_plausibility_evaluations FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END;
 
 -- ===========================================================================
 -- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):

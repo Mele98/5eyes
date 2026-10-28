@@ -137,6 +137,28 @@ engine = create_app_engine(db_path=settings.db_path, db_key=getattr(settings, 'd
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
 
 
+def _resolve_engine(target_engine: Engine | None = None) -> Engine:
+    """DB-ENGINE-DEFAULT-BINDING-001: Ziel-Engine zur AUFRUFZEIT aufloesen.
+
+    Ein Default-Argument ``target_engine=engine`` wird beim Import gebunden und
+    zeigt danach fuer immer auf die DB, die beim ersten Import konfiguriert war
+    -- auch wenn ``database.engine`` spaeter umgebogen wurde. Schema-Schritte
+    nehmen deshalb ``None`` als Default und loesen hier ueber die Modul-Engine
+    ``database.engine`` auf (aus ``settings.db_path``/``DB_PATH`` gebaut; Tests
+    ersetzen genau diese per monkeypatch).
+    """
+    return target_engine if target_engine is not None else engine
+
+
+def _session_for(target_engine: Engine | None = None) -> Session:
+    """Session auf ``target_engine``; ohne Argument unveraendert ``SessionLocal()``."""
+    if target_engine is None:
+        return SessionLocal()
+    return sessionmaker(
+        autocommit=False, autoflush=False, expire_on_commit=False, bind=target_engine,
+    )()
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -562,7 +584,56 @@ GOAL_REVISION_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
-def ensure_runtime_columns() -> None:
+# RISK-CAPACITY-EVALUATION-SNAPSHOT-001 (Codex-Closure-Reviews PR #647/#653/
+# #677, Residual "Bewertung live und ungehasht"): append-only
+# RiskCapacityPlausibilityEvaluationV1 (models/profiling.py::
+# RiskCapacityPlausibilityEvaluation). Jede beim Speichern des Risikoprofils
+# bzw. bei der Generierung gebundene Plausibilitaetsbewertung mit Eingaben,
+# Regelversion, Ergebnis und kanonischem Hash. Gleiches Muster wie
+# risk_profile_signoffs: Trigger verbieten UPDATE/DELETE, KEIN harter FK auf
+# mandates/risk_assessments (Purge-fest), nur actor_id -> users; tenant_id
+# direkt (RLS). Dieselbe DDL textgleich in 5eyes_schema_v4.0_FINAL.sql,
+# Alembic a7c4e9b2d1f3 fuer PostgreSQL.
+RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_update "
+    "BEFORE UPDATE ON risk_capacity_plausibility_evaluations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_delete "
+    "BEFORE DELETE ON risk_capacity_plausibility_evaluations FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END",
+)
+
+RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS risk_capacity_plausibility_evaluations (
+    id                 TEXT PRIMARY KEY,
+    schema_version     TEXT NOT NULL DEFAULT 'RiskCapacityPlausibilityEvaluationV1',
+    tenant_id          TEXT,
+    mandate_id         TEXT NOT NULL,
+    client_id          TEXT,
+    assessment_id      TEXT,
+    binding_context    TEXT NOT NULL CHECK(binding_context IN ('risk_assessment_saved','allocation_generated')),
+    binding_record_id  TEXT NOT NULL,
+    as_of_date         TEXT NOT NULL,
+    rules_version      TEXT NOT NULL,
+    status             TEXT NOT NULL,
+    inputs_json        TEXT,
+    inputs_hash        TEXT,
+    result_json        TEXT NOT NULL,
+    evaluation_hash    TEXT,
+    actor_id           TEXT NOT NULL REFERENCES users(id),
+    evaluated_at       TEXT NOT NULL,
+    snapshot_hash      TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_mandate "
+    "ON risk_capacity_plausibility_evaluations(mandate_id, evaluated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_tenant_id "
+    "ON risk_capacity_plausibility_evaluations(tenant_id)",
+)
+
+
+def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
+    target_engine = _resolve_engine(target_engine)
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
         # Bootstrap-SQL hat das Feld noch nicht — Migration ergaenzt die
@@ -1017,12 +1088,12 @@ def ensure_runtime_columns() -> None:
             ('previous_next_due_at', 'TEXT'),
         ],
     }
-    inspector = inspect(engine)
+    inspector = inspect(target_engine)
     # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
     # gesetzt, wenn 'status' auf capital_market_assumptions in DIESEM Lauf
     # neu per ALTER TABLE angelegt wurde (siehe Backfill weiter unten).
     cma_status_newly_added = False
-    with engine.begin() as conn:
+    with target_engine.begin() as conn:
         for table_name, columns in additive_columns.items():
             # Defensive (2026-06-08): wenn eine Tabelle (noch) nicht
             # existiert, Migration ueberspringen statt zu crashen. create_all
@@ -1188,6 +1259,10 @@ def ensure_runtime_columns() -> None:
         # Entscheidungen (idempotent; siehe Konstanten oben).
         for ddl in GOAL_REVISION_DECISION_SQLITE_TABLE_DDL + GOAL_REVISION_DECISION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only gebundene
+        # Plausibilitaetsbewertungen (idempotent; siehe Konstanten oben).
+        for ddl in RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL + RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
@@ -1240,7 +1315,7 @@ def _advisory_log_hash_text(row: dict, fields: tuple[str, ...]) -> str:
     return "\x1f".join(parts)
 
 
-def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Engine = engine) -> None:
+def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Engine | None = None) -> None:
     """REC-007 (Codex-Audit 2026-08-25): cost_disclosure_snapshot_json wurde
     dem Integritaets-Hash-Feld-Vertrag hinzugefuegt (siehe
     services/advisory_log_integrity.py::compute_integrity_hash) -- eine
@@ -1260,6 +1335,7 @@ def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Eng
     bereits migrierte Zeile (Hash passt schon zum neuen Vertrag) wird beim
     naechsten Lauf uebersprungen.
     """
+    target_engine = _resolve_engine(target_engine)
     from services.advisory_log_integrity import compute_integrity_hash
 
     # Nur der SQLite-Legacy-Pfad ruft diese Funktion auf (siehe
@@ -1305,7 +1381,8 @@ def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Eng
             )
 
 
-def run_advisory_log_migration(target_engine: Engine = engine) -> None:
+def run_advisory_log_migration(target_engine: Engine | None = None) -> None:
+    target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
     if not inspector.has_table('advisory_log'):
         return
@@ -1337,7 +1414,7 @@ def run_advisory_log_migration(target_engine: Engine = engine) -> None:
         conn.commit()
 
 
-def run_risk_assessment_answer_migration(target_engine: Engine = engine) -> None:
+def run_risk_assessment_answer_migration(target_engine: Engine | None = None) -> None:
     """Bringt risk_assessment_answers auf die kanonische DDL (CHECKs, UNIQUE).
 
     ANSWERS-MIGRATION-IDEMPOTENT-001 (Incident 2026-10-15): die Bedingung
@@ -1350,6 +1427,7 @@ def run_risk_assessment_answer_migration(target_engine: Engine = engine) -> None
     unterbrochener Zustand wird sicher abgeschlossen (nur wenn die neue
     Tabelle leer ist -- sonst laut abbrechen statt zu raten).
     """
+    target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
     has_new = inspector.has_table('risk_assessment_answers')
     has_old = inspector.has_table('risk_assessment_answers__old')
@@ -1442,7 +1520,8 @@ def _rebuild_risk_assessment_answers_from_old(cur) -> None:
     cur.execute('CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id)')
     cur.execute('DROP TABLE risk_assessment_answers__old')
 
-def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
+def ensure_audit_log_actions(target_engine: Engine | None = None) -> None:
+    target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
     if not inspector.has_table('audit_log'):
         return
@@ -1550,7 +1629,7 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         conn.execute(text('DROP TABLE audit_log__old'))
 
 
-def ensure_audit_log_triggers(target_engine: Engine = engine) -> None:
+def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
     """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): ensure_audit_log_actions()
     baut audit_log per RENAME+Neuaufbau um (siehe oben). SQLite bindet
     Trigger an die UMBENANNTE Tabelle (audit_log__old) und verwirft sie beim
@@ -1565,6 +1644,7 @@ def ensure_audit_log_triggers(target_engine: Engine = engine) -> None:
     Funktion stellt beide Trigger idempotent wieder her (unabhaengig davon,
     ob ensure_audit_log_actions() in diesem Lauf ueberhaupt etwas migriert
     hat) und muss nach JEDEM Start aufgerufen werden."""
+    target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
     if not inspector.has_table('audit_log'):
         return
@@ -1620,8 +1700,8 @@ def _seed_asset_class_returns(conn) -> None:
         """), {"id": str(uuid.uuid4()), "year": year, "ac": ac, "ret": ret, "now": now})
 
 
-def ensure_snapshot_tables() -> None:
-    with engine.begin() as conn:
+def ensure_snapshot_tables(target_engine: Engine | None = None) -> None:
+    with _resolve_engine(target_engine).begin() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS strategy_snapshots (
                 id TEXT PRIMARY KEY,
@@ -1717,7 +1797,7 @@ def ensure_snapshot_tables() -> None:
         _seed_asset_class_returns(conn)
 
 
-def ensure_audit_log_indexes(target_engine: Engine = engine) -> None:
+def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
     """Sprint U-38 (Roadmap-Punkt 38, 2026-06-01): idempotente Audit-Log-
     Indexes — inkl. neuer Composite-Index (mandate_id, table_name).
 
@@ -1732,6 +1812,7 @@ def ensure_audit_log_indexes(target_engine: Engine = engine) -> None:
     Pattern in services.data_export._query_audit_log und in den FINMA-
     Compliance-Reports).
     """
+    target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
     if not inspector.has_table('audit_log'):
         return
@@ -1789,7 +1870,7 @@ PURGE_HISTORY_COLUMN_SQL_TYPES: dict[str, str] = {
 }
 
 
-def ensure_purge_history_table(target_engine: Engine = engine) -> None:
+def ensure_purge_history_table(target_engine: Engine | None = None) -> None:
     """Create/upgrade ``market_data_purge_history`` for SQLite installs.
 
     PostgreSQL is provisioned exclusively by Alembic.  In particular, this
@@ -1797,6 +1878,7 @@ def ensure_purge_history_table(target_engine: Engine = engine) -> None:
     a production connection.  Keeping the no-op here (rather than only in
     ``init_db``) also protects the lazy calls made by the purge service.
     """
+    target_engine = _resolve_engine(target_engine)
     if target_engine.dialect.name != "sqlite":
         return
     with target_engine.begin() as conn:
@@ -1827,7 +1909,7 @@ def ensure_purge_history_table(target_engine: Engine = engine) -> None:
         ))
 
 
-def ensure_default_tenant() -> None:
+def ensure_default_tenant(target_engine: Engine | None = None) -> None:
     """Sprint T1 (2026-06-08): legt den Default-Tenant 'main' an wenn nicht da.
 
     Tier 1 (Self-Hosted) und Tier 3 (Dedicated) nutzen genau diesen einen
@@ -1847,7 +1929,7 @@ def ensure_default_tenant() -> None:
             Tenant,
         )
 
-        with SessionLocal() as db:
+        with _session_for(target_engine) as db:
             existing = db.query(Tenant).filter(
                 Tenant.id == DEFAULT_TENANT_ID
             ).first()
@@ -1878,7 +1960,7 @@ def ensure_default_tenant() -> None:
         pass
 
 
-def ensure_default_ch_jurisdiction() -> None:
+def ensure_default_ch_jurisdiction(target_engine: Engine | None = None) -> None:
     """WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
     legt die JurisdictionProfile-Zeile fuer "CH" an, wenn sie fehlt.
 
@@ -1901,7 +1983,7 @@ def ensure_default_ch_jurisdiction() -> None:
         from datetime import datetime, timezone
         from models.jurisdiction import JurisdictionProfile
 
-        with SessionLocal() as db:
+        with _session_for(target_engine) as db:
             existing = db.query(JurisdictionProfile).filter(
                 JurisdictionProfile.code == "CH"
             ).first()
@@ -1930,7 +2012,7 @@ def ensure_default_ch_jurisdiction() -> None:
         pass
 
 
-def ensure_default_de_jurisdiction() -> None:
+def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
     """Deutschland-Anbindung (2026-07-31, Entscheid Auftraggeber): legt die
     DE-JurisdictionProfile-Zeile + Home-Bias-Default-Zeilen an (siehe
     services/jurisdiction/de_seed.py::ensure_de_jurisdiction_seed -- dort die
@@ -1940,7 +2022,7 @@ def ensure_default_de_jurisdiction() -> None:
     try:
         from services.jurisdiction.de_seed import ensure_de_jurisdiction_seed
 
-        with SessionLocal() as db:
+        with _session_for(target_engine) as db:
             ensure_de_jurisdiction_seed(db)
             db.commit()
     except Exception:
@@ -2108,7 +2190,7 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
     return updated
 
 
-def _create_or_migrate_schema(active_url: str) -> None:
+def _create_or_migrate_schema(active_url: str, target_engine: Engine | None = None) -> None:
     """Roadmap #90: Baseline-Migration + init_db-Switch create_all<->alembic.
 
     SQLite (Dev/Test/Electron-Desktop, alle 5200+ Tests): unveraendert
@@ -2130,7 +2212,7 @@ def _create_or_migrate_schema(active_url: str) -> None:
     stattdessen ueber additive Alembic-Revisionen.
     """
     if not is_postgres_database_url(active_url):
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=_resolve_engine(target_engine))
         return
     from alembic import command
     from alembic.config import Config as AlembicConfig
@@ -2251,10 +2333,11 @@ def ensure_current_anchor_unique_indexes(engine_to_use=None) -> None:
             conn.execute(text(expected))
 
 
-def _run_sqlite_legacy_schema_maintenance() -> None:
+def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -> None:
     """Run the backwards-compatible schema repair path for SQLite only."""
-    ensure_runtime_columns()
-    ensure_current_anchor_unique_indexes()
+    eng = _resolve_engine(target_engine)
+    ensure_runtime_columns(eng)
+    ensure_current_anchor_unique_indexes(eng)
     # UPGRADE-PATH-CHECK-DRIFT-001: erweiterte CHECK-IN-Listen des
     # Referenzschemas erreichten bestehende DBs nie (CREATE TABLE IF NOT EXISTS).
     # Fail-closed (Closure-Review #675): wirft ManualMigrationRequired bzw.
@@ -2262,79 +2345,96 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
     # init_db() faehrt dann bewusst NICHT fort.
     from services.sqlite_check_constraint_upgrade import ensure_sqlite_check_in_lists_current
 
-    ensure_sqlite_check_in_lists_current(engine, resolve_schema_path())
+    ensure_sqlite_check_in_lists_current(eng, resolve_schema_path())
     # PG-002: Tenant-Backfill + Link-/Tenant-Trigger fuer wealth_positions/
     # wealth_inflows; nach dem CHECK-Upgrade, das Tabellen neu aufbauen kann.
     from services.wealth_tenant_boundary import ensure_sqlite_wealth_tenant_boundary
 
-    ensure_sqlite_wealth_tenant_boundary(engine)
+    ensure_sqlite_wealth_tenant_boundary(eng)
     from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
-    ensure_sqlite_risk_evidence_tenant_boundary(engine)
-    migrate_house_matrix_real_estate_cap_20()
-    ensure_snapshot_tables()
+    ensure_sqlite_risk_evidence_tenant_boundary(eng)
+    migrate_house_matrix_real_estate_cap_20(eng)
+    ensure_snapshot_tables(eng)
     from services.market_data.provider_health_registry import ensure_provider_health_table
 
-    ensure_provider_health_table(engine)
-    ensure_purge_history_table(engine)
-    run_risk_assessment_answer_migration(engine)
-    run_advisory_log_migration(engine)
-    migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(engine)
-    ensure_audit_log_actions()
+    ensure_provider_health_table(eng)
+    ensure_purge_history_table(eng)
+    run_risk_assessment_answer_migration(eng)
+    run_advisory_log_migration(eng)
+    migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(eng)
+    ensure_audit_log_actions(eng)
     # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
     # ggf. komplett neu baut (Index-Drift-Risk).
-    ensure_audit_log_indexes()
+    ensure_audit_log_indexes(eng)
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Immutability-Trigger nach JEDEM
     # Start sicherstellen -- ensure_audit_log_actions() kann sie beim
     # Tabellen-Neuaufbau verwerfen (siehe Docstring dort).
-    ensure_audit_log_triggers()
+    ensure_audit_log_triggers(eng)
 
 
-def init_db() -> None:
-    active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
-    if is_sqlite_database_url(active_url):
+def init_db(target_engine: Engine | None = None) -> None:
+    """Schema anlegen/migrieren und Stammdaten sicherstellen.
+
+    DB-ENGINE-DEFAULT-BINDING-001: ``target_engine`` (Default: Modul-Engine zur
+    Aufrufzeit) wird an JEDEN Schritt durchgereicht. Ohne Argument bleibt das
+    Verhalten unveraendert (``settings.db_path``/Modul-Engine). Mit expliziter
+    SQLite-Engine gelten Quarantaene-Pruefung und Rohschema-Bootstrap deren
+    Datei; eine SQLite-Engine ohne Datei (In-Memory) faellt dafuer NIE auf
+    ``settings.db_path`` zurueck, sondern ueberspringt beide Schritte.
+    """
+    eng = _resolve_engine(target_engine)
+    if target_engine is None:
+        active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+        db_file = settings.db_path
+    else:
+        active_url = target_engine.url.render_as_string(hide_password=False)
+        db_file = target_engine.url.database if target_engine.dialect.name == "sqlite" else None
+        if db_file in ("", ":memory:"):
+            db_file = None
+    if is_sqlite_database_url(active_url) and db_file:
         # UPGRADE-PATH-CHECK-DRIFT-001: eine quarantaenisierte DB (gescheiterte,
         # nicht verifizierte Wiederherstellung) blockiert jeden weiteren Start.
         from services.sqlite_check_constraint_upgrade import raise_if_quarantined
 
-        raise_if_quarantined(settings.db_path)
-    if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url):
-        bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+        raise_if_quarantined(db_file)
+    if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url) and db_file:
+        bootstrap_sqlite_schema(db_path=db_file, db_key=getattr(settings, 'db_key', None))
 
     # Import von Tenant-Model VOR create_all, damit das Table angelegt wird.
     import models.tenant  # noqa: F401
     # WP1 (2026-07-30): dito fuer die neuen Jurisdiktions-Tabellen.
     import models.jurisdiction  # noqa: F401
 
-    _create_or_migrate_schema(active_url)
+    _create_or_migrate_schema(active_url, eng)
     if is_sqlite_database_url(active_url):
-        _run_sqlite_legacy_schema_maintenance()
+        _run_sqlite_legacy_schema_maintenance(eng)
     # Sprint T1 (2026-06-08): Default-Tenant 'main' anlegen wenn nicht da.
     # Backwards-Compat: tenant_id-Columns sind NULLABLE, aber die Existenz
     # der 'main'-Row erlaubt T2-Sprint die Auth-Layer-Migration.
-    ensure_default_tenant()
+    ensure_default_tenant(eng)
     # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
     # Default-Jurisdiktion 'CH' anlegen wenn nicht da (analog zu
     # ensure_default_tenant() direkt darueber).
-    ensure_default_ch_jurisdiction()
+    ensure_default_ch_jurisdiction(eng)
     # Deutschland-Anbindung (2026-07-31): zweite Jurisdiktion, analog CH.
-    ensure_default_de_jurisdiction()
+    ensure_default_de_jurisdiction(eng)
     # SEC-1 (2026-07-04): Client-Login-User mit NULL-Tenant praezise auf den
     # Tenant ihres verlinkten Clients ziehen — MUSS vor dem generischen
     # ensure_tenant_backfill() laufen, das sonst pauschal nach 'main' zieht.
-    ensure_client_login_user_tenant_backfill()
+    ensure_client_login_user_tenant_backfill(eng)
     # E1 (2026-06-12): Bestands-Rows ohne tenant_id dem 'main'-Tenant zuweisen.
-    ensure_tenant_backfill()
+    ensure_tenant_backfill(eng)
     if is_sqlite_database_url(active_url):
         # PG-002: Vermoegens-Tenant erst NACH dem Client-Backfill nachziehen.
         from services.wealth_tenant_boundary import ensure_sqlite_wealth_tenant_boundary
 
-        ensure_sqlite_wealth_tenant_boundary(engine)
+        ensure_sqlite_wealth_tenant_boundary(eng)
         # PG-002 (PR #662): Risiko-Evidence ebenfalls erst nach dem Mandats-
         # Backfill an den Mandanten binden.
         from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
-        ensure_sqlite_risk_evidence_tenant_boundary(engine)
+        ensure_sqlite_risk_evidence_tenant_boundary(eng)
     # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
     # Tenant-Isolation zusaetzlich auf Datenbankebene.
     # PG-003 (Codex-Audit 2026-08-25): ensure_postgres_tenant_not_null() lief
@@ -2380,7 +2480,7 @@ def init_db() -> None:
     if not _effective_strict_tenant_isolation(settings):
         from services.postgres_rls import ensure_postgres_tenant_not_null
         ensure_postgres_tenant_not_null(
-            engine, table_names=("users", "clients", "mandates", "protocol_bausteine"),
+            eng, table_names=("users", "clients", "mandates", "protocol_bausteine"),
         )
     from services.postgres_rls import ensure_postgres_rls_policies
-    ensure_postgres_rls_policies(engine)
+    ensure_postgres_rls_policies(eng)

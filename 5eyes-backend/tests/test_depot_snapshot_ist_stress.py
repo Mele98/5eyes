@@ -62,7 +62,7 @@ AS_OF = date(2026, 10, 26)
 FX = FXRateSource({"CHF": 1.0, "USD": 0.88})
 SCHEMA_FILE = next(BACKEND_ROOT.glob("*_schema_v4.0_FINAL.sql"))
 REVISION = "c8e2f4a6b1d3"
-DOWN_REVISION = "c7e4a19b3d52"
+DOWN_REVISION = "f6b1d4a8c2e7"
 
 # (position_id, asset_class, currency, units_milli, price_rappen)
 DEFAULT_HOLDINGS = (

@@ -6,7 +6,7 @@ Werte, Waehrung, Stichtag, FX-Evidenz, SHA-256). UPDATE/DELETE per Trigger
 verboten (SQLite und PostgreSQL). Kein FK auf mandates/clients (Purge-fest).
 
 Revision ID: c8e2f4a6b1d3
-Revises: c7e4a19b3d52
+Revises: f6b1d4a8c2e7
 Create Date: 2026-10-26
 """
 from typing import Sequence, Union
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 
 revision: str = "c8e2f4a6b1d3"
-down_revision: Union[str, Sequence[str], None] = "c7e4a19b3d52"
+down_revision: Union[str, Sequence[str], None] = "f6b1d4a8c2e7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

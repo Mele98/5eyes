@@ -60,12 +60,16 @@ Reasoning, Berater-PDF, Monolith-Banner und Audit zeigen sie als "noch nicht
 verifiziert" (``VERIFICATION_CODE``) mit konkretem Aufloesungsauftrag
 (``resolution_actions``).
 
-Bewusst NICHT umgesetzt: eine eigene persistierte
-``RiskCapacityPlausibilityEvaluationV1``-Tabelle. Jedes nicht konsistente
-Ergebnis wird append-only im Audit-Log festgehalten (Status, offene Pruefungen,
-Bestaetigungs-ID/-Hash, ``evaluation_hash`` = SHA-256 ueber Regelversion,
-Status, Befunde, Coverage und Datengrundlage); ein Aufloesungs-Workflow
-(Akzeptanz/Override einer offenen Coverage) waere ein eigener Schritt.
+Evidenz: Jedes nicht konsistente Ergebnis wird append-only im Audit-Log
+festgehalten (Status, offene Pruefungen, Bestaetigungs-ID/-Hash,
+``evaluation_hash`` = SHA-256 ueber Regelversion, Status, Befunde, Coverage
+und Datengrundlage). Beim Speichern des Risikoprofils und bei der Generierung
+wird zusaetzlich JEDE Bewertung als unveraenderliche, gehashte
+``RiskCapacityPlausibilityEvaluationV1`` persistiert (Eingaben, Regelversion,
+Ergebnis; services/risk_capacity_evaluation_snapshot.py) -- spaetere
+Datenaenderungen deuten sie nicht um, sondern machen sie "neu zu pruefen".
+Ein Aufloesungs-Workflow (Akzeptanz/Override einer offenen Coverage) waere
+ein eigener Schritt.
 
 Alle Schwellen sind CIO-Defaults, Compliance zu bestaetigen (siehe
 ``THRESHOLDS``); sie sind versioniert (``PLAUSIBILITY_RULES_VERSION``), damit
@@ -1251,8 +1255,18 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
     )
 
 
-def evaluate_mandate(db, mandate, assessment, *, today: date | None = None) -> dict:
-    """Pruefung fuer ein Mandat. Fehler in der Datenbasis -> "nicht pruefbar"."""
+def evaluate_mandate(
+    db, mandate, assessment, *, today: date | None = None, capture: dict | None = None,
+) -> dict:
+    """Pruefung fuer ein Mandat. Fehler in der Datenbasis -> "nicht pruefbar".
+
+    ``capture`` (optional, RiskCapacityPlausibilityEvaluationV1): bei
+    vollstaendiger Auswertung werden die tatsaechlich verwendeten Eingaben
+    (``declared``, ``recorded``, ``coverage_attestation``, ``as_of_date``)
+    eingetragen, damit genau diese Bewertung als Evidenz persistiert werden
+    kann (services/risk_capacity_evaluation_snapshot.py). Das Ergebnis
+    selbst bleibt unveraendert.
+    """
     if assessment is None:
         return _not_evaluable_result("Kein aktuelles Risikoprofil vorhanden.")
     from dataclasses import replace
@@ -1274,10 +1288,19 @@ def evaluate_mandate(db, mandate, assessment, *, today: date | None = None) -> d
     result["risk_assessment_id"] = getattr(assessment, "id", None)
     result["coverage_attestation"] = attestation
     _finalize(result, attestation["status"])
+    if capture is not None:
+        capture.update(
+            declared=declared,
+            recorded=recorded,
+            coverage_attestation=attestation,
+            as_of_date=(today or date.today()).isoformat(),
+        )
     return result
 
 
-def evaluate_mandate_safely(db, mandate, assessment, *, today: date | None = None) -> dict:
+def evaluate_mandate_safely(
+    db, mandate, assessment, *, today: date | None = None, capture: dict | None = None,
+) -> dict:
     """Wie evaluate_mandate, faengt aber jeden Fehler ab.
 
     Die Pruefung ist ein Hinweis-Layer: ein Programmfehler darf weder das
@@ -1285,7 +1308,7 @@ def evaluate_mandate_safely(db, mandate, assessment, *, today: date | None = Non
     geloggt und als "nicht pruefbar" sichtbar gemacht, nie als "konsistent".
     """
     try:
-        return evaluate_mandate(db, mandate, assessment, today=today)
+        return evaluate_mandate(db, mandate, assessment, today=today, capture=capture)
     except Exception as exc:  # noqa: BLE001 -- Hinweis-Layer, siehe Docstring
         logger.exception(
             "Risk-capacity plausibility failed for mandate %s",
