@@ -98,6 +98,8 @@ def purge_foundation_example_data(db: Session) -> dict[str, Any]:
     _delete_in(deleted, db, "advisory_log", "mandate_id", scope.mandate_ids)
     _delete_in(deleted, db, "suitability_checks", "mandate_id", scope.mandate_ids)
     _delete_in(deleted, db, "recommendation_positions", "run_id", scope.run_ids)
+    # ELIG-OVERRIDE-CAPTURE-001: captured overrides reference the run (FK).
+    _delete_in(deleted, db, "product_eligibility_overrides", "recommendation_run_id", scope.run_ids)
     _delete_in(deleted, db, "recommendation_runs", "id", scope.run_ids)
 
     # Mandate-scoped advisory artefacts.

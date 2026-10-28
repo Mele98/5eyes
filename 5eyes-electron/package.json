@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "test": "node tests/main.smoke.test.js && node tests/bundle-secret-scan.test.js",
+    "test": "node tests/main.smoke.test.js && node tests/bundle-secret-scan.test.js && node --test tests/ipc-sender-guard.test.js",
     "build:backend": "node scripts/build-backend.js",
     "build:reporting": "cd frontend/reporting && npm run build",
     "pack": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --dir",
@@ -33,8 +33,10 @@
     "files": [
       "main.js",
       "preload.js",
+      "ipc-sender-guard.js",
       "frontend/5eyes_v2.html",
       "frontend/desktop-api.js",
+      "frontend/trade-list-preview.js",
       "frontend/vendor/**/*",
       "frontend/reporting/dist/**/*",
       "!frontend/reporting/node_modules/**/*",
@@ -126,6 +128,6 @@
     ]
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.8.11"
   }
 }
