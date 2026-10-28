@@ -392,6 +392,39 @@ FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     "ON financial_coverage_attestations(mandate_id, attested_at)",
 )
 
+# DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2: append-only
+# DepotSnapshotV1 (models/snapshots.py::DepotSnapshot,
+# services/depot_snapshot.py). Haelt den hash-gebundenen IST-Bestand, auf
+# dem der IST-Stress abgespielt wird. Kein FK auf mandates/clients
+# (Purge-fest), nur created_by -> users; dieselbe DDL in
+# Bootstrap-Schema (*_schema_v4.0_FINAL.sql), Alembic c8e2f4a6b1d3 fuer PostgreSQL.
+DEPOT_SNAPSHOT_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_update "
+    "BEFORE UPDATE ON depot_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_delete "
+    "BEFORE DELETE ON depot_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END",
+)
+
+DEPOT_SNAPSHOT_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS depot_snapshots (
+    id              TEXT PRIMARY KEY,
+    schema_version  TEXT NOT NULL DEFAULT 'DepotSnapshotV1',
+    mandate_id      TEXT NOT NULL,
+    client_id       TEXT NOT NULL,
+    as_of_date      TEXT NOT NULL,
+    currency        TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    snapshot_json   TEXT NOT NULL,
+    snapshot_hash   TEXT NOT NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    created_at      TEXT NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_depot_snapshots_mandate "
+    "ON depot_snapshots(mandate_id, as_of_date)",
+)
+
 # RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 # append-only RiskProfileSignoffV1 (models/profiling.py::RiskProfileSignoff).
 # Gleiches Muster wie risk_override_decisions: Trigger verbieten UPDATE/
@@ -667,6 +700,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('execution_evidence_kind', 'TEXT'),
             ('execution_external_reference', 'TEXT'),
             ('execution_confirmed_on', 'TEXT'),
+            # HANDOFF-NEW-PRODUCT-001 (Alembic d2f8b6a1c4e9).
+            ('holdings_basis', 'TEXT'),
         ],
         # ELIG-GOVERNANCE-001 (2026-10-22): siehe models/product_eligibility.py.
         'product_eligibility_rules': [
@@ -1197,10 +1232,19 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
                 f"CREATE UNIQUE INDEX IF NOT EXISTS {HANDOFF_OPEN_BUSINESS_KEY_INDEX} "
                 f"ON portfolio_handoffs(business_key_hash) WHERE {HANDOFF_OPEN_BUSINESS_KEY_PREDICATE}"
             ))
+            # HANDOFF-DB-INVARIANT-001: Status-/Count-/Hash-Invarianten fuer
+            # neue Schreibvorgaenge (Altzeilen bleiben unberuehrt).
+            from models.portfolio_handoff import HANDOFF_INVARIANT_SQLITE_TRIGGERS
+
+            for ddl in HANDOFF_INVARIANT_SQLITE_TRIGGERS:
+                conn.execute(text(ddl))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
         # FinancialCoverageAttestationV1 (idempotent; siehe Konstanten oben).
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
                     + FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS):
+            conn.execute(text(ddl))
+        # DEPOT-E2E-SNAPSHOT-001: append-only DepotSnapshotV1 (idempotent).
+        for ddl in DEPOT_SNAPSHOT_SQLITE_TABLE_DDL + DEPOT_SNAPSHOT_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
         # DSG-ERASURE-NEW-EVIDENCE-001: hash-gebundene Personenzahl (Schema V2;
         # Namen/Notiz versiegelt). ADD COLUMN feuert den UPDATE-Trigger nicht.
