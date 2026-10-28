@@ -340,4 +340,4 @@ def test_goal_preservation_is_bound_in_the_model_basis():
 
 
 def test_engine_version_bumped():
-    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v16"
+    assert solver_module.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v17"
