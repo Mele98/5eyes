@@ -4189,7 +4189,6 @@ def _recompute_reserve_reasoning(
     if stored is not None and bound_valuation_date_or_none() != stored:
         with bound_valuation_date(stored):
             return _recompute_reserve_reasoning(db, mandate, ta, saa_ceiling_bps)
-    from models.allocation import CapitalMarketAssumption
     from models.wealth import WealthInflow, WealthPosition
     from services.cashflow_timeline import recurring_net_cashflow_series, totals_for_year
     from services.portfolio_engine import (
@@ -4279,11 +4278,14 @@ def _recompute_reserve_reasoning(
         + derive_tax_cashflow(mandate, total_wealth_rappen)
     )
 
-    cma = (
-        db.query(CapitalMarketAssumption)
-        .filter(CapitalMarketAssumption.is_current == 1)
-        .order_by(CapitalMarketAssumption.valid_from.desc())
-        .first()
+    # CMA-EFFECTIVE-DATE-001: dieselbe CMA wie die Engine (Jurisdiktion des
+    # Mandats, Gueltigkeitsfenster) statt der juengsten is_current-Zeile.
+    from services.jurisdiction.resolve import (
+        resolve_effective_cma_or_none,
+        resolve_mandate_jurisdiction,
+    )
+    cma = resolve_effective_cma_or_none(
+        db, resolve_mandate_jurisdiction(mandate), getattr(mandate, "tenant_id", None),
     )
     if cma is None:
         return None
@@ -4717,7 +4719,6 @@ def _build_performance_attribution(
     """
     try:
         from models.allocation import (
-            CapitalMarketAssumption,
             OptimizerPolicy,
             TargetAllocation,
         )
@@ -4800,11 +4801,13 @@ def _build_performance_attribution(
         }
 
         # Returns aus aktueller CMA (gleich fuer Portfolio + Benchmark)
-        cma = (
-            db.query(CapitalMarketAssumption)
-            .filter(CapitalMarketAssumption.is_current == 1)
-            .order_by(CapitalMarketAssumption.valid_from.desc())
-            .first()
+        # CMA-EFFECTIVE-DATE-001: dieselbe CMA wie die Engine.
+        from services.jurisdiction.resolve import (
+            resolve_effective_cma_or_none,
+            resolve_mandate_jurisdiction,
+        )
+        cma = resolve_effective_cma_or_none(
+            db, resolve_mandate_jurisdiction(mandate), getattr(mandate, "tenant_id", None),
         )
         if cma is None:
             return _performance_attribution_empty(
