@@ -796,6 +796,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-24): Goal-
             # Driver-Snapshot, siehe models/allocation.py::TargetAllocation.
             ('goal_driver_evidence_json', 'TEXT'),
+            # GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b (2026-10-25):
+            # gebundener Bewertungsstichtag des Laufs.
+            ('valuation_date', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),

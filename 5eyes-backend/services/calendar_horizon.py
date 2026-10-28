@@ -37,7 +37,9 @@ def calendar_years_until(
     Callers that model a mandatory first year may apply ``max(1, result)``.
     """
 
-    valuation_date = as_of or date.today()
+    from services.valuation_clock import valuation_date as _bound_valuation_date
+
+    valuation_date = as_of or _bound_valuation_date()
     if target_date <= valuation_date:
         return 0
 

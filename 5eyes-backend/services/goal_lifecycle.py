@@ -195,7 +195,9 @@ def resolve_lifecycle_state(goal, *, as_of: date | None = None) -> str:
     if anchor is None:
         return PLANNED
 
-    valuation_date = as_of or date.today()
+    from services.valuation_clock import valuation_date as _bound_valuation_date
+
+    valuation_date = as_of or _bound_valuation_date()
     if anchor < valuation_date:
         return OVERDUE
     if anchor == valuation_date:

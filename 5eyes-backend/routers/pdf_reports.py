@@ -1696,12 +1696,16 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         latest_run = resolve_current_recommendation_run(
             db, mandate.id, getattr(ta, "id", None)
         )
-        if latest_run is not None:
+        # SIGN-CLAIM-001: als "finale Empfehlung" gilt nur ein Final-Run --
+        # ein Draft (oder sein roher Status-String) wird nie als finale
+        # Empfehlung in Protokoll/Kunden-Signoff ausgewiesen.
+        if latest_run is not None and getattr(latest_run, "result_status", None) == "Final":
             latest_recommendation_summary = str(
-                getattr(latest_run, "objective_summary", None)
-                or getattr(latest_run, "result_status", "")
-                or ""
-            ).strip() or None
+                getattr(latest_run, "objective_summary", None) or ""
+            ).strip() or (
+                "Finalisierte Empfehlung vom "
+                f"{str(getattr(latest_run, 'updated_at', '') or '')[:10]}"
+            ).strip()
     except Exception as exc:
         logger.warning("Protokoll data: AdvisoryLog load failed: %s", exc)
 
