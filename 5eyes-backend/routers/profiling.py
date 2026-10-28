@@ -45,6 +45,7 @@ from services.risk_questionnaire_integrity import (
     validate_standard_submission,
 )
 from services.risk_capacity_plausibility import audit_if_inconsistent, evaluate_mandate_safely
+from services import risk_capacity_evaluation_snapshot as rces
 from services.risk_assessment_semantics import (
     OVERRIDE_DOCUMENTATION_RULES_VERSION,
     _optional_capacity_score,
@@ -203,7 +204,39 @@ def get_risk_capacity_plausibility(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ra:
         raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
-    return evaluate_mandate_safely(db, mandate, ra)
+    captured: dict = {}
+    result = evaluate_mandate_safely(db, mandate, ra, capture=captured)
+    # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: zuletzt gebundene Evidenz +
+    # "neu zu pruefen", wenn sie nicht mehr der aktuellen Datenlage entspricht.
+    if isinstance(result, dict):
+        result["bound_evaluation"] = rces.bound_evaluation_status(
+            db, mandate, rces.live_evaluation(db, mandate, ra, result=result, captured=captured),
+        )
+    return result
+
+
+@router.get("/mandates/{mandate_id}/risk-capacity-plausibility/evaluations")
+def list_risk_capacity_plausibility_evaluations(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """RISK-CAPACITY-EVALUATION-SNAPSHOT-001: gebundene, unveraenderliche
+    Bewertungen (neueste zuerst) mit Replay (Hash, Regel-Nachrechnung,
+    Aktualitaet). Betragsfrei; die Zeilen werden nie ueberschrieben."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        ra = _current_risk_assessment_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    live = rces.live_evaluation(db, mandate, ra)
+    return {
+        "schema_version": rces.SCHEMA_VERSION,
+        "current_risk_assessment_id": live["assessment_id"],
+        "evaluations": [
+            rces.replay_snapshot(row, mandate, live) for row in rces.list_snapshots(db, mandate)
+        ],
+    }
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments", response_model=RiskAssessmentResponse, status_code=201)
@@ -369,8 +402,16 @@ def create_risk_assessment(
             ip_address=_extract_client_ip(request))
         # RISK-CAPACITY-PLAUSIBILITY-001: Widerspruch Fragebogen <-> erfasste
         # Finanzdaten wird protokolliert (aendert das Profil nicht).
+        # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: dieselbe Bewertung wird als
+        # unveraenderliche Evidenz an das gespeicherte Profil gebunden.
+        captured: dict = {}
+        plausibility = evaluate_mandate_safely(db, mandate, ra, capture=captured)
+        rces.record_snapshot(
+            db, mandate, ra, plausibility, captured, actor=current_user,
+            binding_context=rces.CONTEXT_RISK_ASSESSMENT_SAVED, binding_record_id=ra.id,
+        )
         audit_if_inconsistent(
-            db, evaluate_mandate_safely(db, mandate, ra),
+            db, plausibility,
             user=current_user, table_name="risk_assessments", record_id=ra.id,
             mandate=mandate, ip_address=_extract_client_ip(request),
         )

@@ -15,8 +15,10 @@ summed first):
 * appropriateness evidence = the latest "Angemessenheitsprüfung" bound to
   THIS run and carrying a knowledge anchor (ELIG-KNOWLEDGE-001);
 * override evidence = a `ProductEligibilityOverride` bound to this run,
-  product and matched rule, inside its validity window and approved by a
-  second person (four-eyes).
+  product and matched rule, inside its validity window, approved by a
+  second person (four-eyes) and whose evidence hash verifies against the
+  CURRENT eligibility decision (ELIG-OVERRIDE-CAPTURE-001,
+  services/product_eligibility_override.py).
 
 Every non-eligible dimension is a finalize error, with two documented
 exceptions that stay warnings until the owner decides:
@@ -35,13 +37,18 @@ from typing import Iterable
 from sqlalchemy.orm import Session
 
 from models.mandates import Mandate
-from models.product_eligibility import ProductEligibilityOverride
 from models.profiling import RiskAssessment, SuitabilityCheck
 from models.review import Product, RecommendationPosition, RecommendationRun
 from services.product_eligibility import (
     derive_service_mode,
     evaluate_product_eligibility,
     mandate_tenant_id,
+)
+from services.product_eligibility_override import (
+    OVERRIDE_MISSING_CODE,
+    DecisionContext,
+    decision_binding_hash,
+    find_valid_override,
 )
 
 APPROPRIATENESS_DUTY = "Angemessenheitsprüfung"
@@ -89,29 +96,6 @@ def _appropriateness_result(db: Session, mandate: Mandate, run: RecommendationRu
     return str(check.result)
 
 
-def _valid_override(
-    db: Session, run: RecommendationRun, product_id: str, now: str,
-) -> ProductEligibilityOverride | None:
-    rows = (
-        db.query(ProductEligibilityOverride)
-        .filter(
-            ProductEligibilityOverride.recommendation_run_id == run.id,
-            ProductEligibilityOverride.product_id == product_id,
-        )
-        .order_by(ProductEligibilityOverride.created_at.desc())
-        .all()
-    )
-    for row in rows:
-        if not (row.evidence_hash and row.requested_by and row.approved_by):
-            continue
-        if row.approved_by == row.requested_by:
-            continue
-        if not (str(row.valid_from) <= now < str(row.expires_at)):
-            continue
-        return row
-    return None
-
-
 def _aggregate(positions: Iterable[RecommendationPosition]) -> dict[str, int]:
     weights: dict[str, int] = {}
     for position in positions:
@@ -146,28 +130,41 @@ def finalization_eligibility_findings(
     jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
     appropriateness = _appropriateness_result(db, mandate, run)
     now = _now_iso()
+    context = DecisionContext(
+        mandate=mandate, run=run, assessment=assessment, service_mode=service_mode,
+        score_bucket=score_bucket, jurisdiction=jurisdiction, tenant_id=tenant_id,
+    )
 
     for product_id, weight in sorted(_aggregate(positions).items()):
         product = products.get(product_id)
         if product is None or product.deleted_at is not None or int(product.is_active or 0) != 1:
             continue
-        override = _valid_override(db, run, product_id, now)
-        decision = evaluate_product_eligibility(
-            db,
-            product=product,
-            service_mode=service_mode,
-            score_bucket=score_bucket,
-            aggregated_weight_bps=weight,
-            source_sub_allocations=[],
-            jurisdiction=jurisdiction,
-            tenant_id=tenant_id,
-            appropriateness_result=appropriateness,
-            override_evidence={"override_id": override.id, "rule_id": override.rule_id} if override else None,
-        )
+        def _evaluate(override_evidence: dict | None = None):
+            return evaluate_product_eligibility(
+                db,
+                product=product,
+                service_mode=service_mode,
+                score_bucket=score_bucket,
+                aggregated_weight_bps=weight,
+                source_sub_allocations=[],
+                jurisdiction=jurisdiction,
+                tenant_id=tenant_id,
+                appropriateness_result=appropriateness,
+                override_evidence=override_evidence,
+            )
+
+        decision = _evaluate()
+        if OVERRIDE_MISSING_CODE in decision.reason_codes:
+            # ELIG-OVERRIDE-CAPTURE-001: only an override bound to THIS
+            # decision (rule version/hash, risk profile, service mode) counts.
+            override = find_valid_override(
+                db, run_id=run.id, product_id=product_id,
+                binding_hash=decision_binding_hash(context, decision),
+                matched_rule_id=decision.matched_rule_id, now=now,
+            )
+            if override is not None:
+                decision = _evaluate({"override_id": override.id, "rule_id": override.rule_id})
         reason_codes = list(decision.reason_codes)
-        if override is not None and override.rule_id != decision.matched_rule_id and decision.matched_rule_id:
-            # Override bound to another rule is no evidence for this one.
-            reason_codes.append("OVERRIDE_EVIDENCE_MISSING")
         blocking = [code for code in reason_codes if code not in WARNING_ONLY_REASON_CODES]
         soft = [code for code in reason_codes if code in WARNING_ONLY_REASON_CODES]
         name = product.product_name or product_id

@@ -73,6 +73,13 @@ Module._load = function (request, parent, isMain) {
 const mainExports = require(path.join(__dirname, '..', 'main.js'));
 Module._load = originalLoad;
 
+// A3 P2-5: alle Kanaele pruefen den Absender -> Aufrufe kommen hier aus der
+// lokalen Entry-Datei (Top-Level-Frame), wie im echten Renderer.
+const { pathToFileURL } = require('url');
+const trustedEvent = {
+  senderFrame: { url: `${pathToFileURL(mainExports.resolveFrontendPath()).href}?intro=1`, parent: null },
+};
+
 // ── Assertions ───────────────────────────────────────────────────────────────
 let failed = 0;
 function check(name, fn) {
@@ -100,14 +107,14 @@ function check(name, fn) {
 
   // EM-2: fehlende Daten -> {ok:false} statt throw
   await check('EM-2 fehlende PDF-Daten -> ok:false (kein throw)', async () => {
-    const r = await savePdf({}, { filename: 'x.pdf', base64: '' });
+    const r = await savePdf(trustedEvent, { filename: 'x.pdf', base64: '' });
     assert.strictEqual(r.ok, false);
     assert.ok(r.error && /fehlen/i.test(r.error));
   });
 
   // EM-2: ungültiges Base64 -> {ok:false}
   await check('EM-2 ungültiges Base64 -> ok:false', async () => {
-    const r = await savePdf({}, { filename: 'x.pdf', base64: '!!!nicht base64!!!' });
+    const r = await savePdf(trustedEvent, { filename: 'x.pdf', base64: '!!!nicht base64!!!' });
     assert.strictEqual(r.ok, false);
     assert.ok(r.error);
   });
@@ -116,7 +123,7 @@ function check(name, fn) {
   await check('EM-2 Dialog-Abbruch -> canceled', async () => {
     state.saveDialogResult = { canceled: true };
     const good = Buffer.from('%PDF-1.4 test', 'utf8').toString('base64');
-    const r = await savePdf({}, { filename: 'x.pdf', base64: good });
+    const r = await savePdf(trustedEvent, { filename: 'x.pdf', base64: good });
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.canceled, true);
   });
@@ -126,7 +133,7 @@ function check(name, fn) {
     const out = path.join(tmpDownloads, 'out.pdf');
     state.saveDialogResult = { canceled: false, filePath: out };
     const good = Buffer.from('%PDF-1.4 hello', 'utf8').toString('base64');
-    const r = await savePdf({}, { filename: 'out.pdf', base64: good });
+    const r = await savePdf(trustedEvent, { filename: 'out.pdf', base64: good });
     assert.strictEqual(r.ok, true);
     assert.ok(fs.existsSync(out));
     assert.strictEqual(fs.readFileSync(out, 'utf8'), '%PDF-1.4 hello');
@@ -139,16 +146,16 @@ function check(name, fn) {
 
   await check('EM-5 Encryption unavailable -> null + Datei bleibt erhalten', async () => {
     state.encryptionAvailable = true;
-    assert.strictEqual(setToken({}, 'secret-123'), true);
+    assert.strictEqual(setToken(trustedEvent, 'secret-123'), true);
     assert.ok(fs.existsSync(tokenFile), 'Token-Datei sollte nach set existieren');
 
     state.encryptionAvailable = false;          // Encryption „temporär" weg
-    const t = getToken({});
+    const t = getToken(trustedEvent);
     assert.strictEqual(t, null, 'kein Klartext-Token zurückgeben');
     assert.ok(fs.existsSync(tokenFile), 'EM-5: Datei darf NICHT gelöscht werden');
 
     state.encryptionAvailable = true;            // Recovery
-    assert.strictEqual(getToken({}), 'secret-123', 'Token nach Recovery wieder lesbar');
+    assert.strictEqual(getToken(trustedEvent), 'secret-123', 'Token nach Recovery wieder lesbar');
   });
 
   // Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token bekommt eine
@@ -161,18 +168,18 @@ function check(name, fn) {
 
   await check('Refresh-Token: eigener Speicherplatz, getrennt vom Access-Token', async () => {
     state.encryptionAvailable = true;
-    assert.strictEqual(setToken({}, 'access-secret'), true);
-    assert.strictEqual(setRefreshToken({}, 'refresh-secret'), true);
+    assert.strictEqual(setToken(trustedEvent, 'access-secret'), true);
+    assert.strictEqual(setRefreshToken(trustedEvent, 'refresh-secret'), true);
     assert.ok(fs.existsSync(refreshTokenFile), 'Refresh-Token-Datei sollte nach set existieren');
     assert.notStrictEqual(refreshTokenFile, tokenFile, 'muss eine andere Datei als der Access-Token sein');
 
-    assert.strictEqual(getToken({}), 'access-secret');
-    assert.strictEqual(getRefreshToken({}), 'refresh-secret');
+    assert.strictEqual(getToken(trustedEvent), 'access-secret');
+    assert.strictEqual(getRefreshToken(trustedEvent), 'refresh-secret');
 
-    clearRefreshToken({});
+    clearRefreshToken(trustedEvent);
     assert.strictEqual(fs.existsSync(refreshTokenFile), false, 'clear muss nur die Refresh-Token-Datei loeschen');
     assert.ok(fs.existsSync(tokenFile), 'Access-Token-Datei bleibt beim Refresh-Token-Clear unangetastet');
-    assert.strictEqual(getToken({}), 'access-secret', 'Access-Token unveraendert nach Refresh-Token-Clear');
+    assert.strictEqual(getToken(trustedEvent), 'access-secret', 'Access-Token unveraendert nach Refresh-Token-Clear');
   });
 
   // EM-2 (Review-LOW): Base64 mit Whitespace/Newlines (tolerant dekodiert) muss
@@ -183,7 +190,7 @@ function check(name, fn) {
     state.saveDialogResult = { canceled: false, filePath: out };
     const raw = Buffer.from('%PDF-1.4 whitespace', 'utf8').toString('base64');
     const chunked = raw.replace(/(.{8})/g, '$1\n');  // Zeilenumbrüche einstreuen
-    const r = await savePdf({}, { filename: 'ws.pdf', base64: chunked });
+    const r = await savePdf(trustedEvent, { filename: 'ws.pdf', base64: chunked });
     assert.strictEqual(r.ok, true);
     assert.strictEqual(fs.readFileSync(out, 'utf8'), '%PDF-1.4 whitespace');
   });
@@ -283,10 +290,10 @@ function check(name, fn) {
     state.storageBackend = 'basic_text';
     const tokenFile2 = path.join(tmpUserData, 'auth-token.bin');
     fs.rmSync(tokenFile2, { force: true });
-    const ok = setToken({}, 'weak-backend-secret');
+    const ok = setToken(trustedEvent, 'weak-backend-secret');
     assert.strictEqual(ok, false, 'Schreiben mit basic_text-Backend muss abgelehnt werden');
     assert.strictEqual(fs.existsSync(tokenFile2), false, 'Es darf keine Klartext-Datei entstehen');
-    assert.strictEqual(getToken({}), null, 'Kein Secret verfuegbar, solange nur basic_text vorliegt');
+    assert.strictEqual(getToken(trustedEvent), null, 'Kein Secret verfuegbar, solange nur basic_text vorliegt');
     state.storageBackend = 'dpapi';
   });
 

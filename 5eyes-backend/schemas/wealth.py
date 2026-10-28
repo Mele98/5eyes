@@ -1,7 +1,7 @@
 from datetime import date as _date
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
-from schemas.common import BaseResponse
+from schemas.common import BaseResponse, PERSISTABLE_INT_MAX, PERSISTABLE_INT_MIN
 from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
@@ -493,9 +493,9 @@ class CashflowCreate(BaseModel):
     label: str
     # amount_rappen ist der BETRAG (Magnitude); die Richtung ergibt sich aus
     # cashflow_type. Negativ wuerde das Vorzeichen in der Projektion still kippen.
-    amount_rappen: int = Field(ge=0)
-    gross_amount_rappen: Optional[int] = None
-    tax_amount_rappen: Optional[int] = None
+    amount_rappen: int = Field(ge=0, le=PERSISTABLE_INT_MAX)
+    gross_amount_rappen: Optional[int] = Field(default=None, ge=PERSISTABLE_INT_MIN, le=PERSISTABLE_INT_MAX)
+    tax_amount_rappen: Optional[int] = Field(default=None, ge=PERSISTABLE_INT_MIN, le=PERSISTABLE_INT_MAX)
     # WITHDRAWAL-TIMING-001 (Phase 0, Honesty-Fix): "day"/"month" ist eine reine
     # Dokumentationsangabe zum gespeicherten Referenzdatum. Sie hat KEINE Wirkung
     # auf die Projektionsrechnung -- contribution_for_year() (services/
@@ -528,9 +528,9 @@ class CashflowCreate(BaseModel):
 class CashflowUpdate(BaseModel):
     cashflow_type: Optional[Literal["Income", "Expense"]] = None
     label: Optional[str] = None
-    amount_rappen: Optional[int] = Field(default=None, ge=0)
-    gross_amount_rappen: Optional[int] = None
-    tax_amount_rappen: Optional[int] = None
+    amount_rappen: Optional[int] = Field(default=None, ge=0, le=PERSISTABLE_INT_MAX)
+    gross_amount_rappen: Optional[int] = Field(default=None, ge=PERSISTABLE_INT_MIN, le=PERSISTABLE_INT_MAX)
+    tax_amount_rappen: Optional[int] = Field(default=None, ge=PERSISTABLE_INT_MIN, le=PERSISTABLE_INT_MAX)
     # WITHDRAWAL-TIMING-001: siehe CashflowCreate.timing_precision -- reine
     # Dokumentationsangabe, keine Wirkung auf die Projektionsrechnung.
     timing_precision: Optional[str] = Field(
@@ -631,7 +631,7 @@ WEALTH_INFLOW_SOURCE_TYPES = ("Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes"
 class WealthInflowCreate(BaseModel):
     label: str = Field(..., min_length=1, max_length=200)
     source_type: Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]
-    amount_rappen: int = Field(..., gt=0)
+    amount_rappen: int = Field(..., gt=0, le=PERSISTABLE_INT_MAX)
     expected_year: int = Field(..., ge=1900, le=2200)
     is_recurring: int = Field(0, ge=0, le=1)
     frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
@@ -695,7 +695,7 @@ class WealthInflowCreate(BaseModel):
 class WealthInflowUpdate(BaseModel):
     label: Optional[str] = Field(None, min_length=1, max_length=200)
     source_type: Optional[Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]] = None
-    amount_rappen: Optional[int] = Field(None, gt=0)
+    amount_rappen: Optional[int] = Field(None, gt=0, le=PERSISTABLE_INT_MAX)
     expected_year: Optional[int] = Field(None, ge=1900, le=2200)
     is_recurring: Optional[int] = Field(None, ge=0, le=1)
     frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
@@ -887,6 +887,17 @@ class GoalCreate(BaseModel):
         _apply_goal_success_probability_default(self)
         _validate_goal_field_isolation(self, require_targets=True)
         return self
+
+
+class GoalOrderUpdate(BaseModel):
+    """Vollstaendige Ziel-Reihenfolge eines Mandats (GOAL-RANK-HARDNESS-ROUNDTRIP-001).
+
+    ``goal_ids``: alle aktiven Ziele genau einmal, in neuer Prioritaet.
+    ``expected_goal_ids``: optional die zuletzt gesehene Reihenfolge (CAS).
+    """
+
+    goal_ids: list[str] = Field(min_length=1)
+    expected_goal_ids: Optional[list[str]] = None
 
 
 class GoalUpdate(BaseModel):

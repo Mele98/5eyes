@@ -11,10 +11,16 @@ from pathlib import Path
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "5eyes_v2.html"
+# HANDOFF-PREVIEW-PARITY-001: openTradeList() liegt im ausgelagerten Skriptmodul.
+TRADE_LIST_JS = HTML_PATH.parent / "trade-list-preview.js"
 
 
 def _html() -> str:
     return HTML_PATH.read_text(encoding="utf-8")
+
+
+def _trade_list_js() -> str:
+    return TRADE_LIST_JS.read_text(encoding="utf-8")
 
 
 def test_handoff_functions_exist():
@@ -41,11 +47,12 @@ def test_handoff_section_gated_by_discretionary_mandate_check():
 
 
 def test_open_trade_list_seeds_handoff_context_from_run_id():
-    html = _html()
-    start = html.index("function openTradeList()")
-    end = html.index("function renderPortfolioHandoffSection()", start)
-    body = html[start:end]
-    assert "_tlHandoffCtx={mandateId:getActiveMandateId(),runId:runId}" in body
+    src = _trade_list_js()
+    start = src.index("async function openTradeList(confirmNoHoldings)")
+    end = src.index("function renderTradeListUnavailable(", start)
+    body = src[start:end]
+    assert "_tlHandoffCtx={mandateId:mandateId,runId:runId,confirmNoHoldings:confirmed}" in body
+    assert "var mandateId=getActiveMandateId();" in body
     assert "renderPortfolioHandoffSection();" in body
 
 
@@ -96,8 +103,6 @@ def test_history_reloaded_after_status_changing_actions():
 
 
 def test_trade_list_modal_gets_handoff_host_div():
-    html = _html()
-    start = html.index("function openTradeList()")
-    end = html.index("function renderPortfolioHandoffSection()", start)
-    body = html[start:end]
+    src = _trade_list_js()
+    body = src[src.index("function renderTradeListPreview(body,preview)"):]
     assert "id=\"m-tl-handoff\"" in body or "id='m-tl-handoff'" in body

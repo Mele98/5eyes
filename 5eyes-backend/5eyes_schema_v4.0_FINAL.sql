@@ -476,6 +476,77 @@ BEFORE DELETE ON financial_coverage_attestations FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
 
 -- ===========================================================================
+-- DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2: DepotSnapshotV1 --
+-- append-only, hash-gebundener IST-Bestand (Positionen, Werte, Waehrung,
+-- Stichtag, FX-Evidenz) als Basis des IST-Stress-Replays.
+-- KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger verboten.
+-- Kein FK auf mandates/clients (Muster audit_log, Purge-fest).
+-- Identisch zu database.py::DEPOT_SNAPSHOT_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS depot_snapshots (
+    id              TEXT PRIMARY KEY,
+    schema_version  TEXT NOT NULL DEFAULT 'DepotSnapshotV1',
+    mandate_id      TEXT NOT NULL,
+    client_id       TEXT NOT NULL,
+    as_of_date      TEXT NOT NULL,
+    currency        TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    snapshot_json   TEXT NOT NULL,
+    snapshot_hash   TEXT NOT NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_depot_snapshots_mandate
+    ON depot_snapshots(mandate_id, as_of_date);
+CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_update
+BEFORE UPDATE ON depot_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_delete
+BEFORE DELETE ON depot_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
+
+-- ===========================================================================
+-- RISK-CAPACITY-EVALUATION-SNAPSHOT-001 (2026-10-26):
+-- RiskCapacityPlausibilityEvaluationV1 -- append-only, gehashte Evidenz jeder
+-- beim Speichern des Risikoprofils bzw. bei der Generierung gebundenen
+-- Plausibilitaetspruefung der Risikofaehigkeit (Eingaben, Regelversion,
+-- Ergebnis). KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger
+-- verboten. Kein FK auf mandates/risk_assessments (Purge-fest).
+-- Identisch zu database.py::RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS risk_capacity_plausibility_evaluations (
+    id                 TEXT PRIMARY KEY,
+    schema_version     TEXT NOT NULL DEFAULT 'RiskCapacityPlausibilityEvaluationV1',
+    tenant_id          TEXT,
+    mandate_id         TEXT NOT NULL,  -- bewusst ohne FK (Purge-fest)
+    client_id          TEXT,           -- bewusst ohne FK (Purge-fest)
+    assessment_id      TEXT,           -- bewusst ohne FK (Purge-fest)
+    binding_context    TEXT NOT NULL CHECK(binding_context IN ('risk_assessment_saved','allocation_generated')),
+    binding_record_id  TEXT NOT NULL,
+    as_of_date         TEXT NOT NULL,
+    rules_version      TEXT NOT NULL,
+    status             TEXT NOT NULL,
+    inputs_json        TEXT,
+    inputs_hash        TEXT,
+    result_json        TEXT NOT NULL,
+    evaluation_hash    TEXT,
+    actor_id           TEXT NOT NULL REFERENCES users(id),
+    evaluated_at       TEXT NOT NULL,
+    snapshot_hash      TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_mandate
+    ON risk_capacity_plausibility_evaluations(mandate_id, evaluated_at);
+CREATE INDEX IF NOT EXISTS ix_risk_capacity_plausibility_evaluations_tenant_id
+    ON risk_capacity_plausibility_evaluations(tenant_id);
+CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_update
+BEFORE UPDATE ON risk_capacity_plausibility_evaluations FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_risk_capacity_plausibility_evaluations_no_delete
+BEFORE DELETE ON risk_capacity_plausibility_evaluations FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END;
+
+-- ===========================================================================
 -- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 -- RiskProfileSignoffV1 -- append-only, gehashter Nachweis JEDER Signatur des
 -- Risikoprofils, gebunden an Assessment-Version, wirksames Profil/Score und

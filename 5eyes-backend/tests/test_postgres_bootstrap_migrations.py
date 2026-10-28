@@ -38,7 +38,7 @@ def _patch_post_schema_boot_steps(monkeypatch) -> None:
         "ensure_client_login_user_tenant_backfill",
         "ensure_tenant_backfill",
     ):
-        monkeypatch.setattr(database, name, lambda: None)
+        monkeypatch.setattr(database, name, lambda target_engine=None: None)
     monkeypatch.setattr(postgres_rls, "ensure_postgres_tenant_not_null", lambda engine, **kwargs: None)
     monkeypatch.setattr(postgres_rls, "ensure_postgres_rls_policies", lambda engine: None)
 
@@ -51,12 +51,12 @@ def test_postgres_init_db_never_enters_sqlite_legacy_schema_path(monkeypatch):
     monkeypatch.setattr(
         database,
         "_create_or_migrate_schema",
-        lambda url: calls.append(("alembic", url)),
+        lambda url, target_engine=None: calls.append(("alembic", url)),
     )
     monkeypatch.setattr(
         database,
         "_run_sqlite_legacy_schema_maintenance",
-        lambda: calls.append(("sqlite_legacy", None)),
+        lambda target_engine=None: calls.append(("sqlite_legacy", None)),
     )
     _patch_post_schema_boot_steps(monkeypatch)
 
@@ -74,12 +74,12 @@ def test_sqlite_init_db_keeps_legacy_schema_path(monkeypatch):
     monkeypatch.setattr(
         database,
         "_create_or_migrate_schema",
-        lambda url: calls.append(("schema", url)),
+        lambda url, target_engine=None: calls.append(("schema", url)),
     )
     monkeypatch.setattr(
         database,
         "_run_sqlite_legacy_schema_maintenance",
-        lambda: calls.append(("sqlite_legacy", None)),
+        lambda target_engine=None: calls.append(("sqlite_legacy", None)),
     )
     _patch_post_schema_boot_steps(monkeypatch)
 
@@ -99,13 +99,13 @@ def test_postgres_tenant_not_null_backfill_excludes_global_reference_tables(monk
     calls: list = []
 
     monkeypatch.setattr(database, "build_database_url", lambda **kwargs: postgres_url)
-    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url: None)
+    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url, target_engine=None: None)
     for name in (
         "ensure_default_tenant", "ensure_default_ch_jurisdiction",
         "ensure_default_de_jurisdiction", "ensure_client_login_user_tenant_backfill",
         "ensure_tenant_backfill",
     ):
-        monkeypatch.setattr(database, name, lambda: None)
+        monkeypatch.setattr(database, name, lambda target_engine=None: None)
     monkeypatch.setattr(
         postgres_rls, "ensure_postgres_tenant_not_null",
         lambda engine, **kwargs: calls.append(kwargs.get("table_names")),
@@ -129,13 +129,13 @@ def test_postgres_tenant_not_null_backfill_skipped_entirely_in_multi_tenancy_mod
     calls: list = []
 
     monkeypatch.setattr(database, "build_database_url", lambda **kwargs: postgres_url)
-    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url: None)
+    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url, target_engine=None: None)
     for name in (
         "ensure_default_tenant", "ensure_default_ch_jurisdiction",
         "ensure_default_de_jurisdiction", "ensure_client_login_user_tenant_backfill",
         "ensure_tenant_backfill",
     ):
-        monkeypatch.setattr(database, name, lambda: None)
+        monkeypatch.setattr(database, name, lambda target_engine=None: None)
     monkeypatch.setattr(
         postgres_rls, "ensure_postgres_tenant_not_null",
         lambda engine, **kwargs: calls.append(kwargs),
@@ -159,13 +159,13 @@ def test_postgres_tenant_not_null_backfill_skipped_for_tier2_without_explicit_te
     calls: list = []
 
     monkeypatch.setattr(database, "build_database_url", lambda **kwargs: postgres_url)
-    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url: None)
+    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url, target_engine=None: None)
     for name in (
         "ensure_default_tenant", "ensure_default_ch_jurisdiction",
         "ensure_default_de_jurisdiction", "ensure_client_login_user_tenant_backfill",
         "ensure_tenant_backfill",
     ):
-        monkeypatch.setattr(database, name, lambda: None)
+        monkeypatch.setattr(database, name, lambda target_engine=None: None)
     monkeypatch.setattr(
         postgres_rls, "ensure_postgres_tenant_not_null",
         lambda engine, **kwargs: calls.append(kwargs),
@@ -437,10 +437,16 @@ def test_alembic_head_emits_postgres_compatible_view_ddl():
     # Ueber Vorkommen GEZAEHLT, weil die kuerzere Klausel ein PRAEFIX der
     # laengeren ist -- ein blosses `in` wuerde die Cashflow-View auch dann
     # bestaetigen, wenn nur die Vermoegens-View korrekt gruppiert.
+    # Je DEFINITION gezaehlt: f6b1d4a8c2e7 (MONEY-COLUMN-WIDTH-001) legt beide
+    # Views nach dem BIGINT-Umbau neu an -- jede Definition muss vollstaendig
+    # gruppieren.
+    wealth_definitions = ddl.count("VIEW v_client_wealth_summary AS")
+    cashflow_definitions = ddl.count("VIEW v_client_cashflow_surplus AS")
+    assert wealth_definitions >= 1 and cashflow_definitions >= 1
     four_columns = "GROUP BY c.id, c.first_name, c.last_name, c.client_classification"
     three_columns = "GROUP BY c.id, c.first_name, c.last_name"
-    assert ddl.count(four_columns) == 1, "Vermoegens-View gruppiert nicht vollstaendig"
-    assert ddl.count(three_columns) == 2, (
+    assert ddl.count(four_columns) == wealth_definitions, "Vermoegens-View gruppiert nicht vollstaendig"
+    assert ddl.count(three_columns) == wealth_definitions + cashflow_definitions, (
         "Cashflow-View gruppiert nicht vollstaendig (erwartet: die eigene "
         "Dreier-Klausel plus das Praefix der Vierer-Klausel)"
     )
