@@ -437,10 +437,16 @@ def test_alembic_head_emits_postgres_compatible_view_ddl():
     # Ueber Vorkommen GEZAEHLT, weil die kuerzere Klausel ein PRAEFIX der
     # laengeren ist -- ein blosses `in` wuerde die Cashflow-View auch dann
     # bestaetigen, wenn nur die Vermoegens-View korrekt gruppiert.
+    # Je DEFINITION gezaehlt: f6b1d4a8c2e7 (MONEY-COLUMN-WIDTH-001) legt beide
+    # Views nach dem BIGINT-Umbau neu an -- jede Definition muss vollstaendig
+    # gruppieren.
+    wealth_definitions = ddl.count("VIEW v_client_wealth_summary AS")
+    cashflow_definitions = ddl.count("VIEW v_client_cashflow_surplus AS")
+    assert wealth_definitions >= 1 and cashflow_definitions >= 1
     four_columns = "GROUP BY c.id, c.first_name, c.last_name, c.client_classification"
     three_columns = "GROUP BY c.id, c.first_name, c.last_name"
-    assert ddl.count(four_columns) == 1, "Vermoegens-View gruppiert nicht vollstaendig"
-    assert ddl.count(three_columns) == 2, (
+    assert ddl.count(four_columns) == wealth_definitions, "Vermoegens-View gruppiert nicht vollstaendig"
+    assert ddl.count(three_columns) == wealth_definitions + cashflow_definitions, (
         "Cashflow-View gruppiert nicht vollstaendig (erwartet: die eigene "
         "Dreier-Klausel plus das Praefix der Vierer-Klausel)"
     )

@@ -1615,6 +1615,12 @@ def sign_document(
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
         )
+    # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
+    # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
+    # Mutation, nach den fachlichen Freigabe-Gates).
+    from services.signature_artifact import assert_signable_artifact
+
+    assert_signable_artifact(doc)
     # REC-006 (Codex-Audit 2026-08-25): dieser Endpoint hatte keinerlei
     # Status-Gate -- ein zweiter Aufruf mit signed_by_advisor/signed_by_client
     # ueberschrieb klaglos Bild/Name/Zeitstempel/IP einer bereits geleisteten
