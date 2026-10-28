@@ -324,7 +324,7 @@ test('Navigationsziele (Windows): Laufwerksbuchstabe, Schreibweise, Kodierung, .
   assert.strictEqual(ok('file:///%5C%5Cfileserver/share/frontend/index_v2.html'), false);
   // Fremde file-URL auf anderem Laufwerk / gleicher Dateiname anderswo.
   assert.strictEqual(ok('file:///D:/Program%20Files/App/resources/app.asar/frontend/index_v2.html'), false);
-  assert.strictEqual(ok('file:///C:/Users/Public/index_v2.html'), false);
+  assert.strictEqual(ok('file:///C:/Daten/Public/index_v2.html'), false);
 });
 
 test('Navigationsziele: fremde Schemata werden nie als Entry erkannt', () => {
