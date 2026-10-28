@@ -26,6 +26,8 @@ from main import app  # noqa: F401,E402  (registriert alle Models)
 
 REVISION = "d2f8b6a1c4e9"
 DOWN_REVISION = "c8e2f4a6b1d3"
+# Red-Team 2026-10-28 Befund 4: holdings_basis Pflicht fuer neue Zeilen.
+BASIS_REQUIRED_REVISION = "e5b3c9d1a7f4"
 TRIGGERS = ("trg_portfolio_handoffs_invariants_insert", "trg_portfolio_handoffs_invariants_update")
 VALID_SHA = hashlib.sha256(b"[]").hexdigest()
 
@@ -37,7 +39,8 @@ _INSERT = (
 )
 
 
-def _insert(conn, handoff_id, *, status="Vorbereitet", count=0, sha=VALID_SHA, basis=None, with_basis=True):
+def _insert(conn, handoff_id, *, status="Vorbereitet", count=0, sha=VALID_SHA, basis="recorded_depot",
+            with_basis=True):
     extra_cols, extra_vals, params = "", "", [handoff_id, count, status, sha]
     if with_basis:
         extra_cols, extra_vals = ", holdings_basis", ", ?"
@@ -73,12 +76,15 @@ _BAD_INSERTS = (
 )
 
 
-def _assert_invariants(db_path: Path) -> None:
+def _assert_invariants(db_path: Path, *, basis_required: bool = True) -> None:
+    bad_inserts = _BAD_INSERTS + (({"basis": None}, {"with_basis": False}) if basis_required else ())
     with _connect(db_path) as conn:
         _insert(conn, "ok-1")
         _insert(conn, "ok-2", status="Gesendet", count=3, basis="recorded_depot")
         _insert(conn, "ok-3", basis="confirmed_no_holdings")
-        for index, bad in enumerate(_BAD_INSERTS):
+        if not basis_required:
+            _insert(conn, "ok-4", basis=None)
+        for index, bad in enumerate(bad_inserts):
             with pytest.raises(sqlite3.IntegrityError):
                 _insert(conn, f"bad-{index}", **bad)
         with pytest.raises(sqlite3.IntegrityError):
@@ -141,6 +147,42 @@ def test_runtime_patch_installs_triggers_and_keeps_legacy_rows(tmp_path, monkeyp
     _assert_invariants(db_path)
 
 
+
+def test_runtime_patch_replaces_insert_trigger_without_basis_requirement(tmp_path, monkeypatch):
+    """Bestands-DB mit dem Insert-Trigger von d2f8b6a1c4e9 (Basis optional):
+    der Runtime-Patch ersetzt ihn, statt ihn per IF NOT EXISTS zu behalten."""
+    import importlib.util
+
+    import database as db_module
+
+    path = next((BACKEND_ROOT / "alembic" / "versions").glob(f"{REVISION}_*.py"))
+    spec = importlib.util.spec_from_file_location("frozen_d2f8_rt", path)
+    frozen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(frozen)
+
+    db_path = tmp_path / "old_trigger.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(bind=engine)
+    engine.dispose()
+    with _connect(db_path) as conn:
+        for name in TRIGGERS:
+            conn.execute(f"DROP TRIGGER {name}")
+        for ddl in frozen.SQLITE_TRIGGERS:
+            conn.execute(ddl)
+        _insert(conn, "old-null", basis=None)  # unter dem alten Trigger erlaubt
+        conn.commit()
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    monkeypatch.setattr(db_module, "engine", engine)
+    db_module.ensure_runtime_columns()
+    db_module.ensure_runtime_columns()  # idempotent
+    engine.dispose()
+
+    with _connect(db_path) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            _insert(conn, "new-null", basis=None)
+
+
 def _alembic_cfg(db_url):
     from alembic.config import Config as AlembicConfig
 
@@ -171,11 +213,82 @@ def test_alembic_revision_in_chain_upgrade_and_downgrade(tmp_path):
     command.upgrade(cfg, REVISION)
     assert set(TRIGGERS) <= _trigger_names(db_path)
     _assert_legacy_row_stays_closable(db_path, "legacy-1")
-    _assert_invariants(db_path)
+    # Eingefrorener Stand von d2f8b6a1c4e9: holdings_basis darf dort noch NULL sein.
+    _assert_invariants(db_path, basis_required=False)
 
     command.downgrade(cfg, DOWN_REVISION)
     assert not (set(TRIGGERS) & _trigger_names(db_path))
     assert "holdings_basis" not in _columns(db_path)
+
+
+
+def test_basis_required_revision_upgrade_and_downgrade(tmp_path):
+    from alembic import command
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
+    assert script.get_revision(BASIS_REQUIRED_REVISION).down_revision == REVISION
+
+    db_path = tmp_path / "alembic_basis.db"
+    cfg = _alembic_cfg(f"sqlite:///{db_path}")
+    command.upgrade(cfg, REVISION)
+    with _connect(db_path) as conn:
+        # Altzeile ohne Bestandsbasis (unter d2f8b6a1c4e9 noch zulaessig).
+        _insert(conn, "legacy-1", status="Gesendet", basis=None)
+        conn.commit()
+
+    command.upgrade(cfg, BASIS_REQUIRED_REVISION)
+    assert set(TRIGGERS) <= _trigger_names(db_path)
+    # Altzeile ohne Basis bleibt abschliessbar (nur INSERT verlangt die Basis).
+    with _connect(db_path) as conn:
+        conn.execute("UPDATE portfolio_handoffs SET status='Storniert', cancelled_at='t' WHERE id='legacy-1'")
+        conn.commit()
+        assert conn.execute("SELECT status FROM portfolio_handoffs WHERE id='legacy-1'").fetchone()[0] == "Storniert"
+    _assert_invariants(db_path)
+
+    command.downgrade(cfg, REVISION)
+    assert set(TRIGGERS) <= _trigger_names(db_path)
+    with _connect(db_path) as conn:
+        _insert(conn, "after-downgrade", basis=None)
+        conn.commit()
+
+
+def test_d2f8_migration_freezes_its_trigger_ddl():
+    """Red-Team 2026-10-28 Befund 5: die historische Revision importiert die
+    DDL nicht aus dem lebenden Modell. Ihr Literal entspricht dem Modell bis
+    auf die spaeter eingefuehrte Pflicht fuer holdings_basis bei INSERT."""
+    import importlib.util
+
+    from models import portfolio_handoff as model
+
+    path = next((BACKEND_ROOT / "alembic" / "versions").glob(f"{REVISION}_*.py"))
+    source = path.read_text(encoding="utf-8")
+    assert "from models" not in source and "import models" not in source
+    spec = importlib.util.spec_from_file_location("frozen_d2f8", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    clause_sqlite = model.HANDOFF_BASIS_REQUIRED_SQLITE_CLAUSE
+    assert module.SQLITE_TRIGGERS == tuple(
+        ddl.replace(clause_sqlite, "") for ddl in model.HANDOFF_INVARIANT_SQLITE_TRIGGERS
+    )
+    assert module.PG_FUNCTION == model.HANDOFF_INVARIANT_PG_FUNCTION.replace(
+        model.HANDOFF_BASIS_REQUIRED_PG_BLOCK, ""
+    )
+    assert module.PG_TRIGGER == model.HANDOFF_INVARIANT_PG_TRIGGER
+
+
+def test_head_migration_ddl_equals_model_ddl():
+    import importlib.util
+
+    from models import portfolio_handoff as model
+
+    path = next((BACKEND_ROOT / "alembic" / "versions").glob(f"{BASIS_REQUIRED_REVISION}_*.py"))
+    spec = importlib.util.spec_from_file_location("basis_required", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.SQLITE_INSERT_TRIGGER == model.HANDOFF_INVARIANT_SQLITE_TRIGGERS[0]
+    assert module.PG_FUNCTION == model.HANDOFF_INVARIANT_PG_FUNCTION
 
 
 POSTGRES_URL = os.getenv("POSTGRES_TEST_DATABASE_URL")
@@ -229,6 +342,56 @@ def test_postgres_alembic_invariant_trigger():
         _run(engine, text("UPDATE portfolio_handoffs SET status='Storniert', cancelled_at='t' WHERE id='legacy-1'"))
         with pytest.raises(DBAPIError):
             _run(engine, text("UPDATE portfolio_handoffs SET status='BROKEN' WHERE id='ok-1'"))
+        engine.dispose()
+        command.downgrade(cfg, DOWN_REVISION)
+    finally:
+        with admin.begin() as conn:
+            conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin.dispose()
+
+
+@pytest.mark.skipif(not POSTGRES_URL, reason="POSTGRES_TEST_DATABASE_URL nicht gesetzt")
+def test_postgres_basis_required_revision():
+    import uuid
+
+    from alembic import command
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    schema = f"hobas_{uuid.uuid4().hex[:10]}"
+    admin = create_engine(POSTGRES_URL, future=True)
+    with admin.begin() as conn:
+        conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    scoped = f"{POSTGRES_URL}{'&' if '?' in POSTGRES_URL else '?'}options=-csearch_path%3D{schema}"
+    insert = text(
+        "INSERT INTO portfolio_handoffs (id, mandate_id, trade_list_snapshot_json, "
+        "live_total_value_rappen, position_count, recipient_name, status, created_by, "
+        "created_at, updated_at, snapshot_sha256, holdings_basis) "
+        "VALUES (:id, 'm-1', '[]', 1, 0, 'A', 'Vorbereitet', 'u-1', 't', 't', :sha, :basis)"
+    )
+
+    def _run(engine, statement, **params):
+        with engine.begin() as conn:
+            conn.execute(text("SET session_replication_role = replica"))
+            conn.execute(statement, params)
+
+    try:
+        cfg = _alembic_cfg(scoped.replace("%", "%%"))
+        command.upgrade(cfg, REVISION)
+        engine = create_engine(scoped, future=True)
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE portfolio_handoffs ENABLE ALWAYS TRIGGER trg_portfolio_handoffs_invariants"
+            ))
+        _run(engine, insert, id="legacy-1", sha=VALID_SHA, basis=None)  # unter d2f8 erlaubt
+        command.upgrade(cfg, BASIS_REQUIRED_REVISION)
+        with pytest.raises(DBAPIError):
+            _run(engine, insert, id="bad-1", sha=VALID_SHA, basis=None)
+        _run(engine, insert, id="ok-1", sha=VALID_SHA, basis="recorded_depot")
+        # Altzeile ohne Basis bleibt abschliessbar.
+        _run(engine, text("UPDATE portfolio_handoffs SET status='Storniert', cancelled_at='t' WHERE id='legacy-1'"))
+        command.downgrade(cfg, REVISION)
+        _run(engine, insert, id="after-downgrade", sha=VALID_SHA, basis=None)
         engine.dispose()
         command.downgrade(cfg, DOWN_REVISION)
     finally:

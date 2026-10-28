@@ -554,13 +554,14 @@ def test_foundation_purge_deletes_portfolio_handoff_without_integrity_error(
             INSERT INTO portfolio_handoffs (
                 id, mandate_id, recommendation_run_id, trade_list_snapshot_json,
                 live_total_value_rappen, position_count, recipient_name, status,
-                created_by, created_at, updated_at, snapshot_sha256
+                created_by, created_at, updated_at, snapshot_sha256, holdings_basis
             )
             VALUES ('handoff-foundation', 'mandate-foundation', 'run-foundation', '[]',
                     1000000, 1, 'UBS AG Zuerich', 'Gesendet',
                     'admin-purge', :now, :now,
                     -- HANDOFF-DB-INVARIANT-001: SHA-256 von '[]'
-                    '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945')
+                    '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+                    'recorded_depot')
             """,
             {"now": NOW},
         )

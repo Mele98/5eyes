@@ -6,9 +6,11 @@ Service ergaenzt den Scope ``current_holdings_snapshot``: dieselben
 historischen Szenarien (``services.backtest_stress``), aber auf den
 IST-Gewichten eines unveraenderlichen, hash-gebundenen Depot-Snapshots.
 
-Bestand (CIO-Entscheid 2026-10-26): der GESAMTE erfasste Depotbestand des
-Mandats -- neueste Holding je Produkt, auch ausserhalb der Positionen des
-aktuellen Laufs --, bewertet mit den Regeln der Handelsliste
+Bestand (CIO-Entscheid 2026-10-28, ersetzt 2026-10-26): die Holdings des
+juengsten nicht abgeloesten Laufs des Mandats (Draft oder Final); es wird
+nicht ueber Laeufe gemischt, abgeloeste Laeufe sind nie Quelle. Jede Position
+braucht einen Bestandsstichtag; ``holdings_as_of`` ist der aelteste. Bewertet
+mit den Regeln der Handelsliste
 (``portfolio_engine_live_rebalancing.value_mandate_holdings``) und geprueft
 mit derselben Abdeckungspruefung ``assert_holdings_valuation_complete``
 (services/portfolio_handoff.py). Nicht verwendet werden der
@@ -61,7 +63,8 @@ IST_STRESS_SCOPE_LABEL = (
 
 BUCKETS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 
-SOURCE_MANDATE_HOLDINGS = "mandate_holdings_valuation"
+# Red-Team 2026-10-28 (CIO-Entscheid): nur der juengste nicht abgeloeste Lauf.
+SOURCE_MANDATE_HOLDINGS = "current_run_holdings"
 
 STATUS_OK = "ok"
 STATUS_UNCLASSIFIED = "unclassified_positions"
@@ -94,6 +97,13 @@ def _int(value) -> int:
         return 0
 
 
+def _age_days(older: str | None, newer: str | None) -> int | None:
+    try:
+        return (date.fromisoformat(str(newer)[:10]) - date.fromisoformat(str(older)[:10])).days
+    except (TypeError, ValueError):
+        return None
+
+
 def _product_bucket_weights(product: Product) -> tuple[dict | None, str | None]:
     raw = str(getattr(product, "asset_class", "") or "").strip().lower()
     bucket = PRODUCT_ASSET_CLASS_ALIASES.get(raw)
@@ -119,6 +129,13 @@ def _complete_holdings_valuation(db: Session, mandate: Mandate, fx_source, targe
         raise HoldingsValuationIncompleteError(
             f"{valuation['missing_units_count']} Depotposition(en) ohne erfasste Stueckzahl: "
             "Wert und Waehrung sind nicht durch Stueckzahl x Marktpreis belegt."
+        )
+    if valuation.get("missing_as_of_count", 1):
+        # Red-Team 2026-10-28 Befund 1: ohne Stichtag ist der Bestand nicht
+        # belegt; die Position wird nicht still aus dem Stichtag gefiltert.
+        raise HoldingsValuationIncompleteError(
+            f"{valuation.get('missing_as_of_count')} Depotposition(en) ohne Bestandsstichtag: "
+            "Stichtag erfassen, bevor ein Depot-Snapshot erstellt wird."
         )
     if any(p["current_market_value_rappen"] is None for p in valuation["positions"]):
         raise HoldingsValuationIncompleteError("Mindestens eine Depotposition ist nicht bewertet.")
@@ -249,6 +266,11 @@ def compute_ist_stress(snapshot: dict) -> dict:
         "snapshot_id": snapshot["snapshot_id"],
         "snapshot_hash": snapshot["snapshot_hash"],
         "as_of": snapshot["as_of"],
+        # Red-Team 2026-10-28 Befund 1: aeltester Bestandsstichtag und sein
+        # Alter (Kalendertage zum Snapshot-Stichtag) -- nur ausgewiesen; die
+        # Schwelle legt die Depot-Policy PORTFOLIO-DATA-001 fest.
+        "holdings_as_of": snapshot["holdings_as_of"],
+        "holdings_age_days": _age_days(snapshot["holdings_as_of"], snapshot["as_of"]),
         "currency": snapshot["currency"],
         "source": snapshot["source"],
         "weights_bps": weights or {},

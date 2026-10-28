@@ -706,6 +706,37 @@ def build_live_rebalancing_payload(
     }
 
 
+CURRENT_RUN_STATUSES = ("Draft", "Final")
+
+
+def current_run_holdings(db: Session, mandate_id: str) -> tuple[RecommendationRun | None, list[RecommendationHolding]]:
+    """Juengster nicht abgeloester Lauf des Mandats und seine Holdings.
+
+    ``result_status`` kennt 'Draft', 'Final', 'Rejected', 'Superseded'
+    (CHECK im Bootstrap-Schema); 'Superseded' setzt die Finalisierung fuer
+    jeden frueheren Final-Lauf (routers/review.py::finalize_recommendation).
+    Quelle sind nur 'Draft'/'Final'. Je Position zaehlt die zuletzt geaenderte,
+    nicht geloeschte Holding (wie ``upsert_position_holding``).
+    """
+    run = db.query(RecommendationRun).filter(
+        RecommendationRun.mandate_id == mandate_id,
+        RecommendationRun.result_status.in_(CURRENT_RUN_STATUSES),
+    ).order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc()).first()
+    if run is None:
+        return None, []
+    rows = db.query(RecommendationHolding).filter(
+        RecommendationHolding.run_id == run.id,
+        RecommendationHolding.deleted_at.is_(None),
+    ).order_by(
+        RecommendationHolding.recommendation_position_id.asc(),
+        RecommendationHolding.updated_at.desc(),
+    ).all()
+    by_position: dict[str, RecommendationHolding] = {}
+    for row in rows:
+        by_position.setdefault(row.recommendation_position_id, row)
+    return run, list(by_position.values())
+
+
 def value_mandate_holdings(
     db: Session,
     mandate_id: str,
@@ -713,10 +744,12 @@ def value_mandate_holdings(
     fx_source,
     target_currency: str = "CHF",
 ) -> dict:
-    """DEPOT-E2E-STRESS-001 Option 2: bewertet den GESAMTEN erfassten
-    Depotbestand des Mandats -- die neueste Holding je Produkt
-    (``_latest_holdings_by_product_for_mandate``), unabhaengig davon, ob das
-    Produkt eine Position des aktuellen Laufs ist.
+    """DEPOT-E2E-STRESS-001 Option 2: bewertet den erfassten Depotbestand des
+    Mandats.
+
+    Quelle (Red-Team 2026-10-28, CIO-Entscheid): ausschliesslich die Holdings
+    des juengsten nicht abgeloesten Laufs (``current_run_holdings``); es wird
+    nicht ueber Laeufe gemischt, abgeloeste Laeufe sind nie Quelle.
 
     Gleiche Regeln wie ``_build_live_rebalancing_entry``: Wert = Stueckzahl x
     letzter Marktpreis aus PriceHistory, Preis in ``product.currency`` und via
@@ -724,12 +757,15 @@ def value_mandate_holdings(
     umgerechnet, Frische gegen ``summarize_price_quality().stale_after_days``.
     Liefert dieselben Coverage-Aggregate wie ``build_live_rebalancing_payload``
     (fuer ``assert_holdings_valuation_complete``) plus
-    ``missing_units_count`` und ``missing_product_count``. Eine Position ohne
-    Stueckzahl, Preis oder FX erhaelt ``current_market_value_rappen=None`` --
-    es wird nie ein Wert angenommen.
+    ``missing_units_count``, ``missing_product_count`` und
+    ``missing_as_of_count``. Eine Position ohne Stueckzahl, Preis oder FX
+    erhaelt ``current_market_value_rappen=None`` -- es wird nie ein Wert
+    angenommen. ``as_of_date`` ist der AELTESTE Bestandsstichtag (``None``,
+    sobald eine Position keinen Stichtag hat).
     """
+    run, run_holdings = current_run_holdings(db, mandate_id)
     holdings = [
-        row for row in _latest_holdings_by_product_for_mandate(db, mandate_id).values()
+        row for row in run_holdings
         if int(row.units_milli or 0) > 0 or int(row.market_value_rappen or 0) > 0
     ]
     product_ids = sorted({row.product_id for row in holdings})
@@ -751,6 +787,7 @@ def value_mandate_holdings(
         "fx_conversion_failed_count": 0,
         "missing_units_count": 0,
         "missing_product_count": 0,
+        "missing_as_of_count": 0,
     }
     positions: list[dict] = []
     for holding in holdings:
@@ -780,6 +817,8 @@ def value_mandate_holdings(
             counts["fx_conversion_failed_count"] += 1
         if units_milli is None:
             counts["missing_units_count"] += 1
+        if not str(holding.as_of_date or "").strip():
+            counts["missing_as_of_count"] += 1
         value = (
             _value_from_units_milli(units_milli, price_rappen)
             if units_milli and price_rappen and not fx_failed and product is not None
@@ -799,10 +838,11 @@ def value_mandate_holdings(
             "valuation_basis": "actual_holding_units" if units_milli else "holding_market_value_only",
             "current_market_value_rappen": value,
         })
-    dates = [p["holding_as_of_date"] for p in positions if p["holding_as_of_date"]]
+    dates = [p["holding_as_of_date"] for p in positions]
     return {
         **counts,
-        "as_of_date": max(dates) if dates else None,
+        "as_of_date": min(dates) if dates and all(dates) else None,
+        "source_run_id": getattr(run, "id", None),
         "target_currency": target,
         "positions": positions,
     }

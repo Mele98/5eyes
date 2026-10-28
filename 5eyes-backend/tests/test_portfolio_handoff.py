@@ -465,6 +465,7 @@ def test_list_handoffs_orders_newest_first(session_factory, advisor_user, monkey
             id="handoff-old", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
             snapshot_sha256=_EMPTY_SNAPSHOT_SHA,  # HANDOFF-DB-INVARIANT-001
+            holdings_basis="recorded_depot",  # Basis Pflicht fuer neue Zeilen
             recipient_name="A", status="Gesendet", created_by=advisor_user.id,
             created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
         )
@@ -472,6 +473,7 @@ def test_list_handoffs_orders_newest_first(session_factory, advisor_user, monkey
             id="handoff-new", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
             snapshot_sha256=_EMPTY_SNAPSHOT_SHA,  # HANDOFF-DB-INVARIANT-001
+            holdings_basis="recorded_depot",  # Basis Pflicht fuer neue Zeilen
             recipient_name="B", status="Gesendet", created_by=advisor_user.id,
             created_at="2026-08-08T09:00:00.000Z", updated_at="2026-08-08T09:00:00.000Z",
         )
@@ -602,6 +604,7 @@ def test_legacy_sent_handoff_stays_closable(session_factory, advisor_user, monke
             id="handoff-legacy", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
             snapshot_sha256=_EMPTY_SNAPSHOT_SHA,  # HANDOFF-DB-INVARIANT-001
+            holdings_basis="recorded_depot",  # Basis Pflicht fuer neue Zeilen
             recipient_name="A", status="Gesendet", created_by=advisor_user.id,
             created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
         ))
