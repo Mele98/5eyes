@@ -1,0 +1,102 @@
+name: Dependency Audit
+
+# DEP-SEC-001 (2026-10-26): Bekannte Schwachstellen in Python- und
+# npm-Abhaengigkeiten sichtbar machen.
+#
+# - Laeuft woechentlich (Montag 05:00 UTC), manuell und bei PRs, die
+#   Abhaengigkeits-Manifeste aendern. Kein Pflicht-Check fuer andere PRs:
+#   neue Advisories erscheinen unabhaengig vom Code und duerfen fachfremde
+#   PRs nicht rot faerben.
+# - Berichte (pip-audit, npm audit voll) sind NICHT blockierend.
+# - Blockierend ist nur: npm-Laufzeitabhaengigkeiten (--omit=dev) mit
+#   Schweregrad high/critical, fuer die ein Fix OHNE Major-Sprung existiert.
+#   pip-audit liefert keinen Schweregrad; deshalb bleibt der Python-Teil
+#   ein Bericht (Bewertung je Fund im PR, siehe tests/test_dependency_security_floor.py).
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+  pull_request:
+    paths:
+      - '5eyes-backend/requirements.txt'
+      - '5eyes-electron/package.json'
+      - '5eyes-electron/package-lock.json'
+      - '5eyes-electron/frontend/reporting/package.json'
+      - '5eyes-electron/frontend/reporting/package-lock.json'
+      - '.github/workflows/dependency_audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: Python pip-audit (Bericht)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      - name: pip-audit requirements.txt
+        continue-on-error: true
+        run: |
+          {
+            echo '## pip-audit 5eyes-backend/requirements.txt'
+            pip-audit -r 5eyes-backend/requirements.txt -f markdown --desc off || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  npm-audit:
+    name: npm audit (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - 5eyes-electron
+          - 5eyes-electron/frontend/reporting
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: npm audit (voll, Bericht)
+        working-directory: ${{ matrix.dir }}
+        continue-on-error: true
+        run: npm audit || true
+
+      - name: npm audit --omit=dev (blockierend nur high/critical mit Fix ohne Major)
+        working-directory: ${{ matrix.dir }}
+        run: |
+          npm audit --omit=dev --json > "$RUNNER_TEMP/npm-audit.json" || true
+          node - "$RUNNER_TEMP/npm-audit.json" <<'EOF'
+          const report = require(process.argv[2]);
+          if (report.error) {
+            console.error('npm audit failed:', JSON.stringify(report.error));
+            process.exit(1);
+          }
+          const blocking = Object.entries(report.vulnerabilities || {}).filter(
+            ([, v]) =>
+              ['high', 'critical'].includes(v.severity) &&
+              (v.fixAvailable === true ||
+                (v.fixAvailable && v.fixAvailable.isSemVerMajor === false)),
+          );
+          for (const [name, v] of blocking) {
+            console.log(`::error::${name} (${v.severity}, ${v.range}) hat einen Fix ohne Major-Sprung`);
+          }
+          console.log(`Laufzeit-Funde gesamt: ${JSON.stringify(report.metadata.vulnerabilities)}`);
+          process.exit(blocking.length ? 1 : 0);
+          EOF

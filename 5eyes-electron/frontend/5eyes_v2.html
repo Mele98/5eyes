@@ -21,6 +21,7 @@ body{font-family:var(--f-s);}
 <script>/* Vendored Chart.js for offline desktop builds */</script>
 <script src="vendor/chart.min.js"></script>
 <script src="./desktop-api.js"></script>
+<script src="./trade-list-preview.js"></script>
 <style>
 /* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
 :root {
@@ -24036,79 +24037,6 @@ function applyRecommendationEngineResult(result){
   normalizeVisibleMojibake(document.getElementById('page-po')||document.body);
   normalizeVisibleMojibake(document.getElementById('page-rv')||document.body);
 }
-function openTradeList(){
-  var result=strategyState.recommendation;
-  var live=liveRebalancingPayload(result);
-  var body=document.getElementById('m-tl-body');
-  if(!body)return;
-  if(!live||!Array.isArray(live.position_drifts)||!live.position_drifts.length){
-    body.innerHTML='<div style="font-size:11px;color:var(--n5);padding:12px">Keine Live-Rebalancing-Daten verfügbar.</div>';
-    om('m-tl');
-    return;
-  }
-  var totalWealth=live.live_total_value_rappen||0;
-  var minThreshold=Math.round(totalWealth*0.005);
-  var trades=live.position_drifts.filter(function(p){
-    return Math.abs(p.rebalance_amount_rappen||0)>=minThreshold;
-  }).slice().sort(function(a,b){
-    return Math.abs(b.rebalance_amount_rappen||0)-Math.abs(a.rebalance_amount_rappen||0);
-  });
-  var totalBuy=0,totalSell=0;
-  trades.forEach(function(p){
-    var amt=p.rebalance_amount_rappen||0;
-    if(p.rebalance_action_code==='BUY')totalBuy+=amt;
-    else if(p.rebalance_action_code==='SELL')totalSell+=amt;
-  });
-  var actionColor=function(action){
-    if(action==='BUY')return 'var(--pos)';
-    if(action==='SELL')return 'var(--neg)';
-    return 'var(--n5)';
-  };
-  var fmtDelta=function(rappen){
-    var chf=Math.round(Math.abs(rappen||0)/100);
-    var sign=(rappen||0)<0?'\u2212':'+';
-    if(chf>=1000000)return sign+'CHF\u00a0'+formatCompactCHFAmount(chf);
-    if(chf>=1000)return sign+'CHF\u00a0'+Math.round(chf/1000)+'k';
-    return sign+'CHF\u00a0'+chf;
-  };
-  var rows=trades.map(function(p){
-    var color=actionColor(p.rebalance_action_code);
-    return '<tr style="border-bottom:1px solid var(--b1)">'
-      +'<td style="padding:6px 8px;font-size:11px;font-weight:500">'+escapeHtml(p.product_name||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(p.rebalance_action||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.current_market_value_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.target_amount_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right;font-weight:600;color:'+color+'">'+escapeHtml(fmtDelta(p.rebalance_amount_rappen))+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatBpsPercent(p.target_weight_bps))+'</td>'
-      +'</tr>';
-  }).join('');
-  var thS='padding:6px 8px;text-align:left;font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);border-bottom:2px solid var(--b1)';
-  var thR=thS+';text-align:right';
-  var html='<div style="margin-bottom:10px;font-size:11px;color:var(--n5)">'
-    +escapeHtml(String(trades.length))+' Positionen'
-    +' &middot; Kaufvolumen: <span style="color:var(--pos)">'+escapeHtml(formatRappen(totalBuy))+'</span>'
-    +' &middot; Verkaufsvolumen: <span style="color:var(--neg)">'+escapeHtml(formatRappen(totalSell))+'</span>'
-    +'</div>'
-    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
-    +'<thead><tr>'
-    +'<th style="'+thS+'">Wertpapier</th>'
-    +'<th style="'+thS+'">Anlageklasse</th>'
-    +'<th style="'+thS+'">Aktion</th>'
-    +'<th style="'+thR+'">IST-Wert</th>'
-    +'<th style="'+thR+'">SOLL-Wert</th>'
-    +'<th style="'+thR+'">Delta</th>'
-    +'<th style="'+thR+'">Soll-%</th>'
-    +'</tr></thead>'
-    +'<tbody>'+rows+'</tbody>'
-    +'</table></div>'
-    +'<div id="m-tl-handoff"></div>';
-  body.innerHTML=html;
-  om('m-tl');
-  var runId=result&&result.run&&result.run.id?String(result.run.id):null;
-  _tlHandoffCtx={mandateId:getActiveMandateId(),runId:runId};
-  renderPortfolioHandoffSection();
-}
 // 2026-08-08 (User-Direktive): Weiterleitung ans Asset Management. 5eyes
 // haelt keine echten Depots -- die Umsetzung der Handelsliste erfolgt extern
 // (Depotbank/internes Asset Management). Dieser Block schafft den
@@ -24153,7 +24081,7 @@ async function submitPortfolioHandoff(){
   }
   var btn=document.getElementById('tl-ho-submit');
   if(btn){btn.disabled=true;btn.textContent='Wird vorbereitet…';}
-  var payload={recipient_name:recipient};
+  var payload={recipient_name:recipient,confirm_no_existing_holdings:!!(_tlHandoffCtx&&_tlHandoffCtx.confirmNoHoldings)};
   var channel=(channelEl&&channelEl.value||'').trim();
   if(channel)payload.recipient_channel=channel;
   var note=(noteEl&&noteEl.value||'').trim();

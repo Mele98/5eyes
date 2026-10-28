@@ -185,10 +185,9 @@ def test_ist_plus_delta_must_equal_soll_on_same_live_basis():
 
 
 def test_trade_list_ui_compares_action_code_not_localized_label():
-    html = _html()
-    start = html.index("function openTradeList()")
-    end = html.index("function renderPortfolioHandoffSection()", start)
-    body = html[start:end]
+    # HANDOFF-PREVIEW-PARITY-001: die Darstellung liegt im ausgelagerten
+    # Skriptmodul neben dem Monolithen.
+    body = (Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "trade-list-preview.js").read_text(encoding="utf-8")
 
     # Soll (Spec Section 5.1/10): Fachlogik, Summen und Farben konsumieren
     # ausschliesslich rebalance_action_code (BUY/SELL/HOLD/...), niemals das
@@ -301,18 +300,28 @@ def test_mark_executed_requires_fill_evidence_not_empty_body():
 
 
 def test_response_schema_rejects_tampered_status_json_and_count(session_factory, advisor_user):
+    from sqlalchemy.exc import IntegrityError
+
     _seed_mandate_and_run(session_factory, advisor_user)
-    with session_factory() as session:
-        tampered = PortfolioHandoff(
+
+    def _tampered():
+        return PortfolioHandoff(
             id="handoff-tampered", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="not-json", live_total_value_rappen=1_000_000,
             position_count=999, recipient_name="Bank XY",
             status="BROKEN", created_by=advisor_user.id,
             created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
         )
-        session.add(tampered)
-        session.commit()
-        session.refresh(tampered)
+
+    with session_factory() as session:
+        # HANDOFF-DB-INVARIANT-001: die DB lehnt den manipulierten Datensatz
+        # bereits beim Schreiben ab (Status ausserhalb der Zustandsmaschine,
+        # kein Snapshot-Hash).
+        session.add(_tampered())
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+        tampered = _tampered()
 
         # Soll (Spec Section 3.8/8): ein freier Status ausserhalb der
         # Zustandsmaschine, ungueltiges JSON im Snapshot und ein

@@ -57,9 +57,10 @@ def _insert(conn, handoff_id: str, status: str, key) -> None:
     conn.execute(
         "INSERT INTO portfolio_handoffs (id, mandate_id, trade_list_snapshot_json, "
         "live_total_value_rappen, position_count, recipient_name, status, created_by, "
-        "created_at, updated_at, business_key_hash) "
-        "VALUES (?, 'm-1', '[]', 1, 0, 'A', ?, 'u-1', 't', 't', ?)",
-        (handoff_id, status, key),
+        "created_at, updated_at, business_key_hash, snapshot_sha256) "
+        "VALUES (?, 'm-1', '[]', 1, 0, 'A', ?, 'u-1', 't', 't', ?, ?)",
+        # HANDOFF-DB-INVARIANT-001: neue Zeilen tragen einen gueltigen Hash.
+        (handoff_id, status, key, "0" * 64),
     )
 
 
@@ -96,6 +97,10 @@ def test_runtime_patch_adds_columns_and_index_to_existing_db(tmp_path, monkeypat
     engine.dispose()
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(f"DROP INDEX {HANDOFF_OPEN_BUSINESS_KEY_INDEX}")
+        # HANDOFF-DB-INVARIANT-001: die Invarianten-Trigger referenzieren
+        # snapshot_sha256 -- im simulierten Altschema existieren sie nicht.
+        conn.execute("DROP TRIGGER trg_portfolio_handoffs_invariants_insert")
+        conn.execute("DROP TRIGGER trg_portfolio_handoffs_invariants_update")
         for name in COLUMNS:
             conn.execute(f"ALTER TABLE portfolio_handoffs DROP COLUMN {name}")
         conn.commit()

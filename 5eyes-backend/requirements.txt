@@ -11,11 +11,11 @@ pydantic-settings==2.5.2
 email-validator>=2.0,<3
 # JWT: PyJWT statt python-jose (2026-07-18). python-jose 3.3.0 ist unmaintained
 # + CVE-behaftet (Algorithm-Confusion). Nur HS256, kein JWE -> Wechsel neutral.
-PyJWT[crypto]==2.10.1
+PyJWT[crypto]==2.15.1
 # Tenant-DEK envelope encryption (Postgres/Tier-2 isolation hardening).
 cryptography>=42,<45
 passlib[bcrypt]==1.7.4
-python-multipart==0.0.12
+python-multipart==0.0.32
 aiofiles==24.1.0
 apscheduler==3.10.4
 yfinance==0.2.54

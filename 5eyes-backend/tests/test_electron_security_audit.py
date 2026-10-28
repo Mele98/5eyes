@@ -230,3 +230,58 @@ def test_token_storage_uses_safe_storage(main_source):
     assert "safeStorage.isEncryptionAvailable" in main_source
     assert "safeStorage.encryptString" in main_source
     assert "safeStorage.decryptString" in main_source
+
+
+# ---------------------------------------------------------------------------
+# A3 P2-5 / U-6: IPC-Absender-Pruefung fuer jeden Kanal
+# ---------------------------------------------------------------------------
+
+ELECTRON_DIR = MAIN_JS.parent
+IPC_GUARD_JS = ELECTRON_DIR / "ipc-sender-guard.js"
+IPC_GUARD_TEST_JS = ELECTRON_DIR / "tests" / "ipc-sender-guard.test.js"
+
+
+def test_every_ipc_handler_goes_through_sender_guard(main_source):
+    """Genau EIN direkter ipcMain.handle-Aufruf: der im zentralen Wrapper.
+    Jeder Kanal muss ueber handleTrustedIpc registriert werden."""
+    assert main_source.count("ipcMain.handle(") == 1, (
+        "ipcMain.handle direkt aufgerufen -- Kanal umgeht die Absender-Pruefung."
+    )
+    assert "ipcMain.on(" not in main_source
+    assert "checkTrustedIpcSender(event, resolveFrontendPath())" in main_source
+    assert main_source.count("handleTrustedIpc('") >= 15
+
+
+def test_push_channel_checks_renderer_url(main_source):
+    start = main_source.index("function notifyRendererUpdateState()")
+    body = main_source[start:main_source.index("\n}\n", start)]
+    assert "checkTrustedRendererUrl(" in body
+    assert body.index("checkTrustedRendererUrl(") < body.index(".send(")
+
+
+def test_ipc_guard_module_is_packaged():
+    """Ohne Eintrag in build.files fehlt das Modul in der gepackten App und
+    main.js bricht beim Start ab."""
+    import json
+
+    pkg = json.loads((ELECTRON_DIR / "package.json").read_text(encoding="utf-8"))
+    assert IPC_GUARD_JS.exists()
+    assert "ipc-sender-guard.js" in pkg["build"]["files"]
+
+
+def test_ipc_sender_guard_node_suite():
+    """Fuehrt die node:test-Suite (Validierung + Verdrahtung) aus."""
+    import shutil
+    import subprocess
+
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available")
+    res = subprocess.run(
+        ["node", "--test", str(IPC_GUARD_TEST_JS)],
+        cwd=str(ELECTRON_DIR),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+    )
+    assert res.returncode == 0, res.stdout[-4000:] + res.stderr[-2000:]
