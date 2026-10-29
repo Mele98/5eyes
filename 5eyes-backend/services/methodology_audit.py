@@ -42,6 +42,7 @@ weitergereicht).
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -123,12 +124,58 @@ def _build_ns_status(cma: Any) -> dict[str, Any]:
     return result
 
 
+def _embedded_kgv_detail(cma: Any) -> Optional[dict[str, Any]]:
+    """KGV-PROVENANCE-PUBLICATION-001: von der Nicht-CH-Datenpipeline bereits
+    in ``equity_home_return_bps`` eingerechneter KGV-Effekt.
+
+    Quelle ist ``source_detail["equity_kgv_mean_reversion"]``, wie
+    services/jurisdiction/data_pipeline.py es schreibt. source_detail darf
+    laut Modell auch Freitext sein; ohne lesbaren KGV-Nachweis UND ohne
+    gesetzten equity_home_return_bps gilt der Effekt als nicht eingebettet."""
+    raw = getattr(cma, "source_detail", None)
+    if raw in (None, ""):
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    detail = parsed.get("equity_kgv_mean_reversion")
+    if not isinstance(detail, dict) or detail.get("pe_proxy_value_kgv_current") is None:
+        return None
+    if getattr(cma, "equity_home_return_bps", None) is None:
+        return None
+    return detail
+
+
 def _build_kgv_status(cma: Any) -> dict[str, Any]:
     """Status fuer KGV-Mean-Reversion (U-73 Teil 2)."""
     cur = getattr(cma, "equity_kgv_current_x10", None)
     fair = getattr(cma, "equity_kgv_fair_x10", None)
     alpha = getattr(cma, "equity_kgv_alpha_x100", None)
     active = _all_set(cur, fair, alpha)
+    if not _any_set(cur, fair, alpha):
+        embedded = _embedded_kgv_detail(cma)
+        if embedded is not None:
+            return {
+                "model_key": "kgv_mean_reversion",
+                "label": "KGV-Mean-Reversion (Equity)",
+                "active": True,
+                "basis": KGV_BASIS,
+                "parameters": {
+                    "kgv_current": embedded.get("pe_proxy_value_kgv_current"),
+                    "kgv_fair": embedded.get("kgv_fair_generic_shiller_cape"),
+                    "alpha": embedded.get("alpha"),
+                    "horizon_years": embedded.get("horizon_years"),
+                },
+                "applies_to": "equity",
+                "activation_rule": (
+                    "bereits in equity_home_return_bps eingerechnet "
+                    "(Nachweis in source_detail)"
+                ),
+                "representation": "embedded_in_equity_home_return",
+            }
     invalid_reason = None
     if active:
         try:
@@ -216,16 +263,11 @@ def audit_engine_models(db: Session) -> dict[str, Any]:
         "methodology_notes": [],
     }
     try:
-        from models.allocation import CapitalMarketAssumption
-        cma = (
-            db.query(CapitalMarketAssumption)
-            .filter(
-                CapitalMarketAssumption.is_current == 1,
-                CapitalMarketAssumption.deleted_at.is_(None),
-            )
-            .order_by(CapitalMarketAssumption.created_at.desc())
-            .first()
-        )
+        # CMA-EFFECTIVE-DATE-001: wirksame CH-CMA ueber denselben Resolver
+        # wie die Engine (statt juengster is_current-Zeile beliebiger
+        # Jurisdiktion).
+        from services.jurisdiction.resolve import resolve_effective_cma_or_none
+        cma = resolve_effective_cma_or_none(db, "CH")
     except Exception:  # noqa: BLE001
         return empty
 

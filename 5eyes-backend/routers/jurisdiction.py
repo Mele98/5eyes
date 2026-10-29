@@ -49,6 +49,8 @@ from services.audit import log
 from services.auth import require_admin, require_advisor, require_portfolio_management
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Jurisdiktions-/CMA-Admin-Aktionen.
 from routers.auth import _extract_client_ip
+from services.jurisdiction.exceptions import CMAValidityWindowError
+from services.jurisdiction.resolve import assert_cma_activatable_on
 from services.jurisdiction.data_pipeline import (
     InsufficientYieldCurveDataError,
     NoYieldCurveSourceConfiguredError,
@@ -305,6 +307,19 @@ def _current_cma_scope_query(db: Session, jurisdiction: str | None, tenant_id: s
     return q
 
 
+def _has_any_return_assumption(cma: CapitalMarketAssumption) -> bool:
+    """Mindestens ein *_return_bps-Feld der Zeile ist gesetzt.
+
+    Bewusst nur die Untergrenze "nicht vollstaendig leer": welche Felder je
+    Jurisdiktion Pflicht sind, ist ein offener Owner-Entscheid und wird hier
+    nicht erfunden."""
+    return any(
+        getattr(cma, column.name, None) is not None
+        for column in CapitalMarketAssumption.__table__.columns
+        if column.name.endswith("_return_bps")
+    )
+
+
 @cma_approval_router.post(
     "/capital-market-assumptions/{id}/approve",
     response_model=CapitalMarketAssumptionResponse,
@@ -337,6 +352,27 @@ def approve_capital_market_assumption(
     if not cma:
         raise HTTPException(status_code=404, detail=f"CapitalMarketAssumption {id} nicht gefunden")
 
+    # CMA-APPROVAL-PREFLIGHT-001: ein Kandidat ohne eine einzige Rendite-
+    # annahme kann keine Marktbasis fuer Solver/MC/Bericht sein -> fail-closed,
+    # Status und is_current bleiben unveraendert.
+    if not _has_any_return_assumption(cma):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"CapitalMarketAssumption {id} enthaelt keine einzige "
+                "Renditeannahme (*_return_bps) und kann nicht freigegeben werden."
+            ),
+        )
+    if not cma.is_current:
+        # CMA-EFFECTIVE-DATE-001: die Freigabe aktiviert den Kandidaten und
+        # loest die Vorgaengerin ab -- nur, wenn er heute wirksam ist.
+        try:
+            assert_cma_activatable_on(cma.valid_from, cma.valid_until)
+        except CMAValidityWindowError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"reason_code": exc.reason_code, "message": exc.message},
+            )
     cma.status = _COMMITTEE_APPROVED_STATUS
     if not cma.is_current:
         prev = _current_cma_scope_query(db, cma.jurisdiction, cma.tenant_id).filter(

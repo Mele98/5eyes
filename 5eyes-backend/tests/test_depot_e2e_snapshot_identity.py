@@ -73,9 +73,15 @@ _IDENTITY_FIELD_CANDIDATES = (
         "services.pdf.base.DepotCheckData) carry no shared snapshot_id/"
         "as_of/holdings_hash/allocation_id/run_id/benchmark_definition_id/"
         "stress_catalog_id at all -- there is no field in either payload "
-        "that could prove the two describe the same underlying state. Real "
-        "fix is a dedicated DepotCheckAnalysisSnapshot model, deferred "
-        "pending design/product sign-off."
+        "that could prove the two describe the same underlying state. "
+        "Partly addressed: DepotSnapshotV1 (services/depot_snapshot.py, "
+        "table depot_snapshots) now binds the valued IST holdings with a "
+        "hash and feeds the IST stress replay -- but neither "
+        "compute_depot_check() (which still reads its own holdings basis, "
+        "incl. the target-amount fallback) nor DepotCheckData reference it. "
+        "Still open: a DepotCheckAnalysisSnapshot binding holdings snapshot, "
+        "TargetAllocation, run, cost snapshot, benchmark and stress catalog "
+        "for JSON and PDF alike (design/product sign-off)."
     ),
 )
 def test_json_depot_check_and_pdf_payload_share_no_snapshot_identity(session_factory):

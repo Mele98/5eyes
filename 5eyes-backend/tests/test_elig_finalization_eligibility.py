@@ -33,7 +33,7 @@ from models.allocation import TargetAllocation  # noqa: E402
 from models.mandates import Mandate  # noqa: E402
 from models.product_eligibility import ProductEligibilityOverride, ProductEligibilityRule  # noqa: E402
 from models.profiling import SuitabilityCheck  # noqa: E402
-from models.review import RecommendationPosition, RecommendationRun  # noqa: E402
+from models.review import Product, RecommendationPosition, RecommendationRun  # noqa: E402
 from routers.review import _validate_recommendation_for_finalization  # noqa: E402
 
 
@@ -89,16 +89,27 @@ def _add_appropriateness(session_factory, ctx, *, run_id=None, result="Angemesse
 
 
 def _add_override(session_factory, ctx, *, approved_by="compliance-2", expires_days=30, rule_id=None):
+    from services.product_eligibility_override import (
+        decision_binding_hash, decision_context, evaluate, override_evidence_hash,
+    )
+
     now = _now_iso()
     with session_factory() as s:
-        s.add(ProductEligibilityOverride(
+        row = ProductEligibilityOverride(
             id=new_uuid(), rule_id=rule_id or ctx["rule"], product_id=ctx["product"],
             recommendation_run_id=ctx["run"], original_decision="indeterminate",
             overridden_dimension="override", reason_code="DOCUMENTED_EXCEPTION",
             requested_by=ctx["advisor"], approved_by=approved_by,
             valid_from=_iso(-1), expires_at=_iso(expires_days),
-            evidence_hash="evidence-hash", created_at=now, updated_at=now,
-        ))
+            created_at=now, updated_at=now,
+        )
+        # ELIG-OVERRIDE-CAPTURE-001: evidence hash bound to the current decision.
+        mandate = s.get(Mandate, ctx["mandate"])
+        decision_ctx = decision_context(s, mandate, s.get(RecommendationRun, ctx["run"]))
+        product = s.get(Product, ctx["product"])
+        decision = evaluate(s, decision_ctx, product, 0)
+        row.evidence_hash = override_evidence_hash(row, decision_binding_hash(decision_ctx, decision))
+        s.add(row)
         s.commit()
 
 
