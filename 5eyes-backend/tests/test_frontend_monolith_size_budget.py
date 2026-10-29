@@ -13,7 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "5eyes-electron" / "frontend" / "5eyes_v2.html"
 
-MONOLITH_MAX_LINES = 31375
+MONOLITH_MAX_LINES = 31362
 TOLERANCE_LINES = 0
 
 

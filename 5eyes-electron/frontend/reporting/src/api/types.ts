@@ -70,6 +70,23 @@ export interface RiskOverride {
   expected_override_decision_id?: string | null;
 }
 
+/**
+ * RISK-CAPACITY-RECHECK-UI-001: zuletzt gebundene Bewertung der
+ * Plausibilitaetspruefung (GET /mandates/{id}/risk-capacity-plausibility,
+ * Feld `bound_evaluation`, betragsfrei). `needs_recheck` = sie entspricht
+ * nicht mehr der aktuellen Datenlage ("neu zu prüfen").
+ */
+export interface RiskCapacityBoundEvaluation {
+  evaluation_id: string;
+  binding_context?: string | null;
+  evaluated_at?: string | null;
+  needs_recheck: boolean;
+  recheck_code: string | null;
+  recheck_label: string | null;
+  recheck_text: string | null;
+  stale_reasons: string[];
+}
+
 export interface RiskAssessmentAnswer {
   id: string;
   question_number: number;

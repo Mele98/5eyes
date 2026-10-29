@@ -2379,6 +2379,11 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
     ensure_sqlite_risk_evidence_tenant_boundary(eng)
+    # ELIG-OVERRIDE-APPEND-ONLY-001: Override-Nachweise append-only (Trigger),
+    # ohne harten Run-FK (Purge-fest), Spalte approval_mode.
+    from services.product_eligibility_override_schema import ensure_sqlite_override_append_only
+
+    ensure_sqlite_override_append_only(eng)
     migrate_house_matrix_real_estate_cap_20(eng)
     ensure_snapshot_tables(eng)
     from services.market_data.provider_health_registry import ensure_provider_health_table

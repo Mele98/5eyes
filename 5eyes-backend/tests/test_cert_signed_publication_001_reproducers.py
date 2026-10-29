@@ -102,7 +102,6 @@ from test_portfolio_handoff import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="SIGN-IDENTITY-001 -- CERT-SIGNED-PUBLICATION-001")
 def test_advisor_principal_cannot_sign_as_client(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
@@ -138,6 +137,12 @@ def test_advisor_principal_cannot_sign_as_client(session_factory, advisor_user, 
                 current_user=advisor_user,
             )
         assert exc_info.value.status_code == 403
+        # Aus dem richtigen Grund: die Rolle wird abgelehnt, nicht erst das
+        # fehlende Archiv-PDF (das waere 409 SIGNATURE_ARTIFACT_MISSING).
+        assert exc_info.value.detail["reason_code"] == "CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL"
+        session.refresh(doc)
+        assert doc.signed_by_client == 0
+        assert doc.signature_client_signer_name is None
 
 
 # ---------------------------------------------------------------------------
