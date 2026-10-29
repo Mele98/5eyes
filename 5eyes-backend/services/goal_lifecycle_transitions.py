@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import new_uuid
@@ -161,6 +162,10 @@ def invalidate_goal_achievability_evidence(db: Session, mandate_id: str) -> int:
     Invalidierung nicht ohne die ausloesende Aenderung bestehen bleibt (und
     umgekehrt).
 
+    Seit SHADOW-ANALYSIS-INTEGRITY-001 gilt dasselbe fuer den Shadow-Container
+    (``shadow_optimization_json``), der die Zielerreichung des stochastischen
+    Kandidaten traegt.
+
     Die Allokation selbst bleibt unangetastet -- Strategietreue, ADR-003:
     eine Ziel-Aenderung loest kein Rebalancing aus.
     """
@@ -170,10 +175,20 @@ def invalidate_goal_achievability_evidence(db: Session, mandate_id: str) -> int:
             TargetAllocation.mandate_id == str(mandate_id),
             TargetAllocation.is_current == 1,
             TargetAllocation.deleted_at.is_(None),
-            TargetAllocation.goal_achievability_json.isnot(None),
+            or_(
+                TargetAllocation.goal_achievability_json.isnot(None),
+                TargetAllocation.shadow_optimization_json.isnot(None),
+            ),
         )
         .update(
-            {TargetAllocation.goal_achievability_json: None},
+            {
+                TargetAllocation.goal_achievability_json: None,
+                # SHADOW-ANALYSIS-INTEGRITY-001 (Owner-Entscheid 2026-10-29):
+                # die Zielerreichung des Shadow-Kandidaten ist gegen denselben
+                # alten Zielzustand gerechnet und faellt mit. Die gebundenen
+                # Referenzen bleiben; NULL gilt als ``invalidated``.
+                TargetAllocation.shadow_optimization_json: None,
+            },
             synchronize_session=False,
         )
         or 0

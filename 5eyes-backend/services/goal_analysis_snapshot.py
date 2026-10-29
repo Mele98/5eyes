@@ -204,43 +204,24 @@ def _stored_constraints(allocation) -> dict | None:
     return constraints if isinstance(constraints, dict) else None
 
 
-def _verify_binding(allocation, constraints: dict) -> None:
-    """Integritaet der Ergebnis-Bindung (wirft ``ValueError``).
+def _gate(allocation):
+    """Volles Integritaets-Gate fuer eine gespeicherte Allokation (wirft).
 
-    Bewusst nicht das volle semantische Gate: geprueft wird genau, was die
-    Bindung behauptet -- der gespeicherte ``allocation_context_hash`` passt zu
-    den gespeicherten Artefakten (damit ist jede Referenz echt), und die
-    Bytes von Zielanalyse und Shadow-Container passen zu ihrer Referenz.
-    Andere Vertraege des Gates (Bounds, Risikokoeffizienten, Methode) prueft
-    der Reload selbst; sie duerfen hier keine Analyse still ausblenden.
+    Bewusst das volle semantische Gate (Context-Hash, Bounds,
+    Risikokoeffizienten, unabhaengige Methodenpruefung, Ergebnis-Bindungen):
+    eine Analyse wird nur publiziert, wenn die ganze Allokation verifiziert.
     """
     from services.portfolio_engine import BUCKET_FIELDS
-    from services.portfolio_engine_allocation_integrity import allocation_context_hash_for
-
-    stored_hash = getattr(allocation, "allocation_context_hash", None)
-    sub_allocations = json.loads(getattr(allocation, "sub_allocations_json", None) or "null")
-    if not isinstance(stored_hash, str) or not isinstance(sub_allocations, list):
-        raise ValueError("Gebundene Analyse ohne vollstaendigen Allocation-Context.")
-    recomputed = allocation_context_hash_for(
-        engine_version=str(constraints.get("engine_version") or ""),
-        policy_id=allocation.policy_id,
-        cma_id=allocation.capital_market_assumptions_id,
-        assessment_id=allocation.based_on_assessment_id,
-        input_snapshot_hash=allocation.input_snapshot_hash,
-        preferences_json=allocation.preferences_json,
-        targets={b: int(getattr(allocation, f"target_{b}_bps")) for b in BUCKET_FIELDS},
-        sub_allocations=sub_allocations,
-        effective_constraints=constraints,
-        optimization_seed=getattr(allocation, "optimization_seed", None),
-        analysis_result_hash=bound_analysis_result_hash(constraints),
+    from services.portfolio_engine_allocation_integrity import (
+        _verified_persisted_allocation_context,
     )
-    if recomputed != stored_hash:
-        raise ValueError(
-            "Allocation-Context-Hash stimmt nicht mit den persistierten "
-            "Entscheidungsartefakten ueberein."
-        )
-    verify_goal_analysis(allocation, constraints)
-    verify_shadow_analysis(allocation, constraints)
+
+    return _verified_persisted_allocation_context(
+        allocation,
+        targets={b: int(getattr(allocation, f"target_{b}_bps")) for b in BUCKET_FIELDS},
+        minimums={b: int(getattr(allocation, f"band_{b}_min_bps") or 0) for b in BUCKET_FIELDS},
+        maximums={b: int(getattr(allocation, f"band_{b}_max_bps") or 0) for b in BUCKET_FIELDS},
+    )
 
 
 def _bound_raw(allocation, column: str, key: str, what: str) -> str | None:
@@ -253,7 +234,7 @@ def _bound_raw(allocation, column: str, key: str, what: str) -> str | None:
     if constraints is None or constraints.get(key) is None:
         return raw
     try:
-        _verify_binding(allocation, constraints)
+        _gate(allocation)
     except (AttributeError, TypeError, ValueError) as exc:
         logger.warning(
             "%s der Allokation %s nicht publiziert (Integritaet): %s",
@@ -279,13 +260,13 @@ INTEGRITY_HINT_TEXT = (
 def analysis_integrity_report(allocation) -> dict:
     """Status von Zielanalyse und Shadow-Container fuer den UI-Hinweis.
 
-    Wirft nie: eine verletzte Bindung (auch eine manipulierte Referenz, die
-    den Context-Hash bricht) erscheint als ``integrity_mismatch`` der jeweils
-    gebundenen Analyse.
+    Wirft nie: eine Gate-Verletzung (auch eine manipulierte Referenz oder
+    Methodik) erscheint als ``integrity_mismatch`` der jeweils gebundenen
+    Analyse.
     """
     constraints = _stored_constraints(allocation)
     try:
-        _verify_binding(allocation, constraints or {})
+        _gate(allocation)
         gate_error = None
     except (AttributeError, TypeError, ValueError) as exc:
         gate_error = str(exc)

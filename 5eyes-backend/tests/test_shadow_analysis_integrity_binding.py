@@ -214,6 +214,56 @@ def test_legacy_allocation_without_shadow_reference_still_verifies(generated):
     assert shadow_analysis_status(reloaded, verified) == "legacy_unbound"
 
 
+def test_tampered_methodology_is_still_rejected_by_readers(generated):
+    """Die Leser rufen das volle semantische Gate: eine manipulierte Methodik
+    (Methodenspalte widerspricht der gehashten Modellbasis) blendet Zielanalyse
+    und Shadow-Container aus, obwohl deren Bytes unveraendert sind."""
+    from services.goal_analysis_snapshot import (
+        analysis_integrity_report,
+        bound_goal_achievability_json,
+        bound_shadow_optimization_json,
+    )
+
+    session_factory, allocation_id, *_ = generated
+    intact = _load(session_factory, allocation_id)
+    assert bound_shadow_optimization_json(intact) == intact.shadow_optimization_json
+    _rewrite(session_factory, allocation_id, optimization_method="stochastic",
+             optimization_status="converged")
+    tampered = _load(session_factory, allocation_id)
+    with pytest.raises(ValueError):
+        _verify(tampered)
+    assert bound_shadow_optimization_json(tampered) is None
+    if tampered.goal_achievability_json:
+        assert bound_goal_achievability_json(tampered) is None
+    report = analysis_integrity_report(tampered)
+    assert report["shadow_analysis"] == "integrity_mismatch"
+    assert report["needs_attention"] is True
+
+
+def test_lifecycle_invalidation_clears_shadow_container(generated):
+    from services.goal_analysis_snapshot import analysis_integrity_report
+    from services.goal_lifecycle_transitions import invalidate_goal_achievability_evidence
+    from services.shadow_comparison import (
+        ShadowComparisonMissing,
+        build_shadow_comparison_payload,
+    )
+
+    session_factory, allocation_id, mid, *_ = generated
+    with session_factory() as s:
+        assert invalidate_goal_achievability_evidence(s, mid) == 1
+        s.commit()
+    allocation = _load(session_factory, allocation_id)
+    assert allocation.shadow_optimization_json is None
+    _sub, verified = _verify(allocation)
+    assert verified is not None
+    report = analysis_integrity_report(allocation)
+    assert report["shadow_analysis"] == "invalidated"
+    assert report["needs_attention"] is False
+    with session_factory() as s:
+        with pytest.raises(ShadowComparisonMissing):
+            build_shadow_comparison_payload(s, mid)
+
+
 # --------------------------------------------------------------------------
 # Status-Endpunkt fuer den ruhigen UI-Hinweis
 # --------------------------------------------------------------------------
