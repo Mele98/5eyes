@@ -123,21 +123,11 @@ def test_positive_control_empty_cma_has_no_capital_market_fields_set(session_wit
         assert cma.liquidity_return_bps is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-APPROVAL-PREFLIGHT-001 -- round 50 red test (approve endpoint "
-        "performs no completeness/preflight check; a CMA candidate with "
-        "every capital-market return/vol field NULL is promoted to "
-        "committee_approved + is_current=1), see audit "
-        "docs/audits/2026-10-04-jurisdiction-cma-equity-measurement-snapshot-and-approval-integrity-audit.md"
-    ),
-)
 def test_approve_rejects_completely_empty_candidate(client, session_with_pm_user):
     """A CMA candidate with no capital-market assumptions at all must not
     be approvable -- it cannot serve as a market basis for any solver,
-    Monte Carlo run or advisory report. Today's endpoint approves it
-    anyway with HTTP 200."""
+    Monte Carlo run or advisory report. Vor dem Fix (CMA-APPROVAL-PREFLIGHT-001)
+    gab der Endpoint HTTP 200 zurueck."""
     with session_with_pm_user() as s:
         s.add(_make_empty_cma("cma-de-empty", jurisdiction="DE"))
         s.commit()
@@ -158,3 +148,24 @@ def test_approve_rejects_completely_empty_candidate(client, session_with_pm_user
             "not be silently promoted to committee_approved"
         )
         assert reloaded.is_current == 0
+
+
+def test_approve_accepts_candidate_with_a_return_assumption(client, session_with_pm_user):
+    """Positivkontrolle: derselbe Kandidat mit einer einzigen gesetzten
+    Renditeannahme wird freigegeben -- der Preflight blockiert also genau das
+    leere Modell, nicht die Freigabe an sich."""
+    with session_with_pm_user() as s:
+        cma = _make_empty_cma("cma-de-one-field", jurisdiction="DE")
+        cma.bonds_home_ig_return_bps = 250
+        s.add(cma)
+        s.commit()
+
+    resp = client.post("/capital-market-assumptions/cma-de-one-field/approve")
+    assert resp.status_code == 200, resp.text
+
+    with session_with_pm_user() as s:
+        reloaded = s.query(CapitalMarketAssumption).filter(
+            CapitalMarketAssumption.id == "cma-de-one-field"
+        ).one()
+        assert reloaded.status == "committee_approved"
+        assert reloaded.is_current == 1

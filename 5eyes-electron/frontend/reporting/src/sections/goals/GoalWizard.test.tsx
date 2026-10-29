@@ -16,6 +16,7 @@ vi.mock('@/api/goals', () => ({
 }));
 
 import { createGoal, updateGoal } from '@/api/goals';
+import { ApiError } from '@/api/client';
 import { GoalWizard } from './GoalWizard';
 
 const updateMock = vi.mocked(updateGoal);
@@ -33,11 +34,11 @@ function makeGoal(overrides: Partial<GoalRecord> = {}): GoalRecord {
     weight_bps: 3000,
     goal_scope: 'Beratungsvermögen',
     value_mode: 'nominal',
-    target_amount_rappen: null,
+    target_amount_rappen: 4_000_000,
     target_wealth_rappen: null,
     target_return_bps: null,
     success_probability_min_x100: 8500,
-    start_date: null,
+    start_date: '2030-01-01',
     horizon_years: null,
     target_date: null,
     is_ongoing: 1,
@@ -89,5 +90,89 @@ describe('GoalWizard — GOAL-3 Datenerhalt beim Edit', () => {
     expect(payload.weight_bps).toBe(3000);
     expect(payload.success_probability_min_x100).toBe(8500);
     expect(createMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('GoalWizard — GOAL-RECURRING-EDITOR-CONTRACT-001 Strom-Vertrag', () => {
+  function openNewRecurring() {
+    render(<GoalWizard open mandateId="m1" onClose={() => {}} onSaved={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Zieltyp'), {
+      target: { value: 'Wiederkehrende_Ausgabe' },
+    });
+    fireEvent.change(screen.getByLabelText('Bezeichnung'), { target: { value: 'Lebenshaltung' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Weiter' }));
+  }
+
+  function goToSaveAndSubmit() {
+    fireEvent.click(screen.getByRole('button', { name: 'Weiter' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }));
+  }
+
+  it('sendet Betrag, Startdatum und Enddatum eines endlichen Stroms (kein stiller Horizont)', async () => {
+    createMock.mockResolvedValue(makeGoal());
+    openNewRecurring();
+    fireEvent.change(screen.getByLabelText(/^Betrag pro Zahlung/), { target: { value: '48000' } });
+    fireEvent.change(screen.getByLabelText(/^Startdatum/), { target: { value: '2030-01-01' } });
+    fireEvent.change(screen.getByLabelText(/^Enddatum/), { target: { value: '2040-01-01' } });
+    goToSaveAndSubmit();
+
+    await vi.waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    const [, payload] = createMock.mock.calls[0];
+    expect(payload.target_amount_rappen).toBe(4_800_000);
+    expect(payload.start_date).toBe('2030-01-01');
+    expect(payload.target_date).toBe('2040-01-01');
+    expect(payload.is_ongoing).toBe(false);
+    expect(payload.horizon_years).toBeNull();
+  });
+
+  it('laufend blendet das Enddatum aus und sendet target_date=null', async () => {
+    createMock.mockResolvedValue(makeGoal());
+    openNewRecurring();
+    fireEvent.change(screen.getByLabelText(/^Betrag pro Zahlung/), { target: { value: '48000' } });
+    fireEvent.change(screen.getByLabelText(/^Startdatum/), { target: { value: '2030-01-01' } });
+    fireEvent.change(screen.getByLabelText(/^Enddatum/), { target: { value: '2040-01-01' } });
+    fireEvent.click(screen.getByLabelText('laufend (ohne Enddatum)'));
+    expect(screen.queryByLabelText(/^Enddatum/)).toBeNull();
+    goToSaveAndSubmit();
+
+    await vi.waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    const [, payload] = createMock.mock.calls[0];
+    expect(payload.is_ongoing).toBe(true);
+    expect(payload.target_date).toBeNull();
+  });
+
+  it('blockiert fehlende Pflichtfelder und zeigt die Fehler am Feld in Schritt 2', () => {
+    openNewRecurring();
+    goToSaveAndSubmit();
+
+    expect(createMock).not.toHaveBeenCalled();
+    // Zurück auf dem Detail-Schritt, Fehler direkt an den Feldern.
+    const amount = screen.getByLabelText(/^Betrag pro Zahlung/);
+    const start = screen.getByLabelText(/^Startdatum/);
+    const end = screen.getByLabelText(/^Enddatum/);
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    expect(start).toHaveAttribute('aria-invalid', 'true');
+    expect(end).toHaveAttribute('aria-invalid', 'true');
+    expect(document.getElementById('goal-wizard-error-start_date')?.textContent).toMatch(/Startdatum/);
+  });
+
+  it('übernimmt einen 422-Fehler der API feldgenau (loc -> Feld) und springt zum Feld', async () => {
+    createMock.mockRejectedValue(
+      new ApiError(422, 'Startdatum ungültig', [
+        { loc: ['body', 'start_date'], msg: 'Startdatum ungültig' },
+      ]),
+    );
+    openNewRecurring();
+    fireEvent.change(screen.getByLabelText(/^Betrag pro Zahlung/), { target: { value: '48000' } });
+    fireEvent.change(screen.getByLabelText(/^Startdatum/), { target: { value: '2030-01-01' } });
+    fireEvent.change(screen.getByLabelText(/^Enddatum/), { target: { value: '2040-01-01' } });
+    goToSaveAndSubmit();
+
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText(/^Startdatum/)).toHaveAttribute('aria-invalid', 'true'),
+    );
+    expect(document.getElementById('goal-wizard-error-start_date')?.textContent).toBe(
+      'Startdatum ungültig',
+    );
   });
 });

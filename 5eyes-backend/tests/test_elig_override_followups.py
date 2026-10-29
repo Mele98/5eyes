@@ -49,7 +49,7 @@ from models.users import User  # noqa: E402
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_REVISION = "f4b8d2a6c1e7"
-MIGRATION_DOWN_REVISION = "a7c4e9b2d1f3"
+MIGRATION_DOWN_REVISION = "d3e1a7c9b4f2"
 ATTEST_REASON = "Einzelberater ohne zweite Person; Ausnahme selbst geprueft und dokumentiert."
 
 

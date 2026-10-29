@@ -1,4 +1,19 @@
-"""Red test for GOAL-FUNDING-PRIORITY-001 (Kontrollrunde 37).
+"""GOAL-FUNDING-PRIORITY-001 (Kontrollrunde 37) -- Gewichtungsmodus vs. Rang.
+
+STATUS 2026-10-25: ueberholt durch Owner-Entscheid 9a (priorisiertes Goal
+Funding nach RANG, Entscheidungsprotokoll 2026-10-11 in
+docs/planning/2026-10-04-goal-engine-time-lifecycle-scheduler-validation-unification.md)
+und dessen Umsetzung (Prioritaets-Scopes S_r = {h | rank(h) <= r} in
+``goals_to_liabilities``, direkter Replay ab Engine v10). Der fruehere rote
+Test verlangte, dass der GEWICHTUNGSMODUS (``OPTIMIZER_GOAL_WEIGHTING=
+hardness``) die Finanzierungsreihenfolge repariert, und setzte dafuer
+gleichzeitig voraus, dass das harte Ziel im Standardmodus bei P=0 bleibt --
+ein Vertrag, den der Owner-Entscheid gerade nicht vorsieht: die Reihenfolge
+kommt aus dem Rang, nicht aus dem Gewichtungsmodus. Der Test unten prueft den
+gueltigen Vertrag auf dem Produktionspfad: das harte Rang-1-Ziel ist in BEIDEN
+Modi gegen den Abfluss des Rang-5-Ziels geschuetzt, mit identischem Ergebnis.
+
+Urspruenglicher Befund (zur Einordnung):
 
 Audit finding: the optimizer has no goal-funding priority mechanism — every
 spending goal's outflow is subtracted unconditionally from the shared wealth
@@ -48,6 +63,7 @@ from services.optimizer.goal_liabilities import (
     GoalLiability,
     aggregate_liability_path,
     goal_to_liability,
+    goals_to_liabilities,
 )
 from services.optimizer.objective import chance_constraint_penalty
 from services.optimizer.scenario_engine import simulate_wealth_paths
@@ -162,38 +178,66 @@ def _run_scenario() -> tuple[float, float, list[dict]]:
     return float(goal_a_row["probability"]), float(penalty), rows
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-FUNDING-PRIORITY-001 -- round 47 red test (hardness mode does "
-        "not repair funding order), see audit "
-        "docs/audits/2026-09-28-goal-funding-priority-and-achievability-attribution-audit.md"
-    ),
-)
-def test_hardness_mode_does_not_protect_hard_goal_from_opportunistic_outflow(monkeypatch):
-    # --- Mode 1: equal weighting (default, OPTIMIZER_GOAL_WEIGHTING unset) ---
-    monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
-    probability_equal, penalty_equal, _rows_equal = _run_scenario()
-
-    assert probability_equal == pytest.approx(0.0)
-    assert penalty_equal == pytest.approx(640_000.0)
-
-    # --- Mode 2: opt-in hardness weighting ---
-    monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "hardness")
-    probability_hardness, penalty_hardness, _rows_hardness = _run_scenario()
-
-    assert probability_hardness == pytest.approx(0.0)
-    assert penalty_hardness == pytest.approx(640_000.0)
-
-    # THE RED ASSERTION: hardness mode is supposed to protect the hard Goal A
-    # by giving it funding priority over the opportunistic Goal B. Instead
-    # the wealth path (and therefore Goal A's achievability and chance
-    # penalty) is bit-for-bit identical in both modes -- hardness weighting
-    # provides zero protection against the underlying funding-order bug.
-    assert probability_hardness > probability_equal, (
-        "Expected hardness mode to raise Goal A's achievability above the "
-        "equal-weighting baseline (funding priority for the hard goal), but "
-        f"both modes yield the identical probability={probability_equal!r} "
-        f"and chance penalty={penalty_equal!r} -- hardness weighting does "
-        "not change the funding order at all."
+def _run_production_scenario() -> tuple[float, float, list[dict]]:
+    """Wie ``_run_scenario``, aber mit der Produktions-Zusammenstellung
+    ``goals_to_liabilities`` (Prioritaets-Scopes je Rang), so wie der Solver
+    die Ziele erhaelt."""
+    liabilities = goals_to_liabilities(
+        [_goal_a_vermoegensziel_hart(), _goal_b_einmalige_ausgabe_opportunistisch()],
+        horizon_years=HORIZON_YEARS,
     )
+    liability_path = aggregate_liability_path(liabilities, horizon_years=HORIZON_YEARS)
+    assert liability_path == [20_00, 0]
+    weights = np.array([0.0, 0.0, 0.0, 0.0, 1.0])
+    return_paths = np.ones((N_PATHS, HORIZON_YEARS, 5), dtype=np.float64)
+    wealth_paths = simulate_wealth_paths(
+        initial_wealth_rappen=INITIAL_WEALTH_RAPPEN,
+        weights=weights,
+        return_paths=return_paths,
+        cashflow_series_rappen=[0, 0],
+        liability_path_rappen=liability_path,
+    )
+    # Der gemeinsame Pfad bleibt der Gesamtplan (100 - 20 = 80) ...
+    assert np.all(wealth_paths[:, 2] == 80_00)
+    penalty, rows = chance_constraint_penalty(
+        wealth_paths,
+        liabilities,
+        initial_value_rappen=INITIAL_WEALTH_RAPPEN,
+    )
+    goal_a_row = next(row for row in rows if row["goal_id"] == "goal-a-hart")
+    return float(goal_a_row["probability"]), float(penalty), rows
+
+
+def test_bare_per_goal_build_without_priority_scope_shows_the_starved_joint_path(monkeypatch):
+    """Positivkontrolle des Mechanismus: OHNE Prioritaets-Scope (einzeln
+    gebaute Liabilities, nicht der Produktionspfad) wird Ziel A auf dem
+    gemeinsamen Pfad (80 < 90) bewertet -- P=0 und positive Strafe, in
+    beiden Modi gleich."""
+    penalties = []
+    for mode in (None, "hardness"):
+        if mode is None:
+            monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
+        else:
+            monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", mode)
+        probability, penalty, _rows = _run_scenario()
+        assert probability == pytest.approx(0.0)
+        assert penalty > 0.0
+        penalties.append(penalty)
+    assert penalties[0] == pytest.approx(penalties[1])
+
+
+def test_rank_priority_protects_hard_goal_in_both_weighting_modes(monkeypatch):
+    """Owner-Entscheid 9a: das Rang-1-Ziel wird auf dem Pfad bewertet, von
+    dem nur Abfluesse mit Rang <= 1 abgezogen sind (100 >= 90). Der
+    Gewichtungsmodus aendert daran nichts -- beide Modi liefern dieselbe
+    Wahrscheinlichkeit und dieselbe Strafe."""
+    monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
+    probability_equal, penalty_equal, _ = _run_production_scenario()
+
+    monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "hardness")
+    probability_hardness, penalty_hardness, _ = _run_production_scenario()
+
+    assert probability_equal == pytest.approx(1.0)
+    assert probability_hardness == pytest.approx(1.0)
+    assert penalty_equal == pytest.approx(penalty_hardness)
+    assert penalty_equal == pytest.approx(0.0)

@@ -5,37 +5,54 @@ aktiviert wird, und wie Releases publiziert werden.
 
 **Stand:** 2026-06-06
 **Roadmap-Punkt:** #65 (OPS, ~2-3h)
-**Status:** Implementiert in `5eyes-electron/main.js` (autoUpdater),
-opt-in via Environment-Variable.
+**Status:** Code vorhanden, im Produktionsbuild per Build-Gate
+deaktiviert (UPDATE-001, Aktivierung blockiert bis Freigabe).
 
 ---
 
-## Aktivierung
+## Aktivierung (UPDATE-001: fail-closed Build-Gate)
 
-Auto-Update ist **standardmaessig deaktiviert** — es laeuft nur in
-einer gepackten App (`app.isPackaged === true`) wenn:
+Auto-Update ist im Produktionsbuild **deaktiviert**, bis eine echte,
+eigentuemerkontrollierte HTTPS-Update-Adresse **und** Code-Signing
+vorhanden und abgenommen sind (Owner + Security/Release). Das ist ein
+Build- und Packaging-Gate, keine reine Laufzeit-Flag:
 
-```
-ENABLE_AUTO_UPDATE=1
-```
+- Build-Default `UPDATES_ENABLED=false`: `build.publish` ist `null`
+  (keine Update-URL, kein `app-update.yml` im Artefakt) und die gepackte
+  `package.json` traegt `"desktopUpdates": { "enabled": false }`.
+- `main.js` laedt `electron-updater` nur, wenn die gepackte
+  `package.json` `desktopUpdates.enabled === true` mit gueltiger
+  HTTPS-Feed-URL traegt **und** zur Laufzeit `ENABLE_AUTO_UPDATE=1`
+  gesetzt ist. Sonst: kein Updater, kein Netzwerkaufruf, UI zeigt
+  "deaktiviert".
+- `UPDATES_ENABLED=true` ohne vollstaendige Konfiguration bricht den
+  Build ab: `npm run preflight:release` (`scripts/release-check.js`) und
+  der electron-builder-Hook `beforePack`
+  (`scripts/update-gate-before-pack.js`, greift auch bei direktem
+  electron-builder-Aufruf). Regeln in `update-gate.js`.
 
-als Environment-Variable gesetzt ist. Der DEV-Modus (`npm start` /
-Vite-Dev) laeuft NIE Auto-Update.
+Der DEV-Modus (`npm start` / Vite-Dev) laeuft NIE Auto-Update.
 
-## Provider-Konfiguration
+## Provider-Konfiguration (erst nach Freigabe)
 
-`5eyes-electron/package.json` (`build.publish`):
+Fuer eine spaetere Aktivierung muessen alle Punkte zusammen erfuellt sein
+(sonst bricht der Build ab):
 
-```json
-{
-  "provider": "generic",
-  "url": "https://updates.5eyes.local"
-}
-```
+1. `UPDATES_ENABLED=true` und `UPDATE_FEED_URL=<https-Adresse>` im Build-Env;
+   die Adresse muss HTTPS sein, ohne Zugangsdaten, kein IP-Literal, keine
+   reservierte/Platzhalter-Domain (`.invalid`, `.example`, `.test`,
+   `.local`, `localhost`, `example.com/.net/.org`).
+2. `build.publish` = genau ein `generic`-Provider mit dieser URL und
+   `desktopUpdates` = `{ "enabled": true, "feedUrl": <dieselbe URL> }`.
+3. Code-Signing-Konfiguration: `CSC_LINK`+`CSC_KEY_PASSWORD`,
+   `WIN_CSC_LINK`+`WIN_CSC_KEY_PASSWORD`, `win.signtoolOptions` oder
+   `win.azureSignOptions`. Ob Schluessel und Verfahren den Release-Vorgaben
+   entsprechen (HSM/Key Vault), ist eine Freigabe, die der Code nicht prueft.
 
-`generic`-Provider: ein simpler HTTP(S)-Endpoint mit einer
-`latest.yml` und den NSIS-Setup-Binaries. Kein GitHub-Releases-Lock-in,
-keine S3/CDN-Pflicht — Berater kann eigenes File-Hosting nutzen.
+`generic`-Provider: ein HTTPS-Endpoint mit einer `latest.yml` und den
+NSIS-Setup-Binaries. Bis zur Freigabe werden Sicherheitsupdates als
+kontrolliert verteilter Installer mit manueller Upgrade-Anleitung
+ausgeliefert.
 
 ## Lifecycle-Events
 

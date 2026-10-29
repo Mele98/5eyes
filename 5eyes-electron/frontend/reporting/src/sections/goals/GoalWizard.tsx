@@ -3,8 +3,11 @@
  *
  * 3 Schritte: (0) Zieltyp + Bezeichnung + Rang/Härte, (1) typabhängige
  * Felder (Feld-Isolation gemäss Backend), (2) Wahrscheinlichkeit + Notizen.
- * Vor dem Speichern validiert `validateGoalForm` clientseitig dieselbe
- * Feld-Isolation, die das Backend erzwingt.
+ * Vor dem Speichern validiert `validateGoalFormFields` clientseitig dieselbe
+ * Feld-Isolation, die das Backend erzwingt. Fehler (auch 422 der API) werden
+ * am betroffenen Feld angezeigt; der Wizard springt zum Schritt des Felds.
+ * Wiederkehrende/Pensionsziele erfassen Betrag, Startdatum und genau eine
+ * Endsemantik (laufend ODER Enddatum) — GOAL-RECURRING-EDITOR-CONTRACT-001.
  *
  * Als Drawer umgesetzt (role="dialog"/aria-modal, Esc schliesst) — Muster
  * analog components/SectionEditWrapper.tsx.
@@ -14,8 +17,11 @@ import { ApiError } from '@/api/client';
 import { createGoal, updateGoal } from '@/api/goals';
 import {
   buildGoalPayload,
+  goalFieldErrorsFromApi,
   goalTypeKey,
-  validateGoalForm,
+  validateGoalFormFields,
+  type GoalFieldError,
+  type GoalFormField,
   type GoalFormInput,
 } from '@/lib/goalForm';
 import type {
@@ -51,6 +57,8 @@ interface WizardState {
   wealthChf: string;
   returnPct: string;
   frequency: string;
+  startDate: string;
+  isOngoing: boolean;
   targetDate: string;
   horizonYears: string;
   probabilityPct: string;
@@ -73,6 +81,8 @@ function emptyState(): WizardState {
     wealthChf: '',
     returnPct: '',
     frequency: 'jaehrlich',
+    startDate: '',
+    isOngoing: false,
     targetDate: '',
     horizonYears: '',
     probabilityPct: '100',
@@ -99,6 +109,8 @@ function stateFromRecord(rec: GoalRecord): WizardState {
     wealthChf: rec.target_wealth_rappen != null ? String(rec.target_wealth_rappen / 100) : '',
     returnPct: rec.target_return_bps != null ? String(rec.target_return_bps / 100) : '',
     frequency: rec.frequency ?? base.frequency,
+    startDate: rec.start_date ?? '',
+    isOngoing: Boolean(rec.is_ongoing),
     targetDate: rec.target_date ?? '',
     horizonYears: rec.horizon_years != null ? String(rec.horizon_years) : '',
     probabilityPct: rec.probability_pct != null ? String(rec.probability_pct) : '100',
@@ -111,6 +123,7 @@ function stateFromRecord(rec: GoalRecord): WizardState {
 
 function toFormInput(s: WizardState): GoalFormInput {
   const key = goalTypeKey(s.goal_type);
+  const isStream = key === 'wiederkehrende_ausgabe' || key === 'pensionsausgabe';
   const num = (v: string): number | null => (v.trim() === '' ? null : Number(v));
   const chfToRappen = (v: string): number | null => {
     const n = num(v);
@@ -127,13 +140,15 @@ function toFormInput(s: WizardState): GoalFormInput {
     hardness: s.hardness,
     goal_scope: s.goal_scope,
     value_mode: s.value_mode,
-    target_amount_rappen: key === 'einmalige_ausgabe' ? chfToRappen(s.amountChf) : null,
+    target_amount_rappen:
+      key === 'einmalige_ausgabe' || isStream ? chfToRappen(s.amountChf) : null,
     target_wealth_rappen:
       key === 'kapitalerhalt' || key === 'vermoegensziel' ? chfToRappen(s.wealthChf) : null,
     target_return_bps: key === 'renditeziel' ? pctToBps(s.returnPct) : null,
-    frequency:
-      key === 'wiederkehrende_ausgabe' || key === 'pensionsausgabe' ? s.frequency : null,
-    target_date: s.targetDate || null,
+    frequency: isStream ? s.frequency : null,
+    start_date: isStream ? s.startDate || null : null,
+    is_ongoing: isStream ? s.isOngoing : false,
+    target_date: isStream && s.isOngoing ? null : s.targetDate || null,
     horizon_years: num(s.horizonYears),
     probability_pct: s.probabilityPct.trim() === '' ? 100 : Number(s.probabilityPct),
     notes: s.notes || null,
@@ -152,10 +167,20 @@ interface GoalWizardProps {
   onSaved: () => void;
 }
 
+/** Schritt, in dem ein Feld erfasst wird (für den Sprung zum Fehler). */
+const STEP0_FIELDS = new Set<GoalFormField>(['goal_type', 'label', 'rank', 'hardness']);
+const STEP2_FIELDS = new Set<GoalFormField>(['probability_pct', 'notes']);
+
+function stepForField(field: GoalFormField): number {
+  if (STEP0_FIELDS.has(field)) return 0;
+  if (STEP2_FIELDS.has(field)) return 2;
+  return 1;
+}
+
 export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalWizardProps) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>(emptyState);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [errors, setErrors] = useState<GoalFieldError[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -193,10 +218,42 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
       amountChf: '',
       wealthChf: '',
       returnPct: '',
+      startDate: '',
+      isOngoing: false,
       targetDate: '',
       horizonYears: '',
+      value_mode: 'nominal',
     }));
     setErrors([]);
+  };
+
+  // Fehler anzeigen und zum frühesten Schritt mit Feldfehler springen.
+  const showErrors = (list: GoalFieldError[]): void => {
+    setErrors(list);
+    const steps = list
+      .filter((e): e is GoalFieldError & { field: GoalFormField } => e.field !== null)
+      .map((e) => stepForField(e.field));
+    if (steps.length > 0) setStep(Math.min(...steps));
+  };
+
+  const fieldErrors = (field: GoalFormField): string[] =>
+    errors.filter((e) => e.field === field).map((e) => e.message);
+
+  const fieldErrorId = (field: GoalFormField): string => `goal-wizard-error-${field}`;
+
+  const invalidProps = (field: GoalFormField) =>
+    fieldErrors(field).length > 0
+      ? { 'aria-invalid': true as const, 'aria-describedby': fieldErrorId(field) }
+      : {};
+
+  const renderFieldError = (field: GoalFormField) => {
+    const messages = fieldErrors(field);
+    if (messages.length === 0) return null;
+    return (
+      <span id={fieldErrorId(field)} className="mt-1 block text-caption text-status-rot">
+        {messages.join(' ')}
+      </span>
+    );
   };
 
   const typeKey = goalTypeKey(state.goal_type);
@@ -205,9 +262,9 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
 
   async function onSubmit() {
     const input = toFormInput(state);
-    const validationErrors = validateGoalForm(input);
+    const validationErrors = validateGoalFormFields(input);
     if (validationErrors.length > 0) {
-      setErrors(validationErrors);
+      showErrors(validationErrors);
       return;
     }
     setSaving(true);
@@ -222,7 +279,11 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
       onSaved();
       onClose();
     } catch (err) {
-      setErrors([err instanceof ApiError ? err.detail : 'Speichern fehlgeschlagen.']);
+      if (err instanceof ApiError) {
+        showErrors(goalFieldErrorsFromApi(err.raw ?? err.detail));
+      } else {
+        setErrors([{ field: null, message: 'Speichern fehlgeschlagen.' }]);
+      }
     } finally {
       setSaving(false);
     }
@@ -287,7 +348,9 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                   value={state.label}
                   onChange={(e) => set('label', e.target.value)}
                   className={inputClass}
+                  {...invalidProps('label')}
                 />
+                {renderFieldError('label')}
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-caption text-ink-muted">
@@ -298,7 +361,9 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                     value={state.rank}
                     onChange={(e) => set('rank', Number(e.target.value))}
                     className={inputClass}
+                    {...invalidProps('rank')}
                   />
+                  {renderFieldError('rank')}
                 </label>
                 <label className="block text-caption text-ink-muted">
                   Härtegrad
@@ -306,6 +371,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                     value={state.hardness}
                     onChange={(e) => set('hardness', e.target.value as GoalHardnessInput)}
                     className={inputClass}
+                    {...invalidProps('hardness')}
                   >
                     {HARDNESS_OPTIONS.map((h) => (
                       <option key={h} value={h}>
@@ -313,6 +379,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                       </option>
                     ))}
                   </select>
+                  {renderFieldError('hardness')}
                 </label>
               </div>
             </>
@@ -329,18 +396,23 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                     value={state.returnPct}
                     onChange={(e) => set('returnPct', e.target.value)}
                     className={inputClass}
+                    {...invalidProps('target_return_bps')}
                   />
+                  {renderFieldError('target_return_bps')}
                 </label>
               )}
-              {typeKey === 'einmalige_ausgabe' && (
+              {(typeKey === 'einmalige_ausgabe' || isCashflowRecurring) && (
                 <label className="block text-caption text-ink-muted">
-                  Zielbetrag (CHF)
+                  {isCashflowRecurring ? 'Betrag pro Zahlung (CHF)' : 'Zielbetrag (CHF)'}
                   <input
                     type="number"
+                    min={0}
                     value={state.amountChf}
                     onChange={(e) => set('amountChf', e.target.value)}
                     className={inputClass}
+                    {...invalidProps('target_amount_rappen')}
                   />
+                  {renderFieldError('target_amount_rappen')}
                 </label>
               )}
               {isWealth && (
@@ -352,7 +424,9 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                       value={state.wealthChf}
                       onChange={(e) => set('wealthChf', e.target.value)}
                       className={inputClass}
+                      {...invalidProps('target_wealth_rappen')}
                     />
+                    {renderFieldError('target_wealth_rappen')}
                   </label>
                   <label className="block text-caption text-ink-muted">
                     Wertbasis
@@ -368,17 +442,63 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                 </>
               )}
               {isCashflowRecurring && (
-                <label className="block text-caption text-ink-muted">
-                  Häufigkeit
-                  <select
-                    value={state.frequency}
-                    onChange={(e) => set('frequency', e.target.value)}
-                    className={inputClass}
-                  >
-                    <option value="jaehrlich">jährlich</option>
-                    <option value="monatlich">monatlich</option>
-                  </select>
-                </label>
+                <>
+                  <label className="block text-caption text-ink-muted">
+                    Häufigkeit
+                    <select
+                      value={state.frequency}
+                      onChange={(e) => set('frequency', e.target.value)}
+                      className={inputClass}
+                      {...invalidProps('frequency')}
+                    >
+                      <option value="jaehrlich">jährlich</option>
+                      <option value="halbjaehrlich">halbjährlich</option>
+                      <option value="quartalsweise">quartalsweise</option>
+                      <option value="monatlich">monatlich</option>
+                    </select>
+                    {renderFieldError('frequency')}
+                  </label>
+                  <label className="block text-caption text-ink-muted">
+                    Startdatum
+                    <input
+                      type="date"
+                      value={state.startDate}
+                      onChange={(e) => set('startDate', e.target.value)}
+                      className={inputClass}
+                      {...invalidProps('start_date')}
+                    />
+                    {renderFieldError('start_date')}
+                  </label>
+                  <label className="flex items-center gap-2 text-caption text-ink-muted">
+                    <input
+                      type="checkbox"
+                      checked={state.isOngoing}
+                      onChange={(e) => {
+                        const ongoing = e.target.checked;
+                        // Laufend schliesst ein Enddatum aus (genau eine Endsemantik).
+                        setState((prev) => ({
+                          ...prev,
+                          isOngoing: ongoing,
+                          targetDate: ongoing ? '' : prev.targetDate,
+                        }));
+                      }}
+                    />
+                    laufend (ohne Enddatum)
+                  </label>
+                  {!state.isOngoing && (
+                    <label className="block text-caption text-ink-muted">
+                      Enddatum
+                      <input
+                        type="date"
+                        value={state.targetDate}
+                        onChange={(e) => set('targetDate', e.target.value)}
+                        className={inputClass}
+                        {...invalidProps('target_date')}
+                      />
+                      {renderFieldError('target_date')}
+                    </label>
+                  )}
+                </>
               )}
               {(typeKey === 'einmalige_ausgabe' || isWealth) && (
                 <div className="grid grid-cols-2 gap-3">
@@ -389,7 +509,9 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                       value={state.targetDate}
                       onChange={(e) => set('targetDate', e.target.value)}
                       className={inputClass}
+                      {...invalidProps('target_date')}
                     />
+                    {renderFieldError('target_date')}
                   </label>
                   <label className="block text-caption text-ink-muted">
                     oder Horizont (Jahre)
@@ -399,7 +521,9 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                       value={state.horizonYears}
                       onChange={(e) => set('horizonYears', e.target.value)}
                       className={inputClass}
+                      {...invalidProps('horizon_years')}
                     />
+                    {renderFieldError('horizon_years')}
                   </label>
                 </div>
               )}
@@ -411,6 +535,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                       value={state.pensionPillar}
                       onChange={(e) => set('pensionPillar', e.target.value as '' | PensionPillar)}
                       className={inputClass}
+                      {...invalidProps('pension_pillar')}
                     >
                       <option value="">—</option>
                       <option value="AHV">AHV</option>
@@ -419,6 +544,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                       <option value="1e">1e</option>
                       <option value="FZG">FZG</option>
                     </select>
+                    {renderFieldError('pension_pillar')}
                   </label>
                   <MaxPensionSpendingPanel mandateId={mandateId} />
                 </>
@@ -442,7 +568,9 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                   value={state.probabilityPct}
                   onChange={(e) => set('probabilityPct', e.target.value)}
                   className={inputClass}
+                  {...invalidProps('probability_pct')}
                 />
+                {renderFieldError('probability_pct')}
               </label>
               <label className="block text-caption text-ink-muted">
                 Notizen
@@ -463,8 +591,8 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
             aria-live="assertive"
             className="mt-block list-disc rounded border border-status-rot/40 bg-status-rot/5 p-3 pl-8 text-caption text-status-rot"
           >
-            {errors.map((msg, idx) => (
-              <li key={idx}>{msg}</li>
+            {errors.map((err, idx) => (
+              <li key={idx}>{err.message}</li>
             ))}
           </ul>
         )}

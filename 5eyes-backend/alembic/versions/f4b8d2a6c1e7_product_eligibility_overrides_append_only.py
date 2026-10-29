@@ -15,7 +15,7 @@ decisions 2026-10-27, follow-up to ELIG-OVERRIDE-CAPTURE-001):
 Shared DDL: services/product_eligibility_override_schema.py.
 
 Revision ID: f4b8d2a6c1e7
-Revises: a7c4e9b2d1f3
+Revises: d3e1a7c9b4f2
 Create Date: 2026-10-27
 """
 from typing import Sequence, Union
@@ -27,7 +27,7 @@ from services import product_eligibility_override_schema as schema
 
 
 revision: str = "f4b8d2a6c1e7"
-down_revision: Union[str, Sequence[str], None] = "a7c4e9b2d1f3"
+down_revision: Union[str, Sequence[str], None] = "d3e1a7c9b4f2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
