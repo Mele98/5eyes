@@ -9,7 +9,7 @@ gleiche DDL fuer create_all und den SQLite-Runtime-Patch, ein Test prueft die
 Gleichheit.
 
 Revision ID: e5b3c9d1a7f4
-Revises: a9e3c5d7f1b2
+Revises: f4b8d2a6c1e7
 Create Date: 2026-10-28
 """
 from typing import Sequence, Union
@@ -18,7 +18,7 @@ from alembic import op
 
 
 revision: str = "e5b3c9d1a7f4"
-down_revision: Union[str, Sequence[str], None] = "a9e3c5d7f1b2"
+down_revision: Union[str, Sequence[str], None] = "f4b8d2a6c1e7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
