@@ -665,7 +665,7 @@ from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION
     bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
 )
 from services.allocation_evidence_replay import allocation_evidence_payload, build_goal_driver_evidence_json  # noqa: E402
-from services.goal_analysis_snapshot import bound_analysis_result_hash, goal_analysis_constraints, serialize_goal_achievability  # noqa: E402
+from services.goal_analysis_snapshot import bound_analysis_result_hash, goal_analysis_constraints, serialize_goal_achievability, serialize_shadow_optimization, shadow_analysis_constraints  # noqa: E402
 
 
 def _convert_position_value_to_target_currency(
@@ -4036,18 +4036,7 @@ def generate_target_allocation(
         constraints=optimizer_constraints,
         goal_drivers=optimizer_goal_drivers,
     )
-    shadow_optimization_json: str | None = None
-    if shadow_optimization_payload:
-        try:
-            shadow_optimization_json = json.dumps(
-                shadow_optimization_payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-        except (TypeError, ValueError) as exc:
-            logger.warning("Shadow-optimization JSON-serialization failed: %s", exc)
-            shadow_optimization_json = None
+    shadow_optimization_json = serialize_shadow_optimization(shadow_optimization_payload)  # SHADOW-ANALYSIS-INTEGRITY-001: Hash-Grundlage
 
     sub_allocations_json = json.dumps(sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     effective_constraints_payload = {
@@ -4085,6 +4074,7 @@ def generate_target_allocation(
         "reporting_model_basis": dict(model_basis["reporting"]),
         "reserve_funding_ledger": ledger_reference(reserve_ledger, reserve_split),  # RESERVE-LEDGER-SNAPSHOT-001 / RESERVE-CEILING-001
         **goal_analysis_constraints(goal_achievability_json),  # GOAL-ANALYSIS-INTEGRITY-001: Zielanalyse-Referenz
+        **shadow_analysis_constraints(shadow_optimization_json),  # SHADOW-ANALYSIS-INTEGRITY-001
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)

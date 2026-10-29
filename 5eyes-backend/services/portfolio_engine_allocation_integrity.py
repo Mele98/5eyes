@@ -30,7 +30,11 @@ import hashlib
 import json
 
 from models.allocation import TargetAllocation
-from services.goal_analysis_snapshot import bound_analysis_result_hash, verify_goal_analysis
+from services.goal_analysis_snapshot import (
+    bound_analysis_result_hash,
+    verify_goal_analysis,
+    verify_shadow_analysis,
+)
 from services.reserve_funding_ledger_snapshot import verify_persisted_ledger_snapshot
 
 
@@ -390,6 +394,8 @@ def _verified_persisted_allocation_context(
     # GOAL-ANALYSIS-INTEGRITY-001: gespeicherte Zielanalyse gegen den
     # gebundenen Ergebnis-Hash (Bestand ohne Referenz: legacy_unbound).
     verify_goal_analysis(allocation, stored_constraints)
+    # SHADOW-ANALYSIS-INTEGRITY-001: derselbe Vertrag fuer den Shadow-Container.
+    verify_shadow_analysis(allocation, stored_constraints)
     return stored_sub_allocations, stored_constraints
 
 

@@ -37,6 +37,7 @@
       "frontend/5eyes_v2.html",
       "frontend/desktop-api.js",
       "frontend/trade-list-preview.js",
+      "frontend/goal-analysis-integrity.js",
       "frontend/vendor/**/*",
       "frontend/reporting/dist/**/*",
       "!frontend/reporting/node_modules/**/*",

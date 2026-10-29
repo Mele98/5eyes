@@ -135,6 +135,35 @@ def get_current_allocation(
     return ta
 
 
+@router.get("/mandates/{mandate_id}/target-allocation/current/analysis-integrity")
+def get_current_allocation_analysis_integrity(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """GOAL-ANALYSIS-INTEGRITY-001 / SHADOW-ANALYSIS-INTEGRITY-001: Status der
+    gespeicherten Zielanalyse und des Shadow-Containers der aktuellen
+    Soll-Allokation fuer den ruhigen Berater-Hinweis. Read-only, wirft nie
+    wegen einer Integritaetsverletzung (die erscheint als ``integrity_mismatch``).
+    """
+    from services.goal_analysis_snapshot import analysis_integrity_report
+
+    _get_mandate_or_404(mandate_id, db, current_user)
+    ta = (
+        db.query(TargetAllocation)
+        .filter(
+            TargetAllocation.mandate_id == mandate_id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        )
+        .order_by(TargetAllocation.version.desc())
+        .first()
+    )
+    if ta is None:
+        raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    return analysis_integrity_report(ta)
+
+
 @router.get("/mandates/{mandate_id}/optimizer-runs",
             response_model=list[OptimizerRunResponse])
 def list_optimizer_runs(

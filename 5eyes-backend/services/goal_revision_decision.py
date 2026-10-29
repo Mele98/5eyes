@@ -330,11 +330,17 @@ def engine_evidence_for_goal(allocation: Any, goal_id: str) -> dict[str, Any] | 
     """Reachability-Evidenz der aktuellen Allokation fuer ein Ziel.
 
     Quelle: die publizierten Zielzeilen (``goal_achievability_json``; im
-    Shadow-Modus ``shadow_optimization_json.goal_achievability``), Feld
-    ``goal_revision`` (``goal_reachability.annotate_rows``)."""
+    Shadow-Modus ``shadow_optimization_json.achievability``), Feld
+    ``goal_revision`` (``goal_reachability.annotate_rows``). Beide nur, wenn
+    sie an den Integritaetsnachweis gebunden sind (#793 / SHADOW-ANALYSIS-
+    INTEGRITY-001). Der Shadow-Schluessel hiess hier bisher faelschlich
+    ``goal_achievability``; die Shadow-Evidenz kam dadurch nie an."""
     if allocation is None:
         return None
-    from services.goal_analysis_snapshot import bound_goal_achievability_json
+    from services.goal_analysis_snapshot import (
+        bound_goal_achievability_json,
+        bound_shadow_optimization_json,
+    )
 
     sources: list[list] = []
     raw = bound_goal_achievability_json(allocation)  # GOAL-ANALYSIS-INTEGRITY-001
@@ -345,11 +351,11 @@ def engine_evidence_for_goal(allocation: Any, goal_id: str) -> dict[str, Any] | 
                 sources.append(parsed)
         except (TypeError, ValueError):
             pass
-    shadow = getattr(allocation, "shadow_optimization_json", None)
+    shadow = bound_shadow_optimization_json(allocation)
     if shadow:
         try:
             parsed = json.loads(shadow)
-            rows = parsed.get("goal_achievability") if isinstance(parsed, dict) else None
+            rows = parsed.get("achievability") if isinstance(parsed, dict) else None
             if isinstance(rows, list):
                 sources.append(rows)
         except (TypeError, ValueError, AttributeError):
