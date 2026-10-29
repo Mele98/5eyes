@@ -227,7 +227,9 @@ def test_basis_required_revision_upgrade_and_downgrade(tmp_path):
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_revision(BASIS_REQUIRED_REVISION).down_revision == REVISION
+    assert len(script.get_heads()) == 1
+    ancestors = {rev.revision for rev in script.walk_revisions("base", BASIS_REQUIRED_REVISION)}
+    assert REVISION in ancestors
 
     db_path = tmp_path / "alembic_basis.db"
     cfg = _alembic_cfg(f"sqlite:///{db_path}")
