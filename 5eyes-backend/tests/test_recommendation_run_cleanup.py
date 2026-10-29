@@ -328,6 +328,7 @@ def test_portfolio_handoff_reference_is_nulled_not_blocking(session_factory):
             id=handoff_id, mandate_id=mid, recommendation_run_id=old_run_id,
             trade_list_snapshot_json="[]", live_total_value_rappen=0,
             position_count=0, recipient_name="Depotbank X",
+            snapshot_sha256="4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",  # HANDOFF-DB-INVARIANT-001: SHA-256 von '[]'
             status="Gesendet", created_by=admin_id,
             created_at=now_iso, updated_at=now_iso,
         ))

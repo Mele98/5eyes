@@ -292,12 +292,13 @@ def _handoff(session, advisor, monkeypatch):
         "UPDATE mandates SET mandate_type = 'Vermögensverwaltung' WHERE id = :m"
     ), {"m": _MID})
     session.commit()
-    run = SimpleNamespace(id="run-x", mandate_id=_MID, target_allocation_id=None)
+    # SIGN-ELIGIBILITY-001: weiterleitbar ist nur ein finalisierter Run.
+    run = SimpleNamespace(id="run-x", mandate_id=_MID, target_allocation_id=None, result_status="Final")
     monkeypatch.setattr(handoff_router, "_get_recommendation_run_or_404", lambda *a, **k: run)
     snapshots: list = []
     monkeypatch.setattr(
-        handoff_router, "snapshot_handoff_trades",
-        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1),
+        handoff_router, "snapshot_handoff",
+        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1, "recorded_depot"),
     )
     with pytest.raises(HTTPException) as exc:
         handoff_router.create_portfolio_handoff(

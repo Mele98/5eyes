@@ -36,6 +36,7 @@
       "ipc-sender-guard.js",
       "frontend/5eyes_v2.html",
       "frontend/desktop-api.js",
+      "frontend/trade-list-preview.js",
       "frontend/vendor/**/*",
       "frontend/reporting/dist/**/*",
       "!frontend/reporting/node_modules/**/*",
@@ -46,6 +47,7 @@
       "!frontend/reporting/package*.json",
       "!frontend/reporting/README.md",
       "assets/icons/app.png",
+      "update-gate.js",
       "package.json"
     ],
     "extraResources": [
@@ -119,12 +121,11 @@
       "artifactName": "5Eyes-Setup-${version}-${arch}.${ext}"
     },
     "asar": true,
-    "publish": [
-      {
-        "provider": "generic",
-        "url": "https://updates.example.invalid/5eyes/windows"
-      }
-    ]
+    "beforePack": "./scripts/update-gate-before-pack.js",
+    "publish": null
+  },
+  "desktopUpdates": {
+    "enabled": false
   },
   "dependencies": {
     "electron-updater": "^6.8.11"

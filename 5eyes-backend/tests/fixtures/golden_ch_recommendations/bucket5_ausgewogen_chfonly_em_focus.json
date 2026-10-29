@@ -12,11 +12,11 @@
     "score_x10": 50
   },
   "implementation_steps": [
-    "Liquiditaet reduzieren: ca. CHF 90'000",
+    "Liquiditaet reduzieren: ca. CHF 87'600",
     "Immobilien aufbauen: ca. CHF 50'000",
-    "Aktien aufbauen: ca. CHF 40'000",
-    "Obligationen aufbauen: ca. CHF 25'000",
-    "Alternative reduzieren: ca. CHF 25'000"
+    "Aktien aufbauen: ca. CHF 39'950",
+    "Alternative reduzieren: ca. CHF 25'000",
+    "Obligationen aufbauen: ca. CHF 22'650"
   ],
   "positions": [
     {
@@ -29,8 +29,8 @@
         "Obligationen CHF IG"
       ],
       "sub_asset_class": "Obligationen CHF IG",
-      "target_amount_rappen": 10695000,
-      "target_weight_bps": 2139,
+      "target_amount_rappen": 10550000,
+      "target_weight_bps": 2110,
       "ter_bps": 32
     },
     {
@@ -57,8 +57,8 @@
         "Geldmarktfonds"
       ],
       "sub_asset_class": "Geldmarktfonds",
-      "target_amount_rappen": 1000000,
-      "target_weight_bps": 200,
+      "target_amount_rappen": 1240000,
+      "target_weight_bps": 248,
       "ter_bps": 8
     },
     {
@@ -99,8 +99,8 @@
         "Aktien Global"
       ],
       "sub_asset_class": "Aktien Global",
-      "target_amount_rappen": 9600000,
-      "target_weight_bps": 1920,
+      "target_amount_rappen": 9595000,
+      "target_weight_bps": 1919,
       "ter_bps": 30
     },
     {
@@ -142,8 +142,8 @@
         "Obligationen Global Hedged"
       ],
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_amount_rappen": 6805000,
-      "target_weight_bps": 1361,
+      "target_amount_rappen": 6715000,
+      "target_weight_bps": 1343,
       "ter_bps": 10
     }
   ],
@@ -161,7 +161,7 @@
       "asset_class": "Aktien",
       "rationale": "Globaler Kernbaustein",
       "sub_asset_class": "Aktien Global",
-      "target_weight_bps": 1920
+      "target_weight_bps": 1919
     },
     {
       "asset_class": "Aktien",
@@ -197,19 +197,19 @@
       "asset_class": "Liquiditaet",
       "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
       "sub_asset_class": "Geldmarktfonds",
-      "target_weight_bps": 200
+      "target_weight_bps": 248
     },
     {
       "asset_class": "Obligationen",
       "rationale": "Langfristiger CHF-Kern",
       "sub_asset_class": "Obligationen CHF IG",
-      "target_weight_bps": 2139
+      "target_weight_bps": 2110
     },
     {
       "asset_class": "Obligationen",
       "rationale": "Globale Diversifikation",
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_weight_bps": 1361
+      "target_weight_bps": 1343
     }
   ],
   "target_allocation": {
@@ -228,7 +228,7 @@
         5500
       ],
       "liquidity": [
-        200,
+        248,
         300
       ],
       "real_estate": [
@@ -237,7 +237,7 @@
       ]
     },
     "engine_version": "stochastic_core_v2",
-    "expected_return_bps": 460,
+    "expected_return_bps": 459,
     "expected_volatility_bps": 821,
     "external_reserve_rappen": 0,
     "house_matrix_profile": "Ausgewogen",
@@ -245,14 +245,14 @@
     "limiting_factor": "liquiditaetsreserve",
     "optimization_method": "stochastic",
     "optimization_status": "converged",
-    "reserve_needed_rappen": 0,
-    "risky_fraction_bps": 5692,
+    "reserve_needed_rappen": 1235204,
+    "risky_fraction_bps": 5681,
     "score_bucket": 5,
     "targets_bps": {
       "alternatives": 500,
-      "bonds": 3500,
-      "equities": 4800,
-      "liquidity": 200,
+      "bonds": 3453,
+      "equities": 4799,
+      "liquidity": 248,
       "real_estate": 1000
     }
   },
@@ -261,7 +261,7 @@
     "advisory_wealth_rappen": 50000000,
     "average_ter_bps": 25,
     "average_ter_coverage_bps": 10000,
-    "expected_return_bps": 460,
+    "expected_return_bps": 459,
     "expected_volatility_bps": 821,
     "investable_advisory_wealth_rappen": 50000000,
     "missing_ter_positions_count": 0,

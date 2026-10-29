@@ -1,44 +1,30 @@
-"""DEPOT-E2E-STRESS-001 (P1, offen) -- Red-Test fuer das Stress-Replay-Modell.
+"""DEPOT-E2E-STRESS-001 -- SOLL-Stress vs. IST-Stress (Option 1 + Option 2).
 
 Audit: docs/audits/2026-10-05-depotcheck-end-to-end-product-identity-and-
-publication-integrity-audit.md (Finding DEPOT-E2E-STRESS-001, P1, offen).
+publication-integrity-audit.md (Finding DEPOT-E2E-STRESS-001, P1).
 
-Befund
-------
-Das Frontend-Modal (5eyes-electron/frontend/5eyes_v2.html, Stress-Replay-
-Hinweistext) behauptet explizit:
+Befund (urspruenglich): ``compute_stress_replays()`` liest ausschliesslich
+``TargetAllocation.target_*_bps`` (SOLL), die Oberflaechen behaupteten aber,
+das aktuelle Depot zu stressen.
 
-    "Modell zeigt was passieren waere wenn das aktuelle Depot zu Beginn
-    der Krise gehalten wurde."
+Aufloesung:
+* Option 1 (PR #751): der SOLL-Replay ist ehrlich als SOLL beschriftet
+  (``scope = approved_target_allocation``) und bleibt bewusst unabhaengig
+  von den Bestaenden.
+* Option 2: der IST-Stress (``scope = current_holdings_snapshot``) rechnet
+  dieselben Szenarien auf einem hash-gebundenen DepotSnapshotV1 des
+  bewerteten Depotbestands (services/depot_snapshot.py).
 
--- verspricht also einen Replay der ECHTEN aktuellen Positionen/Holdings
-des Kunden ("aktuelles Depot").
-
-services/backtest_stress.py::compute_stress_replays() liest dafuer aber
-AUSSCHLIESSLICH TargetAllocation.target_*_bps (die SOLL-Gewichtung der
-Strategie) -- niemals RecommendationPosition.current_amount_rappen oder
-sonstige IST-Holdings-Daten. Das Stress-Resultat ist dadurch komplett
-unempfindlich gegenueber den tatsaechlichen aktuellen Holdings des Kunden.
-
-Dieser Test seedet zwei Mandate mit BYTE-IDENTISCHER TargetAllocation
-(SOLL), deren tatsaechliche aktuelle Holdings (RecommendationPosition.
-current_amount_rappen) sich aber diametral unterscheiden -- Mandat A haelt
-aktuell 100% Aktien, Mandat B haelt aktuell 100% Liquiditaet. Ein Modell,
-das die Frontend-Behauptung einloest, muesste fuer die Globale Finanzkrise
-2008 (Aktien ca. -42% Peak-to-Trough, Liquiditaet ca. +2%) klar
-unterschiedliche Resultate liefern. Heute liefert die Engine fuer beide
-Mandate BYTE-IDENTISCHE Resultate, weil sie die Holdings nie liest.
-
-Dieser Test ist ABSICHTLICH xfail(strict=True) -- er dokumentiert den Bug
-mechanisch, loest ihn aber nicht. Der eigentliche Fix (diskriminierter
-Scope current_holdings_snapshot vs. approved_target_allocation, Bindung
-der Stress-Resultate an eine Scope-ID) ist eine groessere Modelländerung
-und wartet auf Design-Freigabe.
+Dieser Test seedet zwei Mandate mit BYTE-IDENTISCHER TargetAllocation, deren
+echte Depotbestaende (RecommendationHolding, Stueckzahl x Marktpreis) sich
+diametral unterscheiden -- A haelt 100% Aktien, B 100% Liquiditaet. Der
+SOLL-Replay muss identisch bleiben, der IST-Stress muss sich unterscheiden.
 """
 from __future__ import annotations
 
 import sys
 import uuid
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -62,12 +48,17 @@ configure_mappers()
 from models.allocation import OptimizerPolicy, TargetAllocation  # noqa: E402
 from models.clients import Client  # noqa: E402
 from models.mandates import Mandate  # noqa: E402
-from models.review import Product, RecommendationPosition, RecommendationRun  # noqa: E402
+from models.review import (  # noqa: E402
+    PriceHistory, Product, RecommendationHolding, RecommendationPosition, RecommendationRun,
+)
 from models.users import User  # noqa: E402
 from services.backtest_stress import compute_stress_replays  # noqa: E402
+from services.currency.fx_rates import FXRateSource  # noqa: E402
+from services.depot_snapshot import build_depot_snapshot, compute_ist_stress  # noqa: E402
 
 
 _NOW = "2026-10-05T10:00:00.000Z"
+_TODAY = date.today().isoformat()
 
 # Identische SOLL-Gewichtung fuer BEIDE Mandate -- der einzige Unterschied
 # zwischen Mandat A und B sind die tatsaechlichen aktuellen Holdings weiter
@@ -174,47 +165,33 @@ def _seed_mandate_with_actual_holdings(
                 created_at=_NOW, updated_at=_NOW,
             )
             s.add(product)
+            position_id = str(uuid.uuid4())
             s.add(RecommendationPosition(
-                id=str(uuid.uuid4()), run_id=rec_run.id, product_id=product.id,
+                id=position_id, run_id=rec_run.id, product_id=product.id,
                 target_weight_bps=weight_bps,
                 target_amount_rappen=int(total_rappen * weight_bps / 10000),
                 current_amount_rappen=total_rappen if bucket == holdings_asset_class else 0,
                 created_at=_NOW, updated_at=_NOW,
             ))
+            if bucket == holdings_asset_class:
+                # Echter Depotbestand: 100'000 Stueck x CHF 100 = CHF 10 Mio.
+                s.add(RecommendationHolding(
+                    id=str(uuid.uuid4()), run_id=rec_run.id,
+                    recommendation_position_id=position_id, product_id=product.id,
+                    as_of_date=_TODAY, units_milli=100_000_000, source="manual",
+                    created_at=_NOW, updated_at=_NOW,
+                ))
+                s.add(PriceHistory(
+                    id=str(uuid.uuid4()), product_id=product.id, price_date=_TODAY,
+                    price_rappen=10_000, currency="CHF", source="test", fetched_at=_NOW,
+                ))
         s.commit()
     return mandate.id
 
 
-# Texte seit PR #751 ehrlich auf SOLL (Modal, Depot-Check-PDF, Advisory-
-# Report-PDF, API scope/scope_label; Vertrag:
-# tests/test_depot_stress_honest_scope_labels.py); IST-Stress = Option 2
-# (zusammen mit DEPOT-E2E-SNAPSHOT-001) -- dieser xfail bleibt bis dahin.
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEPOT-E2E-STRESS-001 (P1, offen; docs/audits/2026-10-05-"
-        "depotcheck-end-to-end-product-identity-and-publication-integrity-"
-        "audit.md): compute_stress_replays() liest ausschliesslich "
-        "TargetAllocation.target_*_bps (SOLL), nie RecommendationPosition."
-        "current_amount_rappen (IST-Holdings) -> Stress-Resultate sind fuer "
-        "zwei Mandate mit identischer SOLL-Allokation, aber komplett "
-        "verschiedenen aktuellen Holdings, identisch -- obwohl das Frontend "
-        "(5eyes_v2.html) behauptet, das 'aktuelle Depot' zu stressen. Fix "
-        "(diskriminierter Scope current_holdings_snapshot vs. "
-        "approved_target_allocation) wartet auf Design-Freigabe."
-    ),
-)
-def test_stress_replay_ignores_actual_current_holdings(session_factory):
-    """Zwei Mandate mit IDENTISCHER TargetAllocation, aber Mandat A haelt
-    aktuell 100% Aktien und Mandat B haelt aktuell 100% Liquiditaet.
-
-    Das Frontend behauptet, das Stress-Replay zeige "was passieren waere
-    wenn das aktuelle Depot zu Beginn der Krise gehalten wurde". Ein Modell,
-    das diese Behauptung tatsaechlich einloest, MUSS fuer ein 100%-Aktien-
-    Depot in der Globalen Finanzkrise 2008 (Aktien ca. -42% Peak-to-Trough)
-    ein klar anderes Resultat liefern als fuer ein 100%-Liquiditaets-Depot.
-    Heute liefert die Engine fuer beide Mandate BYTE-IDENTISCHE Resultate.
-    """
+def test_soll_replay_stays_target_based_and_ist_stress_follows_holdings(session_factory):
+    """Zwei Mandate mit IDENTISCHER TargetAllocation; A haelt 100% Aktien,
+    B haelt 100% Liquiditaet (echte Bestaende mit Marktpreis)."""
     mandate_a_id = _seed_mandate_with_actual_holdings(
         session_factory, label="A-All-Equities", holdings_asset_class="equities",
         policy_is_current=1,
@@ -223,32 +200,32 @@ def test_stress_replay_ignores_actual_current_holdings(session_factory):
         session_factory, label="B-All-Liquidity", holdings_asset_class="liquidity",
         policy_is_current=0,
     )
+    fx = FXRateSource({"CHF": 1.0})
 
     with session_factory() as s:
         mandate_a = s.query(Mandate).filter(Mandate.id == mandate_a_id).first()
         mandate_b = s.query(Mandate).filter(Mandate.id == mandate_b_id).first()
-        result_a = compute_stress_replays(s, mandate_a)
-        result_b = compute_stress_replays(s, mandate_b)
+        soll_a = compute_stress_replays(s, mandate_a)
+        soll_b = compute_stress_replays(s, mandate_b)
+        ist_a = compute_ist_stress(build_depot_snapshot(s, mandate_a, as_of=date.today(), fx_source=fx))
+        ist_b = compute_ist_stress(build_depot_snapshot(s, mandate_b, as_of=date.today(), fx_source=fx))
 
-    # Sanity-Check (muss bestehen bleiben): die SOLL-Allokation ist wie
-    # beabsichtigt fuer beide Mandate identisch -- der einzige Unterschied
-    # sind die tatsaechlichen aktuellen Holdings (siehe Seeding oben). Faellt
-    # dieser Sanity-Check, ist das Testsetup kaputt, nicht der Produktbug.
-    assert result_a["weights_bps"] == result_b["weights_bps"]
+    def _gfc(result):
+        return next(sc for sc in result["scenarios"] if sc["id"] == "global_financial_crisis_2008")
 
-    gfc_a = next(sc for sc in result_a["scenarios"] if sc["id"] == "global_financial_crisis_2008")
-    gfc_b = next(sc for sc in result_b["scenarios"] if sc["id"] == "global_financial_crisis_2008")
+    # Option 1: SOLL bleibt SOLL -- identisch, unabhaengig von den Bestaenden.
+    assert soll_a["scope"] == soll_b["scope"] == "approved_target_allocation"
+    assert soll_a["weights_bps"] == soll_b["weights_bps"]
+    assert _gfc(soll_a) == _gfc(soll_b)
 
-    # Mandat A haelt aktuell 100% Aktien (GFC 2008 Peak-to-Trough ca. -42%,
-    # Erholung 2009 +30%), Mandat B haelt aktuell 100% Liquiditaet (GFC 2008
-    # ca. +2%/+0.5%). Ein Stress-Replay, das tatsaechlich das "aktuelle
-    # Depot" stresst (wie vom Frontend-Modaltext versprochen), MUSS hier
-    # fuer A einen klar anderen max_drawdown_bps liefern als fuer B.
-    assert gfc_a["max_drawdown_bps"] != gfc_b["max_drawdown_bps"], (
-        "Stress-Replay liefert fuer komplett unterschiedliche aktuelle "
-        "Holdings (100% Aktien vs. 100% Liquiditaet) denselben "
-        "max_drawdown_bps -> die Engine stresst nachweislich nicht das "
-        "'aktuelle Depot', sondern ausschliesslich die (hier bewusst "
-        "identisch gehaltene) TargetAllocation."
-    )
-    assert gfc_a["cumulative_return_bps"] != gfc_b["cumulative_return_bps"]
+    # Option 2: IST folgt dem bewerteten Depot.
+    assert ist_a["scope"] == ist_b["scope"] == "current_holdings_snapshot"
+    assert ist_a["status"] == ist_b["status"] == "ok"
+    assert ist_a["weights_bps"]["equities"] == 10000
+    assert ist_b["weights_bps"]["liquidity"] == 10000
+    # GFC 2008: Aktien -42% (bestehender Szenariokatalog), Liquiditaet +2%.
+    assert _gfc(ist_a)["max_drawdown_bps"] == 4200
+    assert _gfc(ist_b)["max_drawdown_bps"] == 0
+    assert _gfc(ist_a)["cumulative_return_bps"] != _gfc(ist_b)["cumulative_return_bps"]
+    # Gleiche Szenarien wie der SOLL-Replay.
+    assert [sc["id"] for sc in ist_a["scenarios"]] == [sc["id"] for sc in soll_a["scenarios"]]

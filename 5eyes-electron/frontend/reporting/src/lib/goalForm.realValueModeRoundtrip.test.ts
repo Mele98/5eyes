@@ -30,10 +30,9 @@
  * `toFormInput(stateFromRecord(rec))` produces for an unmodified re-save of
  * such a record, and asserts value_mode is preserved as 'real'.
  *
- * Once GOAL-VALUE-MODE-ROUNDTRIP-001 is fixed (value_mode threaded through
- * for every goal_type that accepts it, not just the wealth family), this
- * `test.fails` assertion will start passing and must be flipped to a plain
- * `it(...)`.
+ * Fixed: value_mode is threaded through for every goal_type with an amount
+ * (wealth + cashflow); the former `test.fails` reproducer is now a regular
+ * regression test.
  */
 import { describe, expect, test } from 'vitest';
 import { buildGoalPayload, type GoalFormInput } from './goalForm';
@@ -54,7 +53,7 @@ const realValueModeExpenseResave: GoalFormInput = {
 };
 
 describe('GOAL-VALUE-MODE-ROUNDTRIP-001: value_mode lost on non-wealth goal round-trip', () => {
-  test.fails(
+  test(
     'buildGoalPayload preserves value_mode=real for a re-saved Einmalige_Ausgabe goal instead of forcing nominal',
     () => {
       const payload = buildGoalPayload(realValueModeExpenseResave);

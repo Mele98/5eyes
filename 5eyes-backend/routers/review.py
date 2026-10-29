@@ -64,6 +64,7 @@ from services.preference_snapshot import (
     ReasonCodedConflictError,
     enforce_products_against_allocation_snapshot,
 )
+from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
     _risk_score_bucket,
@@ -1635,6 +1636,8 @@ def sign_document(
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
         )
+        # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+        assert_portfolio_data_release_eligible(db, mandate, action="signature")
     # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
     # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
     # Mutation, nach den fachlichen Freigabe-Gates).
@@ -3458,6 +3461,8 @@ def finalize_recommendation(
                 "errors": errors,
             })
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+    assert_portfolio_data_release_eligible(db, mandate, action="finalize")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
