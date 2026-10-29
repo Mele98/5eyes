@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-26.1"
+INVENTORY_VERSION = "2026-10-27.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -110,6 +110,10 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "goals": ("mandate_id", "mandates"),
     "mandate_baustein_selections": ("mandate_id", "mandates"),
     "mandate_report_notes": ("mandate_id", "mandates"),
+    # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur, ohne FK (Purge-fest).
+    "onsite_signature_challenges": ("mandate_id", "mandates"),
+    "onsite_signature_events": ("mandate_id", "mandates"),
+    "onsite_signature_evidence": ("mandate_id", "mandates"),
     "optimizer_runs": ("mandate_id", "mandates"),
     "planning_assumptions": ("mandate_id", "mandates"),
     "portfolio_handoffs": ("mandate_id", "mandates"),

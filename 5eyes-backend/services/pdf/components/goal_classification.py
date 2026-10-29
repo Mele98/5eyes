@@ -28,8 +28,17 @@ def classify_goals(
     - p50[t] >= target          -> erreichbar
     - p75[t] >= target > p50[t] -> knapp
     - p75[t] < target           -> nicht_erreichbar
-    - target year before/after time_axis -> past / beyond_horizon
+    - target year before time_axis -> past
+    - evaluation column beyond the last path column -> beyond_horizon
     - pending or malformed data -> unknown
+
+    GOAL-CALENDAR-HORIZON-PARITY-001 (2026-10-25): the evaluation column is
+    the engine's CALENDAR-YEAR bucket. ``time_axis[t] = base_year + t`` and
+    column t holds the wealth at the end of calendar year base_year + t - 1
+    (= start of base_year + t). A goal dated in year Y is therefore read at
+    column ``Y - base_year + 1`` -- the same column the solver and the main
+    Monte-Carlo summary read. The former ``Y - base_year`` evaluated the goal
+    at the end of Y - 1, one year early, and could flip the verdict.
     """
     goal_list = list(goals or [])
     if not mc or mc.get("data_pending"):
@@ -65,11 +74,10 @@ def classify_goals(
         if target_year < start_year:
             out.append(_unknown(goal_id) | {"status": GOAL_STATUS_PAST})
             continue
-        if target_year > end_year:
+        t_index = target_year - start_year + 1
+        if target_year > end_year or t_index > len(time_axis) - 1:
             out.append(_unknown(goal_id) | {"status": GOAL_STATUS_BEYOND_HORIZON})
             continue
-
-        t_index = target_year - start_year
         try:
             p5_at_target = _parse_float(p5[t_index])
             p50_at_target = _parse_float(p50[t_index])

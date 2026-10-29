@@ -796,6 +796,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-24): Goal-
             # Driver-Snapshot, siehe models/allocation.py::TargetAllocation.
             ('goal_driver_evidence_json', 'TEXT'),
+            # GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b (2026-10-25):
+            # gebundener Bewertungsstichtag des Laufs.
+            ('valuation_date', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),
@@ -1279,6 +1282,12 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Plausibilitaetsbewertungen (idempotent; siehe Konstanten oben).
         for ddl in RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL + RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
+        # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.
+        from models.onsite_signature import APPEND_ONLY_TABLES
+
+        for table_name in APPEND_ONLY_TABLES:
+            Base.metadata.tables[table_name].create(bind=conn, checkfirst=True)
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
