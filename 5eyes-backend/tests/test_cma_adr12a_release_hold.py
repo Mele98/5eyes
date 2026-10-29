@@ -257,8 +257,8 @@ def test_handoff_blocked_without_persisting(session_factory, monkeypatch):
     import routers.portfolio_handoff as ho
 
     monkeypatch.setattr(
-        ho, "snapshot_handoff_trades",
-        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1),
+        ho, "snapshot_handoff",
+        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1, "recorded_depot"),
     )
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
