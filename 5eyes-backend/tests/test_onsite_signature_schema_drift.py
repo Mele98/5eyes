@@ -28,7 +28,7 @@ from models.onsite_signature import APPEND_ONLY_TABLES  # noqa: E402
 
 SCHEMA_FILE = BACKEND_ROOT / "5eyes_schema_v4.0_FINAL.sql"
 REVISION = "a9e3c5d7f1b2"
-PREVIOUS = "a7c4e9b2d1f3"
+PREVIOUS = "c4e8a2d6f913"
 UNIQUE_INDEXES = {
     "onsite_signature_events": {
         "ux_onsite_signature_events_sequence": ["transaction_id", "sequence_no"],
