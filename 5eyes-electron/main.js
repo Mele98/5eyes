@@ -586,22 +586,9 @@ async function createMainWindow() {
     logLine('Main window shown');
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (isSafeExternalUrl(url)) {
-      shell.openExternal(url);
-    }
-    return { action: 'deny' };
-  });
-
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
-    if (url !== localEntry) {
-      event.preventDefault();
-      if (isSafeExternalUrl(url)) {
-        shell.openExternal(url);
-      }
-    }
-  });
+  // Navigation und window.open sichert der globale Hook in
+  // 'web-contents-created' (gilt auch fuer dieses Fenster); ein zweiter
+  // window-lokaler Hook wuerde externe Links doppelt oeffnen.
 
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     const severity = ['verbose', 'info', 'warning', 'error'][level] || String(level);
@@ -728,6 +715,32 @@ handleTrustedIpc('updates:install-downloaded', async () => {
   return { ok: false, message: 'No downloaded update available.' };
 });
 
+// ELECTRON-NAV-URL-001: will-navigate, will-redirect und window.open
+// entscheiden ueber dieselbe Pruefung wie die IPC-Absender
+// (checkTrustedRendererUrl). Geladen werden darf nur die lokale Entry, inkl.
+// Query und Fragment; alles andere wird verhindert. Erlaubte externe Links
+// (isSafeExternalUrl) gehen wie bisher an den System-Browser.
+function isLocalEntryUrl(url) {
+  return checkTrustedRendererUrl(url, resolveFrontendPath()).ok;
+}
+
+function guardNavigation(event, url) {
+  if (isLocalEntryUrl(url)) return;
+  event.preventDefault();
+  if (isSafeExternalUrl(url)) {
+    shell.openExternal(url);
+  }
+}
+
+function handleWindowOpen({ url }) {
+  // Nie ein neues Fenster, auch nicht fuer die Entry (zweiter Renderer mit
+  // IPC-Zugriff); erlaubte externe Links gehen an den System-Browser.
+  if (!isLocalEntryUrl(url) && isSafeExternalUrl(url)) {
+    shell.openExternal(url);
+  }
+  return { action: 'deny' };
+}
+
 // Sprint U-61 (2026-06-01): Globaler Security-Hook fuer alle WebContents.
 // Greift auch fuer kuenftige Fenster/PDF-Viewer/etc. — zentraler Audit-Punkt.
 app.on('web-contents-created', (_event, contents) => {
@@ -737,24 +750,12 @@ app.on('web-contents-created', (_event, contents) => {
     callback(false);
   });
 
-  // 2. Globaler will-navigate-Filter (zusaetzlich zum window-spezifischen Hook).
-  contents.on('will-navigate', (event, url) => {
-    const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
-    if (url !== localEntry) {
-      event.preventDefault();
-      if (isSafeExternalUrl(url)) {
-        shell.openExternal(url);
-      }
-    }
-  });
+  // 2. Navigation und Weiterleitung: nur die lokale Entry (ELECTRON-NAV-URL-001).
+  contents.on('will-navigate', guardNavigation);
+  contents.on('will-redirect', guardNavigation);
 
   // 3. setWindowOpenHandler global — alle Popups/window.open() -> deny + Shell.
-  contents.setWindowOpenHandler(({ url }) => {
-    if (isSafeExternalUrl(url)) {
-      shell.openExternal(url);
-    }
-    return { action: 'deny' };
-  });
+  contents.setWindowOpenHandler(handleWindowOpen);
 
   // 4. WebView-Attachments blockieren (FINMA: keine eingebetteten Renderer).
   contents.on('will-attach-webview', (event, webPreferences, _params) => {
