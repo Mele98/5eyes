@@ -52,7 +52,7 @@ def allocation_inputs_stale(
     if not str(getattr(ta, "input_snapshot_hash", None) or "").strip():
         return False
 
-    from models.allocation import CapitalMarketAssumption, OptimizerPolicy
+    from models.allocation import OptimizerPolicy
     from services.portfolio_engine import (
         StaleAllocationInputError,
         _current_risk_assessment_or_none,
@@ -77,13 +77,13 @@ def allocation_inputs_stale(
         # nur Alt-Allokationen ohne Anker rechnen mit der aktuellen CMA.
         cma = None
         if not str(getattr(ta, "capital_market_assumptions_id", "") or "").strip():
-            cma = (
-                db.query(CapitalMarketAssumption)
-                .filter(
-                    CapitalMarketAssumption.is_current == 1,
-                    CapitalMarketAssumption.deleted_at.is_(None),
-                )
-                .first()
+            # CMA-EFFECTIVE-DATE-001: dieselbe CMA wie die Engine.
+            from services.jurisdiction.resolve import (
+                resolve_effective_cma_or_none,
+                resolve_mandate_jurisdiction,
+            )
+            cma = resolve_effective_cma_or_none(
+                db, resolve_mandate_jurisdiction(mandate), getattr(mandate, "tenant_id", None),
             )
             if cma is None:
                 return False

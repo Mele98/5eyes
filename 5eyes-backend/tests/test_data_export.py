@@ -201,6 +201,7 @@ def test_export_returns_expected_top_level_keys(session_factory):
         "retention_notes",
         "manifest",
         "complete",
+        "restricted_sections",  # PRIVACY-001: gesperrte Nachweise
         "section_status",
         "section_errors",
         "sections",

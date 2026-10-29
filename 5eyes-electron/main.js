@@ -1,10 +1,14 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
-const { autoUpdater } = require('electron-updater');
+// UPDATE-001: electron-updater wird erst geladen, wenn das Build-Gate in der
+// gepackten package.json offen ist (siehe update-gate.js); sonst nie.
+const { evaluateRuntimeUpdateGate } = require('./update-gate');
+let autoUpdater = null;
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+const { checkTrustedIpcSender, checkTrustedRendererUrl, describeSenderForLog } = require('./ipc-sender-guard');
 
 function loadEnvIntoProcess() {
   const candidates = [
@@ -121,16 +125,24 @@ function isAutoUpdateEnabled() {
 
 function notifyRendererUpdateState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  // A3 P2-5: Push nur an ein Fenster, das die lokale Entry zeigt.
+  const verdict = checkTrustedRendererUrl(mainWindow.webContents.getURL(), resolveFrontendPath());
+  if (!verdict.ok) {
+    logLine(`IPC push suppressed | channel=updates:state-changed reason=${verdict.reason}`);
+    return;
+  }
   mainWindow.webContents.send('updates:state-changed', { ...updateState });
 }
 
 function configureAutoUpdates() {
-  updateState.enabled = isAutoUpdateEnabled();
+  const gate = evaluateRuntimeUpdateGate({ packageJson: require('./package.json'), isPackaged: app.isPackaged });
+  updateState.enabled = gate.enabled && isAutoUpdateEnabled();
   if (!updateState.enabled) {
-    logLine('Auto-update disabled (set ENABLE_AUTO_UPDATE=1 in packaged app to enable).');
+    logLine(`Auto-update disabled (UPDATE-001 gate: ${gate.enabled ? 'ENABLE_AUTO_UPDATE not set' : gate.reason}).`);
     return;
   }
 
+  ({ autoUpdater } = require('electron-updater'));
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
@@ -166,7 +178,7 @@ function configureAutoUpdates() {
 }
 
 async function checkForUpdates() {
-  if (!updateState.enabled) {
+  if (!updateState.enabled || !autoUpdater) {
     return { ...updateState, message: 'Auto-update disabled' };
   }
   try {
@@ -574,22 +586,9 @@ async function createMainWindow() {
     logLine('Main window shown');
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (isSafeExternalUrl(url)) {
-      shell.openExternal(url);
-    }
-    return { action: 'deny' };
-  });
-
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
-    if (url !== localEntry) {
-      event.preventDefault();
-      if (isSafeExternalUrl(url)) {
-        shell.openExternal(url);
-      }
-    }
-  });
+  // Navigation und window.open sichert der globale Hook in
+  // 'web-contents-created' (gilt auch fuer dieses Fenster); ein zweiter
+  // window-lokaler Hook wuerde externe Links doppelt oeffnen.
 
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     const severity = ['verbose', 'info', 'warning', 'error'][level] || String(level);
@@ -636,26 +635,41 @@ async function bootstrap() {
   notifyRendererUpdateState();
 }
 
-ipcMain.handle('app:get-version', () => app.getVersion());
-ipcMain.handle('backend:get-base-url', () => backendRuntime.baseUrl);
-ipcMain.handle('backend:get-runtime', () => ({ ...backendRuntime }));
-ipcMain.handle('backend:health', async () => probeBackend(backendRuntime.host, backendRuntime.port));
-ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
+// A3 P2-5 / U-6: jeder IPC-Kanal laeuft ueber diese zentrale Absender-Pruefung
+// (senderFrame vorhanden, Top-Level-Frame, URL = lokale Entry-Datei). Fremde
+// Absender werden abgelehnt, ohne den Handler auszufuehren; geloggt werden nur
+// Kanal, Grund und Schema/Host -- nie Argumente, Pfad, Query oder Fragment.
+function handleTrustedIpc(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    const verdict = checkTrustedIpcSender(event, resolveFrontendPath());
+    if (!verdict.ok) {
+      logLine(`IPC rejected | channel=${channel} reason=${verdict.reason} ${describeSenderForLog(event)}`);
+      throw new Error('IPC sender not allowed');
+    }
+    return handler(event, ...args);
+  });
+}
+
+handleTrustedIpc('app:get-version', () => app.getVersion());
+handleTrustedIpc('backend:get-base-url', () => backendRuntime.baseUrl);
+handleTrustedIpc('backend:get-runtime', () => ({ ...backendRuntime }));
+handleTrustedIpc('backend:health', async () => probeBackend(backendRuntime.host, backendRuntime.port));
+handleTrustedIpc('shell:open-external', async (_event, targetUrl) => {
   if (!isSafeExternalUrl(targetUrl)) {
     return false;
   }
   await shell.openExternal(targetUrl);
   return true;
 });
-ipcMain.handle('auth:get-token', () => readStoredToken());
-ipcMain.handle('auth:set-token', (_event, token) => writeStoredToken(token));
-ipcMain.handle('auth:clear-token', () => clearStoredToken());
+handleTrustedIpc('auth:get-token', () => readStoredToken());
+handleTrustedIpc('auth:set-token', (_event, token) => writeStoredToken(token));
+handleTrustedIpc('auth:clear-token', () => clearStoredToken());
 // Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token separat gespeichert,
 // siehe Kommentar bei REFRESH_TOKEN_STORE_FILE weiter oben.
-ipcMain.handle('auth:get-refresh-token', () => readStoredRefreshToken());
-ipcMain.handle('auth:set-refresh-token', (_event, token) => writeStoredRefreshToken(token));
-ipcMain.handle('auth:clear-refresh-token', () => clearStoredRefreshToken());
-ipcMain.handle('file:save-pdf', async (_event, payload) => {
+handleTrustedIpc('auth:get-refresh-token', () => readStoredRefreshToken());
+handleTrustedIpc('auth:set-refresh-token', (_event, token) => writeStoredRefreshToken(token));
+handleTrustedIpc('auth:clear-refresh-token', () => clearStoredRefreshToken());
+handleTrustedIpc('file:save-pdf', async (_event, payload) => {
   // EM-2: Handler-Body komplett in try/catch — fehlende Daten und fs-Fehler
   // (ENOSPC, EACCES/EPERM auf gewähltem Pfad) als strukturiertes Ergebnis
   // zurückgeben statt als rejected Promise, das der Renderer als unbehandelte
@@ -691,15 +705,41 @@ ipcMain.handle('file:save-pdf', async (_event, payload) => {
     return { ok: false, error: String((error && error.message) || error) };
   }
 });
-ipcMain.handle('updates:get-state', () => ({ ...updateState }));
-ipcMain.handle('updates:check', async () => checkForUpdates());
-ipcMain.handle('updates:install-downloaded', async () => {
+handleTrustedIpc('updates:get-state', () => ({ ...updateState }));
+handleTrustedIpc('updates:check', async () => checkForUpdates());
+handleTrustedIpc('updates:install-downloaded', async () => {
   if (updateState.downloaded) {
     setImmediate(() => autoUpdater.quitAndInstall(false, true));
     return { ok: true };
   }
   return { ok: false, message: 'No downloaded update available.' };
 });
+
+// ELECTRON-NAV-URL-001: will-navigate, will-redirect und window.open
+// entscheiden ueber dieselbe Pruefung wie die IPC-Absender
+// (checkTrustedRendererUrl). Geladen werden darf nur die lokale Entry, inkl.
+// Query und Fragment; alles andere wird verhindert. Erlaubte externe Links
+// (isSafeExternalUrl) gehen wie bisher an den System-Browser.
+function isLocalEntryUrl(url) {
+  return checkTrustedRendererUrl(url, resolveFrontendPath()).ok;
+}
+
+function guardNavigation(event, url) {
+  if (isLocalEntryUrl(url)) return;
+  event.preventDefault();
+  if (isSafeExternalUrl(url)) {
+    shell.openExternal(url);
+  }
+}
+
+function handleWindowOpen({ url }) {
+  // Nie ein neues Fenster, auch nicht fuer die Entry (zweiter Renderer mit
+  // IPC-Zugriff); erlaubte externe Links gehen an den System-Browser.
+  if (!isLocalEntryUrl(url) && isSafeExternalUrl(url)) {
+    shell.openExternal(url);
+  }
+  return { action: 'deny' };
+}
 
 // Sprint U-61 (2026-06-01): Globaler Security-Hook fuer alle WebContents.
 // Greift auch fuer kuenftige Fenster/PDF-Viewer/etc. — zentraler Audit-Punkt.
@@ -710,24 +750,12 @@ app.on('web-contents-created', (_event, contents) => {
     callback(false);
   });
 
-  // 2. Globaler will-navigate-Filter (zusaetzlich zum window-spezifischen Hook).
-  contents.on('will-navigate', (event, url) => {
-    const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
-    if (url !== localEntry) {
-      event.preventDefault();
-      if (isSafeExternalUrl(url)) {
-        shell.openExternal(url);
-      }
-    }
-  });
+  // 2. Navigation und Weiterleitung: nur die lokale Entry (ELECTRON-NAV-URL-001).
+  contents.on('will-navigate', guardNavigation);
+  contents.on('will-redirect', guardNavigation);
 
   // 3. setWindowOpenHandler global — alle Popups/window.open() -> deny + Shell.
-  contents.setWindowOpenHandler(({ url }) => {
-    if (isSafeExternalUrl(url)) {
-      shell.openExternal(url);
-    }
-    return { action: 'deny' };
-  });
+  contents.setWindowOpenHandler(handleWindowOpen);
 
   // 4. WebView-Attachments blockieren (FINMA: keine eingebetteten Renderer).
   contents.on('will-attach-webview', (event, webPreferences, _params) => {
@@ -784,6 +812,10 @@ app.on('activate', async () => {
 // Nur für Tests exportiert (Electron ignoriert module.exports am Entrypoint).
 // Erlaubt das deterministische Prüfen der EM-7-Lebendigkeitslogik.
 if (typeof module !== 'undefined' && module.exports) {
+  // UPDATE-001: Update-Gate deterministisch pruefbar (tests/update-gate.test.js).
+  module.exports._configureAutoUpdatesForTest = configureAutoUpdates;
+  module.exports._checkForUpdatesForTest = checkForUpdates;
+  module.exports._getUpdateStateForTest = () => ({ ...updateState });
   module.exports.backendProcessStillAlive = backendProcessStillAlive;
   // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App
   // niemals einen bereits laufenden Fremdprozess als Backend uebernimmt.
@@ -792,4 +824,8 @@ if (typeof module !== 'undefined' && module.exports) {
   // `unknown` safeStorage-Backend (Linux ohne Keyring/KWallet) NICHT als
   // echte Verschluesselung durchgeht.
   module.exports._isStrongEncryptionAvailable = _isStrongEncryptionAvailable;
+  // A3 P2-5: IPC-Absender-Pruefung und Push-Kanal deterministisch testbar.
+  module.exports.resolveFrontendPath = resolveFrontendPath;
+  module.exports.notifyRendererUpdateState = notifyRendererUpdateState;
+  module.exports._setMainWindowForTest = (win) => { mainWindow = win; };
 }

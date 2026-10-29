@@ -30,3 +30,7 @@ from . import bootstrap_lock  # noqa: F401,E402
 # RuleSet/Snapshot/Decision/Override -- dito, neue Tabellen muessen an
 # Base.metadata registriert sein.
 from . import product_eligibility  # noqa: F401,E402
+
+# SIGN-001 (2026-10-27): Vor-Ort-Signatur mit kundeneigenem Faktor --
+# append-only Ereignisse, Challenges und Evidence an Base.metadata registrieren.
+from . import onsite_signature  # noqa: F401,E402
