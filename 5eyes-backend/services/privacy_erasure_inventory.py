@@ -277,6 +277,19 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
     "strategy_snapshots": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     "optimizer_runs": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     "portfolio_handoffs": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # DEPOT-E2E-STRESS-001 / DEPOT-E2E-SNAPSHOT-001: append-only IST-Bestand.
+    "depot_snapshots": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # SIGN-001: append-only Vor-Ort-Signatur (Ereignisse, Kunden-Challenges,
+    # Evidence-Paket). Unveraenderlich per Trigger -> keine Tier-A-Redaktion
+    # moeglich; Ausweis-Metadaten sichtbar ohne Methode (METHOD_NOT_IMPLEMENTED),
+    # Entscheid ueber die Aufbewahrungsmatrix.
+    "onsite_signature_events": _t(_MANDATE, _c(RECORD, "mandate_contract")),
+    "onsite_signature_challenges": _t(_MANDATE, _c(RECORD, "mandate_contract")),
+    "onsite_signature_evidence": _t(
+        _MANDATE,
+        _c(IDENTITY, "mandate_contract", "id_document_kind", "id_document_country"),
+        _c(RECORD, "mandate_contract"),
+    ),
     "review_triggers": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     "advisory_log": _t(
         _MANDATE,

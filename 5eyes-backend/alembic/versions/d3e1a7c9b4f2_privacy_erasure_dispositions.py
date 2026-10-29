@@ -9,7 +9,7 @@ Keine Seed-Daten: Fristen und Rechtsgrundlagen sind genehmigte Policy-Daten.
 Neue Tabellen, kein Backfill.
 
 Revision ID: d3e1a7c9b4f2
-Revises: a7c4e9b2d1f3
+Revises: a9e3c5d7f1b2
 Create Date: 2026-10-27
 """
 from typing import Sequence, Union
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 
 
 revision: str = "d3e1a7c9b4f2"
-down_revision: Union[str, Sequence[str], None] = "a7c4e9b2d1f3"
+down_revision: Union[str, Sequence[str], None] = "a9e3c5d7f1b2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
