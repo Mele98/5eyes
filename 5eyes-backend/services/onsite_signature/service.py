@@ -163,7 +163,7 @@ def _parse(value: str) -> datetime:
     return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
 
 
-def _require_released(policy: OnsiteSignaturePolicy) -> None:
+def require_released(policy: OnsiteSignaturePolicy) -> None:
     problems = policy.release_problems()
     if problems:
         raise OnsiteSignatureError(
@@ -353,7 +353,7 @@ def open_transaction(
     document: ContractDocument, displayed_document_hash: str, language: str,
     device_app_version: str, template_version: str | None = None,
 ) -> Transaction:
-    _require_released(policy)
+    require_released(policy)
     _require_strong_advisor(advisor)
     if document.mandate_id != mandate.id or document.deleted_at is not None:
         raise OnsiteSignatureError(TRANSACTION_NOT_FOUND, "Dokument nicht gefunden.", http_status=404)
@@ -406,7 +406,7 @@ def record_identity_check(
     advisor: AdvisorActor, transaction_id: str, method: str, result: str,
     id_document_kind: str, id_document_country: str, id_document_valid: bool,
 ) -> Transaction:
-    _require_released(policy)
+    require_released(policy)
     _require_strong_advisor(advisor)
     tx = load_transaction(db, transaction_id)
     _require_owner(tx, advisor)
@@ -468,7 +468,7 @@ def issue_customer_challenge(
 
     Die Rueckgabe enthaelt den Code NICHT -- er existiert nur im Kanal.
     """
-    _require_released(policy)
+    require_released(policy)
     _require_strong_advisor(advisor)
     tx = load_transaction(db, transaction_id)
     _require_owner(tx, advisor)
@@ -544,7 +544,7 @@ def verify_customer_factor(
 
     Jeder Fehlversuch mit einer bekannten Challenge verbraucht sie (einmalig).
     """
-    _require_released(policy)
+    require_released(policy)
     tx = load_transaction(db, transaction_id)
     challenge = (
         db.query(OnsiteSignatureChallenge)
@@ -624,7 +624,7 @@ def record_witness_statement(
     statement_hash: str, confirmed: bool,
 ) -> Transaction:
     """Getrennte Zeugenerklaerung des Beraters (genehmigter Text, kein Freitext)."""
-    _require_released(policy)
+    require_released(policy)
     _require_strong_advisor(advisor)
     tx = load_transaction(db, transaction_id)
     _require_owner(tx, advisor)
@@ -682,7 +682,7 @@ def finalize_signature(
     qes_receipt: Mapping[str, Any] | None = None,
 ) -> OnsiteSignatureEvidence:
     """SIGNED + Evidence-Paket atomar. Angezeigter Hash == finaler Hash, sonst Abbruch."""
-    _require_released(policy)
+    require_released(policy)
     _require_strong_advisor(advisor)
     tx = load_transaction(db, transaction_id)
     _require_owner(tx, advisor)
@@ -784,7 +784,7 @@ def deliver_customer_copy(
     Ein Fehlschlag bleibt in DELIVERY_PENDING (erneut versuchen oder einen
     dokumentierten Ersatzkanal als ``channel`` verwenden).
     """
-    _require_released(policy)
+    require_released(policy)
     _require_strong_advisor(advisor)
     tx = load_transaction(db, transaction_id)
     _require_owner(tx, advisor)

@@ -88,6 +88,7 @@ from services.review_engine import (
     _add_months,
     refresh_system_review_triggers,
 )
+from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.product_eligibility_finalization import finalization_eligibility_findings
 from services.review_calendar_feed import (
@@ -1601,6 +1602,25 @@ def sign_document(
     # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
+    # SIGN-IDENTITY-001 / SIGN-001 (2026-10-27): dieser Endpoint kennt nur
+    # Berater-/Admin-Principals (require_advisor). Ein Berater darf die
+    # Kundenrolle nie behaupten und nie stellvertretend fuer den Kunden
+    # bestaetigen -- die Kundensignatur braucht einen kundeneigenen Faktor
+    # (services/onsite_signature/, bis zur Freigabe gesperrt).
+    if body.signed_by_client:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "reason_code": CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL,
+                "message": (
+                    "Die Kundenunterschrift kann nicht im Berater-Login erfasst "
+                    "werden. Sie braucht einen kundeneigenen Faktor (Vor-Ort-"
+                    "Signatur, noch nicht freigegeben) oder eine eigenhaendige "
+                    "Unterschrift auf Papier."
+                ),
+                "channel": "signature",
+            },
+        )
     # CIO-Entscheid 2026-10-24: kein kundensignierbares Dokument, solange die
     # Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt
     # (integrity_mismatch) -- zentrales Gate, VOR jeder Mutation.
