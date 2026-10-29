@@ -5,7 +5,7 @@
     "ids": 1006,
     "js_functions": 1300,
     "modal_structures": 110,
-    "script_blocks": 21,
+    "script_blocks": 22,
     "style_blocks": 3,
     "sub_sections": 42
   },
@@ -21487,8 +21487,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "a6d78a59e452e22452f2fa98730370c8d49df395dea7b8606445390adfea8aa6",
-  "source_size_bytes": 1909403,
+  "source_sha256": "1beb2ae8712094e523d3becf971ecc03e1fac5553a2ff1f362febcfb7313d35d",
+  "source_size_bytes": 1909610,
   "sub_sections": [
     {
       "class": "sbb",
