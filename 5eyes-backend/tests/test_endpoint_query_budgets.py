@@ -359,7 +359,8 @@ CASES: tuple[_Case, ...] = (
     _Case("documents", f"/mandates/{_MANDATE_ID}/documents", _seed_documents, budget=3),
     _Case("advisory_log", f"/mandates/{_MANDATE_ID}/advisory-log", _seed_advisory_log, budget=2),
     _Case("review_triggers", f"/mandates/{_MANDATE_ID}/triggers", _seed_triggers, budget=2),
-    _Case("risk_assessments", f"/mandates/{_MANDATE_ID}/risk-assessments", _seed_risk_assessments, budget=3),
+    # PRIVACY-001: +1 SELECT fuer das Sperrarchiv-Gate (gesperrte Risiko-Evidenz).
+    _Case("risk_assessments", f"/mandates/{_MANDATE_ID}/risk-assessments", _seed_risk_assessments, budget=4),
     _Case("suitability_checks", f"/mandates/{_MANDATE_ID}/suitability-checks", _seed_suitability_checks, budget=2),
     _Case("audit_log", "/admin/system/audit-log", _seed_audit_log, budget=2, size=_len_audit_page),
     _Case("products", "/products", _seed_products, budget=1),

@@ -157,6 +157,18 @@ def create_knowledge(
 
 # ── Risikoprofilierung ─────────────────────────────────────────────────────────
 
+# PRIVACY-001: nach einem Loeschgesuch gesperrte Nachweise sind fuer die
+# Beratung nicht mehr lesbar (Sperrarchiv, services/privacy_erasure.py).
+_RISK_PROFILE_EVIDENCE = ("risk_profile_evidence",)
+_PLAUSIBILITY_EVIDENCE = ("risk_capacity_plausibility_evidence",)
+
+
+def _assert_privacy_readable(db: Session, mandate_id: str, evidence_types: tuple[str, ...]) -> None:
+    from services.privacy_erasure import assert_evidence_readable
+
+    assert_evidence_readable(db, evidence_types=evidence_types, mandate_id=mandate_id)
+
+
 @router.get("/mandates/{mandate_id}/risk-assessments", response_model=list[RiskAssessmentResponse])
 def list_risk_assessments(
     mandate_id: str,
@@ -164,6 +176,7 @@ def list_risk_assessments(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE)
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
     ).filter(
@@ -179,6 +192,7 @@ def get_current_risk_assessment(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE)
     try:
         ra = _current_risk_assessment_or_none(db, mandate_id, eager_answers=True)
     except ValueError as exc:
@@ -198,6 +212,7 @@ def get_risk_capacity_plausibility(
     gegen die erfassten Finanzdaten. Reiner Hinweis -- aendert das Profil nicht,
     blockiert nichts."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE + _PLAUSIBILITY_EVIDENCE)
     try:
         ra = _current_risk_assessment_or_none(db, mandate_id)
     except ValueError as exc:
@@ -225,6 +240,7 @@ def list_risk_capacity_plausibility_evaluations(
     Bewertungen (neueste zuerst) mit Replay (Hash, Regel-Nachrechnung,
     Aktualitaet). Betragsfrei; die Zeilen werden nie ueberschrieben."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE + _PLAUSIBILITY_EVIDENCE)
     try:
         ra = _current_risk_assessment_or_none(db, mandate_id)
     except ValueError as exc:

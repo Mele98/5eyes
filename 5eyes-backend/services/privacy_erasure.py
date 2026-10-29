@@ -1049,3 +1049,23 @@ def reapply_ledger_entries(db: Session, entries: list[dict[str, Any]]) -> dict[s
                 _shred(str(client_id))
         db.flush()
     return summary
+
+
+def assert_evidence_readable(
+    db: Session, *, evidence_types: Iterable[str], client_id: str | None = None, mandate_id: str | None = None,
+) -> None:
+    """Lese-Gate fuer Beratungs-/Analytics-Pfade: 423, wenn eine der
+    Nachweisarten fuer diesen Kunden gesperrt ist (Sperrarchiv)."""
+    blocked = sorted(
+        set(evidence_types) & restricted_evidence_types(db, client_id=client_id, mandate_id=mandate_id)
+    )
+    if blocked:
+        raise _error(
+            423, "PRIVACY_EVIDENCE_RESTRICTED",
+            "Nachweis ist nach einem Loeschgesuch gesperrt und nur fuer den festgelegten "
+            f"Rechts-/Revisionszweck verfuegbar ({', '.join(blocked)})",
+        )
+
+
+def evidence_types_for_table(table: str) -> frozenset[str]:
+    return frozenset(category.evidence_type for category in inv.categories_for(table))
