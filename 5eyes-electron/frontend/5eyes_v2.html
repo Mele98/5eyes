@@ -6215,10 +6215,10 @@ function applyUpdateState(state) {
     adminSystemState.update = state;
     renderAdminDashboard();
   }
-  // Auto-Update ist nur in installierten Electron-Releases aktiv. In Dev/Browser
+  // UPDATE-001: Auto-Update ist ohne offenes Build-Gate deaktiviert. In Dev/Browser
   // (kein FiveEyesAPI) sind die Buttons No-Ops -> klar kommunizieren + sperren.
   if (!state.enabled) {
-    label.textContent = 'Auto-Update ist nur in installierten Releases aktiv.';
+    label.textContent = 'Automatische Updates sind deaktiviert (Freigabe ausstehend).';
     if (installBtn) installBtn.style.display = 'none';
     if (checkBtn) checkBtn.disabled = true;
     return;
@@ -11503,7 +11503,7 @@ function renderAdminDashboard() {
   var updateTone = update.error ? 'danger' : (update.available || update.downloaded ? 'warn' : (update.enabled === false ? 'warn' : 'ok'));
   var updateValue = update.currentVersion ? ('v' + update.currentVersion) : 'n/a';
   var updateSub = update.enabled === false
-    ? 'Auto-Update in diesem Modus nicht aktiv.'
+    ? 'Automatische Updates deaktiviert.'
     : (update.downloaded ? 'Update bereit.' : (update.available ? 'Update verfuegbar.' : 'Keine Aktion offen.'));
 
   var audit = adminSystemState.audit || {};
@@ -29756,8 +29756,8 @@ function openStammdatenModal(){
         <div id="sec-update" class="admin-sec-panel" style="display:none;gap:14px;">
           <div>
             <div class="admin-section-title">Software-Update</div>
-            <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Auto-Updates sind nur in installierten Releases aktiv.</div>
-            <div class="admin-section-sub">Verfuegbare Updates pruefen und installieren.</div>
+            <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Automatische Updates sind derzeit deaktiviert; neue Versionen werden als Installer bereitgestellt.</div>
+            <div class="admin-section-sub">Update-Status der Desktop-App.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span id="update-status-label" class="admin-metric-meta">—</span>

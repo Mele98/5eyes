@@ -316,6 +316,20 @@ byte-identisch: Score 7 6744/1641/829/586/200 -> 6778/1612/818/592/200
 64.54 %), Score 9 7831/902/690/377/200 -> 7831/904/687/378/200 (Rendite und
 Vola unveraendert 574/1233 bps, Risikoanteil 68.63 -> 68.62 %); Score 3 und
 alle drei Score-5-Varianten unveraendert.
+
+Nachtrag (2026-10-25, GOAL-CALENDAR-HORIZON-PARITY-001 +
+GOAL-REAL-SPENDING-INFLATION-PARITY-001, Engine ``saa_resampled_v17``): die
+Reserve ankert die reale Pensionsausgabe (Beginn +5 J., Ende +30 J.) auf den
+BEGINN statt das Ende und rechnet sie mit dem Solver-Inflationspfad: Reserve
+CHF 0 -> CHF 12'352 in allen sechs Combos (Linux-CI Run 40375224429, Haswell =
+Nehalem byte-identisch). Fix-Effekt (erzwungener v16-Seed): Score 3
+9500/300/200 -> 9453/299/248 (Anl./Alt./Liq.); Score 5 (alle drei) Obl. 3500
+-> 3453, Liq. 200 -> 248, Rendite -1 bps; Score 7 Liq. 200 -> 201, externe
+Reserve CHF 2'352; Score 9 7831/904/687/378/200 -> 7920/809/689/381/201,
+Rendite 574 -> 578, Vola 1233 -> 1248. Seed-Effekt v16 -> v17: nur Score 7
+(6777/1612/818/592/201 -> 6789/1603/810/597/201) und Score 9
+(-> 7884/829/725/361/201, Rendite 577, Vola 1243); Score 3 und Score 5
+seed-unabhaengig.
 """
 from __future__ import annotations
 

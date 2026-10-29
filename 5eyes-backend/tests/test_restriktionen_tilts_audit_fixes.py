@@ -329,6 +329,31 @@ from test_optimizer_shadow_mode import _seed_realistic_mandate, session_factory 
 from models.mandates import Mandate  # noqa: E402
 
 
+def _seed_growth_mandate(session_factory, *, suffix: str):
+    """Realistische Fixtur, Pension aber erst in 10 Jahren (bis +35 J.).
+
+    Der Wachstums-Cashflow-Tilt setzt ``reserve_needed_rappen == 0`` voraus
+    (kein Nah-Liquiditaetsbedarf). Die geteilte Fixtur hat eine Pension ab
+    +5 J.; seit GOAL-CALENDAR-HORIZON-PARITY-001 ankert die Reserve Stroeme auf
+    den BEGINN statt das Ende (+30 J.) -- die Pension ist damit
+    reservewirksam, und der Tilt greift dort zu Recht nicht mehr
+    (``test_growth_cashflow_tilt_suppressed_by_near_term_pension_reserve``).
+    Vorher lieferte die Fixtur die Tilt-Vorbedingung nur durch den Anker-Fehler.
+    """
+    from datetime import date, timedelta
+
+    from models.wealth import Goal
+
+    ids = _seed_realistic_mandate(session_factory, suffix=suffix)
+    today = date.today()
+    with session_factory() as s:
+        pension = s.query(Goal).filter(Goal.id == ids[4]).one()
+        pension.start_date = (today + timedelta(days=365 * 10)).isoformat()
+        pension.target_date = (today + timedelta(days=365 * 35)).isoformat()
+        s.commit()
+    return ids
+
+
 def _run_engine(session_factory, mid, advisor_id, preferences=None):
     import services.portfolio_engine as pe
     with session_factory() as s:
@@ -345,8 +370,9 @@ def test_growth_cashflow_tilt_fires_without_manual_restriction(session_factory, 
     # Ziele geliefert hat. Dieser Test prueft explizit den House-Matrix-Pfad.
     import services.portfolio_engine as pe
     monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
-    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="growthfire")
+    advisor_id, _cid, mid, _aid, _gid = _seed_growth_mandate(session_factory, suffix="growthfire")
     result = _run_engine(session_factory, mid, advisor_id, preferences=None)
+    assert int(result["reserve_needed_rappen"]) == 0  # Vorbedingung des Tilts
     reasoning = result.get("reasoning") or []
     assert any("Wachstumsziele" in r for r in reasoning), (
         "Wachstums-Cashflow-Tilt hat bei diesem (dafuer ausgelegten) Profil nicht ausgeloest"
@@ -365,8 +391,10 @@ def test_growth_cashflow_tilt_respects_manually_lowered_equity_maximum(session_f
     # manual_restriction -- dieser Test braucht denselben Heuristik-Pfad.
     import services.portfolio_engine as pe
     monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
-    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="growthcap")
+    advisor_id, _cid, mid, _aid, _gid = _seed_growth_mandate(session_factory, suffix="growthcap")
     baseline = _run_engine(session_factory, mid, advisor_id, preferences=None)
+    # Vorbedingung: ohne Restriktion feuert der Tilt (sonst waere der Test trivial gruen).
+    assert any("Wachstumsziele" in r for r in (baseline.get("reasoning") or []))
     baseline_equities = next(b["target_weight_bps"] for b in baseline["buckets"] if b["asset_class"] == "Aktien")
     pre_tilt_equities = baseline_equities - 150  # Baseline vor dem (im Default-Fall feuernden) Tilt
 
@@ -386,6 +414,17 @@ def test_growth_cashflow_tilt_respects_manually_lowered_equity_maximum(session_f
     assert not any("Wachstumsziele" in r for r in reasoning), (
         "Wachstums-Cashflow-Tilt hat trotz fehlendem Platz unter dem manuellen Maximum ausgeloest"
     )
+
+
+def test_growth_cashflow_tilt_suppressed_by_near_term_pension_reserve(session_factory, monkeypatch):
+    """Pension ab +5 J. (geteilte Fixtur): die Reserve ankert auf den Beginn
+    und ist positiv -> kein Equity-Tilt trotz positivem Cashflow."""
+    import services.portfolio_engine as pe
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="growthres")
+    result = _run_engine(session_factory, mid, advisor_id, preferences=None)
+    assert int(result["reserve_needed_rappen"]) > 0
+    assert not any("Wachstumsziele" in r for r in (result.get("reasoning") or []))
 
 
 # ===========================================================================
