@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { evaluateBuildGate } = require('../update-gate.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
@@ -88,14 +89,14 @@ if (remainingExternal.length > 0) {
   }
 }
 
-const publish = packageJson.build && Array.isArray(packageJson.build.publish) ? packageJson.build.publish[0] : null;
-if (!publish || !publish.url) {
-  warnings.push('Kein Publish-Provider konfiguriert. Auto-Update bleibt deaktiviert.');
-} else if (String(publish.url).includes('example.invalid')) {
-  warnings.push('Publish-URL ist noch Platzhalter. Vor echtem Release ersetzen.');
-  if (strict) {
-    errors.push('STRICT_RELEASE=1 gesetzt, aber Publish-URL ist noch Platzhalter.');
-  }
+// UPDATE-001: Auto-Update ist ein Build-Gate (fail-closed). Ohne
+// UPDATES_ENABLED=true bleibt build.publish null und der Updater wird im
+// Artefakt nicht registriert; mit UPDATES_ENABLED=true muss die Konfiguration
+// (HTTPS-Feed-URL + Code-Signing) vollstaendig sein, sonst bricht der Build ab.
+const updateGate = evaluateBuildGate({ env: process.env, packageJson });
+errors.push(...updateGate.errors);
+if (!updateGate.updatesEnabled) {
+  warnings.push('Auto-Update ist im Build deaktiviert (UPDATES_ENABLED=false).');
 }
 
 if (!process.env.CSC_LINK) {

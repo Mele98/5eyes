@@ -64,6 +64,7 @@ from services.preference_snapshot import (
     ReasonCodedConflictError,
     enforce_products_against_allocation_snapshot,
 )
+from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
     _risk_score_bucket,
@@ -87,6 +88,7 @@ from services.review_engine import (
     _add_months,
     refresh_system_review_triggers,
 )
+from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.product_eligibility_finalization import finalization_eligibility_findings
 from services.review_calendar_feed import (
@@ -1600,6 +1602,25 @@ def sign_document(
     # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
+    # SIGN-IDENTITY-001 / SIGN-001 (2026-10-27): dieser Endpoint kennt nur
+    # Berater-/Admin-Principals (require_advisor). Ein Berater darf die
+    # Kundenrolle nie behaupten und nie stellvertretend fuer den Kunden
+    # bestaetigen -- die Kundensignatur braucht einen kundeneigenen Faktor
+    # (services/onsite_signature/, bis zur Freigabe gesperrt).
+    if body.signed_by_client:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "reason_code": CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL,
+                "message": (
+                    "Die Kundenunterschrift kann nicht im Berater-Login erfasst "
+                    "werden. Sie braucht einen kundeneigenen Faktor (Vor-Ort-"
+                    "Signatur, noch nicht freigegeben) oder eine eigenhaendige "
+                    "Unterschrift auf Papier."
+                ),
+                "channel": "signature",
+            },
+        )
     # CIO-Entscheid 2026-10-24: kein kundensignierbares Dokument, solange die
     # Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt
     # (integrity_mismatch) -- zentrales Gate, VOR jeder Mutation.
@@ -1615,6 +1636,8 @@ def sign_document(
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
         )
+        # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+        assert_portfolio_data_release_eligible(db, mandate, action="signature")
     # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
     # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
     # Mutation, nach den fachlichen Freigabe-Gates).
@@ -3438,6 +3461,8 @@ def finalize_recommendation(
                 "errors": errors,
             })
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+    assert_portfolio_data_release_eligible(db, mandate, action="finalize")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie

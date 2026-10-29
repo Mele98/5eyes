@@ -58,11 +58,12 @@ def _make_cma_jurisdiction_stub(jurisdiction):
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "CMA-CORRELATION-JURISDICTION-PROVENANCE-001 -- round 51 red test "
-        "(_build_cholesky_from_cma reads no jurisdiction field at all; CH, "
-        "DE and US CMAs with an empty correlation payload all materialize "
-        "the identical hardcoded 'CH-Markt, konservativ' default matrix), "
-        "see audit docs/audits/2026-10-05-cma-correlation-tail-moment-and-runtime-parity-integrity-audit.md"
+        "CMA-CORRELATION-JURISDICTION-PROVENANCE-001 (offen, Fachdaten): DE/US "
+        "brauchen eine IC-freigegebene Korrelationsmatrix je Jurisdiktion; ohne "
+        "sie materialisieren CH/DE/US denselben CH-Default. Nicht erfinden; "
+        "Alternative fail-closed fuer Nicht-CH ist ein Owner-Entscheid (bricht "
+        "den heutigen DE-Pfad). Audit: docs/audits/2026-10-05-cma-correlation-"
+        "tail-moment-and-runtime-parity-integrity-audit.md"
     ),
 )
 def test_correlation_factor_should_differ_by_jurisdiction():

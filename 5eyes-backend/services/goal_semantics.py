@@ -65,6 +65,13 @@ def _strict_int(
     return value
 
 
+# GOAL-RECURRING-EDITOR-CONTRACT-001: Obergrenze fuer Rappen-Betraege. Die
+# Spalten sind INTEGER; SQLite speichert sie als vorzeichenbehaftete 64-Bit-
+# Ganzzahl. Ein groesserer Wert ist nicht persistierbar und wird abgelehnt,
+# statt erst beim Schreiben oder in der Engine zu scheitern.
+MAX_PERSISTABLE_RAPPEN = 9_223_372_036_854_775_807
+
+
 def _parse_date(value: Any, *, field: str) -> date | None:
     if value in (None, ""):
         return None
@@ -186,11 +193,13 @@ def validate_goal_model_input(goal: Any) -> None:
     target_amount = _strict_int(
         _get(goal, "target_amount_rappen"),
         field=f"{prefix} target_amount_rappen",
+        maximum=MAX_PERSISTABLE_RAPPEN,
         nullable=True,
     )
     target_wealth = _strict_int(
         _get(goal, "target_wealth_rappen"),
         field=f"{prefix} target_wealth_rappen",
+        maximum=MAX_PERSISTABLE_RAPPEN,
         nullable=True,
     )
     target_return = _strict_int(
