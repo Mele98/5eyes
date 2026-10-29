@@ -24,3 +24,16 @@ class JurisdictionNotApprovedError(Exception):
 
 class JurisdictionReferenceDataConflictError(ValueError):
     """Mehrere aktive Referenzzeilen machen die Modellauswahl mehrdeutig."""
+
+
+class CMAValidityWindowError(ValueError):
+    """CMA-EFFECTIVE-DATE-001: eine neu zu aktivierende CMA-Version waere am
+    Aktivierungstag nicht wirksam (kuenftiges valid_from, bereits abgelaufenes
+    valid_until oder unlesbares Datum). Solange koexistierende Versionen nicht
+    gebaut sind, wuerde die Aktivierung die Vorgaengerin abloesen und bis zum
+    Stichtag jede Allokation sperren -- deshalb wird sie abgelehnt."""
+
+    def __init__(self, reason_code: str, message: str):
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.message = message

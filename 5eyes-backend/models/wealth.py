@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    DDL, Column, ForeignKey, ForeignKeyConstraint, Index, Integer, String, UniqueConstraint, event, inspect, text,
+    BigInteger, DDL, Column, ForeignKey, ForeignKeyConstraint, Index, Integer, String, UniqueConstraint, event, inspect, text,
 )
 from sqlalchemy.orm import relationship
 from database import (
@@ -25,7 +25,7 @@ class WealthPosition(Base):
     label = Column(String, nullable=False)
     position_type = Column(String, nullable=False)
     assignment = Column(String, nullable=False, default="Anderes Vermögen")
-    current_value_rappen = Column(Integer, nullable=False, default=0)
+    current_value_rappen = Column(BigInteger, nullable=False, default=0)
     currency = Column(String, nullable=False, default="CHF")
     valuation_date = Column(String)
     depot_bank = Column(String)
@@ -38,7 +38,7 @@ class WealthPosition(Base):
     property_address = Column(String)
     property_zip_city = Column(String)
     property_usage = Column(String)
-    property_rental_income_rappen = Column(Integer, nullable=False, default=0)
+    property_rental_income_rappen = Column(BigInteger, nullable=False, default=0)
     # 2026-06-18 (#84): Miete teuerungsindexiert -> abgeleiteter Mietertrag-Cashflow
     # wird is_inflation_linked=1 (waechst in der Projektion mit der Teuerung).
     # server_default="0": DB-seitiger Default, damit auch rohe SQL-Inserts (ohne diese
@@ -54,15 +54,15 @@ class WealthPosition(Base):
     # siehe services/portfolio_engine_pension_positions.py.
     pension_vehicle = Column(String)  # 'Konto' | 'Wertschriften' | 'Police'
     pension_interest_rate_bps = Column(Integer)  # nominal p.a.; NULL = Default
-    pension_maturity_value_rappen = Column(Integer)  # garantierter Ablaufwert
+    pension_maturity_value_rappen = Column(BigInteger)  # garantierter Ablaufwert
     pension_maturity_date = Column(String)  # ISO, Faelligkeit der Police
-    pension_lumpsum_tax_rappen = Column(Integer)  # Kapitalbezugssteuer CHF (Vorrang)
+    pension_lumpsum_tax_rappen = Column(BigInteger)  # Kapitalbezugssteuer CHF (Vorrang)
     pension_lumpsum_tax_bps = Column(Integer)  # oder Satz; beides NULL = Default
     mortgage_bank = Column(String)
     mortgage_type = Column(String)
     mortgage_interest_rate_bps = Column(Integer)
     mortgage_maturity_date = Column(String)
-    mortgage_amortization_rappen = Column(Integer, nullable=False, default=0)
+    mortgage_amortization_rappen = Column(BigInteger, nullable=False, default=0)
     mortgage_amortization_type = Column(String)
     mortgage_linked_property_id = Column(String)
     asset_subtype = Column(String)
@@ -91,9 +91,9 @@ class Cashflow(Base):
     client_id = Column(String, ForeignKey("clients.id"), nullable=False)
     cashflow_type = Column(String, nullable=False)
     label = Column(String, nullable=False)
-    amount_rappen = Column(Integer, nullable=False)
-    gross_amount_rappen = Column(Integer)
-    tax_amount_rappen = Column(Integer)
+    amount_rappen = Column(BigInteger, nullable=False)
+    gross_amount_rappen = Column(BigInteger)
+    tax_amount_rappen = Column(BigInteger)
     timing_precision = Column(String)
     currency = Column(String, nullable=False, default="CHF")
     frequency = Column(String, nullable=False, default="jährlich")
@@ -168,7 +168,7 @@ class WealthInflow(Base):
     mandate_id = Column(String, ForeignKey("mandates.id"))  # optional, falls Mandate-spezifisch
     label = Column(String, nullable=False)
     source_type = Column(String, nullable=False)  # 'Erbschaft' | 'Bonus' | 'Saeule3b' | 'Verkaufserloes' | 'Andere'
-    amount_rappen = Column(Integer, nullable=False)
+    amount_rappen = Column(BigInteger, nullable=False)
     expected_year = Column(Integer, nullable=False)
     is_recurring = Column(Integer, nullable=False, default=0)
     frequency = Column(String)  # 'einmalig' | 'jaehrlich' | 'monatlich'
@@ -214,8 +214,8 @@ class Goal(Base):
     weight_bps = Column(Integer)
     goal_scope = Column(String, nullable=False, default="Beratungsvermögen")
     value_mode = Column(String, nullable=False, default="nominal")
-    target_amount_rappen = Column(Integer)
-    target_wealth_rappen = Column(Integer)
+    target_amount_rappen = Column(BigInteger)
+    target_wealth_rappen = Column(BigInteger)
     target_return_bps = Column(Integer)
     success_probability_min_x100 = Column(Integer)
     start_date = Column(String)

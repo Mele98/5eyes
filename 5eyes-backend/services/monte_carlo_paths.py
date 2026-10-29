@@ -487,8 +487,8 @@ def _compute_paths_core(
     pcts = np.percentile(wealth_paths, list(QUANTILES), axis=0)
     # pcts shape: (len(QUANTILES), horizon + 1)
 
-    from datetime import date
-    base_year = date.today().year
+    from services.valuation_clock import valuation_date
+    base_year = valuation_date().year  # ADR-1b: gebundener Stichtag
     time_axis = [str(base_year + t) for t in range(horizon_years + 1)]
 
     return {

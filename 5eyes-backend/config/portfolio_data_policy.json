@@ -1,0 +1,28 @@
+{
+  "schema": "ares.portfolio-data-policy/v1",
+  "policy_id": "PORTFOLIO-DATA-001",
+  "version": "2026-10-27.1",
+  "status": "PROPOSED",
+  "status_note": "Vorgeschlagener interner Risikostandard aus dem Entscheiddokument vom 2026-10-27, Abschnitt 6. Keine gesetzliche Schweizer Zahl. Nicht aktiv: vor Produktivsetzung ist die Freigabe durch Investment, Compliance und Operations erforderlich.",
+  "required_approver_roles": ["investment", "compliance", "operations"],
+  "approvals": [],
+  "calendar": {
+    "calendar_id": "weekend-only/v1",
+    "timezone": "Europe/Zurich"
+  },
+  "freshness": {
+    "required_components": [
+      "holdings_as_of",
+      "cash_as_of",
+      "price_as_of",
+      "fx_as_of",
+      "corporate_actions_checked_at"
+    ],
+    "final_max_business_days": 1,
+    "draft_max_business_days": 5
+  },
+  "reconciliation": {
+    "per_position_tolerance_minor_units": 1,
+    "aggregate_tolerance_major_units": 1
+  }
+}

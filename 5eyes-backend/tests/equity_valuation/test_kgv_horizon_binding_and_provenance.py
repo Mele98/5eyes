@@ -108,11 +108,14 @@ def test_positive_control_model_itself_is_genuinely_horizon_dependent():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "KGV-HORIZON-BINDING-001 -- round 49 red test (scenario_inputs_from_cma "
-        "has no horizon parameter and _compute_equity_kgv_adjustment hardcodes "
-        "_KGV_DEFAULT_HORIZON_YEARS=10, so a 5-year run materializes the same "
-        "KGV adjustment as a 30-year run), see audit "
-        "docs/audits/2026-10-04-equity-valuation-kgv-calibration-horizon-and-publication-integrity-audit.md"
+        "KGV-HORIZON-BINDING-001 (offen, Engine-Paket): Owner-Entscheid ADR-12b "
+        "ist gefallen (konkreter Run-Horizont), die Umsetzung aendert aber den "
+        "Engine-Output (scenario_inputs_from_cma + alle Aufrufer + Szenario-"
+        "Cache-Key) und haengt an der offenen IC-Kalibrierung ADR-12a. Beim Fix "
+        "muss der Test den Horizont tatsaechlich uebergeben -- heute ruft er "
+        "scenario_inputs_from_cma(cma) zweimal identisch auf und kann so nie "
+        "gruen werden. Audit: docs/audits/2026-10-04-equity-valuation-kgv-"
+        "calibration-horizon-and-publication-integrity-audit.md"
     ),
 )
 def test_scenario_inputs_from_cma_should_reflect_the_run_horizon_not_a_fixed_10_years():
@@ -154,16 +157,25 @@ class _EmbeddedKgvCma:
     """Represents a data-derived non-CH CMA whose equity_home_return_bps
     already has the KGV mean-reversion effect baked in (per
     jurisdiction/data_pipeline.py's confirmed behavior), while the three
-    structured KGV fields remain NULL to avoid double-applying the model."""
+    structured KGV fields remain NULL to avoid double-applying the model.
+
+    Test-Korrektur: die fruehere Attrappe nutzte ein Attribut
+    ``source_detail_json``, das am Modell nicht existiert (die Spalte heisst
+    ``source_detail``), und eine JSON-Form, die die Pipeline nie schreibt.
+    Sie haette nur gruen werden koennen, wenn die Produktion eine erfundene
+    Form liest. Jetzt: exakt Spaltenname und Schluessel, die
+    compute_cma_candidate_for_jurisdiction() persistiert."""
 
     id = "embedded-kgv-non-ch"
     equity_kgv_current_x10 = None
     equity_kgv_fair_x10 = None
     equity_kgv_alpha_x100 = None
-    source_detail_json = (
-        '{"equity_home_return_model": "nelson_siegel_plus_kgv_mean_reversion", '
-        '"kgv_mean_reversion": {"kgv_current": 25.0, "kgv_fair": 17.0, '
-        '"alpha": 0.15, "horizon_years": 10, "adjustment_bps": -494.117647}}'
+    equity_home_return_bps = -150
+    source_detail = (
+        '{"jurisdiction": "DE", "equity_kgv_mean_reversion": {'
+        '"pe_proxy_ticker": "EWG", "pe_proxy_value_kgv_current": 25, '
+        '"kgv_fair_generic_shiller_cape": 17.0, "alpha": 0.15, '
+        '"horizon_years": 10}}'
     )
 
 
@@ -179,17 +191,6 @@ def test_positive_control_kgv_status_correctly_reports_inactive_when_truly_absen
     assert status["active"] is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "KGV-PROVENANCE-PUBLICATION-001 -- round 49 red test (data-derived "
-        "non-CH CMAs embed the KGV effect directly into equity_home_return_bps "
-        "without setting the three structured KGV fields, so "
-        "_build_kgv_status reports the model as inactive even though it is "
-        "genuinely active and already applied), see audit "
-        "docs/audits/2026-10-04-equity-valuation-kgv-calibration-horizon-and-publication-integrity-audit.md"
-    ),
-)
 def test_kgv_status_must_not_report_inactive_when_effect_is_embedded_in_equity_return():
     """A CMA whose equity_home_return_bps already has KGV mean-reversion
     baked in (confirmed real behavior of the non-CH data pipeline) must be
@@ -200,9 +201,40 @@ def test_kgv_status_must_not_report_inactive_when_effect_is_embedded_in_equity_r
     return) produced it."""
     cma = _EmbeddedKgvCma()
     status = _build_kgv_status(cma)
+    assert status.get("representation") == "embedded_in_equity_home_return"
+    assert status["parameters"]["kgv_current"] == 25
     assert status["active"] is True, (
         "methodology audit reported KGV as inactive for a CMA whose "
         "equity return already embeds a genuine KGV mean-reversion "
         "adjustment -- this misrepresents the active model to React, PDF "
         "and advisory_report.py"
     )
+
+
+def test_kgv_status_inactive_when_pipeline_skipped_kgv():
+    """Gegenprobe: hat die Pipeline den KGV-Schritt uebersprungen (kein
+    PE-Proxy, equity_home_return_bps NULL), bleibt der Status inaktiv --
+    der Nachweis-Schluessel allein macht das Modell nicht aktiv."""
+    class _SkippedKgvCma:
+        equity_kgv_current_x10 = None
+        equity_kgv_fair_x10 = None
+        equity_kgv_alpha_x100 = None
+        equity_home_return_bps = None
+        source_detail = (
+            '{"equity_kgv_mean_reversion": {"skipped_reason": "kein PE-Proxy"}}'
+        )
+
+    assert _build_kgv_status(_SkippedKgvCma())["active"] is False
+
+
+def test_kgv_status_free_text_source_detail_stays_inactive():
+    """source_detail darf Freitext sein (Modell-Docstring) -- kein Crash,
+    kein Aktiv-Anspruch."""
+    class _FreeTextCma:
+        equity_kgv_current_x10 = None
+        equity_kgv_fair_x10 = None
+        equity_kgv_alpha_x100 = None
+        equity_home_return_bps = 600
+        source_detail = "FRED-Serie DGS10 vom 2026-07-29, Nelson-Siegel-Fit"
+
+    assert _build_kgv_status(_FreeTextCma())["active"] is False

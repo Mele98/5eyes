@@ -40,6 +40,11 @@ def _cma(**overrides):
         "version": 7,
         "is_current": 1,
         "deleted_at": None,
+        # CMA-EFFECTIVE-DATE-001: audit_engine_models geht ueber den Engine-
+        # Resolver, der das Gueltigkeitsfenster prueft.
+        "valid_from": "2026-01-01",
+        "valid_until": None,
+        "source_detail": None,
         "bonds_ns_beta0_bps": None,
         "bonds_ns_beta1_bps": None,
         "bonds_ns_beta2_bps": None,
@@ -60,6 +65,8 @@ def _stub_db(cma_row):
     query_chain.filter.return_value = query_chain
     query_chain.order_by.return_value = query_chain
     query_chain.first.return_value = cma_row
+    # Engine-Resolver (CMA-EFFECTIVE-DATE-001) liest alle Kandidaten per .all().
+    query_chain.all.return_value = [cma_row] if cma_row is not None else []
     db.query.return_value = query_chain
     return db
 
