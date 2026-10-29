@@ -3585,6 +3585,25 @@ def list_holdings(
     ).order_by(RecommendationHolding.updated_at.desc()).all()
 
 
+# Red-Team 2026-10-28 Befund 2: Holdings eines abgeloesten Laufs sind nie
+# IST-Quelle (services/portfolio_engine_live_rebalancing.py::
+# current_run_holdings); Aenderungen daran werden abgelehnt statt still
+# wirkungslos oder irrefuehrend gespeichert.
+_HOLDINGS_LOCKED_RUN_STATUSES = ("Superseded", "Rejected")
+
+
+def _reject_holding_edit_on_superseded_run(run: RecommendationRun) -> None:
+    if run.result_status in _HOLDINGS_LOCKED_RUN_STATUSES:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "HOLDINGS_RUN_SUPERSEDED",
+            "message": (
+                f"Der Lauf hat den Status '{run.result_status}' und ist nicht mehr der "
+                "aktuelle Lauf: Bestaende bitte im aktuellen Lauf erfassen."
+            ),
+            "result_status": run.result_status,
+        })
+
+
 @recommendations_router.put("/mandates/{mandate_id}/recommendations/{run_id}/positions/{position_id}/holding",
                              response_model=RecommendationHoldingResponse)
 def upsert_position_holding(
@@ -3594,6 +3613,7 @@ def upsert_position_holding(
     current_user: User = Depends(require_advisor)
 ):
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    _reject_holding_edit_on_superseded_run(run)
     position = db.query(RecommendationPosition).filter(
         RecommendationPosition.id == position_id,
         RecommendationPosition.run_id == run_id
@@ -3643,6 +3663,7 @@ def delete_position_holding(
     current_user: User = Depends(require_advisor)
 ):
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    _reject_holding_edit_on_superseded_run(run)
     holding = db.query(RecommendationHolding).filter(
         RecommendationHolding.run_id == run_id,
         RecommendationHolding.recommendation_position_id == position_id,

@@ -86,6 +86,8 @@ class NoTradeListAvailableError(ValueError):
 
 REASON_HOLDINGS_INCOMPLETE = "HOLDINGS_VALUATION_INCOMPLETE"
 REASON_NO_HOLDINGS_CONFIRMATION_REQUIRED = "NO_HOLDINGS_CONFIRMATION_REQUIRED"
+# CIO-Entscheid 2026-10-28 (a): Bestand nur in einem frueheren Lauf erfasst.
+REASON_HOLDINGS_NOT_CARRIED_OVER = "HOLDINGS_NOT_CARRIED_OVER"
 
 
 class HoldingsValuationIncompleteError(ValueError):
@@ -144,6 +146,25 @@ def assert_holdings_valuation_complete(live: dict) -> None:
             "Die Bewertung ist nicht vollstaendig belegt: " + "; ".join(problems)
             + ". Bitte Bestaende und Preise aktualisieren."
         )
+
+def assert_holdings_carried_over(missing: list[dict]) -> None:
+    """CIO-Entscheid 2026-10-28 (a): kein stilles Verschwinden von Bestaenden.
+
+    ``missing`` aus ``holdings_not_carried_over``. Jeder Eintrag -> die
+    IST-Bewertung ist unvollstaendig (``HOLDINGS_NOT_CARRIED_OVER``), bis der
+    Bestand im aktuellen Lauf erfasst oder dort als verkauft (Menge 0)
+    bestaetigt ist."""
+    if not missing:
+        return
+    labels = ", ".join(
+        f"{item.get('isin') or item.get('product_id')} ({item.get('product_name') or '-'})" for item in missing
+    )
+    raise HoldingsValuationIncompleteError(
+        f"{len(missing)} Bestand/Bestaende stehen nur in einem frueheren Lauf: {labels}. "
+        "Bitte im aktuellen Lauf erfassen oder dort als verkauft (Menge 0) bestaetigen.",
+        REASON_HOLDINGS_NOT_CARRIED_OVER,
+    )
+
 
 def resolve_handoff_holdings_basis(
     live: dict,
@@ -313,6 +334,10 @@ def snapshot_handoff(
     ``HoldingsValuationIncompleteError`` (Bewertung nicht durch echte
     Bestaende/Preise/FX belegt) -- alle sind vom Router als 409 zu behandeln.
     """
+    # CIO-Entscheid 2026-10-28 (a): vor jeder Bewertung, direkt aus der DB.
+    from services.portfolio_engine_live_rebalancing import holdings_not_carried_over
+
+    assert_holdings_carried_over(holdings_not_carried_over(db, mandate.id))
     payload = build_recommendation_payload_from_run(
         db=db, mandate=mandate, run=run, user_id=user_id, preferences=None,
     )

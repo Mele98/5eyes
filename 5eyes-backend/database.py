@@ -1237,8 +1237,16 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ))
             # HANDOFF-DB-INVARIANT-001: Status-/Count-/Hash-Invarianten fuer
             # neue Schreibvorgaenge (Altzeilen bleiben unberuehrt).
-            from models.portfolio_handoff import HANDOFF_INVARIANT_SQLITE_TRIGGERS
+            from models.portfolio_handoff import (
+                HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER,
+                HANDOFF_INVARIANT_SQLITE_TRIGGERS,
+            )
 
+            # Red-Team 2026-10-28 Befund 4: der Insert-Trigger hat seit
+            # Alembic e5b3c9d1a7f4 eine strengere Bedingung -- ein bestehender
+            # Trigger gleichen Namens wird ersetzt, nicht per IF NOT EXISTS
+            # behalten. Idempotent; Altzeilen bleiben unberuehrt.
+            conn.execute(text(f"DROP TRIGGER IF EXISTS {HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER}"))
             for ddl in HANDOFF_INVARIANT_SQLITE_TRIGGERS:
                 conn.execute(text(ddl))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
