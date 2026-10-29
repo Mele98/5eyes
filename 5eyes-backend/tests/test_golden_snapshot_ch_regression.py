@@ -330,6 +330,17 @@ Rendite 574 -> 578, Vola 1233 -> 1248. Seed-Effekt v16 -> v17: nur Score 7
 (6777/1612/818/592/201 -> 6789/1603/810/597/201) und Score 9
 (-> 7884/829/725/361/201, Rendite 577, Vola 1243); Score 3 und Score 5
 seed-unabhaengig.
+
+Nachtrag (2026-10-29, GOAL-AXIS-VALUATION-YEAR-001, Engine
+``saa_resampled_v18``): Steuer-, Alters- und Mortalitaetsachse ab dem
+Bewertungsjahr des Laufs statt ab ``opened_at``. Die Golden-Mandate werden am
+Lauftag eroeffnet und haben weder Steuerbasis noch Pensionierungsjahr noch
+Mortalitaets-Simulation: Fix-Effekt null (erzwungener v17-Seed byte-identisch
+zu den v17-Fixtures, Linux-CI Run 40790463921, Haswell = Nehalem
+byte-identisch). Seed-Effekt v17 -> v18: Score 7 6789/1603/810/597/201 ->
+6783/1618/804/594/201 (Rendite 529 -> 528, Vola 1080 -> 1079); Score 9
+7884/829/725/361/201 -> 7942/781/691/385/201 (Rendite 577 -> 579, Vola
+1243 -> 1251); Score 3 und alle drei Score-5-Varianten unveraendert.
 """
 from __future__ import annotations
 
