@@ -36,6 +36,7 @@
       "ipc-sender-guard.js",
       "frontend/5eyes_v2.html",
       "frontend/desktop-api.js",
+      "frontend/risk-capacity-recheck.js",
       "frontend/trade-list-preview.js",
       "frontend/vendor/**/*",
       "frontend/reporting/dist/**/*",
