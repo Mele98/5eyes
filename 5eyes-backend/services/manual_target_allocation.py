@@ -40,6 +40,7 @@ from models.allocation import (
 )
 from models.mandates import Mandate
 from models.profiling import RiskAssessment
+from services.valuation_clock import valuation_date
 from services.reserve_funding_ledger_snapshot import (
     CONSTRAINTS_KEY as LEDGER_CONSTRAINTS_KEY,
     ledger_reference,
@@ -384,6 +385,10 @@ def build_manual_target_allocation(
         mandate_id=mandate.id,
         version=(int(previous.version or 0) if previous is not None else 0) + 1,
         is_current=1,
+        # ADR-1b: ein manueller Datensatz ist ein eigener Lauf mit eigenem
+        # Bewertungsstichtag (heute bzw. der gebundene Stichtag). Er geht wie
+        # bei Generate in den Input-Hash ein, und Reload/Verifier binden ihn.
+        valuation_date=valuation_date().isoformat(),
         policy_id=policy.id,
         based_on_assessment_id=assessment.id,
         capital_market_assumptions_id=cma.id,

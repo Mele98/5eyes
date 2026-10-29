@@ -302,6 +302,10 @@ def reapply_erasures_after_restore(
     try:
         with session_factory() as db:
             for entry in entries:
+                if entry.get("kind"):
+                    # PRIVACY-001: Vorgangs- und Entsorgungseintraege wendet
+                    # services/privacy_erasure.py weiter unten an.
+                    continue
                 client_id = entry.get("client_id")
                 if not client_id or client_id in seen_client_ids:
                     continue
@@ -324,17 +328,36 @@ def reapply_erasures_after_restore(
                     "das aelter als die urspruengliche DSG-Art.-32-Loeschung "
                     f"ist (urspruenglicher Grund: {original_reason})"
                 )
-                erase_client_personal_data(db, client_id, reason=reapply_reason)
+                erase_client_personal_data(
+                    db, client_id, reason=reapply_reason,
+                    # PRIVACY-001: gesperrt aufzubewahrende versiegelte
+                    # Freitexte duerfen auch nach dem Restore nicht vernichtet
+                    # werden. Alt-Eintraege ohne Feld: wie bisher vernichten.
+                    shred_pii_keys=bool(entry.get("pii_keys_shredded", True)),
+                )
                 db.commit()
                 summary["reapplied"].append(client_id)
+
+            # PRIVACY-001: Loeschvorgaenge, Sperrvermerke und spaetere
+            # Schluesselvernichtungen vor der operativen Freigabe herstellen.
+            from services.privacy_erasure import reapply_ledger_entries
+
+            summary["privacy"] = reapply_ledger_entries(db, entries)
+            db.commit()
     finally:
         engine.dispose()
 
     return summary
 
 
-def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> dict[str, Any]:
+def erase_client_personal_data(
+    db: Session, client_id: str, *, reason: str, shred_pii_keys: bool = True,
+) -> dict[str, Any]:
     """Irreversibly anonymizes Tier-A personal-data fields for one client.
+
+    ``shred_pii_keys=False`` (PRIVACY-001) laesst den Kundenschluessel
+    bestehen, wenn versiegelte Evidenz gesperrt aufbewahrt werden muss.
+    Der Standard vernichtet ihn wie bisher.
 
     Raises HTTPException(404) if the client does not exist, and
     HTTPException(409) if the client was already DSG-erased (idempotency
@@ -477,7 +500,8 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
         if n:
             redacted[f"risk_assessments.{column}"] = int(n)
     pii_keys_shredded = (
-        shred_client_keys(db, client_id) if _table_exists(db, "client_pii_keys") else 0
+        shred_client_keys(db, client_id)
+        if shred_pii_keys and _table_exists(db, "client_pii_keys") else 0
     )
     unsealed_append_only_rows = count_unsealed_rows(db, client_id, mandate_ids)
 
@@ -536,7 +560,10 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
     try:
         _append_ledger_entry(
             _ledger_path(db),
-            {"client_id": client_id, "reason": reason, "erased_at": now},
+            {
+                "client_id": client_id, "reason": reason, "erased_at": now,
+                "pii_keys_shredded": bool(shred_pii_keys),
+            },
         )
     except OSError:
         pass

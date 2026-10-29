@@ -616,6 +616,7 @@ def test_generate_endpoint_adds_reasoning_and_audit_but_does_not_block(session_f
 # ---------------------------------------------------------------------------
 
 HTML = (BACKEND_ROOT.parent / "5eyes-electron" / "frontend" / "5eyes_v2.html").read_text(encoding="utf-8")
+HTML_MODULE_DIR = BACKEND_ROOT.parent / "5eyes-electron" / "frontend"
 
 
 def _js_function(name: str) -> str:
@@ -638,7 +639,10 @@ def test_monolith_renders_findings_escaped_and_open_states_visible():
     assert "result.status==='inconsistent'" in render
     assert "escapeHtml(" in render
     assert "reason_code" in render
-    refresh = _js_function("refreshRiskCapacityPlausibility")
+    # RISK-CAPACITY-RECHECK-UI-001: Laden liegt im Skriptmodul neben dem Monolithen.
+    module = (HTML_MODULE_DIR / "risk-capacity-recheck.js").read_text(encoding="utf-8")
+    start = module.index("async function refreshRiskCapacityPlausibility(")
+    refresh = module[start:module.index("\n}\n", start)]
     assert "'/mandates/'+requested+'/risk-capacity-plausibility'" in refresh
     assert "getActiveMandateId()" in refresh  # Mandatswechsel-Guard
 

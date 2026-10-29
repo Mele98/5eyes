@@ -18,6 +18,7 @@ import { useUserRole } from '@/api/useUserRole';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatInteger } from '@/lib/format';
 import { RiskCapacityPlausibilityNotice } from '@/sections/profiling/RiskCapacityPlausibilityPanel';
+import { RiskCapacityRecheck } from '@/sections/profiling/RiskCapacityRecheckNotice';
 
 interface RisikoprofilProps {
   data: RisikoprofilierungData;
@@ -33,9 +34,16 @@ interface RisikoprofilProps {
    * der Allokation) wird es nicht gezeigt, sondern der Gate-Hinweis.
    */
   projectionGate?: ProjectionGateData;
+  /** RISK-CAPACITY-RECHECK-UI-001: Mandat fuer den Hinweis "neu zu prüfen". */
+  mandateId?: string;
 }
 
-export function Risikoprofil({ data, capacityPlausibility, projectionGate }: RisikoprofilProps) {
+export function Risikoprofil({
+  data,
+  capacityPlausibility,
+  projectionGate,
+  mandateId,
+}: RisikoprofilProps) {
   const projectionsHidden = projectionGate?.projections_hidden === true;
   const { canEdit } = useUserRole();
   return (
@@ -65,6 +73,7 @@ export function Risikoprofil({ data, capacityPlausibility, projectionGate }: Ris
       {canEdit ? (
         <div className="mt-section">
           <RiskCapacityPlausibilityNotice data={capacityPlausibility} />
+          {mandateId ? <RiskCapacityRecheck mandateId={mandateId} /> : null}
         </div>
       ) : null}
 
