@@ -52,6 +52,7 @@ from services.depot_check import PRODUCT_ASSET_CLASS_ALIASES
 from services.portfolio_engine_live_rebalancing import value_mandate_holdings
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
+    assert_holdings_carried_over,
     assert_holdings_valuation_complete,
 )
 
@@ -130,6 +131,8 @@ def _complete_holdings_valuation(db: Session, mandate: Mandate, fx_source, targe
             f"{valuation['missing_units_count']} Depotposition(en) ohne erfasste Stueckzahl: "
             "Wert und Waehrung sind nicht durch Stueckzahl x Marktpreis belegt."
         )
+    # CIO-Entscheid 2026-10-28 (a): Bestaende nur in frueheren Laeufen.
+    assert_holdings_carried_over(valuation.get("holdings_not_carried_over") or [])
     if valuation.get("missing_as_of_count", 1):
         # Red-Team 2026-10-28 Befund 1: ohne Stichtag ist der Bestand nicht
         # belegt; die Position wird nicht still aus dem Stichtag gefiltert.

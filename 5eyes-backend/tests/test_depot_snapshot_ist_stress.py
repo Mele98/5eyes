@@ -220,12 +220,40 @@ def test_snapshot_values_units_times_price_with_fx_never_run_amounts(session_fac
     }
 
 
-def test_superseded_run_holdings_are_never_part_of_ist(session_factory):
-    """Red-Team 2026-10-28 Befund 2 (CIO-Entscheid): Bestaende werden nicht
-    ueber Laeufe gemischt; ein abgeloester Lauf ist nie IST-Quelle."""
+def _record_in_current_run(s, *, product_id, position_id, holding_units=None, run_id="run-a"):
+    """Produkt im aktuellen Lauf erfassen: als Position, optional mit Holding
+    (``holding_units=0`` = ausdruecklich als verkauft bestaetigt)."""
+    s.add(RecommendationPosition(
+        id=position_id, run_id=run_id, product_id=product_id, target_weight_bps=0,
+        created_at=NOW, updated_at=NOW,
+    ))
+    s.flush()
+    if holding_units is not None:
+        s.add(RecommendationHolding(
+            id=f"h-{position_id}", run_id=run_id, recommendation_position_id=position_id,
+            product_id=product_id, as_of_date=date.today().isoformat(), units_milli=holding_units,
+            source="manual", created_at=NOW, updated_at=NOW,
+        ))
+    s.flush()
+
+
+def test_holdings_only_in_superseded_run_block_as_not_carried_over(session_factory):
+    """CIO-Entscheid 2026-10-28 (a): kein stilles Verschwinden. Ein Bestand,
+    der nur in einem abgeloesten Lauf steht, macht die IST-Bewertung
+    unvollstaendig, bis er im aktuellen Lauf erfasst ist."""
     with session_factory() as s:
         _, mandate = _seed(s)
         _add_holding_outside_run(s)
+        with pytest.raises(HoldingsValuationIncompleteError, match="CH0000OLDLI1") as exc:
+            _build(s, mandate)
+    assert exc.value.reason_code == "HOLDINGS_NOT_CARRIED_OVER"
+
+
+def test_superseded_holding_confirmed_as_sold_is_not_part_of_ist(session_factory):
+    with session_factory() as s:
+        _, mandate = _seed(s)
+        _add_holding_outside_run(s)
+        _record_in_current_run(s, product_id="prod-old-li", position_id="rp-li-now", holding_units=0)
         snapshot = _build(s, mandate)
     assert {p["position_id"] for p in snapshot["positions"]} == {"h-rp-eq", "h-rp-us", "h-rp-bd"}
     assert snapshot["source"] == "current_run_holdings"
@@ -234,14 +262,17 @@ def test_superseded_run_holdings_are_never_part_of_ist(session_factory):
 def test_newest_non_superseded_run_is_the_only_source(session_factory):
     with session_factory() as s:
         _, mandate = _seed(s)
-        # Neuerer Entwurf mit eigenem (kleinerem) Bestand; das Bond-Produkt
-        # fehlt dort -> darf nicht aus dem Final-Lauf zugemischt werden.
+        # Neuerer Entwurf: eigener (kleinerer) Aktienbestand; USD und Bonds
+        # sind dort als Positionen erfasst, aber ohne Holding -> nichts wird
+        # aus dem aelteren Final-Lauf zugemischt.
         s.add(RecommendationRun(
             id="run-new-a", mandate_id="m-a", client_id="cl-a", target_allocation_id="ta-a",
             policy_id="pol-a", run_type="full", result_status="Draft", created_by="adv-a",
             created_at="2026-10-27T10:00:00.000Z", updated_at="2026-10-27T10:00:00.000Z",
         ))
         s.flush()
+        _record_in_current_run(s, product_id="prod-rp-us", position_id="rp-new-us", run_id="run-new-a")
+        _record_in_current_run(s, product_id="prod-rp-bd", position_id="rp-new-bd", run_id="run-new-a")
         s.add(RecommendationPosition(
             id="rp-new-eq", run_id="run-new-a", product_id="prod-rp-eq", target_weight_bps=0,
             created_at=NOW, updated_at=NOW,
@@ -257,6 +288,36 @@ def test_newest_non_superseded_run_is_the_only_source(session_factory):
         snapshot = _build(s, mandate)
     assert [p["position_id"] for p in snapshot["positions"]] == ["h-new-eq"]
     assert snapshot["positions"][0]["amount_base_rappen"] == 100_000_00
+
+
+def test_live_rebalancing_fallback_uses_current_run_and_reports_not_carried(session_factory):
+    """CIO-Entscheid 2026-10-28 (b): der Live-Rebalancing-Fallback nutzt dieselbe
+    Quelle wie der Depot-Snapshot; abgeloeste Laeufe nie."""
+    from services.portfolio_engine_live_rebalancing import (
+        _latest_holdings_by_product_for_mandate,
+        holdings_not_carried_over,
+    )
+
+    with session_factory() as s:
+        _, mandate = _seed(s)
+        _add_holding_outside_run(s)
+        fallback = _latest_holdings_by_product_for_mandate(s, mandate.id)
+        missing = holdings_not_carried_over(s, mandate.id)
+    assert set(fallback) == {"prod-rp-eq", "prod-rp-us", "prod-rp-bd"}
+    assert [m["product_id"] for m in missing] == ["prod-old-li"]
+    assert missing[0]["isin"] == "CH0000OLDLI1"
+
+
+def test_handoff_blocks_when_holdings_were_not_carried_over(session_factory):
+    from services.portfolio_handoff import snapshot_handoff
+
+    with session_factory() as s:
+        _, mandate = _seed(s)
+        _add_holding_outside_run(s)
+        run = s.get(RecommendationRun, "run-a")
+        with pytest.raises(HoldingsValuationIncompleteError, match="CH0000OLDLI1") as exc:
+            snapshot_handoff(s, mandate, run, "adv-a")
+    assert exc.value.reason_code == "HOLDINGS_NOT_CARRIED_OVER"
 
 
 def test_holding_edits_on_superseded_run_are_rejected(session_factory):
@@ -332,6 +393,7 @@ def test_stale_price_of_superseded_run_does_not_matter(session_factory):
     with session_factory() as s:
         _, mandate = _seed(s)
         _add_holding_outside_run(s, price_date="2026-01-02")
+        _record_in_current_run(s, product_id="prod-old-li", position_id="rp-li-now", holding_units=0)
         snapshot = _build(s, mandate)
     assert "h-old-li" not in {p["position_id"] for p in snapshot["positions"]}
 

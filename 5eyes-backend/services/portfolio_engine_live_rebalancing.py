@@ -134,23 +134,18 @@ def _latest_holdings_by_product_for_mandate(
     db: Session,
     mandate_id: str,
 ) -> dict[str, RecommendationHolding]:
-    rows = db.query(RecommendationHolding).join(
-        RecommendationRun,
-        RecommendationRun.id == RecommendationHolding.run_id,
-    ).filter(
-        RecommendationRun.mandate_id == mandate_id,
-    ).order_by(
-        RecommendationHolding.product_id.asc(),
-        RecommendationHolding.updated_at.desc(),
-    ).all()
+    """Holding je Produkt aus dem aktuellen Lauf des Mandats.
+
+    Red-Team 2026-10-28 / CIO-Entscheid (b): dieselbe Quelle wie der
+    Depot-Snapshot (``current_run_holdings``) -- juengster Draft/Final-Lauf,
+    nie abgeloeste Laeufe, keine Mischung ueber Laeufe. Bestaende, die nur
+    in einem frueheren Lauf stehen, meldet ``holdings_not_carried_over``.
+    Bei mehreren Positionen desselben Produkts zaehlt die zuletzt geaenderte.
+    """
+    _run, rows = current_run_holdings(db, mandate_id)
     holdings: dict[str, RecommendationHolding] = {}
-    seen: set[str] = set()
-    for row in rows:
-        if row.product_id in seen:
-            continue
-        seen.add(row.product_id)
-        if row.deleted_at is None:
-            holdings[row.product_id] = row
+    for row in sorted(rows, key=lambda item: str(item.updated_at or ""), reverse=True):
+        holdings.setdefault(row.product_id, row)
     return holdings
 
 
@@ -703,6 +698,9 @@ def build_live_rebalancing_payload(
         "fx_conversion_failed_count": aggregate["fx_conversion_failed_count"],
         "bucket_drifts": bucket_drifts,
         "position_drifts": position_drifts,
+        # CIO-Entscheid 2026-10-28 (a): Bestaende aus frueheren Laeufen, die im
+        # aktuellen Lauf fehlen -- die Handelsliste sperrt (fail-closed).
+        "holdings_not_carried_over": holdings_not_carried_over(db, run.mandate_id),
     }
 
 
@@ -735,6 +733,60 @@ def current_run_holdings(db: Session, mandate_id: str) -> tuple[RecommendationRu
     for row in rows:
         by_position.setdefault(row.recommendation_position_id, row)
     return run, list(by_position.values())
+
+
+def holdings_not_carried_over(db: Session, mandate_id: str) -> list[dict]:
+    """CIO-Entscheid 2026-10-28 (a): Bestaende aus frueheren Laeufen, deren
+    Produkt im aktuellen Lauf weder als Holding noch als Position erfasst ist.
+
+    Massgeblich je Produkt ist die zuletzt gueltige Holding der frueheren
+    Laeufe (juengster Lauf zuerst, dann zuletzt geaendert); eine geloeschte
+    Holding oder Menge/Wert 0 gilt als nicht gehalten. Jeder Treffer macht
+    die IST-Bewertung unvollstaendig, bis der Bestand im aktuellen Lauf
+    erfasst oder dort als verkauft (Menge 0) bestaetigt ist -- es wird nichts
+    automatisch uebernommen.
+    """
+    run, run_holdings = current_run_holdings(db, mandate_id)
+    if run is None:
+        return []
+    current_products = {row.product_id for row in run_holdings}
+    current_products |= {
+        product_id for (product_id,) in db.query(RecommendationPosition.product_id).filter(
+            RecommendationPosition.run_id == run.id,
+        ).all()
+    }
+    rows = db.query(RecommendationHolding, RecommendationRun.created_at).join(
+        RecommendationRun, RecommendationRun.id == RecommendationHolding.run_id,
+    ).filter(
+        RecommendationRun.mandate_id == mandate_id,
+        RecommendationRun.id != run.id,
+    ).order_by(
+        RecommendationHolding.product_id.asc(),
+        RecommendationRun.created_at.desc(),
+        RecommendationHolding.updated_at.desc(),
+    ).all()
+    latest: dict[str, RecommendationHolding] = {}
+    for holding, _created_at in rows:
+        latest.setdefault(holding.product_id, holding)
+    missing_ids = sorted(
+        product_id for product_id, holding in latest.items()
+        if product_id not in current_products
+        and holding.deleted_at is None
+        and (int(holding.units_milli or 0) > 0 or int(holding.market_value_rappen or 0) > 0)
+    )
+    if not missing_ids:
+        return []
+    products = {p.id: p for p in db.query(Product).filter(Product.id.in_(missing_ids)).all()}
+    return [
+        {
+            "product_id": product_id,
+            "isin": str(getattr(products.get(product_id), "isin", "") or "") or None,
+            "product_name": str(getattr(products.get(product_id), "product_name", "") or "") or None,
+            "holding_id": latest[product_id].id,
+            "run_id": latest[product_id].run_id,
+        }
+        for product_id in missing_ids
+    ]
 
 
 def value_mandate_holdings(
@@ -843,6 +895,7 @@ def value_mandate_holdings(
         **counts,
         "as_of_date": min(dates) if dates and all(dates) else None,
         "source_run_id": getattr(run, "id", None),
+        "holdings_not_carried_over": holdings_not_carried_over(db, mandate_id),
         "target_currency": target,
         "positions": positions,
     }
