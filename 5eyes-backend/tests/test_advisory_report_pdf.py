@@ -428,7 +428,13 @@ def _make_payload_with_stress_replay() -> dict:
 
 
 def _make_payload_with_mc_paths() -> dict:
-    """Payload with aligned p5/p50/p75 paths for Section 11 tests."""
+    """Payload with aligned p5/p50/p75 paths for Section 11 tests.
+
+    GOAL-CALENDAR-HORIZON-PARITY-001: ein Ziel im Jahr Y wird auf der Spalte
+    "Y + 1" (Ende von Y, Kalenderjahr-Bucket der Engine) bewertet; die
+    Zieldaten liegen deshalb ein Jahr frueher als vor dem Fix, damit jede
+    Klasse auf derselben Pfadspalte wie bisher landet.
+    """
     payload = _make_minimal_payload()
     payload["goal_based_investing"]["goals"] = [
         {
@@ -436,7 +442,7 @@ def _make_payload_with_mc_paths() -> dict:
             "label": "Retirement Goal",
             "goal_type": "Vermoegen",
             "target_amount_rappen": 210_000_000,
-            "target_date": "2030-01-01",
+            "target_date": "2029-01-01",
             "hardness": "primaer",
             "probability_bps": None,
             "status": "data_pending",
@@ -446,7 +452,7 @@ def _make_payload_with_mc_paths() -> dict:
             "label": "Renovation Goal",
             "goal_type": "Ausgabe",
             "target_amount_rappen": 180_000_000,
-            "target_date": "2028-01-01",
+            "target_date": "2027-01-01",
             "hardness": "opportunistisch",
             "probability_bps": None,
             "status": "data_pending",
@@ -456,7 +462,7 @@ def _make_payload_with_mc_paths() -> dict:
             "label": "Safety Goal",
             "goal_type": "Vermoegen",
             "target_amount_rappen": 200_000_000,
-            "target_date": "2027-01-01",
+            "target_date": "2026-01-01",
             "hardness": "hart",
             "probability_bps": None,
             "status": "data_pending",

@@ -88,14 +88,6 @@ def _make_expired_but_current_cma(row_id: str) -> CapitalMarketAssumption:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-EFFECTIVE-DATE-001 -- round 40 red test, see audit "
-        "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_resolve_cma_rejects_row_whose_valid_until_is_in_the_past(db_session):
     """An is_current=1 row that is expired by its own valid_until must NOT
     be returned as the effective CH CMA. With no other candidate row
@@ -104,9 +96,8 @@ def test_resolve_cma_rejects_row_whose_valid_until_is_in_the_past(db_session):
     zurueckgegeben") means an expired-only state must behave like "no
     current data found" -> JurisdictionReferenceDataMissingError.
 
-    Currently resolve_cma_for_jurisdiction ignores valid_until entirely and
-    happily returns this expired row instead of raising, which is the bug
-    this test documents."""
+    Vor dem Fix ignorierte resolve_cma_for_jurisdiction valid_until und gab
+    diese abgelaufene Zeile zurueck (Bug CMA-EFFECTIVE-DATE-001)."""
     expired = _make_expired_but_current_cma("cma-ch-expired-but-flagged-current")
     db_session.add(expired)
     db_session.commit()

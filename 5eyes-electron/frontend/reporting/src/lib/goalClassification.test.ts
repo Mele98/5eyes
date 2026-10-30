@@ -109,6 +109,18 @@ describe('classifyGoals — temporal edges', () => {
     expect(classifyGoals([goal], mc)[0].status).toBe('beyond_horizon');
   });
 
+  it('wertet ein Ziel im laufenden Jahr am Jahresende aus (t=1)', () => {
+    const mc = makeMc(); // starts 2026
+    const goal = makeGoal({ target_date: '2026-11-30', target_amount_rappen: 1 });
+    expect(classifyGoals([goal], mc)[0].t_index).toBe(1);
+  });
+
+  it("returns 'beyond_horizon' when the goal year's end lies after the last column", () => {
+    const mc = makeMc(); // last column "2036" = Ende 2035
+    expect(classifyGoals([makeGoal({ target_date: '2035-06-30' })], mc)[0].t_index).toBe(10);
+    expect(classifyGoals([makeGoal({ target_date: '2036-06-30' })], mc)[0].status).toBe('beyond_horizon');
+  });
+
   it("returns 'unknown' for invalid target_date format", () => {
     const mc = makeMc();
     const goal = makeGoal({ target_date: 'not-a-date' });
@@ -139,20 +151,21 @@ describe('classifyGoals — target_amount edges', () => {
 describe('classifyGoals — Status-Klassifikation', () => {
   it("klassifiziert als 'erreichbar' wenn p50 >= target", () => {
     const mc = makeMc();
-    // p50 at t=9 (2035) = 2.7M * 1.05^9 = ~4.18M
+    // Ziel 2035 -> Kalenderjahr-Bucket t=10 (Ende 2035 = Spalte "2036"):
+    // p50 = 2.7M * 1.05^10 = ~4.40M (GOAL-CALENDAR-HORIZON-PARITY-001)
     const goal = makeGoal({
       target_date: '2035-01-01',
       target_amount_rappen: 3_500_000_00, // < p50
     });
     const c = classifyGoals([goal], mc)[0];
     expect(c.status).toBe('erreichbar');
-    expect(c.t_index).toBe(9);
+    expect(c.t_index).toBe(10);
     expect(c.p50_at_target).toBeGreaterThan(0);
   });
 
   it("klassifiziert als 'knapp' wenn p75 >= target > p50", () => {
     const mc = makeMc();
-    // p50 at t=9 = ~4.18M, p75 at t=9 = 2.7M * 1.07^9 = ~4.97M
+    // p50 at t=10 = ~4.40M, p75 at t=10 = 2.7M * 1.07^10 = ~5.31M
     const goal = makeGoal({
       target_date: '2035-01-01',
       target_amount_rappen: 4_500_000_00,
@@ -176,10 +189,10 @@ describe('classifyGoals — Status-Klassifikation', () => {
 
   it("trifft die Grenze p50 = target genau richtig (>= statt >)", () => {
     const mc = makeMc();
-    // p50 bei t=5: 2.7M * 1.05^5 = exakt diesen Wert nehmen
+    // p50 bei t=5: 2.7M * 1.05^5 = exakt diesen Wert nehmen (Ziel 2030 -> t=5)
     const exact_p50 = mc.p50![5];
     const goal = makeGoal({
-      target_date: '2031-01-01',
+      target_date: '2030-01-01',
       target_amount_rappen: exact_p50,
     });
     expect(classifyGoals([goal], mc)[0].status).toBe('erreichbar');
@@ -191,7 +204,7 @@ describe('classifyGoals — Multi-Goal-Roundtrip', () => {
     const mc = makeMc();
     const goals: GoalEntry[] = [
       makeGoal({ goal_id: 'a', target_date: '2030-01-01', target_amount_rappen: 100_000_00 }),
-      makeGoal({ goal_id: 'b', target_date: '2036-01-01', target_amount_rappen: 5_000_000_00 }),
+      makeGoal({ goal_id: 'b', target_date: '2035-01-01', target_amount_rappen: 5_000_000_00 }), // letzte Spalte (Ende 2035)
       makeGoal({ goal_id: 'c', target_date: '2099-01-01', target_amount_rappen: 1_000_000_00 }),
       makeGoal({ goal_id: 'd', target_date: '', target_amount_rappen: 1_000_000_00 }),
     ];

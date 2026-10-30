@@ -2,9 +2,9 @@
 
 Die Modul-Suite (``tests/test_cma_correlation_jurisdiction_provenance.py``)
 prueft die Herkunftsbestimmung isoliert. Hier wird der Weg durch die echte
-Engine geprueft: ein DE-Mandat mit einer CMA-Zeile ohne eigene
-Korrelationsmatrix muss im Modell-Basis-Block ausweisen, dass es auf der
-SCHWEIZER Korrelationsstruktur rechnet.
+Engine geprueft: ein DE-Mandat mit eigener Korrelationsmatrix weist sie im
+Modell-Basis-Block aus; ohne eigene Matrix wird der Lauf seit CMA-001 /
+CMA-CORR-001 verweigert statt auf der SCHWEIZER Struktur zu rechnen.
 
 Isoliert geprueft waere die Funktion korrekt und trotzdem wirkungslos -- wenn
 der Modell-Basis-Block sie nicht aufruft oder ``cma`` nicht durchgereicht
@@ -34,10 +34,9 @@ import json
 
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from services.cma_correlation_provenance import (
-    EXPLICIT_CMA_SOURCE,
-    SWISS_MARKET_DEFAULT_SOURCE,
-)
+import pytest
+
+from services.cma_correlation_provenance import EXPLICIT_CMA_SOURCE
 from services.portfolio_engine import generate_recommendation_run
 
 # Wiederverwendete DE-Seed-Fixture (WP2 Engine-Wiring), wie in
@@ -70,42 +69,46 @@ def _persisted_bucket_correlation(session_factory, mandate_id: str) -> dict:
     return provenance
 
 
-def test_de_run_discloses_the_swiss_correlation_structure(session_factory) -> None:
-    """Der eigentliche Nachweis: DE-Lauf weist Fremdmarkt-Korrelation aus.
+def test_de_run_without_own_matrix_is_refused(session_factory) -> None:
+    """CMA-001 / CMA-CORR-001: ein DE-Lauf ohne eigene Korrelationsmatrix
+    rechnet nicht mehr auf der Schweizer Struktur, sondern wird verweigert;
+    es wird keine Allokation persistiert.
 
-    Die DE-CMA-Fixture setzt jurisdiktionsspezifische Returns und
-    Volatilitaeten, aber KEINE Korrelationsmatrix -- genau der Zustand, der in
-    Produktion entsteht, weil die Jurisdiktions-Seeds gar keine
-    Korrelationsdaten enthalten. Der Lauf rechnet deshalb auf der Schweizer
-    Struktur, und das muss im Nachweis stehen.
+    Vorher (CMA-CORRELATION-JURISDICTION-PROVENANCE-001) lief er und wies nur
+    ``jurisdiction_matched=False`` aus.
     """
+    from models.allocation import CapitalMarketAssumption
+
     advisor_id, mandate_id, _tenant_id = _seed_de_mandate(
         session_factory,
         suffix="corr-prov-de",
         cma_status="committee_approved",
     )
     with session_factory() as session:
-        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).first()
-        generate_recommendation_run(session, mandate, advisor_id, preferences=None)
+        row = (
+            session.query(CapitalMarketAssumption)
+            .filter(CapitalMarketAssumption.jurisdiction == "DE")
+            .first()
+        )
+        row.correlation_matrix_json = None
         session.commit()
 
-    provenance = _persisted_bucket_correlation(session_factory, mandate_id)
-    assert provenance["jurisdiction"] == "DE"
-    assert provenance["source"] == SWISS_MARKET_DEFAULT_SOURCE
-    assert provenance["jurisdiction_matched"] is False, (
-        "Ein DE-Mandat rechnet auf schweizerischen Korrelationen, ohne dass "
-        "der Nachweis das ausweist -- genau die Luecke, die dieser Befund "
-        "schliesst."
-    )
-    assert provenance["matrix_digest"], "Digest der verwendeten Matrix fehlt"
-    assert provenance["dimension"] == 5
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).first()
+        with pytest.raises(Exception) as exc_info:
+            generate_recommendation_run(session, mandate, advisor_id, preferences=None)
+        session.rollback()
+    assert "CMA-CORR-001" in str(exc_info.value)
+    with session_factory() as session:
+        assert session.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mandate_id
+        ).count() == 0
 
 
 def test_de_run_with_own_matrix_is_matched(session_factory) -> None:
     """Gegenprobe: traegt die DE-CMA eine eigene Matrix, ist nichts zu melden.
 
-    Ohne diese Gegenprobe koennte ``jurisdiction_matched`` konstant False sein
-    und der Test oben trotzdem gruen.
+    Positivfall: mit eigener Matrix laeuft der DE-Pfad und ist ``matched``.
     """
     from models.allocation import CapitalMarketAssumption
 

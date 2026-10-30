@@ -72,6 +72,7 @@ from models.users import User
 from models.wealth import Cashflow, Goal, WealthPosition
 from services.auth import get_current_user
 from services.jurisdiction.de_seed import DE_CODE, ensure_de_jurisdiction_seed
+from services.portfolio_engine import _DEFAULT_CORRELATION_MATRIX  # noqa: E402
 from services.portfolio_engine import (
     ensure_runtime_reference_data,
     generate_recommendation_run,
@@ -240,6 +241,11 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> dict:
             id=cma_id, assumption_set_name=f"DE-Test-{suffix}", version=1,
             valid_from=today.isoformat(), is_current=1, jurisdiction=DE_CODE, tenant_id=None,
             status=cma_status,
+            # CMA-001 / CMA-CORR-001: Nicht-CH-CMAs brauchen einen eigenen
+            # Korrelations-Payload (sonst fail-closed). Test-Platzhalter mit
+            # den Zahlen der bestehenden CH-Matrix, damit die Engine-Ausgabe
+            # dieser Tests unveraendert bleibt -- KEINE DE-Fachannahme.
+            correlation_matrix_json=json.dumps(_DEFAULT_CORRELATION_MATRIX),
             equity_home_return_bps=650, equity_home_vol_bps=1500,
             bonds_home_ig_return_bps=200, bonds_home_ig_vol_bps=380,
             real_estate_home_return_bps=420, real_estate_home_vol_bps=800,

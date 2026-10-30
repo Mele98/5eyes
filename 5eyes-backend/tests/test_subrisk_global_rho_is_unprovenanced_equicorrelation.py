@@ -119,9 +119,11 @@ def _equity_and_bond_sub_allocations():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "SUBRISK-GLOBAL-RHO-MODEL-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-05-sub-asset-risk-aggregation-cache-and-replay-"
-        "integrity-audit.md"
+        "SUBRISK-GLOBAL-RHO-MODEL-001 (offen, IC-Entscheid ADR-12a): die rho-"
+        "Kalibrierung samt Provenienz-Nachweis muss das Investment Committee "
+        "liefern; ein Wert oder Gate ohne diese Freigabe waere eine erfundene "
+        "Marktannahme. Audit: docs/audits/2026-10-05-sub-asset-risk-aggregation-"
+        "cache-and-replay-integrity-audit.md"
     ),
 )
 def test_changing_global_rho_requires_provenance_or_approval(monkeypatch):

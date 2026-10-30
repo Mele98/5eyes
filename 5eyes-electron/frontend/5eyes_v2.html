@@ -16,11 +16,12 @@
 <title>5eyes / WealthArchitekten v4</title>
 <style>/* Vendored: system fonts replace Google Fonts (DM Sans + EB Garamond) */
 :root{--f-s:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--f-d:Georgia,"Times New Roman",serif;}
-body{font-family:var(--f-s);}
-</style>
+body{font-family:var(--f-s);}</style>
 <script>/* Vendored Chart.js for offline desktop builds */</script>
 <script src="vendor/chart.min.js"></script>
+<script src="./eligibility-overrides.js"></script>
 <script src="./desktop-api.js"></script>
+<script src="./risk-capacity-recheck.js"></script>
 <script src="./trade-list-preview.js"></script>
 <style>
 /* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
@@ -3405,6 +3406,7 @@ function _wireSollIstHover(){
                     <div class="al-banner-body"></div>
                   </div>
                 </div>
+                <div id="rp-capacity-recheck" role="status" style="display:none;margin-top:6px;font-size:11px;color:var(--n5)" data-recheck-code=""></div>
                 <div class="resbox"><div class="res-t">Empfohlene Anlagestrategie</div><div class="res-p" id="res-pname">Growth – Wachstum</div><div class="res-d">Risikoklasse <strong>«Wachstumsorientiert»</strong>. Erhöhtes Kapitalwachstum, erhöhtes Risiko. Horizont min. 8 Jahre. <strong>Risikobereitschaft bindend</strong> – Soll-Aktienquote max. 45%.</div>
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:space-between;">
   <span style="font-size:10px;color:var(--n5)">Berechneter Score: <strong style="color:var(--n8)">7/10</strong></span>
@@ -6215,10 +6217,10 @@ function applyUpdateState(state) {
     adminSystemState.update = state;
     renderAdminDashboard();
   }
-  // Auto-Update ist nur in installierten Electron-Releases aktiv. In Dev/Browser
+  // UPDATE-001: Auto-Update ist ohne offenes Build-Gate deaktiviert. In Dev/Browser
   // (kein FiveEyesAPI) sind die Buttons No-Ops -> klar kommunizieren + sperren.
   if (!state.enabled) {
-    label.textContent = 'Auto-Update ist nur in installierten Releases aktiv.';
+    label.textContent = 'Automatische Updates sind deaktiviert (Freigabe ausstehend).';
     if (installBtn) installBtn.style.display = 'none';
     if (checkBtn) checkBtn.disabled = true;
     return;
@@ -11503,7 +11505,7 @@ function renderAdminDashboard() {
   var updateTone = update.error ? 'danger' : (update.available || update.downloaded ? 'warn' : (update.enabled === false ? 'warn' : 'ok'));
   var updateValue = update.currentVersion ? ('v' + update.currentVersion) : 'n/a';
   var updateSub = update.enabled === false
-    ? 'Auto-Update in diesem Modus nicht aktiv.'
+    ? 'Automatische Updates deaktiviert.'
     : (update.downloaded ? 'Update bereit.' : (update.available ? 'Update verfuegbar.' : 'Keine Aktion offen.'));
 
   var audit = adminSystemState.audit || {};
@@ -17840,6 +17842,7 @@ function toggleAaProjectionDetails(){
 // (GET /mandates/{id}/risk-capacity-plausibility). Reiner Berater-Hinweis:
 // das Profil wird nie automatisch geaendert, die Strategie nicht blockiert.
 function renderRiskCapacityPlausibility(result){
+  renderRiskCapacityRecheck(result&&result.bound_evaluation);
   var box=document.getElementById('rp-capacity-plausibility');
   if(!box)return;
   var status=String(result&&result.status||'');
@@ -17925,22 +17928,6 @@ async function submitFinancialCoverageAttestation(mid){
     return res;
   }catch(e){
     if(fb&&String(getActiveMandateId()||'')===mid)fb.textContent=String(e&&e.message||e);
-    return null;
-  }
-}
-async function refreshRiskCapacityPlausibility(mid){
-  var requested=String(mid||'');
-  if(!requested||isDemoMandateId(requested)){
-    renderRiskCapacityPlausibility(null);
-    return null;
-  }
-  try{
-    var res=await API.get('/mandates/'+requested+'/risk-capacity-plausibility');
-    if(String(getActiveMandateId()||'')!==requested)return null;
-    renderRiskCapacityPlausibility(res);
-    return res;
-  }catch(e){
-    if(String(getActiveMandateId()||'')===requested)renderRiskCapacityPlausibility(null);
     return null;
   }
 }
@@ -24442,7 +24429,7 @@ async function openAllocationEngineModal(){
   om('m-eq');
 }
 async function openImplementationRecipe(){
-  await refreshStrategyData(true,true);
+  if(typeof eligOverrideReset==='function')eligOverrideReset();await refreshStrategyData(true,true);
   om('m-ums');
 }
 async function confirmImplementationRecipe(){
@@ -24460,7 +24447,7 @@ async function confirmImplementationRecipe(){
     cm('m-ums');
     printPortfolioPlan();
   }catch(e){
-    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);
+    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);if(typeof eligOverrideOnFinalizeBlocked==='function')eligOverrideOnFinalizeBlocked(mid,runId,e);
   }
 }
 // RESERVE-LEDGER-SNAPSHOT-001: strukturierte Finalisierungs-Sperre
@@ -26112,7 +26099,7 @@ function pensionTransferGuardMessage(e){
 var RELEASE_GATE_HINTS={
   RISK_BUDGET_VIOLATED:'Die Soll-Allokation überschreitet das Risikobudget des Risikoprofils. Bitte Risikoprofil oder Bausteine anpassen und die Allokation neu generieren.',SIGNATURE_ARTIFACT_MISSING:'Signiert wird nur ein archiviertes PDF. Bitte das Dokument zuerst erzeugen.',SIGNATURE_ARTIFACT_HASH_MISMATCH:'Die archivierten PDF-Bytes passen nicht zur Prüfsumme. Bitte das Dokument neu erzeugen.',
   RISK_BUDGET_EVIDENCE_MISSING:'Für die aktuelle Soll-Allokation fehlt der Nachweis, dass das Risikobudget eingehalten ist. Bitte die Allokation neu generieren.',
-  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.',HANDOFF_ALREADY_OPEN:'Für diese Handelsliste besteht bereits eine offene Weiterleitung.'
+  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.',HANDOFF_ALREADY_OPEN:'Für diese Handelsliste besteht bereits eine offene Weiterleitung.',CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL:'Die Kundenunterschrift kann nicht im Berater-Login erfasst werden (kundeneigener Faktor nötig; Vor-Ort-Signatur noch nicht freigegeben).'
 };
 function releaseGateMessage(e){
   var parsed=null;
@@ -29756,8 +29743,8 @@ function openStammdatenModal(){
         <div id="sec-update" class="admin-sec-panel" style="display:none;gap:14px;">
           <div>
             <div class="admin-section-title">Software-Update</div>
-            <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Auto-Updates sind nur in installierten Releases aktiv.</div>
-            <div class="admin-section-sub">Verfuegbare Updates pruefen und installieren.</div>
+            <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Automatische Updates sind derzeit deaktiviert; neue Versionen werden als Installer bereitgestellt.</div>
+            <div class="admin-section-sub">Update-Status der Desktop-App.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span id="update-status-label" class="admin-metric-meta">—</span>

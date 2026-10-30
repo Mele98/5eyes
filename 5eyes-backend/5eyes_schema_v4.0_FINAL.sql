@@ -601,6 +601,127 @@ BEFORE DELETE ON risk_profile_signoffs FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
 
 -- ===========================================================================
+-- SIGN-001 (2026-10-27): Vor-Ort-Signatur mit kundeneigenem Faktor --
+-- append-only Ereignisjournal (Zustandsmaschine), dokumentgebundene
+-- Kunden-Challenges (nur HMAC des Codes) und Evidence-Paket je Signatur.
+-- UPDATE/DELETE per Trigger verboten; kein FK auf mandates/clients (Purge-fest).
+-- Identisch zu models/onsite_signature.py und Alembic a9e3c5d7f1b2.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS onsite_signature_events (
+    id VARCHAR NOT NULL,
+    schema_version VARCHAR NOT NULL,
+    transaction_id VARCHAR NOT NULL,
+    sequence_no INTEGER NOT NULL,
+    event_type VARCHAR NOT NULL,
+    state VARCHAR NOT NULL,
+    mandate_id VARCHAR NOT NULL,
+    client_id VARCHAR NOT NULL,
+    document_id VARCHAR NOT NULL,
+    document_hash VARCHAR(64) NOT NULL,
+    challenge_id VARCHAR,
+    reason_code VARCHAR,
+    payload_json VARCHAR NOT NULL,
+    actor_id VARCHAR NOT NULL,
+    actor_role VARCHAR NOT NULL,
+    occurred_at VARCHAR NOT NULL,
+    time_source VARCHAR NOT NULL,
+    previous_event_hash VARCHAR(64),
+    event_hash VARCHAR(64) NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY(actor_id) REFERENCES users (id)
+);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_events_document ON onsite_signature_events (document_id);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_events_mandate ON onsite_signature_events (mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_events_challenge_use ON onsite_signature_events (challenge_id) WHERE challenge_id IS NOT NULL AND event_type IN ('FACTOR_VERIFIED','FACTOR_REJECTED');
+CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_events_sequence ON onsite_signature_events (transaction_id, sequence_no);
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_events_no_update BEFORE UPDATE ON onsite_signature_events FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_events is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_events_no_delete BEFORE DELETE ON onsite_signature_events FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_events is immutable'); END;
+CREATE TABLE IF NOT EXISTS onsite_signature_challenges (
+    id VARCHAR NOT NULL,
+    schema_version VARCHAR NOT NULL,
+    transaction_id VARCHAR NOT NULL,
+    mandate_id VARCHAR NOT NULL,
+    client_id VARCHAR NOT NULL,
+    document_hash VARCHAR(64) NOT NULL,
+    purpose VARCHAR NOT NULL,
+    nonce VARCHAR NOT NULL,
+    issued_at VARCHAR NOT NULL,
+    expires_at VARCHAR NOT NULL,
+    delivery_channel VARCHAR NOT NULL,
+    code_salt VARCHAR NOT NULL,
+    code_hmac VARCHAR(64) NOT NULL,
+    binding_hash VARCHAR(64) NOT NULL,
+    policy_version VARCHAR NOT NULL,
+    actor_id VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY(actor_id) REFERENCES users (id)
+);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_challenges_transaction ON onsite_signature_challenges (transaction_id);
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_challenges_no_update BEFORE UPDATE ON onsite_signature_challenges FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_challenges is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_challenges_no_delete BEFORE DELETE ON onsite_signature_challenges FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_challenges is immutable'); END;
+CREATE TABLE IF NOT EXISTS onsite_signature_evidence (
+    id VARCHAR NOT NULL,
+    schema_version VARCHAR NOT NULL,
+    transaction_id VARCHAR NOT NULL,
+    mandate_id VARCHAR NOT NULL,
+    client_id VARCHAR NOT NULL,
+    document_id VARCHAR NOT NULL,
+    document_type VARCHAR NOT NULL,
+    document_version INTEGER NOT NULL,
+    document_content_hash VARCHAR NOT NULL,
+    template_version VARCHAR,
+    document_class VARCHAR NOT NULL,
+    policy_version VARCHAR NOT NULL,
+    language VARCHAR NOT NULL,
+    displayed_document_hash VARCHAR(64) NOT NULL,
+    final_document_hash VARCHAR(64) NOT NULL,
+    signer_role VARCHAR NOT NULL,
+    consent_text_version VARCHAR NOT NULL,
+    consent_text_hash VARCHAR(64) NOT NULL,
+    signed_at VARCHAR NOT NULL,
+    time_source VARCHAR NOT NULL,
+    timezone VARCHAR NOT NULL,
+    identity_check_result VARCHAR NOT NULL,
+    identity_check_method VARCHAR NOT NULL,
+    id_document_kind VARCHAR NOT NULL,
+    id_document_country VARCHAR NOT NULL,
+    id_document_valid INTEGER NOT NULL,
+    customer_factor_kind VARCHAR NOT NULL,
+    customer_factor_challenge_id VARCHAR NOT NULL,
+    customer_factor_binding_hash VARCHAR(64) NOT NULL,
+    customer_factor_channel VARCHAR NOT NULL,
+    customer_factor_verified_at VARCHAR NOT NULL,
+    customer_factor_actor_id VARCHAR NOT NULL,
+    advisor_id VARCHAR NOT NULL,
+    advisor_auth_method VARCHAR NOT NULL,
+    witness_statement_version VARCHAR NOT NULL,
+    witness_statement_hash VARCHAR(64) NOT NULL,
+    device_app_version VARCHAR NOT NULL,
+    qes_provider VARCHAR,
+    qes_receipt_hash VARCHAR(64),
+    qes_certificate_chain_hash VARCHAR(64),
+    qes_timestamp VARCHAR,
+    qes_validation_result VARCHAR,
+    signed_event_hash VARCHAR(64) NOT NULL,
+    evidence_hash VARCHAR(64) NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY(advisor_id) REFERENCES users (id)
+);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_evidence_mandate ON onsite_signature_evidence (mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_evidence_transaction ON onsite_signature_evidence (transaction_id);
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_evidence_no_update BEFORE UPDATE ON onsite_signature_evidence FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_evidence is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_evidence_no_delete BEFORE DELETE ON onsite_signature_evidence FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_evidence is immutable'); END;
+
+-- ===========================================================================
 -- DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Kundenschluessel fuer das
 -- Crypto-Shredding der Freitexte in append-only Evidence-Tabellen
 -- (services/pii_vault.py). Shred-only: der Trigger erlaubt nur das
@@ -1743,3 +1864,81 @@ CREATE TABLE IF NOT EXISTS price_history (
 
 CREATE INDEX IF NOT EXISTS ix_price_history_product_date
     ON price_history(product_id, price_date);
+
+-- ============================================================
+-- CMA-001 (2026-10-27): CMA_POLICY-Modell (models/cma_policy.py).
+-- Versionierte Policy je CMA-Version, Komponentenledger, append-only
+-- Vier-Augen-Freigaben. Keine Werte; Alembic b5d2e8f1c4a7 fuer PostgreSQL.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cma_policies (
+    id                            TEXT PRIMARY KEY,
+    policy_id                     TEXT NOT NULL,
+    version                       INTEGER NOT NULL,
+    status                        TEXT NOT NULL,
+    capital_market_assumptions_id TEXT NOT NULL REFERENCES capital_market_assumptions(id),
+    correlation_policy_ref        TEXT,
+    valid_from                    TEXT NOT NULL,
+    valid_until                   TEXT,
+    data_as_of                    TEXT NOT NULL,
+    base_currency                 TEXT NOT NULL,
+    return_basis                  TEXT NOT NULL,
+    fee_basis                     TEXT NOT NULL,
+    method_version                TEXT NOT NULL,
+    sources_json                  TEXT NOT NULL,
+    rationale                     TEXT NOT NULL,
+    impact_report_ref             TEXT,
+    supersedes_id                 TEXT REFERENCES cma_policies(id),
+    expiry_rule                   TEXT,
+    exception_rule                TEXT,
+    rollback_rule                 TEXT,
+    content_hash                  TEXT,
+    created_by                    TEXT NOT NULL REFERENCES users(id),
+    created_at                    TEXT NOT NULL,
+    updated_at                    TEXT NOT NULL,
+    validated_by                  TEXT REFERENCES users(id),
+    validated_at                  TEXT,
+    approved_at                   TEXT,
+    activated_by                  TEXT REFERENCES users(id),
+    activated_at                  TEXT,
+    retired_at                    TEXT,
+    revoked_by                    TEXT REFERENCES users(id),
+    revoked_at                    TEXT,
+    revocation_reason             TEXT,
+    CONSTRAINT uq_cma_policies_policy_version UNIQUE (policy_id, version)
+);
+CREATE INDEX IF NOT EXISTS ix_cma_policies_cma_status
+    ON cma_policies(capital_market_assumptions_id, status);
+
+CREATE TABLE IF NOT EXISTS cma_policy_components (
+    id              TEXT PRIMARY KEY,
+    policy_row_id   TEXT NOT NULL REFERENCES cma_policies(id),
+    asset_key       TEXT NOT NULL,
+    component       TEXT NOT NULL,
+    value_bps       INTEGER NOT NULL,
+    unit            TEXT NOT NULL,
+    horizon_years   INTEGER NOT NULL,
+    method          TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    sign            TEXT NOT NULL,
+    confidence      TEXT,
+    range_min_bps   INTEGER NOT NULL,
+    range_max_bps   INTEGER NOT NULL,
+    created_at      TEXT NOT NULL,
+    CONSTRAINT uq_cma_policy_components_asset_component UNIQUE (policy_row_id, asset_key, component)
+);
+
+CREATE TABLE IF NOT EXISTS cma_policy_approvals (
+    id              TEXT PRIMARY KEY,
+    policy_row_id   TEXT NOT NULL REFERENCES cma_policies(id),
+    approver_id     TEXT NOT NULL REFERENCES users(id),
+    approved_at     TEXT NOT NULL,
+    rationale       TEXT NOT NULL,
+    content_hash    TEXT NOT NULL,
+    CONSTRAINT uq_cma_policy_approvals_approver UNIQUE (policy_row_id, approver_id)
+);
+CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_update
+BEFORE UPDATE ON cma_policy_approvals FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_delete
+BEFORE DELETE ON cma_policy_approvals FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END;

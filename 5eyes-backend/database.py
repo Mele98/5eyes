@@ -392,6 +392,19 @@ FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     "ON financial_coverage_attestations(mandate_id, attested_at)",
 )
 
+# CMA-001 (Entscheidungsdokument 2026-10-27): Freigaben einer CMA_POLICY sind
+# unveraenderlich (models/cma_policy.py::CmaPolicyApproval). Model
+# (after_create) und ensure_runtime_columns() verwenden diese Konstante;
+# Alembic b5d2e8f1c4a7 fuer PostgreSQL.
+CMA_POLICY_APPROVAL_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_update "
+    "BEFORE UPDATE ON cma_policy_approvals FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_delete "
+    "BEFORE DELETE ON cma_policy_approvals FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END",
+)
+
 # DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2: append-only
 # DepotSnapshotV1 (models/snapshots.py::DepotSnapshot,
 # services/depot_snapshot.py). Haelt den hash-gebundenen IST-Bestand, auf
@@ -796,6 +809,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-24): Goal-
             # Driver-Snapshot, siehe models/allocation.py::TargetAllocation.
             ('goal_driver_evidence_json', 'TEXT'),
+            # GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b (2026-10-25):
+            # gebundener Bewertungsstichtag des Laufs.
+            ('valuation_date', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),
@@ -1010,6 +1026,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # Finalisierung eingefrorene Kostenausweis, siehe
             # models/review.py::RecommendationRun.
             ('cost_disclosure_snapshot_json', 'TEXT'),
+            # CMA-001: CMA_POLICY, an die eine Finalisierung gebunden wurde
+            # (models/cma_policy.py; NULL solange das Modell nicht aktiv ist).
+            ('cma_policy_row_id', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
@@ -1234,8 +1253,16 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ))
             # HANDOFF-DB-INVARIANT-001: Status-/Count-/Hash-Invarianten fuer
             # neue Schreibvorgaenge (Altzeilen bleiben unberuehrt).
-            from models.portfolio_handoff import HANDOFF_INVARIANT_SQLITE_TRIGGERS
+            from models.portfolio_handoff import (
+                HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER,
+                HANDOFF_INVARIANT_SQLITE_TRIGGERS,
+            )
 
+            # Red-Team 2026-10-28 Befund 4: der Insert-Trigger hat seit
+            # Alembic e5b3c9d1a7f4 eine strengere Bedingung -- ein bestehender
+            # Trigger gleichen Namens wird ersetzt, nicht per IF NOT EXISTS
+            # behalten. Idempotent; Altzeilen bleiben unberuehrt.
+            conn.execute(text(f"DROP TRIGGER IF EXISTS {HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER}"))
             for ddl in HANDOFF_INVARIANT_SQLITE_TRIGGERS:
                 conn.execute(text(ddl))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
@@ -1243,6 +1270,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
                     + FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS):
             conn.execute(text(ddl))
+        # CMA-001: append-only CMA_POLICY-Freigaben (Tabelle legt create_all an).
+        if inspect(conn).has_table("cma_policy_approvals"):
+            for ddl in CMA_POLICY_APPROVAL_SQLITE_TRIGGERS:
+                conn.execute(text(ddl))
         # DEPOT-E2E-SNAPSHOT-001: append-only DepotSnapshotV1 (idempotent).
         for ddl in DEPOT_SNAPSHOT_SQLITE_TABLE_DDL + DEPOT_SNAPSHOT_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
@@ -1271,6 +1302,12 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Plausibilitaetsbewertungen (idempotent; siehe Konstanten oben).
         for ddl in RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL + RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
+        # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.
+        from models.onsite_signature import APPEND_ONLY_TABLES
+
+        for table_name in APPEND_ONLY_TABLES:
+            Base.metadata.tables[table_name].create(bind=conn, checkfirst=True)
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
@@ -2362,6 +2399,11 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
     ensure_sqlite_risk_evidence_tenant_boundary(eng)
+    # ELIG-OVERRIDE-APPEND-ONLY-001: Override-Nachweise append-only (Trigger),
+    # ohne harten Run-FK (Purge-fest), Spalte approval_mode.
+    from services.product_eligibility_override_schema import ensure_sqlite_override_append_only
+
+    ensure_sqlite_override_append_only(eng)
     migrate_house_matrix_real_estate_cap_20(eng)
     ensure_snapshot_tables(eng)
     from services.market_data.provider_health_registry import ensure_provider_health_table

@@ -145,3 +145,83 @@ def test_module_level_skip_is_not_counted_as_a_test(probe_run):
     _root, _collected, junit_dir = probe_run
     junit = gate.read_junit(sorted(junit_dir.glob("*.xml")))
     assert junit.collection_skips == 1
+
+
+# ---------------------------------------------------------------------------
+# CI-ARTIFACT-UPLOAD-001: fehlendes Teilergebnis = Infrastruktur-Fehler
+# ---------------------------------------------------------------------------
+# Run 40775202093: Shard 7 bestand alle Tests, der Artefakt-Upload brach mit
+# ECONNRESET ab. Das Aggregat meldete nur hunderte "In keinem Shard
+# selektiert"/"Nicht ausgefuehrt" -- ohne Hinweis, dass ein ganzes Artefakt
+# fehlte. Der Gate bleibt rot, nennt die Ursache aber zuerst und eindeutig.
+
+
+def _gate_inputs(probe_run, tmp_path, runs_with_results):
+    _root, collected, junit_dir = probe_run
+    sel = tmp_path / "sel"
+    junit = tmp_path / "junit"
+    sel.mkdir()
+    junit.mkdir()
+    half = len(collected) // 2
+    parts = {"shard-1": collected[:half], "shard-2": collected[half:]}
+    junit_xml = (junit_dir / "all.xml").read_text(encoding="utf-8")
+    for name in runs_with_results:
+        (sel / f"{name}.txt").write_text("\n".join(parts[name]) + "\n", encoding="utf-8")
+        (junit / f"{name}.xml").write_text(junit_xml if name == "shard-1" else "<testsuites/>", encoding="utf-8")
+    collected_file = tmp_path / "collected.txt"
+    collected_file.write_text("\n".join(collected) + "\n", encoding="utf-8")
+    return [
+        "--collected", str(collected_file), "--selection-dir", str(sel), "--junit-dir", str(junit),
+        "--expected-runs", "shard-1,shard-2",
+    ], sel, junit
+
+
+def test_gate_passes_when_all_expected_runs_reported(probe_run, tmp_path, capsys):
+    args, _sel, _junit = _gate_inputs(probe_run, tmp_path, ["shard-1", "shard-2"])
+    assert gate.main(args) == 0
+    assert "Infrastruktur-Fehler" not in capsys.readouterr().out
+
+
+def test_gate_names_a_missing_run_artifact_as_infrastructure_error(probe_run, tmp_path, capsys):
+    args, _sel, _junit = _gate_inputs(probe_run, tmp_path, ["shard-1"])
+
+    rc = gate.main(args)
+
+    out = capsys.readouterr().out
+    assert rc == gate.EXIT_INFRASTRUCTURE
+    assert rc not in (0, 1)
+    assert "::error title=Infrastruktur-Fehler" in out
+    assert "shard-2" in out and "Selektion" in out and "JUnit" in out
+    # Die Ursache steht vor den Folgebefunden; die Folgebefunde bleiben sichtbar.
+    assert out.index("Infrastruktur-Fehler") < out.index("In keinem Shard selektiert")
+
+
+def test_gate_flags_missing_junit_even_when_selection_arrived(probe_run, tmp_path, capsys):
+    args, _sel, junit = _gate_inputs(probe_run, tmp_path, ["shard-1", "shard-2"])
+    (junit / "shard-2.xml").unlink()
+
+    assert gate.main(args) == gate.EXIT_INFRASTRUCTURE
+    out = capsys.readouterr().out
+    assert "shard-2" in out and "JUnit" in out
+
+
+def test_gate_keeps_real_test_failures_visible_next_to_missing_artifacts(probe_run, tmp_path, capsys):
+    args, _sel, junit = _gate_inputs(probe_run, tmp_path, ["shard-1"])
+    import xml.etree.ElementTree as ET
+
+    tree = ET.parse(junit / "shard-1.xml")
+    victim = next(case for case in tree.getroot().iter("testcase") if len(case) == 0)
+    victim.append(ET.Element("failure", message="boom"))
+    tree.write(junit / "shard-1.xml", encoding="utf-8")
+
+    assert gate.main(args) == gate.EXIT_INFRASTRUCTURE
+    out = capsys.readouterr().out
+    assert "Infrastruktur-Fehler" in out and "Fehlgeschlagen:" in out
+
+
+def test_gate_names_a_missing_reference_collection_as_infrastructure_error(probe_run, tmp_path, capsys):
+    args, _sel, _junit = _gate_inputs(probe_run, tmp_path, ["shard-1", "shard-2"])
+    (tmp_path / "collected.txt").unlink()
+
+    assert gate.main(args) == gate.EXIT_INFRASTRUCTURE
+    assert "::error title=Infrastruktur-Fehler" in capsys.readouterr().out

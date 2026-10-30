@@ -44,6 +44,7 @@ from typing import Sequence
 
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
+from services.valuation_clock import bound_valuation_date, valuation_date
 from services.cma_validation import (
     INFLATION_PATH_MAX_BPS,
     INFLATION_PATH_MIN_BPS,
@@ -269,7 +270,7 @@ def _resolve_target_year_index(
     else:
         anchor = target_date
     if anchor:
-        years = max(1, _calendar_bucket_index(anchor, date.today().year))
+        years = max(1, _calendar_bucket_index(anchor, valuation_date().year))
     else:
         years = max(1, int(goal.horizon_years or 1))
     years = max(1, years)
@@ -540,7 +541,7 @@ def _build_einmalige_ausgabe(
     bei Cashflows (B1) und beim wiederkehrenden Pfad.
     """
     amount = max(0, int(goal.target_amount_rappen or 0))
-    base_year = date.today().year
+    base_year = valuation_date().year
     target_date = _parse_iso(goal.target_date)
     overdue_since: date | None = None
     if target_date is not None:
@@ -719,7 +720,7 @@ def _build_recurring_outflow(
     start_date = _parse_iso(goal.start_date)
     target_date = _parse_iso(goal.target_date)
     is_ongoing = bool(int(goal.is_ongoing or 0))
-    base_year = date.today().year
+    base_year = valuation_date().year
 
     # Legacy-Fallback OHNE Startdatum. start_date, target_date und
     # horizon_years sind alle nullable (models/wealth.py), diese Zeilen-Form
@@ -879,10 +880,19 @@ def goal_to_liability(
     inflation_series_bps: pro-Jahr Inflation in bps. Genutzt wenn
     goal.value_mode == "real". Default: kein Inflations-Adjustment.
 
-    as_of: Bewertungsstichtag fuer den Lifecycle-Zustand (ADR-3). Default
-    ``date.today()``; ADR-1b wird hier den persistierten Stichtag
-    durchreichen, ohne dass sich die Signatur erneut aendern muss.
+    as_of: Bewertungsstichtag (ADR-1b). Bestimmt Kalenderjahr-Buckets UND
+    Lifecycle-Zustand; ohne Angabe gilt der gebundene Stichtag des Laufs
+    (``services.valuation_clock``), ausserhalb eines Laufs die Wanduhr.
     """
+    if as_of is not None:
+        with bound_valuation_date(as_of):
+            return goal_to_liability(
+                goal,
+                horizon_years=horizon_years,
+                inflation_series_bps=inflation_series_bps,
+                external_wealth_rappen=external_wealth_rappen,
+                external_wealth_series_rappen=external_wealth_series_rappen,
+            )
     goal_type = _norm_goal_type(goal.goal_type)
     horizon_years = max(1, int(horizon_years))
     _assert_inflation_domain(inflation_series_bps)
@@ -913,7 +923,7 @@ def goal_to_liability(
         raise ValueError(f"Nicht unterstuetzter Zieltyp {goal_type!r}.")
 
     built = replace(built, rank=_resolve_rank(goal))
-    return _apply_lifecycle(goal, built, horizon_years=horizon_years, as_of=as_of)
+    return _apply_lifecycle(goal, built, horizon_years=horizon_years, as_of=None)
 
 
 def _apply_lifecycle(

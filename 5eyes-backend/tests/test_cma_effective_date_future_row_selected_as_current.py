@@ -16,9 +16,9 @@ Consequence: a CMA row staged ahead of time for a future effective date
 already in force -- there is no temporal gate preventing a not-yet-valid
 row from being used as the live assumption basis for allocation/reporting.
 
-Desired behaviour (not yet implemented): a row whose valid_from lies in the
-future relative to "today" must never be selected as the effective CMA.
-This test documents that it currently IS selected -- the exact bug.
+Behaviour (fixed): a row whose valid_from lies in the future relative to
+"today" is never selected as the effective CMA; with no other row the
+resolver fails closed (JurisdictionReferenceDataMissingError).
 """
 from __future__ import annotations
 
@@ -51,6 +51,10 @@ import models.users  # noqa: E402,F401
 import models.wealth  # noqa: E402,F401
 
 from models.allocation import CapitalMarketAssumption  # noqa: E402
+from services.jurisdiction.exceptions import (  # noqa: E402
+    JurisdictionReferenceDataConflictError,
+    JurisdictionReferenceDataMissingError,
+)
 from services.jurisdiction.resolve import resolve_cma_for_jurisdiction  # noqa: E402
 
 NOW = "2026-07-30T00:00:00.000Z"
@@ -69,21 +73,12 @@ def db_session(tmp_path):
         engine.dispose()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-EFFECTIVE-DATE-001 -- round 40 red test, see audit "
-        "2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_future_dated_current_cma_is_not_selected_as_effective_today(db_session):
     """A CMA row staged for 2099 (is_current=1, valid_from/valid_until both
     far in the future) must not resolve as today's effective CH CMA.
 
-    resolve_cma_for_jurisdiction() has no as_of parameter and applies no
-    valid_from/valid_until filtering whatsoever -- it currently returns this
-    row anyway, which is the documented bug (CMA-EFFECTIVE-DATE-001)."""
+    Vor dem Fix hatte resolve_cma_for_jurisdiction() keine as_of-/
+    valid_from-Filterung und lieferte diese Zeile (CMA-EFFECTIVE-DATE-001)."""
     future_cma = CapitalMarketAssumption(
         id="cma-future-2099",
         assumption_set_name="Future-Staged-2099",
@@ -107,11 +102,50 @@ def test_future_dated_current_cma_is_not_selected_as_effective_today(db_session)
         "testet dieser Fall nichts."
     )
 
-    resolved = resolve_cma_for_jurisdiction(db_session, "CH")
+    # Test-Korrektur (CMA-EFFECTIVE-DATE-001): die urspruengliche Assertion
+    # `resolved.id != future` konnte nach dem Fix nie gruen werden -- ohne
+    # andere Zeile ist das korrekte Verhalten des fail-closed-Resolvers eine
+    # JurisdictionReferenceDataMissingError, kein Rueckgabewert.
+    with pytest.raises(JurisdictionReferenceDataMissingError):
+        resolve_cma_for_jurisdiction(db_session, "CH")
 
-    assert resolved.id != "cma-future-2099", (
-        "resolve_cma_for_jurisdiction() darf eine erst ab "
-        f"{future_cma.valid_from} gueltige CMA-Zeile nicht schon heute "
-        f"({today}) als aktuell liefern -- die Funktion hat jedoch gar "
-        "keine as_of/valid_from-Filterung (CMA-EFFECTIVE-DATE-001)."
-    )
+
+def test_future_dated_row_does_not_displace_currently_valid_row(db_session):
+    """ADR-6b (Effective-Resolver): eine vorab erfasste 2099-Zeile und die
+    heute gueltige Zeile duerfen koexistieren; wirksam ist die heute gueltige,
+    ohne Mehrdeutigkeits-Konflikt. Am 2099-Stichtag kehrt sich das um."""
+    db_session.add_all([
+        CapitalMarketAssumption(
+            id="cma-current", assumption_set_name="Current", version=1,
+            valid_from="2020-01-01", valid_until=None, is_current=1,
+            jurisdiction=None, tenant_id=None, status="committee_approved",
+            created_by="tester", created_at=NOW, updated_at=NOW,
+        ),
+        CapitalMarketAssumption(
+            id="cma-future-2099", assumption_set_name="Future-Staged-2099",
+            version=2, valid_from="2099-01-01", valid_until="2099-12-31",
+            is_current=1, jurisdiction=None, tenant_id=None,
+            status="committee_approved", created_by="tester",
+            created_at=NOW, updated_at=NOW,
+        ),
+    ])
+    db_session.commit()
+
+    assert resolve_cma_for_jurisdiction(db_session, "CH").id == "cma-current"
+    # 2099-06-01: beide Fenster ueberlappen -> echte Mehrdeutigkeit, fail-closed.
+    with pytest.raises(JurisdictionReferenceDataConflictError):
+        resolve_cma_for_jurisdiction(db_session, "CH", as_of=date(2099, 6, 1))
+
+
+def test_unparseable_validity_date_fails_closed(db_session):
+    """Ein nicht lesbares valid_from darf weder still ein- noch ausgeschlossen
+    werden -- die Gueltigkeit ist unbestimmbar."""
+    db_session.add(CapitalMarketAssumption(
+        id="cma-bad-date", assumption_set_name="Bad", version=1,
+        valid_from="kein-datum", is_current=1, jurisdiction=None,
+        tenant_id=None, status="committee_approved", created_by="tester",
+        created_at=NOW, updated_at=NOW,
+    ))
+    db_session.commit()
+    with pytest.raises(JurisdictionReferenceDataConflictError):
+        resolve_cma_for_jurisdiction(db_session, "CH")

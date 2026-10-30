@@ -111,7 +111,8 @@ def build_contract_signoff_flowables(
     flowables.append(_section_title("Finale Empfehlung"))
     flowables.append(make_summary_text(
         data.final_recommendation
-        or "Die finale Empfehlung ist in der aktuellen Portfolioempfehlung dokumentiert."
+        # SIGN-CLAIM-001: ohne belegte finale Empfehlung keine Behauptung.
+        or "Fuer dieses Mandat liegt keine finalisierte Empfehlung vor."
     ))
     flowables.append(PageBreak())
 
