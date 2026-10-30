@@ -24,8 +24,13 @@ All four tables are append-only (UPDATE/DELETE triggers); the backfill lifts
 the UPDATE guard only around its own statement and restores it afterwards.
 The tenant id is NOT part of any evidence hash (hashes stay unchanged).
 
-The PostgreSQL DDL lives frozen in Alembic ``b8d4f2a6c9e1``; this module holds
-the SQLite runtime side (create_all hook + runtime patch for desktop DBs).
+Follow-up (PG-002): ``depot_check_analysis_snapshots`` (mandate + client,
+like above) and ``product_eligibility_overrides`` (no own mandate column: the
+tenant is derived along ``recommendation_run_id`` -> run -> mandate).
+
+The PostgreSQL DDL lives frozen in Alembic ``b8d4f2a6c9e1`` and
+``d6a2c8e4f1b7``; this module holds the SQLite runtime side (create_all hook
++ runtime patch for desktop DBs).
 """
 from __future__ import annotations
 
@@ -41,8 +46,20 @@ MANDATE_EVIDENCE_TENANT_TABLES: tuple[str, ...] = (
     "onsite_signature_challenges",
     "onsite_signature_evidence",
 )
+# Tables with own mandate_id + client_id (guard: mandate tenant + client).
+MANDATE_BOUND_TENANT_TABLES: tuple[str, ...] = MANDATE_EVIDENCE_TENANT_TABLES + (
+    "depot_check_analysis_snapshots",
+)
+# Tables bound to a recommendation run (guard: tenant of the run's mandate).
+RUN_BOUND_TENANT_TABLES: tuple[str, ...] = ("product_eligibility_overrides",)
+ALL_TENANT_BOUND_TABLES: tuple[str, ...] = MANDATE_BOUND_TENANT_TABLES + RUN_BOUND_TENANT_TABLES
 TENANT_ERROR = "MANDATE_EVIDENCE_TENANT_MISMATCH"
 POSTGRES_FUNCTION_NAME = "mandate_evidence_tenant_from_mandate"
+POSTGRES_RUN_FUNCTION_NAME = "run_evidence_tenant_from_run"
+_RUN_TENANT_SUBQUERY = (
+    "SELECT m.tenant_id FROM recommendation_runs r JOIN mandates m ON m.id = r.mandate_id "
+    "WHERE r.id = {ref}.recommendation_run_id"
+)
 
 
 def guard_trigger_name(table: str) -> str:
@@ -54,6 +71,13 @@ def tenant_index_name(table: str) -> str:
 
 
 def sqlite_guard_trigger(table: str) -> str:
+    if table in RUN_BOUND_TENANT_TABLES:
+        return (
+            f"CREATE TRIGGER IF NOT EXISTS {guard_trigger_name(table)} "
+            f"BEFORE INSERT ON {table} FOR EACH ROW "
+            f"WHEN NEW.tenant_id IS NOT ({_RUN_TENANT_SUBQUERY.format(ref='NEW')}) "
+            f"BEGIN SELECT RAISE(ABORT, '{TENANT_ERROR}'); END"
+        )
     return (
         f"CREATE TRIGGER IF NOT EXISTS {guard_trigger_name(table)} "
         f"BEFORE INSERT ON {table} FOR EACH ROW "
@@ -74,10 +98,22 @@ def sqlite_no_update_trigger(table: str) -> str:
 
 
 def backfill_tenant_sql(table: str) -> str:
+    if table in RUN_BOUND_TENANT_TABLES:
+        return (
+            f"UPDATE {table} SET tenant_id = ({_RUN_TENANT_SUBQUERY.format(ref=table)}) "
+            f"WHERE tenant_id IS NULL"
+        )
     return (
         f"UPDATE {table} SET tenant_id = (SELECT m.tenant_id FROM mandates m "
         f"WHERE m.id = {table}.mandate_id) WHERE tenant_id IS NULL"
     )
+
+
+def backfill_source_sql(table: str) -> str:
+    """Scalar subquery: the tenant a row of ``table`` derives from."""
+    if table in RUN_BOUND_TENANT_TABLES:
+        return _RUN_TENANT_SUBQUERY.format(ref=table)
+    return f"SELECT m.tenant_id FROM mandates m WHERE m.id = {table}.mandate_id"
 
 
 def quarantined_count_sql(table: str) -> str:
@@ -103,8 +139,9 @@ def _ready_tables(connection) -> list[str]:
     if "mandates" not in tables or "tenant_id" not in _sqlite_columns(connection, "mandates"):
         return []
     return [
-        table for table in MANDATE_EVIDENCE_TENANT_TABLES
+        table for table in ALL_TENANT_BOUND_TABLES
         if table in tables and "tenant_id" in _sqlite_columns(connection, table)
+        and (table not in RUN_BOUND_TENANT_TABLES or "recommendation_runs" in tables)
     ]
 
 
@@ -127,8 +164,8 @@ def ensure_sqlite_mandate_evidence_tenant_boundary(engine) -> dict[str, int]:
     with engine.begin() as conn:
         for table in _ready_tables(conn):
             pending = conn.execute(text(
-                f"SELECT count(*) FROM {table} t WHERE t.tenant_id IS NULL AND EXISTS ("
-                f"SELECT 1 FROM mandates m WHERE m.id = t.mandate_id AND m.tenant_id IS NOT NULL)"
+                f"SELECT count(*) FROM {table} WHERE tenant_id IS NULL "
+                f"AND ({backfill_source_sql(table)}) IS NOT NULL"
             )).scalar()
             if pending:
                 conn.execute(text(f"DROP TRIGGER IF EXISTS trg_{table}_no_update"))

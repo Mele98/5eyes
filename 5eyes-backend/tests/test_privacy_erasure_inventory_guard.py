@@ -19,13 +19,15 @@ import_tenant_models()
 
 
 def test_every_client_bound_table_has_a_disposition_classification():
-    problems = inv.inventory_problems(Base.metadata.tables, tenant_inventory.TENANT_DERIVED_TABLES)
+    # PG-002: tenant_direct-Tabellen ohne eigene Kunden-/Mandatsspalte
+    # (product_eligibility_overrides) behalten ihren Bezug ueber die Route.
+    problems = inv.inventory_problems(Base.metadata.tables, tenant_inventory.client_scope_routes())
     assert problems == []
 
 
 def test_client_bound_set_covers_the_tenant_inventory_routes():
-    bound = inv.client_bound_tables(Base.metadata.tables, tenant_inventory.TENANT_DERIVED_TABLES)
-    for name, (_column, parent) in tenant_inventory.TENANT_DERIVED_TABLES.items():
+    bound = inv.client_bound_tables(Base.metadata.tables, tenant_inventory.client_scope_routes())
+    for name, (_column, parent) in tenant_inventory.client_scope_routes().items():
         if parent in bound:
             assert name in bound, name
     assert {"risk_assessment_answers", "recommendation_positions", "product_eligibility_overrides"} <= bound

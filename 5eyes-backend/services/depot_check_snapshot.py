@@ -283,6 +283,9 @@ def persist_depot_check_analysis(db: Session, analysis: dict, *, mandate: Mandat
     row = DepotCheckAnalysisSnapshot(
         id=analysis["analysis_snapshot_id"],
         schema_version=analysis["analysis_version"],
+        # PG-002: Mandant direkt (RLS); die DB leitet ihn aus dem Mandat nach
+        # und lehnt Abweichungen ab. Nicht Teil der Hashes.
+        tenant_id=getattr(mandate, "tenant_id", None),
         mandate_id=analysis["mandate_id"],
         client_id=str(getattr(mandate, "client_id", "") or ""),
         depot_snapshot_id=analysis["snapshot_id"],

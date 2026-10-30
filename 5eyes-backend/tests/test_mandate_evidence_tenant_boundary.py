@@ -272,7 +272,7 @@ def test_sqlite_runtime_patch_adds_column_backfills_and_installs_guard(tmp_path)
         db_module.ensure_runtime_columns(engine)
         quarantined = metb.ensure_sqlite_mandate_evidence_tenant_boundary(engine)
         # Verwaiste Zeilen werden gezaehlt (und geloggt), nie einem Mandanten zugeordnet.
-        assert quarantined == {table: 1 for table in TABLES}
+        assert {table: quarantined[table] for table in TABLES} == {table: 1 for table in TABLES}
         with engine.connect() as conn:
             for table in TABLES:
                 assert _tenants(conn, table) == {
@@ -283,7 +283,8 @@ def test_sqlite_runtime_patch_adds_column_backfills_and_installs_guard(tmp_path)
                 assert metb.tenant_index_name(table) in indexes
         # idempotent
         db_module.ensure_runtime_columns(engine)
-        assert metb.ensure_sqlite_mandate_evidence_tenant_boundary(engine) == {table: 1 for table in TABLES}
+        again = metb.ensure_sqlite_mandate_evidence_tenant_boundary(engine)
+        assert {table: again[table] for table in TABLES} == {table: 1 for table in TABLES}
         for table in TABLES:
             with pytest.raises(Exception, match="immutable"):
                 with engine.begin() as conn:
