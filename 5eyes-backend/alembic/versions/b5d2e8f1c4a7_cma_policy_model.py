@@ -8,7 +8,7 @@ ihre damalige Policy). Keine Daten, keine Werte: das Finalisierungs-Gate
 wird erst durch die erste Policy-Aktivierung scharf.
 
 Revision ID: b5d2e8f1c4a7
-Revises: a7c4e9b2d1f3
+Revises: e5b3c9d1a7f4
 Create Date: 2026-10-27
 """
 from typing import Sequence, Union
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b5d2e8f1c4a7"
-down_revision: Union[str, Sequence[str], None] = "a7c4e9b2d1f3"
+down_revision: Union[str, Sequence[str], None] = "e5b3c9d1a7f4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

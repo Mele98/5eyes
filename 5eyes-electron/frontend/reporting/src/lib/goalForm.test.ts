@@ -119,7 +119,7 @@ describe('buildGoalPayload', () => {
     expect(payload.data_classification).toBe('synthetic');
   });
 
-  it('übernimmt value_mode nur bei Vermögenszielen', () => {
+  it('übernimmt value_mode bei Vermögenszielen', () => {
     const payload = buildGoalPayload({
       goal_type: 'Vermögensziel',
       label: 'Vorsorge',

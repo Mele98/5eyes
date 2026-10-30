@@ -134,23 +134,18 @@ def _latest_holdings_by_product_for_mandate(
     db: Session,
     mandate_id: str,
 ) -> dict[str, RecommendationHolding]:
-    rows = db.query(RecommendationHolding).join(
-        RecommendationRun,
-        RecommendationRun.id == RecommendationHolding.run_id,
-    ).filter(
-        RecommendationRun.mandate_id == mandate_id,
-    ).order_by(
-        RecommendationHolding.product_id.asc(),
-        RecommendationHolding.updated_at.desc(),
-    ).all()
+    """Holding je Produkt aus dem aktuellen Lauf des Mandats.
+
+    Red-Team 2026-10-28 / CIO-Entscheid (b): dieselbe Quelle wie der
+    Depot-Snapshot (``current_run_holdings``) -- juengster Draft/Final-Lauf,
+    nie abgeloeste Laeufe, keine Mischung ueber Laeufe. Bestaende, die nur
+    in einem frueheren Lauf stehen, meldet ``holdings_not_carried_over``.
+    Bei mehreren Positionen desselben Produkts zaehlt die zuletzt geaenderte.
+    """
+    _run, rows = current_run_holdings(db, mandate_id)
     holdings: dict[str, RecommendationHolding] = {}
-    seen: set[str] = set()
-    for row in rows:
-        if row.product_id in seen:
-            continue
-        seen.add(row.product_id)
-        if row.deleted_at is None:
-            holdings[row.product_id] = row
+    for row in sorted(rows, key=lambda item: str(item.updated_at or ""), reverse=True):
+        holdings.setdefault(row.product_id, row)
     return holdings
 
 
@@ -703,4 +698,204 @@ def build_live_rebalancing_payload(
         "fx_conversion_failed_count": aggregate["fx_conversion_failed_count"],
         "bucket_drifts": bucket_drifts,
         "position_drifts": position_drifts,
+        # CIO-Entscheid 2026-10-28 (a): Bestaende aus frueheren Laeufen, die im
+        # aktuellen Lauf fehlen -- die Handelsliste sperrt (fail-closed).
+        "holdings_not_carried_over": holdings_not_carried_over(db, run.mandate_id),
+    }
+
+
+CURRENT_RUN_STATUSES = ("Draft", "Final")
+
+
+def current_run_holdings(db: Session, mandate_id: str) -> tuple[RecommendationRun | None, list[RecommendationHolding]]:
+    """Juengster nicht abgeloester Lauf des Mandats und seine Holdings.
+
+    ``result_status`` kennt 'Draft', 'Final', 'Rejected', 'Superseded'
+    (CHECK im Bootstrap-Schema); 'Superseded' setzt die Finalisierung fuer
+    jeden frueheren Final-Lauf (routers/review.py::finalize_recommendation).
+    Quelle sind nur 'Draft'/'Final'. Je Position zaehlt die zuletzt geaenderte,
+    nicht geloeschte Holding (wie ``upsert_position_holding``).
+    """
+    run = db.query(RecommendationRun).filter(
+        RecommendationRun.mandate_id == mandate_id,
+        RecommendationRun.result_status.in_(CURRENT_RUN_STATUSES),
+    ).order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc()).first()
+    if run is None:
+        return None, []
+    rows = db.query(RecommendationHolding).filter(
+        RecommendationHolding.run_id == run.id,
+        RecommendationHolding.deleted_at.is_(None),
+    ).order_by(
+        RecommendationHolding.recommendation_position_id.asc(),
+        RecommendationHolding.updated_at.desc(),
+    ).all()
+    by_position: dict[str, RecommendationHolding] = {}
+    for row in rows:
+        by_position.setdefault(row.recommendation_position_id, row)
+    return run, list(by_position.values())
+
+
+def holdings_not_carried_over(db: Session, mandate_id: str) -> list[dict]:
+    """CIO-Entscheid 2026-10-28 (a): Bestaende aus frueheren Laeufen, deren
+    Produkt im aktuellen Lauf weder als Holding noch als Position erfasst ist.
+
+    Massgeblich je Produkt ist die zuletzt gueltige Holding der frueheren
+    Laeufe (juengster Lauf zuerst, dann zuletzt geaendert); eine geloeschte
+    Holding oder Menge/Wert 0 gilt als nicht gehalten. Jeder Treffer macht
+    die IST-Bewertung unvollstaendig, bis der Bestand im aktuellen Lauf
+    erfasst oder dort als verkauft (Menge 0) bestaetigt ist -- es wird nichts
+    automatisch uebernommen.
+    """
+    run, run_holdings = current_run_holdings(db, mandate_id)
+    if run is None:
+        return []
+    current_products = {row.product_id for row in run_holdings}
+    current_products |= {
+        product_id for (product_id,) in db.query(RecommendationPosition.product_id).filter(
+            RecommendationPosition.run_id == run.id,
+        ).all()
+    }
+    rows = db.query(RecommendationHolding, RecommendationRun.created_at).join(
+        RecommendationRun, RecommendationRun.id == RecommendationHolding.run_id,
+    ).filter(
+        RecommendationRun.mandate_id == mandate_id,
+        RecommendationRun.id != run.id,
+    ).order_by(
+        RecommendationHolding.product_id.asc(),
+        RecommendationRun.created_at.desc(),
+        RecommendationHolding.updated_at.desc(),
+    ).all()
+    latest: dict[str, RecommendationHolding] = {}
+    for holding, _created_at in rows:
+        latest.setdefault(holding.product_id, holding)
+    missing_ids = sorted(
+        product_id for product_id, holding in latest.items()
+        if product_id not in current_products
+        and holding.deleted_at is None
+        and (int(holding.units_milli or 0) > 0 or int(holding.market_value_rappen or 0) > 0)
+    )
+    if not missing_ids:
+        return []
+    products = {p.id: p for p in db.query(Product).filter(Product.id.in_(missing_ids)).all()}
+    return [
+        {
+            "product_id": product_id,
+            "isin": str(getattr(products.get(product_id), "isin", "") or "") or None,
+            "product_name": str(getattr(products.get(product_id), "product_name", "") or "") or None,
+            "holding_id": latest[product_id].id,
+            "run_id": latest[product_id].run_id,
+        }
+        for product_id in missing_ids
+    ]
+
+
+def value_mandate_holdings(
+    db: Session,
+    mandate_id: str,
+    *,
+    fx_source,
+    target_currency: str = "CHF",
+) -> dict:
+    """DEPOT-E2E-STRESS-001 Option 2: bewertet den erfassten Depotbestand des
+    Mandats.
+
+    Quelle (Red-Team 2026-10-28, CIO-Entscheid): ausschliesslich die Holdings
+    des juengsten nicht abgeloesten Laufs (``current_run_holdings``); es wird
+    nicht ueber Laeufe gemischt, abgeloeste Laeufe sind nie Quelle.
+
+    Gleiche Regeln wie ``_build_live_rebalancing_entry``: Wert = Stueckzahl x
+    letzter Marktpreis aus PriceHistory, Preis in ``product.currency`` und via
+    ``_convert_price_rappen_to_target_currency`` auf ``target_currency``
+    umgerechnet, Frische gegen ``summarize_price_quality().stale_after_days``.
+    Liefert dieselben Coverage-Aggregate wie ``build_live_rebalancing_payload``
+    (fuer ``assert_holdings_valuation_complete``) plus
+    ``missing_units_count``, ``missing_product_count`` und
+    ``missing_as_of_count``. Eine Position ohne Stueckzahl, Preis oder FX
+    erhaelt ``current_market_value_rappen=None`` -- es wird nie ein Wert
+    angenommen. ``as_of_date`` ist der AELTESTE Bestandsstichtag (``None``,
+    sobald eine Position keinen Stichtag hat).
+    """
+    run, run_holdings = current_run_holdings(db, mandate_id)
+    holdings = [
+        row for row in run_holdings
+        if int(row.units_milli or 0) > 0 or int(row.market_value_rappen or 0) > 0
+    ]
+    product_ids = sorted({row.product_id for row in holdings})
+    products = {
+        product.id: product
+        for product in db.query(Product).filter(Product.id.in_(product_ids)).all()
+    } if product_ids else {}
+    quality = summarize_price_quality(db, product_ids) if product_ids else {}
+    stale_after_days = int(quality.get("stale_after_days") or 5)
+    latest_prices = latest_price_snapshot(db, product_ids) if product_ids else {}
+    today = date.today()
+    target = str(target_currency or "CHF").upper().strip() or "CHF"
+
+    counts = {
+        "holding_positions_count": len(holdings),
+        "implied_positions_count": 0,
+        "missing_prices_count": 0,
+        "stale_positions_count": 0,
+        "fx_conversion_failed_count": 0,
+        "missing_units_count": 0,
+        "missing_product_count": 0,
+        "missing_as_of_count": 0,
+    }
+    positions: list[dict] = []
+    for holding in holdings:
+        product = products.get(holding.product_id)
+        units_milli = int(holding.units_milli or 0) or None
+        latest = latest_prices.get(holding.product_id)
+        price_rappen = int(latest.price_rappen or 0) if latest else None
+        fx_failed = False
+        fx_converted = False
+        if product is None:
+            counts["missing_product_count"] += 1
+        else:
+            price_rappen, fx_failed = _convert_price_rappen_to_target_currency(
+                price_rappen, product.currency, fx_source, target,
+            )
+            fx_converted = bool(
+                fx_source is not None and not fx_failed
+                and str(product.currency or "CHF").upper().strip() != target
+            )
+        price_date = parse_iso_date(latest.price_date) if latest else None
+        price_is_fresh = bool(price_date and (today - price_date).days <= stale_after_days)
+        if latest is None:
+            counts["missing_prices_count"] += 1
+        elif not price_is_fresh:
+            counts["stale_positions_count"] += 1
+        if fx_failed:
+            counts["fx_conversion_failed_count"] += 1
+        if units_milli is None:
+            counts["missing_units_count"] += 1
+        if not str(holding.as_of_date or "").strip():
+            counts["missing_as_of_count"] += 1
+        value = (
+            _value_from_units_milli(units_milli, price_rappen)
+            if units_milli and price_rappen and not fx_failed and product is not None
+            else None
+        )
+        positions.append({
+            "holding_id": holding.id,
+            "product_id": holding.product_id,
+            "product_currency": str(getattr(product, "currency", "") or "").upper().strip() or None,
+            "holding_as_of_date": str(holding.as_of_date or "").strip() or None,
+            "units_milli": units_milli,
+            "latest_price_rappen": price_rappen,
+            "latest_price_date": latest.price_date if latest else None,
+            "price_is_fresh": price_is_fresh if latest else None,
+            "fx_converted": fx_converted,
+            "fx_conversion_failed": fx_failed,
+            "valuation_basis": "actual_holding_units" if units_milli else "holding_market_value_only",
+            "current_market_value_rappen": value,
+        })
+    dates = [p["holding_as_of_date"] for p in positions]
+    return {
+        **counts,
+        "as_of_date": min(dates) if dates and all(dates) else None,
+        "source_run_id": getattr(run, "id", None),
+        "holdings_not_carried_over": holdings_not_carried_over(db, mandate_id),
+        "target_currency": target,
+        "positions": positions,
     }

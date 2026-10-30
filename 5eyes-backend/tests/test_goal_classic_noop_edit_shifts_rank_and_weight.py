@@ -27,12 +27,16 @@ Root-Cause (zwei Schichten):
    Ein voelliger No-op-Edit veraendert so lautlos sowohl die Sortierung als
    auch die Optimizer-Gewichtung eines Ziels.
 
-Beide Tests unten sind bewusst RED (xfail/strict) -- sie dokumentieren den
-Bug, der Fix selbst ist nicht Teil dieses Runde-47-Auftrags.
+GESCHLOSSEN 2026-10-25: (1) der Classic-Select ist ein reines Haerte-Control,
+der Rang kommt aus dem persistierten Rang bzw. der Listenreihenfolge (ADR-10b);
+(2) ein Update mit belegtem Wunschrang behaelt den eigenen Rang statt ans Ende
+geschoben zu werden (keine automatische Herabstufung). Umsortieren laeuft ueber
+``PUT /mandates/{id}/goals/order`` (ADR-10c).
 """
 from __future__ import annotations
 
 import datetime
+import json
 import re
 import shutil
 import subprocess
@@ -164,10 +168,7 @@ def _extract_priority_map_literal(html: str) -> str:
 
 
 def _extract_stored_priority_statement(html: str) -> str:
-    match = re.search(
-        r"var storedPriority=priorityMap\[goal\.hardness\]\|\|String\(goal\.rank\|\|2\);",
-        html,
-    )
+    match = re.search(r"var storedPriority=priorityMap\[goal\.hardness\]\|\|'2';", html)
     assert match, (
         "storedPriority derivation in openGoalEditor() changed shape -- "
         "update this extraction regex before trusting the test below"
@@ -175,55 +176,85 @@ def _extract_stored_priority_statement(html: str) -> str:
     return match.group(0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RANK-HARDNESS-ROUNDTRIP-001 -- round 47 red test (Classic "
-        "no-op edit shifts rank 2->4 and weight 5000->1250), see audit "
-        "docs/audits/2026-09-28-goal-funding-priority-and-achievability-"
-        "attribution-audit.md"
-    ),
-)
-def test_classic_edit_select_init_should_roundtrip_persisted_rank_not_hardness():
-    """Extracts the REAL `priorityMap` literal and `storedPriority` derivation
-    line out of 5eyes_v2.html's openGoalEditor() and executes them with Node
-    against g2's real persisted state (rank=2, hardness='Hart'). A round-trip-
-    safe implementation would initialize the select to '2' (the persisted
-    rank). The real code instead maps hardness='Hart' -> '1' via priorityMap
-    and only falls back to rank when hardness is unmapped, so this yields
-    '1' -- the wrong value a subsequent no-op save would send to the backend.
-    """
+def _extract_hardness_map_literal(html: str) -> str:
+    match = re.search(r"var hardnessMap=\{[^}]*\};", html)
+    assert match, "hardnessMap literal not found in saveGoal()"
+    return match.group(0)
+
+
+def _extract_save_rank_expression(html: str) -> str:
+    """Der Ausdruck, mit dem saveGoal() den Rang in den Payload schreibt."""
+    save_src = html[html.index("async function saveGoal(options){"):]
+    match = re.search(r"\n    rank:(\(function\(\)\{.*?\}\)\(\)),\n", save_src)
+    assert match, "rank expression in saveGoal() payload changed shape"
+    return match.group(1)
+
+
+def _run_classic_roundtrip(goals: list[dict], edit_id: str | None) -> dict:
+    """Fuehrt die ECHTEN Ausdruecke aus 5eyes_v2.html in node aus:
+    Edit-Initialisierung des Haerte-Selects (openGoalEditor) und Rang/Haerte
+    im Speicher-Payload (saveGoal)."""
+    html = _html()
+    goal = next((g for g in goals if g["id"] == edit_id), {"hardness": "Primär"})
+    script = "\n".join([
+        f"var currentGoals = {json.dumps(goals)};",
+        f"var goal = {json.dumps(goal)};",
+        f"var isEdit = {json.dumps(edit_id is not None)};",
+        f"var goalIdBeforeSave = {json.dumps(edit_id)};",
+        _extract_priority_map_literal(html),
+        _extract_stored_priority_statement(html),
+        _extract_hardness_map_literal(html),
+        "var prio = storedPriority;",
+        "var rank = " + _extract_save_rank_expression(html) + ";",
+        "process.stdout.write(JSON.stringify({prio: storedPriority, rank: rank, hardness: hardnessMap[prio]}));",
+    ])
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=10, check=False)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+_HARDNESS = ["Hart", "Primär", "Opportunistisch"]
+
+
+@pytest.mark.parametrize("rank", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("hardness", _HARDNESS)
+def test_classic_noop_edit_roundtrips_rank_and_hardness_independently(rank, hardness):
+    """Pflichttest 1/2: Roundtrip-Matrix Rang 1..5 x Haerte. Der Classic-
+    Select ist ein reines Haerte-Control; der Rang kommt beim Speichern aus
+    dem persistierten Rang des Ziels (Rang = Listenreihenfolge). Ein No-op-
+    Edit schreibt beide Felder unveraendert zurueck."""
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
+    others = [{"id": f"o{r}", "rank": r, "hardness": "Primär"} for r in range(1, 7) if r != rank]
+    goals = others + [{"id": "g", "rank": rank, "hardness": hardness}]
+    out = _run_classic_roundtrip(goals, "g")
+    assert out["rank"] == rank
+    assert out["hardness"] == hardness
 
-    html = _html()
-    priority_map_literal = _extract_priority_map_literal(html)
-    stored_priority_statement = _extract_stored_priority_statement(html)
 
-    node_script = (
-        priority_map_literal + "\n"
-        "var goal = {rank: 2, hardness: 'Hart'};\n"
-        + stored_priority_statement + "\n"
-        "console.log(storedPriority);\n"
-    )
-    result = subprocess.run(
-        ["node", "-e", node_script],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    stored_priority = result.stdout.strip()
+def test_classic_edit_select_init_reads_hardness_not_rank():
+    """Das konkrete Audit-Beispiel: Rang 2 / Hart. Der Select zeigt Hart
+    ('1'), der Payload behaelt Rang 2 -- vorher wurde aus demselben Wert auch
+    rank=1 gesendet."""
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available to execute extracted JS")
+    goals = [
+        {"id": "g1", "rank": 1, "hardness": "Primär"},
+        {"id": "g2", "rank": 2, "hardness": "Hart"},
+        {"id": "g3", "rank": 3, "hardness": "Opportunistisch"},
+    ]
+    out = _run_classic_roundtrip(goals, "g2")
+    assert out == {"prio": "1", "rank": 2, "hardness": "Hart"}
 
-    # Round-trip-safe expectation: opening g2 (persisted rank=2) for editing
-    # and changing nothing must keep the select on '2'.
-    assert stored_priority == "2", (
-        f"expected round-trip-safe priority '2' (g2's persisted rank), got "
-        f"{stored_priority!r} -- openGoalEditor() mapped from "
-        f"hardness='Hart' via priorityMap instead of using the persisted "
-        f"rank=2"
-    )
+
+def test_classic_new_goal_is_appended_after_the_last_rank():
+    """Neues Ziel: Rang = letzter Rang + 1, unabhaengig von der Haerte; ohne
+    Ziele Rang 1. Umsortieren erfolgt danach per Drag (atomare Reihenfolge)."""
+    if shutil.which("node") is None:
+        pytest.skip("node binary not available to execute extracted JS")
+    goals = [{"id": "g1", "rank": 1, "hardness": "Opportunistisch"}, {"id": "g2", "rank": 4, "hardness": "Hart"}]
+    assert _run_classic_roundtrip(goals, None)["rank"] == 5
+    assert _run_classic_roundtrip([], None)["rank"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -233,15 +264,6 @@ def test_classic_edit_select_init_should_roundtrip_persisted_rank_not_hardness()
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RANK-HARDNESS-ROUNDTRIP-001 -- round 47 red test (Classic "
-        "no-op edit shifts rank 2->4 and weight 5000->1250), see audit "
-        "docs/audits/2026-09-28-goal-funding-priority-and-achievability-"
-        "attribution-audit.md"
-    ),
-)
 def test_classic_noop_edit_resend_does_not_silently_drift_rank_and_weight(
     auth_client, advisor_user, session_factory,
 ):

@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-26.1"
+INVENTORY_VERSION = "2026-10-27.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -39,6 +39,12 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "audit_log",
     "clients",
     "mandates",
+    # PRIVACY-001: Aufbewahrungsmatrix, Rollen, Legal Holds, Loeschvorgaenge.
+    "privacy_erasure_cases",
+    "privacy_erasure_dispositions",
+    "privacy_legal_holds",
+    "privacy_retention_policies",
+    "privacy_role_designations",
     "product_eligibility_snapshots",
     "product_universe_entries",
     "protocol_bausteine",
@@ -108,12 +114,17 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "client_tax_residencies": ("client_id", "clients"),
     "conflict_of_interest_disclosures": ("mandate_id", "mandates"),
     "contract_documents": ("mandate_id", "mandates"),
+    "depot_snapshots": ("mandate_id", "mandates"),
     "financial_coverage_attestations": ("mandate_id", "mandates"),
     "goal_lifecycle_transitions": ("mandate_id", "mandates"),
     "goal_revision_decisions": ("mandate_id", "mandates"),
     "goals": ("mandate_id", "mandates"),
     "mandate_baustein_selections": ("mandate_id", "mandates"),
     "mandate_report_notes": ("mandate_id", "mandates"),
+    # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur, ohne FK (Purge-fest).
+    "onsite_signature_challenges": ("mandate_id", "mandates"),
+    "onsite_signature_events": ("mandate_id", "mandates"),
+    "onsite_signature_evidence": ("mandate_id", "mandates"),
     "optimizer_runs": ("mandate_id", "mandates"),
     "planning_assumptions": ("mandate_id", "mandates"),
     "portfolio_handoffs": ("mandate_id", "mandates"),

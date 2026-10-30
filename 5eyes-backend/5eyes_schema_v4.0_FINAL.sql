@@ -476,6 +476,36 @@ BEFORE DELETE ON financial_coverage_attestations FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
 
 -- ===========================================================================
+-- DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2: DepotSnapshotV1 --
+-- append-only, hash-gebundener IST-Bestand (Positionen, Werte, Waehrung,
+-- Stichtag, FX-Evidenz) als Basis des IST-Stress-Replays.
+-- KEIN updated_at, KEIN deleted_at; UPDATE/DELETE per Trigger verboten.
+-- Kein FK auf mandates/clients (Muster audit_log, Purge-fest).
+-- Identisch zu database.py::DEPOT_SNAPSHOT_SQLITE_TABLE_DDL.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS depot_snapshots (
+    id              TEXT PRIMARY KEY,
+    schema_version  TEXT NOT NULL DEFAULT 'DepotSnapshotV1',
+    mandate_id      TEXT NOT NULL,
+    client_id       TEXT NOT NULL,
+    as_of_date      TEXT NOT NULL,
+    currency        TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    snapshot_json   TEXT NOT NULL,
+    snapshot_hash   TEXT NOT NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_depot_snapshots_mandate
+    ON depot_snapshots(mandate_id, as_of_date);
+CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_update
+BEFORE UPDATE ON depot_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_delete
+BEFORE DELETE ON depot_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
+
+-- ===========================================================================
 -- RISK-CAPACITY-EVALUATION-SNAPSHOT-001 (2026-10-26):
 -- RiskCapacityPlausibilityEvaluationV1 -- append-only, gehashte Evidenz jeder
 -- beim Speichern des Risikoprofils bzw. bei der Generierung gebundenen
@@ -569,6 +599,127 @@ BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_risk_profile_signoffs_no_delete
 BEFORE DELETE ON risk_profile_signoffs FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
+
+-- ===========================================================================
+-- SIGN-001 (2026-10-27): Vor-Ort-Signatur mit kundeneigenem Faktor --
+-- append-only Ereignisjournal (Zustandsmaschine), dokumentgebundene
+-- Kunden-Challenges (nur HMAC des Codes) und Evidence-Paket je Signatur.
+-- UPDATE/DELETE per Trigger verboten; kein FK auf mandates/clients (Purge-fest).
+-- Identisch zu models/onsite_signature.py und Alembic a9e3c5d7f1b2.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS onsite_signature_events (
+    id VARCHAR NOT NULL,
+    schema_version VARCHAR NOT NULL,
+    transaction_id VARCHAR NOT NULL,
+    sequence_no INTEGER NOT NULL,
+    event_type VARCHAR NOT NULL,
+    state VARCHAR NOT NULL,
+    mandate_id VARCHAR NOT NULL,
+    client_id VARCHAR NOT NULL,
+    document_id VARCHAR NOT NULL,
+    document_hash VARCHAR(64) NOT NULL,
+    challenge_id VARCHAR,
+    reason_code VARCHAR,
+    payload_json VARCHAR NOT NULL,
+    actor_id VARCHAR NOT NULL,
+    actor_role VARCHAR NOT NULL,
+    occurred_at VARCHAR NOT NULL,
+    time_source VARCHAR NOT NULL,
+    previous_event_hash VARCHAR(64),
+    event_hash VARCHAR(64) NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY(actor_id) REFERENCES users (id)
+);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_events_document ON onsite_signature_events (document_id);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_events_mandate ON onsite_signature_events (mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_events_challenge_use ON onsite_signature_events (challenge_id) WHERE challenge_id IS NOT NULL AND event_type IN ('FACTOR_VERIFIED','FACTOR_REJECTED');
+CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_events_sequence ON onsite_signature_events (transaction_id, sequence_no);
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_events_no_update BEFORE UPDATE ON onsite_signature_events FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_events is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_events_no_delete BEFORE DELETE ON onsite_signature_events FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_events is immutable'); END;
+CREATE TABLE IF NOT EXISTS onsite_signature_challenges (
+    id VARCHAR NOT NULL,
+    schema_version VARCHAR NOT NULL,
+    transaction_id VARCHAR NOT NULL,
+    mandate_id VARCHAR NOT NULL,
+    client_id VARCHAR NOT NULL,
+    document_hash VARCHAR(64) NOT NULL,
+    purpose VARCHAR NOT NULL,
+    nonce VARCHAR NOT NULL,
+    issued_at VARCHAR NOT NULL,
+    expires_at VARCHAR NOT NULL,
+    delivery_channel VARCHAR NOT NULL,
+    code_salt VARCHAR NOT NULL,
+    code_hmac VARCHAR(64) NOT NULL,
+    binding_hash VARCHAR(64) NOT NULL,
+    policy_version VARCHAR NOT NULL,
+    actor_id VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY(actor_id) REFERENCES users (id)
+);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_challenges_transaction ON onsite_signature_challenges (transaction_id);
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_challenges_no_update BEFORE UPDATE ON onsite_signature_challenges FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_challenges is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_challenges_no_delete BEFORE DELETE ON onsite_signature_challenges FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_challenges is immutable'); END;
+CREATE TABLE IF NOT EXISTS onsite_signature_evidence (
+    id VARCHAR NOT NULL,
+    schema_version VARCHAR NOT NULL,
+    transaction_id VARCHAR NOT NULL,
+    mandate_id VARCHAR NOT NULL,
+    client_id VARCHAR NOT NULL,
+    document_id VARCHAR NOT NULL,
+    document_type VARCHAR NOT NULL,
+    document_version INTEGER NOT NULL,
+    document_content_hash VARCHAR NOT NULL,
+    template_version VARCHAR,
+    document_class VARCHAR NOT NULL,
+    policy_version VARCHAR NOT NULL,
+    language VARCHAR NOT NULL,
+    displayed_document_hash VARCHAR(64) NOT NULL,
+    final_document_hash VARCHAR(64) NOT NULL,
+    signer_role VARCHAR NOT NULL,
+    consent_text_version VARCHAR NOT NULL,
+    consent_text_hash VARCHAR(64) NOT NULL,
+    signed_at VARCHAR NOT NULL,
+    time_source VARCHAR NOT NULL,
+    timezone VARCHAR NOT NULL,
+    identity_check_result VARCHAR NOT NULL,
+    identity_check_method VARCHAR NOT NULL,
+    id_document_kind VARCHAR NOT NULL,
+    id_document_country VARCHAR NOT NULL,
+    id_document_valid INTEGER NOT NULL,
+    customer_factor_kind VARCHAR NOT NULL,
+    customer_factor_challenge_id VARCHAR NOT NULL,
+    customer_factor_binding_hash VARCHAR(64) NOT NULL,
+    customer_factor_channel VARCHAR NOT NULL,
+    customer_factor_verified_at VARCHAR NOT NULL,
+    customer_factor_actor_id VARCHAR NOT NULL,
+    advisor_id VARCHAR NOT NULL,
+    advisor_auth_method VARCHAR NOT NULL,
+    witness_statement_version VARCHAR NOT NULL,
+    witness_statement_hash VARCHAR(64) NOT NULL,
+    device_app_version VARCHAR NOT NULL,
+    qes_provider VARCHAR,
+    qes_receipt_hash VARCHAR(64),
+    qes_certificate_chain_hash VARCHAR(64),
+    qes_timestamp VARCHAR,
+    qes_validation_result VARCHAR,
+    signed_event_hash VARCHAR(64) NOT NULL,
+    evidence_hash VARCHAR(64) NOT NULL,
+    created_at VARCHAR NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY(advisor_id) REFERENCES users (id)
+);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_evidence_mandate ON onsite_signature_evidence (mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_evidence_transaction ON onsite_signature_evidence (transaction_id);
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_evidence_no_update BEFORE UPDATE ON onsite_signature_evidence FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_evidence is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_evidence_no_delete BEFORE DELETE ON onsite_signature_evidence FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'onsite_signature_evidence is immutable'); END;
 
 -- ===========================================================================
 -- DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Kundenschluessel fuer das

@@ -1,37 +1,28 @@
-"""Red test for GOAL-CALENDAR-HORIZON-PARITY-001 (round 38), Pflichttest 6.
+"""GOAL-CALENDAR-HORIZON-PARITY-001 (round 38), Pflichttest 6 -- Start-/Endanker.
 
-See docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md
-(this path does not exist in this worktree's git history -- confirmed via
-Glob/git log --all; derived directly from reading
-services/optimizer/goal_liabilities.py and
-services/portfolio_engine_payload.py, and from empirically running both
-before writing assertions).
+Befund: fuer einen Strom mit Start- UND Enddatum loesten zwei Schichten ihren
+Anker von entgegengesetzten Enden auf:
 
-For a recurring (``Wiederkehrende_Ausgabe``/``Pensionsausgabe``) goal with
-BOTH ``start_date`` and ``target_date`` set -- the ordinary case, since a
-finite recurring expense has both a start and an end -- two independent
-production modules each resolve a single-year "anchor index" for the goal,
-but from opposite ends of the window:
+- Solver (``goal_liabilities._resolve_target_year_index``): ``start_date`` zuerst;
+- Reserve / deterministische Zielanalyse (``portfolio_engine_payload.
+  _goal_projection_years``): ``target_date`` zuerst.
 
-- ``goal_liabilities._resolve_target_year_index()`` (optimizer consumer):
-  ``anchor = start_date or target_date`` -- prefers START first.
-- ``portfolio_engine_payload._goal_projection_years()`` (reserve/MC
-  consumer): ``anchor = target_date or (start_date if recurring else
-  None)`` -- prefers TARGET first.
+Eine Rente ab in 2 Jahren mit Ende in 7 Jahren galt der Reserve damit als
+"in 7 Jahren faellig" (Reserve 50 %), dem Solver als "beginnt in 2 Jahren".
 
-Whenever ``start_date`` and ``target_date`` are not equidistant from today
-(i.e. the stream has any real duration at all), these two formulas resolve
-to different "years from today" distances for the SAME goal -- not a small
-rounding difference, but a divergence that grows with the stream's length.
+GESCHLOSSEN 2026-10-25: beide Schichten ankern auf dem BEGINN. Die beiden
+Rueckgabewerte sind verschiedene Groessen (Solver: Kalenderjahr-Bucket nach
+ADR-2; Reserve: verstrichene Jahre nach ADR-1a) und unterscheiden sich um 0
+oder 1 -- verglichen wird deshalb, dass beide aus DEMSELBEN Datum entstehen.
+Der fruehere Reproducer setzte beide Groessen gleich; das haette auch nach
+dem Fix nie gehalten.
 """
 from __future__ import annotations
 
 import sys
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -44,19 +35,16 @@ from models import (  # noqa: E402,F401
 )
 configure_mappers()
 
-from services.calendar_horizon import calendar_years_until  # noqa: E402
+from services.calendar_horizon import add_calendar_years, calendar_years_until  # noqa: E402
 from services.optimizer.goal_liabilities import goal_to_liability  # noqa: E402
+from services.portfolio_engine import _goal_reserve_for_goal  # noqa: E402
 from services.portfolio_engine_payload import _goal_projection_years  # noqa: E402
+from services.valuation_clock import bound_valuation_date  # noqa: E402
+
+VALUATION = date(2026, 10, 25)
 
 
-def _make_recurring_goal(
-    *, start_date: date | None, target_date: date | None
-) -> SimpleNamespace:
-    """Mock-Goal as SimpleNamespace -- same pattern as
-    tests/test_optimizer_goal_liabilities.py::_make_goal. ``_goal_projection_years``
-    additionally needs ``goal_type`` resolvable via ``_norm_text`` (plain
-    string compare), which the literal "Wiederkehrende_Ausgabe" satisfies.
-    """
+def _make_recurring_goal(*, start_date: date | None, target_date: date | None) -> SimpleNamespace:
     return SimpleNamespace(
         id="g-anchor-swap",
         label="Anchor-Swap Recurring Goal",
@@ -75,85 +63,47 @@ def _make_recurring_goal(
         value_mode="nominal",
         goal_scope="Beratungsvermoegen",
         pension_pillar=None,
+        probability_pct=None,
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-CALENDAR-HORIZON-PARITY-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_optimizer_and_reserve_mc_resolve_the_same_anchor_year_for_recurring_goal():
-    """A 5-year recurring stream starting 2 years out: the optimizer
-    consumer anchors on start_date (-> 2 years from today) while the
-    reserve/MC consumer anchors on target_date (-> 7 years from today) for
-    the exact same goal record. Empirically verified against current
-    develop: 2 != 7.
-    """
-    today = date.today()
-    start_date = today + timedelta(days=365 * 2)
-    target_date = start_date + timedelta(days=365 * 5)
+    """5-jaehriger Strom, Beginn in 2 Jahren: beide Schichten leiten aus dem
+    BEGINN ab (vorher Solver 3 Buckets, Reserve 7 Jahre)."""
+    start = add_calendar_years(VALUATION, 2)
+    end = add_calendar_years(start, 5)
+    goal = _make_recurring_goal(start_date=start, target_date=end)
 
-    goal = _make_recurring_goal(start_date=start_date, target_date=target_date)
+    with bound_valuation_date(VALUATION):
+        optimizer_bucket = goal_to_liability(goal, horizon_years=20).target_year_index
+        reserve_years = _goal_projection_years(goal)
+        assert reserve_years == calendar_years_until(start)
 
-    optimizer_anchor_years = goal_to_liability(goal, horizon_years=20).target_year_index
-    reserve_mc_anchor_years = _goal_projection_years(goal)
+    assert optimizer_bucket == start.year - VALUATION.year + 1
+    assert reserve_years == 2
+    assert optimizer_bucket - reserve_years in (0, 1)
 
-    assert optimizer_anchor_years == reserve_mc_anchor_years, (
-        "optimizer consumer anchored on start_date and resolved "
-        f"{optimizer_anchor_years} years from today, but the reserve/MC "
-        f"consumer anchored on target_date and resolved "
-        f"{reserve_mc_anchor_years} years from today -- same goal, "
-        "same window, incompatible anchors"
-    )
+
+def test_reserve_reacts_to_the_stream_start_not_its_end():
+    """Wirkung: Beginn in 2 Jahren (<= 3) -> volle Reserve, unabhaengig davon,
+    dass der Strom erst in 7 Jahren endet (vorher: 50 %)."""
+    start = add_calendar_years(VALUATION, 2)
+    goal = _make_recurring_goal(start_date=start, target_date=add_calendar_years(start, 5))
+    with bound_valuation_date(VALUATION):
+        assert _goal_reserve_for_goal(goal) == 100 * 100
 
 
 def test_single_point_in_time_goal_has_no_anchor_ambiguity():
-    """Positivkontrolle: fallen start_date und target_date zusammen, kann die
-    ANKER-WAHL nicht mehr ins Gewicht fallen -- beide Konsumenten leiten ihr
-    Ergebnis zwangslaeufig aus demselben Datum ab. Damit ist der Befund auf
-    echte Mehrjahres-Fenster eingegrenzt und nicht auf einen generell
-    kaputten Anker-Mechanismus.
-
-    UMGESTELLT am 2026-10-11 (ADR-2): dieser Test verglich vorher die beiden
-    Rueckgabewerte direkt auf Gleichheit. Das geht nicht mehr, weil sie
-    seither verschiedene GROESSEN sind, und zwar beide richtig:
-
-    * ``target_year_index`` ist ein KALENDERJAHR-Bucket (ADR-2) -- dieselbe
-      Achse, auf der Cashflow-, Inflations- und Steuerserie liegen und auf
-      der der Liability-Pfad vom Vermoegen abgezogen wird.
-    * ``_goal_projection_years`` ist ein JAHRESTAG-Horizont (ADR-1a) --
-      "wie viele Jahresschritte bis zum Ziel".
-
-    Bucket-Ursprung und Horizont-Formel sind zwei verschiedene Achsen; die
-    Spec fuehrt sie als eine. Der Test prueft deshalb jetzt, dass jeder
-    Konsument sein Ergebnis aus DEMSELBEN Datum herleitet -- das ist die
-    Aussage "keine Anker-Ambiguitaet" -- statt zwei verschieden skalierte
-    Zahlen gleichzusetzen.
-    """
-    today = date.today()
-    same_date = today + timedelta(days=365 * 3)
-
-    goal = _make_recurring_goal(start_date=same_date, target_date=same_date)
-
-    optimizer_anchor_years = goal_to_liability(goal, horizon_years=20).target_year_index
-    reserve_mc_anchor_years = _goal_projection_years(goal)
-
-    # Optimizer: Kalenderjahr-Bucket von same_date (1-based).
-    assert optimizer_anchor_years == same_date.year - today.year + 1
-    # Reserve/MC: Jahrestag-Horizont bis same_date.
-    assert reserve_mc_anchor_years == calendar_years_until(same_date)
-
-    # Beide aus demselben Datum -- die Anker-Wahl (start_date vs. target_date)
-    # ist hier wirkungslos, denn es gibt nur ein Datum. Gegenprobe: dasselbe
-    # Ziel nur mit start_date bzw. nur mit target_date liefert jeweils
-    # unveraenderte Werte.
-    only_start = _make_recurring_goal(start_date=same_date, target_date=None)
-    only_target = _make_recurring_goal(start_date=None, target_date=same_date)
-    assert (
-        goal_to_liability(only_start, horizon_years=20).target_year_index
-        == optimizer_anchor_years
-    )
-    assert _goal_projection_years(only_target) == reserve_mc_anchor_years
+    """Positivkontrolle: fallen Beginn und Ende zusammen, ist die Ankerwahl
+    wirkungslos -- nur Beginn bzw. nur Ende liefern dieselben Werte."""
+    same = add_calendar_years(VALUATION, 3)
+    with bound_valuation_date(VALUATION):
+        both = _make_recurring_goal(start_date=same, target_date=same)
+        only_start = _make_recurring_goal(start_date=same, target_date=None)
+        only_target = _make_recurring_goal(start_date=None, target_date=same)
+        bucket = goal_to_liability(both, horizon_years=20).target_year_index
+        years = _goal_projection_years(both)
+        assert bucket == same.year - VALUATION.year + 1
+        assert years == calendar_years_until(same)
+        assert goal_to_liability(only_start, horizon_years=20).target_year_index == bucket
+        assert _goal_projection_years(only_target) == years
