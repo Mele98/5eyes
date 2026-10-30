@@ -138,23 +138,34 @@ def test_will_attach_webview_blocked(main_source):
     )
 
 
+def _function_body(source: str, signature: str) -> str:
+    start = source.index(signature)
+    return source[start:source.index("\n}\n", start)]
+
+
 def test_window_open_handler_denies(main_source):
-    assert "setWindowOpenHandler" in main_source
-    # Beide Aufrufe (window-lokal + global) muessen deny zurueckgeben
-    occurrences = main_source.count("action: 'deny'")
-    assert occurrences >= 2, (
-        f"setWindowOpenHandler erwartet >=2 'action: deny' (window-lokal "
-        f"+ global), gefunden: {occurrences}"
-    )
+    """ELECTRON-NAV-URL-001: genau ein globaler Handler (gilt fuer jedes
+    WebContents, auch das Hauptfenster); er oeffnet nie ein neues Fenster."""
+    assert main_source.count("setWindowOpenHandler(") == 1
+    assert "contents.setWindowOpenHandler(handleWindowOpen)" in main_source
+    body = _function_body(main_source, "function handleWindowOpen(")
+    assert "return { action: 'deny' };" in body
+    assert "action: 'allow'" not in main_source
 
 
 def test_will_navigate_blocks_external(main_source):
-    assert "will-navigate" in main_source
-    idx = main_source.find("will-navigate")
-    snippet = main_source[idx:idx + 400]
-    assert "event.preventDefault" in snippet, (
-        "will-navigate-Handler muss preventDefault aufrufen."
-    )
+    """ELECTRON-NAV-URL-001: will-navigate und will-redirect laufen ueber
+    dieselbe Pruefung wie die IPC-Absender; kein zweiter window-lokaler Hook
+    (der externe Links doppelt oeffnen wuerde) und kein String-Vergleich."""
+    assert main_source.count("on('will-navigate'") == 1
+    assert "contents.on('will-navigate', guardNavigation)" in main_source
+    assert "contents.on('will-redirect', guardNavigation)" in main_source
+    body = _function_body(main_source, "function guardNavigation(")
+    assert "isLocalEntryUrl(url)" in body
+    assert body.index("isLocalEntryUrl(url)") < body.index("event.preventDefault()")
+    entry_check = _function_body(main_source, "function isLocalEntryUrl(")
+    assert "checkTrustedRendererUrl(url, resolveFrontendPath())" in entry_check
+    assert "localEntry" not in main_source
 
 
 # ---------------------------------------------------------------------------

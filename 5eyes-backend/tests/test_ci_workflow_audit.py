@@ -357,3 +357,52 @@ def test_coverage_job_uses_sysmon_and_16_shards(workflow_yaml):
     run = next(s["run"] for s in job["steps"] if "--cov=" in s.get("run", ""))
     assert "--splits 16" in run
     assert job["continue-on-error"] is True
+
+
+# ---------------------------------------------------------------------------
+# CI-ARTIFACT-UPLOAD-001: transiente Upload-Fehler (Run 40775202093, Shard 7:
+# "Failed to FinalizeArtifact: ECONNRESET" nach 991 gruenen Tests) duerfen den
+# Pflicht-Check nicht rot faerben; ein zweiter Fehlschlag bleibt rot.
+# ---------------------------------------------------------------------------
+
+_GATE_UPLOAD_JOBS = ("backend-test-plan", "backend-test-shard", "backend-test-wallclock", "pytest")
+
+
+def _uploads(job: dict) -> list[dict]:
+    return [s for s in job["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")]
+
+
+@pytest.mark.parametrize("job_id", _GATE_UPLOAD_JOBS)
+def test_gate_artifact_upload_is_retried_once(workflow_yaml, job_id):
+    steps = workflow_yaml["jobs"][job_id]["steps"]
+    first, retry = _uploads(workflow_yaml["jobs"][job_id])
+    # Erster Versuch: Fehlschlag haelt den Job nicht an, wird aber als outcome sichtbar.
+    assert first.get("id") and first.get("continue-on-error") is True
+    condition = f"steps.{first['id']}.outcome == 'failure'"
+    assert condition in retry.get("if", "") and retry["if"].startswith("always()")
+    # Zweiter Versuch: gleicher Name (Aggregat/Download unveraendert), ersetzt
+    # ein evtl. halb finalisiertes Artefakt, und ist NICHT continue-on-error.
+    assert "continue-on-error" not in retry
+    assert retry["with"]["name"] == first["with"]["name"]
+    assert retry["with"]["path"] == first["with"]["path"]
+    assert retry["with"].get("overwrite") is True
+    assert steps.index(first) < steps.index(retry)
+    # Kurze Pause zwischen den Versuchen, nur im Fehlerfall.
+    pause = steps[steps.index(retry) - 1]
+    assert condition in pause.get("if", "") and "sleep" in pause.get("run", "")
+
+
+def test_gate_upload_retry_uses_only_the_official_action(workflow_yaml):
+    for job_id in _GATE_UPLOAD_JOBS:
+        for step in workflow_yaml["jobs"][job_id]["steps"]:
+            uses = step.get("uses", "")
+            assert not uses or uses.startswith(("actions/", "./")), (job_id, uses)
+
+
+def test_aggregate_gate_expects_every_matrix_run(workflow_yaml):
+    """Der Gate kennt die erwarteten Teilergebnisse und meldet ein fehlendes
+    Artefakt als Infrastruktur-Fehler statt als hunderte Folgebefunde."""
+    groups = workflow_yaml["jobs"]["backend-test-shard"]["strategy"]["matrix"]["group"]
+    expected = ",".join([f"shard-{g}" for g in groups] + ["wallclock"])
+    runs = " ".join(s.get("run", "") for s in workflow_yaml["jobs"]["pytest"]["steps"])
+    assert f"--expected-runs {expected}" in runs

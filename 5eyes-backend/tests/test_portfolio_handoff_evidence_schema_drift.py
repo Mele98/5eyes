@@ -54,12 +54,17 @@ def _seed_parents(conn: sqlite3.Connection) -> None:
 
 
 def _insert(conn, handoff_id: str, status: str, key) -> None:
+    # HANDOFF-DB-INVARIANT-001: neue Zeilen tragen einen gueltigen Hash und
+    # (Red-Team 2026-10-28) eine Bestandsbasis -- sofern die Spalte im
+    # jeweiligen Schemastand schon existiert (Alembic-Kettentest).
+    has_basis = any(row[1] == "holdings_basis" for row in conn.execute("PRAGMA table_info(portfolio_handoffs)"))
     conn.execute(
         "INSERT INTO portfolio_handoffs (id, mandate_id, trade_list_snapshot_json, "
         "live_total_value_rappen, position_count, recipient_name, status, created_by, "
-        "created_at, updated_at, business_key_hash, snapshot_sha256) "
-        "VALUES (?, 'm-1', '[]', 1, 0, 'A', ?, 'u-1', 't', 't', ?, ?)",
-        # HANDOFF-DB-INVARIANT-001: neue Zeilen tragen einen gueltigen Hash.
+        "created_at, updated_at, business_key_hash, snapshot_sha256"
+        + (", holdings_basis" if has_basis else "") + ") "
+        "VALUES (?, 'm-1', '[]', 1, 0, 'A', ?, 'u-1', 't', 't', ?, ?"
+        + (", 'recorded_depot'" if has_basis else "") + ")",
         (handoff_id, status, key, "0" * 64),
     )
 

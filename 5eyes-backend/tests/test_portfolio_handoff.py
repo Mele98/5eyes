@@ -329,10 +329,16 @@ def test_create_handoff_404_for_unknown_run(session_factory, advisor_user, monke
     assert exc.value.status_code == 404
 
 
-# HANDOFF-EXECUTION-001: manuelle Ausfuehrungsbestaetigung mit Referenz
-# (Datum = heute UTC, wie der Zeitstempel der neu angelegten Weiterleitung).
-_TODAY = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).date().isoformat()
-_EVIDENCE = PortfolioHandoffMarkExecuted(external_order_reference="ORD-4700", executed_on=_TODAY)
+# HANDOFF-EXECUTION-001: manuelle Ausfuehrungsbestaetigung mit Referenz.
+# Ausfuehrungsdatum = Anlagedatum der Weiterleitung: nie davor und nie in der
+# Zukunft -- unabhaengig davon, ob der Testlauf ueber Mitternacht (UTC) laeuft.
+# (Ein beim Import fixiertes "heute" wurde nach Mitternacht zum Vortag -> 422.)
+def _evidence(handoff, reference="ORD-4700", note=None):
+    return PortfolioHandoffMarkExecuted(
+        external_order_reference=reference,
+        executed_on=str(handoff.created_at)[:10],
+        executed_note=note,
+    )
 
 
 def _create_handoff(session, advisor_user):
@@ -351,7 +357,7 @@ def test_mark_executed_transitions_status_and_is_not_repeatable(session_factory,
         created = _create_handoff(session, advisor_user)
         executed = mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=created.id,
-            body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-4711", executed_on=_TODAY, executed_note="Bank bestaetigt per Telefon"),
+            body=_evidence(created, "ORD-4711", "Bank bestaetigt per Telefon"),
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
         assert executed.status == "Ausgeführt"
@@ -359,13 +365,13 @@ def test_mark_executed_transitions_status_and_is_not_repeatable(session_factory,
         assert executed.executed_note == "Bank bestaetigt per Telefon"
         assert executed.execution_evidence_kind == "manual_attestation"
         assert executed.execution_external_reference == "ORD-4711"
-        assert executed.execution_confirmed_on == _TODAY
+        assert executed.execution_confirmed_on == str(created.created_at)[:10]
 
         # Zweiter Aufruf auf denselben (nicht mehr offenen) Handoff -> 409, kein Doppel-Transition.
         with pytest.raises(HTTPException) as exc:
             mark_portfolio_handoff_executed(
                 mandate_id="mandate-1", handoff_id=created.id,
-                body=_EVIDENCE,
+                body=_evidence(created),
                 request=_FakeRequest(), db=session, current_user=advisor_user,
             )
         assert exc.value.status_code == 409
@@ -379,7 +385,7 @@ def test_cancel_requires_reason_and_blocks_after_execution(session_factory, advi
         created = _create_handoff(session, advisor_user)
         mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=created.id,
-            body=_EVIDENCE,
+            body=_evidence(created),
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
         # Ein bereits ausgefuehrter Handoff darf nicht mehr storniert werden.
@@ -417,7 +423,7 @@ def test_concurrent_mark_executed_and_cancel_do_not_both_succeed(session_factory
 
         executed = mark_portfolio_handoff_executed(
             mandate_id="mandate-1", handoff_id=handoff_id,
-            body=PortfolioHandoffMarkExecuted(external_order_reference="ORD-4712", executed_on=_TODAY, executed_note="Bank bestaetigt"),
+            body=_evidence(created, "ORD-4712", "Bank bestaetigt"),
             request=_FakeRequest(), db=session_a, current_user=advisor_user,
         )
         assert executed.status == "Ausgeführt"
@@ -465,6 +471,7 @@ def test_list_handoffs_orders_newest_first(session_factory, advisor_user, monkey
             id="handoff-old", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
             snapshot_sha256=_EMPTY_SNAPSHOT_SHA,  # HANDOFF-DB-INVARIANT-001
+            holdings_basis="recorded_depot",  # Basis Pflicht fuer neue Zeilen
             recipient_name="A", status="Gesendet", created_by=advisor_user.id,
             created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
         )
@@ -472,6 +479,7 @@ def test_list_handoffs_orders_newest_first(session_factory, advisor_user, monkey
             id="handoff-new", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
             snapshot_sha256=_EMPTY_SNAPSHOT_SHA,  # HANDOFF-DB-INVARIANT-001
+            holdings_basis="recorded_depot",  # Basis Pflicht fuer neue Zeilen
             recipient_name="B", status="Gesendet", created_by=advisor_user.id,
             created_at="2026-08-08T09:00:00.000Z", updated_at="2026-08-08T09:00:00.000Z",
         )
@@ -602,6 +610,7 @@ def test_legacy_sent_handoff_stays_closable(session_factory, advisor_user, monke
             id="handoff-legacy", mandate_id="mandate-1", recommendation_run_id="run-1",
             trade_list_snapshot_json="[]", live_total_value_rappen=1, position_count=0,
             snapshot_sha256=_EMPTY_SNAPSHOT_SHA,  # HANDOFF-DB-INVARIANT-001
+            holdings_basis="recorded_depot",  # Basis Pflicht fuer neue Zeilen
             recipient_name="A", status="Gesendet", created_by=advisor_user.id,
             created_at="2026-08-08T08:00:00.000Z", updated_at="2026-08-08T08:00:00.000Z",
         ))
@@ -795,7 +804,7 @@ def test_created_and_closed_handoffs_validate_with_their_snapshot_hash(session_f
         assert created.snapshot_sha256 and len(created.snapshot_sha256) == 64
         PortfolioHandoffResponse.model_validate(created)
         executed = mark_portfolio_handoff_executed(
-            mandate_id="mandate-1", handoff_id=created.id, body=_EVIDENCE,
+            mandate_id="mandate-1", handoff_id=created.id, body=_evidence(created),
             request=_FakeRequest(), db=session, current_user=advisor_user,
         )
         PortfolioHandoffResponse.model_validate(executed)

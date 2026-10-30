@@ -224,6 +224,11 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         "audit_log": _s("audit_log", lambda: _query_audit_log(db, client_id, mandate_ids)),
     }
 
+    # PRIVACY-001: nach einem Loeschgesuch gesperrte Nachweise (Sperrarchiv)
+    # verlassen das System nicht ueber den Export; die Sektion wird sichtbar
+    # als "restricted" ausgewiesen statt still zu fehlen.
+    restricted_sections = _apply_privacy_restrictions(db, client_id, sections, section_status)
+
     manifest = {
         key: (1 if isinstance(value, dict) else len(value))
         for key, value in sections.items()
@@ -245,11 +250,39 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         },
         "retention_notes": RETENTION_NOTES,
         "manifest": manifest,
-        "complete": all(status == "ok" for status in section_status.values()),
+        "complete": all(status in ("ok", "restricted") for status in section_status.values()),
+        "restricted_sections": restricted_sections,
         "section_status": section_status,
         "section_errors": section_errors,
         "sections": sections,
     }
+
+
+# Exportsektion -> Tabelle des Loeschinventars, wo die Namen abweichen.
+_SECTION_TABLES: dict[str, str] = {
+    "client": "clients",
+    "conflict_of_interest_disclosure": "conflict_of_interest_disclosures",
+    "review_trigger": "review_triggers",
+    "protocol_baustein_selections": "mandate_baustein_selections",
+}
+
+
+def _apply_privacy_restrictions(
+    db: Session, client_id: str, sections: dict[str, Any], section_status: dict[str, str],
+) -> dict[str, list[str]]:
+    from services.privacy_erasure import evidence_types_for_table, restricted_evidence_types
+
+    restricted = restricted_evidence_types(db, client_id=client_id)
+    if not restricted:
+        return {}
+    withheld: dict[str, list[str]] = {}
+    for name in list(sections):
+        hits = sorted(evidence_types_for_table(_SECTION_TABLES.get(name, name)) & restricted)
+        if hits:
+            sections[name] = {} if isinstance(sections[name], dict) else []
+            section_status[name] = "restricted"
+            withheld[name] = hits
+    return withheld
 
 
 # ---------------------------------------------------------------------------

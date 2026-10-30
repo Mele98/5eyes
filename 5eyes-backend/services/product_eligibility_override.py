@@ -14,8 +14,22 @@ Flow (append-only, never UPDATE/DELETE):
    evidence.
 2. ``approve``: a DIFFERENT advisor/admin approves it. This inserts a new
    row (requester, approver, reason copied, ``policy_basis`` =
-   ``approval_of:<request id>``) that is the evidence. A request is
-   approved at most once.
+   ``approval_of:<request id>``, ``approval_mode='four_eyes'``) that is the
+   evidence. A request is approved at most once.
+
+   Single-approver exception (ELIG-OVERRIDE-SINGLE-APPROVER-001, CIO
+   decision 2026-10-27), the same conditions as the rule approval
+   (services/product_eligibility_governance.py::approve_rule): the
+   requester may confirm their own request only with an explicit
+   attestation, a reason of at least MIN_ATTESTATION_REASON_LENGTH
+   characters, and if the mandate's tenant has EXACTLY ONE active person
+   entitled to approve (OVERRIDE_APPROVER_ROLES, the roles
+   ``require_advisor`` admits) and that person is the requester. Stored as
+   ``approval_mode='single_approver_attested'`` (part of the evidence hash),
+   the attestation reason goes to the audit log.
+
+The table is append-only in the database as well (triggers, see
+services/product_eligibility_override_schema.py).
 
 Every row carries ``evidence_hash`` = hash over its own fields plus the
 *decision binding hash*: the identity of the eligibility decision it
@@ -46,6 +60,12 @@ from services.product_eligibility import (
     evaluate_product_eligibility,
     mandate_tenant_id,
 )
+from services.product_eligibility_governance import (
+    APPROVAL_MODE_FOUR_EYES,
+    APPROVAL_MODE_SINGLE_APPROVER_ATTESTED,
+    MIN_ATTESTATION_REASON_LENGTH,
+    tenant_approver_ids,
+)
 
 OVERRIDE_REASON_CODE = "ADVISOR_DOCUMENTED_EXCEPTION"
 OVERRIDDEN_DIMENSION = "override"
@@ -54,6 +74,8 @@ MIN_OVERRIDE_REASON_LENGTH = 20
 OVERRIDE_VALIDITY_DAYS = 30
 OVERRIDE_MISSING_CODE = "OVERRIDE_EVIDENCE_MISSING"
 APPROVAL_PREFIX = "approval_of:"
+# Roles admitted by services.auth.require_advisor, i.e. who may approve.
+OVERRIDE_APPROVER_ROLES: tuple[str, ...] = ("admin", "advisor")
 
 
 class OverrideConflict(Exception):
@@ -140,7 +162,7 @@ def decision_binding_hash(ctx: DecisionContext, decision: ProductEligibilityDeci
 
 
 def override_evidence_hash(row: ProductEligibilityOverride, binding_hash: str) -> str:
-    return canonical_hash({
+    payload = {
         "id": row.id,
         "decision_binding_hash": binding_hash,
         "recommendation_run_id": row.recommendation_run_id,
@@ -155,12 +177,19 @@ def override_evidence_hash(row: ProductEligibilityOverride, binding_hash: str) -
         "approved_by": row.approved_by,
         "valid_from": row.valid_from,
         "expires_at": row.expires_at,
-    })
+    }
+    # ELIG-OVERRIDE-SINGLE-APPROVER-001: the approval mode is bound into the
+    # hash; omitted when unset, so rows without a mode keep their hash.
+    if row.approval_mode:
+        payload["approval_mode"] = row.approval_mode
+    return canonical_hash(payload)
 
 
 def is_valid_override(row: ProductEligibilityOverride, *, binding_hash: str,
                       matched_rule_id: str | None, now: str) -> bool:
-    if not (row.requested_by and row.approved_by) or row.approved_by == row.requested_by:
+    if not (row.requested_by and row.approved_by):
+        return False
+    if row.approved_by == row.requested_by and row.approval_mode != APPROVAL_MODE_SINGLE_APPROVER_ATTESTED:
         return False
     if not matched_rule_id or row.rule_id != matched_rule_id:
         return False
@@ -215,7 +244,8 @@ def _override_required_decision(db: Session, ctx: DecisionContext, product_id: s
 
 def _insert(db: Session, *, ctx: DecisionContext, decision: ProductEligibilityDecisionV1, product_id: str,
             reason_text: str, requested_by: str, approved_by: str, valid_from: str, expires_at: str,
-            now: str, policy_basis: str | None = None) -> ProductEligibilityOverride:
+            now: str, policy_basis: str | None = None,
+            approval_mode: str | None = None) -> ProductEligibilityOverride:
     row = ProductEligibilityOverride(
         id=new_uuid(),
         rule_id=decision.matched_rule_id,
@@ -230,6 +260,7 @@ def _insert(db: Session, *, ctx: DecisionContext, decision: ProductEligibilityDe
         valid_from=valid_from,
         expires_at=expires_at,
         policy_basis=policy_basis,
+        approval_mode=approval_mode,
         created_at=now,
         updated_at=now,
     )
@@ -259,8 +290,39 @@ def request_override(db: Session, ctx: DecisionContext, *, product_id: str, reas
     )
 
 
-def approve_override(db: Session, ctx: DecisionContext, *, override_id: str,
-                     approver_id: str) -> ProductEligibilityOverride:
+def override_approver_ids(db: Session, ctx: DecisionContext) -> list[str]:
+    """Active users of the mandate's tenant who may approve an override."""
+    return tenant_approver_ids(db, ctx.tenant_id, roles=OVERRIDE_APPROVER_ROLES)
+
+
+def _approval_mode(db: Session, ctx: DecisionContext, *, approver_id: str, requested_by: str,
+                   single_approver_attestation: bool, attestation_reason: str | None) -> str:
+    if approver_id != requested_by:
+        return APPROVAL_MODE_FOUR_EYES
+    if not single_approver_attestation:
+        raise OverrideConflict(
+            "FOUR_EYES_REQUIRED",
+            "Vier-Augen-Prinzip: Der Override muss von einer anderen Person freigegeben werden.",
+        )
+    if len((attestation_reason or "").strip()) < MIN_ATTESTATION_REASON_LENGTH:
+        raise OverrideConflict(
+            "ATTESTATION_REASON_REQUIRED",
+            f"Einzelfreigabe braucht eine Begruendung (mindestens {MIN_ATTESTATION_REASON_LENGTH} Zeichen).",
+        )
+    approvers = override_approver_ids(db, ctx)
+    if approvers != [approver_id]:
+        raise OverrideConflict(
+            "FOUR_EYES_REQUIRED",
+            "Einzelfreigabe ist nur zulaessig, wenn die Verwaltung genau eine freigabeberechtigte "
+            f"Person hat. Hier sind {len(approvers)} freigabeberechtigt -- bitte eine andere "
+            "Person freigeben lassen.",
+        )
+    return APPROVAL_MODE_SINGLE_APPROVER_ATTESTED
+
+
+def approve_override(db: Session, ctx: DecisionContext, *, override_id: str, approver_id: str,
+                     single_approver_attestation: bool = False,
+                     attestation_reason: str | None = None) -> ProductEligibilityOverride:
     request = db.get(ProductEligibilityOverride, override_id)
     if request is None or request.recommendation_run_id != ctx.run.id:
         raise LookupError("Override-Antrag nicht gefunden.")
@@ -269,11 +331,10 @@ def approve_override(db: Session, ctx: DecisionContext, *, override_id: str,
         raise OverrideConflict("OVERRIDE_NOT_PENDING", "Dieser Eintrag ist kein offener Antrag.")
     if ctx.run.result_status != "Draft":
         raise OverrideConflict("RUN_NOT_DRAFT", "Overrides nur fuer Draft-Empfehlungen.")
-    if approver_id == request.requested_by:
-        raise OverrideConflict(
-            "FOUR_EYES_REQUIRED",
-            "Vier-Augen-Prinzip: Der Override muss von einer anderen Person freigegeben werden.",
-        )
+    approval_mode = _approval_mode(
+        db, ctx, approver_id=approver_id, requested_by=request.requested_by,
+        single_approver_attestation=single_approver_attestation, attestation_reason=attestation_reason,
+    )
     _product, decision = _override_required_decision(db, ctx, request.product_id)
     binding = decision_binding_hash(ctx, decision)
     if request.rule_id != decision.matched_rule_id or request.evidence_hash != override_evidence_hash(request, binding):
@@ -287,7 +348,7 @@ def approve_override(db: Session, ctx: DecisionContext, *, override_id: str,
         db, ctx=ctx, decision=decision, product_id=request.product_id, reason_text=request.reason_text,
         requested_by=request.requested_by, approved_by=approver_id, valid_from=now,
         expires_at=(start + timedelta(days=OVERRIDE_VALIDITY_DAYS)).isoformat(), now=now,
-        policy_basis=approval_ref,
+        policy_basis=approval_ref, approval_mode=approval_mode,
     )
 
 
@@ -320,6 +381,7 @@ def override_overview(db: Session, ctx: DecisionContext) -> list[dict]:
             rows.append({
                 "id": row.id, "state": state, "requested_by": row.requested_by,
                 "approved_by": row.approved_by or None, "reason_text": row.reason_text,
+                "approval_mode": row.approval_mode,
                 "valid_from": row.valid_from, "expires_at": row.expires_at, "created_at": row.created_at,
             })
         items.append({

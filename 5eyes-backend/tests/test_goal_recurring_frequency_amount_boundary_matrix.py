@@ -22,14 +22,15 @@ Finding GOAL-RECURRING-EDITOR-CONTRACT-001):
 * Ein sehr grosser Betrag (deutlich jenseits des 64-Bit-Integer-Bereichs, in
   dem SQLite seine INTEGER-Spalten speichert -- ``target_amount_rappen`` ist
   in ``models/wealth.py`` und ``models/review.py`` als ``Column(Integer)``
-  deklariert) wird AKTUELL klaglos akzeptiert. ``_strict_int`` setzt fuer
+  deklariert) wurde bis zum Fix klaglos akzeptiert. ``_strict_int`` setzt fuer
   Geschwister-Felder in derselben Funktion (``weight_bps``,
   ``success_probability_min_x100``, ``probability_pct``) explizit ein
   ``maximum``, fuer ``target_amount_rappen`` fehlt diese Deckelung jedoch
   komplett -- ein Bruch mit dem im Modul-Docstring postulierten
-  "fail-closed"-Vertrag und mit der SQLite-Persistenzgrenze. Dieses
-  Unterfall wird daher xfail(strict=True) markiert, fuer alle vier Frequenzen
-  identisch (die Betragspruefung ist frequenzunabhaengig).
+  "fail-closed"-Vertrag und mit der SQLite-Persistenzgrenze. Seit dem Fix
+  deckelt ``validate_goal_model_input`` den Betrag auf
+  ``MAX_PERSISTABLE_RAPPEN``; der Unterfall ist ein regulaerer Test, fuer alle
+  vier Frequenzen identisch (die Betragspruefung ist frequenzunabhaengig).
 """
 
 from __future__ import annotations
@@ -128,27 +129,29 @@ def test_minimal_positive_amount_accepted_for_every_frequency(frequency: str) ->
 
 
 # ============================================================================
-# RED: sehr grosser Betrag (jenseits der SQLite-INTEGER-Spaltenkapazitaet)
-# wird aktuell ohne Obergrenze akzeptiert -- Bruch mit dem fail-closed-Vertrag
+# Sehr grosser Betrag (jenseits der SQLite-INTEGER-Spaltenkapazitaet) wird
+# abgelehnt -- fail-closed-Vertrag (vor dem Fix ohne Obergrenze akzeptiert)
 # ============================================================================
 
 
 @pytest.mark.parametrize("frequency", RECURRING_FREQUENCIES)
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRING-EDITOR-CONTRACT-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
-def test_absurdly_large_amount_should_be_rejected_but_is_not(frequency: str) -> None:
+def test_absurdly_large_amount_is_rejected(frequency: str) -> None:
     """target_amount_rappen hat -- anders als weight_bps/probability-Felder in
-    derselben Funktion -- keine obere Schranke. Ein Betrag, der die
-    SQLite-INTEGER-Spaltenkapazitaet um den Faktor 1000 uebersteigt, sollte
-    vom fail-closed-Validator abgelehnt werden, wird aber aktuell klaglos
-    akzeptiert."""
+    derselben Funktion -- bis zum Fix keine obere Schranke. Ein Betrag, der
+    die SQLite-INTEGER-Spaltenkapazitaet um den Faktor 1000 uebersteigt, wird
+    vom fail-closed-Validator abgelehnt."""
     goal = _make_recurring_goal(
         frequency=frequency, target_amount_rappen=VERY_LARGE_AMOUNT_RAPPEN
     )
-    with pytest.raises(GoalInputError):
+    with pytest.raises(GoalInputError, match="hoechstens"):
         validate_goal_model_input(goal)
+
+
+@pytest.mark.parametrize("frequency", RECURRING_FREQUENCIES)
+def test_largest_persistable_amount_is_accepted(frequency: str) -> None:
+    """Grenzwert: genau die 64-Bit-Obergrenze ist noch zulaessig."""
+    goal = _make_recurring_goal(frequency=frequency, target_amount_rappen=SQLITE_INT64_MAX)
+    validate_goal_model_input(goal)  # darf nicht raisen
+    over = _make_recurring_goal(frequency=frequency, target_amount_rappen=SQLITE_INT64_MAX + 1)
+    with pytest.raises(GoalInputError, match="hoechstens"):
+        validate_goal_model_input(over)

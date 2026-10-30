@@ -187,13 +187,13 @@ def run_ab_backtest(
     assessment = require_strategy_ready_assessment(db, mandate.id)
     score_bucket = _risk_score_bucket(assessment)
 
-    cma = (
-        db.query(CapitalMarketAssumption)
-        .filter(
-            CapitalMarketAssumption.is_current == 1,
-            CapitalMarketAssumption.deleted_at.is_(None),
-        )
-        .first()
+    # CMA-EFFECTIVE-DATE-001: dieselbe CMA wie die Engine.
+    from services.jurisdiction.resolve import (
+        resolve_effective_cma_or_none,
+        resolve_mandate_jurisdiction,
+    )
+    cma = resolve_effective_cma_or_none(
+        db, resolve_mandate_jurisdiction(mandate), getattr(mandate, "tenant_id", None),
     )
     if cma is None:
         raise ValueError(

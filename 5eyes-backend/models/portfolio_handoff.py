@@ -83,10 +83,14 @@ _SQLITE_ROW_INVALID = (
     "OR NEW.position_count IS NULL OR NEW.position_count < 0 "
     f"OR (NEW.holdings_basis IS NOT NULL AND NEW.holdings_basis NOT IN ({_BASES_SQL}))"
 )
+# Red-Team 2026-10-28 Befund 4 (Alembic e5b3c9d1a7f4): neue Zeilen brauchen
+# eine Bestandsbasis; nur INSERT, Altzeilen ohne Basis bleiben abschliessbar.
+HANDOFF_BASIS_REQUIRED_SQLITE_CLAUSE = " OR NEW.holdings_basis IS NULL"
+HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER = "trg_portfolio_handoffs_invariants_insert"
 HANDOFF_INVARIANT_SQLITE_TRIGGERS: tuple[str, ...] = (
-    "CREATE TRIGGER IF NOT EXISTS trg_portfolio_handoffs_invariants_insert "
+    f"CREATE TRIGGER IF NOT EXISTS {HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER} "
     "BEFORE INSERT ON portfolio_handoffs FOR EACH ROW "
-    f"WHEN {_SQLITE_ROW_INVALID} OR {_SQLITE_HASH_INVALID} "
+    f"WHEN {_SQLITE_ROW_INVALID} OR {_SQLITE_HASH_INVALID}{HANDOFF_BASIS_REQUIRED_SQLITE_CLAUSE} "
     "BEGIN SELECT RAISE(ABORT, 'portfolio_handoffs invariant violated'); END",
     "CREATE TRIGGER IF NOT EXISTS trg_portfolio_handoffs_invariants_update "
     "BEFORE UPDATE OF status, position_count, snapshot_sha256, holdings_basis "
@@ -94,6 +98,11 @@ HANDOFF_INVARIANT_SQLITE_TRIGGERS: tuple[str, ...] = (
     f"WHEN {_SQLITE_ROW_INVALID} OR (NEW.snapshot_sha256 IS NOT OLD.snapshot_sha256 "
     f"AND ({_SQLITE_HASH_INVALID})) "
     "BEGIN SELECT RAISE(ABORT, 'portfolio_handoffs invariant violated'); END",
+)
+HANDOFF_BASIS_REQUIRED_PG_BLOCK = (
+    "    IF TG_OP = 'INSERT' AND NEW.holdings_basis IS NULL THEN\n"
+    "        RAISE EXCEPTION 'portfolio_handoffs invariant violated';\n"
+    "    END IF;\n"
 )
 HANDOFF_INVARIANT_PG_FUNCTION = f"""
 CREATE OR REPLACE FUNCTION portfolio_handoffs_invariants()
@@ -108,7 +117,7 @@ BEGIN
        AND (NEW.snapshot_sha256 IS NULL OR NEW.snapshot_sha256 !~ '^[0-9a-f]{{64}}$') THEN
         RAISE EXCEPTION 'portfolio_handoffs invariant violated';
     END IF;
-    RETURN NEW;
+{HANDOFF_BASIS_REQUIRED_PG_BLOCK}    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql
 """
