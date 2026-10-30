@@ -36,7 +36,9 @@ def upgrade() -> None:
     dialect = op.get_bind().dialect.name
     if dialect == "sqlite":
         # Rebuild without the run FK, add approval_mode, install triggers.
-        schema.ensure_sqlite_override_append_only(op.get_bind())
+        # Ohne die spaetere PG-002-Spalte (Alembic d6a2c8e4f1b7): die Revision
+        # behaelt ihren historischen Zustand.
+        schema.ensure_sqlite_override_append_only(op.get_bind(), with_tenant=False)
         return
     op.execute(f"ALTER TABLE {schema.TABLE} DROP CONSTRAINT IF EXISTS {schema.POSTGRES_RUN_FK_NAME}")
     op.add_column(schema.TABLE, sa.Column("approval_mode", sa.String(), nullable=True))

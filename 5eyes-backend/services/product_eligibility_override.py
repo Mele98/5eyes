@@ -263,6 +263,9 @@ def _insert(db: Session, *, ctx: DecisionContext, decision: ProductEligibilityDe
         approval_mode=approval_mode,
         created_at=now,
         updated_at=now,
+        # PG-002: Mandant des Laufs (Mandat), roh -- ohne Default-Fallback; die
+        # DB leitet ihn aus Lauf -> Mandat nach. Nicht Teil des Evidence-Hashes.
+        tenant_id=getattr(ctx.mandate, "tenant_id", None),
     )
     row.evidence_hash = override_evidence_hash(row, decision_binding_hash(ctx, decision))
     db.add(row)
