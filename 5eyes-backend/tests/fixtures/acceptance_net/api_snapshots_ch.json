@@ -44,7 +44,7 @@
   "status": 200
  },
  "clients.data_export": {
-  "sha256": "f73e62cf830248d006693a5d2e864dd4538540c0af1d5041184060771ca3cb3e",
+  "sha256": "cea379f40f08132cc69679ac8e98fba9b35f9b01ca5000a341e7dd3bdb845fb6",
   "shape": {
    "client_id": "str",
    "client_number": "str",
@@ -86,6 +86,7 @@
     "wealth_inflows": "int",
     "wealth_positions": "int"
    },
+   "restricted_sections": {},
    "retention_notes": {
     "advisory_log": "str",
     "audit_log": "str",
