@@ -222,6 +222,17 @@ def create_portfolio_handoff(
             ),
         )
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    # SIGN-ELIGIBILITY-001: nur eine finalisierte Empfehlung darf zur
+    # Ausfuehrung weitergeleitet werden (Draft/Superseded/Rejected nie).
+    if run.result_status != "Final":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Die Handelsliste kann nicht weitergeleitet werden: die Empfehlung "
+                f"ist nicht finalisiert (Status '{run.result_status}'). Bitte zuerst "
+                "die Empfehlung finalisieren."
+            ),
+        )
     # CIO-Entscheid 2026-10-24: keine Weiterleitung, solange die
     # Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt.
     assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_HANDOFF)
@@ -232,6 +243,10 @@ def create_portfolio_handoff(
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
     )
+    # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+    from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
+
+    assert_portfolio_data_release_eligible(db, mandate, action="handoff")
     try:
         # HANDOFF-NEW-PRODUCT-001: nicht gehaltene SOLL-Produkte nur bei
         # vollstaendig belegtem Depot oder bestaetigtem Neugeld als IST = 0.

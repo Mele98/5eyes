@@ -135,6 +135,35 @@ def get_current_allocation(
     return ta
 
 
+@router.get("/mandates/{mandate_id}/target-allocation/current/analysis-integrity")
+def get_current_allocation_analysis_integrity(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """GOAL-ANALYSIS-INTEGRITY-001 / SHADOW-ANALYSIS-INTEGRITY-001: Status der
+    gespeicherten Zielanalyse und des Shadow-Containers der aktuellen
+    Soll-Allokation fuer den ruhigen Berater-Hinweis. Read-only, wirft nie
+    wegen einer Integritaetsverletzung (die erscheint als ``integrity_mismatch``).
+    """
+    from services.goal_analysis_snapshot import analysis_integrity_report
+
+    _get_mandate_or_404(mandate_id, db, current_user)
+    ta = (
+        db.query(TargetAllocation)
+        .filter(
+            TargetAllocation.mandate_id == mandate_id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        )
+        .order_by(TargetAllocation.version.desc())
+        .first()
+    )
+    if ta is None:
+        raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    return analysis_integrity_report(ta)
+
+
 @router.get("/mandates/{mandate_id}/optimizer-runs",
             response_model=list[OptimizerRunResponse])
 def list_optimizer_runs(
@@ -817,6 +846,7 @@ def goal_target_sensitivity(
 @router.get("/mandates/{mandate_id}/depot-check")
 def get_depot_check(
     mandate_id: str,
+    analysis_snapshot_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -824,8 +854,14 @@ def get_depot_check(
 
     Defensive: kein Crash bei fehlenden Daten. Returnt was berechnen geht +
     Liste der Warnings/Empfehlungen.
+
+    DEPOT-E2E-SNAPSHOT-001: mit ``analysis_snapshot_id`` der gespeicherte,
+    an einen Depot-Snapshot gebundene Depot-Check (derselbe, den das PDF
+    liest) statt einer Live-Berechnung; Manipulation -> 409.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    if analysis_snapshot_id is not None:
+        return _stored_depot_check_or_http(db, mandate, analysis_snapshot_id)
     result = compute_depot_check(db, mandate)
     # SUITABILITY-DETECTOR-AVAILABILITY-001: Status der HouseMatrix-Referenz
     # (dieselbe Aufloesung wie im Depotcheck-PDF) ausgewiesen statt still
@@ -1674,7 +1710,104 @@ def create_depot_snapshot(
             client_id=getattr(mandate, "client_id", None),
             ip_address=_extract_client_ip(request))
         db.commit()
-    return {"snapshot": snapshot, "created": created, "ist_stress": compute_ist_stress(snapshot)}
+    from services.portfolio_data_release_gate import assess_mandate_portfolio_data
+
+    return {
+        "snapshot": snapshot,
+        "created": created,
+        "ist_stress": compute_ist_stress(snapshot),
+        # PORTFOLIO-DATA-001: Frische/Abgleich sichtbar; blockiert nur mit aktiver Policy.
+        "portfolio_data": assess_mandate_portfolio_data(db, mandate, snapshot=snapshot),
+    }
+
+
+@router.get("/mandates/{mandate_id}/portfolio-data/assessment")
+def get_portfolio_data_assessment(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """PORTFOLIO-DATA-001: komponentenweise Depot-Frische, Abgleich-Status und
+    Gate je Aktion (Entwurf, Finalisierung, PDF, Signatur, Handoff). Mit einer
+    nicht freigegebenen Policy (heute PROPOSED) nur Anzeige: ``enforced``
+    False, ``would_block`` zeigt, was eine aktive Policy sperren wuerde."""
+    from services.portfolio_data_release_gate import assess_mandate_portfolio_data
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return assess_mandate_portfolio_data(db, mandate)
+
+
+@router.post("/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/depot-check", status_code=201)
+def create_depot_check_analysis(
+    mandate_id: str,
+    snapshot_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """DEPOT-E2E-SNAPSHOT-001: Depot-Check auf dem Bestand eines gespeicherten
+    Depot-Snapshots berechnen und gebunden speichern (idempotent). JSON
+    (``GET /depot-check?analysis_snapshot_id=``) und PDF lesen ihn."""
+    from services.depot_check_snapshot import (
+        build_depot_check_analysis,
+        persist_depot_check_analysis,
+        public_depot_check_payload,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    snapshot = _verified_depot_snapshot_or_http(db, mandate, snapshot_id)
+    try:
+        analysis = build_depot_check_analysis(db, mandate, snapshot)
+        row, created = persist_depot_check_analysis(
+            db, analysis, mandate=mandate, created_by=current_user.id, created_at=_now(),
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if created:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="depot_check_analysis_snapshots", record_id=row.id, action="CREATE",
+            new_value=analysis["analysis_hash"], mandate_id=mandate.id,
+            client_id=getattr(mandate, "client_id", None),
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    return {**public_depot_check_payload(analysis), "created": created}
+
+
+def _verified_depot_snapshot_or_http(db: Session, mandate: Mandate, snapshot_id: str) -> dict:
+    from models.snapshots import DepotSnapshot
+    from services.depot_snapshot import (
+        DepotSnapshotIntegrityError,
+        verify_persisted_depot_snapshot,
+    )
+
+    row = (
+        db.query(DepotSnapshot)
+        .filter(DepotSnapshot.id == snapshot_id, DepotSnapshot.mandate_id == mandate.id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Depot-Snapshot nicht gefunden.")
+    try:
+        return verify_persisted_depot_snapshot(row, mandate_id=mandate.id)
+    except DepotSnapshotIntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _stored_depot_check_or_http(db: Session, mandate: Mandate, analysis_snapshot_id: str) -> dict:
+    from services.depot_check_snapshot import (
+        load_depot_check_analysis,
+        public_depot_check_payload,
+    )
+    from services.depot_snapshot import DepotSnapshotIntegrityError
+
+    try:
+        analysis = load_depot_check_analysis(db, mandate, analysis_snapshot_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DepotSnapshotIntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return public_depot_check_payload(analysis)
 
 
 @router.get("/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays")
@@ -1687,23 +1820,7 @@ def get_depot_snapshot_stress_replays(
     """Stress-Replay des IST-Depots aus einem gespeicherten Depot-Snapshot
     (``scope`` = ``current_holdings_snapshot``). Positionen ohne eindeutige
     Anlageklasse -> keine Szenariozahlen (fail-closed, ausgewiesen)."""
-    from models.snapshots import DepotSnapshot
-    from services.depot_snapshot import (
-        DepotSnapshotIntegrityError,
-        compute_ist_stress,
-        verify_persisted_depot_snapshot,
-    )
+    from services.depot_snapshot import compute_ist_stress
 
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    row = (
-        db.query(DepotSnapshot)
-        .filter(DepotSnapshot.id == snapshot_id, DepotSnapshot.mandate_id == mandate.id)
-        .first()
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="Depot-Snapshot nicht gefunden.")
-    try:
-        snapshot = verify_persisted_depot_snapshot(row, mandate_id=mandate.id)
-    except DepotSnapshotIntegrityError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return compute_ist_stress(snapshot)
+    return compute_ist_stress(_verified_depot_snapshot_or_http(db, mandate, snapshot_id))

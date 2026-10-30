@@ -149,7 +149,8 @@ def assert_recommendation_release_eligible(
       wird keine Strategie publiziert und es gibt kein Risikobudget zu
       belegen.
 
-    Wirft ``HTTPException(409, detail={reason_code, message, channel})``.
+    Wirft ``HTTPException(409, detail={reason_code, message, channel})``;
+    neben dem Risikobudget auch ``CMA_ADR12A_HOLD`` (KGV-aktive CMA).
     """
     if run is not None:
         allocation = _run_allocation(db, mandate, run)
@@ -170,6 +171,17 @@ def assert_recommendation_release_eligible(
         allocation = _current_allocation(db, mandate)
         if allocation is None:
             return
+    # CMA-001 / ADR-12a-Release-Hold: keine Freigabe, solange die CMA der
+    # Allokation eine ungeklaerte KGV-Bewertungsanpassung traegt
+    # (services/cma_valuation_hold.py).
+    from services.cma_valuation_hold import assert_allocation_cma_without_adr12a_hold
+
+    assert_allocation_cma_without_adr12a_hold(
+        db,
+        allocation,
+        channel=channel,
+        channel_label=_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich"),
+    )
     findings = risk_budget_release_findings(allocation)
     if not findings:
         return
@@ -279,4 +291,28 @@ def assert_risk_signoff_release_eligible(
             "signoff_id": getattr(assessment, "signoff_id", None),
             "integrity_mismatches": mismatches,
         },
+    )
+
+
+def assert_current_allocation_without_adr12a_hold(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+) -> None:
+    """CMA-001 / ADR-12a-Release-Hold fuer Kundenkanaele ohne Risikobudget-
+    Gate (Kunden-PDFs mit Strategie/Positionen, Kundenportal): 409
+    ``CMA_ADR12A_HOLD``, wenn die CMA der aktuellen Soll-Allokation eine
+    ungeklaerte KGV-Bewertungsanpassung traegt. Ohne aktuelle Allokation
+    wird keine Strategie publiziert -- nichts zu sperren."""
+    from services.cma_valuation_hold import assert_allocation_cma_without_adr12a_hold
+
+    allocation = _current_allocation(db, mandate)
+    if allocation is None:
+        return
+    assert_allocation_cma_without_adr12a_hold(
+        db,
+        allocation,
+        channel=channel,
+        channel_label=_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich"),
     )

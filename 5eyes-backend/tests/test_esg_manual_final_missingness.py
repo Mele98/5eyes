@@ -214,6 +214,7 @@ def _strip_preference_snapshot_keep_ledger(SF, ta_id):
     import json
 
     from services.portfolio_engine import BUCKET_FIELDS
+    from services.goal_analysis_snapshot import bound_analysis_result_hash
     from services.portfolio_engine_allocation_integrity import allocation_context_hash_for
 
     with SF() as s:
@@ -231,6 +232,7 @@ def _strip_preference_snapshot_keep_ledger(SF, ta_id):
             sub_allocations=json.loads(row.sub_allocations_json),
             effective_constraints=constraints,
             optimization_seed=row.optimization_seed,
+            analysis_result_hash=bound_analysis_result_hash(constraints),
         )
         assert row.reserve_funding_ledger_hash  # gueltiger Ledger-Snapshot bleibt
         s.commit()

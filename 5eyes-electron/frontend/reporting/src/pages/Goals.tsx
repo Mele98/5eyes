@@ -17,6 +17,7 @@ import { AmpelPill } from '@/components/AmpelPill';
 import { MonteCarloPathsChart } from '@/components/MonteCarloPathsChart';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatChfRappen } from '@/lib/format';
+import { GoalAnalysisIntegrityForAdvisor } from '@/sections/goals/GoalAnalysisIntegrityNotice';
 import {
   nextSortConfig,
   sortGoals,
@@ -28,9 +29,11 @@ interface GoalsProps {
   data: GoalBasedInvestingData;
   /** AA-UX-HONEST-FAN-001: bei projections_hidden kein Faecher. */
   projectionGate?: ProjectionGateData;
+  /** GOAL-ANALYSIS-INTEGRITY-UI-REACT-001: Mandat fuer den Integritaetshinweis. */
+  mandateId?: string;
 }
 
-export function Goals({ data, projectionGate }: GoalsProps) {
+export function Goals({ data, projectionGate, mandateId }: GoalsProps) {
   const projectionsHidden = projectionGate?.projections_hidden === true;
   const goals = data.goals ?? [];
   // Sprint U-48: Three-State-Sort (asc/desc/reset) pro Spalte
@@ -67,6 +70,7 @@ export function Goals({ data, projectionGate }: GoalsProps) {
       title="Zielbasierte Optimierung"
       subtitle="Erfolgswahrscheinlichkeit je Ziel (nach Priorität) und Plan-Solvenz aller Ziele gemeinsam."
     >
+      {mandateId ? <GoalAnalysisIntegrityForAdvisor mandateId={mandateId} /> : null}
       <AchievementScoreKpi
         scoreBps={projectionsHidden ? null : data.goal_achievement_score_bps}
         hiddenHint={

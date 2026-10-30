@@ -16,7 +16,7 @@ TESTS_ROOT = Path(__file__).resolve().parent
 if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
 
-from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from test_elig_finalization_eligibility import _eligibility_findings, _setup_run  # noqa: E402
 
@@ -228,6 +228,9 @@ def test_tampered_override_row_is_no_evidence(session_factory, monkeypatch, api)
     ctx = _override_ctx(session_factory, monkeypatch, "tamper")
     _request_and_approve(api, ctx)
     with session_factory() as s:
+        # ELIG-OVERRIDE-APPEND-ONLY-001: the table is append-only; tampering
+        # needs DDL rights below the app (drop the trigger first).
+        s.execute(text("DROP TRIGGER trg_product_eligibility_overrides_no_update"))
         row = s.query(ProductEligibilityOverride).filter(
             ProductEligibilityOverride.approved_by != "").one()
         row.expires_at = "2999-01-01T00:00:00+00:00"

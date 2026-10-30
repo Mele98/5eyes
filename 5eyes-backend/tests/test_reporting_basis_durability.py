@@ -20,8 +20,10 @@ Das ist kein theoretisches Problem: die Zeitgitter-Korrektur bewegt den
 gespeicherten Drawdown um 3 bis 10 Prozentpunkte. An einem gespeicherten Wert
 war nicht erkennbar, auf welchem Gitter er entstanden ist.
 
-Die Suite deckt den gefixten Teil (Persistierung) und reproduziert den
-verbleibenden (Replay) als strict xfail.
+Die Suite deckt die Persistierung und das Replay: der gespeicherte Block wird
+beim Reload wortgetreu abgespielt, eine Abweichung der heutigen Methodik als
+"veraltet" offengelegt und Altbestand ohne Block als "Basis nicht
+gespeichert" gekennzeichnet.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ import pytest
 
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
+from models.profiling import RiskAssessment
 from services.drawdown_refinement import (
     DRAWDOWN_REFINEMENT_MODEL_VERSION,
     WEEKLY_SUB_STEPS,
@@ -151,67 +154,181 @@ def test_persisted_drawdown_kpi_and_its_method_agree(session_factory) -> None:
     assert grid.get("model_version") == DRAWDOWN_REFINEMENT_MODEL_VERSION
 
 
-# ── Offen: Replay des gespeicherten Reporting-Blocks ─────────────────────────
+# ── Replay des gespeicherten Reporting-Blocks ───────────────────────────────
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "REPORTING-BASIS-DURABILITY-001 (Replay offen): der gespeicherte "
-        "reporting_model_basis wird beim Reload NICHT verbatim "
-        "zurueckgespielt, sondern aus der aktuellen Umgebung neu gebaut -- "
-        "anders als optimization_model_basis, wo genau das seit "
-        "CERT-OPTIMIZER-OBJECTIVE-001 ausdruecklich geloest ist. Praeferenz- "
-        "abhaengige Eintraege (Tail-Modell, Rebalancing, Transaktionskosten) "
-        "sind unkritisch, weil der Reload-Pfad die Snapshot-Praeferenzen der "
-        "Allokation verwendet. Kritisch sind die CODE- und UMGEBUNGS-"
-        "bestimmten Eintraege: aendert sich die Drawdown-Methode oder die "
-        "Intra-Korrelations-Einstellung nach der Generierung, weist der Reload "
-        "die HEUTIGE Methodik neben einer Zahl aus, die unter der ALTEN "
-        "entstanden ist -- und nichts erkennt die Abweichung. Fix: den "
-        "gespeicherten Block durchreichen (Parameter analog "
-        "stored_optimization_basis) und eine Divergenz melden statt sie zu "
-        "ueberschreiben."
-    ),
-)
+def _latest_allocation(session, mandate_id: str) -> TargetAllocation:
+    return (
+        session.query(TargetAllocation)
+        .filter(TargetAllocation.mandate_id == mandate_id)
+        .order_by(TargetAllocation.version.desc())
+        .first()
+    )
+
+
+def _reload(session_factory, advisor_id: str, mandate_id: str) -> dict:
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).first()
+        allocation = _latest_allocation(session, mandate_id)
+        assessment = (
+            session.query(RiskAssessment)
+            .filter(RiskAssessment.id == allocation.based_on_assessment_id)
+            .first()
+        )
+        policy, cma = ensure_runtime_reference_data(session, advisor_id)
+        return build_target_payload_from_allocation(
+            db=session,
+            mandate=mandate,
+            allocation=allocation,
+            policy=policy,
+            cma=cma,
+            assessment=assessment,
+            preferences=None,
+        )
+
+
+_FUTURE_GRID = {
+    "model_version": "hypothetical_future_method_v9",
+    "sub_steps_per_year": 999,
+    "method": "something_else",
+    "volatility_source": "something_else",
+}
+
+
+def _simulate_method_change(monkeypatch) -> None:
+    """Methodenwechsel nach der Generierung: die Live-Basis wird im
+    Modell-Basis-Modul gebaut, also dort patchen (nicht im Kern-Modul, das
+    den Namen gar nicht fuehrt -- sonst waere der Test aus dem falschen Grund
+    rot)."""
+    import services.portfolio_engine_model_basis as model_basis_module
+
+    monkeypatch.setattr(
+        model_basis_module,
+        "drawdown_time_grid_basis",
+        lambda *args, **kwargs: dict(_FUTURE_GRID),
+    )
+
+
 def test_reload_replays_the_stored_reporting_basis_verbatim(
     session_factory, monkeypatch
 ) -> None:
-    """Reproducer: Reload darf nicht die heutige Methodik ueber eine alte Zahl schreiben."""
-    import services.portfolio_engine as engine
-
+    """Reload darf nicht die heutige Methodik ueber eine alte Zahl schreiben."""
     advisor_id, mandate_id = _generate(session_factory)
     stored = _stored_reporting_basis(session_factory, mandate_id)
     assert stored["max_drawdown_time_grid"]["model_version"] == (
         DRAWDOWN_REFINEMENT_MODEL_VERSION
     )
 
-    # Methodenwechsel nach der Generierung simulieren.
-    monkeypatch.setattr(
-        engine,
-        "drawdown_time_grid_basis",
-        lambda *args, **kwargs: {
-            "model_version": "hypothetical_future_method_v9",
-            "sub_steps_per_year": 999,
-            "method": "something_else",
-            "volatility_source": "something_else",
-        },
-    )
+    _simulate_method_change(monkeypatch)
+    payload = _reload(session_factory, advisor_id, mandate_id)
 
-    with session_factory() as session:
-        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).first()
-        allocation = (
-            session.query(TargetAllocation)
-            .filter(TargetAllocation.mandate_id == mandate_id)
-            .order_by(TargetAllocation.version.desc())
-            .first()
-        )
-        payload = build_target_payload_from_allocation(
-            session, mandate, allocation, advisor_id
-        )
-
-    reloaded = payload["model_basis"]["reporting"]["max_drawdown_time_grid"]
-    assert reloaded["model_version"] == DRAWDOWN_REFINEMENT_MODEL_VERSION, (
+    reloaded = payload["model_basis"]["reporting"]
+    assert reloaded["max_drawdown_time_grid"]["model_version"] == (
+        DRAWDOWN_REFINEMENT_MODEL_VERSION
+    ), (
         "Der Reload weist die heutige Drawdown-Methodik neben einer Zahl aus, "
-        f"die unter einer anderen entstanden ist: {reloaded['model_version']}"
+        f"die unter einer anderen entstanden ist: {reloaded['max_drawdown_time_grid']}"
     )
+    # Wortgetreu: der ganze gespeicherte Block, nicht nur das Zeitgitter.
+    assert reloaded == stored
+
+
+def test_method_change_after_generation_is_visible_as_stale(
+    session_factory, monkeypatch
+) -> None:
+    """Die Abweichung wird offengelegt ("veraltet"), nie still ueberschrieben."""
+    advisor_id, mandate_id = _generate(session_factory)
+    _simulate_method_change(monkeypatch)
+    payload = _reload(session_factory, advisor_id, mandate_id)
+
+    replay = payload["reporting_model_basis_replay"]
+    assert replay["status"] == "stale"
+    assert replay["mode"] == "historical_replay"
+    assert replay["analysis_basis"] == "persisted_snapshot"
+    assert replay["divergent_keys"] == ["max_drawdown_time_grid"]
+    assert replay["live_preview"]["max_drawdown_time_grid"] == _FUTURE_GRID
+    assert "veraltet" in replay["message"]
+    assert replay["message"] in payload["reasoning"]
+    # Die Live-Projektion des Reloads ist eine HEUTIGE Rechnung und traegt
+    # deshalb ehrlich die heutige Methodik -- getrennt von der gespeicherten.
+    assert payload["monte_carlo"]["model_basis"]["max_drawdown_time_grid"] == (
+        _FUTURE_GRID
+    )
+
+
+def test_unchanged_reload_is_verified_without_warning(session_factory) -> None:
+    """Ohne Methodenwechsel: gespeicherte Basis, Status verified, kein Hinweis."""
+    advisor_id, mandate_id = _generate(session_factory)
+    stored = _stored_reporting_basis(session_factory, mandate_id)
+    payload = _reload(session_factory, advisor_id, mandate_id)
+
+    assert payload["model_basis"]["reporting"] == stored
+    replay = payload["reporting_model_basis_replay"]
+    assert replay["status"] == "verified"
+    assert replay["divergent_keys"] == []
+    assert replay["live_preview"] is None
+    assert replay["message"] is None
+    assert not any("Reporting-Methodik" in line for line in payload["reasoning"])
+
+
+def test_allocation_without_stored_basis_is_labeled_not_persisted(
+    session_factory,
+) -> None:
+    """Altbestand ohne Block: ehrlich "Basis nicht gespeichert", keine stille
+    Neuberechnung, die wie ein gespeicherter Wert aussieht.
+
+    Der Altbestand wird realistisch nachgebaut: Block entfernt UND den
+    allocation_context_hash darauf neu gerechnet (so sahen Allokationen vor
+    der Persistierung aus) -- sonst wuerde das Integritaets-Gate greifen.
+    """
+    from services.portfolio_engine_allocation_integrity import (
+        allocation_context_hash_for,
+    )
+
+    advisor_id, mandate_id = _generate(session_factory)
+    with session_factory() as session:
+        allocation = _latest_allocation(session, mandate_id)
+        constraints = json.loads(allocation.effective_constraints_json)
+        constraints.pop("reporting_model_basis")
+        allocation.effective_constraints_json = json.dumps(
+            constraints, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        targets = {
+            "equities": int(allocation.target_equities_bps),
+            "bonds": int(allocation.target_bonds_bps),
+            "real_estate": int(allocation.target_real_estate_bps),
+            "alternatives": int(allocation.target_alternatives_bps),
+            "liquidity": int(allocation.target_liquidity_bps),
+        }
+        allocation.allocation_context_hash = allocation_context_hash_for(
+            engine_version=constraints["engine_version"],
+            policy_id=allocation.policy_id,
+            cma_id=allocation.capital_market_assumptions_id,
+            assessment_id=allocation.based_on_assessment_id,
+            input_snapshot_hash=allocation.input_snapshot_hash,
+            preferences_json=allocation.preferences_json,
+            targets=targets,
+            sub_allocations=json.loads(allocation.sub_allocations_json),
+            effective_constraints=constraints,
+            optimization_seed=allocation.optimization_seed,
+        )
+        session.commit()
+
+    payload = _reload(session_factory, advisor_id, mandate_id)
+    replay = payload["reporting_model_basis_replay"]
+    assert replay["status"] == "not_persisted"
+    assert replay["analysis_basis"] == "live_preview"
+    assert replay["live_preview"] == payload["model_basis"]["reporting"]
+    assert "Basis nicht gespeichert" in replay["message"]
+    assert replay["message"] in payload["reasoning"]
+
+
+def test_non_object_stored_basis_fails_closed() -> None:
+    """Ein vorhandener, aber kaputter Block ist ein Integritaetsfehler."""
+    from services.reporting_model_basis_replay import replay_reporting_model_basis
+
+    with pytest.raises(ValueError, match="Reporting-Modellbasis"):
+        replay_reporting_model_basis(
+            {"optimization": {}, "reporting": {"basis_id": "x"}},
+            {"reporting_model_basis": ["kein", "objekt"]},
+        )

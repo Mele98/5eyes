@@ -665,6 +665,7 @@ from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION
     bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
 )
 from services.allocation_evidence_replay import allocation_evidence_payload, build_goal_driver_evidence_json  # noqa: E402
+from services.goal_analysis_snapshot import bound_analysis_result_hash, goal_analysis_constraints, serialize_goal_achievability, serialize_shadow_optimization, shadow_analysis_constraints  # noqa: E402
 
 
 def _convert_position_value_to_target_currency(
@@ -2952,6 +2953,7 @@ from services.portfolio_engine_reserve import (  # noqa: F401,E402
 )
 from services.reserve_funding_ledger import compile_goal_set_funding, compile_reserve_funding_ledger_for_inputs  # noqa: E402
 from services.reserve_funding_ledger_snapshot import ledger_reference, ledger_snapshot_columns, replay_reserve_funding_ledger  # noqa: E402
+from services.reporting_model_basis_replay import replay_reporting_model_basis, reporting_replay_warnings  # noqa: E402
 from services.reserve_split_snapshot import generation_reserve_ceiling_bps, generation_reserve_split, replay_allocation_reserve_split  # noqa: E402
 
 
@@ -3930,17 +3932,7 @@ def generate_target_allocation(
             "optimization_method": risk_budget_fallback_method,
             "optimization_status": "fallback_house_matrix",
         }
-    goal_achievability_json: str | None = None
-    if goal_achievability:
-        try:
-            goal_achievability_json = json.dumps(
-                goal_achievability,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-        except (TypeError, ValueError) as exc:
-            logger.warning("Goal-achievability JSON-serialization failed: %s", exc)
-            goal_achievability_json = None
+    goal_achievability_json = serialize_goal_achievability(goal_achievability)  # GOAL-ANALYSIS-INTEGRITY-001: diese Bytes sind die Hash-Grundlage
     message_context = SimpleNamespace(
         limiting_factor=limiting_factor,
         optimization_status=optimization_status_for_limits,
@@ -4045,18 +4037,7 @@ def generate_target_allocation(
         constraints=optimizer_constraints,
         goal_drivers=optimizer_goal_drivers,
     )
-    shadow_optimization_json: str | None = None
-    if shadow_optimization_payload:
-        try:
-            shadow_optimization_json = json.dumps(
-                shadow_optimization_payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-        except (TypeError, ValueError) as exc:
-            logger.warning("Shadow-optimization JSON-serialization failed: %s", exc)
-            shadow_optimization_json = None
+    shadow_optimization_json = serialize_shadow_optimization(shadow_optimization_payload)  # SHADOW-ANALYSIS-INTEGRITY-001: Hash-Grundlage
 
     sub_allocations_json = json.dumps(sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     effective_constraints_payload = {
@@ -4093,6 +4074,8 @@ def generate_target_allocation(
         # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
         "reporting_model_basis": dict(model_basis["reporting"]),
         "reserve_funding_ledger": ledger_reference(reserve_ledger, reserve_split),  # RESERVE-LEDGER-SNAPSHOT-001 / RESERVE-CEILING-001
+        **goal_analysis_constraints(goal_achievability_json),  # GOAL-ANALYSIS-INTEGRITY-001: Zielanalyse-Referenz
+        **shadow_analysis_constraints(shadow_optimization_json),  # SHADOW-ANALYSIS-INTEGRITY-001
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)
@@ -4103,7 +4086,7 @@ def generate_target_allocation(
         engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
         input_snapshot_hash=input_snapshot_hash, preferences_json=preferences_json_snapshot, targets=targets,
         sub_allocations=sub_allocations, effective_constraints=effective_constraints_payload,
-        optimization_seed=optimizer_audit.get("optimization_seed"),
+        optimization_seed=optimizer_audit.get("optimization_seed"), analysis_result_hash=bound_analysis_result_hash(effective_constraints_payload),
     )
 
     target_allocation = TargetAllocation(
@@ -5974,15 +5957,14 @@ def build_target_payload_from_allocation(
         simulation_prefs=prefs["simulation"],
         mandate=mandate,
         cma=cma,
-        stored_optimization_basis=(
-            (_stored_constraints or {}).get("optimization_model_basis")
-        ),
+        stored_optimization_basis=(_stored_constraints or {}).get("optimization_model_basis"),
         reporting_tax_cashflow_present=any(
             str(getattr(cashflow, "source", "") or "") == "tax_estimate"
             for cashflow in cashflows
         ),
     )
     monte_carlo["model_basis"] = dict(model_basis["reporting"])
+    model_basis, reporting_replay = replay_reporting_model_basis(model_basis, _stored_constraints)  # REPORTING-BASIS-DURABILITY-001: gespeichert abspielen, Live-MC bleibt live
     current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
         goal_analysis,
         monte_carlo,
@@ -6131,7 +6113,7 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
-        **reserve_replay.payload, **split_replay.payload,
+        **reserve_replay.payload, **split_replay.payload, **reporting_replay,
         "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
@@ -6163,7 +6145,7 @@ def build_target_payload_from_allocation(
             # Phase 6.2: persistiertes Solver-Reasoning (voller Trace beim Reload).
             + persisted_optimizer_reasoning
             # C8: zentrale Drift-Warnings (Assessment, CMA, Inputs, Prefs, Reserve, Legacy).
-            + drift_warnings
+            + drift_warnings + reporting_replay_warnings(reporting_replay)
         ),
         "projection_horizon": projection_horizon,
         "buckets": bucket_response,

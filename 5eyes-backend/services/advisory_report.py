@@ -1058,9 +1058,11 @@ def _load_goal_achievability_view(ta) -> tuple[list[dict], dict | None]:
     """
     import json
 
+    from services.goal_analysis_snapshot import bound_goal_achievability_json
     from services.optimizer.goal_attribution import split_goal_achievability
 
-    raw = getattr(ta, "goal_achievability_json", None) if ta is not None else None
+    # GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.
+    raw = bound_goal_achievability_json(ta)
     if not raw:
         return [], None
     try:

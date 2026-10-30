@@ -16,12 +16,14 @@
 <title>5eyes / WealthArchitekten v4</title>
 <style>/* Vendored: system fonts replace Google Fonts (DM Sans + EB Garamond) */
 :root{--f-s:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--f-d:Georgia,"Times New Roman",serif;}
-body{font-family:var(--f-s);}
-</style>
+body{font-family:var(--f-s);}</style>
 <script>/* Vendored Chart.js for offline desktop builds */</script>
 <script src="vendor/chart.min.js"></script>
+<script src="./eligibility-overrides.js"></script>
 <script src="./desktop-api.js"></script>
+<script src="./risk-capacity-recheck.js"></script>
 <script src="./trade-list-preview.js"></script>
+<script src="./goal-analysis-integrity.js"></script>
 <style>
 /* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
 :root {
@@ -3405,6 +3407,7 @@ function _wireSollIstHover(){
                     <div class="al-banner-body"></div>
                   </div>
                 </div>
+                <div id="rp-capacity-recheck" role="status" style="display:none;margin-top:6px;font-size:11px;color:var(--n5)" data-recheck-code=""></div>
                 <div class="resbox"><div class="res-t">Empfohlene Anlagestrategie</div><div class="res-p" id="res-pname">Growth – Wachstum</div><div class="res-d">Risikoklasse <strong>«Wachstumsorientiert»</strong>. Erhöhtes Kapitalwachstum, erhöhtes Risiko. Horizont min. 8 Jahre. <strong>Risikobereitschaft bindend</strong> – Soll-Aktienquote max. 45%.</div>
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:space-between;">
   <span style="font-size:10px;color:var(--n5)">Berechneter Score: <strong style="color:var(--n8)">7/10</strong></span>
@@ -6215,10 +6218,10 @@ function applyUpdateState(state) {
     adminSystemState.update = state;
     renderAdminDashboard();
   }
-  // Auto-Update ist nur in installierten Electron-Releases aktiv. In Dev/Browser
+  // UPDATE-001: Auto-Update ist ohne offenes Build-Gate deaktiviert. In Dev/Browser
   // (kein FiveEyesAPI) sind die Buttons No-Ops -> klar kommunizieren + sperren.
   if (!state.enabled) {
-    label.textContent = 'Auto-Update ist nur in installierten Releases aktiv.';
+    label.textContent = 'Automatische Updates sind deaktiviert (Freigabe ausstehend).';
     if (installBtn) installBtn.style.display = 'none';
     if (checkBtn) checkBtn.disabled = true;
     return;
@@ -11503,7 +11506,7 @@ function renderAdminDashboard() {
   var updateTone = update.error ? 'danger' : (update.available || update.downloaded ? 'warn' : (update.enabled === false ? 'warn' : 'ok'));
   var updateValue = update.currentVersion ? ('v' + update.currentVersion) : 'n/a';
   var updateSub = update.enabled === false
-    ? 'Auto-Update in diesem Modus nicht aktiv.'
+    ? 'Automatische Updates deaktiviert.'
     : (update.downloaded ? 'Update bereit.' : (update.available ? 'Update verfuegbar.' : 'Keine Aktion offen.'));
 
   var audit = adminSystemState.audit || {};
@@ -17840,6 +17843,7 @@ function toggleAaProjectionDetails(){
 // (GET /mandates/{id}/risk-capacity-plausibility). Reiner Berater-Hinweis:
 // das Profil wird nie automatisch geaendert, die Strategie nicht blockiert.
 function renderRiskCapacityPlausibility(result){
+  renderRiskCapacityRecheck(result&&result.bound_evaluation);
   var box=document.getElementById('rp-capacity-plausibility');
   if(!box)return;
   var status=String(result&&result.status||'');
@@ -17925,22 +17929,6 @@ async function submitFinancialCoverageAttestation(mid){
     return res;
   }catch(e){
     if(fb&&String(getActiveMandateId()||'')===mid)fb.textContent=String(e&&e.message||e);
-    return null;
-  }
-}
-async function refreshRiskCapacityPlausibility(mid){
-  var requested=String(mid||'');
-  if(!requested||isDemoMandateId(requested)){
-    renderRiskCapacityPlausibility(null);
-    return null;
-  }
-  try{
-    var res=await API.get('/mandates/'+requested+'/risk-capacity-plausibility');
-    if(String(getActiveMandateId()||'')!==requested)return null;
-    renderRiskCapacityPlausibility(res);
-    return res;
-  }catch(e){
-    if(String(getActiveMandateId()||'')===requested)renderRiskCapacityPlausibility(null);
     return null;
   }
 }
@@ -23794,46 +23782,6 @@ async function loadSrPage(){
     renderSrImplementationDecision(null);
   }
 }
-// #36/PAR-3 (2026-06-15): Zielerreichung je Ziel SOLL vs IST. Liest result.goal_analysis
-// (SOLL) + result.current_goal_analysis (IST, vom Backend deterministisch). Graceful:
-// bleibt versteckt, solange das IST-Payload fehlt (kein Regress fuer Alt-Berechnungen).
-function renderGoalAchievementSollIst(result){
-  var el=document.getElementById('aa-goal-sollist'); if(!el)return;
-  var soll=(result&&Array.isArray(result.goal_analysis))?result.goal_analysis:[];
-  var ist=(result&&Array.isArray(result.current_goal_analysis))?result.current_goal_analysis:[];
-  if(!soll.length||!ist.length){ el.style.display='none'; el.innerHTML=''; return; }
-  var istById={}; ist.forEach(function(g){ if(g&&g.goal_id!=null) istById[String(g.goal_id)]=g; });
-  var pct=function(v){ var n=Number(v); return isFinite(n)?fmtProbPct(Math.max(0,Math.min(100,Math.round(n)))):'—'; };
-  var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+fmtLocaleCH(Math.round(n/100))):'—'; };
-  var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
-  // UX-1 (Befund 8): Primaerkennzahl = Erfolgswahrscheinlichkeit (path_success_rate_pct,
-  // nur aus der Simulation; ohne Simulationswert '—', kein deterministischer 0/100-Ersatz).
-  // Sekundaer: Erreichungsgrad im mittleren Szenario (median_achievement_pct = Median,
-  // NICHT P25) und der Fehlbetrag im unguenstigen Szenario (P25-Pfad).
-  var successOf=function(g){ return g&&g.path_success_rate_pct!=null?g.path_success_rate_pct:null; };
-  var successCell=function(v,strong){ return '<td style="text-align:right;padding:6px 8px;'+(strong?'font-weight:600;':'')+'color:'+(v==null?'var(--n5)':tone(v))+'">'+(v==null?'—':pct(v))+'</td>'; };
-  var rows=soll.map(function(g){
-    var i=istById[String(g.goal_id)]||{};
-    return '<tr style="border-bottom:1px solid var(--bg2)">'
-      +'<td style="padding:6px 8px;font-family:var(--f);color:var(--n7)">'+escapeHtml(g.label||'Ziel')+'</td>'
-      +successCell(successOf(g),true)
-      +successCell(successOf(i),false)
-      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">'+pct(g.median_achievement_pct)+' / '+pct(i.median_achievement_pct)+'</td>'
-      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">'+chf(g.pessimistic_shortfall_rappen)+' / '+chf(i.pessimistic_shortfall_rappen)+'</td>'
-      +'</tr>';
-  }).join('');
-  el.style.display='';
-  el.innerHTML='<div style="border:1px solid var(--b1);border-radius:8px;overflow:hidden">'
-    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Erfolgswahrscheinlichkeit je Ziel — SOLL vs IST</div>'
-    +'<table style="width:100%;border-collapse:collapse;font-size:11px"><thead>'
-    +'<tr style="border-bottom:1px solid var(--b1)"><th style="text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Ziel</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--soll)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (SOLL-Strategie)">Erfolgs-Wkt. SOLL</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+' (heutige Anlage)">IST</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">Erreichungsgrad (Median) S/I</th>'
-    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">Fehlbetrag ung\u00fcnstig (P25) S/I</th></tr>'
-    +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table>'
-    +'<div style="padding:4px 8px 6px">'+goalAmpelLegendHtml()+'</div></div>';
-}
 function applyAllocationEngineResult(result){
   var payloadMandateId=allocationPayloadMandateId(result);
   var activeMandateId=getActiveMandateId();
@@ -24216,6 +24164,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
   }
 }
 async function loadCurrentAllocationResult(mid){
+  refreshGoalAnalysisIntegrity(mid);  // GOAL-ANALYSIS-INTEGRITY-001: Hinweis auch, wenn das Payload scheitert
   var riskPromise=loadCurrentRiskAssessment(mid,false);
   var metaPromise=Promise.allSettled([
     API.get('/building-blocks/current'),
@@ -24442,7 +24391,7 @@ async function openAllocationEngineModal(){
   om('m-eq');
 }
 async function openImplementationRecipe(){
-  await refreshStrategyData(true,true);
+  if(typeof eligOverrideReset==='function')eligOverrideReset();await refreshStrategyData(true,true);
   om('m-ums');
 }
 async function confirmImplementationRecipe(){
@@ -24460,7 +24409,7 @@ async function confirmImplementationRecipe(){
     cm('m-ums');
     printPortfolioPlan();
   }catch(e){
-    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);
+    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);if(typeof eligOverrideOnFinalizeBlocked==='function')eligOverrideOnFinalizeBlocked(mid,runId,e);
   }
 }
 // RESERVE-LEDGER-SNAPSHOT-001: strukturierte Finalisierungs-Sperre
@@ -26112,7 +26061,7 @@ function pensionTransferGuardMessage(e){
 var RELEASE_GATE_HINTS={
   RISK_BUDGET_VIOLATED:'Die Soll-Allokation überschreitet das Risikobudget des Risikoprofils. Bitte Risikoprofil oder Bausteine anpassen und die Allokation neu generieren.',SIGNATURE_ARTIFACT_MISSING:'Signiert wird nur ein archiviertes PDF. Bitte das Dokument zuerst erzeugen.',SIGNATURE_ARTIFACT_HASH_MISMATCH:'Die archivierten PDF-Bytes passen nicht zur Prüfsumme. Bitte das Dokument neu erzeugen.',
   RISK_BUDGET_EVIDENCE_MISSING:'Für die aktuelle Soll-Allokation fehlt der Nachweis, dass das Risikobudget eingehalten ist. Bitte die Allokation neu generieren.',
-  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.',HANDOFF_ALREADY_OPEN:'Für diese Handelsliste besteht bereits eine offene Weiterleitung.'
+  RELEASE_ALLOCATION_MISSING:'Die Empfehlung ist keiner gültigen Soll-Allokation zugeordnet. Bitte die Allokation neu generieren.',HANDOFF_ALREADY_OPEN:'Für diese Handelsliste besteht bereits eine offene Weiterleitung.',CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL:'Die Kundenunterschrift kann nicht im Berater-Login erfasst werden (kundeneigener Faktor nötig; Vor-Ort-Signatur noch nicht freigegeben).'
 };
 function releaseGateMessage(e){
   var parsed=null;
@@ -29756,8 +29705,8 @@ function openStammdatenModal(){
         <div id="sec-update" class="admin-sec-panel" style="display:none;gap:14px;">
           <div>
             <div class="admin-section-title">Software-Update</div>
-            <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Auto-Updates sind nur in installierten Releases aktiv.</div>
-            <div class="admin-section-sub">Verfuegbare Updates pruefen und installieren.</div>
+            <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Automatische Updates sind derzeit deaktiviert; neue Versionen werden als Installer bereitgestellt.</div>
+            <div class="admin-section-sub">Update-Status der Desktop-App.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span id="update-status-label" class="admin-metric-meta">—</span>

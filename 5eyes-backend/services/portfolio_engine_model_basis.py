@@ -21,7 +21,10 @@ Kanaele:
   Wird in ``effective_constraints_json`` persistiert und beim Reload verbatim
   zurueckgespielt.
 * ``reporting`` -- die Implementierungs-Projektion (Drift, Rebalancing,
-  Transaktionskosten, Tail-Modell, Zeitgitter des Drawdown).
+  Transaktionskosten, Tail-Modell, Zeitgitter des Drawdown). Ebenfalls
+  persistiert; der Reload spielt ihn ueber
+  ``services/reporting_model_basis_replay.py`` wortgetreu ab und legt eine
+  Abweichung der heutigen Methodik offen (REPORTING-BASIS-DURABILITY-001).
 
 Die beiden duerfen legitim verschiedene Zielwahrscheinlichkeiten liefern; die
 API darf sie deshalb nie als eine unbenannte Methodik praesentieren.

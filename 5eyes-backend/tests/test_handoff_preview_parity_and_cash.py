@@ -279,3 +279,18 @@ def test_preview_with_advisory_cash_equals_snapshot(session_factory, advisor_use
     with session_factory() as session:
         handoff = _create(session, advisor_user)
     _assert_parity(preview, handoff)
+
+
+def test_cash_row_carries_no_free_text_label(session_factory, advisor_user, monkeypatch):
+    """Red-Team 2026-10-28 Befund 3: der unveraenderliche Snapshot traegt keine
+    Freitext-Bezeichnung der Liquiditaetsposition, nur Instrumenttyp + Waehrung."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _add_cash(session_factory)
+    _patch(monkeypatch, _payload(_existing_depot_with_new_product()))
+
+    with session_factory() as session:
+        handoff = _create(session, advisor_user)
+
+    cash = next(t for t in _rows(handoff) if t.get("wealth_position_id") == "wp-cash")
+    assert cash["product_name"] == "Liquiditaet Kontoguthaben CHF"
+    assert "Privatkonto" not in handoff.trade_list_snapshot_json
