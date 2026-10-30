@@ -43,7 +43,7 @@ from tests.test_depot_snapshot_ist_stress import (  # noqa: E402,F401
 )
 
 REVISION = "e7a3c9d1b5f2"
-DOWN_REVISION = "d2f8b6a1c4e9"
+DOWN_REVISION = "b5d2e8f1c4a7"
 
 
 def _snapshot(s, mandate):
