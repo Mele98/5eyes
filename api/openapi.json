@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "AbortRequest": {
+        "properties": {
+          "reason_code": {
+            "enum": [
+              "OFFLINE_ABORT",
+              "CUSTOMER_DECLINED",
+              "ADVISOR_CANCELLED"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_code"
+        ],
+        "title": "AbortRequest",
+        "type": "object"
+      },
       "AdviserRegistrationCreate": {
         "properties": {
           "notes": {
@@ -2250,7 +2268,7 @@
       "Body_import_products_csv_products_import_csv_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -3758,6 +3776,7 @@
       "CashflowCreate": {
         "properties": {
           "amount_rappen": {
+            "maximum": 9.223372036854776e+18,
             "minimum": 0.0,
             "title": "Amount Rappen",
             "type": "integer"
@@ -3792,6 +3811,8 @@
           "gross_amount_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": -9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -3832,6 +3853,8 @@
           "tax_amount_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": -9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -4231,6 +4254,7 @@
           "amount_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -4295,6 +4319,8 @@
           "gross_amount_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": -9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -4372,6 +4398,8 @@
           "tax_amount_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": -9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -5594,6 +5622,762 @@
         "title": "ClientUpdate",
         "type": "object"
       },
+      "CmaPolicyApprovalOut": {
+        "properties": {
+          "approved_at": {
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approver_id": {
+            "title": "Approver Id",
+            "type": "string"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "approver_id",
+          "approved_at",
+          "rationale",
+          "content_hash"
+        ],
+        "title": "CmaPolicyApprovalOut",
+        "type": "object"
+      },
+      "CmaPolicyComponentIn": {
+        "properties": {
+          "asset_key": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Asset Key",
+            "type": "string"
+          },
+          "component": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Component",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "horizon_years": {
+            "title": "Horizon Years",
+            "type": "integer"
+          },
+          "method": {
+            "minLength": 1,
+            "title": "Method",
+            "type": "string"
+          },
+          "range_max_bps": {
+            "title": "Range Max Bps",
+            "type": "integer"
+          },
+          "range_min_bps": {
+            "title": "Range Min Bps",
+            "type": "integer"
+          },
+          "sign": {
+            "title": "Sign",
+            "type": "string"
+          },
+          "source": {
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "default": "bps_pa",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value_bps": {
+            "title": "Value Bps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "asset_key",
+          "component",
+          "value_bps",
+          "horizon_years",
+          "method",
+          "source",
+          "sign",
+          "range_min_bps",
+          "range_max_bps"
+        ],
+        "title": "CmaPolicyComponentIn",
+        "type": "object"
+      },
+      "CmaPolicyComponentOut": {
+        "properties": {
+          "asset_key": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Asset Key",
+            "type": "string"
+          },
+          "component": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Component",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "horizon_years": {
+            "title": "Horizon Years",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "minLength": 1,
+            "title": "Method",
+            "type": "string"
+          },
+          "range_max_bps": {
+            "title": "Range Max Bps",
+            "type": "integer"
+          },
+          "range_min_bps": {
+            "title": "Range Min Bps",
+            "type": "integer"
+          },
+          "sign": {
+            "title": "Sign",
+            "type": "string"
+          },
+          "source": {
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "default": "bps_pa",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value_bps": {
+            "title": "Value Bps",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "asset_key",
+          "component",
+          "value_bps",
+          "horizon_years",
+          "method",
+          "source",
+          "sign",
+          "range_min_bps",
+          "range_max_bps",
+          "id"
+        ],
+        "title": "CmaPolicyComponentOut",
+        "type": "object"
+      },
+      "CmaPolicyComponentsReplace": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/CmaPolicyComponentIn"
+            },
+            "title": "Components",
+            "type": "array"
+          }
+        },
+        "required": [
+          "components"
+        ],
+        "title": "CmaPolicyComponentsReplace",
+        "type": "object"
+      },
+      "CmaPolicyCreate": {
+        "properties": {
+          "base_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Currency"
+          },
+          "capital_market_assumptions_id": {
+            "title": "Capital Market Assumptions Id",
+            "type": "string"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/CmaPolicyComponentIn"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "correlation_policy_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Policy Ref"
+          },
+          "data_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data As Of"
+          },
+          "exception_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Rule"
+          },
+          "expiry_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiry Rule"
+          },
+          "fee_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Basis"
+          },
+          "impact_report_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Report Ref"
+          },
+          "method_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method Version"
+          },
+          "policy_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "return_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Basis"
+          },
+          "rollback_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rollback Rule"
+          },
+          "sources": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "policy_id",
+          "capital_market_assumptions_id"
+        ],
+        "title": "CmaPolicyCreate",
+        "type": "object"
+      },
+      "CmaPolicyDecision": {
+        "properties": {
+          "rationale": {
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rationale"
+        ],
+        "title": "CmaPolicyDecision",
+        "type": "object"
+      },
+      "CmaPolicyModelStatus": {
+        "properties": {
+          "enforced": {
+            "title": "Enforced",
+            "type": "boolean"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enforced",
+          "explanation"
+        ],
+        "title": "CmaPolicyModelStatus",
+        "type": "object"
+      },
+      "CmaPolicyOut": {
+        "properties": {
+          "activated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          },
+          "activated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated By"
+          },
+          "approvals": {
+            "items": {
+              "$ref": "#/components/schemas/CmaPolicyApprovalOut"
+            },
+            "title": "Approvals",
+            "type": "array"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "base_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Currency"
+          },
+          "capital_market_assumptions_id": {
+            "title": "Capital Market Assumptions Id",
+            "type": "string"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/CmaPolicyComponentOut"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Hash"
+          },
+          "correlation_policy_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Policy Ref"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "data_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data As Of"
+          },
+          "exception_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exception Rule"
+          },
+          "expiry_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiry Rule"
+          },
+          "fee_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Basis"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "impact_report_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Report Ref"
+          },
+          "method_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method Version"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "return_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Basis"
+          },
+          "revocation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revocation Reason"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "revoked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked By"
+          },
+          "rollback_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rollback Rule"
+          },
+          "sources_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources Json"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "validated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validated At"
+          },
+          "validated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validated By"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "policy_id",
+          "version",
+          "status",
+          "capital_market_assumptions_id",
+          "created_by",
+          "created_at"
+        ],
+        "title": "CmaPolicyOut",
+        "type": "object"
+      },
       "ConflictAcknowledgeRequest": {
         "description": "Die Kenntnisnahme des Kunden protokollieren.",
         "properties": {
@@ -6543,6 +7327,44 @@
         "title": "CostTotals",
         "type": "object"
       },
+      "CustomerConfirmRequest": {
+        "properties": {
+          "challenge_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "code": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "consent_text_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "title": "Consent Text Hash",
+            "type": "string"
+          },
+          "displayed_document_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "title": "Displayed Document Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "code",
+          "displayed_document_hash",
+          "consent_text_hash"
+        ],
+        "title": "CustomerConfirmRequest",
+        "type": "object"
+      },
       "DriftResult": {
         "properties": {
           "advisory_assets_rappen": {
@@ -6625,6 +7447,82 @@
         "title": "DriftResult",
         "type": "object"
       },
+      "EligibilityOverrideApprovalRequest": {
+        "description": "ELIG-OVERRIDE-SINGLE-APPROVER-001: only relevant when the requester\nconfirms their own request (sole person entitled to approve).",
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          }
+        },
+        "title": "EligibilityOverrideApprovalRequest",
+        "type": "object"
+      },
+      "EligibilityOverrideRequest": {
+        "properties": {
+          "expected_decision_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Decision Hash"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "reason_text": {
+            "title": "Reason Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id",
+          "reason_text"
+        ],
+        "title": "EligibilityOverrideRequest",
+        "type": "object"
+      },
+      "ErasureCaseOpen": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "relationship_end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationship End Date"
+          }
+        },
+        "required": [
+          "client_id"
+        ],
+        "title": "ErasureCaseOpen",
+        "type": "object"
+      },
       "FXRateResponse": {
         "properties": {
           "currency": {
@@ -6656,6 +7554,23 @@
           "updated_at"
         ],
         "title": "FXRateResponse",
+        "type": "object"
+      },
+      "FinalizeRequest": {
+        "properties": {
+          "qes_receipt": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qes Receipt"
+          }
+        },
+        "title": "FinalizeRequest",
         "type": "object"
       },
       "FinancialCoverageAttestationCreate": {
@@ -7257,6 +8172,38 @@
           "rank"
         ],
         "title": "GoalCreate",
+        "type": "object"
+      },
+      "GoalOrderUpdate": {
+        "description": "Vollstaendige Ziel-Reihenfolge eines Mandats (GOAL-RANK-HARDNESS-ROUNDTRIP-001).\n\n``goal_ids``: alle aktiven Ziele genau einmal, in neuer Prioritaet.\n``expected_goal_ids``: optional die zuletzt gesehene Reihenfolge (CAS).",
+        "properties": {
+          "expected_goal_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Goal Ids"
+          },
+          "goal_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Goal Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "goal_ids"
+        ],
+        "title": "GoalOrderUpdate",
         "type": "object"
       },
       "GoalResponse": {
@@ -8115,6 +9062,49 @@
         "title": "HouseMatrixRowsReplace",
         "type": "object"
       },
+      "IdentityCheckRequest": {
+        "properties": {
+          "id_document_country": {
+            "maxLength": 3,
+            "minLength": 2,
+            "title": "Id Document Country",
+            "type": "string"
+          },
+          "id_document_kind": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Id Document Kind",
+            "type": "string"
+          },
+          "id_document_valid": {
+            "title": "Id Document Valid",
+            "type": "boolean"
+          },
+          "method": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Method",
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "verified",
+              "failed"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "result",
+          "id_document_kind",
+          "id_document_country",
+          "id_document_valid"
+        ],
+        "title": "IdentityCheckRequest",
+        "type": "object"
+      },
       "InviteAccept": {
         "properties": {
           "password": {
@@ -8799,6 +9789,79 @@
         "title": "KnowledgeResponse",
         "type": "object"
       },
+      "LegalHoldExtension": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "review_date": {
+            "title": "Review Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_date"
+        ],
+        "title": "LegalHoldExtension",
+        "type": "object"
+      },
+      "LegalHoldProposal": {
+        "properties": {
+          "case_reference": {
+            "minLength": 1,
+            "title": "Case Reference",
+            "type": "string"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "legal_reason": {
+            "minLength": 1,
+            "title": "Legal Reason",
+            "type": "string"
+          },
+          "review_date": {
+            "title": "Review Date",
+            "type": "string"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope",
+            "type": "array"
+          }
+        },
+        "required": [
+          "client_id",
+          "case_reference",
+          "legal_reason",
+          "scope",
+          "review_date"
+        ],
+        "title": "LegalHoldProposal",
+        "type": "object"
+      },
       "LiveRebalancingBucketResponse": {
         "properties": {
           "asset_class": {
@@ -9104,6 +10167,17 @@
             "default": false,
             "title": "Reference Recalibrated",
             "type": "boolean"
+          },
+          "run_target_amount_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Target Amount Rappen"
           },
           "sub_asset_class": {
             "anyOf": [
@@ -10603,6 +11677,36 @@
         "title": "NationalityResponse",
         "type": "object"
       },
+      "OpenRequest": {
+        "properties": {
+          "device_app_version": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Device App Version",
+            "type": "string"
+          },
+          "displayed_document_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "title": "Displayed Document Hash",
+            "type": "string"
+          },
+          "language": {
+            "maxLength": 8,
+            "minLength": 2,
+            "title": "Language",
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayed_document_hash",
+          "language",
+          "device_app_version"
+        ],
+        "title": "OpenRequest",
+        "type": "object"
+      },
       "OptHistoryCreate": {
         "properties": {
           "client_requested": {
@@ -11743,6 +12847,68 @@
         "title": "PlanningAssumptionResponse",
         "type": "object"
       },
+      "PolicyProposal": {
+        "properties": {
+          "data_category": {
+            "default": "*",
+            "title": "Data Category",
+            "type": "string"
+          },
+          "disposition": {
+            "title": "Disposition",
+            "type": "string"
+          },
+          "evidence_type": {
+            "title": "Evidence Type",
+            "type": "string"
+          },
+          "legal_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Basis"
+          },
+          "matrix": {
+            "title": "Matrix",
+            "type": "object"
+          },
+          "retention_months": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Months"
+          },
+          "retention_trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Trigger"
+          }
+        },
+        "required": [
+          "evidence_type",
+          "disposition",
+          "matrix"
+        ],
+        "title": "PolicyProposal",
+        "type": "object"
+      },
       "PortfolioHandoffCancel": {
         "properties": {
           "cancelled_reason": {
@@ -11761,6 +12927,11 @@
       "PortfolioHandoffCreate": {
         "description": "Weiterleitung der aktuellen Handelsliste an die ausfuehrende Stelle\n(Depotbank / internes Asset Management). Die Trade-Zahlen werden NICHT\nvom Client uebernommen -- der Router berechnet den Snapshot serverseitig\naus dem angegebenen run_id ueber denselben Code-Pfad wie die\nHandelsliste-Anzeige im Review (siehe models/portfolio_handoff.py).",
         "properties": {
+          "confirm_no_existing_holdings": {
+            "default": false,
+            "title": "Confirm No Existing Holdings",
+            "type": "boolean"
+          },
           "data_classification": {
             "default": "synthetic",
             "enum": [
@@ -11808,6 +12979,7 @@
         "type": "object"
       },
       "PortfolioHandoffMarkExecuted": {
+        "description": "HANDOFF-EXECUTION-001: ein leerer Klick ist kein Ausfuehrungsnachweis.\n\nOhne Broker-/Custody-Anbindung ist die einzige moegliche Evidence eine\nmanuelle Bestaetigung mit der Auftrags-/Bestaetigungsreferenz der\nausfuehrenden Stelle und dem Ausfuehrungsdatum. Der Server speichert sie\nausdruecklich als ``manual_attestation`` -- nie als Fill-Evidence.",
         "properties": {
           "executed_note": {
             "anyOf": [
@@ -11820,9 +12992,75 @@
               }
             ],
             "title": "Executed Note"
+          },
+          "executed_on": {
+            "format": "date",
+            "title": "Executed On",
+            "type": "string"
+          },
+          "external_order_reference": {
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "External Order Reference",
+            "type": "string"
           }
         },
+        "required": [
+          "external_order_reference",
+          "executed_on"
+        ],
         "title": "PortfolioHandoffMarkExecuted",
+        "type": "object"
+      },
+      "PortfolioHandoffPreviewResponse": {
+        "description": "HANDOFF-PREVIEW-PARITY-001: read-only Vorschau der Handelsliste.\n\nDieselbe Funktion wie die Snapshot-Erzeugung (``snapshot_handoff``), ohne\nPersistieren. ``trades`` und ``snapshot_sha256`` entsprechen bei gleichen\nEingaben exakt dem Snapshot einer anschliessenden Weiterleitung.",
+        "properties": {
+          "confirm_no_existing_holdings": {
+            "title": "Confirm No Existing Holdings",
+            "type": "boolean"
+          },
+          "holdings_basis": {
+            "enum": [
+              "recorded_depot",
+              "confirmed_no_holdings"
+            ],
+            "title": "Holdings Basis",
+            "type": "string"
+          },
+          "live_total_value_rappen": {
+            "title": "Live Total Value Rappen",
+            "type": "integer"
+          },
+          "position_count": {
+            "title": "Position Count",
+            "type": "integer"
+          },
+          "recommendation_run_id": {
+            "title": "Recommendation Run Id",
+            "type": "string"
+          },
+          "snapshot_sha256": {
+            "title": "Snapshot Sha256",
+            "type": "string"
+          },
+          "trades": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "recommendation_run_id",
+          "holdings_basis",
+          "confirm_no_existing_holdings",
+          "live_total_value_rappen",
+          "position_count",
+          "snapshot_sha256",
+          "trades"
+        ],
+        "title": "PortfolioHandoffPreviewResponse",
         "type": "object"
       },
       "PortfolioHandoffResponse": {
@@ -11901,6 +13139,54 @@
             ],
             "title": "Executed Note"
           },
+          "execution_confirmed_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Confirmed On"
+          },
+          "execution_evidence_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Evidence Kind"
+          },
+          "execution_external_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution External Reference"
+          },
+          "holdings_basis": {
+            "anyOf": [
+              {
+                "enum": [
+                  "recorded_depot",
+                  "confirmed_no_holdings"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holdings Basis"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -11954,7 +13240,24 @@
             ],
             "title": "Recommendation Run Id"
           },
+          "snapshot_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Sha256"
+          },
           "status": {
+            "enum": [
+              "Vorbereitet",
+              "Gesendet",
+              "Ausgeführt",
+              "Storniert"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -14517,6 +15820,7 @@
           "avg_cost_price_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -14550,6 +15854,7 @@
           "market_value_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -14581,6 +15886,7 @@
           "units_milli": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -14613,6 +15919,7 @@
           "target_amount_rappen": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -16840,6 +18147,24 @@
         "title": "RiskProfileSignRequest",
         "type": "object"
       },
+      "RoleGrant": {
+        "properties": {
+          "privacy_role": {
+            "title": "Privacy Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "privacy_role"
+        ],
+        "title": "RoleGrant",
+        "type": "object"
+      },
       "StrategySnapshotCreate": {
         "properties": {
           "advisor_note": {
@@ -18068,6 +19393,17 @@
             "default": 0,
             "title": "Recurring Net Cashflow Rappen",
             "type": "integer"
+          },
+          "reporting_model_basis_replay": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reporting Model Basis Replay"
           },
           "reserve_funding_ledger": {
             "anyOf": [
@@ -19793,6 +21129,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -19828,6 +21171,7 @@
         "properties": {
           "amount_rappen": {
             "exclusiveMinimum": 0.0,
+            "maximum": 9.223372036854776e+18,
             "title": "Amount Rappen",
             "type": "integer"
           },
@@ -20100,6 +21444,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 9.223372036854776e+18,
                 "type": "integer"
               },
               {
@@ -22021,6 +23366,34 @@
           "advisory_wealth_chf"
         ],
         "title": "WealthSummaryResponse",
+        "type": "object"
+      },
+      "WitnessRequest": {
+        "properties": {
+          "confirmed": {
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "statement_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-fA-F]{64}$",
+            "title": "Statement Hash",
+            "type": "string"
+          },
+          "statement_version": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Statement Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement_version",
+          "statement_hash",
+          "confirmed"
+        ],
+        "title": "WitnessRequest",
         "type": "object"
       },
       "_ChangePassword": {
@@ -24770,6 +26143,62 @@
         ]
       }
     },
+    "/client-portal/onsite-signature/{transaction_id}/confirm": {
+      "post": {
+        "description": "Kundeneigener Faktor: der eingeloggte Kunde bestaetigt Code, angezeigten\nDokument-Hash und Einwilligung auf seinem eigenen Geraet.",
+        "operationId": "client_confirm_onsite_signature_client_portal_onsite_signature__transaction_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Client Confirm Onsite Signature",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
     "/clients": {
       "get": {
         "operationId": "list_clients_clients_get",
@@ -26590,6 +28019,465 @@
         ]
       }
     },
+    "/cma-policies": {
+      "get": {
+        "operationId": "list_policies_cma_policies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CmaPolicyOut"
+                  },
+                  "title": "Response List Policies Cma Policies Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Policies",
+        "tags": [
+          "CMA-Policy"
+        ]
+      },
+      "post": {
+        "operationId": "create_policy_cma_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CmaPolicyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Policy",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/model-status": {
+      "get": {
+        "operationId": "get_model_status_cma_policies_model_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyModelStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Model Status",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/{policy_row_id}": {
+      "get": {
+        "operationId": "get_policy_cma_policies__policy_row_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Policy",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/{policy_row_id}/activate": {
+      "post": {
+        "operationId": "activate_policy_cma_policies__policy_row_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Policy",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/{policy_row_id}/approve": {
+      "post": {
+        "operationId": "approve_policy_cma_policies__policy_row_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CmaPolicyDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Policy",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/{policy_row_id}/components": {
+      "put": {
+        "operationId": "replace_components_cma_policies__policy_row_id__components_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CmaPolicyComponentsReplace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Replace Components",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/{policy_row_id}/retire": {
+      "post": {
+        "operationId": "retire_policy_cma_policies__policy_row_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Policy",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/{policy_row_id}/revoke": {
+      "post": {
+        "operationId": "revoke_policy_cma_policies__policy_row_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CmaPolicyDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Policy",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
+    "/cma-policies/{policy_row_id}/validate": {
+      "post": {
+        "operationId": "validate_policy_cma_policies__policy_row_id__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmaPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Validate Policy",
+        "tags": [
+          "CMA-Policy"
+        ]
+      }
+    },
     "/dashboard/active-triggers": {
       "get": {
         "operationId": "active_triggers_dashboard_active_triggers_get",
@@ -27972,7 +29860,7 @@
     },
     "/mandates/{mandate_id}/backtest/stress-replays": {
       "get": {
-        "description": "Sprint U-P13: Historische Stress-Szenarien (Dotcom 2000-2002, GFC\n2008, Covid 2020, Bonds-Crash 2022, Stagflation 1973-74) angewandt\nauf die aktuelle Target-Allocation des Mandates.\n\nFoundation-Variante mit hartcodierten Returns. Voll-Pipeline mit\nhistorischer Time-Series kommt in Sprint U-P11.",
+        "description": "Sprint U-P13: Historische Stress-Szenarien (Dotcom 2000-2002, GFC\n2008, Covid 2020, Bonds-Crash 2022, Stagflation 1973-74) angewandt\nauf die SOLL-Gewichtung der gueltigen Target-Allocation des Mandates.\n\nStress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen\nDepots): IST-Bestaende fliessen nicht ein (``scope`` =\n``approved_target_allocation``, ``scope_label`` fuer die Anzeige).\n\nFoundation-Variante mit hartcodierten Returns. Voll-Pipeline mit\nhistorischer Time-Series kommt in Sprint U-P11.",
         "operationId": "get_backtest_stress_replays_mandates__mandate_id__backtest_stress_replays_get",
         "parameters": [
           {
@@ -28491,7 +30379,7 @@
     },
     "/mandates/{mandate_id}/depot-check": {
       "get": {
-        "description": "Vollstaendiger Depot-Check fuer das Mandat.\n\nDefensive: kein Crash bei fehlenden Daten. Returnt was berechnen geht +\nListe der Warnings/Empfehlungen.",
+        "description": "Vollstaendiger Depot-Check fuer das Mandat.\n\nDefensive: kein Crash bei fehlenden Daten. Returnt was berechnen geht +\nListe der Warnings/Empfehlungen.\n\nDEPOT-E2E-SNAPSHOT-001: mit ``analysis_snapshot_id`` der gespeicherte,\nan einen Depot-Snapshot gebundene Depot-Check (derselbe, den das PDF\nliest) statt einer Live-Berechnung; Manipulation -> 409.",
         "operationId": "get_depot_check_mandates__mandate_id__depot_check_get",
         "parameters": [
           {
@@ -28501,6 +30389,22 @@
             "schema": {
               "title": "Mandate Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "analysis_snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Analysis Snapshot Id"
             }
           }
         ],
@@ -28530,6 +30434,161 @@
           }
         ],
         "summary": "Get Depot Check",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/depot-snapshots": {
+      "post": {
+        "operationId": "create_depot_snapshot_mandates__mandate_id__depot_snapshots_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Depot Snapshot",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/depot-check": {
+      "post": {
+        "description": "DEPOT-E2E-SNAPSHOT-001: Depot-Check auf dem Bestand eines gespeicherten\nDepot-Snapshots berechnen und gebunden speichern (idempotent). JSON\n(``GET /depot-check?analysis_snapshot_id=``) und PDF lesen ihn.",
+        "operationId": "create_depot_check_analysis_mandates__mandate_id__depot_snapshots__snapshot_id__depot_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Depot Check Analysis",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays": {
+      "get": {
+        "description": "Stress-Replay des IST-Depots aus einem gespeicherten Depot-Snapshot\n(``scope`` = ``current_holdings_snapshot``). Positionen ohne eindeutige\nAnlageklasse -> keine Szenariozahlen (fail-closed, ausgewiesen).",
+        "operationId": "get_depot_snapshot_stress_replays_mandates__mandate_id__depot_snapshots__snapshot_id__stress_replays_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Depot Snapshot Stress Replays",
         "tags": [
           "Allokation"
         ]
@@ -28638,6 +30697,70 @@
         "summary": "Create Document",
         "tags": [
           "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/documents/{doc_id}/onsite-signature": {
+      "post": {
+        "operationId": "open_onsite_signature_mandates__mandate_id__documents__doc_id__onsite_signature_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open Onsite Signature",
+        "tags": [
+          "Vor-Ort-Signatur"
         ]
       }
     },
@@ -29025,6 +31148,68 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/goals/order": {
+      "put": {
+        "description": "Schreibt die vollstaendige Ziel-Reihenfolge atomar (ADR-10c).\n\nMuss VOR ``/goals/{goal_id}`` registriert sein, sonst faengt die\nEinzelziel-Route den Pfad ``order`` ab.",
+        "operationId": "reorder_goals_mandates__mandate_id__goals_order_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalOrderUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GoalResponse"
+                  },
+                  "title": "Response Reorder Goals Mandates  Mandate Id  Goals Order Put",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reorder Goals",
+        "tags": [
+          "Vermögen & Ziele"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/goals/{goal_id}": {
       "delete": {
         "operationId": "delete_goal_mandates__mandate_id__goals__goal_id__delete",
@@ -29253,6 +31438,425 @@
         "summary": "Create Goal Revision Decision",
         "tags": [
           "Vermögen & Ziele"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/onsite-signature/{transaction_id}": {
+      "get": {
+        "operationId": "get_onsite_signature_mandates__mandate_id__onsite_signature__transaction_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Onsite Signature",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/onsite-signature/{transaction_id}/abort": {
+      "post": {
+        "operationId": "onsite_abort_mandates__mandate_id__onsite_signature__transaction_id__abort_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AbortRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onsite Abort",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/onsite-signature/{transaction_id}/challenge": {
+      "post": {
+        "description": "Sendet den Einmalcode an den Kundenkanal. Die Antwort enthaelt ihn nie.",
+        "operationId": "onsite_issue_challenge_mandates__mandate_id__onsite_signature__transaction_id__challenge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onsite Issue Challenge",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/onsite-signature/{transaction_id}/deliver": {
+      "post": {
+        "operationId": "onsite_deliver_copy_mandates__mandate_id__onsite_signature__transaction_id__deliver_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onsite Deliver Copy",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/onsite-signature/{transaction_id}/finalize": {
+      "post": {
+        "operationId": "onsite_finalize_mandates__mandate_id__onsite_signature__transaction_id__finalize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onsite Finalize",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/onsite-signature/{transaction_id}/identity-check": {
+      "post": {
+        "operationId": "onsite_identity_check_mandates__mandate_id__onsite_signature__transaction_id__identity_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onsite Identity Check",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/onsite-signature/{transaction_id}/witness": {
+      "post": {
+        "operationId": "onsite_witness_mandates__mandate_id__onsite_signature__transaction_id__witness_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WitnessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Onsite Witness",
+        "tags": [
+          "Vor-Ort-Signatur"
         ]
       }
     },
@@ -29525,6 +32129,52 @@
         "summary": "Get Planning Assumptions",
         "tags": [
           "Vermögen & Ziele"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/portfolio-data/assessment": {
+      "get": {
+        "description": "PORTFOLIO-DATA-001: komponentenweise Depot-Frische, Abgleich-Status und\nGate je Aktion (Entwurf, Finalisierung, PDF, Signatur, Handoff). Mit einer\nnicht freigegebenen Policy (heute PROPOSED) nur Anzeige: ``enforced``\nFalse, ``would_block`` zeigt, was eine aktive Policy sperren wuerde.",
+        "operationId": "get_portfolio_data_assessment_mandates__mandate_id__portfolio_data_assessment_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Portfolio Data Assessment",
+        "tags": [
+          "Allokation"
         ]
       }
     },
@@ -30078,6 +32728,202 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/recommendations/{run_id}/eligibility-overrides": {
+      "get": {
+        "operationId": "list_eligibility_overrides_mandates__mandate_id__recommendations__run_id__eligibility_overrides_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Eligibility Overrides",
+        "tags": [
+          "Empfehlungen"
+        ]
+      },
+      "post": {
+        "operationId": "request_eligibility_override_mandates__mandate_id__recommendations__run_id__eligibility_overrides_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EligibilityOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Eligibility Override",
+        "tags": [
+          "Empfehlungen"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/recommendations/{run_id}/eligibility-overrides/{override_id}/approve": {
+      "post": {
+        "operationId": "approve_eligibility_override_mandates__mandate_id__recommendations__run_id__eligibility_overrides__override_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "override_id",
+            "required": true,
+            "schema": {
+              "title": "Override Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/EligibilityOverrideApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Eligibility Override",
+        "tags": [
+          "Empfehlungen"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/recommendations/{run_id}/finalize": {
       "put": {
         "operationId": "finalize_recommendation_mandates__mandate_id__recommendations__run_id__finalize_put",
@@ -30247,6 +33093,73 @@
         "summary": "Get Recommendation Payload By Id",
         "tags": [
           "Empfehlungen"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoff-preview": {
+      "get": {
+        "description": "HANDOFF-PREVIEW-PARITY-001: Handelsliste read-only aus derselben\nFunktion wie die Weiterleitung (kein Persistieren, kein Audit-Eintrag).\nAblehnungen kommen als 409 mit ``reason_code``, damit die Anzeige den\nGrund (z.B. fehlende Neugeld-Bestaetigung) ausweisen kann.",
+        "operationId": "preview_portfolio_handoff_mandates__mandate_id__recommendations__run_id__portfolio_handoff_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_no_existing_holdings",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm No Existing Holdings",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioHandoffPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Portfolio Handoff",
+        "tags": [
+          "Weiterleitung Asset Management"
         ]
       }
     },
@@ -31152,7 +34065,7 @@
     },
     "/mandates/{mandate_id}/reports/depotcheck.pdf": {
       "get": {
-        "description": "Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios.",
+        "description": "Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios.\n\nDEPOT-E2E-SNAPSHOT-001 (CIO-Entscheid): das PDF liest einen gespeicherten,\nan einen Depot-Snapshot gebundenen Depot-Check -- ``analysis_snapshot_id``\noder, in einem Klick, den des aktuellen Bestands (Berater: Depot-Snapshot\nund Depot-Check werden idempotent gespeichert). Unvollstaendige Bewertung\n-> 409 mit Grund. Nur ohne erfassten Depotbestand: reine SOLL-Analyse,\ngekennzeichnet, ohne Snapshot-Bindung.",
         "operationId": "get_depotcheck_pdf_mandates__mandate_id__reports_depotcheck_pdf_get",
         "parameters": [
           {
@@ -31162,6 +34075,22 @@
             "schema": {
               "title": "Mandate Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "analysis_snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Analysis Snapshot Id"
             }
           }
         ],
@@ -31651,6 +34580,52 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/risk-capacity-plausibility/evaluations": {
+      "get": {
+        "description": "RISK-CAPACITY-EVALUATION-SNAPSHOT-001: gebundene, unveraenderliche\nBewertungen (neueste zuerst) mit Replay (Hash, Regel-Nachrechnung,\nAktualitaet). Betragsfrei; die Zeilen werden nie ueberschrieben.",
+        "operationId": "list_risk_capacity_plausibility_evaluations_mandates__mandate_id__risk_capacity_plausibility_evaluations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Risk Capacity Plausibility Evaluations",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/risk-profile/sign": {
       "post": {
         "description": "FIDLEG-Eignungspruefung: Berater erfasst die Bestaetigung des aktuellen\nRisikoprofils (Fallback A, Methode 'advisor_recorded' = Beweisniveau\n'advisor_attested', KEINE elektronische Kundensignatur). Reine\nDOKUMENTATION -- aendert die Eignungs-Konformitaet (Audit is_compliant)\nNICHT.\n\nRISK-PROFILE-SIGNOFF-001: schreibt einen append-only RiskProfileSignoffV1,\ngebunden an Assessment-Version, wirksames Profil und die verifizierte\nOverride-Decision (oder 'no_override'). Nicht verifizierbare Decision,\nveraltete Erwartungswerte oder ein paralleler Override -> 409 vor jeder\nWirkung.",
@@ -32072,6 +35047,52 @@
           }
         ],
         "summary": "Get Current Allocation",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/target-allocation/current/analysis-integrity": {
+      "get": {
+        "description": "GOAL-ANALYSIS-INTEGRITY-001 / SHADOW-ANALYSIS-INTEGRITY-001: Status der\ngespeicherten Zielanalyse und des Shadow-Containers der aktuellen\nSoll-Allokation fuer den ruhigen Berater-Hinweis. Read-only, wirft nie\nwegen einer Integritaetsverletzung (die erscheint als ``integrity_mismatch``).",
+        "operationId": "get_current_allocation_analysis_integrity_mandates__mandate_id__target_allocation_current_analysis_integrity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Current Allocation Analysis Integrity",
         "tags": [
           "Allokation"
         ]
@@ -32574,6 +35595,30 @@
         ]
       }
     },
+    "/onsite-signature/policy": {
+      "get": {
+        "operationId": "get_onsite_signature_policy_onsite_signature_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Onsite Signature Policy",
+        "tags": [
+          "Vor-Ort-Signatur"
+        ]
+      }
+    },
     "/optimizer-policies": {
       "get": {
         "description": "Sprint U-P15: Read-only Policy-Liste für Advisor-UI (A/B-Backtest-\nSelektoren). Im Gegensatz zu /admin/optimizer-policies erfordert dieser\nEndpoint kein Admin-Recht — er liefert nur die schlanke Liste ohne\nHouseMatrix-Detail-Rows.",
@@ -32648,6 +35693,694 @@
         "summary": "Get Current Policy",
         "tags": [
           "Allokation"
+        ]
+      }
+    },
+    "/privacy/erasure-cases": {
+      "post": {
+        "operationId": "open_erasure_case_privacy_erasure_cases_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErasureCaseOpen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open Erasure Case",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/erasure-cases/{case_id}": {
+      "get": {
+        "operationId": "get_erasure_case_privacy_erasure_cases__case_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Erasure Case",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/erasure-cases/{case_id}/execute": {
+      "post": {
+        "operationId": "execute_erasure_case_privacy_erasure_cases__case_id__execute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Execute Erasure Case",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/erasure-cases/{case_id}/refresh": {
+      "post": {
+        "operationId": "refresh_erasure_case_privacy_erasure_cases__case_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh Erasure Case",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/legal-holds": {
+      "get": {
+        "operationId": "list_legal_holds_privacy_legal_holds_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Legal Holds",
+        "tags": [
+          "Datenschutz"
+        ]
+      },
+      "post": {
+        "operationId": "propose_legal_hold_privacy_legal_holds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegalHoldProposal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Propose Legal Hold",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/legal-holds/{hold_id}/approve": {
+      "post": {
+        "operationId": "approve_legal_hold_privacy_legal_holds__hold_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hold_id",
+            "required": true,
+            "schema": {
+              "title": "Hold Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Legal Hold",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/legal-holds/{hold_id}/extend": {
+      "post": {
+        "operationId": "extend_legal_hold_privacy_legal_holds__hold_id__extend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hold_id",
+            "required": true,
+            "schema": {
+              "title": "Hold Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegalHoldExtension"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Extend Legal Hold",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/legal-holds/{hold_id}/release": {
+      "post": {
+        "operationId": "release_legal_hold_privacy_legal_holds__hold_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hold_id",
+            "required": true,
+            "schema": {
+              "title": "Hold Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Release Legal Hold",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/policies": {
+      "get": {
+        "operationId": "list_policies_privacy_policies_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Policies",
+        "tags": [
+          "Datenschutz"
+        ]
+      },
+      "post": {
+        "operationId": "propose_policy_privacy_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyProposal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Propose Policy",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/policies/{policy_id}/approve": {
+      "post": {
+        "operationId": "approve_policy_privacy_policies__policy_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Policy",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/retention-expiry": {
+      "post": {
+        "operationId": "run_retention_expiry_privacy_retention_expiry_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Retention Expiry",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/roles": {
+      "get": {
+        "operationId": "list_roles_privacy_roles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Roles",
+        "tags": [
+          "Datenschutz"
+        ]
+      },
+      "post": {
+        "operationId": "grant_role_privacy_roles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleGrant"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Grant Role",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/roles/{designation_id}": {
+      "delete": {
+        "operationId": "revoke_role_privacy_roles__designation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "designation_id",
+            "required": true,
+            "schema": {
+              "title": "Designation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Role",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/status": {
+      "get": {
+        "operationId": "privacy_status_privacy_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Privacy Status",
+        "tags": [
+          "Datenschutz"
         ]
       }
     },
