@@ -59,17 +59,20 @@ def _triggers(db_path, table):
         }
 
 
-def _expected_triggers(table):
-    return {f"trg_{table}_no_update", f"trg_{table}_no_delete"}
+def _expected_triggers(table, tenant_guard):
+    # PG-002: der Mandanten-Guard entsteht bei create_all/Alembic sofort, im
+    # Bootstrap-/Runtime-Pfad erst ueber ensure_sqlite_mandate_evidence_tenant_boundary.
+    guard = {f"trg_{table}_tenant_guard"} if tenant_guard else set()
+    return {f"trg_{table}_no_update", f"trg_{table}_no_delete"} | guard
 
 
-def _assert_schema(db_path):
+def _assert_schema(db_path, *, tenant_guard=False):
     engine = create_engine(f"sqlite:///{db_path}")
     inspector = inspect(engine)
     try:
         for table in APPEND_ONLY_TABLES:
             assert _columns(db_path, table) == _model_columns(table), table
-            assert _triggers(db_path, table) == _expected_triggers(table), table
+            assert _triggers(db_path, table) == _expected_triggers(table, tenant_guard), table
             unique = {
                 ix["name"]: ix["column_names"]
                 for ix in inspector.get_indexes(table) if ix["unique"]
@@ -115,7 +118,7 @@ def test_orm_create_all_matches(tmp_path):
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(bind=engine)
     engine.dispose()
-    _assert_schema(db_path)
+    _assert_schema(db_path, tenant_guard=True)
 
 
 def test_runtime_patch_restores_tables_idempotently(tmp_path, monkeypatch):
@@ -141,8 +144,10 @@ def test_alembic_upgrade_and_downgrade_along_the_chain(tmp_path):
     db_path = tmp_path / "alembic.db"
     db_url = f"sqlite:///{db_path}"
     cfg = _alembic_cfg(db_url)
-    command.upgrade(cfg, REVISION)
-    _assert_schema(db_path)
+    # Kettenbasiert ueber REVISION hinaus: spaetere Revisionen (z. B. PG-002
+    # tenant_id) gehoeren zum Schema, das das ORM heute beschreibt.
+    command.upgrade(cfg, "head")
+    _assert_schema(db_path, tenant_guard=True)
     command.downgrade(cfg, PREVIOUS)
     engine = create_engine(db_url)
     names = set(inspect(engine).get_table_names())

@@ -1,0 +1,37 @@
+{
+ "protokoll": {
+  "page_text": [
+   {
+    "chars": 838,
+    "sha256": "266deee2fd89ff3d1e945a5954acde43cc46b0f9d6a43e7b5c040cb3dec7270b"
+   }
+  ],
+  "pages": 1
+ },
+ "risikoprofil": {
+  "page_text": [
+   {
+    "chars": 1802,
+    "sha256": "7baf7f70f6f2e592da3664525dc7ab57c8b060070a06ca18309a1d12c6d870bd"
+   },
+   {
+    "chars": 1896,
+    "sha256": "2b0f2cd4cc24df8b3091a8fc2cdad71286be4c3b8594d4a4b73a4f5960990b92"
+   }
+  ],
+  "pages": 2
+ },
+ "vertrag": {
+  "page_text": [
+   {
+    "chars": 831,
+    "sha256": "7d8d42c4001bfbf619e7041a6d2edf1f52b6ac538f2a8c9e7512b59463dd7270"
+   },
+   {
+    "chars": 409,
+    "sha256": "78da6987cdd374254c07d02523d432240579f8272915ac1070142763cc9ec2e4"
+   }
+  ],
+  "pages": 2
+ }
+}
