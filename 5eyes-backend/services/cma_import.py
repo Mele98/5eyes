@@ -312,6 +312,11 @@ def apply_cma_row(db: Any, row: dict, user_id: str | None) -> Any:
     if not name:
         raise ValueError("assumption_set_name darf nicht leer sein")
 
+    # CMA-EFFECTIVE-DATE-001: die neue Version wird sofort is_current=1 und
+    # loest die Vorgaengerin ab -- nur zulaessig, wenn sie heute wirksam ist.
+    from services.jurisdiction.resolve import assert_cma_activatable_on  # lazy
+    assert_cma_activatable_on(row.get("valid_from"), row.get("valid_until"))
+
     # 2026-07-25 (Generalaudit, Wave 14): with_for_update() ergaenzt, analog
     # zum identischen Anchor-Lookup in routers/allocation.py::update_cma.
     # Stand Audit ist diese Funktion in keinem Router/Script verdrahtet

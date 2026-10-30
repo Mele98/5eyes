@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint, Index, text
+from sqlalchemy import BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -216,7 +216,7 @@ class ConflictOfInterestDisclosure(Base):
     conflict_type = Column(String, nullable=False)
     description = Column(String, nullable=False)
     inducement_provider = Column(String)
-    inducement_amount_rappen = Column(Integer)
+    inducement_amount_rappen = Column(BigInteger)
     inducement_frequency = Column(String)
     disclosed_to_client = Column(Integer, nullable=False, default=0)
     disclosed_at = Column(String)
@@ -413,7 +413,7 @@ class PriceHistory(Base):
     id = Column(String, primary_key=True)
     product_id = Column(String, ForeignKey("products.id"), nullable=False)
     price_date = Column(String, nullable=False)
-    price_rappen = Column(Integer, nullable=False)
+    price_rappen = Column(BigInteger, nullable=False)
     currency = Column(String, nullable=False, default="CHF")
     source = Column(String, nullable=False, default="yfinance")
     fetched_at = Column(String, nullable=False)
@@ -456,6 +456,10 @@ class RecommendationRun(Base):
     # fuer Altlaeufe aus der Zeit vor dieser Spalte ebenfalls. Der Leser
     # legt das offen statt es zu verschweigen (`evidence_frozen`).
     cost_disclosure_snapshot_json = Column(String)
+    # CMA-001: die CMA_POLICY (models/cma_policy.py), an die diese
+    # Finalisierung gebunden ist. NULL fuer Entwuerfe und solange das
+    # Policy-Modell nicht aktiv geschaltet ist (services/cma_policy.py).
+    cma_policy_row_id = Column(String)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
@@ -472,13 +476,13 @@ class RecommendationPosition(Base):
     run_id = Column(String, ForeignKey("recommendation_runs.id"), nullable=False)
     product_id = Column(String, ForeignKey("products.id"), nullable=False)
     target_weight_bps = Column(Integer, nullable=False)
-    target_amount_rappen = Column(Integer)
+    target_amount_rappen = Column(BigInteger)
     # Sprint U-P20 (2026-05-24): Echte IST-Holdings des Kunden. NULL =
     # noch nicht gepflegt (Berater hat Empfehlung erstellt, Kunde hat noch
     # nichts gekauft). depot_check.py liest dieses Feld als IST-Amount
     # statt auf target_amount zurueckzufallen (= echter IST/SOLL-Drift).
-    current_amount_rappen = Column(Integer)
-    reference_price_rappen = Column(Integer)
+    current_amount_rappen = Column(BigInteger)
+    reference_price_rappen = Column(BigInteger)
     reference_price_date = Column(String)
     reference_price_source = Column(String)
     reference_lookup_mode = Column(String)
@@ -504,9 +508,9 @@ class RecommendationHolding(Base):
     depot_bank = Column(String)
     custody_account_number = Column(String)
     as_of_date = Column(String)
-    units_milli = Column(Integer)
-    market_value_rappen = Column(Integer)
-    avg_cost_price_rappen = Column(Integer)
+    units_milli = Column(BigInteger)
+    market_value_rappen = Column(BigInteger)
+    avg_cost_price_rappen = Column(BigInteger)
     source = Column(String, nullable=False, default="manual")
     notes = Column(String)
     created_at = Column(String, nullable=False)

@@ -1471,7 +1471,10 @@ class LiveRebalancingPositionResponse(BaseModel):
     asset_class: str
     sub_asset_class: Optional[str] = None
     target_weight_bps: int
+    # HANDOFF-MATH-001: SOLL auf der Live-Basis (IST + Delta = SOLL);
+    # run_target_amount_rappen ist der historische Betrag des Runs.
     target_amount_rappen: int
+    run_target_amount_rappen: Optional[int] = None
     current_weight_bps: int
     current_market_value_rappen: int
     delta_weight_bps: int
@@ -1732,6 +1735,10 @@ class TargetAllocationGenerateResponse(BaseModel):
     # getrennter Neubewertung (live_re_evaluation, Drift).
     reserve_split: Optional[dict] = None
     reserve_split_replay: Optional[dict] = None
+    # REPORTING-BASIS-DURABILITY-001: Replay der gespeicherten Reporting-
+    # Methodik (status verified|stale|not_persisted, divergent_keys,
+    # live_preview). Nur beim Laden einer gespeicherten Allokation gesetzt.
+    reporting_model_basis_replay: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int

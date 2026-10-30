@@ -30,9 +30,9 @@ nicht erfunden.
 Fehlt das Pensionierungsjahr: bisheriges Verhalten (durchgehend "nicht
 pensioniert") plus ausdruecklicher Hinweis.
 
-Bezugsjahr ``t = 0`` ist das Bewertungsjahr des Mandats
-(``services.mortality.horizon.mandate_reference_year``: ``opened_at``, sonst
-heute) -- dieselbe Achse wie ``TaxContext.calendar_year``
+Bezugsjahr ``t = 0`` ist das Bewertungsjahr des Laufs
+(``services.mortality.horizon.mandate_reference_year``: Jahr des gebundenen
+Bewertungsstichtags) -- dieselbe Achse wie ``TaxContext.calendar_year``
 (``base_calendar_year``), damit Steuerjahr und Phase je ``t`` dasselbe
 Kalenderjahr meinen.
 """

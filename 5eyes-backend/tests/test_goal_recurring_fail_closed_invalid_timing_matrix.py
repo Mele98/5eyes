@@ -11,10 +11,10 @@ accepted when its timing is self-contradictory.
 This module drives the real API surface (routers/wealth.py ->
 schemas/wealth.py field isolation -> services/goal_semantics.py complete
 domain validation) exactly as the goal editor would, and asserts every
-malformed row in the matrix is rejected with HTTP 422. Cases that the
-current implementation still lets through silently are marked
-xfail(strict=True) rather than weakened, so a real fix flips them to green
-and a regression that reintroduces the hole fails CI immediately.
+malformed row in the matrix is rejected with HTTP 422. The two cases that
+used to slip through (no timing anchor -> silent default horizon; ongoing
+plus end date) are closed in routers/wealth.py::_normalize_goal_payload and
+run as regular tests, so a regression that reintroduces a hole fails CI.
 """
 from __future__ import annotations
 
@@ -160,20 +160,6 @@ def test_start_after_end_is_rejected(auth_client, advisor_user):
     assert response.status_code == 422, response.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRING-EDITOR-CONTRACT-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md. "
-        "A recurring goal created with no start_date, no target_date and no "
-        "horizon_years is not rejected: _normalize_goal_payload "
-        "(routers/wealth.py) silently backfills horizon_years=10 for new "
-        "goals whose timing is entirely unanchored, so "
-        "validate_goal_model_input's require_stream_timing() never sees the "
-        "missing anchor and the row is persisted at HTTP 201 instead of "
-        "being rejected."
-    ),
-)
 def test_missing_start_date_is_rejected(auth_client, advisor_user):
     """A recurring goal with no start_date and no other timing anchor
     (target_date, horizon_years) must be rejected rather than silently
@@ -202,20 +188,6 @@ def test_finite_stream_without_end_date_is_rejected(auth_client, advisor_user):
     assert response.status_code == 422, response.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRING-EDITOR-CONTRACT-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md. "
-        "is_ongoing=True together with a target_date is self-contradictory "
-        "(an 'ongoing forever' stream cannot also have a fixed end date), "
-        "but neither _validate_complete_goal_state (routers/wealth.py) nor "
-        "validate_goal_model_input (services/goal_semantics.py) checks the "
-        "combination -- the not-ongoing branch only looks at target_date "
-        "when is_ongoing is False -- so the row is persisted at HTTP 201 "
-        "instead of being rejected."
-    ),
-)
 def test_ongoing_stream_with_end_date_is_rejected(auth_client, advisor_user):
     """is_ongoing=True with a target_date set is a contradictory state and
     must be rejected."""
@@ -251,3 +223,27 @@ def test_null_amount_is_rejected(auth_client, advisor_user):
     response = _post_goal(auth_client, mandate_id, payload)
 
     assert response.status_code == 422, response.text
+
+
+def test_partial_update_cannot_create_ongoing_with_end_date(auth_client, advisor_user):
+    """Der Widerspruch wird am zusammengefuehrten Zustand geprueft: ein
+    endliches Ziel per Teil-Update auf laufend zu stellen, ohne das Enddatum
+    zu loeschen, muss ebenfalls abgelehnt werden."""
+    mandate_id = _create_api_mandate(auth_client, advisor_user, "partial-ongoing")
+    payload = _base_recurring_payload()
+    payload["is_ongoing"] = False
+    payload["target_date"] = "2040-01-01"
+    created = _post_goal(auth_client, mandate_id, payload)
+    assert created.status_code == 201, created.text
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/goals/{created.json()['id']}",
+        json={"is_ongoing": True},
+    )
+    assert response.status_code == 422, response.text
+
+    cleared = auth_client.put(
+        f"/mandates/{mandate_id}/goals/{created.json()['id']}",
+        json={"is_ongoing": True, "target_date": None},
+    )
+    assert cleared.status_code == 200, cleared.text

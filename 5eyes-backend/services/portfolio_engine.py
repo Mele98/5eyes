@@ -43,6 +43,7 @@ from services.wealth_inflow_certainty import (
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.valuation_clock import binds_allocation_valuation_date, binds_run_valuation_date, valuation_date
 from services.esg_data_provenance import seed_unverified_run_warning
 from services.preference_snapshot import (
     INHERITED_PREFERENCES_NOTE,
@@ -664,6 +665,7 @@ from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION
     bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
 )
 from services.allocation_evidence_replay import allocation_evidence_payload, build_goal_driver_evidence_json  # noqa: E402
+from services.goal_analysis_snapshot import bound_analysis_result_hash, goal_analysis_constraints, serialize_goal_achievability, serialize_shadow_optimization, shadow_analysis_constraints  # noqa: E402
 
 
 def _convert_position_value_to_target_currency(
@@ -767,7 +769,7 @@ def _position_is_currently_unlocked_for_goal_funding(pos, *, as_of: "date | None
     available_from = _parse_iso_date(getattr(pos, "liquidity_available_from", None))
     if available_from is None:
         return False
-    reference_date = as_of or date.today()
+    reference_date = as_of or valuation_date()
     return available_from <= reference_date
 
 
@@ -2832,10 +2834,7 @@ def _compute_input_snapshot_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-# ADR-014: der Modell-Basis-Block liegt jetzt im Cluster-Submodul
-# services/portfolio_engine_model_basis.py (288 Zeilen). Hier nur noch
-# re-exportiert, damit die bestehenden Aufrufstellen und Tests, die ihn
-# aus diesem Modul importieren, unveraendert bleiben.
+# ADR-014: Modell-Basis-Block in services/portfolio_engine_model_basis.py; Re-Export fuer bestehende Aufrufer/Tests.
 from services.portfolio_engine_model_basis import (  # noqa: E402
     _build_allocation_model_basis,
 )
@@ -2954,6 +2953,7 @@ from services.portfolio_engine_reserve import (  # noqa: F401,E402
 )
 from services.reserve_funding_ledger import compile_goal_set_funding, compile_reserve_funding_ledger_for_inputs  # noqa: E402
 from services.reserve_funding_ledger_snapshot import ledger_reference, ledger_snapshot_columns, replay_reserve_funding_ledger  # noqa: E402
+from services.reporting_model_basis_replay import replay_reporting_model_basis, reporting_replay_warnings  # noqa: E402
 from services.reserve_split_snapshot import generation_reserve_ceiling_bps, generation_reserve_split, replay_allocation_reserve_split  # noqa: E402
 
 
@@ -3028,6 +3028,7 @@ def _assert_allocation_has_basis(
         )
 
 
+@binds_run_valuation_date
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
@@ -3142,8 +3143,14 @@ def generate_target_allocation(
     # _apply_goal_and_reserve_tilts den Reserve-Split gleich vornimmt -- der
     # stochastische Floor unten muss genau diesen internen Betrag halten.
     saa_liquidity_ceiling_bps = _saa_liquidity_ceiling_bps(maximums["liquidity"])
+    goal_inflation_series_bps = _goal_inflation_series_bps(
+        cma,
+        len(cashflow_projection_series_rappen),
+        cashflow_totals["year"],
+        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+    )
     reserve_inputs = dict(
-        goals=goals,
+        goals=goals, goal_inflation_series_bps=goal_inflation_series_bps,  # GOAL-REAL-SPENDING-INFLATION-PARITY-001
         limits_prefs=prefs["limits"],
         asset_class_prefs=prefs["assetClasses"],
         recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
@@ -3201,12 +3208,6 @@ def generate_target_allocation(
             )
         ]
 
-    goal_inflation_series_bps = _goal_inflation_series_bps(
-        cma,
-        len(cashflow_projection_series_rappen),
-        cashflow_totals["year"],
-        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
-    )
     external_goal_funding_series_rappen = (
         _build_external_goal_funding_series(
             external_gross_assets_rappen=max(
@@ -3903,7 +3904,7 @@ def generate_target_allocation(
         external_goal_funding_series_rappen=(
             external_goal_funding_series_rappen
         ),
-    )
+    ) | {"valuation_date": valuation_date().isoformat()}  # ADR-1b/1c: Stichtag im Input-Hash
     input_snapshot_hash = _compute_input_snapshot_hash(
         advisory_positions=inputs["advisory_positions"],
         all_positions=inputs["all_positions"],
@@ -3931,17 +3932,7 @@ def generate_target_allocation(
             "optimization_method": risk_budget_fallback_method,
             "optimization_status": "fallback_house_matrix",
         }
-    goal_achievability_json: str | None = None
-    if goal_achievability:
-        try:
-            goal_achievability_json = json.dumps(
-                goal_achievability,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-        except (TypeError, ValueError) as exc:
-            logger.warning("Goal-achievability JSON-serialization failed: %s", exc)
-            goal_achievability_json = None
+    goal_achievability_json = serialize_goal_achievability(goal_achievability)  # GOAL-ANALYSIS-INTEGRITY-001: diese Bytes sind die Hash-Grundlage
     message_context = SimpleNamespace(
         limiting_factor=limiting_factor,
         optimization_status=optimization_status_for_limits,
@@ -4046,18 +4037,7 @@ def generate_target_allocation(
         constraints=optimizer_constraints,
         goal_drivers=optimizer_goal_drivers,
     )
-    shadow_optimization_json: str | None = None
-    if shadow_optimization_payload:
-        try:
-            shadow_optimization_json = json.dumps(
-                shadow_optimization_payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            )
-        except (TypeError, ValueError) as exc:
-            logger.warning("Shadow-optimization JSON-serialization failed: %s", exc)
-            shadow_optimization_json = None
+    shadow_optimization_json = serialize_shadow_optimization(shadow_optimization_payload)  # SHADOW-ANALYSIS-INTEGRITY-001: Hash-Grundlage
 
     sub_allocations_json = json.dumps(sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     effective_constraints_payload = {
@@ -4094,6 +4074,8 @@ def generate_target_allocation(
         # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
         "reporting_model_basis": dict(model_basis["reporting"]),
         "reserve_funding_ledger": ledger_reference(reserve_ledger, reserve_split),  # RESERVE-LEDGER-SNAPSHOT-001 / RESERVE-CEILING-001
+        **goal_analysis_constraints(goal_achievability_json),  # GOAL-ANALYSIS-INTEGRITY-001: Zielanalyse-Referenz
+        **shadow_analysis_constraints(shadow_optimization_json),  # SHADOW-ANALYSIS-INTEGRITY-001
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)
@@ -4104,14 +4086,14 @@ def generate_target_allocation(
         engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
         input_snapshot_hash=input_snapshot_hash, preferences_json=preferences_json_snapshot, targets=targets,
         sub_allocations=sub_allocations, effective_constraints=effective_constraints_payload,
-        optimization_seed=optimizer_audit.get("optimization_seed"),
+        optimization_seed=optimizer_audit.get("optimization_seed"), analysis_result_hash=bound_analysis_result_hash(effective_constraints_payload),
     )
 
     target_allocation = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate.id,
         version=previous_version + 1,
-        is_current=1,
+        is_current=1, valuation_date=valuation_date().isoformat(),  # ADR-1b
         target_equities_bps=targets["equities"],
         target_bonds_bps=targets["bonds"],
         target_real_estate_bps=targets["real_estate"],
@@ -4193,10 +4175,8 @@ def generate_target_allocation(
         user_id=user_id,
         now=now,
     )
-    # V3 Sprint 2.1: Verknuepfung herstellen — nur fuer 'active'-Runs (also
-    # stochastic-Modus, in dem der Solver tatsaechlich die TA produziert hat).
-    # Im shadow_stochastic-Modus bleibt optimization_run_id NULL, weil die
-    # TA House-Matrix-basiert ist.
+    # V3 Sprint 2.1: Verknuepfung nur fuer 'active'-Runs (stochastic, der Solver produzierte die TA);
+    # im shadow_stochastic-Modus bleibt optimization_run_id NULL (TA House-Matrix-basiert).
     # REGENERATE-IDEMPOTENT-001: wiederverwendete Allokation behaelt ihren urspruenglichen Solver-Lauf.
     if persisted_run is not None and persisted_run.role == "active" and not reuse_previous_allocation:
         db.flush()  # ensure persisted_run.id ist gesetzt
@@ -4306,6 +4286,7 @@ from services.portfolio_engine_allocation_integrity import (  # noqa: F401,E402
 )
 
 
+@binds_run_valuation_date
 def evaluate_goal_sensitivity(
     db: Session,
     mandate: Mandate,
@@ -4462,7 +4443,7 @@ def evaluate_goal_sensitivity(
                 # calendar_years_until() verschob die Dauer um ein Jahr.
                 original_start_index = max(
                     1,
-                    int(original_start.year) - date.today().year + 1,
+                    int(original_start.year) - valuation_date().year + 1,
                 )
                 stream_duration = max(
                     1,
@@ -4798,6 +4779,7 @@ def evaluate_goal_sensitivity(
                 inflow_projection_series_rappen=list(
                     inputs.get("inflow_projection_series_rappen") or []
                 ),
+                goal_inflation_series_bps=inflation_series_bps,
             )
         )
 
@@ -5363,6 +5345,7 @@ def evaluate_goal_sensitivity(
     }
 
 
+@binds_allocation_valuation_date
 def build_target_payload_from_allocation(
     db: Session,
     mandate: Mandate,
@@ -5703,10 +5686,15 @@ def build_target_payload_from_allocation(
     )
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
     metrics = _expected_metrics(targets, cma, sub_allocations)
-    # C7: Reserve-Berechnung zentral via _compute_reserve_for_inputs - identisch
-    # zum generate-Pfad, damit Reserve nicht zwischen Generieren und Wiederaufbau driftet.
+    goal_inflation_series_bps = _goal_inflation_series_bps(
+        cma,
+        len(cashflow_projection_series_rappen),
+        cashflow_totals["year"],
+        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+    )
+    # C7: Reserve zentral via _compute_reserve_for_inputs, identisch zum generate-Pfad.
     reserve_needed_rappen, external_reserve_rappen = _compute_reserve_for_inputs(
-        goals=goals,
+        goals=goals, goal_inflation_series_bps=goal_inflation_series_bps,
         limits_prefs=prefs["limits"],
         asset_class_prefs=prefs["assetClasses"],
         recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
@@ -5721,12 +5709,6 @@ def build_target_payload_from_allocation(
     split_replay = replay_allocation_reserve_split(allocation, _stored_constraints, live_reserve_breakdown["reserve_split"])  # RESERVE-CEILING-001: Historical Replay, Neubewertung getrennt
     reserve_needed_rappen, external_reserve_rappen = split_replay.reserve_needed_rappen, split_replay.external_reserve_rappen
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
-    goal_inflation_series_bps = _goal_inflation_series_bps(
-        cma,
-        len(cashflow_projection_series_rappen),
-        cashflow_totals["year"],
-        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
-    )
     external_goal_funding_series_rappen = (
         _build_external_goal_funding_series(
             external_gross_assets_rappen=max(
@@ -5819,7 +5801,7 @@ def build_target_payload_from_allocation(
         external_goal_funding_series_rappen=(
             external_goal_funding_series_rappen
         ),
-    )
+    ) | ({"valuation_date": valuation_date().isoformat()} if getattr(allocation, "valuation_date", None) else {})
     current_snapshot_hash = _compute_input_snapshot_hash(
         advisory_positions=advisory_positions,
         all_positions=all_positions,
@@ -5975,15 +5957,14 @@ def build_target_payload_from_allocation(
         simulation_prefs=prefs["simulation"],
         mandate=mandate,
         cma=cma,
-        stored_optimization_basis=(
-            (_stored_constraints or {}).get("optimization_model_basis")
-        ),
+        stored_optimization_basis=(_stored_constraints or {}).get("optimization_model_basis"),
         reporting_tax_cashflow_present=any(
             str(getattr(cashflow, "source", "") or "") == "tax_estimate"
             for cashflow in cashflows
         ),
     )
     monte_carlo["model_basis"] = dict(model_basis["reporting"])
+    model_basis, reporting_replay = replay_reporting_model_basis(model_basis, _stored_constraints)  # REPORTING-BASIS-DURABILITY-001: gespeichert abspielen, Live-MC bleibt live
     current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
         goal_analysis,
         monte_carlo,
@@ -6132,7 +6113,7 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
-        **reserve_replay.payload, **split_replay.payload,
+        **reserve_replay.payload, **split_replay.payload, **reporting_replay,
         "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
@@ -6164,7 +6145,7 @@ def build_target_payload_from_allocation(
             # Phase 6.2: persistiertes Solver-Reasoning (voller Trace beim Reload).
             + persisted_optimizer_reasoning
             # C8: zentrale Drift-Warnings (Assessment, CMA, Inputs, Prefs, Reserve, Legacy).
-            + drift_warnings
+            + drift_warnings + reporting_replay_warnings(reporting_replay)
         ),
         "projection_horizon": projection_horizon,
         "buckets": bucket_response,
@@ -6455,6 +6436,7 @@ def build_recommendation_payload_from_run(
 
 
 
+@binds_run_valuation_date
 def generate_recommendation_run(
     db: Session,
     mandate: Mandate,

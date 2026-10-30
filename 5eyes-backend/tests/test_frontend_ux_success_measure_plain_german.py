@@ -22,8 +22,13 @@ from pathlib import Path
 HTML_PATH = Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "5eyes_v2.html"
 
 
+# renderGoalAchievementSollIst liegt seit GOAL-ANALYSIS-INTEGRITY-001 im
+# Skriptmodul neben dem Monolithen (Monolith-Budget); gleicher Vertrag.
+GOAL_MODULE_PATH = HTML_PATH.parent / "goal-analysis-integrity.js"
+
+
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return HTML_PATH.read_text(encoding="utf-8") + chr(10) + GOAL_MODULE_PATH.read_text(encoding="utf-8")
 
 
 def _function_source(html: str, name: str) -> str:

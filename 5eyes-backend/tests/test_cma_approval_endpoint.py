@@ -61,6 +61,9 @@ def _make_cma(row_id, *, jurisdiction=None, tenant_id=None, status="committee_ap
         id=row_id, assumption_set_name=f"Standard-{row_id}", version=1,
         valid_from="2026-01-01", is_current=is_current, jurisdiction=jurisdiction,
         tenant_id=tenant_id, status=status,
+        # CMA-APPROVAL-PREFLIGHT-001: ein freigabefaehiger Kandidat traegt
+        # mindestens eine Renditeannahme (Testwert, keine Fachannahme).
+        bonds_home_ig_return_bps=250,
         created_by="tester", created_at=now, updated_at=now,
     )
 

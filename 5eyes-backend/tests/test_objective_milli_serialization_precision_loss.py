@@ -11,8 +11,12 @@ undefinierte Deltas produziert.
 
 Siehe docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md
 
-Test (a) belegt den Praezisionsverlust direkt an
+Test (a) belegte den Praezisionsverlust direkt an
 ``_objective_to_milli`` (services/portfolio_engine_optimizer_integration.py).
+Seit 2026-10-28 prueft er den Abschluss: die milli-Spalte bleibt Legacy, der
+persistierte Nachweis (Goal-Driver-Evidenz Schema v2,
+``solver_objective_value``) ist verlustfrei. Details:
+tests/test_objective_value_evidence_lossless.py.
 
 Test (b) belegt, dass der Praezisionsverlust tatsaechlich in einen falschen
 publizierten Delta-Wert durchschlaegt: ``evaluate_goal_sensitivity`` in
@@ -33,6 +37,8 @@ weil beide Werte auf denselben milli-Integer (1) runden.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from services.portfolio_engine_optimizer_integration import _objective_to_milli
@@ -43,40 +49,31 @@ from services.portfolio_engine_optimizer_integration import _objective_to_milli
 from tests.test_optimizer_phase6 import _seed_mandate, session_factory  # noqa: F401
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 — round 47 red test "
-        "(milli-rappen serialization collapses dimensionless objective "
-        "precision), see docs/audits/"
-        "2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md"
-    ),
-)
 def test_objective_to_milli_preserves_distinguishable_small_values():
-    """_objective_to_milli muss fachlich unterschiedliche kleine Werte
-    unterscheidbar speichern -- tut es aber nicht (Kontrollrunde 36, Repro B).
-    """
-    # Paar 1: 0.0001 -> 0.0002 ist eine Verdoppelung (+100%), aber beide
-    # runden auf denselben gespeicherten Integer (0).
-    milli_a1 = _objective_to_milli(0.0001)
-    milli_a2 = _objective_to_milli(0.0002)
-    assert milli_a1 == 0
-    assert milli_a2 == 0
-    assert milli_a1 != 0 or milli_a2 != milli_a1, (
-        "Erwartet: _objective_to_milli unterscheidet 0.0001 von 0.0002 "
-        f"(true delta +100%), tatsaechlich kollabieren beide auf {milli_a1}."
-    )
+    """Geschlossen 2026-10-28 (Schema v2 der Goal-Driver-Evidenz).
 
-    # Paar 2: 0.0006 -> 0.0014 ist +133.33%, aber beide runden auf denselben
-    # gespeicherten Integer (1).
-    milli_b1 = _objective_to_milli(0.0006)
-    milli_b2 = _objective_to_milli(0.0014)
-    assert milli_b1 == 1
-    assert milli_b2 == 1
-    assert milli_b1 != milli_b2, (
-        "Erwartet: _objective_to_milli unterscheidet 0.0006 von 0.0014 "
-        f"(true delta +133.33%), tatsaechlich kollabieren beide auf {milli_b1}."
-    )
+    Die Legacy-Spalte behaelt bewusst ihre milli-Skala (bestehende Konsumenten
+    teilen durch 1000); der frueher strikt rote Test verlangte beides zugleich
+    (``== 1`` und ``!=``) und konnte nie gruen werden. Der Vertrag lautet
+    jetzt: die milli-Werte kollabieren weiterhin, der persistierte Nachweis
+    unterscheidet die Werte aber verlustfrei und exakt.
+    """
+    from types import SimpleNamespace
+
+    from services.allocation_evidence_replay import build_goal_driver_evidence_json
+
+    def lossless(value):
+        envelope = build_goal_driver_evidence_json(
+            [], optimizer_mode="stochastic",
+            optimizer_result=SimpleNamespace(objective_value=value),
+            model_basis={"optimization": {}},
+        )
+        return json.loads(envelope)["solver_objective_value"]["decimal"]
+
+    for low, high in ((0.0001, 0.0002), (0.0006, 0.0014)):
+        assert _objective_to_milli(low) == _objective_to_milli(high)
+        assert lossless(low) != lossless(high)
+        assert (float(lossless(low)), float(lossless(high))) == (low, high)
 
 
 def test_evaluate_goal_sensitivity_delta_objective_pct_uses_collapsed_integers(

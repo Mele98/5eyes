@@ -118,8 +118,11 @@ def _raw_sovereign_5y_yield_bps() -> int:
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "CMA-BOND-HOME-IG-PROXY-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-04-bond-curve-quotation-sleeve-and-return-semantics-integrity-audit.md"
+        "CMA-BOND-HOME-IG-PROXY-001 (offen, Fachdaten): ein IG-Kreditaufschlag "
+        "ueber der Staatskurve braucht eine IC-freigegebene Spread-Quelle bzw. "
+        "-Annahme je Jurisdiktion; der Wert wird nicht erfunden. Audit: "
+        "docs/audits/2026-10-04-bond-curve-quotation-sleeve-and-return-"
+        "semantics-integrity-audit.md"
     ),
 )
 def test_bonds_home_ig_return_includes_credit_spread_over_pure_sovereign_yield(

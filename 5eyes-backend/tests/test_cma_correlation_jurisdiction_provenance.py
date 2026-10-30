@@ -12,10 +12,9 @@ Diese Suite trennt streng zwei Dinge:
 * **Gefixt** -- die Herkunft ist jetzt im Nachweis benannt. Der
   Modell-Basis-Block sagt, welche Korrelationsstruktur gerechnet wurde und ob
   sie zur Jurisdiktion passt.
-* **Offen (strict xfail)** -- ob eine Nicht-CH-Jurisdiktion ohne eigene Matrix
-  ueberhaupt noch live rechnen darf. Das ist fail-closed die konsequente
-  Antwort, hat aber echte Bruchflaeche (der DE-Pfad ruht heute tragend auf dem
-  Fallback) und verlangt eine freigegebene Matrix, die NICHT erfunden wird.
+* **Gefixt (CMA-001 / CMA-CORR-001)** -- eine Nicht-CH-Jurisdiktion ohne
+  eigene Matrix rechnet nicht mehr live (fail-closed); es wird keine
+  Fremdmarkt-Matrix eingesetzt und keine neue Matrix erfunden.
 """
 
 from __future__ import annotations
@@ -213,26 +212,9 @@ def test_registry_holds_only_committee_backed_jurisdictions() -> None:
     assert set(JURISDICTION_DEFAULT_CORRELATION_SOURCES) == {"CH"}
 
 
-# ── Offen: Fail-Closed fuer Nicht-CH ohne eigene Matrix ──────────────────────
+# ── Fail-Closed fuer Nicht-CH ohne eigene Matrix (CMA-001 / CMA-CORR-001) ───
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-CORRELATION-JURISDICTION-PROVENANCE-001 (offen, Produktentscheid): "
-        "Returns und Volatilitaeten sind pro Jurisdiktion fail-closed, die "
-        "Korrelationsmatrix nicht -- eine Nicht-CH-CMA ohne eigene Matrix "
-        "rechnet weiter auf der Schweizer Struktur, statt den Lauf zu "
-        "verweigern. Die Herkunft ist jetzt im Nachweis benannt "
-        "(jurisdiction_matched=False), der Lauf wird aber nicht blockiert. "
-        "Fail-closed waere die konsequente Antwort, hat aber echte "
-        "Bruchflaeche: der gesamte DE-Pfad ruht heute tragend auf dem Fallback "
-        "(28 Aufrufstellen von _seed_de_mandate ueber 7 Testdateien, die DE-CMA "
-        "setzt jurisdiktionsspezifische Returns/Vols, aber keine Matrix). Der "
-        "Fix verlangt eine IC-freigegebene Matrix pro Jurisdiktion -- die wird "
-        "bewusst NICHT erfunden, gleiche Linie wie HEDGED-ALKOHOL-GAP-001."
-    ),
-)
 def test_non_ch_without_own_correlation_matrix_is_refused() -> None:
     """Reproducer: fehlende jurisdiktionsgerechte Korrelationen muessen den Lauf stoppen.
 
