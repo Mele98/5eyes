@@ -307,6 +307,9 @@ def persist_depot_snapshot(db: Session, snapshot: dict, *, mandate: Mandate, cre
     row = DepotSnapshot(
         id=snapshot["snapshot_id"],
         schema_version=DEPOT_SNAPSHOT_VERSION,
+        # PG-002: Mandant direkt (RLS); die DB leitet ihn aus dem Mandat nach
+        # und lehnt Abweichungen ab. Nicht Teil des Snapshot-Hashes.
+        tenant_id=getattr(mandate, "tenant_id", None),
         mandate_id=snapshot["mandate_id"],
         client_id=str(getattr(mandate, "client_id", "") or ""),
         as_of_date=snapshot["as_of"],

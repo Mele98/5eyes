@@ -143,6 +143,8 @@ class Transaction:
     opened: Mapping[str, Any]
     last_event_hash: str
     last_occurred_at: str
+    # PG-002: Mandant des Vorgangs (aus dem Mandat, nicht Teil der Hashes).
+    tenant_id: str | None = None
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
@@ -237,6 +239,7 @@ def load_transaction(db: Session, transaction_id: str) -> Transaction:
         opened=json.loads(first.payload_json),
         last_event_hash=last.event_hash,
         last_occurred_at=last.occurred_at,
+        tenant_id=first.tenant_id,
     )
 
 
@@ -255,7 +258,7 @@ def _new_event(tx: Transaction | None, *, event_type: str, actor_id: str, actor_
     ident = base or {
         "transaction_id": tx.transaction_id, "mandate_id": tx.mandate_id,
         "client_id": tx.client_id, "document_id": tx.document_id,
-        "document_hash": tx.document_hash,
+        "document_hash": tx.document_hash, "tenant_id": tx.tenant_id,
     }
     now = _iso(reading.instant)
     event = OnsiteSignatureEvent(
@@ -394,7 +397,7 @@ def open_transaction(
         base={
             "transaction_id": transaction_id, "mandate_id": mandate.id,
             "client_id": mandate.client_id, "document_id": document.id,
-            "document_hash": current_hash,
+            "document_hash": current_hash, "tenant_id": mandate.tenant_id,
         },
     )
     _commit(db, event)
@@ -487,7 +490,7 @@ def issue_customer_challenge(
         consent_text_hash=tx.opened["consent_text_hash"], policy_version=policy.policy_version,
     )
     challenge = OnsiteSignatureChallenge(
-        id=str(uuid.uuid4()), schema_version="OnsiteSignatureChallengeV1",
+        id=str(uuid.uuid4()), schema_version="OnsiteSignatureChallengeV1", tenant_id=tx.tenant_id,
         transaction_id=tx.transaction_id, mandate_id=tx.mandate_id, client_id=tx.client_id,
         document_hash=tx.document_hash, purpose=CHALLENGE_PURPOSE, nonce=nonce,
         issued_at=issued_at, expires_at=expires_at, delivery_channel=channel.name,
@@ -737,7 +740,7 @@ def finalize_signature(
     )
     opened = tx.opened
     evidence = OnsiteSignatureEvidence(
-        id=str(uuid.uuid4()), schema_version="OnsiteSignatureEvidenceV1",
+        id=str(uuid.uuid4()), schema_version="OnsiteSignatureEvidenceV1", tenant_id=tx.tenant_id,
         transaction_id=tx.transaction_id, mandate_id=tx.mandate_id, client_id=tx.client_id,
         document_id=tx.document_id, document_type=opened["document_type"],
         document_version=int(opened["document_version"]),

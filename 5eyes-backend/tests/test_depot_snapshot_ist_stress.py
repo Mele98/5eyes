@@ -520,6 +520,25 @@ def test_api_persists_idempotently_and_replays_identically(session_factory):
     }
 
 
+def test_api_binds_the_snapshot_row_to_the_mandate_tenant(session_factory):
+    """PG-002 (Red-Team 2026-10-28, Befund 6): depot_snapshots traegt den
+    Mandanten direkt (RLS-Plan); der Snapshot-Hash bleibt mandantenfrei."""
+    from models.tenant import Tenant
+
+    with session_factory() as s:
+        advisor, mandate = _seed(s)
+        s.add(Tenant(id="t-1", display_name="t-1", slug="t-1", created_at=NOW, updated_at=NOW))
+        s.flush()
+        for row in (advisor, s.get(Client, mandate.client_id), mandate):
+            row.tenant_id = "t-1"
+        s.commit()
+        created = _create(s, mandate, advisor)
+        row = s.get(DepotSnapshot, created["snapshot"]["snapshot_id"])
+        assert row.tenant_id == "t-1"
+        assert "tenant_id" not in created["snapshot"]
+        assert ds.verify_persisted_depot_snapshot(row, mandate_id=mandate.id)["snapshot_hash"] == row.snapshot_hash
+
+
 def test_api_returns_409_and_persists_nothing_when_valuation_incomplete(session_factory):
     with session_factory() as s:
         advisor, mandate = _seed(s, with_units=False)

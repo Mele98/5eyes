@@ -113,15 +113,20 @@ class DepotSnapshot(Base):
     ``snapshot_json`` ist der kanonische Snapshot (services/depot_snapshot.py),
     ``id`` = ``snapshot_id`` (aus dem Hash abgeleitet, gleicher Inhalt = gleiche
     Zeile). Append-only (Trigger); kein FK auf mandates/clients (Purge-fest).
+    ``tenant_id`` direkt (RLS-Plan, PG-002), aus dem Mandat abgeleitet und per
+    INSERT-Guard geprueft (core/mandate_evidence_tenant_boundary.py);
+    nicht Teil des Snapshot-Hashes.
     """
 
     __tablename__ = "depot_snapshots"
     __table_args__ = (
         Index("ix_depot_snapshots_mandate", "mandate_id", "as_of_date"),
+        Index("ix_depot_snapshots_tenant_id", "tenant_id"),
     )
 
     id = Column(String, primary_key=True)
     schema_version = Column(String, nullable=False, default="DepotSnapshotV1")
+    tenant_id = Column(String)
     mandate_id = Column(String, nullable=False)
     client_id = Column(String, nullable=False)
     as_of_date = Column(String, nullable=False)
