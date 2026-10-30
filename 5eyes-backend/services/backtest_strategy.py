@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from datetime import date as Date
 
-from models.allocation import CapitalMarketAssumption, TargetAllocation
+from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.snapshots import AssetClassAnnualReturn, AssetClassFxHistory, AssetClassPriceHistory
 from models.wealth import WealthPosition
@@ -964,14 +964,9 @@ def _resolve_risk_free_bps(db: Session, default_bps: int = 80) -> int:
     """Risk-free-Rate für Sharpe aus der aktuellen CMA (Geldmarkt-Rendite
     `liquidity_return_bps`). Fallback: konservative 80 bps, wenn keine CMA
     oder kein Wert gepflegt ist."""
-    cma = (
-        db.query(CapitalMarketAssumption)
-        .filter(
-            CapitalMarketAssumption.is_current == 1,
-            CapitalMarketAssumption.deleted_at.is_(None),
-        )
-        .first()
-    )
+    # CMA-EFFECTIVE-DATE-001: wirksame CH-CMA ueber denselben Resolver.
+    from services.jurisdiction.resolve import resolve_effective_cma_or_none
+    cma = resolve_effective_cma_or_none(db, "CH")
     if cma is not None:
         rf = getattr(cma, "liquidity_return_bps", None)
         if rf is not None and int(rf) >= 0:

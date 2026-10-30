@@ -37,8 +37,16 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
         raise ShadowComparisonMissing(
             f"Keine Shadow-Optimierung fuer Mandat {mandate_id} persistiert."
         )
+    # SHADOW-ANALYSIS-INTEGRITY-001: nur ein gebundener Container wird gezeigt.
+    from services.goal_analysis_snapshot import bound_shadow_optimization_json
+
+    bound_shadow = bound_shadow_optimization_json(ta)
+    if bound_shadow is None:
+        raise ShadowComparisonMissing(
+            "Shadow-Optimierung verletzt ihren Integritaetsnachweis; bitte neu berechnen."
+        )
     try:
-        shadow = json.loads(ta.shadow_optimization_json)
+        shadow = json.loads(bound_shadow)
     except (TypeError, ValueError) as exc:
         raise ShadowComparisonMissing("Shadow-Optimierung ist kein valides JSON.") from exc
     if not isinstance(shadow, dict):

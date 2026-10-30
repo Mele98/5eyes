@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
+from sqlalchemy import BigInteger, Column, String, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -88,10 +88,10 @@ class TargetAllocation(Base):
     # C8: Audit-Anker fuer Reproduzierbarkeit / Drift-Erkennung.
     preferences_json = Column(String)
     input_snapshot_hash = Column(String)
-    advisory_wealth_at_generation_rappen = Column(Integer)
-    total_wealth_at_generation_rappen = Column(Integer)
-    reserve_needed_at_generation_rappen = Column(Integer)
-    external_reserve_at_generation_rappen = Column(Integer)
+    advisory_wealth_at_generation_rappen = Column(BigInteger)
+    total_wealth_at_generation_rappen = Column(BigInteger)
+    reserve_needed_at_generation_rappen = Column(BigInteger)
+    external_reserve_at_generation_rappen = Column(BigInteger)
     # RESERVE-LEDGER-SNAPSHOT-001: der beim Generate publizierte
     # ReserveFundingLedgerV1 als kanonisches JSON + Contract-Hash. Die Referenz
     # steht zusaetzlich in effective_constraints (-> allocation_context_hash).
@@ -118,7 +118,7 @@ class TargetAllocation(Base):
     # Optimizer-Audit-Anchor (Spec 2026-05-05). Wenn None: Allocation
     # kommt aus House-Matrix-Default (vor-Optimizer Baseline).
     optimization_method = Column(String)  # 'house_matrix' | 'iterative' | 'stochastic'
-    optimization_objective_value_milli = Column(Integer)  # objective in milli (Praezision)
+    optimization_objective_value_milli = Column(BigInteger)  # objective in milli (Praezision)
     optimization_iterations = Column(Integer)
     optimization_seed = Column(Integer)
     optimization_status = Column(String)  # 'converged' | 'converged_robustified' | 'diverged' | 'timeout' | 'fallback_house_matrix'
@@ -155,6 +155,11 @@ class TargetAllocation(Base):
     # an den Objective-Vertrag gebundener Goal-Driver-Snapshot
     # (services/allocation_evidence_replay.py). NULL = Bestand ohne Snapshot.
     goal_driver_evidence_json = Column(String)
+    # GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b (2026-10-25): beim Berechnen
+    # gebundener Bewertungsstichtag (ISO-Datum). Reload, Staleness-Pruefung
+    # und Report-Simulation lesen ihn statt der Wanduhr
+    # (services/valuation_clock.py). NULL = Bestand vor ADR-1b.
+    valuation_date = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
@@ -200,7 +205,7 @@ class OptimizerRun(Base):
     n_paths = Column(Integer, nullable=False, default=0)
     n_iterations = Column(Integer, nullable=False, default=0)
     n_starts_attempted = Column(Integer, nullable=False, default=0)
-    objective_value_milli = Column(Integer)
+    objective_value_milli = Column(BigInteger)
     weights_bps_json = Column(String, nullable=False)  # {"equities":...,"bonds":...,...}
     constraint_violations_json = Column(String)  # JSON list[str]
     reasoning_json = Column(String)  # JSON list[str]

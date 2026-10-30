@@ -90,7 +90,7 @@ Write-Host '====================================================================
 Write-Host ' Gleich erscheint eine  https://<zufall>.trycloudflare.com  URL.'    -ForegroundColor Green
 Write-Host ' Teile sie + diesen Pfad mit Kollegen:'                              -ForegroundColor Green
 Write-Host '   https://<zufall>.trycloudflare.com/app/5eyes_v2.html'             -ForegroundColor White
-Write-Host ' Logins (Initial-PW Start-5eyes-2026! , 2FA-Pflicht beim 1. Login):' -ForegroundColor Green
+Write-Host ' Logins (Initial-PW: Ausgabe von seed_external_demo.py, 2FA-Pflicht beim 1. Login):' -ForegroundColor Green
 Write-Host '   operator / a.berater / a.admin / b.berater / b.admin'            -ForegroundColor White
 Write-Host '====================================================================' -ForegroundColor Green
 Write-Host ''

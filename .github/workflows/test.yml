@@ -122,18 +122,47 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # F0-6 / A3 P0-5: api/openapi.json muss dem Code entsprechen. Export
+      # ohne App-Lifespan (kein init_db, keine Seeds/Scheduler, Wegwerf-
+      # DB_PATH). Bei Drift rot mit Regenerationsbefehl. Dieselbe Pruefung
+      # laeuft zusaetzlich als tests/test_openapi_artifact.py in den Shards.
+      - name: OpenAPI artifact drift check
+        working-directory: 5eyes-backend
+        run: python scripts/export_openapi.py --check
+
       - name: Collect full suite (reference list)
         working-directory: 5eyes-backend
         run: |
           python -m pytest tests/ --collect-only -q -p no:cacheprovider > ci-collected.txt
           tail -n 3 ci-collected.txt
 
+      # CI-ARTIFACT-UPLOAD-001: Upload mit genau einer Wiederholung. Run
+      # 40775202093: Shard 7 bestand alle Tests, der Upload brach mit
+      # "FinalizeArtifact: ECONNRESET" ab und das Aggregat wurde rot. Der
+      # erste Versuch ist continue-on-error (Fehlschlag nur als outcome),
+      # der zweite nicht: scheitert auch er, bleibt der Job rot. overwrite
+      # ersetzt ein evtl. halb finalisiertes Artefakt gleichen Namens.
       - name: Upload reference collection
+        id: upload_plan
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: test-plan
           path: 5eyes-backend/ci-collected.txt
           retention-days: 14
+
+      - name: Upload reference collection (pause before retry)
+        if: always() && steps.upload_plan.outcome == 'failure'
+        run: sleep 20
+
+      - name: Upload reference collection (retry)
+        if: always() && steps.upload_plan.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-plan
+          path: 5eyes-backend/ci-collected.txt
+          retention-days: 14
+          overwrite: true
 
   backend-test-shard:
     name: Backend Test Shard ${{ matrix.group }}/8
@@ -217,14 +246,31 @@ jobs:
             --tb=short --maxfail=50 -o junit_family=xunit1 \
             --junit-xml=ci-out/junit/shard-${{ matrix.group }}.xml
 
+      # CI-ARTIFACT-UPLOAD-001: siehe Job backend-test-plan.
       - name: Upload shard results
+        id: upload_shard
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: test-shard-${{ matrix.group }}
           path: 5eyes-backend/ci-out/
           retention-days: 14
           if-no-files-found: warn
+
+      - name: Upload shard results (pause before retry)
+        if: always() && steps.upload_shard.outcome == 'failure'
+        run: sleep 20
+
+      - name: Upload shard results (retry)
+        if: always() && steps.upload_shard.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-shard-${{ matrix.group }}
+          path: 5eyes-backend/ci-out/
+          retention-days: 14
+          if-no-files-found: warn
+          overwrite: true
 
   backend-test-wallclock:
     name: Backend Test Wallclock Budgets (serial)
@@ -270,14 +316,31 @@ jobs:
             python -m pytest tests/ -p no:xdist -m wallclock_budget --tb=short --maxfail=50 \
             -o junit_family=xunit1 --junit-xml=ci-out/junit/wallclock.xml
 
+      # CI-ARTIFACT-UPLOAD-001: siehe Job backend-test-plan.
       - name: Upload results
+        id: upload_wallclock
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: test-wallclock
           path: 5eyes-backend/ci-out/
           retention-days: 14
           if-no-files-found: warn
+
+      - name: Upload results (pause before retry)
+        if: always() && steps.upload_wallclock.outcome == 'failure'
+        run: sleep 20
+
+      - name: Upload results (retry)
+        if: always() && steps.upload_wallclock.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-wallclock
+          path: 5eyes-backend/ci-out/
+          retention-days: 14
+          if-no-files-found: warn
+          overwrite: true
 
   pytest:
     # Aggregat-Job = Pflicht-Check mit dem historischen Namen
@@ -318,6 +381,10 @@ jobs:
         with:
           path: ci-artifacts
 
+      # CI-ARTIFACT-UPLOAD-001: --expected-runs = Matrix-Gruppen + wallclock
+      # (Strukturtest haelt beides synchron). Fehlt ein Teilergebnis, meldet
+      # der Gate zuerst "Infrastruktur-Fehler (Teilergebnis fehlt)" mit
+      # Exit-Code 3 statt nur hunderte Folgebefunde; der Check bleibt rot.
       - name: Completeness gate (every collected test selected and run exactly once)
         if: always()
         run: |
@@ -330,22 +397,40 @@ jobs:
             --junit-dir ci-gate/junit \
             --merged-junit-out ci-gate/junit-merged.xml \
             --durations-out ci-gate/test_durations.json \
-            --file-summary 15
+            --file-summary 15 \
+            --expected-runs shard-1,shard-2,shard-3,shard-4,shard-5,shard-6,shard-7,shard-8,wallclock
 
       - name: Supervisor evidence gate (every run ended in time, green, without leaks)
         if: always()
         run: python scripts/pytest_supervisor.py verify --evidence-root ci-artifacts --expect 9
 
+      # test_durations.json -> 5eyes-backend/.test_durations uebernehmen,
+      # wenn die Shard-Balance nachlaesst (neue/teure Tests).
+      # CI-ARTIFACT-UPLOAD-001: siehe Job backend-test-plan.
       - name: Upload merged junit and measured durations
+        id: upload_gate
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
-          # test_durations.json -> 5eyes-backend/.test_durations uebernehmen,
-          # wenn die Shard-Balance nachlaesst (neue/teure Tests).
           name: test-gate-${{ matrix.python-version }}
           path: ci-gate/
           retention-days: 30
           if-no-files-found: warn
+
+      - name: Upload merged junit and measured durations (pause before retry)
+        if: always() && steps.upload_gate.outcome == 'failure'
+        run: sleep 20
+
+      - name: Upload merged junit and measured durations (retry)
+        if: always() && steps.upload_gate.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-gate-${{ matrix.python-version }}
+          path: ci-gate/
+          retention-days: 30
+          if-no-files-found: warn
+          overwrite: true
 
   coverage:
     # CI-COVERAGE-ON-PUSH (2026-10-18): Coverage lief frueher als zweiter,
@@ -522,7 +607,7 @@ jobs:
         # durch die gesamte Suite; genau so blieben die drei fehlenden
         # Reporting-Views unbemerkt. Laeuft auf derselben Postgres-Instanz,
         # eigenes Schema pro Lauf.
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py -q
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.

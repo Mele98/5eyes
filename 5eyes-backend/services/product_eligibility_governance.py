@@ -145,9 +145,11 @@ APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin")
 MIN_ATTESTATION_REASON_LENGTH = 20
 
 
-def tenant_approver_ids(db: Session, tenant_id: str | None) -> list[str]:
-    """Active users of `tenant_id` holding the approval right (the roles
-    services.auth.require_admin admits). Users without tenant_id belong to
+def tenant_approver_ids(db: Session, tenant_id: str | None,
+                        roles: tuple[str, ...] = APPROVER_ROLES) -> list[str]:
+    """Active users of `tenant_id` holding the approval right (default: the
+    roles services.auth.require_admin admits; product eligibility overrides
+    pass the roles of require_advisor). Users without tenant_id belong to
     DEFAULT_TENANT_ID, exactly like services.auth._resolve_tenant_id_for_user."""
     from models.tenant import DEFAULT_TENANT_ID
     from models.users import User
@@ -155,7 +157,7 @@ def tenant_approver_ids(db: Session, tenant_id: str | None) -> list[str]:
     if tenant_id is None:
         return []
     query = db.query(User.id).filter(
-        User.role.in_(APPROVER_ROLES),
+        User.role.in_(roles),
         User.is_active == 1,
         User.deleted_at.is_(None),
     )

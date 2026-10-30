@@ -26,16 +26,47 @@ from test_optimizer_shadow_mode import _seed_realistic_mandate, session_factory
 import services.portfolio_engine as pe
 
 
+# Liquiditaet exakt auf dem Reserve-Floor der Fixtur: seit
+# GOAL-CALENDAR-HORIZON-PARITY-001 ist deren Pension ab +5 J. reservewirksam;
+# das SAA-Liquiditaetsband dieser Hausmatrix-Zeile wird dadurch auf
+# min = max = 201 bps (interner Reserveanteil, Rest extern) gesetzt, wie in
+# den CH-Goldens (Score 7: 201 bps). Ein Kandidat mit 200 bps verletzt das
+# Band und wird vom Konsistenz-Guard zu Recht abgewiesen ("nachtraeglich
+# rebalanciert"); ein Fake ausserhalb der Solver-Bounds prueft nichts.
 FAKE_STOCHASTIC_WEIGHTS = {
-    "equities": 6200,
+    "equities": 6199,
     "bonds": 2400,
     "real_estate": 700,
     "alternatives": 500,
-    "liquidity": 200,
+    "liquidity": 201,
 }
 
 
+_REAL_OPTIMIZER_PASS = pe._run_stochastic_optimizer_pass
+
+
+def _real_run_context(**kwargs):
+    """Echter Solver-Kontext eines kleinen Laufs (64 Pfade).
+
+    SHADOW-ANALYSIS-INTEGRITY-001: Die Fake-Ergebnisse trugen keinen
+    ``context``. Ohne Kontext haelt die Modellbasis den Lauf nicht fuer einen
+    Shadow-Kandidaten, und das volle Integritaets-Gate weist die Allokation
+    zu Recht ab (Methode widerspricht der Modellbasis). Ein echter Shadow-Lauf
+    hat immer einen Kontext; die Fixture traegt jetzt einen echten.
+    """
+    original_paths = pe._OPTIMIZER_N_PATHS_DEFAULT
+    pe._OPTIMIZER_N_PATHS_DEFAULT = 64
+    try:
+        probe_kwargs = dict(kwargs, apply_targets=False, targets=dict(kwargs["targets"]),
+                            reasoning=[])
+        real = _REAL_OPTIMIZER_PASS(**probe_kwargs)
+    finally:
+        pe._OPTIMIZER_N_PATHS_DEFAULT = original_paths
+    return getattr(real, "context", None)
+
+
 def _fake_optimizer_result(**kwargs):
+    context = _real_run_context(**kwargs)
     if kwargs.get("apply_targets"):
         kwargs["targets"].update(FAKE_STOCHASTIC_WEIGHTS)
     result = OptimizerResult(
@@ -60,6 +91,7 @@ def _fake_optimizer_result(**kwargs):
         ),
     )
     object.__setattr__(result, "elapsed_ms", 250)
+    object.__setattr__(result, "context", context)
     return result
 
 

@@ -1,7 +1,7 @@
 """Macht die Demo-Accounts der Staging-DB SOFORT nutzbar (Kollegen-Test).
 
 Setzt fuer alle Demo-Accounts:
-  - ein festes, gemeinsames Passwort (DEMO_PW)
+  - ein gemeinsames Passwort (DEMO_PASSWORD oder zufaellig, wird ausgegeben)
   - must_change_password = 0   (kein erzwungener Wechsel)
   - totp_enabled = 0, totp_secret = NULL   (kein 2FA-Zwang)
 
@@ -21,6 +21,7 @@ from pathlib import Path
 _default = str(Path.home() / "5eyes" / "5eyes-staging.db")
 _db_path = sys.argv[1] if len(sys.argv) > 1 else _default
 from core.db_location import refuse_live_db  # noqa: E402
+from core.demo_credentials import demo_password  # noqa: E402
 
 refuse_live_db(_db_path, context=Path(__file__).name)
 os.environ["DB_PATH"] = _db_path
@@ -40,14 +41,16 @@ from services.auth import hash_password  # noqa: E402
 
 configure_mappers()
 
-# Gemeinsames Demo-Passwort fuer ALLE Test-Accounts.
-DEMO_PW = "5eyes-demo-2026"
+# Gemeinsames Demo-Passwort fuer ALLE Test-Accounts: aus DEMO_PASSWORD oder pro
+# Lauf zufaellig erzeugt (kein Passwort im Quellcode).
+DEMO_PW_ENV = "DEMO_PASSWORD"
 DEMO_USERNAMES = ["operator", "a.berater", "a.admin", "b.berater", "b.admin"]
 
 
 def main() -> int:
     print(f"Staging-DB: {_db_path}")
-    pw_hash = hash_password(DEMO_PW)
+    demo_pw, pw_source = demo_password(DEMO_PW_ENV)
+    pw_hash = hash_password(demo_pw)
     updated = 0
     with SessionLocal() as s:
         for username in DEMO_USERNAMES:
@@ -64,7 +67,8 @@ def main() -> int:
         s.commit()
 
     print(f"\nFertig: {updated} Accounts direkt nutzbar.")
-    print(f"Passwort fuer ALLE: {DEMO_PW}")
+    hint = pw_source if pw_source != "zufaellig" else "zufaellig erzeugt, nur jetzt sichtbar"
+    print(f"Passwort fuer ALLE ({hint}): {demo_pw}")
     print("Start ohne 2FA-Zwang:  $env:REQUIRE_2FA = 'false'  vor start-external.ps1")
     return 0
 

@@ -64,6 +64,8 @@ def test_engine_no_longer_imports_taxconfig() -> None:
 from types import SimpleNamespace  # noqa: E402
 
 from services.portfolio_engine import _build_tax_solver_kwargs  # noqa: E402
+from datetime import date  # noqa: E402
+from services.valuation_clock import bound_valuation_date  # noqa: E402
 
 
 def _mandate(**kw):
@@ -154,17 +156,19 @@ def test_de_region_without_overrides_also_resolves_correctly() -> None:
     assert kw["tax_regime"].dividend_tax_bps == 2637.5
 
 
-def test_base_calendar_year_from_opened_at_not_hardcoded() -> None:
-    """TAX-2: base_calendar_year kommt aus opened_at, nicht aus dem nie-existenten
-    valid_from_year (das frueher immer 2026 ergab)."""
-    kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH", opened_at="2034-07-01"))
+def test_base_calendar_year_from_valuation_date_not_hardcoded() -> None:
+    """TAX-2: base_calendar_year ist nicht hartcodiert (frueher: nie-existentes
+    valid_from_year -> immer 2026). GOAL-AXIS-VALUATION-YEAR-001: es ist das
+    Jahr des gebundenen Bewertungsstichtags, nicht das Eroeffnungsjahr."""
+    with bound_valuation_date(date(2034, 7, 1)):
+        kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH", opened_at="2030-01-15"))
     assert kw["base_calendar_year"] == 2034
 
 
 def test_age_and_retired_relative_to_real_year() -> None:
-    kw = _build_tax_solver_kwargs(
-        _mandate(tax_jurisdiction="CH", opened_at="2040-01-01",
-                 client_birth_year=1975, retirement_year=2038)
-    )
+    with bound_valuation_date(date(2040, 1, 1)):
+        kw = _build_tax_solver_kwargs(
+            _mandate(tax_jurisdiction="CH", client_birth_year=1975, retirement_year=2038)
+        )
     assert kw["mandate_age_at_start"] == 65  # 2040 - 1975
     assert kw["is_retired"] is True  # 2040 >= 2038

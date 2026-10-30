@@ -124,11 +124,15 @@ def _document_count(session) -> int:
 
 
 def _add_document(session, advisor, document_type: str) -> str:
+    from signable_document_fixture import archived_pdf_fields
+
     doc_id = f"doc-{abs(hash(document_type)) % 10_000_000}"
     session.add(ContractDocument(
         id=doc_id, mandate_id=_MID, document_type=document_type, title=document_type,
         status="Entwurf", signed_by_advisor=0, signed_by_client=0, version=1,
         created_by=advisor.id, created_at=NOW, updated_at=NOW,
+        # CERT-SIGNED-PUBLICATION-001: archiviertes, pruefsummengesichertes PDF.
+        **archived_pdf_fields(),
     ))
     session.commit()
     return doc_id
@@ -138,7 +142,7 @@ def _sign_doc(session, advisor, doc_id):
     return sign_document(
         mandate_id=_MID, doc_id=doc_id,
         body=ContractDocumentSign(
-            signed_by_client=True, signature_image=_SIGNATURE, signer_name="Kunde",
+            signed_by_advisor=True, signature_image=_SIGNATURE, signer_name="Berater",
         ),
         request=_FakeRequest(), db=session, current_user=advisor,
     )
@@ -252,8 +256,8 @@ def test_signing_bound_document_blocked_without_mutation(mismatch, document_type
     _assert_blocked(exc, CHANNEL_SIGNATURE)
     session.expire_all()
     doc = session.get(ContractDocument, doc_id)
-    assert doc.signed_by_client == 0
-    assert doc.signature_client_image is None
+    assert doc.signed_by_advisor == 0
+    assert doc.signature_advisor_image is None
     assert doc.signed_at is None
     assert doc.status == "Entwurf"
 
@@ -262,7 +266,7 @@ def test_signing_unbound_document_not_gated_by_signoff(mismatch):
     session, advisor = mismatch
     doc_id = _add_document(session, advisor, "Beratungsvertrag")
     doc = _sign_doc(session, advisor, doc_id)
-    assert doc.signed_by_client == 1
+    assert doc.signed_by_advisor == 1
 
 
 def test_signing_risk_profile_document_with_valid_signoff(seeded):
@@ -270,14 +274,14 @@ def test_signing_risk_profile_document_with_valid_signoff(seeded):
     _sign_profile(session, advisor)
     doc_id = _add_document(session, advisor, "Risikoprofilierung")
     doc = _sign_doc(session, advisor, doc_id)
-    assert doc.signed_by_client == 1
+    assert doc.signed_by_advisor == 1
 
 
 def test_signing_risk_profile_document_legacy_unsigned(seeded):
     session, advisor = seeded
     doc_id = _add_document(session, advisor, "Risikoprofilierung")
     doc = _sign_doc(session, advisor, doc_id)
-    assert doc.signed_by_client == 1
+    assert doc.signed_by_advisor == 1
 
 
 # ── Handoff ───────────────────────────────────────────────────────────────
@@ -288,12 +292,13 @@ def _handoff(session, advisor, monkeypatch):
         "UPDATE mandates SET mandate_type = 'Vermögensverwaltung' WHERE id = :m"
     ), {"m": _MID})
     session.commit()
-    run = SimpleNamespace(id="run-x", mandate_id=_MID, target_allocation_id=None)
+    # SIGN-ELIGIBILITY-001: weiterleitbar ist nur ein finalisierter Run.
+    run = SimpleNamespace(id="run-x", mandate_id=_MID, target_allocation_id=None, result_status="Final")
     monkeypatch.setattr(handoff_router, "_get_recommendation_run_or_404", lambda *a, **k: run)
     snapshots: list = []
     monkeypatch.setattr(
-        handoff_router, "snapshot_handoff_trades",
-        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1),
+        handoff_router, "snapshot_handoff",
+        lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1, "recorded_depot"),
     )
     with pytest.raises(HTTPException) as exc:
         handoff_router.create_portfolio_handoff(

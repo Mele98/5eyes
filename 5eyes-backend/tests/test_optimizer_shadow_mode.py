@@ -366,7 +366,32 @@ def test_shadow_advisory_note_mentions_delta_when_converged(session_factory, mon
         result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
         cmp = result["allocation_method_comparison"]
         if cmp["shadow_status"] == "converged" and cmp["objective_delta_pct"] is not None:
-            assert "Objective-Delta" in cmp["advisory_note"]
+            # Vertrag von _allocation_comparison_note: das Delta wird nur bei
+            # wesentlicher Gewichtsabweichung genannt; ohne sie lautet die
+            # Note "keine wesentliche Abweichung". Der Test hing frueher daran,
+            # dass die Fixtur zufaellig eine wesentliche Abweichung erzeugte.
+            from services.portfolio_engine_optimizer_integration import (
+                _COMPARISON_MATERIAL_DELTA_BPS,
+            )
+            deltas = cmp["weight_deltas_bps"]
+            if any(abs(int(v or 0)) >= _COMPARISON_MATERIAL_DELTA_BPS for v in deltas.values()):
+                assert "Objective-Delta" in cmp["advisory_note"]
+            else:
+                assert "keine wesentliche Abweichung" in cmp["advisory_note"]
+
+
+def test_shadow_advisory_note_contract_material_vs_immaterial_delta():
+    """Beide Zweige direkt: wesentliche Abweichung -> Objective-Delta im Text,
+    unwesentliche -> Bestaetigungssatz ohne Delta."""
+    from services.portfolio_engine_optimizer_integration import (
+        _COMPARISON_MATERIAL_DELTA_BPS,
+        _allocation_comparison_note,
+    )
+    material = {"equities": _COMPARISON_MATERIAL_DELTA_BPS, "bonds": -_COMPARISON_MATERIAL_DELTA_BPS}
+    note = _allocation_comparison_note(material, "converged", 1.25)
+    assert "Objective-Delta: +1.25%" in note
+    note = _allocation_comparison_note({"equities": _COMPARISON_MATERIAL_DELTA_BPS - 1}, "converged", 1.25)
+    assert "keine wesentliche Abweichung" in note and "Objective-Delta" not in note
 
 
 def test_shadow_comparison_deterministic_for_same_mandate(session_factory, monkeypatch):

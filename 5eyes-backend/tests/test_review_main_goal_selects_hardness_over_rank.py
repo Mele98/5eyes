@@ -93,15 +93,6 @@ def _run_main_goal_achievability(goals: list[dict], rows: list[dict]) -> dict:
     return json.loads(proc.stdout)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RANK-HARDNESS-ROUNDTRIP-001 — round 47 red test (Review "
-        "main-goal selection picks hardness over rank), see audit "
-        "docs/audits/2026-09-28-goal-funding-priority-and-achievability-"
-        "attribution-audit.md"
-    ),
-)
 def test_review_main_goal_is_canonical_rank_one_not_hardness_sorted():
     """mainGoalAchievability() must pick the rank-1 goal as 'Hauptziel'.
 

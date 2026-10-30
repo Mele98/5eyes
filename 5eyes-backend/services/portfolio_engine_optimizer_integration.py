@@ -359,15 +359,11 @@ def _build_tax_solver_kwargs(mandate) -> dict:
         if tax_overrides:
             regime_instance = regime_instance.with_overrides(tax_overrides)
         tax_kwargs["tax_regime"] = regime_instance
-        # TAX-2: 'valid_from_year' existiert NICHT auf dem Mandat-Model (frueher:
-        # getattr-Default 0 -> current_year hartcodiert 2026). Echtes Bewertungsjahr
-        # aus opened_at (ISO 'YYYY-MM-DD'), sonst aktuelles Kalenderjahr.
-        opened = str(getattr(mandate, "opened_at", "") or "").strip()
-        if len(opened) >= 4 and opened[:4].isdigit():
-            current_year = int(opened[:4])
-        else:
-            from datetime import date as _date
-            current_year = _date.today().year
+        # TAX-2 / GOAL-AXIS-VALUATION-YEAR-001: Steuerjahr t = 0 ist das Jahr
+        # des gebundenen Bewertungsstichtags (eine Uhr mit Cashflow-, Ziel-,
+        # Alters- und Mortalitaetsachse), nicht das Eroeffnungsjahr.
+        from services.mortality.horizon import mandate_reference_year
+        current_year = mandate_reference_year(mandate)
         tax_kwargs["base_calendar_year"] = current_year
         cby = int(getattr(mandate, "client_birth_year", 0) or 0)
         if cby:

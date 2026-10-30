@@ -2182,6 +2182,7 @@ def _apply_goal_and_reserve_tilts(
     reasoning: list[str],
     unlocked_other_assets_rappen: int = 0,
     inflow_projection_series_rappen: list[int] | None = None,
+    goal_inflation_series_bps: list[int] | None = None,
 ) -> tuple[int, int]:
     from services.portfolio_engine import (
         _bps,
@@ -2205,6 +2206,7 @@ def _apply_goal_and_reserve_tilts(
         reasoning=reasoning,
         unlocked_other_assets_rappen=unlocked_other_assets_rappen,
         inflow_projection_series_rappen=inflow_projection_series_rappen,
+        goal_inflation_series_bps=goal_inflation_series_bps,
     )
     # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
     for goal in goals:

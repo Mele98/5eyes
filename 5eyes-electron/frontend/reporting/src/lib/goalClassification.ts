@@ -10,8 +10,11 @@
  * - target_date ISO YYYY-MM-DD; wir matchen aufs Jahr (4-Stellen-Prefix)
  * - time_axis ist Liste von Jahres-Strings (z.B. "2026", "2027", ...)
  * - Wenn Goal-Jahr < time_axis[0]: 'past' (Ziel war in der Vergangenheit)
- * - Wenn Goal-Jahr > time_axis[-1]: 'beyond_horizon' (jenseits MC-Horizont)
- * - Sonst Index = Goal-Jahr - Start-Jahr
+ * - Sonst Index = Goal-Jahr - Start-Jahr + 1 (Kalenderjahr-Bucket der Engine:
+ *   Spalte t = Vermoegen am Ende des Kalenderjahres Start-Jahr + t - 1;
+ *   GOAL-CALENDAR-HORIZON-PARITY-001, gleiche Spalte wie Solver und
+ *   Haupt-Monte-Carlo, Spiegel von services/pdf/components/goal_classification.py)
+ * - Liegt dieser Index hinter der letzten Spalte: 'beyond_horizon'
  *
  * Status
  * ------
@@ -86,11 +89,10 @@ export function classifyGoals(
     if (targetYear < startYear) {
       return { ..._unknown(g.goal_id), status: 'past' };
     }
-    if (targetYear > endYear) {
+    const t = targetYear - startYear + 1;
+    if (targetYear > endYear || t > time_axis.length - 1) {
       return { ..._unknown(g.goal_id), status: 'beyond_horizon' };
     }
-
-    const t = targetYear - startYear;
     const p5v = p5[t];
     const p50v = p50[t];
     const p75v = p75[t];

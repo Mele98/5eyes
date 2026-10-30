@@ -29,9 +29,18 @@ from types import SimpleNamespace
 import pytest
 
 from services.mortality.bfs import BFS_2020_2022
+from services.valuation_clock import bound_valuation_date
 
 
 REF_YEAR = 2026
+
+
+@pytest.fixture(autouse=True)
+def _valuation_year_ref():
+    """Die Mortalitaetsachse beginnt im Bewertungsjahr des Laufs
+    (GOAL-AXIS-VALUATION-YEAR-001); alle Faelle sind fuer REF_YEAR gerechnet."""
+    with bound_valuation_date(date(REF_YEAR, 1, 15)):
+        yield
 
 
 def _mandate(**kw):
@@ -246,7 +255,7 @@ def test_report_marker_matches_solver_cutoff_for_couple():
 def test_simulation_horizon_extends_to_p80_last_survivor_when_feature_on():
     from services.portfolio_engine_mc_simulation import _simulation_horizon_years
 
-    today = date.today()
+    today = date(REF_YEAR, 1, 15)
     client = _client(
         partner_date_of_birth=f"{today.year - 64}-03-01", partner_salutation="Frau",
     )

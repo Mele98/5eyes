@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -44,6 +45,7 @@ from services.risk_questionnaire_integrity import (
     validate_standard_submission,
 )
 from services.risk_capacity_plausibility import audit_if_inconsistent, evaluate_mandate_safely
+from services import risk_capacity_evaluation_snapshot as rces
 from services.risk_assessment_semantics import (
     OVERRIDE_DOCUMENTATION_RULES_VERSION,
     _optional_capacity_score,
@@ -58,6 +60,7 @@ from services import risk_profile_signoff as signoff_service
 from services.pii_vault import PiiVaultError, seal_for_client
 
 router = APIRouter(tags=["Risikoprofilierung"])
+_logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -154,6 +157,18 @@ def create_knowledge(
 
 # ── Risikoprofilierung ─────────────────────────────────────────────────────────
 
+# PRIVACY-001: nach einem Loeschgesuch gesperrte Nachweise sind fuer die
+# Beratung nicht mehr lesbar (Sperrarchiv, services/privacy_erasure.py).
+_RISK_PROFILE_EVIDENCE = ("risk_profile_evidence",)
+_PLAUSIBILITY_EVIDENCE = ("risk_capacity_plausibility_evidence",)
+
+
+def _assert_privacy_readable(db: Session, mandate_id: str, evidence_types: tuple[str, ...]) -> None:
+    from services.privacy_erasure import assert_evidence_readable
+
+    assert_evidence_readable(db, evidence_types=evidence_types, mandate_id=mandate_id)
+
+
 @router.get("/mandates/{mandate_id}/risk-assessments", response_model=list[RiskAssessmentResponse])
 def list_risk_assessments(
     mandate_id: str,
@@ -161,6 +176,7 @@ def list_risk_assessments(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE)
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
     ).filter(
@@ -176,6 +192,7 @@ def get_current_risk_assessment(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE)
     try:
         ra = _current_risk_assessment_or_none(db, mandate_id, eager_answers=True)
     except ValueError as exc:
@@ -195,13 +212,47 @@ def get_risk_capacity_plausibility(
     gegen die erfassten Finanzdaten. Reiner Hinweis -- aendert das Profil nicht,
     blockiert nichts."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE + _PLAUSIBILITY_EVIDENCE)
     try:
         ra = _current_risk_assessment_or_none(db, mandate_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ra:
         raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
-    return evaluate_mandate_safely(db, mandate, ra)
+    captured: dict = {}
+    result = evaluate_mandate_safely(db, mandate, ra, capture=captured)
+    # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: zuletzt gebundene Evidenz +
+    # "neu zu pruefen", wenn sie nicht mehr der aktuellen Datenlage entspricht.
+    if isinstance(result, dict):
+        result["bound_evaluation"] = rces.bound_evaluation_status(
+            db, mandate, rces.live_evaluation(db, mandate, ra, result=result, captured=captured),
+        )
+    return result
+
+
+@router.get("/mandates/{mandate_id}/risk-capacity-plausibility/evaluations")
+def list_risk_capacity_plausibility_evaluations(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """RISK-CAPACITY-EVALUATION-SNAPSHOT-001: gebundene, unveraenderliche
+    Bewertungen (neueste zuerst) mit Replay (Hash, Regel-Nachrechnung,
+    Aktualitaet). Betragsfrei; die Zeilen werden nie ueberschrieben."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _RISK_PROFILE_EVIDENCE + _PLAUSIBILITY_EVIDENCE)
+    try:
+        ra = _current_risk_assessment_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    live = rces.live_evaluation(db, mandate, ra)
+    return {
+        "schema_version": rces.SCHEMA_VERSION,
+        "current_risk_assessment_id": live["assessment_id"],
+        "evaluations": [
+            rces.replay_snapshot(row, mandate, live) for row in rces.list_snapshots(db, mandate)
+        ],
+    }
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments", response_model=RiskAssessmentResponse, status_code=201)
@@ -367,14 +418,33 @@ def create_risk_assessment(
             ip_address=_extract_client_ip(request))
         # RISK-CAPACITY-PLAUSIBILITY-001: Widerspruch Fragebogen <-> erfasste
         # Finanzdaten wird protokolliert (aendert das Profil nicht).
+        # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: dieselbe Bewertung wird als
+        # unveraenderliche Evidenz an das gespeicherte Profil gebunden.
+        captured: dict = {}
+        plausibility = evaluate_mandate_safely(db, mandate, ra, capture=captured)
+        rces.record_snapshot(
+            db, mandate, ra, plausibility, captured, actor=current_user,
+            binding_context=rces.CONTEXT_RISK_ASSESSMENT_SAVED, binding_record_id=ra.id,
+        )
         audit_if_inconsistent(
-            db, evaluate_mandate_safely(db, mandate, ra),
+            db, plausibility,
             user=current_user, table_name="risk_assessments", record_id=ra.id,
             mandate=mandate, ip_address=_extract_client_ip(request),
         )
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RISK-PROFILE-SCHEMA-PARITY-001: eine CHECK-Verletzung ist ein
+        # Schema-Defekt, kein paralleles Speichern -- nicht als 409 melden.
+        if _is_check_violation(exc):
+            _logger.error("Risikoprofil verletzt CHECK-Constraint: %s", exc.orig)
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "code": "RISK_PROFILE_CHECK_VIOLATION",
+                    "message": "Das Risikoprofil passt nicht zum Datenbankschema dieser Installation. Bitte den Support kontaktieren.",
+                },
+            ) from exc
         raise HTTPException(
             status_code=409,
             detail="Ein anderes Risikoprofil wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
@@ -383,6 +453,15 @@ def create_risk_assessment(
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
     ).filter(RiskAssessment.id == ra.id).one()
+
+
+def _is_check_violation(exc: IntegrityError) -> bool:
+    """CHECK-Verletzung (SQLite-Meldung bzw. PostgreSQL SQLSTATE 23514 mit Constraint-Namen)."""
+    orig = getattr(exc, "orig", None)
+    if "CHECK constraint failed" in str(orig):
+        return True
+    diag = getattr(orig, "diag", None)
+    return getattr(orig, "pgcode", None) == "23514" and bool(getattr(diag, "constraint_name", None))
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments/{ra_id}/override",

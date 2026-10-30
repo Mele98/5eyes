@@ -88,6 +88,9 @@ def _strip_snapshot_to_legacy(session_factory, alloc_id):
         allocation = s.query(TargetAllocation).filter(TargetAllocation.id == alloc_id).one()
         constraints = json.loads(allocation.effective_constraints_json)
         constraints.pop(CONSTRAINTS_KEY)
+        # Echter Bestand stammt aus der Zeit vor beiden Bindungen: auch die
+        # Zielanalyse-Referenz (GOAL-ANALYSIS-INTEGRITY-001) fehlt dort.
+        constraints.pop("goal_analysis_snapshot", None)
         allocation.effective_constraints_json = json.dumps(
             constraints, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
         )

@@ -28,7 +28,7 @@ services/mandate_model_inputs.py) verhaelt sich exakt wie vorher. Der
 CH-Jurisdiktions-Gate bleibt unveraendert (siehe Kommentar unten) -- ein
 Client-only-Aufruf OHNE Mandat (routers/clients.py hat einen solchen Pfad)
 bleibt bewusst AUSSERHALB des Scopes dieser Funktion: ohne Mandat gibt es
-keine jurisdiction, kein reference_year-Anker (mandate.opened_at) -- dieser
+keine jurisdiction, kein Mandats-Stichtag (Soll-Allokation) -- dieser
 eine Aufrufer bleibt dauerhaft bei services.planning_horizon (siehe dortige
 Kontrollrunde-2026-09-21-Analyse).
 
@@ -79,19 +79,20 @@ MORTALITY_PLANNING_QUANTILE_VERSION: str = "2026-10-18.v1"
 
 
 def mandate_reference_year(mandate) -> int:
-    """Das Bewertungsjahr des Mandats: mandate.opened_at, sonst heute.
+    """Das Bewertungsjahr des Laufs (t = 0 der Steuer-, Alters- und
+    Mortalitaetsachse).
 
-    Analog zum bereits gefixten Tax-Pfad (TAX-2,
-    services/portfolio_engine_optimizer_integration.py::_build_tax_solver_kwargs):
-    date.today() als alleinige Basis wuerde dasselbe Mandat an zwei
-    verschiedenen Kalendertagen mit unterschiedlichem current_age neu
-    berechnen, statt konsistent auf den Bewertungsstichtag des Mandats zu
-    beziehen.
+    GOAL-AXIS-VALUATION-YEAR-001 (CIO-Entscheid a, konsistent zu ADR-2): das
+    Jahr des gebundenen Bewertungsstichtags (``services.valuation_clock``),
+    dieselbe Uhr wie Cashflow-, Ziel- und Reserve-Achse; Reload, Replay und
+    Bericht lesen damit den gespeicherten Stichtag. Vorher galt
+    ``mandate.opened_at``: bei einem Mandat aus einem Vorjahr lagen Steuerjahr,
+    Alter und Sterbe-Cutoff um (Bewertungsjahr - Eroeffnungsjahr) Jahre
+    versetzt zur Spalte t. ``mandate`` bleibt Parameter der Aufrufer-Signatur.
     """
-    opened = str(getattr(mandate, "opened_at", "") or "").strip()
-    if len(opened) >= 4 and opened[:4].isdigit():
-        return int(opened[:4])
-    return _date.today().year
+    from services.valuation_clock import valuation_date
+
+    return valuation_date().year
 
 
 def _normalize_bfs_sex(value: Any) -> str | None:

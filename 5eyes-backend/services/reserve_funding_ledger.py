@@ -286,6 +286,7 @@ def compile_reserve_funding_ledger_for_inputs(
             reserve_inputs.get("inflow_projection_series_rappen") or []
         ),
         need_breakdown=breakdown,
+        goal_inflation_series_bps=inflation_series_bps,
     )
     goal_needs = [
         {
@@ -393,6 +394,7 @@ def compile_goal_set_funding(
         inflow_projection_series_rappen=list(
             reserve_inputs.get("inflow_projection_series_rappen") or []
         ),
+        goal_inflation_series_bps=inflation_series_bps,
     )
     start = max(0, advisory - max(0, int(external)))
     raw = [int(v) for v in rebase_cashflows(start)][: int(run_horizon)]

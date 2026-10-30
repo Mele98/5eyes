@@ -5,6 +5,7 @@ Solver einfliesst (statt eines pro-Pfad stochastisch gesampelten Sterbealters).
 """
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,15 @@ from services.mandate_model_inputs import (
     MandateModelInputError,
     mortality_solver_kwargs_from_mandate,
 )
+from services.valuation_clock import bound_valuation_date
+
+
+@pytest.fixture(autouse=True)
+def _valuation_year_2026():
+    """Die Mortalitaetsachse beginnt im Bewertungsjahr des Laufs
+    (GOAL-AXIS-VALUATION-YEAR-001); die Faelle unten sind fuer 2026 gerechnet."""
+    with bound_valuation_date(date(2026, 1, 15)):
+        yield
 
 
 def _mandate(**kw):
@@ -51,7 +61,7 @@ def test_feature_on_includes_deterministic_offset_matching_shared_helper():
 
 
 def test_manual_life_expectancy_year_takes_priority_over_bfs_default():
-    mandate = _mandate(life_expectancy_year=2027)  # opened_at=2026 -> 1 Jahr
+    mandate = _mandate(life_expectancy_year=2027)  # Bewertungsjahr 2026 -> 1 Jahr
     kwargs = mortality_solver_kwargs_from_mandate(mandate)
     assert kwargs["mortality_fixed_offset_years"] == 1
 
@@ -73,20 +83,24 @@ def test_offset_resolution_failure_fails_closed(monkeypatch):
         mortality_solver_kwargs_from_mandate(_mandate())
 
 
-def test_reference_year_anchored_to_opened_at_not_wallclock():
-    """Zwei identische Mandate, die sich nur im (Nicht-)Vorhandensein von
-    opened_at unterscheiden, duerfen nicht denselben Offset zufaellig nur
-    treffen -- wir pruefen explizit, dass opened_at tatsaechlich verwendet
-    wird, indem wir zwei verschiedene opened_at-Jahre vergleichen und einen
-    Unterschied im Offset erwarten (BFS-Restlebenserwartung sinkt mit dem
-    Alter, das aeltere opened_at-Jahr ergibt ein juengeres current_age)."""
-    older_reference = mortality_solver_kwargs_from_mandate(
+def test_reference_year_anchored_to_valuation_date_not_opened_at():
+    """GOAL-AXIS-VALUATION-YEAR-001: das Bezugsjahr ist das Jahr des
+    gebundenen Bewertungsstichtags. Ein anderes Eroeffnungsjahr aendert den
+    Offset nicht; ein anderer Stichtag schon (BFS-Restlebenserwartung sinkt
+    mit dem Alter, der fruehere Stichtag ergibt ein juengeres current_age)."""
+    opened_long_ago = mortality_solver_kwargs_from_mandate(
         _mandate(opened_at="2000-01-15")
     )
-    newer_reference = mortality_solver_kwargs_from_mandate(
+    opened_this_year = mortality_solver_kwargs_from_mandate(
         _mandate(opened_at="2026-01-15")
     )
     assert (
-        older_reference["mortality_fixed_offset_years"]
-        != newer_reference["mortality_fixed_offset_years"]
+        opened_long_ago["mortality_fixed_offset_years"]
+        == opened_this_year["mortality_fixed_offset_years"]
+    )
+    with bound_valuation_date(date(2000, 1, 15)):
+        earlier_valuation = mortality_solver_kwargs_from_mandate(_mandate())
+    assert (
+        earlier_valuation["mortality_fixed_offset_years"]
+        != opened_this_year["mortality_fixed_offset_years"]
     )

@@ -4391,6 +4391,9 @@ def test_create_trigger_normalizes_review_frequency_aliases_v2(session_factory, 
     assert result.frequency == "jährlich"
 
 
+from signable_document_fixture import attach_archived_pdf  # noqa: E402
+
+
 class _FakeSignRequest:
     """Minimaler Request-Stub fuer direkte sign_document()-Aufrufe in Tests
     (analog zu tests/test_auth05_bootstrap_admin_rate_limit.py::_FakeRequest) --
@@ -4418,6 +4421,8 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
             db=session,
             current_user=advisor_user,
         )
+        # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+        attach_archived_pdf(session, doc)
         timestamps = iter(
             [
                 "2026-04-19T09:15:00.000Z",
@@ -4441,34 +4446,38 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         first_signed_at = first_sign.signed_at
         first_status = first_sign.status
 
-        second_sign = sign_document(
-            mandate_id=mandate_id,
-            doc_id=doc.id,
-            body=ContractDocumentSign(
-                signed_by_client=True,
-                signature_image=_CLIENT_SIGNATURE_PNG,
-                signer_name="Daniel Kunde",
-            ),
-            request=_FakeSignRequest("10.0.0.9"),
-            db=session,
-            current_user=advisor_user,
-        )
+        # SIGN-IDENTITY-001: die Kundenrolle kann der Berater-Login nicht
+        # mehr behaupten -- der zweite Aufruf aendert nichts.
+        with pytest.raises(HTTPException) as exc_info:
+            sign_document(
+                mandate_id=mandate_id,
+                doc_id=doc.id,
+                body=ContractDocumentSign(
+                    signed_by_client=True,
+                    signature_image=_CLIENT_SIGNATURE_PNG,
+                    signer_name="Daniel Kunde",
+                ),
+                request=_FakeSignRequest("10.0.0.9"),
+                db=session,
+                current_user=advisor_user,
+            )
+        assert exc_info.value.status_code == 403
+        session.refresh(doc)
 
     assert first_signed_at == "2026-04-19T09:15:00.000Z"
     assert first_status == "Teilweise unterzeichnet"
-    assert second_sign.signed_at == first_signed_at
-    assert second_sign.updated_at == "2026-04-19T11:45:00.000Z"
-    assert second_sign.signed_by_advisor == 1
-    assert second_sign.signed_by_client == 1
-    assert second_sign.status == "Unterzeichnet"
+    assert doc.signed_at == first_signed_at
+    assert doc.updated_at == "2026-04-19T09:15:00.000Z"
+    assert doc.signed_by_advisor == 1
+    assert doc.signed_by_client == 0
+    assert doc.status == "Teilweise unterzeichnet"
     # 2026-08-05 (User-Direktive, E-Signing): echtes Signatur-Artefakt pro
     # Unterzeichner wird gespeichert, nicht nur die Checkbox-Flags.
-    assert second_sign.signature_advisor_image == _ADVISOR_SIGNATURE_PNG
-    assert second_sign.signature_advisor_signer_name == "Anna Berater"
-    assert second_sign.signature_advisor_signed_at == "2026-04-19T09:15:00.000Z"
-    assert second_sign.signature_client_image == _CLIENT_SIGNATURE_PNG
-    assert second_sign.signature_client_signer_name == "Daniel Kunde"
-    assert second_sign.signature_client_signed_at == "2026-04-19T11:45:00.000Z"
+    assert doc.signature_advisor_image == _ADVISOR_SIGNATURE_PNG
+    assert doc.signature_advisor_signer_name == "Anna Berater"
+    assert doc.signature_advisor_signed_at == "2026-04-19T09:15:00.000Z"
+    assert doc.signature_client_image is None
+    assert doc.signature_client_signer_name is None
 
 
 def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session_factory, advisor_user, monkeypatch):
@@ -4489,6 +4498,8 @@ def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session
             db=session,
             current_user=advisor_user,
         )
+        # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+        attach_archived_pdf(session, doc)
         monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
 
         sign_document(
@@ -4526,7 +4537,8 @@ def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session
 
 
 def test_sign_document_rejects_overwriting_an_existing_client_signature(session_factory, advisor_user, monkeypatch):
-    """Gegenprobe fuer die Kundenseite."""
+    """Gegenprobe fuer die Kundenseite: eine Altbestand-Kundensignatur
+    (vor SIGN-IDENTITY-001 erfasst) bleibt unangetastet."""
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     with session_factory() as session:
@@ -4540,20 +4552,17 @@ def test_sign_document_rejects_overwriting_an_existing_client_signature(session_
             db=session,
             current_user=advisor_user,
         )
+        # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+        attach_archived_pdf(session, doc)
         monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
 
-        sign_document(
-            mandate_id=mandate_id,
-            doc_id=doc.id,
-            body=ContractDocumentSign(
-                signed_by_client=True,
-                signature_image=_CLIENT_SIGNATURE_PNG,
-                signer_name="Daniel Kunde",
-            ),
-            request=_FakeSignRequest("10.0.0.9"),
-            db=session,
-            current_user=advisor_user,
-        )
+        # Altbestand: vor SIGN-IDENTITY-001 erfasste Kundensignatur.
+        doc.signed_by_client = 1
+        doc.signature_client_image = _CLIENT_SIGNATURE_PNG
+        doc.signature_client_signer_name = "Daniel Kunde"
+        doc.signature_client_signed_at = "2026-04-19T09:15:00.000Z"
+        doc.signature_client_ip = "10.0.0.9"
+        session.commit()
 
         with pytest.raises(HTTPException) as exc_info:
             sign_document(
@@ -4568,7 +4577,8 @@ def test_sign_document_rejects_overwriting_an_existing_client_signature(session_
                 db=session,
                 current_user=advisor_user,
             )
-        assert exc_info.value.status_code == 409
+        assert exc_info.value.status_code == 403
+        session.refresh(doc)
 
         # Original-Signatur unangetastet.
         assert doc.signature_client_image == _CLIENT_SIGNATURE_PNG
