@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
@@ -896,7 +896,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     limiting_factor = getattr(ta_obj, "limiting_factor", None) if ta_obj else None
     goal_achievability: list = []
     if ta_obj is not None:
-        raw_achievability = getattr(ta_obj, "goal_achievability_json", None)
+        # GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.
+        from services.goal_analysis_snapshot import bound_goal_achievability_json
+
+        raw_achievability = bound_goal_achievability_json(ta_obj)
         if raw_achievability:
             try:
                 parsed = json.loads(raw_achievability)
@@ -1872,10 +1875,9 @@ def get_protokoll_pdf(
 # ============================================================================
 
 
-def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
-    """Build the client-facing analysis of the recommended target portfolio."""
-    from services.backtest_stress import gated_stress_replays
-    from services.cost_disclosure import build_cost_disclosure
+def _depotcheck_gate(mandate: Mandate, db: Session):
+    """Gates des Depot-Check-PDFs auf dem aktuellen Stand (Strategie gueltig,
+    Soll nicht veraltet). Returns ``(live_depot_check, projection_gate)``."""
     from services.depot_check import compute_depot_check
 
     from services.report_projection_gate import (
@@ -1914,7 +1916,46 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             f"Depot-Check kann nicht erstellt werden: die Soll-Allokation ist "
             f"veraltet ({grund}). Bitte Strategie neu berechnen."
         )
-    sr = gated_stress_replays(db, mandate, projection_gate) or {}
+    return dc, projection_gate
+
+
+def _build_depotcheck_data(
+    mandate: Mandate,
+    db: Session,
+    *,
+    analysis: dict | None = None,
+    without_holdings: bool = False,
+    gate: tuple | None = None,
+) -> DepotCheckData:
+    """Build the client-facing analysis of the recommended target portfolio.
+
+    DEPOT-E2E-SNAPSHOT-001: mit ``analysis`` (verifizierter, gespeicherter
+    Depot-Check, services/depot_check_snapshot.py) stammen alle
+    bestandsabhaengigen Teile aus genau diesem Snapshot -- demselben, den der
+    JSON-Endpunkt liefert. Ohne ihn erzeugt der Endpunkt nur fuer Mandate
+    ohne erfassten Depotbestand ein PDF (``without_holdings``: reine
+    SOLL-Analyse, sichtbar gekennzeichnet). ``gate``: bereits berechnetes
+    Ergebnis von ``_depotcheck_gate``.
+
+    Teil (c): Kostenausweis, Benchmark-Referenz und Stress-Szenarien stammen
+    aus den im Depot-Check gebundenen ``inputs``; weicht der Live-Stand ab,
+    traegt das PDF den Hinweis "Stand vom <Datum>" (nie still gemischt).
+    """
+    from services.depot_check_snapshot import (
+        assert_analysis_matches_current_allocation,
+        bound_inputs_note,
+        capture_depot_check_inputs,
+    )
+
+    dc, projection_gate = gate or _depotcheck_gate(mandate, db)
+    if analysis is not None:
+        assert_analysis_matches_current_allocation(db, mandate, analysis)
+        dc = analysis["result"]
+    identity = analysis or {}
+    live_inputs = capture_depot_check_inputs(db, mandate, gate=projection_gate)
+    inputs = identity.get("inputs") or live_inputs
+    inputs_note = bound_inputs_note(analysis, live_inputs) if analysis is not None else None
+    sr = inputs["stress"]
     fc = dc.get("fund_characteristics") or {}
     strategy = _build_anlagestrategie_data(mandate, db)
     try:
@@ -1932,16 +1973,10 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
         if exc.status_code == 409:
             raise
         positions = list(strategy.products or [])
-    try:
-        costs = build_cost_disclosure(db, mandate)
-    except Exception as exc:  # noqa: BLE001 - PDF must remain available
-        logger.warning("Depotcheck costs unavailable: %s", exc)
-        costs = {
-            "data_pending": True,
-            "note": "Kostenausweis ist fuer diese Empfehlung noch nicht verfuegbar.",
-            "warnings": [],
-        }
-    performance = _build_depotcheck_performance(mandate, db, projection_gate)
+    costs = inputs["cost_disclosure"]
+    performance = _build_depotcheck_performance(
+        mandate, db, projection_gate, benchmark=inputs["benchmark"],
+    )
     soll_country = dc.get("soll_country_exposure_bps") or {}
     soll_sector = dc.get("soll_sector_exposure_bps") or {}
     soll_currency = dc.get("soll_currency_exposure_bps") or {}
@@ -2020,6 +2055,13 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
             positions=positions,
             soll_hhi=soll_hhi,
         ),
+        analysis_snapshot_id=identity.get("analysis_snapshot_id"),
+        snapshot_id=identity.get("snapshot_id"),
+        snapshot_hash=identity.get("snapshot_hash"),
+        as_of=identity.get("as_of"),
+        result_hash=identity.get("result_hash"),
+        without_holdings=bool(without_holdings and analysis is None),
+        inputs_note=inputs_note,
     )
 
 
@@ -2070,8 +2112,10 @@ def _cost_item_rate(costs: dict, key: str) -> int:
 
 
 def _build_depotcheck_performance(
-    mandate: Mandate, db: Session, projection_gate=None,
+    mandate: Mandate, db: Session, projection_gate=None, *, benchmark: dict | None = None,
 ) -> dict:
+    """``benchmark``: gebundene Referenz ``{"weights_bps", "status"}`` aus dem
+    Depot-Check (Teil c); ohne sie wird die Referenz live aufgeloest."""
     if projection_gate is None:
         from services.report_projection_gate import (
             resolve_current_allocation_projection_gate,
@@ -2081,9 +2125,12 @@ def _build_depotcheck_performance(
     # SUITABILITY-DETECTOR-AVAILABILITY-001: die HouseMatrix-Referenz hat
     # einen ausgewiesenen Status. Fehlt sie, wird der Vergleich NICHT still
     # ohne Referenz gezeigt, sondern mit Hinweis (warnings + Status-Block).
-    benchmark, benchmark_status = _depotcheck_house_matrix_benchmark_with_status(
-        mandate, db,
-    )
+    if benchmark is not None:
+        benchmark, benchmark_status = dict(benchmark["weights_bps"]), dict(benchmark["status"])
+    else:
+        benchmark, benchmark_status = _depotcheck_house_matrix_benchmark_with_status(
+            mandate, db,
+        )
     benchmark_warnings = (
         [benchmark_status["note"]]
         if benchmark_status.get("status") != "available" and benchmark_status.get("note")
@@ -2148,17 +2195,10 @@ def _depotcheck_house_matrix_benchmark_with_status(
         weights = dict(resolution.weights_bps) if resolution.available else {}
         return weights, resolution.public()
     except Exception as exc:  # noqa: BLE001 - PDF must fail soft, aber sichtbar
+        from services.depot_check_snapshot import BENCHMARK_FAILED_STATUS
+
         logger.warning("Depotcheck house-matrix benchmark unresolved: %s", exc)
-        return {}, {
-            "status": "unavailable",
-            "reason_code": "BENCHMARK_RESOLUTION_FAILED",
-            "note": (
-                "Vergleich mit der Hausmatrix nicht möglich – Policy/Profil "
-                "fehlt (BENCHMARK_RESOLUTION_FAILED)."
-            ),
-            "score_bucket": None,
-            "profile_name": None,
-        }
+        return {}, dict(BENCHMARK_FAILED_STATUS)
 
 
 def _depotcheck_data_quality_warnings(costs: dict, performance: dict) -> list[str]:
@@ -2207,15 +2247,56 @@ def _build_depotcheck_qualitative_assessment(
 )
 def get_depotcheck_pdf(
     mandate_id: str,
+    request: Request,
+    analysis_snapshot_id: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios."""
+    """Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios.
+
+    DEPOT-E2E-SNAPSHOT-001 (CIO-Entscheid): das PDF liest einen gespeicherten,
+    an einen Depot-Snapshot gebundenen Depot-Check -- ``analysis_snapshot_id``
+    oder, in einem Klick, den des aktuellen Bestands (Berater: Depot-Snapshot
+    und Depot-Check werden idempotent gespeichert). Unvollstaendige Bewertung
+    -> 409 mit Grund. Nur ohne erfassten Depotbestand: reine SOLL-Analyse,
+    gekennzeichnet, ohne Snapshot-Bindung.
+    """
+    from services.depot_check_snapshot import (
+        NO_ANALYSIS_MESSAGE,
+        ensure_current_depot_check_analysis,
+        load_depot_check_analysis,
+        mandate_has_recorded_holdings,
+    )
+
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
-        data = _build_depotcheck_data(mandate, db)
-    except ValueError as exc:
+        if analysis_snapshot_id is not None:
+            analysis = load_depot_check_analysis(db, mandate, analysis_snapshot_id)
+            data = _build_depotcheck_data(mandate, db, analysis=analysis)
+        else:
+            # Strategie-Gates zuerst (ihre Meldung hat Vorrang, nichts wird gespeichert).
+            gate = _depotcheck_gate(mandate, db)
+            if not mandate_has_recorded_holdings(db, mandate):
+                data = _build_depotcheck_data(mandate, db, without_holdings=True, gate=gate)
+            else:
+                if current_user.role in ("admin", "advisor"):
+                    analysis, new_rows = ensure_current_depot_check_analysis(
+                        db, mandate, as_of=datetime.now(timezone.utc).date(),
+                        created_by=current_user.id, created_at=_now_iso(), gate=gate[1],
+                    )
+                    _log_depot_check_rows(db, request, mandate, current_user, new_rows)
+                else:
+                    analysis = load_depot_check_analysis(db, mandate)
+                    if analysis is None:
+                        raise ValueError(NO_ANALYSIS_MESSAGE)
+                data = _build_depotcheck_data(mandate, db, analysis=analysis, gate=gate)
+                db.commit()
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:  # Gates, Bewertungsluecken, Integritaetsfehler
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -2229,6 +2310,20 @@ def get_depotcheck_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _log_depot_check_rows(db: Session, request: Request, mandate: Mandate, user: User, rows) -> None:
+    from services.audit import log
+
+    for table_name, record_id, content_hash in rows:
+        log(db, user_id=user.id, user_name=user.full_name, table_name=table_name,
+            record_id=record_id, action="CREATE", new_value=content_hash,
+            mandate_id=mandate.id, client_id=getattr(mandate, "client_id", None),
+            ip_address=_extract_client_ip(request))
 
 
 # ============================================================================

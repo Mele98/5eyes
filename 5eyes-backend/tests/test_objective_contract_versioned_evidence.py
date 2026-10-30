@@ -123,15 +123,18 @@ def test_changed_objective_contract_schema_must_use_a_new_version():
     assert type(active) is not ObjectiveContractV2
 
 
-def test_failure_distribution_is_not_yet_part_of_allocation_integrity_hash():
-    """Static witness: the integrity hash has no result parameter (unchanged)."""
+def test_failure_distribution_is_bound_by_versioned_result_hash():
+    """Frueher Zeuge der offenen Luecke (kein Ergebnis-Parameter); seit
+    GOAL-ANALYSIS-INTEGRITY-001 bindet ein versionierter Ergebnis-Hash die
+    Zielanalyse (nicht das veraenderliche JSON selbst). Verhalten:
+    tests/test_goal_analysis_integrity_binding.py."""
     from services.portfolio_engine_allocation_integrity import (
         allocation_context_hash_for,
     )
 
     parameters = inspect.signature(allocation_context_hash_for).parameters
     assert "goal_achievability" not in parameters
-    assert "analysis_result_hash" not in parameters
+    assert "analysis_result_hash" in parameters
 
 
 # --------------------------------------------------------------------------

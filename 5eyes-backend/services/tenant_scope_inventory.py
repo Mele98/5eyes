@@ -81,6 +81,11 @@ GLOBAL_REFERENCE_PLAIN_TABLES: frozenset[str] = frozenset({
     "asset_class_fx_history",
     "asset_class_price_history",
     "building_blocks",
+    # CMA-001: CMA_POLICY-Paket (global wie optimizer_policies; Schreiben nur
+    # Portfolio Management).
+    "cma_policies",
+    "cma_policy_approvals",
+    "cma_policy_components",
     "fx_rates",
     "house_matrix",
     "jurisdiction_home_bias_defaults",
@@ -115,6 +120,7 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "client_tax_residencies": ("client_id", "clients"),
     "conflict_of_interest_disclosures": ("mandate_id", "mandates"),
     "contract_documents": ("mandate_id", "mandates"),
+    "depot_check_analysis_snapshots": ("mandate_id", "mandates"),
     "financial_coverage_attestations": ("mandate_id", "mandates"),
     "goal_lifecycle_transitions": ("mandate_id", "mandates"),
     "goal_revision_decisions": ("mandate_id", "mandates"),

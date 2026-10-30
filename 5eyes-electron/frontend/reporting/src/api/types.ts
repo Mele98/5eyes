@@ -1357,6 +1357,20 @@ export interface TargetAllocationRecord extends TargetAllocationCreatePayload {
   manual_override_warnings?: string[];
 }
 
+/**
+ * GOAL-ANALYSIS-INTEGRITY-UI-REACT-001: Status von Zielanalyse und
+ * Shadow-Container der aktuellen Soll-Allokation
+ * (GET /mandates/{id}/target-allocation/current/analysis-integrity).
+ * `needs_attention` = mindestens eine Analyse ist `integrity_mismatch`.
+ */
+export interface AnalysisIntegrityReport {
+  goal_analysis: string;
+  shadow_analysis: string;
+  needs_attention: boolean;
+  label: string | null;
+  text: string | null;
+}
+
 /** Minimal getypte Teilmenge von TargetAllocationGenerateResponse. */
 export interface AllocationGenerateResult {
   target_allocation: TargetAllocationRecord;

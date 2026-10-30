@@ -1735,6 +1735,10 @@ class TargetAllocationGenerateResponse(BaseModel):
     # getrennter Neubewertung (live_re_evaluation, Drift).
     reserve_split: Optional[dict] = None
     reserve_split_replay: Optional[dict] = None
+    # REPORTING-BASIS-DURABILITY-001: Replay der gespeicherten Reporting-
+    # Methodik (status verified|stale|not_persisted, divergent_keys,
+    # live_preview). Nur beim Laden einer gespeicherten Allokation gesetzt.
+    reporting_model_basis_replay: Optional[dict] = None
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int

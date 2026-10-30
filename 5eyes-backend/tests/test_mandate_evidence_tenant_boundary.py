@@ -39,7 +39,7 @@ from services import mandate_evidence_tenant_boundary as metb  # noqa: E402
 from services import tenant_scope_inventory as inventory  # noqa: E402
 
 MIGRATION_REVISION = "b8d4f2a6c9e1"
-MIGRATION_DOWN_REVISION = "e5b3c9d1a7f4"
+MIGRATION_DOWN_REVISION = "e7a3c9d1b5f2"
 NOW = "2026-10-30T00:00:00.000Z"
 TABLES = metb.MANDATE_EVIDENCE_TENANT_TABLES
 _ACTOR_COLUMNS = ("created_by", "actor_id", "advisor_id")

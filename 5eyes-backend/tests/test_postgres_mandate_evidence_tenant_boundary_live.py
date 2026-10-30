@@ -57,7 +57,7 @@ from services.tenant_context import (  # noqa: E402
 )
 from tests.test_tenant_database_boundary import _raw_insert  # noqa: E402
 
-MIGRATION_DOWN_REVISION = "e5b3c9d1a7f4"
+MIGRATION_DOWN_REVISION = "e7a3c9d1b5f2"
 NOW = "2026-10-30T00:00:00.000Z"
 TABLES = MANDATE_EVIDENCE_TENANT_TABLES
 _IDENT = re.compile(r"^[a-z][a-z0-9_]*$")
