@@ -154,15 +154,20 @@ class DepotCheckAnalysisSnapshot(Base):
     ``id`` = ``analysis_snapshot_id`` (aus dem Hash abgeleitet). JSON-Endpunkt
     und PDF lesen dieselbe Zeile. Append-only (Trigger); kein FK auf
     mandates/clients/depot_snapshots (Purge-fest, Bindung per Hash).
+    ``tenant_id`` direkt (RLS-Plan, PG-002), aus dem Mandat abgeleitet und per
+    INSERT-Guard geprueft (services/mandate_evidence_tenant_boundary.py);
+    nicht Teil der Hashes.
     """
 
     __tablename__ = "depot_check_analysis_snapshots"
     __table_args__ = (
         Index("ix_depot_check_analysis_snapshots_mandate", "mandate_id", "created_at"),
+        Index("ix_depot_check_analysis_snapshots_tenant_id", "tenant_id"),
     )
 
     id = Column(String, primary_key=True)
     schema_version = Column(String, nullable=False, default="DepotCheckAnalysisV1")
+    tenant_id = Column(String)
     mandate_id = Column(String, nullable=False)
     client_id = Column(String, nullable=False)
     depot_snapshot_id = Column(String, nullable=False)
