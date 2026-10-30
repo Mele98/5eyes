@@ -255,6 +255,12 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
             'ohne Depot-Snapshot.</font>',
             make_paragraph_styles()["small"],
         ))
+    if data.inputs_note:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
+            f'{_esc(data.inputs_note)}</font>',
+            make_paragraph_styles()["small"],
+        ))
     if data.snapshot_id:
         # DEPOT-E2E-SNAPSHOT-001: derselbe gespeicherte Depot-Check wie im JSON.
         flowables.append(Paragraph(

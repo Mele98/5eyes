@@ -1933,17 +1933,26 @@ def _build_depotcheck_data(
     ohne erfassten Depotbestand ein PDF (``without_holdings``: reine
     SOLL-Analyse, sichtbar gekennzeichnet). ``gate``: bereits berechnetes
     Ergebnis von ``_depotcheck_gate``.
+
+    Teil (c): Kostenausweis, Benchmark-Referenz und Stress-Szenarien stammen
+    aus den im Depot-Check gebundenen ``inputs``; weicht der Live-Stand ab,
+    traegt das PDF den Hinweis "Stand vom <Datum>" (nie still gemischt).
     """
-    from services.backtest_stress import gated_stress_replays
-    from services.cost_disclosure import build_cost_disclosure
-    from services.depot_check_snapshot import assert_analysis_matches_current_allocation
+    from services.depot_check_snapshot import (
+        assert_analysis_matches_current_allocation,
+        bound_inputs_note,
+        capture_depot_check_inputs,
+    )
 
     dc, projection_gate = gate or _depotcheck_gate(mandate, db)
     if analysis is not None:
         assert_analysis_matches_current_allocation(db, mandate, analysis)
         dc = analysis["result"]
     identity = analysis or {}
-    sr = gated_stress_replays(db, mandate, projection_gate) or {}
+    live_inputs = capture_depot_check_inputs(db, mandate, gate=projection_gate)
+    inputs = identity.get("inputs") or live_inputs
+    inputs_note = bound_inputs_note(analysis, live_inputs) if analysis is not None else None
+    sr = inputs["stress"]
     fc = dc.get("fund_characteristics") or {}
     strategy = _build_anlagestrategie_data(mandate, db)
     try:
@@ -1961,16 +1970,10 @@ def _build_depotcheck_data(
         if exc.status_code == 409:
             raise
         positions = list(strategy.products or [])
-    try:
-        costs = build_cost_disclosure(db, mandate)
-    except Exception as exc:  # noqa: BLE001 - PDF must remain available
-        logger.warning("Depotcheck costs unavailable: %s", exc)
-        costs = {
-            "data_pending": True,
-            "note": "Kostenausweis ist fuer diese Empfehlung noch nicht verfuegbar.",
-            "warnings": [],
-        }
-    performance = _build_depotcheck_performance(mandate, db, projection_gate)
+    costs = inputs["cost_disclosure"]
+    performance = _build_depotcheck_performance(
+        mandate, db, projection_gate, benchmark=inputs["benchmark"],
+    )
     soll_country = dc.get("soll_country_exposure_bps") or {}
     soll_sector = dc.get("soll_sector_exposure_bps") or {}
     soll_currency = dc.get("soll_currency_exposure_bps") or {}
@@ -2055,6 +2058,7 @@ def _build_depotcheck_data(
         as_of=identity.get("as_of"),
         result_hash=identity.get("result_hash"),
         without_holdings=bool(without_holdings and analysis is None),
+        inputs_note=inputs_note,
     )
 
 
@@ -2105,8 +2109,10 @@ def _cost_item_rate(costs: dict, key: str) -> int:
 
 
 def _build_depotcheck_performance(
-    mandate: Mandate, db: Session, projection_gate=None,
+    mandate: Mandate, db: Session, projection_gate=None, *, benchmark: dict | None = None,
 ) -> dict:
+    """``benchmark``: gebundene Referenz ``{"weights_bps", "status"}`` aus dem
+    Depot-Check (Teil c); ohne sie wird die Referenz live aufgeloest."""
     if projection_gate is None:
         from services.report_projection_gate import (
             resolve_current_allocation_projection_gate,
@@ -2116,9 +2122,12 @@ def _build_depotcheck_performance(
     # SUITABILITY-DETECTOR-AVAILABILITY-001: die HouseMatrix-Referenz hat
     # einen ausgewiesenen Status. Fehlt sie, wird der Vergleich NICHT still
     # ohne Referenz gezeigt, sondern mit Hinweis (warnings + Status-Block).
-    benchmark, benchmark_status = _depotcheck_house_matrix_benchmark_with_status(
-        mandate, db,
-    )
+    if benchmark is not None:
+        benchmark, benchmark_status = dict(benchmark["weights_bps"]), dict(benchmark["status"])
+    else:
+        benchmark, benchmark_status = _depotcheck_house_matrix_benchmark_with_status(
+            mandate, db,
+        )
     benchmark_warnings = (
         [benchmark_status["note"]]
         if benchmark_status.get("status") != "available" and benchmark_status.get("note")
@@ -2183,17 +2192,10 @@ def _depotcheck_house_matrix_benchmark_with_status(
         weights = dict(resolution.weights_bps) if resolution.available else {}
         return weights, resolution.public()
     except Exception as exc:  # noqa: BLE001 - PDF must fail soft, aber sichtbar
+        from services.depot_check_snapshot import BENCHMARK_FAILED_STATUS
+
         logger.warning("Depotcheck house-matrix benchmark unresolved: %s", exc)
-        return {}, {
-            "status": "unavailable",
-            "reason_code": "BENCHMARK_RESOLUTION_FAILED",
-            "note": (
-                "Vergleich mit der Hausmatrix nicht möglich – Policy/Profil "
-                "fehlt (BENCHMARK_RESOLUTION_FAILED)."
-            ),
-            "score_bucket": None,
-            "profile_name": None,
-        }
+        return {}, dict(BENCHMARK_FAILED_STATUS)
 
 
 def _depotcheck_data_quality_warnings(costs: dict, performance: dict) -> list[str]:
@@ -2278,7 +2280,7 @@ def get_depotcheck_pdf(
                 if current_user.role in ("admin", "advisor"):
                     analysis, new_rows = ensure_current_depot_check_analysis(
                         db, mandate, as_of=datetime.now(timezone.utc).date(),
-                        created_by=current_user.id, created_at=_now_iso(),
+                        created_by=current_user.id, created_at=_now_iso(), gate=gate[1],
                     )
                     _log_depot_check_rows(db, request, mandate, current_user, new_rows)
                 else:
