@@ -1,4 +1,12 @@
-fastapi==0.115.0
+# DEP-SEC-002 (2026-10-27): fastapi 0.115.0 zog starlette 0.38.6 (Host-Header-
+# in request.url, urlencoded max_fields ignoriert, StaticFiles/UNC unter
+# Windows, Formular-DoS). Fixes nur in Starlette 1.x (>= 1.3.1); die 0.4x-Linie
+# braechte zusaetzlich CVE-2025-62727 (Range-DoS). starlette explizit gepinnt.
+# fastapi 0.136.3: letzte Version mit flacher app.routes-Liste (ab 0.137
+# werden eingebundene Router lazy als interne Objekte gefuehrt, ab 0.143 kommt
+# eine eingebaute OpenTelemetry-Schicht als Pflicht-Abhaengigkeit dazu).
+fastapi==0.136.3
+starlette==1.10.0
 uvicorn[standard]==0.30.6
 sqlalchemy==2.0.35
 psycopg[binary]>=3.2,<4
@@ -13,7 +21,9 @@ email-validator>=2.0,<3
 # + CVE-behaftet (Algorithm-Confusion). Nur HS256, kein JWE -> Wechsel neutral.
 PyJWT[crypto]==2.15.1
 # Tenant-DEK envelope encryption (Postgres/Tier-2 isolation hardening).
-cryptography>=42,<45
+# DEP-SEC-002: exakt gepinnt (vorher >=42,<45 -> Drift zwischen Umgebungen);
+# 50.0.0 behebt die letzten gemeldeten Advisories (u.a. statisches OpenSSL).
+cryptography==50.0.2
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.32
 aiofiles==24.1.0
