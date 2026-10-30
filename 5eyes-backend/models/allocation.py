@@ -155,6 +155,11 @@ class TargetAllocation(Base):
     # an den Objective-Vertrag gebundener Goal-Driver-Snapshot
     # (services/allocation_evidence_replay.py). NULL = Bestand ohne Snapshot.
     goal_driver_evidence_json = Column(String)
+    # GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b (2026-10-25): beim Berechnen
+    # gebundener Bewertungsstichtag (ISO-Datum). Reload, Staleness-Pruefung
+    # und Report-Simulation lesen ihn statt der Wanduhr
+    # (services/valuation_clock.py). NULL = Bestand vor ADR-1b.
+    valuation_date = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

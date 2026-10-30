@@ -145,7 +145,7 @@ def _seed_mandate_with_actual_holdings(
     rec_run = RecommendationRun(
         id=str(uuid.uuid4()), mandate_id=mandate.id, client_id=client.id,
         target_allocation_id=ta.id, policy_id=policy.id, run_type="full",
-        result_status="Approved", created_by=advisor.id,
+        result_status="Final", created_by=advisor.id,
         created_at=_NOW, updated_at=_NOW,
     )
     with session_factory() as s:

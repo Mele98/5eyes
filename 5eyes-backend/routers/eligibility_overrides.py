@@ -18,11 +18,13 @@ from models.review import RecommendationRun
 from models.users import User
 from services.audit import log
 from services.auth import get_mandate_for_user_or_404, require_advisor
+from services.product_eligibility_governance import APPROVAL_MODE_SINGLE_APPROVER_ATTESTED
 from services.product_eligibility_override import (
     MIN_OVERRIDE_REASON_LENGTH,
     OverrideConflict,
     approve_override,
     decision_context,
+    override_approver_ids,
     override_overview,
     request_override,
 )
@@ -47,6 +49,14 @@ class EligibilityOverrideRequest(BaseModel):
                 f"Begruendung ist Pflicht (mindestens {MIN_OVERRIDE_REASON_LENGTH} Zeichen)."
             )
         return value
+
+
+class EligibilityOverrideApprovalRequest(BaseModel):
+    """ELIG-OVERRIDE-SINGLE-APPROVER-001: only relevant when the requester
+    confirms their own request (sole person entitled to approve)."""
+
+    single_approver_attestation: bool = False
+    attestation_reason: str | None = None
 
 
 def _context(mandate_id: str, run_id: str, db: Session, current_user: User):
@@ -75,6 +85,7 @@ def _row_out(row) -> dict:
         "expires_at": row.expires_at,
         "evidence_hash": row.evidence_hash,
         "created_at": row.created_at,
+        "approval_mode": row.approval_mode,
         "state": "valid" if row.approved_by else "pending",
     }
 
@@ -90,7 +101,14 @@ def list_eligibility_overrides(
     current_user: User = Depends(require_advisor),
 ):
     ctx = _context(mandate_id, run_id, db, current_user)
-    return {"run_id": run_id, "items": override_overview(db, ctx)}
+    approvers = override_approver_ids(db, ctx)
+    return {
+        "run_id": run_id,
+        "current_user_id": current_user.id,
+        "approver_count": len(approvers),
+        "current_user_is_sole_approver": approvers == [str(current_user.id)],
+        "items": override_overview(db, ctx),
+    }
 
 
 @router.post(_BASE, status_code=201)
@@ -125,23 +143,32 @@ def request_eligibility_override(
 @router.post(_BASE + "/{override_id}/approve", status_code=201)
 def approve_eligibility_override(
     mandate_id: str, run_id: str, override_id: str,
+    body: EligibilityOverrideApprovalRequest | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
+    body = body or EligibilityOverrideApprovalRequest()
     db.query(Mandate).filter(Mandate.id == mandate_id).with_for_update().first()
     ctx = _context(mandate_id, run_id, db, current_user)
     try:
-        row = approve_override(db, ctx, override_id=override_id, approver_id=current_user.id)
+        row = approve_override(
+            db, ctx, override_id=override_id, approver_id=current_user.id,
+            single_approver_attestation=body.single_approver_attestation,
+            attestation_reason=body.attestation_reason,
+        )
     except LookupError as exc:
         db.rollback()
         raise HTTPException(status_code=404, detail=str(exc))
     except OverrideConflict as exc:
         db.rollback()
         raise _conflict(exc)
+    audit_value = (f"approved;request={override_id};run={run_id};product={row.product_id};"
+                   f"rule={row.rule_id};expires_at={row.expires_at};evidence_hash={row.evidence_hash};"
+                   f"approval_mode={row.approval_mode}")
+    if row.approval_mode == APPROVAL_MODE_SINGLE_APPROVER_ATTESTED:
+        audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_eligibility_overrides", record_id=row.id, action="INSERT",
-        new_value=f"approved;request={override_id};run={run_id};product={row.product_id};"
-                  f"rule={row.rule_id};expires_at={row.expires_at};evidence_hash={row.evidence_hash}",
-        mandate_id=mandate_id)
+        new_value=audit_value, mandate_id=mandate_id)
     db.commit()
     return _row_out(row)

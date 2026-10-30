@@ -75,8 +75,13 @@ def _patch_full_de_curve(monkeypatch):
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "CMA-EQUITY-MEASUREMENT-BASIS-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-04-jurisdiction-cma-equity-measurement-snapshot-and-approval-integrity-audit.md"
+        "CMA-EQUITY-MEASUREMENT-BASIS-001 (offen, Fachdaten/Owner): ETF-"
+        "Trailing-KGV gegen generischen Shiller-CAPE-Fair-Value ist nicht "
+        "vergleichbar. Kompatibel wird es nur mit einer CAPE-Quelle je "
+        "Jurisdiktion oder einem IC-freigegebenen Trailing-KGV-Fair-Value; die "
+        "fail-closed-Alternative (KGV-Schritt fuer DE/US aussetzen) ist ein "
+        "Owner-Entscheid. Audit: docs/audits/2026-10-04-jurisdiction-cma-"
+        "equity-measurement-snapshot-and-approval-integrity-audit.md"
     ),
 )
 def test_pe_proxy_and_generic_cape_are_mixed_without_measurement_basis_compatibility_check(

@@ -7,7 +7,7 @@ Trigger verboten (SQLite und PostgreSQL). Kein FK auf mandates/clients/
 depot_snapshots (Purge-fest, Bindung per Hash).
 
 Revision ID: e7a3c9d1b5f2
-Revises: d2f8b6a1c4e9
+Revises: b5d2e8f1c4a7
 Create Date: 2026-10-28
 """
 from typing import Sequence, Union
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 
 
 revision: str = "e7a3c9d1b5f2"
-down_revision: Union[str, Sequence[str], None] = "d2f8b6a1c4e9"
+down_revision: Union[str, Sequence[str], None] = "b5d2e8f1c4a7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

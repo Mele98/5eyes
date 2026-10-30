@@ -49,8 +49,12 @@ from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
-from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
+from services.jurisdiction.exceptions import (
+    CMAValidityWindowError,
+    JurisdictionReferenceDataMissingError,
+)
 from services.jurisdiction.resolve import (
+    assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
     resolve_mandate_jurisdiction,
 )
@@ -614,9 +618,21 @@ def update_cma(
         for column in CapitalMarketAssumption.__table__.columns:
             if column.name not in immutable_or_scope_fields:
                 prev_dict[column.name] = getattr(prev, column.name, None)
-        prev.is_current = 0
         prev_version = prev.version
     merged = {**prev_dict, **payload}
+    # CMA-EFFECTIVE-DATE-001: die neue Version loest die Vorgaengerin sofort
+    # ab -- sie muss heute wirksam sein, sonst blieben alle Allokationen bis
+    # zum Stichtag gesperrt. Pruefung VOR dem Supersede: die Vorgaengerin
+    # bleibt bei Ablehnung unangetastet.
+    try:
+        assert_cma_activatable_on(merged.get("valid_from"), merged.get("valid_until"))
+    except CMAValidityWindowError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason_code": exc.reason_code, "message": exc.message},
+        )
+    if prev:
+        prev.is_current = 0
     cma = CapitalMarketAssumption(
         id=new_uuid(),
         version=prev_version + 1,
@@ -1665,7 +1681,31 @@ def create_depot_snapshot(
             client_id=getattr(mandate, "client_id", None),
             ip_address=_extract_client_ip(request))
         db.commit()
-    return {"snapshot": snapshot, "created": created, "ist_stress": compute_ist_stress(snapshot)}
+    from services.portfolio_data_release_gate import assess_mandate_portfolio_data
+
+    return {
+        "snapshot": snapshot,
+        "created": created,
+        "ist_stress": compute_ist_stress(snapshot),
+        # PORTFOLIO-DATA-001: Frische/Abgleich sichtbar; blockiert nur mit aktiver Policy.
+        "portfolio_data": assess_mandate_portfolio_data(db, mandate, snapshot=snapshot),
+    }
+
+
+@router.get("/mandates/{mandate_id}/portfolio-data/assessment")
+def get_portfolio_data_assessment(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """PORTFOLIO-DATA-001: komponentenweise Depot-Frische, Abgleich-Status und
+    Gate je Aktion (Entwurf, Finalisierung, PDF, Signatur, Handoff). Mit einer
+    nicht freigegebenen Policy (heute PROPOSED) nur Anzeige: ``enforced``
+    False, ``would_block`` zeigt, was eine aktive Policy sperren wuerde."""
+    from services.portfolio_data_release_gate import assess_mandate_portfolio_data
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return assess_mandate_portfolio_data(db, mandate)
 
 
 @router.post("/mandates/{mandate_id}/depot-snapshots/{snapshot_id}/depot-check", status_code=201)

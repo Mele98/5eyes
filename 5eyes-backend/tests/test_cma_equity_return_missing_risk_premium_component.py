@@ -111,7 +111,9 @@ def test_positive_control_risk_free_and_kgv_adjustment_sum_to_equity_return():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "CMA-EQUITY-RETURN-DECOMPOSITION-001 -- round 53 red test, see audit "
+        "CMA-EQUITY-RETURN-DECOMPOSITION-001 (offen, Fachdaten): die Aktien-"
+        "Risikopraemie (ERP) je Jurisdiktion braucht eine IC-freigegebene "
+        "Annahme oder Datenquelle; sie wird nicht erfunden. Audit: "
         "docs/audits/2026-10-04-jurisdiction-cma-equity-measurement-snapshot-"
         "and-approval-integrity-audit.md"
     ),
