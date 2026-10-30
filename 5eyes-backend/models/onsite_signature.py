@@ -5,7 +5,7 @@ PostgreSQL), alle ohne FK auf mandates/clients (Muster audit_log /
 risk_override_decisions: Demo-Purge und Mandatsloeschung bleiben moeglich),
 nur Akteure verweisen auf ``users``. ``tenant_id`` direkt (RLS-Plan, PG-002),
 aus dem Mandat abgeleitet und per INSERT-Guard geprueft
-(services/mandate_evidence_tenant_boundary.py); nicht Teil der Hashes:
+(core/mandate_evidence_tenant_boundary.py); nicht Teil der Hashes:
 
 ``onsite_signature_events``
     Zustandsmaschine als hash-verkettetes Ereignisjournal. Der aktuelle
@@ -197,9 +197,3 @@ for _model in (OnsiteSignatureEvent, OnsiteSignatureChallenge, OnsiteSignatureEv
             "after_create",
             DDL(_trigger_ddl).execute_if(dialect="sqlite"),
         )
-
-# PG-002: Mandanten-/Kundenschutz beim INSERT (nach create_all, wenn
-# mandates sicher existiert).
-from services import mandate_evidence_tenant_boundary as _metb  # noqa: E402
-
-event.listen(Base.metadata, "after_create", _metb.create_sqlite_guards_after_metadata_create)

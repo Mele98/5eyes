@@ -21,7 +21,7 @@ Upgrade, in this order:
    ``ensure_postgres_rls_policies`` (the tables now carry ``tenant_id``).
 
 The DDL is frozen here as literals (red-team finding 5);
-``services/mandate_evidence_tenant_boundary.py`` carries the same SQLite DDL
+``core/mandate_evidence_tenant_boundary.py`` carries the same SQLite DDL
 for create_all and the runtime patch, a test checks equality.
 
 Revision ID: b8d4f2a6c9e1

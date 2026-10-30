@@ -35,7 +35,7 @@ from services.postgres_rls import import_tenant_models, tenant_scoped_table_name
 import_tenant_models()
 
 from database import Base  # noqa: E402
-from services import mandate_evidence_tenant_boundary as metb  # noqa: E402
+from core import mandate_evidence_tenant_boundary as metb  # noqa: E402
 from services import tenant_scope_inventory as inventory  # noqa: E402
 
 MIGRATION_REVISION = "b8d4f2a6c9e1"

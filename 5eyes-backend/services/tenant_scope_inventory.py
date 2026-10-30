@@ -39,7 +39,7 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "audit_log",
     "clients",
     # PG-002 (Red-Team 2026-10-28, Befund 6): append-only Mandats-Evidenz,
-    # Mandant aus dem Mandat (services/mandate_evidence_tenant_boundary.py).
+    # Mandant aus dem Mandat (core/mandate_evidence_tenant_boundary.py).
     "depot_snapshots",
     "mandates",
     "onsite_signature_challenges",

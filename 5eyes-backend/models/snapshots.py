@@ -114,7 +114,7 @@ class DepotSnapshot(Base):
     ``id`` = ``snapshot_id`` (aus dem Hash abgeleitet, gleicher Inhalt = gleiche
     Zeile). Append-only (Trigger); kein FK auf mandates/clients (Purge-fest).
     ``tenant_id`` direkt (RLS-Plan, PG-002), aus dem Mandat abgeleitet und per
-    INSERT-Guard geprueft (services/mandate_evidence_tenant_boundary.py);
+    INSERT-Guard geprueft (core/mandate_evidence_tenant_boundary.py);
     nicht Teil des Snapshot-Hashes.
     """
 
@@ -181,9 +181,3 @@ for _trigger_ddl in DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS:
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )
-
-# PG-002: Mandanten-/Kundenschutz beim INSERT (nach create_all, wenn
-# mandates sicher existiert).
-from services import mandate_evidence_tenant_boundary as _metb  # noqa: E402
-
-event.listen(Base.metadata, "after_create", _metb.create_sqlite_guards_after_metadata_create)

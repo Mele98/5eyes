@@ -12,6 +12,12 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from config import settings
+from core.mandate_evidence_tenant_boundary import (
+    MANDATE_EVIDENCE_TENANT_TABLES,
+    create_sqlite_guards_after_metadata_create,
+    ensure_sqlite_mandate_evidence_tenant_boundary,
+    tenant_index_name,
+)
 
 try:
     import sqlcipher3  # type: ignore
@@ -161,6 +167,12 @@ def _session_for(target_engine: Engine | None = None) -> Session:
 
 class Base(DeclarativeBase):
     pass
+
+
+# PG-002: Mandanten-/Kundenschutz beim INSERT fuer die append-only
+# Mandats-Evidenz (core/mandate_evidence_tenant_boundary.py). Metadata-Hook:
+# laeuft nach create_all, wenn mandates und alle Evidenztabellen existieren.
+event.listen(Base.metadata, "after_create", create_sqlite_guards_after_metadata_create)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -1348,12 +1360,7 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             Base.metadata.tables[table_name].create(bind=conn, checkfirst=True)
         # PG-002 (Red-Team 2026-10-28, Befund 6): direkte Mandantenbindung der
         # append-only Mandats-Evidenz (ADD COLUMN feuert den UPDATE-Trigger
-        # nicht); Backfill + Guard: services/mandate_evidence_tenant_boundary.py.
-        from services.mandate_evidence_tenant_boundary import (
-            MANDATE_EVIDENCE_TENANT_TABLES,
-            tenant_index_name,
-        )
-
+        # nicht); Backfill + Guard: core/mandate_evidence_tenant_boundary.py.
         for table_name in MANDATE_EVIDENCE_TENANT_TABLES:
             ensure_column(conn, table_name, "tenant_id", "TEXT")
             conn.execute(text(
@@ -2450,8 +2457,6 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
     ensure_sqlite_risk_evidence_tenant_boundary(eng)
-    from services.mandate_evidence_tenant_boundary import ensure_sqlite_mandate_evidence_tenant_boundary
-
     ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     # ELIG-OVERRIDE-APPEND-ONLY-001: Override-Nachweise append-only (Trigger),
     # ohne harten Run-FK (Purge-fest), Spalte approval_mode.
@@ -2541,8 +2546,6 @@ def init_db(target_engine: Engine | None = None) -> None:
         ensure_sqlite_risk_evidence_tenant_boundary(eng)
         # PG-002 (Red-Team 2026-10-28): Depot-Snapshots und Vor-Ort-Signatur
         # ebenso erst nach dem Mandats-Backfill an den Mandanten binden.
-        from services.mandate_evidence_tenant_boundary import ensure_sqlite_mandate_evidence_tenant_boundary
-
         ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
     # Tenant-Isolation zusaetzlich auf Datenbankebene.
