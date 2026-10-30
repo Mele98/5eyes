@@ -178,7 +178,7 @@ Included in this stage:
 - portable Windows target (`npm run dist:win:portable`)
 - release preflight check via `npm run preflight:release`
 - code-signing placeholders through standard Electron Builder environment variables
-- auto-update skeleton via `electron-updater`
+- auto-update code via `electron-updater`, disabled by a fail-closed build gate (UPDATE-001)
 
 ### Release preflight
 
@@ -190,7 +190,7 @@ npm run preflight:release
 
 This warns you when:
 - icons are missing
-- the auto-update URL is still the placeholder
+- `UPDATES_ENABLED=true` is set without a complete update configuration (HTTPS feed URL + code signing) -- this is an error, not a warning
 - Windows code-signing variables are missing
 - local Chart.js is missing for an offline release
 - the frontend still contains external CDN/font references
@@ -218,11 +218,8 @@ If these are not set, the installer is built unsigned.
 
 ### Auto-update skeleton
 
-The package includes a generic provider placeholder and `electron-updater` wiring.
-Auto-update remains disabled by default and only activates in the packaged app when:
-
-```bash
-set ENABLE_AUTO_UPDATE=1
-```
-
-Before enabling it for a real release, replace the placeholder publish URL in `package.json`.
+Auto-update is disabled in production builds (UPDATE-001): `build.publish` is `null`,
+`desktopUpdates.enabled` is `false`, and `main.js` never loads `electron-updater`
+in that state -- `ENABLE_AUTO_UPDATE=1` alone does not enable it.
+`UPDATES_ENABLED=true` without a complete configuration aborts both the preflight
+and the electron-builder `beforePack` hook. Activation requirements: `docs/AUTO_UPDATE.md`.

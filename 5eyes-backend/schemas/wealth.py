@@ -889,6 +889,17 @@ class GoalCreate(BaseModel):
         return self
 
 
+class GoalOrderUpdate(BaseModel):
+    """Vollstaendige Ziel-Reihenfolge eines Mandats (GOAL-RANK-HARDNESS-ROUNDTRIP-001).
+
+    ``goal_ids``: alle aktiven Ziele genau einmal, in neuer Prioritaet.
+    ``expected_goal_ids``: optional die zuletzt gesehene Reihenfolge (CAS).
+    """
+
+    goal_ids: list[str] = Field(min_length=1)
+    expected_goal_ids: Optional[list[str]] = None
+
+
 class GoalUpdate(BaseModel):
     goal_family: Optional[str] = None
     goal_type: Optional[str] = None

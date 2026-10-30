@@ -91,7 +91,9 @@ def mandate_reference_year(mandate) -> int:
     opened = str(getattr(mandate, "opened_at", "") or "").strip()
     if len(opened) >= 4 and opened[:4].isdigit():
         return int(opened[:4])
-    return _date.today().year
+    from services.valuation_clock import valuation_date
+
+    return valuation_date().year
 
 
 def _normalize_bfs_sex(value: Any) -> str | None:

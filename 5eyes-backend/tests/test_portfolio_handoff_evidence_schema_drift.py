@@ -54,12 +54,18 @@ def _seed_parents(conn: sqlite3.Connection) -> None:
 
 
 def _insert(conn, handoff_id: str, status: str, key) -> None:
+    # HANDOFF-DB-INVARIANT-001: neue Zeilen tragen einen gueltigen Hash und
+    # (Red-Team 2026-10-28) eine Bestandsbasis -- sofern die Spalte im
+    # jeweiligen Schemastand schon existiert (Alembic-Kettentest).
+    has_basis = any(row[1] == "holdings_basis" for row in conn.execute("PRAGMA table_info(portfolio_handoffs)"))
     conn.execute(
         "INSERT INTO portfolio_handoffs (id, mandate_id, trade_list_snapshot_json, "
         "live_total_value_rappen, position_count, recipient_name, status, created_by, "
-        "created_at, updated_at, business_key_hash) "
-        "VALUES (?, 'm-1', '[]', 1, 0, 'A', ?, 'u-1', 't', 't', ?)",
-        (handoff_id, status, key),
+        "created_at, updated_at, business_key_hash, snapshot_sha256"
+        + (", holdings_basis" if has_basis else "") + ") "
+        "VALUES (?, 'm-1', '[]', 1, 0, 'A', ?, 'u-1', 't', 't', ?, ?"
+        + (", 'recorded_depot'" if has_basis else "") + ")",
+        (handoff_id, status, key, "0" * 64),
     )
 
 
@@ -96,6 +102,10 @@ def test_runtime_patch_adds_columns_and_index_to_existing_db(tmp_path, monkeypat
     engine.dispose()
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(f"DROP INDEX {HANDOFF_OPEN_BUSINESS_KEY_INDEX}")
+        # HANDOFF-DB-INVARIANT-001: die Invarianten-Trigger referenzieren
+        # snapshot_sha256 -- im simulierten Altschema existieren sie nicht.
+        conn.execute("DROP TRIGGER trg_portfolio_handoffs_invariants_insert")
+        conn.execute("DROP TRIGGER trg_portfolio_handoffs_invariants_update")
         for name in COLUMNS:
             conn.execute(f"ALTER TABLE portfolio_handoffs DROP COLUMN {name}")
         conn.commit()

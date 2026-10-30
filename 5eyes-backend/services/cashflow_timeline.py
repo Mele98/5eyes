@@ -4,6 +4,8 @@ import math
 from calendar import monthrange
 from datetime import date
 
+from services.valuation_clock import valuation_date
+
 
 SUPPORTED_FREQUENCIES = {
     "monatlich",
@@ -87,7 +89,7 @@ def event_date_for_cashflow(
     valid_until: str | None,
     fallback_today: date | None = None,
 ) -> date:
-    return _parse_date(valid_from) or _parse_date(valid_until) or fallback_today or date.today()
+    return _parse_date(valid_from) or _parse_date(valid_until) or fallback_today or valuation_date()
 
 
 def contribution_for_year(
@@ -413,7 +415,7 @@ def totals_for_year(
 
         target_currency: Ziel-Waehrung fuer die aggregierten Totals (Default CHF).
     """
-    target_year = int(year or date.today().year)
+    target_year = int(year or valuation_date().year)
     inflation_factor_universal = _compound_inflation_factor(
         inflation_series_bps, start_year, target_year
     )
@@ -485,7 +487,7 @@ def net_cashflow_series(
     Sprint B3: Optionaler fx_source aktiviert Multi-Currency-Conversion.
     Backwards-Compat: ohne fx_source bleibt das alte Verhalten unveraendert.
     """
-    base_year = int(start_year or date.today().year)
+    base_year = int(start_year or valuation_date().year)
     return [
         totals_for_year(
             cashflows,
@@ -509,7 +511,7 @@ def recurring_net_cashflow_series(
     target_currency: str = "CHF",
 ) -> list[int]:
     """Sprint B3: fx_source + target_currency Backwards-Compat-Passthrough."""
-    base_year = int(start_year or date.today().year)
+    base_year = int(start_year or valuation_date().year)
     return [
         totals_for_year(
             cashflows,

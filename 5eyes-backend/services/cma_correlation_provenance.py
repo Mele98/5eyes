@@ -54,13 +54,14 @@ Investment Committee eine Matrix fuer eine weitere Jurisdiktion, ist das ein
 Eintrag hier plus der Datensatz -- kein Umbau. Bis dahin weist
 ``jurisdiction_matched = False`` die Fremdmarkt-Verwendung ausdruecklich aus.
 
-Ob eine Nicht-CH-Jurisdiktion OHNE eigene Matrix ueberhaupt noch live rechnen
-darf -- also fail-closed wie bei den Returns/Volatilitaeten -- ist eine
-Produktentscheidung mit echter Bruchflaeche (der gesamte DE-Pfad ruht heute
-tragend auf dem Fallback, siehe ``tests/test_engine_de_jurisdiction_wiring.py``
-und die 28 Aufrufstellen von ``_seed_de_mandate``). Der Reproducer dazu steht
-in ``tests/test_cma_correlation_jurisdiction_provenance.py`` und ist bewusst
-als strict-xfail markiert, nicht still gefixt.
+CMA-001 / CMA-CORR-001 (Entscheidungsdokument 2026-10-27): eine
+Nicht-CH-Jurisdiktion OHNE eigene Matrix rechnet nicht mehr live -- die
+Runtime-Validierung ist dort fail-closed wie bei Returns/Volatilitaeten.
+Fuer CH wird der bestehende Default nur noch als benannte, versionierte
+Policy (``JURISDICTION_DEFAULT_CORRELATION_POLICIES``) eingesetzt
+(``resolve_bucket_correlation_matrix``), nicht durch blosse Abwesenheit des
+Payloads. Der Nachweis-Block oben bleibt unveraendert, damit gespeicherte
+Evidenz-Hashes stabil bleiben.
 """
 
 from __future__ import annotations
@@ -73,6 +74,7 @@ from services.cma_validation import (
     CORRELATION_DIMENSION,
     CMAValidationError,
     parse_correlation_matrix_json,
+    validate_correlation_matrix,
 )
 
 # Herkunftskennungen. Stabil halten -- sie landen im persistierten Nachweis.
@@ -88,6 +90,61 @@ UNKNOWN_SOURCE = "unknown:no_cma_in_scope"
 JURISDICTION_DEFAULT_CORRELATION_SOURCES: dict[str, str] = {
     "CH": SWISS_MARKET_DEFAULT_SOURCE,
 }
+
+#: CMA-CORR-001 (Entscheidungsdokument 2026-10-27, Abschnitt 5): die
+#: Korrelationsannahme hat eine eigene Entscheidungs-ID -- sie ist NICHT
+#: ADR-12a (KGV). Ein fachlicher Default darf nie durch blosse Abwesenheit
+#: eines Payloads aktiv werden, sondern nur als benannte, versionierte,
+#: offengelegte Policy je Jurisdiktion. Heute existiert genau eine: der
+#: bestehende Schweizer Default (keine neue Zahl), Ausschussfreigabe offen.
+#: Fuer jede andere Jurisdiktion ohne eigenen Payload ist der Lauf
+#: fail-closed (``services/cma_validation.py::validate_runtime_cma_completeness``).
+CORRELATION_DECISION_ID = "CMA-CORR-001"
+JURISDICTION_DEFAULT_CORRELATION_POLICIES: dict[str, dict[str, str]] = {
+    "CH": {
+        "decision_id": CORRELATION_DECISION_ID,
+        "policy_name": "ch_bucket_correlation_default",
+        "version": "v1",
+        "source": SWISS_MARKET_DEFAULT_SOURCE,
+        "scope": "CH",
+        "approval_status": "pending_committee_approval",
+        "matrix_location": "services/portfolio_engine.py::_DEFAULT_CORRELATION_MATRIX",
+    },
+}
+
+
+def jurisdiction_default_correlation_policy(cma: Any) -> dict[str, str] | None:
+    """Benannte Default-Policy der Jurisdiktion oder ``None`` (= keine)."""
+    policy = JURISDICTION_DEFAULT_CORRELATION_POLICIES.get(normalized_jurisdiction(cma))
+    return dict(policy) if policy is not None else None
+
+
+def resolve_bucket_correlation_matrix(
+    cma: Any,
+    *,
+    default_matrix: Any,
+    dimension: int = CORRELATION_DIMENSION,
+) -> tuple[tuple[float, ...], ...]:
+    """Die fuer ``cma`` zu rechnende Bucket-Korrelationsmatrix.
+
+    Payload vorhanden -> genau dieser (fail-closed validiert). Payload
+    fehlt -> nur ueber die benannte Default-Policy der Jurisdiktion; ohne
+    eine solche ``CMAValidationError`` statt eines Fremdmarkt-Ersatzes.
+    """
+    raw_payload = getattr(cma, "correlation_matrix_json", None)
+    if raw_payload:
+        matrix = parse_correlation_matrix_json(raw_payload, dimension=dimension)
+        assert matrix is not None
+        return matrix
+    if jurisdiction_default_correlation_policy(cma) is None:
+        raise CMAValidationError(
+            "Keine Korrelationsmatrix fuer Jurisdiktion "
+            f"{normalized_jurisdiction(cma)}: die CMA hat keinen "
+            "correlation_matrix_json und es gibt keine genehmigte Default-"
+            f"Policy ({CORRELATION_DECISION_ID}). Ein Fremdmarkt-Default wird "
+            "nicht eingesetzt."
+        )
+    return validate_correlation_matrix(default_matrix, dimension=dimension)
 
 
 def normalized_jurisdiction(cma: Any) -> str:

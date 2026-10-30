@@ -6,6 +6,7 @@ import {
 } from './client';
 import type {
   RiskAssessment,
+  RiskCapacityBoundEvaluation,
   RiskOverride,
 } from './types';
 
@@ -112,4 +113,44 @@ export async function overrideRiskAssessment(
       signal: options.signal,
     },
   );
+}
+
+/**
+ * RISK-CAPACITY-RECHECK-UI-001: Status der zuletzt gebundenen Bewertung der
+ * Plausibilitaetspruefung. `null` = noch keine gebundene Bewertung oder kein
+ * aktuelles Risikoprofil (404).
+ */
+export async function fetchRiskCapacityBoundEvaluation(
+  mandateId: string,
+  options: RequestOptions = {},
+): Promise<RiskCapacityBoundEvaluation | null> {
+  let response: Response;
+  try {
+    response = await fetch(endpoint(mandateId, '/risk-capacity-plausibility', options.baseUrl), {
+      method: 'GET',
+      credentials: 'include',
+      headers: await authHeaders(),
+      signal: options.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    throw new ApiError(0, `Netzwerk-Fehler: ${(err as Error).message}`, err);
+  }
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  const data = (await response.json()) as { bound_evaluation?: unknown } | null;
+  const bound = data && typeof data === 'object' ? data.bound_evaluation : null;
+  if (bound == null) {
+    return null;
+  }
+  if (typeof bound !== 'object' || typeof (bound as { needs_recheck?: unknown }).needs_recheck !== 'boolean') {
+    throw new SchemaError('bound_evaluation.needs_recheck');
+  }
+  return bound as RiskCapacityBoundEvaluation;
 }
