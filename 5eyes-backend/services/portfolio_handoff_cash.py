@@ -29,6 +29,16 @@ _LIQUIDITY_POSITION_TYPES = ("Liquidität", "Liquiditaet")
 _ADVISORY_ASSIGNMENTS = ("Beratungsvermögen", "Beratungsvermoegen")
 
 
+# Wertemenge von WealthPosition.liquidity_instrument (schemas/wealth.py).
+_LIQUIDITY_INSTRUMENTS = ("Kontoguthaben", "Sparkonto", "Festgeld", "Kassenobligation", "Geldmarktfonds")
+
+
+def _generic_cash_name(instrument: str | None, currency: str) -> str:
+    kind = str(instrument or "").strip()
+    parts = ["Liquiditaet", kind if kind in _LIQUIDITY_INSTRUMENTS else "", currency]
+    return " ".join(part for part in parts if part)
+
+
 class AdvisoryCashValuationError(ValueError):
     """Eine Liquiditaetsposition des Beratungsvermoegens ist nicht belegt."""
 
@@ -74,7 +84,9 @@ def advisory_cash_entries(db: Session, mandate: Mandate) -> list[dict]:
             "id": f"cash-{pos.id}",
             "wealth_position_id": pos.id,
             "product_id": None,
-            "product_name": f"Liquiditaet: {label}",
+            # Red-Team 2026-10-28 Befund 3: keine Freitext-Bezeichnung im
+            # unveraenderlichen Snapshot, nur Instrumenttyp + Waehrung.
+            "product_name": _generic_cash_name(pos.liquidity_instrument, currency),
             "asset_class": "Liquiditaet",
             "sub_asset_class": str(pos.liquidity_instrument or "").strip() or None,
             "product_currency": currency,

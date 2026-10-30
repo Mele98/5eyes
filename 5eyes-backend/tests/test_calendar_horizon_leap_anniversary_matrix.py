@@ -53,52 +53,34 @@ from types import SimpleNamespace
 import pytest
 
 import routers.wealth as wealth_router
-import services.calendar_horizon as calendar_horizon
 import services.portfolio_engine_payload as portfolio_engine_payload
 from services.calendar_horizon import calendar_years_until
 from services.optimizer.goal_liabilities import _resolve_target_year_index
 
 
-class _FrozenDate(date):
-    """A `datetime.date` subclass whose `.today()` returns a fixed value.
-
-    Installed in place of the `date` name inside each resolver's own module so that
-    every resolver that calls `date.today()` internally observes the same "today" as
-    the resolver that takes an explicit `as_of` argument.
-    """
-
-    _frozen: "date | None" = None
-
-    @classmethod
-    def today(cls):  # type: ignore[override]
-        return cls._frozen
-
-
 @pytest.fixture
-def freeze_today(monkeypatch):
-    """Friert "heute" in JEDEM Modul ein, das die Wanduhr selbst liest.
+def freeze_today():
+    """Bindet den Bewertungsstichtag fuer ALLE Resolver an einer Stelle.
 
-    NACHGEZOGEN am 2026-10-11 (ADR-2): ``goal_liabilities`` kam dazu. Seit
-    die Bucket-Auflösung dort ``date.today()`` aufruft (Kalenderjahr-Achse
-    statt Jahrestag ueber ``calendar_horizon``), rechnete der Optimizer-Wert
-    gegen das ECHTE Heute weiter, waehrend die anderen drei Resolver
-    eingefroren waren -- die Matrix verglich damit zwei verschiedene
-    Stichtage.
-
-    Dass jedes neue Modul hier nachgetragen werden muss, ist selbst ein
-    Argument fuer ADR-1b: solange der Stichtag nicht als Parameter
-    durchgereicht wird, muss jeder Test die Uhr an jeder Leseselle pinnen.
+    UMGESTELLT am 2026-10-25 (ADR-1b, services/valuation_clock.py): vorher
+    musste dieser Fixture die Wanduhr in jedem Modul einzeln pinnen
+    (Router, Payload, calendar_horizon, goal_liabilities) -- und jedes neue
+    Modul nachgetragen werden, sonst verglich die Matrix zwei verschiedene
+    Stichtage. Seit alle Engine-Lesestellen den gebundenen Stichtag lesen,
+    genuegt EINE Bindung; ein Modul, das die Wanduhr am Takt vorbei liest,
+    faellt hier als Abweichung auf statt still mitzulaufen.
     """
-    import services.optimizer.goal_liabilities as goal_liabilities
+    from contextlib import ExitStack
+
+    from services.valuation_clock import bound_valuation_date
+
+    stack = ExitStack()
 
     def _freeze(as_of: date):
-        frozen = type("_Frozen", (_FrozenDate,), {"_frozen": as_of})
-        monkeypatch.setattr(wealth_router, "date", frozen)
-        monkeypatch.setattr(portfolio_engine_payload, "date", frozen)
-        monkeypatch.setattr(calendar_horizon, "date", frozen)
-        monkeypatch.setattr(goal_liabilities, "date", frozen)
+        stack.enter_context(bound_valuation_date(as_of))
 
-    return _freeze
+    yield _freeze
+    stack.close()
 
 
 def _make_goal(target_date: date, *, start_date: date | None = None, goal_type: str = "Vermoegensziel"):
@@ -116,8 +98,8 @@ def _make_goal(target_date: date, *, start_date: date | None = None, goal_type: 
 def _resolve_all(as_of: date, target: date) -> dict[str, int]:
     """Run the resolvers for the same (as_of, target) pair and return their results.
 
-    Assumes `date.today()` inside the router/reporting/calendar_horizon modules has
-    already been frozen to `as_of` via the `freeze_today` fixture.
+    Assumes the valuation date has been bound to `as_of` via the
+    `freeze_today` fixture.
     """
 
     goal = _make_goal(target)

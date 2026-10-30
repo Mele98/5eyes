@@ -54,9 +54,9 @@ from sqlalchemy.orm import Session
 from config import settings
 from models.allocation import CapitalMarketAssumption
 from services.cma_validation import (
+    CMAValidationError,
     correlation_factor,
     inflation_path_series,
-    parse_correlation_matrix_json,
     parse_inflation_path_json,
     parse_sub_asset_class_assumptions_json,
     validate_correlation_matrix,
@@ -204,7 +204,8 @@ def _build_cholesky_from_cma(
 ) -> list[list[float]]:
     """Return a correlation factor for the five asset classes.
 
-    An absent payload uses the canonical Swiss-market default.  A present
+    An absent payload uses the named CH default policy (CMA-CORR-001) and is
+    refused for every other jurisdiction.  A present
     invalid payload is a CMA domain error and is never replaced by Swiss
     defaults or identity.  Valid singular (PSD) matrices retain their
     intended dependence through an eigen-factor.
@@ -215,11 +216,11 @@ def _build_cholesky_from_cma(
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _DEFAULT_CORRELATION_MATRIX
 
-    matrix = parse_correlation_matrix_json(
-        getattr(cma, "correlation_matrix_json", None),
-        default_matrix=_DEFAULT_CORRELATION_MATRIX,
+    from services.cma_correlation_provenance import resolve_bucket_correlation_matrix
+
+    matrix = resolve_bucket_correlation_matrix(
+        cma, default_matrix=_DEFAULT_CORRELATION_MATRIX,
     )
-    assert matrix is not None  # default_matrix guarantees a matrix
 
     if crisis_strength > 0:
         matrix = validate_correlation_matrix(
@@ -395,9 +396,21 @@ def _apply_cma_market_adjustments(
     return adjusted
 
 
-def _cma_value_or_default(value, default: int) -> int:
-    """Preserve an explicit 0 bps CMA; only NULL means 'use fallback'."""
-    return int(default if value is None else value)
+def _required_cma_value(cma: CapitalMarketAssumption, field_name: str) -> int:
+    """Pflichtfeld einer bereits validierten CMA (explizite 0 bleibt 0).
+
+    CMA-001: hier standen frueher feste Ersatzwerte (u. a. 500 bps Aktien).
+    ``validate_runtime_cma_completeness()`` laeuft vorher und verlangt jedes
+    dieser Felder, die Ersatzwerte waren also toter, aber irrefuehrender Code,
+    den ein Refactoring still reaktivieren konnte. Fehlt ein Feld doch, ist
+    das ein Domaenenfehler -- nie ein Fallback.
+    """
+    value = getattr(cma, field_name, None)
+    if value is None:
+        raise CMAValidationError(
+            f"CMA-Pflichtfeld {field_name} fehlt; es gibt keinen Ersatzwert."
+        )
+    return int(value)
 
 
 def _asset_class_expected_metrics(
@@ -428,71 +441,57 @@ def _asset_class_expected_metrics(
     ist nach WP1 die Quelle der Wahrheit fuer "zu welcher Jurisdiktion gehoert
     diese CMA-Zeile". alternatives_*/liquidity_* bleiben jurisdiktionsunabhaengige,
     generische Marktannahmen (kein Home-*-Gegenstueck im Schema) -- unveraendert.
-    Fehlende equity_home_*/bonds_home_ig_*/real_estate_home_*-Werte (z.B. eine
-    "provisional"-CMA-Zeile ohne PE-Proxy) fallen auf dieselben generischen
-    Sentinel-Defaults zurueck wie der CH-Zweig (500/180/350/1200/350/700 bps) --
-    das sind KEINE fuer eine neue Jurisdiktion erfundenen Zahlen, sondern die
-    bereits bestehenden, jurisdiktionsunabhaengigen Engine-Sicherheitsnetz-Werte.
+    Fehlende Werte sind fail-closed (``validate_runtime_cma_completeness`` und
+    ``_required_cma_value``); CMA-001 hat die frueheren festen Ersatzwerte
+    entfernt.
     """
     validate_runtime_cma_completeness(cma)
     if getattr(cma, "jurisdiction", None) in (None, "CH"):
         returns = {
             "equities": int(round((
-                _cma_value_or_default(cma.equity_ch_return_bps, 500)
-                + _cma_value_or_default(cma.equity_intl_return_bps, 650)
+                _required_cma_value(cma, "equity_ch_return_bps")
+                + _required_cma_value(cma, "equity_intl_return_bps")
             ) / 2)),
             "bonds": int(round((
-                _cma_value_or_default(cma.bonds_chf_ig_return_bps, 180)
-                + _cma_value_or_default(cma.bonds_fx_hedged_return_bps, 220)
+                _required_cma_value(cma, "bonds_chf_ig_return_bps")
+                + _required_cma_value(cma, "bonds_fx_hedged_return_bps")
             ) / 2)),
-            "real_estate": _cma_value_or_default(
-                cma.real_estate_ch_return_bps,
-                350,
-            ),
-            "alternatives": _cma_value_or_default(
-                cma.alternatives_gold_return_bps,
-                120,
-            ),
-            "liquidity": _cma_value_or_default(cma.liquidity_return_bps, 80),
+            "real_estate": _required_cma_value(cma, "real_estate_ch_return_bps"),
+            "alternatives": _required_cma_value(cma, "alternatives_gold_return_bps"),
+            "liquidity": _required_cma_value(cma, "liquidity_return_bps"),
         }
         if apply_market_adjustments:
             returns = _apply_cma_market_adjustments(returns, cma)
         vols = {
             "equities": int(round((
-                _cma_value_or_default(cma.equity_ch_vol_bps, 1200)
-                + _cma_value_or_default(cma.equity_intl_vol_bps, 1450)
+                _required_cma_value(cma, "equity_ch_vol_bps")
+                + _required_cma_value(cma, "equity_intl_vol_bps")
             ) / 2)),
             "bonds": int(round((
-                _cma_value_or_default(cma.bonds_chf_ig_vol_bps, 350)
-                + _cma_value_or_default(cma.bonds_fx_hedged_vol_bps, 450)
+                _required_cma_value(cma, "bonds_chf_ig_vol_bps")
+                + _required_cma_value(cma, "bonds_fx_hedged_vol_bps")
             ) / 2)),
-            "real_estate": _cma_value_or_default(cma.real_estate_ch_vol_bps, 700),
-            "alternatives": _cma_value_or_default(
-                cma.alternatives_gold_vol_bps,
-                950,
-            ),
-            "liquidity": _cma_value_or_default(cma.liquidity_vol_bps, 20),
+            "real_estate": _required_cma_value(cma, "real_estate_ch_vol_bps"),
+            "alternatives": _required_cma_value(cma, "alternatives_gold_vol_bps"),
+            "liquidity": _required_cma_value(cma, "liquidity_vol_bps"),
         }
         return returns, vols
 
     returns = {
-        "equities": int(cma.equity_home_return_bps if cma.equity_home_return_bps is not None else 500),
-        "bonds": int(cma.bonds_home_ig_return_bps if cma.bonds_home_ig_return_bps is not None else 180),
-        "real_estate": int(cma.real_estate_home_return_bps if cma.real_estate_home_return_bps is not None else 350),
-        "alternatives": _cma_value_or_default(
-            cma.alternatives_gold_return_bps,
-            120,
-        ),
-        "liquidity": _cma_value_or_default(cma.liquidity_return_bps, 80),
+        "equities": _required_cma_value(cma, "equity_home_return_bps"),
+        "bonds": _required_cma_value(cma, "bonds_home_ig_return_bps"),
+        "real_estate": _required_cma_value(cma, "real_estate_home_return_bps"),
+        "alternatives": _required_cma_value(cma, "alternatives_gold_return_bps"),
+        "liquidity": _required_cma_value(cma, "liquidity_return_bps"),
     }
     if apply_market_adjustments:
         returns = _apply_cma_market_adjustments(returns, cma)
     vols = {
-        "equities": int(cma.equity_home_vol_bps if cma.equity_home_vol_bps is not None else 1200),
-        "bonds": int(cma.bonds_home_ig_vol_bps if cma.bonds_home_ig_vol_bps is not None else 350),
-        "real_estate": int(cma.real_estate_home_vol_bps if cma.real_estate_home_vol_bps is not None else 700),
-        "alternatives": _cma_value_or_default(cma.alternatives_gold_vol_bps, 950),
-        "liquidity": _cma_value_or_default(cma.liquidity_vol_bps, 20),
+        "equities": _required_cma_value(cma, "equity_home_vol_bps"),
+        "bonds": _required_cma_value(cma, "bonds_home_ig_vol_bps"),
+        "real_estate": _required_cma_value(cma, "real_estate_home_vol_bps"),
+        "alternatives": _required_cma_value(cma, "alternatives_gold_vol_bps"),
+        "liquidity": _required_cma_value(cma, "liquidity_vol_bps"),
     }
     return returns, vols
 
@@ -760,10 +759,7 @@ def _expected_metrics(
     # relabelled as 0%, including after TER drag.
     net_return_bps = gross_return_bps - weighted_ter_bps
     # Sprint U-P2 Fix L2: Sharpe-Ratio = (Netto-Return − Risk-Free) / Vola
-    risk_free_bps = _cma_value_or_default(
-        getattr(cma, "liquidity_return_bps", None),
-        80,
-    )
+    risk_free_bps = _required_cma_value(cma, "liquidity_return_bps")
     sharpe_x100 = 0
     if vol_bps > 0:
         sharpe_x100 = int(round(((net_return_bps - risk_free_bps) / vol_bps) * 100))

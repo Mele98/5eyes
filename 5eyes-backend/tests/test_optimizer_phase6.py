@@ -409,9 +409,18 @@ def test_sensitivity_pension_shifts_both_dates_without_mutating_goal(
     assert out["solver_horizon_years_baseline"] == calls[0]["horizon_years"]
     assert out["solver_horizon_years_new"] == calls[1]["horizon_years"]
     assert calls[1]["horizon_years"] == calls[0]["horizon_years"] + 2
-    assert calls[0]["cashflow_series_rappen"] == calls[1][
-        "cashflow_series_rappen"
-    ][: calls[0]["horizon_years"]]
+    # Die Cashflow-INPUTS sind dieselben; verschieden ist nur die Reserve-
+    # Rueckbuchung, die jedes Goal-Set aus seinem eigenen Ledger erhaelt
+    # (RESERVE-FUNDING-LEDGER-001, wie in den Schwestertests unten). Seit
+    # GOAL-CALENDAR-HORIZON-PARITY-001 ankert die Reserve die Pension auf den
+    # BEGINN (+5 J.) statt das Ende (+30 J.); sie ist damit reservewirksam und
+    # ihre Rueckbuchung wandert mit dem verschobenen Beginn.
+    assert _without_reserve_release(
+        calls[0], out["baseline_reserve_funding_ledger"]
+    ) == _without_reserve_release(
+        calls[1], out["modified_reserve_funding_ledger"]
+    )[: calls[0]["horizon_years"]]
+    assert any(out["baseline_reserve_funding_ledger"]["release_series_rappen"])
     assert len(calls[1]["cashflow_series_rappen"]) == calls[1]["horizon_years"]
 
 

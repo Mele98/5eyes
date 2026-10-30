@@ -39,7 +39,6 @@ from services.cma_validation import (
     CMAValidationError,
     NELSON_SIEGEL_DEFAULT_MATURITY_YEARS,
     correlation_factor,
-    parse_correlation_matrix_json,
     validate_equity_kgv_parameters,
     validate_nelson_siegel_parameters,
 )
@@ -964,12 +963,17 @@ def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> 
 
     # Korrelations-Matrix
     try:
-        correlation = parse_correlation_matrix_json(
-            getattr(cma, "correlation_matrix_json", None),
+        # CMA-001 / CMA-CORR-001: Default nur ueber die benannte
+        # Jurisdiktions-Policy, nie durch blosse Abwesenheit des Payloads.
+        from services.cma_correlation_provenance import (
+            resolve_bucket_correlation_matrix,
+        )
+
+        correlation = resolve_bucket_correlation_matrix(
+            cma,
             default_matrix=build_default_correlation_matrix(),
             dimension=N_BUCKETS,
         )
-        assert correlation is not None
         cholesky = _safe_cholesky(np.asarray(correlation, dtype=np.float64))
     except CMAValidationError as exc:
         from .constraints import OptimizerInputError

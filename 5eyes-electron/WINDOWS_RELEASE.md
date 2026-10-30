@@ -18,11 +18,11 @@ Then verify with:
 npm run preflight:release
 ```
 
-## 3) Finalize publish URL for auto-update
-Edit `package.json` and replace:
-- `https://updates.example.invalid/5eyes/windows`
-
-with your real generic update feed URL.
+## 3) Auto-update stays disabled (UPDATE-001)
+Production builds ship without an update URL (`build.publish: null`).
+Do not set `UPDATES_ENABLED=true` until an owner-controlled HTTPS update
+address and code signing are in place and approved; otherwise the build
+aborts. Requirements: `docs/AUTO_UPDATE.md`.
 
 ## 4) Optional code signing
 Set these environment variables before building:
@@ -53,13 +53,9 @@ Portable build:
 npm run dist:win:portable
 ```
 
-## 7) Enable auto-update in packaged runtime
-The skeleton is wired but disabled by default.
-Enable only after the publish URL is real:
-
-```bash
-set ENABLE_AUTO_UPDATE=1
-```
+## 7) Auto-update in packaged runtime
+`ENABLE_AUTO_UPDATE=1` has no effect unless the build gate was opened at
+build time (see step 3). Until then, ship updates as a new installer.
 
 ## 8) Recommended final smoke test
 - launch the packaged app
