@@ -30,7 +30,13 @@ from models.users import User
 from services import privacy_erasure as pe
 from services import privacy_erasure_inventory as inv
 from services.audit import log
-from services.auth import get_current_user, require_admin, user_tenant_id
+from services.auth import (
+    extract_client_ip,
+    get_client_for_erasure_or_404,
+    get_current_user,
+    require_admin,
+    user_tenant_id,
+)
 
 router = APIRouter(prefix="/privacy", tags=["Datenschutz"])
 
@@ -82,20 +88,16 @@ def _own(record, user: User):
 
 
 def _client_in_scope(client_id: str, db: Session, user: User) -> None:
-    from routers.clients import _get_client_for_erasure_or_404
-
-    client = _get_client_for_erasure_or_404(client_id, db, user)
+    client = get_client_for_erasure_or_404(client_id, db, user)
     if client.tenant_id != _tenant(user):
         raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
 
 
 def _audit(db: Session, user: User, request: Request, *, table: str, record_id: str, action: str,
            new_value: dict[str, Any], client_id: str | None = None) -> None:
-    from routers.auth import _extract_client_ip
-
     log(db, user_id=user.id, user_name=user.full_name, table_name=table, record_id=record_id,
         action=action, client_id=client_id, new_value=json.dumps(new_value, sort_keys=True),
-        ip_address=_extract_client_ip(request))
+        ip_address=extract_client_ip(request))
 
 
 def _policy_out(policy: PrivacyRetentionPolicy) -> dict[str, Any]:

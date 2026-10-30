@@ -21,7 +21,6 @@ from pathlib import Path
 _default = str(Path.home() / "5eyes" / "5eyes-staging.db")
 _db_path = sys.argv[1] if len(sys.argv) > 1 else _default
 from core.db_location import refuse_live_db  # noqa: E402
-from core.demo_credentials import demo_password  # noqa: E402
 
 refuse_live_db(_db_path, context=Path(__file__).name)
 os.environ["DB_PATH"] = _db_path
@@ -35,6 +34,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from sqlalchemy.orm import configure_mappers  # noqa: E402
 from database import init_db, SessionLocal  # noqa: E402
+from config import demo_password  # noqa: E402  (erst nach DB_PATH)
 # Alle Modelle registrieren (Client<->WealthPosition-Relationships), sonst scheitert
 # die Mapper-Konfiguration.
 from models import (  # noqa: E402,F401
@@ -53,7 +53,7 @@ def _now() -> str:
 
 # Initial-Passwort fuer alle Demo-Accounts (beim 1. Login Wechsel + 2FA erzwungen).
 # Kein Passwort im Quellcode: aus DEMO_INITIAL_PASSWORD oder pro Lauf zufaellig
-# erzeugt und einmal ausgegeben (core/demo_credentials.py).
+# erzeugt und einmal ausgegeben (config.demo_password).
 INITIAL_PW_ENV = "DEMO_INITIAL_PASSWORD"
 
 TENANTS = [

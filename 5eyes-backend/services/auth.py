@@ -14,6 +14,7 @@ from database import get_db
 from models.clients import Client
 from models.mandates import Mandate
 from models.users import User
+import config as _config
 from config import settings
 from services.tenant_context import set_tenant_context
 
@@ -750,4 +751,63 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
         raise
     except Exception:
         pass
+    return client
+
+
+# Aus routers/auth.py bzw. routers/clients.py hierher verschoben (Architektur-
+# Ratsche: Router importieren keine Router); dort unter dem alten Namen
+# weiter importiert.
+def extract_client_ip(request: Request) -> str:
+    """AUTH-03 (Mega-Audit 2026-08-04): liefert die vertrauenswuerdige
+    Client-IP fuer Rate-Limit-Guard-Keys. Ohne konfigurierten Reverse-Proxy
+    (trusted_proxy_count=0, Default) wird X-Forwarded-For komplett ignoriert
+    -- der Header ist sonst clientseitig frei waehlbar und erlaubt jedem
+    Angreifer, sich pro Request einen frischen Guard-Key zu erschleichen
+    (voller Rate-Limit-Bypass). Bei trusted_proxy_count=N (Tier-2/3 hinter N
+    eigenen Reverse-Proxies) wird der N-te Hop von RECHTS genommen -- alles
+    rechts davon haben die eigenen, vertrauenswuerdigen Proxies angehaengt.
+    """
+    _settings = _config.settings
+    proxy_count = int(getattr(_settings, "trusted_proxy_count", 0) or 0)
+    if proxy_count > 0:
+        forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
+        if forwarded_for:
+            hops = [h.strip() for h in forwarded_for.split(",") if h.strip()]
+            if len(hops) >= proxy_count:
+                candidate = hops[-proxy_count]
+                if candidate:
+                    return candidate
+    if request.client and request.client.host:
+        return str(request.client.host)
+    return ""
+
+
+def get_client_for_erasure_or_404(client_id: str, db: Session, current_user: User) -> Client:
+    """Lookup fuer DSG-Art.-32-Erasure: bewusst OHNE deleted_at-Filter
+    (im Unterschied zu get_client_for_user_or_404) -- eine Loeschungs-
+    anfrage trifft haeufig gerade einen bereits (soft-)geloeschten
+    Kunden, dessen Personendaten trotzdem noch vollstaendig in der DB
+    liegen. Tenant-Scoping bleibt bestehen (kein globaler Admin darf
+    Kunden eines fremden Tenants anonymisieren).
+
+    Kontrollrunde 2026-09-24: _apply_tenant_filter_to_client_query() wurde
+    bisher OHNE is_global_access aufgerufen (impliziter Default False) --
+    diese Query hat aber, anders als get_client_for_user_or_404(), NIE
+    einen vorgelagerten advisor_id-Filter. Die Funktion interpretiert
+    is_global_access=False als "schon durch einen anderen Filter
+    eingeschraenkt" und gibt bei fehlender/leerer tenant_id (z.B. der
+    Bootstrap-Admin jeder frischen Installation, tenant_id=None) die Query
+    UNGEFILTERT zurueck -- der TEN-COMP-001-Fail-Closed-Pfad (Strict-Modus
+    + is_global_access=True -> false()) griff dadurch fuer die Erasure NIE.
+    Ein role='admin'-User ohne tenant_id konnte so im Strict-Modus (Tier-2)
+    Kunden EINES FREMDEN TENANTS unwiderruflich anonymisieren. Jetzt
+    identisch zu get_client_for_user_or_404() aufgeloest."""
+    query = db.query(Client).filter(Client.id == client_id)
+    is_global_access = has_global_client_access(current_user)
+    if not is_global_access:
+        query = query.filter(Client.advisor_id == current_user.id)
+    query = _apply_tenant_filter_to_client_query(query, current_user, is_global_access=is_global_access)
+    client = query.first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
     return client

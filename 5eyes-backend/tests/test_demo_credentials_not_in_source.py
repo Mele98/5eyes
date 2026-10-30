@@ -22,7 +22,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from core.demo_credentials import MIN_PASSWORD_LENGTH, demo_password  # noqa: E402
+from config import MIN_PASSWORD_LENGTH, demo_password  # noqa: E402
 
 
 def test_env_value_is_used(monkeypatch):
