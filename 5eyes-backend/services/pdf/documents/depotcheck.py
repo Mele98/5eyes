@@ -1,9 +1,12 @@
 """Target-only depot analysis for the client consultation."""
 from __future__ import annotations
 
+from datetime import date
+
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer
 
+from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
 from services.pdf.base import DepotCheckData, PDFContext
 from services.pdf.components.backtest_metrics import make_backtest_metrics_table
 from services.pdf.components.depotcheck_soll import (
@@ -37,7 +40,8 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     flowables.extend(make_single_report_cover(
         ctx,
         title="Depot-Check",
-        subtitle="Analyse des empfohlenen Zielportfolios",
+        subtitle="Analyse des empfohlenen Zielportfolios"
+        + (f" - {WITHOUT_HOLDINGS_LABEL}" if data.without_holdings else ""),
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
         focus_points=[
@@ -132,6 +136,11 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     flowables.append(Spacer(1, 6 * mm))
     flowables.append(_section_title("Historische Stress-Szenarien"))
     if data.stress_scenarios:
+        flowables.append(_fallback(
+            f"{STRESS_REPLAY_SCOPE_LABEL}: historische Jahresrenditen je "
+            "Anlageklasse, gewichtet mit der empfohlenen Zielquote. "
+            "Bestehende Positionen fliessen nicht ein."
+        ))
         flowables.append(make_stress_table(data.stress_scenarios))
     else:
         flowables.append(_fallback("Noch keine belastbaren Stress-Szenarien verfuegbar."))
@@ -239,7 +248,42 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         'Kosteninformationen und Vertragsunterlagen.</font>'.format(FONT_DEFAULT),
         make_paragraph_styles()["small"],
     ))
+    if data.without_holdings:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
+            f'Datenstand: {WITHOUT_HOLDINGS_LABEL}. Reine SOLL-Zielportfolioanalyse '
+            'ohne Depot-Snapshot.</font>',
+            make_paragraph_styles()["small"],
+        ))
+    if data.inputs_note:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
+            f'{_esc(data.inputs_note)}</font>',
+            make_paragraph_styles()["small"],
+        ))
+    if data.snapshot_id:
+        # DEPOT-E2E-SNAPSHOT-001: derselbe gespeicherte Depot-Check wie im JSON.
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="8.5" color="#475569">'
+            f'{_esc(_snapshot_identity_line(data))}</font>',
+            make_paragraph_styles()["small"],
+        ))
     return flowables
+
+
+WITHOUT_HOLDINGS_LABEL = "ohne IST-Bestand (kein Depot erfasst)"
+
+
+def _snapshot_identity_line(data: DepotCheckData) -> str:
+    try:
+        stichtag = date.fromisoformat(str(data.as_of)).strftime("%d.%m.%Y")
+    except ValueError:
+        stichtag = str(data.as_of or "-")
+    return (
+        f"Datenstand: Depot-Snapshot {data.snapshot_id} "
+        f"(Hash {str(data.snapshot_hash or '')[:12]}), Stichtag {stichtag}; "
+        f"Depot-Check {data.analysis_snapshot_id or '-'}."
+    )
 
 
 def _start_page(

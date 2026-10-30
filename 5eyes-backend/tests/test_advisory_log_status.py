@@ -665,13 +665,20 @@ def test_advisory_log_update_rejects_client_signed_without_timestamp(session_fac
     assert response.status_code == 422
 
 
-def _create_signed_client_document(auth_client: TestClient, mandate_id: str) -> str:
+def _create_signed_client_document(auth_client: TestClient, mandate_id: str, session_factory) -> str:
     create_response = auth_client.post(
         f"/mandates/{mandate_id}/documents",
         json={"document_type": "Sonstiges", "title": "Beratungsvertrag"},
     )
     assert create_response.status_code == 201
     doc_id = create_response.json()["id"]
+    # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
+    from signable_document_fixture import attach_archived_pdf
+
+    with session_factory() as s:
+        attach_archived_pdf(s, s.query(ContractDocument).filter(ContractDocument.id == doc_id).one())
+    # SIGN-IDENTITY-001: der Berater-Login kann keine Kundensignatur mehr
+    # erfassen (403) -- der Fixture bildet eine Altbestand-Kundensignatur ab.
     sign_response = auth_client.post(
         f"/mandates/{mandate_id}/documents/{doc_id}/sign",
         json={
@@ -680,13 +687,21 @@ def _create_signed_client_document(auth_client: TestClient, mandate_id: str) -> 
             "signer_name": "Max Muster",
         },
     )
-    assert sign_response.status_code == 200
+    assert sign_response.status_code == 403
+    with session_factory() as s:
+        doc = s.query(ContractDocument).filter(ContractDocument.id == doc_id).one()
+        doc.signed_by_client = 1
+        doc.signature_client_signer_name = "Max Muster"
+        doc.signature_client_signed_at = "2026-04-19T09:15:00.000Z"
+        doc.signed_at = doc.signature_client_signed_at
+        doc.status = "Teilweise unterzeichnet"
+        s.commit()
     return doc_id
 
 
 def test_advisory_log_create_with_signed_document_derives_real_timestamp(session_factory, auth_client, advisor_user):
     mandate_id, _ = _seed_review_context(session_factory, advisor_user)
-    doc_id = _create_signed_client_document(auth_client, mandate_id)
+    doc_id = _create_signed_client_document(auth_client, mandate_id, session_factory)
     with session_factory() as s:
         doc = s.query(ContractDocument).filter(ContractDocument.id == doc_id).one()
         real_signed_at = doc.signature_client_signed_at

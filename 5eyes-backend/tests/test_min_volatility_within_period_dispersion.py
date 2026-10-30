@@ -274,4 +274,4 @@ def test_objective_basis_names_the_estimator_for_min_volatility_only() -> None:
 def test_engine_version_is_v16() -> None:
     from services.optimizer.solver import OPTIMIZER_ENGINE_VERSION
 
-    assert OPTIMIZER_ENGINE_VERSION == "saa_resampled_v16"
+    assert OPTIMIZER_ENGINE_VERSION == "saa_resampled_v18"

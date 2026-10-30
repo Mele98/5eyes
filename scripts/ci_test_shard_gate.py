@@ -13,6 +13,12 @@ lose a test. This script is the mandatory control step of the aggregate job:
    JUnit XML of all shards (reruns count once; module-level collection skips
    are not test items and are ignored).
 3. No test case may be reported as failure or error.
+4. With ``--expected-runs``: every expected run (``shard-1`` ... ``wallclock``)
+   delivered its selection file AND its JUnit file. A missing one means the
+   run's artifact never arrived (e.g. upload aborted with ECONNRESET). That is
+   reported first, as an infrastructure error with its own exit code, so the
+   resulting "not selected"/"not run" findings read as consequences, not as
+   test results. The gate stays red either way.
 
 As by-products it writes a merged JUnit file and a pytest-split durations
 file (``.test_durations`` format) built from the measured JUnit times, which
@@ -36,6 +42,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 COLLECTION_SKIP_MESSAGE = "collection skipped"
+EXIT_TEST_PROBLEMS = 1
+# Ein erwartetes Teilergebnis fehlt (Artefakt nicht angekommen). Rot wie 1,
+# aber unterscheidbar: Abhilfe ist ein Re-Run, kein Testfix.
+EXIT_INFRASTRUCTURE = 3
 
 
 def parse_collect_output(text: str) -> list[str]:
@@ -125,6 +135,19 @@ def check(collected: list[str], selections: dict[str, list[str]], junit: JunitRe
     return problems
 
 
+def missing_run_results(
+    expected_runs: list[str], selection_names: set[str], junit_names: set[str]
+) -> list[str]:
+    """One line per expected run whose selection and/or JUnit file is absent."""
+    lines = []
+    for run in expected_runs:
+        absent = [label for label, names in (("Selektion", selection_names), ("JUnit", junit_names))
+                  if run not in names]
+        if absent:
+            lines.append(f"{run}: {' und '.join(absent)} fehlt")
+    return lines
+
+
 def durations_by_node_id(collected: list[str], junit: JunitResult) -> dict[str, float]:
     out = {}
     for node_id in collected:
@@ -159,7 +182,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--merged-junit-out", type=Path)
     parser.add_argument("--durations-out", type=Path)
     parser.add_argument("--file-summary", type=int, default=0, help="print the N slowest test files")
+    parser.add_argument(
+        "--expected-runs", default="",
+        help="comma-separated run names (file stems) that must each deliver selection + JUnit",
+    )
     args = parser.parse_args(argv)
+
+    if not args.collected.is_file():
+        # Referenz-Collection (Artefakt test-plan) nicht angekommen.
+        print(
+            f"::error title=Infrastruktur-Fehler (Teilergebnis fehlt)::Referenz-Collection "
+            f"{args.collected} fehlt (Artefakt des Plan-Jobs nicht angekommen). "
+            "Abhilfe: fehlgeschlagene Jobs neu starten (gh run rerun <run-id> --failed)."
+        )
+        return EXIT_INFRASTRUCTURE
 
     collected = parse_collect_output(args.collected.read_text(encoding="utf-8"))
     selection_files = sorted(args.selection_dir.rglob("*.txt"))
@@ -187,15 +223,35 @@ def main(argv: list[str] | None = None) -> int:
     if args.file_summary:
         print_file_summary(durations_by_node_id(collected, junit), args.file_summary)
 
+    expected_runs = [name.strip() for name in args.expected_runs.split(",") if name.strip()]
+    missing_runs = missing_run_results(
+        expected_runs, set(selections), {path.stem for path in junit_files}
+    )
+    if missing_runs:
+        summary = "; ".join(missing_runs)
+        print(
+            f"::error title=Infrastruktur-Fehler (Teilergebnis fehlt)::{summary}. "
+            "Das Artefakt des Teiljobs ist nicht angekommen (z. B. Upload-Abbruch). "
+            "Befunde 'In keinem Shard selektiert'/'Nicht ausgefuehrt' dieser Tests sind "
+            "Folgefehler. Abhilfe: fehlgeschlagene Jobs neu starten (gh run rerun <run-id> --failed)."
+        )
+        print(f"INFRASTRUKTUR-FEHLER: {len(missing_runs)} erwartete(s) Teilergebnis(se) fehlt/fehlen:")
+        for line in missing_runs:
+            print(f"  - {line}")
+
     if not collected:
         print("FEHLER: Gesamt-Collection ist leer.")
-        return 1
+        return EXIT_INFRASTRUCTURE if missing_runs else EXIT_TEST_PROBLEMS
     problems = check(collected, selections, junit)
     if problems:
         print(f"FEHLER: {len(problems)} Verletzung(en) der Vollstaendigkeit:")
         for line in problems:
             print(f"  - {line}")
-        return 1
+    if missing_runs:
+        print("Ergebnis: rot wegen fehlender Teilergebnisse (Infrastruktur), siehe oben.")
+        return EXIT_INFRASTRUCTURE
+    if problems:
+        return EXIT_TEST_PROBLEMS
     print(f"OK: alle {len(collected)} Tests genau einmal selektiert und ausgefuehrt.")
     return 0
 

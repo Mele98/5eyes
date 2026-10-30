@@ -24,6 +24,18 @@ und der Objective-Vertrag des Laufs, mit SHA-256 ueber alles. Generate und
 Reload liefern ihn ueber dieselbe Funktion; beim Reload werden Hash, Schema,
 Rangfolge und die Bindung an den Vertrag der Modellbasis geprueft.
 
+Schema v2 (2026-10-28, Rest von OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001):
+Der Zielfunktionswert des Laufs war nur als ``*_milli``-Integer persistiert
+(``_objective_to_milli``, ``int(round(value * 1000))``): 0.0006 und 0.0014
+landen beide auf 1, 0.0001 und 0.0002 auf 0. Der v2-Snapshot traegt den Wert
+zusaetzlich verlustfrei (``solver_objective_value``: kuerzester
+round-trip-Dezimalstring + binary64-Hex, kanonisch und gegengeprueft; nicht
+endlich -> ``null``, nie 0). Der Replay vergleicht exakt und bindet die
+Legacy-Spalten (``target_allocations.optimization_objective_value_milli``,
+``optimizer_runs.objective_value_milli``) an den verlustfreien Wert. Die
+milli-Skala selbst bleibt unveraendert (bestehende Konsumenten). v1-Snapshots
+verifizieren weiter, ohne verlustfreien Wert (``solver_objective_value: null``).
+
 Zustaende: ``verified``; ``unverifiable`` (Bestand: Driver nur im alten
 Shadow-Container, ungebunden); ``unavailable`` (Solver lief laut Basis, aber
 kein Snapshot); ``not_applicable`` (kein Solver-Lauf); ``corrupt``
@@ -35,6 +47,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 
 from services.optimizer.objective_contract import (
     CONTRACT_EVIDENCE_CORRUPT,
@@ -123,14 +136,53 @@ def objective_contract_replay(model_basis: dict | None, optimizer_run=None) -> d
     return result
 
 
-GOAL_DRIVER_EVIDENCE_VERSION = "optimizer-goal-driver-evidence-v1"
+GOAL_DRIVER_EVIDENCE_VERSION_V1 = "optimizer-goal-driver-evidence-v1"
+GOAL_DRIVER_EVIDENCE_VERSION = "optimizer-goal-driver-evidence-v2"
 GOAL_DRIVER_RANKING_SEMANTICS = "raw_weighted_loss_desc_v1"
 EVIDENCE_UNAVAILABLE = "unavailable"
 _SOLVER_MODES = ("shadow_stochastic", "stochastic")
-_ENVELOPE_KEYS = frozenset({
+_ENVELOPE_KEYS_V1 = frozenset({
     "schema_version", "optimizer_mode", "ranking_semantics",
     "objective_contract_version", "objective_contract_hash", "drivers",
 })
+_ENVELOPE_KEYS = {
+    GOAL_DRIVER_EVIDENCE_VERSION_V1: _ENVELOPE_KEYS_V1,
+    GOAL_DRIVER_EVIDENCE_VERSION: _ENVELOPE_KEYS_V1 | {"solver_objective_value"},
+}
+
+
+def lossless_objective_value(value) -> dict | None:
+    """Verlustfreier Zielfunktionswert oder None (fehlt / nicht endlich)."""
+    from services.portfolio_engine_optimizer_integration import _lossless_objective_evidence
+
+    decimal_text, hex_text = _lossless_objective_evidence(value)
+    if decimal_text is None:
+        return None
+    return {"decimal": decimal_text, "binary64_hex": hex_text}
+
+
+def _checked_objective_value(block) -> dict | None:
+    """Kanonisches, gegengeprueftes Decimal/Hex-Paar (sonst ValueError)."""
+    if block is None:
+        return None
+    if not isinstance(block, dict) or set(block) != {"decimal", "binary64_hex"}:
+        raise ValueError("Zielfunktionswert hat eine unbekannte Form")
+    decimal_text, hex_text = block["decimal"], block["binary64_hex"]
+    if not isinstance(decimal_text, str) or not isinstance(hex_text, str):
+        raise ValueError("Zielfunktionswert ist kein Decimal/Hex-Paar")
+    try:
+        value = float(decimal_text)
+        hex_value = float.fromhex(hex_text)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Zielfunktionswert nicht lesbar") from exc
+    if (
+        not math.isfinite(value)
+        or hex_value != value
+        or repr(value) != decimal_text
+        or value.hex() != hex_text
+    ):
+        raise ValueError("Zielfunktionswert: Decimal und Hex nicht bitgleich/kanonisch")
+    return {"decimal": decimal_text, "binary64_hex": hex_text}
 
 
 def _canonical_json(payload) -> str:
@@ -184,6 +236,9 @@ def build_goal_driver_evidence_json(
         "objective_contract_version": optimization.get("objective_contract_version"),
         "objective_contract_hash": optimization.get("objective_contract_hash"),
         "drivers": canonical,
+        "solver_objective_value": lossless_objective_value(
+            getattr(optimizer_result, "objective_value", None)
+        ),
     }
     envelope["evidence_hash"] = hashlib.sha256(
         _canonical_json(envelope).encode("utf-8")
@@ -202,6 +257,7 @@ def _driver_state(status: str, *, drivers=None, reason=None, envelope=None, sour
             "evidence_hash": envelope.get("evidence_hash"),
             "objective_contract_hash": envelope.get("objective_contract_hash"),
             "ranking_semantics": envelope.get("ranking_semantics"),
+            "solver_objective_value": envelope.get("solver_objective_value"),
             "driver_count": len(drivers),
             "source": source,
             "reason": reason,
@@ -213,10 +269,11 @@ def _verified_envelope(evidence_json: str, optimization: dict) -> tuple[dict, li
     envelope = json.loads(evidence_json)
     if not isinstance(envelope, dict):
         raise ValueError("Snapshot ist kein Objekt")
-    if envelope.get("schema_version") != GOAL_DRIVER_EVIDENCE_VERSION:
+    expected_keys = _ENVELOPE_KEYS.get(envelope.get("schema_version"))
+    if expected_keys is None:
         raise ValueError("unbekannte Snapshot-Version")
     body = {key: value for key, value in envelope.items() if key != "evidence_hash"}
-    if set(body) != _ENVELOPE_KEYS:
+    if set(body) != expected_keys:
         raise ValueError("Feldsatz des Snapshots")
     recomputed = hashlib.sha256(_canonical_json(body).encode("utf-8")).hexdigest()
     if recomputed != envelope.get("evidence_hash"):
@@ -226,6 +283,7 @@ def _verified_envelope(evidence_json: str, optimization: dict) -> tuple[dict, li
     drivers = _validated_drivers(envelope["drivers"])
     if drivers != envelope["drivers"]:
         raise ValueError("Driver nicht kanonisch")
+    _checked_objective_value(envelope.get("solver_objective_value"))
     _check_ranking(drivers)
     if (
         envelope["objective_contract_hash"] != optimization.get("objective_contract_hash")
@@ -283,6 +341,35 @@ def replay_goal_drivers(
     return _driver_state(EVIDENCE_NOT_APPLICABLE, reason="kein Solver-Lauf")
 
 
+def _bind_legacy_objective_milli(replay: dict, allocation, run) -> dict:
+    """Legacy-milli-Spalten muessen exakt aus dem verlustfreien Wert folgen.
+
+    Nur fuer verifizierte v2-Snapshots mit Wert. Eine gesetzte milli-Spalte
+    (Allokation bzw. verknuepfter Lauf), die nicht
+    ``_objective_to_milli(<verlustfreier Wert>)`` ist, macht den Nachweis
+    ``corrupt``. Leere Spalten (Shadow-Modus, kein verknuepfter Lauf) sind
+    keine Aussage und werden nicht geprueft.
+    """
+    from services.portfolio_engine_optimizer_integration import _objective_to_milli
+
+    evidence = replay["evidence"]
+    block = evidence.get("solver_objective_value")
+    if evidence.get("status") != CONTRACT_EVIDENCE_VERIFIED or block is None:
+        return replay
+    expected = _objective_to_milli(float(block["decimal"]))
+    for source, holder, column in (
+        ("target_allocations", allocation, "optimization_objective_value_milli"),
+        ("optimizer_runs", run, "objective_value_milli"),
+    ):
+        stored = getattr(holder, column, None) if holder is not None else None
+        if stored is not None and int(stored) != expected:
+            return _driver_state(
+                CONTRACT_EVIDENCE_CORRUPT, source="goal_driver_evidence_json",
+                reason=f"{source}.{column} widerspricht dem verlustfreien Zielfunktionswert",
+            )
+    return replay
+
+
 def allocation_evidence_payload(db, allocation, model_basis: dict | None, *, legacy_shadow_json=None) -> dict:
     """Ein Block fuer Generate und Reload: Vertrag + Driver aus der Persistenz."""
     from models.allocation import OptimizerRun
@@ -296,6 +383,7 @@ def allocation_evidence_payload(db, allocation, model_basis: dict | None, *, leg
         legacy_shadow_json=legacy_shadow_json,
         model_basis=model_basis,
     )
+    replay = _bind_legacy_objective_milli(replay, allocation, run)
     return {
         "objective_contract_evidence": objective_contract_replay(model_basis, run),
         "optimizer_goal_drivers": replay["drivers"],
@@ -308,6 +396,8 @@ __all__ = [
     "EVIDENCE_NOT_APPLICABLE",
     "EVIDENCE_UNAVAILABLE",
     "GOAL_DRIVER_EVIDENCE_VERSION",
+    "GOAL_DRIVER_EVIDENCE_VERSION_V1",
+    "lossless_objective_value",
     "allocation_evidence_payload",
     "build_goal_driver_evidence_json",
     "replay_goal_drivers",

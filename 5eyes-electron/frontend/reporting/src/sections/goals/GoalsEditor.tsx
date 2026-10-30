@@ -5,13 +5,18 @@
  * rank sortiert), rendert sie als Tabelle und erlaubt Anlegen/Bearbeiten/
  * Löschen über den GoalWizard. Nach jeder Mutation wird neu geladen.
  *
+ * GOAL-ORDER-REACT-001: Reihenfolge (= Rang, kanonische Prioritaet) per
+ * Hoch/Runter-Buttons; gespeichert wird atomar ueber PUT .../goals/order
+ * mit der zuletzt gesehenen Folge. Bei 409 sichtbarer Rollback + Neuladen.
+ * Die Haerte ist ein getrenntes Feld und wird dabei nie veraendert.
+ *
  * Eigener Lade-State (idle/loading/ready/error) statt useAdvisoryReport —
  * dies ist ein Editor-Workflow, kein Report-Read-Model.
  */
 import { formatChfFromRappen } from '@/lib/format';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
-import { deleteGoal, fetchGoals } from '@/api/goals';
+import { deleteGoal, fetchGoals, reorderGoals } from '@/api/goals';
 import type { GoalRecord } from '@/api/types';
 import { GoalWizard } from './GoalWizard';
 
@@ -43,6 +48,7 @@ export function GoalsEditor({ mandateId }: GoalsEditorProps) {
   const [actionError, setActionError] = useState<string>('');
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editing, setEditing] = useState<GoalRecord | null>(null);
+  const [reordering, setReordering] = useState(false);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -76,6 +82,38 @@ export function GoalsEditor({ mandateId }: GoalsEditorProps) {
       await load();
     } catch (err) {
       setActionError(err instanceof ApiError ? err.detail : 'Löschen fehlgeschlagen.');
+    }
+  }
+
+  async function onMove(index: number, delta: -1 | 1) {
+    const target = index + delta;
+    if (reordering || target < 0 || target >= goals.length) return;
+    const previous = goals;
+    const next = [...goals];
+    [next[index], next[target]] = [next[target], next[index]];
+    setStatusMsg('');
+    setActionError('');
+    setReordering(true);
+    setGoals(next);
+    try {
+      const saved = await reorderGoals(
+        mandateId,
+        next.map((g) => g.id),
+        previous.map((g) => g.id),
+      );
+      setGoals(saved.length ? saved : next);
+      setStatusMsg('Reihenfolge gespeichert.');
+    } catch (err) {
+      setGoals(previous);
+      const detail = err instanceof ApiError ? err.detail : 'Reihenfolge konnte nicht gespeichert werden.';
+      if (err instanceof ApiError && err.status === 409) {
+        setActionError(`${detail} Die Reihenfolge wurde zurückgesetzt und neu geladen.`);
+        await load();
+      } else {
+        setActionError(`${detail} Die Reihenfolge wurde zurückgesetzt.`);
+      }
+    } finally {
+      setReordering(false);
     }
   }
 
@@ -136,19 +174,40 @@ export function GoalsEditor({ mandateId }: GoalsEditorProps) {
               <th scope="col" className="py-2">Typ</th>
               <th scope="col" className="py-2">Ziel</th>
               <th scope="col" className="py-2">Härte</th>
+              <th scope="col" className="py-2">Reihenfolge</th>
               <th scope="col" className="py-2">
                 <span className="sr-only">Aktionen</span>
               </th>
             </tr>
           </thead>
           <tbody>
-            {goals.map((goal) => (
+            {goals.map((goal, index) => (
               <tr key={goal.id} className="border-b border-rule/50">
                 <td className="py-2">{goal.rank}</td>
                 <td className="py-2">{goal.label}</td>
                 <td className="py-2">{goal.goal_type.replace(/_/g, ' ')}</td>
                 <td className="py-2">{goalTargetSummary(goal)}</td>
                 <td className="py-2">{goal.hardness}</td>
+                <td className="py-2">
+                  <button
+                    type="button"
+                    onClick={() => void onMove(index, -1)}
+                    disabled={reordering || index === 0}
+                    className="rounded border border-rule px-2 py-1 text-caption text-ink disabled:opacity-40"
+                    aria-label={`Ziel „${goal.label}" nach oben verschieben`}
+                  >
+                    <span aria-hidden="true">↑</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onMove(index, 1)}
+                    disabled={reordering || index === goals.length - 1}
+                    className="ml-1 rounded border border-rule px-2 py-1 text-caption text-ink disabled:opacity-40"
+                    aria-label={`Ziel „${goal.label}" nach unten verschieben`}
+                  >
+                    <span aria-hidden="true">↓</span>
+                  </button>
+                </td>
                 <td className="py-2 text-right">
                   <button
                     type="button"

@@ -10,12 +10,24 @@ identisches Verhalten wie vor dieser Aenderung).
 """
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
+
+import pytest
 
 from services.mortality.horizon import (
     expected_death_year_offset_from_mandate,
     mandate_reference_year,
 )
+from services.valuation_clock import bound_valuation_date
+
+
+@pytest.fixture(autouse=True)
+def _valuation_year_2026():
+    """Bezugsjahr ist das Bewertungsjahr des Laufs (GOAL-AXIS-VALUATION-YEAR-001);
+    die Audit-Beispiele unten sind fuer 2026 gerechnet."""
+    with bound_valuation_date(date(2026, 1, 1)):
+        yield
 
 
 def _mandate(**kwargs):

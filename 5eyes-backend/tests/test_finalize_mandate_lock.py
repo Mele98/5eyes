@@ -135,6 +135,23 @@ def _add_full_position(session_factory, run_id) -> None:
             currency="CHF", ter_bps=20, sfdr_class="6",
             is_active=1, created_at=now, updated_at=now,
         ))
+        s.flush()
+        # ELIG-FINAL-001: Finalize prueft die Produkteignung jeder Position
+        # (fail-closed). Ein Produkt ohne freigegebene Eignungsregel ist
+        # nicht finalisierbar -- der Fixture-Fonds braucht daher dieselbe
+        # governte Regel wie der Default-Katalog.
+        from services.product_eligibility import (
+            author_default_catalog_rule,
+            ensure_default_catalog_rule_set,
+        )
+
+        author_default_catalog_rule(
+            s, product=s.get(Product, pid),
+            rule_set=ensure_default_catalog_rule_set(s, jurisdiction="CH", now=now),
+            profile_from=1, profile_to=10,
+            service_modes=["investment_advice", "portfolio_management"],
+            max_position_bps=None, now=now,
+        )
         s.add(RecommendationPosition(
             id=new_uuid(), run_id=run_id, product_id=pid,
             target_weight_bps=10000, target_amount_rappen=500_000_00,

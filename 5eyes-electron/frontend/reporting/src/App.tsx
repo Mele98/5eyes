@@ -433,7 +433,11 @@ function renderSection(
   }
   if (sectionId === 'goals') {
     return (
-      <Goals data={data.goal_based_investing} projectionGate={data.projection_gate} />
+      <Goals
+        data={data.goal_based_investing}
+        projectionGate={data.projection_gate}
+        mandateId={mandateId}
+      />
     );
   }
   if (sectionId === 'risikoprofil') {
@@ -442,6 +446,7 @@ function renderSection(
         data={data.risikoprofilierung}
         capacityPlausibility={data.suitability_summary?.risk_capacity_plausibility ?? null}
         projectionGate={data.projection_gate}
+        mandateId={mandateId}
       />
     );
   }

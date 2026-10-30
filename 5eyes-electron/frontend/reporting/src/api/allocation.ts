@@ -6,15 +6,23 @@
  *   POST /mandates/{id}/target-allocation                    (193) → TargetAllocationResponse, 201
  *   POST /mandates/{id}/target-allocation/generate           (367) → TargetAllocationGenerateResponse
  *   POST /mandates/{id}/target-allocation/sensitivity        (394) → AllocationSensitivityResponse
+ *   GET  /mandates/{id}/target-allocation/current/analysis-integrity → AnalysisIntegrityReport
  *
  * Auth + Fehler-Typen aus ./client wiederverwendet. 422-Validation-Arrays
  * werden zu einem lesbaren String geflacht.
  */
-import { ApiError, apiErrorFromResponse, formatApiErrorDetail, resolveAuthToken } from './client';
+import {
+  ApiError,
+  apiErrorFromResponse,
+  formatApiErrorDetail,
+  resolveAuthToken,
+  SchemaError,
+} from './client';
 import type {
   AllocationGenerateResult,
   AllocationSensitivityRequestPayload,
   AllocationSensitivityResult,
+  AnalysisIntegrityReport,
   TargetAllocationCreatePayload,
   TargetAllocationRecord,
 } from './types';
@@ -115,4 +123,28 @@ export async function runSensitivity(
   });
   if (!response.ok) return raiseApiError(response);
   return (await response.json()) as AllocationSensitivityResult;
+}
+
+/**
+ * GOAL-ANALYSIS-INTEGRITY-UI-REACT-001: Integritaetsstatus der gespeicherten
+ * Zielanalyse und des Shadow-Containers. `null` = keine aktuelle
+ * Soll-Allokation (404).
+ */
+export async function fetchAnalysisIntegrity(
+  mandateId: string,
+  options: RequestOptions = {},
+): Promise<AnalysisIntegrityReport | null> {
+  const baseUrl = options.baseUrl ?? '';
+  const response = await request(`${base(mandateId, baseUrl)}/current/analysis-integrity`, {
+    method: 'GET',
+    headers: await authHeaders(),
+    signal: options.signal,
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) return raiseApiError(response);
+  const data = (await response.json()) as { needs_attention?: unknown } | null;
+  if (!data || typeof data !== 'object' || typeof data.needs_attention !== 'boolean') {
+    throw new SchemaError('needs_attention');
+  }
+  return data as AnalysisIntegrityReport;
 }

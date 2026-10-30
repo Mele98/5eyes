@@ -735,7 +735,6 @@ def cashflow_projection(
     #     eindeutiges Mandat/base_currency existiert.
     #   - Wealth-Inflows: ALLE aktiven WealthInflow-Records des Clients (mandate-
     #     spezifische UND client-weite), da client-scoped ueber alle Mandate aggregiert.
-    from models.allocation import CapitalMarketAssumption
     from services.portfolio_engine import (
         _inflation_path_series,
         _wealth_inflow_series_rappen,
@@ -798,10 +797,16 @@ def cashflow_projection(
         int(a) + int(b) for a, b in zip(_mort_interest_adj, _mort_amortization_adj)
     ]
 
-    cma = db.query(CapitalMarketAssumption).filter(
-        CapitalMarketAssumption.is_current == 1,
-        CapitalMarketAssumption.deleted_at.is_(None),
-    ).first()
+    # CMA-EFFECTIVE-DATE-001: derselbe Resolver (inkl. Gueltigkeitsfenster)
+    # wie die Engine statt "irgendeine is_current-Zeile". Fehlt eine wirksame
+    # CMA, bleibt es beim bisherigen Verhalten ohne Inflationspfad; eine
+    # mehrdeutige/unlesbare Referenz wird nicht still aufgeloest.
+    from services.jurisdiction.exceptions import JurisdictionReferenceDataConflictError
+    from services.jurisdiction.resolve import resolve_effective_cma_or_none
+    try:
+        cma = resolve_effective_cma_or_none(db, "CH")
+    except JurisdictionReferenceDataConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     # Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle fuer
     # die Cashflow-Projektions-Ansicht. indexation=True (Default) = heutiges
     # CF-Verhalten (is_inflation_linked-Cashflows werden per CMA-Inflationspfad

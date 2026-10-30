@@ -9,6 +9,14 @@
  *
  * Ziel: Der Berater bekommt die gleiche Feld-Isolation clientseitig gemeldet,
  * die das Backend hart erzwingt — Fehler werden vor dem POST sichtbar.
+ *
+ * GOAL-RECURRING-EDITOR-CONTRACT-001 (Frontend-Teil): wiederkehrende und
+ * Pensionsziele brauchen Betrag, Frequenz, Startdatum und genau eine
+ * Endsemantik (laufend ODER Enddatum) — wie services/goal_semantics.py und
+ * routers/wealth.py:_normalize_goal_payload. Kein stiller Default-Horizont.
+ * Fehler tragen das betroffene Feld (`GoalFieldError`), damit der Wizard sie
+ * am Feld anzeigen kann; 422-Antworten der API ordnet
+ * `goalFieldErrorsFromApi` ebenso feldgenau zu.
  */
 import { formatApiErrorDetail } from '@/api/client';
 import type {
@@ -74,6 +82,20 @@ function hasValue(value: unknown): boolean {
   return value !== null && value !== undefined && value !== '';
 }
 
+/**
+ * Obergrenze fuer Rappen-Betraege im Client. Das Backend deckelt bei INT64
+ * (MAX_PERSISTABLE_RAPPEN); JS-Zahlen sind oberhalb von 2^53 - 1 nicht mehr
+ * exakt, ein groesserer Wert koennte also nicht unverfaelscht gesendet werden.
+ */
+export const MAX_GOAL_RAPPEN = Number.MAX_SAFE_INTEGER;
+
+/** Wiederkehrende Frequenzen (Backend SUPPORTED_FREQUENCIES ohne "einmalig"). */
+const RECURRING_FREQUENCY_KEYS = new Set(['monatlich', 'quartalsweise', 'halbjaehrlich', 'jaehrlich']);
+
+function isStreamTypeKey(key: string): boolean {
+  return key === 'wiederkehrende_ausgabe' || key === 'pensionsausgabe';
+}
+
 const WEALTH_TYPE_KEYS = new Set(['kapitalerhalt', 'vermoegensziel']);
 
 function isWealthType(type: GoalType): boolean {
@@ -103,62 +125,108 @@ export interface GoalFormInput {
   notes?: string | null;
 }
 
+export type GoalFormField = keyof GoalFormInput;
+
+/** Ein Validierungsfehler; `field` = betroffenes Eingabefeld oder null (allgemein). */
+export interface GoalFieldError {
+  field: GoalFormField | null;
+  message: string;
+}
+
 /**
  * Clientseitige Feld-Isolation, 1:1 zu _validate_goal_field_isolation
- * (require_targets=true). Gibt eine Liste menschenlesbarer Fehler zurück;
- * leeres Array = gültig.
+ * (require_targets=true), plus der Strom-Vertrag aus goal_semantics.py.
+ * Leeres Array = gültig.
  */
-export function validateGoalForm(input: GoalFormInput): string[] {
-  const errors: string[] = [];
+export function validateGoalFormFields(input: GoalFormInput): GoalFieldError[] {
+  const errors: GoalFieldError[] = [];
+  const push = (field: GoalFormField | null, message: string): void => {
+    errors.push({ field, message });
+  };
   const key = goalTypeKey(input.goal_type);
   const hk = hardnessKey(input.hardness);
 
   if (!input.label || !input.label.trim()) {
-    errors.push('Bezeichnung ist erforderlich.');
+    push('label', 'Bezeichnung ist erforderlich.');
   }
   if (!(typeof input.rank === 'number' && input.rank >= 1)) {
-    errors.push('Rang muss mindestens 1 sein.');
+    push('rank', 'Rang muss mindestens 1 sein.');
   }
   if (hk && !['hart', 'primaer', 'opportunistisch'].includes(hk)) {
-    errors.push("hardness muss 'Hart', 'Primär' oder 'Opportunistisch' sein");
+    push('hardness', "hardness muss 'Hart', 'Primär' oder 'Opportunistisch' sein");
   }
 
-  const forbid = (...fields: Array<keyof GoalFormInput>): void => {
+  const forbid = (...fields: GoalFormField[]): void => {
     for (const field of fields) {
       if (hasValue(input[field])) {
-        errors.push(`Feld '${field}' ist für Zieltyp '${input.goal_type}' nicht erlaubt`);
+        push(field, `Feld '${field}' ist für Zieltyp '${input.goal_type}' nicht erlaubt`);
       }
+    }
+  };
+
+  // Gesetzter Betrag: positive ganze Rappen unter der Obergrenze.
+  const checkAmount = (field: 'target_amount_rappen' | 'target_wealth_rappen'): void => {
+    const value = input[field];
+    if (!hasValue(value)) return;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+      push(field, 'Betrag muss eine positive Zahl sein.');
+    } else if (value > MAX_GOAL_RAPPEN) {
+      push(field, 'Betrag übersteigt die zulässige Obergrenze.');
     }
   };
 
   if (key === 'renditeziel') {
     forbid('target_amount_rappen', 'target_wealth_rappen', 'frequency');
     if (hk === 'hart') {
-      errors.push("Renditeziel darf nicht als 'hart' definiert werden.");
+      push('hardness', "Renditeziel darf nicht als 'hart' definiert werden.");
     }
     if (!hasValue(input.target_return_bps)) {
-      errors.push('Renditeziel benötigt target_return_bps');
+      push('target_return_bps', 'Renditeziel benötigt target_return_bps');
     }
   } else if (key === 'einmalige_ausgabe') {
     forbid('target_return_bps', 'target_wealth_rappen', 'frequency');
     if (!hasValue(input.target_amount_rappen)) {
-      errors.push('Einmalige_Ausgabe benötigt target_amount_rappen');
+      push('target_amount_rappen', 'Einmalige_Ausgabe benötigt target_amount_rappen');
     }
+    checkAmount('target_amount_rappen');
     if (!(hasValue(input.target_date) || hasValue(input.horizon_years))) {
-      errors.push('Einmalige_Ausgabe benötigt target_date oder horizon_years');
+      push('target_date', 'Einmalige_Ausgabe benötigt target_date oder horizon_years');
     }
-  } else if (key === 'wiederkehrende_ausgabe' || key === 'pensionsausgabe') {
+  } else if (isStreamTypeKey(key)) {
     forbid('target_return_bps', 'target_wealth_rappen');
     if (!hasValue(input.frequency)) {
-      errors.push('Cashflow-Ziel benötigt frequency');
+      push('frequency', 'Cashflow-Ziel benötigt frequency');
+    } else if (!RECURRING_FREQUENCY_KEYS.has(hardnessKey(input.frequency))) {
+      push('frequency', 'Häufigkeit muss monatlich, quartalsweise, halbjährlich oder jährlich sein.');
+    }
+    if (!hasValue(input.target_amount_rappen)) {
+      push('target_amount_rappen', 'Wiederkehrendes Ziel benötigt einen positiven Betrag.');
+    }
+    checkAmount('target_amount_rappen');
+    // Kein stiller Default-Horizont: der Strom braucht einen expliziten Beginn.
+    if (!hasValue(input.start_date)) {
+      push('start_date', 'Wiederkehrendes Ziel benötigt ein Startdatum.');
+    }
+    // Genau eine Endsemantik: laufend ODER Enddatum.
+    if (input.is_ongoing && hasValue(input.target_date)) {
+      push('target_date', 'Ein laufendes Ziel darf kein Enddatum haben.');
+    } else if (!input.is_ongoing && !hasValue(input.target_date)) {
+      push('target_date', 'Ein endliches wiederkehrendes Ziel benötigt ein Enddatum (sonst "laufend" wählen).');
+    } else if (
+      hasValue(input.start_date)
+      && hasValue(input.target_date)
+      && String(input.target_date) < String(input.start_date)
+    ) {
+      push('target_date', 'Enddatum darf nicht vor dem Startdatum liegen.');
     }
   } else if (key === 'kapitalerhalt' || key === 'vermoegensziel') {
     forbid('target_return_bps', 'target_amount_rappen', 'frequency');
     if (!hasValue(input.target_wealth_rappen)) {
-      errors.push('Vermögensziel benötigt target_wealth_rappen');
+      push('target_wealth_rappen', 'Vermögensziel benötigt target_wealth_rappen');
     }
+    checkAmount('target_wealth_rappen');
     if (!(hasValue(input.target_date) || hasValue(input.horizon_years))) {
-      errors.push('Vermögensziel benötigt target_date oder horizon_years');
+      push('target_date', 'Vermögensziel benötigt target_date oder horizon_years');
     }
   } else if (key === 'maximierung') {
     forbid(
@@ -173,18 +241,26 @@ export function validateGoalForm(input: GoalFormInput): string[] {
   return errors;
 }
 
+/** Wie `validateGoalFormFields`, nur die Meldungen (bestehende Aufrufer). */
+export function validateGoalForm(input: GoalFormInput): string[] {
+  return validateGoalFormFields(input).map((e) => e.message);
+}
+
 /**
- * Baut den POST/PUT-Payload: genau EIN Target-Feld gesetzt (Rest null),
- * value_mode nur bei Vermögenszielen aus der Eingabe, sonst "nominal"
- * (Monolith saveGoal-Verhalten). data_classification immer "synthetic".
+ * Baut den POST/PUT-Payload: genau EIN Target-Feld gesetzt (Rest null).
+ * value_mode wird bei Zieltypen mit Betrag (Vermögen + Cashflow) aus der
+ * Eingabe übernommen (GOAL-VALUE-MODE-ROUNDTRIP-001), sonst "nominal".
+ * Härte kommt nie aus dem Rang (Rang/Härte getrennt); Default "Primär" wie
+ * im Backend. Laufende Ströme senden kein Enddatum.
+ * data_classification immer "synthetic".
  */
 export function buildGoalPayload(input: GoalFormInput): GoalCreatePayload {
   const goalType = input.goal_type;
   const key = goalTypeKey(goalType);
   const wealth = isWealthType(goalType);
-  const isCashflow = key === 'einmalige_ausgabe'
-    || key === 'wiederkehrende_ausgabe'
-    || key === 'pensionsausgabe';
+  const isStream = isStreamTypeKey(key);
+  const isCashflow = key === 'einmalige_ausgabe' || isStream;
+  const isOngoing = isStream ? (input.is_ongoing ?? false) : false;
 
   return {
     goal_family: familyForType(goalType),
@@ -192,16 +268,16 @@ export function buildGoalPayload(input: GoalFormInput): GoalCreatePayload {
     label: input.label.trim(),
     rank: input.rank,
     goal_scope: input.goal_scope ?? 'Beratungsvermögen',
-    value_mode: wealth ? (input.value_mode ?? 'nominal') : 'nominal',
-    hardness: input.hardness ?? hardnessForRank(input.rank),
+    value_mode: wealth || isCashflow ? (input.value_mode ?? 'nominal') : 'nominal',
+    hardness: input.hardness ?? 'Primär',
     probability_pct: input.probability_pct ?? 100,
-    is_ongoing: input.is_ongoing ?? false,
+    is_ongoing: isOngoing,
     data_classification: 'synthetic',
-    target_amount_rappen: key === 'einmalige_ausgabe' ? (input.target_amount_rappen ?? null) : null,
+    target_amount_rappen: isCashflow ? (input.target_amount_rappen ?? null) : null,
     target_wealth_rappen: wealth ? (input.target_wealth_rappen ?? null) : null,
     target_return_bps: key === 'renditeziel' ? (input.target_return_bps ?? null) : null,
-    frequency: isCashflow && key !== 'einmalige_ausgabe' ? (input.frequency ?? null) : null,
-    target_date: input.target_date ?? null,
+    frequency: isStream ? (input.frequency ?? null) : null,
+    target_date: isOngoing ? null : (input.target_date ?? null),
     horizon_years: input.horizon_years ?? null,
     start_date: input.start_date ?? null,
     weight_bps: input.weight_bps ?? null,
@@ -220,4 +296,68 @@ export function buildGoalPayload(input: GoalFormInput): GoalCreatePayload {
 export function formatGoalError(detail: unknown): string {
   // Delegiert an den zentralen Formatter (api/client.ts).
   return formatApiErrorDetail(detail, 'Unbekannter Fehler beim Speichern des Ziels.');
+}
+
+// Feldzuordnung fuer Meldungstexte der API; massgebend ist die frueheste
+// Fundstelle in der Meldung.
+const API_FIELD_PATTERNS: Array<[GoalFormField, RegExp]> = [
+  ['target_date', /target_date|enddatum|zieldatum/i],
+  ['start_date', /start_date|startdatum/i],
+  ['frequency', /frequency|frequenz|häufigkeit/i],
+  ['target_amount_rappen', /target_amount_rappen|zielbetrag|\bbetrag\b/i],
+  ['target_wealth_rappen', /target_wealth_rappen|zielverm(ö|oe)gen/i],
+  ['target_return_bps', /target_return_bps|zielrendite/i],
+  ['horizon_years', /horizon_years|zeithorizont/i],
+  ['pension_pillar', /pension_pillar|s(ä|ae)ule/i],
+  ['probability_pct', /probability_pct|eintrittswahrscheinlichkeit/i],
+  ['value_mode', /value_mode|wertbasis/i],
+  ['hardness', /hardness|h(ä|ae)rte|\bhart\b/i],
+  ['rank', /\brank\b|\brang\b/i],
+  ['label', /\blabel\b|bezeichnung/i],
+  ['is_ongoing', /is_ongoing/i],
+];
+
+const API_FIELDS = new Set<string>(API_FIELD_PATTERNS.map(([field]) => field));
+
+function fieldFromMessage(message: string): GoalFormField | null {
+  let best: GoalFormField | null = null;
+  let bestIndex = Number.POSITIVE_INFINITY;
+  for (const [field, pattern] of API_FIELD_PATTERNS) {
+    const idx = message.search(pattern);
+    if (idx >= 0 && idx < bestIndex) {
+      best = field;
+      bestIndex = idx;
+    }
+  }
+  return best;
+}
+
+function fieldFromLoc(item: unknown): GoalFormField | null {
+  if (!item || typeof item !== 'object') return null;
+  const loc = (item as { loc?: unknown }).loc;
+  if (!Array.isArray(loc)) return null;
+  for (let i = loc.length - 1; i >= 0; i -= 1) {
+    const part = loc[i];
+    if (typeof part === 'string' && API_FIELDS.has(part)) {
+      return part as GoalFormField;
+    }
+  }
+  return null;
+}
+
+/**
+ * Ordnet ein FastAPI-Fehler-`detail` (422) den Formularfeldern zu:
+ *  - Pydantic-Array: Feld aus `loc`, sonst aus dem Meldungstext;
+ *  - String/Objekt: Feld aus dem Meldungstext (Feldname oder Fachbegriff).
+ * Nicht zuordenbare Fehler bekommen `field: null` (allgemeiner Fehler).
+ */
+export function goalFieldErrorsFromApi(detail: unknown): GoalFieldError[] {
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map((item) => {
+      const message = formatGoalError([item]);
+      return { field: fieldFromLoc(item) ?? fieldFromMessage(message), message };
+    });
+  }
+  const message = formatGoalError(detail);
+  return [{ field: fieldFromMessage(message), message }];
 }

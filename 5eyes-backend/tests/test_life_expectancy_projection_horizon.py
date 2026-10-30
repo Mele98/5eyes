@@ -84,13 +84,17 @@ def test_simulation_default_uses_derived_life_expectancy_inclusive():
     services.mortality.horizon (BFS-2020-2022-Sterbetafel) statt
     services.planning_horizon (flach) fuer diesen internen Modell-Floor --
     siehe test_mortality_horizon_client_partner_support.py fuer die
-    Modell-Details. 1960 geboren, maennlich, reference_year=2026
-    (mandate.opened_at) -> Sterbejahr 2046 (bestaetigtes Audit-Beispiel),
-    nicht mehr 2043 (altes flaches Modell)."""
+    Modell-Details. 1960 geboren, maennlich, Bewertungsjahr 2026
+    (GOAL-AXIS-VALUATION-YEAR-001: gebundener Stichtag, nicht opened_at) ->
+    Sterbejahr 2046 (bestaetigtes Audit-Beispiel), nicht mehr 2043 (altes
+    flaches Modell)."""
+    from services.valuation_clock import bound_valuation_date
+
     client = _client(date_of_birth="1960-03-20", salutation="Herr")
     mandate = _mandate(client, opened_at="2026-01-01")
     expected = 2046 - 2026 + 1
-    assert _simulation_horizon_years({}, [], mandate) == max(10, expected)
+    with bound_valuation_date(date(2026, 1, 1)):
+        assert _simulation_horizon_years({}, [], mandate) == max(10, expected)
 
 
 def test_simulation_horizon_de_mandate_falls_back_to_generic_floor():

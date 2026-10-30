@@ -4,21 +4,28 @@
 Ausfuehrung (Kauf/Verkauf in den echten Kundendepots) liegt bei der
 Depotbank/dem internen Asset Management. Diese Router-Datei liefert den
 formalen, auditierbaren Nachweis der Uebergabe: ein unveraenderlicher
-Snapshot der zum Sendezeitpunkt serverseitig berechneten Trades (siehe
-services/portfolio_handoff.py) plus Status-Lebenszyklus (Gesendet ->
-Ausgefuehrt/Storniert). Siehe models/portfolio_handoff.py fuer die
+Snapshot der zum Erstellungszeitpunkt serverseitig berechneten Trades (siehe
+services/portfolio_handoff.py) plus Status-Lebenszyklus (Vorbereitet ->
+Ausgefuehrt/Storniert; ohne Transportadapter wird kein Versand behauptet). Siehe models/portfolio_handoff.py fuer die
 Rechenschaftsablegungs-Begruendung (Auftragsrecht, Art. 400 OR).
 """
-import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db, new_uuid
 from models.mandates import Mandate
-from models.portfolio_handoff import PortfolioHandoff
+from models.portfolio_handoff import (
+    HANDOFF_OPEN_STATUSES,
+    HANDOFF_STATUS_CANCELLED,
+    HANDOFF_STATUS_EXECUTED,
+    HANDOFF_STATUS_PREPARED,
+    EXECUTION_EVIDENCE_MANUAL_ATTESTATION,
+    PortfolioHandoff,
+)
 from models.review import RecommendationRun
 from models.users import User
 from routers.auth import _extract_client_ip
@@ -27,11 +34,18 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffCancel,
     PortfolioHandoffCreate,
     PortfolioHandoffMarkExecuted,
+    PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
 from services.audit import log
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
-from services.portfolio_handoff import NoTradeListAvailableError, snapshot_handoff_trades
+from services.portfolio_handoff import (
+    HoldingsValuationIncompleteError,
+    NoTradeListAvailableError,
+    handoff_business_key_hash,
+    snapshot_handoff,
+    snapshot_json_and_sha256,
+)
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
     assert_recommendation_release_eligible,
@@ -41,10 +55,11 @@ from services.recommendation_release_gate import (
 router = APIRouter(tags=["Weiterleitung Asset Management"])
 logger = logging.getLogger(__name__)
 
-# Nur "Gesendet" darf in einen Endzustand wechseln -- weder ein bereits
-# ausgefuehrter noch ein stornierter Handoff ist danach nochmals aenderbar
-# (Audit-Integritaet: der Endzustand ist final).
-_OPEN_STATUS = "Gesendet"
+# Nur ein offener Handoff ("Vorbereitet", Altbestand "Gesendet") darf in
+# einen Endzustand wechseln -- weder ein bereits ausgefuehrter noch ein
+# stornierter Handoff ist danach nochmals aenderbar (Audit-Integritaet: der
+# Endzustand ist final). HANDOFF-DELIVERY-001: ein lokaler Insert behauptet
+# keinen Versand (kein Transportadapter, keine Empfangsquittung).
 
 
 def _now() -> str:
@@ -99,7 +114,7 @@ def _atomically_close_handoff_or_409(
     result = db.query(PortfolioHandoff).filter(
         PortfolioHandoff.id == handoff_id,
         PortfolioHandoff.mandate_id == mandate_id,
-        PortfolioHandoff.status == _OPEN_STATUS,
+        PortfolioHandoff.status.in_(HANDOFF_OPEN_STATUSES),
     # synchronize_session='fetch' (statt False): identifiziert die
     # betroffene(n) Zeile(n) und aktualisiert bereits in dieser Session
     # geladene ORM-Objekte -- sonst haette ein vorheriges _get_handoff_or_404()
@@ -135,6 +150,46 @@ def list_portfolio_handoffs(
     ).order_by(PortfolioHandoff.created_at.desc()).all()
 
 
+@router.get(
+    "/mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoff-preview",
+    response_model=PortfolioHandoffPreviewResponse,
+)
+def preview_portfolio_handoff(
+    mandate_id: str,
+    run_id: str,
+    confirm_no_existing_holdings: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """HANDOFF-PREVIEW-PARITY-001: Handelsliste read-only aus derselben
+    Funktion wie die Weiterleitung (kein Persistieren, kein Audit-Eintrag).
+    Ablehnungen kommen als 409 mit ``reason_code``, damit die Anzeige den
+    Grund (z.B. fehlende Neugeld-Bestaetigung) ausweisen kann."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    try:
+        trades, total_value_rappen, holdings_basis = snapshot_handoff(
+            db, mandate, run, current_user.id,
+            confirm_no_existing_holdings=confirm_no_existing_holdings,
+        )
+    except NoTradeListAvailableError as exc:
+        raise HTTPException(status_code=409, detail={"reason_code": "NO_TRADES", "message": str(exc)})
+    except HoldingsValuationIncompleteError as exc:
+        raise HTTPException(status_code=409, detail={"reason_code": exc.reason_code, "message": str(exc)})
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"reason_code": "RECOMMENDATION_UNAVAILABLE", "message": str(exc)})
+    _snapshot_json, snapshot_sha256 = snapshot_json_and_sha256(trades)
+    return PortfolioHandoffPreviewResponse(
+        recommendation_run_id=run.id,
+        holdings_basis=holdings_basis,
+        confirm_no_existing_holdings=confirm_no_existing_holdings,
+        live_total_value_rappen=total_value_rappen,
+        position_count=len(trades),
+        snapshot_sha256=snapshot_sha256,
+        trades=trades,
+    )
+
+
 @router.post(
     "/mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoffs",
     response_model=PortfolioHandoffResponse,
@@ -167,6 +222,17 @@ def create_portfolio_handoff(
             ),
         )
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    # SIGN-ELIGIBILITY-001: nur eine finalisierte Empfehlung darf zur
+    # Ausfuehrung weitergeleitet werden (Draft/Superseded/Rejected nie).
+    if run.result_status != "Final":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Die Handelsliste kann nicht weitergeleitet werden: die Empfehlung "
+                f"ist nicht finalisiert (Status '{run.result_status}'). Bitte zuerst "
+                "die Empfehlung finalisieren."
+            ),
+        )
     # CIO-Entscheid 2026-10-24: keine Weiterleitung, solange die
     # Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt.
     assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_HANDOFF)
@@ -177,8 +243,17 @@ def create_portfolio_handoff(
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
     )
+    # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
+    from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
+
+    assert_portfolio_data_release_eligible(db, mandate, action="handoff")
     try:
-        trades, total_value_rappen = snapshot_handoff_trades(db, mandate, run, current_user.id)
+        # HANDOFF-NEW-PRODUCT-001: nicht gehaltene SOLL-Produkte nur bei
+        # vollstaendig belegtem Depot oder bestaetigtem Neugeld als IST = 0.
+        trades, total_value_rappen, holdings_basis = snapshot_handoff(
+            db, mandate, run, current_user.id,
+            confirm_no_existing_holdings=body.confirm_no_existing_holdings,
+        )
     except NoTradeListAvailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
@@ -186,18 +261,31 @@ def create_portfolio_handoff(
         # wie routers/review.py::get_recommendation_payload.
         raise HTTPException(status_code=409, detail=str(exc))
 
+    business_key = handoff_business_key_hash(
+        mandate_id=mandate_id, run_id=run.id, trades=trades,
+        total_value_rappen=total_value_rappen, recipient_name=body.recipient_name,
+    )
+    existing = _open_handoff_with_business_key(db, mandate_id, business_key)
+    if existing is not None:
+        return _idempotent_replay_or_409(existing, body)
+
     now = _now()
+    snapshot_json, snapshot_sha256 = snapshot_json_and_sha256(trades)
     handoff = PortfolioHandoff(
         id=new_uuid(),
         mandate_id=mandate_id,
         recommendation_run_id=run.id,
-        trade_list_snapshot_json=json.dumps(trades, ensure_ascii=False),
+        trade_list_snapshot_json=snapshot_json,
+        # HANDOFF-INTEGRITY-001: Hash ueber exakt die gespeicherten Bytes.
+        snapshot_sha256=snapshot_sha256,
         live_total_value_rappen=total_value_rappen,
         position_count=len(trades),
         recipient_name=body.recipient_name,
         recipient_channel=body.recipient_channel,
         note=body.note,
-        status=_OPEN_STATUS,
+        status=HANDOFF_STATUS_PREPARED,
+        business_key_hash=business_key,
+        holdings_basis=holdings_basis,
         created_by=current_user.id,
         created_at=now,
         updated_at=now,
@@ -210,13 +298,57 @@ def create_portfolio_handoff(
         table_name="portfolio_handoffs",
         record_id=handoff.id,
         action="CREATE",
-        new_value=f"{len(trades)} Positionen an '{body.recipient_name}'",
+        new_value=(
+            f"{len(trades)} Positionen fuer '{body.recipient_name}' zur manuellen "
+            f"Uebermittlung vorbereitet (Bestandsbasis: {holdings_basis})"
+        ),
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Paralleler identischer Request hat zwischen Pruefung und Commit
+        # gewonnen (partieller Unique-Index) -> dessen Ergebnis liefern.
+        db.rollback()
+        existing = _open_handoff_with_business_key(db, mandate_id, business_key)
+        if existing is None:
+            raise
+        return _idempotent_replay_or_409(existing, body)
     db.refresh(handoff)
     return handoff
+
+
+def _open_handoff_with_business_key(db: Session, mandate_id: str, business_key: str):
+    return db.query(PortfolioHandoff).filter(
+        PortfolioHandoff.mandate_id == mandate_id,
+        PortfolioHandoff.business_key_hash == business_key,
+        PortfolioHandoff.status.in_(HANDOFF_OPEN_STATUSES),
+    ).first()
+
+
+def _idempotent_replay_or_409(existing: PortfolioHandoff, body: PortfolioHandoffCreate) -> PortfolioHandoff:
+    """HANDOFF-IDEMPOTENCY-001: identischer Request -> dasselbe Ergebnis;
+    gleiche fachliche Identitaet mit anderem Inhalt -> 409 statt einer
+    zweiten offenen Weiterleitung."""
+    same_request = (
+        existing.recipient_name == body.recipient_name
+        and (existing.recipient_channel or None) == (body.recipient_channel or None)
+        and (existing.note or None) == (body.note or None)
+    )
+    if same_request:
+        return existing
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "reason_code": "HANDOFF_ALREADY_OPEN",
+            "message": (
+                "Fuer diese Handelsliste und diesen Empfaenger besteht bereits eine "
+                "offene Weiterleitung. Bitte diese abschliessen oder stornieren."
+            ),
+            "handoff_id": existing.id,
+        },
+    )
 
 
 @router.post(
@@ -231,13 +363,24 @@ def mark_portfolio_handoff_executed(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
+    handoff = _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
+    previous_status = handoff.status
+    # HANDOFF-EXECUTION-001: eine Ausfuehrung vor dem Anlegen der
+    # Weiterleitung ist kein Nachweis fuer genau diese Handelsliste.
+    if body.executed_on.isoformat() < str(handoff.created_at or "")[:10]:
+        raise HTTPException(
+            status_code=422,
+            detail="Das Ausfuehrungsdatum liegt vor dem Anlegen der Weiterleitung.",
+        )
     now = _now()
     _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={
-        "status": "Ausgeführt",
+        "status": HANDOFF_STATUS_EXECUTED,
         "executed_at": now,
         "executed_by": current_user.id,
         "executed_note": body.executed_note,
+        "execution_evidence_kind": EXECUTION_EVIDENCE_MANUAL_ATTESTATION,
+        "execution_external_reference": body.external_order_reference,
+        "execution_confirmed_on": body.executed_on.isoformat(),
         "updated_at": now,
     })
     log(
@@ -248,8 +391,8 @@ def mark_portfolio_handoff_executed(
         record_id=handoff_id,
         action="UPDATE",
         field_name="status",
-        old_value=_OPEN_STATUS,
-        new_value="Ausgeführt",
+        old_value=previous_status,
+        new_value=HANDOFF_STATUS_EXECUTED,
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )
@@ -269,10 +412,10 @@ def cancel_portfolio_handoff(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
+    previous_status = _get_handoff_or_404(mandate_id, handoff_id, db, current_user).status
     now = _now()
     _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={
-        "status": "Storniert",
+        "status": HANDOFF_STATUS_CANCELLED,
         "cancelled_at": now,
         "cancelled_by": current_user.id,
         "cancelled_reason": body.cancelled_reason,
@@ -286,8 +429,8 @@ def cancel_portfolio_handoff(
         record_id=handoff_id,
         action="UPDATE",
         field_name="status",
-        old_value=_OPEN_STATUS,
-        new_value="Storniert",
+        old_value=previous_status,
+        new_value=HANDOFF_STATUS_CANCELLED,
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )

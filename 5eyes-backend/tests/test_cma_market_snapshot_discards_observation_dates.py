@@ -84,14 +84,6 @@ assert (_NEWER_OBS_DATE - _OLDER_OBS_DATE).days == 10
 assert (date.today() - _OLDER_OBS_DATE).days <= dp._LOOKBACK_DAYS
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-MARKET-SNAPSHOT-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-04-jurisdiction-cma-equity-measurement-"
-        "snapshot-and-approval-integrity-audit.md"
-    ),
-)
 def test_fetch_yield_curve_discards_per_point_observation_dates(monkeypatch):
     """fetch_yield_curve_for_jurisdiction() MUSS -- fuer einen beweisbar
     koherenten Markt-Snapshot -- irgendeine Moeglichkeit bieten, pro
@@ -103,11 +95,9 @@ def test_fetch_yield_curve_discards_per_point_observation_dates(monkeypatch):
     GENUINELY unterschiedliche Beobachtungstage innerhalb desselben
     30-Tage-Fensters, wie im Audit-Finding beschrieben.
 
-    Heute (vor dem Fix) gibt die Funktion nachweislich nur
-    `list[tuple[float, int]]` zurueck (siehe Signatur in data_pipeline.py
-    Zeile 173) -- also ausschliesslich (maturity_years, yield_bps), ohne
-    jede Datums-Information. Die folgende Assertion kann deshalb nicht
-    erfuellt werden.
+    Vor dem Fix gab die Funktion nur `list[tuple[float, int]]` zurueck, ohne
+    jede Datums-Information; seit CMA-MARKET-SNAPSHOT-001 traegt jeder Punkt
+    sein observation_date.
     """
     series_codes = [c for _, c in dp._YIELD_CURVE_REGISTRY["DE"][1]]
 
@@ -160,14 +150,6 @@ def test_fetch_yield_curve_discards_per_point_observation_dates(monkeypatch):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-MARKET-SNAPSHOT-001 -- round 53 red test, see audit "
-        "docs/audits/2026-10-04-jurisdiction-cma-equity-measurement-"
-        "snapshot-and-approval-integrity-audit.md"
-    ),
-)
 def test_compute_candidate_source_detail_has_no_per_point_dates_or_pe_proxy_asof(
     session_factory, monkeypatch
 ):
@@ -232,3 +214,40 @@ def test_compute_candidate_source_detail_has_no_per_point_dates_or_pe_proxy_asof
             f"Markt-/Fundamentaldaten-Stichtag: {kgv_detail!r} "
             "(CMA-MARKET-SNAPSHOT-001)."
         )
+        # Nicht nur Schluessel-Praesenz: die persistierten Daten muessen die
+        # ECHTEN Beobachtungstage der jeweiligen Serie sein ...
+        dates_by_series = {p["series_code"]: p["date"] for p in fetched_points}
+        assert dates_by_series == {
+            series_codes[0]: _NEWER_OBS_DATE.isoformat(),
+            series_codes[1]: _OLDER_OBS_DATE.isoformat(),
+            series_codes[2]: _OLDER_OBS_DATE.isoformat(),
+        }
+        assert detail["yield_curve"]["observation_date_min"] == _OLDER_OBS_DATE.isoformat()
+        assert detail["yield_curve"]["observation_date_max"] == _NEWER_OBS_DATE.isoformat()
+        # ... und der Fake-Provider liefert keinen Markt-Stichtag: der
+        # Nachweis darf keinen erfinden, sondern nennt offen den Abruftag.
+        assert kgv_detail["market_as_of"] is None
+        assert kgv_detail["pe_proxy_as_of_basis"].startswith("retrieval_date")
+        assert kgv_detail["pe_proxy_as_of"] == kgv_detail["pe_proxy_retrieved_at_utc"][:10]
+
+
+def test_pe_proxy_as_of_uses_provider_market_time_when_available(monkeypatch):
+    """Liefert der Provider regularMarketTime/mostRecentQuarter, werden genau
+    diese Stichtage persistiert (nicht der Abruftag)."""
+    market_time = 1_785_000_000  # 2026-07-25 (UTC)
+    quarter_end = 1_782_777_600  # 2026-06-30 (UTC)
+    monkeypatch.setattr(
+        dp,
+        "_fetch_pe_ticker_info",
+        lambda ticker: {
+            "trailingPE": 21.4,
+            "regularMarketTime": market_time,
+            "mostRecentQuarter": quarter_end,
+        },
+    )
+    value, provenance = dp.fetch_equity_pe_proxy_with_provenance("DE")
+    assert value == 21
+    assert provenance["market_as_of"] == "2026-07-25"
+    assert provenance["pe_proxy_as_of"] == "2026-07-25"
+    assert provenance["pe_proxy_as_of_basis"] == "provider_market_time"
+    assert provenance["pe_earnings_period_end"] == "2026-06-30"

@@ -11,6 +11,8 @@ KEINE Datenmodell-Änderungen. Reiner Service auf existierender TargetAllocation
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Mapping
 
 from sqlalchemy.orm import Session
@@ -118,6 +120,13 @@ _SCENARIOS: list[dict] = [
 ]
 
 
+def stress_catalog_hash() -> str:
+    """SHA-256 ueber den kanonischen Szenariokatalog (bindet ein Stress-
+    Resultat an die Szenario-Parameter, mit denen es gerechnet wurde)."""
+    payload = json.dumps(_SCENARIOS, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _compute_scenario_path(
     scenario: dict,
     weights_bps: Mapping[str, int],
@@ -157,6 +166,15 @@ def _compute_scenario_path(
     }
 
 
+# DEPOT-E2E-STRESS-001 (Option 1): der Stress-Replay rechnet ausschliesslich
+# auf der SOLL-Gewichtung der aktuellen TargetAllocation, nie auf IST-
+# Bestaenden. Jede Oberflaeche (Modal, PDF, API) benennt das mit diesem Label.
+STRESS_REPLAY_SCOPE = "approved_target_allocation"
+STRESS_REPLAY_SCOPE_LABEL = (
+    "Stress-Replay der empfohlenen SOLL-Allokation (nicht des aktuellen Depots)"
+)
+
+
 def compute_stress_for_weights(weights_bps: Mapping[str, int]) -> list[dict]:
     """Sprint U-P15 (2026-05-21): reine Stress-Replay-Berechnung für eine
     gegebene Bucket-Gewichtung.
@@ -172,7 +190,8 @@ def compute_stress_replays(db: Session, mandate: Mandate) -> dict:
     cumulative_return, max_drawdown, recovery, Jahres-Aufschlüsselung.
 
     Nutzt die aktuelle TargetAllocation als Gewichtung (Soll-Mix) — kein
-    Backtest auf realer Position-History.
+    Backtest auf realer Position-History und keine IST-Bestaende
+    (``scope``/``scope_label`` machen das maschinen- und menschenlesbar).
     """
     ta = (
         db.query(TargetAllocation)
@@ -188,6 +207,8 @@ def compute_stress_replays(db: Session, mandate: Mandate) -> dict:
             "mandate_id": str(getattr(mandate, "id", "") or ""),
             "scenarios": [],
             "warning": "Keine aktive Target-Allocation gefunden. Bitte erst Strategie berechnen.",
+            "scope": STRESS_REPLAY_SCOPE,
+            "scope_label": STRESS_REPLAY_SCOPE_LABEL,
         }
 
     weights_bps = {
@@ -200,6 +221,8 @@ def compute_stress_replays(db: Session, mandate: Mandate) -> dict:
     return {
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "weights_bps": weights_bps,
+        "scope": STRESS_REPLAY_SCOPE,
+        "scope_label": STRESS_REPLAY_SCOPE_LABEL,
         "scenarios": compute_stress_for_weights(weights_bps),
         "note": "Replay mit historischen jährlichen Returns pro Asset-Klasse. Foundation-Variante mit hartcodierten Szenarien — volle Marktdaten-Pipeline kommt in Sprint U-P11.",
     }
@@ -226,6 +249,8 @@ def gated_stress_replays(db: Session, mandate: Mandate, gate=None) -> dict:
             "weights_bps": {},
             "scenarios": [],
             "warning": gate.advisor_message,
+            "scope": STRESS_REPLAY_SCOPE,
+            "scope_label": STRESS_REPLAY_SCOPE_LABEL,
             "projection_gate": gate.to_payload(),
         }
     result = compute_stress_replays(db, mandate)

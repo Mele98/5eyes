@@ -1,28 +1,21 @@
-"""Red test for GOAL-CALENDAR-HORIZON-PARITY-001 (round 38).
+"""GOAL-CALENDAR-HORIZON-PARITY-001 (round 38) / ADR-1b -- Replay-Stabilitaet.
 
-See docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md
-(this path does not exist in this worktree's git history -- confirmed via
-Glob/git log --all; derived directly from reading
-services/calendar_horizon.py and services/optimizer/goal_liabilities.py, and
-from empirically running both before writing assertions).
+Befund: ``goal_liabilities.goal_to_liability()`` las den Bewertungsstichtag aus
+der Wanduhr. Derselbe gespeicherte Datensatz lieferte bei einem Replay an einem
+anderen Kalendertag andere Buckets -- seit ADR-2 (Kalenderjahr-Buckets) nicht
+mehr taeglich, aber am Jahreswechsel weiterhin (Stichtag 31.12. -> Bucket 2,
+1.1. -> Bucket 1, Zieldatum 2027-10-05).
 
-``calendar_horizon.calendar_years_until(target_date, as_of=...)`` itself
-correctly accepts an explicit valuation date and is stable regardless of the
-real wall clock when ``as_of`` is supplied -- that part is already correct
-(audit Positivkontrolle #4) and is pinned below as a plain positive-control
-test.
+GESCHLOSSEN 2026-10-25 (ADR-1b): der Stichtag ist an den Lauf gebunden
+(``services/valuation_clock.py``). Ein Lauf bindet ihn beim Ausloesen und
+persistiert ihn an der Soll-Allokation; Replays binden den GESPEICHERTEN
+Stichtag (``binds_allocation_valuation_date``) oder reichen ihn explizit als
+``as_of`` durch. Die Wanduhr bewegt das Ergebnis dann nicht mehr. Ein anderer
+Stichtag ist ein ausdruecklicher Counterfactual-Lauf und darf (soll) ein anderes
+Ergebnis liefern -- Positivkontrolle unten.
 
-The production entry point actually used by the optimizer,
-``goal_liabilities.goal_to_liability()`` (via its private
-``_resolve_target_year_index()``, services/optimizer/goal_liabilities.py
-line ~174), calls ``calendar_years_until(anchor)`` WITHOUT ever passing
-``as_of`` -- it has no parameter for one at all. ``calendar_years_until``
-then falls back to ``date.today()`` internally. Replaying the identical,
-unchanged stored Goal record on two different real calendar days can
-therefore silently change the resolved target-year index and liability
-schedule, even though nothing about the goal's own data changed -- a run
-is not byte-reproducible unless it happens to be replayed on the exact same
-wall-clock day it was first computed.
+Die Wanduhr wird ueber ``services.valuation_clock.date`` gepinnt: das ist seit
+ADR-1b die EINZIGE Lesestelle der Engine.
 """
 from __future__ import annotations
 
@@ -45,21 +38,22 @@ from models import (  # noqa: E402,F401
 configure_mappers()
 
 import services.calendar_horizon as calendar_horizon  # noqa: E402
-from services.optimizer.goal_liabilities import goal_to_liability  # noqa: E402
+import services.valuation_clock as valuation_clock  # noqa: E402
+from services.optimizer.goal_liabilities import goal_to_liability, goals_to_liabilities  # noqa: E402
+from services.valuation_clock import (  # noqa: E402
+    binds_allocation_valuation_date,
+    bound_valuation_date,
+)
 
-# target_date sits exactly one day past DAY_ONE's 1-year anniversary, and
-# exactly ON DAY_TWO's 1-year anniversary -- verified empirically:
-# calendar_years_until(TARGET_DATE, as_of=DAY_ONE) == 2
-# calendar_years_until(TARGET_DATE, as_of=DAY_TWO) == 1
 DAY_ONE = date(2026, 10, 4)
-DAY_TWO = date(2026, 10, 5)  # DAY_ONE + 1 real calendar day, nothing else changes
+DAY_TWO = date(2026, 10, 5)
 TARGET_DATE = date(2027, 10, 5)
+NEW_YEARS_EVE = date(2026, 12, 31)
+NEW_YEAR = date(2027, 1, 1)
 
 
 class _PinnedToday(date):
-    """`date` subclass whose `.today()` returns whatever `pinned` is set to,
-    so we can simulate "the real wall clock advanced by one day" without
-    any actual waiting."""
+    """`date` subclass whose `.today()` returns whatever `pinned` is set to."""
 
     pinned: date = DAY_ONE
 
@@ -69,25 +63,9 @@ class _PinnedToday(date):
 
 
 @pytest.fixture()
-def pinned_calendar_horizon_today(monkeypatch):
-    """Pinnt die Wanduhr in JEDEM Modul, das sie fuer Ziel-Buckets liest.
-
-    NACHGEZOGEN am 2026-10-11 (ADR-2): vorher wurde nur
-    ``calendar_horizon.date`` gepatcht. Seit die Bucket-Auflösung in
-    ``services/optimizer/goal_liabilities.py`` selbst ``date.today()``
-    aufruft (Kalenderjahr-Achse), griff der Pin dort nicht mehr -- beide
-    Durchlaeufe sahen das ECHTE Heute, stimmten deshalb trivial ueberein,
-    und der Reproducer wurde gruen, OHNE dass der Befund behoben ist.
-
-    Der Befund ist unveraendert: ``goal_to_liability()`` nimmt keinen
-    ``as_of``-Parameter, der Stichtag kommt aus der Wanduhr. Das ist genau
-    ADR-1b (persistierter Bewertungsstichtag), noch offen. Mit korrektem
-    Pin bleibt der Test rot, wie er soll.
-    """
-    import services.optimizer.goal_liabilities as goal_liabilities
-
-    monkeypatch.setattr(calendar_horizon, "date", _PinnedToday)
-    monkeypatch.setattr(goal_liabilities, "date", _PinnedToday)
+def wall_clock(monkeypatch):
+    """Pinnt die Wanduhr an der einzigen Engine-Lesestelle."""
+    monkeypatch.setattr(valuation_clock, "date", _PinnedToday)
     _PinnedToday.pinned = DAY_ONE
     yield _PinnedToday
 
@@ -116,90 +94,75 @@ def _make_wealth_goal() -> SimpleNamespace:
     )
 
 
-def test_calendar_years_until_is_stable_when_as_of_is_explicit(pinned_calendar_horizon_today):
-    """Positive control (already correct): when the caller explicitly passes
-    `as_of`, the result depends only on that explicit value, never on the
-    real wall clock."""
-    _PinnedToday.pinned = DAY_ONE
-    result_pinned_to_day_one = calendar_horizon.calendar_years_until(TARGET_DATE, as_of=DAY_ONE)
-
-    _PinnedToday.pinned = DAY_TWO  # wall clock "advances", but as_of is still explicit
-    result_still_explicit_day_one = calendar_horizon.calendar_years_until(TARGET_DATE, as_of=DAY_ONE)
-
-    assert result_pinned_to_day_one == result_still_explicit_day_one == 2
+def test_calendar_years_until_is_stable_when_as_of_is_explicit(wall_clock):
+    """Positivkontrolle: mit explizitem `as_of` haengt das Ergebnis nur davon ab."""
+    wall_clock.pinned = DAY_ONE
+    first = calendar_horizon.calendar_years_until(TARGET_DATE, as_of=DAY_ONE)
+    wall_clock.pinned = DAY_TWO
+    second = calendar_horizon.calendar_years_until(TARGET_DATE, as_of=DAY_ONE)
+    assert first == second == 2
 
 
-def test_goal_to_liability_replay_is_stable_within_a_calendar_year(
-    pinned_calendar_horizon_today,
-):
-    """Zwei aufeinanderfolgende Kalendertage liefern denselben Bucket.
+def test_goal_to_liability_replay_is_stable_within_a_calendar_year(wall_clock):
+    """Zwei aufeinanderfolgende Kalendertage liefern denselben Bucket (ADR-2)."""
+    goal = _make_wealth_goal()
+    wall_clock.pinned = DAY_ONE
+    day_one = goal_to_liability(goal, horizon_years=10)
+    wall_clock.pinned = DAY_TWO
+    day_two = goal_to_liability(goal, horizon_years=10)
+    assert day_one.target_year_index == day_two.target_year_index
+    assert day_one.liability_path_rappen == day_two.liability_path_rappen
 
-    GEFIXT am 2026-10-11 durch ADR-2 (Kalenderjahr-Buckets), aber nur
-    TEILWEISE -- siehe den Jahresgrenz-Test darunter, der weiterhin rot ist.
 
-    Vorher war der Index jahrestagsbasiert und sprang an JEDEM Tag:
-    Stichtag 2026-10-04 -> Index 2, Stichtag 2026-10-05 -> Index 1, fuer
-    dasselbe gespeicherte Ziel (Zieldatum 2027-10-05). Seit die Buckets
-    Kalenderjahre sind, aendert sich der Bucket nur noch zum Jahreswechsel.
-
-    Die Ursache ist damit NICHT behoben: ``goal_to_liability()`` nimmt
-    weiterhin keinen ``as_of``-Parameter, der Stichtag kommt aus der
-    Wanduhr. Das ist ADR-1b (persistierter Bewertungsstichtag), noch offen.
-    Die Instabilitaet ist von "taeglich" auf "einmal im Jahr" geschrumpft --
-    eine Verbesserung, keine Loesung.
-    """
+def test_bound_valuation_date_makes_replay_stable_across_the_year_boundary(wall_clock):
+    """Der Lauf am 31.12. wird am 1.1. mit SEINEM Stichtag nachgerechnet:
+    gleicher Bucket, gleicher Pfad -- obwohl die Wanduhr das Jahr gewechselt
+    hat. Vorher: Bucket 2 -> 1."""
     goal = _make_wealth_goal()
 
-    _PinnedToday.pinned = DAY_ONE
-    liability_day_one = goal_to_liability(goal, horizon_years=10)
+    wall_clock.pinned = NEW_YEARS_EVE
+    with bound_valuation_date(NEW_YEARS_EVE):
+        original = goal_to_liability(goal, horizon_years=10)
 
-    _PinnedToday.pinned = DAY_TWO
-    liability_day_two = goal_to_liability(goal, horizon_years=10)
+    wall_clock.pinned = NEW_YEAR
+    with bound_valuation_date(NEW_YEARS_EVE):
+        replay_bound = goal_to_liability(goal, horizon_years=10)
+    replay_explicit = goal_to_liability(goal, horizon_years=10, as_of=NEW_YEARS_EVE)
+    replay_batch = goals_to_liabilities([goal], horizon_years=10, as_of=NEW_YEARS_EVE)[0]
 
-    assert liability_day_one.target_year_index == liability_day_two.target_year_index, (
-        f"replaying the same stored goal one real calendar day later changed "
-        f"the resolved target-year index from {liability_day_one.target_year_index} "
-        f"to {liability_day_two.target_year_index}"
-    )
-    assert liability_day_one.target_amount_rappen == liability_day_two.target_amount_rappen
-    assert liability_day_one.liability_path_rappen == liability_day_two.liability_path_rappen
+    assert original.target_year_index == 2
+    for replay in (replay_bound, replay_explicit, replay_batch):
+        assert replay.target_year_index == original.target_year_index
+        assert replay.liability_path_rappen == original.liability_path_rappen
+        assert replay.lifecycle_status == original.lifecycle_status
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b -- der Bewertungsstichtag "
-        "ist nicht gebunden: goal_to_liability() liest die Wanduhr. Seit "
-        "ADR-2 (Kalenderjahr-Buckets) springt der Index nicht mehr taeglich, "
-        "aber am Jahreswechsel weiterhin -- derselbe gespeicherte Datensatz "
-        "liefert am 31.12. und am 1.1. verschiedene Buckets."
-    ),
-)
-def test_goal_to_liability_replay_is_not_stable_across_the_year_boundary(
-    pinned_calendar_horizon_today,
-):
-    """Der Restbefund: ein Replay ueber den Jahreswechsel verschiebt alles.
-
-    Gemessen (Zieldatum 2027-10-05):
-        Stichtag 2026-12-31 -> Bucket 2
-        Stichtag 2027-01-01 -> Bucket 1
-
-    Nichts am gespeicherten Ziel hat sich geaendert. Ein PDF-Reprint oder
-    ein UI-Reload nach Neujahr zeigt damit eine andere wirtschaftliche
-    Aussage als der Originallauf -- genau die Audit-Trail-Luecke, die
-    ADR-1b schliesst (Stichtag beim Klick binden und persistieren, nie
-    erneut date.today() lesen).
-    """
+def test_allocation_replay_binds_the_stored_valuation_date(wall_clock):
+    """Der Replay-Dekorator bindet den an der Allokation gespeicherten
+    Stichtag fuer den ganzen Rebuild -- unabhaengig von der Wanduhr."""
     goal = _make_wealth_goal()
 
-    _PinnedToday.pinned = date(2026, 12, 31)
-    before = goal_to_liability(goal, horizon_years=10)
+    @binds_allocation_valuation_date
+    def rebuild(db, allocation):
+        return valuation_clock.valuation_date(), goal_to_liability(goal, horizon_years=10)
 
-    _PinnedToday.pinned = date(2027, 1, 1)
-    after = goal_to_liability(goal, horizon_years=10)
+    wall_clock.pinned = NEW_YEAR
+    stored = SimpleNamespace(valuation_date=NEW_YEARS_EVE.isoformat())
+    bound, liability = rebuild(None, allocation=stored)
+    assert bound == NEW_YEARS_EVE
+    assert liability.target_year_index == 2
 
-    assert before.target_year_index == after.target_year_index, (
-        "Replay ueber den Jahreswechsel verschob den Bucket von "
-        f"{before.target_year_index} auf {after.target_year_index}"
-    )
-    assert before.liability_path_rappen == after.liability_path_rappen
+    # Bestand ohne Stichtag: bisheriges Verhalten (Wanduhr).
+    legacy_bound, legacy_liability = rebuild(None, SimpleNamespace(valuation_date=None))
+    assert legacy_bound == NEW_YEAR
+    assert legacy_liability.target_year_index == 1
+
+
+def test_different_valuation_date_is_an_explicit_counterfactual(wall_clock):
+    """Positivkontrolle: ein ANDERER gebundener Stichtag aendert den Bucket
+    sichtbar -- die Bindung friert nicht die Wirtschaftlichkeit ein, sie
+    macht den Stichtag zur ausdruecklichen Eingabe."""
+    goal = _make_wealth_goal()
+    before = goal_to_liability(goal, horizon_years=10, as_of=NEW_YEARS_EVE)
+    after = goal_to_liability(goal, horizon_years=10, as_of=NEW_YEAR)
+    assert (before.target_year_index, after.target_year_index) == (2, 1)
