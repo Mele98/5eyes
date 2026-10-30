@@ -146,7 +146,7 @@ def test_tampered_reference_breaks_context_hash(generated):
 
 def test_tampered_goal_analysis_is_not_published_by_readers(generated):
     from services.advisory_report import _load_goal_achievability_view
-    from services.goal_analysis_snapshot import bound_goal_achievability_json
+    from services.portfolio_engine_allocation_integrity import bound_goal_achievability_json
     from services.portfolio_engine_payload import _stored_goal_achievability
 
     session_factory, allocation_id = generated
@@ -164,7 +164,7 @@ def test_tampered_goal_analysis_is_not_published_by_readers(generated):
 
 
 def test_lifecycle_invalidation_is_not_an_integrity_error(generated):
-    from services.goal_analysis_snapshot import goal_analysis_status
+    from services.portfolio_engine_allocation_integrity import goal_analysis_status
     from services.goal_lifecycle_transitions import invalidate_goal_achievability_evidence
 
     session_factory, allocation_id = generated
@@ -209,7 +209,7 @@ def test_legacy_context_without_reference_keeps_v1_hash():
 def test_legacy_allocation_without_reference_still_verifies(generated):
     """Ein Datensatz ohne Referenz (Bestand) verifiziert mit der v1-Form und
     wird nicht umgehasht; seine Zielanalyse gilt als ``legacy_unbound``."""
-    from services.goal_analysis_snapshot import goal_analysis_status
+    from services.portfolio_engine_allocation_integrity import goal_analysis_status
 
     session_factory, allocation_id = generated
     allocation = _load(session_factory, allocation_id)
