@@ -1,0 +1,739 @@
+{
+ "definition": {
+  "api_horizon_labels": [
+   "Bis 2 Jahre",
+   "2 bis 3 Jahre",
+   "4 bis 5 Jahre",
+   "6 bis 7 Jahre",
+   "8 bis 11 Jahre",
+   "Mehr als 12 Jahre",
+   "0 bis 4 Jahre",
+   "5 bis 7 Jahre",
+   "12 Jahre und mehr",
+   "1 bis 3 Jahre",
+   "3 bis 5 Jahre",
+   "5 bis 10 Jahre",
+   "10 Jahre und mehr"
+  ],
+  "canonical_horizon_labels": {
+   "0 bis 4 Jahre": "2 bis 3 Jahre",
+   "1 bis 3 Jahre": "2 bis 3 Jahre",
+   "10 Jahre und mehr": "8 bis 11 Jahre",
+   "12 Jahre und mehr": "Mehr als 12 Jahre",
+   "2 bis 3 Jahre": "2 bis 3 Jahre",
+   "3 bis 5 Jahre": "4 bis 5 Jahre",
+   "4 bis 5 Jahre": "4 bis 5 Jahre",
+   "5 bis 10 Jahre": "6 bis 7 Jahre",
+   "5 bis 7 Jahre": "6 bis 7 Jahre",
+   "6 bis 7 Jahre": "6 bis 7 Jahre",
+   "8 bis 11 Jahre": "8 bis 11 Jahre",
+   "Bis 2 Jahre": "Bis 2 Jahre",
+   "Mehr als 12 Jahre": "Mehr als 12 Jahre"
+  },
+  "capacity_band": {
+   "Ausgewogen": 3,
+   "Dynamisch": 5,
+   "Risikoarm": 1,
+   "Sicherheitsorientiert": 2,
+   "Wachstumsorientiert": 4
+  },
+  "capacity_total_to_profile": [
+   [
+    0,
+    2,
+    "Risikoarm"
+   ],
+   [
+    3,
+    5,
+    "Sicherheitsorientiert"
+   ],
+   [
+    6,
+    9,
+    "Ausgewogen"
+   ],
+   [
+    10,
+    13,
+    "Wachstumsorientiert"
+   ],
+   [
+    14,
+    32,
+    "Dynamisch"
+   ]
+  ],
+  "compute_scores_domain": {
+   "q_income_points": [
+    0,
+    4,
+    5
+   ],
+   "q_investment_goal_points": [
+    1,
+    4,
+    4
+   ],
+   "q_obligations_points": [
+    0,
+    4,
+    5
+   ],
+   "q_risk_behavior_points": [
+    1,
+    4,
+    4
+   ],
+   "q_risk_preference_points": [
+    1,
+    4,
+    4
+   ],
+   "q_savings_points": [
+    0,
+    12,
+    13
+   ],
+   "q_wealth_points": [
+    0,
+    12,
+    13
+   ]
+  },
+  "horizon_capacity_matrix": [
+   [
+    1,
+    1,
+    0
+   ],
+   [
+    1,
+    2,
+    0
+   ],
+   [
+    1,
+    3,
+    0
+   ],
+   [
+    1,
+    4,
+    0
+   ],
+   [
+    1,
+    5,
+    0
+   ],
+   [
+    2,
+    1,
+    10
+   ],
+   [
+    2,
+    2,
+    10
+   ],
+   [
+    2,
+    3,
+    20
+   ],
+   [
+    2,
+    4,
+    20
+   ],
+   [
+    2,
+    5,
+    20
+   ],
+   [
+    4,
+    1,
+    10
+   ],
+   [
+    4,
+    2,
+    40
+   ],
+   [
+    4,
+    3,
+    45
+   ],
+   [
+    4,
+    4,
+    50
+   ],
+   [
+    4,
+    5,
+    50
+   ],
+   [
+    6,
+    1,
+    20
+   ],
+   [
+    6,
+    2,
+    45
+   ],
+   [
+    6,
+    3,
+    55
+   ],
+   [
+    6,
+    4,
+    60
+   ],
+   [
+    6,
+    5,
+    60
+   ],
+   [
+    9,
+    1,
+    20
+   ],
+   [
+    9,
+    2,
+    50
+   ],
+   [
+    9,
+    3,
+    60
+   ],
+   [
+    9,
+    4,
+    65
+   ],
+   [
+    9,
+    5,
+    70
+   ],
+   [
+    15,
+    1,
+    30
+   ],
+   [
+    15,
+    2,
+    50
+   ],
+   [
+    15,
+    3,
+    60
+   ],
+   [
+    15,
+    4,
+    75
+   ],
+   [
+    15,
+    5,
+    100
+   ]
+  ],
+  "horizon_options": [
+   "Bis 2 Jahre",
+   "2 bis 3 Jahre",
+   "3 bis 5 Jahre",
+   "5 bis 7 Jahre",
+   "8 bis 11 Jahre",
+   "Mehr als 12 Jahre"
+  ],
+  "horizon_years": {
+   "0 bis 4 Jahre": 2,
+   "1 bis 3 Jahre": 2,
+   "10 Jahre und mehr": 9,
+   "12 Jahre und mehr": 15,
+   "2 bis 3 Jahre": 2,
+   "3 bis 5 Jahre": 4,
+   "4 bis 5 Jahre": 4,
+   "5 bis 10 Jahre": 6,
+   "5 bis 7 Jahre": 6,
+   "6 bis 7 Jahre": 6,
+   "8 bis 11 Jahre": 9,
+   "Bis 2 Jahre": 1,
+   "Mehr als 12 Jahre": 15
+  },
+  "income_source_options": [
+   "Berufliche T\u00e4tigkeit (selbstst\u00e4ndig oder unselbstst\u00e4ndig)",
+   "Rente",
+   "Vermietung von Liegenschaften",
+   "Ertr\u00e4gen aus Anlagen",
+   "Sonstige Quellen"
+  ],
+  "no_income_source": "Keine Angabe",
+  "nonstandard_placeholder_labels": [
+   "Finanzdienstleistungen: dokumentiert im Beratungsgespraech",
+   "Finanzinstrumente: dokumentiert im Beratungsgespraech",
+   "Herkunft: Einkommen und Vermoegen plausibilisiert"
+  ],
+  "nonstandard_source_markers": [
+   "react_profiling_editor"
+  ],
+  "options": {
+   "10": [
+    "Ich bevorzuge Anlagen mit relativ geringem Risiko. Die Rendite steht f\u00fcr mich nicht im Vordergrund. (Wertschwankung ca. \u22124 % bis +6 %)",
+    "Ich bin bereit, f\u00fcr eine moderate Rendite ein leicht h\u00f6heres Risiko in Kauf zu nehmen. (Wertschwankung ca. \u22126 % bis +10 %)",
+    "Ich strebe eine h\u00f6here Rendite an und bin bereit, daf\u00fcr ein erh\u00f6htes Risiko einzugehen. (Wertschwankung ca. \u221210 % bis +16 %)",
+    "Ich strebe nach der maximalen Rendite und nehme hohe Risiken in Kauf. (Wertschwankung ca. \u221216 % bis +24 %)"
+   ],
+   "11": [
+    "Ein solch hoher Verlust bereitet mir grosse Angst und ich m\u00f6chte alle Anlagen sofort verkaufen.",
+    "Ich bin durch den Verlust sehr beunruhigt, handle aber vorerst noch nicht oder m\u00f6chte h\u00f6chstens einzelne Positionen verkaufen.",
+    "Ich kann den Verlust vor\u00fcbergehend akzeptieren und halte an meinen Anlagen fest.",
+    "Ich investiere langfristig, deshalb akzeptiere ich solche Schwankungen und kaufe eventuell sogar hinzu."
+   ],
+   "3": [
+    "Bis CHF 6'000",
+    "CHF 6'000 bis 9'000",
+    "CHF 9'000 bis 12'000",
+    "CHF 12'000 bis 20'000",
+    "\u00dcber CHF 20'000"
+   ],
+   "5": [
+    "Bis CHF 3'000",
+    "CHF 3'000 bis 5'000",
+    "CHF 5'000 bis 8'000",
+    "CHF 8'000 bis 12'000",
+    "\u00dcber CHF 12'000"
+   ],
+   "6": [
+    "Bis CHF 100'000",
+    "CHF 100'000 bis 250'000",
+    "CHF 250'000 bis 1'000'000",
+    "CHF 1'000'000 bis 2'000'000",
+    "\u00dcber CHF 2'000'000"
+   ],
+   "7": [
+    "0 %",
+    "1 bis 10 %",
+    "10 bis 25 %",
+    "25 bis 50 %",
+    "\u00dcber 50 %"
+   ],
+   "9": [
+    "Das investierte Kapital soll erhalten bleiben.",
+    "Mit dem Ertrag soll die heutige Kaufkraft beibehalten werden, wobei eine geringe Volatilit\u00e4t in Kauf genommen wird.",
+    "Das investierte Kapital soll sich stetig vermehren unter Inkaufnahme des damit verbundenen Verlustrisikos.",
+    "Es soll ein erhebliches Kapitalwachstum angestrebt werden unter Inkaufnahme des damit verbundenen h\u00f6heren Verlustrisikos."
+   ]
+  },
+  "pdf_question_catalog": {
+   "1": [
+    "Kenntnisse & Erfahrungen",
+    "Mit welchen Finanzdienstleistungen haben Sie Kenntnisse und Erfahrungen?"
+   ],
+   "10": [
+    "Risikobereitschaft",
+    "Risikoverhalten \u2013 Anlagen mit h\u00f6herer erwarteter Rendite haben auch ein h\u00f6heres erwartetes Risiko."
+   ],
+   "11": [
+    "Risikobereitschaft",
+    "Risikoverhalten \u2013 Sie stellen fest, dass Ihre Anlagen einen Verlust von 20 % erlitten haben. Wie reagieren Sie?"
+   ],
+   "2": [
+    "Kenntnisse & Erfahrungen",
+    "Mit welchen Finanzinstrumenten haben Sie Kenntnisse und Erfahrungen?"
+   ],
+   "3": [
+    "Risikof\u00e4higkeit",
+    "Regelm\u00e4ssiges Einkommen \u2013 Wie hoch ist Ihr regelm\u00e4ssiges Bruttoeinkommen pro Monat aus selbstst\u00e4ndiger und unselbstst\u00e4ndiger Erwerbst\u00e4tigkeit, Miete, Anlagen und Rente?"
+   ],
+   "4": [
+    "Risikof\u00e4higkeit",
+    "Herkunft des Einkommens \u2013 Woher stammt Ihr regelm\u00e4ssiges Einkommen?"
+   ],
+   "5": [
+    "Risikof\u00e4higkeit",
+    "Finanzielle Verpflichtungen \u2013 Wie hoch sind Ihre aktuellen und k\u00fcnftig absehbaren finanziellen Verpflichtungen pro Monat?"
+   ],
+   "6": [
+    "Risikof\u00e4higkeit",
+    "Verm\u00f6gen \u2013 Wie hoch ist Ihr frei verf\u00fcgbares Verm\u00f6gen (z.B. Kontoguthaben, Wertschriften), welches Sie nicht zur Deckung von aktuellen oder zuk\u00fcnftigen finanziellen Verpflichtungen ben\u00f6tigen?"
+   ],
+   "7": [
+    "Risikof\u00e4higkeit",
+    "Sparen \u2013 Wie viel Prozent Ihres Einkommens k\u00f6nnen Sie unter Ber\u00fccksichtigung des regelm\u00e4ssigen Einkommens, der finanziellen Verpflichtungen und der sonstigen Ausgaben zur Seite legen?"
+   ],
+   "8": [
+    "Risikof\u00e4higkeit",
+    "Anlagehorizont \u2013 Wie lange k\u00f6nnen Sie das investierte Kapital mindestens anlegen?"
+   ],
+   "9": [
+    "Risikobereitschaft",
+    "Anlageziel \u2013 Welcher Zweck wird mit der Verm\u00f6gensanlage verfolgt?"
+   ]
+  },
+  "pdf_section_order": [
+   "Kenntnisse & Erfahrungen",
+   "Risikof\u00e4higkeit",
+   "Risikobereitschaft"
+  ],
+  "plausibility": {
+   "free_wealth_bands_chf": [
+    [
+     0,
+     100000
+    ],
+    [
+     100000,
+     250000
+    ],
+    [
+     250000,
+     1000000
+    ],
+    [
+     1000000,
+     2000000
+    ],
+    [
+     2000000,
+     null
+    ]
+   ],
+   "income_bands_chf_month": [
+    [
+     0,
+     6000
+    ],
+    [
+     6000,
+     9000
+    ],
+    [
+     9000,
+     12000
+    ],
+    [
+     12000,
+     20000
+    ],
+    [
+     20000,
+     null
+    ]
+   ],
+   "income_points": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "obligation_bands_chf_month": [
+    [
+     0,
+     3000
+    ],
+    [
+     3000,
+     5000
+    ],
+    [
+     5000,
+     8000
+    ],
+    [
+     8000,
+     12000
+    ],
+    [
+     12000,
+     null
+    ]
+   ],
+   "obligation_points": [
+    4,
+    3,
+    2,
+    1,
+    0
+   ],
+   "savings_points": [
+    0,
+    3,
+    6,
+    9,
+    12
+   ],
+   "savings_rate_bands_pct": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     10
+    ],
+    [
+     10,
+     25
+    ],
+    [
+     25,
+     50
+    ],
+    [
+     50,
+     null
+    ]
+   ],
+   "wealth_points": [
+    0,
+    3,
+    6,
+    9,
+    12
+   ]
+  },
+  "point_fields": {
+   "10": "q_risk_preference_points",
+   "11": "q_risk_behavior_points",
+   "3": "q_income_points",
+   "5": "q_obligations_points",
+   "6": "q_wealth_points",
+   "7": "q_savings_points",
+   "9": "q_investment_goal_points"
+  },
+  "points": {
+   "10": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "11": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "3": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "5": [
+    4,
+    3,
+    2,
+    1,
+    0
+   ],
+   "6": [
+    0,
+    3,
+    6,
+    9,
+    12
+   ],
+   "7": [
+    0,
+    3,
+    6,
+    9,
+    12
+   ],
+   "9": [
+    1,
+    2,
+    3,
+    4
+   ]
+  },
+  "questions_required": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "readiness": {
+   "answer_points": {
+    "1": [
+     0
+    ],
+    "10": [
+     1,
+     2,
+     3,
+     4
+    ],
+    "11": [
+     1,
+     2,
+     3,
+     4
+    ],
+    "2": [
+     0
+    ],
+    "3": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "4": [
+     0
+    ],
+    "5": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "6": [
+     0,
+     3,
+     6,
+     9,
+     12
+    ],
+    "7": [
+     0,
+     3,
+     6,
+     9,
+     12
+    ],
+    "8": [
+     0
+    ],
+    "9": [
+     1,
+     2,
+     3,
+     4
+    ]
+   },
+   "horizon_labels": [
+    "bis 2 jahre",
+    "2 bis 3 jahre",
+    "3 bis 5 jahre",
+    "4 bis 5 jahre",
+    "5 bis 7 jahre",
+    "6 bis 7 jahre",
+    "8 bis 11 jahre",
+    "mehr als 12 jahre"
+   ],
+   "required_questions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ]
+  },
+  "score_to_profile": [
+   [
+    1,
+    2,
+    "Kapitalschutz"
+   ],
+   [
+    3,
+    4,
+    "Defensiv"
+   ],
+   [
+    5,
+    6,
+    "Ausgewogen"
+   ],
+   [
+    7,
+    8,
+    "Wachstumsorientiert"
+   ],
+   [
+    9,
+    9,
+    "Dynamisch"
+   ],
+   [
+    10,
+    10,
+    "Aktien"
+   ]
+  ],
+  "unscored_prefix": {
+   "1": "Finanzdienstleistungen:",
+   "2": "Finanzinstrumente:",
+   "4": "Herkunft:"
+  },
+  "willingness_score_to_profile": [
+   [
+    10,
+    24,
+    "Kapitalschutz"
+   ],
+   [
+    25,
+    44,
+    "Defensiv"
+   ],
+   [
+    45,
+    64,
+    "Ausgewogen"
+   ],
+   [
+    65,
+    84,
+    "Wachstumsorientiert"
+   ],
+   [
+    85,
+    94,
+    "Dynamisch"
+   ],
+   [
+    95,
+    100,
+    "Aktien"
+   ]
+  ]
+ },
+ "definition_sha256": "1db30312d333133e4c79122302f4d6ba750ea8893a6876dc058738ac992c039e",
+ "jurisdiction": "CH"
+}
