@@ -411,6 +411,7 @@ DEPOT_SNAPSHOT_SQLITE_TABLE_DDL: tuple[str, ...] = (
     """CREATE TABLE IF NOT EXISTS depot_snapshots (
     id              TEXT PRIMARY KEY,
     schema_version  TEXT NOT NULL DEFAULT 'DepotSnapshotV1',
+    tenant_id       TEXT,
     mandate_id      TEXT NOT NULL,
     client_id       TEXT NOT NULL,
     as_of_date      TEXT NOT NULL,
@@ -1288,6 +1289,19 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
 
         for table_name in APPEND_ONLY_TABLES:
             Base.metadata.tables[table_name].create(bind=conn, checkfirst=True)
+        # PG-002 (Red-Team 2026-10-28, Befund 6): direkte Mandantenbindung der
+        # append-only Mandats-Evidenz (ADD COLUMN feuert den UPDATE-Trigger
+        # nicht); Backfill + Guard: services/mandate_evidence_tenant_boundary.py.
+        from services.mandate_evidence_tenant_boundary import (
+            MANDATE_EVIDENCE_TENANT_TABLES,
+            tenant_index_name,
+        )
+
+        for table_name in MANDATE_EVIDENCE_TENANT_TABLES:
+            ensure_column(conn, table_name, "tenant_id", "TEXT")
+            conn.execute(text(
+                f"CREATE INDEX IF NOT EXISTS {tenant_index_name(table_name)} ON {table_name}(tenant_id)"
+            ))
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
@@ -2379,6 +2393,9 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
     ensure_sqlite_risk_evidence_tenant_boundary(eng)
+    from services.mandate_evidence_tenant_boundary import ensure_sqlite_mandate_evidence_tenant_boundary
+
+    ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     # ELIG-OVERRIDE-APPEND-ONLY-001: Override-Nachweise append-only (Trigger),
     # ohne harten Run-FK (Purge-fest), Spalte approval_mode.
     from services.product_eligibility_override_schema import ensure_sqlite_override_append_only
@@ -2465,6 +2482,11 @@ def init_db(target_engine: Engine | None = None) -> None:
         from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
         ensure_sqlite_risk_evidence_tenant_boundary(eng)
+        # PG-002 (Red-Team 2026-10-28): Depot-Snapshots und Vor-Ort-Signatur
+        # ebenso erst nach dem Mandats-Backfill an den Mandanten binden.
+        from services.mandate_evidence_tenant_boundary import ensure_sqlite_mandate_evidence_tenant_boundary
+
+        ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
     # Tenant-Isolation zusaetzlich auf Datenbankebene.
     # PG-003 (Codex-Audit 2026-08-25): ensure_postgres_tenant_not_null() lief

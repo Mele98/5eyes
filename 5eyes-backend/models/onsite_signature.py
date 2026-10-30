@@ -3,7 +3,9 @@
 Drei append-only Tabellen (UPDATE/DELETE per Trigger verboten, SQLite und
 PostgreSQL), alle ohne FK auf mandates/clients (Muster audit_log /
 risk_override_decisions: Demo-Purge und Mandatsloeschung bleiben moeglich),
-nur Akteure verweisen auf ``users``:
+nur Akteure verweisen auf ``users``. ``tenant_id`` direkt (RLS-Plan, PG-002),
+aus dem Mandat abgeleitet und per INSERT-Guard geprueft
+(services/mandate_evidence_tenant_boundary.py); nicht Teil der Hashes:
 
 ``onsite_signature_events``
     Zustandsmaschine als hash-verkettetes Ereignisjournal. Der aktuelle
@@ -68,6 +70,7 @@ class OnsiteSignatureEvent(Base):
         ),
         Index("ix_onsite_signature_events_document", "document_id"),
         Index("ix_onsite_signature_events_mandate", "mandate_id"),
+        Index("ix_onsite_signature_events_tenant_id", "tenant_id"),
         Index(
             CHALLENGE_SINGLE_USE_INDEX,
             "challenge_id",
@@ -79,6 +82,7 @@ class OnsiteSignatureEvent(Base):
 
     id = Column(String, primary_key=True)
     schema_version = Column(String, nullable=False, default="OnsiteSignatureEventV1")
+    tenant_id = Column(String)
     transaction_id = Column(String, nullable=False)
     sequence_no = Column(Integer, nullable=False)
     event_type = Column(String, nullable=False)
@@ -103,10 +107,12 @@ class OnsiteSignatureChallenge(Base):
     __tablename__ = CHALLENGES_TABLE
     __table_args__ = (
         Index("ix_onsite_signature_challenges_transaction", "transaction_id"),
+        Index("ix_onsite_signature_challenges_tenant_id", "tenant_id"),
     )
 
     id = Column(String, primary_key=True)
     schema_version = Column(String, nullable=False, default="OnsiteSignatureChallengeV1")
+    tenant_id = Column(String)
     transaction_id = Column(String, nullable=False)
     mandate_id = Column(String, nullable=False)
     client_id = Column(String, nullable=False)
@@ -129,10 +135,12 @@ class OnsiteSignatureEvidence(Base):
     __table_args__ = (
         Index("ux_onsite_signature_evidence_transaction", "transaction_id", unique=True),
         Index("ix_onsite_signature_evidence_mandate", "mandate_id"),
+        Index("ix_onsite_signature_evidence_tenant_id", "tenant_id"),
     )
 
     id = Column(String, primary_key=True)
     schema_version = Column(String, nullable=False, default="OnsiteSignatureEvidenceV1")
+    tenant_id = Column(String)
     transaction_id = Column(String, nullable=False)
     mandate_id = Column(String, nullable=False)
     client_id = Column(String, nullable=False)
@@ -189,3 +197,9 @@ for _model in (OnsiteSignatureEvent, OnsiteSignatureChallenge, OnsiteSignatureEv
             "after_create",
             DDL(_trigger_ddl).execute_if(dialect="sqlite"),
         )
+
+# PG-002: Mandanten-/Kundenschutz beim INSERT (nach create_all, wenn
+# mandates sicher existiert).
+from services import mandate_evidence_tenant_boundary as _metb  # noqa: E402
+
+event.listen(Base.metadata, "after_create", _metb.create_sqlite_guards_after_metadata_create)
