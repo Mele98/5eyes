@@ -371,6 +371,16 @@ class DepotCheckData:
     cost_disclosure: Mapping[str, object] = field(default_factory=dict)
     performance: Mapping[str, object] = field(default_factory=dict)
     qualitative_assessment: str | None = None
+    # DEPOT-E2E-SNAPSHOT-001: Identitaet des gespeicherten Depot-Checks, aus
+    # dem die bestandsabhaengigen Teile stammen (gleich wie im JSON).
+    analysis_snapshot_id: str | None = None
+    snapshot_id: str | None = None
+    snapshot_hash: str | None = None
+    as_of: str | None = None
+    result_hash: str | None = None
+    # True nur fuer Mandate ohne erfassten Depotbestand: reine SOLL-Analyse
+    # ohne Snapshot-Bindung, im PDF sichtbar gekennzeichnet.
+    without_holdings: bool = False
 
 
 @dataclass(frozen=True)

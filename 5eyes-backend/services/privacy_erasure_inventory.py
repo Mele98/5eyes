@@ -279,6 +279,8 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
     "portfolio_handoffs": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     # DEPOT-E2E-STRESS-001 / DEPOT-E2E-SNAPSHOT-001: append-only IST-Bestand.
     "depot_snapshots": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # DEPOT-E2E-SNAPSHOT-001: append-only Depot-Check-Analyse (an DepotSnapshotV1 gebunden).
+    "depot_check_analysis_snapshots": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     # SIGN-001: append-only Vor-Ort-Signatur (Ereignisse, Kunden-Challenges,
     # Evidence-Paket). Unveraenderlich per Trigger -> keine Tier-A-Redaktion
     # moeglich; Ausweis-Metadaten sichtbar ohne Methode (METHOD_NOT_IMPLEMENTED),
