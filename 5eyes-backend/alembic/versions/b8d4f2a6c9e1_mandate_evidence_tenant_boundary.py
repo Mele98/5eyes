@@ -25,7 +25,7 @@ The DDL is frozen here as literals (red-team finding 5);
 for create_all and the runtime patch, a test checks equality.
 
 Revision ID: b8d4f2a6c9e1
-Revises: e5b3c9d1a7f4
+Revises: e7a3c9d1b5f2
 Create Date: 2026-10-30
 """
 import logging
@@ -36,7 +36,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b8d4f2a6c9e1"
-down_revision: Union[str, Sequence[str], None] = "e5b3c9d1a7f4"
+down_revision: Union[str, Sequence[str], None] = "e7a3c9d1b5f2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
