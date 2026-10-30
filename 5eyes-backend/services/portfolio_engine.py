@@ -2953,6 +2953,7 @@ from services.portfolio_engine_reserve import (  # noqa: F401,E402
 )
 from services.reserve_funding_ledger import compile_goal_set_funding, compile_reserve_funding_ledger_for_inputs  # noqa: E402
 from services.reserve_funding_ledger_snapshot import ledger_reference, ledger_snapshot_columns, replay_reserve_funding_ledger  # noqa: E402
+from services.reporting_model_basis_replay import replay_reporting_model_basis, reporting_replay_warnings  # noqa: E402
 from services.reserve_split_snapshot import generation_reserve_ceiling_bps, generation_reserve_split, replay_allocation_reserve_split  # noqa: E402
 
 
@@ -5956,15 +5957,14 @@ def build_target_payload_from_allocation(
         simulation_prefs=prefs["simulation"],
         mandate=mandate,
         cma=cma,
-        stored_optimization_basis=(
-            (_stored_constraints or {}).get("optimization_model_basis")
-        ),
+        stored_optimization_basis=(_stored_constraints or {}).get("optimization_model_basis"),
         reporting_tax_cashflow_present=any(
             str(getattr(cashflow, "source", "") or "") == "tax_estimate"
             for cashflow in cashflows
         ),
     )
     monte_carlo["model_basis"] = dict(model_basis["reporting"])
+    model_basis, reporting_replay = replay_reporting_model_basis(model_basis, _stored_constraints)  # REPORTING-BASIS-DURABILITY-001: gespeichert abspielen, Live-MC bleibt live
     current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
         goal_analysis,
         monte_carlo,
@@ -6113,7 +6113,7 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
-        **reserve_replay.payload, **split_replay.payload,
+        **reserve_replay.payload, **split_replay.payload, **reporting_replay,
         "pension_transfer_ledger_snapshot": stored_pension_transfer_ledger_snapshot(allocation),
         "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
@@ -6145,7 +6145,7 @@ def build_target_payload_from_allocation(
             # Phase 6.2: persistiertes Solver-Reasoning (voller Trace beim Reload).
             + persisted_optimizer_reasoning
             # C8: zentrale Drift-Warnings (Assessment, CMA, Inputs, Prefs, Reserve, Legacy).
-            + drift_warnings
+            + drift_warnings + reporting_replay_warnings(reporting_replay)
         ),
         "projection_horizon": projection_horizon,
         "buckets": bucket_response,

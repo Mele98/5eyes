@@ -261,7 +261,8 @@ def test_audit_all_three_active():
     ))
     result = audit_engine_models(db)
     assert result["active_count"] == 3
-    assert len(result["methodology_notes"]) == 3
+    # 3 Modell-Hinweise + 2 Korrelations-Offenlegungen (CMA-001 / CMA-CORR-001)
+    assert len(result["methodology_notes"]) == 5
     # Alle 3 Modelle aktiv
     assert all(m["active"] for m in result["models"])
 

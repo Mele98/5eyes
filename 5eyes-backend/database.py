@@ -392,6 +392,19 @@ FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     "ON financial_coverage_attestations(mandate_id, attested_at)",
 )
 
+# CMA-001 (Entscheidungsdokument 2026-10-27): Freigaben einer CMA_POLICY sind
+# unveraenderlich (models/cma_policy.py::CmaPolicyApproval). Model
+# (after_create) und ensure_runtime_columns() verwenden diese Konstante;
+# Alembic b5d2e8f1c4a7 fuer PostgreSQL.
+CMA_POLICY_APPROVAL_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_update "
+    "BEFORE UPDATE ON cma_policy_approvals FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_delete "
+    "BEFORE DELETE ON cma_policy_approvals FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END",
+)
+
 # DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2: append-only
 # DepotSnapshotV1 (models/snapshots.py::DepotSnapshot,
 # services/depot_snapshot.py). Haelt den hash-gebundenen IST-Bestand, auf
@@ -423,6 +436,40 @@ DEPOT_SNAPSHOT_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )""",
     "CREATE INDEX IF NOT EXISTS ix_depot_snapshots_mandate "
     "ON depot_snapshots(mandate_id, as_of_date)",
+)
+
+# DEPOT-E2E-SNAPSHOT-001: append-only DepotCheckAnalysisSnapshot
+# (models/snapshots.py::DepotCheckAnalysisSnapshot,
+# services/depot_check_snapshot.py). Depot-Check-Ergebnis, gebunden an genau
+# einen DepotSnapshotV1; JSON und PDF lesen dieselbe Zeile. Kein FK auf
+# mandates/clients/depot_snapshots (Purge-fest, Bindung per Hash), nur
+# created_by -> users; dieselbe DDL im Bootstrap-Schema, Alembic e7a3c9d1b5f2.
+DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_depot_check_analysis_snapshots_no_update "
+    "BEFORE UPDATE ON depot_check_analysis_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'depot_check_analysis_snapshots is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_depot_check_analysis_snapshots_no_delete "
+    "BEFORE DELETE ON depot_check_analysis_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'depot_check_analysis_snapshots is immutable'); END",
+)
+
+DEPOT_CHECK_ANALYSIS_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS depot_check_analysis_snapshots (
+    id                  TEXT PRIMARY KEY,
+    schema_version      TEXT NOT NULL DEFAULT 'DepotCheckAnalysisV1',
+    mandate_id          TEXT NOT NULL,
+    client_id           TEXT NOT NULL,
+    depot_snapshot_id   TEXT NOT NULL,
+    depot_snapshot_hash TEXT NOT NULL,
+    as_of_date          TEXT NOT NULL,
+    analysis_json       TEXT NOT NULL,
+    analysis_hash       TEXT NOT NULL,
+    result_hash         TEXT NOT NULL,
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    created_at          TEXT NOT NULL
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_depot_check_analysis_snapshots_mandate "
+    "ON depot_check_analysis_snapshots(mandate_id, created_at)",
 )
 
 # RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
@@ -1013,6 +1060,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # Finalisierung eingefrorene Kostenausweis, siehe
             # models/review.py::RecommendationRun.
             ('cost_disclosure_snapshot_json', 'TEXT'),
+            # CMA-001: CMA_POLICY, an die eine Finalisierung gebunden wurde
+            # (models/cma_policy.py; NULL solange das Modell nicht aktiv ist).
+            ('cma_policy_row_id', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
@@ -1254,8 +1304,15 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
                     + FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS):
             conn.execute(text(ddl))
+        # CMA-001: append-only CMA_POLICY-Freigaben (Tabelle legt create_all an).
+        if inspect(conn).has_table("cma_policy_approvals"):
+            for ddl in CMA_POLICY_APPROVAL_SQLITE_TRIGGERS:
+                conn.execute(text(ddl))
         # DEPOT-E2E-SNAPSHOT-001: append-only DepotSnapshotV1 (idempotent).
         for ddl in DEPOT_SNAPSHOT_SQLITE_TABLE_DDL + DEPOT_SNAPSHOT_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        # DEPOT-E2E-SNAPSHOT-001: append-only DepotCheckAnalysisSnapshot (idempotent).
+        for ddl in DEPOT_CHECK_ANALYSIS_SQLITE_TABLE_DDL + DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
         # DSG-ERASURE-NEW-EVIDENCE-001: hash-gebundene Personenzahl (Schema V2;
         # Namen/Notiz versiegelt). ADD COLUMN feuert den UPDATE-Trigger nicht.
