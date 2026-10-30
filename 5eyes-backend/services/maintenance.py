@@ -17,7 +17,7 @@ from config import DEFAULT_SECRET_KEY, settings
 from core.logging_setup import resolve_log_file
 from database import SQLCIPHER_AVAILABLE, resolve_db_file
 from services import backup as backup_engine
-from services import client_erasure
+from services import erasure_restore
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +223,7 @@ def restore_backup(
 ) -> dict[str, Any]:
     """PRIV-005 (Codex-Audit): Wrapper um backup_engine.restore_database, der
     NACH einem erfolgreichen Restore automatisch das Erasure-Ledger
-    (services/client_erasure.py) konsultiert und jede DSG-Art.-32-Loeschung
+    (services/erasure_restore.py) konsultiert und jede DSG-Art.-32-Loeschung
     erneut anwendet, die im wiederhergestellten Snapshot noch fehlt (weil
     das restaurierte Backup aelter ist als die Loeschung).
 
@@ -249,7 +249,7 @@ def restore_backup(
         verify_hmac=verify_hmac,
         db_key=db_key,
     )
-    erasure_reapply = client_erasure.reapply_erasures_after_restore(target, db_key=db_key)
+    erasure_reapply = erasure_restore.reapply_erasures_after_restore(target, db_key=db_key)
     if erasure_reapply.get("reapplied"):
         logger.info(
             "PRIV-005: Erasure-Ledger nach Restore erneut angewendet | target=%s clients=%s",

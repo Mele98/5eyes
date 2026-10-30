@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import os
+import secrets
 import sys
 
 from pydantic import Field, field_validator, model_validator
@@ -802,3 +804,29 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# ---------------------------------------------------------------------------
+# Demo-/Staging-Passwoerter (nie im Quellcode). Liegt im Konfigurationsmodul,
+# weil nur dieses die Umgebung lesen darf (Architektur-Ratsche env_readers).
+# Die Seed-Skripte importieren das erst NACH dem Setzen von DB_PATH, denn der
+# Import dieses Moduls instanziiert ``settings`` (inkl. db_path).
+# ---------------------------------------------------------------------------
+MIN_PASSWORD_LENGTH = 12
+
+
+def demo_password(env_name: str) -> tuple[str, str]:
+    """``(passwort, herkunft)``; herkunft = Variablenname oder ``"zufaellig"``.
+
+    Ein Demo-Passwort kommt entweder aus einer Umgebungsvariable (fuer
+    reproduzierbare Kollegen-Tests) oder wird pro Lauf zufaellig erzeugt und
+    vom aufrufenden Skript einmal ausgegeben.
+    """
+    value = os.environ.get(env_name, "").strip()
+    if value:
+        if len(value) < MIN_PASSWORD_LENGTH:
+            raise SystemExit(
+                f"{env_name} ist kuerzer als {MIN_PASSWORD_LENGTH} Zeichen -- abgebrochen."
+            )
+        return value, env_name
+    return secrets.token_urlsafe(18), "zufaellig"

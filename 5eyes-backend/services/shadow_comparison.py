@@ -38,7 +38,7 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
             f"Keine Shadow-Optimierung fuer Mandat {mandate_id} persistiert."
         )
     # SHADOW-ANALYSIS-INTEGRITY-001: nur ein gebundener Container wird gezeigt.
-    from services.goal_analysis_snapshot import bound_shadow_optimization_json
+    from services.portfolio_engine_allocation_integrity import bound_shadow_optimization_json
 
     bound_shadow = bound_shadow_optimization_json(ta)
     if bound_shadow is None:

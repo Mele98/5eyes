@@ -161,7 +161,7 @@ def test_goal_revision_reads_bound_shadow_achievability(generated):
     raw = json.dumps(shadow, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     constraints = json.loads(allocation.effective_constraints_json)
     constraints["shadow_analysis_snapshot"]["hash"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    from services.goal_analysis_snapshot import bound_analysis_result_hash
+    from services.portfolio_engine_allocation_integrity import bound_analysis_result_hash
 
     context_hash = allocation_context_hash_for(
         engine_version=constraints["engine_version"], policy_id=allocation.policy_id,
@@ -188,7 +188,7 @@ def test_goal_revision_reads_bound_shadow_achievability(generated):
 
 
 def test_legacy_allocation_without_shadow_reference_still_verifies(generated):
-    from services.goal_analysis_snapshot import bound_analysis_result_hash, shadow_analysis_status
+    from services.portfolio_engine_allocation_integrity import bound_analysis_result_hash, shadow_analysis_status
 
     session_factory, allocation_id, *_ = generated
     allocation = _load(session_factory, allocation_id)
@@ -218,7 +218,7 @@ def test_tampered_methodology_is_still_rejected_by_readers(generated):
     """Die Leser rufen das volle semantische Gate: eine manipulierte Methodik
     (Methodenspalte widerspricht der gehashten Modellbasis) blendet Zielanalyse
     und Shadow-Container aus, obwohl deren Bytes unveraendert sind."""
-    from services.goal_analysis_snapshot import (
+    from services.portfolio_engine_allocation_integrity import (
         analysis_integrity_report,
         bound_goal_achievability_json,
         bound_shadow_optimization_json,
@@ -241,7 +241,7 @@ def test_tampered_methodology_is_still_rejected_by_readers(generated):
 
 
 def test_lifecycle_invalidation_clears_shadow_container(generated):
-    from services.goal_analysis_snapshot import analysis_integrity_report
+    from services.portfolio_engine_allocation_integrity import analysis_integrity_report
     from services.goal_lifecycle_transitions import invalidate_goal_achievability_evidence
     from services.shadow_comparison import (
         ShadowComparisonMissing,

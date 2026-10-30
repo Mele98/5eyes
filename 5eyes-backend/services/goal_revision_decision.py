@@ -337,7 +337,7 @@ def engine_evidence_for_goal(allocation: Any, goal_id: str) -> dict[str, Any] | 
     ``goal_achievability``; die Shadow-Evidenz kam dadurch nie an."""
     if allocation is None:
         return None
-    from services.goal_analysis_snapshot import (
+    from services.portfolio_engine_allocation_integrity import (
         bound_goal_achievability_json,
         bound_shadow_optimization_json,
     )

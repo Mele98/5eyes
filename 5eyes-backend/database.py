@@ -2460,7 +2460,7 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     ensure_sqlite_risk_evidence_tenant_boundary(eng)
     # ELIG-OVERRIDE-APPEND-ONLY-001: Override-Nachweise append-only (Trigger),
     # ohne harten Run-FK (Purge-fest), Spalten approval_mode/tenant_id.
-    from services.product_eligibility_override_schema import ensure_sqlite_override_append_only
+    from core.product_eligibility_override_schema import ensure_sqlite_override_append_only
 
     ensure_sqlite_override_append_only(eng)
     # PG-002: Mandanten-Guard + Backfill der Mandats-Evidenz NACH dem

@@ -30,7 +30,7 @@ Loesung (Crypto-Shredding)
   kein DELETE) -- der Tombstone belegt die Vernichtung und laesst
   ``seal_for_client`` fuer einen geloeschten Kunden fail-closed scheitern.
 * Ein Restore einer aelteren Sicherung bringt den Schluessel zurueck; das
-  Erasure-Ledger (PRIV-005, services/client_erasure.py::
+  Erasure-Ledger (PRIV-005, services/erasure_restore.py::
   reapply_erasures_after_restore) fuehrt die Erasure und damit das Shredding
   nach jedem Restore erneut aus.
 

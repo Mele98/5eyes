@@ -286,7 +286,7 @@ def test_erasure_reports_legacy_plaintext_rows_without_mutating_them(session_fac
 def test_restore_of_pre_erasure_backup_reshreds_the_key(session_factory, tmp_path):
     """PRIV-005-Pfad: ein Restore einer Sicherung von VOR der Erasure bringt
     den Schluessel zurueck -- die Ledger-Wiederanwendung vernichtet ihn erneut."""
-    from services.client_erasure import reapply_erasures_after_restore
+    from services.erasure_restore import reapply_erasures_after_restore
 
     with session_factory() as session:
         _seed_override_and_signoff(session)

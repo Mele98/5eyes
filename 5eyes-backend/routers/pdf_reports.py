@@ -897,7 +897,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     goal_achievability: list = []
     if ta_obj is not None:
         # GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.
-        from services.goal_analysis_snapshot import bound_goal_achievability_json
+        from services.portfolio_engine_allocation_integrity import bound_goal_achievability_json
 
         raw_achievability = bound_goal_achievability_json(ta_obj)
         if raw_achievability:
