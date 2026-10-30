@@ -17,10 +17,11 @@ product is `indeterminate` under `evaluate_product_eligibility()`
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, String, text
+from sqlalchemy import DDL, Column, ForeignKey, Index, Integer, String, event, text
 from sqlalchemy.orm import relationship
 
 from database import Base
+from services import product_eligibility_override_schema as _override_schema
 
 
 class ProductEligibilityRuleSet(Base):
@@ -216,13 +217,17 @@ class ProductEligibilityDecision(Base):
 
 
 class ProductEligibilityOverride(Base):
+    """Append-only (ELIG-OVERRIDE-APPEND-ONLY-001): UPDATE/DELETE are
+    rejected by triggers; no hard FK to the run (Purge-fest), see
+    services/product_eligibility_override_schema.py."""
+
     __tablename__ = "product_eligibility_overrides"
 
     id = Column(String, primary_key=True)
     snapshot_id = Column(String, ForeignKey("product_eligibility_snapshots.id"))
     rule_id = Column(String, ForeignKey("product_eligibility_rules.id"))
     product_id = Column(String, ForeignKey("products.id"), nullable=False)
-    recommendation_run_id = Column(String, ForeignKey("recommendation_runs.id"), nullable=False)
+    recommendation_run_id = Column(String, nullable=False)
     original_decision = Column(String, nullable=False)
     overridden_dimension = Column(String, nullable=False)
     reason_code = Column(String, nullable=False)
@@ -234,6 +239,9 @@ class ProductEligibilityOverride(Base):
     valid_from = Column(String, nullable=False)
     expires_at = Column(String, nullable=False)
     policy_basis = Column(String)
+    # ELIG-OVERRIDE-SINGLE-APPROVER-001: approval rows carry 'four_eyes' or
+    # 'single_approver_attested' (part of the evidence hash); NULL on requests.
+    approval_mode = Column(String)
     evidence_hash = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -243,4 +251,12 @@ class ProductEligibilityOverride(Base):
             "ix_product_eligibility_overrides_run_product",
             "recommendation_run_id", "product_id",
         ),
+    )
+
+
+for _trigger_ddl in _override_schema.SQLITE_TRIGGERS:
+    event.listen(
+        ProductEligibilityOverride.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )

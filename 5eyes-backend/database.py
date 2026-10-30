@@ -1237,8 +1237,16 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ))
             # HANDOFF-DB-INVARIANT-001: Status-/Count-/Hash-Invarianten fuer
             # neue Schreibvorgaenge (Altzeilen bleiben unberuehrt).
-            from models.portfolio_handoff import HANDOFF_INVARIANT_SQLITE_TRIGGERS
+            from models.portfolio_handoff import (
+                HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER,
+                HANDOFF_INVARIANT_SQLITE_TRIGGERS,
+            )
 
+            # Red-Team 2026-10-28 Befund 4: der Insert-Trigger hat seit
+            # Alembic e5b3c9d1a7f4 eine strengere Bedingung -- ein bestehender
+            # Trigger gleichen Namens wird ersetzt, nicht per IF NOT EXISTS
+            # behalten. Idempotent; Altzeilen bleiben unberuehrt.
+            conn.execute(text(f"DROP TRIGGER IF EXISTS {HANDOFF_INVARIANT_SQLITE_INSERT_TRIGGER}"))
             for ddl in HANDOFF_INVARIANT_SQLITE_TRIGGERS:
                 conn.execute(text(ddl))
         # RISK-CAPACITY-PLAUSIBILITY-001 Restbefund A (2026-10-20): append-only
@@ -1274,6 +1282,12 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Plausibilitaetsbewertungen (idempotent; siehe Konstanten oben).
         for ddl in RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL + RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
+        # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.
+        from models.onsite_signature import APPEND_ONLY_TABLES
+
+        for table_name in APPEND_ONLY_TABLES:
+            Base.metadata.tables[table_name].create(bind=conn, checkfirst=True)
         # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
         # Unterzeichner auf ContractDocument, statt der bisherigen reinen
         # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
@@ -2365,6 +2379,11 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
     ensure_sqlite_risk_evidence_tenant_boundary(eng)
+    # ELIG-OVERRIDE-APPEND-ONLY-001: Override-Nachweise append-only (Trigger),
+    # ohne harten Run-FK (Purge-fest), Spalte approval_mode.
+    from services.product_eligibility_override_schema import ensure_sqlite_override_append_only
+
+    ensure_sqlite_override_append_only(eng)
     migrate_house_matrix_real_estate_cap_20(eng)
     ensure_snapshot_tables(eng)
     from services.market_data.provider_health_registry import ensure_provider_health_table

@@ -34,6 +34,7 @@ from routers.allocation import router as allocation_router
 from routers.auth import router as auth_router, users_router
 from routers.client_portal import router as client_portal_router
 from routers.cost_disclosure import router as cost_disclosure_router  # FIDLEG Art. 8/9 (2026-06-08)
+from routers.privacy import router as privacy_router  # PRIVACY-001 (2026-10-27)
 from routers.eligibility_overrides import router as eligibility_overrides_router  # ELIG-OVERRIDE-CAPTURE-001
 from routers.clients import router as clients_router
 from routers.health import router as health_router
@@ -61,6 +62,7 @@ from routers.system import router as system_router
 from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
 from routers.tax import router as tax_router
 from routers.wealth import router as wealth_router
+from routers.onsite_signature import router as onsite_signature_router  # SIGN-001 (2026-10-27)
 
 
 logger = logging.getLogger(__name__)
@@ -167,6 +169,8 @@ app.include_router(protocol_bausteine_router)  # Bug-#13a (2026-06-07)
 app.include_router(jurisdiction_router)  # WP3 (2026-07-31)
 app.include_router(cma_approval_router)  # WP3 (2026-07-31)
 app.include_router(cost_disclosure_router)  # FIDLEG Art. 8/9 Ex-ante (2026-06-08)
+app.include_router(privacy_router)  # PRIVACY-001 (2026-10-27)
+app.include_router(onsite_signature_router)  # SIGN-001 (2026-10-27)
 app.include_router(eligibility_overrides_router)  # ELIG-OVERRIDE-CAPTURE-001
 
 
