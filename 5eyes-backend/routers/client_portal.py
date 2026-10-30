@@ -130,11 +130,17 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
     from services.recommendation_release_gate import (
         CHANNEL_CLIENT_PORTAL,
         CLIENT_PORTAL_UNAVAILABLE_MESSAGE,
+        assert_current_allocation_without_adr12a_hold,
         assert_risk_signoff_release_eligible,
     )
 
     try:
         assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PORTAL)
+        # CMA-001 / ADR-12a-Release-Hold: Strategie auf KGV-aktiver CMA wird
+        # dem Kunden nicht angezeigt (neutrale Meldung, Code nur in Log/Audit).
+        assert_current_allocation_without_adr12a_hold(
+            db, mandate, channel=CHANNEL_CLIENT_PORTAL,
+        )
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         reason_code = str(detail.get("reason_code") or "RELEASE_BLOCKED")

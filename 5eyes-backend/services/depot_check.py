@@ -17,6 +17,7 @@ WealthPosition + RecommendationPosition + Product-Tabellen.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Iterable, Mapping
 
 from sqlalchemy.orm import Session
@@ -301,20 +302,8 @@ def _init_result_dict(mandate: Mandate) -> dict:
     }
 
 
-def _load_positions(
-    db: Session, mandate: Mandate,
-) -> tuple[list[tuple[RecommendationPosition, Product]], list[tuple[WealthPosition, str]], int]:
-    """Sprint U-39 (2026-06-06): Laedt Holdings + berechnet total_rappen.
-
-    Returns (positions_with_products, wealth_only_positions, total_rappen).
-    Bevorzugt RecommendationRun-basierte Positionen, faellt auf WealthPosition
-    zurueck wenn kein Run vorhanden oder leer. Verhalten 1:1 wie der
-    Original-Block in compute_depot_check.
-    """
-    positions_with_products: list[tuple[RecommendationPosition, Product]] = []
-    wealth_only_positions: list[tuple[WealthPosition, str]] = []
-    total_rappen = 0
-
+def _select_latest_run(db: Session, mandate: Mandate) -> RecommendationRun | None:
+    """Der fuer den Depot-Check gueltige Lauf: Final vor Draft vor juengstem."""
     # Kontrollrunde 2026-09-20: RecommendationRun.result_status ist entweder
     # "Draft" (vorgeschlagen, vom Berater noch nicht freigegeben), "Final"
     # (freigegeben -- das, was der Kunde tatsaechlich haelt/halten soll) oder
@@ -334,11 +323,70 @@ def _load_positions(
         .order_by(RecommendationRun.created_at.desc())
         .all()
     )
-    latest_run = (
+    return (
         next((r for r in runs if r.result_status == "Final"), None)
         or next((r for r in runs if r.result_status == "Draft"), None)
         or (runs[0] if runs else None)
     )
+
+
+def _load_snapshot_positions(
+    db: Session, mandate: Mandate, holdings_snapshot: Mapping,
+) -> tuple[list, list, int]:
+    """DEPOT-E2E-SNAPSHOT-001: IST = Bestand eines verifizierten DepotSnapshotV1.
+
+    Je Produkt ein Eintrag: ``current_amount_rappen`` = Snapshot-Wert in
+    Basiswaehrung, ``target_amount_rappen`` = Zielbetrag des gueltigen Laufs
+    (SOLL-Vergleich). Kein Rueckfall auf Lauf-Kopien oder Zielbetraege als IST,
+    keine Vermoegenspositionen. Fehlende Produktstammdaten -> ValueError.
+    """
+    held: dict[str, int] = {}
+    for item in holdings_snapshot.get("positions") or []:
+        pid = str(item.get("product_id") or "")
+        held[pid] = held.get(pid, 0) + _safe_int(item.get("amount_base_rappen"))
+    target: dict[str, int] = {}
+    run = _select_latest_run(db, mandate)
+    if run is not None:
+        for rec_pos in db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all():
+            if rec_pos.product_id:
+                pid = str(rec_pos.product_id)
+                target[pid] = target.get(pid, 0) + _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+    product_ids = sorted(set(held) | set(target))
+    products = {
+        str(p.id): p for p in db.query(Product).filter(Product.id.in_(product_ids)).all()
+    } if product_ids else {}
+    missing = sorted(pid for pid in held if pid not in products)
+    if missing:
+        raise ValueError(
+            f"{len(missing)} Produkt(e) des Depot-Snapshots ohne Produktstammdaten."
+        )
+    positions = [
+        (SimpleNamespace(
+            id=pid,
+            current_amount_rappen=held.get(pid, 0),
+            target_amount_rappen=target.get(pid, 0),
+        ), products[pid])
+        for pid in product_ids
+        if pid in products
+    ]
+    return positions, [], sum(held.values())
+
+
+def _load_positions(
+    db: Session, mandate: Mandate,
+) -> tuple[list[tuple[RecommendationPosition, Product]], list[tuple[WealthPosition, str]], int]:
+    """Sprint U-39 (2026-06-06): Laedt Holdings + berechnet total_rappen.
+
+    Returns (positions_with_products, wealth_only_positions, total_rappen).
+    Bevorzugt RecommendationRun-basierte Positionen, faellt auf WealthPosition
+    zurueck wenn kein Run vorhanden oder leer. Verhalten 1:1 wie der
+    Original-Block in compute_depot_check.
+    """
+    positions_with_products: list[tuple[RecommendationPosition, Product]] = []
+    wealth_only_positions: list[tuple[WealthPosition, str]] = []
+    total_rappen = 0
+
+    latest_run = _select_latest_run(db, mandate)
     if latest_run is not None:
         rec_positions = (
             db.query(RecommendationPosition)
@@ -481,7 +529,9 @@ def _aggregate_warnings(result: dict) -> None:
             )
 
 
-def compute_depot_check(db: Session, mandate: Mandate) -> dict:
+def compute_depot_check(
+    db: Session, mandate: Mandate, *, holdings_snapshot: Mapping | None = None,
+) -> dict:
     """Liefert eine vollständige Depot-Check-Analyse für einen Mandanten.
 
     Verwendet primär RecommendationPositions (aktuelle Holdings mit
@@ -494,11 +544,20 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
       2. _load_positions — Holdings laden + total_rappen
       3. Aggregation der Buckets/Exposures/HHI/Top-Positionen
       4. _aggregate_warnings — Warning-Texte zusammenstellen
+
+    DEPOT-E2E-SNAPSHOT-001: mit ``holdings_snapshot`` (verifizierter
+    DepotSnapshotV1, services/depot_check_snapshot.py) ist der IST genau der
+    Snapshot-Bestand -- ohne Rueckfall auf Zielbetraege.
     """
     result = _init_result_dict(mandate)
 
     # Sprint U-39 (2026-06-06): Step 1+2 extrahiert in _load_positions().
-    positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+    if holdings_snapshot is not None:
+        positions_with_products, wealth_only_positions, total_rappen = _load_snapshot_positions(
+            db, mandate, holdings_snapshot,
+        )
+    else:
+        positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
 
     result["total_advisory_wealth_rappen"] = total_rappen
     if total_rappen <= 0:
@@ -535,14 +594,11 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
         # JEDER Prozentangabe im gesamten Depot-Check) von der Summe der
         # tatsaechlich gebuckten Betraege abkoppeln koennen.
         amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
-        if amount <= 0:
+        if amount <= 0 and holdings_snapshot is None:
             amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
-        if amount <= 0:
-            continue
-        bucket = _bucket_key_from_product(prod)
-        bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
-        weight_bps = int(round(amount / total_rappen * 10000))
-        position_weights_bps[rec_pos.id] = weight_bps
+        # Exposures vor dem Ueberspringen: im Snapshot-Modus braucht der
+        # SOLL-Vergleich (5b) auch Produkte, die (noch) nicht gehalten werden.
+        # Ohne Snapshot ist hier jede Position > 0 (_load_positions filtert).
         position_country_exp[rec_pos.id] = country_exposure_for_product(
             getattr(prod, "country_exposure_json", None),
             getattr(prod, "sub_asset_class", None),
@@ -556,6 +612,12 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
             getattr(prod, "sub_asset_class", None),
             fallback_currency=getattr(prod, "currency", None),
         )
+        if amount <= 0:
+            continue
+        bucket = _bucket_key_from_product(prod)
+        bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
+        weight_bps = int(round(amount / total_rappen * 10000))
+        position_weights_bps[rec_pos.id] = weight_bps
         position_records_for_top.append({
             "position_id": rec_pos.id,
             "product_name": str(getattr(prod, "product_name", "—") or "—"),
