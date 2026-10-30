@@ -381,6 +381,9 @@ class DepotCheckData:
     # True nur fuer Mandate ohne erfassten Depotbestand: reine SOLL-Analyse
     # ohne Snapshot-Bindung, im PDF sichtbar gekennzeichnet.
     without_holdings: bool = False
+    # DEPOT-E2E-SNAPSHOT-001 (c): Hinweis, wenn die im Depot-Check gebundenen
+    # Kosten-/Benchmark-/Stress-Inputs vom Live-Stand abweichen ("Stand vom").
+    inputs_note: str | None = None
 
 
 @dataclass(frozen=True)

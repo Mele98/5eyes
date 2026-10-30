@@ -132,7 +132,7 @@ def test_analysis_binds_snapshot_identity_and_result_hash(session_factory):
         first = dca.build_depot_check_analysis(s, mandate, snapshot)
         second = dca.build_depot_check_analysis(s, mandate, snapshot)
     assert first == second
-    assert first["analysis_version"] == "DepotCheckAnalysisV1"
+    assert first["analysis_version"] == "DepotCheckAnalysisV2"
     assert first["snapshot_id"] == snapshot["snapshot_id"]
     assert first["snapshot_hash"] == snapshot["snapshot_hash"]
     assert first["as_of"] == snapshot["as_of"]
