@@ -3456,6 +3456,22 @@ def finalize_recommendation(
     db.query(Mandate).filter(Mandate.id == mandate_id).with_for_update().first()
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     cma_currency_warning = _enforce_run_cma_currency(db, mandate, run)
+    # CMA-001: sobald das CMA_POLICY-Modell aktiv geschaltet ist (erste
+    # Policy-Aktivierung), verlangt jede neue Finalisierung eine aktive,
+    # gueltige und integre Policy fuer die CMA des Laufs; die Bindung wird
+    # am Lauf persistiert (services/cma_policy.py). Vor der inhaltlichen
+    # Validierung: ohne gueltige Policy ist keine Finalisierung moeglich.
+    from services.cma_policy import finalization_policy_check
+
+    cma_policy, cma_policy_block = finalization_policy_check(
+        db, run.capital_market_assumptions_id,
+    )
+    if cma_policy_block is not None:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": cma_policy_block[0],
+            "message": cma_policy_block[1],
+            "errors": [cma_policy_block[1]],
+        })
     errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
     if errors:
         # RESERVE-LEDGER-SNAPSHOT-001: die Ledger-Sperre ist eine Handlungs-
@@ -3491,6 +3507,7 @@ def finalize_recommendation(
         RecommendationRun.id != run_id
     ).update({"result_status": "Superseded"})
     run.result_status = "Final"
+    run.cma_policy_row_id = cma_policy.id if cma_policy is not None else None
     run.updated_at = _now()
     # COST-CONTEXT-001b / COST-EVIDENCE-001 (2026-10-13): die Finalisierung
     # IST der Zertifizierungszeitpunkt -- hier wird der Kostenausweis

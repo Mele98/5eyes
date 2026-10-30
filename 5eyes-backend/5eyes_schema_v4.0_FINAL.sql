@@ -1864,3 +1864,81 @@ CREATE TABLE IF NOT EXISTS price_history (
 
 CREATE INDEX IF NOT EXISTS ix_price_history_product_date
     ON price_history(product_id, price_date);
+
+-- ============================================================
+-- CMA-001 (2026-10-27): CMA_POLICY-Modell (models/cma_policy.py).
+-- Versionierte Policy je CMA-Version, Komponentenledger, append-only
+-- Vier-Augen-Freigaben. Keine Werte; Alembic b5d2e8f1c4a7 fuer PostgreSQL.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cma_policies (
+    id                            TEXT PRIMARY KEY,
+    policy_id                     TEXT NOT NULL,
+    version                       INTEGER NOT NULL,
+    status                        TEXT NOT NULL,
+    capital_market_assumptions_id TEXT NOT NULL REFERENCES capital_market_assumptions(id),
+    correlation_policy_ref        TEXT,
+    valid_from                    TEXT NOT NULL,
+    valid_until                   TEXT,
+    data_as_of                    TEXT NOT NULL,
+    base_currency                 TEXT NOT NULL,
+    return_basis                  TEXT NOT NULL,
+    fee_basis                     TEXT NOT NULL,
+    method_version                TEXT NOT NULL,
+    sources_json                  TEXT NOT NULL,
+    rationale                     TEXT NOT NULL,
+    impact_report_ref             TEXT,
+    supersedes_id                 TEXT REFERENCES cma_policies(id),
+    expiry_rule                   TEXT,
+    exception_rule                TEXT,
+    rollback_rule                 TEXT,
+    content_hash                  TEXT,
+    created_by                    TEXT NOT NULL REFERENCES users(id),
+    created_at                    TEXT NOT NULL,
+    updated_at                    TEXT NOT NULL,
+    validated_by                  TEXT REFERENCES users(id),
+    validated_at                  TEXT,
+    approved_at                   TEXT,
+    activated_by                  TEXT REFERENCES users(id),
+    activated_at                  TEXT,
+    retired_at                    TEXT,
+    revoked_by                    TEXT REFERENCES users(id),
+    revoked_at                    TEXT,
+    revocation_reason             TEXT,
+    CONSTRAINT uq_cma_policies_policy_version UNIQUE (policy_id, version)
+);
+CREATE INDEX IF NOT EXISTS ix_cma_policies_cma_status
+    ON cma_policies(capital_market_assumptions_id, status);
+
+CREATE TABLE IF NOT EXISTS cma_policy_components (
+    id              TEXT PRIMARY KEY,
+    policy_row_id   TEXT NOT NULL REFERENCES cma_policies(id),
+    asset_key       TEXT NOT NULL,
+    component       TEXT NOT NULL,
+    value_bps       INTEGER NOT NULL,
+    unit            TEXT NOT NULL,
+    horizon_years   INTEGER NOT NULL,
+    method          TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    sign            TEXT NOT NULL,
+    confidence      TEXT,
+    range_min_bps   INTEGER NOT NULL,
+    range_max_bps   INTEGER NOT NULL,
+    created_at      TEXT NOT NULL,
+    CONSTRAINT uq_cma_policy_components_asset_component UNIQUE (policy_row_id, asset_key, component)
+);
+
+CREATE TABLE IF NOT EXISTS cma_policy_approvals (
+    id              TEXT PRIMARY KEY,
+    policy_row_id   TEXT NOT NULL REFERENCES cma_policies(id),
+    approver_id     TEXT NOT NULL REFERENCES users(id),
+    approved_at     TEXT NOT NULL,
+    rationale       TEXT NOT NULL,
+    content_hash    TEXT NOT NULL,
+    CONSTRAINT uq_cma_policy_approvals_approver UNIQUE (policy_row_id, approver_id)
+);
+CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_update
+BEFORE UPDATE ON cma_policy_approvals FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_delete
+BEFORE DELETE ON cma_policy_approvals FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END;

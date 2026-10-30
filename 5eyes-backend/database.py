@@ -392,6 +392,19 @@ FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     "ON financial_coverage_attestations(mandate_id, attested_at)",
 )
 
+# CMA-001 (Entscheidungsdokument 2026-10-27): Freigaben einer CMA_POLICY sind
+# unveraenderlich (models/cma_policy.py::CmaPolicyApproval). Model
+# (after_create) und ensure_runtime_columns() verwenden diese Konstante;
+# Alembic b5d2e8f1c4a7 fuer PostgreSQL.
+CMA_POLICY_APPROVAL_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_update "
+    "BEFORE UPDATE ON cma_policy_approvals FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_cma_policy_approvals_no_delete "
+    "BEFORE DELETE ON cma_policy_approvals FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'cma_policy_approvals is immutable'); END",
+)
+
 # DEPOT-E2E-SNAPSHOT-001 / DEPOT-E2E-STRESS-001 Option 2: append-only
 # DepotSnapshotV1 (models/snapshots.py::DepotSnapshot,
 # services/depot_snapshot.py). Haelt den hash-gebundenen IST-Bestand, auf
@@ -1013,6 +1026,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # Finalisierung eingefrorene Kostenausweis, siehe
             # models/review.py::RecommendationRun.
             ('cost_disclosure_snapshot_json', 'TEXT'),
+            # CMA-001: CMA_POLICY, an die eine Finalisierung gebunden wurde
+            # (models/cma_policy.py; NULL solange das Modell nicht aktiv ist).
+            ('cma_policy_row_id', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
@@ -1254,6 +1270,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         for ddl in (FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TABLE_DDL
                     + FINANCIAL_COVERAGE_ATTESTATION_SQLITE_TRIGGERS):
             conn.execute(text(ddl))
+        # CMA-001: append-only CMA_POLICY-Freigaben (Tabelle legt create_all an).
+        if inspect(conn).has_table("cma_policy_approvals"):
+            for ddl in CMA_POLICY_APPROVAL_SQLITE_TRIGGERS:
+                conn.execute(text(ddl))
         # DEPOT-E2E-SNAPSHOT-001: append-only DepotSnapshotV1 (idempotent).
         for ddl in DEPOT_SNAPSHOT_SQLITE_TABLE_DDL + DEPOT_SNAPSHOT_SQLITE_TRIGGERS:
             conn.execute(text(ddl))

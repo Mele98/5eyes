@@ -75,6 +75,11 @@ GLOBAL_REFERENCE_PLAIN_TABLES: frozenset[str] = frozenset({
     "asset_class_fx_history",
     "asset_class_price_history",
     "building_blocks",
+    # CMA-001: CMA_POLICY-Paket (global wie optimizer_policies; Schreiben nur
+    # Portfolio Management).
+    "cma_policies",
+    "cma_policy_approvals",
+    "cma_policy_components",
     "fx_rates",
     "house_matrix",
     "jurisdiction_home_bias_defaults",
