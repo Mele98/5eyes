@@ -486,6 +486,7 @@ BEGIN SELECT RAISE(ABORT, 'financial_coverage_attestations is immutable'); END;
 CREATE TABLE IF NOT EXISTS depot_snapshots (
     id              TEXT PRIMARY KEY,
     schema_version  TEXT NOT NULL DEFAULT 'DepotSnapshotV1',
+    tenant_id       TEXT,
     mandate_id      TEXT NOT NULL,
     client_id       TEXT NOT NULL,
     as_of_date      TEXT NOT NULL,
@@ -498,6 +499,8 @@ CREATE TABLE IF NOT EXISTS depot_snapshots (
 );
 CREATE INDEX IF NOT EXISTS ix_depot_snapshots_mandate
     ON depot_snapshots(mandate_id, as_of_date);
+CREATE INDEX IF NOT EXISTS ix_depot_snapshots_tenant_id
+    ON depot_snapshots(tenant_id);
 CREATE TRIGGER IF NOT EXISTS trg_depot_snapshots_no_update
 BEFORE UPDATE ON depot_snapshots FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
@@ -641,6 +644,7 @@ BEGIN SELECT RAISE(ABORT, 'risk_profile_signoffs is immutable'); END;
 CREATE TABLE IF NOT EXISTS onsite_signature_events (
     id VARCHAR NOT NULL,
     schema_version VARCHAR NOT NULL,
+    tenant_id VARCHAR,
     transaction_id VARCHAR NOT NULL,
     sequence_no INTEGER NOT NULL,
     event_type VARCHAR NOT NULL,
@@ -666,6 +670,7 @@ CREATE INDEX IF NOT EXISTS ix_onsite_signature_events_document ON onsite_signatu
 CREATE INDEX IF NOT EXISTS ix_onsite_signature_events_mandate ON onsite_signature_events (mandate_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_events_challenge_use ON onsite_signature_events (challenge_id) WHERE challenge_id IS NOT NULL AND event_type IN ('FACTOR_VERIFIED','FACTOR_REJECTED');
 CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_events_sequence ON onsite_signature_events (transaction_id, sequence_no);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_events_tenant_id ON onsite_signature_events (tenant_id);
 CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_events_no_update BEFORE UPDATE ON onsite_signature_events FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'onsite_signature_events is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_events_no_delete BEFORE DELETE ON onsite_signature_events FOR EACH ROW
@@ -673,6 +678,7 @@ BEGIN SELECT RAISE(ABORT, 'onsite_signature_events is immutable'); END;
 CREATE TABLE IF NOT EXISTS onsite_signature_challenges (
     id VARCHAR NOT NULL,
     schema_version VARCHAR NOT NULL,
+    tenant_id VARCHAR,
     transaction_id VARCHAR NOT NULL,
     mandate_id VARCHAR NOT NULL,
     client_id VARCHAR NOT NULL,
@@ -692,6 +698,7 @@ CREATE TABLE IF NOT EXISTS onsite_signature_challenges (
     FOREIGN KEY(actor_id) REFERENCES users (id)
 );
 CREATE INDEX IF NOT EXISTS ix_onsite_signature_challenges_transaction ON onsite_signature_challenges (transaction_id);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_challenges_tenant_id ON onsite_signature_challenges (tenant_id);
 CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_challenges_no_update BEFORE UPDATE ON onsite_signature_challenges FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'onsite_signature_challenges is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_challenges_no_delete BEFORE DELETE ON onsite_signature_challenges FOR EACH ROW
@@ -699,6 +706,7 @@ BEGIN SELECT RAISE(ABORT, 'onsite_signature_challenges is immutable'); END;
 CREATE TABLE IF NOT EXISTS onsite_signature_evidence (
     id VARCHAR NOT NULL,
     schema_version VARCHAR NOT NULL,
+    tenant_id VARCHAR,
     transaction_id VARCHAR NOT NULL,
     mandate_id VARCHAR NOT NULL,
     client_id VARCHAR NOT NULL,
@@ -747,6 +755,7 @@ CREATE TABLE IF NOT EXISTS onsite_signature_evidence (
 );
 CREATE INDEX IF NOT EXISTS ix_onsite_signature_evidence_mandate ON onsite_signature_evidence (mandate_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_onsite_signature_evidence_transaction ON onsite_signature_evidence (transaction_id);
+CREATE INDEX IF NOT EXISTS ix_onsite_signature_evidence_tenant_id ON onsite_signature_evidence (tenant_id);
 CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_evidence_no_update BEFORE UPDATE ON onsite_signature_evidence FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'onsite_signature_evidence is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_onsite_signature_evidence_no_delete BEFORE DELETE ON onsite_signature_evidence FOR EACH ROW

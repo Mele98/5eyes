@@ -699,3 +699,25 @@ def test_state_machine_has_no_shortcut_to_signed():
     assert sm.next_state(sm.SIGNED, sm.EV_ABORTED) is None
     assert sm.next_state(sm.DELIVERY_PENDING, sm.EV_ABORTED) is None
     assert sm.next_state(sm.CHALLENGE_ISSUED, sm.EV_SIGNED) is None
+
+
+def test_full_flow_binds_every_row_to_the_mandate_tenant(db):
+    """PG-002 (Red-Team 2026-10-28, Befund 6): Ereignisse, Challenge und
+    Evidence tragen den Mandanten des Mandats direkt (RLS-Plan)."""
+    from models.tenant import Tenant
+
+    db.add(Tenant(id="t-1", display_name="t-1", slug="t-1", created_at=NOW, updated_at=NOW))
+    db.flush()
+    db.get(Mandate, "mandate-1").tenant_id = "t-1"
+    db.commit()
+    doc = _doc(db)
+    ctx = Ctx(db)
+    tx = ctx.up_to_witness(doc)
+    evidence = ctx.finalize(tx)
+    ctx.deliver(tx)
+    assert evidence.tenant_id == "t-1"
+    for model in (OnsiteSignatureEvent, OnsiteSignatureChallenge, OnsiteSignatureEvidence):
+        assert {row.tenant_id for row in db.query(model).all()} == {"t-1"}, model.__tablename__
+    # Mandant ist nicht Teil der Hashes: Kette und Evidence-Hash bleiben gueltig.
+    assert svc.verify_event_chain(db, tx.transaction_id) == []
+    assert evidence.evidence_hash == svc.compute_evidence_hash(evidence)
