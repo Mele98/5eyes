@@ -748,8 +748,13 @@ def _merge_goal_analysis_with_monte_carlo(
 
 
 def _stored_goal_achievability(allocation, *, log_invalid: bool = True) -> list[dict]:
-    """Persistierte Optimizer-Evidenz (``goal_achievability_json``) als Liste."""
-    raw = getattr(allocation, "goal_achievability_json", None)
+    """Persistierte Optimizer-Evidenz (``goal_achievability_json``) als Liste.
+
+    GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.
+    """
+    from services.goal_analysis_snapshot import bound_goal_achievability_json
+
+    raw = bound_goal_achievability_json(allocation)
     if not raw:
         return []
     try:

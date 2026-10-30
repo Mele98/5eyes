@@ -896,7 +896,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     limiting_factor = getattr(ta_obj, "limiting_factor", None) if ta_obj else None
     goal_achievability: list = []
     if ta_obj is not None:
-        raw_achievability = getattr(ta_obj, "goal_achievability_json", None)
+        # GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.
+        from services.goal_analysis_snapshot import bound_goal_achievability_json
+
+        raw_achievability = bound_goal_achievability_json(ta_obj)
         if raw_achievability:
             try:
                 parsed = json.loads(raw_achievability)

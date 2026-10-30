@@ -433,7 +433,11 @@ function renderSection(
   }
   if (sectionId === 'goals') {
     return (
-      <Goals data={data.goal_based_investing} projectionGate={data.projection_gate} />
+      <Goals
+        data={data.goal_based_investing}
+        projectionGate={data.projection_gate}
+        mandateId={mandateId}
+      />
     );
   }
   if (sectionId === 'risikoprofil') {

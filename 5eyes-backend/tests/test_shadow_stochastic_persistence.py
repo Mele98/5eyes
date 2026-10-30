@@ -42,7 +42,31 @@ FAKE_STOCHASTIC_WEIGHTS = {
 }
 
 
+_REAL_OPTIMIZER_PASS = pe._run_stochastic_optimizer_pass
+
+
+def _real_run_context(**kwargs):
+    """Echter Solver-Kontext eines kleinen Laufs (64 Pfade).
+
+    SHADOW-ANALYSIS-INTEGRITY-001: Die Fake-Ergebnisse trugen keinen
+    ``context``. Ohne Kontext haelt die Modellbasis den Lauf nicht fuer einen
+    Shadow-Kandidaten, und das volle Integritaets-Gate weist die Allokation
+    zu Recht ab (Methode widerspricht der Modellbasis). Ein echter Shadow-Lauf
+    hat immer einen Kontext; die Fixture traegt jetzt einen echten.
+    """
+    original_paths = pe._OPTIMIZER_N_PATHS_DEFAULT
+    pe._OPTIMIZER_N_PATHS_DEFAULT = 64
+    try:
+        probe_kwargs = dict(kwargs, apply_targets=False, targets=dict(kwargs["targets"]),
+                            reasoning=[])
+        real = _REAL_OPTIMIZER_PASS(**probe_kwargs)
+    finally:
+        pe._OPTIMIZER_N_PATHS_DEFAULT = original_paths
+    return getattr(real, "context", None)
+
+
 def _fake_optimizer_result(**kwargs):
+    context = _real_run_context(**kwargs)
     if kwargs.get("apply_targets"):
         kwargs["targets"].update(FAKE_STOCHASTIC_WEIGHTS)
     result = OptimizerResult(
@@ -67,6 +91,7 @@ def _fake_optimizer_result(**kwargs):
         ),
     )
     object.__setattr__(result, "elapsed_ms", 250)
+    object.__setattr__(result, "context", context)
     return result
 
 
