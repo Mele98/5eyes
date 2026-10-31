@@ -2,7 +2,10 @@
 ueber den Kunden-Login, dieselben Freigabe-Gates wie die bestehende Signatur.
 
 Router-Funktionen werden direkt aufgerufen (kein App-Lifespan, keine DB
-ausser der Test-SQLite-Datei).
+ausser der Test-SQLite-Datei). Seit K-2 werfen sie fachliche Blocks als
+``svc.OnsiteSignatureError`` (``DomainError``); die HTTP-Abbildung macht der
+zentrale Handler, belegt byte-genau in
+``test_onsite_signature_http_error_parity.py``.
 """
 from __future__ import annotations
 
@@ -101,11 +104,11 @@ def test_policy_endpoint_reports_not_released_by_default(db):
 def test_open_with_shipped_runtime_is_honestly_blocked(db):
     advisor, _, _ = _users(db)
     doc = _doc(db)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(svc.OnsiteSignatureError) as exc:
         _open(db, advisor, get_onsite_signature_runtime(), doc)
-    assert exc.value.status_code == 409
-    assert exc.value.detail["reason_code"] == svc.NOT_RELEASED
-    assert exc.value.detail["details"]["release_problems"]
+    assert exc.value.http_status == 409
+    assert exc.value.as_detail()["reason_code"] == svc.NOT_RELEASED
+    assert exc.value.as_detail()["details"]["release_problems"]
     assert db.query(OnsiteSignatureEvent).count() == 0
 
 
@@ -183,10 +186,10 @@ def test_foreign_customer_sees_404_and_cannot_burn_the_code(db):
         challenge_id=challenge["challenge_id"], code=runtime.channel.codes[challenge["challenge_id"]],
         displayed_document_hash=doc.checksum_sha256, consent_text_hash=text_hash(TEST_CONSENT_TEXT),
     )
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(svc.OnsiteSignatureError) as exc:
         api.client_confirm_onsite_signature(transaction_id=tx_id, body=body, db=db,
                                             runtime=runtime, current_user=other)
-    assert exc.value.status_code == 404
+    assert exc.value.http_status == 404
     confirmed = api.client_confirm_onsite_signature(transaction_id=tx_id, body=body, db=db,
                                                     runtime=runtime, current_user=customer)
     assert confirmed["state"] == "FACTOR_VERIFIED"
@@ -194,6 +197,6 @@ def test_foreign_customer_sees_404_and_cannot_burn_the_code(db):
 
 def test_transaction_of_other_mandate_is_not_found(db):
     advisor, _, _ = _users(db)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(svc.OnsiteSignatureError) as exc:
         api.get_onsite_signature(mandate_id=MID, transaction_id="nope", db=db, current_user=advisor)
-    assert exc.value.status_code == 404
+    assert exc.value.http_status == 404

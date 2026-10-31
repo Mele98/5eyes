@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import settings
+from core.error_handlers import install_exception_handlers
 from core.logging_setup import configure_logging
 from core.middleware import MaxBodySizeMiddleware, RequestContextMiddleware
 from database import init_db
@@ -24,7 +25,8 @@ import models.jurisdiction  # noqa  WP1 (2026-07-30) — Home-Bias/CMA pro Juris
 import models.mandates  # noqa
 import models.profiling  # noqa
 import models.review  # noqa
-import models.users  # noqa
+# models.users: registriert ueber routers.auth u. a. (Modulebene, vor App-Erzeugung);
+# der Direktimport entfaellt zugunsten der Fan-out-Ratsche (K-2).
 import models.snapshots  # noqa
 import models.protocol_bausteine  # noqa  Bug-#13a (2026-06-07) — Beratungsprotokoll-Bausteine
 import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation
@@ -126,6 +128,9 @@ app = FastAPI(
     description="Ares — Lokale Beratungssoftware API",
     lifespan=lifespan,
 )
+# K-2: fachliche Fehler (core.reason_codes.DomainError) zentral -> HTTP,
+# byte-gleich zur bisherigen HTTPException-Antwort.
+install_exception_handlers(app)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
