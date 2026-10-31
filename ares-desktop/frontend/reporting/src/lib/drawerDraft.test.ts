@@ -1,24 +1,13 @@
 /**
- * Sprint U-23 + U-24 (Roadmap-Punkte 23+24, 2026-06-04): Drawer-Draft +
- * Dirty-State Tests.
+ * Sprint U-24 (Roadmap-Punkt 24, 2026-06-04): Dirty-State Tests.
+ * (Draft-Storage U-23 entfernt in W4-a3, kein Produktaufrufer.)
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   buildDirtyCloseMessage,
-  clearDraft,
-  createDraftKey,
   dirtyFields,
   isDirty,
-  loadDraft,
-  saveDraft,
 } from './drawerDraft';
-
-
-beforeEach(() => {
-  if (typeof window !== 'undefined' && window.sessionStorage) {
-    window.sessionStorage.clear();
-  }
-});
 
 
 // ---------------------------------------------------------------------------
@@ -79,103 +68,6 @@ describe('U-24 dirtyFields', () => {
   it('includes removed fields', () => {
     const result = dirtyFields({ a: 1 }, { a: 1, b: 2 });
     expect(result).toContain('b');
-  });
-});
-
-
-// ---------------------------------------------------------------------------
-// U-23: Draft-Key
-// ---------------------------------------------------------------------------
-
-describe('U-23 createDraftKey', () => {
-  it('uses 5eyes:draft prefix', () => {
-    expect(createDraftKey('MX-1', 'notes')).toBe('5eyes:draft:MX-1:notes');
-  });
-
-  it('sanitizes mandate-id', () => {
-    expect(createDraftKey('mandate/with:slash', 'notes')).toMatch(
-      /^5eyes:draft:mandate_with_slash:notes$/,
-    );
-  });
-
-  it('sanitizes form-id', () => {
-    expect(createDraftKey('MX-1', 'form/with spaces')).toMatch(
-      /^5eyes:draft:MX-1:form_with_spaces$/,
-    );
-  });
-
-  it('preserves alphanumeric + underscore + hyphen', () => {
-    const key = createDraftKey('MX_1-test', 'form_2');
-    expect(key).toBe('5eyes:draft:MX_1-test:form_2');
-  });
-});
-
-
-// ---------------------------------------------------------------------------
-// U-23: saveDraft / loadDraft / clearDraft (sessionStorage)
-// ---------------------------------------------------------------------------
-
-describe('U-23 saveDraft + loadDraft', () => {
-  it('save then load returns same values', () => {
-    const key = createDraftKey('MX-1', 'aa');
-    saveDraft(key, { aa_anmerkungen: 'Test-Text' });
-    const loaded = loadDraft(key);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.values).toEqual({ aa_anmerkungen: 'Test-Text' });
-  });
-
-  it('loadDraft returns null for unknown key', () => {
-    expect(loadDraft('5eyes:draft:nonexistent:x')).toBeNull();
-  });
-
-  it('savedAt is ISO timestamp', () => {
-    const key = createDraftKey('MX-1', 'aa');
-    saveDraft(key, { v: 1 });
-    const loaded = loadDraft(key);
-    expect(loaded!.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-  });
-
-  it('overwrites existing draft', () => {
-    const key = createDraftKey('MX-1', 'aa');
-    saveDraft(key, { v: 'old' });
-    saveDraft(key, { v: 'new' });
-    expect(loadDraft(key)!.values).toEqual({ v: 'new' });
-  });
-
-  it('clearDraft removes entry', () => {
-    const key = createDraftKey('MX-1', 'aa');
-    saveDraft(key, { v: 1 });
-    clearDraft(key);
-    expect(loadDraft(key)).toBeNull();
-  });
-
-  it('loadDraft returns null for corrupted JSON', () => {
-    const key = createDraftKey('MX-1', 'aa');
-    window.sessionStorage.setItem(key, 'not valid json');
-    expect(loadDraft(key)).toBeNull();
-  });
-
-  it('loadDraft returns null for missing values field', () => {
-    const key = createDraftKey('MX-1', 'aa');
-    window.sessionStorage.setItem(
-      key, JSON.stringify({ savedAt: '2026-06-04T00:00:00Z' }),
-    );
-    expect(loadDraft(key)).toBeNull();
-  });
-});
-
-
-// ---------------------------------------------------------------------------
-// U-23: saveDraft Robustheit (storage-Quota etc.)
-// ---------------------------------------------------------------------------
-
-describe('U-23 saveDraft robustness', () => {
-  it('returns false when sessionStorage.setItem throws (Quota)', () => {
-    const key = createDraftKey('MX-1', 'aa');
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
-      .mockImplementation(() => { throw new Error('QuotaExceeded'); });
-    expect(saveDraft(key, { v: 'huge' })).toBe(false);
-    setItemSpy.mockRestore();
   });
 });
 
