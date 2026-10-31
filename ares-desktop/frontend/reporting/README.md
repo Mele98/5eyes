@@ -48,7 +48,7 @@ Hauptapp openReportingApp()            Sub-App main.tsx
     |                                       |
     | window.desktop.getAuthToken()         |
     | (Electron) ODER                       |
-    | sessionStorage['5eyes_token']         |
+    | sessionStorage['ares.token']          |
     |                                       |
     v                                       |
 http://localhost:5173/...                   |
@@ -59,15 +59,14 @@ http://localhost:5173/...                   |
                                             v
                               consumeHandoffFromUrlFragment()
                                 |
-                                |--> sessionStorage['5eyes_token']
+                                |--> sessionStorage['ares.token']
                                 |--> history.replaceState (URL Cleanup)
                                 v
                               resolveAuthToken() (bei jedem fetch)
                                 |
                                 |  1. window.desktop.getAuthToken()
-                                |  2. sessionStorage['5eyes_token']
-                                |  3. localStorage['5eyes_token']
-                                |  4. import.meta.env.VITE_ARES_TOKEN
+                                |  2. sessionStorage['ares.token']
+                                |  3. import.meta.env.VITE_ARES_TOKEN
                                 v
                               Authorization: Bearer <JWT>
 ```
@@ -83,7 +82,7 @@ http://localhost:5173/...                   |
 6. **Im neuen Tab DevTools oeffnen**, Console:
    ```js
    window.location.hash  // sollte "" sein (URL-Cleanup hat gegriffen)
-   sessionStorage.getItem('5eyes_token')  // sollte den JWT zeigen
+   sessionStorage.getItem('ares.token')  // sollte den JWT zeigen
    ```
 7. **Network-Tab** → erster `/mandates/<ID>/advisory-report`-Request muss
    einen `Authorization: Bearer <JWT>`-Header haben → Status **200**.
@@ -103,7 +102,7 @@ http://localhost:5173/...                   |
 - Akzeptierte Hash-Patterns: `#token=`, `#/route?token=`, `#a=1&token=`
 - URL-Encoded JWT mit `.`, `=`, `+` → korrekt dekodiert
 - URL-Cleanup via `history.replaceState`
-- Cascade-Reihenfolge: `desktop > session > local > env`
+- Cascade-Reihenfolge: `desktop > session > env` (kein localStorage-Fallback)
 - Fail-Soft: jede Stufe wirft Exception → naechste Stufe greift
 - Idempotenz: wiederholte Aufrufe ohne Hash sind No-Op
 
@@ -126,7 +125,7 @@ Shell-Integration folgt in U-P27 (Polish-Sprint), wenn alle 15 Sektionen
    ```
 
 2. **Login in 5eyes-Hauptapp**, damit der Bearer-Token vorhanden ist
-   (`window.desktop.getAuthToken` in Electron, `sessionStorage['5eyes_token']`
+   (`window.desktop.getAuthToken` in Electron, `sessionStorage['ares.token']`
    im Browser-Dev-Fallback).
    (die Reporting-Sub-App nutzt dieselbe Session). Hauptapp normal über
    Electron oder `http://localhost:8000` starten und einloggen.

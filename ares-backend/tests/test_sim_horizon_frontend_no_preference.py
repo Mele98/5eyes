@@ -160,7 +160,7 @@ var document={
 };
 var currentPersona=null;
 var allocationPreferencesCache={};
-var allocationPreferenceStoragePrefix='5eyes.allocprefs.';
+var allocationPreferenceStoragePrefix='ares.allocprefs.';
 var strategyState={dirty:false,allocation:null};
 function getAllocationPreferenceKey(){return 'mandate:M1';}
 function getActiveMandateId(){return 'M1';}
@@ -175,7 +175,7 @@ function markStrategyDirty(){strategyState.dirty=true;}
 function showAppError(){}
 var __posts=[];
 var API={post:async function(url,body){__posts.push({url:url,body:body});return {};}};
-function __stored(){var raw=__ls['5eyes.allocprefs.mandate:M1'];return raw?JSON.parse(raw):null;}
+function __stored(){var raw=__ls['ares.allocprefs.mandate:M1'];return raw?JSON.parse(raw):null;}
 """
 
 
@@ -214,7 +214,7 @@ def _run(scenario_js: str, persona: dict | None = None) -> dict:
 
 
 def _seed_local(prefs: dict) -> str:
-    return "__ls['5eyes.allocprefs.mandate:M1']=" + json.dumps(json.dumps(prefs)) + ";"
+    return "__ls['ares.allocprefs.mandate:M1']=" + json.dumps(json.dumps(prefs)) + ";"
 
 
 MAN_1951 = {"date_of_birth": "1951-03-01", "salutation": "Herr"}

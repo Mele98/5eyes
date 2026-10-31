@@ -88,14 +88,14 @@ def test_chrome_tokens_preserve_navy_gold_identity_across_themes():
 def test_theme_preference_persisted_in_local_storage():
     html = _html()
 
-    assert "THEME_STORAGE_KEY='5eyes_theme'" in html
+    assert "THEME_STORAGE_KEY='ares.theme'" in html
     assert "localStorage.getItem(THEME_STORAGE_KEY)" in html
     assert "localStorage.setItem(THEME_STORAGE_KEY,theme)" in html
     # FOUC-Schutz: frueher Inline-Read direkt am Anfang von <body>, noch vor
     # dem restlichen App-Skript, mit demselben Storage-Key.
     body_start = html.index("<body>")
     early_slice = html[body_start : body_start + 800]
-    assert "localStorage.getItem('5eyes_theme')" in early_slice
+    assert "localStorage.getItem('ares.theme')" in early_slice
     assert "document.documentElement.dataset.theme=v;" in early_slice
 
 

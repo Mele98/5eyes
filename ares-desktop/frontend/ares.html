@@ -1199,7 +1199,7 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 // synchron und ohne Warten auf den Rest des Skripts laeuft.
 (function(){
   try{
-    var v=localStorage.getItem('5eyes_theme');
+    var v=localStorage.getItem('ares.theme');
     if(v==='dark'||v==='light')document.documentElement.dataset.theme=v;
   }catch(e){}
 })();
@@ -1210,7 +1210,7 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 // PRESENTATION_MODE_STORAGE_KEY/applyPresentationMode() weiter unten.
 (function(){
   try{
-    var v=localStorage.getItem('5eyes_presentation_mode');
+    var v=localStorage.getItem('ares.presentation_mode');
     if(v==='consulting'||v==='wealthmanagement')document.documentElement.dataset.presentationMode=v;
   }catch(e){}
 })();
@@ -5405,8 +5405,7 @@ const API = {
     } else if (window.desktop && typeof window.desktop.clearAuthToken === 'function' && !t) {
       try { await window.desktop.clearAuthToken(); } catch(e){}
     } else {
-      try { t ? sessionStorage.setItem('5eyes_token', t) : sessionStorage.removeItem('5eyes_token'); } catch(e){}
-      try { localStorage.removeItem('5eyes_token'); } catch(e){}
+      try { t ? sessionStorage.setItem('ares.token', t) : sessionStorage.removeItem('ares.token'); } catch(e){}
     }
   },
   async getToken() {
@@ -5414,17 +5413,7 @@ const API = {
     if (window.desktop && typeof window.desktop.getAuthToken === 'function') {
       try { this._token = await window.desktop.getAuthToken(); } catch(e){}
     }
-    if (!this._token) { try { this._token = sessionStorage.getItem('5eyes_token'); } catch(e){} }
-    if (!this._token) {
-      try {
-        const legacyToken = localStorage.getItem('5eyes_token');
-        if (legacyToken) {
-          this._token = legacyToken;
-          try { sessionStorage.setItem('5eyes_token', legacyToken); } catch(e){}
-          try { localStorage.removeItem('5eyes_token'); } catch(e){}
-        }
-      } catch(e){}
-    }
+    if (!this._token) { try { this._token = sessionStorage.getItem('ares.token'); } catch(e){} }
     return this._token;
   },
   // Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token bekommt einen
@@ -5440,7 +5429,7 @@ const API = {
     } else if (window.desktop && typeof window.desktop.clearRefreshToken === 'function' && !t) {
       try { await window.desktop.clearRefreshToken(); } catch(e){}
     } else {
-      try { t ? sessionStorage.setItem('5eyes_refresh_token', t) : sessionStorage.removeItem('5eyes_refresh_token'); } catch(e){}
+      try { t ? sessionStorage.setItem('ares.refresh_token', t) : sessionStorage.removeItem('ares.refresh_token'); } catch(e){}
     }
   },
   async getRefreshToken() {
@@ -5448,7 +5437,7 @@ const API = {
     if (window.desktop && typeof window.desktop.getRefreshToken === 'function') {
       try { this._refreshToken = await window.desktop.getRefreshToken(); } catch(e){}
     }
-    if (!this._refreshToken) { try { this._refreshToken = sessionStorage.getItem('5eyes_refresh_token'); } catch(e){} }
+    if (!this._refreshToken) { try { this._refreshToken = sessionStorage.getItem('ares.refresh_token'); } catch(e){} }
     return this._refreshToken;
   },
   // Stiller Token-Refresh vor dem harten Logout-Fallback bei 401 (siehe
@@ -6594,7 +6583,7 @@ function normalizeVisibleMojibake(root){
 // wird), damit beim Start kein Hell/Dunkel-Flackern (FOUC) auftritt. Diese
 // Funktionen hier uebernehmen nur noch: (a) Klick-Handling, (b) Icon-Sync,
 // (c) Persistenz. Siehe THEME_STORAGE_KEY / applyStoredThemeEarly() im <body>.
-var THEME_STORAGE_KEY='5eyes_theme';
+var THEME_STORAGE_KEY='ares.theme';
 function getStoredTheme(){
   try{
     var v=localStorage.getItem(THEME_STORAGE_KEY);
@@ -6642,7 +6631,7 @@ function updateThemeToggleIcon(){
 // Untergrenze (UND-Verknuepfung, nie ODER) -- der Praesentationsmodus kann
 // die operative Ansicht nur zusaetzlich ausblenden, nie Ausfuehrungsbefugnis
 // vortaeuschen, die real nicht besteht.
-var PRESENTATION_MODE_STORAGE_KEY='5eyes_presentation_mode';
+var PRESENTATION_MODE_STORAGE_KEY='ares.presentation_mode';
 function getStoredPresentationMode(){
   try{
     var v=localStorage.getItem(PRESENTATION_MODE_STORAGE_KEY);
@@ -7194,7 +7183,7 @@ function renum(){
   });
 }
 function cashflowOrderStorageKey(type){
-  return '5eyes.cashflow-order.'+String(getActiveClientId()||'demo')+'.'+String(type||'all');
+  return 'ares.cashflow-order.'+String(getActiveClientId()||'demo')+'.'+String(type||'all');
 }
 function storedCashflowOrder(type){
   try{
@@ -14287,7 +14276,7 @@ async function resolveReportingAppUrl(path){
     }
   } catch(e) { /* fallback unten */ }
   if (!token) {
-    try { token = sessionStorage.getItem('5eyes_token') || ''; } catch(e){}
+    try { token = sessionStorage.getItem('ares.token') || ''; } catch(e){}
   }
   // Bug-#6: Backend-Mount statt Vite-Dev-Server. Backend-URL aus der
   // gleichen Quelle wie API.js (AresAPI.resolveBaseUrl / desktop),
@@ -19652,7 +19641,7 @@ function resetAdvisoryLogModal(){
   });
 }
 var allocationPreferencesCache={};
-var allocationPreferenceStoragePrefix='5eyes.allocprefs.';
+var allocationPreferenceStoragePrefix='ares.allocprefs.';
 var allocationBandBaseline={};
 var allocationBandStoredOverrides={};
 function getAllocationPreferenceKey(){
