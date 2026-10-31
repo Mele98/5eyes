@@ -17,13 +17,16 @@ npm run dist:win
 Das chained intern:
 
 ```
-preflight:release   (release-check.js: Icons, HTML, Reporting-dist, Bundle-Exe)
-    |
-    v
 build:reporting     (cd frontend/reporting && npm run build  -> dist/)
     |
     v
-build:backend       (PyInstaller im ares-backend/ -> bundle/backend/ares-api.exe)
+build:backend       (PyInstaller im ares-backend/ -> bundle/backend/ares-api.exe,
+    |                Reporting-dist als reporting_dist in die EXE eingebettet)
+    v
+preflight:release   (release-check.js: Icons, HTML, Reporting-dist, Bundle-Exe)
+    |
+    v
+scan:bundle-secrets (bundle/backend ohne echte .env / private Schluessel)
     |
     v
 electron-builder    (NSIS-Installer in ares-desktop/dist/)

@@ -1,0 +1,9 @@
+# W1-803-03: Build-Werkzeug fuer die Backend-EXE (ares-desktop/scripts/build-backend.js)
+# und den Packaging-Smoke (scripts/packaging_smoke.py liest das PyInstaller-Archiv).
+# Exakt gepinnt, damit CI und Release-Rechner dasselbe Artefakt erzeugen.
+# Laufzeit-Abhaengigkeiten stehen in requirements.txt.
+pyinstaller==6.16.0
+pyinstaller-hooks-contrib==2026.9
+altgraph==0.17.5
+pefile==2023.2.7
+pywin32-ctypes==0.2.3
