@@ -184,13 +184,20 @@ class DomainError(Exception):
 
     ``as_detail()`` liefert das ``detail``-Objekt der Antwort in fester
     Schluesselreihenfolge: ``reason_code``, ``message``, optional ``channel``
-    (Klassenattribut, z. B. ``"onsite_signature"``), optional ``details``.
-    ``reason_code`` wird als reiner ``str`` gefuehrt; dynamische Codes (z. B.
-    von einem externen Signatur-Provider) bleiben unveraendert.
+    (Klassenattribut, z. B. ``"onsite_signature"``), dann die flachen
+    Zusatzschluessel aus ``extra`` in Einfuegereihenfolge, zuletzt optional
+    ``details`` (verschachtelt). ``reason_code`` wird als reiner ``str``
+    gefuehrt; dynamische Codes (z. B. von einem externen Signatur-Provider)
+    bleiben unveraendert.
+
+    Kompatibel zur HTTPException von FastAPI fuer Aufrufer, die einen Fehler
+    fangen und auswerten: ``status_code`` (= ``http_status``), ``detail``
+    (= ``as_detail()``) und ``headers``.
     """
 
     channel: str | None = None
     default_http_status: int = 409
+    _RESERVED_KEYS = frozenset({"reason_code", "message"})
 
     def __init__(
         self,
@@ -200,6 +207,7 @@ class DomainError(Exception):
         http_status: int | None = None,
         details: Mapping[str, Any] | None = None,
         headers: Mapping[str, str] | None = None,
+        extra: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         # ReasonCode-Mitglied -> reiner str; alles andere bleibt unveraendert.
@@ -208,11 +216,24 @@ class DomainError(Exception):
         self.http_status = self.default_http_status if http_status is None else http_status
         self.details = dict(details or {})
         self.headers = dict(headers) if headers else None
+        self.extra = dict(extra or {})
+        clash = self._RESERVED_KEYS & set(self.extra)
+        if clash or (self.channel and "channel" in self.extra) or ("details" in self.extra and self.details):
+            raise ValueError(f"DomainError.extra ueberschreibt Pflichtschluessel: {sorted(clash) or 'channel/details'}")
+
+    @property
+    def status_code(self) -> int:
+        return self.http_status
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return self.as_detail()
 
     def as_detail(self) -> dict[str, Any]:
         detail: dict[str, Any] = {"reason_code": self.reason_code, "message": self.message}
         if self.channel:
             detail["channel"] = self.channel
+        detail.update(self.extra)
         if self.details:
             detail["details"] = self.details
         return detail

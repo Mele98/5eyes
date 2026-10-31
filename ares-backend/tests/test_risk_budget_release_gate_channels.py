@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -139,7 +139,7 @@ def test_advisory_pdf_blocks_before_render(session_factory, monkeypatch, mode, r
     )
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             get_advisory_report_pdf(mandate_id=mid, db=db, current_user=advisor)
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == reason
@@ -185,7 +185,7 @@ def test_signature_of_recommendation_document_blocked_without_mutation(
     doc_id = _add_document(session_factory, mid, advisor_id, "Anlagestrategie")
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             sign_document(
                 mandate_id=mid, doc_id=doc_id,
                 body=ContractDocumentSign(
@@ -247,7 +247,7 @@ def test_handoff_blocked_without_persisting(session_factory, monkeypatch, mode, 
     )
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             create_portfolio_handoff(
                 mandate_id=mid, run_id=run_id,
                 body=PortfolioHandoffCreate(recipient_name="AM"),
@@ -271,7 +271,7 @@ def test_handoff_run_without_allocation_is_blocked(session_factory):
         policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
         run_id = _make_run(session_factory, mid, None, aid, advisor_id, policy, cma)
         run = db.query(RecommendationRun).filter(RecommendationRun.id == run_id).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             assert_recommendation_release_eligible(db, mandate, channel="handoff", run=run)
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == RELEASE_ALLOCATION_MISSING

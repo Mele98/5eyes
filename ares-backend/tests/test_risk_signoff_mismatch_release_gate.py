@@ -26,6 +26,8 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 from sqlalchemy import text
 
 from models.mandates import Mandate
@@ -201,7 +203,7 @@ def test_client_pdf_blocked_on_signoff_mismatch(mismatch, monkeypatch, route):
     session, advisor = mismatch
     calls = _no_render(monkeypatch)
     before = _document_count(session)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _PDF_ROUTES[route](session, advisor)
     _assert_blocked(exc, CHANNEL_CLIENT_PDF)
     assert calls == [], f"{route}: kein Render/Archiv bei gesperrtem Gate"
@@ -251,7 +253,7 @@ def test_risikoprofil_pdf_legacy_unchanged(seeded, monkeypatch, legacy):
 def test_signing_bound_document_blocked_without_mutation(mismatch, document_type):
     session, advisor = mismatch
     doc_id = _add_document(session, advisor, document_type)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _sign_doc(session, advisor, doc_id)
     _assert_blocked(exc, CHANNEL_SIGNATURE)
     session.expire_all()
@@ -300,7 +302,7 @@ def _handoff(session, advisor, monkeypatch):
         handoff_router, "snapshot_handoff",
         lambda *a, **k: snapshots.append(1) or ([{"isin": "X"}], 1, "recorded_depot"),
     )
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         handoff_router.create_portfolio_handoff(
             mandate_id=_MID, run_id="run-x",
             body=PortfolioHandoffCreate(recipient_name="AM"),

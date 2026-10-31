@@ -17,7 +17,7 @@ Diese Datei ist die EINE Quelle der Pruefung:
   ``risky_fraction_bps_at_generation`` der verankerten Allokation. Die
   Finalisierung nutzt sie fuer ihre Fehlerliste (422 wie bisher).
 - ``assert_recommendation_release_eligible(...)`` -- das Gate fuer die
-  Freigabekanaele. Wirft ``HTTPException(409)`` mit stabilem Reason-Code,
+  Freigabekanaele. Wirft ``DomainError`` (409) mit stabilem Reason-Code,
   BEVOR der Kanal irgendeine Wirkung hat (kein PDF, keine Signatur, kein
   Handoff).
 
@@ -31,8 +31,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
+from core.reason_codes import DomainError
 
 RISK_BUDGET_EVIDENCE_MISSING = "RISK_BUDGET_EVIDENCE_MISSING"
 RISK_BUDGET_VIOLATED = "RISK_BUDGET_VIOLATED"
@@ -149,23 +150,21 @@ def assert_recommendation_release_eligible(
       wird keine Strategie publiziert und es gibt kein Risikobudget zu
       belegen.
 
-    Wirft ``HTTPException(409, detail={reason_code, message, channel})``;
+    Wirft ``DomainError`` (409, detail={reason_code, message, channel, ...});
     neben dem Risikobudget auch ``CMA_ADR12A_HOLD`` (KGV-aktive CMA).
     """
     if run is not None:
         allocation = _run_allocation(db, mandate, run)
         if allocation is None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason_code": RELEASE_ALLOCATION_MISSING,
-                    "message": (
-                        f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}: "
-                        "die Empfehlung ist keiner gültigen Soll-Allokation "
-                        "zugeordnet. Bitte die Allokation neu generieren."
-                    ),
-                    "channel": channel,
-                },
+            raise DomainError(
+                RELEASE_ALLOCATION_MISSING,
+                (
+                    f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}: "
+                    "die Empfehlung ist keiner gültigen Soll-Allokation "
+                    "zugeordnet. Bitte die Allokation neu generieren."
+                ),
+                http_status=409,
+                extra={"channel": channel},
             )
     else:
         allocation = _current_allocation(db, mandate)
@@ -186,14 +185,14 @@ def assert_recommendation_release_eligible(
     if not findings:
         return
     reason_code, message = findings[0]
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "reason_code": reason_code,
-            "message": (
-                f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}. "
-                f"{message}"
-            ),
+    raise DomainError(
+        reason_code,
+        (
+            f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}. "
+            f"{message}"
+        ),
+        http_status=409,
+        extra={
             "channel": channel,
             "target_allocation_id": getattr(allocation, "id", None),
         },
@@ -278,14 +277,14 @@ def assert_risk_signoff_release_eligible(
     mismatches = list(binding.mismatches) if binding is not None else ["signoff_missing"]
     if binding is not None and not binding.row_verified and "signoff_row" not in mismatches:
         mismatches.append("signoff_row")
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "reason_code": RISK_PROFILE_SIGNOFF_MISMATCH,
-            "message": (
-                f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}. "
-                f"{_SIGNOFF_MISMATCH_MESSAGE}"
-            ),
+    raise DomainError(
+        RISK_PROFILE_SIGNOFF_MISMATCH,
+        (
+            f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}. "
+            f"{_SIGNOFF_MISMATCH_MESSAGE}"
+        ),
+        http_status=409,
+        extra={
             "channel": channel,
             "risk_assessment_id": getattr(assessment, "id", None),
             "signoff_id": getattr(assessment, "signoff_id", None),

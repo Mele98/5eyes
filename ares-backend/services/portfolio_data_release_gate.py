@@ -28,9 +28,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from core.reason_codes import DomainError
 from services.portfolio_data_freshness import FreshnessInputError, assess_freshness
 from services.portfolio_data_policy import (
     GATE_ACTIONS,
@@ -176,14 +176,14 @@ def assert_portfolio_data_release_eligible(db: Session, mandate, *, action: str)
     gate = assessment["gates"][action]
     if not gate["blocked"]:
         return
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "reason_code": PORTFOLIO_DATA_NOT_RELEASABLE,
-            "message": (
-                f"{_ACTION_LABELS[action]}: die Depotdaten erfuellen die Policy "
-                f"{policy.version} nicht ({', '.join(gate['reasons'])})."
-            ),
+    raise DomainError(
+        PORTFOLIO_DATA_NOT_RELEASABLE,
+        (
+            f"{_ACTION_LABELS[action]}: die Depotdaten erfuellen die Policy "
+            f"{policy.version} nicht ({', '.join(gate['reasons'])})."
+        ),
+        http_status=409,
+        extra={
             "action": action,
             "reasons": gate["reasons"],
             "policy_version": policy.version,

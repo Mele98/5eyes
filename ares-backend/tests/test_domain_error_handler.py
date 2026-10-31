@@ -133,3 +133,73 @@ def test_handler_follows_a_custom_http_exception_handler():
 
     r = TestClient(app).get("/x")
     assert r.status_code == 409 and r.text == "custom:409"
+
+
+# --------------------------------------------------------------------------
+# K-2b: flache Zusatzschluessel + HTTPException-kompatible Attribute
+# --------------------------------------------------------------------------
+
+
+def test_extra_keys_are_flat_and_ordered_after_channel():
+    err = _Channel("X_CODE", "m", extra={"z": 1, "a": None, "list": [1, 2]}, details={"d": 1})
+    assert list(err.as_detail()) == ["reason_code", "message", "channel", "z", "a", "list", "details"]
+    plain = DomainError("X_CODE", "m", extra={"channel": "signature", "target_allocation_id": None})
+    assert list(plain.as_detail()) == ["reason_code", "message", "channel", "target_allocation_id"]
+    assert plain.as_detail()["channel"] == "signature"
+
+
+@pytest.mark.parametrize("extra", [{"reason_code": "Y"}, {"message": "x"}])
+def test_extra_must_not_override_required_keys(extra):
+    with pytest.raises(ValueError):
+        DomainError("X_CODE", "m", extra=extra)
+
+
+def test_channel_class_attribute_and_extra_channel_conflict():
+    with pytest.raises(ValueError):
+        _Channel("X_CODE", "m", extra={"channel": "other"})
+
+
+def test_http_exception_compatible_attributes():
+    err = DomainError("X_CODE", "m", http_status=422, extra={"k": "v"}, headers={"Retry-After": "1"})
+    legacy = HTTPException(status_code=422, detail={"reason_code": "X_CODE", "message": "m", "k": "v"},
+                           headers={"Retry-After": "1"})
+    assert err.status_code == legacy.status_code
+    assert err.detail == legacy.detail and list(err.detail) == list(legacy.detail)
+    assert err.headers == legacy.headers
+
+
+@pytest.mark.parametrize("extra", [None, {"channel": "handoff", "target_allocation_id": "ta"}])
+def test_domain_error_with_extra_equals_legacy_http_exception_bytes(extra):
+    app = _app()
+
+    @app.get("/new")
+    def new():
+        raise DomainError("RISK_BUDGET_VIOLATED", "Budget – ü", extra=extra)
+
+    @app.get("/old")
+    def old():
+        raise HTTPException(status_code=409, detail={"reason_code": "RISK_BUDGET_VIOLATED",
+                                                     "message": "Budget – ü", **(extra or {})})
+
+    client = TestClient(app)
+    a, b = client.get("/new"), client.get("/old")
+    assert (a.status_code, a.content, a.headers.raw) == (b.status_code, b.content, b.headers.raw)
+
+
+def test_migrated_service_gates_raise_domain_error():
+    """K-2b: die strukturierten Service-Stellen werfen DomainError statt HTTPException."""
+    from types import SimpleNamespace
+
+    import services.recommendation_release_gate as gate
+    from services import risk_profile_signoff, signature_artifact
+
+    with pytest.raises(DomainError) as exc:
+        gate.assert_recommendation_release_eligible(
+            None, SimpleNamespace(id="m"), channel=gate.CHANNEL_HANDOFF,
+            run=SimpleNamespace(target_allocation_id=None))
+    assert not isinstance(exc.value, HTTPException) and exc.value.status_code == 409
+    with pytest.raises(DomainError):
+        signature_artifact.assert_signable_artifact(SimpleNamespace(pdf_base64=None))
+    with pytest.raises(DomainError) as exc:
+        risk_profile_signoff._conflict("RISK_ASSESSMENT_VERSION_CONFLICT", "m", a=1)
+    assert exc.value.detail == {"reason_code": "RISK_ASSESSMENT_VERSION_CONFLICT", "message": "m", "a": 1}

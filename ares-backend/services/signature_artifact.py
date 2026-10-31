@@ -14,7 +14,9 @@ gespeicherten Bytes passt (SIGN-HASH-001).
    ``checksum_sha256`` (sonst wurde das Artefakt nach der Archivierung
    veraendert oder falsch abgelegt).
 
-Fehler -> ``HTTPException(409, detail={reason_code, message})``.
+Fehler -> ``DomainError`` (409, detail={reason_code, message, channel}); der
+zentrale Handler bildet ihn byte-gleich zur frueheren ``HTTPException`` ab
+(K-2b).
 ``content_hash`` ist ein Fingerprint der Fachdaten VOR dem Rendern
 (services/document_archive.py) und laesst sich aus den Bytes nicht
 nachrechnen -- hier wird nur seine Existenz verlangt.
@@ -26,19 +28,16 @@ import binascii
 import hashlib
 from typing import Any
 
-from fastapi import HTTPException
+from core.reason_codes import DomainError, ReasonCode
 
-SIGNATURE_ARTIFACT_MISSING = "SIGNATURE_ARTIFACT_MISSING"
-SIGNATURE_ARTIFACT_HASH_MISMATCH = "SIGNATURE_ARTIFACT_HASH_MISMATCH"
+SIGNATURE_ARTIFACT_MISSING = ReasonCode.SIGNATURE_ARTIFACT_MISSING.value
+SIGNATURE_ARTIFACT_HASH_MISMATCH = ReasonCode.SIGNATURE_ARTIFACT_HASH_MISMATCH.value
 # SIGN-IDENTITY-001: ein Berater-/Admin-Principal behauptet die Kundenrolle.
-CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL = "CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL"
+CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL = ReasonCode.CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL.value
 
 
-def _blocked(reason_code: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=409,
-        detail={"reason_code": reason_code, "message": message, "channel": "signature"},
-    )
+def _blocked(reason_code: str, message: str) -> DomainError:
+    return DomainError(reason_code, message, http_status=409, extra={"channel": "signature"})
 
 
 def assert_signable_artifact(doc: Any) -> None:
