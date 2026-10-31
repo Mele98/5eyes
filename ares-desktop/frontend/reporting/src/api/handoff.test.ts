@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { consumeHandoffFromUrlFragment } from './handoff';
 
-const STORAGE_KEY = '5eyes_token';
+const STORAGE_KEY = 'ares.token';
 
 function setHash(hash: string): void {
   // Direktes Setzen des Hashes via history.replaceState — sonst loest

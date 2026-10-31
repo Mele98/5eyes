@@ -1,12 +1,14 @@
 /**
- * Sprint U-5 (Roadmap-Punkt 5): Tests fuer die 4-stufige Auth-Token-
+ * Sprint U-5 (Roadmap-Punkt 5): Tests fuer die 3-stufige Auth-Token-
  * Cascade in `resolveAuthToken` + fetch-Verhalten in `fetchAdvisoryReport`.
  *
  * Cascade-Reihenfolge:
  *  1. window.desktop.getAuthToken()   (Electron IPC -> safeStorage)
- *  2. sessionStorage['5eyes_token']    (via Handoff aus URL-Fragment)
- *  3. localStorage['5eyes_token']      (Legacy-Backward-Compat)
- *  4. import.meta.env.VITE_ARES_TOKEN (Vite Dev-Default)
+ *  2. sessionStorage['ares.token']   (via Handoff aus URL-Fragment)
+ *  3. import.meta.env.VITE_ARES_TOKEN (Vite Dev-Default)
+ *
+ * localStorage ist KEINE Quelle (kein Legacy-Fallback): ein dort liegender
+ * Wert unter demselben Schluessel wird ignoriert.
  *
  * Jede Stufe muss bei Exception der vorherigen Stufe weitergehen
  * (Fail-Soft), damit der Berater nie in einem gebrochenen Auth-State
@@ -15,8 +17,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resolveAuthToken } from './client';
+import { AUTH_TOKEN_STORAGE_KEY } from './tokenKey';
 
-const STORAGE_KEY = '5eyes_token';
+const STORAGE_KEY = 'ares.token';
 
 function clearAllStorage(): void {
   window.sessionStorage.clear();
@@ -68,10 +71,14 @@ describe('resolveAuthToken — Cascade-Reihenfolge', () => {
     expect(token).toBe('session-only');
   });
 
-  it('Stufe 3: localStorage als Backwards-Compat-Fallback', async () => {
+  it('localStorage ist keine Quelle (kein Legacy-Fallback)', async () => {
     window.localStorage.setItem(STORAGE_KEY, 'legacy-token');
     const token = await resolveAuthToken();
-    expect(token).toBe('legacy-token');
+    expect(token).toBeNull();
+  });
+
+  it('Schluessel kommt aus tokenKey und ist ares.token', () => {
+    expect(AUTH_TOKEN_STORAGE_KEY).toBe(STORAGE_KEY);
   });
 
   it('Cascade gibt null wenn nichts gefunden', async () => {
@@ -79,7 +86,7 @@ describe('resolveAuthToken — Cascade-Reihenfolge', () => {
     expect(token).toBeNull();
   });
 
-  it('Stufe 4: VITE_ARES_TOKEN als Dev-Default', async () => {
+  it('Stufe 3: VITE_ARES_TOKEN als Dev-Default', async () => {
     vi.stubEnv('VITE_ARES_TOKEN', 'dev-env-token');
     try {
       const token = await resolveAuthToken();
@@ -106,7 +113,7 @@ describe('resolveAuthToken — Fail-Soft', () => {
     expect(token).toBe('fallback');
   });
 
-  it('sessionStorage wirft Exception -> faellt durch zu localStorage', async () => {
+  it('sessionStorage wirft Exception -> localStorage wird NICHT gelesen', async () => {
     window.localStorage.setItem(STORAGE_KEY, 'legacy');
     const spy = vi
       .spyOn(Storage.prototype, 'getItem')
@@ -115,7 +122,7 @@ describe('resolveAuthToken — Fail-Soft', () => {
         throw new Error('Storage disabled');
       });
     const token = await resolveAuthToken();
-    expect(token).toBe('legacy');
+    expect(token).toBeNull();
     spy.mockRestore();
   });
 

@@ -3,13 +3,15 @@
  *
  * Auth-Strategie: gleicher Bearer-Token wie die Ares-Hauptapp. Electron
  * liefert ihn via `window.desktop.getAuthToken`; im Browser-Dev-Fallback
- * lesen wir `sessionStorage['5eyes_token']`.
+ * lesen wir `sessionStorage[AUTH_TOKEN_STORAGE_KEY]` (siehe `./tokenKey`).
+ * Es gibt keine Rueckfallquelle im persistenten Browser-Speicher.
  *
  * Error-Handling: Backend-4xx liefern strukturierte `{detail: string}`-
  * Responses; wir packen sie in `ApiError`. Network-Errors → ApiError mit
  * status=0. Schema-Drift (Top-Level-Key fehlt) → SchemaError.
  */
 import type { AdvisoryReport } from './types';
+import { AUTH_TOKEN_STORAGE_KEY } from './tokenKey';
 
 declare global {
   interface Window {
@@ -153,20 +155,12 @@ export async function resolveAuthToken(): Promise<string | null> {
     // Browser-dev fallback below.
   }
   try {
-    const sessionToken = window.sessionStorage.getItem('5eyes_token');
+    const sessionToken = window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
     if (sessionToken) {
       return sessionToken;
     }
   } catch {
     // Storage can be unavailable in hardened browser contexts.
-  }
-  try {
-    const localToken = window.localStorage.getItem('5eyes_token');
-    if (localToken) {
-      return localToken;
-    }
-  } catch {
-    // Continue with Vite dev fallback.
   }
   if (import.meta.env.DEV && import.meta.env.VITE_ARES_TOKEN) {
     return import.meta.env.VITE_ARES_TOKEN;

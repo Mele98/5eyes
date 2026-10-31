@@ -7728,7 +7728,7 @@
     "tests/test_reporting_mainapp_handoff.py::test_handoff_reads_url_fragment_not_querystring": 0.0005,
     "tests/test_reporting_mainapp_handoff.py::test_handoff_ts_exists_and_exports_consumer": 0.0005,
     "tests/test_reporting_mainapp_handoff.py::test_handoff_ts_no_third_party_brands": 0.0005,
-    "tests/test_reporting_mainapp_handoff.py::test_handoff_uses_5eyes_token_key_for_sessionstorage": 0.0005,
+    "tests/test_reporting_mainapp_handoff.py::test_handoff_uses_shared_token_key_for_sessionstorage": 0.0005,
     "tests/test_reporting_mainapp_handoff.py::test_main_tsx_calls_handoff_before_react_render": 0.0005,
     "tests/test_reporting_mainapp_handoff.py::test_mainapp_has_advisory_report_button_in_portfolio_header": 0.0035,
     "tests/test_reporting_mainapp_handoff.py::test_mainapp_open_reporting_app_function_handles_missing_mandate": 0.0025,
