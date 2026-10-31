@@ -124,17 +124,18 @@ def test_client_validates_schema_v2_top_level_keys():
 
 
 def test_client_sends_bearer_token_for_backend_auth():
-    """5eyes-Backend erwartet Authorization: Bearer <token> (kein Cookie).
+    """Ares-Backend erwartet Authorization: Bearer <token> (kein Cookie).
     Token-Quellen-Hierarchie:
       1. Electron: window.desktop.getAuthToken()
-      2. Browser-Dev: sessionStorage['5eyes_token'] / localStorage['5eyes_token']
+      2. Browser-Dev: sessionStorage[AUTH_TOKEN_STORAGE_KEY] (kein localStorage)
       3. Build-Env: VITE_ARES_TOKEN (nur DEV)
     credentials:'include' bleibt drin, falls Backend später zusätzlich
     Cookie-Auth unterstützt — kein Regress-Risiko."""
     content = _read("api/client.ts")
     assert "resolveAuthToken" in content
     assert "getAuthToken" in content
-    assert "sessionStorage.getItem('5eyes_token')" in content
+    assert "sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)" in content
+    assert "localStorage" not in content
     assert "Authorization" in content
     assert "Bearer ${token}" in content
     assert "credentials: 'include'" in content
