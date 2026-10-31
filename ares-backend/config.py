@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 import base64
 import ctypes
 import hmac
@@ -821,6 +823,49 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# --- RunContext (K-3, Phase 2 Modularisierung) ---------------------------------
+# "Ein Lauf kennt seine Mathematik": die Werte, die ein Engine-Lauf bisher
+# verstreut und zu beliebigen Zeitpunkten aus ``settings`` bzw. dem Mandat las,
+# werden EINMAL zu Beginn des Laufs eingefroren und durch den Lauf gereicht.
+# Eine Settings-Aenderung waehrend des Laufs wirkt fuer die migrierten Leser
+# nicht mehr. Liegt hier und nicht in einem eigenen Modul: Erzeuger und
+# Konsumenten importieren config ohnehin (Architektur-Ratsche fan_out), und
+# der Typ selbst importiert nichts Internes -- die aufgeloeste Jurisdiktion
+# (``jurisdictions.resolve.resolve_pack``) wird vom Erzeuger uebergeben.
+@dataclass(frozen=True, slots=True)
+class RunContext:
+    """Eingefrorener Kontext genau eines Engine-Laufs.
+
+    - ``jurisdiction``: ``resolve_pack(mandate).code`` -- exakt der Wert der
+      heutigen Formel ``mandate.jurisdiction or "CH"`` (ohne Normalisierung).
+    - ``jurisdiction_source``: Herkunft laut ``ResolvedPack.source``.
+    - ``resolved_pack``: das ``ResolvedPack`` selbst (fuer Pack-Version/-Hash
+      in spaeteren Schritten, z.B. Evidence), unveraendert durchgereicht.
+    - ``optimizer_mode``: ``settings.optimizer_mode`` zum Laufbeginn.
+    """
+
+    jurisdiction: Any
+    jurisdiction_source: str
+    resolved_pack: Any
+    optimizer_mode: str
+
+    @classmethod
+    def capture(cls, resolved_pack: Any, source: Any = None) -> "RunContext":
+        """Friert ``resolved_pack`` und die Lauf-Settings ein.
+
+        ``source`` ist das Settings-Objekt, aus dem gelesen wird (Default:
+        ``config.settings``); der Erzeuger uebergibt das Objekt, das er bisher
+        selbst gelesen haette, damit Monkeypatches identisch wirken.
+        """
+        cfg = settings if source is None else source
+        return cls(
+            jurisdiction=resolved_pack.code,
+            jurisdiction_source=str(resolved_pack.source),
+            resolved_pack=resolved_pack,
+            optimizer_mode=cfg.optimizer_mode,
+        )
 
 
 # --- HTTP-Identitaet gegenueber externen Diensten -------------------------------
