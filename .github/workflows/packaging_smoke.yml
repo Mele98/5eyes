@@ -1,0 +1,102 @@
+name: Packaging Smoke
+
+# W1-803-03 (Codex-Abnahme 2026-10-31): Packaging war nicht Teil der PR-CI.
+# Ein Pfad-Rename konnte die gepackte App brechen, waehrend Python-, Node- und
+# Reporting-Tests gruen blieben. Dieser Job baut auf einem frischen Checkout
+# exakt den Release-Weg (`npm run pack` = build:reporting -> build:backend ->
+# preflight:release -> scan:bundle-secrets -> electron-builder --dir, ohne
+# Signierung/Publish) und startet danach das gepackte Backend-EXE in einem
+# isolierten Temp-Verzeichnis (scripts/packaging_smoke.py).
+# Windows-only: das Release ist Windows-only.
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+      - main
+
+concurrency:
+  group: packaging-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  packaging-smoke-windows:
+    name: Packaging Smoke (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout (frischer Clean-Export)
+        uses: actions/checkout@v5
+
+      - name: Exakter Head
+        shell: bash
+        run: |
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "TREE=$(git rev-parse 'HEAD^{tree}')"
+          test -z "$(git status --porcelain)" || { echo "Checkout nicht sauber"; git status --porcelain; exit 1; }
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            ares-backend/requirements.txt
+            ares-backend/requirements-build.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            ares-desktop/package-lock.json
+            ares-desktop/frontend/reporting/package-lock.json
+
+      - name: Install Python dependencies (gepinnt)
+        working-directory: ares-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Install npm dependencies (Lockfiles)
+        shell: bash
+        run: |
+          npm ci --prefix ares-desktop/frontend/reporting --no-audit --no-fund
+          npm ci --prefix ares-desktop --no-audit --no-fund
+
+      - name: Pack (build:reporting, build:backend, preflight:release, scan, electron-builder --dir)
+        working-directory: ares-desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          UPDATES_ENABLED: 'false'
+        run: npm run pack
+
+      - name: Start-Smoke des gepackten Backend-EXE
+        shell: bash
+        run: |
+          python scripts/packaging_smoke.py \
+            --exe ares-desktop/bundle/backend/ares-api.exe \
+            --unpacked-dir ares-desktop/dist/win-unpacked 2>&1 | tee packaging-smoke.log
+
+      - name: Build veraendert keine versionierten Dateien
+        shell: bash
+        run: |
+          changed="$(git status --porcelain --untracked-files=no)"
+          test -z "$changed" || { echo "Build hat versionierte Dateien veraendert:"; echo "$changed"; exit 1; }
+
+      - name: Evidenz hochladen
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: packaging-smoke-evidence
+          path: packaging-smoke.log
+          if-no-files-found: warn
+          retention-days: 30

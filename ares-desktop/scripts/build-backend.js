@@ -2,6 +2,17 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// W2-804-03: Ares wird nur fuer Windows ausgeliefert. Der Bundle-Vertrag kennt
+// genau ein natives Backend-Artefakt (die Windows-EXE); ausserhalb von Windows
+// sofort abbrechen, bevor Build-/Dist-/Bundle-Ordner geloescht oder
+// PyInstaller gestartet wird.
+if (process.platform !== 'win32') {
+  console.error(
+    `Ares wird nur fuer Windows ausgeliefert; build:backend erzeugt ares-api.exe und ist auf Plattform '${process.platform}' nicht unterstuetzt.`
+  );
+  process.exit(1);
+}
+
 const projectRoot = path.resolve(__dirname, '..', '..');
 const backendRoot = path.join(projectRoot, 'ares-backend');
 const bundleBackendDir = path.join(projectRoot, 'ares-desktop', 'bundle', 'backend');
@@ -50,6 +61,22 @@ const addDataArg = isWindows
 const fontDataArg = isWindows
   ? 'assets/fonts;assets/fonts'
   : 'assets/fonts:assets/fonts';
+
+// W1-803-03: Die Reporting-Sub-App wird in die EXE eingebettet (Ziel
+// `reporting_dist`, aufgeloest in ares-backend/main.py). Vorher lag sie nur im
+// app.asar, das der Python-Prozess nicht lesen kann -> /reporting gab in jeder
+// gepackten App 404. Fail-closed: ohne gebaute Sub-App kein Backend-Build.
+const reportingDistDir = path.join(projectRoot, 'ares-desktop', 'frontend', 'reporting', 'dist');
+if (!fs.existsSync(path.join(reportingDistDir, 'index.html'))) {
+  console.error(
+    `Reporting-Sub-App nicht gebaut (${path.join(reportingDistDir, 'index.html')} fehlt). ` +
+      'Zuerst `npm run build:reporting` ausfuehren.'
+  );
+  process.exit(1);
+}
+// Relativ zu ares-backend (cwd von PyInstaller): run() nutzt unter Windows
+// shell:true, ein absoluter Pfad mit Leerzeichen wuerde zerfallen.
+const reportingDataArg = `../ares-desktop/frontend/reporting/dist${isWindows ? ';' : ':'}reporting_dist`;
 
 const hiddenImports = [
   'uvicorn.logging',
@@ -147,6 +174,8 @@ const pyInstallerArgs = [
   addDataArg,
   '--add-data',
   fontDataArg,
+  '--add-data',
+  reportingDataArg,
 ];
 
 for (const mod of hiddenImports) {

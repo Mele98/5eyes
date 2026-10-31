@@ -96,6 +96,7 @@ WORKFLOW_DIR = ".github/workflows"
 _PATH_KEY_RE = re.compile(
     r"^\s*(?:-\s+)?(working-directory|cache-dependency-path)\s*:\s*['\"]?([^'\"#\s]+)['\"]?"
 )
+_BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?$")
 _MATRIX_DIR_RE = re.compile(r"^(\s*)dir\s*:\s*$")
 _LIST_ITEM_RE = re.compile(r"^(\s*)-\s+['\"]?([^'\"#\s]+)['\"]?\s*$")
 
@@ -152,7 +153,21 @@ def workflow_paths(text: str) -> list[str]:
     for i, line in enumerate(lines):
         m = _PATH_KEY_RE.match(line)
         if m and "${{" not in line:
-            paths.append(m.group(2))
+            value = m.group(2)
+            if _BLOCK_SCALAR_RE.match(value):
+                # YAML-Blockskalar (``|``/``>``): jede tiefer eingerueckte
+                # Folgezeile ist ein eigener Pfad (z. B. mehrere Lockfiles).
+                key_indent = len(line) - len(line.lstrip())
+                for nxt in lines[i + 1:]:
+                    if not nxt.strip():
+                        continue
+                    if len(nxt) - len(nxt.lstrip()) <= key_indent:
+                        break
+                    entry = nxt.strip()
+                    if not entry.startswith("#") and "${{" not in entry:
+                        paths.append(entry)
+            else:
+                paths.append(value)
             continue
         d = _MATRIX_DIR_RE.match(line)
         if d:

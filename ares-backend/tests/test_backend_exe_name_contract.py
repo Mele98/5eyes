@@ -5,6 +5,13 @@ Datei nach ``bundle/backend``; electron-builder packt den Ordner per
 ``extraResources`` nach ``resources/backend``; main.js startet genau diese
 Datei; release-check.js prueft sie vor dem Packen. Weicht einer der Namen
 ab, startet die gepackte App kein Backend.
+
+Der Vertrag gilt ausdruecklich nur fuer Windows (W2-804-03): Ares wird nur
+fuer Windows ausgeliefert. Damit der ``.exe``-Name nicht still auch fuer
+andere Plattformen festgeschrieben wird, prueft jede der drei Stellen die
+Plattform und bricht ausserhalb von ``win32`` ab, bevor sie den Namen
+verwendet; ``package.json`` bewirbt keine Nicht-Windows-Targets (siehe
+``test_desktop_windows_only_contract.py``).
 """
 from __future__ import annotations
 
@@ -49,3 +56,27 @@ def test_no_other_exe_name_in_desktop_scripts():
     for rel in ("main.js", "scripts/build-backend.js", "scripts/release-check.js"):
         names |= set(re.findall(r"'([\w.-]+)\.exe'", _read(rel)))
     assert names == {EXE_NAME}
+
+
+def test_exe_name_is_only_used_behind_a_windows_guard():
+    """Jede Stelle, die ``ares-api.exe`` erwartet, prueft vorher ``win32``."""
+    guard = re.compile(r"process\.platform\s*!==\s*'win32'")
+    for rel in ("main.js", "scripts/build-backend.js", "scripts/release-check.js"):
+        src = _read(rel)
+        if rel == "main.js":
+            body = re.search(
+                r"function resolvePackagedBackendExe\(\)\s*\{(?P<body>.*?)\n\}", src, re.S
+            )
+            assert body is not None
+            src = body.group("body")
+        match = guard.search(src)
+        assert match is not None, f"{rel}: keine Windows-Plattformpruefung"
+        assert match.start() < src.index(f"{EXE_NAME}.exe"), (
+            f"{rel}: {EXE_NAME}.exe wird vor der Plattformpruefung verwendet"
+        )
+
+
+def test_no_non_windows_release_target_shares_the_exe_contract():
+    pkg = json.loads(_read("package.json"))
+    assert not any(name.startswith(("dist:mac", "dist:linux")) for name in pkg["scripts"])
+    assert "mac" not in pkg["build"] and "linux" not in pkg["build"]

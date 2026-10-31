@@ -295,7 +295,16 @@ function resolveFrontendPath() {
   return path.join(__dirname, 'frontend', 'ares.html');
 }
 
+// W2-804-03: Ares wird nur fuer Windows ausgeliefert; das gepackte Backend ist
+// ausschliesslich `ares-api.exe`. Auf jeder anderen Plattform sofort mit klarer
+// Meldung abbrechen (landet im Dialog "App-Start fehlgeschlagen"), statt still
+// eine Windows-Datei zu erwarten und erst am fehlenden Pfad zu scheitern.
 function resolvePackagedBackendExe() {
+  if (process.platform !== 'win32') {
+    throw new Error(
+      `Ares wird nur fuer Windows ausgeliefert; die gepackte App kann auf Plattform '${process.platform}' kein Backend starten.`
+    );
+  }
   return path.join(process.resourcesPath, 'backend', 'ares-api.exe');
 }
 
@@ -830,6 +839,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports._isStrongEncryptionAvailable = _isStrongEncryptionAvailable;
   // A3 P2-5: IPC-Absender-Pruefung und Push-Kanal deterministisch testbar.
   module.exports.resolveFrontendPath = resolveFrontendPath;
+  // W2-804-03: Windows-only-Vertrag des gepackten Backend-Resolvers testbar.
+  module.exports.resolvePackagedBackendExe = resolvePackagedBackendExe;
   module.exports.notifyRendererUpdateState = notifyRendererUpdateState;
   module.exports._setMainWindowForTest = (win) => { mainWindow = win; };
 }

@@ -197,10 +197,12 @@ This warns you when:
 
 Set `STRICT_RELEASE=1` to fail the preflight on unresolved release placeholders.
 
-`preflight:release` runs **before** `build:backend` in `npm run dist:*`,
-so it cannot inspect anything the backend build produces. A separate step,
+In `npm run pack` / `dist:win` / `dist:win:portable`, `preflight:release`
+runs **after** `build:reporting` and `build:backend` (W1-803-03: on a clean
+checkout it previously failed because `frontend/reporting/dist` did not exist
+yet). It only performs static checks. A separate step,
 `npm run scan:bundle-secrets` (`scripts/bundle-secret-scan.js`), runs
-**after** `build:backend` for exactly that reason — it scans the actual
+**after** `build:backend` — it scans the actual
 built `bundle/backend` output for a real `.env` file or an embedded
 private key and fails the build if it finds one. See "Secrets are never
 bundled" above.

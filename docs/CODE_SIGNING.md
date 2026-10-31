@@ -5,6 +5,11 @@ Setup-Anleitung sobald der User ein Code-Signing-Zertifikat besorgt hat.
 **Stand:** 2026-06-06
 **Roadmap-Punkt:** #109 (OPS, externer Cert-Kauf + ~2h Setup)
 **Status:** Vorbereitung — wartet auf Cert-Beschaffung durch den User.
+**Plattformumfang:** Ares wird nur fuer Windows ausgeliefert (W2-804-03,
+siehe `docs/MULTI_PLATFORM_BUILD.md`). Massgeblich ist nur das
+Windows-Authenticode-Zertifikat. Die macOS-Abschnitte (Apple Developer,
+Notarization, `mac`-Builder-Block) sind nicht anwendbar und nur als Referenz
+fuer einen allfaelligen spaeteren Plattform-Entscheid belassen.
 
 ---
 
@@ -33,7 +38,7 @@ Setup-Anleitung sobald der User ein Code-Signing-Zertifikat besorgt hat.
 
 **Empfehlung fuer Einzel-Berater:** OV-Cert via Sectigo/DigiCert.
 
-### macOS: Apple Developer Cert
+### macOS: Apple Developer Cert (nicht anwendbar, nur Referenz)
 
 - Apple Developer Program: USD 99/Jahr
 - Cert wird via App-Store-Connect generiert
@@ -68,7 +73,7 @@ WIN_CERT_PASSWORD=<secret>
 Bei EV-Cert mit Hardware-Token: `certificateSubjectName` statt
 `certificateFile` setzen (Token erlaubt kein File-Export).
 
-### macOS Apple-Cert in `electron-builder`
+### macOS Apple-Cert in `electron-builder` (nicht anwendbar, nur Referenz)
 
 `ares-desktop/package.json`:
 
@@ -163,4 +168,4 @@ Developer Program USD 99/Jahr fuer macOS = ~CHF 380/Jahr.
 - [Apple Developer Program](https://developer.apple.com/programs/)
 - [Windows Authenticode](https://docs.microsoft.com/windows-hardware/drivers/install/authenticode)
 - `docs/AUTO_UPDATE.md` — Auto-Update braucht Cert
-- `docs/MULTI_PLATFORM_BUILD.md` — Build-Targets pro Platform
+- `docs/MULTI_PLATFORM_BUILD.md` — Plattformumfang (nur Windows)
