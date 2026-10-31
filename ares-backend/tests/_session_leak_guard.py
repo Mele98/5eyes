@@ -10,12 +10,12 @@ This module only *observes*; ``tests/conftest.py`` wires it into
 ``pytest_sessionfinish`` / ``pytest_terminal_summary`` / ``pytest_unconfigure``:
 
 * non-daemon, non-main threads still alive after the run are reported
-  (``FIVEEYES_STRICT_LEAK_GUARD=1`` turns the report into a failed session);
+  (``ARES_STRICT_LEAK_GUARD=1`` turns the report into a failed session);
 * APScheduler instances of ``price_updater`` / ``backup_scheduler`` that are
   still running after the run are reported (their threads are daemon threads,
   but a running backup scheduler would write into the real backup directory);
 * an exit watchdog bounds the interpreter exit: if the process is still alive
-  N seconds after pytest finished (``FIVEEYES_PYTEST_EXIT_WATCHDOG_S``,
+  N seconds after pytest finished (``ARES_PYTEST_EXIT_WATCHDOG_S``,
   default 60, ``0`` disables) it dumps all thread stacks ONCE to stderr and
   terminates the process non-zero. The exit code keeps an already failed
   pytest status; a green run that hangs at exit ends with
@@ -35,8 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-STRICT_ENV = "FIVEEYES_STRICT_LEAK_GUARD"
-WATCHDOG_ENV = "FIVEEYES_PYTEST_EXIT_WATCHDOG_S"
+STRICT_ENV = "ARES_STRICT_LEAK_GUARD"
+WATCHDOG_ENV = "ARES_PYTEST_EXIT_WATCHDOG_S"
 DEFAULT_WATCHDOG_SECONDS = 60.0
 # Exit code of a run whose pytest status was green but whose interpreter exit
 # hung past the watchdog deadline. Same value as the supervisor's

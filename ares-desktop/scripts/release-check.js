@@ -61,15 +61,15 @@ if (!fs.existsSync(reportingDistIndex)) {
   }
 }
 
-// U-6: bundle/backend/5eyes-api.exe muss existieren, sonst hat der
+// U-6: bundle/backend/ares-api.exe muss existieren, sonst hat der
 // electron-builder-Lauf keinen Backend-Server zum Mitpacken.
-const bundleBackendExe = path.join(projectRoot, 'bundle', 'backend', '5eyes-api.exe');
+const bundleBackendExe = path.join(projectRoot, 'bundle', 'backend', 'ares-api.exe');
 if (!fs.existsSync(bundleBackendExe)) {
   warnings.push(
-    'bundle/backend/5eyes-api.exe fehlt. `npm run build:backend` ausfuehren (laeuft automatisch in `npm run dist:win`).'
+    'bundle/backend/ares-api.exe fehlt. `npm run build:backend` ausfuehren (laeuft automatisch in `npm run dist:win`).'
   );
   if (strict) {
-    errors.push('STRICT_RELEASE=1: bundle/backend/5eyes-api.exe fehlt.');
+    errors.push('STRICT_RELEASE=1: bundle/backend/ares-api.exe fehlt.');
   }
 }
 

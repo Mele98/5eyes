@@ -77,7 +77,7 @@ def test_sdk_discovery_helpers_re_exported():
         DiscoveryResult,
         discover_external_regimes,
     )
-    assert EXTERNAL_REGIME_ENTRY_POINT_GROUP == "5eyes.tax_regime"
+    assert EXTERNAL_REGIME_ENTRY_POINT_GROUP == "ares.tax_regime"
     assert callable(discover_external_regimes)
     assert DiscoveryResult is not None
 

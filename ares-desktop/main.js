@@ -293,7 +293,7 @@ function resolveFrontendPath() {
 }
 
 function resolvePackagedBackendExe() {
-  return path.join(process.resourcesPath, 'backend', '5eyes-api.exe');
+  return path.join(process.resourcesPath, 'backend', 'ares-api.exe');
 }
 
 function attachBackendProcessLogging(proc) {

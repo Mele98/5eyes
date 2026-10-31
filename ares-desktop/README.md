@@ -19,7 +19,7 @@ This desktop shell starts the local FastAPI backend, verifies that the reachable
 - `package.json`
   - Electron + `electron-builder` config for a Windows NSIS installer (`.exe`)
 - `scripts/build-backend.js`
-  - bundles the Python FastAPI backend into `5eyes-api.exe` via PyInstaller
+  - bundles the Python FastAPI backend into `ares-api.exe` via PyInstaller
   - checks that `main.py` has an executable entrypoint before building
   - optionally includes SQLCipher when `BUILD_WITH_SQLCIPHER=1`
   - never copies a real `ares-backend/.env` into the bundle (secret-free
@@ -131,7 +131,7 @@ npm run dist:win
 
 What happens during this command:
 1. `scripts/build-backend.js` runs PyInstaller in `ares-backend/`
-2. PyInstaller builds `5eyes-api.exe`
+2. PyInstaller builds `ares-api.exe`
 3. the executable plus the secret-free `.env.example` template are copied to `ares-desktop/bundle/backend/` — a real `ares-backend/.env`, if one exists on the build machine, is intentionally **not** copied
 4. `scripts/bundle-secret-scan.js` scans `ares-desktop/bundle/backend/` and aborts the build if it finds a real `.env` file or an embedded private key
 5. `electron-builder` packages the app and produces an NSIS installer in `ares-desktop/dist/`
@@ -152,7 +152,7 @@ provisioned by the build. Instead:
 - Before a real deployment, an operator manually creates a `.env` with
   real, machine-specific values (see `docs/deployment/tier1-self-hosted.md`
   for the exact keys) and places it next to the installed
-  `5eyes-api.exe` (or the location `resolve_env_file()` in
+  `ares-api.exe` (or the location `resolve_env_file()` in
   `ares-backend/config.py` checks). This `.env` is created **after**
   installation, on the target machine — it is never part of the build or
   the installer artifact.
