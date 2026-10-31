@@ -75,7 +75,11 @@ def test_secret_scan_runs_after_build_backend_not_before_in_every_dist_script():
 
     assert "scan:bundle-secrets" in scripts, "npm-Script fuer den Bundle-Secret-Scan fehlt."
 
-    for script_name in ["pack", "dist:win", "dist:win:portable", "dist:mac", "dist:linux"]:
+    # Jede Packaging-Kette (jedes Script mit electron-builder) wird geprueft,
+    # nicht nur eine feste Namensliste (W2-804-03: nur noch Windows-Targets).
+    packaging_scripts = sorted(name for name, cmd in scripts.items() if "electron-builder" in cmd)
+    assert {"pack", "dist:win", "dist:win:portable"} <= set(packaging_scripts)
+    for script_name in packaging_scripts:
         chain = scripts[script_name]
         build_backend_pos = chain.find("build:backend")
         scan_pos = chain.find("scan:bundle-secrets")

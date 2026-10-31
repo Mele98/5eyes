@@ -2,6 +2,17 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// W2-804-03: Ares wird nur fuer Windows ausgeliefert. Der Bundle-Vertrag kennt
+// genau ein natives Backend-Artefakt (die Windows-EXE); ausserhalb von Windows
+// sofort abbrechen, bevor Build-/Dist-/Bundle-Ordner geloescht oder
+// PyInstaller gestartet wird.
+if (process.platform !== 'win32') {
+  console.error(
+    `Ares wird nur fuer Windows ausgeliefert; build:backend erzeugt ares-api.exe und ist auf Plattform '${process.platform}' nicht unterstuetzt.`
+  );
+  process.exit(1);
+}
+
 const projectRoot = path.resolve(__dirname, '..', '..');
 const backendRoot = path.join(projectRoot, 'ares-backend');
 const bundleBackendDir = path.join(projectRoot, 'ares-desktop', 'bundle', 'backend');
