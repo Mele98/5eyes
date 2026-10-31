@@ -27,10 +27,13 @@ def test_refresh_token_storage_functions_exist_and_are_distinct_from_access_toke
     html = _html()
     assert "async setRefreshToken(t) {" in html
     assert "async getRefreshToken() {" in html
-    assert "'5eyes_refresh_token'" in html
+    assert "'ares.refresh_token'" in html
     # Eigener Slot, nicht wiederverwendeter Access-Token-Key.
-    assert "sessionStorage.setItem('5eyes_refresh_token'" in html
-    assert "sessionStorage.setItem('5eyes_token'" in html
+    assert "sessionStorage.setItem('ares.refresh_token'" in html
+    assert "sessionStorage.setItem('ares.token'" in html
+    # Kein Token-Slot in localStorage (kein Legacy-Fallback).
+    assert "localStorage.getItem('ares.token')" not in html
+    assert "localStorage.getItem('ares.refresh_token')" not in html
 
 
 def test_try_refresh_token_calls_auth_refresh_endpoint_directly():

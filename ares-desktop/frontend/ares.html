@@ -5405,8 +5405,7 @@ const API = {
     } else if (window.desktop && typeof window.desktop.clearAuthToken === 'function' && !t) {
       try { await window.desktop.clearAuthToken(); } catch(e){}
     } else {
-      try { t ? sessionStorage.setItem('5eyes_token', t) : sessionStorage.removeItem('5eyes_token'); } catch(e){}
-      try { localStorage.removeItem('5eyes_token'); } catch(e){}
+      try { t ? sessionStorage.setItem('ares.token', t) : sessionStorage.removeItem('ares.token'); } catch(e){}
     }
   },
   async getToken() {
@@ -5414,17 +5413,7 @@ const API = {
     if (window.desktop && typeof window.desktop.getAuthToken === 'function') {
       try { this._token = await window.desktop.getAuthToken(); } catch(e){}
     }
-    if (!this._token) { try { this._token = sessionStorage.getItem('5eyes_token'); } catch(e){} }
-    if (!this._token) {
-      try {
-        const legacyToken = localStorage.getItem('5eyes_token');
-        if (legacyToken) {
-          this._token = legacyToken;
-          try { sessionStorage.setItem('5eyes_token', legacyToken); } catch(e){}
-          try { localStorage.removeItem('5eyes_token'); } catch(e){}
-        }
-      } catch(e){}
-    }
+    if (!this._token) { try { this._token = sessionStorage.getItem('ares.token'); } catch(e){} }
     return this._token;
   },
   // Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token bekommt einen
@@ -5440,7 +5429,7 @@ const API = {
     } else if (window.desktop && typeof window.desktop.clearRefreshToken === 'function' && !t) {
       try { await window.desktop.clearRefreshToken(); } catch(e){}
     } else {
-      try { t ? sessionStorage.setItem('5eyes_refresh_token', t) : sessionStorage.removeItem('5eyes_refresh_token'); } catch(e){}
+      try { t ? sessionStorage.setItem('ares.refresh_token', t) : sessionStorage.removeItem('ares.refresh_token'); } catch(e){}
     }
   },
   async getRefreshToken() {
@@ -5448,7 +5437,7 @@ const API = {
     if (window.desktop && typeof window.desktop.getRefreshToken === 'function') {
       try { this._refreshToken = await window.desktop.getRefreshToken(); } catch(e){}
     }
-    if (!this._refreshToken) { try { this._refreshToken = sessionStorage.getItem('5eyes_refresh_token'); } catch(e){} }
+    if (!this._refreshToken) { try { this._refreshToken = sessionStorage.getItem('ares.refresh_token'); } catch(e){} }
     return this._refreshToken;
   },
   // Stiller Token-Refresh vor dem harten Logout-Fallback bei 401 (siehe
@@ -14287,7 +14276,7 @@ async function resolveReportingAppUrl(path){
     }
   } catch(e) { /* fallback unten */ }
   if (!token) {
-    try { token = sessionStorage.getItem('5eyes_token') || ''; } catch(e){}
+    try { token = sessionStorage.getItem('ares.token') || ''; } catch(e){}
   }
   // Bug-#6: Backend-Mount statt Vite-Dev-Server. Backend-URL aus der
   // gleichen Quelle wie API.js (AresAPI.resolveBaseUrl / desktop),

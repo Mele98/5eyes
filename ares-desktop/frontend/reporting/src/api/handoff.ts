@@ -2,7 +2,7 @@
  * Sprint U-P22.6 — Token-Handoff von der Ares-Hauptapp.
  *
  * Use-Case: Berater klickt in der Hauptapp einen "Advisory-Report öffnen"-
- * Button. Hauptapp liest ihren Bearer-Token (sessionStorage['5eyes_token']
+ * Button. Hauptapp liest ihren Bearer-Token (sessionStorage[AUTH_TOKEN_STORAGE_KEY]
  * oder window.desktop.getAuthToken in Electron) und öffnet die Reporting-
  * Sub-App per `window.open` mit der URL:
  *
@@ -23,11 +23,11 @@
  * `window.desktop.getAuthToken` direkt aus dem Electron-Storage gelesen
  * — kein URL-Pass mehr nötig.
  *
- * Konvention für den Key `5eyes_token` ist die gleiche wie in
- * ares-desktop/frontend/ares.html (suche dort nach `5eyes_token`).
+ * Der Storage-Schluessel kommt aus `./tokenKey` (einzige Quelle); die
+ * Hauptapp ares-desktop/frontend/ares.html nutzt dasselbe Literal.
  */
+import { AUTH_TOKEN_STORAGE_KEY as TOKEN_STORAGE_KEY } from './tokenKey';
 
-const TOKEN_STORAGE_KEY = '5eyes_token';
 const HANDOFF_PARAM = 'token';
 
 export interface HandoffResult {
@@ -39,7 +39,7 @@ export interface HandoffResult {
 
 /**
  * Liest `#token=<jwt>` aus `window.location.hash`, schreibt den Token
- * in `sessionStorage['5eyes_token']` und bereinigt die URL.
+ * in `sessionStorage[TOKEN_STORAGE_KEY]` und bereinigt die URL.
  *
  * Idempotent: mehrfacher Aufruf ohne Fragment ist No-Op.
  * Side-Effect-frei in Test-Umgebungen ohne `window`.
