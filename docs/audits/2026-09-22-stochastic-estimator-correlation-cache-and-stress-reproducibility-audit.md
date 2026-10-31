@@ -6,8 +6,8 @@ audit_started_on: "2026-09-22"
 audit_completed_on: "2026-09-22"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "e883bb9f0b5e4e8908de627a5c0e80d27a1a667e"
 prior_release_audit_path: "docs/audits/2026-09-21-stochastic-optimizer-monte-carlo-asset-allocation-and-goal-integrity-audit.md"
@@ -206,24 +206,24 @@ Verteilung vor jeder späteren Goal-, Allocation- oder Publikationslogik.
 
 ### Importance Sampling und gemeinsamer Horizont
 
-- `5eyes-backend/services/optimizer/importance_sampling.py:70-71` definiert
+- `ares-backend/services/optimizer/importance_sampling.py:70-71` definiert
   den Default-Shift mit Stärke `0.5` und negativer Equity-Richtung.
-- `5eyes-backend/services/optimizer/importance_sampling.py:99-136` bildet
+- `ares-backend/services/optimizer/importance_sampling.py:99-136` bildet
   eine einzige Pfad-Likelihood aus der Summe über alle Jahre.
-- `5eyes-backend/services/optimizer/importance_sampling.py:245-340` aktiviert
+- `ares-backend/services/optimizer/importance_sampling.py:245-340` aktiviert
   IS standardmäßig automatisch bei `score_x10 <= 30`, Retirement oder einem
   harten Ziel. Das Problem betrifft damit normale Produktkontexte.
-- `5eyes-backend/services/optimizer/scenario_engine.py:275-304` wendet den
+- `ares-backend/services/optimizer/scenario_engine.py:275-304` wendet den
   gleichen Shift in jedem Jahr an und berechnet genau ein skalares Gewicht je
   vollständigem Pfad.
-- `5eyes-backend/services/portfolio_engine.py:2203-2204` setzt produktiv 2.000
+- `ares-backend/services/portfolio_engine.py:2203-2204` setzt produktiv 2.000
   Optimizerpfade.
-- `5eyes-backend/services/optimizer/solver.py:364-372` erlaubt einen
+- `ares-backend/services/optimizer/solver.py:364-372` erlaubt einen
   `scenario_horizon_years`, der länger als der konkrete Run-Horizont ist.
-- `5eyes-backend/services/optimizer/solver.py:493-522` erzeugt Pfade und
+- `ares-backend/services/optimizer/solver.py:493-522` erzeugt Pfade und
   Gewichte über den gemeinsamen Horizont, schneidet anschließend aber nur die
   Return-Pfade. `scenario_weights` bleiben unverändert vollhorizontig.
-- `5eyes-backend/services/portfolio_engine.py:5276-5315` verwendet diesen
+- `ares-backend/services/portfolio_engine.py:5276-5315` verwendet diesen
   Mechanismus im produktiven Goal-Sensitivity-Pfad für Baseline und Änderung.
 - Im geprüften Code existieren weder ESS, maximale normalisierte
   Gewichtskonzentration, Weight-Entropy, Reliability-Verdict noch ein
@@ -231,40 +231,40 @@ Verteilung vor jeder späteren Goal-, Allocation- oder Publikationslogik.
 
 ### Korrelation und Haupt-Monte-Carlo
 
-- `5eyes-backend/services/cma_validation.py:264-328` akzeptiert ausdrücklich
+- `ares-backend/services/cma_validation.py:264-328` akzeptiert ausdrücklich
   gültige positive semidefinite, also auch singuläre Korrelationen.
-- `5eyes-backend/services/cma_validation.py:350-369` gibt bei positiver
+- `ares-backend/services/cma_validation.py:350-369` gibt bei positiver
   Definitheit Cholesky, sonst einen allgemeinen Eigenfaktor
   `eigenvectors @ diag(sqrt(eigenvalues))` zurück.
-- `5eyes-backend/services/portfolio_engine_cma.py:189-217` reicht diesen
+- `ares-backend/services/portfolio_engine_cma.py:189-217` reicht diesen
   generischen Faktor aus `_build_cholesky_from_cma()` weiter und dokumentiert
   die Erhaltung singulärer PSD-Abhängigkeiten.
-- `5eyes-backend/services/portfolio_engine_mc_simulation.py:1185` übernimmt
+- `ares-backend/services/portfolio_engine_mc_simulation.py:1185` übernimmt
   den Faktor; `:1380-1382` summiert trotzdem nur `j in range(i + 1)` und setzt
   damit fälschlich Dreiecksstruktur voraus.
-- `5eyes-backend/services/optimizer/scenario_engine.py:189-191` und
+- `ares-backend/services/optimizer/scenario_engine.py:189-191` und
   `:295-297` verwenden demgegenüber korrekt alle Quellendimensionen.
 
 ### Stress und Cache
 
-- `5eyes-backend/services/optimizer/solver.py:132-198` hält den vollständigen
+- `ares-backend/services/optimizer/solver.py:132-198` hält den vollständigen
   Tax-, Dividend-, Alter-, Retirement- und Mortality-Kontext für den
   eigentlichen Optimizerlauf.
-- `5eyes-backend/services/optimizer/solver.py:1595-1619` ruft die
+- `ares-backend/services/optimizer/solver.py:1595-1619` ruft die
   Stressauswertung nach dem Solver mit rohen Funktionsargumenten auf und stuft
   jeden Fehler als nicht blockierendes „nice-to-have“ ein.
-- `5eyes-backend/services/optimizer/stress_scenarios.py:110-160` reicht nur
+- `ares-backend/services/optimizer/stress_scenarios.py:110-160` reicht nur
   Wealth, Allocation, Returns, Cashflows und Liabilities an
   `simulate_wealth_paths()` weiter. Tax-Regime, Dividend Yields, Basisjahr,
   Alter, Retirement und Death-Indices fehlen. Drawdown wird direkt aus dem
   flowbewegten Wealth-Pfad berechnet.
-- `5eyes-backend/services/portfolio_engine_mc_simulation.py:1360-1419` und
+- `ares-backend/services/portfolio_engine_mc_simulation.py:1360-1419` und
   `:1493-1508` zeigen die bereits vorhandene cashflow-neutrale
   Marktindexmethodik des Haupt-MC.
-- `5eyes-backend/services/optimizer/scenario_cache.py:69-84`, `:145-167` und
+- `ares-backend/services/optimizer/scenario_cache.py:69-84`, `:145-167` und
   `:220-246` speichern und liefern die originalen Array-/Tuple-Objekte ohne
   defensive Kopie oder Read-only-Flag.
-- `5eyes-backend/services/optimizer/scenario_cache.py:170-245` nimmt einen
+- `ares-backend/services/optimizer/scenario_cache.py:170-245` nimmt einen
   vollständigen `shift_vector` entgegen und keyt ihn, ruft die Engine aber nur
   mit `max(abs(shift_vector))` auf. Die Engine baut danach ihren Default-
   Equity-Shift neu auf.
@@ -799,7 +799,7 @@ Produktionsfunktionen des auditierten Heads.
 
 ### Ausgeführtes fokussiertes Bestands-Gate
 
-Aus `5eyes-backend` wurde ein isoliertes, cachefreies Numerik-Gate ausgeführt:
+Aus `ares-backend` wurde ein isoliertes, cachefreies Numerik-Gate ausgeführt:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider `

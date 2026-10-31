@@ -18,7 +18,7 @@
 
 ## Bucket A — Loeschbar
 
-Debug-Snapshots der inline `<script>`-Bloecke aus `5eyes_v2.html`, erstellt
+Debug-Snapshots der inline `<script>`-Bloecke aus `ares.html`, erstellt
 waehrend Frontend-Audits / Mojibake-Untersuchungen. Reine Artefakte.
 
 ```
@@ -84,10 +84,10 @@ git commit -m "archive: WIP-Snapshot vom 2026-05-13"
 ## Bucket C — Separater Branch
 
 ```
-5eyes-backend/tests/test_frontend_summary_contracts.py
+ares-backend/tests/test_frontend_summary_contracts.py
 ```
 
-**Begruendung:** Diese Datei testet **DOM-IDs** und **JS-Funktionen**, die nur in der **erweiterten WIP-Version** von `5eyes_v2.html` existieren (z.B. `id="sr-approval-grid"`, `function renderSrApprovalChecklist`, etc.). In der `develop`-HTML existieren diese Elemente NICHT — daher 36 Fehlschlaege lokal (CI sieht die Datei nicht, weil untracked).
+**Begruendung:** Diese Datei testet **DOM-IDs** und **JS-Funktionen**, die nur in der **erweiterten WIP-Version** von `ares.html` existieren (z.B. `id="sr-approval-grid"`, `function renderSrApprovalChecklist`, etc.). In der `develop`-HTML existieren diese Elemente NICHT — daher 36 Fehlschlaege lokal (CI sieht die Datei nicht, weil untracked).
 
 **Gehoert zur WIP-Snapshot-Branch:** `codex/wip-fe-review-restructure-2026-05-08` — dort lebt die HTML-Erweiterung. Datei dort committen oder bis zum Merge der FE-Review parken.
 
@@ -95,7 +95,7 @@ git commit -m "archive: WIP-Snapshot vom 2026-05-13"
 ```powershell
 # Auf Codex-WIP-Branch wechseln und Test dort committen:
 git checkout codex/wip-fe-review-restructure-2026-05-08
-git add 5eyes-backend/tests/test_frontend_summary_contracts.py
+git add ares-backend/tests/test_frontend_summary_contracts.py
 git commit -m "chore(tests): FE-Summary-Contracts (WIP-Tests, keep with WIP-HTML)"
 
 # Zurueck zur Arbeits-Branch:
@@ -107,9 +107,9 @@ git checkout codex/wip-cleanup-2026-05-13
 ## Was NICHT angefasst wird
 
 - Alle `.gitignore`-Dateien
-- Alle `5eyes-backend/` Module + Tests, die tracked sind
+- Alle `ares-backend/` Module + Tests, die tracked sind
 - Alle `docs/*.md` ausser dem o.g. ScopeSplit
-- Die `5eyes-electron/frontend/5eyes_v2.html`-Aenderungen (das ist die WIP, gehoert zur FE-Review-Branch)
+- Die `ares-desktop/frontend/ares.html`-Aenderungen (das ist die WIP, gehoert zur FE-Review-Branch)
 
 ---
 

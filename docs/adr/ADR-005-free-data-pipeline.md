@@ -57,4 +57,4 @@ Die Pipeline nutzt **nur gratis Quellen**:
 **Cross-Reference:**
 - `docs/MARKET_DATA_PROVIDER_STRATEGY.md` — taktischer Plan
 - `docs/data_pipeline_README.md` — Operations-Doku
-- `5eyes-backend/README_price_updater.md` — Daily-Cron-Setup
+- `ares-backend/README_price_updater.md` — Daily-Cron-Setup

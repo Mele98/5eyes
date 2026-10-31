@@ -6,8 +6,8 @@ audit_started_on: "2026-09-21"
 audit_completed_on: "2026-09-21"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "5efea8634363982ed3a8372ea8e0591804a663e2"
 prior_release_audit_path: "docs/audits/2026-09-16-liquidity-instrument-availability-yield-and-funding-integrity-audit.md"
@@ -220,30 +220,30 @@ unveränderlich bindet.
 
 | Vertrag | Codeanker |
 |---|---|
-| Create-Typen/Assignments und freie Alternative-Felder | `5eyes-backend/schemas/wealth.py:12-69` |
-| Update ohne `position_type`, freie Alternative-Felder | `5eyes-backend/schemas/wealth.py:112-162` |
-| Response ohne `asset_location` | `5eyes-backend/schemas/wealth.py:173-229` |
-| ORM-Spalten ohne fachliche Constraints | `5eyes-backend/models/wealth.py:46-50` |
-| Statisches SQLite-Schema mit partiellen CHECKs | `5eyes-backend/5eyes_schema_v4.0_FINAL.sql:576-584` |
-| Alembic-Baseline ohne diese CHECKs | `5eyes-backend/alembic/versions/c91f2c722881_baseline_schema.py:692-696` |
-| Semantikmatrix beschränkt nur Immobilie/Hypothek | `5eyes-backend/services/wealth_position_semantics.py:35-52,160-191` |
-| Backend-Defaultgewichte Alternative/Custom | `5eyes-backend/services/portfolio_engine.py:592-624` |
-| Engine-validiert Alternative-Terms nicht | `5eyes-backend/services/portfolio_engine.py:706-750` |
-| Advisory-/Liability-/Unlock-Aggregation | `5eyes-backend/services/portfolio_engine.py:1874-1915` |
-| Positionshash enthält Return, nicht Subtyp/Liquidität/Methode/Standort | `5eyes-backend/services/portfolio_engine.py:2332-2379` |
-| Generische Alternatives-CMA und Subasset-Momente | `5eyes-backend/services/portfolio_engine_cma.py:298-405`; `5eyes-backend/services/portfolio_engine.py:1209-1215` |
-| Current und Target verwenden dieselben gewichteten Bucket-Momente | `5eyes-backend/services/portfolio_engine_mc_simulation.py:483-572` |
-| Ziel-Illiquiditätscap auf registrierte Suballocations | `5eyes-backend/services/portfolio_engine_house_matrix.py:820-875` |
-| Depot-Liquiditätstier und unbekannter Typ-Fallback | `5eyes-backend/services/depot_check.py:106-133,176-193` |
-| Server-PDF-Bucket und Custom-Fallback | `5eyes-backend/routers/pdf_reports.py:133-154,192-245` |
-| Advisory-Vermögenssumme und Kreditheuristik | `5eyes-backend/services/advisory_report.py:651-701` |
-| PDF-Vermögensübersicht ohne Alternative-Evidence | `5eyes-backend/services/pdf/components/vermoegensuebersicht.py:1-92` |
-| Classic-Alternative-Form und UI-Claim | `5eyes-electron/frontend/5eyes_v2.html:4769-4784,4900-4935` |
-| Classic Alternative/Custom-Edit und Defaults | `5eyes-electron/frontend/5eyes_v2.html:16970-17066` |
-| Classic Beschreibung nur für Alternative | `5eyes-electron/frontend/5eyes_v2.html:17389-17416` |
-| Classic Alternative-Payload | `5eyes-electron/frontend/5eyes_v2.html:23372-23449` |
-| Classic Alternative-/Custom-Projektionsmix | `5eyes-electron/frontend/5eyes_v2.html:6599-6617` |
-| Bestandstests ohne Alternative-Roundtrip-/Custom-Paritätsvertrag | `5eyes-backend/tests/test_depot_illiquid_classification.py`; `5eyes-backend/tests/test_wealth_cashflows.py`; `5eyes-backend/tests/test_audit_z6_anchors.py` |
+| Create-Typen/Assignments und freie Alternative-Felder | `ares-backend/schemas/wealth.py:12-69` |
+| Update ohne `position_type`, freie Alternative-Felder | `ares-backend/schemas/wealth.py:112-162` |
+| Response ohne `asset_location` | `ares-backend/schemas/wealth.py:173-229` |
+| ORM-Spalten ohne fachliche Constraints | `ares-backend/models/wealth.py:46-50` |
+| Statisches SQLite-Schema mit partiellen CHECKs | `ares-backend/ares_schema.sql:576-584` |
+| Alembic-Baseline ohne diese CHECKs | `ares-backend/alembic/versions/c91f2c722881_baseline_schema.py:692-696` |
+| Semantikmatrix beschränkt nur Immobilie/Hypothek | `ares-backend/services/wealth_position_semantics.py:35-52,160-191` |
+| Backend-Defaultgewichte Alternative/Custom | `ares-backend/services/portfolio_engine.py:592-624` |
+| Engine-validiert Alternative-Terms nicht | `ares-backend/services/portfolio_engine.py:706-750` |
+| Advisory-/Liability-/Unlock-Aggregation | `ares-backend/services/portfolio_engine.py:1874-1915` |
+| Positionshash enthält Return, nicht Subtyp/Liquidität/Methode/Standort | `ares-backend/services/portfolio_engine.py:2332-2379` |
+| Generische Alternatives-CMA und Subasset-Momente | `ares-backend/services/portfolio_engine_cma.py:298-405`; `ares-backend/services/portfolio_engine.py:1209-1215` |
+| Current und Target verwenden dieselben gewichteten Bucket-Momente | `ares-backend/services/portfolio_engine_mc_simulation.py:483-572` |
+| Ziel-Illiquiditätscap auf registrierte Suballocations | `ares-backend/services/portfolio_engine_house_matrix.py:820-875` |
+| Depot-Liquiditätstier und unbekannter Typ-Fallback | `ares-backend/services/depot_check.py:106-133,176-193` |
+| Server-PDF-Bucket und Custom-Fallback | `ares-backend/routers/pdf_reports.py:133-154,192-245` |
+| Advisory-Vermögenssumme und Kreditheuristik | `ares-backend/services/advisory_report.py:651-701` |
+| PDF-Vermögensübersicht ohne Alternative-Evidence | `ares-backend/services/pdf/components/vermoegensuebersicht.py:1-92` |
+| Classic-Alternative-Form und UI-Claim | `ares-desktop/frontend/ares.html:4769-4784,4900-4935` |
+| Classic Alternative/Custom-Edit und Defaults | `ares-desktop/frontend/ares.html:16970-17066` |
+| Classic Beschreibung nur für Alternative | `ares-desktop/frontend/ares.html:17389-17416` |
+| Classic Alternative-Payload | `ares-desktop/frontend/ares.html:23372-23449` |
+| Classic Alternative-/Custom-Projektionsmix | `ares-desktop/frontend/ares.html:6599-6617` |
+| Bestandstests ohne Alternative-Roundtrip-/Custom-Paritätsvertrag | `ares-backend/tests/test_depot_illiquid_classification.py`; `ares-backend/tests/test_wealth_cashflows.py`; `ares-backend/tests/test_audit_z6_anchors.py` |
 
 ## `ALTERNATIVE-INSTRUMENT-MODEL-001` – Deklarierte Fachfelder steuern kein positionsrichtiges Modell
 
@@ -902,7 +902,7 @@ branch: codex/asset-allocation-stochastic-core
 HEAD:   5efea8634363982ed3a8372ea8e0591804a663e2
 tracked status: keine sichtbaren Änderungen
 global clean: nicht behauptet
-reason: vorbestehende ACL-unlesbare .pytest*-Verzeichnisse unter 5eyes-backend
+reason: vorbestehende ACL-unlesbare .pytest*-Verzeichnisse unter ares-backend
 ```
 
 Die bekannten ACL-Warnungen wurden weder betreten noch verändert noch

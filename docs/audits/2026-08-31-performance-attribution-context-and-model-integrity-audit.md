@@ -4,7 +4,7 @@ document_role: "release-blocking-performance-attribution-context-and-model-integ
 status_as_of: "2026-08-31"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "d38b553e2afa5ccbca1cfb6c119a46715efda023"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -125,25 +125,25 @@ Property-Sweep prüft nur die per Residuum erzwungene Identität.
 
 | Bereich | Codeanker |
 |---|---|
-| Forward-looking-Default und gleiche Portfolio-/Benchmarkreturns | `5eyes-backend/services/performance_attribution.py:112-143` |
-| Keine Gewichts-/Return-Domänenvalidierung | `5eyes-backend/services/performance_attribution.py:145-180` |
-| Bucket-Effekte werden einzeln per Floor-Division gerundet | `5eyes-backend/services/performance_attribution.py:160-178` |
-| Total-Interaction wird als Residuum erzwungen | `5eyes-backend/services/performance_attribution.py:183-206` |
-| Builder lädt Current-TA per `.first()` | `5eyes-backend/services/advisory_report.py:3647-3656` |
-| Builder lädt RA per `.first()` ohne Deleted-Filter | `5eyes-backend/services/advisory_report.py:3666-3677` |
-| `final_score_x10` wird direkt gegen House-Matrix `1..10` verglichen | `5eyes-backend/services/advisory_report.py:3676-3688`; `5eyes-backend/services/portfolio_engine_house_matrix.py:1289` |
-| Kanonische Score-Validierung/-Abbildung existiert bereits | `5eyes-backend/services/portfolio_engine.py:579-589` |
-| Builder lädt globale Current-CMA per `.first()` | `5eyes-backend/services/advisory_report.py:3708-3717` |
-| Nur fünf CH-/Gold-CMA-Felder, Missing wird über `_safe_int` null | `5eyes-backend/services/advisory_report.py:2925-2929`; `:3713-3719` |
-| Builder deklariert Brinson-/FIDLEG-Basis und fängt jede Exception | `5eyes-backend/services/advisory_report.py:3721-3749` |
-| Verifizierter persistierter Allocation-Context existiert | `5eyes-backend/services/portfolio_engine.py:4160-4365` |
-| Kanonischer Allocation-Rebuild existiert | `5eyes-backend/services/portfolio_engine.py:5386-6164` |
-| Jurisdiktions-/Tenant-CMA-Resolver existiert | `5eyes-backend/services/jurisdiction/resolve.py:74-145` |
-| Runtime-CMA-Vollständigkeitsgate existiert | `5eyes-backend/services/cma_validation.py:44-111` |
-| Advisory JSON wird gecacht und unverändert ausgeliefert | `5eyes-backend/routers/allocation.py:618-631`; `5eyes-backend/services/advisory_report_cache.py:154-176` |
-| Kundenportal liefert denselben Aggregator direkt | `5eyes-backend/routers/client_portal.py:92-116` |
-| Frontend-API verlangt die Sektion, rendert sie derzeit aber nicht | `5eyes-electron/frontend/reporting/src/api/client.ts:135-170`; `5eyes-electron/frontend/reporting/src/api/types.ts:828-854`; `5eyes-electron/frontend/reporting/src/App.tsx:477` |
-| Tests akzeptieren degradierten Builder und prüfen nur Restidentität | `5eyes-backend/tests/test_performance_attribution.py:189-208`; `:272-330` |
+| Forward-looking-Default und gleiche Portfolio-/Benchmarkreturns | `ares-backend/services/performance_attribution.py:112-143` |
+| Keine Gewichts-/Return-Domänenvalidierung | `ares-backend/services/performance_attribution.py:145-180` |
+| Bucket-Effekte werden einzeln per Floor-Division gerundet | `ares-backend/services/performance_attribution.py:160-178` |
+| Total-Interaction wird als Residuum erzwungen | `ares-backend/services/performance_attribution.py:183-206` |
+| Builder lädt Current-TA per `.first()` | `ares-backend/services/advisory_report.py:3647-3656` |
+| Builder lädt RA per `.first()` ohne Deleted-Filter | `ares-backend/services/advisory_report.py:3666-3677` |
+| `final_score_x10` wird direkt gegen House-Matrix `1..10` verglichen | `ares-backend/services/advisory_report.py:3676-3688`; `ares-backend/services/portfolio_engine_house_matrix.py:1289` |
+| Kanonische Score-Validierung/-Abbildung existiert bereits | `ares-backend/services/portfolio_engine.py:579-589` |
+| Builder lädt globale Current-CMA per `.first()` | `ares-backend/services/advisory_report.py:3708-3717` |
+| Nur fünf CH-/Gold-CMA-Felder, Missing wird über `_safe_int` null | `ares-backend/services/advisory_report.py:2925-2929`; `:3713-3719` |
+| Builder deklariert Brinson-/FIDLEG-Basis und fängt jede Exception | `ares-backend/services/advisory_report.py:3721-3749` |
+| Verifizierter persistierter Allocation-Context existiert | `ares-backend/services/portfolio_engine.py:4160-4365` |
+| Kanonischer Allocation-Rebuild existiert | `ares-backend/services/portfolio_engine.py:5386-6164` |
+| Jurisdiktions-/Tenant-CMA-Resolver existiert | `ares-backend/services/jurisdiction/resolve.py:74-145` |
+| Runtime-CMA-Vollständigkeitsgate existiert | `ares-backend/services/cma_validation.py:44-111` |
+| Advisory JSON wird gecacht und unverändert ausgeliefert | `ares-backend/routers/allocation.py:618-631`; `ares-backend/services/advisory_report_cache.py:154-176` |
+| Kundenportal liefert denselben Aggregator direkt | `ares-backend/routers/client_portal.py:92-116` |
+| Frontend-API verlangt die Sektion, rendert sie derzeit aber nicht | `ares-desktop/frontend/reporting/src/api/client.ts:135-170`; `ares-desktop/frontend/reporting/src/api/types.ts:828-854`; `ares-desktop/frontend/reporting/src/App.tsx:477` |
+| Tests akzeptieren degradierten Builder und prüfen nur Restidentität | `ares-backend/tests/test_performance_attribution.py:189-208`; `:272-330` |
 
 ## `ATTR-SEMANTICS-001` – Erwartete Policy-Tilts sind keine Performanceattribution
 

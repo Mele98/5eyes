@@ -4,7 +4,7 @@ document_role: "b2b-incident-response-and-resilience-audit"
 status_as_of: "2026-10-05"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/b2b-incident-resilience-audit"
 audited_repository_head: "8dfd6cc13a7869e1996331e5d226551fc441a6ee"
 prior_coverage_audit_path: "C:/Users/Emanuele/Documents/ChatGPT/5eyes wird zu Ares/asset-allocation-stochastic-core/docs/audits/2026-10-05-b2b-trust-compliance-pre-implementation-coverage-audit.md"
@@ -80,7 +80,7 @@ Uptime-Überwachung, kein PagerDuty/Opsgenie-Äquivalent.
   "15 ms (synthetische Mini-DB, nicht kapazitätsrelevant)", RPO "~0", Befunde
   "keine". Die zweite Tabellenzeile ist noch der leere Platzhalter
   (`| _…_ | _…_ | _…_ | _…_ | _…_ |`).
-- `5eyes-backend/scripts/restore_drill.py:1-42` (Docstring
+- `ares-backend/scripts/restore_drill.py:1-42` (Docstring
   "RESTORE-DRILL-NEVER-PERFORMED-001"): bestätigt explizit, dass die
   Protokolltabelle "seit Erstellung des Plans (2026-06-15) leer" war, bis
   dieses Skript sie einmalig befüllte. Das Skript läuft **immer** in einem
@@ -90,7 +90,7 @@ Uptime-Überwachung, kein PagerDuty/Opsgenie-Äquivalent.
   im Skript-Output nennt selbst als offen: "ein Restore-Drill gegen einen
   echten Tier-2/3-Zielhost mit realer Infrastruktur... bleibt eine SEPARATE,
   weiterhin ausstehende Übung."
-- `5eyes-backend/tests/test_restore_drill.py:1-109`: fünf Tests laufen den
+- `ares-backend/tests/test_restore_drill.py:1-109`: fünf Tests laufen den
   echten Skript-Code (nicht gemockt), aber ausschliesslich gegen die Sandbox;
   `test_drill_never_touches_real_settings_paths` (Zeile 52-68) verifiziert
   sogar strukturell, dass das Skript `config.settings` gar nicht importiert.
@@ -111,7 +111,7 @@ einmalig zu belegen.
 ### `IR-PG-RESTORE-001` — Kein PostgreSQL-Restorepfad im Produktcode
 
 **Repository-Beleg:**
-- `5eyes-backend/services/backup.py:1-697`: vollständig gelesen. Die einzige
+- `ares-backend/services/backup.py:1-697`: vollständig gelesen. Die einzige
   Datenbank-Technologie ist `sqlite3`/`sqlcipher3` (Imports Zeile 39/47,
   `_open_connection` Zeile 373-406). Kein `psycopg2`, kein `pg_dump`, keine
   PITR-Logik im gesamten Modul.
@@ -133,15 +133,15 @@ produktiv für Kundendaten genutzt wird.
 ### `IR-OFFSITE-001` — Off-Site-Backup implementiert, aber nicht aktiviert
 
 **Repository-Beleg:**
-- `5eyes-backend/services/backup.py:603-697` (`replicate_offsite`): Funktion
+- `ares-backend/services/backup.py:603-697` (`replicate_offsite`): Funktion
   existiert, kopiert Backup + `.sha256`/`.hmac256`-Sidecars via `rsync`/SSH an
   ein zweites CH-Rechenzentrum, fail-soft (wirft nie, Zeile 638-645).
-- `5eyes-backend/config.py:238,240`: `backup_offsite_enabled: bool = False`
+- `ares-backend/config.py:238,240`: `backup_offsite_enabled: bool = False`
   und `backup_offsite_target: str = ''` — beide Defaults deaktiviert/leer.
 - `docs/deploy/disaster-recovery-plan.md:30-38,76-80`: bestätigt selbst
   "**noch nicht scharf geschaltet** — braucht einmalig einen echten Ziel-Host
   + SSH-Zugang".
-- `5eyes-backend/tests/test_offsite_backup_replication.py` existiert und
+- `ares-backend/tests/test_offsite_backup_replication.py` existiert und
   testet den Mechanismus — das beweist nur Code-Korrektheit, nicht Aktivierung
   in einem realen Betrieb.
 
@@ -223,15 +223,15 @@ Kommunikationsentscheidung, Lessons Learned.
 ### `IR-VENDOR-OUTAGE-001` — Markt­daten-Provider-Ausfall nur passiv beobachtet
 
 **Repository-Beleg:**
-- `5eyes-backend/services/market_data/provider_health_registry.py:1-6`:
+- `ares-backend/services/market_data/provider_health_registry.py:1-6`:
   Modul-Docstring selbst: "Phase 1 is passive: the registry records provider
   failures and recoveries, but it does not trigger refreshes, rebalance
   decisions, or active failover tuning."
-- `5eyes-backend/routers/health.py:90-95` (`/health/ready`): Preis-Status ist
+- `ares-backend/routers/health.py:90-95` (`/health/ready`): Preis-Status ist
   bewusst "informational, KEIN 503-Auslöser" — ein Ausfall des
   Marktdaten-Providers blockiert die App nicht, wird aber auch nicht aktiv
   eskaliert.
-- `5eyes-backend/services/market_data/notifier.py:1-26`: Webhook-Alert
+- `ares-backend/services/market_data/notifier.py:1-26`: Webhook-Alert
   existiert, aber nur für Cross-Validation-Abweichungen zwischen Providern
   (Median-Diff > Threshold), nicht für einen vollständigen Provider-Ausfall
   als Vorfall, und ist Opt-in (Default leer/no-op laut Docstring Zeile 7-8).
@@ -263,7 +263,7 @@ Prüfung auf Datenabfluss, Kundenkommunikation.
 ### `IR-TENANT-LEAK-CONTAINMENT-001` — Keine Post-Incident-Tenant-Sperrung gefunden
 
 **Repository-Beleg:**
-- Grep über `5eyes-backend` nach `suspend.*tenant|lock.*tenant|
+- Grep über `ares-backend` nach `suspend.*tenant|lock.*tenant|
   tenant.*suspend|tenant.*lock|disable.*tenant` traf 23 Dateien, darunter
   `services/tenant_licensing.py`; eine gezielte Prüfung dieser Datei auf
   `def .*suspend|def .*disable|def .*lock` ergab **keinen** Treffer — die
@@ -282,18 +282,18 @@ Prüfung) bei vermutetem Datenleck schaffen und testen.
 ### `IR-MONITORING-001` — Nur interne Probes und zwei enge Opt-in-Webhooks
 
 **Repository-Beleg:**
-- `5eyes-backend/routers/health.py:1-104`: `/health`, `/health/live`,
+- `ares-backend/routers/health.py:1-104`: `/health`, `/health/live`,
   `/health/ready`, `/health/db` — reine HTTP-Probes für
   Prozess-Orchestrierung (k8s/systemd-Muster laut Docstring Zeile 1-17), kein
   externer Uptime-Dienst, keine Benachrichtigung bei Ausfall; jemand muss
   aktiv pollen.
-- `5eyes-backend/services/market_data/notifier.py` und
-  `5eyes-backend/backup_scheduler.py:31-55` (`_alert_backup_problem`):
+- `ares-backend/services/market_data/notifier.py` und
+  `ares-backend/backup_scheduler.py:31-55` (`_alert_backup_problem`):
   zwei schmale, optionale Webhook-Alarme (Markt­daten-Validierungsdiff,
   Backup-Fehler) über denselben `post_alert()`-Mechanismus, beide per Default
   deaktiviert (leere Webhook-URL) und fail-soft (Fehler werden geloggt, nicht
   eskaliert).
-- Grep über `5eyes-backend` nach `pagerduty|opsgenie|uptime` (case-insensitiv)
+- Grep über `ares-backend` nach `pagerduty|opsgenie|uptime` (case-insensitiv)
   ergab **keine** Treffer.
 
 **Auditvertrag:** Externe Uptime-/Alerting-Lösung (z. B. gehosteter
@@ -340,14 +340,14 @@ nach Abschluss Bericht + Re-Test-Nachweis im Repository referenzieren.
   `codex/b2b-incident-resilience-audit`, Arbeitsverzeichnis vor Beginn
   unverändert/clean).
 - Vollständig gelesen: `docs/deploy/disaster-recovery-plan.md`,
-  `5eyes-backend/services/backup.py`, `5eyes-backend/scripts/restore_drill.py`,
-  `5eyes-backend/tests/test_restore_drill.py`, `5eyes-backend/routers/health.py`,
+  `ares-backend/services/backup.py`, `ares-backend/scripts/restore_drill.py`,
+  `ares-backend/tests/test_restore_drill.py`, `ares-backend/routers/health.py`,
   `docs/PENTEST_PREPARATION.md`, relevante Ausschnitte aus
   `docs/compliance/avv-template.md`,
-  `5eyes-backend/services/market_data/notifier.py`,
-  `5eyes-backend/services/market_data/provider_health_registry.py`,
-  `5eyes-backend/backup_scheduler.py`, `5eyes-backend/config.py`.
-- Gezielte Volltext-/Regex-Suchen über `docs/` und `5eyes-backend/` für:
+  `ares-backend/services/market_data/notifier.py`,
+  `ares-backend/services/market_data/provider_health_registry.py`,
+  `ares-backend/backup_scheduler.py`, `ares-backend/config.py`.
+- Gezielte Volltext-/Regex-Suchen über `docs/` und `ares-backend/` für:
   DR/RTO/RPO-Dokumente, Backup-/Restore-Code, Postgres/PITR-Referenzen,
   Offsite-/Alert-/Webhook-Konfiguration, Health/Monitoring-Endpunkte,
   Incident/Breach/EDÖB/Datenschutzverletzung, Ransomware,

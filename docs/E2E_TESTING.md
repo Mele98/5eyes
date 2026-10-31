@@ -39,7 +39,7 @@ historisch fragil und CI-Setup komplexer.
 Analog U-106/U-107: KEIN package.json-Eintrag bis konkret gebraucht.
 
 ```powershell
-cd 5eyes-electron\frontend\reporting
+cd ares-desktop\frontend\reporting
 npm install --save-dev @playwright/test
 npx playwright install --with-deps chromium
 ```
@@ -47,7 +47,7 @@ npx playwright install --with-deps chromium
 ## Test-Struktur (Vorschlag)
 
 ```
-5eyes-electron/frontend/reporting/
+ares-desktop/frontend/reporting/
 ├── e2e/
 │   ├── playwright.config.ts
 │   ├── fixtures/
@@ -80,10 +80,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
       - uses: actions/setup-python@v5
-      - run: pip install -r 5eyes-backend/requirements.txt
+      - run: pip install -r ares-backend/requirements.txt
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: python 5eyes-backend/main.py &
+      - run: python ares-backend/main.py &
       - run: npm run dev &  # in reporting/
       - run: npx wait-on http://localhost:8000/health
       - run: npx wait-on http://localhost:5173
@@ -126,7 +126,7 @@ Heute NICHT in CI (E2E-Tests existieren nicht).
 ## Weiterfuehrendes
 
 - [Playwright docs](https://playwright.dev)
-- [Foundation-Example Endpoint](../5eyes-backend/services/foundation_example.py)
+- [Foundation-Example Endpoint](../ares-backend/services/foundation_example.py)
 - ADR-005 — CHF 0/Jahr (Chromatic verworfen)
 - Roadmap #106 (Mutation), #107 (Property), #88 (SW) —
   komplementaere QA-Strategien

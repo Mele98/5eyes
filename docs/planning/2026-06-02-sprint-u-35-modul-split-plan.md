@@ -1,4 +1,4 @@
-# Sprint U-35 Modul-Split-Plan fuer 5eyes_v2.html
+# Sprint U-35 Modul-Split-Plan fuer ares.html
 
 Stand: 2026-06-02
 Scope: Vorarbeit fuer den spaeteren Monolith-Refactor, keine Aufspaltung in
@@ -6,7 +6,7 @@ diesem Sprint.
 
 ## 1. Ausgangslage
 
-`5eyes-electron/frontend/5eyes_v2.html` ist ein historisch gewachsener
+`ares-desktop/frontend/ares.html` ist ein historisch gewachsener
 Single-File-Frontend-Monolith. Er enthaelt DOM, Styles, Inline-Handler,
 Modale, Admin-Panels, PDF-Download-Mechanik, Backtests und fachliche
 Workflow-Logik in einer Datei.
@@ -23,7 +23,7 @@ Vor einem Modul-Split braucht es eine deterministische Sicherheitslinie:
 Diese Sicherheitslinie liegt jetzt in:
 
 - `docs/audits/2026-06-02-monolith-inventory.json`
-- `5eyes-backend/tests/test_monolith_inventory_stable.py`
+- `ares-backend/tests/test_monolith_inventory_stable.py`
 - `scripts/audit_html_monolith.py`
 
 ## 2. Refactor-Prinzip
@@ -209,7 +209,7 @@ Jede Split-PR muss mindestens:
 Empfohlen: Modul A als kleinster echter Split.
 
 Ziel fuer den ersten Split:
-- Shell-/Navigation-Code aus `5eyes_v2.html` auslagern
+- Shell-/Navigation-Code aus `ares.html` auslagern
 - Monolith laedt das Modul weiter deterministisch
 - Inventar-Snapshot bleibt unveraendert oder nur bewusst begruendet veraendert
 - Ein Browser-Smoke prueft: App startet, Navigation klickbar, aktive Sektion

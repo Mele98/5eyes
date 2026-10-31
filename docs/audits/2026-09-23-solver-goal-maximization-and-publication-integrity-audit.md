@@ -6,8 +6,8 @@ audit_started_on: "2026-09-22"
 audit_completed_on: "2026-09-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "9a87afb0e5d952468f736112bbce0f23f4698246"
 prior_numerical_audit_path: "docs/audits/2026-09-22-stochastic-estimator-correlation-cache-and-stress-reproducibility-audit.md"
@@ -257,38 +257,38 @@ Provenienz- und Apportionierungsverträge ergänzt werden.
 
 ### Solverannahme und Basispunkt-Apportionierung
 
-- `5eyes-backend/services/optimizer/solver.py:683-700` implementiert
+- `ares-backend/services/optimizer/solver.py:683-700` implementiert
   `_normalize_to_bounds()` als Clip, Skalierung, erneuten Clip und erneute
   Skalierung. Die Funktion selbst verspricht nur Best Effort.
-- `5eyes-backend/services/optimizer/solver.py:1051-1086` prüft in
+- `ares-backend/services/optimizer/solver.py:1051-1086` prüft in
   `_finite_feasible_candidate()` zunächst nur Shape und Endlichkeit des
   Rohvektors. Danach wird dieser geclippt und normalisiert; erst die daraus
   erzeugte Allocation geht in `is_feasible()` ein.
-- `5eyes-backend/services/optimizer/solver.py:1300-1467` sammelt solche
+- `ares-backend/services/optimizer/solver.py:1300-1467` sammelt solche
   projizierten Kandidaten aus allen SLSQP-Starts und dem DE-Fallback. Wenn kein
   Solver `success=True` meldet, kann der beste davon ausgewählt, weiter
   derisked und als akzeptierter Non-success-Kandidat markiert werden.
-- `5eyes-backend/services/optimizer/solver.py:1514-1535` validiert sowohl den
+- `ares-backend/services/optimizer/solver.py:1514-1535` validiert sowohl den
   kontinuierlichen Endkandidaten als auch seine Basispunktform. Eine
   Rundungsverletzung wird korrekt als `diverged_infeasible` markiert.
-- `5eyes-backend/services/optimizer/solver.py:1640-1652` rundet jeden Bucket
+- `ares-backend/services/optimizer/solver.py:1640-1652` rundet jeden Bucket
   separat und schlägt die gesamte Differenz zu 10.000 bps stets dem größten
   kontinuierlichen Bucket zu, ohne dessen Bound oder den Risk-Cap bei der
   Auswahl des Restempfängers zu berücksichtigen.
-- `5eyes-backend/services/portfolio_engine_optimizer_integration.py:134-141`
+- `ares-backend/services/portfolio_engine_optimizer_integration.py:134-141`
   zählt `converged_robustified` zu den konvergierten Status; `:493-518`
   übernimmt dessen Basispunktgewichte als Zielallokation.
-- `5eyes-backend/services/portfolio_engine.py:3364-3375` und `:3627-3635`
+- `ares-backend/services/portfolio_engine.py:3364-3375` und `:3627-3635`
   führen einen nicht konvergierten Hauptpfad in die Synchronisierung des
   aktiven House-Fallbacks; die Integrationslogik in
   `portfolio_engine_optimizer_integration.py:540-653` bewertet und publiziert
   anschließend dessen tatsächlich aktive Gewichte neu.
-- `5eyes-backend/services/recommendation_audit.py:30-40` zählt
+- `ares-backend/services/recommendation_audit.py:30-40` zählt
   `fallback_house_matrix` zu den akzeptablen Status, während
   `mandate_lock_audit.py:96-109` `diverged_infeasible`, nicht aber den
   synchronisierten Fallback sperrt. Der unnötige Methodenwechsel kann daher
   regulär weiterpubliziert werden.
-- `5eyes-backend/services/portfolio_engine.py:4368-5382` gibt in der Goal-
+- `ares-backend/services/portfolio_engine.py:4368-5382` gibt in der Goal-
   Sensitivität Solvergewichte und Status ohne die Hauptpfad-Synchronisierung
   zurück. Ein rundungsbedingt `diverged_infeasible` markierter 5.001-bps-
   Kandidat kann so zusätzlich in Sensitivitätsevidence erscheinen.
@@ -300,14 +300,14 @@ Provenienz- und Apportionierungsverträge ergänzt werden.
 
 ### Kandidatenabhängiger Objective-Phasenwechsel
 
-- `5eyes-backend/services/optimizer/objective.py:594-641` nennt die Funktion
+- `ares-backend/services/optimizer/objective.py:594-641` nennt die Funktion
   `combined_objective_two_phase()`, führt aber keinen zweiten Solve aus. Die
   rohe Endvermögensvarianz wird für jeden einzelnen Kandidaten nur dann
   addiert, wenn dessen `primary + chance < epsilon` ist.
 - Die Primary-Objective ist dimensionslos normalisiert, während
   `volatility_objective()` in `objective.py:482-513` rohe Rappen zum Quadrat
   liefert. Der feste Faktor `1e-12` stellt keine Einheiteninvarianz her.
-- `5eyes-backend/services/optimizer/solver.py:593-611` nutzt diese Funktion
+- `ares-backend/services/optimizer/solver.py:593-611` nutzt diese Funktion
   direkt im Solver-Closure; `:615-641` nutzt sie erneut in
   `evaluate_weights()`. Der Befund beeinflusst daher Auswahl und spätere
   Bewertung mit derselben falschen Rangordnung.
@@ -315,7 +315,7 @@ Provenienz- und Apportionierungsverträge ergänzt werden.
   stattdessen eine echte Sekundäroptimierung: erst `L(w*)`, danach Varianz
   unter `L(w) <= L(w*) + delta` und allen übrigen Constraints; `:389-401`
   zeigt dafür ausdrücklich einen zweiten Solve.
-- `5eyes-backend/tests/test_optimizer_objective_dimensionless.py:31-65`
+- `ares-backend/tests/test_optimizer_objective_dimensionless.py:31-65`
   prüft Geldskalierung nur bei `volatility_weight=0`. `:179-207` bestätigt
   sogar, dass bei einem kleinen positiven Primary-Wert keine Volatilität
   berechnet wird, vergleicht diesen Kandidaten aber nicht mit vollständiger
@@ -323,59 +323,59 @@ Provenienz- und Apportionierungsverträge ergänzt werden.
 
 ### Produkttyp, Liability und Objective
 
-- `5eyes-backend/schemas/wealth.py:430-544` führt `Maximierung` als reguläre
+- `ares-backend/schemas/wealth.py:430-544` führt `Maximierung` als reguläre
   Goal-Familie und regulären Goal-Typ. Ein fixer Betrag, eine Zielrendite und
   ein Zieldatum sind verboten; `horizon_years` ist im Schema dagegen
   weiterhin akzeptiert.
-- `5eyes-backend/services/optimizer/goal_liabilities.py:43-65` dokumentiert
+- `ares-backend/services/optimizer/goal_liabilities.py:43-65` dokumentiert
   `maximize` als „keine Constraint, nur in Vol-Min relevant“.
-- `5eyes-backend/services/optimizer/goal_liabilities.py:488-501` erzeugt eine
+- `ares-backend/services/optimizer/goal_liabilities.py:488-501` erzeugt eine
   Null-Liability und setzt `target_year_index` auf den globalen Run-Horizont.
-- `5eyes-backend/services/optimizer/objective.py:198-199` setzt den Shortfall
+- `ares-backend/services/optimizer/objective.py:198-199` setzt den Shortfall
   eines Maximierungsziels auf einen Nullvektor.
-- `5eyes-backend/services/optimizer/objective.py:293-294` setzt den Erfolg
+- `ares-backend/services/optimizer/objective.py:293-294` setzt den Erfolg
   eines Maximierungsziels auf einen Einsvektor.
-- `5eyes-backend/services/optimizer/objective.py:99-100` setzt den Default-
+- `ares-backend/services/optimizer/objective.py:99-100` setzt den Default-
   Tau auf 100 Prozent; `:393` nimmt `maximize` zugleich aus der Chance-Penalty.
-- `5eyes-backend/services/optimizer/objective.py:482-513` definiert die
+- `ares-backend/services/optimizer/objective.py:482-513` definiert die
   sekundäre Objective als Varianz des terminalen Vermögens.
-- `5eyes-backend/services/optimizer/objective.py:594-641` aktiviert genau
+- `ares-backend/services/optimizer/objective.py:594-641` aktiviert genau
   diese Varianzminimierung, wenn Primary plus Chance numerisch null sind.
 
 ### Haupt-Monte-Carlo und Publikation
 
-- `5eyes-backend/services/portfolio_engine_mc_simulation.py:1044-1048`
+- `ares-backend/services/portfolio_engine_mc_simulation.py:1044-1048`
   setzt für `Maximierung` `success_rate_pct=100` und `score=100`, unabhängig
   von den simulierten Werten.
-- `5eyes-backend/services/portfolio_engine_mc_simulation.py:1086-1088` setzt
+- `ares-backend/services/portfolio_engine_mc_simulation.py:1086-1088` setzt
   mediane Zielerreichung auf 100 und pessimistischen Fehlbetrag auf null.
   Der gleichzeitig zurückgegebene `funded_ratio_p50` kann dennoch kleiner als
   eins sein.
-- `5eyes-backend/services/portfolio_engine.py:3803-3813` persistiert die
+- `ares-backend/services/portfolio_engine.py:3803-3813` persistiert die
   Achievability-Zeilen; `:4122-4123` liefert sie im Generate-Payload.
-- `5eyes-backend/services/portfolio_engine.py:6068-6084` lädt dieselben Zeilen
+- `ares-backend/services/portfolio_engine.py:6068-6084` lädt dieselben Zeilen
   wieder; `:6124-6125` liefert sie im Current-Payload.
-- `5eyes-backend/services/advisory_report.py:704-735` bezieht jede
+- `ares-backend/services/advisory_report.py:704-735` bezieht jede
   Probability-Zeile ohne Zieltypfilter in den gewichteten Gesamt-Score ein.
-- `5eyes-backend/services/advisory_report.py:2018-2052` publiziert die Zeile
+- `ares-backend/services/advisory_report.py:2018-2052` publiziert die Zeile
   und denselben Score in Goal-Based Investing.
-- `5eyes-electron/frontend/5eyes_v2.html:7483-7501` rendert die Probability im
+- `ares-desktop/frontend/ares.html:7483-7501` rendert die Probability im
   Optimizer-Panel; `:24286-24298` kann die Zeile zum Hauptziel wählen;
   `:24320-24335` zeigt sie im Review-Cockpit mit grüner 100-Prozent-Ampel.
-- `5eyes-electron/frontend/reporting/src/pages/Goals.tsx:54-67` publiziert den
+- `ares-desktop/frontend/reporting/src/pages/Goals.tsx:54-67` publiziert den
   gewichteten Score; `:164-181` Probability und Status je Ziel.
-- `5eyes-backend/services/pdf/components/goal_achievability.py:214-278`
+- `ares-backend/services/pdf/components/goal_achievability.py:214-278`
   rendert `maximize` als Maximierung mit Probability-Balken und Status.
-- `5eyes-backend/services/pdf/documents/advisory_report.py:1350-1420` rendert
+- `ares-backend/services/pdf/documents/advisory_report.py:1350-1420` rendert
   Gesamt-Score, Probability und Status im Advisory-PDF.
 
 ### UI-Zeitfenster
 
-- `5eyes-electron/frontend/5eyes_v2.html:26288-26296` zeigt für
+- `ares-desktop/frontend/ares.html:26288-26296` zeigt für
   `Maximierung` nur das Prioritätsfeld. Der Zeithorizont ist ausgeblendet.
-- `5eyes-electron/frontend/5eyes_v2.html:26509-26512` sagt gleichzeitig, Scope
+- `ares-desktop/frontend/ares.html:26509-26512` sagt gleichzeitig, Scope
   und Zeitfenster seien relevant.
-- `5eyes-electron/frontend/5eyes_v2.html:26720-26809` sendet das versteckte
+- `ares-desktop/frontend/ares.html:26720-26809` sendet das versteckte
   `horizon_years`-Feld grundsätzlich mit und entfernt für Maximierung nur das
   Zieldatum.
 - Der Liability-Builder liest `goal.horizon_years` für Maximierung nicht; er
@@ -383,9 +383,9 @@ Provenienz- und Apportionierungsverträge ergänzt werden.
 
 ### Bestandstests, die das heutige Verhalten festschreiben
 
-- `5eyes-backend/tests/test_optimizer_objective_constraints.py:232-236`
+- `ares-backend/tests/test_optimizer_objective_constraints.py:232-236`
   assertiert, dass der Maximierungs-Shortfall immer null ist.
-- `5eyes-backend/tests/test_optimizer_solver.py:608-643` assertiert, dass ohne
+- `ares-backend/tests/test_optimizer_solver.py:608-643` assertiert, dass ohne
   Goals deterministisch die terminale Vermögensvarianz minimiert wird.
 - Es existiert kein Gegenstück, das `Maximierung` gegenüber „keine Goals“
   unterscheidet, eine Wachstumsmetrik maximiert oder bei Totalverlust die
@@ -1094,7 +1094,7 @@ Alle im Audit angegebenen Zahlen stammen aus diesen Ausführungen.
 
 ### Ausgeführtes fokussiertes Bestands-Gate
 
-Aus `5eyes-backend` wurde ein isoliertes Gate über Solver, GA-Fallback,
+Aus `ares-backend` wurde ein isoliertes Gate über Solver, GA-Fallback,
 Objective, Goal-Liabilities, Context, Fail-closed-Grenzen, Produktionsvertrag,
 Chance-Constraints, Goal-Domain/-Horizon/-Invalidation, Asset-Allocation-
 Integrität, Advisory-Report und Goal-PDF-Komponenten ausgeführt.

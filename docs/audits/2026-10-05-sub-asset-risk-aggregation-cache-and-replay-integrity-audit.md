@@ -212,7 +212,7 @@ starke Annahme, keine neutrale technische Konstante.
   Sub-Risiko-Modellversion.
 - Der Electron-Client zeigt einzelne Sub-CMA-Returns/-Volatilitäten, aber
   weder aggregierte Bucket-Sigmas noch verwendetes ρ, Matrix-/Modellhash oder
-  Fallbackstatus (`5eyes_v2.html:7333-7338`, `10912-10936`).
+  Fallbackstatus (`ares.html:7333-7338`, `10912-10936`).
 
 ### Replay-Bruch
 

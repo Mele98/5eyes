@@ -22,7 +22,7 @@ es ein **sauberes Frontend-Setup** mit:
 ## Setup-Files (13 Stück)
 
 ```
-5eyes-electron/frontend/reporting/
+ares-desktop/frontend/reporting/
 ├── package.json              React 18 + Vite 5 + Tailwind 3 + Recharts + Framer Motion
 ├── vite.config.ts            Build → dist/, Dev-Proxy zu Backend:8000
 ├── tailwind.config.ts        Design-Tokens (Farben, Typo, Spacing)
@@ -107,7 +107,7 @@ Hex-Werte (über Tests verifiziert).
 ## Owner-Aktion vor U-P22.2
 
 ```bash
-cd 5eyes-electron/frontend/reporting
+cd ares-desktop/frontend/reporting
 npm install
 ```
 

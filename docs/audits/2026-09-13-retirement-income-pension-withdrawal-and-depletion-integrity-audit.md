@@ -5,8 +5,8 @@ status_as_of: "2026-09-13"
 audit_started_on: "2026-09-07"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-frontend_root: "5eyes-electron/frontend"
+backend_root: "ares-backend"
+frontend_root: "ares-desktop/frontend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "6ab26b33656971da9af34651053e19b2bf2edffe"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -260,31 +260,31 @@ Reporting-Pfad
 
 | Vertrag | Verifizierter Anker |
 |---|---|
-| Pensionsausgabe ist sichtbarer periodischer Bedarf | `5eyes-electron/frontend/5eyes_v2.html:4635-4642,26280-26295` |
-| AHV-Hinweis in der UI | `5eyes-electron/frontend/5eyes_v2.html:4743-4752,26263-26267` |
-| AHV-Reserve-/Score-Semantik | `5eyes-backend/services/portfolio_engine_reserve.py:207-233,236-282,371-385` |
-| AHV-Optimizer-Liability | `5eyes-backend/services/optimizer/goal_liabilities.py:43-65,294-299,504-527,535-555` |
-| AHV-Reporting-MC | `5eyes-backend/services/portfolio_engine_mc_simulation.py:844-933` |
-| Vorsorgepositionsfelder und API-Response | `5eyes-backend/models/wealth.py:10-57`; `5eyes-backend/schemas/wealth.py:12-120,123-230`; `5eyes-backend/routers/wealth.py:506-570` |
-| Goal-Link ohne vollständige Semantikprüfung | `5eyes-backend/schemas/wealth.py:539-611`; `5eyes-backend/routers/wealth.py:260-339` |
-| Foundation-Vorsorgebeispiele | `5eyes-backend/services/foundation_example.py:367-405` |
-| sofortiger Unlocked-Pool | `5eyes-backend/services/portfolio_engine.py:1896-1915,5472-5484` |
-| Reserveabsorption | `5eyes-backend/services/portfolio_engine_reserve.py:441-494` |
-| Positions-/Cashflow-/Goal-Hashencoder | `5eyes-backend/services/portfolio_engine.py:2338-2518` |
-| Pensionsindexierung | `5eyes-backend/models/wealth.py:174-182`; `5eyes-backend/schemas/wealth.py:647-680`; `5eyes-backend/services/foundation_example.py:288-301` |
-| Bucket-Cashflow und Defizit | `5eyes-backend/services/portfolio_engine_mc_simulation.py:261-284,297-382,1298-1343,1425-1429` |
-| korrekt nettender Vergleichspfad | `5eyes-backend/services/optimizer/scenario_engine.py:524-578` |
-| Cashflow-Gross/Steuer/Timing-Schema | `5eyes-backend/schemas/wealth.py:257-319` |
-| Cashflow-Normalisierung | `5eyes-backend/routers/wealth.py:75-139` |
-| Jahresaggregation | `5eyes-backend/services/cashflow_timeline.py:93-157,194-235,238-339,374-383` |
-| Kapitalbezug-UI | `5eyes-electron/frontend/5eyes_v2.html:22026-22068,22706-22805` |
-| Engine-Depletion | `5eyes-backend/services/portfolio_engine_mc_simulation.py:1114-1129,1293-1296,1493-1510,1551-1619` |
-| API-Monte-Carlo-Schema | `5eyes-backend/schemas/allocation.py:1206-1237` |
-| API-Response-Model | `5eyes-backend/routers/allocation.py:147-163,497-505` |
-| Depletion-Anzeige | `5eyes-electron/frontend/5eyes_v2.html:21074-21122` |
-| Generate-Response ohne Decumulation | `5eyes-backend/schemas/allocation.py:1375-1436` |
-| Ghost-Readiness | `5eyes-electron/frontend/5eyes_v2.html:23950-23980` |
-| deterministische Annuitätsdisclosure | `5eyes-backend/routers/wealth.py:1182-1322` |
+| Pensionsausgabe ist sichtbarer periodischer Bedarf | `ares-desktop/frontend/ares.html:4635-4642,26280-26295` |
+| AHV-Hinweis in der UI | `ares-desktop/frontend/ares.html:4743-4752,26263-26267` |
+| AHV-Reserve-/Score-Semantik | `ares-backend/services/portfolio_engine_reserve.py:207-233,236-282,371-385` |
+| AHV-Optimizer-Liability | `ares-backend/services/optimizer/goal_liabilities.py:43-65,294-299,504-527,535-555` |
+| AHV-Reporting-MC | `ares-backend/services/portfolio_engine_mc_simulation.py:844-933` |
+| Vorsorgepositionsfelder und API-Response | `ares-backend/models/wealth.py:10-57`; `ares-backend/schemas/wealth.py:12-120,123-230`; `ares-backend/routers/wealth.py:506-570` |
+| Goal-Link ohne vollständige Semantikprüfung | `ares-backend/schemas/wealth.py:539-611`; `ares-backend/routers/wealth.py:260-339` |
+| Foundation-Vorsorgebeispiele | `ares-backend/services/foundation_example.py:367-405` |
+| sofortiger Unlocked-Pool | `ares-backend/services/portfolio_engine.py:1896-1915,5472-5484` |
+| Reserveabsorption | `ares-backend/services/portfolio_engine_reserve.py:441-494` |
+| Positions-/Cashflow-/Goal-Hashencoder | `ares-backend/services/portfolio_engine.py:2338-2518` |
+| Pensionsindexierung | `ares-backend/models/wealth.py:174-182`; `ares-backend/schemas/wealth.py:647-680`; `ares-backend/services/foundation_example.py:288-301` |
+| Bucket-Cashflow und Defizit | `ares-backend/services/portfolio_engine_mc_simulation.py:261-284,297-382,1298-1343,1425-1429` |
+| korrekt nettender Vergleichspfad | `ares-backend/services/optimizer/scenario_engine.py:524-578` |
+| Cashflow-Gross/Steuer/Timing-Schema | `ares-backend/schemas/wealth.py:257-319` |
+| Cashflow-Normalisierung | `ares-backend/routers/wealth.py:75-139` |
+| Jahresaggregation | `ares-backend/services/cashflow_timeline.py:93-157,194-235,238-339,374-383` |
+| Kapitalbezug-UI | `ares-desktop/frontend/ares.html:22026-22068,22706-22805` |
+| Engine-Depletion | `ares-backend/services/portfolio_engine_mc_simulation.py:1114-1129,1293-1296,1493-1510,1551-1619` |
+| API-Monte-Carlo-Schema | `ares-backend/schemas/allocation.py:1206-1237` |
+| API-Response-Model | `ares-backend/routers/allocation.py:147-163,497-505` |
+| Depletion-Anzeige | `ares-desktop/frontend/ares.html:21074-21122` |
+| Generate-Response ohne Decumulation | `ares-backend/schemas/allocation.py:1375-1436` |
+| Ghost-Readiness | `ares-desktop/frontend/ares.html:23950-23980` |
+| deterministische Annuitätsdisclosure | `ares-backend/routers/wealth.py:1182-1322` |
 
 ## `PENSION-AHV-001` – Ein Label ersetzt den AHV-Leistungsnachweis
 

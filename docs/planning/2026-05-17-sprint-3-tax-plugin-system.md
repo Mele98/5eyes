@@ -65,7 +65,7 @@ Das Steuer-Modell ist daher **kein hartcodiertes Lookup**, sondern eine
 ## 2. Modul-Struktur
 
 ```
-5eyes-backend/
+ares-backend/
 ├── services/tax/
 │   ├── __init__.py                    # Re-Exports
 │   ├── base.py                        # TaxRegime-Protocol, TaxConfig, TaxResult

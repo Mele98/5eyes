@@ -76,9 +76,9 @@ PR #71 — U-P23 PR A: `feat(reporting): U-P23 PR A schema v2 and TOC order`
 - `services/advisory_report.py` — schema_version=2, neue Sektion-Reihenfolge
 - `tests/test_advisory_report.py` — Tests aktualisiert
 - `tests/test_reporting_api_and_cover.py` — Tests aktualisiert
-- `5eyes-electron/frontend/reporting/src/api/client.ts` — Schema-Check v2
-- `5eyes-electron/frontend/reporting/src/api/types.ts` — Interface-Reihenfolge
-- `5eyes-electron/frontend/reporting/src/vite-env.d.ts` — NEU (vermutlich für `import.meta.env`)
+- `ares-desktop/frontend/reporting/src/api/client.ts` — Schema-Check v2
+- `ares-desktop/frontend/reporting/src/api/types.ts` — Interface-Reihenfolge
+- `ares-desktop/frontend/reporting/src/vite-env.d.ts` — NEU (vermutlich für `import.meta.env`)
 
 **Acceptance erreicht:**
 - Sektion-Reihenfolge: Cover → Disclaimer → TOC → Ausgangslage → Positionen → ...

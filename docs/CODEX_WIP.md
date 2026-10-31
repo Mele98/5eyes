@@ -13,15 +13,15 @@ funktioniert, gelten ein paar feste Regeln.
 
 | Bereich | Verantwortlich | Pfade |
 |---------|---------------|-------|
-| Aggregator (Datenstruktur 23 Sektionen) | Claude | `5eyes-backend/services/advisory_report.py` |
-| Backend-Services (Audit, Lifecycle, Cleanup) | Claude | `5eyes-backend/services/*.py` (ohne `pdf/`) |
-| Admin-Endpoints | Claude | `5eyes-backend/routers/*.py` (ohne `pdf_reports.py`) |
-| Sub-App (React/Vite) | Claude | `5eyes-electron/frontend/reporting/` |
+| Aggregator (Datenstruktur 23 Sektionen) | Claude | `ares-backend/services/advisory_report.py` |
+| Backend-Services (Audit, Lifecycle, Cleanup) | Claude | `ares-backend/services/*.py` (ohne `pdf/`) |
+| Admin-Endpoints | Claude | `ares-backend/routers/*.py` (ohne `pdf_reports.py`) |
+| Sub-App (React/Vite) | Claude | `ares-desktop/frontend/reporting/` |
 | Doku | Claude | `docs/` |
-| PDF-Renderer | Codex | `5eyes-backend/services/pdf/**` |
-| PDF-Endpoint | Codex | `5eyes-backend/routers/pdf_reports.py` |
-| PDF-Tests | Codex | `5eyes-backend/tests/pdf/`, `5eyes-backend/tests/test_*_pdf*.py` |
-| Hauptapp HTML | Codex / User | `5eyes-electron/frontend/5eyes_v2.html` |
+| PDF-Renderer | Codex | `ares-backend/services/pdf/**` |
+| PDF-Endpoint | Codex | `ares-backend/routers/pdf_reports.py` |
+| PDF-Tests | Codex | `ares-backend/tests/pdf/`, `ares-backend/tests/test_*_pdf*.py` |
+| Hauptapp HTML | Codex / User | `ares-desktop/frontend/ares.html` |
 
 Ueberlapp passiert nur am Aggregator-Output (Datenstruktur) — Codex liest,
 Claude schreibt. Strukturelle Aenderungen sind Claude-Pflicht und werden

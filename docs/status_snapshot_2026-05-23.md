@@ -36,17 +36,17 @@ sauber; Codex hat uncommitted Parallelarbeit (siehe §3).
 
 Codex hat Parallelarbeit, die noch nicht committed ist:
 
-- `5eyes-backend/services/portfolio_engine.py` (weitere Codex-Edits, Inhalt
+- `ares-backend/services/portfolio_engine.py` (weitere Codex-Edits, Inhalt
   noch nicht von mir reviewed)
-- `5eyes-backend/routers/wealth.py`
-- `5eyes-backend/tests/test_goal_scoring_horizon.py`
-- `5eyes-backend/tests/test_mandate_api_contracts.py`
-- `5eyes-electron/frontend/5eyes_v2.html` (Codex-Bereiche, mein U-P19-Toggle
+- `ares-backend/routers/wealth.py`
+- `ares-backend/tests/test_goal_scoring_horizon.py`
+- `ares-backend/tests/test_mandate_api_contracts.py`
+- `ares-desktop/frontend/ares.html` (Codex-Bereiche, mein U-P19-Toggle
   liegt schon committed im File-Header)
 - `docs/CLAUDE_HANDOFF.md` (Codex' eigener Stochastic-Brief am Anfang)
 - `docs/planning/2026-05-23-stochastic-goal-engine-brief.md` (untracked, der
   Brief)
-- `5eyes-backend/tests/test_frontend_goal_return_contracts.py` (untracked,
+- `ares-backend/tests/test_frontend_goal_return_contracts.py` (untracked,
   neuer Codex-Contract)
 
 **Bewertung:** Volle Suite war mit dieser Parallelarbeit **grün** (1670 passed),

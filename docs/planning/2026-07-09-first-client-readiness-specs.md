@@ -31,7 +31,7 @@ ist für diesen Fall **irrelevant**.
 ## A1 — Crash-Wurzelfix „Maximum call stack"
 
 ### Ist-Zustand
-- Guard `__chartStep(name, fn)` in `5eyes-electron/frontend/5eyes_v2.html:19305–19317`: wrappt jeden
+- Guard `__chartStep(name, fn)` in `ares-desktop/frontend/ares.html:19305–19317`: wrappt jeden
   Render-Schritt in try/catch, loggt bei Fehler `CHART_RENDER_FAILED [<name>] — <msg>\n Zyklus: …\n <stack>`
   und lässt den Strategie-Lauf **sauber** enden (`return true`). Das Symptom ist also abgefangen —
   die Wurzel (rekursierende Funktion) nicht gefixt.
@@ -39,12 +39,12 @@ ist für diesen Fall **irrelevant**.
   1. `projection-overlay` → `updateProjectionChartsFromSimulation(result)` (~17697)
   2. `fan-montecarlo` → `upgradeFanChartWithMonteCarlo(result)`
   3. `aacurrent-montecarlo` → `upgradeCurrentAaChartWithMonteCarlo(result)`
-  4. `strategy-tail` → inline (5eyes_v2.html:19315 ff.), ruft u.a. `buildCurrentBaselineProjection`,
+  4. `strategy-tail` → inline (ares.html:19315 ff.), ruft u.a. `buildCurrentBaselineProjection`,
      `buildCurrentWealthProjection('total',…)`, `buildImprovedTotalProjectionFromStrategy`,
      `updateAllocationProjectionComparison`.
 
 ### Diagnose (2 Minuten, liefert den Punkt-Fix)
-1. `cd 5eyes-electron && npm start`, Kunde/Mandat laden, **Strategie berechnen**.
+1. `cd ares-desktop && npm start`, Kunde/Mandat laden, **Strategie berechnen**.
 2. DevTools-Konsole öffnen (Ctrl+Shift+I). Bei Absturz erscheint **`CHART_RENDER_FAILED [<name>]`**.
 3. `<name>` nennt exakt einen der 4 Schritte oben → die rekursierende Funktion ist bekannt.
 4. Die `Zyklus:`- und Stack-Zeilen zeigen die konkrete Selbstaufruf-Kette.
@@ -54,7 +54,7 @@ ist für diesen Fall **irrelevant**.
   der seinerseits wieder `update()` auslöst → Endlosschleife. Fix: Re-Entrancy-Flag setzen
   (`if(chart.__updating)return; chart.__updating=true; try{…}finally{chart.__updating=false;}`) ODER
   den Update aus dem Hook entkoppeln (`requestAnimationFrame`, nur bei echter Datenänderung updaten —
-  vgl. bestehendes Muster `5eyes_v2.html:17106`).
+  vgl. bestehendes Muster `ares.html:17106`).
 - **Projektions-Funktionen (`buildCurrent*`/`buildImproved*`):** falls eine dieser Funktionen sich
   bei fehlenden/rekursiven `sim.year_labels` selbst aufruft → Basisfall/Abbruch ergänzen (Länge 0 →
   frühzeitig leeres Ergebnis).
@@ -179,7 +179,7 @@ Im Code verifiziert — **nichts zu tun außer im A2-Smoke gegenprüfen**:
 - Ableitung: `services/wealth_cashflows.py:236` setzt beim abgeleiteten `rental_income`-Cashflow
   `inflation_linked=int(pos.property_rental_inflation_linked)`.
 - Schema: `schemas/wealth.py:31/94/142` + Validator.
-- **Frontend:** Checkbox `maw-immo-rent-inflation` (`5eyes_v2.html:4482`), Laden `:15420`, Speichern
+- **Frontend:** Checkbox `maw-immo-rent-inflation` (`ares.html:4482`), Laden `:15420`, Speichern
   `:21408 payload.property_rental_inflation_linked`.
 - **A2-Check:** Immobilie mit aktivierter Checkbox → Mietertrag-Cashflow wächst in der Projektion mit
   der Teuerung.

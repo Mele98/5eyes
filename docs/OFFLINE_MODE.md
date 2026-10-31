@@ -7,7 +7,7 @@ ermoeglichen.
 **Stand:** 2026-06-06
 **Roadmap-Punkt:** #88 (FE, ~4h Foundation, eigentliche Implementierung
 ist Folge-Sprint)
-**Komplementaer zu:** [DESIGN_SYSTEM.md](../5eyes-electron/frontend/reporting/DESIGN_SYSTEM.md)
+**Komplementaer zu:** [DESIGN_SYSTEM.md](../ares-desktop/frontend/reporting/DESIGN_SYSTEM.md)
 
 ---
 
@@ -42,7 +42,7 @@ ohne Test-Pattern).
 ### Vite-Plugin (opt-in, NICHT in package.json heute)
 
 ```powershell
-cd 5eyes-electron\frontend\reporting
+cd ares-desktop\frontend\reporting
 npm install vite-plugin-pwa --save-dev
 ```
 
@@ -122,4 +122,4 @@ function OfflineStatus() {
 - [vite-plugin-pwa docs](https://vite-pwa-org.netlify.app)
 - [MDN Service Worker API](https://developer.mozilla.org/docs/Web/API/Service_Worker_API)
 - ADR-003 — Anlagephilosophie (kein Markt-Timing -> kein Push)
-- `5eyes-electron/frontend/reporting/src/api/handoff.ts` — Token-Handoff-Logik
+- `ares-desktop/frontend/reporting/src/api/handoff.ts` — Token-Handoff-Logik

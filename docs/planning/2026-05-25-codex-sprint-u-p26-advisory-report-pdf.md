@@ -116,7 +116,7 @@ def get_advisory_report_pdf(
 ):
     """U-P26: Institutioneller 15-Seiten Advisory-Report als PDF.
 
-    Spiegelt exakt das React-Layout (5eyes-electron/frontend/reporting/).
+    Spiegelt exakt das React-Layout (ares-desktop/frontend/reporting/).
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
@@ -387,7 +387,7 @@ def format_date_swiss(iso_date: str) -> str:
 ```
 
 **Wichtig:** Die selben Helper sollen auch im Frontend als JS/TS-
-Module existieren (in `5eyes-electron/frontend/reporting/src/api/`)
+Module existieren (in `ares-desktop/frontend/reporting/src/api/`)
 — Output muss exakt identisch sein. Test: PDF und Frontend rendern
 dieselbe Zahl identisch.
 

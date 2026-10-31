@@ -19,11 +19,11 @@ Vor der Implementierung unbedingt lesen — folgender Code ist korrekt und darf 
 | Inflations-Aufwertung real-Ziele | `portfolio_engine.py` | 1516–1531 |
 | Härtegrad-Multiplikator Scoring | `portfolio_engine.py` | 1482–1501 |
 | `_growth_goals_for_equity_tilt()` | `portfolio_engine.py` | 1534–1556, 2898 |
-| `nz-value-mode-row` Toggle HTML | `5eyes_v2.html` | 1758–1773 |
-| `syncGoalModalState()` zeigt Toggle | `5eyes_v2.html` | 14649–14650 |
-| Renditeziel → Opportunistisch default | `5eyes_v2.html` | 14676 |
-| `saveGoal()` liest value_mode aus Radio | `5eyes_v2.html` | 14843 |
-| HART/PRIMÄR/OPP./REAL Badges | `5eyes_v2.html` | 14555–14572 |
+| `nz-value-mode-row` Toggle HTML | `ares.html` | 1758–1773 |
+| `syncGoalModalState()` zeigt Toggle | `ares.html` | 14649–14650 |
+| Renditeziel → Opportunistisch default | `ares.html` | 14676 |
+| `saveGoal()` liest value_mode aus Radio | `ares.html` | 14843 |
+| HART/PRIMÄR/OPP./REAL Badges | `ares.html` | 14555–14572 |
 
 ---
 
@@ -41,7 +41,7 @@ Zwei echte Lücken schliessen:
 
 ### Lücke 1 — Kein Schutz gegen Renditeziel + Hart
 
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html`
+**Datei:** `ares-desktop/frontend/ares.html`
 **Funktion:** `syncGoalModalState()` (Zeile ~14628)
 
 Aktuell: `syncGoalModalState()` setzt bei neuem Renditeziel prio=3 (Opportunistisch) als Default.
@@ -107,22 +107,22 @@ muss die Inflationsannahme pro Mandat korrekt einstellen können.
 
 ### Lücke 1 (Frontend only)
 
-- **`5eyes-electron/frontend/5eyes_v2.html`**
+- **`ares-desktop/frontend/ares.html`**
   - `syncGoalModalState()` — Warnung-Div einblenden wenn Renditeziel+Hart
   - HTML: neues `nz-hardness-warn` Div im Ziel-Formular
 
 ### Lücke 2 (Frontend + Backend)
 
-- **`5eyes-electron/frontend/5eyes_v2.html`**
+- **`ares-desktop/frontend/ares.html`**
   - Neues Input-Feld `plan-inflation-bps` (float → BPS) + Speichern-Button
   - Ladelogik beim Öffnen des Mandats
 
-- **`5eyes-backend/routers/wealth.py`** (oder eigener Planning-Router)
+- **`ares-backend/routers/wealth.py`** (oder eigener Planning-Router)
   - `GET /mandates/{mandate_id}/planning-assumptions` — aktuelle Annahmen lesen
   - `PUT /mandates/{mandate_id}/planning-assumptions` — `inflation_assumption_bps` speichern
 
-- **`5eyes-backend/models/wealth.py`** — `PlanningAssumption` bereits vorhanden, kein Schemachange
-- **`5eyes-backend/schemas/wealth.py`** — Schema für PUT prüfen/ergänzen
+- **`ares-backend/models/wealth.py`** — `PlanningAssumption` bereits vorhanden, kein Schemachange
+- **`ares-backend/schemas/wealth.py`** — Schema für PUT prüfen/ergänzen
 
 ---
 
@@ -187,7 +187,7 @@ Attribut `onchange` hinzufügen:
 
 **Schritt 4 — Backend: Schema prüfen / GET + PUT Endpunkte**
 
-Datei: `5eyes-backend/routers/wealth.py`
+Datei: `ares-backend/routers/wealth.py`
 
 Grep-Anker (bestehende Planungsannahmen-Endpunkte suchen):
 ```

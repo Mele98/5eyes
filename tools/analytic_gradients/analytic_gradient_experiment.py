@@ -40,7 +40,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-BACKEND = Path(__file__).resolve().parents[2] / "5eyes-backend"
+BACKEND = Path(__file__).resolve().parents[2] / "ares-backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 

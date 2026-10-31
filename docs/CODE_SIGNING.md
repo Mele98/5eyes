@@ -44,7 +44,7 @@ Setup-Anleitung sobald der User ein Code-Signing-Zertifikat besorgt hat.
 
 ### Windows EV/OV-Cert in `electron-builder`
 
-`5eyes-electron/package.json`:
+`ares-desktop/package.json`:
 
 ```json
 {
@@ -70,7 +70,7 @@ Bei EV-Cert mit Hardware-Token: `certificateSubjectName` statt
 
 ### macOS Apple-Cert in `electron-builder`
 
-`5eyes-electron/package.json`:
+`ares-desktop/package.json`:
 
 ```json
 {

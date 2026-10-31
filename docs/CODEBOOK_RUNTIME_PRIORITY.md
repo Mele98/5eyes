@@ -23,23 +23,23 @@ Jede Ausgabe soll in Beratung und Kontrolle verwendbar sein.
 
 ## Wichtigste aktive Runtime-Dateien
 
-- `5eyes-electron/frontend/5eyes_v2.html`
+- `ares-desktop/frontend/ares.html`
   Rolle: gesamtes Frontend, Navigation, Dialoge, Runtime-State, Charts, Admin, Review
   Risiko: sehr gross, viele Verantwortlichkeiten, hoher Regression-Hebel
 
-- `5eyes-backend/services/portfolio_engine.py`
+- `ares-backend/services/portfolio_engine.py`
   Rolle: Kerntrichter fuer Allokation, Simulation, Monte Carlo, Recommendation, Drift
   Risiko: fachlich zentral, bisher zu monolithisch
 
-- `5eyes-backend/routers/review.py`
+- `ares-backend/routers/review.py`
   Rolle: Produktstamm, Recommendation, Holdings, Review-nahe Schnittstellen
   Risiko: breit, viele Seiteneffekte
 
-- `5eyes-backend/services/cashflow_timeline.py`
+- `ares-backend/services/cashflow_timeline.py`
   Rolle: Frequenzen, Datierung, Jahreslogik
   Risiko: kleine Datei, aber fachlich sehr sensibel
 
-- `5eyes-backend/services/risk_scoring.py`
+- `ares-backend/services/risk_scoring.py`
   Rolle: Risikofragebogen und Scoring
   Risiko: kleine Datei, aber direkt sichtbar fuer Kunde und Berater
 
@@ -49,15 +49,15 @@ Jede Ausgabe soll in Beratung und Kontrolle verwendbar sein.
    Status: bereits gekuerzt und in Hilfsfunktionen zerlegt, aber weiter Kern-Hotspot
    Warum: verbindet Risiko, Ziele, Cashflows, House Matrix und Simulation
 
-2. `5eyes_v2.html::renderEngineRuntimePanels()`
+2. `ares.html::renderEngineRuntimePanels()`
    Status: sehr lang
    Warum: rendert viele Fachdimensionen auf einmal; gute Kandidatin fuer weitere Entflechtung
 
-3. `5eyes_v2.html::buildRiskAssessmentPayloadFromUI()`
+3. `ares.html::buildRiskAssessmentPayloadFromUI()`
    Status: fachlich stabiler, aber noch dicht
    Warum: direkte Bruecke vom Fragebogen in die Engine
 
-4. `5eyes_v2.html::bindLegacyReviewModalActions()`
+4. `ares.html::bindLegacyReviewModalActions()`
    Status: funktional, aber weiterhin Legacy-Charakter
    Warum: viele UI-Bindings in einer Funktion
 

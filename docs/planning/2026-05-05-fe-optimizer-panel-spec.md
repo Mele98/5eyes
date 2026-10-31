@@ -88,7 +88,7 @@ Sensitivity-Analyse, kein Vertrauensmaß.
 - Robustheit: defekter JSON in den DB-Spalten fuehrt nicht zum Crash, fallt
   einfach auf None bzw. leere Reasoning-Zeile zurueck.
 
-### Frontend (`5eyes-electron/frontend/5eyes_v2.html`)
+### Frontend (`ares-desktop/frontend/ares.html`)
 
 - **Bereich `#page-al`** (Allocation-Page) bekommt nach der Asset-Allocation-Torte ein neues Panel `#al-optimizer-panel`
 - **Hilfsfunktion `renderOptimizerPanel(payload)`** in der HTML-JS-Section
@@ -252,7 +252,7 @@ Response: {
 
 1. Backend ✅ FERTIG (commits 269f6a1, 2b21fb8, fcc600c — 525/525 Tests gruen).
 
-2. Frontend `5eyes_v2.html`:
+2. Frontend `ares.html`:
    - [ ] Container `<div id="al-optimizer-panel"></div>` nach der Asset-Allocation-Torte einfügen
    - [ ] CSS-Klassen: `.opt-panel`, `.opt-pill`, `.opt-pill-green`, `.opt-pill-yellow`, `.opt-pill-grey`, `.stress-table`, `.sens-slider`
    - [ ] JS: `renderOptimizerPanel(allocationPayload)` — wird nach API-Response in `applyAllocationEngineResult()` aufgerufen

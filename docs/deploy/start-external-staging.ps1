@@ -5,7 +5,7 @@
 # eigene DB mit NUR synthetischen Demo-Tenants/Accounts. Selbst wenn die
 # Tenant-Isolation versagte, gibt es hier schlicht KEINE echten Kundendaten.
 #
-# 1x vorher seeden:  cd 5eyes-backend ; python seed_external_demo.py
+# 1x vorher seeden:  cd ares-backend ; python seed_external_demo.py
 # Aufruf:            .\docs\deploy\start-external-staging.ps1
 # Beenden: Strg+C; das minimierte Backend-Fenster separat schliessen.
 #
@@ -14,7 +14,7 @@
 $ErrorActionPreference = 'Stop'
 
 $repo    = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$backend = Join-Path $repo '5eyes-backend'
+$backend = Join-Path $repo 'ares-backend'
 $home5   = Join-Path $env:USERPROFILE '5eyes'
 if (-not (Test-Path $home5)) { New-Item -ItemType Directory -Path $home5 | Out-Null }
 $secretFile = Join-Path $home5 '.external-secret.txt'
@@ -43,7 +43,7 @@ if ($dbCheck -ne 0) {
 # Staging-DB muss existieren (sonst Hinweis zum Seeden).
 if (-not (Test-Path $stagingDb)) {
   Write-Host "Staging-DB fehlt: $stagingDb" -ForegroundColor Yellow
-  Write-Host "Bitte zuerst seeden:  cd 5eyes-backend ; python seed_external_demo.py" -ForegroundColor Yellow
+  Write-Host "Bitte zuerst seeden:  cd ares-backend ; python seed_external_demo.py" -ForegroundColor Yellow
   exit 1
 }
 
@@ -89,7 +89,7 @@ Write-Host ''
 Write-Host '====================================================================' -ForegroundColor Green
 Write-Host ' Gleich erscheint eine  https://<zufall>.trycloudflare.com  URL.'    -ForegroundColor Green
 Write-Host ' Teile sie + diesen Pfad mit Kollegen:'                              -ForegroundColor Green
-Write-Host '   https://<zufall>.trycloudflare.com/app/5eyes_v2.html'             -ForegroundColor White
+Write-Host '   https://<zufall>.trycloudflare.com/app/ares.html'             -ForegroundColor White
 Write-Host ' Logins (Initial-PW: Ausgabe von seed_external_demo.py, 2FA-Pflicht beim 1. Login):' -ForegroundColor Green
 Write-Host '   operator / a.berater / a.admin / b.berater / b.admin'            -ForegroundColor White
 Write-Host '====================================================================' -ForegroundColor Green

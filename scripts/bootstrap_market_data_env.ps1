@@ -7,7 +7,7 @@ param(
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
 $targetEnv = Join-Path $repoRoot '.env'
-$exampleEnv = Join-Path $repoRoot '5eyes-backend\.env.example'
+$exampleEnv = Join-Path $repoRoot 'ares-backend\.env.example'
 
 if (-not (Test-Path $exampleEnv)) {
     throw "Quelle fehlt: $exampleEnv"

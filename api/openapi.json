@@ -29534,7 +29534,7 @@
     },
     "/mandates/{mandate_id}/advisory-report": {
       "get": {
-        "description": "Sprint U-P21: Voller 15-Seiten Advisory-Report als JSON.\n\nKonsumiert von der React-Sub-App (5eyes-electron/frontend/reporting/,\nfolgt in U-P22) und vom Server-PDF (U-P26). Berater-Auth via\nget_current_user, gleiche Pattern wie Depot-Check-Endpoint.",
+        "description": "Sprint U-P21: Voller 15-Seiten Advisory-Report als JSON.\n\nKonsumiert von der React-Sub-App (ares-desktop/frontend/reporting/,\nfolgt in U-P22) und vom Server-PDF (U-P26). Berater-Auth via\nget_current_user, gleiche Pattern wie Depot-Check-Endpoint.",
         "operationId": "get_advisory_report_mandates__mandate_id__advisory_report_get",
         "parameters": [
           {

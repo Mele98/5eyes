@@ -11,8 +11,8 @@ This note summarizes where 5Eyes currently stores and processes customer data in
 
 - Main application data is stored in the backend database defined by `DB_PATH`.
 - Database access is configured in:
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\config.py`
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\database.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\config.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\database.py`
 - The backend supports SQLCipher at-rest encryption.
 - Production is now blocked unless `APP_ENV=production`, `DB_USE_SQLCIPHER=true` and a non-empty `DB_KEY` are configured.
 
@@ -22,34 +22,34 @@ This note summarizes where 5Eyes currently stores and processes customer data in
 - Electron stores tokens via `safeStorage` where available.
 - Browser/dev fallback stores tokens only in `sessionStorage`, not `localStorage`.
 - Relevant files:
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\services\auth.py`
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-electron\main.js`
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-electron\frontend\5eyes_v2.html`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\services\auth.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-desktop\main.js`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-desktop\frontend\ares.html`
 
 ## 4. Access Control
 
 - Customer and mandate access is scoped to the authenticated adviser unless the user has global admin rights.
 - Review dashboards and recommendation routes are also scoped.
 - Relevant files:
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\services\auth.py`
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\routers\clients.py`
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\routers\review.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\services\auth.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\routers\clients.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\routers\review.py`
 
 ## 5. Logs, Diagnostics And Support Bundles
 
 - Support bundles redact secrets and only include redacted recent log excerpts.
 - Raw full logs are no longer attached automatically to support bundles.
 - Relevant files:
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\services\maintenance.py`
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\routers\system.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\services\maintenance.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\routers\system.py`
 
 ## 6. Risk Questionnaire Data
 
 - Risk questionnaire answers are persisted as risk assessments in the backend database.
 - The scoring logic is implemented server-side in:
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-backend\services\risk_scoring.py`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-backend\services\risk_scoring.py`
 - The frontend now maps the questionnaire to the same Fachlogik thresholds before saving:
-  - `C:\5eyes\5eyes_stage9_release_ready\5eyes-electron\frontend\5eyes_v2.html`
+  - `C:\5eyes\5eyes_stage9_release_ready\ares-desktop\frontend\ares.html`
 
 ## 7. Remaining Go-Live Requirements
 

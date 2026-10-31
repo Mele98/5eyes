@@ -80,7 +80,7 @@ class MandateReportNotes(Base):
 Da es eine **neue Tabelle** ist (nicht nur neue Column), kann
 `Base.metadata.create_all(engine)` sie idempotent erzeugen.
 Pattern in `database.py::ensure_runtime_tables()` (NEU) oder direkt im
-bootstrap. Plus SQL-DDL in `5eyes_schema_v4.0_FINAL.sql` ergänzen.
+bootstrap. Plus SQL-DDL in `ares_schema.sql` ergänzen.
 
 ---
 
@@ -138,7 +138,7 @@ In der Reporting-Sub-App: **Edit-Modus für Berater**:
 - Visueller Unterschied: Auto-Default-Text in `text-ink-muted`,
   Berater-Override in `text-ink` mit kleinem „Bearbeitet"-Tag
 
-In der Hauptapp `5eyes_v2.html`: KEIN Edit — alles über die Reporting-
+In der Hauptapp `ares.html`: KEIN Edit — alles über die Reporting-
 Sub-App.
 
 ---

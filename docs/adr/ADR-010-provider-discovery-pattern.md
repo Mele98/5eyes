@@ -32,7 +32,7 @@ aus ADR-006.
 ### Architektur
 
 ```
-5eyes-backend/services/market_data/
+ares-backend/services/market_data/
   base.py                  # MarketDataProvider-Abstract
   factory.py               # build_aggregator() — Default-Provider
   provider_discovery.py    # Entry-Point-Loader (NEU, Phase 5)

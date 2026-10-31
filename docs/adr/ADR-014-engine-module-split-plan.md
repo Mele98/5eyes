@@ -107,7 +107,7 @@ Plantext.
 
 ## Kontext
 
-`5eyes-backend/services/portfolio_engine.py` ist **8'820 Zeilen** gross und
+`ares-backend/services/portfolio_engine.py` ist **8'820 Zeilen** gross und
 enthaelt praktisch die gesamte Beratungs-Engine: Kapitalmarktannahmen-
 Verarbeitung, Monte-Carlo-Simulation, House-Matrix/Tilt-Logik, Reserve-
 Berechnung, Gesamtvermoegens-Darstellung, Payload-Bau fuer Ziel-/
@@ -594,14 +594,14 @@ ADR-008 (Frontend) und dem Umsetzungsplan Welle 3 generell
 
 ## Referenzen
 
-- `5eyes-backend/services/portfolio_engine.py` — das God-Modul (8'820 Zeilen)
+- `ares-backend/services/portfolio_engine.py` — das God-Modul (8'820 Zeilen)
 - `docs/adr/ADR-008-html-monolith-migration.md` — Struktur-/Ton-Vorbild fuer
   diesen ADR; gleiches Big-Bang-vermeidendes Migrations-Muster
 - `docs/planning/2026-07-18-umsetzungsplan-verbesserungen.md` §3.2 —
   Auftrag fuer diesen Plan
-- `5eyes-backend/tests/test_golden_snapshot_ch_regression.py` — primaeres
+- `ares-backend/tests/test_golden_snapshot_ch_regression.py` — primaeres
   Sicherheitsnetz (CH-Pfad byte-identisch)
-- `5eyes-backend/tests/test_portfolio_engine_regressions.py` — importiert
+- `ares-backend/tests/test_portfolio_engine_regressions.py` — importiert
   `_compute_reserve_requirements`-Compat-Wrapper direkt beim Namen
 - `services/backtest_ab.py`, `services/review_engine.py`,
   `services/advisory_report.py`, `services/foundation_example.py` — die 4
