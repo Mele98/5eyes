@@ -605,6 +605,9 @@ def backfill_asset_class_prices_endpoint(
     return result
 
 
+_REFRESH_FAILED_DETAIL = "Aktualisierung fehlgeschlagen (Details im Server-Log)."
+
+
 @router.post('/market-data/refresh-now')
 def refresh_market_data_now(
     request: Request,
@@ -620,9 +623,11 @@ def refresh_market_data_now(
     try:
         from services.market_data_daily_refresh import run_daily_market_data_refresh
         result = run_daily_market_data_refresh(db)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc))
+        # Interne Fehlertexte (Provider, Pfade, SQL) nur ins Log, nicht an den Client.
+        logger.exception("Manueller Marktdaten-Refresh fehlgeschlagen")
+        raise HTTPException(status_code=500, detail=_REFRESH_FAILED_DETAIL) from None
     # Sprint U-102 (2026-06-05): manueller Refresh muss auditiert sein.
     audit_log(
         db,
@@ -662,9 +667,10 @@ def refresh_fx_rates_now(
     try:
         from services.fx_rate_daily_refresh import run_daily_fx_refresh
         result = run_daily_fx_refresh(db)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception("Manueller FX-Refresh fehlgeschlagen")
+        raise HTTPException(status_code=500, detail=_REFRESH_FAILED_DETAIL) from None
     audit_log(
         db,
         user_id=current_user.id,

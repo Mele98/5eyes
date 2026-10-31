@@ -257,7 +257,9 @@ def test_endpoint_returns_500_on_service_exception(session_factory, monkeypatch)
         with _client(session_factory) as client:
             response = client.post("/admin/system/fx-rates/refresh-now")
             assert response.status_code == 500
-            assert "aggregator down" in response.text
+            # Interner Fehlertext geht ins Server-Log, nicht an den Client.
+            assert "aggregator down" not in response.text
+            assert response.json()["detail"] == "Aktualisierung fehlgeschlagen (Details im Server-Log)."
     finally:
         app.dependency_overrides.clear()
 
