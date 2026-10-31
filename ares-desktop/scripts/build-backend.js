@@ -50,6 +50,17 @@ const addDataArg = isWindows
 const fontDataArg = isWindows
   ? 'assets/fonts;assets/fonts'
   : 'assets/fonts:assets/fonts';
+// X1/X3/X4 (Laenderpakete): Manifeste, Texte und Aufbewahrungsregeln sind
+// Daten und muessen neben jurisdictions/*.py im Bundle liegen. Jede neue
+// YAML-Datei unter jurisdictions/ gehoert in diese Liste
+// (tests/test_jurisdiction_document_set.py prueft das).
+const jurisdictionPackManifests = [
+  'jurisdictions/ch/pack.yaml',
+  'jurisdictions/ch/documents/de-CH/cost_disclosure.yaml',
+  'jurisdictions/ch/documents/de-CH/legal.yaml',
+  'jurisdictions/ch/documents/de-CH/strategy_report.yaml',
+  'jurisdictions/ch/retention/policy.yaml',
+];
 
 const hiddenImports = [
   'uvicorn.logging',
@@ -135,6 +146,7 @@ const collectSubmodules = [
   'services',
   'routers',
   'models',
+  'jurisdictions',
 ];
 
 const pyInstallerArgs = [
@@ -148,6 +160,10 @@ const pyInstallerArgs = [
   '--add-data',
   fontDataArg,
 ];
+for (const manifest of jurisdictionPackManifests) {
+  const targetDir = path.posix.dirname(manifest);
+  pyInstallerArgs.push('--add-data', isWindows ? `${manifest};${targetDir}` : `${manifest}:${targetDir}`);
+}
 
 for (const mod of hiddenImports) {
   pyInstallerArgs.push('--hidden-import', mod);

@@ -14,8 +14,12 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timedelta
 
-# Aufbewahrungs-Pflicht in Jahren (FIDLEG Art. 17)
-RETENTION_YEARS: int = 10
+from jurisdictions.retention import default_retention
+
+# Aufbewahrungs-Pflicht in Jahren (FIDLEG Art. 17). Laenderpaket X4: der Wert
+# kommt aus der RetentionPolicy (jurisdictions/ch/retention/policy.yaml,
+# Kategorie ``advisory_log``), wertgleich zur frueheren Konstante 10.
+RETENTION_YEARS: int = default_retention().years("advisory_log")
 
 
 class AdvisoryLogDatetimeError(ValueError):

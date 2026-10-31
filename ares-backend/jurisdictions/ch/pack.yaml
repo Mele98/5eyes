@@ -1,0 +1,71 @@
+# CH-Laenderpaket, Schritt X1 (Geruest).
+#
+# Reine Daten. Die Bereiche REFERENZIEREN die bestehenden CH-Konstanten im
+# Kern ("modul:ATTRIBUT"); es wird nichts verschoben und nichts dupliziert.
+# jurisdictions/ch/references.py importiert genau diese Konstanten, ein Test
+# prueft, dass beide Listen uebereinstimmen und auf dieselben Objekte zeigen.
+#
+# content_hash = SHA-256 ueber das kanonisierte Manifest (Kommentare zaehlen
+# nicht). Der Hash ist in tests/test_jurisdiction_pack_registry.py gepinnt:
+# jede inhaltliche Aenderung verlangt eine neue Version.
+#
+# status bleibt "draft" bis zum Freigabeprozess (O-6) bzw. X14.
+code: CH
+version: "1.0.0"
+status: draft
+home_currency: CHF
+locales:
+  - de-CH
+timezone: Europe/Zurich
+effective_from: "2026-10-31"
+approvals: []
+areas:
+  legal:
+    references:
+      - schemas.clients:SWISS_CANTON_CODES
+  suitability:
+    references:
+      - services.suitability_audit:SUITABILITY_FRESHNESS_MAX_DAYS
+      - services.risk_assessment_semantics:OVERRIDE_DOCUMENTATION_RULES_VERSION
+  risk_questionnaires:
+    references:
+      - services.risk_scoring:SCORE_TO_PROFILE
+      - services.risk_scoring:CAPACITY_TOTAL_TO_PROFILE
+      - services.risk_scoring:WILLINGNESS_SCORE_TO_PROFILE
+      - services.risk_scoring:HORIZON_YEARS
+      - services.risk_scoring:CANONICAL_HORIZON_LABELS
+      - services.risk_scoring:CAPACITY_BAND
+      - services.risk_scoring:HORIZON_CAPACITY_MATRIX
+      - services.pdf.components.eignungspruefung:QUESTION_CATALOG
+      - services.risk_capacity_plausibility:PLAUSIBILITY_RULES_VERSION
+  tax:
+    references:
+      - services.tax.regimes.ch:CANTON_CODES
+    parameters:
+      tax_regime_patterns:
+        - CH
+        - CH-*
+  pension:
+    references:
+      - services.portfolio_engine_pension_positions:PENSION_LUMPSUM_TAX_DEFAULT_BPS
+  mortality:
+    references:
+      - services.mortality.bfs:BFS_VINTAGE_START_YEAR
+      - services.mortality.bfs:BFS_VINTAGE_END_YEAR
+  market:
+    references:
+      - services.portfolio_engine_cma:INFLATION_BASELINE_BPS
+  products:
+    pending_extraction: "X12: Default-Rule-Set und Referenzprodukte liegen noch in services/product_eligibility.py und services/portfolio_engine.py"
+  documents:
+    references:
+      - services.pdf.components.footer:FIDLEG_DISCLAIMER
+      - services.pdf.components.static_texts:DISCLAIMER_TEXT
+  retention:
+    references:
+      - services.advisory_log_integrity:RETENTION_YEARS
+      - services.data_export:RETENTION_NOTES
+  formatting:
+    pending_extraction: "X9: Locale, Zahl- und Datumsformat liegen noch in services/pdf/base.py und services/pdf/components/swiss_numbers.py"
+  calendar:
+    not_provided: "O-12: kein Feiertagskalender im Kern; es werden nur Wochenenden uebersprungen"

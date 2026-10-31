@@ -1,0 +1,16 @@
+# CH-Laenderpaket, Schritt X4 (RetentionPolicy).
+#
+# privacy_regime: Kennung des Datenschutzregimes (Schweizer DSG; Auskunft
+#   Art. 25, Loeschung Art. 32 -- siehe services/data_export.py und
+#   services/client_erasure.py).
+# retention_years: Aufbewahrungsfrist je Kategorie in Jahren. advisory_log = 10
+#   ist byte-gleich zur frueheren Konstante RETENTION_YEARS in
+#   services/advisory_log_integrity.py (Nachweis:
+#   tests/test_jurisdiction_retention_policy.py).
+# pending_extraction: Teile, die noch unveraendert im Kern liegen.
+privacy_regime: ch_dsg
+retention_years:
+  advisory_log: 10
+pending_extraction:
+  notes: "RETENTION_NOTES bleibt in services/data_export.py (Fan-out-Ratsche: data_export 9/9, kein reiner Typ-Import); der Pack referenziert sie ueber pack.yaml areas.retention"
+  erasure_rules: "Loeschregeln liegen in services/client_erasure.py (Fan-out 3/3) und als genehmigte Policy-Zeilen je Tenant in privacy_retention_policies (services/privacy_erasure.py)"

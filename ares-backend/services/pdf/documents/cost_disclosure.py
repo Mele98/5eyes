@@ -12,17 +12,20 @@ Aufbau:
 """
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak
 
-from services.pdf.base import CostDisclosurePDFData, PDFContext
+from jurisdictions.documents import default_documents
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.advisory_palette import make_advisory_styles
 from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import PAGE_SIZE
+
+if TYPE_CHECKING:  # nur Typannotationen; zur Laufzeit nicht benoetigt
+    from services.pdf.base import CostDisclosurePDFData, PDFContext
 
 
 def build_cost_disclosure_flowables(
@@ -37,18 +40,17 @@ def build_cost_disclosure_flowables(
         else None
     )
 
+    # Laenderpaket X3: Deckblatt-Titel, -Untertitel und Rechtsartikel kommen
+    # aus dem DocumentSet (jurisdictions/ch/documents/de-CH/cost_disclosure.yaml),
+    # byte-gleich zu den frueheren Literalen.
+    documents = default_documents()
     flowables.extend(make_single_report_cover(
         ctx,
-        title="Ex-ante Kostenausweis",
-        subtitle="Voraussichtliche Kosten der empfohlenen Finanzdienstleistung",
+        title=documents.text("cost_disclosure.cover.title"),
+        subtitle=documents.text("cost_disclosure.cover.subtitle"),
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
-        focus_points=[
-            "Einmalige Kosten (Einrichtung, Transaktionen Erstumsetzung)",
-            "Laufende Kosten p.a. (Produktkosten, Dienstleistungs- und Depotgebuehren)",
-            "Gesamtkosten im ersten Jahr inkl. Berechnungsbasis",
-            "FIDLEG Art. 8/9 und FIDLEV Art. 8/14 — Annahmen und Datenquellen",
-        ],
+        focus_points=list(documents.paragraphs("cost_disclosure.cover.focus_points")),
     ))
     # WP-B (2026-08-01): Provisorik-Banner direkt unter dem Cover-Block,
     # noch vor dem PageBreak. Fuer CH ist ctx.provisional_notice IMMER
