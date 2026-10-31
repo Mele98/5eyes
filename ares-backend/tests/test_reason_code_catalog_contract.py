@@ -289,3 +289,42 @@ def test_frontend_extraction_rules_each_detect_a_code():
         }
     """)
     assert rc.extract_frontend_text(js) == {"A_MAP", "B_MAP", "C_CONST", "D_CMP", "E_REV", "F_CASE"}
+
+
+# --------------------------------------------------------------------------
+# K-2b: Services werfen strukturierte Fehler nur noch als DomainError
+# --------------------------------------------------------------------------
+
+
+def _structured_http_exceptions_in_services() -> list[str]:
+    import ast
+
+    hits = []
+    for path in sorted((BACKEND_ROOT / "services").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None))
+                    == "HTTPException"):
+                continue
+            for kw in node.keywords:
+                if kw.arg == "detail" and isinstance(kw.value, ast.Dict) and any(
+                    isinstance(k, ast.Constant) and k.value == "reason_code" for k in kw.value.keys
+                ):
+                    hits.append(f"{path.relative_to(BACKEND_ROOT).as_posix()}:{node.lineno}")
+    return hits
+
+
+def test_services_raise_structured_errors_only_as_domain_error():
+    hits = _structured_http_exceptions_in_services()
+    assert not hits, "HTTPException mit reason_code-Detail in services/ -> DomainError verwenden:\n  " + "\n  ".join(hits)
+
+
+def test_structured_http_exception_scan_detects_a_hit(tmp_path, monkeypatch):
+    """Positivkontrolle fuer den Scan oben."""
+    probe = tmp_path / "services" / "probe.py"
+    probe.parent.mkdir(parents=True)
+    probe.write_text('from fastapi import HTTPException\n'
+                     'raise HTTPException(status_code=409, detail={"reason_code": "X", "message": "m"})\n',
+                     encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "BACKEND_ROOT", tmp_path)
+    assert _structured_http_exceptions_in_services() == ["services/probe.py:2"]

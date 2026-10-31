@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -45,7 +45,7 @@ def test_checksum_comparison_ignores_case():
 @pytest.mark.parametrize("field", ["pdf_base64", "checksum_sha256", "content_hash"])
 @pytest.mark.parametrize("empty", [None, "", "   "])
 def test_missing_artifact_part_blocks(field, empty):
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         assert_signable_artifact(_doc(**{field: empty}))
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == SIGNATURE_ARTIFACT_MISSING
@@ -57,7 +57,7 @@ def test_missing_artifact_part_blocks(field, empty):
     {"pdf_base64": "kein base64 !!"},
 ])
 def test_byte_checksum_drift_blocks(overrides):
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         assert_signable_artifact(_doc(**overrides))
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == SIGNATURE_ARTIFACT_HASH_MISMATCH

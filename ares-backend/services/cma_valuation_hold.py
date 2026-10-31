@@ -42,8 +42,9 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
+from core.reason_codes import DomainError
 
 CMA_ADR12A_HOLD = "CMA_ADR12A_HOLD"
 
@@ -151,11 +152,11 @@ def assert_allocation_cma_without_adr12a_hold(
     if finding is None:
         return
     reason_code, message = finding
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "reason_code": reason_code,
-            "message": f"{channel_label}. {message}",
+    raise DomainError(
+        reason_code,
+        f"{channel_label}. {message}",
+        http_status=409,
+        extra={
             "channel": channel,
             "target_allocation_id": getattr(allocation, "id", None),
             "capital_market_assumptions_id": getattr(

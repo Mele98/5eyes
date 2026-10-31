@@ -29,7 +29,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Mapping
 
-from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -319,7 +318,7 @@ def _signable_hash(document: ContractDocument) -> str:
 
     try:
         assert_signable_artifact(document)
-    except HTTPException as exc:
+    except DomainError as exc:  # K-2b: Archiv-Gate wirft DomainError (detail wie HTTPException)
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         raise OnsiteSignatureError(
             DOCUMENT_NOT_SIGNABLE,
