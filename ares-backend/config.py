@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import os
+import re
 import secrets
 import sys
 
@@ -124,6 +125,9 @@ def resolve_env_file() -> str:
         if candidate.exists():
             return str(candidate)
     return '.env'
+
+
+_HOSTNAME_RE = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
 
 
 class Settings(BaseSettings):
@@ -466,7 +470,13 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ''
     smtp_password: str = ''
-    smtp_from: str = '5eyes <no-reply@5eyes.local>'
+    # W4-d: kein erfundener Absender. Ohne SMTP_FROM (<ARES_NO_REPLY_EMAIL>,
+    # Owner-Wert) verschickt services/mailer.py nichts (fail-closed, klare
+    # Meldung im Log); der Invite-Flow faellt auf Link-Copy zurueck.
+    smtp_from: str = ''
+    # W4-d: kontrollierte Hauptdomain (<ARES_DOMAIN>, Owner-Wert, kein Default).
+    # Wird z.B. als Domain-Teil der ICS-UIDs verwendet; leer = UIDs ohne Domain.
+    ares_domain: str = ''
     smtp_use_tls: bool = True        # STARTTLS auf smtp_port
     smtp_timeout_seconds: int = 10
 
@@ -700,6 +710,14 @@ class Settings(BaseSettings):
     def validate_backup_retain_days(cls, value: int) -> int:
         if value < 0:
             raise ValueError('backup_retain_days must be >= 0 (0 = nie aufraeumen)')
+        return value
+
+    @field_validator('ares_domain')
+    @classmethod
+    def validate_ares_domain(cls, value: str) -> str:
+        value = (value or '').strip().lower()
+        if value and not _HOSTNAME_RE.fullmatch(value):
+            raise ValueError('ARES_DOMAIN muss ein reiner Hostname sein (z.B. firma.example), ohne Schema, Pfad oder @')
         return value
 
     @field_validator('backup_keep_minimum')

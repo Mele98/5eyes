@@ -117,7 +117,7 @@ if (-not $env:REQUIRE_2FA) { $env:REQUIRE_2FA = 'true' }
 # $env:SMTP_PORT     = '587'
 # $env:SMTP_USER     = 'postmaster@deinedomain.ch'
 # $env:SMTP_PASSWORD = '<app-passwort>'
-# $env:SMTP_FROM     = '5eyes <no-reply@deinedomain.ch>'
+# $env:SMTP_FROM     = '<ARES_NO_REPLY_EMAIL>'   # Pflicht bei SMTP_ENABLED, kein Default
 # $env:SMTP_USE_TLS  = 'true'
 
 Write-Host 'Starte Backend (staging, browser-hosting) auf 127.0.0.1:8000 ...' -ForegroundColor Cyan

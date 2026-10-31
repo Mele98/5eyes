@@ -136,3 +136,33 @@ def test_plain_single_address_still_works(monkeypatch, fake_smtp):
     _configure(monkeypatch)
     assert mailer.send_invite_email("max.muster+invite@sub.firma.test", "Max", "https://x/app?invite=T") is True
     assert len(_FakeSMTP.sent) == 1
+
+
+# ---------------------------------------------------------------------------
+# W4-d: kein erfundener Default-Absender. Fehlt SMTP_FROM bei eingeschaltetem
+# SMTP, wird nichts versendet (fail-closed) und das Log nennt den Grund.
+# ---------------------------------------------------------------------------
+
+def test_default_sender_is_empty_not_invented():
+    from config import Settings
+
+    assert Settings(_env_file=None).smtp_from == ""
+
+
+@pytest.mark.parametrize("sender", ["", "   "])
+def test_missing_sender_sends_nothing_and_logs_clear_reason(monkeypatch, fake_smtp, caplog, sender):
+    _configure(monkeypatch, smtp_from=sender)
+    with caplog.at_level("ERROR", logger=mailer.logger.name):
+        assert mailer.send_invite_email("a@b.test", "Max", "https://x/app?invite=T") is False
+        assert mailer.send_password_reset_email("a@b.test", "Max", "https://x/app?reset=T") is False
+    assert fake_smtp.sent == []
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("SMTP_FROM fehlt" in m for m in messages) == 2
+
+
+def test_smtp_disabled_without_sender_stays_quiet(monkeypatch, fake_smtp, caplog):
+    _configure(monkeypatch, smtp_enabled=False, smtp_from="")
+    with caplog.at_level("ERROR", logger=mailer.logger.name):
+        assert mailer.send_invite_email("a@b.test", "Max", "https://x/app?invite=T") is False
+    assert fake_smtp.sent == []
+    assert not any("SMTP_FROM fehlt" in r.getMessage() for r in caplog.records)

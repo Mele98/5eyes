@@ -156,8 +156,8 @@ GOAL_WEIGHT_BY_RANK = {
     4: 1250,
     5: 625,
 }
-DEFAULT_POLICY_NAME = "5Eyes V1 Standard"
-DEFAULT_CMA_NAME = "5Eyes V1 Hausmeinung"
+DEFAULT_POLICY_NAME = "Ares V1 Standard"
+DEFAULT_CMA_NAME = "Ares V1 Hausmeinung"
 
 
 class StaleAllocationInputError(ValueError):
@@ -1868,7 +1868,7 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
                 "2040": 110,
             }),
             sub_asset_class_assumptions_json=json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS),
-            source="5Eyes Default Runtime",
+            source="Ares Default Runtime",
             notes="Automatisch erzeugte Default-CMA fuer V1-Engine",
             created_by=user_id,
             created_at=now,
