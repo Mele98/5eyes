@@ -111,15 +111,38 @@ def test_refresh_now_endpoint_requires_admin(session_factory):
     assert response.status_code == 403
 
 
-def test_refresh_now_endpoint_returns_500_when_refresh_crashes(monkeypatch, admin_client):
+def test_refresh_now_endpoint_returns_500_without_internal_detail(monkeypatch, admin_client, caplog):
     import services.market_data_daily_refresh as refresh_service
 
     def boom(db):
-        raise RuntimeError("refresh exploded")
+        raise RuntimeError("refresh exploded at C:/secret/path provider=internal")
 
     monkeypatch.setattr(refresh_service, "run_daily_market_data_refresh", boom)
 
-    response = admin_client.post("/admin/system/market-data/refresh-now")
+    with caplog.at_level("ERROR", logger="routers.system"):
+        response = admin_client.post("/admin/system/market-data/refresh-now")
 
     assert response.status_code == 500
-    assert "refresh exploded" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert "refresh exploded" not in detail
+    assert "secret" not in detail
+    assert detail == "Aktualisierung fehlgeschlagen (Details im Server-Log)."
+    assert "refresh exploded" in caplog.text
+
+
+def test_fx_refresh_now_endpoint_returns_500_without_internal_detail(monkeypatch, admin_client, caplog):
+    import services.fx_rate_daily_refresh as fx_service
+
+    def boom(db):
+        raise RuntimeError("fx exploded at C:/secret/path")
+
+    monkeypatch.setattr(fx_service, "run_daily_fx_refresh", boom)
+
+    with caplog.at_level("ERROR", logger="routers.system"):
+        response = admin_client.post("/admin/system/fx-rates/refresh-now")
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert "fx exploded" not in detail
+    assert "secret" not in detail
+    assert "fx exploded" in caplog.text
