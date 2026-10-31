@@ -50,9 +50,16 @@ const addDataArg = isWindows
 const fontDataArg = isWindows
   ? 'assets/fonts;assets/fonts'
   : 'assets/fonts:assets/fonts';
-// X1 (Laenderpakete): Pack-Manifeste sind Daten und muessen neben
-// jurisdictions/registry.py im Bundle liegen.
-const jurisdictionPackManifests = ['jurisdictions/ch/pack.yaml'];
+// X1/X3 (Laenderpakete): Pack-Manifeste und Pack-Texte (DocumentSet) sind
+// Daten und muessen neben jurisdictions/*.py im Bundle liegen. Jede neue
+// YAML-Datei unter jurisdictions/ gehoert in diese Liste
+// (tests/test_jurisdiction_document_set.py prueft das).
+const jurisdictionPackManifests = [
+  'jurisdictions/ch/pack.yaml',
+  'jurisdictions/ch/documents/de-CH/cost_disclosure.yaml',
+  'jurisdictions/ch/documents/de-CH/legal.yaml',
+  'jurisdictions/ch/documents/de-CH/strategy_report.yaml',
+];
 
 const hiddenImports = [
   'uvicorn.logging',

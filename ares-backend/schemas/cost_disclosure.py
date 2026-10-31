@@ -135,3 +135,13 @@ class CostDisclosureResponse(BaseModel):
     is_complete: bool = False
     has_estimates: bool = False
     warnings: list[str] = Field(default_factory=list)
+
+    @property
+    def legal_basis(self) -> str:
+        """Laenderpaket X3: neutraler Lese-Alias fuer ``fidleg_basis``.
+
+        Das Feld ``fidleg_basis`` bleibt der API-/PDF-Datenvertrag; der Alias
+        ist eine Property und wird deshalb nicht serialisiert (Antworten und
+        OpenAPI-Schema bleiben byte-gleich).
+        """
+        return self.fidleg_basis
