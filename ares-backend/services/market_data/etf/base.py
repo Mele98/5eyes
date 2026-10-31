@@ -9,6 +9,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 
+# User-Agent der HTML-Provider (justetf, swissfunddata) ueber diese Basis, damit die Provider
+# keinen zusaetzlichen Import brauchen (Architektur-Ratsche).
+from config import browser_compatible_user_agent  # noqa: F401
+
 
 @dataclass(frozen=True)
 class ETFInfo:
