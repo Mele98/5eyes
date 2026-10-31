@@ -1,6 +1,6 @@
 /**
- * Sprint U-23+U-24 (Roadmap-Punkte 23+24, 2026-06-04): Drawer Draft-Storage
- * + Dirty-State-Detection.
+ * Sprint U-24 (Roadmap-Punkt 24, 2026-06-04): Dirty-State-Detection fuer
+ * Drawer-Formulare.
  *
  * Pure-Functions damit Tests ohne React-Render laufen.
  *
@@ -9,20 +9,9 @@
  * Detection durch JSON-deep-equal von currentValues vs originalValues
  * (Forms haben kleine Payloads -> JSON.stringify-Compare ist OK).
  *
- * Draft-Storage (U-23)
- * --------------------
- * sessionStorage statt localStorage damit ein Logout / Tab-Close das
- * Draft killt (kein verwaister Berater-Text der im naechsten Login
- * eines anderen Beraters auftaucht).
- *
- * Key-Format: 5eyes:draft:{mandate_id}:{form_id}
+ * Draft-Storage (U-23) wurde entfernt (W4-a3): die Speicherfunktionen
+ * hatten keinen Produktaufrufer. Bleiben nur die Dirty-State-Helfer.
  */
-
-
-export interface DraftSnapshot {
-  values: Record<string, unknown>;
-  savedAt: string;  // ISO
-}
 
 
 export function isDirty(
@@ -50,86 +39,6 @@ export function dirtyFields(
     }
   }
   return result;
-}
-
-
-export function createDraftKey(mandateId: string, formId: string): string {
-  // Strikte Whitelist gegen storage-key-injection
-  const safeMandate = String(mandateId).replace(/[^A-Za-z0-9_\-]/g, '_');
-  const safeForm = String(formId).replace(/[^A-Za-z0-9_\-]/g, '_');
-  return `5eyes:draft:${safeMandate}:${safeForm}`;
-}
-
-
-function _getStorage(): Storage | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
-
-export function saveDraft(
-  key: string,
-  values: Record<string, unknown>,
-): boolean {
-  const storage = _getStorage();
-  if (!storage) return false;
-  const snapshot: DraftSnapshot = {
-    values,
-    savedAt: new Date().toISOString(),
-  };
-  try {
-    storage.setItem(key, JSON.stringify(snapshot));
-    return true;
-  } catch {
-    // QuotaExceeded oder SecurityError — degraded
-    return false;
-  }
-}
-
-
-export function loadDraft(key: string): DraftSnapshot | null {
-  const storage = _getStorage();
-  if (!storage) return null;
-  let raw: string | null;
-  try {
-    raw = storage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (
-      parsed
-      && typeof parsed === 'object'
-      && 'values' in parsed
-      && 'savedAt' in parsed
-      && typeof parsed.savedAt === 'string'
-      && parsed.values !== null
-      && typeof parsed.values === 'object'
-    ) {
-      return parsed as DraftSnapshot;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-
-export function clearDraft(key: string): boolean {
-  const storage = _getStorage();
-  if (!storage) return false;
-  try {
-    storage.removeItem(key);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 
