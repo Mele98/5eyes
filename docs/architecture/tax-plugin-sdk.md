@@ -1,7 +1,7 @@
 # Tax-Plugin-SDK — Architektur und Externe Schnittstelle
 
 **Status:** stabilisiert mit U-32 (2026-06-06)
-**Version:** TAX_SDK_VERSION = `1.0.0`
+**Version:** TAX_SDK_VERSION = `2.0.0` (Breaking, siehe Changelog §11)
 **Conformance-Vertrag:** `1.0.0`
 
 ## 1. Motivation
@@ -86,9 +86,9 @@ sein Regime als pip-Paket:
 ```toml
 # pyproject.toml des Drittanbieters
 [project]
-name = "5eyes-tax-vietnam"
-version = "1.0.0"
-dependencies = ["5eyes-tax-sdk>=1.0,<2.0"]
+name = "ares-tax-vietnam"
+version = "2026.1.0"
+dependencies = ["ares-tax-sdk>=2.0,<3.0"]
 
 [project.entry-points."ares.tax_regime"]
 vn = "tax_vietnam.regime"
@@ -97,6 +97,10 @@ vn = "tax_vietnam.regime"
 ```python
 # tax_vietnam/regime.py
 from services.tax.sdk import register_regime, TaxContext, TaxResult
+
+# Pflicht ab SDK 2.0.0: SDK-Version, gegen die das Plugin gebaut wurde.
+# Bewusst eine eigene Literal-Konstante, KEIN Re-Export von TAX_SDK_VERSION.
+TAX_SDK_TARGET_VERSION = "2.0.0"
 
 @register_regime("VN")
 class VNTaxRegime:
@@ -157,8 +161,9 @@ Beim 5eyes-Boot (`main.py:lifespan()`) ruft 5eyes
    `@register_regime`-Decorators).
 3. Returnt einen `DiscoveryResult` mit `loaded_plugins`,
    `failed_plugins`, `skipped_plugins`.
-4. **Boot bricht NICHT ab** wenn ein Plugin kaputt ist — der Fehler
-   wird geloggt + im Result sichtbar.
+4. **Ohne Erwartungs-Manifest bricht der Boot NICHT ab** wenn ein
+   Plugin kaputt oder SDK-inkompatibel ist — der Fehler wird geloggt +
+   im Result sichtbar. Mit Manifest siehe §5.2 (harter Fehler).
 
 ```python
 from services.tax.sdk import discover_external_regimes
@@ -170,6 +175,42 @@ if not result.succeeded:
     for name, msg in result.failed_plugins:
         ops_alert(f"Tax-Plugin '{name}' broken: {msg}")
 ```
+
+### 5.1 SDK-Kompatibilitaet (ab 2.0.0, fail-closed)
+
+Der Boot-Pfad (`services/tax/plugin_inventory.py`,
+`load_external_tax_plugins`) prueft jedes geladene Plugin-Objekt (Modul
+oder Klasse des Entry-Points) auf `TAX_SDK_TARGET_VERSION`:
+
+- fehlt, kein Semver, anderer Major als der Host oder neuer als der Host
+  -> Plugin wird abgelehnt (`failed_plugins`), alle Registrierungen, die
+  sein Import vorgenommen hat, werden zurueckgerollt;
+- Plugins mit Major < 2 werden damit immer abgelehnt.
+
+### 5.2 Erwarteter Plugin-Bestand (optional)
+
+Setting `tax_plugin_expected_manifest` (Env `TAX_PLUGIN_EXPECTED_MANIFEST`)
+zeigt auf ein JSON-Manifest **ausserhalb des Repos**:
+
+```json
+{"schema_version": 1,
+ "plugins": [{"name": "vn", "version": "2026.1.0"}, {"name": "sg"}]}
+```
+
+Ist es gesetzt, ist jede Abweichung ein harter Fehler
+(`TaxPluginInventoryError`, Boot stoppt): Manifest unlesbar/ungueltig,
+erwartetes Plugin fehlend, doppelt installiert, abweichende
+Distributions-Version, nicht im Manifest stehendes Plugin, Ladefehler
+oder SDK-inkompatibel. Die Bestandspruefung laeuft **vor** jeder
+Code-Ausfuehrung eines Plugins.
+
+Ohne Manifest ist der Nullfall (0 Plugins) erlaubt, wird aber als
+Warnung geloggt — ein misslungener Cutover ist dann nicht von "keine
+Plugins" unterscheidbar. Fuer Deployments mit externen Plugins ist das
+Manifest deshalb Pflicht.
+
+Paket-Signaturen werden derzeit **nicht** geprueft (keine
+Signatur-Infrastruktur im Repo; offener Owner-Punkt).
 
 ## 6. Sicherheit
 
@@ -226,3 +267,30 @@ Was das Tax-SDK **nicht** macht:
 - Conformance: `services/tax/conformance.py` — `ConformanceContract`
 - SDK-Bundle: `services/tax/sdk.py` — alles Public-API
 - Original-Plugin-Spec: `docs/planning/2026-05-17-sprint-3-tax-plugin-system.md`
+
+## 11. Changelog
+
+### 2.0.0 (2026-10-31, W2-804-01) — Breaking
+
+- Entry-Point-Gruppe ist `ares.tax_regime`. Die fruehere Gruppe wird
+  nicht mehr gelesen; es gibt **keinen** Alias und kein
+  Deprecation-Fenster fuer die alte Gruppe.
+- Plugins muessen `TAX_SDK_TARGET_VERSION` (Major 2) deklarieren;
+  Plugins ohne Deklaration oder mit Major < 2 werden fail-closed
+  abgelehnt.
+- Neu: optionales Erwartungs-Manifest (§5.2).
+- Keine Aenderung an Protocol, Registry-Semantik, Conformance-Vertrag
+  (`1.0.0`) oder an Steuerberechnungen.
+
+Migration fuer Drittanbieter:
+1. `pyproject.toml`: `[project.entry-points."ares.tax_regime"]`.
+2. Im Plugin-Modul bzw. in der Entry-Point-Klasse
+   `TAX_SDK_TARGET_VERSION = "2.0.0"` setzen.
+3. Abhaengigkeit auf `>=2.0,<3.0` anheben.
+4. Betreiber: Plugin im Erwartungs-Manifest eintragen.
+
+### 1.1.0 / 1.0.0
+
+- 1.0.0: SDK-Stabilisierung (U-32). 1.1.0: Zwischenstand vor dem
+  Gruppenwechsel (Gruppenwechsel faelschlich als Minor deklariert,
+  durch 2.0.0 ersetzt).

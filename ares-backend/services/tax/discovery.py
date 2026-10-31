@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,8 @@ def discover_external_regimes(
     *,
     skip_plugins: Iterable[str] = (),
     raise_on_error: bool = False,
+    entry_points: Sequence[Any] | None = None,
+    loader: Callable[[Any], Any] | None = None,
 ) -> DiscoveryResult:
     """Sucht und laedt alle externen Tax-Regime-Plugins.
 
@@ -77,6 +79,11 @@ def discover_external_regimes(
         raise_on_error: Wenn True wirft die erste Load-Exception.
             Default False: failed plugins werden geloggt + im Result
             zurueckgegeben, der Boot bricht NICHT ab.
+        entry_points: Bereits gelistete Entry-Points (z.B. nach einer
+            Inventar-Vorpruefung). None = selbst ueber die Gruppe listen.
+        loader: Ersetzt ``ep.load()``; bekommt den Entry-Point und muss
+            bei Ablehnung (z.B. inkompatible SDK-Version) eine Exception
+            werfen. Default: ``ep.load()``.
 
     Returns:
         DiscoveryResult mit allen geladenen/gefailten Plugin-Namen.
@@ -91,8 +98,9 @@ def discover_external_regimes(
     failed: list[tuple[str, str]] = []
     skipped: list[str] = []
 
+    load = loader if loader is not None else (lambda ep: ep.load())
     try:
-        eps = _list_entry_points()
+        eps = list(entry_points) if entry_points is not None else _list_entry_points()
     except Exception as exc:  # noqa: BLE001 — wir wollen jeden Fehler abfangen
         logger.error("Tax-Plugin-Discovery: entry_points() failed: %s", exc)
         if raise_on_error:
@@ -107,7 +115,7 @@ def discover_external_regimes(
             logger.info("Tax-Plugin '%s' skipped per Config", name)
             continue
         try:
-            ep.load()  # triggert das @register_regime-Decorator des Plugins
+            load(ep)  # triggert das @register_regime-Decorator des Plugins
             loaded.append(name)
             logger.info("Tax-Plugin '%s' geladen", name)
         except Exception as exc:  # noqa: BLE001 — Plugin-Fehler nicht propagieren

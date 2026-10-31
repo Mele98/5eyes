@@ -36,8 +36,10 @@ tax-plugin-sdk.md`.
     # [options.entry_points]
     # ares.tax_regime =
     #     vn = my_ares_vn_tax:VNTaxRegime
-    # Ares ruft beim Boot discover_external_regimes() auf und
-    # findet alle eingetragenen Entry-Points.
+    # Ares ruft beim Boot (services.tax.plugin_inventory) die Discovery
+    # auf und findet alle eingetragenen Entry-Points.
+    # Ab SDK 2.0.0 Pflicht im geladenen Plugin-Objekt (Modul oder Klasse):
+    #     TAX_SDK_TARGET_VERSION = "2.0.0"
 """
 from __future__ import annotations
 
@@ -68,8 +70,13 @@ from services.tax.registry import (
     resolve_regime_class,
 )
 
-TAX_SDK_VERSION = "1.1.0"
+TAX_SDK_VERSION = "2.0.0"
 """Semver-Version der oeffentlichen Tax-SDK-Schnittstelle.
+
+2.0.0 (W2-804-01): Breaking — Entry-Point-Gruppe ist `ares.tax_regime`,
+die fruehere Gruppe wird ohne Alias nicht mehr gelesen. Plugins muessen
+`TAX_SDK_TARGET_VERSION` mit Major 2 deklarieren, sonst lehnt
+`services.tax.plugin_inventory` sie fail-closed ab.
 
 Breaking-Changes (Protocol-Methods, Entry-Point-Group):
   -> Major-Version-Bump + Migration-Doc in docs/architecture/.

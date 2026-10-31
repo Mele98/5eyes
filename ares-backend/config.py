@@ -426,6 +426,14 @@ class Settings(BaseSettings):
     # fuer Audit-Strict-Modus (langsam).
     mc_default_tax_mode: str = "median"
 
+    # W2-804-01 (2026-10-31): optionaler Pfad (ausserhalb des Repos) zu einem
+    # JSON-Erwartungs-Manifest des externen Tax-Plugin-Bestands
+    # (Env TAX_PLUGIN_EXPECTED_MANIFEST). Gesetzt: fehlende, doppelte,
+    # unerwartete oder SDK-inkompatible Plugins stoppen den Boot hart.
+    # Leer: Nullfall erlaubt, wird aber geloggt. Format siehe
+    # services/tax/plugin_inventory.py.
+    tax_plugin_expected_manifest: str = ''
+
     # ----- Sprint T1 (2026-06-08): 3-Tier-Hosting-Architektur -----
     # Bestimmt Deployment-Charakteristik des Backends.
     # 'tier1' (Default): Self-Hosted, single-tenant ('main'), kein Tenant-UI
