@@ -245,12 +245,17 @@ class ProductEligibilityOverride(Base):
     evidence_hash = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # PG-002: Mandant direkt (RLS-Plan), aus Lauf -> Mandat abgeleitet und per
+    # INSERT-Guard geprueft (core/mandate_evidence_tenant_boundary.py);
+    # nicht Teil des Evidence-Hashes.
+    tenant_id = Column(String)
 
     __table_args__ = (
         Index(
             "ix_product_eligibility_overrides_run_product",
             "recommendation_run_id", "product_id",
         ),
+        Index("ix_product_eligibility_overrides_tenant_id", "tenant_id"),
     )
 
 

@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-30.1"
+INVENTORY_VERSION = "2026-10-30.2"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -40,6 +40,7 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "clients",
     # PG-002 (Red-Team 2026-10-28, Befund 6): append-only Mandats-Evidenz,
     # Mandant aus dem Mandat (core/mandate_evidence_tenant_boundary.py).
+    "depot_check_analysis_snapshots",
     "depot_snapshots",
     "mandates",
     "onsite_signature_challenges",
@@ -51,6 +52,8 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "privacy_legal_holds",
     "privacy_retention_policies",
     "privacy_role_designations",
+    # PG-002-Folgeauftrag: Mandant ueber Lauf -> Mandat (Guard + Backfill).
+    "product_eligibility_overrides",
     "product_eligibility_snapshots",
     "product_universe_entries",
     "protocol_bausteine",
@@ -120,7 +123,6 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "client_tax_residencies": ("client_id", "clients"),
     "conflict_of_interest_disclosures": ("mandate_id", "mandates"),
     "contract_documents": ("mandate_id", "mandates"),
-    "depot_check_analysis_snapshots": ("mandate_id", "mandates"),
     "financial_coverage_attestations": ("mandate_id", "mandates"),
     "goal_lifecycle_transitions": ("mandate_id", "mandates"),
     "goal_revision_decisions": ("mandate_id", "mandates"),
@@ -131,9 +133,6 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "planning_assumptions": ("mandate_id", "mandates"),
     "portfolio_handoffs": ("mandate_id", "mandates"),
     "product_eligibility_decisions": ("snapshot_id", "product_eligibility_snapshots"),
-    # ELIG-OVERRIDE-CAPTURE-001: captured overrides carry no snapshot_id; the
-    # always-set route to the tenant is the run.
-    "product_eligibility_overrides": ("recommendation_run_id", "recommendation_runs"),
     "recommendation_holdings": ("run_id", "recommendation_runs"),
     "recommendation_positions": ("run_id", "recommendation_runs"),
     "recommendation_runs": ("mandate_id", "mandates"),
@@ -145,6 +144,87 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
     "suitability_checks": ("mandate_id", "mandates"),
     "target_allocations": ("mandate_id", "mandates"),
 }
+
+
+# tenant_direct tables without an own client_id/mandate_id column: the route
+# to the client/mandate (for the erasure inventory and the ratchet below).
+TENANT_DIRECT_PARENT_ROUTES: dict[str, tuple[str, str]] = {
+    "product_eligibility_overrides": ("recommendation_run_id", "recommendation_runs"),
+}
+
+# PG-002 ratchet (tests/test_tenant_direct_ratchet.py): a tenant_derived table
+# with a client/mandate reference is allowed ONLY when listed here with a
+# reason. New tables get tenant_id directly (pattern:
+# core/mandate_evidence_tenant_boundary.py). The list only shrinks.
+_LEGACY_REASON = (
+    "Altbestand vor der PG-002-Ratsche (2026-10-30): Mandant nur transitiv "
+    "(siehe TENANT_DERIVED_TABLES); offen: tenant_id direkt + Guard + Backfill."
+)
+TENANT_DERIVED_BACKLOG: dict[str, str] = {
+    "advisory_log": _LEGACY_REASON,
+    "cashflows": _LEGACY_REASON,
+    "client_due_diligence": _LEGACY_REASON,
+    "client_knowledge": _LEGACY_REASON,
+    "client_logins": _LEGACY_REASON,
+    "client_nationalities": _LEGACY_REASON,
+    "client_opt_history": _LEGACY_REASON,
+    "client_pii_keys": _LEGACY_REASON,
+    "client_tax_residencies": _LEGACY_REASON,
+    "conflict_of_interest_disclosures": _LEGACY_REASON,
+    "contract_documents": _LEGACY_REASON,
+    "financial_coverage_attestations": _LEGACY_REASON,
+    "goal_lifecycle_transitions": _LEGACY_REASON,
+    "goal_revision_decisions": _LEGACY_REASON,
+    "goals": _LEGACY_REASON,
+    "mandate_baustein_selections": _LEGACY_REASON,
+    "mandate_report_notes": _LEGACY_REASON,
+    "optimizer_runs": _LEGACY_REASON,
+    "planning_assumptions": _LEGACY_REASON,
+    "portfolio_handoffs": _LEGACY_REASON,
+    "product_eligibility_decisions": _LEGACY_REASON,
+    "recommendation_holdings": _LEGACY_REASON,
+    "recommendation_positions": _LEGACY_REASON,
+    "recommendation_runs": _LEGACY_REASON,
+    "review_triggers": _LEGACY_REASON,
+    "risk_assessment_answers": _LEGACY_REASON,
+    "risk_assessments": _LEGACY_REASON,
+    "strategy_snapshots": _LEGACY_REASON,
+    "suitability_checks": _LEGACY_REASON,
+    "target_allocations": _LEGACY_REASON,
+}
+
+_CLIENT_MANDATE_COLUMNS = frozenset({"client_id", "mandate_id"})
+
+
+def client_scope_routes() -> dict[str, tuple[str, str]]:
+    """All known parent routes (tenant_derived + tenant_direct without an own
+    client/mandate column), e.g. for the erasure inventory."""
+    return {**TENANT_DERIVED_TABLES, **TENANT_DIRECT_PARENT_ROUTES}
+
+
+def client_or_mandate_bound_derived_tables(
+    metadata_tables: dict, derived_routes: dict[str, tuple[str, str]] | None = None,
+) -> set[str]:
+    """tenant_derived tables with a client/mandate reference: an own
+    client_id/mandate_id column, or a route whose parent is clients/mandates
+    or itself carries such a reference (transitively)."""
+    routes = TENANT_DERIVED_TABLES if derived_routes is None else derived_routes
+    bound_parents: set[str] = {"clients", "mandates"}
+    for name, table in metadata_tables.items():
+        if _CLIENT_MANDATE_COLUMNS & set(table.c.keys()):
+            bound_parents.add(name)
+    result: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for name, (_column, parent) in routes.items():
+            if name in result or name not in metadata_tables:
+                continue
+            if name in bound_parents or parent in bound_parents:
+                result.add(name)
+                bound_parents.add(name)
+                changed = True
+    return result
 
 
 def classification() -> dict[str, str]:

@@ -20,5 +20,7 @@ from core.product_eligibility_override_schema import (  # noqa: F401
     SQLITE_TRIGGER_NAMES,
     SQLITE_TRIGGERS,
     TABLE,
+    TENANT_COLUMN,
+    TENANT_INDEX,
     ensure_sqlite_override_append_only,
 )

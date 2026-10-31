@@ -13,7 +13,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from config import settings
 from core.mandate_evidence_tenant_boundary import (
-    MANDATE_EVIDENCE_TENANT_TABLES,
+    MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
     ensure_sqlite_mandate_evidence_tenant_boundary,
     tenant_index_name,
@@ -470,6 +470,7 @@ DEPOT_CHECK_ANALYSIS_SQLITE_TABLE_DDL: tuple[str, ...] = (
     """CREATE TABLE IF NOT EXISTS depot_check_analysis_snapshots (
     id                  TEXT PRIMARY KEY,
     schema_version      TEXT NOT NULL DEFAULT 'DepotCheckAnalysisV1',
+    tenant_id           TEXT,
     mandate_id          TEXT NOT NULL,
     client_id           TEXT NOT NULL,
     depot_snapshot_id   TEXT NOT NULL,
@@ -1361,7 +1362,7 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # PG-002 (Red-Team 2026-10-28, Befund 6): direkte Mandantenbindung der
         # append-only Mandats-Evidenz (ADD COLUMN feuert den UPDATE-Trigger
         # nicht); Backfill + Guard: core/mandate_evidence_tenant_boundary.py.
-        for table_name in MANDATE_EVIDENCE_TENANT_TABLES:
+        for table_name in MANDATE_BOUND_TENANT_TABLES:
             ensure_column(conn, table_name, "tenant_id", "TEXT")
             conn.execute(text(
                 f"CREATE INDEX IF NOT EXISTS {tenant_index_name(table_name)} ON {table_name}(tenant_id)"
@@ -2457,12 +2458,14 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     from services.risk_evidence_tenant_boundary import ensure_sqlite_risk_evidence_tenant_boundary
 
     ensure_sqlite_risk_evidence_tenant_boundary(eng)
-    ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     # ELIG-OVERRIDE-APPEND-ONLY-001: Override-Nachweise append-only (Trigger),
-    # ohne harten Run-FK (Purge-fest), Spalte approval_mode.
+    # ohne harten Run-FK (Purge-fest), Spalten approval_mode/tenant_id.
     from core.product_eligibility_override_schema import ensure_sqlite_override_append_only
 
     ensure_sqlite_override_append_only(eng)
+    # PG-002: Mandanten-Guard + Backfill der Mandats-Evidenz NACH dem
+    # Override-Umbau (ein Tabellen-Neuaufbau verwirft alle Trigger).
+    ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     migrate_house_matrix_real_estate_cap_20(eng)
     ensure_snapshot_tables(eng)
     from services.market_data.provider_health_registry import ensure_provider_health_table

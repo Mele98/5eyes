@@ -519,6 +519,7 @@ BEGIN SELECT RAISE(ABORT, 'depot_snapshots is immutable'); END;
 CREATE TABLE IF NOT EXISTS depot_check_analysis_snapshots (
     id                  TEXT PRIMARY KEY,
     schema_version      TEXT NOT NULL DEFAULT 'DepotCheckAnalysisV1',
+    tenant_id           TEXT,
     mandate_id          TEXT NOT NULL,
     client_id           TEXT NOT NULL,
     depot_snapshot_id   TEXT NOT NULL,
@@ -532,6 +533,8 @@ CREATE TABLE IF NOT EXISTS depot_check_analysis_snapshots (
 );
 CREATE INDEX IF NOT EXISTS ix_depot_check_analysis_snapshots_mandate
     ON depot_check_analysis_snapshots(mandate_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_depot_check_analysis_snapshots_tenant_id
+    ON depot_check_analysis_snapshots(tenant_id);
 CREATE TRIGGER IF NOT EXISTS trg_depot_check_analysis_snapshots_no_update
 BEFORE UPDATE ON depot_check_analysis_snapshots FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'depot_check_analysis_snapshots is immutable'); END;
