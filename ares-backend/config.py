@@ -828,6 +828,51 @@ def browser_compatible_user_agent() -> str:
     return f"Mozilla/5.0 ({user_agent()})"
 
 
+# --- Master-KEK (KEK-Vertrag v2, W4-c / AF-4) -----------------------------------
+# Startpruefung und Validierung lesen nur die Konfiguration und liegen deshalb hier:
+# main.py prueft beim Start ohne zusaetzlichen Import (Architektur-Ratsche);
+# services/tenant_crypto.py verwendet dieselben Funktionen und exportiert sie weiter.
+class TenantCryptoError(RuntimeError):
+    pass
+
+
+MISSING_KEK_MESSAGE = (
+    "TENANT_MASTER_KEK fehlt: Ares startet nicht ohne eigene Master-KEK. "
+    "Einen Fernet-Key erzeugen (python -c \"from cryptography.fernet import "
+    "Fernet; print(Fernet.generate_key().decode())\") und als "
+    "TENANT_MASTER_KEK in der Konfiguration setzen; eine Bestandsinstallation "
+    "bringt ihn aus der Zielkonfiguration des Migrators mit."
+)
+
+
+def configured_master_kek() -> str:
+    """Einzige Konfigurationsquelle der Master-KEK: ``settings.tenant_master_kek``."""
+    return str(getattr(settings, "tenant_master_kek", "") or "").strip()
+
+
+def validate_master_kek(raw: str | bytes) -> None:
+    """Fail-closed: kein Rueckfall auf SECRET_KEY oder einen Platzhalter."""
+    value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+    if not value.strip():
+        raise TenantCryptoError(MISSING_KEK_MESSAGE)
+    if value == DEFAULT_SECRET_KEY:
+        raise TenantCryptoError(
+            "TENANT_MASTER_KEK ist der oeffentliche Platzhalter aus dem Quellcode "
+            "und damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    secret_key = str(getattr(settings, "secret_key", "") or "")
+    if secret_key and value == secret_key:
+        raise TenantCryptoError(
+            "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
+            "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
+        )
+
+
+def require_master_kek() -> None:
+    """Startpruefung (Lifespan): ohne gueltige Master-KEK startet Ares nicht."""
+    validate_master_kek(configured_master_kek())
+
+
 # ---------------------------------------------------------------------------
 # Demo-/Staging-Passwoerter (nie im Quellcode). Liegt im Konfigurationsmodul,
 # weil nur dieses die Umgebung lesen darf (Architektur-Ratsche env_readers).
