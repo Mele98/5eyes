@@ -7,8 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from config import settings
-from services.http_identity import user_agent
+from config import settings, user_agent
 from services.market_data.exceptions import RateLimitError
 
 
