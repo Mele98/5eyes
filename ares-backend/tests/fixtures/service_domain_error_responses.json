@@ -1,0 +1,93 @@
+{
+  "direct_handoff_run_without_allocation": {
+    "body_len": 239,
+    "body_sha256": "4467efa3eba47a3745599fb7b1be4fbbd934cad58858eb272406b957d094e5bb",
+    "headers_sha256": "66867c65a2024e485ead0ff55bef87e8ba6c43602b5e44f2ec450ecfc1f32114",
+    "reason_code": "RELEASE_ALLOCATION_MISSING",
+    "status": 409
+  },
+  "direct_signoff_conflict_context": {
+    "body_len": 183,
+    "body_sha256": "daf66ae64c86e4607d7afc5ef89c5111333989162b9120ede11aada5c2149c42",
+    "headers_sha256": "42db83098c5c99ade886819a568bb7d5a4845b25a96e568d957779cb2999dcba",
+    "reason_code": "RISK_PROFILE_SIGNOFF_CONFLICT",
+    "status": 409
+  },
+  "direct_signoff_conflict_plain": {
+    "body_len": 94,
+    "body_sha256": "07a54b92f80468c1de5cece2c606c7823a25c43e1eea83b87625292bf9292762",
+    "headers_sha256": "7bc5597ff07effb879b4b671c8e661ac3f0475713bdfaa5d0e1933ad15194b09",
+    "reason_code": "RISK_ASSESSMENT_VERSION_CONFLICT",
+    "status": 409
+  },
+  "onsite_open_artifact_missing": {
+    "body_len": 345,
+    "body_sha256": "2440ed8eade4fdf2773986beb663c6882a5ce001a6c2a30c733f37931b3c78c3",
+    "headers_sha256": "82506257742367b1ea27dd905e4af245f1ca28d3c13c454a0ee3d6a35f23b756",
+    "reason_code": "DOCUMENT_NOT_SIGNABLE",
+    "status": 409
+  },
+  "portal_report_cma_adr12a_hold": {
+    "body_len": 114,
+    "body_sha256": "642e4f744749664cb8c4659cde298c68092d92ab30e277107d92d914c922bda2",
+    "headers_sha256": "4b98a3b977d2529888c3344bab3993d090b100cf8cdd77c0166cd16a99ea0124",
+    "reason_code": null,
+    "status": 409
+  },
+  "portal_report_signoff_mismatch": {
+    "body_len": 114,
+    "body_sha256": "642e4f744749664cb8c4659cde298c68092d92ab30e277107d92d914c922bda2",
+    "headers_sha256": "4b98a3b977d2529888c3344bab3993d090b100cf8cdd77c0166cd16a99ea0124",
+    "reason_code": null,
+    "status": 409
+  },
+  "sign_artifact_hash_mismatch": {
+    "body_len": 244,
+    "body_sha256": "de524626f7dbfb67963706204fd20d91ec61363024b49c62007aa0daf7133465",
+    "headers_sha256": "29adf6787106e5257dd0a60499560b6ad6f356ec0e28d9e469c35d1fe077f558",
+    "reason_code": "SIGNATURE_ARTIFACT_HASH_MISMATCH",
+    "status": 409
+  },
+  "sign_artifact_missing": {
+    "body_len": 279,
+    "body_sha256": "97824a564ae20d9ebd576655deeb755a595b6883e05c854bfb0dd30230f9dcd0",
+    "headers_sha256": "b76439f6ee36d337ae9c3e9a8a79d6d5df85650bc31d9c3a352d4b4d776bb3ca",
+    "reason_code": "SIGNATURE_ARTIFACT_MISSING",
+    "status": 409
+  },
+  "sign_cma_adr12a_hold": {
+    "body_len": 264,
+    "body_sha256": "98452dee065427c9b3e1b4aaae9885c1a0f44d7ab832190c801901392b583e3c",
+    "headers_sha256": "0c4291d429da7284eb07266af4164ff5fd711cb01f8771efe84057df865a1167",
+    "reason_code": "CMA_ADR12A_HOLD",
+    "status": 409
+  },
+  "sign_portfolio_data_not_releasable": {
+    "body_len": 307,
+    "body_sha256": "0aba2c25b83baa83afaafb0d360581643558e47a11b1229fc995230e54546668",
+    "headers_sha256": "348f319ee5b17730ece23cca841821d746962974380a30202595fb46eb456210",
+    "reason_code": "PORTFOLIO_DATA_NOT_RELEASABLE",
+    "status": 409
+  },
+  "sign_risk_budget_evidence_missing": {
+    "body_len": 389,
+    "body_sha256": "87adc40ad242c73a9bfddf13cbea05e678821334a9c25cb7c900d93fd3f74a68",
+    "headers_sha256": "3b0bdab68fdf4476b42eb88570530102313baec4e73fa4e1963fff41fd952632",
+    "reason_code": "RISK_BUDGET_EVIDENCE_MISSING",
+    "status": 409
+  },
+  "sign_risk_budget_violated": {
+    "body_len": 343,
+    "body_sha256": "5897a7df4f27f1d2140562de8d068daf1a3a1af06c5787841a30ca9dc3d1721b",
+    "headers_sha256": "1482641cb6466ed4e2705cdabfb92de124ebfcdf35ddc208dbbf5dc3398bd419",
+    "reason_code": "RISK_BUDGET_VIOLATED",
+    "status": 409
+  },
+  "sign_risk_profile_signoff_mismatch": {
+    "body_len": 349,
+    "body_sha256": "89b5bc8b3a488a504ea920f4eb32bd8f7999c183c6b95f1c9e98909daac50f55",
+    "headers_sha256": "34db903d825f4b602ce8a9e904c46d6b7abd9989527bfd13a525900c30f85abe",
+    "reason_code": "RISK_PROFILE_SIGNOFF_MISMATCH",
+    "status": 409
+  }
+}
