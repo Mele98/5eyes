@@ -16,6 +16,6 @@ app.5eyes.ch {
 	reverse_proxy 127.0.0.1:8000
 
 	log {
-		output file /var/log/caddy/5eyes-access.log
+		output file /var/log/caddy/ares-access.log
 	}
 }

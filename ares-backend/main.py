@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
     )
     init_db()
     # U-32: Discover externe Tax-Regime-Plugins (Entry-Point group
-    # '5eyes.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
+    # 'ares.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
     # ist — failed_plugins werden geloggt + ueber den DiscoveryResult
     # auditierbar.
     try:
@@ -121,9 +121,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=settings.app_name,
+    title="Ares API",
     version=settings.app_version,
-    description="5Eyes WealthArchitekten — Lokale Beratungssoftware API",
+    description="Ares — Lokale Beratungssoftware API",
     lifespan=lifespan,
 )
 app.add_middleware(RequestContextMiddleware)

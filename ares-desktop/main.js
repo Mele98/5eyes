@@ -51,7 +51,10 @@ loadEnvIntoProcess();
 
 const DEFAULT_BACKEND_HOST = process.env.APP_HOST || '127.0.0.1';
 const DEFAULT_BACKEND_PORT = Number.parseInt(process.env.APP_PORT || '8000', 10);
-const EXPECTED_BACKEND_APP = process.env.BACKEND_APP_NAME || '5Eyes WealthArchitekten API';
+// Kennung im `app`-Feld von /health/ready (Backend `settings.app_name`).
+// Fester Wert ohne Umgebungs-Override; eine ausgerollte .env mit
+// abweichendem APP_NAME wird bei der Uebernahme bereinigt.
+const EXPECTED_BACKEND_APP = 'Ares API';
 const BACKEND_READY_TIMEOUT_MS = 60_000;
 const BACKEND_POLL_INTERVAL_MS = 500;
 
@@ -293,7 +296,7 @@ function resolveFrontendPath() {
 }
 
 function resolvePackagedBackendExe() {
-  return path.join(process.resourcesPath, 'backend', '5eyes-api.exe');
+  return path.join(process.resourcesPath, 'backend', 'ares-api.exe');
 }
 
 function attachBackendProcessLogging(proc) {
@@ -820,6 +823,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App
   // niemals einen bereits laufenden Fremdprozess als Backend uebernimmt.
   module.exports.pickBackendRuntime = pickBackendRuntime;
+  module.exports.EXPECTED_BACKEND_APP = EXPECTED_BACKEND_APP;
   // DESK-003: erlaubt das deterministische Pruefen, dass ein `basic_text`/
   // `unknown` safeStorage-Backend (Linux ohne Keyring/KWallet) NICHT als
   // echte Verschluesselung durchgeht.

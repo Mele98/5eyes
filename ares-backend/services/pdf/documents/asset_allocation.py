@@ -7,7 +7,7 @@ from reportlab.platypus import KeepTogether, PageBreak, Paragraph, Spacer, Table
 
 from services.pdf.base import AnlagestrategieData, PDFContext
 from services.pdf.components.header import _esc
-from services.pdf.components.header import make_wealtharchitekten_header
+from services.pdf.components.header import make_banner_header
 from services.pdf.components.saa_donut import make_saa_donut_with_legend
 from services.pdf.components.single_report_disclaimer import (
     make_single_report_cover,
@@ -67,7 +67,7 @@ def build_asset_allocation_flowables(
         scope="Asset Allocation",
     ))
     flowables.append(PageBreak())
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx,
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
@@ -94,7 +94,7 @@ def build_asset_allocation_flowables(
             advisory_wealth_rappen=data.advisory_wealth_rappen,
         ))
         flowables.append(PageBreak())
-        flowables.extend(make_wealtharchitekten_header(
+        flowables.extend(make_banner_header(
             ctx,
             mandate_number=data.mandate_number,
             advisory_wealth_label=advisory_label,

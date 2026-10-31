@@ -18,7 +18,7 @@ import os
 import sys
 from pathlib import Path
 
-_default = str(Path.home() / "5eyes" / "5eyes-staging.db")
+_default = str(Path.home() / "ares" / "ares-staging.db")
 _db_path = sys.argv[1] if len(sys.argv) > 1 else _default
 from core.db_location import refuse_live_db  # noqa: E402
 

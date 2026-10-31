@@ -6,11 +6,11 @@ from pathlib import Path
 from config import settings
 
 
-LOG_FILE_NAME = '5eyes-app.log'
+LOG_FILE_NAME = 'ares-app.log'
 
 
 def resolve_log_dir() -> Path:
-    """Liefert das Log-Verzeichnis fuer den 5eyes-Backend.
+    """Liefert das Log-Verzeichnis fuer das Ares-Backend.
 
     U-43 (Roadmap-Punkt 43, 2026-06-01): Aufloesungs-Reihenfolge:
       1. settings.log_dir (env LOG_DIR) — explizit gesetzt -> direkt nutzen

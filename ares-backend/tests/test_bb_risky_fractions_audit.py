@@ -1,7 +1,7 @@
 """Sprint U-45 (Roadmap-Punkt 45, 2026-06-01): Audit der Building-
-Block-Default-Risky-Fractions gegen 3eyes-Spec.
+Block-Default-Risky-Fractions gegen die Referenz-Spec.
 
-Hintergrund (3eyes-Spec Page 17, "Risky Fractions per Asset-Klasse"):
+Hintergrund (Referenz-Spec Page 17, "Risky Fractions per Asset-Klasse"):
   Aktien       79%
   Obligationen 24.5%
   Immobilien   60%
@@ -16,7 +16,7 @@ Asset-Klasse (z.B. Aktien Schweiz 70% vs Aktien Schwellenlaender 100%).
 Was dieser Test prueft
 ----------------------
 - Pro Asset-Klasse: MEDIAN und MEAN der BB-Risky-Fractions liegen
-  im plausiblen Korridor um die 3eyes-Spec
+  im plausiblen Korridor um die Referenz-Spec
 - Min/Max-Range ist nicht-trivial (sonst kein Berater-Differenzierungs-
   Spielraum)
 - Liquiditaet-BBs sind alle 0 (Hard-Invariant)
@@ -39,9 +39,9 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 
-# 3eyes-Spec Page 17 — Berater-Konvention fuer Risky-Fractions pro Asset-Klasse.
+# Referenz-Spec Page 17 — Berater-Konvention fuer Risky-Fractions pro Asset-Klasse.
 # Diese Werte sind die ZIEL-Konvention, nicht der HM-Cap.
-THREE_EYES_SPEC = {
+REFERENCE_SPEC = {
     "Aktien":        7900,   # 79%
     "Obligationen":  2450,   # 24.5%
     "Immobilien":    6000,   # 60%
@@ -55,7 +55,7 @@ THREE_EYES_SPEC = {
 TOLERANCE_BPS = 1500
 
 # Audit-Befund 2026-06-01 (Punkt 45): Alternative-Klasse hat aktuell
-# eine breitere Verteilung als 3eyes (4000-10000), weil Krypto + PE
+# eine breitere Verteilung als die Referenz (4000-10000), weil Krypto + PE
 # je 100% mitspielen. Median ist 8000 vs Spec 5000 = Delta 3000.
 # Akzeptiert mit erhoehter Toleranz; siehe Doc-Test
 # test_alternatives_mean_documented_higher_than_spec fuer Sanity-Cap.
@@ -149,12 +149,12 @@ def test_liquiditaet_bbs_are_all_zero_risky():
 
 
 # ---------------------------------------------------------------------------
-# 3eyes-Spec-Konformitaet (Hauptaudit Punkt 45)
+# Referenz-Spec-Konformitaet (Hauptaudit Punkt 45)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("asset_class,expected_bps", list(THREE_EYES_SPEC.items()))
-def test_median_within_3eyes_tolerance(asset_class, expected_bps):
-    """Pro Klasse: Median der BB-Risky-Fractions liegt im 3eyes-Korridor.
+@pytest.mark.parametrize("asset_class,expected_bps", list(REFERENCE_SPEC.items()))
+def test_median_within_reference_tolerance(asset_class, expected_bps):
+    """Pro Klasse: Median der BB-Risky-Fractions liegt im Referenz-Korridor.
 
     Median statt Mean weil sonst Outlier wie Krypto (100%) oder PE (100%)
     den Mittelwert verzerren — der Berater wuerde die typischerweise
@@ -166,7 +166,7 @@ def test_median_within_3eyes_tolerance(asset_class, expected_bps):
     delta = abs(med - expected_bps)
     tolerance = TOLERANCE_BPS_PER_CLASS.get(asset_class, TOLERANCE_BPS)
     assert delta <= tolerance, (
-        f"3eyes-Spec-Abweichung fuer {asset_class}: Median {med} bps vs "
+        f"Referenz-Spec-Abweichung fuer {asset_class}: Median {med} bps vs "
         f"Spec {expected_bps} bps (Delta {delta}, Toleranz {tolerance}).\n"
         f"BB-Werte: {sorted(fractions)}"
     )
@@ -186,12 +186,12 @@ def test_alternatives_mean_documented_higher_than_spec():
     alts = grouped.get("Alternative", [])
     assert alts, "Alternative-BBs fehlen"
     avg = mean(alts)
-    spec = THREE_EYES_SPEC["Alternative"]
+    spec = REFERENCE_SPEC["Alternative"]
     delta = avg - spec
     # Aktuell ist Delta ca +2600 bps (avg ~76% vs spec 50%) wegen PE/Krypto.
     # Wir akzeptieren bis +3500 bps, alles drueber muss neu auditiert werden.
     assert 0 < delta <= 3500, (
-        f"Alternative-Mean {avg} bps vs 3eyes-Spec {spec} bps Delta {delta}.\n"
+        f"Alternative-Mean {avg} bps vs Referenz-Spec {spec} bps Delta {delta}.\n"
         f"Erwartet positives Delta (PE/Krypto verziehen Mean), aber <=3500 bps.\n"
         f"Aktuelle Alt-Werte: {sorted(alts)}.\n"
         f"Audit: gehoeren wirklich PE+Krypto als Standard-BB? Berater-Review."

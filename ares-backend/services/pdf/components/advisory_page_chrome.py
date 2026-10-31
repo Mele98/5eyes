@@ -4,9 +4,9 @@ Liefert einen ReportLab-Page-Callback (`make_advisory_page_chrome`), der
 für jede Seite **außer dem Cover** den editorialen Page-Header und
 Page-Footer zeichnet:
 
-  Header oben:  „5eyes  ·  Wealth Architects   ·   Depotcheck · MX-XYZ"
+  Header oben:  „Ares  ·  Depotcheck · MX-XYZ"
                                                               „Seite x / 15"
-  Footer unten: „Vertraulich · Generiert dd.mm.yyyy hh:mm    „5eyes v…"
+  Footer unten: „Vertraulich · Generiert dd.mm.yyyy hh:mm    „Ares Advisory Report"
 
 Cover (Seite 1) wird über `cover_only_callback` gesondert ohne Header
 gerendert, damit das Titelblatt ungestört bleibt.
@@ -153,14 +153,14 @@ def _draw_advisory_page_chrome(
     header_y = page_height - MARGIN_TOP + 8 * mm
     canvas.setFillColor(COLOR_INK)
     canvas.setFont(FONT_SANS_BOLD, FONT_SIZE_MICRO + 1)
-    canvas.drawString(MARGIN_LEFT, header_y, "5eyes")
+    canvas.drawString(MARGIN_LEFT, header_y, "Ares")
 
     canvas.setFillColor(COLOR_INK_SUBTLE)
     canvas.setFont(FONT_SANS, FONT_SIZE_MICRO)
     canvas.drawString(
         MARGIN_LEFT + 16 * mm,
         header_y,
-        f"Wealth Architects  ·  Depotcheck  ·  {mandate_number}",
+        f"Depotcheck  ·  {mandate_number}",
     )
 
     if total_pages:
@@ -195,7 +195,7 @@ def _draw_advisory_page_chrome(
         f"Vertraulich  ·  Generiert {generated_at_pretty}",
     )
     canvas.drawRightString(
-        page_width - MARGIN_RIGHT, footer_y, "5eyes Advisory Report"
+        page_width - MARGIN_RIGHT, footer_y, "Ares Advisory Report"
     )
 
     canvas.restoreState()

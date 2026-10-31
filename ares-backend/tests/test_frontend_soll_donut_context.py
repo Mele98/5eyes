@@ -1,7 +1,7 @@
-"""Frontend: SOLL-Allokations-Torte — 3eyes-treue Einordnung (Etappe 2).
+"""Frontend: SOLL-Allokations-Torte — referenztreue Einordnung (Etappe 2).
 
 Produkt-Entscheid 2026-07-15 (Option B): Die SOLL-Torte bleibt auf dem
-umschichtbaren Beratungsvermögen (fachlich korrekt nach 3eyes), wird aber
+umschichtbaren Beratungsvermögen (fachlich korrekt nach Referenzmethodik), wird aber
 glasklar so beschriftet, und das Reinvermögen (inkl. Eigenheim-Fundament) wird
 als Kontext daneben ausgewiesen — gespeist aus dem Engine-Feld total_allocation.
 """
@@ -20,7 +20,7 @@ def _html() -> str:
 
 def test_donut_subline_reframed_positive():
     html = _html()
-    # Positive 3eyes-Formulierung statt apologetischem "zeigt nur den Beratungsteil".
+    # Positive Formulierung der Referenzmethodik statt apologetischem "zeigt nur den Beratungsteil".
     assert "umgeschichtet werden kann" in html
     assert "zeigt aber nur den optimierbaren Beratungsteil" not in html
 

@@ -267,7 +267,7 @@ def test_objective_hardness_weighting_is_default(monkeypatch):
 
 
 def test_objective_equal_opt_out_ignores_hardness(monkeypatch):
-    """Opt-out OPTIMIZER_GOAL_WEIGHTING=equal (3eyes-"Mittelung", Default bis
+    """Opt-out OPTIMIZER_GOAL_WEIGHTING=equal ("Mittelung" der Referenzmethodik, Default bis
     v6): identischer Fehlbetrag -> identisches Objective."""
     monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "equal")
     hart = _make_liab(goal_id="h", hardness="hart", weight_bps=10000,

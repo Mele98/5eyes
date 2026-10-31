@@ -28,7 +28,7 @@ DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 GOAL_WEIGHTING_MODES = ("equal", "hardness")
 # GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine
 # ``saa_resampled_v7``): der Haertegrad wirkt standardmaessig. Vorher war
-# "equal" der Default (ADR-011 Entscheid 2, 3eyes-"Mittelung"), womit ein
+# "equal" der Default (ADR-011 Entscheid 2, "Mittelung" der Referenzmethodik), womit ein
 # als "hart" erfasstes Ziel rechnerisch identisch mit "primaer" war, obwohl
 # die Erfassungsmaske die Wahl anbietet. "equal" bleibt als expliziter
 # Opt-out erhalten. Begruendung: docs/planning/2026-10-18-maximize-goal-and-
@@ -133,7 +133,7 @@ class Settings(BaseSettings):
         extra='ignore',
     )
 
-    app_name: str = '5Eyes WealthArchitekten API'
+    app_name: str = 'Ares API'
     app_version: str = '1.3.0'
     app_env: str = 'development'
     app_host: str = '127.0.0.1'
@@ -337,7 +337,7 @@ class Settings(BaseSettings):
 
     # U-8 — DB-Backup-Strategie (PR #106).
     backup_enabled: bool = True
-    backup_dir: str = str(Path.home() / '5eyes' / 'backups')
+    backup_dir: str = str(Path.home() / 'ares' / 'backups')
     backup_retain_days: int = 30
     backup_keep_minimum: int = 3
     backup_scheduler_enabled: bool = True
@@ -351,7 +351,7 @@ class Settings(BaseSettings):
     # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
     # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
     backup_offsite_enabled: bool = False
-    # rsync-Zielangabe, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/"
+    # rsync-Zielangabe, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/"
     backup_offsite_target: str = ''
     backup_offsite_ssh_key_path: str = ''
     backup_offsite_ssh_port: int = 22
@@ -804,6 +804,28 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# --- HTTP-Identitaet gegenueber externen Diensten -------------------------------
+# Ein einziger Ort fuer den User-Agent ausgehender Requests (Marktdaten-Provider,
+# Referenzdaten, Alert-Webhook), Format ``Ares/<version>``. Liegt hier und nicht in
+# einem eigenen Modul: die Aufrufer importieren config ohnehin (Architektur-Ratsche,
+# kein zusaetzlicher Import je Client).
+HTTP_PRODUCT_TOKEN = "Ares"
+
+
+def user_agent() -> str:
+    """``Ares/<app_version>`` fuer API-Clients und Webhooks."""
+    return f"{HTTP_PRODUCT_TOKEN}/{settings.app_version}"
+
+
+def browser_compatible_user_agent() -> str:
+    """User-Agent fuer HTML-Quellen, die einen Browser-Praefix erwarten.
+
+    Der ``Mozilla/5.0``-Praefix bleibt wie bisher erhalten; nur das
+    Produkt-Token in Klammern folgt dem ``Ares/<version>``-Format.
+    """
+    return f"Mozilla/5.0 ({user_agent()})"
 
 
 # ---------------------------------------------------------------------------
