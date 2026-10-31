@@ -1,11 +1,12 @@
-"""Sprint U-P22.6 — Token-Handoff von der 5eyes-Hauptapp zur Reporting-Sub-App.
+"""Sprint U-P22.6 — Token-Handoff von der Ares-Hauptapp zur Reporting-Sub-App.
 
 Prüft die zwei Seiten der Übergabe statisch (kein npm nötig):
 
 1. **Reporting-Side** (`src/api/handoff.ts`):
    - Exportiert `consumeHandoffFromUrlFragment()` als Boot-Hook
    - Liest Token aus `window.location.hash` (URL-Fragment, NICHT Query)
-   - Schreibt nach `sessionStorage['5eyes_token']` (= Hauptapp-Konvention)
+   - Schreibt nach `sessionStorage[AUTH_TOKEN_STORAGE_KEY]` (Schluessel aus
+     `src/api/tokenKey.ts`, identisch mit dem Literal der Hauptapp)
    - Bereinigt die URL via `history.replaceState`
    - Wird in `main.tsx` SOFORT vor React-Render aufgerufen
 
@@ -19,6 +20,7 @@ Prüft die zwei Seiten der Übergabe statisch (kein npm nötig):
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPORTING_ROOT = (
@@ -53,10 +55,66 @@ def test_handoff_ts_exists_and_exports_consumer():
 
 def test_handoff_uses_shared_token_key_for_sessionstorage():
     """Konvention: Reporting + Hauptapp nutzen denselben Storage-Key
-    (`5eyes_token`). Sonst greift der Token-Resolver in client.ts nicht."""
+    (aus `src/api/tokenKey.ts`). Sonst greift der Token-Resolver in
+    client.ts nicht."""
     content = _read_reporting("src/api/handoff.ts")
-    assert "5eyes_token" in content
-    assert "sessionStorage.setItem" in content
+    assert "from './tokenKey'" in content
+    assert "sessionStorage.setItem(TOKEN_STORAGE_KEY" in content
+
+
+_TOKEN_KEY_DECL = re.compile(
+    r"^export const AUTH_TOKEN_STORAGE_KEY = '([^']+)';$", re.MULTILINE
+)
+_MAINAPP_TOKEN_ACCESS = re.compile(
+    r"(session|local)Storage\.(?:get|set|remove)Item\('([^']*token[^']*)'"
+)
+_REPORTING_TOKEN_READERS = (
+    "src/api/handoff.ts",
+    "src/api/client.ts",
+    "src/api/advisoryLog.ts",
+    "src/api/reportNotes.ts",
+    "src/api/useUserRole.ts",
+)
+
+
+def _reporting_token_key() -> str:
+    decls = _TOKEN_KEY_DECL.findall(_read_reporting("src/api/tokenKey.ts"))
+    assert len(decls) == 1, decls
+    return decls[0]
+
+
+def test_token_key_is_identical_in_mainapp_and_reporting():
+    """W4-a1-Vertrag: Hauptapp und Reporting-Sub-App benutzen exakt denselben
+    Access-Token-Schluessel. Reporting hat genau eine Quelle (tokenKey.ts),
+    die Hauptapp dasselbe Literal; der Refresh-Token hat einen eigenen Slot."""
+    key = _reporting_token_key()
+    assert key == "ares.token"
+    accesses = _MAINAPP_TOKEN_ACCESS.findall(_read_mainapp())
+    assert accesses, "Hauptapp greift auf keinen Token-Schluessel zu"
+    keys = {k for _, k in accesses}
+    assert keys == {key, "ares.refresh_token"}, keys
+    # Nur sessionStorage: kein Token in localStorage, keine Legacy-Uebernahme.
+    assert {store for store, _ in accesses} == {"session"}
+
+
+def test_reporting_token_readers_use_single_key_source_without_local_storage():
+    """Jeder Token-Leser/-Schreiber der Sub-App importiert den Schluessel aus
+    tokenKey.ts, nennt kein eigenes Literal und liest nicht aus localStorage."""
+    key = _reporting_token_key()
+    for rel in _REPORTING_TOKEN_READERS:
+        content = _read_reporting(rel)
+        assert "from './tokenKey'" in content, rel
+        assert f"'{key}'" not in content, rel
+        assert "localStorage" not in content, rel
+    src = REPORTING_ROOT / "src"
+    for path in src.rglob("*.ts*"):
+        if path.name.endswith((".test.ts", ".test.tsx")) or path.name == "tokenKey.ts":
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert f"'{key}'" not in text, path.relative_to(REPORTING_ROOT)
+        assert not re.search(r"localStorage\.\w+\([^)]*token", text, re.IGNORECASE), (
+            path.relative_to(REPORTING_ROOT)
+        )
 
 
 def test_handoff_reads_url_fragment_not_querystring():
@@ -167,7 +225,7 @@ def test_mainapp_open_reporting_app_uses_same_token_hierarchy_as_main_api():
     Token-Quellen-Hierarchie nutzen wie der bestehende API-Client der
     Hauptapp:
       1. window.desktop.getAuthToken (Electron)
-      2. sessionStorage['5eyes_token'] (Browser)
+      2. sessionStorage['ares.token'] (Browser)
     Sonst kann der Berater die Reporting-App nicht öffnen, obwohl er
     in der Hauptapp eingeloggt ist."""
     html = _read_mainapp()
@@ -176,7 +234,7 @@ def test_mainapp_open_reporting_app_uses_same_token_hierarchy_as_main_api():
     helper_block = html[helper_start:helper_start + 2000]
     assert "window.desktop" in helper_block
     assert "getAuthToken" in helper_block
-    assert "sessionStorage.getItem('5eyes_token')" in helper_block
+    assert "sessionStorage.getItem('ares.token')" in helper_block
 
 
 def test_mainapp_open_reporting_app_uses_window_open_with_noopener():

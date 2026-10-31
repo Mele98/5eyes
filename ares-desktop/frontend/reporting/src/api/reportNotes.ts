@@ -7,9 +7,10 @@
  * bedeuten „Auto-Default greift wieder".
  *
  * Auth: gleicher Bearer-Token-Mechanismus wie `client.ts` (Electron →
- * sessionStorage → localStorage → Vite-Env-Fallback).
+ * sessionStorage → Vite-Env-Fallback).
  */
 import { ApiError, apiErrorFromResponse } from './client';
+import { AUTH_TOKEN_STORAGE_KEY } from './tokenKey';
 
 /** Welche Sektion ein Override-Feld betrifft. */
 export type NotesField =
@@ -71,14 +72,8 @@ async function resolveAuthToken(): Promise<string | null> {
     // Browser-dev fallback
   }
   try {
-    const sessionToken = window.sessionStorage.getItem('5eyes_token');
+    const sessionToken = window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
     if (sessionToken) return sessionToken;
-  } catch {
-    /* hardened browser context */
-  }
-  try {
-    const localToken = window.localStorage.getItem('5eyes_token');
-    if (localToken) return localToken;
   } catch {
     /* hardened browser context */
   }
