@@ -3,13 +3,12 @@
 Belegt:
 - Vorher == nachher je Schluessel: ``BEFORE_DIGESTS`` wurde auf dem
   Ausgangs-SHA (X1, 2706c349) aus den damaligen Kernkonstanten bzw.
-  -Literalen erzeugt (footer.FIDLEG_DISCLAIMER, static_texts.*, Deckblatt-
-  Literale von pdf/documents/cost_disclosure.py). Jeder Pack-Text muss
+  -Literalen erzeugt (footer.FIDLEG_DISCLAIMER, Deckblatt-Literale von
+  pdf/documents/cost_disclosure.py). Jeder Pack-Text muss
   diesen Digest byte-genau treffen, und es gibt keinen ungeprueften
   Schluessel.
-- Die Kern-Komponenten lesen ueber das DocumentSet (Footer zur Laufzeit,
-  Kostenausweis-Deckblatt zur Laufzeit, static_texts als Fassade mit
-  unveraenderten Namen und Typen).
+- Footer und Kostenausweis-Deckblatt lesen zur Laufzeit ueber das
+  DocumentSet; static_texts bleibt Kern-Konstante (kein Fan-out 0->1).
 - DocumentSet-Conformance: jede Locale vollstaendig, keine leeren Texte,
   unbekannte Schluessel/Locales fail-closed, Loader weist ungueltige
   Dateien ab, Inhalts-Hash gepinnt.
@@ -52,44 +51,13 @@ BUILD_BACKEND_SCRIPT = BACKEND_ROOT.parent / "ares-desktop" / "scripts" / "build
 # abweichender Digest ist eine Textaenderung.
 BEFORE_DIGESTS = {
     "legal.footer.disclaimer": "sha256:08b31b18f1330ba1154981b0b71c6f0734adb8d77b3b1b59516107977916b876",
-    "legal.disclaimer.title": "sha256:53fa1b5b6487d12fb5b8bab7379ddcbc6136608d7dd81da699a93ca575d209ef",
-    "legal.disclaimer.paragraphs": "sha256:d8f235f1bd492cd1312bc9e28ff07f0ad5027c3d71d6081e8024594170d7fc28",
-    "strategy_report.investment_approach.title": "sha256:ac84cb33490b0a619866f2dfc413512ffd0bca819a13d389ea357ba65d2cddfa",
-    "strategy_report.investment_approach.paragraphs": "sha256:ebcf2494a2136a7e8f7fce418c3e45131ed0b0ff286582937a6abb3ee9b76337",
-    "strategy_report.investment_universe.title": "sha256:ef4e33ff7da37a1447702b67056420282c70c6fc689ddc904a6325377ae54a49",
-    "strategy_report.investment_universe.intro": "sha256:9015cb3576afec21c574e93f4299be79c8b0219ff93e0d45753d678bc0cb8700",
-    "strategy_report.investment_universe.bullets": "sha256:7393ca22566e286fff6de516991078a042ce2b6cbdb88c2d22ac5538870f6056",
-    "strategy_report.investment_universe.outro": "sha256:ee794ea9ee3923ded3c9fcdcae9f30ed0ff305653290e0e37d68ab96397d1cda",
-    "strategy_report.summary.title": "sha256:36df2e104dc27be85b91da21dd4601145f3e5282644539579bdbaa86e56616b5",
-    "strategy_report.summary.paragraphs": "sha256:c6a2be78c32979ae769e5c431ebbe903fc4557178368548e199d7979887c9558",
-    "strategy_report.metrics.title": "sha256:48918e6ef7f0a9ed9a7cbf9bc635336d9bd96b56a3e06b4639359d7d4fb76bef",
-    "strategy_report.metrics.definitions": "sha256:33367b59b9d7646f0a7a0ee4d41cbc1a4258380dfc2cee0cca5756c2c6e44d2e",
-    "strategy_report.cover.tagline": "sha256:e46269bce46580f711a1f73faaff5d9c562b6ed0cac0858c6325db3886866e2d",
     "cost_disclosure.cover.title": "sha256:7c8051b8bf43178ae61344b0d6159b30467b99933987499186af79caa344485b",
     "cost_disclosure.cover.subtitle": "sha256:8de8dd79369239fdc7dac30ac43fcaf4774dcd3350e108bb336801a3d4d0e701",
     "cost_disclosure.cover.focus_points": "sha256:6b5ef1b1e47d3812287bf909a079d7620646e9e78640ef74b91f5ac323e0930a",
 }
 
 # Gepinnter Inhalts-Hash aller CH-Texte (jede Textaenderung ist sichtbar).
-CH_DOCUMENTS_HASH = "sha256:bab9ec98226c9f67cf59709dc4286af8d4aca3292b3626b144395f5f2c152f2d"
-
-# static_texts-Fassade: Name -> (Schluessel, bisheriger Typ).
-STATIC_TEXTS = {
-    "INVESTITIONSANSATZ_TITLE": ("strategy_report.investment_approach.title", "str"),
-    "INVESTITIONSANSATZ_TEXT": ("strategy_report.investment_approach.paragraphs", "list[str]"),
-    "ANLAGEUNIVERSUM_TITLE": ("strategy_report.investment_universe.title", "str"),
-    "ANLAGEUNIVERSUM_INTRO": ("strategy_report.investment_universe.intro", "str"),
-    "ANLAGEUNIVERSUM_BULLETS": ("strategy_report.investment_universe.bullets", "list[str]"),
-    "ANLAGEUNIVERSUM_OUTRO": ("strategy_report.investment_universe.outro", "list[str]"),
-    "ZUSAMMENFASSUNG_TITLE": ("strategy_report.summary.title", "str"),
-    "ZUSAMMENFASSUNG_TEXT": ("strategy_report.summary.paragraphs", "list[str]"),
-    "KENNZAHLEN_TITLE": ("strategy_report.metrics.title", "str"),
-    "KENNZAHLEN_DEFINITIONS": ("strategy_report.metrics.definitions", "list[tuple]"),
-    "DISCLAIMER_TITLE": ("legal.disclaimer.title", "str"),
-    "DISCLAIMER_TEXT": ("legal.disclaimer.paragraphs", "list[str]"),
-    "COVER_TAGLINE": ("strategy_report.cover.tagline", "str"),
-}
-
+CH_DOCUMENTS_HASH = "sha256:945c24f22efb710a0cb81ad9af3af3e41fa7144908df4307e6793b3de6777385"
 
 def _norm(value):
     if isinstance(value, (list, tuple)):
@@ -124,14 +92,18 @@ def test_ch_documents_hash_is_pinned():
     assert default_documents().documents_hash == CH_DOCUMENTS_HASH
 
 
-def test_static_texts_facade_keeps_names_types_and_bytes():
-    static_texts = importlib.import_module("services.pdf.components.static_texts")
-    docs = default_documents()
-    for name, (key, type_name) in STATIC_TEXTS.items():
-        value = getattr(static_texts, name)
-        assert _type_name(value) == type_name, name
-        assert _norm(value) == _norm(docs.value(key)), name
-        assert _digest(value) == BEFORE_DIGESTS[key], name
+def test_static_texts_stay_core_constants_without_pack_import():
+    # Entscheid zu X3: static_texts bleibt Kern-Konstante (kein Fan-out 0->1),
+    # deshalb keine Kopie der Texte im Pack (keine zweite Wahrheit).
+    import ast
+
+    source = (BACKEND_ROOT / "services" / "pdf" / "components" / "static_texts.py").read_text(encoding="utf-8")
+    imported = [
+        node.module for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom) and node.module
+    ]
+    assert not any(m.startswith("jurisdictions") for m in imported), imported
+    assert not any(key.startswith("strategy_report.") or key.startswith("legal.disclaimer.") for key in default_documents().keys())
 
 
 def test_footer_constant_and_runtime_text_come_from_the_document_set(monkeypatch):
@@ -231,11 +203,11 @@ def test_unknown_key_and_locale_fail_closed():
     with pytest.raises(DocumentKeyError):
         docs.text("legal.footer.disclaimer", "fr-CH")
     with pytest.raises(DocumentKeyError):
-        docs.text("legal.disclaimer.paragraphs")  # Liste, kein Einzeltext
+        docs.text("cost_disclosure.cover.focus_points")  # Liste, kein Einzeltext
     with pytest.raises(DocumentKeyError):
         docs.paragraphs("legal.footer.disclaimer")
     with pytest.raises(DocumentKeyError):
-        docs.pairs("legal.disclaimer.paragraphs")
+        docs.pairs("cost_disclosure.cover.focus_points")
     with pytest.raises(DocumentKeyError):
         documents_for("XX")
     with pytest.raises(NotImplementedError):
@@ -245,9 +217,12 @@ def test_unknown_key_and_locale_fail_closed():
 def test_text_parameters_are_formatted_only_when_given(tmp_path):
     pack, root = _copy_ch_pack(tmp_path)
     (root / "ch" / "documents" / "de-CH" / "extra.yaml").write_text(
-        'namespace: extra\ntexts:\n  "greeting": "Guten Tag {name}"\n', encoding="utf-8"
+        'namespace: extra\ntexts:\n  "greeting": "Guten Tag {name}"\n'
+        '  "terms": [["A", "Erklaerung A"], ["B", "Erklaerung B"]]\n',
+        encoding="utf-8",
     )
     docs = load_document_set(pack, root)
+    assert docs.pairs("extra.terms") == (("A", "Erklaerung A"), ("B", "Erklaerung B"))
     assert docs.text("extra.greeting") == "Guten Tag {name}"
     assert docs.text("extra.greeting", name="Ares") == "Guten Tag Ares"
 
@@ -289,7 +264,7 @@ def test_loader_requires_every_declared_locale_with_identical_keys(tmp_path):
     shutil.copytree(root / "ch" / "documents" / "de-CH", root / "ch" / "documents" / "fr-CH")
     assert load_document_set(two_locales, root).locales == ("de-CH", "fr-CH")
     (root / "ch" / "documents" / "fr-CH" / "legal.yaml").write_text(
-        'namespace: legal\ntexts:\n  "footer.disclaimer": "x"\n', encoding="utf-8"
+        'namespace: legal\ntexts:\n  "footer.disclaimer": "x"\n  "only.in.fr": "y"\n', encoding="utf-8"
     )
     with pytest.raises(PackRegistryError, match="weicht in Schluesseln ab"):
         load_document_set(two_locales, root)
