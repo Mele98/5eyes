@@ -5,7 +5,7 @@ Phase 5 von SMI-Sub-Asset-Sprint (2026-06-09). ADR-010.
 Verifiziert:
 - Entry-Point-Discovery laedt konforme Provider
 - Nicht-konforme Klassen werden skipped (kein Crash)
-- Name-Kollisionen: First-Wins + Warning-Log
+- Name-Kollisionen: Warning-Log, Ablehnung in der Factory (W2-804-02)
 - BloombergProvider-Stub ist defensiv (blpapi-missing -> is_healthy=False)
 - Stub-Methoden liefern klare Fehlermeldungen statt Crash
 """
