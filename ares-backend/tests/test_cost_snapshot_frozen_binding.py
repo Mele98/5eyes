@@ -426,3 +426,131 @@ def test_advisory_log_with_valid_frozen_evidence_still_works(session_factory):
         stored = json.loads(entry.cost_disclosure_snapshot_json)
     assert stored["evidence_frozen"] is True
     assert stored["recommendation_run_id"] == run_id
+
+
+# ---------------------------------------------------------------------------
+# Teil 3: ADVISORY-LOG-COST-RUN-BINDING (AUDIT-FIX 2026-10-31)
+# ---------------------------------------------------------------------------
+# Der React-Editor schickte den gezeigten Lauf als `cost_disclosure_snapshot_id`
+# -- ein Feld, das AdvisoryLogCreate nicht kennt und still verwarf. Jetzt geht
+# er als `recommendation_run_id`. Diese Tests pinnen beide Seiten am echten
+# Router: mit Lauf-ID genau dessen eingefrorener Nachweis, auch wenn der
+# mandatsweite Bauer inzwischen einen ANDEREN Lauf waehlen wuerde; ohne
+# Lauf-ID weiterhin mandatsweit (Bestandsverhalten).
+
+
+def _add_newer_final_run(session_factory, run_id: str) -> str:
+    """Ein juengerer Final-Lauf derselben TA (ohne eingefrorenen Nachweis):
+    der mandatsweite Resolver waehlt ab jetzt IHN statt des gezeigten Laufs."""
+    import uuid
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import inspect as sa_inspect
+
+    with session_factory() as db:
+        src = db.query(RecommendationRun).filter(RecommendationRun.id == run_id).one()
+        cols = {c.key: getattr(src, c.key) for c in sa_inspect(RecommendationRun).mapper.column_attrs}
+        newer_id = str(uuid.uuid4())
+        created = str(cols.get("created_at") or "")
+        try:
+            newer_created = (
+                datetime.fromisoformat(created.replace("Z", "+00:00")) + timedelta(hours=1)
+            ).isoformat()
+        except ValueError:
+            newer_created = "2999-01-01T00:00:00+00:00"
+        cols.update(
+            id=newer_id,
+            created_at=newer_created,
+            cost_disclosure_snapshot_json=None,
+        )
+        db.add(RecommendationRun(**cols))
+        db.commit()
+    return newer_id
+
+
+def _stored_snapshot(session_factory, mandate_id) -> dict:
+    with session_factory() as db:
+        entry = db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id == mandate_id).one()
+        return {
+            "snapshot": json.loads(entry.cost_disclosure_snapshot_json),
+            "entry_run_id": entry.recommendation_run_id,
+            "integrity_hash": entry.integrity_hash,
+        }
+
+
+def test_advisory_log_binds_to_the_shown_run_even_if_mandate_wide_moved_on(session_factory):
+    from routers.review import create_advisory_log_entry
+
+    advisor_id, mandate_id, shown_run = _certified_mandate(session_factory, suffix="bind-g")
+    frozen_envelope = json.loads(_snapshot_raw(session_factory, shown_run))
+    newer_run = _add_newer_final_run(session_factory, shown_run)
+    # Vorbedingung: der mandatsweite Bauer zeigt inzwischen auf den anderen Lauf.
+    assert _disclosure(session_factory, mandate_id)["source_run_id"] == newer_run
+
+    with session_factory() as db:
+        advisor = db.query(User).filter(User.id == advisor_id).first()
+        create_advisory_log_entry(
+            mandate_id=mandate_id,
+            body=_log_body(recommendation_run_id=shown_run),
+            request=_FakeRequest(), db=db, current_user=advisor,
+        )
+    stored = _stored_snapshot(session_factory, mandate_id)
+    snap = stored["snapshot"]
+    assert stored["entry_run_id"] == shown_run
+    assert snap["recommendation_run_id"] == shown_run
+    assert snap["evidence_frozen"] is True
+    # Genau DIESER eingefrorene Nachweis: Hash des Umschlags des gezeigten Laufs.
+    assert snap["source_content_hash"] == frozen_envelope["content_hash"]
+    assert snap["content_hash"] == cost_service.cost_disclosure_content_hash(
+        {k: v for k, v in snap.items() if k != "content_hash"}
+    )
+    assert stored["integrity_hash"]
+
+
+def test_advisory_log_without_run_id_stays_mandate_wide(session_factory):
+    """Bestandsverhalten unveraendert: ohne Lauf-ID der mandatsweite Bauer."""
+    from routers.review import create_advisory_log_entry
+
+    advisor_id, mandate_id, shown_run = _certified_mandate(session_factory, suffix="bind-h")
+    frozen_envelope = json.loads(_snapshot_raw(session_factory, shown_run))
+    newer_run = _add_newer_final_run(session_factory, shown_run)
+    mandate_wide = _disclosure(session_factory, mandate_id)
+    assert mandate_wide["source_run_id"] == newer_run
+
+    with session_factory() as db:
+        advisor = db.query(User).filter(User.id == advisor_id).first()
+        create_advisory_log_entry(
+            mandate_id=mandate_id, body=_log_body(),
+            request=_FakeRequest(), db=db, current_user=advisor,
+        )
+    stored = _stored_snapshot(session_factory, mandate_id)
+    snap = stored["snapshot"]
+    assert stored["entry_run_id"] is None
+    assert snap["recommendation_run_id"] == newer_run
+    assert snap["source_content_hash"] != frozen_envelope["content_hash"]
+
+
+def test_legacy_editor_fields_are_dropped_and_never_bind_a_run(session_factory):
+    """Dokumentiert die Ursache: die frueheren Editor-Felder
+    `cost_disclosure_snapshot_id`/`_currency` kennt das Schema nicht -- sie
+    verschwinden still, der Nachweis landet beim mandatsweiten Lauf statt beim
+    gezeigten. Nur `recommendation_run_id` bindet (Test oben)."""
+    from routers.review import create_advisory_log_entry
+
+    advisor_id, mandate_id, shown_run = _certified_mandate(session_factory, suffix="bind-i")
+    newer_run = _add_newer_final_run(session_factory, shown_run)
+    body = _log_body(
+        cost_disclosure_snapshot_id=shown_run,
+        cost_disclosure_snapshot_currency="CHF",
+    )
+    assert "cost_disclosure_snapshot_id" not in body.model_dump()
+    assert body.recommendation_run_id is None
+    with session_factory() as db:
+        advisor = db.query(User).filter(User.id == advisor_id).first()
+        create_advisory_log_entry(
+            mandate_id=mandate_id, body=body,
+            request=_FakeRequest(), db=db, current_user=advisor,
+        )
+    assert _stored_snapshot(session_factory, mandate_id)["snapshot"][
+        "recommendation_run_id"
+    ] == newer_run
