@@ -1,6 +1,6 @@
 """Seed fuer den EXTERNEN TEST (Phase 0) — eigene Staging-DB, NUR synthetische Daten.
 
-Legt eine SEPARATE DB (Default: ~/5eyes/5eyes-staging.db) mit Demo-Tenants + Accounts an
+Legt eine SEPARATE DB (Default: ~/ares/ares-staging.db) mit Demo-Tenants + Accounts an
 — voellig getrennt von der Live-DB mit echten Mandanten. So kann beim Extern-Test
 GARANTIERT keine echte Kundendaten exponiert werden (es ist schlicht keine da).
 
@@ -18,7 +18,7 @@ import datetime
 from pathlib import Path
 
 # --- Staging-DB-Pfad VOR dem Import von database/config setzen ---
-_default = str(Path.home() / "5eyes" / "5eyes-staging.db")
+_default = str(Path.home() / "ares" / "ares-staging.db")
 _db_path = sys.argv[1] if len(sys.argv) > 1 else _default
 from core.db_location import refuse_live_db  # noqa: E402
 

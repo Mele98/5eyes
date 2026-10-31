@@ -17,7 +17,7 @@ Du willst dich extern einloggen, während es auf deinem Windows-PC läuft? **Ein
 
 Das Skript:
 1. startet das Backend im **Staging-/Browser-Hosting-Modus** auf `127.0.0.1:8000`
-   (stabiles Login-Secret in `~/5eyes/.external-secret.txt`, `allow_real_client_data=false`),
+   (stabiles Login-Secret in `~/ares/.external-secret.txt`, `allow_real_client_data=false`),
 2. lädt einmalig **cloudflared** und öffnet einen **HTTPS-Quick-Tunnel** (kein Account).
 
 Es erscheint eine URL `https://<zufall>.trycloudflare.com`. **Extern (Handy/anderer PC) öffnen mit `/app/ares.html` dahinter:**
@@ -65,22 +65,23 @@ Browser ──HTTPS──> Cloudflare (optional, WAF/DDoS) ──> Caddy (TLS, R
 ## Schritte
 1. **Code + venv**
    ```bash
-   git clone <repo> /opt/5eyes && cd /opt/5eyes/ares-backend
+   git clone <repo> /opt/ares && cd /opt/ares/ares-backend
    python3 -m venv .venv && . .venv/bin/activate
    pip install -r requirements.txt
    pip install gunicorn uvicorn
    ```
-2. **Env-Datei** (siehe `.env.staging.example`): nach `/opt/5eyes/ares-backend/.env` kopieren und
+2. **Env-Datei** (siehe `.env.staging.example`): nach `/etc/ares/ares.env` kopieren und
    **`secret_key` + `db_key` mit echten Zufallswerten** füllen:
    ```bash
    python3 -c "import secrets;print('SECRET_KEY='+secrets.token_urlsafe(48))"
    python3 -c "import secrets;print('DB_KEY='+secrets.token_urlsafe(32))"
    ```
-3. **Backend als Service** (`5eyes.service` → `/etc/systemd/system/`):
+3. **Backend als Service** (`ares.service` → `/etc/systemd/system/`):
    ```bash
-   sudo cp docs/deploy/5eyes.service /etc/systemd/system/
-   sudo systemctl daemon-reload && sudo systemctl enable --now 5eyes
-   sudo systemctl status 5eyes
+   sudo useradd --system --home-dir /var/lib/ares --shell /usr/sbin/nologin ares
+   sudo cp docs/deploy/ares.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now ares
+   sudo systemctl status ares
    ```
 4. **Caddy (Auto-TLS)** (`Caddyfile` → `/etc/caddy/Caddyfile`, Domain anpassen):
    ```bash
