@@ -444,9 +444,9 @@ def build_cost_disclosure_for_run(
     ter_bps_overrides: dict[str, int] = {}
     if rows:
         from models.tenant import DEFAULT_TENANT_ID
-        from services.jurisdiction.resolve import resolve_mandate_jurisdiction
+        from jurisdictions.resolve import resolve_pack
         tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
-        jurisdiction = resolve_mandate_jurisdiction(mandate)
+        jurisdiction = resolve_pack(mandate).code
         product_ids = {product.id for _, product in rows}
         override_entries = (
             db.query(ProductUniverseEntry)
