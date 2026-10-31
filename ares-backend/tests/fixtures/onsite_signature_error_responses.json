@@ -1,0 +1,198 @@
+{
+  "abort_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "abort_twice_invalid_state": {
+    "body_len": 142,
+    "body_sha256": "ba2eefd26c1ce0e2ec86a7adc534e88b7374d26ac3b7083ac921428564128be5",
+    "headers_sha256": "dfd54fd53b7975c0640d0fc7f2442e59ffff896847279ff2990071fc62de957b",
+    "reason_code": "ONSITE_SIGNATURE_INVALID_STATE",
+    "status": 409
+  },
+  "challenge_invalid_state": {
+    "body_len": 141,
+    "body_sha256": "0475c0d4cf0cdd0de1239db5392a87825a5387d8bfc5373cc0d6084132d07127",
+    "headers_sha256": "7b678483039a866a4492f696c18dd96ad7962aaa742d6bbfdf2967f7169a22dc",
+    "reason_code": "ONSITE_SIGNATURE_INVALID_STATE",
+    "status": 409
+  },
+  "challenge_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "confirm_consent_mismatch": {
+    "body_len": 154,
+    "body_sha256": "020b5d455d8eb3cd2c9bd18a7f355e7493d7bee71873270d68f211d22101051f",
+    "headers_sha256": "9478aae7e63076690cdf4cb2c6c9096a3f1325078b2437ec32d2f585b12d6a38",
+    "reason_code": "CONSENT_MISMATCH",
+    "status": 409
+  },
+  "confirm_foreign_customer_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "confirm_unknown_challenge": {
+    "body_len": 109,
+    "body_sha256": "9866e9be27e1b912a7907656cb00ed244920363f2b3c63cab0b54c489a852a99",
+    "headers_sha256": "5155cdecfc99e36516f8e25558fd2485c12eae8cddbfaa993d27596cb8e45fa7",
+    "reason_code": "CHALLENGE_UNKNOWN",
+    "status": 404
+  },
+  "confirm_unknown_tx_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "confirm_wrong_code": {
+    "body_len": 129,
+    "body_sha256": "1e45d83bf5bc10cb504fd7964c757afa63e45caf9b8b4df6ee5297927b30755b",
+    "headers_sha256": "b72c58d068c073ff7b5f92e29efa5a746e709f617eab593f1754e36ad3a1d170",
+    "reason_code": "CHALLENGE_ALREADY_USED",
+    "status": 409
+  },
+  "control_confirm_advisor_forbidden": {
+    "body_len": 67,
+    "body_sha256": "413965dcc1d2c78fa9decacd827105ecce9a5c1b4a60e8376e2c71e1bec83536",
+    "headers_sha256": "97036d856301140850e9d934abf6dc6afab9bbacb622b4d2331a0f27fee0c8f7",
+    "reason_code": null,
+    "status": 403
+  },
+  "control_get_unknown_mandate": {
+    "body_len": 34,
+    "body_sha256": "da7a16e1888d7ce1f2b35351526a1bbc4948d00aa75bb08857b5819ed9e21d01",
+    "headers_sha256": "ac4dbee9f0d04d2cac9795a3f7bcfa20b57e2c3f4aed2e92cb3309b4a5a2a25b",
+    "reason_code": null,
+    "status": 404
+  },
+  "control_open_document_missing": {
+    "body_len": 36,
+    "body_sha256": "c31d590bb151f55e2bfe750400ed2da1a72d6461d4db86b9eee035a0ef69cafa",
+    "headers_sha256": "a3330d3c5cd77ff61ae308cbc140f772eb613ad0c395d2246e4a54492b7eaf84",
+    "reason_code": null,
+    "status": 404
+  },
+  "control_open_validation_422": {
+    "body_len": 168,
+    "body_sha256": "7320adb1245daaa4fd14cb1a04ae9610370dafe52637c6cc22b8bd547c8f42d8",
+    "headers_sha256": "c7b28d301a4512ce2e08b1c3e475790e6b040023412b444d28e48823a417bfc7",
+    "reason_code": null,
+    "status": 422
+  },
+  "deliver_invalid_state": {
+    "body_len": 142,
+    "body_sha256": "ec0ed9efd368a5177444e18d1ad500165f5b24822f7edd12d52af072b27cdfc1",
+    "headers_sha256": "dfd54fd53b7975c0640d0fc7f2442e59ffff896847279ff2990071fc62de957b",
+    "reason_code": "ONSITE_SIGNATURE_INVALID_STATE",
+    "status": 409
+  },
+  "deliver_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "finalize_invalid_state": {
+    "body_len": 140,
+    "body_sha256": "b7fe8d9015f2ff481de1c25b07bc14cdc5a482f18d0640554e06d908b6c1c3b4",
+    "headers_sha256": "52d8cac4c3c1febf4d19c9387d6614c5058fa38d3d860e894763f4e27d5c8b1f",
+    "reason_code": "ONSITE_SIGNATURE_INVALID_STATE",
+    "status": 409
+  },
+  "finalize_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "get_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "identity_after_abort_invalid_state": {
+    "body_len": 227,
+    "body_sha256": "8e8317c95e9903d8a70fcd169c4fd1d45d1960b5c2aecf116e92a218d9e660c7",
+    "headers_sha256": "46ccbe4f9ecf599261d999d4d88c709b1fae863d158fab1124432d25ae095926",
+    "reason_code": "ONSITE_SIGNATURE_INVALID_STATE",
+    "status": 409
+  },
+  "identity_method_not_accepted": {
+    "body_len": 148,
+    "body_sha256": "913653279635d1c0a6e26140583ecb820b606c0df29f9d6e5dc1b074cd31c05c",
+    "headers_sha256": "6bd9dad801105d2b45c8c9a8fe3e0a4ee4186376f663a4504efdb7cb23ba56c9",
+    "reason_code": "IDENTITY_METHOD_NOT_ACCEPTED",
+    "status": 422
+  },
+  "identity_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  },
+  "open_hash_mismatch": {
+    "body_len": 165,
+    "body_sha256": "a3f0c2247576d2f0ea2b3f9138021bc4112647cf93f7b3a546461a5f07195279",
+    "headers_sha256": "f68a047c39933cce8ff67ae752d4e19e6364cacdc12a4ad57cf8e15b2820058e",
+    "reason_code": "DOCUMENT_HASH_MISMATCH",
+    "status": 409
+  },
+  "open_input_missing": {
+    "body_len": 128,
+    "body_sha256": "c3ff37705de9563395469ef7dd23d013022ac3c15daa34907fcf8a8fba820e23",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_INPUT_MISSING",
+    "status": 422
+  },
+  "open_language_not_supported": {
+    "body_len": 162,
+    "body_sha256": "4e04071f10f686af8c7ff8e0edf09c4020fe2b9a321e0fa20738e1e35c2b00e1",
+    "headers_sha256": "dcf01ace83aa9a1bda27a9c9083e45a1a537bc770a85661c6120871a99905aff",
+    "reason_code": "LANGUAGE_NOT_SUPPORTED",
+    "status": 422
+  },
+  "open_not_released": {
+    "body_len": 634,
+    "body_sha256": "c15c8686d6d15cc36d3c62865f17e09fb1b26251436f7c1dae3a7a69c747c5aa",
+    "headers_sha256": "42a90e4f24631401a118e0a577163d069c6f0adfcc9b810eb30f0bdf027a546a",
+    "reason_code": "ONSITE_SIGNATURE_NOT_RELEASED",
+    "status": 409
+  },
+  "witness_before_factor_invalid_state": {
+    "body_len": 161,
+    "body_sha256": "1b3cba3aa1a3fa6614dae4470b8f637d68d2cc28c97a24feb743b6f0deb4ad9c",
+    "headers_sha256": "5e86b6c929cbe4f943b1a64430d4b0e70e1c949c86c4edb451d659e0b76593b2",
+    "reason_code": "ONSITE_SIGNATURE_INVALID_STATE",
+    "status": 409
+  },
+  "witness_invalid_state": {
+    "body_len": 148,
+    "body_sha256": "bdc966a085f13b7f931a8de3513089934dedd2a5d3712f8947b4dc0dbc8fb27d",
+    "headers_sha256": "6bd9dad801105d2b45c8c9a8fe3e0a4ee4186376f663a4504efdb7cb23ba56c9",
+    "reason_code": "ONSITE_SIGNATURE_INVALID_STATE",
+    "status": 409
+  },
+  "witness_not_found": {
+    "body_len": 128,
+    "body_sha256": "787fa860ccf3f387ea4f8822533e9f07f4e1d0121901711c2e93f8d9e355403e",
+    "headers_sha256": "a65c68086a464ca534c7b4d4f063269688ee6f71a6e596ecfc82a0718105e447",
+    "reason_code": "ONSITE_SIGNATURE_NOT_FOUND",
+    "status": 404
+  }
+}
