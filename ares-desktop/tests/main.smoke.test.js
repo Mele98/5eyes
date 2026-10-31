@@ -334,6 +334,41 @@ function check(name, fn) {
     state.storageBackend = 'dpapi';
   });
 
+  // ── W2-804-03: Ares ist Windows-only. Der Packaged-Resolver bricht auf jeder
+  // anderen Plattform mit klarer Meldung ab, statt still `ares-api.exe` zu
+  // erwarten; unter win32 liefert er genau resources/backend/ares-api.exe. ──
+  const withPlatform = (platform, fn) => {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform');
+    const originalResources = process.resourcesPath;
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    process.resourcesPath = path.join(tmpUserData, 'resources');
+    try {
+      return fn();
+    } finally {
+      Object.defineProperty(process, 'platform', original);
+      process.resourcesPath = originalResources;
+    }
+  };
+
+  await check('W2-804-03 resolvePackagedBackendExe exportiert', () => {
+    assert.strictEqual(typeof mainExports.resolvePackagedBackendExe, 'function');
+  });
+
+  await check('W2-804-03 gepackter Resolver lehnt darwin/linux mit klarer Meldung ab', () => {
+    for (const platform of ['darwin', 'linux', 'freebsd']) {
+      assert.throws(
+        () => withPlatform(platform, () => mainExports.resolvePackagedBackendExe()),
+        (err) => /nur fuer Windows/.test(err.message) && err.message.includes(platform),
+        `Plattform ${platform} muss abgelehnt werden`
+      );
+    }
+  });
+
+  await check('W2-804-03 gepackter Resolver liefert unter win32 resources/backend/ares-api.exe', () => {
+    const resolved = withPlatform('win32', () => mainExports.resolvePackagedBackendExe());
+    assert.strictEqual(resolved, path.join(tmpUserData, 'resources', 'backend', 'ares-api.exe'));
+  });
+
   console.log(failed === 0 ? '\nALL GREEN' : `\n${failed} FAILED`);
   process.exit(failed === 0 ? 0 : 1);
 })();

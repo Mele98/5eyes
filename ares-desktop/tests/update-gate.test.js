@@ -155,7 +155,11 @@ test('Release-Preflight: UPDATES_ENABLED=true ohne Konfiguration meldet den Gate
     for (const key of ['UPDATES_ENABLED', 'UPDATE_FEED_URL', 'CSC_LINK', 'CSC_KEY_PASSWORD', 'WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD']) {
       if (!(key in extraEnv)) delete env[key];
     }
-    return spawnSync(process.execPath, ['scripts/release-check.js'], { cwd: ELECTRON_DIR, env, encoding: 'utf8' });
+    // W2-804-03: release-check.js bricht ausserhalb von Windows sofort ab. Der
+    // Gate-Vertrag wird daher unter simuliertem win32 geprueft, damit der Test
+    // auf Linux-CI-Runnern dieselbe Preflight-Logik erreicht.
+    const loader = "Object.defineProperty(process, 'platform', { value: 'win32' }); require(process.argv[1]);";
+    return spawnSync(process.execPath, ['-e', loader, path.join(ELECTRON_DIR, 'scripts', 'release-check.js')], { cwd: ELECTRON_DIR, env, encoding: 'utf8' });
   };
   const blocked = run({ UPDATES_ENABLED: 'true' });
   assert.strictEqual(blocked.status, 1);

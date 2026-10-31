@@ -110,7 +110,8 @@ Renderer kommuniziert via `notifyRendererUpdateState()` (siehe
 ## Folge-Sprints
 
 - **#109** Code-Signing-Zertifikat beschaffen + setup (External-Cost)
-- **#108** macOS/Linux-Build (Multi-Platform-Auto-Update)
+- ~~**#108** macOS/Linux-Build~~ — verworfen: Ares wird nur fuer Windows
+  ausgeliefert (W2-804-03, siehe `MULTI_PLATFORM_BUILD.md`)
 - Update-Channel-Switching in Berater-UI
 
 ## Weiterfuehrendes
