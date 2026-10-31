@@ -91,7 +91,7 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
 
 5. **Installer-Smoke:**
    - Installer doppelklicken
-   - Im Installer-Pfad: `5Eyes WealthArchitekten` -> Programm Files
+   - Im Installer-Pfad: `Ares` -> Programm Files
    - Desktop-Shortcut wird angelegt
    - App startet, zeigt Login-Screen
    - Login mit Test-User
