@@ -329,7 +329,7 @@
     "services.mortality.horizon": ["services.mortality.bfs", "services.valuation_clock"],
     "services.mortality.sampler": ["services.mortality.base"],
     "services.onsite_signature.runtime": ["services.onsite_signature.policy", "services.onsite_signature.providers"],
-    "services.onsite_signature.service": ["models.mandates", "models.onsite_signature", "models.review", "services.onsite_signature.policy", "services.onsite_signature.providers", "services.onsite_signature.state_machine", "services.signature_artifact"],
+    "services.onsite_signature.service": ["models.mandates", "models.onsite_signature", "models.review", "services.onsite_signature.policy", "services.onsite_signature.state_machine", "services.signature_artifact"],
     "services.openfigi_client": ["config"],
     "services.optimizer.allocation_intent": ["services.portfolio_engine"],
     "services.optimizer.constraints": ["services.optimizer.scenario_engine"],
