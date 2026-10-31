@@ -1875,11 +1875,11 @@ def calculate_max_pension_spending(
         allocation_basis_note,
         approved_or_baseline_targets,
     )
-    from services.jurisdiction.resolve import resolve_mandate_jurisdiction
+    from jurisdictions.resolve import resolve_pack
     from services.return_moments import arithmetic_moments_to_log_parameters
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     try:
         policy, cma = ensure_runtime_reference_data(
             db,

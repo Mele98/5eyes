@@ -26,7 +26,7 @@ from services.portfolio_engine import (
     ensure_runtime_reference_data,
 )
 from services.goal_success_status import GOAL_SUCCESS_WARN_PCT
-from services.jurisdiction.resolve import resolve_mandate_jurisdiction
+from jurisdictions.resolve import resolve_pack
 
 
 SYSTEM_TRIGGER_REVIEW = "Jahres-Review (System)"
@@ -313,7 +313,7 @@ def refresh_system_review_triggers(
             policy, cma = ensure_runtime_reference_data(
                 db,
                 user_id,
-                jurisdiction=resolve_mandate_jurisdiction(mandate),
+                jurisdiction=resolve_pack(mandate).code,
                 tenant_id=getattr(mandate, "tenant_id", None),
             )
             try:
