@@ -146,7 +146,7 @@ def get_current_allocation_analysis_integrity(
     Soll-Allokation fuer den ruhigen Berater-Hinweis. Read-only, wirft nie
     wegen einer Integritaetsverletzung (die erscheint als ``integrity_mismatch``).
     """
-    from services.goal_analysis_snapshot import analysis_integrity_report
+    from services.portfolio_engine_allocation_integrity import analysis_integrity_report
 
     _get_mandate_or_404(mandate_id, db, current_user)
     ta = (

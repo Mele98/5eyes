@@ -1058,7 +1058,7 @@ def _load_goal_achievability_view(ta) -> tuple[list[dict], dict | None]:
     """
     import json
 
-    from services.goal_analysis_snapshot import bound_goal_achievability_json
+    from services.portfolio_engine_allocation_integrity import bound_goal_achievability_json
     from services.optimizer.goal_attribution import split_goal_achievability
 
     # GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.

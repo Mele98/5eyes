@@ -28,14 +28,35 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 
 from models.allocation import TargetAllocation
 from services.goal_analysis_snapshot import (
+    CONSTRAINTS_KEY,
+    SHADOW_CONSTRAINTS_KEY,
+    STATUS_INTEGRITY_MISMATCH,
+    STATUS_LEGACY_UNBOUND,
+    STATUS_NOT_APPLICABLE,
     bound_analysis_result_hash,
+    goal_analysis_status,
+    shadow_analysis_status,
     verify_goal_analysis,
     verify_shadow_analysis,
 )
 from services.reserve_funding_ledger_snapshot import verify_persisted_ledger_snapshot
+
+
+# Lesende Kanaele der Zielanalyse loggen weiter unter dem bisherigen Namen.
+_analysis_logger = logging.getLogger("services.goal_analysis_snapshot")
+
+
+def _bucket_fields():
+    """``BUCKET_FIELDS`` zur Aufrufzeit aus ``services.portfolio_engine`` (Lazy-
+    Import wie bisher an jeder Stelle: kein Zirkular-Import beim Laden, ein
+    Monkeypatch auf ``services.portfolio_engine`` wirkt weiterhin)."""
+    from services.portfolio_engine import BUCKET_FIELDS
+
+    return BUCKET_FIELDS
 
 
 # MANUAL-SAVE-DEADEND-001 (2026-10-14): Vertrag des manuellen Speicherpfads
@@ -79,7 +100,7 @@ def allocation_context_hash_for(
     ``analysis_result_hash`` im Payload). Ohne ihn bleibt die v1-Form
     byte-gleich, damit Bestand unveraendert verifiziert und nie umgehasht wird.
     """
-    from services.portfolio_engine import BUCKET_FIELDS
+    BUCKET_FIELDS = _bucket_fields()
 
     payload = {
         "engine_version": str(engine_version),
@@ -424,7 +445,7 @@ def _identical_previous_allocation(
     Input-Snapshot, Anker und alle Quoten/Baender identisch sind und das
     Risikoprofil seither nicht per Override geaendert wurde.
     """
-    from services.portfolio_engine import BUCKET_FIELDS
+    BUCKET_FIELDS = _bucket_fields()
 
     if previous is None:
         return False
@@ -455,3 +476,109 @@ def _identical_previous_allocation(
         if not override_at or not created_at or override_at > created_at:
             return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# GOAL-/SHADOW-ANALYSIS-INTEGRITY-001: lesende Kanaele mit vollem Gate.
+# Aus services/goal_analysis_snapshot.py hierher verschoben (Architektur-
+# Ratsche: goal_analysis_snapshot bleibt ein Blatt ohne Rueckkante in den
+# Engine-Zyklus); Funktionskoerper unveraendert, nur _gate loest BUCKET_FIELDS
+# und das Gate jetzt modul-lokal auf (_bucket_fields, gleiche Lazy-Semantik).
+# ---------------------------------------------------------------------------
+def _stored_constraints(allocation) -> dict | None:
+    try:
+        constraints = json.loads(getattr(allocation, "effective_constraints_json", None) or "null")
+    except (TypeError, ValueError):
+        return None
+    return constraints if isinstance(constraints, dict) else None
+
+
+def _gate(allocation):
+    """Volles Integritaets-Gate fuer eine gespeicherte Allokation (wirft).
+
+    Bewusst das volle semantische Gate (Context-Hash, Bounds,
+    Risikokoeffizienten, unabhaengige Methodenpruefung, Ergebnis-Bindungen):
+    eine Analyse wird nur publiziert, wenn die ganze Allokation verifiziert.
+    """
+    BUCKET_FIELDS = _bucket_fields()
+
+    return _verified_persisted_allocation_context(
+        allocation,
+        targets={b: int(getattr(allocation, f"target_{b}_bps")) for b in BUCKET_FIELDS},
+        minimums={b: int(getattr(allocation, f"band_{b}_min_bps") or 0) for b in BUCKET_FIELDS},
+        maximums={b: int(getattr(allocation, f"band_{b}_max_bps") or 0) for b in BUCKET_FIELDS},
+    )
+
+
+def _bound_raw(allocation, column: str, key: str, what: str) -> str | None:
+    if allocation is None:
+        return None
+    raw = getattr(allocation, column, None)
+    if not raw:
+        return None
+    constraints = _stored_constraints(allocation)
+    if constraints is None or constraints.get(key) is None:
+        return raw
+    try:
+        _gate(allocation)
+    except (AttributeError, TypeError, ValueError) as exc:
+        _analysis_logger.warning(
+            "%s der Allokation %s nicht publiziert (Integritaet): %s",
+            what, getattr(allocation, "id", "?"), exc,
+        )
+        return None
+    return raw
+
+
+def bound_shadow_optimization_json(allocation) -> str | None:
+    """Shadow-Container fuer lesende Kanaele, nur wenn gebunden (sonst None)."""
+    return _bound_raw(allocation, "shadow_optimization_json", SHADOW_CONSTRAINTS_KEY, "Shadow-Container")
+
+
+INTEGRITY_HINT_LABEL = "Zielanalyse nicht verifizierbar"
+INTEGRITY_HINT_TEXT = (
+    "Die gespeicherte Zielanalyse dieser Strategie stimmt nicht mit ihrem "
+    "Integritaetsnachweis ueberein und wird deshalb nicht angezeigt. "
+    "Bitte die Strategie neu berechnen."
+)
+
+
+def analysis_integrity_report(allocation) -> dict:
+    """Status von Zielanalyse und Shadow-Container fuer den UI-Hinweis.
+
+    Wirft nie: eine Gate-Verletzung (auch eine manipulierte Referenz oder
+    Methodik) erscheint als ``integrity_mismatch`` der jeweils gebundenen
+    Analyse.
+    """
+    constraints = _stored_constraints(allocation)
+    try:
+        _gate(allocation)
+        gate_error = None
+    except (AttributeError, TypeError, ValueError) as exc:
+        gate_error = str(exc)
+    goal = goal_analysis_status(allocation, constraints)
+    shadow = shadow_analysis_status(allocation, constraints)
+    if gate_error is not None:
+        if goal not in (STATUS_LEGACY_UNBOUND, STATUS_NOT_APPLICABLE):
+            goal = STATUS_INTEGRITY_MISMATCH
+        if shadow not in (STATUS_LEGACY_UNBOUND, STATUS_NOT_APPLICABLE):
+            shadow = STATUS_INTEGRITY_MISMATCH
+    needs_attention = STATUS_INTEGRITY_MISMATCH in (goal, shadow)
+    return {
+        "target_allocation_id": str(getattr(allocation, "id", "") or ""),
+        "goal_analysis": goal,
+        "shadow_analysis": shadow,
+        "needs_attention": needs_attention,
+        "label": INTEGRITY_HINT_LABEL if needs_attention else None,
+        "text": INTEGRITY_HINT_TEXT if needs_attention else None,
+    }
+
+
+def bound_goal_achievability_json(allocation) -> str | None:
+    """Gespeicherte Zielanalyse fuer lesende Kanaele, nur wenn gebunden.
+
+    Bestand ohne Referenz: unveraendert wie bisher. Mit Referenz: volles
+    Integritaets-Gate (Context-Hash + Ergebnis-Hash); jede Verletzung liefert
+    ``None`` -- kein Kanal publiziert dann Zielzeilen.
+    """
+    return _bound_raw(allocation, "goal_achievability_json", CONSTRAINTS_KEY, "Zielanalyse")

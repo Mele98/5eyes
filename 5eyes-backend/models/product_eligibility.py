@@ -21,7 +21,7 @@ from sqlalchemy import DDL, Column, ForeignKey, Index, Integer, String, event, t
 from sqlalchemy.orm import relationship
 
 from database import Base
-from services import product_eligibility_override_schema as _override_schema
+from core import product_eligibility_override_schema as _override_schema
 
 
 class ProductEligibilityRuleSet(Base):
@@ -219,7 +219,7 @@ class ProductEligibilityDecision(Base):
 class ProductEligibilityOverride(Base):
     """Append-only (ELIG-OVERRIDE-APPEND-ONLY-001): UPDATE/DELETE are
     rejected by triggers; no hard FK to the run (Purge-fest), see
-    services/product_eligibility_override_schema.py."""
+    core/product_eligibility_override_schema.py."""
 
     __tablename__ = "product_eligibility_overrides"
 
