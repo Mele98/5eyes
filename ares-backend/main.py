@@ -84,22 +84,18 @@ async def lifespan(app: FastAPI):
         settings.db_use_sqlcipher,
     )
     init_db()
-    # U-32: Discover externe Tax-Regime-Plugins (Entry-Point group
-    # 'ares.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
-    # ist — failed_plugins werden geloggt + ueber den DiscoveryResult
-    # auditierbar.
+    # U-32 / W2-804-01: Discover externe Tax-Regime-Plugins (Entry-Point
+    # group 'ares.tax_regime', SDK 2.x). Ohne Erwartungs-Manifest bricht der
+    # Boot NICHT ab wenn ein Plugin kaputt/inkompatibel ist (failed_plugins
+    # werden geloggt). Mit gesetztem tax_plugin_expected_manifest ist jede
+    # Bestandsabweichung ein harter Fehler und stoppt den Boot.
     try:
-        from services.tax.discovery import discover_external_regimes
-        tax_discovery = discover_external_regimes()
-        if tax_discovery.discovered_count:
-            logger.info(
-                'Tax-Plugin-Discovery | discovered=%d loaded=%d failed=%d skipped=%d',
-                tax_discovery.discovered_count,
-                len(tax_discovery.loaded_plugins),
-                len(tax_discovery.failed_plugins),
-                len(tax_discovery.skipped_plugins),
-            )
-    except Exception as exc:  # noqa: BLE001 — Discovery darf Boot nicht stoppen
+        from services.tax.plugin_inventory import TaxPluginInventoryError, load_external_tax_plugins
+        load_external_tax_plugins(settings.tax_plugin_expected_manifest)
+    except TaxPluginInventoryError:
+        logger.critical('Tax-Plugin-Bestand verletzt das Erwartungs-Manifest - Boot abgebrochen')
+        raise
+    except Exception as exc:  # noqa: BLE001 — ohne Manifest darf Discovery Boot nicht stoppen
         logger.warning('Tax-Plugin-Discovery skipped due to error: %s', exc)
     try:
         from database import SessionLocal
