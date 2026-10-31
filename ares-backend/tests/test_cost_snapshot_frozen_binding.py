@@ -530,27 +530,124 @@ def test_advisory_log_without_run_id_stays_mandate_wide(session_factory):
     assert snap["source_content_hash"] != frozen_envelope["content_hash"]
 
 
-def test_legacy_editor_fields_are_dropped_and_never_bind_a_run(session_factory):
-    """Dokumentiert die Ursache: die frueheren Editor-Felder
-    `cost_disclosure_snapshot_id`/`_currency` kennt das Schema nicht -- sie
-    verschwinden still, der Nachweis landet beim mandatsweiten Lauf statt beim
-    gezeigten. Nur `recommendation_run_id` bindet (Test oben)."""
-    from routers.review import create_advisory_log_entry
+def test_legacy_editor_fields_are_rejected_by_the_schema():
+    """Ursache: die frueheren Editor-Felder `cost_disclosure_snapshot_id`/
+    `_currency` kannte das Schema nicht und verwarf sie still -- der Nachweis
+    landete beim mandatsweiten Lauf statt beim gezeigten. Jetzt lehnt das
+    Schema sie ab (extra="forbid"); nur `recommendation_run_id` bindet."""
+    from pydantic import ValidationError
 
-    advisor_id, mandate_id, shown_run = _certified_mandate(session_factory, suffix="bind-i")
-    newer_run = _add_newer_final_run(session_factory, shown_run)
-    body = _log_body(
-        cost_disclosure_snapshot_id=shown_run,
-        cost_disclosure_snapshot_currency="CHF",
+    with pytest.raises(ValidationError) as exc_info:
+        _log_body(cost_disclosure_snapshot_id="run-a", cost_disclosure_snapshot_currency="CHF")
+    assert {e["type"] for e in exc_info.value.errors()} == {"extra_forbidden"}
+    assert {e["loc"][-1] for e in exc_info.value.errors()} == {
+        "cost_disclosure_snapshot_id", "cost_disclosure_snapshot_currency",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Teil 4: HTTP-Grenze (Codex-Verifikation H086-H088): extra="forbid",
+# Fremd-Mandat, echter Editor-Body. TestClient OHNE `with` -> kein Lifespan,
+# keine Live-DB; get_db zeigt auf die tmp-SQLite des Fixtures.
+# ---------------------------------------------------------------------------
+
+EDITOR_FIXTURE = (
+    BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "reporting" / "src"
+    / "components" / "__fixtures__" / "advisoryLogEditorCostPayload.json"
+)
+
+
+@pytest.fixture()
+def http_as(session_factory):
+    from fastapi.testclient import TestClient
+
+    from database import get_db
+    from main import app
+    from services.auth import get_current_user, require_advisor
+
+    def _make(advisor_id):
+        def _db_dep():
+            db = session_factory()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        def _user_dep():
+            with session_factory() as db:
+                return db.query(User).filter(User.id == advisor_id).one()
+
+        app.dependency_overrides[get_db] = _db_dep
+        app.dependency_overrides[get_current_user] = _user_dep
+        app.dependency_overrides[require_advisor] = _user_dep
+        return TestClient(app)
+
+    try:
+        yield _make
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _log_json(**overrides) -> dict:
+    body = _log_body().model_dump(exclude_none=True)
+    body.update(overrides)
+    return body
+
+
+@pytest.mark.parametrize("extra", [
+    {"cost_disclosure_snapshot_id": "run-x"},
+    {"cost_disclosure_snapshot_currency": "CHF"},
+    {"cost_disclosure_artifact_byte_sha256": "ab" * 32},
+    {"voellig_unbekannt": 1},
+])
+def test_unknown_fields_are_rejected_with_422(session_factory, http_as, extra):
+    advisor_id, mandate_id, _run = _certified_mandate(session_factory, suffix="bind-j")
+    resp = http_as(advisor_id).post(
+        f"/mandates/{mandate_id}/advisory-log", json=_log_json(**extra),
     )
-    assert "cost_disclosure_snapshot_id" not in body.model_dump()
-    assert body.recommendation_run_id is None
+    assert resp.status_code == 422, resp.text
+    assert any(
+        err.get("type") == "extra_forbidden" and err.get("loc", [None])[-1] in extra
+        for err in resp.json()["detail"]
+    ), resp.text
     with session_factory() as db:
-        advisor = db.query(User).filter(User.id == advisor_id).first()
-        create_advisory_log_entry(
-            mandate_id=mandate_id, body=body,
-            request=_FakeRequest(), db=db, current_user=advisor,
-        )
-    assert _stored_snapshot(session_factory, mandate_id)["snapshot"][
-        "recommendation_run_id"
-    ] == newer_run
+        assert db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id == mandate_id).count() == 0
+
+
+def test_run_of_foreign_mandate_yields_no_foreign_evidence(session_factory, http_as):
+    """Bestandsverhalten: Lauf eines fremden Mandats -> 404, kein Protokoll,
+    also auch kein Fremdnachweis."""
+    _a, _mandate_a, foreign_run = _certified_mandate(session_factory, suffix="bind-k1")
+    advisor_b, mandate_b, _run_b = _certified_mandate(session_factory, suffix="bind-k2")
+    resp = http_as(advisor_b).post(
+        f"/mandates/{mandate_b}/advisory-log",
+        json=_log_json(recommendation_run_id=foreign_run),
+    )
+    assert resp.status_code == 404, resp.text
+    with session_factory() as db:
+        assert db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id == mandate_b).count() == 0
+
+
+def test_real_editor_json_body_is_accepted_and_binds_the_shown_run(session_factory, http_as):
+    """Der von Vitest gespiegelte, echte Editor-Body (nur die Lauf-ID durch
+    einen echten Lauf ersetzt) passiert das Schema und bindet Lauf A, obwohl
+    mandatsweit inzwischen Lauf B aktuell ist."""
+    advisor_id, mandate_id, shown_run = _certified_mandate(session_factory, suffix="bind-l")
+    frozen_envelope = json.loads(_snapshot_raw(session_factory, shown_run))
+    newer_run = _add_newer_final_run(session_factory, shown_run)
+    assert _disclosure(session_factory, mandate_id)["source_run_id"] == newer_run
+
+    body = json.loads(EDITOR_FIXTURE.read_text(encoding="utf-8"))
+    assert set(body) >= {"recommendation_run_id", "cost_disclosure_given"}
+    assert not {k for k in body if k.startswith("cost_disclosure_snapshot")}
+    body["recommendation_run_id"] = shown_run
+
+    resp = http_as(advisor_id).post(f"/mandates/{mandate_id}/advisory-log", json=body)
+    assert resp.status_code == 201, resp.text
+    stored = _stored_snapshot(session_factory, mandate_id)
+    assert stored["entry_run_id"] == shown_run
+    assert stored["snapshot"]["recommendation_run_id"] == shown_run
+    assert stored["snapshot"]["evidence_frozen"] is True
+    assert stored["snapshot"]["source_content_hash"] == frozen_envelope["content_hash"]
+    # Waehrung leitet der Server ab (kein Client-Feld mehr noetig).
+    assert stored["snapshot"]["currency"] == frozen_envelope["payload"]["currency"]

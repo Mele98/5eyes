@@ -1,6 +1,6 @@
 import json
 from datetime import date, datetime
-from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 from typing import Any, Optional, Literal
 from schemas.common import BaseResponse, PERSISTABLE_INT_MAX
 from schemas.allocation import AllocationPreferencesPayload, LiveRebalancingResponse
@@ -304,6 +304,16 @@ class AdvisoryLogCreate(BaseModel):
     Mindestlängen: `description` ≥ 30, `decision` ≥ 10 (außer bei reinem
     Diskussions-Eintrag), `topics` ≥ 1.
     """
+    # ADVISORY-LOG-COST-RUN-BINDING (AUDIT-FIX 2026-10-31): unbekannte Felder
+    # werden abgelehnt (422) statt still verworfen. Vorher schickten Reporting-
+    # Editor (`cost_disclosure_snapshot_id`/`_currency`) und Monolith
+    # (`cost_disclosure_artifact_byte_sha256`) vermeintliche Nachweis-Felder,
+    # die Pydantic wortlos wegwarf -- das Protokoll behauptete eine Bindung,
+    # die nie gespeichert wurde. Die Lauf-Bindung laeuft ausschliesslich ueber
+    # `recommendation_run_id`; die Waehrung leitet der Server aus dem
+    # Kostennachweis ab.
+    model_config = ConfigDict(extra="forbid")
+
     entry_type: AdvisoryEntryType
     title: str = Field(min_length=3, max_length=200)
     description: str = Field(

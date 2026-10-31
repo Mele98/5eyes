@@ -15,6 +15,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { AdvisoryLogEditor } from './AdvisoryLogEditor';
+// Gespiegelter, ECHTER Editor-Body: der Backend-Test
+// `test_cost_snapshot_frozen_binding.py::test_real_editor_json_body_*` schickt
+// genau diese Datei durch das Schema (extra="forbid") und prueft die Bindung.
+// Weicht der Editor-Payload ab, wird dieser Test rot.
+import editorPayloadFixture from './__fixtures__/advisoryLogEditorCostPayload.json';
 
 const RUN_ID = 'run-shown-in-editor-001';
 
@@ -138,5 +143,28 @@ describe('AdvisoryLogEditor: Kostenausweis an den gezeigten Lauf binden', () => 
     expect(error.textContent).toContain('COST_EVIDENCE_INVALID');
     expect(error.textContent).not.toContain('[object Object]');
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test('echter Editor-Body entspricht exakt der Backend-Fixture', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-30T09:15:00.000Z'));
+    try {
+      const posts = stubFetch(created);
+      render(<AdvisoryLogEditor open onClose={() => {}} mandateId="mandate-bind-001" />);
+      fireEvent.click(screen.getByRole('checkbox'));
+      await screen.findByText(new RegExp(RUN_ID));
+      fireEvent.change(screen.getByPlaceholderText(/Detaillierte Dokumentation/), {
+        target: { value: editorPayloadFixture.description },
+      });
+      fireEvent.click(screen.getAllByText('+ Eintrag hinzufügen')[0]);
+      fireEvent.change(screen.getByPlaceholderText('z. B. Strategic Asset Allocation'), {
+        target: { value: 'Kostenausweis' },
+      });
+      fireEvent.click(screen.getByText('Speichern'));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]).toEqual(editorPayloadFixture);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
