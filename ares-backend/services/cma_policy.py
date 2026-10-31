@@ -38,13 +38,13 @@ cma_policy_row_id`` an ihre damalige Policy gebunden.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional
 
 from sqlalchemy.orm import Session
 
+from core.evidence import evidence_hash
 from database import new_uuid
 from models.cma_policy import CmaPolicy, CmaPolicyApproval, CmaPolicyComponent
 
@@ -173,8 +173,7 @@ def compute_content_hash(
             key=lambda row: (row["asset_key"], row["component"]),
         ),
     }
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return evidence_hash(payload)
 
 
 def _require_status(policy: CmaPolicy, *allowed: str) -> None:

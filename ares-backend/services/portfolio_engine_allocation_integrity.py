@@ -26,10 +26,10 @@ bestehende Aufrufstellen (``build_target_payload_from_allocation``,
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 
+from core.evidence import SCHEME_V1_ASCII_STR_DEFAULT, evidence_hash
 from models.allocation import TargetAllocation
 from services.goal_analysis_snapshot import (
     CONSTRAINTS_KEY,
@@ -119,14 +119,7 @@ def allocation_context_hash_for(
     if analysis_result_hash is not None:
         payload["context_hash_version"] = ALLOCATION_CONTEXT_HASH_V2
         payload["analysis_result_hash"] = str(analysis_result_hash)
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1_ASCII_STR_DEFAULT)
 
 
 def _verify_manual_override_contract(

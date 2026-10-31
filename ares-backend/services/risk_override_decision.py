@@ -14,9 +14,10 @@ Profilnamen -- fruehere Entscheidungen waren nicht rekonstruierbar. Jetzt:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import Any
+
+from core.evidence import evidence_hash
 
 SCHEMA_VERSION_V1 = "RiskOverrideDecisionV1"
 # PG-002 (Codex-Closure-Review PR #662): V2 bindet zusaetzlich den aus dem
@@ -78,10 +79,7 @@ def decision_payload(decision: Any) -> dict[str, Any]:
 
 
 def compute_decision_hash(decision: Any) -> str:
-    canonical = json.dumps(
-        decision_payload(decision), sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return evidence_hash(decision_payload(decision))
 
 
 def verify_decision(decision: Any) -> bool:

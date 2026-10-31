@@ -13,11 +13,11 @@ Spec: docs/planning/2026-05-17-sprint-9-multi-currency.md
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from dataclasses import dataclass, field
 from typing import Mapping
+
+from core.evidence import SCHEME_V1_ASCII_STR_DEFAULT, evidence_hash
 
 
 # Default-Wechselkurse zu CHF (Stand 2026, approximative Mittelwerte).
@@ -49,14 +49,7 @@ class FXRateLoadError(ValueError):
 
 
 def _fingerprint(payload: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-    ).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1_ASCII_STR_DEFAULT)
 
 
 @dataclass(frozen=True)

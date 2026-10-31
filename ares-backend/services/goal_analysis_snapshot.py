@@ -42,6 +42,8 @@ import hashlib
 import json
 import logging
 
+from core.evidence import canonical_json
+
 logger = logging.getLogger(__name__)
 
 GOAL_ANALYSIS_SNAPSHOT_VERSION = "goal_analysis_snapshot_v1"
@@ -148,7 +150,7 @@ def serialize_shadow_optimization(payload) -> str | None:
     if not payload:
         return None
     try:
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return canonical_json(payload)
     except (TypeError, ValueError) as exc:
         logger.warning("Shadow-optimization JSON-serialization failed: %s", exc)
         return None

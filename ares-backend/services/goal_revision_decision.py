@@ -28,10 +28,11 @@ Lade-/Schreibfunktionen am Ende.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any, Iterable
+
+from core.evidence import canonical_json, evidence_hash
 
 SCHEMA_VERSION = "GoalRevisionDecisionV1"
 RULES_VERSION = "GOAL-REVISION-DECISION-001@2026-10-21"
@@ -107,8 +108,7 @@ def _value(obj: Any, name: str) -> Any:
 
 
 def _sha256(payload: Any) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return evidence_hash(payload)
 
 
 def _now() -> str:
@@ -489,9 +489,7 @@ def record_goal_revision_decision(
         sequence_no=(int(latest.sequence_no) + 1) if latest is not None else 1,
         previous_decision_id=latest.id if latest is not None else None,
         goal_snapshot_hash=snapshot_hash,
-        goal_snapshot_json=json.dumps(
-            goal_snapshot(goal), sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        ),
+        goal_snapshot_json=canonical_json(goal_snapshot(goal)),
         previous_hardness=str(getattr(goal, "hardness", "") or ""),
         new_status=NEW_STATUS_SUBORDINATE_WISH,
         reason=sealed_reason,

@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, fields
 
+from core.evidence import canonical_json
 from services.reserve_funding_ledger import (
     ReserveFundingLedgerV1,
     ReserveRelease,
@@ -57,7 +58,7 @@ MODE_LEGACY_LIVE_PREVIEW = "legacy_live_preview"
 
 
 def _canonical(payload: dict) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return canonical_json(payload)
 
 
 def ledger_from_dict(data: dict) -> ReserveFundingLedgerV1:
