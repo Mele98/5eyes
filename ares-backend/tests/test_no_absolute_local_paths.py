@@ -59,3 +59,30 @@ def test_no_hard_coded_absolute_local_paths_in_tests_and_tools():
             if ABSOLUTE_LOCAL_PATH.search(line):
                 hits.append(f"{path.relative_to(REPO_ROOT)}:{lineno}")
     assert not hits, "Absolute lokale Pfade gefunden:\n" + "\n".join(hits)
+
+
+# PowerShell-Skripte unter scripts/: jeder Laufwerkspfad (auch ausserhalb von
+# Benutzer-/Temp-Ordnern) bindet das Skript an einen lokalen Checkout. Pfade
+# werden ueber $PSScriptRoot aufgeloest.
+PS1_ROOT = REPO_ROOT / "scripts"
+DRIVE_PATH = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]")
+
+
+def test_drive_path_pattern():
+    assert DRIVE_PATH.search(r'[string]$Dir = "D:\checkout\backend"')
+    assert DRIVE_PATH.search("#   cd E:/work")
+    assert not DRIVE_PATH.search(r'-Pattern "app_version:\s*str"')
+    assert not DRIVE_PATH.search("http://127.0.0.1:8765/health")
+    assert not DRIVE_PATH.search(r'Join-Path $PSScriptRoot "..\ares-backend"')
+
+
+def test_no_drive_paths_in_ps1_scripts():
+    scripts = sorted(PS1_ROOT.glob("*.ps1"))
+    assert scripts, "keine PowerShell-Skripte gefunden"
+    hits = []
+    for path in scripts:
+        text = path.read_text(encoding="utf-8-sig")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if DRIVE_PATH.search(line):
+                hits.append(f"{path.relative_to(REPO_ROOT)}:{lineno}")
+    assert not hits, "Laufwerkspfade in PowerShell-Skripten:\n" + "\n".join(hits)
