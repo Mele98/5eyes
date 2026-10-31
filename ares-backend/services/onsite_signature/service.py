@@ -27,12 +27,13 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.reason_codes import DomainError, ReasonCode
 from models.mandates import Mandate
 from models.onsite_signature import (
     OnsiteSignatureChallenge,
@@ -46,72 +47,72 @@ from services.onsite_signature.policy import (
     QES_REQUIRED_CLASSES,
     OnsiteSignaturePolicy,
 )
-from services.onsite_signature.providers import (
-    CustomerChannel,
-    QesProvider,
-    TimeReading,
-    TimeSource,
-)
+
+if TYPE_CHECKING:  # Provider-Protokolle nur fuer Annotationen (K-2: Fan-out-Ratsche)
+    from services.onsite_signature.providers import (
+        CustomerChannel,
+        QesProvider,
+        TimeReading,
+        TimeSource,
+    )
 
 CHALLENGE_PURPOSE = "ONSITE_DOCUMENT_SIGNATURE"
 SIGNER_ROLE_CLIENT = "client"
 ROLE_CLIENT = "client"
 IDENTITY_RESULT_VERIFIED = "verified"
 ADVISOR_AUTH_PASSWORD_TOTP = "password+totp"
-ABORT_REASONS = frozenset({"OFFLINE_ABORT", "CUSTOMER_DECLINED", "ADVISOR_CANCELLED"})
+ABORT_REASONS = frozenset({
+    ReasonCode.OFFLINE_ABORT.value, ReasonCode.CUSTOMER_DECLINED.value, ReasonCode.ADVISOR_CANCELLED.value,
+})
 
-# Reason-Codes (API-Vertrag, englisch wie die uebrigen reason_codes)
-NOT_RELEASED = "ONSITE_SIGNATURE_NOT_RELEASED"
-DOCUMENT_CLASS_UNCLASSIFIED = "DOCUMENT_CLASS_UNCLASSIFIED"
-FORM_REQUIRES_QES_OR_WET_INK = "FORM_REQUIRES_QES_OR_WET_INK"
-QES_REQUIRED_NOT_AVAILABLE = "QES_REQUIRED_NOT_AVAILABLE"
-QES_INVALID = "QES_INVALID"
-DOCUMENT_HASH_MISMATCH = "DOCUMENT_HASH_MISMATCH"
-DOCUMENT_CHANGED_AFTER_DISPLAY = "DOCUMENT_CHANGED_AFTER_DISPLAY"
-DOCUMENT_NOT_SIGNABLE = "DOCUMENT_NOT_SIGNABLE"
-DOCUMENT_CLASS_CHANGED = "DOCUMENT_CLASS_CHANGED"
-TIME_SOURCE_UNRELIABLE = "TIME_SOURCE_UNRELIABLE"
-TIME_NOT_MONOTONIC = "TIME_NOT_MONOTONIC"
-INVALID_STATE = "ONSITE_SIGNATURE_INVALID_STATE"
-CONCURRENT_TRANSITION = "ONSITE_SIGNATURE_CONCURRENT_TRANSITION"
-TRANSACTION_NOT_FOUND = "ONSITE_SIGNATURE_NOT_FOUND"
-ADVISOR_NOT_OWNER = "ADVISOR_NOT_TRANSACTION_OWNER"
-ADVISOR_STRONG_AUTH_REQUIRED = "ADVISOR_STRONG_AUTH_REQUIRED"
-ADVISOR_CANNOT_ENTER_CUSTOMER_FACTOR = "ADVISOR_CANNOT_ENTER_CUSTOMER_FACTOR"
-WRONG_CUSTOMER = "WRONG_CUSTOMER"
-CHALLENGE_UNKNOWN = "CHALLENGE_UNKNOWN"
-CHALLENGE_SUPERSEDED = "CHALLENGE_SUPERSEDED"
-CHALLENGE_ALREADY_USED = "CHALLENGE_ALREADY_USED"
-CHALLENGE_EXPIRED = "CHALLENGE_EXPIRED"
-CHALLENGE_BINDING_MISMATCH = "CHALLENGE_BINDING_MISMATCH"
-CHALLENGE_CODE_INVALID = "CHALLENGE_CODE_INVALID"
-CONSENT_MISMATCH = "CONSENT_MISMATCH"
-LANGUAGE_NOT_SUPPORTED = "LANGUAGE_NOT_SUPPORTED"
-IDENTITY_METHOD_NOT_ACCEPTED = "IDENTITY_METHOD_NOT_ACCEPTED"
-IDENTITY_CHECK_FAILED = "IDENTITY_CHECK_FAILED"
-WITNESS_STATEMENT_MISMATCH = "WITNESS_STATEMENT_MISMATCH"
-ABORT_REASON_INVALID = "ABORT_REASON_INVALID"
-DELIVERY_PROOF_MISSING = "DELIVERY_PROOF_MISSING"
-FOLLOWUP_BLOCKED_DELIVERY_PENDING = "FOLLOWUP_BLOCKED_DELIVERY_PENDING"
-INPUT_MISSING = "ONSITE_SIGNATURE_INPUT_MISSING"
+# Reason-Codes (API-Vertrag, englisch wie die uebrigen reason_codes). Werte aus dem
+# zentralen Katalog core.reason_codes.ReasonCode (K-2), als reine str 1:1 unveraendert.
+NOT_RELEASED = ReasonCode.ONSITE_SIGNATURE_NOT_RELEASED.value
+DOCUMENT_CLASS_UNCLASSIFIED = ReasonCode.DOCUMENT_CLASS_UNCLASSIFIED.value
+FORM_REQUIRES_QES_OR_WET_INK = ReasonCode.FORM_REQUIRES_QES_OR_WET_INK.value
+QES_REQUIRED_NOT_AVAILABLE = ReasonCode.QES_REQUIRED_NOT_AVAILABLE.value
+QES_INVALID = ReasonCode.QES_INVALID.value
+DOCUMENT_HASH_MISMATCH = ReasonCode.DOCUMENT_HASH_MISMATCH.value
+DOCUMENT_CHANGED_AFTER_DISPLAY = ReasonCode.DOCUMENT_CHANGED_AFTER_DISPLAY.value
+DOCUMENT_NOT_SIGNABLE = ReasonCode.DOCUMENT_NOT_SIGNABLE.value
+DOCUMENT_CLASS_CHANGED = ReasonCode.DOCUMENT_CLASS_CHANGED.value
+TIME_SOURCE_UNRELIABLE = ReasonCode.TIME_SOURCE_UNRELIABLE.value
+TIME_NOT_MONOTONIC = ReasonCode.TIME_NOT_MONOTONIC.value
+INVALID_STATE = ReasonCode.ONSITE_SIGNATURE_INVALID_STATE.value
+CONCURRENT_TRANSITION = ReasonCode.ONSITE_SIGNATURE_CONCURRENT_TRANSITION.value
+TRANSACTION_NOT_FOUND = ReasonCode.ONSITE_SIGNATURE_NOT_FOUND.value
+ADVISOR_NOT_OWNER = ReasonCode.ADVISOR_NOT_TRANSACTION_OWNER.value
+ADVISOR_STRONG_AUTH_REQUIRED = ReasonCode.ADVISOR_STRONG_AUTH_REQUIRED.value
+ADVISOR_CANNOT_ENTER_CUSTOMER_FACTOR = ReasonCode.ADVISOR_CANNOT_ENTER_CUSTOMER_FACTOR.value
+WRONG_CUSTOMER = ReasonCode.WRONG_CUSTOMER.value
+CHALLENGE_UNKNOWN = ReasonCode.CHALLENGE_UNKNOWN.value
+CHALLENGE_SUPERSEDED = ReasonCode.CHALLENGE_SUPERSEDED.value
+CHALLENGE_ALREADY_USED = ReasonCode.CHALLENGE_ALREADY_USED.value
+CHALLENGE_EXPIRED = ReasonCode.CHALLENGE_EXPIRED.value
+CHALLENGE_BINDING_MISMATCH = ReasonCode.CHALLENGE_BINDING_MISMATCH.value
+CHALLENGE_CODE_INVALID = ReasonCode.CHALLENGE_CODE_INVALID.value
+CONSENT_MISMATCH = ReasonCode.CONSENT_MISMATCH.value
+LANGUAGE_NOT_SUPPORTED = ReasonCode.LANGUAGE_NOT_SUPPORTED.value
+IDENTITY_METHOD_NOT_ACCEPTED = ReasonCode.IDENTITY_METHOD_NOT_ACCEPTED.value
+IDENTITY_CHECK_FAILED = ReasonCode.IDENTITY_CHECK_FAILED.value
+WITNESS_STATEMENT_MISMATCH = ReasonCode.WITNESS_STATEMENT_MISMATCH.value
+ABORT_REASON_INVALID = ReasonCode.ABORT_REASON_INVALID.value
+DELIVERY_PROOF_MISSING = ReasonCode.DELIVERY_PROOF_MISSING.value
+FOLLOWUP_BLOCKED_DELIVERY_PENDING = ReasonCode.FOLLOWUP_BLOCKED_DELIVERY_PENDING.value
+INPUT_MISSING = ReasonCode.ONSITE_SIGNATURE_INPUT_MISSING.value
 
 
-class OnsiteSignatureError(Exception):
-    """Fachlicher Block; ``http_status`` + ``reason_code`` fuer das API."""
+class OnsiteSignatureError(DomainError):
+    """Fachlicher Block; ``http_status`` + ``reason_code`` fuer das API.
 
-    def __init__(self, reason_code: str, message: str, *, http_status: int = 409,
-                 details: Mapping[str, Any] | None = None) -> None:
-        super().__init__(message)
-        self.reason_code = reason_code
-        self.message = message
-        self.http_status = http_status
-        self.details = dict(details or {})
+    K-2: Unterklasse von ``DomainError``. Konstruktor (``reason_code, message,
+    *, http_status=409, details=None``) und ``as_detail()`` (``reason_code``,
+    ``message``, ``channel``, optional ``details``) sind unveraendert; die
+    HTTP-Abbildung macht der zentrale Handler (``core/error_handlers.py``)
+    statt eines try/except in jedem Endpunkt.
+    """
 
-    def as_detail(self) -> dict[str, Any]:
-        detail = {"reason_code": self.reason_code, "message": self.message, "channel": "onsite_signature"}
-        if self.details:
-            detail["details"] = self.details
-        return detail
+    channel = "onsite_signature"
 
 
 @dataclass(frozen=True)
