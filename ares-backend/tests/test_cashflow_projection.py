@@ -374,7 +374,7 @@ def test_wealth_inflow_appears_in_projection(session_factory, auth_client, advis
 
 
 # ---------------------------------------------------------------------------
-# Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle
+# Indexierungs-Schalter (2026-07-19, wie Referenzmethodik): Globaler Master-Toggle
 # ?indexation=true|false. true (Default) = is_inflation_linked-Cashflows werden
 # per CMA-Inflationspfad aufgezinst (heutiges Verhalten). false = alles nominal
 # (keine Aufzinsung, auch nicht fuer Wealth-Inflows). FX bleibt unabhaengig aktiv.

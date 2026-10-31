@@ -3,7 +3,7 @@
 Quelle (read-only): ``docs/audits/reproducers/
 test_2026_10_16_reserve_ceiling_snapshot_and_exactness_adversarial.py`` im
 Codex-Branch. Beide Vertraege laufen hier ohne xfail; einzige Anpassung ist
-der Import (regulaerer Test statt ``FIVEEYES_BACKEND``-Pfad).
+der Import (regulaerer Test statt Backend-Pfad aus einer Umgebungsvariablen).
 
 Soll-Invariante:
 

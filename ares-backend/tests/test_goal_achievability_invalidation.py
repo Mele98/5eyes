@@ -4,7 +4,7 @@ User-Frage 2026-06-08:
 \"Wieso veraendert sich die Grafik in der SOLL-Allocation nicht wenn ich
 das Renditeziel von 2% auf 5% veraendere?\"
 
-Wissenschaftliche Antwort: SAA ist Risikoprofil-bound (3eyes-/FINMA-Customer-
+Wissenschaftliche Antwort: SAA ist Risikoprofil-bound (Referenzmethodik/FINMA-Customer-
 Journey). Goals beeinflussen die Achievability-Wahrscheinlichkeit, nicht die
 strategische Asset-Allocation. ABER: die persistierten achievement_score-Werte
 werden nach Goal-Edit nicht automatisch neu berechnet → User sieht veraltete

@@ -109,7 +109,7 @@ if (!process.env.CSC_KEY_PASSWORD && process.env.CSC_LINK) {
   }
 }
 
-console.log('Release-Preflight für 5Eyes WealthArchitekten');
+console.log('Release-Preflight für Ares');
 for (const warning of warnings) console.warn(`WARNUNG: ${warning}`);
 for (const error of errors) console.error(`FEHLER: ${error}`);
 

@@ -777,7 +777,7 @@ def cashflow_projection(
         cma = resolve_effective_cma_or_none(db, "CH")
     except JurisdictionReferenceDataConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    # Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle fuer
+    # Indexierungs-Schalter (2026-07-19, wie Referenzmethodik): Globaler Master-Toggle fuer
     # die Cashflow-Projektions-Ansicht. indexation=True (Default) = heutiges
     # CF-Verhalten (is_inflation_linked-Cashflows werden per CMA-Inflationspfad
     # aufgezinst, gilt fuer Einnahmen UND Ausgaben sowie Wealth-Inflows).

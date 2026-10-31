@@ -151,7 +151,7 @@ def _prob_cell(probability: float | None) -> str:
 
 
 # Sprint C1 (2026-06-07): Goal-Achievability-Ampel-Balken (visuell)
-# Restoriert 3eyes-Style-UX-Schnelligkeit (war regressiv vs Tabelle-only)
+# Restoriert die Schnellerfassung der Referenz-UX (war regressiv vs Tabelle-only)
 
 _AMPEL_BAR_WIDTH_MM = 30.0
 _AMPEL_BAR_HEIGHT_MM = 4.5
@@ -316,7 +316,7 @@ def make_goal_achievability_table(achievability: Iterable[Mapping]) -> Table:
             typ = _GOAL_TYPE_LABELS.get(typ_raw, typ_raw)
             hardness = _norm_hardness(goal.get("hardness"))
             # Sprint C1 (2026-06-07): Ampel-Balken statt nur Prozent-Text.
-            # Visuelle Schnellerfassung (3eyes-Style-UX-Restoration).
+            # Visuelle Schnellerfassung (Referenz-UX-Restoration).
             display_status = goal.get("status")
             if goal.get("evaluation_scope") == EVALUATION_SCOPE_LEGACY:
                 # Altbewertung: Wert unbekannter Semantik -> neutral, keine Ampel.
