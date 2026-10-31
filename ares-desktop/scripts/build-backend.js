@@ -61,6 +61,9 @@ const addDataArg = isWindows
 const fontDataArg = isWindows
   ? 'assets/fonts;assets/fonts'
   : 'assets/fonts:assets/fonts';
+// X1 (Laenderpakete): Pack-Manifeste sind Daten und muessen neben
+// jurisdictions/registry.py im Bundle liegen.
+const jurisdictionPackManifests = ['jurisdictions/ch/pack.yaml'];
 
 // W1-803-03: Die Reporting-Sub-App wird in die EXE eingebettet (Ziel
 // `reporting_dist`, aufgeloest in ares-backend/main.py). Vorher lag sie nur im
@@ -162,6 +165,7 @@ const collectSubmodules = [
   'services',
   'routers',
   'models',
+  'jurisdictions',
 ];
 
 const pyInstallerArgs = [
@@ -177,6 +181,10 @@ const pyInstallerArgs = [
   '--add-data',
   reportingDataArg,
 ];
+for (const manifest of jurisdictionPackManifests) {
+  const targetDir = path.posix.dirname(manifest);
+  pyInstallerArgs.push('--add-data', isWindows ? `${manifest};${targetDir}` : `${manifest}:${targetDir}`);
+}
 
 for (const mod of hiddenImports) {
   pyInstallerArgs.push('--hidden-import', mod);
