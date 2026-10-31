@@ -78,8 +78,8 @@ def test_discover_all_provider_names_returns_list():
 
 
 def test_entry_point_group_constant():
-    """Konstante muss exakt 5eyes.market_data_provider sein (ADR-010)."""
-    assert ENTRY_POINT_GROUP == "5eyes.market_data_provider"
+    """Konstante muss exakt ares.market_data_provider sein (ADR-010)."""
+    assert ENTRY_POINT_GROUP == "ares.market_data_provider"
 
 
 # ============================================================
@@ -162,3 +162,19 @@ def test_symbol_catalog_has_bloomberg_entries():
     # Beispiel-Symbole pruefen
     keys = {k for k, _ in bloomberg_symbols}
     assert "Aktien_CH_Large" in keys  # SMI/SMIC Index dokumentiert
+
+
+def test_discovery_lookup_queries_only_the_product_group(monkeypatch):
+    """Beide Lookups fragen genau `ares.market_data_provider` ab, ohne Alias."""
+    from services.market_data import provider_discovery
+
+    queried: list[str] = []
+
+    def fake_entry_points(*, group):
+        queried.append(group)
+        return []
+
+    monkeypatch.setattr(provider_discovery, "entry_points", fake_entry_points)
+    assert discover_external_providers() == []
+    assert discover_all_provider_names() == []
+    assert queried == ["ares.market_data_provider", "ares.market_data_provider"]

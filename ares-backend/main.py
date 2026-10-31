@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
     )
     init_db()
     # U-32: Discover externe Tax-Regime-Plugins (Entry-Point group
-    # '5eyes.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
+    # 'ares.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
     # ist — failed_plugins werden geloggt + ueber den DiscoveryResult
     # auditierbar.
     try:

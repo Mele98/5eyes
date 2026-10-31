@@ -168,8 +168,8 @@ export async function resolveAuthToken(): Promise<string | null> {
   } catch {
     // Continue with Vite dev fallback.
   }
-  if (import.meta.env.DEV && import.meta.env.VITE_5EYES_TOKEN) {
-    return import.meta.env.VITE_5EYES_TOKEN;
+  if (import.meta.env.DEV && import.meta.env.VITE_ARES_TOKEN) {
+    return import.meta.env.VITE_ARES_TOKEN;
   }
   return null;
 }

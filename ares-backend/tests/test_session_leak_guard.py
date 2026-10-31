@@ -79,3 +79,13 @@ def test_lifespan_shutdown_leaves_no_scheduler_or_non_daemon_thread():
             assert backup_scheduler._scheduler is not None and backup_scheduler._scheduler.running
     assert guard.find_running_schedulers() == ()
     assert set(guard.find_leaked_threads()) - before == set()
+
+
+def test_switch_names_use_product_prefix(monkeypatch):
+    """Die Schalter heissen ARES_*; die Leser werten genau diese Namen aus."""
+    assert guard.STRICT_ENV == "ARES_STRICT_LEAK_GUARD"
+    assert guard.WATCHDOG_ENV == "ARES_PYTEST_EXIT_WATCHDOG_S"
+    monkeypatch.setenv("ARES_STRICT_LEAK_GUARD", "1")
+    monkeypatch.setenv("ARES_PYTEST_EXIT_WATCHDOG_S", "7")
+    assert guard.strict_enabled() is True
+    assert guard.watchdog_seconds() == 7.0

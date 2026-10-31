@@ -4,7 +4,7 @@ import json
 from typing import Any
 from urllib.request import Request, urlopen
 
-from config import settings
+from config import settings, user_agent
 
 
 OPENFIGI_MAPPING_URL = "https://api.openfigi.com/v3/mapping"
@@ -101,7 +101,7 @@ def preview_openfigi_mapping(
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "5Eyes-WealthArchitekten/1.0",
+        "User-Agent": user_agent(),
     }
     if settings.openfigi_api_key:
         headers["X-OPENFIGI-APIKEY"] = settings.openfigi_api_key
