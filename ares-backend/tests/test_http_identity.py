@@ -9,7 +9,7 @@ import pytest
 
 from config import settings
 from services import eodhd_client, openfigi_client, twelvedata_client
-from services.http_identity import browser_compatible_user_agent, user_agent
+from config import browser_compatible_user_agent, user_agent
 from services.market_data import notifier
 from services.market_data.etf.providers.justetf import JustetfScraper
 from services.market_data.etf.providers.swissfunddata import SwissfunddataScraper

@@ -806,6 +806,28 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+# --- HTTP-Identitaet gegenueber externen Diensten -------------------------------
+# Ein einziger Ort fuer den User-Agent ausgehender Requests (Marktdaten-Provider,
+# Referenzdaten, Alert-Webhook), Format ``Ares/<version>``. Liegt hier und nicht in
+# einem eigenen Modul: die Aufrufer importieren config ohnehin (Architektur-Ratsche,
+# kein zusaetzlicher Import je Client).
+HTTP_PRODUCT_TOKEN = "Ares"
+
+
+def user_agent() -> str:
+    """``Ares/<app_version>`` fuer API-Clients und Webhooks."""
+    return f"{HTTP_PRODUCT_TOKEN}/{settings.app_version}"
+
+
+def browser_compatible_user_agent() -> str:
+    """User-Agent fuer HTML-Quellen, die einen Browser-Praefix erwarten.
+
+    Der ``Mozilla/5.0``-Praefix bleibt wie bisher erhalten; nur das
+    Produkt-Token in Klammern folgt dem ``Ares/<version>``-Format.
+    """
+    return f"Mozilla/5.0 ({user_agent()})"
+
+
 # ---------------------------------------------------------------------------
 # Demo-/Staging-Passwoerter (nie im Quellcode). Liegt im Konfigurationsmodul,
 # weil nur dieses die Umgebung lesen darf (Architektur-Ratsche env_readers).
