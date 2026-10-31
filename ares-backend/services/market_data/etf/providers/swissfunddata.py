@@ -14,9 +14,8 @@ from typing import Any
 
 import requests
 
-from services.http_identity import browser_compatible_user_agent
 from ...exceptions import ProviderError, RateLimitError, SymbolNotFound
-from ..base import ETFInfo, ETFProvider
+from ..base import ETFInfo, ETFProvider, browser_compatible_user_agent
 
 logger = logging.getLogger(__name__)
 
