@@ -276,7 +276,7 @@ def build_manual_target_allocation(
     """Baut und verifiziert den manuellen Kandidaten, ohne den Bestand zu
     veraendern. Wirft ``ManualAllocationRejected`` bei fachlicher Ablehnung
     (Risikobudget, fehlende Referenzdaten, nicht verifizierbarer Kontext)."""
-    from services.jurisdiction.resolve import resolve_mandate_jurisdiction
+    from jurisdictions.resolve import resolve_pack
     from services.portfolio_engine import (
         BUCKET_FIELDS,
         StaleAllocationInputError,
@@ -298,7 +298,7 @@ def build_manual_target_allocation(
     )
     from services.risk_matrix import max_risky_fraction_for_mandate
 
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     universe = getattr(mandate, "investment_universe", None)
     # MANUAL-SAVE-BASIS-001 (Owner-Entscheid 2026-10-14): dieselbe
     # Datenbasis-Regel wie Generate und Sensitivitaet -- ohne
