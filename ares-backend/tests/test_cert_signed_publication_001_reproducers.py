@@ -60,6 +60,8 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -178,7 +180,7 @@ def test_document_without_archived_bytes_or_decision_context_is_not_signable(
 
         # Soll: a document with no archived signable artefact (empty
         # draft) must not be acceptable to sign_document().
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(DomainError) as exc_info:
             sign_document(
                 mandate_id=mandate_id,
                 doc_id=doc.id,
@@ -238,7 +240,7 @@ def test_checksum_mismatch_blocks_signature(session_factory, advisor_user, monke
         # and refuse to sign when it disagrees with the stored
         # checksum_sha256 -- a byte/checksum drift must block, not pass
         # silently through to a valid signature.
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(DomainError) as exc_info:
             sign_document(
                 mandate_id=mandate_id,
                 doc_id=doc.id,

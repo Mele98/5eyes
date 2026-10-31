@@ -280,3 +280,93 @@ def test_update_baseline_refuses_to_raise(gate, mini, tmp_path, monkeypatch):
     lowered = json.loads(baseline_file.read_text(encoding="utf-8"))
     assert lowered["cycles_all"] == []
     assert lowered["lazy_imports"] == {"services.beta": 1}
+
+
+# --------------------------------------------------------------------------
+# Regel 6: Stdlib-Blattmodule (FAN_OUT_EXEMPT_LEAVES)
+# --------------------------------------------------------------------------
+
+
+def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
+    """Explizite Liste, keine Mustererkennung; jede Aufnahme ist ein Review-Entscheid."""
+    assert gate.FAN_OUT_EXEMPT_LEAVES == frozenset({"core.evidence", "core.reason_codes"})
+
+
+def test_every_exempt_leaf_exists_and_is_a_pure_stdlib_leaf(gate):
+    scans = gate.scan_backend()
+    for module in sorted(gate.FAN_OUT_EXEMPT_LEAVES):
+        assert module in scans, f"{module} in FAN_OUT_EXEMPT_LEAVES, aber nicht im Backend"
+        scan = scans[module]
+        assert scan.non_stdlib_imports == [], (module, scan.non_stdlib_imports)
+        assert scan.runtime_targets() == {} and scan.typeonly == {}, module
+
+
+def _mini_with_leaf(gate, mini, monkeypatch, leaf_body: str):
+    _write(mini, "core/__init__.py", "")
+    _write(mini, "core/leaf.py", leaf_body)
+    monkeypatch.setattr(gate, "FAN_OUT_EXEMPT_LEAVES", frozenset({"core.leaf"}))
+
+
+def test_valid_stdlib_leaf_passes_and_does_not_count_as_fan_out(gate, mini, monkeypatch):
+    _mini_with_leaf(
+        gate, mini, monkeypatch,
+        """
+        from __future__ import annotations
+        import hashlib
+        import json
+        from typing import TYPE_CHECKING
+        if TYPE_CHECKING:
+            from collections.abc import Mapping
+        def f():
+            import decimal
+            return decimal
+        """,
+    )
+    base = _baseline(gate, mini)
+    _write(mini, "services/alpha.py", "from models import base\nfrom core import leaf\n")
+    current, result = _check(gate, mini, base)
+    assert result.regressions == []
+    assert current["fan_out"]["services.alpha"] == ["models.base"]
+    assert "core.leaf" not in current["fan_out"]
+
+
+def test_module_outside_the_allowlist_still_counts(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/other.py", "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "services/alpha.py", "from models import base\nfrom core import other\n")
+    _, result = _check(gate, mini, base)
+    assert any(r.startswith("[fan_out] services.alpha: 2 > Basis 1") for r in result.regressions)
+
+
+@pytest.mark.parametrize(
+    "body,needle",
+    [
+        ("import config\n", "core/leaf.py:1 -> config"),
+        ("def f():\n    from services import alpha\n    return alpha\n", "services"),
+        ("import sys\nif sys.version_info > (3,):\n    import config\n", "config"),
+        ("from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from models import base\n", "models"),
+        ("from . import other\n", ".other" if False else "core/leaf.py:1 -> ."),
+        ("import numpy\n", "numpy"),
+        ("import importlib\nm = importlib.import_module('config')\n", "<dynamisch: import_module>"),
+        ("m = __import__('config')\n", "<dynamisch: __import__>"),
+    ],
+    ids=["eager", "lazy", "conditional", "type_checking", "relative", "third_party",
+         "import_module", "dunder_import"],
+)
+def test_listed_leaf_with_non_stdlib_import_is_red(gate, mini, monkeypatch, body, needle):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/other.py", "")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
+    assert hits and needle in hits[0], result.regressions
+
+
+def test_shadowed_stdlib_name_is_not_stdlib(gate, mini, monkeypatch):
+    """Ein Projektmodul mit Stdlib-Namen (hier ``json.py``) zaehlt als Projektimport."""
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "json.py", "")
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert any(r.startswith("[fan_out_exempt_leaves] core.leaf:") for r in result.regressions)

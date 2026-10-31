@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
 
@@ -254,7 +254,7 @@ def test_no_holdings_is_visible_as_freshness_error(session_factory):
 def test_active_policy_blocks_release_on_unproven_data(session_factory, active_policy, action):
     with session_factory() as s:
         _advisor, mandate = _seed(s)
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             gate_mod.assert_portfolio_data_release_eligible(s, mandate, action=action)
     assert exc.value.status_code == 409
     detail = exc.value.detail
@@ -273,7 +273,7 @@ def test_active_policy_blocks_advisory_pdf_endpoint_before_rendering(session_fac
     monkeypatch.setattr(pdf_reports, "_enforce_cma_currency_release", _must_not_render)
     with session_factory() as s:
         advisor, mandate = _seed(s)
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             pdf_reports.get_advisory_report_pdf(mandate.id, db=s, current_user=advisor)
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == "PORTFOLIO_DATA_NOT_RELEASABLE"

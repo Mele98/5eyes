@@ -42,6 +42,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
+from core.reason_codes import DomainError
 from services.audit import log
 
 SCHEMA_VERSION_V1 = "RiskProfileSignoffV1"
@@ -700,10 +701,7 @@ def signoff_view_lines(view: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def _conflict(reason_code: str, message: str, **context) -> None:
-    raise HTTPException(
-        status_code=409,
-        detail={"reason_code": reason_code, "message": message, **context},
-    )
+    raise DomainError(reason_code, message, http_status=409, extra=context)
 
 
 def _eq_or_null(column, value):

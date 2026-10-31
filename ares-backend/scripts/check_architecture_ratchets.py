@@ -26,6 +26,13 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
    (auch ``from os import environ``) ausserhalb der Konfigurationsmodule
    (``CONFIG_MODULES``). Verletzung: Anzahl je Datei steigt (neue Datei:
    Basis 0).
+6. Stdlib-Blattmodule (``FAN_OUT_EXEMPT_LEAVES``, explizite Allowlist, keine
+   Mustererkennung): Importe eines gelisteten Moduls zaehlen nicht zum Fan-out
+   der importierenden Module. Ein Blatt ohne Projektabhaengigkeit erzeugt
+   weder Kopplung an weitere Projektmodule noch einen Zyklus. Verletzung:
+   ein gelistetes Modul importiert irgendetwas ausser Standardbibliothek
+   (Modulebene, funktionslokal, bedingt, ``TYPE_CHECKING``, relativ oder
+   dynamisch via ``__import__``/``import_module``) oder hat selbst Fan-out > 0.
 
 Ratschen-Regel: Wird ein Wert schlechter, schlaegt der Lauf fehl und nennt
 die konkrete Stelle. Wird er besser, meldet der Lauf das; die Basis darf
@@ -56,6 +63,14 @@ LAYER_RULES = (("services", "routers"), ("models", "routers"), ("models", "servi
 CONFIG_MODULES = frozenset({"config"})
 NEW_MODULE_FAN_OUT_LIMIT = 20
 ENV_ATTRS = frozenset({"environ", "getenv", "putenv", "unsetenv"})
+# Versionierte Allowlist reiner Stdlib-Blattmodule (Regel 6). Jede Aufnahme ist
+# ein eigener, begruendeter Eintrag; das Gate prueft die Blatt-Eigenschaft.
+#   core.evidence -- K-1 (A2 M4): kanonische Serialisierung/Evidence-Hash.
+#   core.reason_codes -- K-2/K-2b (A2 M5/M17): Reason-Code-Katalog + DomainError;
+#     Ziel jedes Service-Imports der DomainError-Migration (nur enum/typing).
+FAN_OUT_EXEMPT_LEAVES = frozenset({"core.evidence", "core.reason_codes"})
+_STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
+_DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
 
 
 @dataclass
@@ -66,6 +81,8 @@ class ModuleScan:
     typeonly: dict[str, int] = field(default_factory=dict)
     lazy_lines: list[tuple[int, str]] = field(default_factory=list)  # (Zeile, Ziel)
     env_hits: list[tuple[int, str]] = field(default_factory=list)  # (Zeile, Schluessel)
+    # Regel 6: jeder Import, der nicht reine Standardbibliothek ist (alle Kontexte).
+    non_stdlib_imports: list[tuple[int, str]] = field(default_factory=list)
 
     def runtime_targets(self) -> dict[str, int]:
         out = dict(self.lazy)
@@ -158,13 +175,28 @@ class _Visitor(ast.NodeVisitor):
         for r in resolved:
             bucket.setdefault(r, node.lineno)
 
+    def _stdlib_check(self, node: ast.stmt, name: str, level: int = 0):
+        top = name.split(".", 1)[0]
+        if level or top not in _STDLIB or self.resolve(name) is not None:
+            self.scan.non_stdlib_imports.append((node.lineno, "." * level + name))
+
+    def visit_Call(self, node: ast.Call):
+        f = node.func
+        callee = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else "")
+        if callee in _DYNAMIC_IMPORT_CALLS:
+            self.scan.non_stdlib_imports.append((node.lineno, f"<dynamisch: {callee}>"))
+        self.generic_visit(node)
+
     def visit_Import(self, node: ast.Import):
+        for a in node.names:
+            self._stdlib_check(node, a.name)
         for a in node.names:
             if a.name == "os" or (a.name.startswith("os.") and not a.asname):
                 self.os_aliases.add(a.asname or "os")
         self._record(node, [a.name for a in node.names])
 
     def visit_ImportFrom(self, node: ast.ImportFrom):
+        self._stdlib_check(node, node.module or "", node.level)
         base = node.module or ""
         if node.level:
             bp = self.pkg.split(".") if self.pkg else []
@@ -292,7 +324,11 @@ def measure(scans: dict[str, ModuleScan]) -> dict:
         "cycles_eager": strongly_connected(eager_graph),
         "cycles_all": strongly_connected(all_graph),
         "lazy_imports": {m: len(s.lazy_lines) for m, s in sorted(scans.items()) if s.lazy_lines},
-        "fan_out": {m: t for m, t in sorted(all_graph.items()) if t},
+        "fan_out": {
+            m: kept
+            for m, t in sorted(all_graph.items())
+            if (kept := [x for x in t if x not in FAN_OUT_EXEMPT_LEAVES])
+        },
         "layer_violations": sorted(layer),
         "env_readers": dict(sorted(env.items())),
     }
@@ -379,6 +415,20 @@ def compare(current: dict, baseline: dict, scans: dict[str, ModuleScan]) -> Resu
         if len(current["fan_out"].get(m, [])) < len(known):
             res.improvements.append(
                 f"[fan_out] {m}: {len(current['fan_out'].get(m, []))} < Basis {len(known)}"
+            )
+
+    # 6. Stdlib-Blattmodule (vor Schichtung gemeldet, weil Regel 3 davon abhaengt)
+    for m in sorted(FAN_OUT_EXEMPT_LEAVES):
+        s = scans.get(m)
+        if s is None:
+            continue
+        own = {**s.typeonly, **s.runtime_targets()}
+        bad = sorted(set(s.non_stdlib_imports) | {(ln, t) for t, ln in own.items()})
+        if bad:
+            detail = "; ".join(f"{s.path}:{ln} -> {t}" for ln, t in bad)
+            res.regressions.append(
+                f"[fan_out_exempt_leaves] {m}: kein reines Stdlib-Blatt "
+                f"(nur Standardbibliothek erlaubt, Fan-out 0): {detail}"
             )
 
     # 4. Schichtung

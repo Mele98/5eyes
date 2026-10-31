@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 from pydantic import ValidationError
 from sqlalchemy import text
 
@@ -102,7 +104,7 @@ def test_legacy_remediation_creates_decision_and_unblocks_signoff(seeded):
     session, advisor = seeded
     _make_legacy(session)
     assert _fresh(session).signoff_state == "remediation_required"
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _sign(session, advisor)
     assert exc.value.status_code == 409
 
@@ -244,6 +246,6 @@ def test_signoff_lines_and_409_point_to_legacy_confirmation(seeded):
     ra = _fresh(session)
     joined = " ".join(t for _, t in signoff_view_lines(build_signoff_view(session, ra)))
     assert "Override aus Altbestand" in joined and "bitte bestaetigen" in joined
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _sign(session, advisor)
     assert "legacy_remediation" in exc.value.detail["message"]

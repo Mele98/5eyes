@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi import HTTPException
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
 from sqlalchemy import text
 
 import models.client_login  # noqa: F401  (Tabelle fuer den Portal-Test registrieren)
@@ -314,7 +314,7 @@ def test_unverifiable_decision_is_409_before_any_effect(seeded, monkeypatch, tam
     before_logs = session.query(AdvisoryLog).count()
     calls = _spy(monkeypatch)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _sign(session, advisor)
 
     assert exc.value.status_code == 409
@@ -339,7 +339,7 @@ def test_legacy_override_without_decision_requires_remediation(seeded, monkeypat
     session.commit()
     assert _fresh(session).signoff_state == "remediation_required"
     calls = _spy(monkeypatch)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _sign(session, advisor)
     assert exc.value.status_code == 409
     assert exc.value.detail["signoff_state"] == "remediation_required"
@@ -355,7 +355,7 @@ def test_legacy_override_without_decision_requires_remediation(seeded, monkeypat
 def test_stale_expectations_are_409_before_any_effect(seeded, monkeypatch, body, code):
     session, advisor = seeded
     calls = _spy(monkeypatch)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _sign(session, advisor, body)
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == code
@@ -384,7 +384,7 @@ def test_override_between_sign_load_and_write_is_conflict(seeded, monkeypatch):
         return real_hash(db, assessment)
 
     monkeypatch.setattr(signoff_service, "assessment_input_hash", _override_then_hash)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         _sign(session, advisor)
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == "RISK_PROFILE_SIGNOFF_CONCURRENT_MODIFICATION"

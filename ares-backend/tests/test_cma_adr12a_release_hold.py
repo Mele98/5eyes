@@ -20,6 +20,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from core.reason_codes import DomainError  # noqa: E402  K-2b: Gates werfen DomainError
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
 for _p in (BACKEND_ROOT, TESTS_ROOT):
@@ -167,7 +169,7 @@ def test_advisory_pdf_blocked_before_render(session_factory, monkeypatch, kgv):
     )
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             get_advisory_report_pdf(mandate_id=mid, db=db, current_user=advisor)
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == CMA_ADR12A_HOLD
@@ -195,7 +197,7 @@ def test_missing_cma_reference_is_not_proof_of_deactivation(session_factory):
         )
         db.commit()
         mandate = db.query(Mandate).filter(Mandate.id == mid).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             assert_current_allocation_without_adr12a_hold(
                 db, mandate, channel=CHANNEL_CLIENT_PDF,
             )
@@ -223,7 +225,7 @@ def test_signature_of_recommendation_document_blocked(session_factory):
     doc_id = _add_document(session_factory, mid, advisor_id, "Anlagestrategie")
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             sign_document(
                 mandate_id=mid, doc_id=doc_id,
                 body=ContractDocumentSign(
@@ -262,7 +264,7 @@ def test_handoff_blocked_without_persisting(session_factory, monkeypatch):
     )
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             create_portfolio_handoff(
                 mandate_id=mid, run_id=run_id,
                 body=PortfolioHandoffCreate(recipient_name="AM"),
@@ -321,7 +323,7 @@ def test_client_pdfs_carrying_the_strategy_are_blocked(session_factory, monkeypa
         for name in ("expected_allocation_id", "run_id"):
             if name in params:
                 kwargs[name] = None
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             handler(**kwargs)
     assert exc.value.status_code == 409
     assert exc.value.detail["reason_code"] == CMA_ADR12A_HOLD
