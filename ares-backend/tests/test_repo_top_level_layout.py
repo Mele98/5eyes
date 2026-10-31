@@ -163,6 +163,32 @@ def test_stale_workflow_working_directory_is_reported(gate, tmp_path):
     ]
 
 
+def test_block_scalar_cache_dependency_paths_are_checked_individually(gate, tmp_path):
+    # Mehrzeiliges ``cache-dependency-path: |`` (z. B. zwei Lockfiles): jede
+    # Zeile ist ein Pfad; das ``|`` selbst ist kein Pfad.
+    wf = tmp_path / ".github" / "workflows" / "x.yml"
+    wf.parent.mkdir(parents=True)
+    wf.write_text(
+        "jobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n"
+        "          cache-dependency-path: |\n"
+        "            ok-dir/package-lock.json\n"
+        "            # Kommentar\n"
+        "            zz-missing/package-lock.json\n"
+        "      - run: npm ci\n        working-directory: ok-dir\n",
+        encoding="utf-8",
+    )
+    text = wf.read_text(encoding="utf-8")
+    assert gate.workflow_paths(text) == [
+        "ok-dir/package-lock.json",
+        "zz-missing/package-lock.json",
+        "ok-dir",
+    ]
+    tracked = [".github/workflows/x.yml", "ok-dir/package-lock.json"]
+    assert gate.check_workflows(tracked, tmp_path) == [
+        "Workflow-Pfad existiert nicht im Index: 'zz-missing/package-lock.json' in .github/workflows/x.yml",
+    ]
+
+
 def test_main_is_green_on_current_index(gate, capsys):
     assert gate.main() == 0
     assert "OK:" in capsys.readouterr().out

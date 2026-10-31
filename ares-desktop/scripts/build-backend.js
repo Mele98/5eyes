@@ -62,6 +62,22 @@ const fontDataArg = isWindows
   ? 'assets/fonts;assets/fonts'
   : 'assets/fonts:assets/fonts';
 
+// W1-803-03: Die Reporting-Sub-App wird in die EXE eingebettet (Ziel
+// `reporting_dist`, aufgeloest in ares-backend/main.py). Vorher lag sie nur im
+// app.asar, das der Python-Prozess nicht lesen kann -> /reporting gab in jeder
+// gepackten App 404. Fail-closed: ohne gebaute Sub-App kein Backend-Build.
+const reportingDistDir = path.join(projectRoot, 'ares-desktop', 'frontend', 'reporting', 'dist');
+if (!fs.existsSync(path.join(reportingDistDir, 'index.html'))) {
+  console.error(
+    `Reporting-Sub-App nicht gebaut (${path.join(reportingDistDir, 'index.html')} fehlt). ` +
+      'Zuerst `npm run build:reporting` ausfuehren.'
+  );
+  process.exit(1);
+}
+// Relativ zu ares-backend (cwd von PyInstaller): run() nutzt unter Windows
+// shell:true, ein absoluter Pfad mit Leerzeichen wuerde zerfallen.
+const reportingDataArg = `../ares-desktop/frontend/reporting/dist${isWindows ? ';' : ':'}reporting_dist`;
+
 const hiddenImports = [
   'uvicorn.logging',
   'uvicorn.loops',
@@ -158,6 +174,8 @@ const pyInstallerArgs = [
   addDataArg,
   '--add-data',
   fontDataArg,
+  '--add-data',
+  reportingDataArg,
 ];
 
 for (const mod of hiddenImports) {

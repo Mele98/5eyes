@@ -12,9 +12,9 @@
     "test": "node tests/main.smoke.test.js && node tests/bundle-secret-scan.test.js && node --test tests/ipc-sender-guard.test.js",
     "build:backend": "node scripts/build-backend.js",
     "build:reporting": "cd frontend/reporting && npm run build",
-    "pack": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --dir",
-    "dist:win": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --win nsis",
-    "dist:win:portable": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --win portable",
+    "pack": "npm run build:reporting && npm run build:backend && npm run preflight:release && npm run scan:bundle-secrets && electron-builder --dir",
+    "dist:win": "npm run build:reporting && npm run build:backend && npm run preflight:release && npm run scan:bundle-secrets && electron-builder --win nsis",
+    "dist:win:portable": "npm run build:reporting && npm run build:backend && npm run preflight:release && npm run scan:bundle-secrets && electron-builder --win portable",
     "preflight:release": "node scripts/release-check.js",
     "scan:bundle-secrets": "node scripts/bundle-secret-scan.js"
   },

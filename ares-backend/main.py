@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import sys
 from pathlib import Path
 
 import uvicorn
@@ -180,10 +181,28 @@ app.include_router(cma_policy_router)  # CMA-001 (2026-10-27)
 # ERR_CONNECTION_REFUSED. Fix: gebauter Reporting-Bundle wird unter
 # /reporting/ als Static-Mount serviert, inkl. SPA-Fallback fuer
 # react-router-Pfade (z.B. /reporting/mandates/<id>/report).
-_REPORTING_DIST = (
-    Path(__file__).resolve().parent.parent
-    / "ares-desktop" / "frontend" / "reporting" / "dist"
-)
+# W1-803-03 (Packaging-Smoke): in der PyInstaller-EXE zeigt __file__ in das
+# Entpack-Verzeichnis (sys._MEIPASS), dessen Elternordner kein Repo ist -- der
+# Mount fehlte daher in JEDER gepackten App (/reporting -> 404). Der Build
+# bettet die Sub-App deshalb als ``reporting_dist`` in die EXE ein
+# (ares-desktop/scripts/build-backend.js); der Quellbaum-Pfad bleibt Fallback.
+_REPORTING_DIST_NAME = "reporting_dist"
+
+
+def _resolve_reporting_dist() -> Path:
+    source_tree = (
+        Path(__file__).resolve().parent.parent
+        / "ares-desktop" / "frontend" / "reporting" / "dist"
+    )
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        bundled = Path(str(meipass)) / _REPORTING_DIST_NAME
+        if (bundled / "index.html").is_file():
+            return bundled
+    return source_tree
+
+
+_REPORTING_DIST = _resolve_reporting_dist()
 if _REPORTING_DIST.is_dir() and (_REPORTING_DIST / "index.html").is_file():
     # Assets unter /reporting/assets/ statisch — sonst SPA-Fallback.
     app.mount(
