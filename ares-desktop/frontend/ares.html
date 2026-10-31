@@ -1199,7 +1199,7 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 // synchron und ohne Warten auf den Rest des Skripts laeuft.
 (function(){
   try{
-    var v=localStorage.getItem('5eyes_theme');
+    var v=localStorage.getItem('ares.theme');
     if(v==='dark'||v==='light')document.documentElement.dataset.theme=v;
   }catch(e){}
 })();
@@ -1210,7 +1210,7 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 // PRESENTATION_MODE_STORAGE_KEY/applyPresentationMode() weiter unten.
 (function(){
   try{
-    var v=localStorage.getItem('5eyes_presentation_mode');
+    var v=localStorage.getItem('ares.presentation_mode');
     if(v==='consulting'||v==='wealthmanagement')document.documentElement.dataset.presentationMode=v;
   }catch(e){}
 })();
@@ -6583,7 +6583,7 @@ function normalizeVisibleMojibake(root){
 // wird), damit beim Start kein Hell/Dunkel-Flackern (FOUC) auftritt. Diese
 // Funktionen hier uebernehmen nur noch: (a) Klick-Handling, (b) Icon-Sync,
 // (c) Persistenz. Siehe THEME_STORAGE_KEY / applyStoredThemeEarly() im <body>.
-var THEME_STORAGE_KEY='5eyes_theme';
+var THEME_STORAGE_KEY='ares.theme';
 function getStoredTheme(){
   try{
     var v=localStorage.getItem(THEME_STORAGE_KEY);
@@ -6631,7 +6631,7 @@ function updateThemeToggleIcon(){
 // Untergrenze (UND-Verknuepfung, nie ODER) -- der Praesentationsmodus kann
 // die operative Ansicht nur zusaetzlich ausblenden, nie Ausfuehrungsbefugnis
 // vortaeuschen, die real nicht besteht.
-var PRESENTATION_MODE_STORAGE_KEY='5eyes_presentation_mode';
+var PRESENTATION_MODE_STORAGE_KEY='ares.presentation_mode';
 function getStoredPresentationMode(){
   try{
     var v=localStorage.getItem(PRESENTATION_MODE_STORAGE_KEY);
@@ -7183,7 +7183,7 @@ function renum(){
   });
 }
 function cashflowOrderStorageKey(type){
-  return '5eyes.cashflow-order.'+String(getActiveClientId()||'demo')+'.'+String(type||'all');
+  return 'ares.cashflow-order.'+String(getActiveClientId()||'demo')+'.'+String(type||'all');
 }
 function storedCashflowOrder(type){
   try{
@@ -19641,7 +19641,7 @@ function resetAdvisoryLogModal(){
   });
 }
 var allocationPreferencesCache={};
-var allocationPreferenceStoragePrefix='5eyes.allocprefs.';
+var allocationPreferenceStoragePrefix='ares.allocprefs.';
 var allocationBandBaseline={};
 var allocationBandStoredOverrides={};
 function getAllocationPreferenceKey(){
