@@ -51,7 +51,7 @@ def test_handoff_ts_exists_and_exports_consumer():
     assert "export interface HandoffResult" in content
 
 
-def test_handoff_uses_5eyes_token_key_for_sessionstorage():
+def test_handoff_uses_shared_token_key_for_sessionstorage():
     """Konvention: Reporting + Hauptapp nutzen denselben Storage-Key
     (`5eyes_token`). Sonst greift der Token-Resolver in client.ts nicht."""
     content = _read_reporting("src/api/handoff.ts")
