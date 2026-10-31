@@ -39,12 +39,12 @@ eindeutige Anlageklasse -> Snapshot mit Ausweis, aber keine Szenariozahlen
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import date
 
 from sqlalchemy.orm import Session
 
+from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from models.mandates import Mandate
 from models.review import Product
 from services.backtest_stress import compute_stress_for_weights, stress_catalog_hash
@@ -84,11 +84,11 @@ class DepotSnapshotIntegrityError(ValueError):
 
 
 def _canonical(payload) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return canonical_json(payload, scheme=SCHEME_V1_ASCII)
 
 
 def _sha256(payload) -> str:
-    return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1_ASCII)
 
 
 def _int(value) -> int:

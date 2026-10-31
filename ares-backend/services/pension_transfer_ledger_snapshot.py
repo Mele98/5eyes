@@ -29,9 +29,9 @@ Eingaben.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 
+from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from services.pension_transfer_ledger import (
     PENSION_TRANSFER_LEDGER_VERSION,
     PensionTransferLedgerV1,
@@ -52,11 +52,11 @@ _BODY_KEYS = (
 
 
 def _canonical(payload) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return canonical_json(payload, scheme=SCHEME_V1_ASCII)
 
 
 def _sha256(payload) -> str:
-    return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1_ASCII)
 
 
 def _opt_str(value) -> str | None:

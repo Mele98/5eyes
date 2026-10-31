@@ -29,10 +29,9 @@ Betraege sind ganze Zahlen in 1/100 der Waehrung (Projektkonvention ``*_rappen``
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from decimal import Decimal, InvalidOperation
 
+from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from services.portfolio_data_policy import PortfolioDataPolicy
 
 MINOR_UNITS_PER_MAJOR = 100
@@ -56,11 +55,11 @@ STATUS_BLOCKED = "blocked"
 
 
 def _canonical(payload) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return canonical_json(payload, scheme=SCHEME_V1_ASCII)
 
 
 def _sha256(payload) -> str:
-    return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1_ASCII)
 
 
 def _int_or_none(value):

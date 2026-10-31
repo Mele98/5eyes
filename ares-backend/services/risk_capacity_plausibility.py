@@ -85,6 +85,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from core.evidence import SCHEME_V1_STR_DEFAULT, evidence_hash
 from services.risk_scoring import (
     CAPACITY_BAND,
     HORIZON_YEARS,
@@ -710,9 +711,7 @@ def _evaluation_hash(result: dict) -> str:
             "data_basis", "coverage_attestation", "risk_assessment_id",
         )
     }
-    canonical = json.dumps(bound, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-                           default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return evidence_hash(bound, scheme=SCHEME_V1_STR_DEFAULT)
 
 
 def _finalize(result: dict, attestation_status: str | None = None) -> dict:

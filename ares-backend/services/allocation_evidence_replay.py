@@ -49,6 +49,7 @@ import hashlib
 import json
 import math
 
+from core.evidence import canonical_json
 from services.optimizer.objective_contract import (
     CONTRACT_EVIDENCE_CORRUPT,
     CONTRACT_EVIDENCE_UNVERIFIABLE,
@@ -186,7 +187,7 @@ def _checked_objective_value(block) -> dict | None:
 
 
 def _canonical_json(payload) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return canonical_json(payload)
 
 
 def _validated_drivers(drivers) -> list[dict]:

@@ -39,6 +39,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
+from core.evidence import canonical_json
+
 SCHEMA_VERSION = "RiskCapacityPlausibilityEvaluationV1"
 
 CONTEXT_RISK_ASSESSMENT_SAVED = "risk_assessment_saved"
@@ -109,7 +111,7 @@ def _value(obj: Any, name: str) -> Any:
 
 
 def _canonical(payload: Any) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return canonical_json(payload)
 
 
 def _sha256(text: str) -> str:

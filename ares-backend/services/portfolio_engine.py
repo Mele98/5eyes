@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from config import settings
 from core.chf_amount import normalize_chf_amount_text
+from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from database import new_uuid
 from models.allocation import (
     BuildingBlock,
@@ -3955,10 +3956,8 @@ def generate_target_allocation(
         and optimizer_result.stress_evaluations
     ):
         try:
-            stress_evaluations_json = json.dumps(
-                optimizer_result.stress_evaluations,
-                sort_keys=True,
-                separators=(",", ":"),
+            stress_evaluations_json = canonical_json(
+                optimizer_result.stress_evaluations, scheme=SCHEME_V1_ASCII,
             )
         except (TypeError, ValueError) as exc:
             logger.warning("Stress-eval JSON-serialization failed: %s", exc)
@@ -4039,7 +4038,7 @@ def generate_target_allocation(
     )
     shadow_optimization_json = serialize_shadow_optimization(shadow_optimization_payload)  # SHADOW-ANALYSIS-INTEGRITY-001: Hash-Grundlage
 
-    sub_allocations_json = json.dumps(sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    sub_allocations_json = canonical_json(sub_allocations)
     effective_constraints_payload = {
         "engine_version": "stochastic_core_v2",
         "bounds_bps": {
@@ -4079,9 +4078,7 @@ def generate_target_allocation(
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)
-    effective_constraints_json = json.dumps(
-        effective_constraints_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    )
+    effective_constraints_json = canonical_json(effective_constraints_payload)
     allocation_context_hash = allocation_context_hash_for(  # MANUAL-SAVE-DEADEND-001: eine Hash-Form fuer alle Schreibpfade
         engine_version="stochastic_core_v2", policy_id=policy.id, cma_id=cma.id, assessment_id=assessment.id,
         input_snapshot_hash=input_snapshot_hash, preferences_json=preferences_json_snapshot, targets=targets,
@@ -5178,14 +5175,7 @@ def evaluate_goal_sensitivity(
             ),
             "fx_basis": sensitivity_fx_basis,
         }
-        return hashlib.sha256(
-            json.dumps(
-                payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode("utf-8")
-        ).hexdigest()
+        return evidence_hash(payload)
 
     baseline_funding = _funding(goals, run_horizon=horizon, external_series=baseline_external_series)
     modified_funding = _funding(
