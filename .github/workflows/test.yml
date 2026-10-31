@@ -68,6 +68,26 @@ jobs:
       - name: Check portfolio_engine.py line budget
         run: python3 scripts/check_engine_line_budget.py
 
+  repo-layout-gate:
+    # W1-803-01 (2026-10-31): In-Repo-Ratsche fuer die Repo-Struktur.
+    # Positive Allowlist der Top-Level-Knoten (und der Unterverzeichnisse
+    # erster Ebene von ares-backend/ares-desktop) aus `git ls-files`, plus
+    # Existenz aller literalen working-directory/cache-dependency-path-Pfade
+    # der Workflows. Dependency-frei (kein pip install, keine pytest-
+    # Collection): ein neuer Pfad ausserhalb der Allowlist kann nicht durch
+    # eine stillschweigend leere Testsammlung rutschen.
+    # Single Source of Truth: scripts/check_repo_top_level_layout.py.
+    name: Repo Layout Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check repo top-level layout
+        run: python3 scripts/check_repo_top_level_layout.py
+
   # ------------------------------------------------------------------------
   # Backend-Suite parallel (F0-3, 2026-10-24). Vorher ein serieller Job
   # `pytest tests/` mit zuletzt ~157 min Wandzeit (Run 40005758865) und
@@ -108,6 +128,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # W1-803-01: Repo-Struktur-Ratsche VOR jeder Installation/Collection
+      # und ohne working-directory. Macht den Guard Teil des Aggregat-
+      # Checks "Backend Tests (3.12)" (needs: backend-test-plan).
+      - name: Repo top-level layout ratchet (git ls-files)
+        run: python3 scripts/check_repo_top_level_layout.py
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
