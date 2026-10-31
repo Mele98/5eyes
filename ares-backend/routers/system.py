@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
@@ -383,6 +384,25 @@ def get_annual_returns(
     return result
 
 
+logger = logging.getLogger(__name__)
+
+_MARKET_DATA_CONFIG_UNAVAILABLE_DETAIL = (
+    "Marktdaten-Backfill derzeit nicht moeglich: die Marktdaten-Provider-"
+    "Konfiguration ist nicht erfuellbar (Administrator kontaktieren; Details im Server-Log)."
+)
+
+
+def _market_data_config_http_error(exc: Exception, *, endpoint: str, db: Session) -> HTTPException:
+    """Provider-Konfigurationsfehler (fail-closed Factory) -> 503.
+
+    Der Originaltext (Providernamen, Entry-Point-Details) bleibt im Log und
+    geht nicht an den Client.
+    """
+    db.rollback()
+    logger.error("Marktdaten-Provider-Konfiguration nicht erfuellbar | endpoint=%s error=%s", endpoint, exc)
+    return HTTPException(status_code=503, detail=_MARKET_DATA_CONFIG_UNAVAILABLE_DETAIL)
+
+
 @router.post('/annual-returns/backfill')
 def backfill_annual_returns_endpoint(
     request: Request,
@@ -409,7 +429,7 @@ def backfill_annual_returns_endpoint(
     Audit-Log-Eintrag wird geschrieben (Action=BACKFILL).
     """
     from services.market_data.annual_returns_backfill import backfill_annual_returns
-    from services.market_data.factory import build_default_aggregator
+    from services.market_data.factory import ProviderConfigurationError, build_default_aggregator
 
     current_year = datetime.utcnow().year
     fy = from_year if from_year is not None else current_year - 20
@@ -421,6 +441,8 @@ def backfill_annual_returns_endpoint(
             from_year=int(fy), to_year=int(ty),
             overwrite=bool(overwrite),
         )
+    except ProviderConfigurationError as exc:
+        raise _market_data_config_http_error(exc, endpoint="annual-returns/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     db.add(AuditLog(
@@ -552,7 +574,7 @@ def backfill_asset_class_prices_endpoint(
     Audit-Log-Eintrag (Action=BACKFILL).
     """
     from services.market_data.asset_class_price_backfill import backfill_asset_class_prices
-    from services.market_data.factory import build_default_aggregator
+    from services.market_data.factory import ProviderConfigurationError, build_default_aggregator
 
     current_year = datetime.utcnow().year
     fy = from_year if from_year is not None else current_year - 20
@@ -564,6 +586,8 @@ def backfill_asset_class_prices_endpoint(
             from_year=int(fy), to_year=int(ty),
             overwrite=bool(overwrite),
         )
+    except ProviderConfigurationError as exc:
+        raise _market_data_config_http_error(exc, endpoint="asset-class-prices/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     db.add(AuditLog(
