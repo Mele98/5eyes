@@ -15,12 +15,15 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from config import settings
+from config import (  # KEK-Pruefung liegt in config (Startpruefung ohne Zusatzimport)
+    MISSING_KEK_MESSAGE,
+    TenantCryptoError,
+    configured_master_kek as _configured_master_kek,
+    require_master_kek,
+    settings,
+    validate_master_kek as _validate_master_kek,
+)
 from models.tenant import Tenant
-
-
-class TenantCryptoError(RuntimeError):
-    pass
 
 
 def _fernet_class():
@@ -49,45 +52,6 @@ _KEK_KDF_ITERATIONS = 200_000
 # verpackt werden. Ein DEK mit anderer Generation wird nie entpackt: er ist
 # mit dem Migrator zu uebernehmen (kein Rueckfall auf einen frueheren Vertrag).
 CURRENT_KEK_VERSION = 2
-
-MISSING_KEK_MESSAGE = (
-    "TENANT_MASTER_KEK fehlt: Ares startet nicht ohne eigene Master-KEK. "
-    "Einen Fernet-Key erzeugen (python -c \"from cryptography.fernet import "
-    "Fernet; print(Fernet.generate_key().decode())\") und als "
-    "TENANT_MASTER_KEK in der Konfiguration setzen; eine Bestandsinstallation "
-    "bringt ihn aus der Zielkonfiguration des Migrators mit."
-)
-
-
-def _configured_master_kek() -> str:
-    """Einzige Konfigurationsquelle der Master-KEK: ``settings.tenant_master_kek``."""
-    return str(getattr(settings, "tenant_master_kek", "") or "").strip()
-
-
-def _validate_master_kek(raw: str | bytes) -> None:
-    """Fail-closed: kein Rueckfall auf SECRET_KEY oder einen Platzhalter."""
-    from config import DEFAULT_SECRET_KEY
-
-    value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
-    if not value.strip():
-        raise TenantCryptoError(MISSING_KEK_MESSAGE)
-    if value == DEFAULT_SECRET_KEY:
-        raise TenantCryptoError(
-            "TENANT_MASTER_KEK ist der oeffentliche Platzhalter aus dem Quellcode "
-            "und damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
-        )
-    secret_key = str(getattr(settings, "secret_key", "") or "")
-    if secret_key and value == secret_key:
-        raise TenantCryptoError(
-            "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
-            "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
-        )
-
-
-def require_master_kek() -> None:
-    """Startpruefung (Lifespan): ohne gueltige Master-KEK startet Ares nicht."""
-    _validate_master_kek(_configured_master_kek())
-
 
 def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
     raw = master_kek if master_kek else _configured_master_kek()

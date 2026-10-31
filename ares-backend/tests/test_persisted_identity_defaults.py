@@ -108,8 +108,15 @@ def test_ics_uid_domain_comes_only_from_config(monkeypatch):
     from config import settings
     from services import review_calendar_feed as feed
 
+    assert feed.event_uid("t-123", "kalender.firma.example") == "ares-trigger-t-123@kalender.firma.example"
+    # einzige Quelle der Domain: der Router reicht settings.ares_domain herein,
+    # das Feed-Modul selbst liest keine Konfiguration
+    router_src = (BACKEND_ROOT / "routers" / "review.py").read_text(encoding="utf-8")
+    assert "build_ics_feed(db, user, uid_domain=settings.ares_domain)" in router_src
+    feed_src = (BACKEND_ROOT / "services" / "review_calendar_feed.py").read_text(encoding="utf-8")
+    assert "from config import" not in feed_src and "settings" not in feed_src
     monkeypatch.setattr(settings, "ares_domain", "kalender.firma.example")
-    assert feed.event_uid("t-123") == "ares-trigger-t-123@kalender.firma.example"
+    assert feed.event_uid("t-123") == "ares-trigger-t-123", "ohne Uebergabe keine Domain"
 
 
 def test_ics_feed_header_and_event_uid(monkeypatch):
@@ -125,7 +132,7 @@ def test_ics_feed_header_and_event_uid(monkeypatch):
     src = (BACKEND_ROOT / "services" / "review_calendar_feed.py").read_text(encoding="utf-8")
     assert 'f"PRODID:{ICS_PRODID}",' in src
     assert '"X-WR-CALNAME:Ares",' in src
-    assert "uid=event_uid(trigger.id)," in src
+    assert "uid=event_uid(trigger.id, uid_domain)," in src
 
 
 def test_ares_domain_has_no_default_and_is_validated():
