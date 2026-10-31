@@ -6,11 +6,16 @@ and runtime boundaries instead of silently switching that component off.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from services.tax.overrides import parse_overrides_json
 from services.mandate_preferences import (
     MandatePreferenceError,
     parse_default_building_blocks_json,
 )
+
+if TYPE_CHECKING:  # nur Annotation; zaehlt nicht als Laufzeit-Import (Ratsche)
+    from config import RunContext
 
 
 class MandateModelInputError(ValueError):
@@ -31,6 +36,7 @@ def validate_mortality_model_inputs(
     mandate,
     *,
     reference_year: int | None = None,
+    run_context: RunContext | None = None,
 ) -> None:
     """Validate the activated mortality model and its exact table domain.
 
@@ -38,7 +44,12 @@ def validate_mortality_model_inputs(
     Birth-year plausibility follows the exact supported BFS table range so a
     persisted activation can always be evaluated by the stochastic runtime.
     """
-    jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH").strip().upper()
+    # X2b: im Engine-Lauf aus dem RunContext (== mandate.jurisdiction or "CH"),
+    # gleiche Normalisierung; ausserhalb eines Laufs Fallback.
+    if run_context is not None:
+        jurisdiction = str(run_context.jurisdiction).strip().upper()
+    else:
+        jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH").strip().upper()
     mortality_enabled = _feature_enabled(
         getattr(mandate, "use_mortality_simulation", 0),
         field_name="use_mortality_simulation",
@@ -105,9 +116,12 @@ def validate_mandate_model_inputs(
     mandate,
     *,
     reference_year: int | None = None,
+    run_context: RunContext | None = None,
 ) -> None:
     """Validate all opt-in inputs that materially alter allocation results."""
-    validate_mortality_model_inputs(mandate, reference_year=reference_year)
+    validate_mortality_model_inputs(
+        mandate, reference_year=reference_year, run_context=run_context,
+    )
     validate_tax_model_inputs(mandate)
     try:
         parse_default_building_blocks_json(
@@ -118,7 +132,9 @@ def validate_mandate_model_inputs(
         raise MandateModelInputError(str(exc)) from exc
 
 
-def mortality_solver_kwargs_from_mandate(mandate) -> dict:
+def mortality_solver_kwargs_from_mandate(
+    mandate, run_context: RunContext | None = None,
+) -> dict:
     """Return complete mortality kwargs, or an empty dict when feature-off.
 
     Kontrollrunde 2026-09-19: mortality_fixed_offset_years carries the SAME
@@ -135,7 +151,7 @@ def mortality_solver_kwargs_from_mandate(mandate) -> dict:
     as every other activated-feature validation in this module, rather than
     a separate error class deep in the solver.
     """
-    validate_mortality_model_inputs(mandate)
+    validate_mortality_model_inputs(mandate, run_context=run_context)
     if not _feature_enabled(
         getattr(mandate, "use_mortality_simulation", 0),
         field_name="use_mortality_simulation",
@@ -148,6 +164,7 @@ def mortality_solver_kwargs_from_mandate(mandate) -> dict:
     try:
         offset_years = expected_death_year_offset_from_mandate(
             mandate, client=getattr(mandate, "client", None),
+            run_context=run_context,
         )
     except Exception as exc:
         raise MandateModelInputError(

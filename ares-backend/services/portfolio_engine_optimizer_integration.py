@@ -401,6 +401,7 @@ def _run_stochastic_optimizer_pass(
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: list[int] | None = None,
     mandate=None,  # Sprint 4 Phase 3: fuer BFS-Mortalitaets-Sampling
+    run_context=None,  # X2b: RunContext des Laufs (duck-typed), optional
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): explicit,
     # partial Soft-Preference Target Intent -- extracted by the caller via
     # services.optimizer.allocation_intent.extract_soft_preference_bps from
@@ -507,7 +508,9 @@ def _run_stochastic_optimizer_pass(
     from services.optimizer.constraints import OptimizerInputError
 
     try:
-        mortality_kwargs = mortality_solver_kwargs_from_mandate(mandate)
+        mortality_kwargs = mortality_solver_kwargs_from_mandate(
+            mandate, run_context=run_context,
+        )
     except MandateModelInputError as exc:
         raise OptimizerInputError(str(exc)) from exc
     if mortality_kwargs:

@@ -32,7 +32,7 @@ exceptions that stay warnings until the owner decides:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from sqlalchemy.orm import Session
 
@@ -50,6 +50,9 @@ from services.product_eligibility_override import (
     decision_binding_hash,
     find_valid_override,
 )
+
+if TYPE_CHECKING:  # nur Annotation; zaehlt nicht als Laufzeit-Import (Ratsche)
+    from config import RunContext
 
 APPROPRIATENESS_DUTY = "Angemessenheitsprüfung"
 
@@ -112,6 +115,7 @@ def finalization_eligibility_findings(
     assessment: RiskAssessment,
     positions: Iterable[RecommendationPosition],
     products: dict[str, Product],
+    run_context: RunContext | None = None,
 ) -> tuple[list[str], list[str]]:
     """Return (errors, warnings) for the product eligibility of the run's
     aggregated positions. Inactive/missing products are reported by the
@@ -127,7 +131,12 @@ def finalization_eligibility_findings(
 
     service_mode = derive_service_mode(mandate)
     tenant_id = mandate_tenant_id(mandate)
-    jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
+    # X2b: der Router bildet den RunContext einmal pro Request
+    # (== mandate.jurisdiction or "CH"); ohne Kontext Fallback.
+    if run_context is not None:
+        jurisdiction = run_context.jurisdiction
+    else:
+        jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
     appropriateness = _appropriateness_result(db, mandate, run)
     now = _now_iso()
     context = DecisionContext(

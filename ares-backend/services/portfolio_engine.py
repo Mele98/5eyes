@@ -3047,11 +3047,12 @@ def generate_target_allocation(
     # corrupt raw row can never silently turn the feature off.
     from services.mandate_model_inputs import validate_mandate_model_inputs
 
-    validate_mandate_model_inputs(mandate)
     # K-3: Jurisdiktion und Lauf-Settings EINMAL pro Lauf eingefroren (Default:
     # jetzt gebildet; ein Aufrufer darf einen fertigen RunContext uebergeben).
+    # X2b: vor der Validierung gebildet (resolve_pack ist rein, wirft nicht).
     if run_context is None:
         run_context = build_run_context(mandate)
+    validate_mandate_model_inputs(mandate, run_context=run_context)
     jurisdiction = run_context.jurisdiction
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
@@ -3464,6 +3465,7 @@ def generate_target_allocation(
             external_goal_funding_series_rappen
         ),
         mandate=mandate,  # Sprint 4 Phase 3: BFS-Mortalitaets-Felder
+        run_context=run_context,
         reserve_ledger=reserve_ledger,  # RESERVE-FUNDING-LEDGER-001
     )
     # Strikt: Tilts duerfen nur uebersprungen werden, wenn die Targets
@@ -3809,7 +3811,7 @@ def generate_target_allocation(
         policy=policy,
         # Sprint U-P5 Fix H12: Mortality-Cutoff
         expected_death_year_offset=_expected_death_year_offset_from_mandate(
-            mandate
+            mandate, run_context=run_context,
         ),
         advisory_path_series_rappen=simulation["target_mix_series_rappen"],
         total_path_series_rappen=simulation[
@@ -6455,7 +6457,8 @@ def generate_recommendation_run(
     depot_bank: str | None = None,
 ) -> dict:
     # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest.
-    jurisdiction = resolve_pack(mandate).code
+    run_context = build_run_context(mandate)  # X2b: einmal pro Lauf
+    jurisdiction = run_context.jurisdiction
     ensure_default_products(db, jurisdiction=jurisdiction)
     # 2026-08-22 (hedgingRequired-Katalogluecke): additiver Backfill, laeuft
     # unabhaengig davon ob ensure_default_products() oben tatsaechlich
@@ -6627,7 +6630,7 @@ def generate_recommendation_run(
     # einfliessen. Siehe _tenant_visible_products_query()-Docstring in
     # services/portfolio_engine_payload.py fuer die volle Herleitung.
     products = _tenant_visible_products_query(db, mandate).all()
-    products = _filter_products_by_universe(db, mandate, products)
+    products = _filter_products_by_universe(db, mandate, products, run_context=run_context)
     sub_allocations = [s for s in target_payload["sub_allocations"] if int(s.get("target_weight_bps") or 0) > 0]  # Kontextzeilen (0 bps) ohne Position
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
