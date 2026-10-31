@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
+from config import TenantCryptoError, require_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import MaxBodySizeMiddleware, RequestContextMiddleware
 from database import init_db
@@ -83,9 +83,16 @@ async def lifespan(app: FastAPI):
         settings.price_scheduler_enabled,
         settings.db_use_sqlcipher,
     )
+    # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
+    # kein Rueckfall auf SECRET_KEY oder einen Platzhalter).
+    try:
+        require_master_kek()
+    except TenantCryptoError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
     init_db()
     # U-32: Discover externe Tax-Regime-Plugins (Entry-Point group
-    # '5eyes.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
+    # 'ares.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
     # ist — failed_plugins werden geloggt + ueber den DiscoveryResult
     # auditierbar.
     try:
@@ -121,9 +128,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=settings.app_name,
+    title="Ares API",
     version=settings.app_version,
-    description="5Eyes WealthArchitekten — Lokale Beratungssoftware API",
+    description="Ares — Lokale Beratungssoftware API",
     lifespan=lifespan,
 )
 app.add_middleware(RequestContextMiddleware)

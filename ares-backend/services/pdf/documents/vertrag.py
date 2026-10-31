@@ -12,7 +12,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.base import PDFContext
-from services.pdf.components.header import _esc, make_wealtharchitekten_header
+from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -48,7 +48,7 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
     advisory_label = None
     if getattr(data, "advisory_wealth_rappen", None):
         advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx,
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,

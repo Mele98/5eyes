@@ -103,7 +103,7 @@ def _seed(session) -> tuple[User, Mandate]:
 def http_client(session_factory):
     """TestClient mit get_db + get_current_user + require_advisor overridden.
 
-    Pattern stammt aus existierenden 5eyes-Tests — Auth-Layer wird komplett
+    Pattern stammt aus existierenden Ares-Tests — Auth-Layer wird komplett
     gemockt, damit die Endpoint-Logik (DB-Zugriff + Validierung) isoliert
     getestet werden kann.
     """

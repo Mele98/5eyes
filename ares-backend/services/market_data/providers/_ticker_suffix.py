@@ -6,11 +6,11 @@ Yahoo-erwarteten String.
 
 Quellen:
 - https://help.yahoo.com/kb/SLN2310.html (offizielle Yahoo-Liste)
-- 5eyes braucht primaer CH (.SW), DACH (.DE/.VI), UK (.L), US (kein Suffix).
+- Ares braucht primaer CH (.SW), DACH (.DE/.VI), UK (.L), US (kein Suffix).
 """
 from __future__ import annotations
 
-# Boersen-Code (5eyes-intern) -> Yahoo-Suffix.
+# Boersen-Code (Ares-intern) -> Yahoo-Suffix.
 # US-Boersen haben kein Suffix in Yahoo.
 EXCHANGE_TO_YAHOO_SUFFIX: dict[str, str] = {
     # Schweiz

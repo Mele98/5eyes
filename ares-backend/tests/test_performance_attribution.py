@@ -58,7 +58,7 @@ def test_more_equities_in_portfolio_yields_positive_allocation_effect():
         portfolio_returns_bps=returns,
     )
     assert result.total_allocation_effect_bps > 0
-    # Selection = 0 in 5eyes' forward-looking-Default
+    # Selection = 0 in Ares' forward-looking-Default
     assert result.total_selection_effect_bps == 0
     assert result.total_interaction_effect_bps == 0
 
@@ -96,7 +96,7 @@ def test_total_excess_equals_total_p_minus_total_b():
 
 
 def test_brinson_decomposition_sums_to_total_excess_when_no_selection():
-    """In 5eyes' Default (gleiche Returns) gilt: Allocation == Excess."""
+    """In Ares' Default (gleiche Returns) gilt: Allocation == Excess."""
     portfolio = {"equities": 6000, "bonds": 2500, "real_estate": 500, "alternatives": 500, "liquidity": 500}
     benchmark = {"equities": 5000, "bonds": 3000, "real_estate": 1000, "alternatives": 500, "liquidity": 500}
     returns = {"equities": 700, "bonds": 200, "real_estate": 400, "alternatives": 300, "liquidity": 80}

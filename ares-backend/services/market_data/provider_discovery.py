@@ -7,11 +7,11 @@ anzubieten — analog dem Tax-SDK-Pattern aus ADR-006.
 
 Externe Pakete deklarieren in ihrer pyproject.toml:
 
-    [project.entry-points."5eyes.market_data_provider"]
-    bloomberg = "fivee_eyes_bloomberg:BloombergProvider"
-    refinitiv = "fivee_eyes_refinitiv:RefinitivProvider"
+    [project.entry-points."ares.market_data_provider"]
+    example = "ares_provider_example:ExampleProvider"
+    other = "ares_provider_other:OtherProvider"
 
-Beim Boot scannt 5eyes diese Entry-Group, instanziiert jeden Provider und
+Beim Boot scannt Ares diese Entry-Group, instanziiert jeden Provider und
 fuegt ihn in die Aggregator-Cascade ein. Konformanz-Check (vor Aufnahme):
 - Provider hat einen `name` (str, nicht leer, kollisionsfrei)
 - Provider erbt von MarketDataProvider
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 # Entry-Point-Group fuer externe Provider. Konvention analog Tax-SDK.
-ENTRY_POINT_GROUP = "5eyes.market_data_provider"
+ENTRY_POINT_GROUP = "ares.market_data_provider"
 
 
 def _is_valid_provider_class(cls: Any) -> bool:

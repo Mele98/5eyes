@@ -3,7 +3,7 @@ Kalender-Abo-Feed fuer faellige/bald faellige Review-Trigger.
 
 Nutzer-Anforderung: der Berater soll auf faellige Jahresreviews/Drift-/
 Ereignis-Trigger automatisch (via Outlook-Kalenderabo) aufmerksam gemacht
-werden, ohne dass 5eyes eine kostenpflichtige oder registrierungspflichtige
+werden, ohne dass Ares eine kostenpflichtige oder registrierungspflichtige
 Microsoft-Graph-Anbindung braucht. Outlook kann einen beliebigen HTTP(S)-
 Endpoint, der einen gueltigen .ics-Text liefert, als "Internetkalender
 abonnieren" und aktualisiert ihn danach selbststaendig periodisch.
@@ -26,6 +26,20 @@ from models.clients import Client
 from models.mandates import Mandate
 from models.review import ReviewTrigger
 from models.users import User
+
+# W4-d: Kalender-Identitaet. PRODID nach Spec; der Domain-Teil der UID kommt
+# ausschliesslich aus ARES_DOMAIN (Owner-Wert, kein Default; der Router reicht
+# die konfigurierte Domain herein, dieses Modul liest keine Konfiguration). Ohne Domain ist
+# die UID ``ares-trigger-<id>`` -- RFC 5545 (3.8.4.7) verlangt nur global
+# eindeutige UIDs, die "@domain"-Form ist eine Empfehlung, keine Pflicht.
+ICS_PRODID = "-//Ares//Advisory Calendar//DE"
+ICS_UID_PREFIX = "ares-trigger-"
+
+
+def event_uid(trigger_id: object, domain: str = "") -> str:
+    domain = str(domain or "").strip()
+    base = f"{ICS_UID_PREFIX}{trigger_id}"
+    return f"{base}@{domain}" if domain else base
 
 
 # Trigger-Status, die eine tatsaechliche Handlungsaufforderung fuer den
@@ -104,7 +118,7 @@ def _all_day_event(
         f"DTSTART;VALUE=DATE:{due_compact}",
         f"SUMMARY:{_ics_escape(summary)}",
         f"DESCRIPTION:{_ics_escape(description)}",
-        "CATEGORIES:5Eyes,Review,Compliance",
+        "CATEGORIES:Ares,Review,Compliance",
         "BEGIN:VALARM",
         "ACTION:DISPLAY",
         f"DESCRIPTION:{_ics_escape(summary)}",
@@ -115,7 +129,7 @@ def _all_day_event(
     return lines
 
 
-def build_ics_feed(db: Session, user: User) -> str:
+def build_ics_feed(db: Session, user: User, uid_domain: str = "") -> str:
     """Baut den .ics-Kalendertext fuer alle faelligen/bald faelligen Review-
     Trigger der Mandate, bei denen `user` aktuell der zugewiesene Berater
     ist (Client.advisor_id == user.id) -- bewusst NICHT der vollstaendige
@@ -140,10 +154,10 @@ def build_ics_feed(db: Session, user: User) -> str:
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//5Eyes WealthArchitekten//Review-Kalender//DE",
+        f"PRODID:{ICS_PRODID}",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
-        "X-WR-CALNAME:5Eyes Reviews",
+        "X-WR-CALNAME:Ares",
         "X-PUBLISHED-TTL:PT12H",
         "REFRESH-INTERVAL;VALUE=DURATION:PT12H",
     ]
@@ -154,7 +168,7 @@ def build_ics_feed(db: Session, user: User) -> str:
         client_label = " ".join(
             part for part in (client.first_name, client.last_name) if part
         ).strip() or client.client_number
-        summary = f"5Eyes Review: {trigger.trigger_name} -- {client_label}"
+        summary = f"Ares Review: {trigger.trigger_name} -- {client_label}"
         description_parts = [
             f"Mandat: {mandate.mandate_number}",
             f"Trigger-Typ: {trigger.trigger_type}",
@@ -165,7 +179,7 @@ def build_ics_feed(db: Session, user: User) -> str:
         description = " | ".join(description_parts)
         lines.extend(
             _all_day_event(
-                uid=f"5eyes-trigger-{trigger.id}@wealtharchitekten.ch",
+                uid=event_uid(trigger.id, uid_domain),
                 dtstamp=dtstamp,
                 due_date=due_date,
                 summary=summary,

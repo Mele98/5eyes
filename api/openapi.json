@@ -23499,8 +23499,8 @@
     }
   },
   "info": {
-    "description": "5Eyes WealthArchitekten — Lokale Beratungssoftware API",
-    "title": "5Eyes WealthArchitekten API",
+    "description": "Ares — Lokale Beratungssoftware API",
+    "title": "Ares API",
     "version": "1.3.0"
   },
   "openapi": "3.1.0",

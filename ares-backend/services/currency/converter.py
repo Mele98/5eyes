@@ -1,6 +1,6 @@
 """Konvertierung von Rappen-Betraegen zwischen Waehrungen.
 
-5eyes nutzt intern Rappen (CHF-Basis-Einheit, 1 CHF = 100 Rappen). Bei
+Ares nutzt intern Rappen (CHF-Basis-Einheit, 1 CHF = 100 Rappen). Bei
 Konvertierung gibt es zwei Optionen:
 - 'rappen' bleibt das Wort fuer 'subunit' (1 EUR = 100 cents = 'rappen')
   in dieser Module-Konvention. Sprich: convert_rappen(100, 'EUR', 'CHF')

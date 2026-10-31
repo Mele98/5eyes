@@ -196,14 +196,14 @@ function Landing() {
   return (
     <main className="mx-auto max-w-editorial px-page-x py-page-y">
       <p className="text-micro uppercase tracking-widest text-ink-subtle">
-        5eyes Reporting · Sub-App v0.1
+        Ares Reporting · Sub-App v0.1
       </p>
       <h1 className="mt-block font-serif text-display text-ink">
         Strategische Portfolioanalyse
       </h1>
       <p className="mt-block max-w-prose text-body text-ink-muted">
         Diese Anwendung erzeugt den institutionellen Advisory-Report eines Mandats
-        auf Basis des 5eyes-Backend-Endpoints
+        auf Basis des Ares-Backend-Endpoints
         <code className="ml-1 rounded-card bg-canvas-subtle px-2 py-0.5 text-caption">
           GET /mandates/&#123;id&#125;/advisory-report
         </code>

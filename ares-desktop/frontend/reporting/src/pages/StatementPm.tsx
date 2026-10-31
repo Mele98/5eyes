@@ -18,7 +18,7 @@ export function StatementPm({ data }: StatementPmProps) {
       nr={14}
       kicker="Statement Portfoliomanagement"
       title="Statement aus dem Portfoliomanagement"
-      subtitle="Sieben Investmentgrundsätze, die die 5eyes-Beratungs- und Verwaltungslogik leiten."
+      subtitle="Sieben Investmentgrundsätze, die die Ares-Beratungs- und Verwaltungslogik leiten."
     >
       {principles.length === 0 ? (
         <p className="italic text-caption text-ink-subtle">

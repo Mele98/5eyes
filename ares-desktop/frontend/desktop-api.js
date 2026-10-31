@@ -57,7 +57,7 @@
     return { ok: false, message: 'Desktop auto-update unavailable in browser mode.' };
   }
 
-  window.FiveEyesAPI = {
+  window.AresAPI = {
     resolveBaseUrl,
     getBackendRuntime,
     apiFetch,

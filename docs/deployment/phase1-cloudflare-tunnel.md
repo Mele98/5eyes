@@ -8,7 +8,7 @@
 
 ## Wann das genug ist
 
-- Du willst potentiellen Lizenz-Kunden 5eyes vorstellen
+- Du willst potentiellen Lizenz-Kunden Ares vorstellen
 - Demo laeuft auf deinem Laptop, Kunde sieht via Browser
 - Kein echtes Kunden-Daten-Material im System
 - Nach der Demo wird die Demo-DB geloescht oder isoliert
@@ -35,7 +35,7 @@ Auf macOS/Linux: `brew install cloudflare/cloudflare/cloudflared` oder
 
 ### 2. Backend extern erreichbar machen
 
-5eyes-Backend bindet standardmaessig auf `127.0.0.1` (nur localhost).
+Ares-Backend bindet standardmaessig auf `127.0.0.1` (nur localhost).
 Fuer Tunnel-Zugriff: auf `0.0.0.0` umstellen via `.env`-Variable:
 
 ```dotenv
@@ -59,13 +59,13 @@ In `ares-backend/.env`:
 
 ```dotenv
 CORS_ORIGINS=*
-# Production: CORS_ORIGINS=https://app.5eyes.example
+# Production: CORS_ORIGINS=https://app.ares.example
 ```
 
 ### 4. Backend starten
 
 ```powershell
-cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
+cd <Repo-Root>\ares-backend
 python main.py
 ```
 
@@ -101,7 +101,7 @@ also **kein CORS-Problem** und keine separate Frontend-Konfiguration noetig.
 https://random-words-here.trycloudflare.com/app/ares.html
 ```
 
-Der Demo-Kunde oeffnet diese URL im Browser, sieht 5eyes, loggt sich mit
+Der Demo-Kunde oeffnet diese URL im Browser, sieht Ares, loggt sich mit
 dem Demo-Account ein und kann selbststaendig testen. Das Frontend ruft die
 API automatisch same-origin (`window.location.origin`) auf — es ist NICHT
 mehr auf `127.0.0.1` hartcodiert (Browser-Hosting-Fix 2026-06-10).

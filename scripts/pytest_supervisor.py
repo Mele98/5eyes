@@ -53,8 +53,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SUPERVISOR_DIR_ENV = "FIVEEYES_SUPERVISOR_DIR"
-STRICT_ENV = "FIVEEYES_STRICT_LEAK_GUARD"
+SUPERVISOR_DIR_ENV = "ARES_SUPERVISOR_DIR"
+STRICT_ENV = "ARES_STRICT_LEAK_GUARD"
 EVENTS_FILE = "events.jsonl"
 DUMP_REQUEST_FILE = "dump-request"
 STACK_FILE_PREFIX = "stacks-"

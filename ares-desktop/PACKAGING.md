@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten — Packaging-Anleitung
+# Ares — Packaging-Anleitung
 
 > Roadmap-Punkt 6 (2026-05-29): Build-Pipeline wurde seit Sprint 11 nicht
 > mehr aktuell gehalten. Drift in `hiddenImports` und fehlender Sub-App-
@@ -23,7 +23,7 @@ preflight:release   (release-check.js: Icons, HTML, Reporting-dist, Bundle-Exe)
 build:reporting     (cd frontend/reporting && npm run build  -> dist/)
     |
     v
-build:backend       (PyInstaller im ares-backend/ -> bundle/backend/5eyes-api.exe)
+build:backend       (PyInstaller im ares-backend/ -> bundle/backend/ares-api.exe)
     |
     v
 electron-builder    (NSIS-Installer in ares-desktop/dist/)
@@ -60,17 +60,17 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
    ```bash
    cd ares-desktop
    npm run build:backend
-   ls ../ares-backend/dist/        # 5eyes-api.exe
-   ls bundle/backend/                # 5eyes-api.exe (Kopie)
+   ls ../ares-backend/dist/        # ares-api.exe
+   ls bundle/backend/                # ares-api.exe (Kopie)
    ```
 
 3. **Backend-EXE smoke-testen (vor electron-builder):**
    ```bash
-   bundle/backend/5eyes-api.exe
+   bundle/backend/ares-api.exe
    # Sollte uvicorn auf 127.0.0.1:8000 starten
    # Im zweiten Terminal:
    curl http://127.0.0.1:8000/health/ready
-   # -> {"status":"ok","app":"5Eyes WealthArchitekten API",...}
+   # -> {"status":"ok","app":"Ares API",...}
    ```
 
    **Kritischer Subtest** — Advisory-Report-PDF muss ohne ModuleNotFoundError
@@ -86,12 +86,12 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
    npm run preflight:release   # statische Checks
    npm run pack                # baut Installer-Layout ohne NSIS
    npm run dist:win            # voller NSIS-Installer
-   ls dist/                    # 5Eyes-Setup-<version>-x64.exe
+   ls dist/                    # *-Setup-<version>-x64.exe (Name gemaess artifactName)
    ```
 
 5. **Installer-Smoke:**
    - Installer doppelklicken
-   - Im Installer-Pfad: `5Eyes WealthArchitekten` -> Programm Files
+   - Im Installer-Pfad: `<productName>` (aus `package.json`) -> Programm Files
    - Desktop-Shortcut wird angelegt
    - App startet, zeigt Login-Screen
    - Login mit Test-User
@@ -109,7 +109,7 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
 | Reporting-Sub-App im Installer war veraltet oder fehlte ganz | `pack`/`dist:win` chained kein `npm run build` der Sub-App | Neues `build:reporting`-Script, in Pack/Dist-Chains eingehaengt |
 | Installer war unnoetig gross (Sub-App-Source + node_modules ungewollt mitgepackt) | `files: ["frontend/**/*"]` Wildcard | Explizite includes + Negativ-Patterns fuer src/, node_modules/, configs |
 | Veralteter Sub-App-Build wurde stillschweigend mitgepackt | release-check.js prueft nichts dazu | Check ergaenzt: `reporting/dist` muss aktueller als `reporting/src/main.tsx` sein |
-| Fehlende `bundle/backend/5eyes-api.exe` brach electron-builder im 4. Schritt | release-check warnte nicht | Check ergaenzt, mit `STRICT_RELEASE=1` als Error |
+| Fehlende `bundle/backend/ares-api.exe` brach electron-builder im 4. Schritt | release-check warnte nicht | Check ergaenzt, mit `STRICT_RELEASE=1` als Error |
 
 ---
 
@@ -140,7 +140,7 @@ jobs:
       - actions/download-artifact backend-bundle
       - cd ares-desktop && npm ci
       - STRICT_RELEASE=1 npm run dist:win
-      - actions/upload-artifact 5Eyes-Setup
+      - actions/upload-artifact <Setup-Datei>
 ```
 
 Heute laeuft noch kein CI fuer Packaging (das gehoert zur Backend-Tests-

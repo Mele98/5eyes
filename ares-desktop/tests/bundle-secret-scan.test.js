@@ -35,7 +35,7 @@ function check(name, fn) {
 }
 
 function makeTmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-bundle-secret-scan-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'ares-bundle-secret-scan-'));
 }
 
 check('leeres/nicht existentes Verzeichnis -> keine Funde', () => {
@@ -46,7 +46,7 @@ check('leeres/nicht existentes Verzeichnis -> keine Funde', () => {
 
 check('sauberer Bundle-Ordner (.exe + .env.example) -> keine Funde', () => {
   const dir = makeTmpDir();
-  fs.writeFileSync(path.join(dir, '5eyes-api.exe'), 'fake-binary-content');
+  fs.writeFileSync(path.join(dir, 'ares-api.exe'), 'fake-binary-content');
   fs.writeFileSync(path.join(dir, '.env.example'), 'SECRET_KEY=CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY\nDB_KEY=\n');
   const violations = scanForSecrets(dir);
   assert.deepStrictEqual(violations, []);

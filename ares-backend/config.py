@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import os
+import re
 import secrets
 import sys
 
@@ -28,7 +29,7 @@ DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 GOAL_WEIGHTING_MODES = ("equal", "hardness")
 # GOAL-HARDNESS-DEFAULT-001 (CIO-Entscheid 2026-10-18, Engine
 # ``saa_resampled_v7``): der Haertegrad wirkt standardmaessig. Vorher war
-# "equal" der Default (ADR-011 Entscheid 2, 3eyes-"Mittelung"), womit ein
+# "equal" der Default (ADR-011 Entscheid 2, "Mittelung" der Referenzmethodik), womit ein
 # als "hart" erfasstes Ziel rechnerisch identisch mit "primaer" war, obwohl
 # die Erfassungsmaske die Wahl anbietet. "equal" bleibt als expliziter
 # Opt-out erhalten. Begruendung: docs/planning/2026-10-18-maximize-goal-and-
@@ -126,6 +127,9 @@ def resolve_env_file() -> str:
     return '.env'
 
 
+_HOSTNAME_RE = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=resolve_env_file(),
@@ -133,7 +137,7 @@ class Settings(BaseSettings):
         extra='ignore',
     )
 
-    app_name: str = '5Eyes WealthArchitekten API'
+    app_name: str = 'Ares API'
     app_version: str = '1.3.0'
     app_env: str = 'development'
     app_host: str = '127.0.0.1'
@@ -337,7 +341,7 @@ class Settings(BaseSettings):
 
     # U-8 — DB-Backup-Strategie (PR #106).
     backup_enabled: bool = True
-    backup_dir: str = str(Path.home() / '5eyes' / 'backups')
+    backup_dir: str = str(Path.home() / 'ares' / 'backups')
     backup_retain_days: int = 30
     backup_keep_minimum: int = 3
     backup_scheduler_enabled: bool = True
@@ -351,7 +355,7 @@ class Settings(BaseSettings):
     # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
     # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
     backup_offsite_enabled: bool = False
-    # rsync-Zielangabe, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/"
+    # rsync-Zielangabe, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/"
     backup_offsite_target: str = ''
     backup_offsite_ssh_key_path: str = ''
     backup_offsite_ssh_port: int = 22
@@ -466,7 +470,13 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ''
     smtp_password: str = ''
-    smtp_from: str = '5eyes <no-reply@5eyes.local>'
+    # W4-d: kein erfundener Absender. Ohne SMTP_FROM (<ARES_NO_REPLY_EMAIL>,
+    # Owner-Wert) verschickt services/mailer.py nichts (fail-closed, klare
+    # Meldung im Log); der Invite-Flow faellt auf Link-Copy zurueck.
+    smtp_from: str = ''
+    # W4-d: kontrollierte Hauptdomain (<ARES_DOMAIN>, Owner-Wert, kein Default).
+    # Wird z.B. als Domain-Teil der ICS-UIDs verwendet; leer = UIDs ohne Domain.
+    ares_domain: str = ''
     smtp_use_tls: bool = True        # STARTTLS auf smtp_port
     smtp_timeout_seconds: int = 10
 
@@ -702,6 +712,14 @@ class Settings(BaseSettings):
             raise ValueError('backup_retain_days must be >= 0 (0 = nie aufraeumen)')
         return value
 
+    @field_validator('ares_domain')
+    @classmethod
+    def validate_ares_domain(cls, value: str) -> str:
+        value = (value or '').strip().lower()
+        if value and not _HOSTNAME_RE.fullmatch(value):
+            raise ValueError('ARES_DOMAIN muss ein reiner Hostname sein (z.B. firma.example), ohne Schema, Pfad oder @')
+        return value
+
     @field_validator('backup_keep_minimum')
     @classmethod
     def validate_backup_keep_minimum(cls, value: int) -> int:
@@ -804,6 +822,73 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# --- HTTP-Identitaet gegenueber externen Diensten -------------------------------
+# Ein einziger Ort fuer den User-Agent ausgehender Requests (Marktdaten-Provider,
+# Referenzdaten, Alert-Webhook), Format ``Ares/<version>``. Liegt hier und nicht in
+# einem eigenen Modul: die Aufrufer importieren config ohnehin (Architektur-Ratsche,
+# kein zusaetzlicher Import je Client).
+HTTP_PRODUCT_TOKEN = "Ares"
+
+
+def user_agent() -> str:
+    """``Ares/<app_version>`` fuer API-Clients und Webhooks."""
+    return f"{HTTP_PRODUCT_TOKEN}/{settings.app_version}"
+
+
+def browser_compatible_user_agent() -> str:
+    """User-Agent fuer HTML-Quellen, die einen Browser-Praefix erwarten.
+
+    Der ``Mozilla/5.0``-Praefix bleibt wie bisher erhalten; nur das
+    Produkt-Token in Klammern folgt dem ``Ares/<version>``-Format.
+    """
+    return f"Mozilla/5.0 ({user_agent()})"
+
+
+# --- Master-KEK (KEK-Vertrag v2, W4-c / AF-4) -----------------------------------
+# Startpruefung und Validierung lesen nur die Konfiguration und liegen deshalb hier:
+# main.py prueft beim Start ohne zusaetzlichen Import (Architektur-Ratsche);
+# services/tenant_crypto.py verwendet dieselben Funktionen und exportiert sie weiter.
+class TenantCryptoError(RuntimeError):
+    pass
+
+
+MISSING_KEK_MESSAGE = (
+    "TENANT_MASTER_KEK fehlt: Ares startet nicht ohne eigene Master-KEK. "
+    "Einen Fernet-Key erzeugen (python -c \"from cryptography.fernet import "
+    "Fernet; print(Fernet.generate_key().decode())\") und als "
+    "TENANT_MASTER_KEK in der Konfiguration setzen; eine Bestandsinstallation "
+    "bringt ihn aus der Zielkonfiguration des Migrators mit."
+)
+
+
+def configured_master_kek() -> str:
+    """Einzige Konfigurationsquelle der Master-KEK: ``settings.tenant_master_kek``."""
+    return str(getattr(settings, "tenant_master_kek", "") or "").strip()
+
+
+def validate_master_kek(raw: str | bytes) -> None:
+    """Fail-closed: kein Rueckfall auf SECRET_KEY oder einen Platzhalter."""
+    value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+    if not value.strip():
+        raise TenantCryptoError(MISSING_KEK_MESSAGE)
+    if value == DEFAULT_SECRET_KEY:
+        raise TenantCryptoError(
+            "TENANT_MASTER_KEK ist der oeffentliche Platzhalter aus dem Quellcode "
+            "und damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    secret_key = str(getattr(settings, "secret_key", "") or "")
+    if secret_key and value == secret_key:
+        raise TenantCryptoError(
+            "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
+            "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
+        )
+
+
+def require_master_kek() -> None:
+    """Startpruefung (Lifespan): ohne gueltige Master-KEK startet Ares nicht."""
+    validate_master_kek(configured_master_kek())
 
 
 # ---------------------------------------------------------------------------
