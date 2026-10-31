@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from 'react';
 import { ApiError } from './client';
+import { AUTH_TOKEN_STORAGE_KEY } from './tokenKey';
 
 export type UserRole = 'admin' | 'advisor' | 'readonly' | 'unknown';
 
@@ -35,13 +36,7 @@ async function resolveAuthToken(): Promise<string | null> {
     /* dev fallback */
   }
   try {
-    const t = window.sessionStorage.getItem('5eyes_token');
-    if (t) return t;
-  } catch {
-    /* hardened */
-  }
-  try {
-    const t = window.localStorage.getItem('5eyes_token');
+    const t = window.sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
     if (t) return t;
   } catch {
     /* hardened */

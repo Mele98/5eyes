@@ -12,7 +12,7 @@ import {
 import type { CashflowCreatePayload } from './types';
 
 const fetchMock = vi.fn();
-const STORAGE_KEY = '5eyes_token';
+const STORAGE_KEY = 'ares.token';
 
 function jsonResponse(body: unknown, init: { ok?: boolean; status?: number } = {}): Response {
   return {
