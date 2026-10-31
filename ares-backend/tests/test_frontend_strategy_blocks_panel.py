@@ -209,7 +209,7 @@ var document={
 function escapeHtml(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 var currentPersona=null;
 var allocationPreferencesCache={};
-var allocationPreferenceStoragePrefix='5eyes.allocprefs.';
+var allocationPreferenceStoragePrefix='ares.allocprefs.';
 var strategyState={dirty:false,allocation:null};
 function getAllocationPreferenceKey(){return 'mandate:M1';}
 function hasCanonicalBandBaseline(){return false;}
