@@ -10595,7 +10595,7 @@ function downloadEventCalendarFile(eventType,eventDate,details){
   var iso=String(eventDate||new Date().toISOString().slice(0,10));
   var stamp=iso.replace(/-/g,'');
   var text=String(details||'').trim()||'Ereignis-Trigger ausgeloest. Bitte Review-Gespraech planen.';
-  var ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//5Eyes WealthArchitekten//DE\r\nBEGIN:VEVENT\r\nUID:'+stamp+'-5eyes@wealtharchitekten.ch\r\nDTSTAMP:'+stamp+'T080000Z\r\nDTSTART:'+stamp+'T090000Z\r\nDTEND:'+stamp+'T100000Z\r\nSUMMARY:Ares Review: '+eventType+'\r\nDESCRIPTION:'+text.replace(/\n/g,' ')+'\r\nCATEGORIES:Ares,Review,Compliance\r\nPRIORITY:1\r\nEND:VEVENT\r\nEND:VCALENDAR';
+  var ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Ares//Advisory Calendar//DE\r\nBEGIN:VEVENT\r\nUID:'+stamp+'-ares\r\nDTSTAMP:'+stamp+'T080000Z\r\nDTSTART:'+stamp+'T090000Z\r\nDTEND:'+stamp+'T100000Z\r\nSUMMARY:Ares Review: '+eventType+'\r\nDESCRIPTION:'+text.replace(/\n/g,' ')+'\r\nCATEGORIES:Ares,Review,Compliance\r\nPRIORITY:1\r\nEND:VEVENT\r\nEND:VCALENDAR';
   var blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -11187,7 +11187,7 @@ function protokolliereEreignis(){
   var typVal=typ?typ.value:'Ereignis';
   var datVal=datum?datum.value.replace(/-/g,''):new Date().toISOString().slice(0,10).replace(/-/g,'');
   // Generate .ics file
-  var ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//5Eyes WealthArchitekten//DE\r\nBEGIN:VEVENT\r\nUID:'+datVal+'-5eyes@wealtharchitekten.ch\r\nDTSTAMP:'+datVal+'T080000Z\r\nDTSTART:'+datVal+'T090000Z\r\nDTEND:'+datVal+'T100000Z\r\nSUMMARY:Ares Review: '+typVal+'\r\nDESCRIPTION:Ereignis-Trigger ausgeloest. Bitte Review-Gespraesch planen.\r\nCATEGORIES:Ares,Review,Compliance\r\nPRIORITY:1\r\nEND:VEVENT\r\nEND:VCALENDAR';
+  var ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Ares//Advisory Calendar//DE\r\nBEGIN:VEVENT\r\nUID:'+datVal+'-ares\r\nDTSTAMP:'+datVal+'T080000Z\r\nDTSTART:'+datVal+'T090000Z\r\nDTEND:'+datVal+'T100000Z\r\nSUMMARY:Ares Review: '+typVal+'\r\nDESCRIPTION:Ereignis-Trigger ausgeloest. Bitte Review-Gespraesch planen.\r\nCATEGORIES:Ares,Review,Compliance\r\nPRIORITY:1\r\nEND:VEVENT\r\nEND:VCALENDAR';
   var blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);

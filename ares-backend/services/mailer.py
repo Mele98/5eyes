@@ -58,6 +58,31 @@ def mail_configured() -> bool:
     )
 
 
+MISSING_SENDER_MESSAGE = (
+    "E-Mail nicht versendet: SMTP_FROM fehlt. Es gibt keinen eingebauten "
+    "Absender; die freigegebene Absenderadresse (Owner-Wert) als SMTP_FROM "
+    "konfigurieren. Bis dahin faellt der Aufrufer auf Link-Copy zurueck."
+)
+
+
+def _sender_missing() -> bool:
+    """SMTP ist eingeschaltet und hat einen Host, aber keinen Absender."""
+    return bool(
+        getattr(settings, "smtp_enabled", False)
+        and str(getattr(settings, "smtp_host", "")).strip()
+        and not str(getattr(settings, "smtp_from", "") or "").strip()
+    )
+
+
+def _not_configured() -> bool:
+    """True = nicht senden. Ein fehlender Absender wird laut gemeldet
+    (fail-closed mit klarer Meldung statt eines erfundenen Absenders)."""
+    if _sender_missing():
+        logger.error(MISSING_SENDER_MESSAGE)
+        return True
+    return not mail_configured()
+
+
 def _send(msg: EmailMessage) -> bool:
     host = str(settings.smtp_host).strip()
     port = int(getattr(settings, "smtp_port", 587) or 587)
@@ -103,7 +128,7 @@ def send_invite_email(to_email: str | None, full_name: str, invite_link: str) ->
     """Versendet die Einladung. Liefert True nur bei tatsaechlichem Versand,
     sonst False (nicht konfiguriert, keine Adresse, oder Versandfehler) —
     der Aufrufer zeigt dann den Link zum manuellen Versenden."""
-    if not mail_configured():
+    if _not_configured():
         return False
     to_email = (to_email or "").strip()
     if not to_email or not _is_safe_single_recipient(to_email):
@@ -135,7 +160,7 @@ def send_password_reset_email(to_email: str | None, full_name: str, reset_link: 
     """Versendet die Passwort-Reset-Mail. True nur bei tatsaechlichem Versand
     (sonst False — der Aufrufer gibt aus Sicherheitsgruenden trotzdem eine
     generische Erfolgsmeldung zurueck, um Konto-Enumeration zu verhindern)."""
-    if not mail_configured():
+    if _not_configured():
         return False
     to_email = (to_email or "").strip()
     if not to_email or not _is_safe_single_recipient(to_email):
