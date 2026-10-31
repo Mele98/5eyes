@@ -5,6 +5,7 @@
   "main": "main.js",
   "author": "OpenAI build skeleton",
   "license": "UNLICENSED",
+  "private": true,
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
