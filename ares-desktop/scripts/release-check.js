@@ -2,6 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const { evaluateBuildGate } = require('../update-gate.js');
 
+// W2-804-03: Ares wird nur fuer Windows ausgeliefert. Ausserhalb von Windows
+// sofort abbrechen, statt die uebrigen Pruefungen gegen ein Windows-Bundle
+// (Backend-EXE, .ico-Ressourcen) laufen zu lassen.
+if (process.platform !== 'win32') {
+  console.log('Release-Preflight für Ares');
+  console.error(
+    `FEHLER: Ares wird nur fuer Windows ausgeliefert; Release-Preflight auf Plattform '${process.platform}' nicht unterstuetzt.`
+  );
+  process.exit(1);
+}
+
 const projectRoot = path.resolve(__dirname, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
 const strict = process.env.STRICT_RELEASE === '1';

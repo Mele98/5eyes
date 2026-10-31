@@ -1,120 +1,63 @@
-# Multi-Platform Build (Windows / macOS / Linux)
+# Plattformumfang des Desktop-Builds
 
-Konfiguration und Workflow fuer plattformuebergreifende Electron-Builds.
+Ares wird nur fuer Windows ausgeliefert.
 
-**Stand:** 2026-06-06
-**Roadmap-Punkt:** #108 (OPS, ~4h)
-**Komplementaer zu:** [AUTO_UPDATE.md](AUTO_UPDATE.md) (#65),
-[RELEASE_TAGS.md](RELEASE_TAGS.md)
+**Stand:** 2026-10-31
+**Entscheid:** W2-804-03 (Owner-Default: Windows-only)
+**Komplementaer zu:** [AUTO_UPDATE.md](AUTO_UPDATE.md),
+[CODE_SIGNING.md](CODE_SIGNING.md), [RELEASE_TAGS.md](RELEASE_TAGS.md)
 
 ---
 
-## Targets
+## Unterstuetzte Targets
 
-| Platform | Format | Architekturen | Script |
-|----------|--------|---------------|--------|
-| Windows | NSIS-Setup + Portable EXE | x64 | `npm run dist:win` / `dist:win:portable` |
-| macOS | DMG | x64 + arm64 (Universal) | `npm run dist:mac` |
-| Linux | AppImage | x64 | `npm run dist:linux` |
+| Platform | Format | Architektur | Script |
+|----------|--------|-------------|--------|
+| Windows 10/11 | NSIS-Setup | x64 | `npm run dist:win` |
+| Windows 10/11 | Portable EXE | x64 | `npm run dist:win:portable` |
 
-Alle 3 nutzen das gleiche `build:backend`-Pre-Step (PyInstaller-EXE
-gebuendelt via `scripts/build-backend.js`).
+`npm run pack` erzeugt nur das entpackte Staging-Verzeichnis (`--dir`) fuer
+lokale Pruefungen auf einem Windows-Host.
 
-## Voraussetzungen
+Alle Ketten laufen ueber `preflight:release` -> `build:reporting` ->
+`build:backend` -> `scan:bundle-secrets` -> `electron-builder`. Das
+gebuendelte Backend ist genau ein natives Artefakt, die PyInstaller-EXE
+`ares-api.exe` (Vertrag: `ares-backend/tests/test_backend_exe_name_contract.py`).
 
-### Windows
-- Windows 10/11 oder Wine + Mono auf Linux
-- Code-Signing-Cert (siehe #109)
-- NSIS-Installer-Build via electron-builder
+## Nicht unterstuetzt: macOS und Linux
 
-### macOS
-- macOS-Host (electron-builder benoetigt native macOS-Tools fuer DMG)
-- Apple Developer Cert + Notarization fuer Distribution
-- arm64-Cross-Build via Rosetta moeglich
+Frueher waren zusaetzlich macOS- und Linux-Targets konfiguriert. Sie besassen
+nie einen nativen Backend-Pfad: Build, Bundle, Preflight und App-Start haetten
+dieselbe Windows-EXE erwartet. Diese Targets sind entfernt. Statt still zu
+scheitern, brechen ausserhalb von Windows sofort mit klarer Meldung ab:
 
-### Linux
-- Linux-Host (Ubuntu/Debian empfohlen)
-- AppImageKit zur Laufzeit gebuendelt
-- Keine Code-Signing-Pflicht, aber AppArmor/SELinux beachten
+- `scripts/build-backend.js` (vor jedem Loeschen von Build-Ordnern und vor
+  PyInstaller),
+- `scripts/release-check.js` (Release-Preflight),
+- `main.js` beim Start einer gepackten App (Dialog "App-Start
+  fehlgeschlagen").
 
-## CI-Build-Matrix (Folge-Sprint)
+Der Entwicklungsmodus (`npm start` mit `python main.py`) bleibt davon
+unberuehrt; er ist kein Release-Pfad.
 
-GitHub Actions `release.yml` (Vorschlag, NICHT in U-108 enthalten):
+Wer macOS oder Linux spaeter liefern will, braucht einen eigenen Entscheid
+mit nativen Backend-Namen, Dateirechten, Ressourcenlayout, Signierung und
+Build-/Start-/Readiness-/Shutdown-Smokes pro Plattform. Ein reines
+Wiedereinfuegen von Scripts oder Builder-Bloecken scheitert am Vertragstest
+`ares-backend/tests/test_desktop_windows_only_contract.py`.
 
-```yaml
-jobs:
-  build:
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-      - run: npm ci
-      - run: npm run dist:${{ matrix.os }}
-      - uses: actions/upload-artifact@v4
-```
+## Auto-Update
 
-Heute NICHT in CI weil:
-- macOS-Runner ist 10x teurer als Linux
-- Code-Signing-Secrets-Handling out-of-scope (#109)
-- Release-Cadence noch zu klein fuer Multi-Platform-Auto-Build
+`electron-updater` verwendet nur den Windows-Feed (`latest.yml`), siehe
+[AUTO_UPDATE.md](AUTO_UPDATE.md). Das Build-Gate bleibt fail-closed.
 
-## Manueller Multi-Platform-Build heute
+## Code-Signing
 
-```powershell
-# Windows (auf Win11)
-cd ares-desktop
-npm ci
-npm run dist:win
-
-# macOS (auf macOS-Host)
-cd ares-desktop
-npm ci
-npm run dist:mac
-
-# Linux (auf Ubuntu)
-cd ares-desktop
-npm ci
-npm run dist:linux
-```
-
-Output landet unter `ares-desktop/dist/`:
-- `5Eyes-0.4.0-x64.exe` (NSIS-Setup)
-- `5Eyes-0.4.0-x64.dmg` (macOS)
-- `5Eyes-0.4.0-x64.AppImage` (Linux)
-
-## Auto-Update Multi-Platform
-
-Auto-Update funktioniert via `electron-updater` ueber den
-`generic`-Provider — gleicher URL fuer alle 3 Plattformen, aber pro
-Platform eigene `latest-*.yml`:
-
-- `latest.yml` (Windows)
-- `latest-mac.yml`
-- `latest-linux.yml`
-
-Berater stellt alle 3 + ihre Setup-Binaries unter den gleichen
-`https://updates.5eyes.local/` Endpoint.
-
-## Bewusst NICHT in Scope (U-108)
-
-- CI-Build-Matrix fuer alle 3 Plattformen (separater Sprint mit
-  Secrets-Management)
-- Notarization fuer macOS (braucht Apple-Dev-Account)
-- Snap/Flatpak fuer Linux (heute nur AppImage)
-- Universal-Binary fuer macOS (heute x64+arm64 als separate DMGs)
-- ARM64-Linux (heute nur x64)
-
-## Folge-Sprints
-
-- **#109** Code-Signing-Cert beschaffen + Windows-Cert-Pipeline
-- **#65 Folge:** Auto-Update Multi-Platform Smoke-Test
-- CI-Build-Matrix in `.github/workflows/release.yml`
+Relevant ist nur das Windows-Authenticode-Zertifikat, siehe
+[CODE_SIGNING.md](CODE_SIGNING.md).
 
 ## Weiterfuehrendes
 
-- [electron-builder Multi-Platform docs](https://www.electron.build/multi-platform-build)
-- `ares-desktop/PACKAGING.md` — Build-Pipeline-Diagramm
+- `ares-desktop/PACKAGING.md` — Build-Pipeline
+- `ares-desktop/WINDOWS_RELEASE.md` — Windows-Release-Ablauf
 - `docs/AUTO_UPDATE.md` — Auto-Update-Workflow
