@@ -65,6 +65,7 @@ ALLOWED_SUBDIRS: dict[str, frozenset[str]] = {
             "assets",
             "config",
             "core",
+            "jurisdictions",
             "migrations",
             "models",
             "routers",
