@@ -384,7 +384,6 @@
     "services.pdf.components.saa_donut": ["services.pdf.components.header", "services.pdf.styles"],
     "services.pdf.components.single_report_disclaimer": ["services.pdf.base", "services.pdf.components.header", "services.pdf.fonts", "services.pdf.styles"],
     "services.pdf.components.sollist_vergleich": ["services.pdf.components.header", "services.pdf.components.swiss_numbers", "services.pdf.styles"],
-    "services.pdf.components.static_texts": ["jurisdictions.documents"],
     "services.pdf.components.stress_table": ["services.pdf.components.header", "services.pdf.styles"],
     "services.pdf.components.table": ["services.pdf.styles"],
     "services.pdf.components.table_of_contents": ["services.pdf.components.advisory_palette"],

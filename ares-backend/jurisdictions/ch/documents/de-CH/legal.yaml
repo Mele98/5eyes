@@ -1,7 +1,6 @@
 # CH-Laenderpaket, Schritt X3 (DocumentSet), Locale de-CH.
 #
-# Rechtstexte: PDF-Fusszeile (services/pdf/components/footer.py) und
-# Disclaimer des Anlagestrategie-Berichts (services/pdf/components/static_texts.py).
+# Rechtstexte: PDF-Fusszeile (services/pdf/components/footer.py).
 #
 # Byte-gleich aus den bisherigen Konstanten uebernommen; Nachweis in
 # tests/test_jurisdiction_document_set.py (Digest je Schluessel, vorher == nachher).
@@ -10,9 +9,3 @@
 namespace: "legal"
 texts:
   "footer.disclaimer": "Dieses Dokument wurde in Übereinstimmung mit dem Bundesgesetz über die Finanzdienstleistungen (FIDLEG) erstellt. Es dient der Dokumentation der Anlageberatung und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
-  "disclaimer.title": "Disclaimer"
-  "disclaimer.paragraphs":
-  - "Der Baustein «Ihre persönliche Anlagestrategie» ist Bestandteil des Vermögensverwaltungsauftrags. Der Baustein «Ihre persönliche Ausgangslage» ist nicht Vertragsbestandteil und dokumentiert lediglich Ihre Angaben sowie unsere Einschätzung und Empfehlung. Es wird keine Garantie für die Richtigkeit unserer Angaben und die Erreichbarkeit der Ziele übernommen. Dieses Dokument wurde mit grösstmöglicher Sorgfalt und nach bestem Wissen und Gewissen erstellt. Es bietet jedoch keine Gewähr für Inhalt und Vollständigkeit und keine Haftung für Verluste, die aus der Nutzung dieser Informationen entstehen. Die hierin enthaltenen Informationen sind nicht als Anlageberatung im rechtlichen Sinne zu verstehen, soweit nicht gesondert vereinbart."
-  - "Dieses Dokument enthält zukunftsgerichtete Aussagen, welche unsere Einschätzung und Erwartungen zu einem bestimmten Zeitpunkt ausdrücken. Verschiedene Risiken, Unsicherheiten und andere Einflussfaktoren können dazu führen, dass die tatsächlichen Entwicklungen und Resultate sich von unseren Erwartungen deutlich unterscheiden. Erträge und Wert von Fondsanteilen können sinken oder steigen; ein Totalverlust des angelegten Kapitals ist nicht auszuschliessen. Historische Wertentwicklungen sind keine ausreichende Basis für die Prognose zukünftiger Wert- und Preisentwicklungen."
-  - "Die regulatorischen Unterlagen der in den Portfolios enthaltenen kollektiven Kapitalanlagen (wie Prospekt, Fondsvertrag, Basisinformationsblatt und neuester Jahres- bzw. Halbjahresbericht) sind kostenlos in gedruckter oder elektronischer Form über die im Cover-Bereich angegebene Kontaktadresse erhältlich sowie bei den jeweiligen Schweizer Fondsleitungen und bei Fonds mit Sitz im Ausland bei den jeweiligen Vertretern in der Schweiz."
-  - "Die in diesem Dokument enthaltenen Informationen richten sich ausschliesslich an Personen mit Wohnsitz in der Schweiz. Die aufgeführten Produkte und kollektiven Kapitalanlagen dürfen weder von Personen, die gemäss US-Steuerrecht als US-Personen gelten, noch von Personen, die aus einem anderen Grund dem US-Steuerrecht unterstehen, direkt oder indirekt erworben oder auf diese übertragen werden."

@@ -69,7 +69,6 @@ const jurisdictionPackManifests = [
   'jurisdictions/ch/pack.yaml',
   'jurisdictions/ch/documents/de-CH/cost_disclosure.yaml',
   'jurisdictions/ch/documents/de-CH/legal.yaml',
-  'jurisdictions/ch/documents/de-CH/strategy_report.yaml',
 ];
 
 // W1-803-03: Die Reporting-Sub-App wird in die EXE eingebettet (Ziel
