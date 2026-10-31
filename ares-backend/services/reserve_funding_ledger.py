@@ -41,9 +41,9 @@ Zerlegung von ``E`` (Policy ``need_first_pro_rata_v1``):
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass, field, replace
+
+from core.evidence import SCHEME_V1_ASCII, evidence_hash
 
 RESERVE_FUNDING_LEDGER_VERSION = "reserve_funding_ledger_v1"
 RESERVE_RELEASE_POLICY_VERSION = "need_first_pro_rata_source_bound_v1"
@@ -112,9 +112,7 @@ class ReserveFundingLedgerV1:
 
 def _hash_payload(payload: dict) -> str:
     payload = {key: value for key, value in payload.items() if key != "contract_hash"}
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1_ASCII)
 
 
 def ledger_contract_hash(ledger: ReserveFundingLedgerV1) -> str:

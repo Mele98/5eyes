@@ -43,6 +43,7 @@ from sqlalchemy import func, inspect as sa_inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from core.evidence import SCHEME_V1_ASCII, canonical_json
 from database import Base, new_uuid
 from models.privacy import (
     PrivacyErasureCase,
@@ -106,7 +107,7 @@ def _iso(now: datetime) -> str:
 
 
 def _canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return canonical_json(value, scheme=SCHEME_V1_ASCII)
 
 
 def _sha256(value: str) -> str:

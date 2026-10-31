@@ -36,10 +36,11 @@ V1-Hashvertrag verifizierbar und gueltig; die Erasure meldet ihn
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
+
+from core.evidence import canonical_json, evidence_hash
 
 SCHEMA_VERSION = "FinancialCoverageAttestationV2"
 SCHEMA_VERSION_V1 = "FinancialCoverageAttestationV1"
@@ -130,7 +131,7 @@ def _value(obj: Any, name: str) -> Any:
 
 
 def _canonical(payload: Any) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return canonical_json(payload)
 
 
 def attestation_payload(attestation: Any) -> dict[str, Any]:
@@ -141,7 +142,7 @@ def attestation_payload(attestation: Any) -> dict[str, Any]:
 
 
 def compute_attestation_hash(attestation: Any) -> str:
-    return hashlib.sha256(_canonical(attestation_payload(attestation)).encode("utf-8")).hexdigest()
+    return evidence_hash(attestation_payload(attestation))
 
 
 def verify_attestation(attestation: Any) -> bool:
@@ -155,7 +156,7 @@ def fingerprint_cashflows(rows: Iterable[Any]) -> tuple[str, int]:
         ([_value(row, name) for name in _FINGERPRINT_FIELDS] for row in rows),
         key=lambda item: str(item[0]),
     )
-    digest = hashlib.sha256(_canonical(items).encode("utf-8")).hexdigest()
+    digest = evidence_hash(items)
     return digest, len(items)
 
 

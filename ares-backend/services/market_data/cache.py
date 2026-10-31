@@ -16,13 +16,14 @@ Defensive: bei korruptem JSON oder DB-Fehler wird der Cache umgangen
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from datetime import date as Date
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Callable, ContextManager
+
+from core.evidence import SCHEME_V1_ASCII, evidence_hash
 
 from .aggregator import MarketDataAggregator
 from .base import Bar, ProductInfo
@@ -104,8 +105,7 @@ def _dict_to_product(d: dict) -> ProductInfo:
 # --------------------------------------------------------------------------- #
 def _hash_args(args: dict) -> str:
     """Stabiler SHA-256 ueber JSON-Args (sortierte Keys)."""
-    payload = json.dumps(args, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return evidence_hash(args, scheme=SCHEME_V1_ASCII)
 
 
 def _now_utc_iso() -> str:

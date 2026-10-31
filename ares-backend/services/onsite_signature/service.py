@@ -33,6 +33,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.evidence import canonical_json
 from models.mandates import Mandate
 from models.onsite_signature import (
     OnsiteSignatureChallenge,
@@ -150,7 +151,7 @@ class Transaction:
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
 
 def _canonical(data: Mapping[str, Any]) -> str:
-    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return canonical_json(data)
 
 
 def _sha256(value: str) -> str:

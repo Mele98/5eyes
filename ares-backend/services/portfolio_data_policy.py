@@ -14,12 +14,12 @@ liefert dieselbe Auswertung, aber nur als sichtbare Warnung
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from services.bank_calendar import BankCalendar, calendar_for_id
 
 POLICY_SCHEMA = "ares.portfolio-data-policy/v1"
@@ -58,7 +58,7 @@ def _default_policy_path() -> Path:
 
 
 def _canonical(payload) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return canonical_json(payload, scheme=SCHEME_V1_ASCII)
 
 
 def _non_negative_int(value, name: str) -> int:
@@ -202,7 +202,7 @@ def parse_portfolio_data_policy(data) -> PortfolioDataPolicy:
         aggregate_tolerance_major_units=_non_negative_int(
             recon["aggregate_tolerance_major_units"], "aggregate_tolerance_major_units",
         ),
-        policy_hash=hashlib.sha256(_canonical(data).encode("utf-8")).hexdigest(),
+        policy_hash=evidence_hash(data, scheme=SCHEME_V1_ASCII),
     )
 
 

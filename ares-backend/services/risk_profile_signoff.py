@@ -31,7 +31,6 @@ Jetzt:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -42,6 +41,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
+from core.evidence import evidence_hash
 from services.audit import log
 
 SCHEMA_VERSION_V1 = "RiskProfileSignoffV1"
@@ -171,8 +171,7 @@ def _value(obj: Any, name: str) -> Any:
 
 
 def _sha256(payload: Any) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return evidence_hash(payload)
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,7 @@ from typing import Iterable
 import numpy as np
 from scipy.optimize import OptimizeResult, differential_evolution, minimize
 
+from core.evidence import SCHEME_V1_ASCII, canonical_json
 from services.return_moments import ReturnMomentError
 
 from .allocation_intent import (
@@ -1726,7 +1727,7 @@ def goal_economic_fingerprint(
             )
             for name, value in raw.items()
         }
-        rows.append(json.dumps(row, sort_keys=True, separators=(",", ":")))
+        rows.append(canonical_json(row, scheme=SCHEME_V1_ASCII))
     return sorted(rows)
 
 
