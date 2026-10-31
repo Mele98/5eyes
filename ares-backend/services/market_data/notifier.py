@@ -33,7 +33,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from services.http_identity import user_agent
+from config import user_agent
 
 logger = logging.getLogger(__name__)
 

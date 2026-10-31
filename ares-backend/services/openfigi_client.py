@@ -4,8 +4,7 @@ import json
 from typing import Any
 from urllib.request import Request, urlopen
 
-from config import settings
-from services.http_identity import user_agent
+from config import settings, user_agent
 
 
 OPENFIGI_MAPPING_URL = "https://api.openfigi.com/v3/mapping"
