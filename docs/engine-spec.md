@@ -1,4 +1,4 @@
-# 5eyes Engine Specification — Mathematische Grundlage
+# Ares Engine Specification — Mathematische Grundlage
 
 **Status:** Living Document
 **Version:** 2.0.0 (2026-08-11, momententreue Return-/Foundation-Methodik)
@@ -508,7 +508,7 @@ Bei zwei Solutions mit objective-Differenz < 5%:
 - Bevorzuge weniger riskante (niedrigere `risky_fraction`)
 - Bevorzuge weniger Equity
 
-**3eyes-Philosophie:** "So viel Risiko wie noetig, aber bei gleichwertiger Zielerreichung die defensivere Allokation."
+**Grundsatz:** "So viel Risiko wie noetig, aber bei gleichwertiger Zielerreichung die defensivere Allokation."
 
 **Code:** Zeile 1000-1015
 
@@ -580,7 +580,7 @@ Berechnet POST-Optimization End-Wealth in jedem Pfad. Berater sieht "wie haette 
 | Stress-Szenarien | Nur 3 historische Pfade hart-codiert     | Spaeter (faktorisiert)   |
 | Yield-Curve | Nelson-Siegel nur fuer Bonds-Bucket          | OK fuer 5-Bucket-Welt    |
 
-Diese Vereinfachungen sind **bewusste Scope-Entscheidungen**, nicht Bugs. Roadmap in `[[5eyes-engine-hardening-plan-p1-bis-p5]]`.
+Diese Vereinfachungen sind **bewusste Scope-Entscheidungen**, nicht Bugs.
 
 ---
 
