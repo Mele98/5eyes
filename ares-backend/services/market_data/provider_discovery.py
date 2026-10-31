@@ -13,13 +13,15 @@ Externe Pakete deklarieren in ihrer pyproject.toml:
 
 Beim Boot scannt Ares diese Entry-Group, instanziiert jeden Provider und
 fuegt ihn in die Aggregator-Cascade ein. Konformanz-Check (vor Aufnahme):
-- Provider hat einen `name` (str, nicht leer, kollisionsfrei)
+- Provider hat einen `name` (str, nicht leer; Kollisionen prueft die Factory)
 - Provider erbt von MarketDataProvider
 - Provider liefert ein lookup_isin / get_history / get_eod via Method-
   Existenz-Pruefung
 
 Provider die nicht-konform sind werden mit logger.warning skipped, NICHT
-geraised — damit ein kaputtes Drittpaket nicht den Boot abbricht.
+geraised — damit ein kaputtes, NICHT konfiguriertes Drittpaket nicht den
+Boot abbricht. Ist ein solcher Provider in MARKET_DATA_PROVIDERS explizit
+konfiguriert, lehnt die Factory (``provider_registry``) ihn hart ab.
 """
 from __future__ import annotations
 
@@ -59,7 +61,8 @@ def discover_external_providers() -> list[MarketDataProvider]:
     Returns:
         Liste von MarketDataProvider-Instanzen, default-konstruiert.
         Kollidierende Provider-Names (mehrere mit `name='bloomberg'`)
-        werden nach First-Wins behandelt + warning geloggt.
+        werden geloggt und unveraendert zurueckgegeben; die Factory
+        (``provider_registry``) lehnt sie als Kollision hart ab.
     """
     found: list[MarketDataProvider] = []
     seen_names: set[str] = set()
@@ -107,12 +110,13 @@ def discover_external_providers() -> list[MarketDataProvider]:
             )
             continue
         if provider_name in seen_names:
+            # Kein First-Wins mehr (W2-804-02): beide Instanzen gehen an die
+            # Factory, die doppelte Namen als Kollision hart ablehnt.
             logger.warning(
-                "Provider-Discovery: Provider-Name %r bereits vergeben "
-                "(Entry-Point %r). First-Wins, second skipped.",
+                "Provider-Discovery: Provider-Name %r mehrfach vergeben "
+                "(Entry-Point %r). Die Factory lehnt die Kollision ab.",
                 provider_name, ep.name,
             )
-            continue
         seen_names.add(provider_name)
         found.append(instance)
         logger.info(

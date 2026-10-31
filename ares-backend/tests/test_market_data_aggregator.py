@@ -315,15 +315,18 @@ def test_factory_includes_alphavantage_with_key():
     assert names == ["yfinance", "stooq", "alphavantage"]
 
 
-def test_factory_skips_unknown_provider_name():
+def test_factory_rejects_unknown_provider_name():
+    """W2-804-02: ein explizit genannter, unbekannter Provider wird nicht
+    mehr still uebersprungen (fail-closed statt stiller Quellenwechsel)."""
+    from services.market_data.factory import ProviderConfigurationError
+
     fake_settings = SimpleNamespace(
         market_data_providers="yfinance,doesnotexist,stooq",
         alphavantage_api_key=None,
         market_data_unhealthy_ttl_seconds=300,
     )
-    agg = build_default_aggregator(settings=fake_settings)
-    names = [p.name for p in agg.providers]
-    assert names == ["yfinance", "stooq"]
+    with pytest.raises(ProviderConfigurationError, match="doesnotexist"):
+        build_default_aggregator(settings=fake_settings)
 
 
 def test_factory_falls_back_when_no_providers_configured():
