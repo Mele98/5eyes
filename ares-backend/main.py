@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
+from config import TenantCryptoError, require_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import MaxBodySizeMiddleware, RequestContextMiddleware
 from database import init_db
@@ -85,8 +85,6 @@ async def lifespan(app: FastAPI):
     )
     # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
     # kein Rueckfall auf SECRET_KEY oder einen Platzhalter).
-    from services.tenant_crypto import TenantCryptoError, require_master_kek
-
     try:
         require_master_kek()
     except TenantCryptoError as exc:
