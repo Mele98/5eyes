@@ -50,12 +50,12 @@ Der Admin kann im Admin-Modal die gespeicherten Audit-Log-Einträge einsehen: we
 ## Betroffene Module / Dateien
 
 - **Backend:**
-  - `5eyes-backend/schemas/review.py` — neue Schemas `AuditLogEntry`, `AuditLogPage`
-  - `5eyes-backend/routers/system.py` — neuer Endpoint `GET /admin/audit-log`
-  - `5eyes-backend/tests/test_audit_log_viewer.py` — neue Testdatei (neu anlegen)
-  - `5eyes-backend/tests/test_runtime_contracts.py` — neuer Route-Eintrag
+  - `ares-backend/schemas/review.py` — neue Schemas `AuditLogEntry`, `AuditLogPage`
+  - `ares-backend/routers/system.py` — neuer Endpoint `GET /admin/audit-log`
+  - `ares-backend/tests/test_audit_log_viewer.py` — neue Testdatei (neu anlegen)
+  - `ares-backend/tests/test_runtime_contracts.py` — neuer Route-Eintrag
 - **Frontend:**
-  - `5eyes-electron/frontend/5eyes_v2.html` — Audit-Log-Abschnitt im Admin-Modal
+  - `ares-desktop/frontend/ares.html` — Audit-Log-Abschnitt im Admin-Modal
 - **Datenmodell:** Keine Änderung
 
 ## API / Schnittstellen
@@ -217,7 +217,7 @@ Im Admin-Modal (`<div id="m-admin">`) im `<div class="mbody">` — **neuer Absch
 
 ## Testfälle
 
-**Neue Datei: `5eyes-backend/tests/test_audit_log_viewer.py`**
+**Neue Datei: `ares-backend/tests/test_audit_log_viewer.py`**
 
 Fixture-Pattern: analog `test_user_management.py` — `session_factory`, `admin_client`, `forbidden_client`.
 
@@ -269,7 +269,7 @@ class AuditLogPage(BaseModel):
 
 Vollständige Implementierung gemäss API-Abschnitt oben. Route-Prefix ist `/admin/system` — der neue Endpoint wird also unter `/admin/system/audit-log` erreichbar. Das ist korrekt so (kein neues Prefix nötig).
 
-### `5eyes-electron/frontend/5eyes_v2.html`
+### `ares-desktop/frontend/ares.html`
 
 **HTML-Block** im Admin-Modal `<div class="mbody">` (den es bereits hat, mit `id="m-admin"`), **als erster** neuer Abschnitt oben im `mbody`, VOR dem bestehenden Marktdaten-Block.
 

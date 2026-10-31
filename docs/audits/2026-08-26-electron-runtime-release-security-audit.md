@@ -4,8 +4,8 @@ document_role: "release-blocking-electron-runtime-and-artifact-security-followup
 status_as_of: "2026-08-26"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
-desktop_root: "5eyes-electron"
+backend_root: "ares-backend"
+desktop_root: "ares-desktop"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "632a7fa6778844adc37a51e11da9d2ae13bfed27"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -93,7 +93,7 @@ allein schließt keinen dieser Verträge.
 |---|---|---|
 | Backend-Identität | tatsächliches `main.js` mit gemocktem Electron und lokalem Fake-HTTP-Dienst | Fake-Service mit richtigem öffentlichem `app`-String wurde als `ready` übernommen |
 | Token-Datenfluss | statischer Callgraph vom IPC-Store bis zum ersten Browserrequest | gespeicherter Bearer wird beim Start automatisch an `/auth/me` des übernommenen Dienstes gesendet |
-| Installer-Inhalt | direkte Build-/electron-builder-Datenflussprüfung | vorhandene `5eyes-backend/.env` wird nach `bundle/backend/.env` kopiert und vollständig als `extraResources` ausgeliefert |
+| Installer-Inhalt | direkte Build-/electron-builder-Datenflussprüfung | vorhandene `ares-backend/.env` wird nach `bundle/backend/.env` kopiert und vollständig als `extraResources` ausgeliefert |
 | Linux Secret Store | Codeaudit plus offizielle Electron-API-Dokumentation | Code prüft nur Verfügbarkeit; `basic_text`/`unknown` werden nicht unterschieden |
 | Native Artefakte | Package-/Build-/Runtime-Callgraph | macOS-/Linux-Scripts erwarten, kopieren und starten denselben Windows-Dateinamen `5eyes-api.exe` |
 | Electron-Smoke | `node tests/main.smoke.test.js` | 13 von 13 Checks grün; keine Backend-Identitäts- oder `basic_text`-Abdeckung |
@@ -112,15 +112,15 @@ Kein realer Token, Schlüssel, Installer oder Kundendatensatz wurde verwendet.
 
 ### `DESK-001` – Öffentlicher Health-String authentisiert ein fremdes Backend
 
-`5eyes-electron/main.js:363-393` ruft unauthentisiert `/health/ready` auf und
+`ares-desktop/main.js:363-393` ruft unauthentisiert `/health/ready` auf und
 vergleicht ausschließlich `payload.app` mit `EXPECTED_BACKEND_APP`. Dieser Wert
-ist kein Secret: `5eyes-backend/routers/health.py:30-37,58-86` veröffentlicht ihn
+ist kein Secret: `ares-backend/routers/health.py:30-37,58-86` veröffentlicht ihn
 auf dem Health-Endpunkt. Ist der Default-Port belegt und antwortet der fremde
 Dienst passend, verwendet `pickBackendRuntime()` ihn ohne Spawn oder
 Prozessbindung weiter.
 
 Danach exponieren `main.js:621-628` Access- und Refresh-Token aus dem persistenten
-Store per IPC. `5eyes-electron/frontend/5eyes_v2.html:4983-5100,9320-9357` liest
+Store per IPC. `ares-desktop/frontend/ares.html:4983-5100,9320-9357` liest
 den Token beim Start, übernimmt die Backend-URL und sendet automatisch
 `Authorization: Bearer ...` an `/auth/me`; ein Refresh kann zusätzlich den
 Refresh-Token an `/auth/refresh` senden. Beim manuellen Login gehen Benutzername,
@@ -148,9 +148,9 @@ nicht wiederverwenden.
 
 ### `DESK-002` – Build kopiert die echte `.env` in jeden Installer
 
-`5eyes-electron/scripts/build-backend.js:196-199` kopiert eine vorhandene
-`5eyes-backend/.env` ausdrücklich nach `bundle/backend/.env`.
-`5eyes-electron/package.json:49-56` nimmt anschließend den vollständigen
+`ares-desktop/scripts/build-backend.js:196-199` kopiert eine vorhandene
+`ares-backend/.env` ausdrücklich nach `bundle/backend/.env`.
+`ares-desktop/package.json:49-56` nimmt anschließend den vollständigen
 Bundlebaum als `extraResources` in das auslieferbare Artefakt auf. Die Datei ist
 zwar in Git ignoriert, enthält in einer normalen Betriebsumgebung aber gerade die
 lokalen Runtimewerte wie `SECRET_KEY`, `DB_KEY`, Provider-Keys und DB-URLs.
@@ -158,7 +158,7 @@ lokalen Runtimewerte wie `SECRET_KEY`, `DB_KEY`, Provider-Keys und DB-URLs.
 Der vorhandene Release-Preflight scannt dieses Ergebnis nicht. Zusätzlich läuft
 er in `package.json:14-18` vor `build:backend`, kann also selbst bei späterer
 Erweiterung das frisch erzeugte Bundle in dieser Reihenfolge nicht prüfen.
-`5eyes-electron/README.md:127-131` dokumentiert das Kopieren bislang sogar als
+`ares-desktop/README.md:127-131` dokumentiert das Kopieren bislang sogar als
 normalen Packaging-Schritt.
 
 Im geprüften Checkout existierte keine produktive `.env` und kein fertiges
@@ -188,7 +188,7 @@ prüft das entpackte NSIS-/DMG-/AppImage-Artefakt, nicht nur den Staging-Ordner.
 
 ### `DESK-003` – Linux kann Tokens mit dem schwachen `basic_text`-Backend speichern
 
-`5eyes-electron/main.js:196-234` behandelt
+`ares-desktop/main.js:196-234` behandelt
 `safeStorage.isEncryptionAvailable() === true` als hinreichenden Schutz und
 persistiert dann Access- und Refresh-Token. Der Code fragt
 `safeStorage.getSelectedStorageBackend()` nicht ab. Die vorhandene Smoke-Suite
@@ -220,9 +220,9 @@ separat geprüft.
 
 ### `DESK-004` – macOS-/Linux-Releasepfade bauen und starten eine Windows-EXE
 
-`5eyes-electron/package.json:17-18,77-102` bewirbt DMG- und AppImage-Builds.
-`5eyes-electron/scripts/build-backend.js:8,191-200` erwartet und kopiert jedoch
-immer `dist/5eyes-api.exe`. `5eyes-electron/main.js:269-270,404-416` löst und
+`ares-desktop/package.json:17-18,77-102` bewirbt DMG- und AppImage-Builds.
+`ares-desktop/scripts/build-backend.js:8,191-200` erwartet und kopiert jedoch
+immer `dist/5eyes-api.exe`. `ares-desktop/main.js:269-270,404-416` löst und
 startet im paketierten Betrieb ebenfalls auf jeder Plattform ausschließlich
 `5eyes-api.exe` auf.
 
@@ -293,11 +293,11 @@ Installerinhalte oder OS-Credential-Provider.
 
 Neue oder erweiterte Suites mindestens:
 
-- `5eyes-electron/tests/backend_identity_handshake.test.js`
-- `5eyes-electron/tests/safe_storage_provider.test.js`
-- `5eyes-electron/tests/release_artifact_secret_scan.test.js`
-- `5eyes-backend/tests/test_native_electron_artifacts.py`
-- `5eyes-backend/tests/test_multi_platform_build.py`
+- `ares-desktop/tests/backend_identity_handshake.test.js`
+- `ares-desktop/tests/safe_storage_provider.test.js`
+- `ares-desktop/tests/release_artifact_secret_scan.test.js`
+- `ares-backend/tests/test_native_electron_artifacts.py`
+- `ares-backend/tests/test_multi_platform_build.py`
 
 Der Backend-Identitätstest muss einen echten konkurrierenden Loopback-Server
 starten und den vollständigen Renderer-Datenfluss beobachten. Reine
@@ -352,8 +352,8 @@ Dieses Dokumentationsbatch umfasst exakt:
 1. `docs/audits/2026-08-26-electron-runtime-release-security-audit.md`
 2. `docs/ASSET_ALLOCATION_OPTIMIZER_HANDOFF.md`
 3. `docs/CLAUDE_HANDOFF.md`
-4. `5eyes-electron/README.md`
-5. `5eyes-electron/PACKAGING.md`
+4. `ares-desktop/README.md`
+5. `ares-desktop/PACKAGING.md`
 6. `docs/MULTI_PLATFORM_BUILD.md`
 
 Der Commit dieses Dokuments wird nicht in den eigenen Inhalt eingebettet.

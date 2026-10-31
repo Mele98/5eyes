@@ -72,17 +72,17 @@ Jedes Produkt im Anlageuniversum soll einen persistenten `lookup_mode_override` 
 ## Betroffene Module / Dateien
 
 - **Backend:**
-  - `5eyes-backend/models/review.py` — `Product`-Klasse: zwei neue `Column(String)`: `lookup_mode_override`, `lookup_symbol_override`
-  - `5eyes-backend/database.py` — `ensure_runtime_columns()`: beide Felder in Block `'products': [...]` ergänzen (wie `figi`, `composite_figi` — Zeile 171–174)
-  - `5eyes-backend/services/product_market_data.py` — `resolve_market_profile()` (Zeile 324): Override-Zweig als erstes `if` vor dem bestehenden `if raw_symbol or raw_isin:` Block
-  - `5eyes-backend/schemas/review.py` — `ProductResponse` (Zeile 169): zwei neue optionale Felder `lookup_mode_override: Optional[str] = None`, `lookup_symbol_override: Optional[str] = None`; neue Klassen `ProductMarketOverrideRequest` und `ProductMarketOverrideResponse`
-  - `5eyes-backend/routers/review.py` — neuer Endpunkt `PUT /products/{product_id}/market-override` (Admin required, analog zu bestehenden `products_router`-Endpunkten); `_collect_product_market_data_status()` (Zeile 117): `lookup_mode_override_count` ergänzen
+  - `ares-backend/models/review.py` — `Product`-Klasse: zwei neue `Column(String)`: `lookup_mode_override`, `lookup_symbol_override`
+  - `ares-backend/database.py` — `ensure_runtime_columns()`: beide Felder in Block `'products': [...]` ergänzen (wie `figi`, `composite_figi` — Zeile 171–174)
+  - `ares-backend/services/product_market_data.py` — `resolve_market_profile()` (Zeile 324): Override-Zweig als erstes `if` vor dem bestehenden `if raw_symbol or raw_isin:` Block
+  - `ares-backend/schemas/review.py` — `ProductResponse` (Zeile 169): zwei neue optionale Felder `lookup_mode_override: Optional[str] = None`, `lookup_symbol_override: Optional[str] = None`; neue Klassen `ProductMarketOverrideRequest` und `ProductMarketOverrideResponse`
+  - `ares-backend/routers/review.py` — neuer Endpunkt `PUT /products/{product_id}/market-override` (Admin required, analog zu bestehenden `products_router`-Endpunkten); `_collect_product_market_data_status()` (Zeile 117): `lookup_mode_override_count` ergänzen
 - **Frontend:**
-  - `5eyes-electron/frontend/5eyes_v2.html` — Admin-Modal Sektion "Marktdaten & Produktstamm" (HTML um Zeile 7684): neuen Sub-Bereich nach dem bestehenden Button-Grid (Zeile 7699–7705) einfügen; neue JS-Funktion `adminSetProductOverride()` analog zu `adminRunOpenfigiAutoApply()`; Feedback via bestehendem `showAdminResult()`
+  - `ares-desktop/frontend/ares.html` — Admin-Modal Sektion "Marktdaten & Produktstamm" (HTML um Zeile 7684): neuen Sub-Bereich nach dem bestehenden Button-Grid (Zeile 7699–7705) einfügen; neue JS-Funktion `adminSetProductOverride()` analog zu `adminRunOpenfigiAutoApply()`; Feedback via bestehendem `showAdminResult()`
 - **Datenmodell:**
   - Neue Spalten `products.lookup_mode_override TEXT` und `products.lookup_symbol_override TEXT` via `ensure_runtime_columns()`
 - **Tests:**
-  - `5eyes-backend/tests/test_product_market_data.py` (neu erstellen oder erweitern)
+  - `ares-backend/tests/test_product_market_data.py` (neu erstellen oder erweitern)
 
 ---
 
@@ -322,7 +322,7 @@ assert profile["lookup_symbol"] == "GLD"        # aus Katalog
 
 ## Nebenbefund (Blocker, ausserhalb dieses Features)
 
-**`formatAdminMarketSummary` ist doppelt definiert** in `5eyes_v2.html` (Zeilen 3770 und 3842). Die zweite Definition überschreibt die erste — eine der beiden ist tot und sollte entfernt werden. Dies ist ein pre-existing Bug, kein Teil dieser Spec, aber Codex soll ihn **nicht stillschweigend entfernen** — das ist eine OWNER-DECISION welche Variante korrekt ist.
+**`formatAdminMarketSummary` ist doppelt definiert** in `ares.html` (Zeilen 3770 und 3842). Die zweite Definition überschreibt die erste — eine der beiden ist tot und sollte entfernt werden. Dies ist ein pre-existing Bug, kein Teil dieser Spec, aber Codex soll ihn **nicht stillschweigend entfernen** — das ist eine OWNER-DECISION welche Variante korrekt ist.
 
 ---
 

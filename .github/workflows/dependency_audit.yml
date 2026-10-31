@@ -18,11 +18,11 @@ on:
     - cron: '0 5 * * 1'
   pull_request:
     paths:
-      - '5eyes-backend/requirements.txt'
-      - '5eyes-electron/package.json'
-      - '5eyes-electron/package-lock.json'
-      - '5eyes-electron/frontend/reporting/package.json'
-      - '5eyes-electron/frontend/reporting/package-lock.json'
+      - 'ares-backend/requirements.txt'
+      - 'ares-desktop/package.json'
+      - 'ares-desktop/package-lock.json'
+      - 'ares-desktop/frontend/reporting/package.json'
+      - 'ares-desktop/frontend/reporting/package-lock.json'
       - '.github/workflows/dependency_audit.yml'
   workflow_dispatch:
 
@@ -50,8 +50,8 @@ jobs:
         continue-on-error: true
         run: |
           {
-            echo '## pip-audit 5eyes-backend/requirements.txt'
-            pip-audit -r 5eyes-backend/requirements.txt -f markdown --desc off || true
+            echo '## pip-audit ares-backend/requirements.txt'
+            pip-audit -r ares-backend/requirements.txt -f markdown --desc off || true
           } >> "$GITHUB_STEP_SUMMARY"
 
   npm-audit:
@@ -62,8 +62,8 @@ jobs:
       fail-fast: false
       matrix:
         dir:
-          - 5eyes-electron
-          - 5eyes-electron/frontend/reporting
+          - ares-desktop
+          - ares-desktop/frontend/reporting
     steps:
       - name: Checkout
         uses: actions/checkout@v5

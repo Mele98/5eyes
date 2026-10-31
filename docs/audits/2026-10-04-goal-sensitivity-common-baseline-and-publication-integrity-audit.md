@@ -148,46 +148,46 @@ erhalten bleiben.
 
 ### Seed und Solverpaar
 
-- `5eyes-backend/services/portfolio_engine.py:5084-5091` beschreibt den Seed
+- `ares-backend/services/portfolio_engine.py:5084-5091` beschreibt den Seed
   als für Baseline und Modified gepinnt, nimmt aber zusätzlich
   `target_delta_pct` und `horizon_delta_years` in seine Ableitung auf.
-- `5eyes-backend/services/portfolio_engine.py:5293-5303` reicht denselben Seed
+- `ares-backend/services/portfolio_engine.py:5293-5303` reicht denselben Seed
   korrekt an jeden Lauf eines Paars weiter.
-- `5eyes-backend/services/portfolio_engine.py:5306-5315` startet Baseline und
+- `ares-backend/services/portfolio_engine.py:5306-5315` startet Baseline und
   Modified nacheinander unter diesem requestlokalen Seed.
-- `5eyes-backend/services/optimizer/solver.py:664-675` bildet aus allen Parts
+- `ares-backend/services/optimizer/solver.py:664-675` bildet aus allen Parts
   einen deterministischen 63-Bit-Seed; verschiedene Delta-Parts ändern damit
   erwartungsgemäß den Seed.
-- `5eyes-backend/services/optimizer/scenario_engine.py:174-208` initialisiert
+- `ares-backend/services/optimizer/scenario_engine.py:174-208` initialisiert
   `np.random.default_rng(seed)` und erzeugt daraus den Pfadwürfel.
 
 ### Hash und Response
 
-- `5eyes-backend/services/portfolio_engine.py:5221-5255` bindet den Seed in
+- `ares-backend/services/portfolio_engine.py:5221-5255` bindet den Seed in
   jeden Sensitivity-Model-Input-Hash.
-- `5eyes-backend/services/portfolio_engine.py:5265-5274` berechnet Baseline-
+- `ares-backend/services/portfolio_engine.py:5265-5274` berechnet Baseline-
   und Modified-Hash; wegen des deltaabhängigen Seeds wechselt bereits der
   Baseline-Hash zwischen Slider-Stufen.
-- `5eyes-backend/services/portfolio_engine.py:5349-5364` nennt den Lauf
+- `ares-backend/services/portfolio_engine.py:5349-5364` nennt den Lauf
   `live_reoptimization_common_scenarios_current_inputs_v3` und exponiert
   Pairing-Basis, Baseline-Hash und Seed. Die Felder sind requestlokal korrekt,
   machen aber keinen panelweiten gemeinsamen Baseline-Context kenntlich.
 
 ### Weiter offene Publikationsgrenzen
 
-- `5eyes-backend/services/portfolio_engine.py:5317-5331` quantisiert beide
+- `ares-backend/services/portfolio_engine.py:5317-5331` quantisiert beide
   Objectives vor der Delta-Berechnung auf historische `*_milli`-Integer.
-- `5eyes-backend/services/portfolio_engine.py:5333-5338` wählt Amount, Wealth
+- `ares-backend/services/portfolio_engine.py:5333-5338` wählt Amount, Wealth
   oder Return-bps über Truthiness in ein generisches Rappenfeld.
-- `5eyes-backend/schemas/allocation.py:1069-1102` besitzt noch keinen
+- `ares-backend/schemas/allocation.py:1069-1102` besitzt noch keinen
   diskriminierten Target-/Unit-/Availability-Vertrag.
-- `5eyes-backend/routers/allocation.py:579-587` persistiert im AuditLog nur
+- `ares-backend/routers/allocation.py:579-587` persistiert im AuditLog nur
   Goal-ID und Target-Delta. Schon `horizon_delta_years` fehlt.
-- `5eyes-electron/frontend/5eyes_v2.html:27308-27310` stellt fünf getrennte
+- `ares-desktop/frontend/ares.html:27308-27310` stellt fünf getrennte
   Slider-Requests bereit.
-- `5eyes-electron/frontend/5eyes_v2.html:27331-27340` rendert jedes Ergebnis
+- `ares-desktop/frontend/ares.html:27331-27340` rendert jedes Ergebnis
   als CHF und erzeugt die Richtungsbotschaft nur aus dem Objective-Vorzeichen.
-- `5eyes-electron/frontend/reporting/src/api/types.ts:1039-1052` führt weiter
+- `ares-desktop/frontend/reporting/src/api/types.ts:1039-1052` führt weiter
   nur den unvollständigen alten Sensitivity-Typvertrag; eine React-
   Ergebnisoberfläche ist nicht nachgewiesen.
 

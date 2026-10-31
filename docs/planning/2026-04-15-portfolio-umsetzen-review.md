@@ -867,12 +867,12 @@ function renderDriftTable(data) {
 
 | Datei | Art der Änderung |
 |-------|-----------------|
-| `5eyes-backend/models/snapshots.py` | **NEU** — SQLAlchemy-Modelle |
-| `5eyes-backend/routers/snapshots.py` | **NEU** — 3 Endpoints |
-| `5eyes-backend/schemas/snapshots.py` | **NEU** — Pydantic Schemas |
-| `5eyes-backend/database.py` | **ÄNDERN** — 2 neue Tabellen + Seed-Daten |
-| `5eyes-backend/main.py` | **ÄNDERN** — Router registrieren |
-| `5eyes-electron/frontend/5eyes_v2.html` | **ÄNDERN** — Button, Modal, 3 Funktionen, Tab-Hook |
+| `ares-backend/models/snapshots.py` | **NEU** — SQLAlchemy-Modelle |
+| `ares-backend/routers/snapshots.py` | **NEU** — 3 Endpoints |
+| `ares-backend/schemas/snapshots.py` | **NEU** — Pydantic Schemas |
+| `ares-backend/database.py` | **ÄNDERN** — 2 neue Tabellen + Seed-Daten |
+| `ares-backend/main.py` | **ÄNDERN** — Router registrieren |
+| `ares-desktop/frontend/ares.html` | **ÄNDERN** — Button, Modal, 3 Funktionen, Tab-Hook |
 
 ---
 
@@ -890,20 +890,20 @@ function renderDriftTable(data) {
 
 ### Frontend (in dieser Reihenfolge)
 
-8. Grep: `grep -n 'btn-p.*onclick.*go.*po' 5eyes-electron/frontend/5eyes_v2.html | head -3`
+8. Grep: `grep -n 'btn-p.*onclick.*go.*po' ares-desktop/frontend/ares.html | head -3`
    → Zeile ~952 finden: Button-Zeile in `page-al .ph-r`
    → Neuen "Portfolio umsetzen"-Button vor "Portfolio →" einfügen (mit `display:none`)
-9. Grep: `grep -n 'function applyAllocationEngineResult' 5eyes-electron/frontend/5eyes_v2.html`
+9. Grep: `grep -n 'function applyAllocationEngineResult' ares-desktop/frontend/ares.html`
    → Zeile ~10532 finden
    → Button-Einblenden nach `charts.fan&&charts.fan.update();` einfügen
 10. Modal `m-pu` am Ende der Modal-Sektion einfügen
 11. Funktionen `openPortfolioUmsetzenModal` und `savePortfolioUmsetzen` einfügen (nach `printAnlagestrategie`, Zeile ~4237)
-12. Grep: `grep -n 'rv-strategy-compare\|PORTFOLIO-CHECK' 5eyes-electron/frontend/5eyes_v2.html`
+12. Grep: `grep -n 'rv-strategy-compare\|PORTFOLIO-CHECK' ares-desktop/frontend/ares.html`
     → Zeile ~1247 finden
     → Neue Sektion `rv-spiegel-card` DAVOR einfügen
 13. Funktionen `loadReviewSpiegel`, `renderSpiegelChart`, `renderDriftTable` einfügen (nach `renderReviewStrategyComparison`, Zeile ~14020)
 14. Tab-Hook: Zeile ~11488 — `loadReviewSpiegel`-Call hinzufügen
-15. `node --check 5eyes-electron/frontend/5eyes_v2.html` → 0 Fehler
+15. `node --check ares-desktop/frontend/ares.html` → 0 Fehler
 
 ---
 
@@ -948,7 +948,7 @@ def test_drift_with_returns(db_session, test_client, ...):
 
 ## Risiken
 
-- **`alloc.buckets` Struktur im Frontend:** `savePortfolioUmsetzen()` liest `b.asset_class` und `b.target_weight_bps` — prüfen ob diese Felder tatsächlich so heissen im API-Response. Grep: `grep -n 'target_weight_bps\|asset_class.*bucket' 5eyes-electron/frontend/5eyes_v2.html | head -10`
+- **`alloc.buckets` Struktur im Frontend:** `savePortfolioUmsetzen()` liest `b.asset_class` und `b.target_weight_bps` — prüfen ob diese Felder tatsächlich so heissen im API-Response. Grep: `grep -n 'target_weight_bps\|asset_class.*bucket' ares-desktop/frontend/ares.html | head -10`
 - **Seed-Daten:** Die vordefinierten Jahres-Returns sind Schätzwerte. OWNER-DECISION: Emanuele kalibriert diese mit internen CMA-Daten vor Go-Live.
 - **Chart-Instanz:** `_rvSpiegelChart` muss vor Re-Render zerstört werden — in `loadReviewSpiegel` wird bei jedem Tab-Wechsel neu gerendert. Prüfen ob das bei schnellem Tab-Wechsel zu Problemen führt (Race Condition mit `async API.get`).
 

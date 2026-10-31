@@ -26,11 +26,11 @@ mit der Reporting-Sub-App, die das gebundelte `dist/`-Output lädt.
 
 ### 1. Vite-Build-Integration in Electron-Packaging
 
-`5eyes-electron/package.json` Build-Pipeline:
+`ares-desktop/package.json` Build-Pipeline:
 - Vor `electron-builder` läuft `npm run build` in `frontend/reporting/`
 - Das `frontend/reporting/dist/` wird im electron-builder als
   `extraResources` mitgebundlet
-- PyInstaller-Spec (`5eyes-backend/`) bleibt unverändert (Backend liefert
+- PyInstaller-Spec (`ares-backend/`) bleibt unverändert (Backend liefert
   weiter JSON, ist davon entkoppelt)
 
 ### 2. Neues BrowserWindow in `main.js`
@@ -78,7 +78,7 @@ Neue IPC-Channel:
 - `reporting:open` → erhält mandateId, ruft `createReportingWindow`
 - `reporting:close` → schließt das zweite Window
 
-### 4. Hauptapp `5eyes_v2.html` Button-Update
+### 4. Hauptapp `ares.html` Button-Update
 
 `openReportingApp()` umbauen:
 ```javascript
@@ -115,7 +115,7 @@ kein Fragment).
 `tests/test_electron_reporting_integration.py` (NEU):
 - Statische Checks: `main.js` deklariert `createReportingWindow`
 - `preload.js` exposed `openReporting`
-- `5eyes_v2.html` ruft `window.desktop.openReporting` mit Fallback
+- `ares.html` ruft `window.desktop.openReporting` mit Fallback
 - electron-builder-Config bundelt `frontend/reporting/dist/`
 - Branding-Compliance
 

@@ -119,7 +119,7 @@ def scan_orphans(conn: sqlite3.Connection) -> list[dict]:
 
 def _default_db_path() -> Path:
     """Produktivpfad aus derselben Quelle wie config.Settings.db_path."""
-    backend = Path(__file__).resolve().parents[1] / "5eyes-backend"
+    backend = Path(__file__).resolve().parents[1] / "ares-backend"
     if str(backend) not in sys.path:
         sys.path.insert(0, str(backend))
     from core.db_location import default_db_path

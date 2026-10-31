@@ -42,7 +42,7 @@ verdict_notes         = ["optimization_status != converged"]
 ## Reproduktion
 
 ```bash
-cd 5eyes-backend
+cd ares-backend
 python -m pytest tests/test_stage8_foundation_smoketest.py::test_foundation_case_yields_green_or_yellow_verdict -v
 ```
 

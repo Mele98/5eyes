@@ -10,7 +10,7 @@
 
 ## Warum diese Spec existiert — Fachlicher Kontext
 
-Die hardcodierten CMA-Defaults in `5eyes_v2.html` weichen in 4 Positionen
+Die hardcodierten CMA-Defaults in `ares.html` weichen in 4 Positionen
 material von institutionellen Quellen ab (JPMorgan LTCMA 2024, BlackRock BII 2024,
 CMA via Advisory-Methodik-Dokumentation).
 
@@ -31,7 +31,7 @@ erste Projektionen für neue Installationen.
 
 ## Scope
 
-Nur JS-Konstanten-Korrekturen in `5eyes_v2.html`. Keine DB-, Backend-, oder
+Nur JS-Konstanten-Korrekturen in `ares.html`. Keine DB-, Backend-, oder
 Logik-Änderungen.
 
 ### Was sich ändert
@@ -58,7 +58,7 @@ Logik-Änderungen.
 
 | Datei | Art |
 |---|---|
-| `5eyes-electron/frontend/5eyes_v2.html` | ÄNDERN |
+| `ares-desktop/frontend/ares.html` | ÄNDERN |
 
 ---
 
@@ -66,7 +66,7 @@ Logik-Änderungen.
 
 ### Grep:
 ```
-grep -n "bonds_chf_ig_return_bps\|equity_intl_return_bps\|real_estate_ch_return_bps" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "bonds_chf_ig_return_bps\|equity_intl_return_bps\|real_estate_ch_return_bps" ares-desktop/frontend/ares.html
 ```
 Erwartet: Treffer um Zeile 5536, 5544, 5548.
 
@@ -105,7 +105,7 @@ Erwartet: Treffer um Zeile 5536, 5544, 5548.
 
 ### Grep:
 ```
-grep -n "Obligationen CHF IG\|Aktien Global\|Obligationen Emerging\|Immobilien Schweiz" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "Obligationen CHF IG\|Aktien Global\|Obligationen Emerging\|Immobilien Schweiz" ares-desktop/frontend/ares.html
 ```
 Erwartet: Treffer um Zeile 5563-5572.
 
@@ -158,7 +158,7 @@ Erwartet: Treffer um Zeile 5563-5572.
 5. `ADMIN_CMA_SUBASSET_DEFAULTS` `Aktien Global` expected_return_bps: 690 → 700
 6. `ADMIN_CMA_SUBASSET_DEFAULTS` `Obligationen Emerging` expected_return_bps: 480 → 400
 7. `ADMIN_CMA_SUBASSET_DEFAULTS` `Immobilien Schweiz` expected_return_bps: 330 → 450
-8. `node --check 5eyes-electron/frontend/5eyes_v2.html` → 0 Fehler
+8. `node --check ares-desktop/frontend/ares.html` → 0 Fehler
 
 ---
 

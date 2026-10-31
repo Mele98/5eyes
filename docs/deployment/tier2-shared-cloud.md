@@ -130,8 +130,8 @@ docker compose up -d
 version: "3.8"
 services:
   backend:
-    image: 5eyes-backend:latest
-    container_name: 5eyes-backend
+    image: ares-backend:latest
+    container_name: ares-backend
     restart: always
     env_file: .env
     ports:

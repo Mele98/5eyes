@@ -45,7 +45,7 @@ Wobei:
 ## 2. Modul-Struktur
 
 ```
-5eyes-backend/
+ares-backend/
 ├── services/risk_premium/
 │   ├── __init__.py
 │   └── model.py                  # RiskPremiumModel

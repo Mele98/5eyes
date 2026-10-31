@@ -105,7 +105,7 @@ untergraben.
 |---|---|
 | `models/clients.py` | `Client.erased_at`, `Client.erasure_reason` (unterscheidet DSG-Erasure von gewöhnlichem Soft-Delete) |
 | `database.py` | additive Spalten-Migration für `erased_at`/`erasure_reason`; `'CLIENT_ERASE'` zur `audit_log.action`-CHECK-Liste + neuer Migrations-Marker `has_erasure_action` (sonst würde die Aktion auf bereits migrierten Bestands-DBs mit IntegrityError crashen — identische Bugklasse wie der 2026-08-07-Fund) |
-| `5eyes_schema_v4.0_FINAL.sql` | `'CLIENT_ERASE'` zur rohen CHECK-Liste (Fresh-Bootstrap-Pfad) |
+| `ares_schema.sql` | `'CLIENT_ERASE'` zur rohen CHECK-Liste (Fresh-Bootstrap-Pfad) |
 | `services/client_erasure.py` | Kern-Cascade-Logik (`erase_client_personal_data`), ausführlich dokumentierter Modul-Docstring mit der vollständigen Begründung |
 | `schemas/clients.py` | `ClientErasureRequest` (Pflichtbegründung, wiederverwendet `services/override_reason_quality.py` — dieselbe Qualitätsprüfung wie bei Risikoprofil-Overrides), `ClientErasureResponse` |
 | `routers/clients.py` | `POST /clients/{client_id}/erase`, admin-only (`require_admin`), tenant-gescoped, 404/409-Guards, schreibt Audit-Log-Eintrag |

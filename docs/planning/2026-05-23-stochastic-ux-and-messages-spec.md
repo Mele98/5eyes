@@ -445,21 +445,21 @@ Kein neues Navy-Gold-CSS, keine Inline-Styles für Standard-Komponenten.
 
 ### Stage 6 (Frontend)
 
-1. `5eyes_v2.html m-acf` umbauen:
+1. `ares.html m-acf` umbauen:
    - `m-acf-type-select` als erstes Feld.
    - Neue Felder `m-acf-target-return-bps`, `m-acf-priority-rank`, `m-acf-success-prob-min` (letzteres in Details/Accordion).
    - `m-acf-derived` Block für Live-Diagnose.
    - JS: `applyGoalTypeVisibility(type)` aus §2.2.
    - JS: `updateGoalDerivedDiagnostics()` aus §2.3.
    - Event-Listener: `m-acf-type-select.change` → `applyGoalTypeVisibility` + `updateGoalDerivedDiagnostics`.
-2. `5eyes_v2.html page-rv` umbauen:
+2. `ares.html page-rv` umbauen:
    - Hauptziel-KPI-Tile (`rv-main-goal-*` IDs).
    - Limiting-Factor-Badge (`rv-limiting-factor-badge`).
    - Allokations-Story (`rv-allocation-story`) — Builder aus §3.4.
    - Konflikt-Banner (`rv-message-banner`).
    - Zielerreichungs-Liste (`rv-goal-achievability-list`).
    - Solver-Details in `<details>` Accordion verschieben.
-3. `5eyes_v2.html page-al`:
+3. `ares.html page-al`:
    - `al-message-banner` über `al-optimizer-panel`.
    - `al-optimizer-panel` zeigt zusätzlich `limiting_factor`-Badge und
      `goal_achievability`-Mini-Tabelle.

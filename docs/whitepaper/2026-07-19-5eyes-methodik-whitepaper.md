@@ -6,7 +6,7 @@ Beratungsmethodik der 5eyes-Engine für Aufsicht (FINMA), Compliance und Berater
 Code-Referenz (Datei : Funktion), damit Aussagen am Quellcode überprüfbar sind.
 
 > Alle Referenzen beziehen sich auf das Backend-Verzeichnis
-> `5eyes-backend/`. Beträge werden intern in **Rappen** (1 CHF = 100 Rappen) und
+> `ares-backend/`. Beträge werden intern in **Rappen** (1 CHF = 100 Rappen) und
 > Prozentwerte in **Basispunkten (bps)** geführt (1 % = 100 bps), um
 > Rundungsdrift zu vermeiden. Dieses Dokument beschreibt ausschliesslich die
 > tatsächlich implementierte Logik; Verfahren, die im Code nicht belegbar sind,

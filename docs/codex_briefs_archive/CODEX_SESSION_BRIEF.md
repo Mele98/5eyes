@@ -10,7 +10,7 @@
 ### Gut implementiert — NICHT anfassen
 | Feature | Datei | Zeile | Status |
 |---|---|---|---|
-| Fan Chart P10/P50/P90 | `5eyes_v2.html:8586` | `upgradeFanChartWithMonteCarlo()` | ✓ Korrekt |
+| Fan Chart P10/P50/P90 | `ares.html:8586` | `upgradeFanChartWithMonteCarlo()` | ✓ Korrekt |
 | Zieldauer Horizont-Clip | `portfolio_engine.py:1696` | `_goal_duration_years()` + `_full_goal_duration_years()` | ✓ Korrekt |
 | Cholesky 3-Level-Fallback | `portfolio_engine.py` (uncommitted) | `_is_valid_cholesky()` + `_identity_cholesky()` | ✓ Korrekt |
 | `_rebalance_to_total` Guard | `portfolio_engine.py` (uncommitted) | wirft `ValueError` bei Normalisierungsfehler | ✓ Korrekt |
@@ -24,7 +24,7 @@ git status --short
 Du siehst:
 - `M` Modified: `portfolio_engine.py`, `risk_scoring.py`, `schemas/allocation.py`,
   `schemas/profiling.py`, `routers/clients.py`, `routers/mandates.py`,
-  `routers/wealth.py`, `5eyes_v2.html`, `main.js`
+  `routers/wealth.py`, `ares.html`, `main.js`
 - `??` Untracked: 6 neue Testdateien + `CODEX_DEBUG_GUIDE.md`
 
 ---
@@ -35,20 +35,20 @@ Prüfe jeden Modified-File: `git diff HEAD -- <datei>`
 Dann stage + commit:
 
 ```bash
-git add 5eyes-backend/services/portfolio_engine.py
-git add 5eyes-backend/services/risk_scoring.py
-git add 5eyes-backend/schemas/allocation.py
-git add 5eyes-backend/schemas/profiling.py
-git add 5eyes-backend/routers/clients.py
-git add 5eyes-backend/routers/mandates.py
-git add 5eyes-backend/routers/wealth.py
-git add 5eyes-electron/main.js
-git add 5eyes-backend/tests/test_goal_scoring_horizon.py
-git add 5eyes-backend/tests/test_allocation_rebalance_normalization.py
-git add 5eyes-backend/tests/test_cholesky_and_horizon.py
-git add 5eyes-backend/tests/test_simulation_rebalance_costs.py
-git add 5eyes-backend/tests/test_risk_budget_logging.py
-git add 5eyes-backend/tests/test_cashflow_timeline.py
+git add ares-backend/services/portfolio_engine.py
+git add ares-backend/services/risk_scoring.py
+git add ares-backend/schemas/allocation.py
+git add ares-backend/schemas/profiling.py
+git add ares-backend/routers/clients.py
+git add ares-backend/routers/mandates.py
+git add ares-backend/routers/wealth.py
+git add ares-desktop/main.js
+git add ares-backend/tests/test_goal_scoring_horizon.py
+git add ares-backend/tests/test_allocation_rebalance_normalization.py
+git add ares-backend/tests/test_cholesky_and_horizon.py
+git add ares-backend/tests/test_simulation_rebalance_costs.py
+git add ares-backend/tests/test_risk_budget_logging.py
+git add ares-backend/tests/test_cashflow_timeline.py
 git add CODEX_DEBUG_GUIDE.md
 git commit -m "Finalize security fixes, goal horizon scoring, Cholesky fallback, and uncommitted router patches"
 ```
@@ -57,7 +57,7 @@ git commit -m "Finalize security fixes, goal horizon scoring, Cholesky fallback,
 
 ## SCHRITT 2 — BE-2 Fix: ALTER TABLE Whitelist wiederherstellen
 
-**Datei:** `5eyes-backend/database.py`
+**Datei:** `ares-backend/database.py`
 
 **Problem:** `import re` wurde gelöscht + alle drei Whitelist-Guards entfernt.
 
@@ -84,7 +84,7 @@ UPPERCASE Typen) — die Validierung greift nie bei korrektem internen Input.
 
 ## SCHRITT 3 — BE-1: PRAGMA key Binding prüfen
 
-**Datei:** `5eyes-backend/database.py:138`
+**Datei:** `ares-backend/database.py:138`
 
 Aktueller Stand:
 ```python
@@ -107,7 +107,7 @@ Gleiche Prüfung für `migrate_to_sqlcipher.py:52` und `:102`.
 
 ## SCHRITT 4 — Performance Fix: _sub_asset_class_assumption_map Loop
 
-**Datei:** `5eyes-backend/services/portfolio_engine.py`
+**Datei:** `ares-backend/services/portfolio_engine.py`
 **Funktion:** `_build_sub_asset_class_assumption_reference` (ca. Zeile 1358)
 
 **Problem:** `_sub_asset_class_assumption_map(cma)` wird einmal pro Loop-Iteration extra
@@ -140,7 +140,7 @@ def _build_sub_asset_class_assumption_reference(
 ## SCHRITT 5 — Tests laufen lassen
 
 ```bash
-cd C:\5eyes\5eyes_stage9_release_ready\5eyes-backend
+cd C:\5eyes\5eyes_stage9_release_ready\ares-backend
 python -m pytest tests/ -v
 ```
 
@@ -160,7 +160,7 @@ Alle Tests müssen grün sein.
 
 ## SCHRITT 6 — Uncommitted HTML-Refactor: Status prüfen und committen
 
-**Die aktuelle Working Copy von `5eyes_v2.html` ist ein aktiver Refactor-Zustand.**
+**Die aktuelle Working Copy von `ares.html` ist ein aktiver Refactor-Zustand.**
 
 Gegenüber HEAD wurden bereits 601 Zeilen geändert (noch nicht staged):
 
@@ -174,12 +174,12 @@ Gegenüber HEAD wurden bereits 601 Zeilen geändert (noch nicht staged):
 | Legacy-Funktionen | `resetCashflowModalLegacy`, `applyAllocationEngineResultLegacy__unused`, `renderAdvisoryLogListLegacy__unused` | ENTFERNT |
 | Neue Funktionen | — | `saveConflictDisclosure()`, `renderSuitabilityChecks()`, `saveSuitabilityCheck()`, `toggleSuitabilityWarningDate()`, `refreshBaselineChartFromClientData()`, `toggleCompareSection()`, `goalEvaluationNoteHtml()` |
 
-**Bevor du `5eyes_v2.html` committetest**: Sicherstellen dass die umbenannten Funktionen
+**Bevor du `ares.html` committetest**: Sicherstellen dass die umbenannten Funktionen
 korrekt aufgerufen werden (keine dead references auf alte Namen).
 
 Prüfe mit grep:
 ```bash
-grep -n "applyClaudeUxQuickWins\|applyClaudeUxMidTermStructure\|bindLegacyReviewModalActions\|openCashflowEditorLegacy\|resetCashflowModalLegacy\|renderAdvisoryLogListLegacy" 5eyes-electron/frontend/5eyes_v2.html
+grep -n "applyClaudeUxQuickWins\|applyClaudeUxMidTermStructure\|bindLegacyReviewModalActions\|openCashflowEditorLegacy\|resetCashflowModalLegacy\|renderAdvisoryLogListLegacy" ares-desktop/frontend/ares.html
 ```
 Wenn Null Treffer → alles OK, dann committen.
 
@@ -187,7 +187,7 @@ Wenn Null Treffer → alles OK, dann committen.
 
 ## SCHRITT 7 — Dead Code: buildMonteCarloGoalsHtml verbinden
 
-**Datei:** `5eyes-electron/frontend/5eyes_v2.html`
+**Datei:** `ares-desktop/frontend/ares.html`
 
 `buildMonteCarloGoalsHtml(mc)` (Zeile 3080) ist definiert aber wird nirgends aufgerufen.
 Die Funktion rendert Goal-Scores mit Pfaderfolg und Funded-Ratio — fachlich wertvoll.
@@ -267,12 +267,12 @@ Alle nötigen Daten sind bereits vorhanden in `live.position_drifts[]`.
 
 | ID | Thema | Datei | Priorität |
 |---|---|---|---|
-| FE-Dead | `buildMonteCarloGoalsHtml` nie aufgerufen | `5eyes_v2.html:3080` | Mittel |
-| FE-Thema | 6 Thema Sub-Asset-Klassen fehlen in Admin-CMA-UI | `5eyes_v2.html:4759` | Niedrig |
+| FE-Dead | `buildMonteCarloGoalsHtml` nie aufgerufen | `ares.html:3080` | Mittel |
+| FE-Thema | 6 Thema Sub-Asset-Klassen fehlen in Admin-CMA-UI | `ares.html:4759` | Niedrig |
 | BE-7 | CORS `allow_origin_regex` — Klärung Electron-Origin nötig | `main.py:74` | Mittel |
 | Merge | `develop` → `mc-fan-chart` Merge-Konflikt-Prüfung | — | Nach BE-2 Fix |
 | ~~BE-8~~ | ~~MC Transaction Costs~~ — effektiv gelöst: Gesamtwert korrekt, nur per-Bucket-Attribution proportional (für MC-Zwecke ausreichend) | — | Geschlossen |
-| SR-Page | `renderSrImplementationDecision` zeigt immer `logs[0]` — kein Status-Filter | `5eyes_v2.html:9153` | Niedrig |
+| SR-Page | `renderSrImplementationDecision` zeigt immer `logs[0]` — kein Status-Filter | `ares.html:9153` | Niedrig |
 
 ---
 *Generiert von Claude Analyse-Session 2026-04-09*

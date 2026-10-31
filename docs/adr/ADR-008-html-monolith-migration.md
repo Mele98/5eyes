@@ -6,8 +6,8 @@
 
 ## Kontext
 
-Die ursprueliche 5eyes-Frontend-Code-Basis ist `5eyes-electron/frontend/
-5eyes_v2.html` — eine **1.29 MB grosse Single-HTML-Datei** mit inline
+Die ursprueliche 5eyes-Frontend-Code-Basis ist `ares-desktop/frontend/
+ares.html` — eine **1.29 MB grosse Single-HTML-Datei** mit inline
 CSS+JS, manuell DOM-manipuliert. Sie deckt alle Beratungs-Workflows ab,
 ist aber:
 
@@ -18,7 +18,7 @@ ist aber:
 - **Performance-mittelmaessig**: 1.29 MB Parse-Zeit bei jedem App-Start
 
 Parallel wird eine **React + TypeScript** Applikation entwickelt unter
-`5eyes-electron/frontend/reporting/`. Diese ist als Standalone-Read-Only-
+`ares-desktop/frontend/reporting/`. Diese ist als Standalone-Read-Only-
 Reporting-View gestartet, wird aber zur primaeren UI ausgebaut.
 
 ## Migration-Status (2026-06-06)
@@ -40,7 +40,7 @@ Reporting-View gestartet, wird aber zur primaeren UI ausgebaut.
 
 ### Noch im HTML-Monolith
 
-`5eyes_v2.html` bleibt zustaendig fuer:
+`ares.html` bleibt zustaendig fuer:
 - Hauptnavigation / App-Shell
 - Datenerfassung / Workflows (Kunden anlegen, Mandate editieren,
   Profiling-Fragebogen, Goal-Wizard)
@@ -106,7 +106,7 @@ Grund:
 - Two-Track erlaubt: Berater nutzt HTML-Monolith taeglich, neue Features
   kommen in React, alte werden migriert wenn sie ohnehin angefasst werden
 - Drift zwischen alt + neu wird durch Backend-API-Contracts begrenzt
-  (siehe Drift-Tests in `5eyes-backend/tests/test_frontend_*_contracts.py`)
+  (siehe Drift-Tests in `ares-backend/tests/test_frontend_*_contracts.py`)
 
 ## Konsequenzen
 
@@ -144,25 +144,25 @@ Migrations-Pattern (Schema-First -> React-Page -> Tests -> Wiring ->
 Drift-Test) durchlaufen hat:
 
 - Schema/React-Page/Tests bereits vorhanden seit PR #306
-  (`5eyes-electron/frontend/reporting/src/sections/profiling/ProfilingPage.tsx`).
+  (`ares-desktop/frontend/reporting/src/sections/profiling/ProfilingPage.tsx`).
 - Fehlender Schritt war das **Wiring**: die React-Seite war unter
   `/mandates/:mandateId/risikoprofil-editor` geroutet, aber im
   HTML-Monolithen nirgends erreichbar.
-- Ergaenzt: `openProfilingEditor()` in `5eyes_v2.html` (Button "Editor
+- Ergaenzt: `openProfilingEditor()` in `ares.html` (Button "Editor
   (Beta)" im Risikoprofil-Header-Overflow-Menu) oeffnet die React-Seite
   per Token-Handoff in neuem Tab -- exakt das gleiche Muster wie
   `openReportingApp()` fuer den Advisory-Report. Beide teilen sich jetzt
   `resolveReportingAppUrl()`.
 - Inline-Fragebogen bleibt bewusst aktiv (Zwei-Stack-Uebergang); keine
   Fachlogik/Scoring-Aenderung.
-- Neuer Drift-Test: `5eyes-backend/tests/test_profiling_editor_wiring_contract.py`
-  haelt Route (App.tsx), Wiring-Funktion (5eyes_v2.html) und
+- Neuer Drift-Test: `ares-backend/tests/test_profiling_editor_wiring_contract.py`
+  haelt Route (App.tsx), Wiring-Funktion (ares.html) und
   Backend-Endpunkte (api/profiling.ts) synchron.
 - Gleiche Wiring-Luecke besteht noch fuer Goal-Wizard, Mandate-Edit,
   Kunden-CRM, Asset-Allocation-Edit und Cashflow-Review-Editor: React-
   Routen existieren bereits (`GoalsEditor`, `AllocationEditor`,
   `MandateEditor`, `CrmEditor`, `CashflowEditor`, `WealthInflowEditor` in
-  `App.tsx`), aber keine davon ist aus `5eyes_v2.html` erreichbar. Naechster
+  `App.tsx`), aber keine davon ist aus `ares.html` erreichbar. Naechster
   Schritt: `resolveReportingAppUrl()` fuer diese Sektionen wiederverwenden.
 
 ## Wann re-evaluieren?
@@ -176,10 +176,10 @@ Drift-Test) durchlaufen hat:
 
 ## Referenzen
 
-- `5eyes-electron/frontend/5eyes_v2.html` — der Monolith (1.29 MB)
-- `5eyes-electron/frontend/reporting/src/pages/` — React Pages (20)
-- `5eyes-electron/frontend/reporting/src/components/` — React
+- `ares-desktop/frontend/ares.html` — der Monolith (1.29 MB)
+- `ares-desktop/frontend/reporting/src/pages/` — React Pages (20)
+- `ares-desktop/frontend/reporting/src/components/` — React
   Components (11)
-- `5eyes-backend/tests/test_frontend_*_contracts.py` — Drift-Tests
+- `ares-backend/tests/test_frontend_*_contracts.py` — Drift-Tests
 - ADR-004 (Editorial-No-Recharts) — Chart-Architektur-Entscheidung
 - Memory `project_5eyes_audit.md` — Track-Migration-Status

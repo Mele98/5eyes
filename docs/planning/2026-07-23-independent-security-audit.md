@@ -2,7 +2,7 @@
 
 Frische, eigenständige Analyse (nicht auf ein bestehendes Audit-Dokument gestützt) mit
 Fokus auf Tenant-Isolation, Auth-Boundary-Fälle und Daten-Leck-Risiken. Methodik: jeder
-Router (`5eyes-backend/routers/*.py`, 20 Dateien, ~10'350 Zeilen) wurde vollständig
+Router (`ares-backend/routers/*.py`, 20 Dateien, ~10'350 Zeilen) wurde vollständig
 gelesen; jeder Endpoint mit Pfad-Parameter (`{client_id}`, `{mandate_id}`, `{user_id}`,
 `{baustein_id}`, `{policy_id}`, …) wurde gegen das etablierte Ownership-Muster geprüft
 (`get_client_for_user_or_404`, `get_mandate_for_user_or_404`,
@@ -36,7 +36,7 @@ grün (165 passed, 4 skipped [Postgres-only]).
 
 ## F1 — KRITISCH: Cross-Tenant-Passwort-Übernahme via `PUT /users/{user_id}/password`
 
-**Datei:** `5eyes-backend/routers/auth.py`, Funktion `reset_user_password` (vor Fix: Zeilen
+**Datei:** `ares-backend/routers/auth.py`, Funktion `reset_user_password` (vor Fix: Zeilen
 695–724).
 
 **Befund:** Der Endpoint erlaubt zwei Pfade: Self-Service (eigenes Passwort) oder
@@ -83,7 +83,7 @@ nicht geleakt wird — konsistent mit dem Rest des Routers.
 
 ## F2 — MITTEL: Cross-Tenant-Zugriff auf FINMA-Beraterregistrierung
 
-**Datei:** `5eyes-backend/routers/auth.py`, `get_adviser_registration` /
+**Datei:** `ares-backend/routers/auth.py`, `get_adviser_registration` /
 `upsert_adviser_registration` (vor Fix: Zeilen 812–857).
 
 **Befund:** Gleiches Muster wie F1, andere Ressource. `GET` prüfte nur
@@ -120,7 +120,7 @@ dass **kein** Datensatz für den fremden User entsteht), `test_admin_can_manage_
 
 ## F3 — MITTEL: Cross-Tenant-Leck in der Beratungsprotokoll-Bausteine-Bibliothek
 
-**Datei:** `5eyes-backend/routers/protocol_bausteine.py`.
+**Datei:** `ares-backend/routers/protocol_bausteine.py`.
 
 **Befund:** Als einziger Router in der Codebase (verglichen mit `clients.py`, `auth.py`,
 `review.py`, …) wendete dieser Router **nie** einen Tenant-Filter an, obwohl
@@ -181,7 +181,7 @@ bestehenden `advisor_id`-Check).
 
 ## F4 — NIEDRIG (dokumentiert, nicht gefixt): Phase-0-Datenklassifizierungs-Gate fehlt bei WealthInflow/PlanningAssumption
 
-**Dateien:** `5eyes-backend/schemas/wealth.py` (`WealthInflowCreate`/`Update`,
+**Dateien:** `ares-backend/schemas/wealth.py` (`WealthInflowCreate`/`Update`,
 `PlanningAssumptionCreate` — kein `data_classification`-Feld), entsprechend
 `routers/wealth.py::create_wealth_inflow`/`update_wealth_inflow`/
 `create_planning_assumptions`/`upsert_planning_assumptions` rufen nie
@@ -210,7 +210,7 @@ Aufruf in den vier Endpoints).
 
 ## F6 — INFO (dokumentiert, kein Fix nötig): Postgres-RLS-Prädikat und `tenant_id IS NULL`
 
-**Datei:** `5eyes-backend/services/postgres_rls.py::_policy_predicate`,
+**Datei:** `ares-backend/services/postgres_rls.py::_policy_predicate`,
 `services/tenant_context.py::set_tenant_context`.
 
 **Beobachtung:** Das RLS-Prädikat ist `tenant_id::text = current_tenant OR bypass`. Für
@@ -232,7 +232,7 @@ nutzen oder bewusst leer zurückkommen sollen.
 
 ## F7 — Verdacht geprüft und entkräftet: `POST /admin/system/clients/{client_id}/purge-demo`
 
-**Datei:** `5eyes-backend/routers/system.py:713-733`, Service
+**Datei:** `ares-backend/routers/system.py:713-733`, Service
 `services/foundation_purge.py::purge_demo_client_data`/`assert_demo_client_purge_allowed`.
 
 **Erst-Verdacht:** Endpoint nimmt einen rohen `client_id`-Pfad-Parameter und ist nur mit
@@ -297,7 +297,7 @@ Reset-Tokens werden ausschließlich als SHA-256-Hash persistiert (`_hash_invite_
 ## Nachweis: Tests + Gate
 
 ```
-cd 5eyes-backend && python -m pytest tests/test_independent_security_audit_2026_07_23.py -q -p no:cacheprovider
+cd ares-backend && python -m pytest tests/test_independent_security_audit_2026_07_23.py -q -p no:cacheprovider
 # 13 passed
 
 python scripts/security_gate.py   # Repo-Root

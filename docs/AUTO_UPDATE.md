@@ -116,6 +116,6 @@ Renderer kommuniziert via `notifyRendererUpdateState()` (siehe
 ## Weiterfuehrendes
 
 - [electron-updater docs](https://www.electron.build/auto-update)
-- `5eyes-electron/main.js#L60-L180` — Implementation
+- `ares-desktop/main.js#L60-L180` — Implementation
 - `docs/RELEASE_TAGS.md` — Versionierungs-Workflow
-- `5eyes-electron/PACKAGING.md` — Build-Pipeline-Diagramm
+- `ares-desktop/PACKAGING.md` — Build-Pipeline-Diagramm

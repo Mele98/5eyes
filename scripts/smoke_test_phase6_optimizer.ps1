@@ -5,7 +5,7 @@
 # Endpoints auf und prueft dass alle Phase-6-Felder im Response sind.
 #
 # Voraussetzungen:
-#   - Backend dependencies installiert (pip install -r 5eyes-backend/requirements.txt)
+#   - Backend dependencies installiert (pip install -r ares-backend/requirements.txt)
 #   - Test-DB existiert (oder wird durch das Backend angelegt)
 #   - Curl im PATH (oder via Invoke-RestMethod, was unten verwendet wird)
 #
@@ -15,7 +15,7 @@
 #   ENTER drücken nach Backend-Start, Skript faehrt fort.
 
 param(
-    [string]$BackendDir = "C:\5eyes\5eyes_stage9_release_ready_develop_security\5eyes-backend",
+    [string]$BackendDir = "C:\5eyes\5eyes_stage9_release_ready_develop_security\ares-backend",
     [string]$BaseUrl = "http://127.0.0.1:8765",
     [string]$Username = "admin",
     [string]$Password = "admin",

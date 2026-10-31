@@ -4,7 +4,7 @@ document_role: "release-blocking-reference-data-read-authorization-and-model-bas
 status_as_of: "2026-08-27"
 language: "de"
 repository: "asset-allocation-stochastic-core"
-backend_root: "5eyes-backend"
+backend_root: "ares-backend"
 branch: "codex/asset-allocation-stochastic-core"
 audited_repository_head: "63a0fd8256f8d675720bde2b6c033b976a01bcd7"
 covered_implementation_commit: "661fe73cdd8222e9e0c6b88a45f565abd9cc6ed4"
@@ -104,21 +104,21 @@ Erklärbarkeit und Replaytreue einer bereits erzeugten Allocation.
 
 | Bereich | Codeanker |
 |---|---|
-| Client-Portal als bewusst enge Read-only-Sicht | `5eyes-backend/routers/client_portal.py:1-16`, `:52-116` |
-| allgemeine Auth akzeptiert auch `client` | `5eyes-backend/services/auth.py:145-243` |
-| getrennte Client- und Advisor-Gates | `5eyes-backend/services/auth.py:269-272`, `:482-494` |
-| House-/Policy-/Building-Block-/CMA-Read mit bloßem `get_current_user` | `5eyes-backend/routers/allocation.py:306-393` |
-| historischer Policy-Read mit bloßem `get_current_user` | `5eyes-backend/routers/allocation.py:837-854` |
-| requeststeuerbarer Non-CH-Tenant-CMA-Resolver | `5eyes-backend/services/jurisdiction/resolve.py:80-140` |
-| kanonischer jurisdiktionsfähiger Building-Block-Resolver | `5eyes-backend/services/jurisdiction/resolve.py:143-270` |
-| ungescopte Building-Block-Response ohne `jurisdiction` | `5eyes-backend/schemas/allocation.py:1023-1036` |
-| CMA-Response mit internen Feldern und `tenant_id` | `5eyes-backend/schemas/allocation.py:704-776` |
-| Policy-Response mit Fee-Modell und Notizen | `5eyes-backend/schemas/allocation.py:510-525` |
-| Produktkatalog-Read mit bloßem `get_current_user` | `5eyes-backend/routers/review.py:1107-1179` |
-| Protokollbibliothek-Read mit bloßem `get_current_user` | `5eyes-backend/routers/protocol_bausteine.py:132-163` |
-| vollständige Protokollantwort inklusive `content_md` | `5eyes-backend/schemas/protocol_bausteine.py:23-34` |
-| Cockpit lädt ungescopte Bausteine neben Mandatspayload | `5eyes-electron/frontend/5eyes_v2.html:21417-21443`, `:21555-21577` |
-| Cockpit rendert Asset/Subasset/Universum/Risky-Fraction ohne Scope | `5eyes-electron/frontend/5eyes_v2.html:7502-7506` |
+| Client-Portal als bewusst enge Read-only-Sicht | `ares-backend/routers/client_portal.py:1-16`, `:52-116` |
+| allgemeine Auth akzeptiert auch `client` | `ares-backend/services/auth.py:145-243` |
+| getrennte Client- und Advisor-Gates | `ares-backend/services/auth.py:269-272`, `:482-494` |
+| House-/Policy-/Building-Block-/CMA-Read mit bloßem `get_current_user` | `ares-backend/routers/allocation.py:306-393` |
+| historischer Policy-Read mit bloßem `get_current_user` | `ares-backend/routers/allocation.py:837-854` |
+| requeststeuerbarer Non-CH-Tenant-CMA-Resolver | `ares-backend/services/jurisdiction/resolve.py:80-140` |
+| kanonischer jurisdiktionsfähiger Building-Block-Resolver | `ares-backend/services/jurisdiction/resolve.py:143-270` |
+| ungescopte Building-Block-Response ohne `jurisdiction` | `ares-backend/schemas/allocation.py:1023-1036` |
+| CMA-Response mit internen Feldern und `tenant_id` | `ares-backend/schemas/allocation.py:704-776` |
+| Policy-Response mit Fee-Modell und Notizen | `ares-backend/schemas/allocation.py:510-525` |
+| Produktkatalog-Read mit bloßem `get_current_user` | `ares-backend/routers/review.py:1107-1179` |
+| Protokollbibliothek-Read mit bloßem `get_current_user` | `ares-backend/routers/protocol_bausteine.py:132-163` |
+| vollständige Protokollantwort inklusive `content_md` | `ares-backend/schemas/protocol_bausteine.py:23-34` |
+| Cockpit lädt ungescopte Bausteine neben Mandatspayload | `ares-desktop/frontend/ares.html:21417-21443`, `:21555-21577` |
+| Cockpit rendert Asset/Subasset/Universum/Risky-Fraction ohne Scope | `ares-desktop/frontend/ares.html:7502-7506` |
 
 ## `REF-READ-001` – Client-Rolle liest interne und fremde Referenzdaten
 

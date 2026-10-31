@@ -22,7 +22,7 @@ dem entsprechen was der Kunde im PDF bekommt.
 ## Entscheidung
 
 Eine einzige Backend-Funktion `compute_advisory_report(db, mandate_id)`
-in `5eyes-backend/services/advisory_report.py` ist die **einzige
+in `ares-backend/services/advisory_report.py` ist die **einzige
 Quelle** der 23 Sektionen.
 
 - Return-Typ: `dict[str, Any]` mit festen Section-Keys

@@ -41,7 +41,7 @@ ist ein Schuldenberg. UI-Catch-up vor weiterem Backend-Feature.
 | portfolio_engine: alle 11 Fragen Pflicht (vorher 9) | sinnvoll — Compliance-Schaerfung | bricht Legacy-Mandate ohne Frage 1-2 |
 | `override_reason` Pflichtfeld bei Risk-Override | sinnvoll — kein undokumentierter Override | API-Konsumenten muessen Feld liefern |
 | tests/risk_fixture_helpers.py | sinnvoll — zentrale Fixtures | — |
-| 5eyes_v2.html: 88 Lines UI fuer Fragen 1-2 | sinnvoll | — |
+| ares.html: 88 Lines UI fuer Fragen 1-2 | sinnvoll | — |
 
 **Migration-Strategie vor Merge**:
 - DB-Script: alle alten `RiskAssessment` bekommen `knowledge_services_json='{}' if null`

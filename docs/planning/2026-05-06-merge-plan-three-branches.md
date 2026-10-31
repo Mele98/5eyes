@@ -33,8 +33,8 @@ codex/fe-optimizer-panel          (rebase auf rp-ueberarbeitung)
 Begründung:
 1. **audit-master** zuerst — alle anderen bauen auf seinen Audit-Fixes auf. Risiko-niedrig: nur Backend, keine FE-Konflikte.
 2. **stochastic-optimizer** danach — fast-forward Merge weil direkt von audit-master. Kein Konflikt erwartet.
-3. **rp-ueberarbeitung** muss rebased werden weil RP von alter develop-Basis kommt und nun auf neuere audit-master-Inhalte trifft. Konflikte zu erwarten in: `portfolio_engine.py` (B5/B6/W2.5 vs. RP-Refactor), `risk_scoring.py` (B5 vs. RP-Logik), `5eyes_v2.html` (Drift).
-4. **fe-optimizer-panel** zuletzt — FE-only, baut auf rp-ueberarbeitung's neuestem `5eyes_v2.html` auf.
+3. **rp-ueberarbeitung** muss rebased werden weil RP von alter develop-Basis kommt und nun auf neuere audit-master-Inhalte trifft. Konflikte zu erwarten in: `portfolio_engine.py` (B5/B6/W2.5 vs. RP-Refactor), `risk_scoring.py` (B5 vs. RP-Logik), `ares.html` (Drift).
+4. **fe-optimizer-panel** zuletzt — FE-only, baut auf rp-ueberarbeitung's neuestem `ares.html` auf.
 
 ## Schritt-für-Schritt (für Owner auszuführen, mit aktivem `gh auth`)
 
@@ -90,11 +90,11 @@ cd C:\5eyes\5eyes_stage9_release_ready
 git fetch origin
 git checkout codex/rp-ueberarbeitung
 git rebase origin/develop
-# >>> KONFLIKTE ERWARTET in: portfolio_engine.py, risk_scoring.py, 5eyes_v2.html
+# >>> KONFLIKTE ERWARTET in: portfolio_engine.py, risk_scoring.py, ares.html
 # Strategie pro Konflikt:
 #   - portfolio_engine.py: audit-master B5/B6 wins; RP-Refactor adaptiert
 #   - risk_scoring.py: B5 hardness-α-Hybrid wins; RP nutzt das neue Schema
-#   - 5eyes_v2.html: hand-merge per Section
+#   - ares.html: hand-merge per Section
 ```
 
 Vorsicht: dieser Rebase ist **nicht trivial**. Empfehlung: lokal arbeiten, per Section mergen, dann Tests lokal laufen lassen (`pytest`), erst dann `git push --force-with-lease`.
@@ -111,7 +111,7 @@ Branch von `codex/rp-ueberarbeitung` (mit `-FromCurrent` Flag).
 ```powershell
 cd C:\5eyes\5eyes_stage9_release_ready
 .\scripts\start_codex_branch.ps1 -Slug "fe-optimizer-panel" -FromCurrent
-# Patch anwenden (3 Edits in 5eyes_v2.html + Mock in desktop-api.js)
+# Patch anwenden (3 Edits in ares.html + Mock in desktop-api.js)
 # Manueller Smoke-Test (siehe scripts/smoke_test_phase6_optimizer.ps1)
 git push origin codex/fe-optimizer-panel
 gh pr create --base develop --head codex/fe-optimizer-panel `
@@ -126,7 +126,7 @@ gh pr create --base develop --head codex/fe-optimizer-panel `
 | `services/risk_scoring.py` | (vermutlich nicht) | RP-Ueberarbeitung Logik | RP wins (eigener Scope) |
 | `models/allocation.py` | Optimizer-Spalten + Phase-6-Persistenz | (vermutlich keine) | Audit wins |
 | `schemas/allocation.py` | TargetAllocationGenerateResponse + sensitivity-Schemas | minor field changes | merge beide |
-| `5eyes_v2.html` | (audit-master bisschen) | RP-Refactor (umfangreich) | RP wins, audit-Drift hand-merge |
+| `ares.html` | (audit-master bisschen) | RP-Refactor (umfangreich) | RP wins, audit-Drift hand-merge |
 
 ## Rollback-Plan
 

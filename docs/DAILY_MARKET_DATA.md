@@ -40,7 +40,7 @@ werden gebuendelt, parallele Runs verhindert.
 
 ## Settings
 
-`5eyes-backend/config.py` (Defaults):
+`ares-backend/config.py` (Defaults):
 
 ```python
 market_data_daily_refresh_enabled: bool = True
@@ -114,5 +114,5 @@ Bei Skalierung jenseits Einzel-Berater siehe `MARKET_DATA_PROVIDER_STRATEGY.md`.
 - [data_pipeline_README.md](data_pipeline_README.md) — Master-Index
 - [DATA_PIPELINE_STATUS.md](DATA_PIPELINE_STATUS.md) — Phasen-Status
 - [MARKET_DATA_PROVIDER_STRATEGY.md](MARKET_DATA_PROVIDER_STRATEGY.md)
-- `5eyes-backend/README_price_updater.md` — Scheduler-Setup
+- `ares-backend/README_price_updater.md` — Scheduler-Setup
 - ADR-005 — CHF-0-Hard-Constraint
