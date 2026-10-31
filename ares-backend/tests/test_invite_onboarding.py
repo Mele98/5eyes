@@ -99,7 +99,7 @@ def test_invite_link_ignores_attacker_host_header_when_public_base_url_configure
     client, monkeypatch,
 ):
     from config import settings
-    monkeypatch.setattr(settings, "public_base_url", "https://trusted.5eyes.example")
+    monkeypatch.setattr(settings, "public_base_url", "https://trusted.example.test")
 
     captured = {}
 
@@ -116,7 +116,7 @@ def test_invite_link_ignores_attacker_host_header_when_public_base_url_configure
         headers={"Host": "evil-attacker.test", "X-Forwarded-Host": "evil-attacker.test"},
     )
     assert r.status_code == 201, r.text
-    assert captured["link"].startswith("https://trusted.5eyes.example/")
+    assert captured["link"].startswith("https://trusted.example.test/")
     assert "evil-attacker.test" not in captured["link"]
 
 

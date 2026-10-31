@@ -1,4 +1,4 @@
-# SQLAlchemy ORM models for 5Eyes
+# SQLAlchemy ORM models for Ares
 # Each file maps to a group of related tables from the v4.0 schema.
 
 # AUTH-03: Persistenter Brute-Force-Login-Guard. Import hier, damit die

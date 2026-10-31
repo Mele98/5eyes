@@ -4,8 +4,8 @@ spezifische Implementierung.
 Verwendung:
 - Berater fuegt im UI ein neues Land hinzu (z.B. 'VN' fuer Vietnam)
 - Gibt Pauschal-Werte ein: 0 bps Wealth, 2000 bps Dividend, 1500 bps Capital-Gains
-- 5eyes nutzt dieses Regime mit den eingegebenen Werten
-- Spaeter, wenn 5eyes-Team eine VNTaxRegime-Klasse implementiert,
+- Ares nutzt dieses Regime mit den eingegebenen Werten
+- Spaeter, wenn das Ares-Team eine VNTaxRegime-Klasse implementiert,
   uebernimmt die fuer 'VN'-IDs automatisch.
 
 Spec: docs/planning/2026-05-17-sprint-3-tax-plugin-system.md §3

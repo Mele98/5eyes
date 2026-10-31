@@ -8,7 +8,7 @@ import './styles/globals.css';
 // Sprint U-P22.6 — Token-Handoff von der Hauptapp:
 // Wenn die Reporting-Sub-App via Hauptapp-Button aufgerufen wird, kommt
 // der Bearer-Token im URL-Fragment (`#token=<jwt>`). Wir lesen ihn früh,
-// stecken ihn in sessionStorage (= 5eyes-Hauptapp-Konvention) und
+// stecken ihn in sessionStorage (= Hauptapp-Konvention) und
 // bereinigen die URL, damit der Token weder im Browser-Verlauf noch im
 // React-Router-Pfad sichtbar bleibt. Erst danach rendert React.
 consumeHandoffFromUrlFragment();

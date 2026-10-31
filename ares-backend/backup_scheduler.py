@@ -95,13 +95,13 @@ def _run_backup_job() -> None:
                     offsite.target, offsite.detail,
                 )
                 _alert_backup_problem(
-                    text="5eyes: Offsite-Backup-Replikation fehlgeschlagen.",
+                    text="Ares: Offsite-Backup-Replikation fehlgeschlagen.",
                     detail=f"target={offsite.target} detail={offsite.detail}",
                 )
     except Exception as exc:  # noqa: BLE001 — Scheduler soll nicht crashen
         logger.exception("Scheduled DB-backup failed")
         _alert_backup_problem(
-            text="5eyes: Geplantes Datenbank-Backup fehlgeschlagen.",
+            text="Ares: Geplantes Datenbank-Backup fehlgeschlagen.",
             detail=f"{type(exc).__name__}: {exc}",
         )
 

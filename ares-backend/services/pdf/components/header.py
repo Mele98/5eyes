@@ -30,7 +30,7 @@ def _esc(s) -> str:
     )
 
 
-def make_wealtharchitekten_header(
+def make_banner_header(
     ctx: PDFContext,
     *,
     mandate_number: str | None = None,
@@ -146,5 +146,5 @@ def _para_for_size(size: int):
 # als duenne Wrapper, damit Risikoprofil-PDF nicht bricht.
 def make_document_header(title: str, ctx: PDFContext) -> list:
     """Wrapper fuer Sprint-5-Risikoprofil-PDF. Sprint-11-Anlagestrategie
-    nutzt make_wealtharchitekten_header() stattdessen."""
-    return make_wealtharchitekten_header(ctx, document_title=title)
+    nutzt make_banner_header() stattdessen."""
+    return make_banner_header(ctx, document_title=title)

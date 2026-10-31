@@ -6,7 +6,7 @@ ADR-014 (2026-08-03) reduzierte services/portfolio_engine.py von 8'820 auf
 mechanismus wuchs die Datei innerhalb von nur 7,5 Wochen wieder auf
 7'215 Zeilen (+95%) an -- ausschliesslich durch reguläre fix(...)/feat(...)-
 Commits, die die neuen Modulgrenzen ignorierten (Fund aus der ganzheitlichen
-5eyes-Strategieanalyse, Codebase-Architektur-Review 2026-09-25). Der Split
+Ares-Strategieanalyse, Codebase-Architektur-Review 2026-09-25). Der Split
 selbst war handwerklich einwandfrei; es fehlte ein Mechanismus, der neue
 Fachlogik in die richtigen Cluster-Submodule statt zurueck in die Kern-Datei
 lenkt.

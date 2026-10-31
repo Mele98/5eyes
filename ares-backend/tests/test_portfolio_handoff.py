@@ -1,6 +1,6 @@
 """Weiterleitung ans Asset Management (User-Direktive, 2026-08-08).
 
-5eyes berechnet nur die Zielallokation/Handelsliste; die Ausfuehrung liegt bei
+Ares berechnet nur die Zielallokation/Handelsliste; die Ausfuehrung liegt bei
 der Depotbank/dem internen Asset Management. Diese Tests sperren den
 Nachweis-Mechanismus: unveraenderlicher Trade-Snapshot (0.5%-Schwelle wie
 openTradeList() im Frontend), Status-Lebenszyklus Gesendet->Ausgefuehrt/

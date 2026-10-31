@@ -1,5 +1,5 @@
 /**
- * Sprint U-P22.6 — Token-Handoff von der 5eyes-Hauptapp.
+ * Sprint U-P22.6 — Token-Handoff von der Ares-Hauptapp.
  *
  * Use-Case: Berater klickt in der Hauptapp einen "Advisory-Report öffnen"-
  * Button. Hauptapp liest ihren Bearer-Token (sessionStorage['5eyes_token']

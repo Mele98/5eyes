@@ -14,8 +14,8 @@ const fs = require('fs');
 const os = require('os');
 const assert = require('assert');
 
-const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-userdata-'));
-const tmpDownloads = fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-downloads-'));
+const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'ares-userdata-'));
+const tmpDownloads = fs.mkdtempSync(path.join(os.tmpdir(), 'ares-downloads-'));
 
 // DESK-001-Tests brauchen einen deterministischen, unwahrscheinlich belegten
 // Port fuer den Fake-Backend-Dienst -- nicht den echten Default (8000), um

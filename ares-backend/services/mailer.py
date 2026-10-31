@@ -80,20 +80,20 @@ def _send(msg: EmailMessage) -> bool:
 
 def _build_invite_message(to_email: str, full_name: str, invite_link: str) -> EmailMessage:
     msg = EmailMessage()
-    msg["Subject"] = "Ihr Zugang zu 5eyes — Konto aktivieren"
+    msg["Subject"] = "Ihr Zugang zu Ares — Konto aktivieren"
     msg["From"] = settings.smtp_from
     msg["To"] = to_email
     greeting = (full_name or "").strip() or "willkommen"
     text = (
         f"Hallo {greeting},\n\n"
-        "Sie wurden zu 5eyes eingeladen. Bitte aktivieren Sie Ihr Konto ueber den "
+        "Sie wurden zu Ares eingeladen. Bitte aktivieren Sie Ihr Konto ueber den "
         "folgenden Link und setzen Sie Ihr Passwort. Danach richten Sie die "
         "Zwei-Faktor-Authentifizierung ein.\n\n"
         f"{invite_link}\n\n"
         "Der Link ist 7 Tage gueltig und nur einmal verwendbar.\n\n"
         "Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese "
         "E-Mail.\n\n"
-        "— 5eyes"
+        "— Ares"
     )
     msg.set_content(text)
     return msg
@@ -113,19 +113,19 @@ def send_invite_email(to_email: str | None, full_name: str, invite_link: str) ->
 
 def _build_password_reset_message(to_email: str, full_name: str, reset_link: str) -> EmailMessage:
     msg = EmailMessage()
-    msg["Subject"] = "5eyes — Passwort zuruecksetzen"
+    msg["Subject"] = "Ares — Passwort zuruecksetzen"
     msg["From"] = settings.smtp_from
     msg["To"] = to_email
     greeting = (full_name or "").strip() or "Hallo"
     text = (
         f"Hallo {greeting},\n\n"
-        "Es wurde ein Zuruecksetzen Ihres 5eyes-Passworts angefordert. Setzen Sie "
+        "Es wurde ein Zuruecksetzen Ihres Ares-Passworts angefordert. Setzen Sie "
         "Ihr neues Passwort ueber den folgenden Link:\n\n"
         f"{reset_link}\n\n"
         "Der Link ist 2 Stunden gueltig und nur einmal verwendbar.\n\n"
         "Falls Sie das nicht angefordert haben, ignorieren Sie diese E-Mail — Ihr "
         "Passwort bleibt unveraendert.\n\n"
-        "— 5eyes"
+        "— Ares"
     )
     msg.set_content(text)
     return msg

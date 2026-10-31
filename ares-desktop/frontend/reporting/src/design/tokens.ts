@@ -1,11 +1,11 @@
 /**
- * 5eyes Reporting Design-Tokens (Sprint U-P22.1).
+ * Ares Reporting Design-Tokens (Sprint U-P22.1).
  *
  * Diese Konstanten spiegeln die Tailwind-Theme-Werte als JS-importierbare
  * Werte. Wird von Chart-Komponenten (Recharts) gebraucht, die Inline-Styles
  * statt Utility-Classes benötigen.
  *
- * Branding-Disziplin: alle Tokens sind 5eyes-eigen, KEINE Dritt-Marken-
+ * Branding-Disziplin: alle Tokens sind Ares-eigen, KEINE Dritt-Marken-
  * Farben (per Memory-Regel).
  *
  * Quelle der Wahrheit ist `tailwind.config.ts` — beide müssen synchron

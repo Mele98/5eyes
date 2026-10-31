@@ -1,7 +1,7 @@
 """Multi-Source Market Data Aggregator (Phase 1).
 
 Plan: docs/planning/2026-05-09-multi-source-data-aggregator-spec.md (folgt).
-Memory: project_5eyes_data_pipeline.md.
+Hintergrund: Planung der Multi-Source-Datenpipeline.
 
 Phase 1: Provider-Adapter-Pattern (Interface + Dataclasses + Exceptions).
 Spaetere Phasen fuegen konkrete Provider hinzu (yfinance, stooq, alphavantage,

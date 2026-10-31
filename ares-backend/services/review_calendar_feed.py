@@ -3,7 +3,7 @@ Kalender-Abo-Feed fuer faellige/bald faellige Review-Trigger.
 
 Nutzer-Anforderung: der Berater soll auf faellige Jahresreviews/Drift-/
 Ereignis-Trigger automatisch (via Outlook-Kalenderabo) aufmerksam gemacht
-werden, ohne dass 5eyes eine kostenpflichtige oder registrierungspflichtige
+werden, ohne dass Ares eine kostenpflichtige oder registrierungspflichtige
 Microsoft-Graph-Anbindung braucht. Outlook kann einen beliebigen HTTP(S)-
 Endpoint, der einen gueltigen .ics-Text liefert, als "Internetkalender
 abonnieren" und aktualisiert ihn danach selbststaendig periodisch.
@@ -104,7 +104,7 @@ def _all_day_event(
         f"DTSTART;VALUE=DATE:{due_compact}",
         f"SUMMARY:{_ics_escape(summary)}",
         f"DESCRIPTION:{_ics_escape(description)}",
-        "CATEGORIES:5Eyes,Review,Compliance",
+        "CATEGORIES:Ares,Review,Compliance",
         "BEGIN:VALARM",
         "ACTION:DISPLAY",
         f"DESCRIPTION:{_ics_escape(summary)}",
@@ -143,7 +143,7 @@ def build_ics_feed(db: Session, user: User) -> str:
         "PRODID:-//5Eyes WealthArchitekten//Review-Kalender//DE",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
-        "X-WR-CALNAME:5Eyes Reviews",
+        "X-WR-CALNAME:Ares",
         "X-PUBLISHED-TTL:PT12H",
         "REFRESH-INTERVAL;VALUE=DURATION:PT12H",
     ]
@@ -154,7 +154,7 @@ def build_ics_feed(db: Session, user: User) -> str:
         client_label = " ".join(
             part for part in (client.first_name, client.last_name) if part
         ).strip() or client.client_number
-        summary = f"5Eyes Review: {trigger.trigger_name} -- {client_label}"
+        summary = f"Ares Review: {trigger.trigger_name} -- {client_label}"
         description_parts = [
             f"Mandat: {mandate.mandate_number}",
             f"Trigger-Typ: {trigger.trigger_type}",

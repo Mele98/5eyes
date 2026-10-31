@@ -7,7 +7,7 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.base import PDFContext, RisikoprofilData
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
-from services.pdf.components.header import _esc, make_wealtharchitekten_header
+from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -31,7 +31,7 @@ def build_risikoprofil_flowables(
         else None
     )
 
-    flowables.extend(make_wealtharchitekten_header(
+    flowables.extend(make_banner_header(
         ctx,
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
