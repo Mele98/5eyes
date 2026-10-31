@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from config import settings
+from config import settings, user_agent
 from services.market_data.exceptions import RateLimitError
 
 
@@ -24,7 +24,7 @@ def _request_json(url: str) -> Any:
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "5Eyes-WealthArchitekten/1.0",
+            "User-Agent": user_agent(),
         },
     )
     try:

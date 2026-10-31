@@ -3,7 +3,7 @@
  *
  * 4-Spalten-Tabelle: Prüfpunkt · Ampel-Pill · Beurteilung · Handlungsempfehlung.
  *
- * Ampel-Pills aus components/AmpelPill mit matten 5eyes-Status-Farben
+ * Ampel-Pills aus components/AmpelPill mit matten Ares-Status-Farben
  * (nicht signal-grün/-rot — Design-Direktive).
  */
 import type { ErkenntnisseData } from '@/api/types';

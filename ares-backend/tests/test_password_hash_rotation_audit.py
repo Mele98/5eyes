@@ -157,7 +157,7 @@ def test_needs_rehash_for_invalid_hash():
     assert needs_rehash(None) is True
 
 
-def test_default_target_is_5eyes_constant():
+def test_default_target_is_product_constant():
     """U-57 default rounds = 12."""
     assert BCRYPT_TARGET_ROUNDS == 12
 
@@ -284,7 +284,7 @@ def test_audit_variant_distribution_counted():
 # ---------------------------------------------------------------------------
 
 def test_existing_hash_password_produces_target_compliant_hash():
-    """5eyes hash_password() default >= 12 rounds (OWASP-konform)."""
+    """Ares hash_password() default >= 12 rounds (OWASP-konform)."""
     from services.auth import hash_password
     h = hash_password("test-password")
     rounds = get_bcrypt_rounds(h)

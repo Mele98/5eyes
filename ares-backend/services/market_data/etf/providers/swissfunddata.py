@@ -15,7 +15,7 @@ from typing import Any
 import requests
 
 from ...exceptions import ProviderError, RateLimitError, SymbolNotFound
-from ..base import ETFInfo, ETFProvider
+from ..base import ETFInfo, ETFProvider, browser_compatible_user_agent
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class SwissfunddataScraper(ETFProvider):
             )
         self._respect_rate_limit()
         headers = {
-            "User-Agent": "Mozilla/5.0 (5eyes-inhouse-research)",
+            "User-Agent": browser_compatible_user_agent(),
             "Accept": "text/html,application/xhtml+xml",
         }
         params = {"isin": isin}

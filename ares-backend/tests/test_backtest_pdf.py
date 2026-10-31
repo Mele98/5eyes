@@ -82,7 +82,7 @@ def _sample_data(*, with_benchmark: bool = False) -> BacktestData:
 def _ctx() -> PDFContext:
     return PDFContext(
         mandate_name="Test M-001", advisor_name="Adv",
-        advisor_org="WealthArchitekten",
+        advisor_org="Muster & Partner AG",
         report_date=date.today(), base_currency="CHF",
     )
 

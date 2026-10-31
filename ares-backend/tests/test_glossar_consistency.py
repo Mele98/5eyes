@@ -26,12 +26,12 @@ def test_glossar_exists():
 
 def test_glossar_has_header():
     text = _glossar()
-    assert "5eyes" in text
+    assert text.lstrip().startswith("# ")
     assert "Glossar" in text
 
 
 # ---------------------------------------------------------------------------
-# Fachlogik-Kernbegriffe (User-Memory project_5eyes_fachlogik)
+# Fachlogik-Kernbegriffe (Fachlogik-Kernkonzepte)
 # ---------------------------------------------------------------------------
 
 def test_glossar_defines_gesamtvermoegen_vs_beratungsvermoegen():
@@ -176,7 +176,7 @@ def test_glossar_defines_health_endpoints():
 
 
 # ---------------------------------------------------------------------------
-# Branding-Disziplin (project_5eyes_branding feedback)
+# Branding-Disziplin (keine Drittmarken)
 # ---------------------------------------------------------------------------
 
 def test_glossar_documents_forbidden_third_party_brands():
@@ -185,8 +185,10 @@ def test_glossar_documents_forbidden_third_party_brands():
     lowered = text.lower()
     # Verbots-Sektion muss existieren
     assert "nicht auftauchen" in lowered or "verboten" in lowered
-    # Die verbotenen Begriffe muessen im Verbot gelistet sein
-    for brand in ("swiss life", "3eyes"):
+    # Die verbotenen Begriffe muessen im Verbot gelistet sein. Fruehere
+    # Produkt- und Vorlagennamen nennt das Glossar nicht mehr; sie prueft das
+    # externe Zero-Trace-Gate.
+    for brand in ("swiss life",):
         assert brand in lowered, f"Verbotsregel fuer {brand!r} fehlt"
 
 

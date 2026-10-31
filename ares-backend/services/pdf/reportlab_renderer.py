@@ -154,6 +154,8 @@ class ReportLabRenderer:
             title=f"{metadata_brand} - {title} - {ctx.mandate_name}",
             author=ctx.advisor_name,
             subject=title,
+            creator="Ares",
+            producer="Ares",
         )
         footer_cb = make_footer_callback(ctx)
         # Dokumenten-Archiv (2026-08-20): invariant=1 unterdrueckt ReportLabs

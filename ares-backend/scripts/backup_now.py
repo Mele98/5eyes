@@ -4,8 +4,8 @@ Aufruf
 ------
     python scripts/backup_now.py
     python scripts/backup_now.py --target /pfad/zu/backups
-    python scripts/backup_now.py --source ~/5eyes/5eyes.db --target /mnt/backup
-    python scripts/backup_now.py --restore /pfad/zu/backup.db --target ~/5eyes/5eyes.db
+    python scripts/backup_now.py --source ~/ares/ares.db --target /mnt/backup
+    python scripts/backup_now.py --restore /pfad/zu/backup.db --target ~/ares/ares.db
 
 Standardmaessig liest das Script Settings aus `.env` / Umgebungs-
 variablen via `config.settings` — selbe Quelle wie der laufende Server.
@@ -28,7 +28,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="5eyes DB-Backup-CLI")
+    parser = argparse.ArgumentParser(description="Ares DB-Backup-CLI")
     parser.add_argument(
         "--source",
         type=str,

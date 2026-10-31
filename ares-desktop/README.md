@@ -1,6 +1,6 @@
-# 5Eyes Electron Wrapper (Windows skeleton)
+# Ares Electron Wrapper (Windows skeleton)
 
-This desktop shell starts the local FastAPI backend, verifies that the reachable service is really the 5Eyes API, chooses a free localhost port when 8000 is already occupied by something else, and then opens the current `ares.html` frontend inside Electron.
+This desktop shell starts the local FastAPI backend, verifies that the reachable service is really the Ares API, chooses a free localhost port when 8000 is already occupied by something else, and then opens the current `ares.html` frontend inside Electron.
 
 ## What is included
 
@@ -19,7 +19,7 @@ This desktop shell starts the local FastAPI backend, verifies that the reachable
 - `package.json`
   - Electron + `electron-builder` config for a Windows NSIS installer (`.exe`)
 - `scripts/build-backend.js`
-  - bundles the Python FastAPI backend into `5eyes-api.exe` via PyInstaller
+  - bundles the Python FastAPI backend into `ares-api.exe` via PyInstaller
   - checks that `main.py` has an executable entrypoint before building
   - optionally includes SQLCipher when `BUILD_WITH_SQLCIPHER=1`
   - never copies a real `ares-backend/.env` into the bundle (secret-free
@@ -36,7 +36,7 @@ This desktop shell starts the local FastAPI backend, verifies that the reachable
 - Placeholder Windows app icon is included under `assets/icons/` and can be replaced later without changing code.
 - The backend scheduler only needs to run while the app is open.
 - SQLCipher is controlled centrally through `DB_USE_SQLCIPHER=true` and `DB_KEY=...` in `.env`.
-- Electron writes a local support log to `%APPDATA%/5Eyes WealthArchitekten/logs/electron.log` (or the platform equivalent).
+- Electron writes a local support log to `%APPDATA%/<productName>/logs/electron.log` (`productName` from `package.json`; or the platform equivalent).
 - The packaged backend looks for a `.env` file next to the bundled backend executable first, then falls back to the normal project locations. The build never ships a real `.env` there — see "Secrets are never bundled" below.
 - The frontend contains an in-app bootstrap flow for the first admin account if the database has no users yet.
 - For a fully offline release, run `python vendor_assets.py` successfully before the final installer build.
@@ -131,7 +131,7 @@ npm run dist:win
 
 What happens during this command:
 1. `scripts/build-backend.js` runs PyInstaller in `ares-backend/`
-2. PyInstaller builds `5eyes-api.exe`
+2. PyInstaller builds `ares-api.exe`
 3. the executable plus the secret-free `.env.example` template are copied to `ares-desktop/bundle/backend/` — a real `ares-backend/.env`, if one exists on the build machine, is intentionally **not** copied
 4. `scripts/bundle-secret-scan.js` scans `ares-desktop/bundle/backend/` and aborts the build if it finds a real `.env` file or an embedded private key
 5. `electron-builder` packages the app and produces an NSIS installer in `ares-desktop/dist/`
@@ -152,7 +152,7 @@ provisioned by the build. Instead:
 - Before a real deployment, an operator manually creates a `.env` with
   real, machine-specific values (see `docs/deployment/tier1-self-hosted.md`
   for the exact keys) and places it next to the installed
-  `5eyes-api.exe` (or the location `resolve_env_file()` in
+  `ares-api.exe` (or the location `resolve_env_file()` in
   `ares-backend/config.py` checks). This `.env` is created **after**
   installation, on the target machine — it is never part of the build or
   the installer artifact.

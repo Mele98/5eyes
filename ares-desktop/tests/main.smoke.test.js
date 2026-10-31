@@ -14,14 +14,19 @@ const fs = require('fs');
 const os = require('os');
 const assert = require('assert');
 
-const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-userdata-'));
-const tmpDownloads = fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-downloads-'));
+const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'ares-userdata-'));
+const tmpDownloads = fs.mkdtempSync(path.join(os.tmpdir(), 'ares-downloads-'));
 
 // DESK-001-Tests brauchen einen deterministischen, unwahrscheinlich belegten
 // Port fuer den Fake-Backend-Dienst -- nicht den echten Default (8000), um
 // keine Kollision mit einer evtl. lokal laufenden echten Backend-Instanz zu
 // riskieren.
 process.env.APP_PORT = process.env.APP_PORT || '58421';
+
+// W2-i: Eine Umgebungsvariable darf die erwartete Backend-Kennung nicht
+// verschieben. Gesetzt VOR dem Laden von main.js; die Probe muss trotzdem
+// genau 'Ares API' erwarten.
+process.env.BACKEND_APP_NAME = 'Other API';
 
 // ── Test-steuerbarer State ───────────────────────────────────────────────────
 const state = {
@@ -217,8 +222,8 @@ function check(name, fn) {
   await check('DESK-001 Dev-Modus uebernimmt kompatiblen Fake-Dienst wie bisher', async () => {
     const http = require('http');
     const fakeServer = http.createServer((req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ app: '5Eyes WealthArchitekten API', status: 'ok' }));
+      res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
+      res.end(JSON.stringify({ app: 'Ares API', status: 'ok' }));
     });
     await new Promise((resolve) => fakeServer.listen(58421, '127.0.0.1', resolve));
     try {
@@ -231,11 +236,43 @@ function check(name, fn) {
     }
   });
 
+  await check('W2-i Probe erwartet genau Ares API (kein Env-Override)', () => {
+    assert.strictEqual(mainExports.EXPECTED_BACKEND_APP, 'Ares API');
+  });
+
+  await check('W2-i Dev-Modus uebernimmt keinen Dienst mit fremder Kennung', async () => {
+    const http = require('http');
+    const fakeServer = http.createServer((req, res) => {
+      // Connection: close, damit keine Keep-Alive-Verbindung aus einem
+      // vorherigen Fake-Dienst die Probe verfaelscht.
+      res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
+      res.end(JSON.stringify({ app: 'Other API', status: 'ok' }));
+    });
+    await new Promise((resolve) => fakeServer.listen(58421, '127.0.0.1', resolve));
+    try {
+      electronStub.app.isPackaged = false;
+      const runtime = await mainExports.pickBackendRuntime();
+      assert.notStrictEqual(runtime.ready, true, 'Fremde Kennung darf nicht als kompatibel gelten');
+      assert.notStrictEqual(runtime.port, 58421);
+      // Gegenprobe: der Dienst war erreichbar, abgelehnt wurde nur die Kennung.
+      const probe = await new Promise((resolve) => {
+        require('http').get('http://127.0.0.1:58421/health/ready', { agent: false }, (res) => {
+          let body = '';
+          res.on('data', (c) => { body += c; });
+          res.on('end', () => resolve(JSON.parse(body)));
+        }).on('error', () => resolve(null));
+      });
+      assert.strictEqual(probe && probe.app, 'Other API');
+    } finally {
+      await new Promise((resolve) => fakeServer.close(resolve));
+    }
+  });
+
   await check('DESK-001 gepackte App ignoriert denselben Fake-Dienst und weicht aus', async () => {
     const http = require('http');
     const fakeServer = http.createServer((req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ app: '5Eyes WealthArchitekten API', status: 'ok' }));
+      res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
+      res.end(JSON.stringify({ app: 'Ares API', status: 'ok' }));
     });
     await new Promise((resolve) => fakeServer.listen(58421, '127.0.0.1', resolve));
     try {

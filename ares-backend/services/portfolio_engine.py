@@ -156,8 +156,8 @@ GOAL_WEIGHT_BY_RANK = {
     4: 1250,
     5: 625,
 }
-DEFAULT_POLICY_NAME = "5Eyes V1 Standard"
-DEFAULT_CMA_NAME = "5Eyes V1 Hausmeinung"
+DEFAULT_POLICY_NAME = "Ares V1 Standard"
+DEFAULT_CMA_NAME = "Ares V1 Hausmeinung"
 
 
 class StaleAllocationInputError(ValueError):
@@ -1606,7 +1606,7 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
 
 
 
-# 3eyes-Methodik (drei augen.pdf): Illiquiditaet ist eine Eigenschaft des
+# Referenzmethodik (Vorlagen-PDF): Illiquiditaet ist eine Eigenschaft des
 # Bausteins, kein pauschaler Alternatives-Deckel. Direktimmobilien werden
 # bereits ueber das Gesamtvermoegen (extern) gefuehrt und nicht umgeschichtet;
 # der einzige illiquide Baustein INNERHALB der handelbaren SAA ist Private Equity.
@@ -1868,7 +1868,7 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
                 "2040": 110,
             }),
             sub_asset_class_assumptions_json=json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS),
-            source="5Eyes Default Runtime",
+            source="Ares Default Runtime",
             notes="Automatisch erzeugte Default-CMA fuer V1-Engine",
             created_by=user_id,
             created_at=now,
@@ -3351,7 +3351,7 @@ def generate_target_allocation(
             "auf dem effektiv investierbaren Vermoegen normiert."
         )
 
-    # 3eyes-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity)
+    # Referenzmethodik-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity)
     # gedeckelt, nicht pauschal auf der ganzen Alternatives-Quote.
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
 

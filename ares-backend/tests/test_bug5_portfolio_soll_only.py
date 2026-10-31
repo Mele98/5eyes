@@ -1,6 +1,6 @@
 """Bug-#5 (2026-06-07): Portfolio-Tab zeigt nur SOLL, keine IST-Vergleichs-UI.
 
-Customer-Journey 3eyes-Stil:
+Customer-Journey nach Referenzmethodik:
   Standortanalyse -> Cashflow/Goals -> Risikoprofil -> SAA -> Portfolio
 
 Portfolio = Ableitung der SAA in konkrete Produkte (ISIN-Liste). KEIN

@@ -3,7 +3,7 @@ import pytest
 from config import DEFAULT_SECRET_KEY, Settings
 
 
-PRODUCTION_CORS_ORIGINS = ['https://app.5eyes.local']
+PRODUCTION_CORS_ORIGINS = ['https://app.example.test']
 
 
 def test_production_requires_sqlcipher_and_db_key():

@@ -678,12 +678,12 @@ def test_toc_lists_kapitel_in_order():
 # ---------------------------------------------------------------------------
 
 def test_pdf_contains_no_third_party_brands_in_layout():
-    """Memory-Regel: NIE Swiss Life, 3eyes etc. im EIGENEN PDF-Layout
+    """Memory-Regel: NIE Drittmarken (z.B. Swiss Life) im EIGENEN PDF-Layout
     (Wordmark, Tagline, Disclaimer-Texte, Headers/Footers).
 
     Echte Produktnamen aus den Daten (z. B. 'UBS ETF', 'Pictet Global')
     sind im echten Mandat erlaubt — sie kommen aus dem Empfehlungs-Run,
-    nicht aus dem 5eyes-Branding. Daher prüfen wir hier nur das Layout,
+    nicht aus dem Ares-Branding. Daher prüfen wir hier nur das Layout,
     indem wir das Test-Payload mit anonymisierten Produktnamen befüllen.
     """
     pypdf = pytest.importorskip("pypdf")

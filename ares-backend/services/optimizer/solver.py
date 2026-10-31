@@ -1906,7 +1906,7 @@ def _markowitz_min_variance_candidate(
     mu_bps: np.ndarray | None,
     cov_bps: np.ndarray | None,
 ) -> np.ndarray | None:
-    """PAR-5 (3eyes-Parity): Markowitz-informierter Multi-Start-Kandidat.
+    """PAR-5 (Referenz-Paritaet): Markowitz-informierter Multi-Start-Kandidat.
 
     Loest ein kleines quadratisches Programm auf der Effizienzgrenze:
 
@@ -1920,7 +1920,7 @@ def _markowitz_min_variance_candidate(
     House-Matrix-Risikoniveau statt einen willkuerlichen neuen Rendite-
     Zielwert einzufuehren. Das Ergebnis liegt (naeherungsweise, siehe unten)
     auf der Markowitz-Effizienzgrenze innerhalb der Bucket-Bands - analog zu
-    3eyes, das ebenfalls von der Effizienzgrenze aus startet.
+    der Referenzmethodik, die ebenfalls von der Effizienzgrenze aus startet.
 
     Dies ist ein echtes QP via scipy.optimize.minimize(method="SLSQP"),
     nicht nur eine Naeherung - scipy ist bereits Kern-Dependency des Solvers
@@ -2249,7 +2249,7 @@ def _derisk_candidate_near_best(
     """Move robustified candidates toward the lowest-risk feasible start.
 
     This is used only after SciPy reported non-success. At that point the
-    objective is already numerically fragile, so 3eyes' "so viel Risiko wie
+    objective is already numerically fragile, so the reference methodology's "so viel Risiko wie
     noetig" rule is a better deterministic tie-break than accepting a
     platform-specific high-risk candidate by a tiny objective edge.
     """
@@ -3013,7 +3013,7 @@ def _select_cube_candidate_core(
             for candidate in finite_feasible_candidates
             if float(candidate["objective"]) <= objective_limit
         ]
-        # 3eyes-Logik: so viel Risiko wie noetig, aber bei praktisch
+        # Referenzmethodik: so viel Risiko wie noetig, aber bei praktisch
         # gleichwertiger Zielerreichung die defensivere Allocation nehmen.
         chosen_candidate = min(
             near_best_candidates,

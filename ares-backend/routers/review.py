@@ -1177,11 +1177,11 @@ def get_my_review_calendar_feed(
     user = resolve_user_by_calendar_feed_token(db, token)
     if not user:
         raise HTTPException(status_code=404, detail="Ungültiger oder abgelaufener Kalender-Token")
-    ics_text = build_ics_feed(db, user)
+    ics_text = build_ics_feed(db, user, uid_domain=settings.ares_domain)
     return Response(
         content=ics_text,
         media_type="text/calendar; charset=utf-8",
-        headers={"Content-Disposition": "inline; filename=5eyes-reviews.ics"},
+        headers={"Content-Disposition": "inline; filename=ares-reviews.ics"},
     )
 
 
