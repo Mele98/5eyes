@@ -701,8 +701,6 @@ def _resolution_actions(result: dict, attestation_status: str | None) -> list[st
 
 
 def _evaluation_hash(result: dict) -> str:
-    import hashlib
-
     bound = {
         key: result.get(key)
         for key in (

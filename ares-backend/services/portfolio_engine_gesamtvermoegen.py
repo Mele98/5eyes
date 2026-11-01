@@ -321,9 +321,6 @@ def total_wealth_projection_basis(
       Jahr-0-Zerlegung exakt dem Snapshot entspricht.
     `basis_hash` bindet alle Felder (SHA-256 über kanonisches JSON).
     """
-    import hashlib
-    import json
-
     def _series(key: str) -> list[int]:
         return [int(v) for v in (foundation_projection or {}).get(key) or []]
 

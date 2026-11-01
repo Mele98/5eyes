@@ -14,7 +14,6 @@ Profilnamen -- fruehere Entscheidungen waren nicht rekonstruierbar. Jetzt:
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from core.evidence import evidence_hash
