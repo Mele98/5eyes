@@ -75,7 +75,7 @@ def _configure_with_clean_handlers() -> logging.Logger:
 @pytest.fixture
 def tmp_log_dir(tmp_path, monkeypatch):
     """db_path -> tmp_path/db.sqlite -> Logs landen in tmp_path/logs."""
-    db_file = tmp_path / "5eyes.db"
+    db_file = tmp_path / "ares.db"
     monkeypatch.setattr("config.settings.db_path", str(db_file))
     return tmp_path / "logs"
 
@@ -98,7 +98,7 @@ def test_resolve_log_file_uses_log_file_name(tmp_log_dir):
 
 def test_log_file_name_constant():
     """Drift-Schutz: Dateiname bleibt stabil."""
-    assert LOG_FILE_NAME == "5eyes-app.log"
+    assert LOG_FILE_NAME == "ares-app.log"
 
 
 # ---------------------------------------------------------------------------
