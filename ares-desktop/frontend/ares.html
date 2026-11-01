@@ -14608,14 +14608,13 @@ async function downloadCostDisclosurePdf(){
       await API.post('/mandates/'+encodeURIComponent(mid)+'/advisory-log',{
         entry_type: 'Sonstiges',
         title: 'FIDLEG Ex-ante Kostenausweis lokal gespeichert',
-        description: 'Der voraussichtliche Kostenausweis nach FIDLEG Art. 8/9 wurde als PDF lokal gespeichert (bestaetigter Download). Dies allein belegt noch KEINE Praesentation oder Zustellung an den Kunden.',
+        description: 'Der voraussichtliche Kostenausweis nach FIDLEG Art. 8/9 wurde als PDF lokal gespeichert (bestaetigter Download). Dies allein belegt noch KEINE Praesentation oder Zustellung an den Kunden.'+(outcome.byte_sha256?' SHA-256 der gespeicherten PDF-Datei: '+outcome.byte_sha256+'.':''),
         entry_datetime: nowIso,
         duration_minutes: 1,
         communication_channel: 'persoenlich',
         topics: ['Ex-ante Kostenausweis'],
         risk_warnings_given: [],
         cost_disclosure_given: true,
-        cost_disclosure_artifact_byte_sha256: outcome.byte_sha256||null,
         conflict_disclosure_ids: [],
       });
     }catch(logErr){

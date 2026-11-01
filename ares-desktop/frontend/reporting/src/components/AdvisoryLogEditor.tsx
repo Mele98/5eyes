@@ -190,15 +190,23 @@ export function AdvisoryLogEditor({
         .map((w) => w.trim())
         .filter(Boolean),
       cost_disclosure_given: form.cost_disclosure_given,
-      // Real (possibly null) server-sourced snapshot reference -- never a
-      // fabricated id. `null` honestly means "no current snapshot found",
-      // not a false claim of evidence.
-      cost_disclosure_snapshot_id: form.cost_disclosure_given
-        ? costSnapshot?.source_run_id ?? null
-        : null,
-      cost_disclosure_snapshot_currency: form.cost_disclosure_given
-        ? costSnapshot?.currency ?? null
-        : null,
+      // ADVISORY-LOG-COST-RUN-BINDING (AUDIT-FIX 2026-10-31): vorher gingen
+      // hier `cost_disclosure_snapshot_id`/`_currency` raus -- Felder, die
+      // `schemas/review.py::AdvisoryLogCreate` nicht kennt und Pydantic still
+      // verwarf. Ohne Lauf-ID rechnete das Backend den MANDATSWEITEN
+      // Kostenausweis zum Speicherzeitpunkt statt den bei der Finalisierung
+      // eingefrorenen Nachweis (COST-CONTEXT-001b) des Laufs, den der
+      // Berater hier gesehen hat. Jetzt: genau dieser Lauf als
+      // `recommendation_run_id` -- das Feld, ueber das
+      // `advisory_log_service._resolve_cost_disclosure_snapshot` bindet.
+      // Das Formular hat KEIN eigenes Lauf-Feld und der Auto-Log setzt nie
+      // eins (build_auto_log_payload), also gibt es keine konkurrierende
+      // Berater-Wahl. Ohne Kostenhaken bleibt der Payload wie bisher (kein
+      // Lauf behauptet); ohne gefundenen Snapshot `null` = mandatsweit wie
+      // bisher, nie eine erfundene ID.
+      ...(form.cost_disclosure_given
+        ? { recommendation_run_id: costSnapshot?.source_run_id ?? null }
+        : {}),
       conflict_disclosure_ids: [],
       status: form.status,
     };
@@ -362,9 +370,9 @@ export function AdvisoryLogEditor({
       {form.cost_disclosure_given ? (
         <p className="mt-1 text-micro text-ink-subtle">
           {costSnapshot?.source_run_id
-            ? `Bezug auf aktuellen Kostenausweis-Snapshot ${costSnapshot.source_run_id}${
+            ? `Das Protokoll wird an den Kostenausweis des Empfehlungslaufs ${costSnapshot.source_run_id}${
                 costSnapshot.as_of ? ` (${costSnapshot.as_of})` : ''
-              }.`
+              } gebunden.`
             : 'Kein aktueller Kostenausweis-Snapshot gefunden -- diese Angabe bleibt ein reines Advisor-Attest ohne Artefakt-Bezug.'}
         </p>
       ) : null}

@@ -51,6 +51,16 @@
  * evidence reference layered onto the existing self-attestation, not its
  * full replacement. `test.fails` -> plain `test`: strict `test.fails`
  * would otherwise report an unexpected pass as a failure.
+ *
+ * ADVISORY-LOG-COST-RUN-BINDING (AUDIT-FIX 2026-10-31): the scoped fix above
+ * was green for the wrong reason. `cost_disclosure_snapshot_id`/`_currency`
+ * are unknown to `schemas/review.py::AdvisoryLogCreate` and Pydantic dropped
+ * them silently -- the key-name regex below matched a field that never
+ * reached the server. The editor now sends the shown run as
+ * `recommendation_run_id`, the field the backend binds the frozen evidence
+ * to (`advisory_log_service._resolve_cost_disclosure_snapshot`). This test
+ * therefore asserts that concrete, server-consumed reference instead of a
+ * key-name pattern.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -67,7 +77,19 @@ describe('COST-DELIVERY-EVIDENCE-001: React self-attestation without artifact ev
       let capturedBody: Record<string, unknown> | null = null;
       vi.stubGlobal(
         'fetch',
-        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (String(url).includes('/cost-disclosure/ex-ante')) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => ({
+                source_run_id: 'run-evidence-001',
+                currency: 'CHF',
+                as_of: '2026-10-09',
+                data_pending: false,
+              }),
+            } as Response);
+          }
           capturedBody = init?.body
             ? (JSON.parse(init.body as string) as Record<string, unknown>)
             : null;
@@ -99,6 +121,7 @@ describe('COST-DELIVERY-EVIDENCE-001: React self-attestation without artifact ev
       // checkbox, with no artifact/snapshot/hash reference anywhere on
       // the form.
       fireEvent.click(screen.getByRole('checkbox'));
+      await screen.findByText(/run-evidence-001/);
       fireEvent.click(screen.getByText('Speichern'));
 
       await waitFor(() => expect(capturedBody).not.toBeNull());
@@ -114,10 +137,9 @@ describe('COST-DELIVERY-EVIDENCE-001: React self-attestation without artifact ev
       // server-verified artifact (snapshot/document/byte-hash) -- never a
       // bare boolean the advisor can tick freely with no evidence behind
       // it.
-      const hasArtifactEvidence = Object.keys(body).some((key) =>
-        /artifact|snapshot|document_id|byte_sha256/i.test(key),
-      );
-      expect(hasArtifactEvidence).toBe(true);
+      expect(body.recommendation_run_id).toBe('run-evidence-001');
+      expect(body).not.toHaveProperty('cost_disclosure_snapshot_id');
+      expect(body).not.toHaveProperty('cost_disclosure_snapshot_currency');
     },
   );
 });

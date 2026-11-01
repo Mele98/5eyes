@@ -241,6 +241,7 @@
         "type": "object"
       },
       "AdvisoryLogCreate": {
+        "additionalProperties": false,
         "description": "Pflicht-Felder für FINMA-konformes Beratungsprotokoll (Sprint U-FINMA-2.1).\n\nMindestlängen: `description` ≥ 30, `decision` ≥ 10 (außer bei reinem\nDiskussions-Eintrag), `topics` ≥ 1.",
         "properties": {
           "client_signed": {

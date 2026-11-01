@@ -1,0 +1,17 @@
+{
+  "entry_type": "Jahresreview",
+  "title": "Beratungsprotokoll 2026-10-30",
+  "description": "Kostenausweis des gezeigten Empfehlungslaufs mit dem Kunden besprochen.",
+  "entry_datetime": "2026-10-30T09:15:00.000Z",
+  "duration_minutes": 60,
+  "communication_channel": "persoenlich",
+  "language": "de",
+  "location": null,
+  "participants": [],
+  "topics": ["Kostenausweis"],
+  "risk_warnings_given": [],
+  "cost_disclosure_given": true,
+  "recommendation_run_id": "run-shown-in-editor-001",
+  "conflict_disclosure_ids": [],
+  "status": "Empfohlen"
+}
