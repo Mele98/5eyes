@@ -7,11 +7,11 @@ from services.maintenance import build_compliance_status, create_support_bundle,
 
 
 def test_create_support_bundle_writes_zip(tmp_path, monkeypatch):
-    db_file = tmp_path / '5eyes.db'
+    db_file = tmp_path / 'ares.db'
     db_file.write_text('placeholder', encoding='utf-8')
     log_dir = tmp_path / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / '5eyes-app.log'
+    log_file = log_dir / 'ares-app.log'
     log_file.write_text('Authorization: Bearer SECRET123\npassword=supersecret\neodhd_api_key=ABC123\n', encoding='utf-8')
 
     monkeypatch.setattr(settings, 'db_path', str(db_file))
@@ -29,7 +29,7 @@ def test_create_support_bundle_writes_zip(tmp_path, monkeypatch):
         names = set(zf.namelist())
         assert 'system-info.json' in names
         assert 'logs/recent.log' in names
-        assert 'logs/5eyes-app.log' not in names
+        assert 'logs/ares-app.log' not in names
         payload = json.loads(zf.read('system-info.json').decode('utf-8'))
         assert payload['database']['db_file'] == str(db_file)
         assert payload['settings']['secret_key'] == '***REDACTED***'
@@ -48,11 +48,11 @@ def test_create_support_bundle_redacts_sec001_previously_leaked_fields(tmp_path,
     fehlten in der Blocklist und wurden unredigiert ins Support-Bundle
     geschrieben -- database_url enthaelt im Realbetrieb eingebettete
     DB-Credentials."""
-    db_file = tmp_path / '5eyes.db'
+    db_file = tmp_path / 'ares.db'
     db_file.write_text('placeholder', encoding='utf-8')
     log_dir = tmp_path / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / '5eyes-app.log'
+    log_file = log_dir / 'ares-app.log'
     log_file.write_text('no sensitive lines here\n', encoding='utf-8')
 
     monkeypatch.setattr(settings, 'db_path', str(db_file))
@@ -88,11 +88,11 @@ def test_create_support_bundle_redacts_backup_hmac_key(tmp_path, monkeypatch):
     Zugriff auf ein geteiltes Bundle haette damit ein manipuliertes Backup
     so signieren koennen, dass die SEC-007-Pruefung es faelschlich als
     authentisch akzeptiert."""
-    db_file = tmp_path / '5eyes.db'
+    db_file = tmp_path / 'ares.db'
     db_file.write_text('placeholder', encoding='utf-8')
     log_dir = tmp_path / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / '5eyes-app.log'
+    log_file = log_dir / 'ares-app.log'
     log_file.write_text('no sensitive lines here\n', encoding='utf-8')
 
     monkeypatch.setattr(settings, 'db_path', str(db_file))
@@ -161,11 +161,11 @@ def test_create_support_bundle_redacts_invite_token_path(tmp_path, monkeypatch):
     im Pfad darf nach create_support_bundle() nicht mehr den Rohwert
     enthalten -- weder im gezippten logs/recent.log noch als Substring
     irgendwo im Bundle."""
-    db_file = tmp_path / '5eyes.db'
+    db_file = tmp_path / 'ares.db'
     db_file.write_text('placeholder', encoding='utf-8')
     log_dir = tmp_path / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / '5eyes-app.log'
+    log_file = log_dir / 'ares-app.log'
     raw_token = 'nQ7f3z9k2LmP-x8vT1cRb4WyAoJdE6sFhU0iN5gKqXw'
     log_file.write_text(
         "Request completed | request_id=abc123 method=GET "
