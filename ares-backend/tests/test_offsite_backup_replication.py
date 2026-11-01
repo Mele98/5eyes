@@ -29,7 +29,7 @@ from services.backup import OffsiteReplicationResult, replicate_offsite  # noqa:
 
 @pytest.fixture()
 def backup_file(tmp_path) -> Path:
-    f = tmp_path / "5eyes-backup-20260807-030000.db"
+    f = tmp_path / "ares-backup-20260807-030000.db"
     f.write_bytes(b"fake-encrypted-backup-bytes")
     return f
 
