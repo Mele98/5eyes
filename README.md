@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten
+# Ares
 
 Lokale Beratungssoftware für Schweizer Vermögensberater (Electron + FastAPI).
 
@@ -99,7 +99,6 @@ CI läuft beides parallel (siehe `.github/workflows/test.yml`).
 
 - `docs/RELEASE_TAGS.md` — Semver + Release-Workflow
 - `docs/CHANGELOG_TEMPLATE.md` — Changelog-Format
-- `docs/REPO_HYGIENE_2026-06-04.md` — Stash/Branch-Cleanup-Strategie
 - `docs/data_pipeline_README.md` — Multi-Source Marktdaten-Pipeline
 - `ares-desktop/PACKAGING.md` — Electron-Build-Pipeline
 - `ares-desktop/frontend/reporting/DESIGN_SYSTEM.md` — Tailwind-Tokens + Editorial-Disziplin
