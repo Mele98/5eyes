@@ -10,6 +10,10 @@ Quellbaum:
 2. Paketinhalt (statisch, PyInstaller-CArchive): ``ares_schema.sql``,
    alle PDF-Fonts (byte-identisch mit ``ares-backend/assets/fonts``) und
    die Reporting-Sub-App (``reporting_dist/index.html``) liegen IN der EXE.
+   Laenderpakete (X1): jedes ``jurisdictions/<code>/pack.yaml`` des
+   Quellbaums liegt byte-identisch im Paket und wird aus den Paket-Bytes
+   mit dem produktiven Loader (``load_default_registry``) gelesen --
+   inklusive Pflicht-Pack CH.
 3. Start-Smoke (Laufzeit): die EXE wird als Kopie in einem frischen
    Temp-Verzeichnis gestartet. HOME/USERPROFILE/APPDATA/TEMP, DB_PATH und
    BACKUP_DIR zeigen ausschliesslich dorthin; Scheduler sind aus. Danach:
@@ -59,6 +63,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Callable, Mapping
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_ROOT = REPO_ROOT / 'ares-backend'
@@ -71,6 +76,8 @@ EXE_NAME = 'ares-api.exe'
 ARCHIVE_SCHEMA = 'ares_schema.sql'
 ARCHIVE_FONT_PREFIX = 'assets/fonts/'
 ARCHIVE_REPORTING_INDEX = 'reporting_dist/index.html'
+JURISDICTIONS_ROOT = BACKEND_ROOT / 'jurisdictions'
+ARCHIVE_JURISDICTIONS_PREFIX = 'jurisdictions/'
 
 # RB-1: Vertrag der KEK-Ablage (ares-backend/config.py, KEK_STORE_*).
 KEK_STORE_NAME = 'tenant-master-kek.dpapi'
@@ -168,6 +175,67 @@ def check_archive(exe: Path) -> None:
     if not assets:
         fail('Reporting-Sub-App im Paket ohne Assets (reporting_dist/assets/).')
     log(f'OK Reporting-Sub-App im Paket: index.html + {len(assets)} Assets')
+
+    check_jurisdiction_packs(normalized, archive.extract)
+
+
+def _source_pack_manifests(source_root: Path) -> list[Path]:
+    # Gleiche Auswahl wie jurisdictions.registry.builtin_manifest_paths.
+    return sorted(p for p in source_root.glob('*/pack.yaml')
+                  if not p.parent.name.startswith(('_', '.')))
+
+
+def _load_jurisdiction_loader(module: str):
+    """Produktiven Loader aus dem Quellbaum laden (nur Stdlib + PyYAML)."""
+    backend = str(BACKEND_ROOT)
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    try:
+        return importlib.import_module(module)
+    except ImportError as exc:  # fail-closed: ohne Loader keine Lesbarkeitspruefung
+        fail(f'{module} nicht importierbar, Laenderpakete nicht pruefbar: {exc}')
+
+
+def check_jurisdiction_packs(normalized: Mapping[str, str], extract: Callable[[str], bytes],
+                             source_root: Path = JURISDICTIONS_ROOT) -> None:
+    """X1: Pack-Manifeste liegen im Paket und sind aus den Paket-Bytes lesbar.
+
+    Fehlt ``pack.yaml`` im Bundle, meldet das Backend erst beim ersten
+    Allokations-/Evidence-Aufruf ``PackRegistryError`` -- ``/health/ready``
+    bliebe gruen. Deshalb hier statisch: Vollstaendigkeit gegen den
+    Quellbaum, Byte-Identitaet, und Laden der extrahierten Bytes mit
+    ``jurisdictions.registry.load_default_registry`` (Pflicht-Pack CH).
+    """
+    manifests = _source_pack_manifests(source_root)
+    if not manifests:
+        fail(f'Keine Laenderpaket-Manifeste unter {source_root} -- Pruefgrundlage fehlt.')
+    registry_mod = _load_jurisdiction_loader('jurisdictions.registry')
+    packaged = sorted(n for n in normalized
+                      if n.startswith(ARCHIVE_JURISDICTIONS_PREFIX) and n.endswith('/pack.yaml'))
+    expected = sorted(ARCHIVE_JURISDICTIONS_PREFIX + m.relative_to(source_root).as_posix()
+                      for m in manifests)
+    missing = [k for k in expected if k not in normalized]
+    if missing:
+        fail(f'Laenderpaket-Manifest fehlt im Paket: {", ".join(missing)}')
+    extra = [k for k in packaged if k not in expected]
+    if extra:
+        fail(f'Laenderpaket-Manifest im Paket ohne Quelle: {", ".join(extra)}')
+    with tempfile.TemporaryDirectory(prefix='ares-packaging-smoke-packs-') as tmp:
+        root = Path(tmp)
+        for manifest, key in zip(manifests, expected):
+            data = extract(normalized[key])
+            if hashlib.sha256(data).hexdigest() != sha256_file(manifest):
+                fail(f'Laenderpaket-Manifest im Paket weicht von der Quelle ab: {key}')
+            target = root / key[len(ARCHIVE_JURISDICTIONS_PREFIX):]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        try:
+            registry = registry_mod.load_default_registry(root)
+        except registry_mod.PackRegistryError as exc:
+            fail(f'Laenderpaket-Manifest im Paket nicht lesbar: {exc}')
+        codes = registry.codes()
+    log(f'OK Laenderpakete im Paket: {len(expected)} Manifest(e), identisch mit Quelle, '
+        f'mit dem produktiven Loader lesbar (Packs: {", ".join(codes)})')
 
 
 # ---------------------------------------------------------------------------
