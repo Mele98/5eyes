@@ -503,5 +503,10 @@
     "services/portfolio_engine_reserve.py": {"count": 2, "keys": ["RESERVE_BUCKET_MODE", "RESERVE_DECAY_MODE"]},
     "services/tenant_crypto.py": {"count": 1, "keys": ["TENANT_MASTER_KEK"]},
     "smoke_test.py": {"count": 2, "keys": ["APP_HOST", "APP_PORT"]}
+  },
+  "leaf_content_sha256": {
+    "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "core.evidence": "1ef7d766d44a9f5740fd7e461a00d740cda9489777bcc01fa72cd2a54fbb4e9c",
+    "core.reason_codes": "7a68dcb8ddfe71bc6b2502e6325963bbe9d716171f9ea0de0e3aaafe1f138900"
   }
 }
