@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -852,6 +852,9 @@ class RunContext:
     - ``resolved_pack``: das ``ResolvedPack`` selbst (fuer Pack-Version/-Hash
       in spaeteren Schritten, z.B. Evidence), unveraendert durchgereicht.
     - ``optimizer_mode``: ``settings.optimizer_mode`` zum Laufbeginn.
+    - ``bound_mandate``: das Mandatsobjekt, aus dem der Kontext gebildet wurde
+      (nur fuer die Bindungspruefung ungespeicherter Mandate ohne ``id``;
+      nicht Teil von Vergleich/Repr).
     """
 
     mandate_id: Any
@@ -859,15 +862,21 @@ class RunContext:
     jurisdiction_source: str
     resolved_pack: Any
     optimizer_mode: str
+    bound_mandate: Any = field(default=None, compare=False, repr=False)
 
     @classmethod
-    def capture(cls, resolved_pack: Any, source: Any = None, *, mandate_id: Any) -> "RunContext":
+    def capture(
+        cls, resolved_pack: Any, source: Any = None, *, mandate_id: Any, mandate: Any = None,
+    ) -> "RunContext":
         """Friert ``resolved_pack`` und die Lauf-Settings fuer ``mandate_id`` ein.
 
         ``source`` ist das Settings-Objekt, aus dem gelesen wird (Default:
         ``config.settings``); der Erzeuger uebergibt das Objekt, das er bisher
         selbst gelesen haette, damit Monkeypatches identisch wirken.
         ``mandate_id`` ist Pflicht (``None`` nur fuer Mandate ohne ``id``).
+        ``mandate`` (optional) ist das Mandatsobjekt selbst; nur damit gilt
+        ein Kontext mit ``mandate_id=None`` als an genau dieses (ungespeicherte)
+        Objekt gebunden (siehe ``ensure_bound_to``).
         """
         cfg = settings if source is None else source
         return cls(
@@ -876,6 +885,7 @@ class RunContext:
             jurisdiction_source=str(resolved_pack.source),
             resolved_pack=resolved_pack,
             optimizer_mode=cfg.optimizer_mode,
+            bound_mandate=mandate,
         )
 
     def ensure_bound_to(self, mandate: Any) -> "RunContext":
@@ -885,9 +895,25 @@ class RunContext:
         Verglichen wird nur die Mandats-ID, nicht die Jurisdiktion: ein Lauf
         behaelt die beim Laufbeginn eingefrorene Jurisdiktion, auch wenn das
         Mandatsobjekt sich waehrend des Laufs aendert.
+
+        Fail-closed bei fehlender ID: ``None == None`` ist KEINE Bindung --
+        sonst waeren zwei verschiedene ungespeicherte Mandate (beide
+        ``id=None``) als "dasselbe Mandat" durchgegangen. Fehlt die ID auf
+        einer Seite, gilt der Kontext nur dann als gebunden, wenn beide IDs
+        ``None`` sind UND ``mandate`` exakt das Objekt ist, aus dem der Kontext
+        gebildet wurde (``capture(..., mandate=...)``, ``build_run_context``).
         """
         mandate_id = getattr(mandate, "id", None)
-        if mandate_id != self.mandate_id:
+        if mandate_id is None or self.mandate_id is None:
+            bound = (
+                mandate_id is None
+                and self.mandate_id is None
+                and self.bound_mandate is not None
+                and mandate is self.bound_mandate
+            )
+        else:
+            bound = mandate_id == self.mandate_id
+        if not bound:
             raise RunContextMandateMismatch(
                 f"RunContext gehoert zu Mandat {self.mandate_id!r}, der Lauf zu Mandat "
                 f"{mandate_id!r}; ein RunContext gilt nur fuer das Mandat, aus dem er "

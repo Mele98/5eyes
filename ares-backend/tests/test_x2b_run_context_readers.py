@@ -216,25 +216,28 @@ def test_mandate_model_inputs_table(raw):
         assert gate[0] == "raise" and gate[1] is mmi.MandateModelInputError
 
 
-def _ctx(code, mandate_id=None) -> RunContext:
+def _ctx(code, mandate_id=None, mandate=None) -> RunContext:
     """Kontext mit fester Jurisdiktion fuer die Mandats-ID ``mandate_id``
-    (Fixture-Mandate ohne ``id`` -> ``None``); bildet den Fall nach, dass sich
-    das Mandat nach dem Laufbeginn geaendert hat (Freeze)."""
+    (Fixture-Mandate ohne ``id`` -> ``None``, dann an das Objekt ``mandate``
+    gebunden); bildet den Fall nach, dass sich das Mandat nach dem
+    Laufbeginn geaendert hat (Freeze)."""
     return RunContext.capture(
         resolve_pack(code=code), SimpleNamespace(optimizer_mode="stochastic"), mandate_id=mandate_id,
+        mandate=mandate,
     )
 
 
 def test_context_is_the_source_in_run():
     """Mit Kontext folgt jede umgestellte Stelle dem Kontext, nicht mandate."""
     de_mandate = _mortality_mandate("DE")
-    ch_ctx = _ctx("CH")
+    ch_ctx = _ctx("CH", mandate=de_mandate)
     # Mortalitaets-Gate: DE-Mandat waere ohne Kontext abgelehnt.
     with pytest.raises(mmi.MandateModelInputError):
         mmi.validate_mortality_model_inputs(de_mandate, reference_year=2026)
     mmi.validate_mortality_model_inputs(de_mandate, reference_year=2026, run_context=ch_ctx)
     # Horizont: DE ohne Kontext -> kein Cutoff; mit CH-Kontext -> Offset.
     off_mandate = _horizon_mandate("DE")
+    ch_ctx = _ctx("CH", mandate=off_mandate)
     assert horizon.expected_death_year_offset_from_mandate(off_mandate, reference_year=2026) is None
     assert isinstance(horizon.expected_death_year_offset_from_mandate(
         off_mandate, reference_year=2026, run_context=ch_ctx), int)
@@ -251,7 +254,10 @@ def test_context_is_the_source_in_run():
             return []
 
     db = SimpleNamespace(query=lambda *_a: _Q())
-    payload._filter_products_by_universe(db, SimpleNamespace(jurisdiction="DE", tenant_id=None), [], run_context=ch_ctx)
+    universe_mandate = SimpleNamespace(jurisdiction="DE", tenant_id=None)
+    payload._filter_products_by_universe(
+        db, universe_mandate, [], run_context=_ctx("CH", mandate=universe_mandate),
+    )
     assert sink == ["CH"]
 
 
