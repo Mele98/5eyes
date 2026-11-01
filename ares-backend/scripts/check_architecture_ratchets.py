@@ -40,8 +40,12 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      Zuweisungen an einfache Namen (auch ``__all__``), deren Wert ein reiner
      Ausdruck ist: Literale, Namen, Attribute, Container, Operatoren,
      Comprehensions, Lambdas und Aufrufe ausschliesslich der reinen
-     Konstruktoren ``LEAF_PURE_CALLS``. Klassenkoerper unterliegen derselben
-     Regel; Dekoratoren nur aus ``LEAF_PURE_DECORATORS``; Defaults und
+     Konstruktoren ``LEAF_PURE_CALL_ORIGINS``. Klassenkoerper unterliegen derselben
+     Regel; Dekoratoren nur aus ``LEAF_PURE_DECORATORS``; Aufrufe und
+     Dekoratoren werden ueber ihre Import-Herkunft aufgeloest (Alias ->
+     Original, z. B. ``from enum import property as unique`` ist
+     ``enum.property`` und damit rot; lokal neu gebundene Namen sind rot);
+     Defaults und
      Annotationen nur reine Ausdruecke. Alles andere (z. B. ``open(...)``,
      Zuweisung an Attribut/Subscript, ``for``/``with``/``try``/sonstiges
      ``if``) gilt als Modul-Seiteneffekt.
@@ -93,20 +97,36 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      sein oder selbst alle Blatt-Regeln erfuellen (sonst fuehrt ``import
      core.evidence`` Code aus ``core/__init__.py`` mit aus).
    - Ein gelisteter Modulpfad, der im Backend nicht existiert, ist rot.
+   - Modulaufloesung (N-844-1): Fuer jedes gelistete Blatt und jedes seiner
+     Elternpakete muss genau die erwartete Datei existieren (Blatt:
+     ``core/evidence.py``, Elternpaket: ``core/__init__.py``, also kein
+     Namespace-Paket). Daneben darf es keinen weiteren Eintrag mit demselben
+     Modulnamen geben (Paketverzeichnis, Namespace-Verzeichnis, ``.pyd``/
+     ``.so``/``.pyc``/``.pyw`` ..., Gross-/Kleinschreibung ignoriert), und
+     ``importlib.machinery.PathFinder.find_spec`` (nur Aufloesung, kein
+     Import) muss genau diese Datei als ``origin`` liefern. Zusaetzlich ist
+     im ganzen Backend jeder Modulname rot, auf den zwei ``.py``-Dateien
+     abgebildet werden (``x.py`` neben ``x/__init__.py``).
    - Inhalts-Pin: Die Basis fuehrt unter ``leaf_content_sha256`` je
-     gelistetem Blatt und je vorhandenem Elternpaket-``__init__.py`` den
-     SHA-256 des Dateiinhalts (Bytes, CRLF zu LF normalisiert, damit Windows-
-     Checkouts und Linux-CI denselben Wert liefern; das Repo speichert per
-     ``.gitattributes`` ohnehin LF). Weicht der Inhalt ab oder fehlt ein Pin,
-     ist die Ratsche rot. Der Pin wird nur bewusst im Review nachgefuehrt:
+     gelistetem Blatt und je Elternpaket-``__init__.py`` den SHA-256 des
+     Dateiinhalts (Bytes, CRLF zu LF normalisiert, damit Windows-Checkouts
+     und Linux-CI denselben Wert liefern; das Repo speichert per
+     ``.gitattributes`` ohnehin LF). Die Pins sind exakt: weicht ein Inhalt
+     ab, fehlt ein Pin oder gibt es zu einem Pin keine Datei bzw. kein
+     gelistetes Modul mehr, ist die Ratsche rot. Pins werden nur bewusst im
+     Review gesetzt, nachgefuehrt oder entfernt:
      ``python scripts/check_architecture_ratchets.py --update-leaf-pins``
-     (verweigert, solange irgendeine andere Regel verletzt ist).
+     (verweigert, solange irgendeine andere Regel verletzt ist;
+     ``--update-baseline`` aendert keine Pins).
 
    Grenzen: Die AST-Regeln sind eine konservative Naeherung, kein Beweis,
    dass ein Blatt beim Import keinen eigenen Code ausfuehren kann; Python
    bietet mehr Wege, als eine statische Pruefung vollstaendig erfassen kann.
-   Der Inhalts-Pin sorgt dafuer, dass jede Aenderung an einem Blatt sichtbar
-   im Review landet. Das Review des Blatt-Diffs ist die letzte Instanz.
+   Nicht geprueft werden z. B. Bytecode-Caches in ``__pycache__`` (nicht
+   versioniert), ``.pth``-Dateien oder fremde Eintraege auf ``sys.path``
+   vor dem Backend. Der Inhalts-Pin sorgt dafuer, dass jede Aenderung an
+   einem Blatt sichtbar im Review landet. Das Review des Blatt-Diffs ist die
+   letzte Instanz.
 
 Ratschen-Regel: Wird ein Wert schlechter, schlaegt der Lauf fehl und nennt
 die konkrete Stelle. Wird er besser, meldet der Lauf das; die Basis darf
@@ -125,6 +145,7 @@ import argparse
 import ast
 import hashlib
 import importlib
+import importlib.machinery
 import json
 import sys
 from dataclasses import dataclass, field
@@ -150,15 +171,19 @@ FAN_OUT_EXEMPT_LEAVES = frozenset({"core.evidence", "core.reason_codes"})
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
 # Regel 6, Blattvertrag (Positivliste der Modulebene, siehe Docstring).
-LEAF_PURE_CALLS = frozenset(
-    {"frozenset", "tuple", "dict", "list", "set", "MappingProxyType", "types.MappingProxyType"}
+# Qualifizierte Herkunft (N-844-3): Namen werden ueber die Importe des Blatts
+# aufgeloest, ungebundene Namen als ``builtins.<name>``.
+LEAF_PURE_CALL_ORIGINS = frozenset(
+    {
+        "builtins.frozenset", "builtins.tuple", "builtins.dict", "builtins.list",
+        "builtins.set", "types.MappingProxyType",
+    }
 )
 LEAF_PURE_DECORATORS = frozenset(
     {
-        "property", "staticmethod", "classmethod", "abstractmethod", "abc.abstractmethod",
-        "dataclass", "dataclasses.dataclass", "unique", "enum.unique", "overload",
-        "typing.overload", "final", "typing.final", "total_ordering",
-        "functools.total_ordering", "cached_property", "functools.cached_property",
+        "builtins.property", "builtins.staticmethod", "builtins.classmethod",
+        "abc.abstractmethod", "dataclasses.dataclass", "enum.unique", "typing.overload",
+        "typing.final", "functools.total_ordering", "functools.cached_property",
     }
 )
 LEAF_FORBIDDEN_NAMES = frozenset(
@@ -219,10 +244,16 @@ LEAF_BUILTIN_GENERICS = frozenset({"tuple", "list", "dict", "set", "frozenset", 
 # Modulebene; ``cached_property`` und ``classmethod``+``property`` sind nirgends
 # erlaubt (``property`` in Nicht-Enum-Klassen bleibt erlaubt: Instanzen eigener
 # Klassen entstehen beim Import nicht, weil eigene Aufrufe rot sind).
-LEAF_PROPERTY_DECORATORS = frozenset(
-    {"property", "cached_property", "functools.cached_property"}
+LEAF_PROPERTY_DECORATORS = frozenset({"builtins.property", "functools.cached_property"})
+LEAF_CACHED_PROPERTY_DECORATORS = frozenset({"functools.cached_property"})
+# N-844-1: Dateiendungen, unter denen Python ein Modul laden kann (zusaetzlich zu
+# denen des laufenden Interpreters, damit Linux und Windows dasselbe melden).
+LEAF_LOADABLE_SUFFIXES = tuple(
+    sorted(
+        {s.casefold() for s in importlib.machinery.all_suffixes()}
+        | {".py", ".pyw", ".pyc", ".pyo", ".pyd", ".so", ".dll", ".dylib"}
+    )
 )
-LEAF_CACHED_PROPERTY_DECORATORS = frozenset({"cached_property", "functools.cached_property"})
 # Inhalts-Pin (Regel 6): Schluessel in der Basis, Befehl zum bewussten Nachfuehren.
 LEAF_PIN_KEY = "leaf_content_sha256"
 LEAF_PIN_UPDATE_CMD = "python scripts/check_architecture_ratchets.py --update-leaf-pins"
@@ -244,6 +275,11 @@ class ModuleScan:
     leaf_violations: list[tuple[int, str]] = field(default_factory=list)
     # Inhalts-Pin (nur fuer gelistete Blaetter und deren Elternpakete).
     content_sha256: str | None = None
+    # N-844-1: alle Dateien, die auf denselben Modulnamen abgebildet werden
+    # (nur befuellt, wenn es mehr als eine ist).
+    collisions: list[str] = field(default_factory=list)
+    # N-844-1: Abweichungen der Modulaufloesung (nur fuer gelistete Blaetter).
+    resolution_problems: list[str] = field(default_factory=list)
 
     def runtime_targets(self) -> dict[str, int]:
         out = dict(self.lazy)
@@ -253,8 +289,15 @@ class ModuleScan:
 
 
 def discover_modules(root: Path | None = None) -> dict[str, Path]:
+    return _discover(root)[0]
+
+
+def _discover(root: Path | None = None) -> tuple[dict[str, Path], dict[str, list[Path]]]:
+    """Module und Namenskollisionen (mehrere Dateien fuer denselben Modulnamen,
+    z. B. ``x.py`` neben ``x/__init__.py``; Python laedt dann das Paket)."""
     root = root or BACKEND_ROOT
     mods: dict[str, Path] = {}
+    all_paths: dict[str, list[Path]] = {}
     for p in sorted(root.rglob("*.py")):
         rel = p.relative_to(root)
         if any(part in EXCLUDED_DIRS or part.startswith(".") for part in rel.parts[:-1]):
@@ -263,7 +306,8 @@ def discover_modules(root: Path | None = None) -> dict[str, Path]:
         if name.endswith(".__init__"):
             name = name[: -len(".__init__")]
         mods[name] = p
-    return mods
+        all_paths.setdefault(name, []).append(p)
+    return mods, {n: ps for n, ps in all_paths.items() if len(ps) > 1}
 
 
 def _resolver(mods: dict[str, Path]):
@@ -475,6 +519,23 @@ class _LeafCtx:
         return None
 
 
+def _origin(node: ast.AST, ctx: _LeafCtx | None) -> str | None:
+    """Qualifizierte Herkunft eines Namens/Attributs (N-844-3): Importe werden
+    aufgeloest (``from enum import property as unique`` -> ``enum.property``),
+    ungebundene Namen gelten als ``builtins.<name>``, auf Modulebene neu
+    gebundene Namen liefern ``None`` (= nicht erlaubt)."""
+    dotted = _dotted(node)
+    if not dotted:
+        return None
+    head, _, rest = dotted.partition(".")
+    imports = ctx.imports if ctx is not None else {}
+    bound = ctx.bound if ctx is not None else {}
+    if head in bound:
+        return None
+    base = imports.get(head, f"builtins.{head}")
+    return f"{base}.{rest}" if rest else base
+
+
 def _special(name: str) -> bool:
     """Dunder-/Sunder-Name (``__x__``/``_x_``): Hook-Namen der Laufzeit."""
     return len(name) > 2 and name.startswith("_") and name.endswith("_")
@@ -531,7 +592,7 @@ def _pure_expr(node: ast.AST | None, ctx: _LeafCtx | None = None) -> bool:
         )
     if isinstance(node, ast.Call):
         return (
-            _dotted(node.func) in LEAF_PURE_CALLS
+            _origin(node.func, ctx) in LEAF_PURE_CALL_ORIGINS
             and all(_pure_expr(a, ctx) for a in node.args)
             and all(_pure_expr(k.value, ctx) for k in node.keywords)
         )
@@ -560,11 +621,11 @@ def _pure_args(args: ast.arguments, ctx: _LeafCtx | None = None) -> bool:
 def _pure_decorator(node: ast.AST, ctx: _LeafCtx | None = None) -> bool:
     if isinstance(node, ast.Call):
         return (
-            _dotted(node.func) in LEAF_PURE_DECORATORS
+            _origin(node.func, ctx) in LEAF_PURE_DECORATORS
             and all(_pure_expr(a, ctx) for a in node.args)
             and all(_pure_expr(k.value, ctx) for k in node.keywords)
         )
-    return _dotted(node) in LEAF_PURE_DECORATORS
+    return _origin(node, ctx) in LEAF_PURE_DECORATORS
 
 
 def _class_head_violations(
@@ -622,12 +683,13 @@ def _leaf_body_violations(
                 out.append((st.lineno, f"<Hook-Methode {where} nicht erlaubt: {st.name}>"))
                 continue
             decos = {
-                _dotted(d.func if isinstance(d, ast.Call) else d) for d in st.decorator_list
+                _origin(d.func if isinstance(d, ast.Call) else d, ctx)
+                for d in st.decorator_list
             }
             if kind != "module" and decos & LEAF_PROPERTY_DECORATORS and (
                 kind == "enum"
                 or decos & LEAF_CACHED_PROPERTY_DECORATORS
-                or "classmethod" in decos
+                or "builtins.classmethod" in decos
             ):
                 out.append(
                     (st.lineno, f"<Property {where} nicht erlaubt (N-842-1): {st.name}>")
@@ -887,6 +949,55 @@ def leaf_content_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
+def leaf_resolution_problems(root: Path, module: str) -> list[str]:
+    """N-844-1: Fuer das Blatt und jedes Elternpaket muss genau die erwartete
+    Datei existieren, kein weiterer ladbarer Eintrag gleichen Namens daneben
+    liegen und ``PathFinder.find_spec`` (Aufloesung ohne Import) genau diese
+    Datei liefern."""
+    out: list[str] = []
+    parts = module.split(".")
+    for i in range(1, len(parts) + 1):
+        name = ".".join(parts[:i])
+        tail = parts[i - 1]
+        parent_dir = root.joinpath(*parts[: i - 1])
+        is_leaf = i == len(parts)
+        expected = parent_dir / f"{tail}.py" if is_leaf else parent_dir / tail / "__init__.py"
+        allowed_entry = f"{tail}.py" if is_leaf else tail
+
+        def rel(p: Path) -> str:
+            try:
+                return p.relative_to(root).as_posix()
+            except ValueError:
+                return str(p)
+
+        if not expected.is_file():
+            out.append(f"{name}: erwartete Datei fehlt: {rel(expected)}")
+        if parent_dir.is_dir():
+            key = tail.casefold()
+            for entry in sorted(parent_dir.iterdir()):
+                n = entry.name
+                low = n.casefold()
+                same_name = low == key or (
+                    low.startswith(key + ".") and low.endswith(LEAF_LOADABLE_SUFFIXES)
+                )
+                if same_name and n != allowed_entry:
+                    out.append(f"{name}: weiterer Eintrag mit gleichem Modulnamen: {rel(entry)}")
+                elif n == allowed_entry and not is_leaf and not entry.is_dir():
+                    out.append(f"{name}: kein Paketverzeichnis: {rel(entry)}")
+        importlib.machinery.PathFinder.invalidate_caches()
+        try:
+            spec = importlib.machinery.PathFinder.find_spec(name, [str(parent_dir)])
+        except (ImportError, ValueError):
+            spec = None
+        origin = spec.origin if spec is not None else None
+        if not origin or not Path(origin).is_file() or Path(origin).resolve() != expected.resolve():
+            out.append(
+                f"{name}: Python wuerde {rel(Path(origin)) if origin else '<Namespace/nichts>'} "
+                f"laden statt {rel(expected)}"
+            )
+    return out
+
+
 def _pinned_modules() -> list[str]:
     """Gelistete Blaetter plus deren Elternpakete (sofern ``__init__.py`` existiert)."""
     return sorted(FAN_OUT_EXEMPT_LEAVES | _leaf_parent_packages())
@@ -894,7 +1005,7 @@ def _pinned_modules() -> list[str]:
 
 def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
     root = root or BACKEND_ROOT
-    mods = discover_modules(root)
+    mods, collisions = _discover(root)
     resolve = _resolver(mods)
     scans: dict[str, ModuleScan] = {}
     for name, path in mods.items():
@@ -905,6 +1016,10 @@ def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
         if name in FAN_OUT_EXEMPT_LEAVES or name in _leaf_parent_packages():
             scan.leaf_violations = leaf_contract_violations(tree)
             scan.content_sha256 = leaf_content_sha256(path)
+        if name in FAN_OUT_EXEMPT_LEAVES:
+            scan.resolution_problems = leaf_resolution_problems(root, name)
+        if name in collisions:
+            scan.collisions = [p.relative_to(root).as_posix() for p in collisions[name]]
         scan.lazy_lines.sort()
         scan.env_hits.sort()
         scans[name] = scan
@@ -1092,12 +1207,27 @@ def compare(current: dict, baseline: dict, scans: dict[str, ModuleScan]) -> Resu
         bad = sorted(
             set(s.non_stdlib_imports) | set(s.leaf_violations) | {(ln, t) for t, ln in own.items()}
         )
+        if s.resolution_problems:
+            res.regressions.append(
+                f"[fan_out_exempt_leaves] {m}: Modulaufloesung weicht ab (Schatten-Datei, "
+                f"fehlendes Elternpaket oder anderer origin): "
+                + "; ".join(s.resolution_problems)
+            )
         if bad:
             detail = "; ".join(f"{s.path}:{ln} -> {t}" for ln, t in bad)
             res.regressions.append(
                 f"[fan_out_exempt_leaves] {m}: kein reines Stdlib-Blatt "
                 f"(nur Standardbibliothek, Fan-out 0, keine Modul-Seiteneffekte, "
                 f"keine dynamischen Importe): {detail}"
+            )
+
+    # 6a. Namenskollisionen (N-844-1): zwei Dateien fuer denselben Modulnamen
+    for m, s in sorted(scans.items()):
+        if s.collisions:
+            res.regressions.append(
+                f"[module_collisions] {m}: mehrere Dateien fuer denselben Modulnamen "
+                f"(gescannt wird nur eine, Python laedt ggf. die andere): "
+                + ", ".join(s.collisions)
             )
 
     # 6b. Elternpakete gelisteter Blattmodule (fehlendes __init__ = Namespace, ok)
@@ -1137,7 +1267,11 @@ def compare(current: dict, baseline: dict, scans: dict[str, ModuleScan]) -> Resu
                 f"und die Basis mitcommitten"
             )
     for m in sorted(set(base_pins) - set(cur_pins)):
-        res.improvements.append(f"[{LEAF_PIN_KEY}] {m}: Pin ohne gelistetes Blatt")
+        res.regressions.append(
+            f"[{LEAF_PIN_KEY}] {m}: gepinnt, aber keine Datei mehr bzw. nicht mehr gelistet "
+            f"(N-844-2) -- Pins sind exakt; ein Pin wird nur bewusst entfernt: "
+            f"{LEAF_PIN_UPDATE_CMD}"
+        )
 
     # 4. Schichtung
     base_layer = set(baseline.get("layer_violations", []))

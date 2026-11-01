@@ -1015,3 +1015,175 @@ def test_update_leaf_pins_is_explicit_and_refuses_other_violations(
         k: v for k, v in old.items() if k != "leaf_content_sha256"
     }
     assert gate.main([]) == 0
+
+
+# --------------------------------------------------------------------------
+# Pruefrunde #844 (Dok. 86): N-844-1 Schatten-Dateien/-Pakete neben einem
+# Blatt, N-844-2 exakte Pins (geloeschtes Elternpaket), N-844-3 Dekorator-
+# und Aufruf-Aliase. Jeder Negativfall war auf d78a1af4 rc=0.
+# --------------------------------------------------------------------------
+
+
+def _leaf_regressions(result, module: str = "core.leaf") -> str:
+    return "\n".join(
+        r for r in result.regressions if r.startswith(f"[fan_out_exempt_leaves] {module}:")
+    )
+
+
+def test_real_leaves_resolve_exactly_to_the_pinned_file(gate):
+    scans = gate.scan_backend()
+    for module in sorted(gate.FAN_OUT_EXEMPT_LEAVES):
+        assert scans[module].resolution_problems == [], (module, scans[module].resolution_problems)
+    assert all(not s.collisions for s in scans.values())
+
+
+def test_shadow_package_next_to_leaf_is_red(gate, mini, monkeypatch):
+    """N-844-1: ``core/leaf/__init__.py`` schlaegt ``core/leaf.py``; vorher
+    wurde die alte Datei gehasht und geprueft, Python lud aber das Paket."""
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf/__init__.py", "open('PWNED.txt', 'w').write('x')\n")
+    _, result = _check(gate, mini, base)
+    assert any(
+        r.startswith("[module_collisions] core.leaf:") and "core/leaf/__init__.py" in r
+        for r in result.regressions
+    ), result.regressions
+    leaf = _leaf_regressions(result)
+    assert "weiterer Eintrag mit gleichem Modulnamen: core/leaf" in leaf, leaf
+    assert "Python wuerde core/leaf/__init__.py laden statt core/leaf.py" in leaf, leaf
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "core/leaf.cp312-win_amd64.pyd",
+        "core/leaf.pyd",
+        "core/leaf.cpython-312-x86_64-linux-gnu.so",
+        "core/leaf.so",
+        "core/leaf.pyc",
+        "core/LEAF.pyc",
+    ],
+    ids=["pyd_tagged", "pyd", "so_tagged", "so", "sourceless_pyc", "other_case_pyc"],
+)
+def test_shadow_file_next_to_leaf_is_red(gate, mini, monkeypatch, rel):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    (mini / rel).write_bytes(b"\x00not a real extension\x00")
+    _, result = _check(gate, mini, base)
+    leaf = _leaf_regressions(result)
+    assert f"weiterer Eintrag mit gleichem Modulnamen: {rel}" in leaf, result.regressions
+
+
+@pytest.mark.parametrize("with_module", [True, False], ids=["with_submodule", "empty"])
+def test_namespace_directory_next_to_leaf_is_red(gate, mini, monkeypatch, with_module):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    (mini / "core" / "leaf").mkdir()
+    if with_module:
+        _write(mini, "core/leaf/x.py", "")
+    _, result = _check(gate, mini, base)
+    assert "weiterer Eintrag mit gleichem Modulnamen: core/leaf" in _leaf_regressions(result)
+
+
+def test_shadow_next_to_parent_package_is_red(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core.py", "")
+    _, result = _check(gate, mini, base)
+    leaf = _leaf_regressions(result)
+    assert "core: weiterer Eintrag mit gleichem Modulnamen: core.py" in leaf, leaf
+    assert any(r.startswith("[module_collisions] core:") for r in result.regressions)
+
+
+def test_module_name_collision_outside_leaves_is_red(gate, mini):
+    """N-844-1 generell: zwei Dateien fuer einen Modulnamen sind ueberall rot."""
+    base = _baseline(gate, mini)
+    _write(mini, "services/alpha/__init__.py", "")
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[module_collisions] services.alpha:")]
+    assert hits and "services/alpha.py" in hits[0] and "services/alpha/__init__.py" in hits[0]
+
+
+def test_deleted_parent_package_init_is_red(gate, mini, monkeypatch):
+    """N-844-2: ohne ``core/__init__.py`` waere ``core`` ein Namespace-Paket;
+    der verwaiste Pin galt vorher als Verbesserung."""
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    (mini / "core" / "__init__.py").unlink()
+    _, result = _check(gate, mini, base)
+    assert any(
+        r.startswith("[leaf_content_sha256] core: gepinnt, aber keine Datei mehr")
+        for r in result.regressions
+    ), result.regressions
+    assert "core: erwartete Datei fehlt: core/__init__.py" in _leaf_regressions(result)
+    assert not any("[leaf_content_sha256] core" in i for i in result.improvements)
+
+
+def test_stale_pin_is_red_until_removed_explicitly(gate, mini, monkeypatch, tmp_path):
+    """N-844-2: Pins sind exakt; ein nicht mehr gebrauchter Pin wird nur ueber
+    ``--update-leaf-pins`` entfernt, nie still ueber ``--update-baseline``."""
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/other.py", "import json\n")
+    monkeypatch.setattr(gate, "FAN_OUT_EXEMPT_LEAVES", frozenset({"core.leaf", "core.other"}))
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(
+        gate.dump_baseline(gate.measure(gate.scan_backend(mini))), encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "BACKEND_ROOT", mini)
+    monkeypatch.setattr(gate, "BASELINE_FILE", baseline_file)
+    monkeypatch.setattr(gate, "FAN_OUT_EXEMPT_LEAVES", frozenset({"core.leaf"}))
+    before = baseline_file.read_text(encoding="utf-8")
+
+    _, result = _check(gate, mini, json.loads(before))
+    assert any(
+        r.startswith("[leaf_content_sha256] core.other: gepinnt, aber") for r in result.regressions
+    ), result.regressions
+    assert gate.main(["--update-baseline"]) == 1
+    assert baseline_file.read_text(encoding="utf-8") == before
+    assert gate.main(["--update-leaf-pins"]) == 0
+    assert "core.other" not in json.loads(baseline_file.read_text(encoding="utf-8"))[
+        "leaf_content_sha256"
+    ]
+    assert gate.main([]) == 0
+
+
+_N_844_3_CASES = [
+    ("from enum import Enum\nfrom enum import property as unique\nclass E(Enum):\n    A = 1\n"
+     "    @unique\n    def p(self):\n        return 1\nX = E.A.p\n",
+     "<Seiteneffekt in Klasse E: @unique>"),
+    ("from enum import Enum\nfrom functools import cached_property as staticmethod\n"
+     "class E(Enum):\n    A = 1\n    @staticmethod\n    def p(self):\n        return 1\nX = E.A.p\n",
+     "<Property in Klasse E nicht erlaubt (N-842-1): p>"),
+    ("import enum as abc\nfrom enum import Enum\nclass E(Enum):\n    A = 1\n"
+     "    @abc.property\n    def p(self):\n        return 1\nX = E.A.p\n",
+     "<Seiteneffekt in Klasse E: @abc.property>"),
+    ("from enum import Enum\nfrom enum import property as classmethod\nclass E(Enum):\n    A = 1\n"
+     "    @classmethod\n    def p(self):\n        return 1\nX = E.A.p\n",
+     "<Seiteneffekt in Klasse E: @classmethod>"),
+    ("from enum import Enum\nfrom types import DynamicClassAttribute as final\n"
+     "class E(Enum):\n    A = 1\n    @final\n    def p(self):\n        return 1\nX = E.A.p\n",
+     "<Seiteneffekt in Klasse E: @final>"),
+    ("from enum import Enum\nclass E(Enum):\n    A = 1\n    @property\n    def p(self):\n"
+     "        return 1\nproperty = 1\n", "<Seiteneffekt in Klasse E: @property>"),
+    ("from functools import reduce as tuple\ndef f(a, b):\n    return a\nX = tuple(f, [1, 2])\n",
+     "<Seiteneffekt auf Modulebene: X = tuple(f, [1, 2])>"),
+    ("def f(x):\n    return x\nX = [tuple(1) for tuple in [f]]\n",
+     "<Seiteneffekt auf Modulebene: X = [tuple(1) for tuple in [f]]>"),
+]
+
+
+@pytest.mark.parametrize(
+    "body,needle",
+    _N_844_3_CASES,
+    ids=["enum_property_as_unique", "cached_property_as_staticmethod",
+         "enum_module_as_abc", "enum_property_as_classmethod", "dynamic_class_attribute_as_final",
+         "rebound_builtin_decorator", "call_alias_reduce_as_tuple",
+         "comprehension_rebinds_constructor"],
+)
+def test_n_844_3_decorator_and_call_aliases_are_red(gate, mini, monkeypatch, body, needle):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    leaf = _leaf_regressions(result)
+    assert leaf and needle in leaf, result.regressions
