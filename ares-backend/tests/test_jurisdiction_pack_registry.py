@@ -42,7 +42,9 @@ from jurisdictions.registry import (
     canonical_json,
     content_hash,
     default_registry,
+    REQUIRED_BUILTIN_CODES,
     load_builtin_packs,
+    load_default_registry,
     load_manifest,
     pack_from_manifest,
 )
@@ -336,6 +338,63 @@ def test_resolve_pack_uses_given_registry():
 # --------------------------------------------------------------------------
 # Isolation und Auslieferung
 # --------------------------------------------------------------------------
+
+
+# --------------------------------------------------------------------------
+# Fehlerbild defekter Installation (Vorpruefung B-6): klarer
+# PackRegistryError mit Manifest-Pfad statt rohem YAML-/OS-Fehler bzw.
+# stillem pack=None fuer CH.
+# --------------------------------------------------------------------------
+
+
+def _copy_ch_pack(root: Path) -> Path:
+    target = root / "ch" / "pack.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(CH_MANIFEST.read_bytes())
+    return target
+
+
+def test_default_registry_loader_accepts_intact_installation(tmp_path):
+    _copy_ch_pack(tmp_path)
+    registry = load_default_registry(tmp_path)
+    assert registry.latest("CH").content_hash == CH_PACK_HASH
+    assert REQUIRED_BUILTIN_CODES == ("CH",)
+
+
+def test_broken_manifest_yaml_raises_clear_registry_error(tmp_path):
+    manifest = _copy_ch_pack(tmp_path)
+    manifest.write_text("code: CH\nversion: [unclosed\n", encoding="utf-8")
+    with pytest.raises(PackRegistryError, match=r"^ch/pack\.yaml: Laenderpaket-Manifest nicht lesbar") as exc:
+        load_default_registry(tmp_path)
+    assert isinstance(exc.value.__cause__, yaml.YAMLError)
+
+
+def test_undecodable_manifest_raises_clear_registry_error(tmp_path):
+    manifest = _copy_ch_pack(tmp_path)
+    manifest.write_bytes(b"code: \xff\xfe CH\n")
+    with pytest.raises(PackRegistryError, match=r"^ch/pack\.yaml: Laenderpaket-Manifest nicht lesbar"):
+        load_default_registry(tmp_path)
+
+
+def test_missing_required_ch_pack_fails_closed(tmp_path):
+    (tmp_path / "ch").mkdir()
+    with pytest.raises(PackRegistryError, match=r"Pflicht-Laenderpaket fehlt: ch/pack\.yaml"):
+        load_default_registry(tmp_path)
+    # load_builtin_packs selbst bleibt ein reiner Loader (leere Registry).
+    assert load_builtin_packs(tmp_path).codes() == ()
+
+
+def test_resolve_pack_surfaces_broken_default_registry_as_registry_error(tmp_path, monkeypatch):
+    """resolve_pack (und damit jeder Allokationslauf ab X2) meldet den
+    Defekt als PackRegistryError mit Pfad -- auch fuer ein DE-Mandat."""
+    import jurisdictions.resolve as resolve_module
+
+    manifest = _copy_ch_pack(tmp_path)
+    manifest.write_text("areas: {\n", encoding="utf-8")
+    monkeypatch.setattr(resolve_module, "default_registry", lambda: load_default_registry(tmp_path))
+    for raw in (None, "CH", "DE"):
+        with pytest.raises(PackRegistryError, match=r"ch/pack\.yaml: Laenderpaket-Manifest nicht lesbar"):
+            resolve_pack(SimpleNamespace(jurisdiction=raw))
 
 
 @pytest.fixture(scope="module")

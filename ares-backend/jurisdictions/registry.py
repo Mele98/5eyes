@@ -7,7 +7,16 @@
   und berechnet ``content_hash`` = SHA-256 ueber das kanonisierte Manifest
   (``canonical_json``). Kommentare und YAML-Formatierung beeinflussen den Hash
   nicht, jede inhaltliche Aenderung schon.
-- ``default_registry()``: einmal geladene, prozessweite Registry.
+- ``default_registry()``: einmal geladene, prozessweite Registry. Sie
+  verlangt die Pflicht-Packs (``REQUIRED_BUILTIN_CODES``, heute CH) und
+  bricht sonst fail-closed mit ``PackRegistryError`` ab.
+
+Fehlerbild: Ein fehlendes Pflicht-Pack oder ein unlesbares/defektes Manifest
+fuehrt immer zu ``PackRegistryError`` mit Manifest-Pfad und Ursache (nie zu
+einem rohen YAML-/OS-Fehler und nie zu einem stillen ``pack=None`` fuer CH).
+Ein frueher Abbruch beim Backend-Start ist bewusst NICHT eingebaut: ``main``
+importiert ``jurisdictions`` nicht, und eine neue Import-Kante von ``main``
+(oder einem Lifespan-Modul) waere ein Fan-out-Anstieg (Architektur-Ratsche).
 
 Status-Durchsetzung (nur ``approved``) und Tenant-Zulassung sind NICHT Teil
 von X1; sie kommen mit dem Fail-closed-Gate (X14). Eine Entry-Point-Discovery
@@ -62,8 +71,19 @@ _MANIFEST_KEYS = frozenset(
 _APPROVAL_KINDS = frozenset({"legal", "compliance", "ic"})
 
 
+# Packs, ohne die die Registry nicht gueltig ist. CH traegt die Altsemantik
+# "NULL = CH" (``resolve.LEGACY_DEFAULT_CODE``); fehlt sein Manifest, ist die
+# Installation defekt (z.B. pack.yaml nicht im EXE-Bundle).
+REQUIRED_BUILTIN_CODES: tuple[str, ...] = ("CH",)
+
+
 class PackRegistryError(ValueError):
-    """Ungueltiges Manifest oder Registry-Konflikt (z.B. Duplikat)."""
+    """Ungueltiges Manifest oder Registry-Konflikt (z.B. Duplikat).
+
+    Auch ein unlesbares Manifest (Datei fehlt/kein Zugriff, kein gueltiges
+    YAML) und ein fehlendes Pflicht-Pack werden als ``PackRegistryError`` mit
+    Manifest-Pfad gemeldet.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -210,8 +230,14 @@ def pack_from_manifest(raw: Any, source: str) -> JurisdictionPack:
 
 def load_manifest(path: Path, root: Path = PACKS_ROOT) -> JurisdictionPack:
     source = path.relative_to(root).as_posix()
-    with path.open("r", encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh)
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        raise PackRegistryError(
+            f"{source}: Laenderpaket-Manifest nicht lesbar ({type(exc).__name__}: {exc}); "
+            "Installation defekt, Allokation/Evidence nicht moeglich"
+        ) from exc
     pack = pack_from_manifest(raw, source)
     folder = path.parent.name
     _require(folder == pack.code.lower(), source, f"Ordner {folder!r} passt nicht zu code {pack.code!r}")
@@ -277,6 +303,21 @@ def load_builtin_packs(root: Path = PACKS_ROOT) -> PackRegistry:
     return PackRegistry(load_manifest(p, root) for p in builtin_manifest_paths(root))
 
 
+def load_default_registry(root: Path = PACKS_ROOT) -> PackRegistry:
+    """Laedt die eingebauten Packs und verlangt ``REQUIRED_BUILTIN_CODES``."""
+    registry = load_builtin_packs(root)
+    missing = [code for code in REQUIRED_BUILTIN_CODES if registry.latest(code) is None]
+    if missing:
+        expected = ", ".join(f"{code.lower()}/{MANIFEST_NAME}" for code in missing)
+        raise PackRegistryError(
+            f"Pflicht-Laenderpaket fehlt: {expected} unter {root}; "
+            "Installation defekt, Allokation/Evidence nicht moeglich"
+        )
+    return registry
+
+
 @lru_cache(maxsize=1)
 def default_registry() -> PackRegistry:
-    return load_builtin_packs()
+    # lru_cache speichert keine Exceptions: solange die Installation defekt
+    # ist, meldet jeder Aufruf denselben klaren PackRegistryError.
+    return load_default_registry()
