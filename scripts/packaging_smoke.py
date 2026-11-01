@@ -13,7 +13,10 @@ Quellbaum:
    Laenderpakete (X1): jedes ``jurisdictions/<code>/pack.yaml`` des
    Quellbaums liegt byte-identisch im Paket und wird aus den Paket-Bytes
    mit dem produktiven Loader (``load_default_registry``) gelesen --
-   inklusive Pflicht-Pack CH.
+   inklusive Pflicht-Pack CH. Texte (X3): jede Textdatei
+   ``jurisdictions/<code>/documents/<locale>/<namespace>.yaml`` liegt
+   byte-identisch im Paket, und jeder Pack laedt sein DocumentSet aus den
+   Paket-Bytes (``load_document_set``).
 3. Start-Smoke (Laufzeit): die EXE wird als Kopie in einem frischen
    Temp-Verzeichnis gestartet. HOME/USERPROFILE/APPDATA/TEMP, DB_PATH und
    BACKUP_DIR zeigen ausschliesslich dorthin; Scheduler sind aus. Danach:
@@ -177,6 +180,7 @@ def check_archive(exe: Path) -> None:
     log(f'OK Reporting-Sub-App im Paket: index.html + {len(assets)} Assets')
 
     check_jurisdiction_packs(normalized, archive.extract)
+    check_jurisdiction_documents(normalized, archive.extract)
 
 
 def _source_pack_manifests(source_root: Path) -> list[Path]:
@@ -236,6 +240,63 @@ def check_jurisdiction_packs(normalized: Mapping[str, str], extract: Callable[[s
         codes = registry.codes()
     log(f'OK Laenderpakete im Paket: {len(expected)} Manifest(e), identisch mit Quelle, '
         f'mit dem produktiven Loader lesbar (Packs: {", ".join(codes)})')
+
+
+def _source_document_files(source_root: Path) -> list[Path]:
+    # Gleiche Auswahl wie jurisdictions.documents.document_paths.
+    return sorted(p for p in source_root.glob('*/documents/*/*.yaml')
+                  if not p.relative_to(source_root).parts[0].startswith(('_', '.')))
+
+
+def check_jurisdiction_documents(normalized: Mapping[str, str], extract: Callable[[str], bytes],
+                                 source_root: Path = JURISDICTIONS_ROOT) -> None:
+    """X3: Rechts-/Pflichttexte liegen im Paket und sind aus den Paket-Bytes lesbar.
+
+    Fehlt eine Textdatei im Bundle, scheitern Kostenausweis und Fusszeilen
+    erst beim PDF-Aufruf. Pruefung: Vollstaendigkeit gegen den Quellbaum
+    (keine Datei ohne Quelle), Byte-Identitaet, und jeder registrierte Pack
+    laedt sein DocumentSet mit ``jurisdictions.documents.load_document_set``
+    aus den extrahierten Paket-Bytes (Manifeste + Texte).
+    """
+    documents = _source_document_files(source_root)
+    if not documents:
+        fail(f'Keine Laenderpaket-Texte unter {source_root} -- Pruefgrundlage fehlt.')
+    manifests = _source_pack_manifests(source_root)
+    registry_mod = _load_jurisdiction_loader('jurisdictions.registry')
+    documents_mod = _load_jurisdiction_loader('jurisdictions.documents')
+    expected = sorted(ARCHIVE_JURISDICTIONS_PREFIX + d.relative_to(source_root).as_posix()
+                      for d in documents)
+    packaged = sorted(n for n in normalized
+                      if n.startswith(ARCHIVE_JURISDICTIONS_PREFIX) and '/documents/' in n
+                      and n.endswith('.yaml'))
+    missing = [k for k in expected if k not in normalized]
+    if missing:
+        fail(f'Laenderpaket-Text fehlt im Paket: {", ".join(missing)}')
+    extra = [k for k in packaged if k not in expected]
+    if extra:
+        fail(f'Laenderpaket-Text im Paket ohne Quelle: {", ".join(extra)}')
+    with tempfile.TemporaryDirectory(prefix='ares-packaging-smoke-docs-') as tmp:
+        root = Path(tmp)
+        for source in [*manifests, *documents]:
+            key = ARCHIVE_JURISDICTIONS_PREFIX + source.relative_to(source_root).as_posix()
+            if key not in normalized:
+                fail(f'Laenderpaket-Datei fehlt im Paket: {key}')
+            data = extract(normalized[key])
+            if hashlib.sha256(data).hexdigest() != sha256_file(source):
+                fail(f'Laenderpaket-Datei im Paket weicht von der Quelle ab: {key}')
+            target = root / key[len(ARCHIVE_JURISDICTIONS_PREFIX):]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        loaded = []
+        try:
+            registry = registry_mod.load_default_registry(root)
+            for pack in registry.all():
+                document_set = documents_mod.load_document_set(pack, root)
+                loaded.append(f'{pack.code}@{pack.version}: {len(document_set.sources)} Datei(en)')
+        except Exception as exc:  # PackRegistryError, YAMLError, OSError ... -- fail-closed mit Ursache
+            fail(f'Laenderpaket-Texte im Paket nicht lesbar: {type(exc).__name__}: {exc}')
+    log(f'OK Laenderpaket-Texte im Paket: {len(expected)} Datei(en), identisch mit Quelle, '
+        f'mit dem produktiven Loader lesbar ({"; ".join(loaded)})')
 
 
 # ---------------------------------------------------------------------------
