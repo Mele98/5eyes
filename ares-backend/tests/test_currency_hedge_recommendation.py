@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
 for path in (BACKEND_ROOT, TESTS_ROOT):
@@ -186,8 +188,9 @@ def test_check_no_drittmarken_no_garantie_in_text():
     dc = {"currency_exposure_bps": {"CHF": 5000, "USD": 3000, "EUR": 2000}}
     out = _check_waehrungsabsicherung(db, _mandate_stub(), dc)
     combined = (out["beurteilung"] + " " + out["handlungsempfehlung"]).lower()
-    for forbidden in ("ubs", "pictet", "julius", "swiss life", "garantiert", "3eyes"):
+    for forbidden in ("ubs", "pictet", "julius", "swiss life", "garantiert"):
         assert forbidden not in combined
+    assert_no_legacy_brand(combined, "Waehrungsabsicherungs-Text")
 
 
 # ---------------------------------------------------------------------------

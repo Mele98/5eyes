@@ -13,6 +13,8 @@ import json
 import re
 from pathlib import Path
 
+from tests.brand_digest_support import ALL_BRANDS, assert_no_legacy_brand  # noqa: E402
+
 import pytest
 
 REPORTING_ROOT = (
@@ -193,12 +195,16 @@ def test_no_third_party_brands_in_scaffold(relative: str):
     content = _read(relative).lower()
     forbidden = (
         "ubs", "pictet", "julius bär", "julius baer",
-        "swiss life", "3eyes", "ppc metrics",
+        "swiss life", "ppc metrics",
     )
     for brand in forbidden:
         assert brand not in content, (
             f"Verbotene Marke '{brand}' in {relative}"
         )
+    # README.md enthaelt noch LB-B-Reste der Doku-Welle (W5); dort bleibt der
+    # fruehere Umfang (LB-A) plus LB-C geprueft, sonst alle Altmarken.
+    brands = ("LB-A", "LB-C") if relative == "README.md" else ALL_BRANDS
+    assert_no_legacy_brand(content, relative, brands)
 
 
 # ---------------------------------------------------------------------------

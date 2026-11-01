@@ -33,6 +33,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+
 import pytest
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -671,8 +673,9 @@ def test_select_labels_are_associated_with_their_controls():
 
 def test_panel_uses_no_third_party_brand_names():
     panel = _panel(_html()).lower()
-    for brand in ("swiss life", "3eyes", "ubs", "credit suisse", "msci", "blackrock", "ishares"):
+    for brand in ("swiss life", "ubs", "credit suisse", "msci", "blackrock", "ishares"):
         assert brand not in panel, brand
+    assert_no_legacy_brand(panel, "Strategie-Bausteine-Panel")
 
 
 def test_block_change_feeds_the_single_stale_banner_above_the_panel():

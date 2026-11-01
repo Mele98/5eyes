@@ -35,6 +35,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from services.pdf.documents.advisory_report import (  # noqa: E402
     render_advisory_report_pdf_from_payload,
 )
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
 from tests.test_advisory_report_pdf import _make_minimal_payload  # noqa: E402
 
 
@@ -61,10 +62,10 @@ REQUIRED_ANCHOR_STRINGS_MINIMAL = (
     "Methodology-Modelle",     # Sektion 20 im PDF sichtbar
 )
 
-# PDF darf KEINE dieser Strings enthalten (Branding-Disziplin)
+# PDF darf KEINE dieser Strings enthalten (Branding-Disziplin).
+# Altmarken (LB-A/LB-B/LB-C) prueft test_pdf_contains_no_legacy_brand digest-basiert.
 FORBIDDEN_BRAND_STRINGS = (
     "Swiss Life",
-    "3eyes",
     "UBS",
     "Vontobel",
     "Pictet",
@@ -144,6 +145,13 @@ def test_pdf_contains_no_forbidden_brand(brand: str):
         f"Verbotene Marke {brand!r} im PDF gefunden — "
         f"Branding-Disziplin verletzt."
     )
+
+
+def test_pdf_contains_no_legacy_brand():
+    """Altmarken LB-A/LB-B/LB-C digest-basiert (keine Klartext-Liste im Repo)."""
+    pdf = _render()
+    text = _extract_all_text(pdf)
+    assert_no_legacy_brand(text, "PDF")
 
 
 # ---------------------------------------------------------------------------
