@@ -15,6 +15,7 @@ import json
 
 from sqlalchemy.orm import Session
 
+from core.evidence import SCHEME_V1_STR_DEFAULT, evidence_hash
 from models.mandates import Mandate
 from models.review import Product, RecommendationRun
 from models.wealth import WealthPosition
@@ -429,5 +430,4 @@ def handoff_business_key_hash(
         "recipient": _normalized_recipient(recipient_name),
         "trades": trades,
     }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1_STR_DEFAULT)

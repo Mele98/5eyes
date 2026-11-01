@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from core.evidence import SCHEME_V1_ASCII, evidence_hash
+
 if TYPE_CHECKING:
     from services.portfolio_engine import PortfolioSummary
 
@@ -319,9 +321,6 @@ def total_wealth_projection_basis(
       Jahr-0-Zerlegung exakt dem Snapshot entspricht.
     `basis_hash` bindet alle Felder (SHA-256 über kanonisches JSON).
     """
-    import hashlib
-    import json
-
     def _series(key: str) -> list[int]:
         return [int(v) for v in (foundation_projection or {}).get(key) or []]
 
@@ -339,8 +338,7 @@ def total_wealth_projection_basis(
         "liability_series_rappen": _series("liability_series_rappen"),
         "pledged_asset_series_rappen": _series("pledged_asset_series_rappen"),
     }
-    canonical = json.dumps(basis, sort_keys=True, separators=(",", ":"))
-    basis["basis_hash"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    basis["basis_hash"] = evidence_hash(basis, scheme=SCHEME_V1_ASCII)
     return basis
 
 

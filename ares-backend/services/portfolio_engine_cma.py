@@ -52,6 +52,7 @@ from numbers import Integral
 from sqlalchemy.orm import Session
 
 from config import settings
+from core.evidence import SCHEME_V1_ASCII, evidence_hash
 from models.allocation import CapitalMarketAssumption
 from services.cma_validation import (
     CMAValidationError,
@@ -287,22 +288,17 @@ def _sub_asset_class_code_default_evidence(
     Je Label: die verwendeten Werte und ein SHA-256 ueber deren kanonisches
     JSON, damit der Nachweis den Code-Stand eindeutig benennt.
     """
-    import hashlib
-
     model = _sub_asset_class_model_map(cma)
     evidence = _sub_asset_class_assumption_map(cma)
     result: dict[str, dict[str, object]] = {}
     for label, values in model.items():
         if label in evidence:
             continue
-        canonical = json.dumps(
-            {"sub_asset_class": label, **dict(values)},
-            sort_keys=True,
-            separators=(",", ":"),
-        )
         result[label] = {
             "values": dict(values),
-            "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            "sha256": evidence_hash(
+                {"sub_asset_class": label, **dict(values)}, scheme=SCHEME_V1_ASCII,
+            ),
         }
     return result
 

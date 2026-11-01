@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from core.evidence import canonical_json
 from database import new_uuid
 from models.allocation import (
     CapitalMarketAssumption,
@@ -399,12 +400,8 @@ def build_manual_target_allocation(
         risky_fraction_bps=int(risky_fraction_bps),
         risky_fraction_bps_at_generation=int(risky_fraction_bps),
         risk_budget_bps_at_generation=int(risk_budget_bps),
-        sub_allocations_json=json.dumps(
-            sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        ),
-        effective_constraints_json=json.dumps(
-            effective_constraints, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-        ),
+        sub_allocations_json=canonical_json(sub_allocations),
+        effective_constraints_json=canonical_json(effective_constraints),
         context_artifacts_required=1,
         preferences_json=json.dumps(prefs, sort_keys=True, default=str),
         optimization_method=MANUAL_OVERRIDE_METHOD,
@@ -459,9 +456,7 @@ def build_manual_target_allocation(
     reserve_ledger = anchors["reserve_funding_ledger"]
     reserve_split = anchors.get("reserve_split")  # RESERVE-CEILING-001: Split-Snapshot mitpersistieren
     effective_constraints[LEDGER_CONSTRAINTS_KEY] = ledger_reference(reserve_ledger, reserve_split)
-    candidate.effective_constraints_json = json.dumps(
-        effective_constraints, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    )
+    candidate.effective_constraints_json = canonical_json(effective_constraints)
     for column, value in ledger_snapshot_columns(reserve_ledger, reserve_split).items():
         setattr(candidate, column, value)
     candidate.allocation_context_hash = allocation_context_hash_for(
