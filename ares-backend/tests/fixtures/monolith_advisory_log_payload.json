@@ -1,0 +1,18 @@
+{
+  "entry_type": "Jahresreview",
+  "title": "Jahresreview 2026",
+  "description": "Kunde bestaetigt Ziele und Risikobereitschaft, SAA unveraendert beibehalten.",
+  "decision": "Keine Transaktion",
+  "trigger_id": null,
+  "recommendation_run_id": null,
+  "entry_date": "2026-11-01",
+  "entry_datetime": "2026-11-01T09:15:00.000Z",
+  "duration_minutes": 45,
+  "communication_channel": "persoenlich",
+  "language": "de",
+  "topics": [
+    "Strategic Asset Allocation",
+    "Risikoprofil"
+  ],
+  "cost_disclosure_given": false
+}
