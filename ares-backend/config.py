@@ -1,8 +1,12 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import base64
+import ctypes
+import hmac
 import os
 import secrets
 import sys
+import tempfile
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -484,6 +488,11 @@ class Settings(BaseSettings):
     # Tenant-DEK envelope encryption. Production/Tier-2 should supply this via
     # env/vault (TENANT_MASTER_KEK); development can pass an explicit KEK in tests.
     tenant_master_kek: str = ''
+    # RB-1: Pfad der DPAPI-geschuetzten KEK-Ablage (Datei im userData-Ordner der
+    # Desktop-Shell; Electron setzt ihn beim Spawn). Leer = keine Ablage: die
+    # KEK kommt dann ausschliesslich aus TENANT_MASTER_KEK (Server/Staging,
+    # Tests). Siehe ``ensure_tenant_master_kek`` am Ende dieses Moduls.
+    tenant_master_kek_file: str = ''
 
     # SEC-007 (Codex-Audit 2026-08-26): der bisherige `.sha256`-Sidecar neben
     # jedem Backup ist UNKEYED -- er beweist nur Zufallsintegritaet, nicht
@@ -860,3 +869,246 @@ def demo_password(env_name: str) -> tuple[str, str]:
             )
         return value, env_name
     return secrets.token_urlsafe(18), "zufaellig"
+
+
+# ---------------------------------------------------------------------------
+# RB-1: Master-KEK beim Erststart erzeugen und per DPAPI (Benutzer-Scope)
+# ablegen. Liegt im Konfigurationsmodul, weil die KEK ein Konfigurationswert
+# ist (``settings.tenant_master_kek``, die Quelle fuer services.tenant_crypto)
+# und weil ein eigenes Modul den Fan-out von ``main`` oder ``config``
+# erhoehen wuerde (Architektur-Ratsche).
+#
+# Vertrag (gilt auch fuer den Migrator, der die Ziel-KEK hier ablegt):
+#   Datei  = KEK_STORE_MAGIC + DPAPI-Blob
+#   Blob   = CryptProtectData(KEK als ASCII-Fernet-Key, Entropie
+#            KEK_STORE_ENTROPY, Flags CRYPTPROTECT_UI_FORBIDDEN) -- Benutzer-
+#            Scope (kein CRYPTPROTECT_LOCAL_MACHINE): nur dasselbe Windows-
+#            Konto kann die Datei entschluesseln.
+# Invarianten: die KEK wird nie geloggt, eine vorhandene Ablage wird nie
+# ueberschrieben oder geloescht, und ohne Ablage wird bei vorhandener
+# Datenbank keine neue KEK erzeugt (das wuerde Bestandsdaten unlesbar machen).
+# ---------------------------------------------------------------------------
+KEK_STORE_MAGIC = b"ARES-KEK-DPAPI/1\n"
+KEK_STORE_ENTROPY = b"ares.tenant-master-kek.store.v1"
+CRYPTPROTECT_UI_FORBIDDEN = 0x01
+CRYPTPROTECT_LOCAL_MACHINE = 0x04
+
+# W4-c-Andockstelle: Solange der Vorgaengervertrag (KEK v1 mit Rueckfall auf
+# SECRET_KEY) gilt, startet eine Bestandsinstallation ohne KEK weiter ueber
+# diesen Rueckfall -- hier wird dann nur KEINE KEK erzeugt. W4-c (KEK-Pflicht)
+# setzt diesen Schalter auf True: vorhandene Datenbank ohne KEK = Abbruch.
+KEK_REQUIRED_FOR_EXISTING_DATA = False
+
+
+class KekStoreError(RuntimeError):
+    """Die Master-KEK laesst sich nicht sicher bereitstellen (Start abbrechen)."""
+
+
+class _DataBlob(ctypes.Structure):
+    _fields_ = [("cbData", ctypes.c_uint32), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+
+class WindowsDpapi:
+    """CryptProtectData/CryptUnprotectData im Benutzer-Scope (nur Windows)."""
+
+    flags = CRYPTPROTECT_UI_FORBIDDEN
+
+    @staticmethod
+    def available() -> bool:
+        return sys.platform == "win32"
+
+    def _call(self, name: str, data: bytes, entropy: bytes) -> bytes:
+        if not self.available():
+            raise KekStoreError(
+                "Die DPAPI-Ablage der Master-KEK gibt es nur unter Windows; "
+                "TENANT_MASTER_KEK direkt setzen."
+            )
+        crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        func = getattr(crypt32, name)
+        func.argtypes = [
+            ctypes.POINTER(_DataBlob), ctypes.c_void_p, ctypes.POINTER(_DataBlob),
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(_DataBlob),
+        ]
+        func.restype = ctypes.c_int
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
+        in_buf = ctypes.create_string_buffer(data, len(data))
+        ent_buf = ctypes.create_string_buffer(entropy, len(entropy))
+        in_blob = _DataBlob(len(data), ctypes.cast(in_buf, ctypes.POINTER(ctypes.c_char)))
+        ent_blob = _DataBlob(len(entropy), ctypes.cast(ent_buf, ctypes.POINTER(ctypes.c_char)))
+        out_blob = _DataBlob()
+        ok = func(ctypes.byref(in_blob), None, ctypes.byref(ent_blob), None, None,
+                  self.flags, ctypes.byref(out_blob))
+        if not ok:
+            raise KekStoreError(f"DPAPI {name} fehlgeschlagen (Windows-Fehler {ctypes.get_last_error()}).")
+        try:
+            return ctypes.string_at(out_blob.pbData, out_blob.cbData)
+        finally:
+            kernel32.LocalFree(ctypes.cast(out_blob.pbData, ctypes.c_void_p))
+
+    def protect(self, data: bytes, entropy: bytes) -> bytes:
+        return self._call("CryptProtectData", data, entropy)
+
+    def unprotect(self, blob: bytes, entropy: bytes) -> bytes:
+        return self._call("CryptUnprotectData", blob, entropy)
+
+
+def _is_fernet_key(value: str) -> bool:
+    try:
+        return len(value) == 44 and len(base64.urlsafe_b64decode(value.encode("ascii"))) == 32
+    except (ValueError, UnicodeEncodeError):
+        return False
+
+
+def _existing_database(cfg: "Settings") -> str | None:
+    """Ort einer schon vorhandenen Datenbank (gleiche Aufloesung wie ``database``)."""
+    url = str(getattr(cfg, "database_url", None) or "").strip()
+    if url:
+        sqlite_file = _db_location.sqlite_url_file(url)
+        if sqlite_file is None:
+            # Server-Datenbank (oder :memory:): Bestand nicht pruefbar -> wie vorhanden.
+            return "DATABASE_URL"
+        db_file = sqlite_file
+    else:
+        db_file = Path(str(cfg.db_path))
+    db_file = db_file.expanduser()
+    for candidate in (db_file, db_file.with_name(db_file.name + "-wal")):
+        if candidate.exists():
+            return str(db_file)
+    return None
+
+
+def _read_kek_store(path: Path, protector) -> str:
+    raw = path.read_bytes()
+    if not raw.startswith(KEK_STORE_MAGIC):
+        raise KekStoreError(
+            f"Die KEK-Ablage {path} hat ein unbekanntes Format. Sie wird weder "
+            "ueberschrieben noch ersetzt; Ares startet nicht."
+        )
+    try:
+        value = protector.unprotect(raw[len(KEK_STORE_MAGIC):], KEK_STORE_ENTROPY).decode("ascii")
+    except (KekStoreError, UnicodeDecodeError, OSError) as exc:
+        raise KekStoreError(
+            f"Die KEK-Ablage {path} laesst sich nicht entschluesseln (anderes "
+            "Windows-Konto, fremdes Profil oder beschaedigte Datei). Ares startet "
+            "nicht und erzeugt KEINE neue KEK, weil vorhandene Daten sonst "
+            "unlesbar wuerden. Datei nicht loeschen; aus Sicherung/Treuhand "
+            "wiederherstellen."
+        ) from exc
+    if not _is_fernet_key(value):
+        raise KekStoreError(f"Die KEK-Ablage {path} enthaelt keinen gueltigen Schluessel.")
+    return value
+
+
+def _write_kek_store_exclusive(path: Path, payload: bytes) -> bool:
+    """Schreibt die Ablage atomar; ``False``, wenn sie schon existiert (nie ueberschreiben)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.chmod(tmp_name, 0o600)
+        except OSError:
+            pass
+        try:
+            os.link(tmp_name, path)  # scheitert, wenn das Ziel existiert
+        except FileExistsError:
+            return False
+        except OSError:
+            # Dateisystem ohne Hardlinks: exklusives Anlegen als Rueckfall.
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+            try:
+                out = os.open(str(path), flags, 0o600)
+            except FileExistsError:
+                return False
+            with os.fdopen(out, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+        return True
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+
+
+def ensure_tenant_master_kek(
+    cfg: "Settings | None" = None,
+    *,
+    protector=None,
+    require_for_existing_data: bool | None = None,
+) -> str:
+    """Stellt ``cfg.tenant_master_kek`` vor ``init_db`` bereit; liefert das Ergebnis.
+
+    Ergebnisse (nie mit KEK-Wert): ``disabled`` (keine Ablage konfiguriert),
+    ``configured`` (TENANT_MASTER_KEK gesetzt), ``loaded`` (aus der Ablage),
+    ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen),
+    ``legacy-existing-db`` (Bestandsdatenbank ohne KEK unter dem
+    Vorgaengervertrag: nichts erzeugt). Jeder unsichere Zustand wirft
+    :class:`KekStoreError`.
+    """
+    cfg = cfg if cfg is not None else settings
+    store_setting = str(getattr(cfg, "tenant_master_kek_file", "") or "").strip()
+    if not store_setting:
+        return "disabled"
+    protector = protector if protector is not None else WindowsDpapi()
+    required = KEK_REQUIRED_FOR_EXISTING_DATA if require_for_existing_data is None else require_for_existing_data
+    store = Path(store_setting).expanduser()
+    explicit = str(getattr(cfg, "tenant_master_kek", "") or "").strip()
+
+    if explicit:
+        if store.exists():
+            stored = _read_kek_store(store, protector)
+            if not hmac.compare_digest(stored.encode("ascii"), explicit.encode("utf-8")):
+                raise KekStoreError(
+                    f"TENANT_MASTER_KEK widerspricht der KEK-Ablage {store}. Ares "
+                    "startet nicht, weil eine falsche KEK Mandantendaten unlesbar "
+                    "macht. Eine der beiden Quellen entfernen."
+                )
+        return "configured"
+
+    if store.exists():
+        cfg.tenant_master_kek = _read_kek_store(store, protector)
+        return "loaded"
+
+    existing = _existing_database(cfg)
+    if existing is not None:
+        if required:
+            raise KekStoreError(
+                f"Die Datenbank {existing} existiert, aber es gibt keine Master-KEK "
+                f"(weder TENANT_MASTER_KEK noch Ablage {store}). Ares erzeugt in "
+                "diesem Fall keine neue KEK, weil die vorhandenen Daten sonst "
+                "unlesbar wuerden. Bestandsdaten mit dem Migrator uebernehmen oder "
+                "die KEK-Ablage aus Sicherung/Treuhand zurueckspielen."
+            )
+        return "legacy-existing-db"
+
+    if not protector.available():
+        raise KekStoreError(
+            f"Erststart ohne Master-KEK, aber keine DPAPI verfuegbar ({store}). "
+            "TENANT_MASTER_KEK direkt setzen."
+        )
+    new_kek = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
+    payload = KEK_STORE_MAGIC + protector.protect(new_kek.encode("ascii"), KEK_STORE_ENTROPY)
+    if not _write_kek_store_exclusive(store, payload):
+        # Paralleler Start war schneller: dessen KEK gilt, unsere wird verworfen.
+        cfg.tenant_master_kek = _read_kek_store(store, protector)
+        return "loaded"
+    try:
+        round_trip = _read_kek_store(store, protector)
+    except KekStoreError:
+        round_trip = ""
+    if not hmac.compare_digest(round_trip.encode("ascii"), new_kek.encode("ascii")):
+        # Eben in diesem Lauf angelegt, noch keine Datenbank: gefahrlos entfernbar.
+        try:
+            store.unlink()
+        except OSError:
+            pass
+        raise KekStoreError(f"Die neu angelegte KEK-Ablage {store} liess sich nicht zuruecklesen.")
+    cfg.tenant_master_kek = new_kek
+    return "generated"
