@@ -1003,6 +1003,48 @@ class KekStoreError(RuntimeError):
     """Die Master-KEK laesst sich nicht sicher bereitstellen (Start abbrechen)."""
 
 
+# W4-c / AF-4: Pruefung der Master-KEK ohne Rueckfall auf SECRET_KEY oder einen
+# Platzhalter. Sie steht hier und nicht in services.tenant_crypto, damit der
+# Start (main.lifespan, vor init_db) sie ohne zusaetzliche Modulkante aufrufen
+# kann (Architektur-Ratsche); services.tenant_crypto nutzt dieselbe Pruefung.
+MISSING_TENANT_MASTER_KEK_MESSAGE = (
+    "TENANT_MASTER_KEK fehlt: Ares startet nicht ohne eigene Master-KEK. "
+    "Einen Fernet-Key erzeugen (python -c \"from cryptography.fernet import "
+    "Fernet; print(Fernet.generate_key().decode())\") und als "
+    "TENANT_MASTER_KEK in der Konfiguration setzen; eine Bestandsinstallation "
+    "bringt ihn aus der Zielkonfiguration des Migrators mit."
+)
+
+
+def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = "") -> "str | None":
+    """Grund, warum ``raw`` keine zulaessige Master-KEK ist; ``None`` wenn zulaessig."""
+    value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
+    if not value.strip():
+        return MISSING_TENANT_MASTER_KEK_MESSAGE
+    if value == DEFAULT_SECRET_KEY:
+        return (
+            "TENANT_MASTER_KEK ist der oeffentliche Platzhalter aus dem Quellcode "
+            "und damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if secret_key and value == secret_key:
+        return (
+            "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
+            "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
+        )
+    return None
+
+
+def require_tenant_master_kek(cfg: "Settings | None" = None) -> None:
+    """Startpruefung (Lifespan, vor init_db): ohne gueltige Master-KEK startet Ares nicht."""
+    cfg = cfg if cfg is not None else settings
+    problem = tenant_master_kek_problem(
+        str(getattr(cfg, "tenant_master_kek", "") or "").strip(),
+        secret_key=str(getattr(cfg, "secret_key", "") or ""),
+    )
+    if problem:
+        raise KekStoreError(problem)
+
+
 class _DataBlob(ctypes.Structure):
     _fields_ = [("cbData", ctypes.c_uint32), ("pbData", ctypes.POINTER(ctypes.c_char))]
 
