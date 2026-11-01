@@ -11,7 +11,11 @@ from fastapi.staticfiles import StaticFiles
 
 from config import KekStoreError, ensure_tenant_master_kek, settings
 from core.logging_setup import configure_logging
-from core.middleware import MaxBodySizeMiddleware, RequestContextMiddleware
+from core.middleware import (
+    MaxBodySizeMiddleware,
+    RequestContextMiddleware,
+    install_exception_handlers,
+)
 from database import init_db
 from price_updater import start_price_scheduler, stop_price_scheduler
 from backup_scheduler import start_backup_scheduler, stop_backup_scheduler
@@ -139,6 +143,9 @@ app = FastAPI(
     description="Ares — Lokale Beratungssoftware API",
     lifespan=lifespan,
 )
+# K-2: fachliche Fehler (core.reason_codes.DomainError) zentral -> HTTP,
+# byte-gleich zur bisherigen HTTPException-Antwort.
+install_exception_handlers(app)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,

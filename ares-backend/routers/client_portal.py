@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from core.reason_codes import DomainError
 from database import get_db
 from models.clients import Client
 from models.mandates import Mandate
@@ -141,7 +142,8 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
         assert_current_allocation_without_adr12a_hold(
             db, mandate, channel=CHANNEL_CLIENT_PORTAL,
         )
-    except HTTPException as exc:
+    except (HTTPException, DomainError) as exc:
+        # K-2b: die Gates werfen DomainError (detail/status_code wie HTTPException).
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         reason_code = str(detail.get("reason_code") or "RELEASE_BLOCKED")
         logger.warning(
