@@ -216,8 +216,13 @@ def test_mandate_model_inputs_table(raw):
         assert gate[0] == "raise" and gate[1] is mmi.MandateModelInputError
 
 
-def _ctx(code) -> RunContext:
-    return RunContext.capture(resolve_pack(code=code), SimpleNamespace(optimizer_mode="stochastic"))
+def _ctx(code, mandate_id=None) -> RunContext:
+    """Kontext mit fester Jurisdiktion fuer die Mandats-ID ``mandate_id``
+    (Fixture-Mandate ohne ``id`` -> ``None``); bildet den Fall nach, dass sich
+    das Mandat nach dem Laufbeginn geaendert hat (Freeze)."""
+    return RunContext.capture(
+        resolve_pack(code=code), SimpleNamespace(optimizer_mode="stochastic"), mandate_id=mandate_id,
+    )
 
 
 def test_context_is_the_source_in_run():
@@ -251,7 +256,7 @@ def test_context_is_the_source_in_run():
 
 
 def test_finalization_follows_context(monkeypatch):
-    _result, captured = _finalization(monkeypatch, "DE", _ctx("CH"))
+    _result, captured = _finalization(monkeypatch, "DE", _ctx("CH", "m1"))
     assert [c[1] for c in captured] == ["CH", "CH"]
 
 
@@ -357,6 +362,7 @@ def _calls(rel: str, func: str, callee: str) -> list[ast.Call]:
         ("services/mandate_model_inputs.py", "mortality_solver_kwargs_from_mandate",
          "expected_death_year_offset_from_mandate"),
         ("routers/review.py", "_validate_recommendation_for_finalization", "finalization_eligibility_findings"),
+        ("services/portfolio_engine.py", "generate_recommendation_run", "generate_target_allocation"),
     ],
 )
 def test_run_context_is_passed_through(rel, func, callee):
@@ -371,3 +377,113 @@ def test_review_draft_create_uses_request_context():
     assert len(calls) == 1
     kw = {k.arg: k.value for k in calls[0].keywords}
     assert ast.unparse(kw["jurisdiction"]) == "build_run_context(mandate).jurisdiction"
+
+
+# --- 6: Bindung an das Mandat (Vorpruefung B-2) -------------------------------
+
+
+def _foreign_ctx() -> RunContext:
+    return _ctx("CH", "mandate-A")
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(
+            lambda ctx: mmi.validate_mortality_model_inputs(
+                SimpleNamespace(id="mandate-B", **vars(_mortality_mandate("DE"))), reference_year=2026, run_context=ctx),
+            id="validate_mortality_model_inputs",
+        ),
+        pytest.param(
+            lambda ctx: mmi.validate_mandate_model_inputs(
+                SimpleNamespace(id="mandate-B", **vars(_mortality_mandate("DE"))), reference_year=2026, run_context=ctx),
+            id="validate_mandate_model_inputs",
+        ),
+        pytest.param(
+            lambda ctx: horizon.expected_death_year_offset_from_mandate(
+                SimpleNamespace(id="mandate-B", **vars(_horizon_mandate("DE"))), reference_year=2026, run_context=ctx),
+            id="expected_death_year_offset_from_mandate",
+        ),
+        pytest.param(
+            lambda ctx: payload._filter_products_by_universe(
+                SimpleNamespace(query=lambda *_a: None), SimpleNamespace(id="mandate-B", jurisdiction="DE", tenant_id=None),
+                [], run_context=ctx),
+            id="_filter_products_by_universe",
+        ),
+    ],
+)
+def test_readers_reject_context_of_other_mandate(call):
+    from config import RunContextMandateMismatch
+
+    with pytest.raises(RunContextMandateMismatch, match=r"'mandate-A'.*'mandate-B'"):
+        call(_foreign_ctx())
+
+
+def test_finalization_rejects_context_of_other_mandate(monkeypatch):
+    from config import RunContextMandateMismatch
+
+    with pytest.raises(RunContextMandateMismatch, match=r"'mandate-A'.*'m1'"):
+        _finalization(monkeypatch, "DE", _foreign_ctx())
+
+
+# --- 7: generate_recommendation_run -- ein Kontext pro Lauf (B-3 Z. ~6456, B-4) --
+
+
+class _StopRun(Exception):
+    pass
+
+
+def _recommendation_run_until_target(monkeypatch, *, mandate, frozen_code):
+    """Faehrt generate_recommendation_run bis zum Aufruf von
+    generate_target_allocation (ohne target_allocation_id) und haelt dort an.
+    ``build_run_context`` liefert einen Kontext mit ``frozen_code`` fuer genau
+    dieses Mandat (Mandat hat sich nach Laufbeginn geaendert)."""
+    built: list = []
+    seen: dict = {}
+
+    def fake_build(m):
+        ctx = _ctx(frozen_code, getattr(m, "id", None))
+        built.append(ctx)
+        return ctx
+
+    def record_products(_db, *, jurisdiction, **_kw):
+        seen["ensure_default_products"] = jurisdiction
+
+    def record_reference(_db, _user_id, *, jurisdiction, tenant_id=None, **_kw):
+        seen["ensure_runtime_reference_data"] = jurisdiction
+        return SimpleNamespace(), SimpleNamespace()
+
+    def record_target(**kwargs):
+        seen["target_run_context"] = kwargs.get("run_context", _MISSING)
+        raise _StopRun
+
+    monkeypatch.setattr(pe, "build_run_context", fake_build)
+    monkeypatch.setattr(pe, "ensure_default_products", record_products)
+    monkeypatch.setattr(pe, "ensure_hedged_product_variants", lambda _db: None)
+    monkeypatch.setattr(pe, "ensure_runtime_reference_data", record_reference)
+    monkeypatch.setattr(pe, "_resolve_jurisdiction_context", lambda *_a: None)
+    monkeypatch.setattr(pe, "_current_risk_assessment_or_none", lambda *_a: SimpleNamespace(id="a1"))
+    monkeypatch.setattr(pe, "_current_target_allocation_or_none", lambda *_a: None)
+    monkeypatch.setattr(pe, "generate_target_allocation", record_target)
+    with pytest.raises(_StopRun):
+        pe.generate_recommendation_run(None, mandate, "u1", None)
+    return built, seen
+
+
+def test_recommendation_run_reads_jurisdiction_from_its_context(monkeypatch):
+    """Z. ~6456: Lauf-Jurisdiktion kommt aus dem RunContext, nicht aus dem
+    Mandat. Rueckstellung auf ``resolve_pack(mandate).code`` -> rot."""
+    mandate = SimpleNamespace(id="m-run", jurisdiction="DE", tenant_id=None)
+    _built, seen = _recommendation_run_until_target(monkeypatch, mandate=mandate, frozen_code="CH")
+    assert seen["ensure_default_products"] == "CH"
+    assert seen["ensure_runtime_reference_data"] == "CH"
+
+
+def test_recommendation_run_builds_one_context_and_passes_it_on(monkeypatch):
+    """B-4: genau ein Kontext pro Empfehlungslauf; generate_target_allocation
+    bekommt dasselbe Objekt (kein zweiter Kontext mit evtl. anderem
+    optimizer_mode)."""
+    mandate = SimpleNamespace(id="m-run", jurisdiction=None, tenant_id=None)
+    built, seen = _recommendation_run_until_target(monkeypatch, mandate=mandate, frozen_code="CH")
+    assert len(built) == 1
+    assert seen["target_run_context"] is built[0]

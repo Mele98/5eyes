@@ -158,7 +158,7 @@ EXPECTED_RESOLVE_PACK_SITES = {
     "routers/wealth.py": 1,
     "services/cost_disclosure.py": 1,
     "services/manual_target_allocation.py": 1,
-    "services/portfolio_engine.py": 7,
+    "services/portfolio_engine.py": 6,
     "services/preference_snapshot.py": 1,
     "services/review_engine.py": 1,
 }

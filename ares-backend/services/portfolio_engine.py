@@ -3049,7 +3049,9 @@ def generate_target_allocation(
 
     # K-3: Jurisdiktion und Lauf-Settings EINMAL pro Lauf eingefroren (Default:
     # jetzt gebildet; ein Aufrufer darf einen fertigen RunContext uebergeben).
-    # X2b: vor der Validierung gebildet (resolve_pack ist rein, wirft nicht).
+    # X2b: vor der Validierung gebildet. build_run_context prueft keine
+    # Modell-Inputs; werfen kann hier nur ein defektes Laenderpaket
+    # (jurisdictions.registry.PackRegistryError, Installationsfehler).
     if run_context is None:
         run_context = build_run_context(mandate)
     validate_mandate_model_inputs(mandate, run_context=run_context)
@@ -6567,7 +6569,10 @@ def generate_recommendation_run(
             preferences=preferences,
         )
     else:
-        target_payload = generate_target_allocation(db=db, mandate=mandate, user_id=user_id, preferences=preferences)
+        target_payload = generate_target_allocation(
+            db=db, mandate=mandate, user_id=user_id, preferences=preferences,
+            run_context=run_context,  # X2b: derselbe Kontext wie oben (B-4)
+        )
         allocation = target_payload["target_allocation"]
         preferences, legacy_snapshot_warning = _allocation_snapshot_preferences(allocation), None
         policy = db.query(OptimizerPolicy).filter(

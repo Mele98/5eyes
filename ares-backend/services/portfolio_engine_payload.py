@@ -1698,7 +1698,7 @@ def _filter_products_by_universe(
     tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
     # X2b: im Lauf aus dem RunContext (== mandate.jurisdiction or "CH").
     if run_context is not None:
-        jurisdiction = run_context.jurisdiction
+        jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction
     else:
         jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
     entries = db.query(ProductUniverseEntry).filter(

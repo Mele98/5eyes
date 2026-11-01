@@ -134,7 +134,7 @@ def finalization_eligibility_findings(
     # X2b: der Router bildet den RunContext einmal pro Request
     # (== mandate.jurisdiction or "CH"); ohne Kontext Fallback.
     if run_context is not None:
-        jurisdiction = run_context.jurisdiction
+        jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction
     else:
         jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
     appropriateness = _appropriateness_result(db, mandate, run)

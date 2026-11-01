@@ -47,7 +47,7 @@ def validate_mortality_model_inputs(
     # X2b: im Engine-Lauf aus dem RunContext (== mandate.jurisdiction or "CH"),
     # gleiche Normalisierung; ausserhalb eines Laufs Fallback.
     if run_context is not None:
-        jurisdiction = str(run_context.jurisdiction).strip().upper()
+        jurisdiction = str(run_context.ensure_bound_to(mandate).jurisdiction).strip().upper()
     else:
         jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH").strip().upper()
     mortality_enabled = _feature_enabled(

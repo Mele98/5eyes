@@ -196,7 +196,7 @@ def expected_death_year_offset_from_mandate(
     # X2b: im Engine-Lauf kommt die Jurisdiktion aus dem RunContext
     # (== mandate.jurisdiction or "CH"); ausserhalb eines Laufs Fallback.
     if run_context is not None:
-        jurisdiction = str(run_context.jurisdiction)
+        jurisdiction = str(run_context.ensure_bound_to(mandate).jurisdiction)
     else:
         jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
     if jurisdiction != "CH":
