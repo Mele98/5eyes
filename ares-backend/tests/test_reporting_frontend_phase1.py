@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+
 REPORTING_ROOT = (
     Path(__file__).resolve().parents[2]
     / "ares-desktop" / "frontend" / "reporting"
@@ -105,10 +107,11 @@ def test_no_third_party_brands_in_phase1_frontend():
     ).lower()
     forbidden = (
         "ubs", "pictet", "julius bär", "julius baer",
-        "swiss life", "3eyes", "ppc metrics",
+        "swiss life", "ppc metrics",
     )
     for brand in forbidden:
         assert brand not in combined, f"Verbotene Marke '{brand}' gefunden"
+    assert_no_legacy_brand(combined, "Phase-1-Frontend")
 
 
 def test_sidebar_has_stable_section_numbers():

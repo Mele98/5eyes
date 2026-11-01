@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+
 import pytest
 
 REPORTING_ROOT = (
@@ -226,10 +228,11 @@ def test_no_third_party_brands_in_new_files(relative: str):
     content = _read(relative).lower()
     forbidden = (
         "ubs", "pictet", "julius bär", "julius baer",
-        "swiss life", "3eyes", "ppc metrics",
+        "swiss life", "ppc metrics",
     )
     for brand in forbidden:
         assert brand not in content, f"Verbotene Marke '{brand}' in {relative}"
+    assert_no_legacy_brand(content, relative)
 
 
 # ---------------------------------------------------------------------------

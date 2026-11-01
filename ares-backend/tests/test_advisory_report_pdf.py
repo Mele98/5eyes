@@ -17,6 +17,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+
 import pytest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -690,12 +692,13 @@ def test_pdf_contains_no_third_party_brands_in_layout():
     payload = _make_minimal_payload()
     # Sicherheitscheck: Test-Daten dürfen keine Dritt-Marken enthalten,
     # damit wir das Layout ehrlich prüfen können.
-    forbidden = ["swiss life", "3eyes"]
+    forbidden = ["swiss life"]
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     all_text = "\n".join((p.extract_text() or "") for p in reader.pages).lower()
     for term in forbidden:
         assert term not in all_text, f"Verbotene Marke '{term}' im PDF-Layout"
+    assert_no_legacy_brand(all_text, "PDF-Layout")
 
 
 # ---------------------------------------------------------------------------
@@ -1066,8 +1069,9 @@ def test_pr_d_layout_contains_no_third_party_brands():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     all_text = "\n".join((p.extract_text() or "") for p in reader.pages).lower()
-    for term in ["swiss life", "3eyes"]:
+    for term in ["swiss life"]:
         assert term not in all_text, f"Verbotene Marke '{term}' im PR-D PDF"
+    assert_no_legacy_brand(all_text, "PR-D PDF")
 
 
 # ---------------------------------------------------------------------------

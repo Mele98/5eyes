@@ -14,6 +14,8 @@ import sys
 import uuid
 from pathlib import Path
 
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
@@ -934,8 +936,9 @@ def test_pruefpunkte_returns_10_blocks_with_stable_keys(session_factory):
     assert {b["key"] for b in bloecke} == expected_keys
     # Branding-Disziplin: keine Dritt-Marken in den statischen Beschreibungen
     full = " ".join(b["beschreibung"] for b in bloecke).lower()
-    for term in ("ubs", "pictet", "julius bär", "swiss life", "3eyes"):
+    for term in ("ubs", "pictet", "julius bär", "swiss life"):
         assert term not in full
+    assert_no_legacy_brand(full, "Pruefpunkt-Beschreibungen")
 
 
 # ---------------------------------------------------------------------------
@@ -1597,8 +1600,9 @@ def test_statement_pm_returns_7_principles_with_stable_keys(session_factory):
     }
     # Branding-Compliance: keine Dritt-Marken, keine Renditeversprechen
     full = " ".join(p["body"] for p in principles).lower()
-    for term in ("ubs", "pictet", "swiss life", "3eyes", "garantiert", "garantie"):
+    for term in ("ubs", "pictet", "swiss life", "garantiert", "garantie"):
         assert term not in full
+    assert_no_legacy_brand(full, "Statement-PM-Prinzipien")
 
 
 # ---------------------------------------------------------------------------
@@ -1742,9 +1746,10 @@ def test_disclaimer_contains_finma_required_clauses(session_factory):
     assert "vertraulich" in full_text
     assert "keine automatische transaktion" in full_text
     # FINMA-Branding-Compliance: KEINE Dritt-Marken im Disclaimer
-    forbidden = ["ubs", "pictet", "julius bär", "ppc metrics", "swiss life", "3eyes"]
+    forbidden = ["ubs", "pictet", "julius bär", "ppc metrics", "swiss life"]
     for term in forbidden:
         assert term not in full_text, f"Verbotene Marke '{term}' im Disclaimer"
+    assert_no_legacy_brand(full_text, "Disclaimer")
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import { legacyBrandIdsIn } from '@/test/brandDigest';
 
 vi.mock('@/api/useUserRole', () => ({
   useUserRole: () => ({
@@ -904,6 +905,6 @@ describe('Branding discipline', () => {
     const { container } = render(withRouter(<Cover data={makeCover()} />));
     const text = container.textContent?.toLowerCase() ?? '';
     expect(text).not.toContain('swiss life');
-    expect(text).not.toContain('3eyes');
+    expect(legacyBrandIdsIn(text)).toEqual([]);
   });
 });

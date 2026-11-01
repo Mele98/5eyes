@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { ErrorBoundary } from './ErrorBoundary';
+import { legacyBrandIdsIn } from '@/test/brandDigest';
 
 /**
  * Sprint U-87 — Tests fuer Top-Level Error Boundary.
@@ -79,9 +80,10 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>,
     );
     const txt = (screen.getByTestId('reporting-error-boundary').textContent ?? '').toLowerCase();
-    for (const brand of ['ubs', 'pictet', 'julius', 'swiss life', '3eyes', 'ppc']) {
+    for (const brand of ['ubs', 'pictet', 'julius', 'swiss life', 'ppc']) {
       expect(txt).not.toContain(brand);
     }
+    expect(legacyBrandIdsIn(txt)).toEqual([]);
   });
 
   it('logged Fehler via console.error', () => {

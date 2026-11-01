@@ -23,6 +23,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+
 REPORTING_ROOT = (
     Path(__file__).resolve().parents[2]
     / "ares-desktop" / "frontend" / "reporting"
@@ -284,5 +286,6 @@ def test_resolve_reporting_app_url_does_not_reference_window_api():
 def test_handoff_ts_no_third_party_brands():
     content = _read_reporting("src/api/handoff.ts").lower()
     for brand in ("ubs", "pictet", "julius bär", "julius baer",
-                  "swiss life", "3eyes", "ppc metrics"):
+                  "swiss life", "ppc metrics"):
         assert brand not in content
+    assert_no_legacy_brand(content, "src/api/handoff.ts")
