@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 import base64
 import ctypes
 import hmac
@@ -821,6 +823,77 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# --- RunContext (K-3, Phase 2 Modularisierung) ---------------------------------
+# "Ein Lauf kennt seine Mathematik": die Werte, die ein Engine-Lauf bisher
+# verstreut und zu beliebigen Zeitpunkten aus ``settings`` bzw. dem Mandat las,
+# werden EINMAL zu Beginn des Laufs eingefroren und durch den Lauf gereicht.
+# Eine Settings-Aenderung waehrend des Laufs wirkt fuer die migrierten Leser
+# nicht mehr. Liegt hier und nicht in einem eigenen Modul: Erzeuger und
+# Konsumenten importieren config ohnehin (Architektur-Ratsche fan_out), und
+# der Typ selbst importiert nichts Internes -- die aufgeloeste Jurisdiktion
+# (``jurisdictions.resolve.resolve_pack``) wird vom Erzeuger uebergeben.
+class RunContextMandateMismatch(ValueError):
+    """Ein RunContext wurde fuer ein anderes Mandat gebildet als den Lauf."""
+
+
+@dataclass(frozen=True, slots=True)
+class RunContext:
+    """Eingefrorener Kontext genau eines Engine-Laufs fuer genau ein Mandat.
+
+    - ``mandate_id``: ``mandate.id`` des Mandats, aus dem der Kontext gebildet
+      wurde. Leser, die einen uebergebenen Kontext nutzen, pruefen ihn mit
+      ``ensure_bound_to(mandate)`` (Abweichung = ``RunContextMandateMismatch``).
+    - ``jurisdiction``: der aufgeloeste Code ``resolve_pack(mandate).code`` --
+      exakt der Wert der heutigen Formel ``mandate.jurisdiction or "CH"``
+      (ohne Normalisierung), eingefroren zum Laufbeginn.
+    - ``jurisdiction_source``: Herkunft laut ``ResolvedPack.source``.
+    - ``resolved_pack``: das ``ResolvedPack`` selbst (fuer Pack-Version/-Hash
+      in spaeteren Schritten, z.B. Evidence), unveraendert durchgereicht.
+    - ``optimizer_mode``: ``settings.optimizer_mode`` zum Laufbeginn.
+    """
+
+    mandate_id: Any
+    jurisdiction: Any
+    jurisdiction_source: str
+    resolved_pack: Any
+    optimizer_mode: str
+
+    @classmethod
+    def capture(cls, resolved_pack: Any, source: Any = None, *, mandate_id: Any) -> "RunContext":
+        """Friert ``resolved_pack`` und die Lauf-Settings fuer ``mandate_id`` ein.
+
+        ``source`` ist das Settings-Objekt, aus dem gelesen wird (Default:
+        ``config.settings``); der Erzeuger uebergibt das Objekt, das er bisher
+        selbst gelesen haette, damit Monkeypatches identisch wirken.
+        ``mandate_id`` ist Pflicht (``None`` nur fuer Mandate ohne ``id``).
+        """
+        cfg = settings if source is None else source
+        return cls(
+            mandate_id=mandate_id,
+            jurisdiction=resolved_pack.code,
+            jurisdiction_source=str(resolved_pack.source),
+            resolved_pack=resolved_pack,
+            optimizer_mode=cfg.optimizer_mode,
+        )
+
+    def ensure_bound_to(self, mandate: Any) -> "RunContext":
+        """Wirft ``RunContextMandateMismatch``, wenn ``mandate.id`` nicht die
+        Mandats-ID dieses Kontexts ist; sonst ``self``.
+
+        Verglichen wird nur die Mandats-ID, nicht die Jurisdiktion: ein Lauf
+        behaelt die beim Laufbeginn eingefrorene Jurisdiktion, auch wenn das
+        Mandatsobjekt sich waehrend des Laufs aendert.
+        """
+        mandate_id = getattr(mandate, "id", None)
+        if mandate_id != self.mandate_id:
+            raise RunContextMandateMismatch(
+                f"RunContext gehoert zu Mandat {self.mandate_id!r}, der Lauf zu Mandat "
+                f"{mandate_id!r}; ein RunContext gilt nur fuer das Mandat, aus dem er "
+                "gebildet wurde."
+            )
+        return self
 
 
 # --- HTTP-Identitaet gegenueber externen Diensten -------------------------------

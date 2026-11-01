@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session, selectinload
 
-from config import settings
+from config import RunContext, settings
 from core.chf_amount import normalize_chf_amount_text
 from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from database import new_uuid
@@ -3024,23 +3024,36 @@ def _assert_allocation_has_basis(
         )
 
 
+def build_run_context(mandate: Mandate) -> RunContext:
+    """K-3: friert Jurisdiktion (``resolve_pack``) und Lauf-Settings fuer
+    genau dieses Mandat (``mandate.id``) ein."""
+    return RunContext.capture(resolve_pack(mandate), settings, mandate_id=getattr(mandate, "id", None))
+
+
 @binds_run_valuation_date
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
     user_id: str,
     preferences: dict | None,
+    run_context: RunContext | None = None,
 ) -> dict:
     now = _now()
+    # K-3: ein uebergebener RunContext muss zu genau diesem Mandat gehoeren
+    # (Mandats-ID); sonst Abbruch vor jeder Validierung/Berechnung.
+    if run_context is not None:
+        run_context.ensure_bound_to(mandate)
     # Activated mortality/tax components are economic model inputs. Validate
     # them before reference-data selection or any House/solver branch so a
     # corrupt raw row can never silently turn the feature off.
     from services.mandate_model_inputs import validate_mandate_model_inputs
 
     validate_mandate_model_inputs(mandate)
-    # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest,
-    # an ensure_runtime_reference_data()/_build_sub_allocations() durchgereicht.
-    jurisdiction = resolve_pack(mandate).code
+    # K-3: Jurisdiktion und Lauf-Settings EINMAL pro Lauf eingefroren (Default:
+    # jetzt gebildet; ein Aufrufer darf einen fertigen RunContext uebergeben).
+    if run_context is None:
+        run_context = build_run_context(mandate)
+    jurisdiction = run_context.jurisdiction
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
     )
@@ -3231,7 +3244,7 @@ def generate_target_allocation(
     #   Solver-Result wird nur als Methodenvergleich im Response geliefert. Audit-
     #   Felder und Stress-JSON werden NICHT auf der TargetAllocation persistiert.
     # - sonst: Solver wird nicht aufgerufen.
-    optimizer_mode = settings.optimizer_mode
+    optimizer_mode = run_context.optimizer_mode
     run_stochastic = optimizer_mode in {"stochastic", "shadow_stochastic"}
     apply_stochastic = optimizer_mode == "stochastic"
     # The stochastic model always works on its own candidate state. In shadow
