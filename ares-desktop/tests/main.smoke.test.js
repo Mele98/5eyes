@@ -369,6 +369,40 @@ function check(name, fn) {
     assert.strictEqual(resolved, path.join(tmpUserData, 'resources', 'backend', 'ares-api.exe'));
   });
 
+  // RB-1: Das Backend bekommt den KEK-Ablageort im userData-Ordner -- nie die
+  // KEK selbst, und eine .env-/Umgebungsangabe kann den Pfad nicht umlenken.
+  await check('RB-1 Kind-Umgebung setzt TENANT_MASTER_KEK_FILE im userData-Ordner', () => {
+    const env = mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 });
+    assert.strictEqual(env.TENANT_MASTER_KEK_FILE, path.join(tmpUserData, 'tenant-master-kek.dpapi'));
+    assert.strictEqual(env.TENANT_MASTER_KEK_FILE, mainExports.TENANT_MASTER_KEK_STORE_FILE);
+    assert.strictEqual(env.APP_HOST, '127.0.0.1');
+    assert.strictEqual(env.APP_PORT, '8123');
+  });
+
+  await check('RB-1 Umgebung kann den KEK-Ablageort nicht umlenken', () => {
+    const before = process.env.TENANT_MASTER_KEK_FILE;
+    process.env.TENANT_MASTER_KEK_FILE = path.join(os.tmpdir(), 'fremd.dpapi');
+    try {
+      const env = mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 });
+      assert.strictEqual(env.TENANT_MASTER_KEK_FILE, path.join(tmpUserData, 'tenant-master-kek.dpapi'));
+    } finally {
+      if (before === undefined) delete process.env.TENANT_MASTER_KEK_FILE;
+      else process.env.TENANT_MASTER_KEK_FILE = before;
+    }
+  });
+
+  await check('RB-1 Electron erfindet keine KEK und legt keine Ablage an', () => {
+    const before = process.env.TENANT_MASTER_KEK;
+    delete process.env.TENANT_MASTER_KEK;
+    try {
+      const env = mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 });
+      assert.ok(!('TENANT_MASTER_KEK' in env), 'Electron darf keine KEK erfinden');
+      assert.ok(!fs.existsSync(mainExports.TENANT_MASTER_KEK_STORE_FILE), 'Electron legt die Ablage nicht an');
+    } finally {
+      if (before !== undefined) process.env.TENANT_MASTER_KEK = before;
+    }
+  });
+
   console.log(failed === 0 ? '\nALL GREEN' : `\n${failed} FAILED`);
   process.exit(failed === 0 ? 0 : 1);
 })();

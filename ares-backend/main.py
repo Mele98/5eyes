@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
+from config import KekStoreError, ensure_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import MaxBodySizeMiddleware, RequestContextMiddleware
 from database import init_db
@@ -84,6 +84,22 @@ async def lifespan(app: FastAPI):
         settings.price_scheduler_enabled,
         settings.db_use_sqlcipher,
     )
+    # RB-1: Master-KEK vor init_db bereitstellen -- aus der DPAPI-Ablage laden
+    # oder beim Erststart (noch keine Datenbank) erzeugen und ablegen. Aktiv
+    # nur, wenn die Desktop-Shell TENANT_MASTER_KEK_FILE setzt. Geloggt wird
+    # nur das Ergebnis, nie der Schluessel.
+    try:
+        kek_outcome = ensure_tenant_master_kek(settings)
+    except KekStoreError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
+    if kek_outcome == 'legacy-existing-db':
+        logger.warning(
+            'Master-KEK: vorhandene Datenbank ohne KEK-Ablage -- keine KEK erzeugt '
+            '(Vorgaengervertrag; mit der KEK-Pflicht bricht dieser Start ab)'
+        )
+    else:
+        logger.info('Master-KEK: %s', kek_outcome)
     init_db()
     # U-32 / W2-804-01: Discover externe Tax-Regime-Plugins (Entry-Point
     # group 'ares.tax_regime', SDK 2.x). Ohne Erwartungs-Manifest bricht der

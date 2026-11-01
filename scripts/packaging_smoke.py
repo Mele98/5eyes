@@ -25,6 +25,10 @@ Quellbaum:
    die DB ohne sie, obwohl ``/health/ready`` gruen waere.
 6. Die produktiven Datenpfade (Default-DB, Datenordner) sind vor und nach
    dem Lauf unveraendert.
+7. RB-1 Master-KEK: wie in der Desktop-Shell zeigt ``TENANT_MASTER_KEK_FILE``
+   in den (temporaeren) userData-Ordner. Der Erststart erzeugt genau eine
+   DPAPI-Ablage (Benutzer-Scope, Format-Kennung), der Schluessel steht in
+   keinem Log; ein zweiter Start laedt dieselbe Ablage byte-identisch.
 
 Fail-closed: jede Abweichung, jede fehlende Pruefgrundlage (z.B. PyInstaller
 nicht importierbar) und jeder Timeout fuehrt zu Exit 1. Nur Windows.
@@ -38,6 +42,7 @@ Aufruf (Repo-Root)::
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import importlib.util
 import json
@@ -66,6 +71,11 @@ EXE_NAME = 'ares-api.exe'
 ARCHIVE_SCHEMA = 'ares_schema.sql'
 ARCHIVE_FONT_PREFIX = 'assets/fonts/'
 ARCHIVE_REPORTING_INDEX = 'reporting_dist/index.html'
+
+# RB-1: Vertrag der KEK-Ablage (ares-backend/config.py, KEK_STORE_*).
+KEK_STORE_NAME = 'tenant-master-kek.dpapi'
+KEK_STORE_MAGIC = b'ARES-KEK-DPAPI/1\n'
+KEK_STORE_ENTROPY = b'ares.tenant-master-kek.store.v1'
 
 
 class SmokeError(RuntimeError):
@@ -247,8 +257,105 @@ def isolated_env(root: Path, port: int, db_path: Path) -> dict[str, str]:
         'MARKET_DATA_CACHE_PURGE_ENABLED': 'false',
         'TELEMETRY_ENABLED': 'false',
         'SMTP_ENABLED': 'false',
+        # RB-1: wie die Desktop-Shell -- Ablage im (temporaeren) userData-Ordner.
+        'TENANT_MASTER_KEK_FILE': str(kek_store_path(root)),
     })
     return env
+
+
+def kek_store_path(root: Path) -> Path:
+    return root / 'home' / 'AppData' / 'Roaming' / 'Ares' / KEK_STORE_NAME
+
+
+class _DataBlob(ctypes.Structure):
+    _fields_ = [('cbData', ctypes.c_uint32), ('pbData', ctypes.POINTER(ctypes.c_char))]
+
+
+def dpapi_unprotect(blob: bytes, entropy: bytes) -> bytes:
+    """CryptUnprotectData (Benutzer-Scope) -- nur auf der Wegwerf-Ablage des Smokes."""
+    crypt32 = ctypes.WinDLL('crypt32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    crypt32.CryptUnprotectData.argtypes = [
+        ctypes.POINTER(_DataBlob), ctypes.c_void_p, ctypes.POINTER(_DataBlob),
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(_DataBlob),
+    ]
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    in_buf = ctypes.create_string_buffer(blob, len(blob))
+    ent_buf = ctypes.create_string_buffer(entropy, len(entropy))
+    in_blob = _DataBlob(len(blob), ctypes.cast(in_buf, ctypes.POINTER(ctypes.c_char)))
+    ent_blob = _DataBlob(len(entropy), ctypes.cast(ent_buf, ctypes.POINTER(ctypes.c_char)))
+    out = _DataBlob()
+    if not crypt32.CryptUnprotectData(ctypes.byref(in_blob), None, ctypes.byref(ent_blob),
+                                      None, None, 0x01, ctypes.byref(out)):
+        fail(f'KEK-Ablage nicht mit DPAPI (Benutzer-Scope) entschluesselbar '
+             f'(Windows-Fehler {ctypes.get_last_error()}).')
+    try:
+        return ctypes.string_at(out.pbData, out.cbData)
+    finally:
+        kernel32.LocalFree(ctypes.cast(out.pbData, ctypes.c_void_p))
+
+
+def check_kek_store(root: Path) -> tuple[bytes, str]:
+    store = kek_store_path(root)
+    if not store.is_file():
+        fail(f'Erststart hat keine KEK-Ablage angelegt: {store}')
+    others = [p.name for p in store.parent.iterdir() if p.name != KEK_STORE_NAME]
+    if others:
+        fail(f'Neben der KEK-Ablage liegen unerwartete Dateien (Temp-Reste?): {others}')
+    raw = store.read_bytes()
+    if not raw.startswith(KEK_STORE_MAGIC):
+        fail('KEK-Ablage hat nicht die erwartete Format-Kennung.')
+    kek = dpapi_unprotect(raw[len(KEK_STORE_MAGIC):], KEK_STORE_ENTROPY).decode('ascii')
+    if len(kek) != 44:
+        fail('KEK-Ablage enthaelt keinen Fernet-Key.')
+    if kek.encode('ascii') in raw:
+        fail('KEK steht im Klartext in der Ablage.')
+    return raw, kek
+
+
+def assert_kek_not_logged(kek: str, paths: list[Path]) -> None:
+    for path in paths:
+        files = [path] if path.is_file() else (sorted(p for p in path.rglob('*') if p.is_file()) if path.is_dir() else [])
+        for item in files:
+            if kek.encode('ascii') in item.read_bytes():
+                fail(f'Master-KEK steht im Klartext in {item}.')
+
+
+def run_restart_smoke(exe_copy: Path, env: dict[str, str], port: int, log_file: Path,
+                      timeout: float, grace: float) -> None:
+    """Zweiter Start auf derselben DB und Ablage: laedt die KEK, erzeugt keine neue."""
+    base = f'http://127.0.0.1:{port}'
+    with log_file.open('wb') as out:
+        proc = subprocess.Popen(
+            [str(exe_copy)], cwd=str(exe_copy.parent), env=env,
+            stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        try:
+            started = time.monotonic()
+            ready = False
+            while time.monotonic() - started < timeout:
+                if proc.poll() is not None:
+                    fail(f'Zweiter Start beendete sich vor Readiness (Exit {proc.returncode}).\n'
+                         f'--- backend.log ---\n{tail(log_file)}')
+                try:
+                    status, _, _ = http_get(base + '/health/ready', timeout=3)
+                    if status == 200:
+                        ready = True
+                        break
+                except (urllib.error.URLError, ConnectionError, socket.timeout, OSError):
+                    pass
+                time.sleep(1)
+            if not ready:
+                fail(f'Zweiter Start nicht innerhalb {timeout:.0f}s bereit.\n'
+                     f'--- backend.log ---\n{tail(log_file)}')
+        finally:
+            graceful = stop_process(proc, port, grace) if proc.poll() is None else False
+    if not graceful:
+        fail('Zweiter Start liess sich nicht sauber per CTRL_BREAK beenden.')
+    text = log_file.read_text(encoding='utf-8', errors='replace')
+    if 'Master-KEK: loaded' not in text:
+        fail(f'Zweiter Start hat die KEK nicht aus der Ablage geladen.\n--- backend.log ---\n{tail(log_file)}')
 
 
 def assert_not_live(db_path: Path) -> None:
@@ -406,6 +513,18 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
             fail(f'Schema aus dem Paket nicht angewendet -- Views fehlen in der Smoke-DB: {", ".join(missing)}')
         log(f'OK Schemafund: {len(expected_views)}/{len(expected_views)} Schema-Views in frischer DB '
             f'({", ".join(expected_views)})')
+
+        if 'Master-KEK: generated' not in logtext:
+            fail('Erststart hat keine Master-KEK erzeugt ("Master-KEK: generated" fehlt).\n'
+                 f'--- backend.log ---\n{tail(log_file)}')
+        store_bytes, kek = check_kek_store(root)
+        log_file_2 = root / 'backend-restart.log'
+        run_restart_smoke(exe_copy, env, port, log_file_2, timeout, grace)
+        if kek_store_path(root).read_bytes() != store_bytes:
+            fail('Zweiter Start hat die KEK-Ablage veraendert (darf nie ueberschrieben werden).')
+        assert_kek_not_logged(kek, [log_file, log_file_2, root / 'logs'])
+        log('OK RB-1 Master-KEK: Erststart erzeugt genau eine DPAPI-Ablage (Benutzer-Scope), '
+            'zweiter Start laedt sie byte-identisch, kein Klartext in Logs')
 
         after = snapshot(live_paths())
         if before != after:

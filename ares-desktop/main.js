@@ -446,13 +446,26 @@ async function pickBackendRuntime() {
   return buildBackendRuntime(DEFAULT_BACKEND_HOST, fallbackPort);
 }
 
-function spawnBackendProcess() {
-  const childEnv = {
+// RB-1: Ablageort der DPAPI-geschuetzten Master-KEK (Benutzer-Scope) im
+// userData-Ordner. Das Backend erzeugt die KEK beim Erststart (noch keine
+// Datenbank), legt sie dort ab und laedt sie bei jedem weiteren Start; eine
+// vorhandene Ablage wird nie ueberschrieben (config.ensure_tenant_master_kek).
+// Der Pfad wird immer hier gesetzt -- eine .env kann ihn nicht umlenken. Die
+// KEK selbst kennt Electron nicht und loggt sie folglich nie.
+const TENANT_MASTER_KEK_STORE_FILE = path.join(app.getPath('userData'), 'tenant-master-kek.dpapi');
+
+function buildBackendChildEnv(runtime = backendRuntime) {
+  return {
     ...process.env,
     PYTHONUNBUFFERED: '1',
-    APP_HOST: backendRuntime.host,
-    APP_PORT: String(backendRuntime.port),
+    APP_HOST: runtime.host,
+    APP_PORT: String(runtime.port),
+    TENANT_MASTER_KEK_FILE: TENANT_MASTER_KEK_STORE_FILE,
   };
+}
+
+function spawnBackendProcess() {
+  const childEnv = buildBackendChildEnv();
 
   if (app.isPackaged) {
     const backendExe = resolvePackagedBackendExe();
@@ -841,6 +854,9 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports.resolveFrontendPath = resolveFrontendPath;
   // W2-804-03: Windows-only-Vertrag des gepackten Backend-Resolvers testbar.
   module.exports.resolvePackagedBackendExe = resolvePackagedBackendExe;
+  // RB-1: Kind-Umgebung des Backends (KEK-Ablageort) deterministisch testbar.
+  module.exports.buildBackendChildEnv = buildBackendChildEnv;
+  module.exports.TENANT_MASTER_KEK_STORE_FILE = TENANT_MASTER_KEK_STORE_FILE;
   module.exports.notifyRendererUpdateState = notifyRendererUpdateState;
   module.exports._setMainWindowForTest = (win) => { mainWindow = win; };
 }
