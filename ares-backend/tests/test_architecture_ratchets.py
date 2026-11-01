@@ -447,7 +447,7 @@ def test_rich_valid_leaf_passes_the_leaf_contract(gate, mini, monkeypatch):
          "<dynamisch: import importlib.util>"),
         ('from importlib import import_module\n', "<dynamisch: from importlib import ...>"),
         ('import sys\ndef f():\n    return sys.modules["services.alpha"]\n',
-         "<dynamisch: .modules>"),
+         "<dynamisch: sys.modules>"),
         ('def f(o, n):\n    return getattr(o, n)\n', "<dynamisch: getattr(...)>"),
         ('def f(o):\n    return getattr(o, "__import__")\n', "<dynamisch: getattr(...)>"),
         ('def f():\n    return globals()\n', "<dynamisch: globals>"),
@@ -505,3 +505,111 @@ def test_listed_module_that_does_not_exist_is_red(gate, mini, monkeypatch):
         r.startswith("[fan_out_exempt_leaves] core.missing: gelistet, aber kein Modul")
         for r in result.regressions
     ), result.regressions
+
+
+# Die 11 Faelle aus dem zweiten Review des K-1-Stapels, die das Gate vor dem
+# Blattvertrag nicht erkannte -- jeder einzeln rot, mit konkretem Grund.
+@pytest.mark.parametrize(
+    "body,needle",
+    [
+        ("from importlib import import_module as load\nload('config')\n",
+         "<dynamisch: from importlib import ...>"),
+        ("import importlib\ngetattr(importlib, 'imp' + 'ort_module')('config')\n",
+         "<dynamisch: getattr(...)>"),
+        ("exec('import config')\n", "<dynamisch: exec>"),
+        ("import runpy\nrunpy.run_module('config')\n", "<dynamisch: .run_module>"),
+        ("import sys\ndef f():\n    return sys.modules.get('config')\n", "<dynamisch: sys.modules>"),
+        ("import pkgutil\ndef f():\n    return pkgutil.resolve_name('config')\n",
+         "<dynamisch: pkgutil>"),
+        ("import importlib.util\ndef f():\n"
+         "    return importlib.util.spec_from_file_location('c', 'config.py')\n",
+         "<dynamisch: .spec_from_file_location>"),
+        ("open('side_effect.txt', 'w').write('x')\n", "<Seiteneffekt auf Modulebene: open("),
+        ("import json\njson.dumps = lambda *a, **k: ''\n",
+         "<Modul-Attribut veraendert: json.dumps>"),
+        ("import sys\ndef f():\n    sys.path.insert(0, '/tmp')\n", "<dynamisch: sys.path>"),
+        ("import builtins\ndef f():\n    builtins.open = None\n", "<dynamisch: builtins>"),
+    ],
+    ids=[f"review_{i:02d}" for i in range(1, 12)],
+)
+def test_review_cases_are_red(gate, mini, monkeypatch, body, needle):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
+    assert hits and needle in hits[0], result.regressions
+
+
+@pytest.mark.parametrize(
+    "body,needle",
+    [
+        ("from importlib import import_module as load\ndef f():\n    return load('config')\n",
+         "core/leaf.py:3 -> <dynamisch: load>"),
+        ("import sys as s\ndef f():\n    return s.path\n", "<dynamisch: sys.path>"),
+        ("from sys import modules as m\ndef f():\n    return m\n", "<dynamisch: m>"),
+        ("import json as j\ndef f():\n    j.dumps = None\n", "<Modul-Attribut veraendert: j.dumps>"),
+        ("import os\ndef f():\n    del os.sep\n", "<Modul-Attribut veraendert: os.sep>"),
+    ],
+    ids=["alias_call_site", "sys_alias_path", "from_sys_import_modules",
+         "aliased_module_attribute_assignment_in_function", "module_attribute_delete"],
+)
+def test_aliases_of_forbidden_imports_are_followed(gate, mini, monkeypatch, body, needle):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
+    assert hits and needle in hits[0], result.regressions
+
+
+def test_local_object_attribute_assignment_is_allowed(gate, mini, monkeypatch):
+    """Nur Attribute importierter Module sind tabu, nicht eigene Objekte."""
+    _mini_with_leaf(
+        gate, mini, monkeypatch,
+        "import json\nclass E(Exception):\n    def __init__(self, c):\n"
+        "        self.code = c\n        self.text = json.dumps(c)\n",
+    )
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert result.regressions == []
+
+
+# Elternpakete: import core.leaf fuehrt core/__init__.py aus.
+def test_parent_package_importing_project_modules_is_red(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/__init__.py", "import config\nfrom services import alpha\n")
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core (Elternpaket")]
+    assert hits and "core/__init__.py:1 -> config" in hits[0] and "services.alpha" in hits[0], (
+        result.regressions
+    )
+
+
+def test_parent_package_with_side_effect_is_red(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/__init__.py", "print('boot')\n")
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert any(
+        r.startswith("[fan_out_exempt_leaves] core (Elternpaket") and "print(" in r
+        for r in result.regressions
+    ), result.regressions
+
+
+@pytest.mark.parametrize(
+    "init_body", ["", '"""Paket."""\nfrom __future__ import annotations\n__all__ = []\n'],
+    ids=["empty", "pure"],
+)
+def test_empty_or_pure_parent_package_passes(gate, mini, monkeypatch, init_body):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/__init__.py", init_body)
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert result.regressions == []
+
+
+def test_real_parent_packages_of_listed_leaves_are_clean(gate):
+    scans = gate.scan_backend()
+    for pkg in sorted(gate._leaf_parent_packages()):
+        if pkg in scans:
+            s = scans[pkg]
+            assert s.non_stdlib_imports == [] and s.leaf_violations == [], (pkg, s)
+            assert s.runtime_targets() == {} and s.typeonly == {}, pkg

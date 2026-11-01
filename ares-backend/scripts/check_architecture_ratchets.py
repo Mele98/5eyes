@@ -52,7 +52,15 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      Attribut aus ``LEAF_FORBIDDEN_ATTRS`` (``import_module``,
      ``exec_module``, ``run_module``, ``sys.modules`` ...) und kein
      ``getattr``/``setattr``/``delattr`` mit nicht-konstantem oder
-     verbotenem Attributnamen.
+     verbotenem Attributnamen, kein Zugriff auf ``LEAF_FORBIDDEN_DOTTED``
+     (``sys.modules``, ``sys.path`` ...; auch ueber ``import sys as s`` oder
+     ``from sys import path``), keine Zuweisung/Loeschung an Attributen
+     importierter Module (z. B. ``json.dumps = ...``). Aliase verbotener
+     Importe (``from importlib import import_module as load``) werden
+     verfolgt.
+   - Jedes Elternpaket (``__init__.py``) eines gelisteten Moduls muss leer
+     sein oder selbst alle Blatt-Regeln erfuellen (sonst fuehrt ``import
+     core.evidence`` Code aus ``core/__init__.py`` mit aus).
    - Ein gelisteter Modulpfad, der im Backend nicht existiert, ist rot.
 
 Ratschen-Regel: Wird ein Wert schlechter, schlaegt der Lauf fehl und nennt
@@ -105,8 +113,12 @@ LEAF_PURE_DECORATORS = frozenset(
 LEAF_FORBIDDEN_NAMES = frozenset(
     {
         "__import__", "exec", "eval", "compile", "importlib", "runpy", "builtins",
-        "__builtins__", "globals", "locals", "vars", "breakpoint",
+        "__builtins__", "globals", "locals", "vars", "breakpoint", "pkgutil", "imp",
+        "zipimport",
     }
+)
+LEAF_FORBIDDEN_DOTTED = frozenset(
+    {"sys.modules", "sys.path", "sys.meta_path", "sys.path_hooks", "sys.path_importer_cache"}
 )
 LEAF_FORBIDDEN_MODULES = frozenset({"importlib", "runpy", "builtins", "imp", "pkgutil", "zipimport"})
 LEAF_FORBIDDEN_ATTRS = frozenset(
@@ -411,11 +423,54 @@ def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
     """Regel 6, Blattvertrag: Modulebene nur aus der Positivliste; im ganzen
     Modul keine dynamischen Importe oder Codeausfuehrung."""
     out = _leaf_body_violations(tree.body, "auf Modulebene")
+    # Aliase: importierte Module (fuer Attribut-Zuweisungen), sys-Aliase und
+    # Namen, die aus verbotenen Modulen/Attributen importiert wurden.
+    module_aliases: set[str] = set()
+    sys_aliases: set[str] = {"sys"}
+    forbidden_aliases: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id in LEAF_FORBIDDEN_NAMES:
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                bound = a.asname or a.name.split(".", 1)[0]
+                module_aliases.add(bound)
+                if a.name == "sys":
+                    sys_aliases.add(bound)
+        elif isinstance(node, ast.ImportFrom):
+            top = (node.module or "").split(".", 1)[0]
+            for a in node.names:
+                bound = a.asname or a.name
+                if (
+                    top in LEAF_FORBIDDEN_MODULES
+                    or a.name in LEAF_FORBIDDEN_NAMES | LEAF_FORBIDDEN_ATTRS
+                    or f"{node.module}.{a.name}" in LEAF_FORBIDDEN_DOTTED
+                ):
+                    forbidden_aliases.add(bound)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in LEAF_FORBIDDEN_NAMES | forbidden_aliases:
             out.append((node.lineno, f"<dynamisch: {node.id}>"))
+        elif isinstance(node, ast.Attribute) and (
+            isinstance(node.value, ast.Name)
+            and node.value.id in sys_aliases
+            and f"sys.{node.attr}" in LEAF_FORBIDDEN_DOTTED
+        ):
+            out.append((node.lineno, f"<dynamisch: sys.{node.attr}>"))
         elif isinstance(node, ast.Attribute) and node.attr in LEAF_FORBIDDEN_ATTRS:
             out.append((node.lineno, f"<dynamisch: .{node.attr}>"))
+        elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
+            targets = (
+                node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+            )
+            for t in targets:
+                for sub in ast.walk(t):
+                    if isinstance(sub, (ast.Attribute, ast.Subscript)):
+                        root = sub
+                        while isinstance(root, (ast.Attribute, ast.Subscript)):
+                            root = root.value
+                        if isinstance(root, ast.Name) and root.id in module_aliases:
+                            out.append(
+                                (node.lineno, f"<Modul-Attribut veraendert: {ast.unparse(sub)}>")
+                            )
+                            break
         elif isinstance(node, ast.Import):
             for a in node.names:
                 if a.name.split(".", 1)[0] in LEAF_FORBIDDEN_MODULES:
@@ -439,6 +494,17 @@ def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
     return sorted(set(out))
 
 
+def _leaf_parent_packages() -> set[str]:
+    """Alle Elternpakete der gelisteten Blattmodule (``core.evidence`` -> ``core``)."""
+    out: set[str] = set()
+    for m in FAN_OUT_EXEMPT_LEAVES:
+        parts = m.split(".")[:-1]
+        while parts:
+            out.add(".".join(parts))
+            parts.pop()
+    return out
+
+
 def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
     root = root or BACKEND_ROOT
     mods = discover_modules(root)
@@ -449,7 +515,7 @@ def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
         tree = ast.parse(src, filename=str(path))
         scan = ModuleScan(path=path.relative_to(root).as_posix())
         _Visitor(name, path.name == "__init__.py", resolve, scan).visit(tree)
-        if name in FAN_OUT_EXEMPT_LEAVES:
+        if name in FAN_OUT_EXEMPT_LEAVES or name in _leaf_parent_packages():
             scan.leaf_violations = leaf_contract_violations(tree)
         scan.lazy_lines.sort()
         scan.env_hits.sort()
@@ -639,6 +705,22 @@ def compare(current: dict, baseline: dict, scans: dict[str, ModuleScan]) -> Resu
                 f"[fan_out_exempt_leaves] {m}: kein reines Stdlib-Blatt "
                 f"(nur Standardbibliothek, Fan-out 0, keine Modul-Seiteneffekte, "
                 f"keine dynamischen Importe): {detail}"
+            )
+
+    # 6b. Elternpakete gelisteter Blattmodule (fehlendes __init__ = Namespace, ok)
+    for pkg in sorted(_leaf_parent_packages()):
+        s = scans.get(pkg)
+        if s is None or not s.path.endswith("__init__.py"):
+            continue
+        own = {**s.typeonly, **s.runtime_targets()}
+        bad = sorted(
+            set(s.non_stdlib_imports) | set(s.leaf_violations) | {(ln, t) for t, ln in own.items()}
+        )
+        if bad:
+            detail = "; ".join(f"{s.path}:{ln} -> {t}" for ln, t in bad)
+            res.regressions.append(
+                f"[fan_out_exempt_leaves] {pkg} (Elternpaket eines Blattmoduls): muss leer "
+                f"sein oder die Blatt-Regeln erfuellen: {detail}"
             )
 
     # 4. Schichtung
