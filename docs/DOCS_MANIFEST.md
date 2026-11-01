@@ -391,5 +391,6 @@ derzeit 3 Dateien, deren Pfad einen frueheren Produktnamen enthaelt.
 | `docs/status_snapshot_2026-05-17.md` | ARCHIVE | Statusbericht, historisch |
 | `docs/status_snapshot_2026-05-23.md` | ARCHIVE | Statusbericht, historisch |
 | `docs/wip_cleanup_2026-05-13.md` | ARCHIVE | Aufraeumprotokoll, historisch |
+| `scripts/new_claude_spec.ps1` | ARCHIVE | Agenten-Tooling (Spec-Vorlage fuer Agenten-Briefings); kein Produktbestandteil |
 
-Summe: 79 KEEP, 274 ARCHIVE (3 davon nur ueber Regeln erfasst).
+Summe: 79 KEEP, 275 ARCHIVE (3 davon nur ueber Regeln erfasst).
