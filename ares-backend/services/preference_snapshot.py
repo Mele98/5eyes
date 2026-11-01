@@ -250,7 +250,7 @@ def check_products_against_allocation_snapshot(
     ``allocation``. Liefert ``(Verstoesse, Legacy-Warnung)``. Ohne Snapshot
     (Legacy) wird nichts geprueft -- bisheriges Verhalten + Warnung."""
     import services.portfolio_engine_payload as payload
-    from services.jurisdiction.resolve import resolve_mandate_jurisdiction
+    from jurisdictions.resolve import resolve_pack
     from services.portfolio_engine import (
         _allocation_snapshot_preferences,
         _normalize_preferences,
@@ -262,7 +262,7 @@ def check_products_against_allocation_snapshot(
         return [], LEGACY_SNAPSHOT_WARNING
 
     prefs = _normalize_preferences(snapshot)
-    jurisdiction_ctx = _resolve_jurisdiction_context(db, mandate, resolve_mandate_jurisdiction(mandate))
+    jurisdiction_ctx = _resolve_jurisdiction_context(db, mandate, resolve_pack(mandate).code)
     violations = []
     for position_id, product in items:
         if payload._product_matches_constraints(

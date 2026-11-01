@@ -83,11 +83,6 @@ from services.wealth_position_semantics import (
     require_supported_position_assignment,
 )
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
-from services.jurisdiction.de_seed import (
-    DE_DEFAULT_BONDS_DURATION,
-    DE_DEFAULT_EQUITIES_GEO,
-    DE_DEFAULT_REALESTATE_MARKET,
-)
 from services.jurisdiction.exceptions import (
     JurisdictionReferenceDataConflictError,
     JurisdictionReferenceDataMissingError,
@@ -96,8 +91,8 @@ from services.jurisdiction.resolve import (
     resolve_building_blocks_for_jurisdiction,
     resolve_cma_for_jurisdiction,
     resolve_home_bias_defaults,
-    resolve_mandate_jurisdiction,
 )
+from jurisdictions.resolve import resolve_pack
 from services.risk_matrix import (
     RiskBudgetExceeded,
     assert_risk_budget_ok,
@@ -2005,7 +2000,7 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     from services.product_eligibility import seed_default_catalog_suitability_and_rules
 
     seed_default_catalog_suitability_and_rules(
-        db, products=created, jurisdiction=jurisdiction or "CH", now=now,
+        db, products=created, jurisdiction=resolve_pack(code=jurisdiction).code, now=now,
     )
 
 
@@ -2572,7 +2567,7 @@ def _projection_context_snapshot(
         ],
         "mandate_projection_inputs": {
             "jurisdiction": str(
-                getattr(mandate, "jurisdiction", None) or "CH"
+                resolve_pack(mandate).code
             ),
             "base_currency": str(
                 getattr(mandate, "base_currency", None) or "CHF"
@@ -3045,7 +3040,7 @@ def generate_target_allocation(
     validate_mandate_model_inputs(mandate)
     # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest,
     # an ensure_runtime_reference_data()/_build_sub_allocations() durchgereicht.
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
     )
@@ -4328,7 +4323,7 @@ def evaluate_goal_sensitivity(
             "(erlaubt: -10..+10)."
         )
 
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
     )
@@ -5406,7 +5401,7 @@ def build_target_payload_from_allocation(
     # Sprint B1: Mandanten-Default-Building-Blocks als Fallback (rebuild path).
     prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
     # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): siehe generate_target_allocation.
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     # Rebuild uses the same fail-closed, versioned FX source as generation.
@@ -6161,7 +6156,7 @@ def build_recommendation_payload_from_run(
     user_id: str,
     preferences: dict | None,
 ) -> dict:
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     current_policy, current_cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
     )
@@ -6437,7 +6432,7 @@ def generate_recommendation_run(
     depot_bank: str | None = None,
 ) -> dict:
     # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest.
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     ensure_default_products(db, jurisdiction=jurisdiction)
     # 2026-08-22 (hedgingRequired-Katalogluecke): additiver Backfill, laeuft
     # unabhaengig davon ob ensure_default_products() oben tatsaechlich

@@ -56,8 +56,8 @@ from services.jurisdiction.exceptions import (
 from services.jurisdiction.resolve import (
     assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
-    resolve_mandate_jurisdiction,
 )
+from jurisdictions.resolve import resolve_pack
 from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
@@ -81,7 +81,6 @@ from services.override_reason_quality import (
     OverrideReasonQualityError,
     validate_override_reason_quality,
 )
-from services.advisory_report import compute_advisory_report
 from services.advisory_report_cache import (
     cached_compute_advisory_report,
     invalidate_mandate as invalidate_advisory_cache,
@@ -224,7 +223,7 @@ def get_current_allocation_payload(
         policy, current_cma = ensure_runtime_reference_data(
             db,
             current_user.id,
-            jurisdiction=resolve_mandate_jurisdiction(mandate),
+            jurisdiction=resolve_pack(mandate).code,
             tenant_id=getattr(mandate, "tenant_id", None),
         )
     except ValueError as exc:
@@ -335,7 +334,7 @@ def create_target_allocation(
     # Generate. Jetzt: Kandidat aus denselben Bausteinen wie Generate bauen,
     # mit demselben Verifier pruefen, und ERST DANN den Bestand umhaengen.
     now = _now()
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    jurisdiction = resolve_pack(mandate).code
     # TA-LEGACY-FABRICATION-001 / TA-RECOMMENDATION-DEADEND-001: aktueller
     # CMA-Anker wie im Generate-Pfad, ohne stillen Fallback.
     try:
