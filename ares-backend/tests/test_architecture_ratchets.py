@@ -84,6 +84,7 @@ def test_baseline_file_is_in_canonical_form(gate):
         "fan_out",
         "layer_violations",
         "env_readers",
+        "leaf_content_sha256",
     }
 
 
@@ -322,7 +323,7 @@ def test_valid_stdlib_leaf_passes_and_does_not_count_as_fan_out(gate, mini, monk
             from collections.abc import Mapping
         def f():
             import json
-            return json
+            return json.dumps
         """,
     )
     base = _baseline(gate, mini)
@@ -796,3 +797,221 @@ def test_n_k1_allowed_class_shapes_stay_green(gate, mini, monkeypatch):
     )
     _, result = _check(gate, mini, _baseline(gate, mini))
     assert result.regressions == []
+
+
+# --------------------------------------------------------------------------
+# Pruefrunde #842 (Dok. 86): N-842-1 (Properties auf Enum-Mitgliedern bzw.
+# classmethod+property), N-842-2 (Attributketten ueber importierte Module,
+# Stern-Importe) und Inhalts-Pin je Blatt. Jeder Fall war vor dem Fix rc=0.
+# --------------------------------------------------------------------------
+
+_N_842_CASES = [
+    # N-842-1: Getter laeuft beim Attributzugriff auf Modulebene
+    ("from enum import Enum\nclass E(Enum):\n    A = 1\n    @property\n    def boom(self):\n"
+     "        open('side_effect.txt', 'w').write('x')\n        return 1\nX = E.A.boom\n",
+     "<Property in Klasse E nicht erlaubt (N-842-1): boom>"),
+    ("import functools\nfrom enum import Enum\nclass E(Enum):\n    A = 1\n"
+     "    @functools.cached_property\n    def boom(self):\n        return 1\nX = E.A.boom\n",
+     "<Property in Klasse E nicht erlaubt (N-842-1): boom>"),
+    ("from functools import cached_property\nfrom enum import Enum\nclass E(Enum):\n    A = 1\n"
+     "    @cached_property\n    def boom(self):\n        return 1\nX = E.A.boom\n",
+     "<Property in Klasse E nicht erlaubt (N-842-1): boom>"),
+    ("from dataclasses import dataclass\nfrom enum import Enum\nclass E(Enum):\n    A = 1\n"
+     "    @property\n    def boom(self):\n        return 1\n"
+     "@dataclass\nclass D:\n    x: int = E.A.boom\n",
+     "<Property in Klasse E nicht erlaubt (N-842-1): boom>"),
+    ("class C:\n    @classmethod\n    @property\n    def boom(cls):\n"
+     "        open('side_effect.txt', 'w').write('x')\n        return 1\nX = C.boom\n",
+     "<Property in Klasse C nicht erlaubt (N-842-1): boom>"),
+    ("class C:\n    @property\n    @classmethod\n    def boom(cls):\n        return 1\n",
+     "<Property in Klasse C nicht erlaubt (N-842-1): boom>"),
+    ("from functools import cached_property\nclass C:\n    @cached_property\n"
+     "    def boom(self):\n        return 1\n",
+     "<Property in Klasse C nicht erlaubt (N-842-1): boom>"),
+    # N-842-2: Attributketten ueber erlaubte Module
+    ("import enum\ndef run():\n    return enum.bltns.eval(\"__import__('os').getpid()\")\n",
+     "<Attributkette ueber importierten Namen: enum.bltns.eval>"),
+    ("import enum\nfrom enum import Enum\n"
+     "def run():\n    return enum.bltns.eval(\"__import__('os').name\")\n"
+     "class E(Enum):\n    A = 1\n    @property\n    def boom(self):\n        return run()\n"
+     "X = E.A.boom\n",
+     "<Attributkette ueber importierten Namen: enum.bltns.eval>"),
+    ("import typing\ndef f():\n    return typing.sys._getframe(0).f_builtins['exec']('1')\n",
+     "<Attributkette ueber importierten Namen: typing.sys._getframe>"),
+    ("import typing\ndef f():\n    typing.sys.path.insert(0, '/tmp')\n",
+     "<Attributkette ueber importierten Namen: typing.sys.path>"),
+    ("import dataclasses\ndef f():\n"
+     "    return dataclasses.inspect.importlib.machinery.SourceFileLoader('c', 'config.py')\n",
+     "<Attributkette ueber importierten Namen: dataclasses.inspect.importlib>"),
+    ("from typing import *\ndef g(x: \"__import__('os').getcwd()\"):\n    return x\n"
+     "def f():\n    return get_type_hints(g)\n",
+     "<Stern-Import: from typing import *>"),
+    ("from json import *\n", "<Stern-Import: from json import *>"),
+    ("import collections.abc\ndef f():\n    return collections.Counter\n",
+     "<import ohne as bindet Elternpaket: import collections.abc>"),
+    ("import typing\ndef f(o):\n    return typing._eval_type(o, {}, {})\n",
+     "<Unterstrich-Attribut auf importiertem Namen: typing._eval_type>"),
+    ("import typing\nX = typing.sys\n", "<Modulobjekt ueber Attribut: typing.sys>"),
+    ("from typing import sys as s\ndef f():\n    return s.argv\n",
+     "<Modulobjekt importiert: from typing import sys>"),
+    ("import enum\nB = enum\ndef f():\n    return B.bltns.eval('1')\n",
+     "<Modulobjekt als Wert: enum>"),
+]
+
+
+@pytest.mark.parametrize(
+    "body,needle",
+    _N_842_CASES,
+    ids=[
+        "enum_property_at_import", "enum_functools_cached_property", "enum_cached_property",
+        "enum_property_as_dataclass_default", "classmethod_property", "property_classmethod",
+        "cached_property_any_class",
+        "enum_bltns_eval", "enum_bltns_eval_at_import", "typing_sys_getframe",
+        "typing_sys_path", "dataclasses_inspect_importlib", "star_import_get_type_hints",
+        "star_import_json", "import_dotted_binds_parent", "underscore_attribute",
+        "module_object_via_attribute", "module_object_via_from_import", "module_alias_as_value",
+    ],
+)
+def test_n_842_import_time_code_and_attribute_chains_are_red(
+    gate, mini, monkeypatch, body, needle
+):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
+    assert hits and needle in hits[0], result.regressions
+
+
+def test_n_842_allowed_attribute_use_stays_green(gate, mini, monkeypatch):
+    """Positivkontrolle: einstufige Attribute, Methoden auf Aufrufergebnissen,
+    Enum-Mitglied ``.value``/``.name`` und ``property`` in Nicht-Enum-Klassen."""
+    _mini_with_leaf(
+        gate, mini, monkeypatch,
+        '''
+        from __future__ import annotations
+        import hashlib
+        import json
+        import typing
+        from enum import StrEnum
+        from types import MappingProxyType
+        class Code(StrEnum):
+            A = "a"
+        DEFAULT = Code.A.value
+        NAME = Code.A.name
+        TABLE = MappingProxyType({"a": 1})
+        class Err(Exception):
+            @property
+            def status(self) -> int:
+                return 409
+        def digest(obj: typing.Any) -> str:
+            return hashlib.sha256(json.dumps(obj).encode("utf-8")).hexdigest()
+        ''',
+    )
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert result.regressions == []
+
+
+def _pin_regressions(result) -> list[str]:
+    return [r for r in result.regressions if r.startswith("[leaf_content_sha256]")]
+
+
+def test_real_leaves_are_pinned_and_match(gate):
+    scans = gate.scan_backend()
+    pins = gate.load_baseline()["leaf_content_sha256"]
+    for module in sorted(gate.FAN_OUT_EXEMPT_LEAVES):
+        assert pins.get(module), f"{module}: kein Inhalts-Pin in der Basis"
+        assert scans[module].content_sha256 == pins[module], module
+    assert set(pins) == {m for m in gate._pinned_modules() if m in scans}
+
+
+def test_leaf_hash_is_identical_for_lf_and_crlf(gate, tmp_path):
+    """Windows-Checkout mit CRLF und Linux-CI mit LF liefern denselben Pin, und
+    der Pin entspricht dem Git-Blob-Inhalt (LF, ``.gitattributes`` eol=lf)."""
+    import hashlib
+
+    pins = gate.load_baseline()["leaf_content_sha256"]
+    for module in sorted(gate.FAN_OUT_EXEMPT_LEAVES):
+        src = (BACKEND_ROOT / module.replace(".", "/")).with_suffix(".py").read_bytes()
+        lf = src.replace(b"\r\n", b"\n")
+        (tmp_path / "lf.py").write_bytes(lf)
+        (tmp_path / "crlf.py").write_bytes(lf.replace(b"\n", b"\r\n"))
+        h_lf = gate.leaf_content_sha256(tmp_path / "lf.py")
+        assert h_lf == gate.leaf_content_sha256(tmp_path / "crlf.py")
+        assert h_lf == hashlib.sha256(lf).hexdigest() == pins[module], module
+
+
+def test_changed_leaf_content_is_red_even_if_ast_rules_pass(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    assert set(base["leaf_content_sha256"]) == {"core", "core.leaf"}
+    _write(mini, "core/leaf.py", "import json\nX = 1\n")  # AST-rein, aber geaendert
+    _, result = _check(gate, mini, base)
+    pins = _pin_regressions(result)
+    assert pins == result.regressions, result.regressions
+    assert len(pins) == 1 and "core.leaf (core/leaf.py): Inhalt weicht vom Pin ab" in pins[0]
+    assert "--update-leaf-pins" in pins[0]
+
+
+def test_changed_parent_package_content_is_red(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/__init__.py", '"""Paket."""\n')
+    _, result = _check(gate, mini, base)
+    pins = _pin_regressions(result)
+    assert len(pins) == 1 and pins[0].startswith("[leaf_content_sha256] core (core/__init__.py)")
+
+
+def test_new_leaf_without_pin_is_red(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/other.py", "import json\n")
+    base = _baseline(gate, mini)
+    monkeypatch.setattr(gate, "FAN_OUT_EXEMPT_LEAVES", frozenset({"core.leaf", "core.other"}))
+    _, result = _check(gate, mini, base)
+    pins = _pin_regressions(result)
+    assert len(pins) == 1 and "core.other (core/other.py): kein Inhalts-Pin" in pins[0], pins
+
+
+def test_baseline_without_pins_is_red(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    del base["leaf_content_sha256"]
+    _, result = _check(gate, mini, base)
+    assert {r.split(" (")[0] for r in _pin_regressions(result)} == {
+        "[leaf_content_sha256] core", "[leaf_content_sha256] core.leaf"
+    }
+
+
+def test_update_leaf_pins_is_explicit_and_refuses_other_violations(
+    gate, mini, monkeypatch, tmp_path
+):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    baseline_file = tmp_path / "baseline.json"
+    baseline_file.write_text(
+        gate.dump_baseline(gate.measure(gate.scan_backend(mini))), encoding="utf-8"
+    )
+    monkeypatch.setattr(gate, "BACKEND_ROOT", mini)
+    monkeypatch.setattr(gate, "BASELINE_FILE", baseline_file)
+    before = baseline_file.read_text(encoding="utf-8")
+
+    # Inhalt geaendert: Lauf und --update-baseline rot, Basis unveraendert
+    _write(mini, "core/leaf.py", "import json\nX = 1\n")
+    assert gate.main([]) == 1
+    assert gate.main(["--update-baseline"]) == 1
+    assert baseline_file.read_text(encoding="utf-8") == before
+
+    # Blattvertrag verletzt: auch --update-leaf-pins verweigert
+    _write(mini, "core/leaf.py", "from json import *\n")
+    assert gate.main(["--update-leaf-pins"]) == 1
+    assert baseline_file.read_text(encoding="utf-8") == before
+
+    # bewusst nachgefuehrt: nur der Pin aendert sich, danach gruen
+    _write(mini, "core/leaf.py", "import json\nX = 1\n")
+    assert gate.main(["--update-leaf-pins"]) == 0
+    after = json.loads(baseline_file.read_text(encoding="utf-8"))
+    old = json.loads(before)
+    assert after["leaf_content_sha256"]["core.leaf"] != old["leaf_content_sha256"]["core.leaf"]
+    assert {k: v for k, v in after.items() if k != "leaf_content_sha256"} == {
+        k: v for k, v in old.items() if k != "leaf_content_sha256"
+    }
+    assert gate.main([]) == 0

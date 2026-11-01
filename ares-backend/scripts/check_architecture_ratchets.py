@@ -45,9 +45,9 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      Annotationen nur reine Ausdruecke. Alles andere (z. B. ``open(...)``,
      Zuweisung an Attribut/Subscript, ``for``/``with``/``try``/sonstiges
      ``if``) gilt als Modul-Seiteneffekt.
-   - Kein Code des eigenen Moduls beim Import (N-K1): Subscripts ``X[...]``
-     nur auf importierte Stdlib-Namen (``typing`` & Co.) oder eingebaute
-     Generics (``tuple``, ``dict`` ...), nie auf eigene Namen
+   - Gegen Code des eigenen Moduls beim Import (N-K1, N-842-1): Subscripts
+     ``X[...]`` nur auf importierte Stdlib-Namen (``typing`` & Co.) oder
+     eingebaute Generics (``tuple``, ``dict`` ...), nie auf eigene Namen
      (``__class_getitem__``). Klassenbasen nur aus ``LEAF_ALLOWED_BASES``
      (Enum-Familie, ``object``/``str``/``int``, Exception-Hierarchie,
      ``NamedTuple``/``TypedDict``/``Protocol``, ``ABC``) oder bereits
@@ -57,12 +57,15 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      ``__set_name__``, Modul-``__getattr__``): erlaubt sind nur
      ``LEAF_ALLOWED_DUNDER_METHODS`` in Nicht-Enum-Klassen (Enum-``__init__``
      liefe beim Klassenbau), ``__all__`` auf Modulebene und ``__slots__`` in
-     Klassen.
+     Klassen. Kein ``property``/``cached_property`` in Enum-Klassen
+     (Enum-Mitglieder sind Instanzen ohne Aufruf; ``E.A.prop`` fuehrte den
+     Getter beim Import aus), kein ``cached_property`` und keine Kombination
+     ``classmethod`` + ``property`` in irgendeiner Klasse.
    - Stdlib-Importe (alle Kontexte) nur aus der Positivliste
      ``LEAF_ALLOWED_STDLIB`` (N-K1; sonst z. B. ``pydoc.locate``, ``pickle``,
      ``logging.config`` als dynamischer Projektimport).
-   - Im ganzen Modul (auch in Funktionen) keine dynamischen Importe oder
-     Codeausfuehrung: keine Referenz auf ``LEAF_FORBIDDEN_NAMES``
+   - Im ganzen Modul (auch in Funktionen) rot als dynamischer Import bzw.
+     Codeausfuehrung: jede Referenz auf ``LEAF_FORBIDDEN_NAMES``
      (``__import__``, ``exec``, ``eval``, ``compile``, ``importlib``,
      ``runpy`` ...), kein Import aus ``LEAF_FORBIDDEN_MODULES``, kein
      Attribut aus ``LEAF_FORBIDDEN_ATTRS`` (``import_module``,
@@ -77,10 +80,33 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      importierter Module (z. B. ``json.dumps = ...``). Aliase verbotener
      Importe (``from importlib import import_module as load``) werden
      verfolgt.
+   - Importierte Module/Namen (N-842-2): keine Stern-Importe; kein
+     ``import a.b`` ohne ``as`` (bindet das Elternpaket ``a``); Attributketten
+     ueber importierte Namen hoechstens eine Stufe (``json.dumps`` ja,
+     ``enum.bltns.eval`` nein), keine Attribute mit fuehrendem Unterstrich
+     (``typing._eval_type``); ein per ``import`` gebundenes Modul nur als
+     ``modul.attr``, nie als blosser Wert (``b = enum``); ``modul.attr`` und
+     ``from modul import name`` duerfen kein Modulobjekt liefern
+     (``enum.bltns``, ``from typing import sys``; geprueft gegen den
+     laufenden Interpreter).
    - Jedes Elternpaket (``__init__.py``) eines gelisteten Moduls muss leer
      sein oder selbst alle Blatt-Regeln erfuellen (sonst fuehrt ``import
      core.evidence`` Code aus ``core/__init__.py`` mit aus).
    - Ein gelisteter Modulpfad, der im Backend nicht existiert, ist rot.
+   - Inhalts-Pin: Die Basis fuehrt unter ``leaf_content_sha256`` je
+     gelistetem Blatt und je vorhandenem Elternpaket-``__init__.py`` den
+     SHA-256 des Dateiinhalts (Bytes, CRLF zu LF normalisiert, damit Windows-
+     Checkouts und Linux-CI denselben Wert liefern; das Repo speichert per
+     ``.gitattributes`` ohnehin LF). Weicht der Inhalt ab oder fehlt ein Pin,
+     ist die Ratsche rot. Der Pin wird nur bewusst im Review nachgefuehrt:
+     ``python scripts/check_architecture_ratchets.py --update-leaf-pins``
+     (verweigert, solange irgendeine andere Regel verletzt ist).
+
+   Grenzen: Die AST-Regeln sind eine konservative Naeherung, kein Beweis,
+   dass ein Blatt beim Import keinen eigenen Code ausfuehren kann; Python
+   bietet mehr Wege, als eine statische Pruefung vollstaendig erfassen kann.
+   Der Inhalts-Pin sorgt dafuer, dass jede Aenderung an einem Blatt sichtbar
+   im Review landet. Das Review des Blatt-Diffs ist die letzte Instanz.
 
 Ratschen-Regel: Wird ein Wert schlechter, schlaegt der Lauf fehl und nennt
 die konkrete Stelle. Wird er besser, meldet der Lauf das; die Basis darf
@@ -91,15 +117,19 @@ ist -- die Basis wird nie angehoben.
 Aufruf (aus dem Backend-Verzeichnis):
     python scripts/check_architecture_ratchets.py
     python scripts/check_architecture_ratchets.py --update-baseline
+    python scripts/check_architecture_ratchets.py --update-leaf-pins
 """
 from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
+import importlib
 import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_FILE = Path(__file__).resolve().parent / "architecture_ratchets_baseline.json"
@@ -185,6 +215,17 @@ LEAF_ALLOWED_MODULE_HOOK_NAMES = frozenset({"__all__"})
 LEAF_ALLOWED_CLASS_HOOK_NAMES = frozenset({"__slots__"})
 LEAF_ALLOWED_DUNDER_ATTRS = frozenset({"__init__"})  # super().__init__(...)
 LEAF_BUILTIN_GENERICS = frozenset({"tuple", "list", "dict", "set", "frozenset", "type"})
+# N-842-1: Properties auf Enum-Mitgliedern laufen beim Attributzugriff auf
+# Modulebene; ``cached_property`` und ``classmethod``+``property`` sind nirgends
+# erlaubt (``property`` in Nicht-Enum-Klassen bleibt erlaubt: Instanzen eigener
+# Klassen entstehen beim Import nicht, weil eigene Aufrufe rot sind).
+LEAF_PROPERTY_DECORATORS = frozenset(
+    {"property", "cached_property", "functools.cached_property"}
+)
+LEAF_CACHED_PROPERTY_DECORATORS = frozenset({"cached_property", "functools.cached_property"})
+# Inhalts-Pin (Regel 6): Schluessel in der Basis, Befehl zum bewussten Nachfuehren.
+LEAF_PIN_KEY = "leaf_content_sha256"
+LEAF_PIN_UPDATE_CMD = "python scripts/check_architecture_ratchets.py --update-leaf-pins"
 _NOT_ALLOWED_STDLIB = "Stdlib-Modul nicht auf Blatt-Positivliste"
 
 
@@ -201,6 +242,8 @@ class ModuleScan:
     # Regel 6, Blattvertrag (nur fuer gelistete Module befuellt): Modul-
     # Seiteneffekte und dynamische Importe/Codeausfuehrung.
     leaf_violations: list[tuple[int, str]] = field(default_factory=list)
+    # Inhalts-Pin (nur fuer gelistete Blaetter und deren Elternpakete).
+    content_sha256: str | None = None
 
     def runtime_targets(self) -> dict[str, int]:
         out = dict(self.lazy)
@@ -578,6 +621,18 @@ def _leaf_body_violations(
             ):
                 out.append((st.lineno, f"<Hook-Methode {where} nicht erlaubt: {st.name}>"))
                 continue
+            decos = {
+                _dotted(d.func if isinstance(d, ast.Call) else d) for d in st.decorator_list
+            }
+            if kind != "module" and decos & LEAF_PROPERTY_DECORATORS and (
+                kind == "enum"
+                or decos & LEAF_CACHED_PROPERTY_DECORATORS
+                or "classmethod" in decos
+            ):
+                out.append(
+                    (st.lineno, f"<Property {where} nicht erlaubt (N-842-1): {st.name}>")
+                )
+                continue
             if (
                 all(_pure_decorator(d, ctx) for d in st.decorator_list)
                 and _pure_args(st.args, ctx)
@@ -630,11 +685,89 @@ def _leaf_body_violations(
     return out
 
 
+def _is_module_attr(module: str, attr: str) -> bool:
+    """``modul.attr`` liefert im laufenden Interpreter ein Modulobjekt
+    (``enum.bltns``, ``typing.sys``). Nur fuer Module der Blatt-Positivliste;
+    andere Module sind ohnehin rot und werden nicht importiert."""
+    if module not in LEAF_ALLOWED_STDLIB:
+        return False
+    try:
+        mod = importlib.import_module(module)
+    except ImportError:
+        return False
+    return isinstance(getattr(mod, attr, None), ModuleType)
+
+
+def _imported_name_violations(tree: ast.Module) -> list[tuple[int, str]]:
+    """N-842-2: Stern-Importe, ``import a.b`` ohne ``as``, Attributketten ueber
+    importierte Namen tiefer als eine Stufe, Unterstrich-Attribute darauf,
+    Modulobjekte als blosser Wert und Attribute/from-Importe, die ein Modul
+    liefern."""
+    out: list[tuple[int, str]] = []
+    module_of: dict[str, str] = {}  # per ``import`` gebundener Name -> Modul
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.asname is None and "." in a.name:
+                    out.append(
+                        (node.lineno, f"<import ohne as bindet Elternpaket: import {a.name}>")
+                    )
+                bound = a.asname or a.name.split(".", 1)[0]
+                module_of[bound] = a.name if a.asname else bound
+                imported.add(bound)
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            for a in node.names:
+                if a.name == "*":
+                    out.append((node.lineno, f"<Stern-Import: from {mod} import *>"))
+                    continue
+                imported.add(a.asname or a.name)
+                if not node.level and _is_module_attr(mod, a.name):
+                    out.append(
+                        (node.lineno, f"<Modulobjekt importiert: from {mod} import {a.name}>")
+                    )
+    attr_values = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id in module_of
+            and id(node) not in attr_values
+        ):
+            out.append((node.lineno, f"<Modulobjekt als Wert: {node.id}>"))
+        if not isinstance(node, ast.Attribute):
+            continue
+        inner = node.value
+        if (
+            isinstance(inner, ast.Attribute)
+            and isinstance(inner.value, ast.Name)
+            and inner.value.id in imported
+        ):
+            out.append(
+                (node.lineno, f"<Attributkette ueber importierten Namen: {ast.unparse(node)}>")
+            )
+        elif isinstance(inner, ast.Name) and inner.id in imported:
+            if node.attr.startswith("_"):
+                out.append(
+                    (
+                        node.lineno,
+                        f"<Unterstrich-Attribut auf importiertem Namen: {inner.id}.{node.attr}>",
+                    )
+                )
+            elif inner.id in module_of and _is_module_attr(module_of[inner.id], node.attr):
+                out.append(
+                    (node.lineno, f"<Modulobjekt ueber Attribut: {inner.id}.{node.attr}>")
+                )
+    return out
+
+
 def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
     """Regel 6, Blattvertrag: Modulebene nur aus der Positivliste; im ganzen
     Modul nur Stdlib-Module der Blatt-Positivliste und keine dynamischen
     Importe oder Codeausfuehrung."""
     out = _leaf_body_violations(tree.body, "auf Modulebene", _LeafCtx.of(tree))
+    out.extend(_imported_name_violations(tree))
     # Aliase: importierte Module (fuer Attribut-Zuweisungen), sys-Aliase und
     # Namen, die aus verbotenen Modulen/Attributen importiert wurden.
     module_aliases: set[str] = set()
@@ -747,6 +880,18 @@ def _leaf_parent_packages() -> set[str]:
     return out
 
 
+def leaf_content_sha256(path: Path) -> str:
+    """SHA-256 des Dateiinhalts fuer den Inhalts-Pin. CRLF wird zu LF
+    normalisiert (``.gitattributes``: ``eol=lf``), damit ein Windows-Checkout
+    mit CRLF und die Linux-CI denselben Wert liefern."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _pinned_modules() -> list[str]:
+    """Gelistete Blaetter plus deren Elternpakete (sofern ``__init__.py`` existiert)."""
+    return sorted(FAN_OUT_EXEMPT_LEAVES | _leaf_parent_packages())
+
+
 def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
     root = root or BACKEND_ROOT
     mods = discover_modules(root)
@@ -759,6 +904,7 @@ def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
         _Visitor(name, path.name == "__init__.py", resolve, scan).visit(tree)
         if name in FAN_OUT_EXEMPT_LEAVES or name in _leaf_parent_packages():
             scan.leaf_violations = leaf_contract_violations(tree)
+            scan.content_sha256 = leaf_content_sha256(path)
         scan.lazy_lines.sort()
         scan.env_hits.sort()
         scans[name] = scan
@@ -842,6 +988,11 @@ def measure(scans: dict[str, ModuleScan]) -> dict:
         },
         "layer_violations": sorted(layer),
         "env_readers": dict(sorted(env.items())),
+        LEAF_PIN_KEY: {
+            m: scans[m].content_sha256
+            for m in _pinned_modules()
+            if m in scans and scans[m].content_sha256 is not None
+        },
     }
 
 
@@ -965,6 +1116,29 @@ def compare(current: dict, baseline: dict, scans: dict[str, ModuleScan]) -> Resu
                 f"sein oder die Blatt-Regeln erfuellen: {detail}"
             )
 
+    # 6c. Inhalts-Pin der Blaetter und ihrer Elternpakete
+    base_pins = baseline.get(LEAF_PIN_KEY, {})
+    cur_pins = current.get(LEAF_PIN_KEY, {})
+    for m in _pinned_modules():
+        if m not in scans:
+            continue  # fehlendes Blatt meldet Regel 6, fehlendes __init__ = Namespace
+        pinned, actual = base_pins.get(m), cur_pins.get(m)
+        if pinned is None:
+            res.regressions.append(
+                f"[{LEAF_PIN_KEY}] {m} ({scans[m].path}): kein Inhalts-Pin in der Basis -- "
+                f"ein neues Blatt braucht einen bewusst gesetzten Pin: Inhalt im Review "
+                f"pruefen, dann {LEAF_PIN_UPDATE_CMD} und die Basis mitcommitten"
+            )
+        elif pinned != actual:
+            res.regressions.append(
+                f"[{LEAF_PIN_KEY}] {m} ({scans[m].path}): Inhalt weicht vom Pin ab "
+                f"(Basis {pinned[:12]}..., aktuell {(actual or '-')[:12]}...) -- "
+                f"Blatt-Diff im Review pruefen, dann bewusst {LEAF_PIN_UPDATE_CMD} "
+                f"und die Basis mitcommitten"
+            )
+    for m in sorted(set(base_pins) - set(cur_pins)):
+        res.improvements.append(f"[{LEAF_PIN_KEY}] {m}: Pin ohne gelistetes Blatt")
+
     # 4. Schichtung
     base_layer = set(baseline.get("layer_violations", []))
     for edge in current["layer_violations"]:
@@ -1037,6 +1211,11 @@ def load_baseline(path: Path | None = None) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--update-baseline", action="store_true")
+    parser.add_argument(
+        "--update-leaf-pins",
+        action="store_true",
+        help="Inhalts-Pins der Blattmodule bewusst nachfuehren (nur nach Review des Blatt-Diffs)",
+    )
     args = parser.parse_args(argv)
 
     scans = scan_backend()
@@ -1045,7 +1224,27 @@ def main(argv: list[str] | None = None) -> int:
     if not BASELINE_FILE.is_file():
         print(f"Basisdatei fehlt: {BASELINE_FILE}", file=sys.stderr)
         return 1
-    res = compare(current, load_baseline(), scans)
+    baseline = load_baseline()
+    res = compare(current, baseline, scans)
+    pin_prefix = f"[{LEAF_PIN_KEY}]"
+    if args.update_leaf_pins:
+        other = [r for r in res.regressions if not r.startswith(pin_prefix)]
+        for line in other:
+            print(f"VERSCHLECHTERT {line}", file=sys.stderr)
+        if other:
+            print(
+                "Inhalts-Pins nicht nachgefuehrt: zuerst die uebrigen Verletzungen beheben.",
+                file=sys.stderr,
+            )
+            return 1
+        old = baseline.get(LEAF_PIN_KEY, {})
+        baseline[LEAF_PIN_KEY] = current[LEAF_PIN_KEY]
+        BASELINE_FILE.write_text(dump_baseline(baseline), encoding="utf-8", newline="\n")
+        for m, sha in current[LEAF_PIN_KEY].items():
+            if old.get(m) != sha:
+                print(f"PIN NACHGEFUEHRT {m}: {old.get(m, '-')} -> {sha}")
+        print(f"Inhalts-Pins aktualisiert: {BASELINE_FILE.name} (Blatt-Diff und Basis gemeinsam reviewen)")
+        return 0
     for line in res.regressions:
         print(f"VERSCHLECHTERT {line}", file=sys.stderr)
     for line in res.improvements:
@@ -1057,6 +1256,11 @@ def main(argv: list[str] | None = None) -> int:
             "Abhaengigkeit umdrehen oder Daten uebergeben).",
             file=sys.stderr,
         )
+        if any(r.startswith(pin_prefix) for r in res.regressions):
+            print(
+                f"Blatt-Inhalt geaendert: nach Review des Diffs bewusst {LEAF_PIN_UPDATE_CMD}",
+                file=sys.stderr,
+            )
         return 1
     if args.update_baseline:
         BASELINE_FILE.write_text(dump_baseline(current), encoding="utf-8", newline="\n")
