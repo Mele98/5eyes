@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import sys
 import textwrap
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -36,36 +37,67 @@ from core.reason_codes import DomainError, ReasonCode  # noqa: E402
 
 CATALOG = {m.value for m in ReasonCode}
 
-# Bekannte, nicht statisch aufloesbare Erzeugungsstellen ("Datei: Ausdruck").
+# Bekannte, nicht statisch aufloesbare Erzeugungsstellen:
+# (Datei, Funktion, Ausdruck) -> Anzahl Zeilen mit genau diesem Ausdruck.
 # Ueberwiegend Durchreichungen (Code einer gefangenen Exception, Parameter,
 # Werte aus Provider-Antworten oder gespeicherten Ergebnissen). Die dahinter
-# liegenden Literale sind ueber ihre Ursprungsstelle im Katalog.
-KNOWN_UNRESOLVED = frozenset({
-    "core/reason_codes.py: reason_code.value if isinstance(reason_code, ReasonCode) else reason_code",
-    "core/reason_codes.py: self.reason_code",
-    "routers/client_portal.py: str(detail.get('reason_code') or 'RELEASE_BLOCKED')",
-    "routers/eligibility_overrides.py: exc",
-    "routers/eligibility_overrides.py: exc.code",
-    "routers/onsite_signature.py: body.reason_code",
-    "routers/onsite_signature.py: e.reason_code",
-    "routers/review.py: cma_policy_block[0]",
-    "routers/review.py: structured_reason",
-    "services/advisory_report.py: resolution.reason_code",
-    "services/cma_valuation_hold.py: reason_code",
-    "services/house_matrix_benchmark.py: reason_code",
-    "services/house_matrix_benchmark.py: str(resolution.reason_code)",
-    "services/onsite_signature/service.py: None if delivered else result.reason_code or DELIVERY_PROOF_MISSING",
-    "services/onsite_signature/service.py: event.reason_code",
-    "services/onsite_signature/service.py: reason",
-    "services/onsite_signature/service.py: reason_code",
-    "services/product_eligibility_override.py: row.reason_code",
-    "services/risk_capacity_evaluation_snapshot.py: result.get('reason_code')",
-    "services/risk_capacity_evaluation_snapshot.py: stored_result.get('reason_code')",
-    "services/risk_capacity_plausibility.py: result.get('reason_code')",
-    "services/risk_capacity_plausibility_report.py: result.get('reason_code')",
-    "services/suitability_cap_check.py: reason_code",
-    "services/suitability_cap_check.py: resolution.reason_code",
-})
+# liegenden Literale sind ueber ihre Ursprungsstelle im Katalog. Schluessel
+# mit Funktion und Anzahl: eine neue dynamische Stelle mit gleichem Text
+# (andere Funktion oder zusaetzliche Zeile) faellt auf (K-2-Review N1).
+KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
+    ('core/reason_codes.py', 'DomainError.__init__',
+     'reason_code.value if isinstance(reason_code, ReasonCode) else reason_code'): 1,
+    ('core/reason_codes.py', 'DomainError.as_detail',
+     'self.reason_code'): 1,
+    ('routers/client_portal.py', '_assert_portal_report_releasable',
+     "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
+    ('routers/eligibility_overrides.py', '_conflict',
+     'exc.code'): 1,
+    ('routers/eligibility_overrides.py', 'approve_eligibility_override',
+     'exc'): 1,
+    ('routers/eligibility_overrides.py', 'request_eligibility_override',
+     'exc'): 1,
+    ('routers/onsite_signature.py', '_view',
+     'e.reason_code'): 1,
+    ('routers/onsite_signature.py', 'onsite_abort',
+     'body.reason_code'): 1,
+    ('routers/review.py', 'finalize_recommendation',
+     'cma_policy_block[0]'): 1,
+    ('routers/review.py', 'finalize_recommendation',
+     'structured_reason'): 1,
+    ('services/advisory_report.py', '_build_performance_attribution',
+     'resolution.reason_code'): 1,
+    ('services/cma_valuation_hold.py', 'assert_allocation_cma_without_adr12a_hold',
+     'reason_code'): 1,
+    ('services/house_matrix_benchmark.py', '_unavailable',
+     'reason_code'): 1,
+    ('services/house_matrix_benchmark.py', 'resolve_depotcheck_benchmark',
+     'str(resolution.reason_code)'): 1,
+    ('services/onsite_signature/service.py', '_new_event',
+     'reason_code'): 1,
+    ('services/onsite_signature/service.py', 'abort_transaction',
+     'reason_code'): 1,
+    ('services/onsite_signature/service.py', 'deliver_customer_copy',
+     'reason'): 2,
+    ('services/onsite_signature/service.py', 'issue_customer_challenge',
+     'None if delivered else result.reason_code or DELIVERY_PROOF_MISSING'): 1,
+    ('services/onsite_signature/service.py', 'issue_customer_challenge',
+     'event.reason_code'): 1,
+    ('services/product_eligibility_override.py', 'override_evidence_hash',
+     'row.reason_code'): 1,
+    ('services/risk_capacity_evaluation_snapshot.py', 'replay_snapshot',
+     "stored_result.get('reason_code')"): 1,
+    ('services/risk_capacity_evaluation_snapshot.py', 'structured_result',
+     "result.get('reason_code')"): 1,
+    ('services/risk_capacity_plausibility.py', 'audit_payload',
+     "result.get('reason_code')"): 1,
+    ('services/risk_capacity_plausibility_report.py', 'compact_view',
+     "result.get('reason_code')"): 1,
+    ('services/suitability_cap_check.py', '_unavailable',
+     'reason_code'): 1,
+    ('services/suitability_cap_check.py', 'evaluate_house_matrix_cap',
+     'resolution.reason_code'): 1,
+}
 
 
 @pytest.fixture(scope="module")
@@ -130,15 +162,76 @@ def test_catalog_has_no_invented_codes(backend):
     assert not dead, f"Katalog enthaelt Codes, die das Backend weder erzeugt noch auswertet: {sorted(dead)}"
 
 
+def _unresolved_diff(keys, known: dict[tuple[str, str, str], int]) -> tuple[list, list]:
+    """(neu/mehr, erledigt/weniger) zwischen gefundenen Stellen und ``known``."""
+    current = Counter(keys)
+    new = sorted(f"{k[0]}::{k[1]}: {k[2]}  ({n} statt {known.get(k, 0)})"
+                 for k, n in current.items() if n > known.get(k, 0))
+    gone = sorted(f"{k[0]}::{k[1]}: {k[2]}  ({current.get(k, 0)} statt {n})"
+                  for k, n in known.items() if current.get(k, 0) < n)
+    return new, gone
+
+
 def test_unresolved_producer_sites_are_known(backend):
-    current = {e.split(":", 1)[0] + ":" + e.split(":", 2)[2] for e in backend.unresolved}
-    new = sorted(current - KNOWN_UNRESOLVED)
+    new, gone = _unresolved_diff(backend.unresolved_keys, KNOWN_UNRESOLVED)
     assert not new, (
         "Neue nicht statisch aufloesbare reason_code-Stelle(n). Literal/Konstante verwenden "
         "oder bewusst in KNOWN_UNRESOLVED aufnehmen:\n  " + "\n  ".join(new)
     )
-    gone = sorted(KNOWN_UNRESOLVED - current)
     assert not gone, "KNOWN_UNRESOLVED enthaelt erledigte Stellen (entfernen):\n  " + "\n  ".join(gone)
+
+
+def _mini_backend(tmp_path: Path, extra: str = "") -> Path:
+    root = tmp_path / "backend"
+    for rel in ("core/reason_codes.py", "services/cma_valuation_hold.py"):
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((BACKEND_ROOT / rel).read_text(encoding="utf-8") + (
+            extra if rel.endswith("cma_valuation_hold.py") else ""), encoding="utf-8")
+    return root
+
+
+def _known_for(rel: str) -> dict[tuple[str, str, str], int]:
+    return {k: n for k, n in KNOWN_UNRESOLVED.items() if k[0] == rel}
+
+
+def test_negative_control_new_dynamic_domain_error_in_cma_valuation_hold_is_red(tmp_path):
+    rel = "services/cma_valuation_hold.py"
+    clean = rc.extract_backend(_mini_backend(tmp_path / "a"))
+    keys = [k for k in clean.unresolved_keys if k[0] == rel]
+    assert _unresolved_diff(keys, _known_for(rel)) == ([], [])  # unveraendert: gruen
+    extra = textwrap.dedent(
+        """
+
+        def _new_dynamic_block(cma):
+            # gleicher Ausdruckstext wie die bekannte Stelle, andere Funktion
+            reason_code = cma.get("hold_reason")
+            raise DomainError(reason_code, "Hold", http_status=409)
+        """
+    )
+    mutated = rc.extract_backend(_mini_backend(tmp_path / "b", extra))
+    keys = [k for k in mutated.unresolved_keys if k[0] == rel]
+    new, _ = _unresolved_diff(keys, _known_for(rel))
+    # vorher maskiert: Schluessel "Datei: reason_code" existierte schon
+    assert f"{rel}::_new_dynamic_block: reason_code  (1 statt 0)" in new, new
+
+
+def test_negative_control_same_expression_twice_is_counted(tmp_path):
+    rel = "services/cma_valuation_hold.py"
+    extra = textwrap.dedent(
+        """
+
+        def _new_double_block(cma, strict):
+            reason_code = cma.get("hold_reason")
+            if strict:
+                raise DomainError(reason_code, "Hold", http_status=409)
+            raise DomainError(reason_code, "Hold", http_status=422)
+        """
+    )
+    mutated = rc.extract_backend(_mini_backend(tmp_path, extra))
+    keys = [k for k in mutated.unresolved_keys if k[0] == rel]
+    new, _ = _unresolved_diff(keys, _known_for(rel))
+    assert f"{rel}::_new_double_block: reason_code  (2 statt 0)" in new, new
 
 
 def test_onsite_signature_constants_come_from_catalog():

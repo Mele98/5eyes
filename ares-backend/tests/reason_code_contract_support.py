@@ -68,6 +68,9 @@ class Extraction:
     produced: list[Site] = field(default_factory=list)
     consumed: list[Site] = field(default_factory=list)
     unresolved: list[str] = field(default_factory=list)
+    # Je nicht aufloesbarer Stelle (Datei, Funktion, Ausdruck); eine Zeile = ein
+    # Eintrag, damit gleiche Ausdruecke in derselben Funktion mitgezaehlt werden.
+    unresolved_keys: list[tuple[str, str, str]] = field(default_factory=list)
 
     def produced_codes(self) -> set[str]:
         return {s.value for s in self.produced}
@@ -676,10 +679,15 @@ def extract_backend(root: Path = BACKEND_ROOT) -> Extraction:
             if v:  # leerer String = "kein Code"
                 ex.produced.append(Site(v, ctx.mod.rel, line))
         if not ok:
-            entry = f"{ctx.mod.rel}:{line}: {ast.unparse(expr)[:90]}"
+            text = ast.unparse(expr)[:90]
+            entry = f"{ctx.mod.rel}:{line}: {text}"
             if entry not in seen_unresolved:
                 seen_unresolved.add(entry)
                 ex.unresolved.append(entry)
+                func = ".".join(
+                    x for x in (ctx.cls, ctx.fn.name if ctx.fn is not None else None) if x
+                ) or "<module>"
+                ex.unresolved_keys.append((ctx.mod.rel, func, text))
 
     for mod in mods.values():
         for node, ctx in _walk_with_ctx(mod):
