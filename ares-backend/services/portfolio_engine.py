@@ -3024,8 +3024,9 @@ def _assert_allocation_has_basis(
 
 
 def build_run_context(mandate: Mandate) -> RunContext:
-    """K-3: friert Jurisdiktion (``resolve_pack``) und Lauf-Settings ein."""
-    return RunContext.capture(resolve_pack(mandate), settings)
+    """K-3: friert Jurisdiktion (``resolve_pack``) und Lauf-Settings fuer
+    genau dieses Mandat (``mandate.id``) ein."""
+    return RunContext.capture(resolve_pack(mandate), settings, mandate_id=getattr(mandate, "id", None))
 
 
 @binds_run_valuation_date
@@ -3037,6 +3038,10 @@ def generate_target_allocation(
     run_context: RunContext | None = None,
 ) -> dict:
     now = _now()
+    # K-3: ein uebergebener RunContext muss zu genau diesem Mandat gehoeren
+    # (Mandats-ID); sonst Abbruch vor jeder Validierung/Berechnung.
+    if run_context is not None:
+        run_context.ensure_bound_to(mandate)
     # Activated mortality/tax components are economic model inputs. Validate
     # them before reference-data selection or any House/solver branch so a
     # corrupt raw row can never silently turn the feature off.

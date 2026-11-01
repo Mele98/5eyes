@@ -62,7 +62,7 @@ def factories(tmp_path):
 
 
 def _ctx() -> RunContext:
-    return RunContext.capture(resolve_pack(None), SimpleNamespace(optimizer_mode="stochastic"))
+    return RunContext.capture(resolve_pack(None), SimpleNamespace(optimizer_mode="stochastic"), mandate_id="m-1")
 
 
 def test_run_context_is_frozen():
@@ -89,6 +89,7 @@ def test_build_run_context_matches_previous_readers(monkeypatch, raw):
     assert ctx.jurisdiction_source == resolved.source
     assert ctx.resolved_pack == resolved
     assert ctx.optimizer_mode == "shadow_stochastic"
+    assert ctx.mandate_id is None  # SimpleNamespace ohne id
 
 
 def test_capture_snapshot_is_independent_of_later_settings_changes(monkeypatch):
@@ -106,6 +107,7 @@ def _snapshot(factory, combo: dict, *, explicit: bool, monkeypatch) -> dict:
     if explicit:
         def with_context(db, mandate, user_id, preferences=None):
             ctx = RunContext(
+                mandate_id=mandate.id,
                 jurisdiction=resolve_pack(mandate).code,
                 jurisdiction_source=resolve_pack(mandate).source,
                 resolved_pack=resolve_pack(mandate),
@@ -133,10 +135,11 @@ def test_explicit_run_context_equals_default_for_golden_fixtures(factories, monk
 # --- 4: Freeze des migrierten Lesers (optimizer_mode) ---------------------------
 
 
-def _run_with_mid_run_flip(factory, monkeypatch, *, start_mode: str, flip_to: str, run_context=None):
+def _run_with_mid_run_flip(factory, monkeypatch, *, start_mode: str, flip_to: str, make_context=None):
     """Startet einen Lauf mit ``start_mode`` und stellt ``settings.optimizer_mode``
     waehrend des Laufs (nach der Kontextbildung, vor dem frueheren Lesezeitpunkt)
-    auf ``flip_to`` um."""
+    auf ``flip_to`` um. ``make_context(mandate)`` bildet optional einen
+    expliziten RunContext fuer das geseedete Mandat."""
     monkeypatch.setattr(pe.settings, "optimizer_mode", start_mode)
     advisor_id, _cid, mid, _aid = golden._seed_ch_mandate(factory, suffix="k3_freeze", score_x10=50)
     real_ensure = pe.ensure_runtime_reference_data
@@ -151,6 +154,7 @@ def _run_with_mid_run_flip(factory, monkeypatch, *, start_mode: str, flip_to: st
     monkeypatch.setattr(pe, "ensure_runtime_reference_data", flipping_ensure)
     with factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        run_context = make_context(mandate) if make_context is not None else None
         result = pe.generate_target_allocation(s, mandate, advisor_id, None, run_context=run_context)
     assert flips == [flip_to], "der Umschalter muss genau einmal waehrend des Laufs greifen"
     assert pe.settings.optimizer_mode == flip_to
@@ -174,9 +178,94 @@ def test_mid_run_settings_change_does_not_switch_solver_off(factories, monkeypat
 
 
 def test_explicit_run_context_is_the_only_source_of_optimizer_mode(factories, monkeypatch):
-    ctx = RunContext.capture(resolve_pack(None), SimpleNamespace(optimizer_mode="house_matrix"))
+    def make_context(mandate):
+        return RunContext.capture(
+            resolve_pack(None), SimpleNamespace(optimizer_mode="house_matrix"), mandate_id=mandate.id,
+        )
+
     allocation = _run_with_mid_run_flip(
         factories("explicit_freeze"), monkeypatch,
-        start_mode="stochastic", flip_to="stochastic", run_context=ctx,
+        start_mode="stochastic", flip_to="stochastic", make_context=make_context,
     )
     assert allocation.optimization_method is None
+
+
+# --- 5: Bindung an das Mandat (Vorpruefung B-2) ---------------------------------
+
+
+def test_build_run_context_carries_mandate_id_and_resolved_code():
+    mandate = SimpleNamespace(id="m-42", jurisdiction="DE")
+    ctx = pe.build_run_context(mandate)
+    assert ctx.mandate_id == "m-42"
+    assert ctx.jurisdiction == resolve_pack(mandate).code == "DE"
+    assert ctx.ensure_bound_to(mandate) is ctx
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        ctx.mandate_id = "m-43"  # type: ignore[misc]
+
+
+def test_capture_requires_mandate_id_keyword():
+    with pytest.raises(TypeError):
+        RunContext.capture(resolve_pack(None), SimpleNamespace(optimizer_mode="stochastic"))  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("other_id", ["m-2", None, ""])
+def test_ensure_bound_to_rejects_other_mandate(other_id):
+    from config import RunContextMandateMismatch
+
+    ctx = pe.build_run_context(SimpleNamespace(id="m-1", jurisdiction="CH"))
+    with pytest.raises(RunContextMandateMismatch, match=r"RunContext gehoert zu Mandat 'm-1'"):
+        ctx.ensure_bound_to(SimpleNamespace(id=other_id, jurisdiction="CH"))
+    assert issubclass(RunContextMandateMismatch, ValueError)
+
+
+def test_generate_target_allocation_rejects_context_of_other_mandate(monkeypatch):
+    """Negativfall: Kontext eines anderen Mandats -> Abbruch, bevor irgendein
+    Schritt des Laufs (Validierung, Referenzdaten) beginnt."""
+    from config import RunContextMandateMismatch
+    import services.mandate_model_inputs as mmi
+
+    touched = []
+    monkeypatch.setattr(mmi, "validate_mandate_model_inputs", lambda *a, **k: touched.append("validate"))
+    monkeypatch.setattr(pe, "ensure_runtime_reference_data", lambda *a, **k: touched.append("ensure"))
+    foreign = pe.build_run_context(SimpleNamespace(id="mandate-A", jurisdiction="CH"))
+    with pytest.raises(RunContextMandateMismatch, match=r"'mandate-A'.*'mandate-B'"):
+        pe.generate_target_allocation(None, SimpleNamespace(id="mandate-B", jurisdiction="DE"), "u1", None, run_context=foreign)
+    assert touched == []
+
+
+# --- 6: Lauf-Jurisdiktion kommt aus dem RunContext (Vorpruefung B-3) -------------
+
+
+class _StopAfterReferenceData(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("captured_raw", "run_raw", "expected"),
+    [(None, "DE", "CH"), ("DE", None, "DE")],
+    ids=["ctx_CH__mandate_DE", "ctx_DE__mandate_CH"],
+)
+def test_run_jurisdiction_comes_from_run_context(factories, monkeypatch, captured_raw, run_raw, expected):
+    """Mandat bei Laufbeginn eingefroren (``captured_raw``), danach am selben
+    Mandat (gleiche ID) auf ``run_raw`` geaendert: ``ensure_runtime_reference_data``
+    muss die eingefrorene Kontext-Jurisdiktion bekommen. Wird
+    ``jurisdiction = run_context.jurisdiction`` auf ``resolve_pack(mandate).code``
+    zurueckgestellt, wird dieser Test rot."""
+    factory = factories("run_jurisdiction")
+    advisor_id, _cid, mid, _aid = golden._seed_ch_mandate(factory, suffix="k3_jur", score_x10=50)
+    seen = []
+
+    def recording_ensure(db, user_id, *, jurisdiction, tenant_id=None, **kwargs):
+        seen.append(jurisdiction)
+        raise _StopAfterReferenceData
+
+    monkeypatch.setattr(pe, "ensure_runtime_reference_data", recording_ensure)
+    with factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        mandate.jurisdiction = captured_raw
+        ctx = pe.build_run_context(mandate)
+        mandate.jurisdiction = run_raw
+        assert resolve_pack(mandate).code != expected
+        with pytest.raises(_StopAfterReferenceData):
+            pe.generate_target_allocation(s, mandate, advisor_id, None, run_context=ctx)
+    assert seen == [expected]
