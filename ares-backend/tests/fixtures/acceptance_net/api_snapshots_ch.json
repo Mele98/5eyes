@@ -419,7 +419,7 @@
   "status": 200
  },
  "cma.current": {
-  "sha256": "2b50e99ea880d8e7ade8638a7fafa3a930f46cd67443556216567fc1d4a056cc",
+  "sha256": "ef49e50d70441561ac31935be00c9d609bc4863698ca454c0ea9c2d9312ed7d1",
   "shape": {
    "alternatives_excess_kurt_bps": "null",
    "alternatives_gold_return_bps": "int",
@@ -817,7 +817,7 @@
   "status": 404
  },
  "optimizer_policy.current": {
-  "sha256": "5edefb38a6d942328b20361ee12b318c58f0d2bb943851974970c9f65b1cc083",
+  "sha256": "8fcc484bd507446b0f5dd7d128c15c68bd001d1b98513f6b792576d800a43661",
   "shape": {
    "allow_other_assets_for_goals": "int",
    "created_at": "str",
