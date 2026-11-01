@@ -136,3 +136,95 @@ def test_ch_literal_ratchet_only_sinks():
     current = _measure()
     worse = {k: (current[k], RATCHET[k]) for k in RATCHET if current[k] > RATCHET[k]}
     assert not worse, f"Ratsche verletzt (aktuell, Basis): {worse}"
+
+
+# --------------------------------------------------------------------------
+# Form jeder umgestellten Stelle (Vorpruefung B-7): ``resolve_pack(...)`` wird
+# ausschliesslich als ``.code`` verwendet -- ohne Normalisierung, ohne
+# Fallback, ohne weitere Aufrufkette. Einzig zulaessige Huelle ist ein
+# einfaches ``str(...)`` (Input-Snapshot, war vorher ebenfalls ``str(...)``).
+# Die Anzahl der Stellen je Modul ist gepinnt, damit keine Stelle still auf
+# eine andere Formel zurueckfaellt.
+# --------------------------------------------------------------------------
+
+EXPECTED_RESOLVE_PACK_SITES = {
+    "routers/allocation.py": 2,
+    "routers/wealth.py": 1,
+    "services/cost_disclosure.py": 1,
+    "services/manual_target_allocation.py": 1,
+    "services/portfolio_engine.py": 7,
+    "services/preference_snapshot.py": 1,
+    "services/review_engine.py": 1,
+}
+
+
+def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+
+def _resolve_pack_site_violations(tree: ast.AST) -> tuple[int, list[str]]:
+    parents = _parents(tree)
+    count = 0
+    problems: list[str] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and _call_name(node) == "resolve_pack"):
+            continue
+        count += 1
+        where = f"Z.{node.lineno}"
+        # Argumentform: genau ``resolve_pack(<Name>)`` oder ``resolve_pack(code=<Name>)``.
+        positional_ok = len(node.args) == 1 and not node.keywords and isinstance(node.args[0], ast.Name)
+        keyword_ok = (
+            not node.args
+            and len(node.keywords) == 1
+            and node.keywords[0].arg == "code"
+            and isinstance(node.keywords[0].value, ast.Name)
+        )
+        if not (positional_ok or keyword_ok):
+            problems.append(f"{where}: Argumentform {ast.unparse(node)}")
+        attr = parents.get(node)
+        if not (isinstance(attr, ast.Attribute) and attr.attr == "code" and attr.value is node):
+            problems.append(f"{where}: resolve_pack ohne direktes .code")
+            continue
+        outer: ast.AST = attr
+        parent = parents.get(outer)
+        if (
+            isinstance(parent, ast.Call)
+            and isinstance(parent.func, ast.Name)
+            and parent.func.id == "str"
+            and parent.args == [outer]
+            and not parent.keywords
+        ):
+            outer = parent
+            parent = parents.get(outer)
+        if isinstance(parent, (ast.Attribute, ast.Subscript, ast.BoolOp, ast.BinOp, ast.IfExp, ast.UnaryOp)):
+            problems.append(f"{where}: weitere Verarbeitung {ast.unparse(parent)}")
+        elif isinstance(parent, ast.Call) and parent.func is outer:
+            problems.append(f"{where}: Aufruf auf .code")
+        elif isinstance(parent, ast.Call) and _call_name(parent) in {"str", "upper", "lower", "strip"}:
+            problems.append(f"{where}: Normalisierung {ast.unparse(parent)}")
+    return count, problems
+
+
+@pytest.mark.parametrize("rel", CONVERTED_MODULES)
+def test_converted_sites_use_plain_resolve_pack_code(rel):
+    count, problems = _resolve_pack_site_violations(_tree(rel))
+    assert not problems, f"{rel}: {problems}"
+    assert count == EXPECTED_RESOLVE_PACK_SITES[rel], (rel, count)
+
+
+@pytest.mark.parametrize(
+    "mutated",
+    [
+        "x = str(resolve_pack(mandate).code).strip().upper()",
+        "x = resolve_pack(mandate).code.strip()",
+        "x = resolve_pack(mandate).code or 'CH'",
+        "x = resolve_pack(mandate).pack.code",
+        "x = resolve_pack(getattr(mandate, 'jurisdiction', None)).code",
+        "x = str(resolve_pack(mandate).code).upper()",
+    ],
+)
+def test_site_check_rejects_reintroduced_normalisation(mutated):
+    """Positivkontrolle des Pruefers: die Vorpruefungs-Mutation (B-7) und
+    verwandte Formen werden erkannt."""
+    _, problems = _resolve_pack_site_violations(ast.parse(mutated))
+    assert problems, mutated
