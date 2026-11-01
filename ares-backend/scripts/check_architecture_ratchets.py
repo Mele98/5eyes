@@ -41,18 +41,37 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      Ausdruck ist: Literale, Namen, Attribute, Container, Operatoren,
      Comprehensions, Lambdas und Aufrufe ausschliesslich der reinen
      Konstruktoren ``LEAF_PURE_CALLS``. Klassenkoerper unterliegen derselben
-     Regel; Dekoratoren nur aus ``LEAF_PURE_DECORATORS``; Defaults, Basen und
-     Klassen-Keywords nur reine Ausdruecke. Alles andere (z. B. ``open(...)``,
+     Regel; Dekoratoren nur aus ``LEAF_PURE_DECORATORS``; Defaults und
+     Annotationen nur reine Ausdruecke. Alles andere (z. B. ``open(...)``,
      Zuweisung an Attribut/Subscript, ``for``/``with``/``try``/sonstiges
      ``if``) gilt als Modul-Seiteneffekt.
+   - Kein Code des eigenen Moduls beim Import (N-K1): Subscripts ``X[...]``
+     nur auf importierte Stdlib-Namen (``typing`` & Co.) oder eingebaute
+     Generics (``tuple``, ``dict`` ...), nie auf eigene Namen
+     (``__class_getitem__``). Klassenbasen nur aus ``LEAF_ALLOWED_BASES``
+     (Enum-Familie, ``object``/``str``/``int``, Exception-Hierarchie,
+     ``NamedTuple``/``TypedDict``/``Protocol``, ``ABC``) oder bereits
+     gepruefte eigene Klassen; Klassen-Keywords nur
+     ``LEAF_ALLOWED_CLASS_KEYWORDS`` (nie ``metaclass=``). Keine Hook-
+     Methoden/-Namen (Dunder/Sunder wie ``__init_subclass__``,
+     ``__set_name__``, Modul-``__getattr__``): erlaubt sind nur
+     ``LEAF_ALLOWED_DUNDER_METHODS`` in Nicht-Enum-Klassen (Enum-``__init__``
+     liefe beim Klassenbau), ``__all__`` auf Modulebene und ``__slots__`` in
+     Klassen.
+   - Stdlib-Importe (alle Kontexte) nur aus der Positivliste
+     ``LEAF_ALLOWED_STDLIB`` (N-K1; sonst z. B. ``pydoc.locate``, ``pickle``,
+     ``logging.config`` als dynamischer Projektimport).
    - Im ganzen Modul (auch in Funktionen) keine dynamischen Importe oder
      Codeausfuehrung: keine Referenz auf ``LEAF_FORBIDDEN_NAMES``
      (``__import__``, ``exec``, ``eval``, ``compile``, ``importlib``,
      ``runpy`` ...), kein Import aus ``LEAF_FORBIDDEN_MODULES``, kein
      Attribut aus ``LEAF_FORBIDDEN_ATTRS`` (``import_module``,
      ``exec_module``, ``run_module``, ``sys.modules`` ...) und kein
-     ``getattr``/``setattr``/``delattr`` mit nicht-konstantem oder
-     verbotenem Attributnamen, kein Zugriff auf ``LEAF_FORBIDDEN_DOTTED``
+     ``getattr``/``setattr``/``delattr`` mit nicht-konstantem, verbotenem
+     oder Dunder-Attributnamen, kein ``setattr``/``delattr`` auf importierte
+     Namen (auch mit Literal-Namen), kein Dunder-Attribut ausser
+     ``LEAF_ALLOWED_DUNDER_ATTRS`` und kein Dunder-String-Subscript
+     (``d["__builtins__"]``), kein Zugriff auf ``LEAF_FORBIDDEN_DOTTED``
      (``sys.modules``, ``sys.path`` ...; auch ueber ``import sys as s`` oder
      ``from sys import path``), keine Zuweisung/Loeschung an Attributen
      importierter Module (z. B. ``json.dumps = ...``). Aliase verbotener
@@ -128,9 +147,45 @@ LEAF_FORBIDDEN_ATTRS = frozenset(
         "import_module", "__import__", "exec_module", "load_module", "spec_from_file_location",
         "module_from_spec", "run_module", "run_path", "modules", "__builtins__", "__dict__",
         "f_globals", "f_locals",
+        # Codeausfuehrung ueber Module der Blatt-Positivliste (N-K1):
+        "CodeType", "FunctionType", "LambdaType", "get_type_hints", "ForwardRef",
+        "evaluate_forward_ref", "_eval_type", "make_dataclass",
     }
 )
 _LEAF_ATTR_FUNCS = frozenset({"getattr", "setattr", "delattr"})
+# N-K1: Positivliste der Stdlib-Module, die ein Blatt importieren darf (exakte
+# Modulnamen, alle Kontexte). Heute genutzt: __future__, hashlib, json, types,
+# typing (core.evidence) und enum, typing (core.reason_codes); dazu nur die
+# Module, deren Dekoratoren LEAF_PURE_DECORATORS nennt, und collections.abc.
+# Alles andere (pydoc, pickle, logging.config, ...) ist rot -- auch in Funktionen.
+LEAF_ALLOWED_STDLIB = frozenset(
+    {
+        "__future__", "abc", "collections.abc", "dataclasses", "enum", "functools",
+        "hashlib", "json", "types", "typing",
+    }
+)
+# N-K1: Basisklassen von Blatt-Klassen (qualifiziert); zusaetzlich erlaubt sind
+# nur bereits gepruefte eigene Klassen des Moduls. Kein metaclass=.
+LEAF_ALLOWED_BASES = frozenset(
+    {
+        "builtins.object", "builtins.str", "builtins.int",
+        "builtins.Exception", "builtins.ValueError", "builtins.TypeError",
+        "builtins.KeyError", "builtins.LookupError", "builtins.RuntimeError",
+        "enum.Enum", "enum.IntEnum", "enum.StrEnum", "enum.Flag", "enum.IntFlag",
+        "typing.NamedTuple", "typing.TypedDict", "typing.Protocol", "abc.ABC",
+    }
+)
+LEAF_ALLOWED_CLASS_KEYWORDS = frozenset({"total"})  # TypedDict
+# Dunder-Methoden in Nicht-Enum-Klassen (laufen nur an Instanzen, nie beim
+# Import); Enum-Klassen und Modulebene: keine Dunder-/Sunder-Methoden.
+LEAF_ALLOWED_DUNDER_METHODS = frozenset(
+    {"__init__", "__post_init__", "__repr__", "__str__", "__eq__", "__hash__"}
+)
+LEAF_ALLOWED_MODULE_HOOK_NAMES = frozenset({"__all__"})
+LEAF_ALLOWED_CLASS_HOOK_NAMES = frozenset({"__slots__"})
+LEAF_ALLOWED_DUNDER_ATTRS = frozenset({"__init__"})  # super().__init__(...)
+LEAF_BUILTIN_GENERICS = frozenset({"tuple", "list", "dict", "set", "frozenset", "type"})
+_NOT_ALLOWED_STDLIB = "Stdlib-Modul nicht auf Blatt-Positivliste"
 
 
 @dataclass
@@ -310,49 +365,132 @@ def _dotted(node: ast.AST) -> str:
     return ""
 
 
-def _pure_expr(node: ast.AST | None) -> bool:
-    """Reiner Ausdruck (Positivliste, rekursiv): wertet ohne Seiteneffekt aus."""
+@dataclass
+class _LeafCtx:
+    """Namensbindungen der Modulebene eines Blattmoduls (fuer Regel 6)."""
+
+    imports: dict[str, str]  # durch Import gebundener Name -> qualifizierter Ursprung
+    bound: dict[str, int]  # sonst auf Modulebene gebundener Name -> Anzahl Bindungen
+    classes: dict[str, bool] = field(default_factory=dict)  # eigene Klasse -> Enum-Familie
+
+    @classmethod
+    def of(cls, tree: ast.Module) -> _LeafCtx:
+        imports: dict[str, str] = {}
+        bound: dict[str, int] = {}
+
+        def bind(name: str) -> None:
+            bound[name] = bound.get(name, 0) + 1
+
+        def walk(body: list[ast.stmt]) -> None:
+            for st in body:
+                if isinstance(st, ast.Import):
+                    for a in st.names:
+                        top = a.name.split(".", 1)[0]
+                        imports[a.asname or top] = a.name if a.asname else top
+                elif isinstance(st, ast.ImportFrom):
+                    base = "." * st.level + (st.module or "")
+                    for a in st.names:
+                        imports[a.asname or a.name] = f"{base}.{a.name}"
+                elif isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    bind(st.name)
+                elif isinstance(st, ast.If):
+                    walk(st.body)
+                    walk(st.orelse)
+                else:  # Zuweisungen, for/with/try/...: alle gebundenen Namen zaehlen
+                    for sub in ast.walk(st):
+                        if isinstance(sub, ast.Name) and isinstance(sub.ctx, (ast.Store, ast.Del)):
+                            bind(sub.id)
+
+        walk(tree.body)
+        return cls(imports=imports, bound=bound)
+
+    def generic_alias_ok(self, node: ast.AST) -> bool:
+        """Subscript-Ziel ``X[...]`` nur auf importierte Stdlib-Namen (``typing``
+        & Co.) oder unveraenderte eingebaute Generics -- nie auf Namen des eigenen
+        Moduls (``__class_getitem__``/``__getitem__`` liefen sonst beim Import)."""
+        root = node
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name) or root.id in self.bound:
+            return False
+        return root.id in self.imports or root.id in LEAF_BUILTIN_GENERICS
+
+    def base_origin(self, node: ast.AST) -> str | None:
+        """Qualifizierter Ursprung einer Basisklasse, ``own:<Name>`` fuer eine
+        bereits gepruefte eigene Klasse, sonst ``None`` (= nicht erlaubt)."""
+        if isinstance(node, ast.Name):
+            n = node.id
+            if n in self.classes and self.bound.get(n) == 1 and n not in self.imports:
+                return f"own:{n}"
+            if n in self.bound:
+                return None
+            return self.imports.get(n, f"builtins.{n}")
+        if isinstance(node, ast.Attribute):
+            head, _, rest = _dotted(node).partition(".")
+            if rest and head in self.imports and head not in self.bound:
+                return f"{self.imports[head]}.{rest}"
+        return None
+
+
+def _special(name: str) -> bool:
+    """Dunder-/Sunder-Name (``__x__``/``_x_``): Hook-Namen der Laufzeit."""
+    return len(name) > 2 and name.startswith("_") and name.endswith("_")
+
+
+def _pure_expr(node: ast.AST | None, ctx: _LeafCtx | None = None) -> bool:
+    """Reiner Ausdruck (Positivliste, rekursiv): wertet ohne Seiteneffekt aus.
+
+    Ohne ``ctx`` ist jedes Subscript unrein (fail-closed)."""
     if node is None or isinstance(node, (ast.Constant, ast.Name)):
         return True
     if isinstance(node, ast.Attribute):
-        return _pure_expr(node.value)
+        return _pure_expr(node.value, ctx)
     if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-        return all(_pure_expr(e) for e in node.elts)
+        return all(_pure_expr(e, ctx) for e in node.elts)
     if isinstance(node, ast.Dict):
-        return all(_pure_expr(k) for k in node.keys) and all(_pure_expr(v) for v in node.values)
+        return all(_pure_expr(k, ctx) for k in node.keys) and all(
+            _pure_expr(v, ctx) for v in node.values
+        )
     if isinstance(node, ast.Starred):
-        return _pure_expr(node.value)
+        return _pure_expr(node.value, ctx)
     if isinstance(node, ast.BinOp):
-        return _pure_expr(node.left) and _pure_expr(node.right)
+        return _pure_expr(node.left, ctx) and _pure_expr(node.right, ctx)
     if isinstance(node, ast.UnaryOp):
-        return _pure_expr(node.operand)
+        return _pure_expr(node.operand, ctx)
     if isinstance(node, ast.BoolOp):
-        return all(_pure_expr(v) for v in node.values)
+        return all(_pure_expr(v, ctx) for v in node.values)
     if isinstance(node, ast.Compare):
-        return _pure_expr(node.left) and all(_pure_expr(c) for c in node.comparators)
+        return _pure_expr(node.left, ctx) and all(_pure_expr(c, ctx) for c in node.comparators)
     if isinstance(node, ast.IfExp):
-        return all(_pure_expr(x) for x in (node.test, node.body, node.orelse))
+        return all(_pure_expr(x, ctx) for x in (node.test, node.body, node.orelse))
     if isinstance(node, ast.Subscript):
-        return _pure_expr(node.value) and _pure_expr(node.slice)
+        return (
+            ctx is not None
+            and ctx.generic_alias_ok(node.value)
+            and _pure_expr(node.value, ctx)
+            and _pure_expr(node.slice, ctx)
+        )
     if isinstance(node, ast.Slice):
-        return all(_pure_expr(x) for x in (node.lower, node.upper, node.step))
+        return all(_pure_expr(x, ctx) for x in (node.lower, node.upper, node.step))
     if isinstance(node, ast.JoinedStr):
-        return all(_pure_expr(v) for v in node.values)
+        return all(_pure_expr(v, ctx) for v in node.values)
     if isinstance(node, ast.FormattedValue):
-        return _pure_expr(node.value) and _pure_expr(node.format_spec)
+        return _pure_expr(node.value, ctx) and _pure_expr(node.format_spec, ctx)
     if isinstance(node, ast.Lambda):
-        return _pure_args(node.args)
+        return _pure_args(node.args, ctx)
     if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
         elts = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
-        return all(_pure_expr(e) for e in elts) and all(
-            _pure_target(g.target) and _pure_expr(g.iter) and all(_pure_expr(i) for i in g.ifs)
+        return all(_pure_expr(e, ctx) for e in elts) and all(
+            _pure_target(g.target)
+            and _pure_expr(g.iter, ctx)
+            and all(_pure_expr(i, ctx) for i in g.ifs)
             for g in node.generators
         )
     if isinstance(node, ast.Call):
         return (
             _dotted(node.func) in LEAF_PURE_CALLS
-            and all(_pure_expr(a) for a in node.args)
-            and all(_pure_expr(k.value) for k in node.keywords)
+            and all(_pure_expr(a, ctx) for a in node.args)
+            and all(_pure_expr(k.value, ctx) for k in node.keywords)
         )
     return False
 
@@ -365,24 +503,63 @@ def _pure_target(node: ast.AST) -> bool:
     return False
 
 
-def _pure_args(args: ast.arguments) -> bool:
-    return all(_pure_expr(d) for d in args.defaults) and all(
-        _pure_expr(d) for d in args.kw_defaults
+def _pure_args(args: ast.arguments, ctx: _LeafCtx | None = None) -> bool:
+    """Defaults und Annotationen (letztere werden ohne ``from __future__ import
+    annotations`` beim ``def`` ausgewertet) muessen rein sein."""
+    every = [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]
+    return (
+        all(_pure_expr(d, ctx) for d in args.defaults)
+        and all(_pure_expr(d, ctx) for d in args.kw_defaults)
+        and all(_pure_expr(a.annotation, ctx) for a in every if a is not None)
     )
 
 
-def _pure_decorator(node: ast.AST) -> bool:
+def _pure_decorator(node: ast.AST, ctx: _LeafCtx | None = None) -> bool:
     if isinstance(node, ast.Call):
         return (
             _dotted(node.func) in LEAF_PURE_DECORATORS
-            and all(_pure_expr(a) for a in node.args)
-            and all(_pure_expr(k.value) for k in node.keywords)
+            and all(_pure_expr(a, ctx) for a in node.args)
+            and all(_pure_expr(k.value, ctx) for k in node.keywords)
         )
     return _dotted(node) in LEAF_PURE_DECORATORS
 
 
-def _leaf_body_violations(body: list[ast.stmt], where: str) -> list[tuple[int, str]]:
+def _class_head_violations(
+    st: ast.ClassDef, ctx: _LeafCtx
+) -> tuple[list[tuple[int, str]], bool]:
+    """Kopf einer Blatt-Klasse: Basen nur aus ``LEAF_ALLOWED_BASES`` oder bereits
+    gepruefte eigene Klassen, Keywords nur ``LEAF_ALLOWED_CLASS_KEYWORDS`` (also
+    nie ``metaclass=``), Dekoratoren nur ``LEAF_PURE_DECORATORS``. Liefert
+    zusaetzlich, ob die Klasse zur Enum-Familie gehoert."""
     out: list[tuple[int, str]] = []
+    is_enum = False
+    for b in st.bases:
+        origin = ctx.base_origin(b)
+        if origin is None or not (origin in LEAF_ALLOWED_BASES or origin.startswith("own:")):
+            out.append((st.lineno, f"<Klasse {st.name}: Basis nicht erlaubt: {ast.unparse(b)}>"))
+        elif origin.startswith("enum.") or (
+            origin.startswith("own:") and ctx.classes[origin[len("own:"):]]
+        ):
+            is_enum = True
+    for k in st.keywords:
+        if k.arg not in LEAF_ALLOWED_CLASS_KEYWORDS or not _pure_expr(k.value, ctx):
+            out.append(
+                (st.lineno, f"<Klasse {st.name}: Klassen-Keyword nicht erlaubt: {k.arg or '**'}>")
+            )
+    if not all(_pure_decorator(d, ctx) for d in st.decorator_list):
+        first = ast.unparse(st).splitlines()[0][:80]
+        out.append((st.lineno, f"<Seiteneffekt bei Klasse {st.name}: {first}>"))
+    return out, is_enum
+
+
+def _leaf_body_violations(
+    body: list[ast.stmt], where: str, ctx: _LeafCtx, kind: str = "module"
+) -> list[tuple[int, str]]:
+    """``kind``: ``module`` (Modulebene), ``class`` oder ``enum`` (Klassenkoerper)."""
+    out: list[tuple[int, str]] = []
+    hook_names = (
+        LEAF_ALLOWED_MODULE_HOOK_NAMES if kind == "module" else LEAF_ALLOWED_CLASS_HOOK_NAMES
+    )
     for st in body:
         if isinstance(st, (ast.Import, ast.ImportFrom, ast.Pass)):
             continue
@@ -393,24 +570,56 @@ def _leaf_body_violations(body: list[ast.stmt], where: str) -> list[tuple[int, s
         ):
             continue
         if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if all(_pure_decorator(d) for d in st.decorator_list) and _pure_args(st.args):
+            # Hook-Methoden (``__init_subclass__``, ``__class_getitem__``,
+            # ``__set_name__``, Modul-``__getattr__`` ...) laufen implizit; erlaubt
+            # sind nur wenige Instanz-Dunder in Nicht-Enum-Klassen.
+            if _special(st.name) and (
+                kind != "class" or st.name not in LEAF_ALLOWED_DUNDER_METHODS
+            ):
+                out.append((st.lineno, f"<Hook-Methode {where} nicht erlaubt: {st.name}>"))
+                continue
+            if (
+                all(_pure_decorator(d, ctx) for d in st.decorator_list)
+                and _pure_args(st.args, ctx)
+                and _pure_expr(st.returns, ctx)
+            ):
                 continue
         elif isinstance(st, ast.ClassDef):
-            if (
-                all(_pure_decorator(d) for d in st.decorator_list)
-                and all(_pure_expr(b) for b in st.bases)
-                and all(_pure_expr(k.value) for k in st.keywords)
+            head, is_enum = _class_head_violations(st, ctx)
+            out.extend(head)
+            out.extend(
+                _leaf_body_violations(
+                    st.body, f"in Klasse {st.name}", ctx, "enum" if is_enum else "class"
+                )
+            )
+            if kind == "module" and not head:
+                ctx.classes[st.name] = is_enum
+            continue
+        elif isinstance(st, (ast.Assign, ast.AnnAssign)):
+            targets = st.targets if isinstance(st, ast.Assign) else [st.target]
+            hooks = sorted(
+                {
+                    sub.id
+                    for t in targets
+                    for sub in ast.walk(t)
+                    if isinstance(sub, ast.Name) and _special(sub.id) and sub.id not in hook_names
+                }
+            )
+            if hooks:
+                out.append((st.lineno, f"<Hook-Name {where} zugewiesen: {', '.join(hooks)}>"))
+                continue
+            if isinstance(st, ast.Assign):
+                if all(_pure_target(t) for t in st.targets) and _pure_expr(st.value, ctx):
+                    continue
+            elif (
+                isinstance(st.target, ast.Name)
+                and _pure_expr(st.value, ctx)
+                and _pure_expr(st.annotation, ctx)
             ):
-                out.extend(_leaf_body_violations(st.body, f"in Klasse {st.name}"))
-                continue
-        elif isinstance(st, ast.Assign):
-            if all(_pure_target(t) for t in st.targets) and _pure_expr(st.value):
-                continue
-        elif isinstance(st, ast.AnnAssign):
-            if isinstance(st.target, ast.Name) and _pure_expr(st.value):
                 continue
         elif (
-            isinstance(st, ast.If)
+            kind == "module"
+            and isinstance(st, ast.If)
             and _dotted(st.test) in ("TYPE_CHECKING", "typing.TYPE_CHECKING")
             and not st.orelse
             and all(isinstance(c, (ast.Import, ast.ImportFrom, ast.Pass)) for c in st.body)
@@ -423,11 +632,13 @@ def _leaf_body_violations(body: list[ast.stmt], where: str) -> list[tuple[int, s
 
 def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
     """Regel 6, Blattvertrag: Modulebene nur aus der Positivliste; im ganzen
-    Modul keine dynamischen Importe oder Codeausfuehrung."""
-    out = _leaf_body_violations(tree.body, "auf Modulebene")
+    Modul nur Stdlib-Module der Blatt-Positivliste und keine dynamischen
+    Importe oder Codeausfuehrung."""
+    out = _leaf_body_violations(tree.body, "auf Modulebene", _LeafCtx.of(tree))
     # Aliase: importierte Module (fuer Attribut-Zuweisungen), sys-Aliase und
     # Namen, die aus verbotenen Modulen/Attributen importiert wurden.
     module_aliases: set[str] = set()
+    imported_names: set[str] = set()
     sys_aliases: set[str] = {"sys"}
     forbidden_aliases: set[str] = set()
     for node in ast.walk(tree):
@@ -435,12 +646,14 @@ def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
             for a in node.names:
                 bound = a.asname or a.name.split(".", 1)[0]
                 module_aliases.add(bound)
+                imported_names.add(bound)
                 if a.name == "sys":
                     sys_aliases.add(bound)
         elif isinstance(node, ast.ImportFrom):
             top = (node.module or "").split(".", 1)[0]
             for a in node.names:
                 bound = a.asname or a.name
+                imported_names.add(bound)
                 if (
                     top in LEAF_FORBIDDEN_MODULES
                     or a.name in LEAF_FORBIDDEN_NAMES | LEAF_FORBIDDEN_ATTRS
@@ -456,8 +669,18 @@ def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
             and f"sys.{node.attr}" in LEAF_FORBIDDEN_DOTTED
         ):
             out.append((node.lineno, f"<dynamisch: sys.{node.attr}>"))
-        elif isinstance(node, ast.Attribute) and node.attr in LEAF_FORBIDDEN_ATTRS:
+        elif isinstance(node, ast.Attribute) and (
+            node.attr in LEAF_FORBIDDEN_ATTRS
+            or (_special(node.attr) and node.attr not in LEAF_ALLOWED_DUNDER_ATTRS)
+        ):
             out.append((node.lineno, f"<dynamisch: .{node.attr}>"))
+        elif (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+            and _special(node.slice.value)
+        ):
+            out.append((node.lineno, f"<dynamisch: [{node.slice.value!r}]>"))
         elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
             targets = (
                 node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
@@ -477,22 +700,39 @@ def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
             for a in node.names:
                 if a.name.split(".", 1)[0] in LEAF_FORBIDDEN_MODULES:
                     out.append((node.lineno, f"<dynamisch: import {a.name}>"))
+                if a.name not in LEAF_ALLOWED_STDLIB:
+                    out.append((node.lineno, f"<{_NOT_ALLOWED_STDLIB}: import {a.name}>"))
         elif isinstance(node, ast.ImportFrom):
             top = (node.module or "").split(".", 1)[0]
             if top in LEAF_FORBIDDEN_MODULES or any(
                 a.name in LEAF_FORBIDDEN_NAMES | LEAF_FORBIDDEN_ATTRS for a in node.names
             ):
                 out.append((node.lineno, f"<dynamisch: from {node.module} import ...>"))
+            if node.level or node.module not in LEAF_ALLOWED_STDLIB:
+                mod = "." * node.level + (node.module or "")
+                out.append((node.lineno, f"<{_NOT_ALLOWED_STDLIB}: from {mod} import ...>"))
         elif (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id in _LEAF_ATTR_FUNCS
         ):
+            obj = node.args[0] if node.args else None
             name = node.args[1] if len(node.args) > 1 else None
-            if not (isinstance(name, ast.Constant) and isinstance(name.value, str)) or (
-                name.value in LEAF_FORBIDDEN_ATTRS | LEAF_FORBIDDEN_NAMES
+            if (
+                not (isinstance(name, ast.Constant) and isinstance(name.value, str))
+                or name.value in LEAF_FORBIDDEN_ATTRS | LEAF_FORBIDDEN_NAMES
+                or _special(name.value)
+                or any(isinstance(a, ast.Starred) for a in node.args)
             ):
                 out.append((node.lineno, f"<dynamisch: {node.func.id}(...)>"))
+            elif (
+                node.func.id != "getattr"
+                and isinstance(obj, ast.Name)
+                and obj.id in imported_names
+            ):
+                out.append(
+                    (node.lineno, f"<Modul-Attribut veraendert: {node.func.id}({obj.id}, ...)>")
+                )
     return sorted(set(out))
 
 

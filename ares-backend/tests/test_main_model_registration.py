@@ -1,10 +1,11 @@
-"""K-2: ``import main`` registriert ``users`` auch ohne Direktimport (B-16).
+"""K-2: ``import main`` registriert ``users`` (B-16).
 
-K-2 hat den redundanten Direktimport ``import models.users`` aus ``main.py``
-entfernt (Fan-out-Ratsche). Die Tabelle ``users`` wird seitdem ueber Router
-registriert, die ``main`` auf Modulebene vor der App-Erzeugung importiert
-(``routers.auth`` u. a.). Damit ein kuenftiger Router-Umbau die Registrierung
-nicht still verliert, prueft dieser Test in einem frischen Interpreter:
+K-2 hatte den Direktimport ``import models.users`` zunaechst aus ``main.py``
+entfernt; seit K-2-Review M1 (``e101ed7d``) steht er dort wieder explizit.
+Zusaetzlich registrieren Router, die ``main`` auf Modulebene vor der
+App-Erzeugung importiert (``routers.auth`` u. a.), die Tabelle ``users``.
+Damit weder ein kuenftiger Umbau von ``main.py`` noch ein Router-Umbau die
+Registrierung still verliert, prueft dieser Test in einem frischen Interpreter:
 
 1. Nach ``import main`` steht ``users`` in ``Base.metadata.tables``.
 2. ``Base.metadata.sorted_tables`` (Tabellennamen in Reihenfolge) und

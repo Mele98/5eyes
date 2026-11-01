@@ -321,8 +321,8 @@ def test_valid_stdlib_leaf_passes_and_does_not_count_as_fan_out(gate, mini, monk
         if TYPE_CHECKING:
             from collections.abc import Mapping
         def f():
-            import decimal
-            return decimal
+            import json
+            return json
         """,
     )
     base = _baseline(gate, mini)
@@ -421,8 +421,8 @@ def test_rich_valid_leaf_passes_the_leaf_contract(gate, mini, monkeypatch):
             def double(self):
                 return getattr(self, "value") * 2
         def digest(text: str, *, scheme: str = SCHEME) -> str:
-            import decimal
-            return hashlib.sha256(text.encode()).hexdigest() + str(decimal)
+            import json
+            return hashlib.sha256(text.encode()).hexdigest() + json.dumps(scheme)
         __all__ = ["Box", "Code", "digest"]
         ''',
     )
@@ -639,3 +639,160 @@ def test_k2_review_n2_side_effects_are_red(gate, mini, monkeypatch, body, needle
     _, result = _check(gate, mini, base)
     hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
     assert hits and needle in hits[0], result.regressions
+
+
+# --------------------------------------------------------------------------
+# N-K1 (Dok. 86, Pruefrunde K-1/K-2): Code aus dem eigenen Modul beim Import
+# und Stdlib-Negativliste. Jeder Fall war vor dem Fix rc=0; fail-closed.
+# --------------------------------------------------------------------------
+
+_N_K1_CASES = [
+    # 1. Metaklasse bzw. __init_subclass__ aus dem eigenen Modul
+    ("class _M(type):\n    def __new__(mcs, name, bases, ns):\n"
+     "        open('side_effect.txt', 'w').write('x')\n"
+     "        return super().__new__(mcs, name, bases, ns)\n"
+     "class _A(metaclass=_M):\n    pass\n",
+     "<Klasse _A: Klassen-Keyword nicht erlaubt: metaclass>"),
+    ("class _M(type):\n    pass\n", "<Klasse _M: Basis nicht erlaubt: type>"),
+    ("class _B:\n    def __init_subclass__(cls, **kw):\n"
+     "        open('side_effect.txt', 'w').write('x')\n"
+     "class _C(_B):\n    pass\n",
+     "<Hook-Methode in Klasse _B nicht erlaubt: __init_subclass__>"),
+    ("def _hook(cls):\n    open('side_effect.txt', 'w').write('x')\n"
+     "class _B:\n    __init_subclass__ = _hook\nclass _C(_B):\n    pass\n",
+     "<Hook-Name in Klasse _B zugewiesen: __init_subclass__>"),
+    ("import json\nclass _C(json.JSONEncoder):\n    pass\n",
+     "<Klasse _C: Basis nicht erlaubt: json.JSONEncoder>"),
+    # 2. __class_getitem__ ueber Subscript (Subscript auf eigene Namen ist unrein)
+    ("class _G:\n    def __class_getitem__(cls, item):\n"
+     "        open('side_effect.txt', 'w').write('x')\n"
+     "        return cls\n_X = _G[int]\n",
+     "<Hook-Methode in Klasse _G nicht erlaubt: __class_getitem__>"),
+    ("class _G:\n    pass\n_X = _G[int]\n", "<Seiteneffekt auf Modulebene: _X = _G[int]>"),
+    ("class _G:\n    pass\n_X: _G[int] = 1\n", "<Seiteneffekt auf Modulebene: _X: _G[int] = 1>"),
+    ("class _G:\n    pass\ndef f(x: _G[int]):\n    return x\n",
+     "<Seiteneffekt auf Modulebene: def f(x: _G[int]):>"),
+    ("_T = {1: 2}\n_X = _T[1]\n", "<Seiteneffekt auf Modulebene: _X = _T[1]>"),
+    # 3. Stdlib-Positivliste statt Negativliste (auch funktionslokal)
+    ("import pydoc\ndef f():\n    return pydoc.locate('services.alpha')\n",
+     "<Stdlib-Modul nicht auf Blatt-Positivliste: import pydoc>"),
+    ("def f(b):\n    import pickle\n    return pickle.loads(b)\n",
+     "<Stdlib-Modul nicht auf Blatt-Positivliste: import pickle>"),
+    ("from logging import config\n",
+     "<Stdlib-Modul nicht auf Blatt-Positivliste: from logging import ...>"),
+    ("def f():\n    import decimal\n    return decimal\n",
+     "<Stdlib-Modul nicht auf Blatt-Positivliste: import decimal>"),
+    ("import typing\ndef f(o):\n    return typing.get_type_hints(o)\n",
+     "<dynamisch: .get_type_hints>"),
+    # 4. setattr/delattr auf importierte Module (auch mit Literal-Namen)
+    ("import json\ndef f():\n    setattr(json, 'dumps', repr)\n",
+     "<Modul-Attribut veraendert: setattr(json, ...)>"),
+    ("import json as j\ndef f():\n    delattr(j, 'dumps')\n",
+     "<Modul-Attribut veraendert: delattr(j, ...)>"),
+    ("from json import dumps\ndef f():\n    setattr(dumps, 'x', 1)\n",
+     "<Modul-Attribut veraendert: setattr(dumps, ...)>"),
+    # Flankierend: Dunder-Zugriffe und Modul-/Enum-Hooks
+    ("def f():\n    return ().__class__.__base__\n", "<dynamisch: .__class__>"),
+    ("def f(o):\n    return getattr(o, '__globals__')\n", "<dynamisch: getattr(...)>"),
+    ("def f(d):\n    return d['__builtins__']\n", "<dynamisch: ['__builtins__']>"),
+    ("def __getattr__(name):\n    return name\n",
+     "<Hook-Methode auf Modulebene nicht erlaubt: __getattr__>"),
+    ("from enum import Enum\nclass E(Enum):\n    A = 1\n    def __init__(self, v):\n"
+     "        open('side_effect.txt', 'w').write('x')\n",
+     "<Hook-Methode in Klasse E nicht erlaubt: __init__>"),
+]
+
+
+@pytest.mark.parametrize(
+    "body,needle",
+    _N_K1_CASES,
+    ids=[
+        "metaclass_keyword", "metaclass_base_type", "init_subclass_method",
+        "init_subclass_assigned", "base_outside_allowlist",
+        "class_getitem_method", "subscript_on_own_class", "subscript_in_annotation",
+        "subscript_in_def_annotation", "subscript_on_own_dict",
+        "pydoc_locate", "pickle_in_function", "logging_config", "decimal_in_function",
+        "typing_get_type_hints",
+        "setattr_module_literal_name", "delattr_module_alias", "setattr_imported_name",
+        "dunder_attribute", "getattr_dunder_literal", "dunder_subscript_key",
+        "module_getattr_hook", "enum_init_runs_at_class_creation",
+    ],
+)
+def test_n_k1_import_time_code_and_stdlib_allowlist_are_red(
+    gate, mini, monkeypatch, body, needle
+):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
+    assert hits and needle in hits[0], result.regressions
+
+
+def test_n_k1_leaf_stdlib_allowlist_is_explicit(gate):
+    """Positivliste, so eng wie moeglich; jede Erweiterung ist ein Review-Entscheid."""
+    assert gate.LEAF_ALLOWED_STDLIB == frozenset(
+        {
+            "__future__", "abc", "collections.abc", "dataclasses", "enum", "functools",
+            "hashlib", "json", "types", "typing",
+        }
+    )
+
+
+def test_n_k1_real_leaves_only_use_allowlisted_stdlib(gate):
+    """Positivkontrolle: die echten Blaetter importieren nur Positivlisten-Module
+    und erfuellen den verschaerften Vertrag (Klassenkoepfe, Subscripts, Hooks)."""
+    import ast
+
+    scans = gate.scan_backend()
+    for module in sorted(gate.FAN_OUT_EXEMPT_LEAVES):
+        tree = ast.parse((BACKEND_ROOT / scans[module].path).read_text(encoding="utf-8"))
+        imported = {
+            a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
+        } | {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+        assert imported and imported <= gate.LEAF_ALLOWED_STDLIB, (module, imported)
+        assert gate.leaf_contract_violations(tree) == [], module
+
+
+def test_n_k1_allowed_class_shapes_stay_green(gate, mini, monkeypatch):
+    """Positivkontrolle: erlaubte Klassenformen (Enum, Exception-Hierarchie mit
+    eigener Unterklasse, TypedDict(total=False), NamedTuple, Protocol, dataclass)."""
+    _mini_with_leaf(
+        gate, mini, monkeypatch,
+        '''
+        from __future__ import annotations
+        import enum
+        from dataclasses import dataclass
+        from enum import StrEnum
+        from typing import Any, Mapping, NamedTuple, Protocol, TypedDict
+        class Code(StrEnum):
+            A = "a"
+        class Level(enum.IntEnum):
+            LOW = 1
+        class Base(Exception):
+            channel: str | None = None
+            _RESERVED = frozenset({"a"})
+            def __init__(self, code: Code | str, extra: Mapping[str, Any] | None = None) -> None:
+                super().__init__(code)
+                self.extra = dict(extra or {})
+            @property
+            def status(self) -> int:
+                return 409
+        class Onsite(Base):
+            channel = "onsite"
+        class Row(TypedDict, total=False):
+            a: int
+        class Pair(NamedTuple):
+            a: int
+            b: dict[str, Any]
+        class Port(Protocol):
+            def run(self) -> None: ...
+        @dataclass(frozen=True)
+        class Box:
+            value: tuple[int, ...] = ()
+            def __post_init__(self) -> None:
+                pass
+        ''',
+    )
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert result.regressions == []
