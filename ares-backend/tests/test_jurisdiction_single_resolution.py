@@ -129,7 +129,11 @@ def test_converted_module_uses_resolve_pack_only(rel):
 # AST-basiert; verschachtelte Formen wie ``(x or "CH").strip() or "CH"`` zaehlen
 # doppelt, ``client.country_of_residence or "CH"`` (Steuerdomizil, kein
 # Pack-Code) zaehlt mit. Werte duerfen nur sinken (X15: Endwert 0).
-RATCHET = {"inline_fallbacks": 19, "resolver_calls": 5, "ch_comparisons": 33}
+# X2b: 19 -> 18 (routers/review.py Draft-Create liest den Request-RunContext).
+# Die uebrigen umgestellten Stellen behalten ihren Fallback-Zweig fuer
+# Aufrufer ausserhalb eines Laufs; im Lauf liest jede den RunContext
+# (tests/test_x2b_run_context_readers.py).
+RATCHET = {"inline_fallbacks": 18, "resolver_calls": 5, "ch_comparisons": 33}
 
 
 def test_ch_literal_ratchet_only_sinks():
@@ -154,7 +158,7 @@ EXPECTED_RESOLVE_PACK_SITES = {
     "routers/wealth.py": 1,
     "services/cost_disclosure.py": 1,
     "services/manual_target_allocation.py": 1,
-    "services/portfolio_engine.py": 7,
+    "services/portfolio_engine.py": 6,
     "services/preference_snapshot.py": 1,
     "services/review_engine.py": 1,
 }

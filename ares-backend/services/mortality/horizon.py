@@ -58,7 +58,10 @@ Solver-Rechnung), um genau diese Divergenz-Bugklasse zu vermeiden.
 from __future__ import annotations
 
 from datetime import date as _date
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
+
+if TYPE_CHECKING:  # nur Annotation; zaehlt nicht als Laufzeit-Import (Ratsche)
+    from config import RunContext
 
 
 # MORTALITY-HORIZON-P80-LS-001 (CIO-Entscheid 2026-10-18), Version
@@ -148,6 +151,7 @@ def _person_birth_year_and_sex(
 
 def expected_death_year_offset_from_mandate(
     mandate, *, reference_year: int | None = None, client: Any = None,
+    run_context: RunContext | None = None,
 ) -> int | None:
     """Erwartete Jahre-ab-reference_year bis zum Tod, oder None (kein Cutoff).
 
@@ -189,7 +193,12 @@ def expected_death_year_offset_from_mandate(
     if life_expectancy_year and life_expectancy_year > reference_year:
         return life_expectancy_year - reference_year
 
-    jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
+    # X2b: im Engine-Lauf kommt die Jurisdiktion aus dem RunContext
+    # (== mandate.jurisdiction or "CH"); ausserhalb eines Laufs Fallback.
+    if run_context is not None:
+        jurisdiction = str(run_context.ensure_bound_to(mandate).jurisdiction)
+    else:
+        jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
     if jurisdiction != "CH":
         return None
 
@@ -244,6 +253,7 @@ MORTALITY_MODE_PLANNING_QUANTILE = "planning_quantile"
 
 def resolve_mortality_cutoff(
     mandate, *, reference_year: int | None = None, client: Any = None,
+    run_context: RunContext | None = None,
 ) -> tuple[str, int | None]:
     """MORT-CHANNEL-001 (Codex-Review PR #644, Vertrag 2): EINE Entscheidung
     ueber den Mortalitaets-Cutoff fuer alle Consumer.
@@ -273,7 +283,7 @@ def resolve_mortality_cutoff(
         reference_year = mandate_reference_year(mandate)
     offset = expected_death_year_offset_from_mandate(
         mandate, reference_year=reference_year,
-        client=_resolve_client(mandate, client),
+        client=_resolve_client(mandate, client), run_context=run_context,
     )
     life_expectancy_year = int(getattr(mandate, "life_expectancy_year", 0) or 0)
     if life_expectancy_year and life_expectancy_year > reference_year:

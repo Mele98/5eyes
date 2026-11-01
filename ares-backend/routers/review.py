@@ -69,6 +69,7 @@ from services.portfolio_engine import (
     _current_target_allocation_or_none,
     _risk_score_bucket,
     build_recommendation_payload_from_run,
+    build_run_context,
     build_target_payload_from_allocation,
     generate_recommendation_run,
     require_strategy_ready_assessment,
@@ -508,6 +509,7 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         eligibility_errors, eligibility_warnings = finalization_eligibility_findings(
             db, mandate=mandate, run=run, assessment=assessment,
             positions=positions, products=products,
+            run_context=build_run_context(mandate),  # X2b: einmal pro Request
         )
         errors.extend(eligibility_errors)
         warnings.extend(eligibility_warnings)
@@ -3203,7 +3205,8 @@ def create_recommendation_run(
         policy, cma = ensure_runtime_reference_data(
             db,
             current_user.id,
-            jurisdiction=getattr(mandate, "jurisdiction", None) or "CH",
+            # X2b: Kontext einmal pro Request (== mandate.jurisdiction or "CH").
+            jurisdiction=build_run_context(mandate).jurisdiction,
             tenant_id=getattr(mandate, "tenant_id", None) or None,
         )
     except ValueError as exc:

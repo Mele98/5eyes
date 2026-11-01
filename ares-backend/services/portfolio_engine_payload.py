@@ -448,7 +448,7 @@ def _goal_timing_label(goal: Goal, years: int) -> str:
     return f"Horizont {years} J."
 
 
-def _expected_death_year_offset_from_mandate(mandate) -> int | None:
+def _expected_death_year_offset_from_mandate(mandate, run_context=None) -> int | None:
     """Sprint U-P5 Fix H12: leitet aus Mandate-Feldern den erwarteten
     Sterbe-Zeitpunkt als Years-from-reference ab. Delegiert an
     services.mortality.horizon.expected_death_year_offset_from_mandate, der
@@ -483,7 +483,7 @@ def _expected_death_year_offset_from_mandate(mandate) -> int | None:
     """
     from services.mortality.horizon import resolve_mortality_cutoff
     try:
-        return resolve_mortality_cutoff(mandate)[1]
+        return resolve_mortality_cutoff(mandate, run_context=run_context)[1]
     except Exception:
         return None
 
@@ -1667,7 +1667,9 @@ def _tenant_visible_products_query(db: Session, mandate: Mandate):
     )
 
 
-def _filter_products_by_universe(db: Session, mandate: Mandate, products: list) -> list:
+def _filter_products_by_universe(
+    db: Session, mandate: Mandate, products: list, run_context=None,
+) -> list:
     """2026-07-27 (Laender-Skalierung, Fonds-Kuratierung): schraenkt den
     Produktkandidaten-Pool auf die ProductUniverseEntry-Positivliste des
     Tenants+Jurisdiktion ein, WENN mindestens ein Eintrag existiert.
@@ -1694,7 +1696,11 @@ def _filter_products_by_universe(db: Session, mandate: Mandate, products: list) 
     """
     from models.tenant import DEFAULT_TENANT_ID
     tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
-    jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
+    # X2b: im Lauf aus dem RunContext (== mandate.jurisdiction or "CH").
+    if run_context is not None:
+        jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction
+    else:
+        jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
     entries = db.query(ProductUniverseEntry).filter(
         ProductUniverseEntry.tenant_id == tenant_id,
         ProductUniverseEntry.jurisdiction == jurisdiction,
