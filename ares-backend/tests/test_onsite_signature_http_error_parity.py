@@ -4,7 +4,7 @@ Bis K-2 hat ``routers/onsite_signature.py`` jede ``OnsiteSignatureError`` per
 ``try/except`` in ``HTTPException(status_code=exc.http_status,
 detail=exc.as_detail())`` umgewandelt. Seit K-2 ist ``OnsiteSignatureError``
 ein ``core.reason_codes.DomainError`` und der zentrale Handler
-(``core/error_handlers.py``) erzeugt die Antwort.
+(``core/middleware.py``) erzeugt die Antwort.
 
 Dieser Test faehrt jeden Fehlerpfad der Router ueber die ECHTE App
 (``main.app``, Middleware-Stack inkl. Security-Header, ohne Lifespan, eigene

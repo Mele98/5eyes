@@ -22,7 +22,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from core.error_handlers import (  # noqa: E402
+from core.middleware import (  # noqa: E402
     domain_error_as_http_exception,
     domain_error_handler,
     install_exception_handlers,

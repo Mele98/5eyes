@@ -5,7 +5,7 @@ Schritt mit 409 ``ONSITE_SIGNATURE_NOT_RELEASED`` (inkl. offener Punkte);
 ``GET /onsite-signature/policy`` zeigt den Freigabestand ehrlich an.
 
 Fachliche Blocks (``svc.OnsiteSignatureError``, ein ``DomainError``) bildet
-der zentrale Handler ``core/error_handlers.py`` auf HTTP ab (K-2); die
+der zentrale Handler ``core/middleware.py`` auf HTTP ab (K-2); die
 Endpunkte fangen sie nicht mehr einzeln ab. Die Antworten sind byte-gleich
 zur frueheren ``HTTPException``-Umwandlung
 (``tests/test_onsite_signature_http_error_parity.py``).

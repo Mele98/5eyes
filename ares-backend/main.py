@@ -10,9 +10,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import KekStoreError, ensure_tenant_master_kek, settings
-from core.error_handlers import install_exception_handlers
 from core.logging_setup import configure_logging
-from core.middleware import MaxBodySizeMiddleware, RequestContextMiddleware
+from core.middleware import (
+    MaxBodySizeMiddleware,
+    RequestContextMiddleware,
+    install_exception_handlers,
+)
 from database import init_db
 from price_updater import start_price_scheduler, stop_price_scheduler
 from backup_scheduler import start_backup_scheduler, stop_backup_scheduler
@@ -26,8 +29,7 @@ import models.jurisdiction  # noqa  WP1 (2026-07-30) — Home-Bias/CMA pro Juris
 import models.mandates  # noqa
 import models.profiling  # noqa
 import models.review  # noqa
-# models.users: registriert ueber routers.auth u. a. (Modulebene, vor App-Erzeugung);
-# der Direktimport entfaellt zugunsten der Fan-out-Ratsche (K-2).
+import models.users  # noqa
 import models.snapshots  # noqa
 import models.protocol_bausteine  # noqa  Bug-#13a (2026-06-07) — Beratungsprotokoll-Bausteine
 import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation

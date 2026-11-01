@@ -44,7 +44,7 @@ for _p in (BACKEND_ROOT, TESTS_ROOT):
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from core.error_handlers import install_exception_handlers  # noqa: E402
+from core.middleware import install_exception_handlers  # noqa: E402
 from models.review import ContractDocument  # noqa: E402
 from onsite_signature_fakes import FakeClock, FakePhone, approved_test_policy  # noqa: E402
 from services.onsite_signature.providers import NullQesProvider  # noqa: E402

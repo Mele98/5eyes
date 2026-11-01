@@ -14,7 +14,7 @@ erzeugte oder ausgewertete Code steht hier, und hier steht kein Code, den
 niemand erzeugt.
 
 ``DomainError`` ist die fachliche Exception mit Reason-Code. Services werfen
-sie statt ``fastapi.HTTPException``; ``core/error_handlers.py`` bildet sie
+sie statt ``fastapi.HTTPException``; ``core/middleware.py`` bildet sie
 zentral auf exakt die HTTP-Antwort ab, die heute ``HTTPException(status_code=
 http_status, detail=as_detail())`` erzeugt (Status, Body, Header byte-gleich).
 Dieses Modul importiert bewusst nichts aus FastAPI.

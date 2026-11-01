@@ -108,7 +108,7 @@ class OnsiteSignatureError(DomainError):
     K-2: Unterklasse von ``DomainError``. Konstruktor (``reason_code, message,
     *, http_status=409, details=None``) und ``as_detail()`` (``reason_code``,
     ``message``, ``channel``, optional ``details``) sind unveraendert; die
-    HTTP-Abbildung macht der zentrale Handler (``core/error_handlers.py``)
+    HTTP-Abbildung macht der zentrale Handler (``core/middleware.py``)
     statt eines try/except in jedem Endpunkt.
     """
 
