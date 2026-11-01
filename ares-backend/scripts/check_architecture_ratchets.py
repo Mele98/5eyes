@@ -984,6 +984,19 @@ def leaf_resolution_problems(root: Path, module: str) -> list[str]:
                     out.append(f"{name}: weiterer Eintrag mit gleichem Modulnamen: {rel(entry)}")
                 elif n == allowed_entry and not is_leaf and not entry.is_dir():
                     out.append(f"{name}: kein Paketverzeichnis: {rel(entry)}")
+        pkg_dir = parent_dir / tail
+        if not is_leaf and pkg_dir.is_dir():
+            # N-844-4: ``find_spec`` kennt nur die Endungen des laufenden Interpreters
+            # (Linux-CI sieht ``__init__.pyd`` nicht, Windows laedt es vor ``__init__.py``).
+            # Darum jede ladbare ``__init__.*`` ausser ``__init__.py`` plattformunabhaengig rot.
+            for entry in sorted(pkg_dir.iterdir()):
+                low = entry.name.casefold()
+                if (
+                    low.startswith("__init__.")
+                    and low.endswith(LEAF_LOADABLE_SUFFIXES)
+                    and entry.name != "__init__.py"
+                ):
+                    out.append(f"{name}: weitere Paket-Init-Datei: {rel(entry)}")
         importlib.machinery.PathFinder.invalidate_caches()
         try:
             spec = importlib.machinery.PathFinder.find_spec(name, [str(parent_dir)])
