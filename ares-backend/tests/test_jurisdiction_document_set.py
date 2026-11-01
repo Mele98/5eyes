@@ -165,6 +165,24 @@ def test_cost_disclosure_cover_reads_title_subtitle_and_articles_from_the_docume
     assert isinstance(captured["focus_points"], list)
 
 
+    # Quelle (Vorpruefung B-8): der Digest-Vergleich allein bliebe auch mit
+    # wieder eingesetzten Literalen gruen. Mit Sentinel-Texten im DocumentSet
+    # muss das Deckblatt genau diese Sentinels zeigen.
+    sentinel = SimpleNamespace(
+        text=lambda key: f"<{key}>",
+        paragraphs=lambda key: (f"<{key}#1>", f"<{key}#2>"),
+    )
+    monkeypatch.setattr(module, "default_documents", lambda: sentinel)
+    captured.clear()
+    module.build_cost_disclosure_flowables(ctx, data)
+    assert captured["title"] == "<cost_disclosure.cover.title>"
+    assert captured["subtitle"] == "<cost_disclosure.cover.subtitle>"
+    assert captured["focus_points"] == [
+        "<cost_disclosure.cover.focus_points#1>",
+        "<cost_disclosure.cover.focus_points#2>",
+    ]
+
+
 def test_x1_reference_fingerprint_is_unchanged():
     # Die X1-Referenzen (u.a. FIDLEG_DISCLAIMER, DISCLAIMER_TEXT) zeigen
     # weiterhin auf dieselben Werte; der X1-Fingerprint bleibt gueltig.
