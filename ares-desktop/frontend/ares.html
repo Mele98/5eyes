@@ -24,6 +24,7 @@ body{font-family:var(--f-s);}</style>
 <script src="./risk-capacity-recheck.js"></script>
 <script src="./trade-list-preview.js"></script>
 <script src="./goal-analysis-integrity.js"></script>
+<script src="./advisory-log-finma.js"></script>
 <style>
 /* ARES / Navy-Gold */
 :root {
@@ -5367,7 +5368,7 @@ function _wireSollIstHover(){
 <div class="overlay" id="m-es"><div class="modal"><div class="mhd"><div class="mtitle">Stammdaten bearbeiten</div><button class="mx" onclick="cm('m-es')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Anrede</label><select class="fsel" id="es-salutation"><option value="">—</option><option value="Herr">Herr</option><option value="Frau">Frau</option><option value="Divers">Divers</option></select></div><div class="fg"><label class="fl">Vorname *</label><input class="fi" id="es-firstname" placeholder="Andreas"></div><div class="fg"><label class="fl">Nachname *</label><input class="fi" id="es-lastname" placeholder="Müller"></div></div><div class="frow"><div class="fg"><label class="fl">Geburtsdatum</label><input class="fi" id="es-dob" type="date"></div><div class="fg"><label class="fl">Kanton</label><input class="fi" id="es-canton" placeholder="ZH" maxlength="2"></div></div><div class="frow"><div class="fg"><label class="fl">Anlagehorizont Start</label><input class="fi" id="es-horizon-start" type="date"></div><div class="fg"><label class="fl">Anlagehorizont Ende</label><input class="fi" id="es-horizon-end" type="date"></div></div><div id="es-horizon-hint" style="font-size:10px;color:var(--n5);line-height:1.5;margin:-2px 0 10px">Der Mandatshorizont dient als gesprächsnaher Leitwert für Risiko- und Strategieableitung und ergänzt die Zielhorizonte.</div><div class="frow"><div class="fg"><label class="fl">Haushalt</label><select class="fsel" id="es-household"><option value="Einzelperson">Einzelperson</option><option value="Paar">Paar</option><option value="Familie">Familie</option></select></div><div class="fg"><label class="fl">Sprache</label><select class="fsel" id="es-lang"><option value="DE">Deutsch (DE)</option><option value="FR">Französisch (FR)</option><option value="IT">Italienisch (IT)</option><option value="EN">Englisch (EN)</option></select></div></div><div id="es-civil-warning" style="display:none;background:var(--warn-lt);border:1px solid rgba(180,83,9,0.2);border-radius:var(--r);padding:8px 10px;margin:-2px 0 10px;font-size:10px;color:var(--warn)">Haushalt "Paar" und Zivilstand "Ledig" prüfen: bitte Konstellation kurz bestätigen.</div><div class="frow"><div class="fg"><label class="fl">Zivilstand</label><select class="fsel" id="es-civil"><option value="">—</option><option value="Ledig">Ledig</option><option value="Verheiratet">Verheiratet</option><option value="Eingetragene Partnerschaft">Eingetragene Partnerschaft</option><option value="Geschieden">Geschieden</option><option value="Verwitwet">Verwitwet</option><option value="Getrennt">Getrennt</option></select></div><div class="fg"><label class="fl">Beruf</label><input class="fi" id="es-profession" placeholder="z.B. CFO"></div><div class="fg"><label class="fl">Arbeitgeber</label><input class="fi" id="es-employer" placeholder="z.B. Muster AG"></div></div></div>
 
 <div id="es-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
-<div class="mfooter"><button class="btn" onclick="cm('m-es')">Abbrechen</button><button class="btn-p" id="btn-es-save" onclick="saveClientData()">Speichern</button></div></div></div><div class="overlay" id="m-ne"><div class="modal"><div class="mhd"><div class="mtitle">Protokolleintrag</div><button class="mx" onclick="cm('m-ne')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Datum</label><input class="fi" type="date" value="2026-03-15"></div><div class="fg"><label class="fl">Entscheid</label><select class="fsel"><option>Keine Transaktion</option><option>Kauf</option><option>Verkauf</option><option>Umschichtung</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Anlass</label><input class="fi" placeholder="Jahres-Review / Drift / ..."></div></div><div class="frow"><div class="fg"><label class="fl">Begründung</label><textarea class="fta" rows="3"></textarea></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ne')">Abbrechen</button><button class="btn-p" onclick="cm('m-ne')">Speichern</button></div></div></div><div class="overlay" id="m-esign"><div class="modal"><div class="mhd"><div class="mtitle">Dokument signieren</div><button class="mx" onclick="cm('m-esign')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Unterzeichner</label><div id="esign-signer-role-label" style="font-size:13px;font-weight:600;color:var(--n7)">—</div></div></div><div class="frow"><div class="fg"><label class="fl">Name</label><input class="fi" id="esign-signer-name" placeholder="Vor- und Nachname"></div></div><div class="frow"><div class="fg" style="width:100%"><label class="fl">Unterschrift (mit Maus oder Finger zeichnen)</label><div style="border:1px solid var(--b1);border-radius:var(--r);background:#fff"><canvas id="esign-canvas" width="480" height="160" style="width:100%;height:160px;display:block;cursor:crosshair;touch-action:none"></canvas></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:10px"><span style="font-size:9px;color:var(--n4);line-height:1.5">Elektronische Unterschrift zur Dokumentation im Beratungsdossier — kein qualifiziertes elektronisches Signaturzertifikat.</span><button type="button" class="btn btn-sm" onclick="clearEsignCanvas()">Löschen</button></div></div></div><div id="esign-error" style="display:none;color:var(--neg);font-size:10px;margin-top:6px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-esign')">Abbrechen</button><button class="btn-p" id="btn-esign-save" onclick="submitEsignSignature()">Signieren</button></div></div></div>
+<div class="mfooter"><button class="btn" onclick="cm('m-es')">Abbrechen</button><button class="btn-p" id="btn-es-save" onclick="saveClientData()">Speichern</button></div></div></div><div class="overlay" id="m-ne"><div class="modal"><div class="mhd"><div class="mtitle">Protokolleintrag</div><button class="mx" onclick="cm('m-ne')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Datum des Gesprächs</label><input class="fi" type="date" value="2026-03-15"></div><div class="fg"><label class="fl">Entscheid</label><select class="fsel"><option>Keine Transaktion</option><option>Kauf</option><option>Verkauf</option><option>Umschichtung</option><option value="">Noch offen – kein Entscheid</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Anlass</label><input class="fi" placeholder="Jahres-Review / Drift / ..."></div></div><div class="frow"><div class="fg"><label class="fl">Gesprächsinhalt / Begründung (Pflicht, min. 30 Zeichen)</label><textarea class="fta" rows="3"></textarea></div></div><div class="frow"><div class="fg"><label class="fl">Uhrzeit des Gesprächs</label><input class="fi" type="time" id="ne-time"></div><div class="fg"><label class="fl">Dauer (Minuten, Pflicht)</label><input class="fi" type="number" min="1" max="600" step="1" id="ne-duration" placeholder="1–600"></div><div class="fg"><label class="fl">Kanal (Pflicht)</label><select class="fsel" id="ne-channel"><option value="">– bitte wählen –</option><option value="persoenlich">Persönlich</option><option value="video">Video</option><option value="telefon">Telefon</option><option value="schriftlich">Schriftlich</option><option value="hybrid">Hybrid</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Themen (Pflicht, ein Thema pro Zeile, je min. 3 Zeichen)</label><textarea class="fta" rows="2" id="ne-topics" placeholder="z. B. Strategic Asset Allocation"></textarea></div></div><div class="frow"><div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--n6);cursor:pointer"><input type="checkbox" id="ne-cost">Ex-ante Kosten dem Kunden kommuniziert (FIDLEG-Pflicht).</label></div></div><div id="ne-context" style="display:none;background:var(--warn-lt);border:1px solid var(--b2);border-radius:var(--r);padding:8px;font-size:11px;line-height:1.5;margin-top:4px"></div><input type="hidden" id="ne-entry-type"></div><div class="mfooter"><button class="btn" onclick="cm('m-ne')">Abbrechen</button><button class="btn-p" onclick="cm('m-ne')">Speichern</button></div></div></div><div class="overlay" id="m-esign"><div class="modal"><div class="mhd"><div class="mtitle">Dokument signieren</div><button class="mx" onclick="cm('m-esign')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Unterzeichner</label><div id="esign-signer-role-label" style="font-size:13px;font-weight:600;color:var(--n7)">—</div></div></div><div class="frow"><div class="fg"><label class="fl">Name</label><input class="fi" id="esign-signer-name" placeholder="Vor- und Nachname"></div></div><div class="frow"><div class="fg" style="width:100%"><label class="fl">Unterschrift (mit Maus oder Finger zeichnen)</label><div style="border:1px solid var(--b1);border-radius:var(--r);background:#fff"><canvas id="esign-canvas" width="480" height="160" style="width:100%;height:160px;display:block;cursor:crosshair;touch-action:none"></canvas></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:10px"><span style="font-size:9px;color:var(--n4);line-height:1.5">Elektronische Unterschrift zur Dokumentation im Beratungsdossier — kein qualifiziertes elektronisches Signaturzertifikat.</span><button type="button" class="btn btn-sm" onclick="clearEsignCanvas()">Löschen</button></div></div></div><div id="esign-error" style="display:none;color:var(--neg);font-size:10px;margin-top:6px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-esign')">Abbrechen</button><button class="btn-p" id="btn-esign-save" onclick="submitEsignSignature()">Signieren</button></div></div></div>
 <div class="overlay" id="m-nt"><div class="modal"><div class="mhd"><div class="mtitle">Trigger definieren</div><button class="mx" onclick="cm('m-nt')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Trigger-Typ</label><select class="fsel"><option>Zeitbasiert</option><option>Bandbreite / Drift</option><option>Event-basiert</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="Jahres-Review"></div><div class="fg"><label class="fl">Schwellenwert</label><input class="fi" placeholder="±5% oder 12 Monate"></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-nt')">Abbrechen</button><button class="btn-p" onclick="cm('m-nt')">Aktivieren</button></div></div></div>
 <div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (CHF)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (CHF)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
 <div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Anlagerezept für Kunde</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Basierend auf Soll-Allokation: Anlageprodukte werden aus dem Anlageuniversum gesucht und ein Bericht erstellt. Erst nach Bestätigung wird der Bericht an die Depotbank übermittelt.</div><div class="frow"><div class="fg"><label class="fl">Depotbank für Umsetzung</label><select class="fsel" id="recipe-depot-bank"><option>UBS AG Zürich</option><option>ZKB</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Umsetzung bestätigen</button></div></div></div>
@@ -10603,14 +10604,6 @@ async function runtimeProtokolliereEreignis(){
   var createTrigger=action!=='document';
   var triggerId=null;
   var actionLabel=action==='risk'?'Risikoprofil neu prüfen':(action==='goals'?'Ziele anpassen':(action==='document'?'Nur dokumentieren - kein Handlungsbedarf':'Review-Termin auslösen'));
-  var notes=joinNotes([details,'Massnahme: '+actionLabel]);
-  var logPayload={
-    entry_type:/ziel/i.test(typVal)?'Zielaenderung':'Ereignis-Reaktion',
-    title:'Ereignis: '+typVal,
-    description:notes||null,
-    decision:action==='document'?'Kein Handlungsbedarf':null,
-    entry_date:eventDate
-  };
   var triggerPayload={
     trigger_type:'Ereignis',
     trigger_name:typVal,
@@ -10618,49 +10611,41 @@ async function runtimeProtokolliereEreignis(){
     next_due_at:eventDate
   };
   if(!typVal){showModalFeedback('ev-error',btn,'Bitte Ereignis auswaehlen.',true);return;}
-  if(btn){btn.disabled=true;btn.textContent='Protokolliert...';}
+  // ADVISORY-LOG-FINMA-FIELDS: der Protokolleintrag wird NICHT mehr direkt
+  // (unvollstaendig -> 422) gesendet. Dauer, Kanal, Kostenangabe und
+  // Gespraechszeitpunkt sind aus dem Ereignis nicht ableitbar -> das
+  // Protokollformular oeffnet vorbefuellt, der Berater ergaenzt und speichert.
+  if(btn){btn.disabled=true;btn.textContent='Erfasse...';}
   if(mid&&!isDemoMandateId(mid)){
-    try{
-      if(createTrigger){
+    if(createTrigger){
+      try{
         var triggerResult=await API.post('/mandates/'+mid+'/triggers',triggerPayload);
         triggerId=triggerResult&&triggerResult.id?triggerResult.id:null;
+      }catch(e){
+        showModalFeedback('ev-error',btn,'Fehler: Review-Trigger nicht angelegt ('+parseApiError(e)+'). Es wurde nichts erfasst.',true);
+        return;
       }
-      if(triggerId)logPayload.trigger_id=triggerId;
-      await API.post('/mandates/'+mid+'/advisory-log',logPayload);
-      if(wantsCalendar&&action==='review')downloadEventCalendarFile(typVal,eventDate,details);
-      showModalFeedback('ev-error',btn,'✓ Ereignis im Review-Funnel erfasst',false);
-      await refreshReviewUI(mid);
-      setTimeout(function(){
-        cm('m-ev');
-        if(action==='risk')go('rp');
-        if(action==='goals')go('cf');
-      },500);
-    }catch(e){
-      showModalFeedback('ev-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
     }
-  } else {
-    if(createTrigger){
-      triggerId='demo-event-trigger-'+Date.now();
-      currentReviewState.triggers=[{
-        id:triggerId,
-        trigger_type:'Ereignis',
-        trigger_name:typVal,
-        frequency:'bei Ereignis',
-        status:'Aktiv',
-        next_due_at:eventDate,
-        triggered_notes:notes||null
-      }].concat(currentReviewState.triggers||[]);
-    }
-    currentReviewState.logs=[Object.assign({id:'demo-log-'+Date.now(),trigger_id:triggerId},logPayload)].concat(currentReviewState.logs||[]);
+    if(triggerId){try{await refreshReviewUI(mid);}catch(refreshErr){console.warn('refreshReviewUI:',refreshErr);}}
+  } else if(createTrigger){
+    triggerId='demo-event-trigger-'+Date.now();
+    currentReviewState.triggers=[{
+      id:triggerId,
+      trigger_type:'Ereignis',
+      trigger_name:typVal,
+      frequency:'bei Ereignis',
+      status:'Aktiv',
+      next_due_at:eventDate,
+      triggered_notes:joinNotes([details,'Massnahme: '+actionLabel])
+    }].concat(currentReviewState.triggers||[]);
     renderReviewState(currentReviewState);
-    if(wantsCalendar&&action==='review')downloadEventCalendarFile(typVal,eventDate,details);
-    showModalFeedback('ev-error',btn,'✓ Demo-Modus: Ereignis erfasst',false);
-    setTimeout(function(){
-      cm('m-ev');
-      if(action==='risk')go('rp');
-      if(action==='goals')go('cf');
-    },700);
   }
+  if(wantsCalendar&&action==='review')downloadEventCalendarFile(typVal,eventDate,details);
+  if(btn){btn.disabled=false;btn.textContent='Protokollieren';}
+  cm('m-ev');
+  openAdvisoryLogModalPrefilled(buildEventAdvisoryLogPrefill({
+    type:typVal,eventDate:eventDate,details:details,action:action,actionLabel:actionLabel,triggerId:triggerId
+  }));
 }
 protokolliereEreignis=runtimeProtokolliereEreignis;
 </script>
@@ -18950,6 +18935,7 @@ var liveClientLoadToken=0;
     if(id==='m-ne'){
       var ne=document.getElementById('ne-trigger-id');
       if(ne)ne.value='';
+      advisoryLogCloseCheck(); // advisory-log-finma.js: nie unbemerkt verwerfen
     }
   }
   function prepareModalBeforeOpen(id){
@@ -18958,7 +18944,7 @@ var liveClientLoadToken=0;
     if(id==='m-edit-hypo'){openLegacyWealthModalRedirect('Hypothek');return false;}
     if(id==='m-edit-custom'){openLegacyWealthModalRedirect('Alternative');return false;}
     if(id==='m-ev')resetEventCaptureModal();
-    if(id==='m-ne')resetAdvisoryLogModal();
+    if(id==='m-ne'){advisoryLogPrefill=null;resetAdvisoryLogModal();}
     if(id==='m-nt')resetReviewTriggerModal();
     if(id==='m-contract-edit')resetContractDocumentModal();
     if(id==='m-ed')resetDecisionTemplateModal();
@@ -19269,10 +19255,10 @@ function resetEventCaptureModal(){
   if(btn){btn.textContent='Protokollieren';btn.disabled=false;}
 }
 function resetAdvisoryLogModal(){
-  setInputValue('ne-date',new Date().toISOString().slice(0,10));
     setSelectValue('ne-decision','Keine Transaktion');
     setInputValue('ne-title','');
     setInputValue('ne-description','');
+    resetAdvisoryLogFinmaFields(); // advisory-log-finma.js
     var err=document.getElementById('ne-error');
     if(err){err.style.display='none';err.textContent='';}
     var btn=document.getElementById('btn-ne-save');
@@ -19281,6 +19267,7 @@ function resetAdvisoryLogModal(){
   function openAdvisoryLogModal(triggerId,title){
     var hidden=document.getElementById('ne-trigger-id');
     if(hidden)hidden.value=triggerId||'';
+    advisoryLogPrefill=null;
     resetAdvisoryLogModal();
     if(!title&&triggerId){
       var trigger=(currentReviewState.triggers||[]).find(function(item){return String(item.id||'')===String(triggerId||'');});
@@ -28168,77 +28155,6 @@ async function refreshReviewUI(mid){
     console.warn('refreshReviewUI:',e);
   }
 }
-async function saveAdvisoryLogEntry(){
-  var title=getInputValue('ne-title').trim();
-  var decisionRaw=getInputValue('ne-decision')||'Keine Transaktion';
-  var decision=normalizeAdvisoryDecision(decisionRaw);
-  var description=getInputValue('ne-description').trim();
-  var entryDate=getInputValue('ne-date')||new Date().toISOString().slice(0,10);
-  var triggerId=getInputValue('ne-trigger-id')||null;
-  var btn=document.getElementById('btn-ne-save');
-  var mid=getActiveMandateId();
-  if(!title){showModalFeedback('ne-error',btn,'Bitte Anlass / Titel eingeben.',true);return;}
-  var currentRunId=(strategyState&&strategyState.recommendation&&strategyState.recommendation.run
-    ?strategyState.recommendation.run.id:null)||null;
-  var descriptionText=description;
-  if(decisionRaw&&decisionRaw!==decision){
-    descriptionText=joinNotes(['Operative Ausprägung: '+decisionRaw,description]);
-  }
-  var payload={
-    entry_type:inferAdvisoryEntryType(title,decision),
-    title:title,
-    description:descriptionText||null,
-    decision:decision,
-    trigger_id:triggerId,
-    entry_date:entryDate,
-    recommendation_run_id:currentRunId
-  };
-  if(btn){btn.disabled=true;btn.textContent='Speichern...';}
-  if(mid&&!isDemoMandateId(mid)){
-    try{
-      await API.post('/mandates/'+mid+'/advisory-log',payload);
-      var triggerResolveFailed=false;
-      var triggerResolveErr=null;
-      if(payload.trigger_id){
-        try{
-          await API.put('/mandates/'+mid+'/triggers/'+payload.trigger_id+'/resolve',
-            {decision:payload.decision||'Kein Handlungsbedarf',triggered_notes:payload.title});
-        }catch(e){
-          triggerResolveFailed=true;
-          triggerResolveErr=e;
-          console.warn('Trigger-Resolve:',e);
-        }
-      }
-      await refreshReviewUI(mid);
-      renderSrImplementationDecision(null);
-      if(triggerResolveFailed){
-        var trigErrMsg='Protokolleintrag wurde gespeichert, aber der Compliance-Trigger konnte NICHT als erledigt markiert werden ('+parseApiError(triggerResolveErr,'unbekannter Fehler')+'). Bitte erneut versuchen oder eskalieren.';
-        showModalFeedback('ne-error',btn,'⚠ '+trigErrMsg,true);
-        try{showAppError(trigErrMsg,{title:'Compliance-Trigger nicht aufgelöst'});}catch(noticeErr){}
-      } else {
-        showModalFeedback('ne-error',btn,'✓ Protokolleintrag gespeichert',false);
-        try{showAppSuccess('Protokolleintrag gespeichert',{title:'Review-Entscheid dokumentiert'});}catch(noticeErr){}
-        setTimeout(function(){cm('m-ne');},500);
-      }
-    }catch(e){
-      var alErr='Fehler: '+(e.detail||e.message||'?');
-      showModalFeedback('ne-error',btn,alErr,true);
-      try{showAppError(alErr,{title:'Protokolleintrag nicht gespeichert'});}catch(noticeErr){}
-    }
-  } else {
-    currentReviewState.logs=[Object.assign({id:'demo-log-'+Date.now(),status:'Empfohlen'},payload)].concat(currentReviewState.logs||[]);
-    if(payload.trigger_id){
-      currentReviewState.triggers=(currentReviewState.triggers||[]).map(function(trigger){
-        if(String(trigger.id||'')!==String(payload.trigger_id))return trigger;
-        return Object.assign({},trigger,{status:'Erledigt',triggered_notes:payload.title});
-      });
-    }
-    renderReviewState(currentReviewState);
-    renderSrImplementationDecision(currentReviewState.logs[0]||null);
-    showModalFeedback('ne-error',btn,'✓ Demo-Modus: Eintrag ergänzt',false);
-    setTimeout(function(){cm('m-ne');},700);
-  }
-}
 function buildTriggerPayload(){
   var rawType=getInputValue('nt-type')||'Zeitbasiert';
   var triggerName=getInputValue('nt-name').trim();
@@ -28465,47 +28381,16 @@ async function submitEsignSignature(){
 function signDocumentAsAdvisor(docId){openSignatureModal(docId,'advisor');}
 function signDocumentAsClient(docId){openSignatureModal(docId,'client');}
 async function documentDecisionTemplate(){
-  var btn=document.getElementById('btn-ed-save');
-  var mid=getActiveMandateId();
   var ed=document.getElementById('m-ed');
   var triggerId=ed?ed.dataset.triggerId||'':'';
   var meta=getDecisionChoiceMeta(currentDecisionChoice);
-  var currentRunId=(strategyState&&strategyState.recommendation&&strategyState.recommendation.run
-      ?strategyState.recommendation.run.id:null)||null;
-  var payload={
-    entry_type:'Drift-Entscheid',
-    title:'Entscheidungsvorlage – '+meta.title,
-    description:meta.detail,
-    decision:meta.decision,
-    trigger_id:triggerId||null,
-    recommendation_run_id:currentRunId,
-    entry_date:new Date().toISOString().slice(0,10)
-  };
-  if(btn){btn.disabled=true;btn.textContent='Dokumentieren...';}
-  if(mid&&!isDemoMandateId(mid)){
-    try{
-      await API.post('/mandates/'+mid+'/advisory-log',payload);
-      if(triggerId){
-        await API.put('/mandates/'+mid+'/triggers/'+triggerId+'/resolve',{
-          decision:meta.title,
-          triggered_notes:meta.detail
-        });
-      }
-      await refreshReviewUI(mid);
-      setTimeout(function(){cm('m-ed');},500);
-    }catch(e){
-      showModalFeedback('ed-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
-    }
-  } else {
-    currentReviewState.logs=[Object.assign({id:'demo-log-'+Date.now()},payload)].concat(currentReviewState.logs||[]);
-    currentReviewState.triggers=(currentReviewState.triggers||[]).map(function(trigger){
-      if(String(trigger.id||'')!==String(triggerId||''))return trigger;
-      return Object.assign({},trigger,{status:'Erledigt',triggered_notes:meta.detail});
-    });
-    renderReviewState(currentReviewState);
-    showModalFeedback('ed-error',btn,'✓ Demo-Modus: Entscheidung dokumentiert',false);
-    setTimeout(function(){cm('m-ed');},700);
-  }
+  // ADVISORY-LOG-FINMA-FIELDS: vorher ging der Vorlagentext direkt als
+  // (unvollstaendiger -> 422) Protokolleintrag raus. Gespraechsinhalt,
+  // Zeitpunkt, Dauer, Kanal und Kostenangabe sind aus der Vorlage nicht
+  // ableitbar -> Protokollformular vorbefuellt oeffnen; der Trigger wird erst
+  // NACH erfolgreichem Speichern aufgeloest (saveAdvisoryLogEntry).
+  cm('m-ed');
+  openAdvisoryLogModalPrefilled(buildDecisionTemplateAdvisoryLogPrefill(meta,triggerId||null));
 }
 
 function normalizeHouseholdValue(value){

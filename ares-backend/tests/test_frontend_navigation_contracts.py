@@ -14,11 +14,20 @@ def test_all_go_targets_reference_known_pages():
     assert targets <= VALID_PAGE_KEYS
 
 
+ADVISORY_LOG_MODULE = HTML_PATH.parent / "advisory-log-finma.js"
+
+
 def test_event_logging_goals_action_returns_to_combined_cashflow_step():
+    # ADVISORY-LOG-FINMA-FIELDS: die Ereignis-Erfassung oeffnet jetzt das
+    # Protokollformular; die Navigation folgt nach dem Speichern im
+    # ausgelagerten Modul (afterSave = gewaehlte Massnahme).
+    module = ADVISORY_LOG_MODULE.read_text(encoding="utf-8")
     html = HTML_PATH.read_text(encoding="utf-8")
 
-    assert "if(action==='goals')go('cf');" in html
+    assert "if(afterSave==='goals')go('cf');" in module
+    assert "go('uz')" not in module
     assert "if(action==='goals')go('uz');" not in html
+    assert set(re.findall(r"go\('([a-z]{2})'", module)) <= VALID_PAGE_KEYS
 
 
 def test_frontend_navigation_keeps_review_and_summary_combined_sequence():
