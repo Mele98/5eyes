@@ -16,8 +16,13 @@ Nachweise (K-1 und K-1b):
    Kopie des Codes vor der Delegation gegen die heutige Produktion.
 2. Quelltext: fuer jede inventarisierte Stelle (auch funktionsinterne)
    wird per AST die Folge der Serialisierungsaufrufe gelesen -- delegierte
-   ``core.evidence``-Aufrufe mit ihrem Schema, verbliebene ``json.dumps``
-   mit ihren Argumenten. Keine Stelle aendert still ihre Kanonisierung.
+   ``core.evidence``-Aufrufe mit Funktion (``canonical_json`` /
+   ``evidence_hash`` / ``sha256_hex``) und Schema, verbliebene
+   ``json.dumps`` mit ihren Argumenten. Importe aus ``core.evidence``
+   werden per AST aufgeloest (auch ``... as _eh``, ``import core.evidence
+   as _ev``, ``from core import evidence``); ``**kwargs`` an
+   ``core.evidence`` sind nicht inventarisierbar und schlagen fehl. Keine
+   Stelle aendert still ihre Kanonisierung.
 3. Optional ``hypothesis`` (nicht in den Requirements; wird nur genutzt,
    wenn installiert).
 """
@@ -485,68 +490,72 @@ def test_unknown_scheme_is_rejected():
 #
 # Je (Datei, Funktions-Qualname) die Folge der Serialisierungsaufrufe in
 # Quelltext-Reihenfolge:
-#   ("core", SCHEMA) -- an core.evidence delegiert (K-1b), mit genau diesem Schema
+#   (CJ|EH, SCHEMA)  -- an core.evidence delegiert (K-1b): canonical_json bzw.
+#                       evidence_hash (Funktion wird mitgefuehrt), genau dieses Schema
+#   (SH, None)       -- core.evidence.sha256_hex (ohne Schema)
 #   ("json", SCHEMA) -- eigene json.dumps-Zeile, deren Argumente exakt SCHEMA sind
 #   ("json", None)   -- eigene json.dumps-Zeile, die KEINEM Schema entspricht (bespoke)
 # Delegiert wurden nur v1/v1-ascii/v1-str-default/v1-ascii-str-default;
 # legacy-*, bespoke und Nicht-JSON-Hashes sind unangetastet.
 
-C = "core"
+CJ = "canonical_json"  # core.evidence.canonical_json(obj, scheme=...)
+EH = "evidence_hash"   # core.evidence.evidence_hash(payload, scheme=...)
+SH = "sha256_hex"      # core.evidence.sha256_hex(text) -- ohne Schema
 J = "json"
 
 SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     # --- delegiert: SCHEME_V1 ---
-    ("services/allocation_evidence_replay.py", "_canonical_json"): ((C, SCHEME_V1),),
-    ("services/cma_policy.py", "compute_content_hash"): ((C, SCHEME_V1),),
-    ("services/financial_coverage_attestation.py", "_canonical"): ((C, SCHEME_V1),),
-    ("services/financial_coverage_attestation.py", "compute_attestation_hash"): ((C, SCHEME_V1),),
-    ("services/financial_coverage_attestation.py", "fingerprint_cashflows"): ((C, SCHEME_V1),),
-    ("services/goal_analysis_snapshot.py", "serialize_shadow_optimization"): ((C, SCHEME_V1),),
-    ("services/goal_revision_decision.py", "_sha256"): ((C, SCHEME_V1),),
-    ("services/goal_revision_decision.py", "record_goal_revision_decision"): ((C, SCHEME_V1),),
-    ("services/onsite_signature/service.py", "_canonical"): ((C, SCHEME_V1),),
-    ("services/portfolio_engine.py", "evaluate_goal_sensitivity._model_input_hash"): ((C, SCHEME_V1),),
-    ("services/reserve_funding_ledger_snapshot.py", "_canonical"): ((C, SCHEME_V1),),
-    ("services/risk_capacity_evaluation_snapshot.py", "_canonical"): ((C, SCHEME_V1),),
-    ("services/risk_override_decision.py", "compute_decision_hash"): ((C, SCHEME_V1),),
-    ("services/risk_profile_signoff.py", "_sha256"): ((C, SCHEME_V1),),
+    ("services/allocation_evidence_replay.py", "_canonical_json"): ((CJ, SCHEME_V1),),
+    ("services/cma_policy.py", "compute_content_hash"): ((EH, SCHEME_V1),),
+    ("services/financial_coverage_attestation.py", "_canonical"): ((CJ, SCHEME_V1),),
+    ("services/financial_coverage_attestation.py", "compute_attestation_hash"): ((EH, SCHEME_V1),),
+    ("services/financial_coverage_attestation.py", "fingerprint_cashflows"): ((EH, SCHEME_V1),),
+    ("services/goal_analysis_snapshot.py", "serialize_shadow_optimization"): ((CJ, SCHEME_V1),),
+    ("services/goal_revision_decision.py", "_sha256"): ((EH, SCHEME_V1),),
+    ("services/goal_revision_decision.py", "record_goal_revision_decision"): ((CJ, SCHEME_V1),),
+    ("services/onsite_signature/service.py", "_canonical"): ((CJ, SCHEME_V1),),
+    ("services/portfolio_engine.py", "evaluate_goal_sensitivity._model_input_hash"): ((EH, SCHEME_V1),),
+    ("services/reserve_funding_ledger_snapshot.py", "_canonical"): ((CJ, SCHEME_V1),),
+    ("services/risk_capacity_evaluation_snapshot.py", "_canonical"): ((CJ, SCHEME_V1),),
+    ("services/risk_override_decision.py", "compute_decision_hash"): ((EH, SCHEME_V1),),
+    ("services/risk_profile_signoff.py", "_sha256"): ((EH, SCHEME_V1),),
     # --- delegiert: SCHEME_V1_ASCII ---
-    ("services/backtest_stress.py", "stress_catalog_hash"): ((C, SCHEME_V1_ASCII),),
-    ("services/depot_snapshot.py", "_canonical"): ((C, SCHEME_V1_ASCII),),
-    ("services/depot_snapshot.py", "_sha256"): ((C, SCHEME_V1_ASCII),),
-    ("services/market_data/cache.py", "_hash_args"): ((C, SCHEME_V1_ASCII),),
-    ("services/optimizer/solver.py", "goal_economic_fingerprint"): ((C, SCHEME_V1_ASCII),),
-    ("services/pension_transfer_ledger_snapshot.py", "_canonical"): ((C, SCHEME_V1_ASCII),),
-    ("services/pension_transfer_ledger_snapshot.py", "_sha256"): ((C, SCHEME_V1_ASCII),),
-    ("services/portfolio_data_policy.py", "_canonical"): ((C, SCHEME_V1_ASCII),),
-    ("services/portfolio_data_policy.py", "parse_portfolio_data_policy"): ((C, SCHEME_V1_ASCII),),
-    ("services/portfolio_engine_cma.py", "_sub_asset_class_code_default_evidence"): ((C, SCHEME_V1_ASCII),),
-    ("services/portfolio_engine_gesamtvermoegen.py", "total_wealth_projection_basis"): ((C, SCHEME_V1_ASCII),),
-    ("services/portfolio_reconciliation.py", "_canonical"): ((C, SCHEME_V1_ASCII),),
-    ("services/portfolio_reconciliation.py", "_sha256"): ((C, SCHEME_V1_ASCII),),
-    ("services/privacy_erasure.py", "_canonical"): ((C, SCHEME_V1_ASCII),),
-    ("services/reserve_funding_ledger.py", "_hash_payload"): ((C, SCHEME_V1_ASCII),),
-    ("services/reserve_split_snapshot.py", "split_contract_hash"): ((C, SCHEME_V1_ASCII),),
+    ("services/backtest_stress.py", "stress_catalog_hash"): ((EH, SCHEME_V1_ASCII),),
+    ("services/depot_snapshot.py", "_canonical"): ((CJ, SCHEME_V1_ASCII),),
+    ("services/depot_snapshot.py", "_sha256"): ((EH, SCHEME_V1_ASCII),),
+    ("services/market_data/cache.py", "_hash_args"): ((EH, SCHEME_V1_ASCII),),
+    ("services/optimizer/solver.py", "goal_economic_fingerprint"): ((CJ, SCHEME_V1_ASCII),),
+    ("services/pension_transfer_ledger_snapshot.py", "_canonical"): ((CJ, SCHEME_V1_ASCII),),
+    ("services/pension_transfer_ledger_snapshot.py", "_sha256"): ((EH, SCHEME_V1_ASCII),),
+    ("services/portfolio_data_policy.py", "_canonical"): ((CJ, SCHEME_V1_ASCII),),
+    ("services/portfolio_data_policy.py", "parse_portfolio_data_policy"): ((EH, SCHEME_V1_ASCII),),
+    ("services/portfolio_engine_cma.py", "_sub_asset_class_code_default_evidence"): ((EH, SCHEME_V1_ASCII),),
+    ("services/portfolio_engine_gesamtvermoegen.py", "total_wealth_projection_basis"): ((EH, SCHEME_V1_ASCII),),
+    ("services/portfolio_reconciliation.py", "_canonical"): ((CJ, SCHEME_V1_ASCII),),
+    ("services/portfolio_reconciliation.py", "_sha256"): ((EH, SCHEME_V1_ASCII),),
+    ("services/privacy_erasure.py", "_canonical"): ((CJ, SCHEME_V1_ASCII),),
+    ("services/reserve_funding_ledger.py", "_hash_payload"): ((EH, SCHEME_V1_ASCII),),
+    ("services/reserve_split_snapshot.py", "split_contract_hash"): ((EH, SCHEME_V1_ASCII),),
     # --- delegiert: SCHEME_V1_STR_DEFAULT / SCHEME_V1_ASCII_STR_DEFAULT ---
-    ("services/portfolio_handoff.py", "handoff_business_key_hash"): ((C, SCHEME_V1_STR_DEFAULT),),
-    ("services/risk_capacity_plausibility.py", "_evaluation_hash"): ((C, SCHEME_V1_STR_DEFAULT),),
-    ("services/currency/fx_rates.py", "_fingerprint"): ((C, SCHEME_V1_ASCII_STR_DEFAULT),),
+    ("services/portfolio_handoff.py", "handoff_business_key_hash"): ((EH, SCHEME_V1_STR_DEFAULT),),
+    ("services/risk_capacity_plausibility.py", "_evaluation_hash"): ((EH, SCHEME_V1_STR_DEFAULT),),
+    ("services/currency/fx_rates.py", "_fingerprint"): ((EH, SCHEME_V1_ASCII_STR_DEFAULT),),
     ("services/portfolio_engine_allocation_integrity.py", "allocation_context_hash_for"):
-        ((C, SCHEME_V1_ASCII_STR_DEFAULT),),
+        ((EH, SCHEME_V1_ASCII_STR_DEFAULT),),
     # --- gemischt (Quelltext-Reihenfolge) ---
     ("services/manual_target_allocation.py", "build_manual_target_allocation"): (
-        (C, SCHEME_V1),                         # sub_allocations_json
-        (C, SCHEME_V1),                         # effective_constraints_json
+        (CJ, SCHEME_V1),                         # sub_allocations_json
+        (CJ, SCHEME_V1),                         # effective_constraints_json
         (J, SCHEME_LEGACY_SPACED_STR_DEFAULT),  # preferences_json-Snapshot
         (J, None),                              # optimizer_reasoning_json (unsortiert)
-        (C, SCHEME_V1),                         # effective_constraints_json nach Ledger-Bindung
+        (CJ, SCHEME_V1),                         # effective_constraints_json nach Ledger-Bindung
     ),
     ("services/portfolio_engine.py", "generate_target_allocation"): (
         (J, SCHEME_LEGACY_SPACED_STR_DEFAULT),  # preferences_json-Snapshot
-        (C, SCHEME_V1_ASCII),                   # stress_evaluations_json
+        (CJ, SCHEME_V1_ASCII),                   # stress_evaluations_json
         (J, None),                              # goal_achievability_json (unsortiert)
-        (C, SCHEME_V1),                         # sub_allocations_json
-        (C, SCHEME_V1),                         # effective_constraints_json
+        (CJ, SCHEME_V1),                         # sub_allocations_json
+        (CJ, SCHEME_V1),                         # effective_constraints_json
     ),
     ("services/portfolio_engine.py", "_compute_input_snapshot_hash"): (
         (J, SCHEME_LEGACY_SPACED),  # Sortierschluessel der Ziel-Items (kein Hash-Text)
@@ -612,17 +621,76 @@ def _scheme_of(call: ast.Call) -> str | None:
     return matches[0] if matches else None
 
 
-def _core_scheme(call: ast.Call) -> str:
-    """Schema eines canonical_json/evidence_hash-Aufrufs (Standard v1)."""
+CORE_KINDS = frozenset({CJ, EH, SH})
+
+
+class _EvidenceImports:
+    """Per AST aufgeloeste Importe aus ``core.evidence`` einer Datei.
+
+    ``names``: lokaler Name -> Originalname (``from core.evidence import
+    evidence_hash as _eh``); ``modules``: lokale Namen des Moduls selbst
+    (``import core.evidence as _ev``, ``from core import evidence``,
+    ``import core.evidence`` -> ``core.evidence``).
+    """
+
+    def __init__(self, tree: ast.Module):
+        self.names: dict[str, str] = {}
+        self.modules: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and not node.level:
+                for a in node.names:
+                    if node.module == "core.evidence":
+                        self.names[a.asname or a.name] = a.name
+                    elif node.module == "core" and a.name == "evidence":
+                        self.modules.add(a.asname or "evidence")
+            elif isinstance(node, ast.Import):
+                for a in node.names:
+                    if a.name == "core.evidence":
+                        self.modules.add(a.asname or "core.evidence")
+
+    def resolve(self, node: ast.AST) -> str | None:
+        """Originalname in core.evidence fuer ``name`` / ``alias.name``, sonst None."""
+        if isinstance(node, ast.Name):
+            return self.names.get(node.id)
+        if isinstance(node, ast.Attribute):
+            base = node.value
+            dotted = (
+                base.id if isinstance(base, ast.Name)
+                else f"{base.value.id}.{base.attr}"
+                if isinstance(base, ast.Attribute) and isinstance(base.value, ast.Name)
+                else None
+            )
+            if dotted in self.modules:
+                return node.attr
+        return None
+
+
+def _core_scheme(call: ast.Call, imports: _EvidenceImports) -> str | None:
+    """Schema eines canonical_json/evidence_hash-Aufrufs (Standard v1).
+
+    ``**kwargs`` sind nicht inventarisierbar (das Schema waere unsichtbar)
+    und schlagen fehl; ``scheme`` muss eine (ggf. aliasierte)
+    core.evidence-Konstante sein.
+    """
     for kw in call.keywords:
+        assert kw.arg is not None, (
+            f"Zeile {call.lineno}: **kwargs an core.evidence ist nicht inventarisierbar"
+        )
         if kw.arg == "scheme":
-            assert isinstance(kw.value, ast.Name), "scheme muss eine core.evidence-Konstante sein"
-            return getattr(evidence, kw.value.id)
+            name = imports.resolve(kw.value)
+            assert name is not None and name.startswith("SCHEME_"), (
+                f"Zeile {call.lineno}: scheme muss eine core.evidence-Konstante sein"
+            )
+            return getattr(evidence, name)
+    assert len(call.args) <= 1, f"Zeile {call.lineno}: scheme nur als Keyword erlaubt"
     return SCHEME_V1
 
 
-def _serialisations_by_function(rel: str) -> dict[str, list[tuple[str, str | None, int]]]:
-    tree = ast.parse((BACKEND / rel).read_text(encoding="utf-8"))
+def _serialisations_by_function(
+    rel: str, root: Path = BACKEND
+) -> dict[str, list[tuple[str, str | None, int]]]:
+    tree = ast.parse((root / rel).read_text(encoding="utf-8"))
+    imports = _EvidenceImports(tree)
     found: dict[str, list[tuple[str, str | None, int, int]]] = {}
     stack: list[str] = []
 
@@ -640,8 +708,13 @@ def _serialisations_by_function(rel: str) -> dict[str, list[tuple[str, str | Non
             if (isinstance(f, ast.Attribute) and f.attr == "dumps"
                     and isinstance(f.value, ast.Name) and f.value.id in {"json", "_json"}):
                 found.setdefault(key, []).append((J, _scheme_of(node), node.lineno, node.col_offset))
-            elif isinstance(f, ast.Name) and f.id in {"canonical_json", "evidence_hash"}:
-                found.setdefault(key, []).append((C, _core_scheme(node), node.lineno, node.col_offset))
+            elif (kind := imports.resolve(f)) in {CJ, EH}:
+                found.setdefault(key, []).append(
+                    (kind, _core_scheme(node, imports), node.lineno, node.col_offset)
+                )
+            elif kind == SH:
+                assert not any(kw.arg is None for kw in node.keywords), node.lineno
+                found.setdefault(key, []).append((SH, None, node.lineno, node.col_offset))
             self.generic_visit(node)
 
     Visitor().visit(tree)
@@ -661,22 +734,88 @@ def test_inventoried_site_serialises_exactly_as_inventoried(site):
 def test_only_byte_proven_schemes_are_delegated():
     for site, entries in SITES.items():
         for kind, scheme in entries:
-            if kind == C:
+            if kind in (CJ, EH):
                 assert scheme in _DELEGATABLE, (site, scheme)
 
 
 def test_every_core_evidence_call_in_the_backend_is_inventoried():
     """Kein Aufruf an core.evidence ausserhalb des Inventars (sonst Inventar nachfuehren)."""
-    inventoried = {site for site, entries in SITES.items() if any(k == C for k, _ in entries)}
+    inventoried = {
+        site for site, entries in SITES.items() if any(k in CORE_KINDS for k, _ in entries)
+    }
     for path in sorted(BACKEND.rglob("*.py")):
         rel = path.relative_to(BACKEND).as_posix()
         if rel.split("/")[0] in {"tests", "scripts", "alembic", "migrations"} or rel == "core/evidence.py":
             continue
-        if "core.evidence" not in path.read_text(encoding="utf-8"):
+        text = path.read_text(encoding="utf-8")
+        # auch ``from core import evidence`` / Aliase; Aufloesung per AST
+        if "core.evidence" not in text and "core import evidence" not in text:
             continue
         for qualname, entries in _serialisations_by_function(rel).items():
-            if any(k == C for k, _, _ in entries):
+            if any(k in CORE_KINDS for k, _, _ in entries):
                 assert (rel, qualname) in inventoried, f"{rel}::{qualname} ruft core.evidence auf"
+
+
+# Negativkontrollen fuer das Inventar-Gate (Review N3, Experimente E3c/E7/E7b/E8):
+# eine Kopie von services/risk_override_decision.py (Inventar: evidence_hash, v1)
+# wird veraendert; das Gate muss die Abweichung melden.
+_N3_REL = "services/risk_override_decision.py"
+_N3_SITE = (_N3_REL, "compute_decision_hash")
+_N3_CALL = "evidence_hash(decision_payload(decision))"
+
+
+def _n3_copy(tmp_path: Path, transform) -> Path:
+    src = (BACKEND / _N3_REL).read_text(encoding="utf-8")
+    assert _N3_CALL in src and "from core.evidence import evidence_hash\n" in src
+    target = tmp_path / _N3_REL
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(transform(src), encoding="utf-8")
+    return tmp_path
+
+
+def _n3_entries(root: Path):
+    return [(k, s) for k, s, _ in _serialisations_by_function(_N3_REL, root).get(_N3_SITE[1], [])]
+
+
+def test_n3_unchanged_copy_matches_inventory(tmp_path):
+    assert _n3_entries(_n3_copy(tmp_path, lambda s: s)) == list(SITES[_N3_SITE])
+
+
+def test_n3_scheme_via_double_star_kwargs_is_red(tmp_path):
+    """E3c: ``**{"scheme": ...}`` darf nicht still als v1 gelesen werden."""
+    root = _n3_copy(tmp_path, lambda s: s.replace(
+        _N3_CALL, 'evidence_hash(decision_payload(decision), **{"scheme": "v1-ascii"})'))
+    with pytest.raises(AssertionError, match="kwargs an core.evidence"):
+        _n3_entries(root)
+
+
+def test_n3_switch_evidence_hash_to_canonical_json_is_red(tmp_path):
+    """E8: Wechsel der Funktion bei gleichem Schema faellt auf."""
+    root = _n3_copy(tmp_path, lambda s: s.replace(
+        "from core.evidence import evidence_hash\n",
+        "from core.evidence import canonical_json, evidence_hash\n",
+    ).replace(_N3_CALL, "canonical_json(decision_payload(decision))"))
+    assert _n3_entries(root) == [(CJ, SCHEME_V1)] != list(SITES[_N3_SITE])
+
+
+@pytest.mark.parametrize(
+    "imp,call",
+    [
+        ("from core.evidence import evidence_hash as _eh\n",
+         "_eh(decision_payload(decision), scheme=_A)"),
+        ("import core.evidence as _ev\n",
+         "_ev.evidence_hash(decision_payload(decision), scheme=_ev.SCHEME_V1_ASCII)"),
+        ("from core import evidence\n",
+         "evidence.evidence_hash(decision_payload(decision), scheme=evidence.SCHEME_V1_ASCII)"),
+    ],
+    ids=["E7_function_alias", "E7b_module_alias", "from_core_import_evidence"],
+)
+def test_n3_aliased_imports_are_resolved(tmp_path, imp, call):
+    """E7/E7b: Aliase werden aufgeloest -- Schemawechsel auf v1-ascii ist rot."""
+    imp_full = imp + ("from core.evidence import SCHEME_V1_ASCII as _A\n" if "_A)" in call else "")
+    root = _n3_copy(tmp_path, lambda s: s.replace(
+        "from core.evidence import evidence_hash\n", imp_full).replace(_N3_CALL, call))
+    assert _n3_entries(root) == [(EH, SCHEME_V1_ASCII)] != list(SITES[_N3_SITE])
 
 
 def test_core_evidence_is_a_stdlib_leaf():
