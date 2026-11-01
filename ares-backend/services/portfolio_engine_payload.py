@@ -485,6 +485,14 @@ def _expected_death_year_offset_from_mandate(mandate, run_context=None) -> int |
     try:
         return resolve_mortality_cutoff(mandate, run_context=run_context)[1]
     except Exception:
+        # RunContextMandateMismatch (config) ist ein Programmierfehler und darf
+        # NICHT im Report-Fallback "kein Cutoff" verschwinden. Ohne neue
+        # Modulkante nach config (Architektur-Ratsche fan_out) ueber das
+        # uebergebene Objekt: ist der Kontext nicht an dieses Mandat gebunden,
+        # wirft ensure_bound_to die Mismatch-Exception erneut; sonst bleibt
+        # der bisherige Fallback unveraendert.
+        if run_context is not None:
+            run_context.ensure_bound_to(mandate)
         return None
 
 

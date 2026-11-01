@@ -3027,7 +3027,9 @@ def _assert_allocation_has_basis(
 def build_run_context(mandate: Mandate) -> RunContext:
     """K-3: friert Jurisdiktion (``resolve_pack``) und Lauf-Settings fuer
     genau dieses Mandat (``mandate.id``) ein."""
-    return RunContext.capture(resolve_pack(mandate), settings, mandate_id=getattr(mandate, "id", None))
+    return RunContext.capture(
+        resolve_pack(mandate), settings, mandate_id=getattr(mandate, "id", None), mandate=mandate,
+    )
 
 
 @binds_run_valuation_date
