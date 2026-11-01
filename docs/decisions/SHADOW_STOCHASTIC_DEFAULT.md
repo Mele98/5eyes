@@ -136,13 +136,12 @@ Plus:
 - Konkrete Implementation der Migration (das ist Folge-Sprint sobald
   User entschieden hat)
 - Stochastic-Optimizer-Math-Erklaerung (siehe
-  `project_5eyes_optimizer.md` Memory + Methodology-Audit-Slides)
+  Methodology-Audit-Slides)
 - Performance-Benchmarks (separater Sprint sobald shadow_stochastic
   >= 3 Monate Live-Daten hat)
 
 ## Weiterfuehrendes
 
-- [project_5eyes_optimizer.md Memory](../../../Users/Emanuele/.claude/projects/C--Users-Emanuele/memory/project_5eyes_optimizer.md)
 - `services/shadow_comparison.py`
 - `routers/system.py` `/admin/system/shadow-comparison-aggregate`
 - ADR-001 — Aggregator-Pattern (Methodology_models Sektion 20)

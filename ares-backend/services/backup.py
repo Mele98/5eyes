@@ -49,10 +49,10 @@ from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, sqlcipher3
 logger = logging.getLogger(__name__)
 
 
-# Dateinamens-Muster: 5eyes-backup-YYYYMMDD-HHMMSS.db
+# Dateinamens-Muster: ares-backup-YYYYMMDD-HHMMSS.db
 # Strict Format -> Retention / Listing kann zuverlaessig parsen.
-_BACKUP_FILENAME_PATTERN = "5eyes-backup-{ts}.db"
-_BACKUP_FILENAME_GLOB = "5eyes-backup-*.db"
+_BACKUP_FILENAME_PATTERN = "ares-backup-{ts}.db"
+_BACKUP_FILENAME_GLOB = "ares-backup-*.db"
 _TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 
 # AB-1: Temp-Dateien beim atomaren Schreiben. Werden bei Absturz sichtbar
@@ -626,7 +626,7 @@ def replicate_offsite(
         (bei konfiguriertem backup_hmac_key) Authentizitaet unabhaengig
         pruefen kann.
     target
-        rsync-Ziel, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/".
+        rsync-Ziel, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/".
         Muss auf ein Verzeichnis zeigen (trailing slash empfohlen).
     ssh_key_path
         Optionaler Pfad zu einem privaten SSH-Key. Leer/None -> rsync nutzt

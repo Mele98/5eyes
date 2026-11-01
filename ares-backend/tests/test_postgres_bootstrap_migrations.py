@@ -324,7 +324,19 @@ def test_alembic_head_emits_postgres_ddl_for_market_data_runtime_tables():
         "ck_audit_log_action_allowed",
     ):
         assert f"constraint {constraint_name}" in ddl
-    assert "create function fn_5eyes_audit_log_immutable()" in ddl
+    import importlib.util
+
+    e84_path = BACKEND_ROOT / "alembic" / "versions" / "e84f9a2d1c70_postgres_market_data_runtime_tables.py"
+    spec = importlib.util.spec_from_file_location("_e84_for_ddl_test", e84_path)
+    e84 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(e84)
+    assert f"create function {e84.AUDIT_LOG_IMMUTABLE_FUNCTION.lower()}()" in ddl
+    # W4-d: die Folgerevision benennt die Funktion in place um (RENAME, nie
+    # DROP/CREATE) und findet sie ueber die Trigger, nicht ueber den Namen.
+    rename_part = ddl.split("do $rename$", 1)[1].split("$rename$", 1)[0]
+    assert "alter function %s rename to %i" in rename_part
+    assert "'fn_ares_audit_log_immutable'" in rename_part
+    assert "drop function" not in rename_part
     assert "create trigger trg_audit_log_no_update" in ddl
     assert "create trigger trg_audit_log_no_delete" in ddl
     for sqlite_only_token in (

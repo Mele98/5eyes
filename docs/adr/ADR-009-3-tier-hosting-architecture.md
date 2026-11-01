@@ -3,13 +3,13 @@
 - **Status:** Accepted (Strategie), Implementation: in-progress
 - **Datum:** 2026-06-08
 - **Sprint:** T1 (Foundation)
-- **Trigger:** Strategischer Geschaeftsentscheid: 5eyes wird an Treuhaender + Vermoegensverwalter lizenziert. Verschiedene Lizenz-Nehmer haben verschiedene Compliance-Anforderungen und Risikoneigungen.
+- **Trigger:** Strategischer Geschaeftsentscheid: Ares wird an Treuhaender + Vermoegensverwalter lizenziert. Verschiedene Lizenz-Nehmer haben verschiedene Compliance-Anforderungen und Risikoneigungen.
 
 ---
 
 ## Kontext
 
-5eyes ist heute (siehe ADR-007) eine **Desktop-App** mit lokaler SQLite-DB. Multi-User innerhalb einer Installation funktioniert via JWT. Multi-Tenant (mehrere Beratungsfirmen am gleichen Server) ist deferred.
+Ares ist heute (siehe ADR-007) eine **Desktop-App** mit lokaler SQLite-DB. Multi-User innerhalb einer Installation funktioniert via JWT. Multi-Tenant (mehrere Beratungsfirmen am gleichen Server) ist deferred.
 
 **Geschaeftliche Realitaet 2026-06-08:** User plant Lizenz-Verkauf an Dritt-Berater (Treuhaender, Vermoegensverwalter). Diese haben verschiedene Bedarfe:
 - Manche wollen volle Kontrolle (on-premise, "Cloud kommt nicht in Frage")
@@ -33,7 +33,7 @@
 **Wer:** Berater mit eigener IT-Infrastruktur, hoechste Compliance-Anforderungen, Anti-Cloud-Praeferenz.
 
 **Setup:**
-- 5eyes laeuft auf Berater-eigener Hardware (Desktop, NAS, Home-Server)
+- Ares laeuft auf Berater-eigener Hardware (Desktop, NAS, Home-Server)
 - SQLite-DB lokal, optional mit SQLCipher verschluesselt
 - KEIN externer Cloud-Zugriff
 - Update-Mechanismus via signiertes Installer-Paket
@@ -50,7 +50,7 @@
 - One-time Lizenzgebuehr CHF 5'000-15'000
 - Optional Wartungsvertrag CHF 1'000-3'000/Jahr
 
-### Tier 2 — SHARED-CLOUD (5eyes-managed)
+### Tier 2 — SHARED-CLOUD (Ares-managed)
 
 **Wer:** Kleine Beratungsfirmen ohne IT-Abteilung, akzeptieren managed Service mit klar dokumentierter Compliance.
 
@@ -66,7 +66,7 @@
 - ✅ Schweizer Hosting (CH-Datacenter)
 - ✅ AVV-Template fuer Berater
 - ✅ ISO 27001 (Infomaniak/Exoscale-Zertifizierung)
-- ⚠️ Outsourcing-Meldung an FINMA pflichtig (5eyes liefert Template)
+- ⚠️ Outsourcing-Meldung an FINMA pflichtig (Ares liefert Template)
 - ⚠️ Bankgeheimnis-Risiko: Daten verlassen Berater-Geraet — Mitigation via Encryption + Audit-Logs
 
 **Preis (Skizze):**
@@ -161,8 +161,8 @@ Tier 2 ──upgrade──> Tier 3 (eigene VPS, Daten-Export+Import)
 
 ### Tier 2 + 3 (Cloud) — Zusaetzlich
 
-- [ ] AVV-Template (zwischen 5eyes-Operator und Berater)
-- [ ] DSFA fuer 5eyes-Operator (zentral gepflegt)
+- [ ] AVV-Template (zwischen Ares-Operator und Berater)
+- [ ] DSFA fuer Ares-Operator (zentral gepflegt)
 - [ ] FINMA-Outsourcing-Anzeige-Template
 - [ ] SLA-Dokument
 - [ ] Incident-Response-Plan
@@ -181,7 +181,7 @@ Tier 2 ──upgrade──> Tier 3 (eigene VPS, Daten-Export+Import)
 | Punkt | Begruendung |
 |-------|------------|
 | Mobile-Apps (iOS/Android) | Kommt nach Tier 2 stabilisiert |
-| White-Label-Branding | Lizenz-Nehmer behaelt 5eyes-Branding initial |
+| White-Label-Branding | Lizenz-Nehmer behaelt Ares-Branding initial |
 | Multi-Region (DE/AT/FR) | Erst nach CH-Markt-Etablierung |
 | API-Marketplace fuer Drittanbieter | Phase 3 nach Konsolidierung |
 
@@ -209,7 +209,6 @@ Tier 2 ──upgrade──> Tier 3 (eigene VPS, Daten-Export+Import)
 - ADR-008 (HTML-Monolith-Migration) — Frontend-Strategie bleibt unabhaengig vom Tier
 - ADR-005 (Free-Data-Pipeline) — gilt fuer alle Tiers
 - ADR-003 (Anti-Market-Timing) — Methodik-Disziplin tier-unabhaengig
-- Memory: `project_5eyes_audit.md` — Lizenz-Geschaeftsmodell-Stand
 
 ---
 
