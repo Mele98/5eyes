@@ -9,8 +9,9 @@ nicht still verliert, prueft dieser Test in einem frischen Interpreter:
 1. Nach ``import main`` steht ``users`` in ``Base.metadata.tables``.
 2. ``Base.metadata.sorted_tables`` (Tabellennamen in Reihenfolge) und
    ``app.openapi()`` (kanonisches JSON) haben exakt den Stand vor K-2
-   (Golden-Hashes, berechnet auf ``origin/develop`` 9e6b7dd9 und auf dem
-   K-2-Head identisch). Aendert eine legitime Schema-/API-Aenderung einen
+   (Golden-Hashes, berechnet auf ``origin/develop`` 1730911e und auf dem
+   K-2-Head identisch; ``sorted_tables`` unveraendert seit 9e6b7dd9, der
+   OpenAPI-Hash wurde beim Rebase auf 1730911e nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
    Hash, wird der Golden-Wert bewusst im selben Commit nachgefuehrt.
 
 Negativkontrolle: ``database`` allein registriert ``users`` nicht -- die
@@ -31,7 +32,7 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf7523653a10377b3"
-GOLDEN_OPENAPI_SHA256 = "77a150f2a1b5d666ba61a88c007c7365fb90743d5d0cba826c2fde5237cc4314"
+GOLDEN_OPENAPI_SHA256 = "8aebdaead713b4af5daadda6380f0fb3ef33a3d878a7e39b5f8873e611ddbbb5"
 
 _PROBE = """
 import hashlib, json
