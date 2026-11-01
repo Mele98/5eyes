@@ -659,6 +659,14 @@ jobs:
         working-directory: ares-desktop/frontend/reporting
         run: npm ci
 
+      # U-1 (A3 P1-1): src/api/generated/openapi.ts muss api/openapi.json
+      # entsprechen (Generator openapi-typescript, exakt gepinnt). Bei Drift
+      # rot mit Regenerationsbefehl; dieselbe Pruefung laeuft zusaetzlich
+      # als src/api/openapiTypes.drift.test.ts in vitest.
+      - name: Generated API types drift check
+        working-directory: ares-desktop/frontend/reporting
+        run: npm run check:api-types
+
       - name: Build dist (fuer U-56 Bundle-Size-Tests)
         working-directory: ares-desktop/frontend/reporting
         run: npm run build

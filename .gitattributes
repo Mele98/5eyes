@@ -19,3 +19,6 @@
 
 # Lock files — keep as-is
 package-lock.json -text
+
+# Generierte API-Typen (U-1): im PR-Diff eingeklappt, nie von Hand editieren
+ares-desktop/frontend/reporting/src/api/generated/openapi.ts linguist-generated=true

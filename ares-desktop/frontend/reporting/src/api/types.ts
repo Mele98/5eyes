@@ -10,6 +10,7 @@
  */
 
 import type { RiskCapacityPlausibilityCompact } from './riskCapacityPlausibility';
+import type { ApiRequest, ApiResponse } from './schema';
 
 // ---------------------------------------------------------------------------
 // Gemeinsame Bausteine
@@ -1477,183 +1478,41 @@ export interface DerivedCashflow {
 }
 
 // ---------------------------------------------------------------------------
-// Mandate-Editor (Track #65, FE-React-Migration).
-// Spiegelt schemas/mandates.py: MandateCreate (14-29), Update (32-58),
-// Response (61-85). Mandate am Client (/clients/{id}/mandates), Einzel via /mandates/{id}.
+// Mandate-Editor (Track #65) und CRM / Stammdaten-Editor (Track #66).
+//
+// U-1 (A3 P1-1): Diese Typen sind Aliase auf die aus `api/openapi.json`
+// generierten Schemas (schemas/mandates.py, schemas/clients.py) und werden
+// nicht mehr von Hand gepflegt. Aenderungen am Backend-Schema: Artefakt mit
+// `export_openapi.py` erzeugen, dann `npm run gen:api-types`.
+// Mandate am Client (/clients/{id}/mandates), Einzel via /mandates/{id}.
 // ---------------------------------------------------------------------------
 
-export type MandateType =
-  | 'Vermögensverwaltung'
-  | 'Anlageberatung'
-  | 'Finanzplanung'
-  | 'Reporting only';
-export type MandateStatus = 'Aktiv' | 'Inaktiv' | 'Archiviert';
-export type AdvisoryLanguage = 'DE' | 'FR' | 'IT' | 'EN';
-export type InvestmentUniverse = 'Standard' | 'Alternativ';
-export type ClientSex = 'M' | 'F';
+export type MandateType = NonNullable<ApiRequest<'MandateCreate'>['mandate_type']>;
+export type MandateStatus = NonNullable<ApiRequest<'MandateUpdate'>['status']>;
+export type AdvisoryLanguage = NonNullable<ApiRequest<'MandateCreate'>['advisory_language']>;
+export type InvestmentUniverse = NonNullable<ApiRequest<'MandateCreate'>['investment_universe']>;
+export type ClientSex = NonNullable<ApiRequest<'MandateCreate'>['client_sex']>;
 
-export interface MandateCreatePayload {
-  mandate_number: string;
-  mandate_type?: MandateType;
-  base_currency?: string;
-  advisory_language?: AdvisoryLanguage;
-  depot_bank?: string | null;
-  depot_account_number?: string | null;
-  opened_at?: string | null;
-  investment_universe?: InvestmentUniverse;
-  client_birth_year?: number | null;
-  client_sex?: ClientSex | null;
-  use_mortality_simulation?: boolean;
-}
+export type MandateCreatePayload = ApiRequest<'MandateCreate'>;
+export type MandateUpdatePayload = ApiRequest<'MandateUpdate'>;
+export type MandateRecord = ApiResponse<'MandateResponse'>;
 
-export interface MandateUpdatePayload {
-  mandate_type?: string;
-  status?: MandateStatus;
-  base_currency?: string;
-  advisory_language?: string;
-  depot_bank?: string | null;
-  depot_account_number?: string | null;
-  closed_at?: string | null;
-  retirement_year?: number | null;
-  life_expectancy_year?: number | null;
-  investment_universe?: InvestmentUniverse;
-  default_building_blocks_json?: string | null;
-  client_birth_year?: number | null;
-  client_sex?: ClientSex | null;
-  use_mortality_simulation?: boolean;
-  tax_jurisdiction?: string | null;
-  tax_overrides_json?: string | null;
-}
+export type Salutation = NonNullable<ApiRequest<'ClientCreate'>['salutation']>;
+export type HouseholdType = NonNullable<ApiRequest<'ClientCreate'>['household_type']>;
+export type ClientClassification = NonNullable<
+  ApiRequest<'ClientCreate'>['client_classification']
+>;
+export type ClientLanguage = NonNullable<ApiRequest<'ClientCreate'>['language']>;
 
-export interface MandateRecord {
-  id: string;
-  client_id: string;
-  mandate_number: string;
-  mandate_type: string;
-  status: string;
-  base_currency: string;
-  advisory_language: string;
-  depot_bank: string | null;
-  depot_account_number: string | null;
-  opened_at: string;
-  closed_at: string | null;
-  retirement_year: number | null;
-  life_expectancy_year: number | null;
-  investment_universe: string | null;
-  default_building_blocks_json: string | null;
-  client_birth_year: number | null;
-  client_sex: string | null;
-  use_mortality_simulation: boolean | null;
-  tax_jurisdiction: string | null;
-  tax_overrides_json: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// ---------------------------------------------------------------------------
-// CRM / Stammdaten-Editor (Track #66, FE-React-Migration).
-// Spiegelt schemas/clients.py: ClientCreate (6-33), Update (36-60),
-// Response (63-90), Nationality (93-103).
-// ---------------------------------------------------------------------------
-
-export type Salutation = 'Herr' | 'Frau' | 'Divers';
-export type HouseholdType = 'Einzelperson' | 'Paar' | 'Familie';
-export type ClientClassification =
-  | 'Privatkunde'
-  | 'Professioneller Kunde'
-  | 'Institutioneller Kunde';
-export type ClientLanguage = 'DE' | 'FR' | 'IT' | 'EN';
-
-export interface ClientCreatePayload {
-  client_number: string;
-  salutation?: Salutation | null;
-  first_name: string;
-  last_name: string;
-  date_of_birth?: string | null;
-  investment_horizon_start?: string | null;
-  investment_horizon_end?: string | null;
-  country_of_residence?: string;
-  canton?: string | null;
-  civil_status?: string | null;
-  profession?: string | null;
-  employer?: string | null;
-  language?: ClientLanguage;
-  household_type?: HouseholdType;
-  client_classification?: ClientClassification;
-  is_professional_opt_out?: boolean;
-  is_qualified_investor?: boolean;
-  partner_salutation?: string | null;
-  partner_first_name?: string | null;
-  partner_last_name?: string | null;
-  partner_date_of_birth?: string | null;
-  partner_profession?: string | null;
-  advisor_id: string;
-  notes?: string | null;
-}
-
-export interface ClientUpdatePayload {
-  salutation?: string | null;
-  first_name?: string;
-  last_name?: string;
-  date_of_birth?: string | null;
-  investment_horizon_start?: string | null;
-  investment_horizon_end?: string | null;
-  country_of_residence?: string;
-  canton?: string | null;
-  civil_status?: string | null;
-  profession?: string | null;
-  employer?: string | null;
-  language?: string;
-  household_type?: string;
-  client_classification?: string;
-  is_professional_opt_out?: boolean;
-  is_qualified_investor?: boolean;
-  // crm-2: Partner-Stammdaten (schemas/clients.py ClientUpdate:49-53).
-  partner_salutation?: string | null;
-  partner_first_name?: string | null;
-  partner_last_name?: string | null;
-  partner_date_of_birth?: string | null;
-  partner_profession?: string | null;
-  notes?: string | null;
-}
-
-export interface ClientRecord {
-  id: string;
-  client_number: string;
-  salutation: string | null;
-  first_name: string;
-  last_name: string;
-  date_of_birth: string | null;
-  investment_horizon_start: string | null;
-  investment_horizon_end: string | null;
-  country_of_residence: string;
-  canton: string | null;
-  civil_status: string | null;
-  profession: string | null;
-  employer: string | null;
-  language: string;
-  partner_salutation: string | null;
-  partner_first_name: string | null;
-  partner_last_name: string | null;
-  partner_date_of_birth: string | null;
-  partner_profession: string | null;
-  household_type: string;
-  client_classification: string;
-  is_professional_opt_out: number;
-  is_qualified_investor: number;
-  advisor_id: string;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface NationalityRecord {
-  id: string;
-  client_id: string;
-  country_code: string;
-  is_primary: number;
-  created_at: string;
-}
+export type ClientCreatePayload = ApiRequest<'ClientCreate'>;
+/**
+ * FIDLEG-STATE-001 / DUAL-STACK-01: client_classification,
+ * is_professional_opt_out und is_qualified_investor gibt es im Update nicht
+ * (Aenderung nur ueber POST /clients/{id}/opt-history).
+ */
+export type ClientUpdatePayload = ApiRequest<'ClientUpdate'>;
+export type ClientRecord = ApiResponse<'ClientResponse'>;
+export type NationalityRecord = ApiResponse<'NationalityResponse'>;
 
 // ---------------------------------------------------------------------------
 // Opt-History (DUAL-STACK-01, 2026-10-Audit).
