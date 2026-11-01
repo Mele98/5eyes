@@ -143,6 +143,8 @@ def test_ch_literal_ratchet_only_sinks():
 # ausschliesslich als ``.code`` verwendet -- ohne Normalisierung, ohne
 # Fallback, ohne weitere Aufrufkette. Einzig zulaessige Huelle ist ein
 # einfaches ``str(...)`` (Input-Snapshot, war vorher ebenfalls ``str(...)``).
+# Ab K-3 zusaetzlich zulaessig: ``RunContext.capture(resolve_pack(mandate), ...)``
+# (build_run_context; capture liest unveraendert ``.code``).
 # Die Anzahl der Stellen je Modul ist gepinnt, damit keine Stelle still auf
 # eine andere Formel zurueckfaellt.
 # --------------------------------------------------------------------------
@@ -182,6 +184,17 @@ def _resolve_pack_site_violations(tree: ast.AST) -> tuple[int, list[str]]:
         if not (positional_ok or keyword_ok):
             problems.append(f"{where}: Argumentform {ast.unparse(node)}")
         attr = parents.get(node)
+        if (
+            isinstance(attr, ast.Call)
+            and isinstance(attr.func, ast.Attribute)
+            and attr.func.attr == "capture"
+            and isinstance(attr.func.value, ast.Name)
+            and attr.func.value.id == "RunContext"
+            and attr.args[:1] == [node]
+        ):
+            # K-3 build_run_context: RunContext.capture liest genau .code
+            # (config.RunContext.capture: jurisdiction=resolved_pack.code).
+            continue
         if not (isinstance(attr, ast.Attribute) and attr.attr == "code" and attr.value is node):
             problems.append(f"{where}: resolve_pack ohne direktes .code")
             continue
@@ -221,6 +234,8 @@ def test_converted_sites_use_plain_resolve_pack_code(rel):
         "x = resolve_pack(mandate).pack.code",
         "x = resolve_pack(getattr(mandate, 'jurisdiction', None)).code",
         "x = str(resolve_pack(mandate).code).upper()",
+        "x = Other.capture(resolve_pack(mandate), settings)",
+        "x = RunContext.capture(settings, resolve_pack(mandate))",
     ],
 )
 def test_site_check_rejects_reintroduced_normalisation(mutated):
