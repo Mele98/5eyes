@@ -337,7 +337,7 @@ class Settings(BaseSettings):
 
     # U-8 — DB-Backup-Strategie (PR #106).
     backup_enabled: bool = True
-    backup_dir: str = str(Path.home() / '5eyes' / 'backups')
+    backup_dir: str = str(Path.home() / 'ares' / 'backups')
     backup_retain_days: int = 30
     backup_keep_minimum: int = 3
     backup_scheduler_enabled: bool = True
@@ -351,7 +351,7 @@ class Settings(BaseSettings):
     # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
     # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
     backup_offsite_enabled: bool = False
-    # rsync-Zielangabe, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/"
+    # rsync-Zielangabe, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/"
     backup_offsite_target: str = ''
     backup_offsite_ssh_key_path: str = ''
     backup_offsite_ssh_port: int = 22

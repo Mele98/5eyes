@@ -13,7 +13,7 @@
 # (services/data_classification.py) — es macht weder die bereits
 # vorhandene Electron-Desktop-DB unsichtbar noch verhindert es, dass dieses
 # Skript sie oeffnet. Ohne explizites DB_PATH zeigt dieses Skript daher
-# standardmaessig auf eine SEPARATE Datei (~\5eyes\external-demo.db), NIE
+# standardmaessig auf eine SEPARATE Datei (~\ares\external-demo.db), NIE
 # auf die produktive Desktop-DB — ein oeffentlicher Cloudflare-Quick-Tunnel
 # gegen echte Mandantendaten passiert damit nicht mehr aus Versehen.
 # Fuer den bewussten Fall (z.B. echter externer Zugriff fuer eine Firma)
@@ -24,10 +24,10 @@ $ErrorActionPreference = 'Stop'
 
 $repo    = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $backend = Join-Path $repo 'ares-backend'
-$home5   = Join-Path $env:USERPROFILE '5eyes'
-if (-not (Test-Path $home5)) { New-Item -ItemType Directory -Path $home5 | Out-Null }
-$secretFile = Join-Path $home5 '.external-secret.txt'
-$cfExe      = Join-Path $home5 'cloudflared.exe'
+$aresHome = Join-Path $env:USERPROFILE 'ares'
+if (-not (Test-Path $aresHome)) { New-Item -ItemType Directory -Path $aresHome | Out-Null }
+$secretFile = Join-Path $aresHome '.external-secret.txt'
+$cfExe      = Join-Path $aresHome 'cloudflared.exe'
 
 # --- Python finden ---
 $pyCmd = Get-Command python -ErrorAction SilentlyContinue
@@ -50,7 +50,7 @@ if (-not $env:DB_PATH) {
   # Kein DB_PATH gesetzt -> sicherer Default: eigene Staging-DB, niemals
   # die produktive Desktop-DB. seed_external_demo.py kann diese Datei
   # separat mit synthetischen Demo-Mandaten befuellen.
-  $env:DB_PATH = Join-Path $home5 'external-demo.db'
+  $env:DB_PATH = Join-Path $aresHome 'external-demo.db'
   Write-Host "DB_PATH nicht gesetzt -> nutze separate Staging-DB: $($env:DB_PATH)" -ForegroundColor Cyan
 }
 & $pyExe $dbLocation check $env:DB_PATH
