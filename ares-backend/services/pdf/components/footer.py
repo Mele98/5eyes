@@ -6,10 +6,11 @@ Sprint 11 ersetzt Sprint-5-Default-Disclaimer durch FIDLEG-konformen Text.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from reportlab.pdfgen.canvas import Canvas
 
-from services.pdf.base import PDFContext
+from jurisdictions.documents import default_documents
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TEXT_MUTED,
@@ -19,13 +20,15 @@ from services.pdf.styles import (
 )
 from reportlab.lib.units import mm
 
-# Sprint 11: FIDLEG-Disclaimer (woertlich aus Frontend-Vorlage)
-FIDLEG_DISCLAIMER = (
-    "Dieses Dokument wurde in Übereinstimmung mit dem Bundesgesetz über die "
-    "Finanzdienstleistungen (FIDLEG) erstellt. Es dient der Dokumentation der "
-    "Anlageberatung und stellt keine Garantie für Anlageergebnisse dar. "
-    "Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
-)
+if TYPE_CHECKING:  # nur Typannotation; zur Laufzeit nicht benoetigt
+    from services.pdf.base import PDFContext
+
+# Laenderpaket X3: Der Fusszeilen-Disclaimer kommt aus dem DocumentSet
+# (jurisdictions/ch/documents/de-CH/legal.yaml, Schluessel
+# ``legal.footer.disclaimer``), byte-gleich zur frueheren Konstante.
+# ``FIDLEG_DISCLAIMER`` bleibt als Name fuer bestehende Importe stehen.
+FOOTER_DISCLAIMER_KEY = "legal.footer.disclaimer"
+FIDLEG_DISCLAIMER = default_documents().text(FOOTER_DISCLAIMER_KEY)
 
 
 def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
@@ -35,7 +38,7 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
         <FIDLEG-Disclaimer>                                 Seite N
     Audit: <hash kurz> · Erstellt am <DATUM>     Erzeugt: YYYY-MM-DD HH:MM
     """
-    text = disclaimer if disclaimer is not None else FIDLEG_DISCLAIMER
+    text = disclaimer if disclaimer is not None else default_documents().text(FOOTER_DISCLAIMER_KEY)
     audit_label = ctx.audit_hash[:12] if ctx.audit_hash else "n/a"
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
     date_str = ctx.report_date.strftime("%d.%m.%Y")

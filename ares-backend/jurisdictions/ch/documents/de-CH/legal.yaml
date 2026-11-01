@@ -1,0 +1,11 @@
+# CH-Laenderpaket, Schritt X3 (DocumentSet), Locale de-CH.
+#
+# Rechtstexte: PDF-Fusszeile (services/pdf/components/footer.py).
+#
+# Byte-gleich aus den bisherigen Konstanten uebernommen; Nachweis in
+# tests/test_jurisdiction_document_set.py (Digest je Schluessel, vorher == nachher).
+# Schluessel = <namespace>.<Schluessel unter texts>. Werte: Text, Liste von
+# Texten oder Liste von [Begriff, Erklaerung]-Paaren.
+namespace: "legal"
+texts:
+  "footer.disclaimer": "Dieses Dokument wurde in Übereinstimmung mit dem Bundesgesetz über die Finanzdienstleistungen (FIDLEG) erstellt. Es dient der Dokumentation der Anlageberatung und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."

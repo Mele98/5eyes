@@ -1,0 +1,18 @@
+# CH-Laenderpaket, Schritt X3 (DocumentSet), Locale de-CH.
+#
+# Deckblatt des standalone Ex-ante-Kostenausweises
+# (services/pdf/documents/cost_disclosure.py).
+#
+# Byte-gleich aus den bisherigen Konstanten uebernommen; Nachweis in
+# tests/test_jurisdiction_document_set.py (Digest je Schluessel, vorher == nachher).
+# Schluessel = <namespace>.<Schluessel unter texts>. Werte: Text, Liste von
+# Texten oder Liste von [Begriff, Erklaerung]-Paaren.
+namespace: "cost_disclosure"
+texts:
+  "cover.title": "Ex-ante Kostenausweis"
+  "cover.subtitle": "Voraussichtliche Kosten der empfohlenen Finanzdienstleistung"
+  "cover.focus_points":
+  - "Einmalige Kosten (Einrichtung, Transaktionen Erstumsetzung)"
+  - "Laufende Kosten p.a. (Produktkosten, Dienstleistungs- und Depotgebuehren)"
+  - "Gesamtkosten im ersten Jahr inkl. Berechnungsbasis"
+  - "FIDLEG Art. 8/9 und FIDLEV Art. 8/14 — Annahmen und Datenquellen"
