@@ -254,16 +254,24 @@ def test_onsite_signature_constants_come_from_catalog():
 
 
 def test_monolith_evaluated_codes_exist(monolith, backend):
-    found = set().union(*monolith.values()) if monolith else set()
+    found, prefixes = rc.split_prefixes(set().union(*monolith.values()) if monolith else set())
     assert found, "Extraktion fand im Monolith keine Codes (Regel kaputt?)"
+    for prefix in sorted(prefixes):
+        assert any(c.startswith(prefix) for c in backend.produced_codes() & CATALOG), (
+            f"Monolith prueft Praefix {prefix!r}, das kein erzeugter Katalog-Code hat"
+        )
     missing = found - CATALOG
     assert not missing, f"Monolith wertet Codes aus, die nicht im Katalog stehen: {sorted(missing)}"
     assert found <= backend.produced_codes(), sorted(found - backend.produced_codes())
 
 
 def test_reporting_evaluated_codes_exist(reporting, backend):
-    found = set().union(*reporting.values()) if reporting else set()
+    found, prefixes = rc.split_prefixes(set().union(*reporting.values()) if reporting else set())
     assert found, "Extraktion fand im Reporting keine Codes (Regel kaputt?)"
+    for prefix in sorted(prefixes):
+        assert any(c.startswith(prefix) for c in backend.produced_codes() & CATALOG), (
+            f"Reporting prueft Praefix {prefix!r}, das kein erzeugter Katalog-Code hat"
+        )
     missing = found - CATALOG
     assert not missing, f"Reporting wertet Codes aus, die nicht im Katalog stehen: {sorted(missing)}"
     assert found <= backend.produced_codes(), sorted(found - backend.produced_codes())
@@ -382,6 +390,38 @@ def test_frontend_extraction_rules_each_detect_a_code():
         }
     """)
     assert rc.extract_frontend_text(js) == {"A_MAP", "B_MAP", "C_CONST", "D_CMP", "E_REV", "F_CASE"}
+
+
+@pytest.mark.parametrize(
+    "js,expected",
+    [
+        ("if(['G_INC','H_INC'].includes(d.reason_code)) go();", {"G_INC", "H_INC"}),
+        ("if (d['reason_code'] === 'I_BRACKET') go();", {"I_BRACKET"}),
+        ('if ("J_BRACKET_REV" !== d["reasonCode"]) go();', {"J_BRACKET_REV"}),
+        ("const rc = resp.detail.reason_code;\nif (rc === 'K_ALIAS') go();", {"K_ALIAS"}),
+        ("const { reason_code: code } = d;\nswitch (code) {\n case 'L_ALIAS_CASE': go();\n}",
+         {"L_ALIAS_CASE"}),
+        ("let rc = d?.reason_code || '';\nif (['M_ALIAS_INC'].includes(rc)) go();", {"M_ALIAS_INC"}),
+        ("if (d.reason_code.startsWith('CMA_')) go();", {"CMA_*"}),
+        ("if (d.reason_code?.startsWith('ONSITE_')) go();", {"ONSITE_*"}),
+        ("if (typeof d['reason_code'] === 'string') go();", set()),
+    ],
+    ids=["includes_literal_array", "bracket_compare", "bracket_compare_reverse", "alias_compare",
+         "destructured_alias_switch", "alias_includes", "starts_with", "optional_starts_with",
+         "typeof_bracket_is_no_code"],
+)
+def test_frontend_extraction_n1b_forms(js, expected):
+    """K-2-Review N1b: weitere Auswertungsformen werden erkannt (Negativkontrollen:
+    vor der Erweiterung lieferte jede dieser Zeilen eine leere Menge)."""
+    assert rc.extract_frontend_text(js) == expected
+
+
+def test_frontend_prefix_without_produced_code_is_red(backend):
+    found, prefixes = rc.split_prefixes(
+        rc.extract_frontend_text("if (d.reason_code.startsWith('NO_SUCH_PREFIX_')) x();")
+    )
+    assert found == set() and prefixes == {"NO_SUCH_PREFIX_"}
+    assert not any(c.startswith("NO_SUCH_PREFIX_") for c in backend.produced_codes())
 
 
 # --------------------------------------------------------------------------

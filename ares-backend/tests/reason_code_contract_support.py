@@ -742,13 +742,30 @@ def extract_backend(root: Path = BACKEND_ROOT) -> Extraction:
 # --------------------------------------------------------------------------
 
 _JS_STR = r"""['"]([A-Za-z][A-Za-z0-9_.\-]*)['"]"""
-_RC = r"(?:reason_code|reasonCode)"
-_CMP_RE = re.compile(_RC + r"\s*(?:===?|!==?)\s*" + _JS_STR)
-_CMP_REV_RE = re.compile(_JS_STR + r"\s*(?:===?|!==?)\s*[\w.\]\[]*" + _RC + r"\b")
-_CMP_CONST_RE = re.compile(_RC + r"\s*(?:===?|!==?)\s*([A-Z][A-Z0-9_]+)\b")
-_MAP_USE_RE = re.compile(r"\b([A-Za-z_$][\w$]*)\s*\[\s*[\w$.]*\." + _RC + r"\s*\]")
-_CASE_SWITCH_RE = re.compile(r"switch\s*\(\s*[\w$.]*" + _RC + r"\s*\)\s*\{(.*?)\n\s*\}", re.S)
+_RC_NAME = r"(?:reason_code|reasonCode)"
+# ``x.reason_code`` und ``x['reason_code']`` (Klammer-Zugriff, K-2-Review N1b)
+_RC = _RC_NAME + r"""(?:['"]\s*\])?"""
 _CASE_RE = re.compile(r"case\s+" + _JS_STR + r"\s*:")
+# Alias-Variable: ``const rc = x.reason_code;`` / ``const { reason_code: rc } = x``
+_ALIAS_RE = re.compile(
+    r"(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*[\w$.?]*"
+    r"""(?:\.""" + _RC_NAME + r"""\b|\[\s*['"]""" + _RC_NAME + r"""['"]\s*\])"""
+    r"\s*(?:;|,|\n|\)|\|\||\?\?)"
+)
+_ALIAS_DESTRUCT_RE = re.compile(r"\{[^{}]*\b" + _RC_NAME + r"\s*:\s*([A-Za-z_$][\w$]*)[^{}]*\}\s*=")
+
+
+def _frontend_rules(ref: str) -> dict[str, re.Pattern]:
+    """Erkennungsregeln fuer einen Referenz-Ausdruck ``ref`` (Code oder Alias)."""
+    return {
+        "cmp": re.compile(ref + r"\s*(?:===?|!==?)\s*" + _JS_STR),
+        "cmp_rev": re.compile(_JS_STR + r"""\s*(?:===?|!==?)\s*[\w$.\]\[?'"]*""" + ref + r"(?![\w$])"),
+        "cmp_const": re.compile(ref + r"\s*(?:===?|!==?)\s*([A-Z][A-Z0-9_]+)\b"),
+        "map_use": re.compile(r"\b([A-Za-z_$][\w$]*)\s*\[\s*[\w$.?]*" + ref + r"\s*\]"),
+        "switch": re.compile(r"switch\s*\(\s*[\w$.?]*" + ref + r"\s*\)\s*\{(.*?)\n\s*\}", re.S),
+        "includes": re.compile(r"\[([^\[\]]*)\]\s*\.includes\(\s*[\w$.?]*" + ref + r"\s*\)"),
+        "starts": re.compile(ref + r"\s*\??\.startsWith\(\s*" + _JS_STR + r"\s*\)"),
+    }
 
 
 def _js_const(text: str, name: str) -> str | None:
@@ -818,21 +835,52 @@ def _js_object_keys(text: str, name: str) -> list[str]:
 
 
 def extract_frontend_text(text: str) -> set[str]:
+    """Ausgewertete Reason-Codes eines JS/TS-Texts (Regex, kein Parser).
+
+    Erkannt werden, jeweils fuer ``x.reason_code``, ``x['reason_code']``
+    (auch ``reasonCode``) und fuer Alias-Variablen (``const rc =
+    x.reason_code`` bzw. ``const { reason_code: rc } = x``):
+    Vergleich mit Literal (beide Richtungen) oder Konstante, Map-Zugriff
+    ``MAP[x.reason_code]`` (Objekt-Schluessel), ``switch``/``case``,
+    ``['A', 'B'].includes(x.reason_code)`` und ``x.reason_code.startsWith('P')``
+    (geliefert als ``"P*"``, ein Praefix).
+
+    Grenzen (bewusst, weil per Regex nicht robust): Aliase sind nicht
+    scope-genau (der Aliasname gilt in der ganzen Datei); Weitergabe ueber
+    Funktionsparameter, ``includes`` auf benannten Arrays
+    (``CODES.includes(rc)``), berechnete Strings, ``indexOf``/``Set.has``
+    und mehrstufige Aliase werden nicht verfolgt.
+    """
     codes: set[str] = set()
-    for m in _CMP_RE.finditer(text):
-        # ``typeof x.reason_code === 'string'`` ist eine Typpruefung, kein Code.
-        if not re.search(r"typeof\s+[\w$.]*$", text[max(0, m.start() - 60):m.start()]):
-            codes.add(m.group(1))
-    codes.update(m.group(1) for m in _CMP_REV_RE.finditer(text))
-    for m in _CMP_CONST_RE.finditer(text):
-        v = _js_const(text, m.group(1))
-        if v:
-            codes.add(v)
-    for m in _MAP_USE_RE.finditer(text):
-        codes.update(_js_object_keys(text, m.group(1)))
-    for sm in _CASE_SWITCH_RE.finditer(text):
-        codes.update(c.group(1) for c in _CASE_RE.finditer(sm.group(1)))
+    aliases = sorted(
+        {m.group(1) for m in _ALIAS_RE.finditer(text)}
+        | {m.group(1) for m in _ALIAS_DESTRUCT_RE.finditer(text)}
+    )
+    refs = [_RC] + [r"(?<![\w$.])" + re.escape(a) for a in aliases]
+    for ref in refs:
+        rules = _frontend_rules(ref)
+        for m in rules["cmp"].finditer(text):
+            # ``typeof x.reason_code === 'string'`` ist eine Typpruefung, kein Code.
+            if not re.search(r"typeof\s+[\w$.\[\]'\"]*$", text[max(0, m.start() - 60):m.start()]):
+                codes.add(m.group(1))
+        codes.update(m.group(1) for m in rules["cmp_rev"].finditer(text))
+        for m in rules["cmp_const"].finditer(text):
+            v = _js_const(text, m.group(1))
+            if v:
+                codes.add(v)
+        for m in rules["map_use"].finditer(text):
+            codes.update(_js_object_keys(text, m.group(1)))
+        for sm in rules["switch"].finditer(text):
+            codes.update(c.group(1) for c in _CASE_RE.finditer(sm.group(1)))
+        for m in rules["includes"].finditer(text):
+            codes.update(c.group(1) for c in re.finditer(_JS_STR, m.group(1)))
+        codes.update(m.group(1) + "*" for m in rules["starts"].finditer(text))
     return codes
+
+
+def split_prefixes(codes: set[str]) -> tuple[set[str], set[str]]:
+    """(exakte Codes, Praefixe ohne ``*``) aus ``extract_frontend_text``."""
+    return {c for c in codes if not c.endswith("*")}, {c[:-1] for c in codes if c.endswith("*")}
 
 
 def _is_test_file(path: Path) -> bool:
