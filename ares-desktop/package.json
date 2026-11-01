@@ -1,5 +1,6 @@
 {
   "name": "ares-desktop",
+  "productName": "Ares",
   "version": "0.4.0",
   "description": "Local Electron shell for the Ares advisory app",
   "main": "main.js",
@@ -9,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "test": "node tests/main.smoke.test.js && node tests/bundle-secret-scan.test.js && node --test tests/ipc-sender-guard.test.js",
+    "test": "node tests/main.smoke.test.js && node tests/bundle-secret-scan.test.js && node --test tests/ipc-sender-guard.test.js tests/user-data-identity.test.js",
     "build:backend": "node scripts/build-backend.js",
     "build:reporting": "cd frontend/reporting && npm run build",
     "pack": "npm run build:reporting && npm run build:backend && npm run preflight:release && npm run scan:bundle-secrets && electron-builder --dir",
@@ -24,7 +25,7 @@
   },
   "build": {
     "appId": "ch.5eyes.wealtharchitekten",
-    "productName": "5Eyes WealthArchitekten",
+    "productName": "Ares",
     "directories": {
       "output": "dist",
       "buildResources": "assets"
@@ -86,8 +87,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "5Eyes WealthArchitekten",
-      "uninstallDisplayName": "5Eyes WealthArchitekten",
+      "shortcutName": "Ares",
+      "uninstallDisplayName": "Ares",
       "deleteAppDataOnUninstall": false,
       "displayLanguageSelector": false,
       "installerIcon": "assets/icons/installer-icon.ico",

@@ -36,7 +36,7 @@ This desktop shell starts the local FastAPI backend, verifies that the reachable
 - Placeholder Windows app icon is included under `assets/icons/` and can be replaced later without changing code.
 - The backend scheduler only needs to run while the app is open.
 - SQLCipher is controlled centrally through `DB_USE_SQLCIPHER=true` and `DB_KEY=...` in `.env`.
-- Electron writes a local support log to `%APPDATA%/5Eyes WealthArchitekten/logs/electron.log` (or the platform equivalent).
+- Electron writes a local support log to `%APPDATA%/Ares/logs/electron.log` (or the platform equivalent). The folder is the Electron `userData` path, derived from the top-level `productName` in `package.json` (same in dev and packaged builds).
 - The packaged backend looks for a `.env` file next to the bundled backend executable first, then falls back to the normal project locations. The build never ships a real `.env` there — see "Secrets are never bundled" below.
 - The frontend contains an in-app bootstrap flow for the first admin account if the database has no users yet.
 - For a fully offline release, run `python vendor_assets.py` successfully before the final installer build.
