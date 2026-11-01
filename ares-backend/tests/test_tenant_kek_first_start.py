@@ -158,8 +158,8 @@ def test_existing_db_without_kek_never_generates(tmp_path, suffix):
     assert cfg.tenant_master_kek == ""
 
 
-def test_existing_db_under_predecessor_contract_keeps_legacy_start(tmp_path):
-    """Vor W4-c: Bestandsinstallation startet weiter (Rueckfall), aber ohne neue KEK."""
+def test_existing_db_without_kek_store_generates_nothing(tmp_path):
+    """Bestandsdatenbank ohne KEK: keine neue KEK (der Start bricht danach an der KEK-Pflicht ab)."""
     db = tmp_path / "data" / "ares.db"
     db.parent.mkdir(parents=True)
     db.write_bytes(b"x")
@@ -408,3 +408,48 @@ def test_lifespan_aborts_before_init_db_on_unreadable_store(tmp_path, monkeypatc
     assert calls == ["ensure"], "init_db darf nicht laufen"
     assert "Start abgebrochen" in caplog.text
     assert store.read_bytes() == KEK_STORE_MAGIC + b"fremd"
+
+
+def test_lifespan_existing_db_without_kek_reports_abort_not_legacy_start(tmp_path, monkeypatch, caplog):
+    """Nachtrag W4-c: seit der KEK-Pflicht ohne Rueckfall beschreibt die Meldung
+    fuer "vorhandene Datenbank ohne KEK-Ablage" einen Abbruch, keinen
+    fortgesetzten Start unter dem Vorgaengervertrag -- und der Start bricht
+    tatsaechlich vor init_db ab, ohne eine KEK zu erzeugen."""
+    import main
+
+    db = tmp_path / "data" / "ares.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"x")
+    store = tmp_path / "userData" / "tenant-master-kek.dpapi"
+    for key, value in {
+        "tenant_master_kek": "",
+        "tenant_master_kek_file": str(store),
+        "db_path": str(db),
+        "database_url": None,
+    }.items():
+        monkeypatch.setattr(main.settings, key, value)
+    monkeypatch.setattr(main, "configure_logging", lambda: None)
+    calls: list[str] = []
+    monkeypatch.setattr(main, "init_db", lambda: calls.append("init_db"))
+    fake = FakeProtector()
+    real_ensure = config.ensure_tenant_master_kek
+    monkeypatch.setattr(main, "ensure_tenant_master_kek", lambda cfg: real_ensure(cfg, protector=fake))
+    caplog.set_level(logging.DEBUG)
+
+    async def run():
+        async with main.lifespan(main.app):
+            pass
+
+    with pytest.raises(KekStoreError, match="TENANT_MASTER_KEK fehlt"):
+        asyncio.run(run())
+
+    assert calls == [], "init_db darf nicht laufen"
+    assert fake.protect_calls == 0 and not store.exists()
+    records = [r for r in caplog.records if "vorhandene Datenbank ohne KEK-Ablage" in r.getMessage()]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert records[0].levelno == logging.ERROR
+    assert "der Start bricht an der KEK-Pflicht ab" in message
+    assert "Migrator" in message
+    assert "Vorgaengervertrag" not in caplog.text
+    assert "Start abgebrochen" in caplog.text

@@ -1010,10 +1010,10 @@ KEK_STORE_ENTROPY = b"ares.tenant-master-kek.store.v1"
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
 CRYPTPROTECT_LOCAL_MACHINE = 0x04
 
-# W4-c-Andockstelle: Solange der Vorgaengervertrag (KEK v1 mit Rueckfall auf
-# SECRET_KEY) gilt, startet eine Bestandsinstallation ohne KEK weiter ueber
-# diesen Rueckfall -- hier wird dann nur KEINE KEK erzeugt. W4-c (KEK-Pflicht)
-# setzt diesen Schalter auf True: vorhandene Datenbank ohne KEK = Abbruch.
+# Vorhandene Datenbank ohne KEK: hier wird nie eine KEK erzeugt (Ergebnis
+# ``legacy-existing-db``). Seit W4-c (KEK-Pflicht ohne Rueckfall auf
+# SECRET_KEY) bricht der Start danach an ``require_tenant_master_kek`` vor
+# init_db ab. True wirft schon hier :class:`KekStoreError` (Hinweis Migrator).
 KEK_REQUIRED_FOR_EXISTING_DATA = False
 
 
@@ -1207,8 +1207,8 @@ def ensure_tenant_master_kek(
     Ergebnisse (nie mit KEK-Wert): ``disabled`` (keine Ablage konfiguriert),
     ``configured`` (TENANT_MASTER_KEK gesetzt), ``loaded`` (aus der Ablage),
     ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen),
-    ``legacy-existing-db`` (Bestandsdatenbank ohne KEK unter dem
-    Vorgaengervertrag: nichts erzeugt). Jeder unsichere Zustand wirft
+    ``legacy-existing-db`` (Bestandsdatenbank ohne KEK: nichts erzeugt; der
+    Start bricht danach an der KEK-Pflicht ab). Jeder unsichere Zustand wirft
     :class:`KekStoreError`.
     """
     cfg = cfg if cfg is not None else settings

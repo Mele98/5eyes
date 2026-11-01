@@ -98,9 +98,13 @@ async def lifespan(app: FastAPI):
         logger.critical('Start abgebrochen: %s', exc)
         raise
     if kek_outcome == 'legacy-existing-db':
-        logger.warning(
-            'Master-KEK: vorhandene Datenbank ohne KEK-Ablage -- keine KEK erzeugt '
-            '(Vorgaengervertrag; mit der KEK-Pflicht bricht dieser Start ab)'
+        # Seit W4-c gibt es keinen Rueckfall mehr: ohne KEK bricht der Start
+        # unmittelbar danach an require_tenant_master_kek ab (vor init_db).
+        logger.error(
+            'Master-KEK: vorhandene Datenbank ohne KEK-Ablage und ohne '
+            'TENANT_MASTER_KEK -- keine KEK erzeugt; der Start bricht an der '
+            'KEK-Pflicht ab. Bestandsdaten mit dem Migrator uebernehmen oder die '
+            'KEK-Ablage aus Sicherung/Treuhand zurueckspielen.'
         )
     else:
         logger.info('Master-KEK: %s', kek_outcome)
