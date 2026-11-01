@@ -1095,6 +1095,37 @@ def test_shadow_next_to_parent_package_is_red(gate, mini, monkeypatch):
     assert any(r.startswith("[module_collisions] core:") for r in result.regressions)
 
 
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "core/__init__.pyd",
+        "core/__init__.cp312-win_amd64.pyd",
+        "core/__init__.cpython-312-x86_64-linux-gnu.so",
+        "core/__init__.pyc",
+        "core/__INIT__.PYD",
+    ],
+    ids=["pyd", "pyd_tagged", "so_tagged", "pyc", "other_case_pyd"],
+)
+def test_extra_init_file_in_parent_package_is_red(gate, mini, monkeypatch, rel):
+    """N-844-4: ``find_spec`` sieht nur die Endungen des laufenden Interpreters;
+    die Pruefung muss auf jeder Plattform rot sein, nicht nur unter Windows."""
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    (mini / rel).write_bytes(b"\x00not a real extension\x00")
+    _, result = _check(gate, mini, base)
+    assert f"core: weitere Paket-Init-Datei: {rel}" in _leaf_regressions(result), result.regressions
+
+
+def test_init_pyw_in_parent_package_is_red(gate, mini, monkeypatch):
+    """``__init__.pyw`` wird heute nicht geladen, ist aber eine ladbare Endung
+    und hat im Paket nichts zu suchen (fail-closed)."""
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/__init__.pyw", "")
+    _, result = _check(gate, mini, base)
+    assert "core: weitere Paket-Init-Datei: core/__init__.pyw" in _leaf_regressions(result)
+
+
 def test_module_name_collision_outside_leaves_is_red(gate, mini):
     """N-844-1 generell: zwei Dateien fuer einen Modulnamen sind ueberall rot."""
     base = _baseline(gate, mini)
