@@ -33,6 +33,27 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
    ein gelistetes Modul importiert irgendetwas ausser Standardbibliothek
    (Modulebene, funktionslokal, bedingt, ``TYPE_CHECKING``, relativ oder
    dynamisch via ``__import__``/``import_module``) oder hat selbst Fan-out > 0.
+   Zusaetzlich erzwingt ``leaf_contract_violations`` fuer jedes gelistete Modul:
+   - Modulebene nur aus einer Positivliste: Docstring/String-Konstanten,
+     ``import``/``from ... import``, ``def``/``async def``/``class``,
+     ``pass``, ``if TYPE_CHECKING:`` (nur Importe, kein ``else``) sowie
+     Zuweisungen an einfache Namen (auch ``__all__``), deren Wert ein reiner
+     Ausdruck ist: Literale, Namen, Attribute, Container, Operatoren,
+     Comprehensions, Lambdas und Aufrufe ausschliesslich der reinen
+     Konstruktoren ``LEAF_PURE_CALLS``. Klassenkoerper unterliegen derselben
+     Regel; Dekoratoren nur aus ``LEAF_PURE_DECORATORS``; Defaults, Basen und
+     Klassen-Keywords nur reine Ausdruecke. Alles andere (z. B. ``open(...)``,
+     Zuweisung an Attribut/Subscript, ``for``/``with``/``try``/sonstiges
+     ``if``) gilt als Modul-Seiteneffekt.
+   - Im ganzen Modul (auch in Funktionen) keine dynamischen Importe oder
+     Codeausfuehrung: keine Referenz auf ``LEAF_FORBIDDEN_NAMES``
+     (``__import__``, ``exec``, ``eval``, ``compile``, ``importlib``,
+     ``runpy`` ...), kein Import aus ``LEAF_FORBIDDEN_MODULES``, kein
+     Attribut aus ``LEAF_FORBIDDEN_ATTRS`` (``import_module``,
+     ``exec_module``, ``run_module``, ``sys.modules`` ...) und kein
+     ``getattr``/``setattr``/``delattr`` mit nicht-konstantem oder
+     verbotenem Attributnamen.
+   - Ein gelisteter Modulpfad, der im Backend nicht existiert, ist rot.
 
 Ratschen-Regel: Wird ein Wert schlechter, schlaegt der Lauf fehl und nennt
 die konkrete Stelle. Wird er besser, meldet der Lauf das; die Basis darf
@@ -69,6 +90,33 @@ ENV_ATTRS = frozenset({"environ", "getenv", "putenv", "unsetenv"})
 FAN_OUT_EXEMPT_LEAVES = frozenset({"core.evidence"})
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
+# Regel 6, Blattvertrag (Positivliste der Modulebene, siehe Docstring).
+LEAF_PURE_CALLS = frozenset(
+    {"frozenset", "tuple", "dict", "list", "set", "MappingProxyType", "types.MappingProxyType"}
+)
+LEAF_PURE_DECORATORS = frozenset(
+    {
+        "property", "staticmethod", "classmethod", "abstractmethod", "abc.abstractmethod",
+        "dataclass", "dataclasses.dataclass", "unique", "enum.unique", "overload",
+        "typing.overload", "final", "typing.final", "total_ordering",
+        "functools.total_ordering", "cached_property", "functools.cached_property",
+    }
+)
+LEAF_FORBIDDEN_NAMES = frozenset(
+    {
+        "__import__", "exec", "eval", "compile", "importlib", "runpy", "builtins",
+        "__builtins__", "globals", "locals", "vars", "breakpoint",
+    }
+)
+LEAF_FORBIDDEN_MODULES = frozenset({"importlib", "runpy", "builtins", "imp", "pkgutil", "zipimport"})
+LEAF_FORBIDDEN_ATTRS = frozenset(
+    {
+        "import_module", "__import__", "exec_module", "load_module", "spec_from_file_location",
+        "module_from_spec", "run_module", "run_path", "modules", "__builtins__", "__dict__",
+        "f_globals", "f_locals",
+    }
+)
+_LEAF_ATTR_FUNCS = frozenset({"getattr", "setattr", "delattr"})
 
 
 @dataclass
@@ -81,6 +129,9 @@ class ModuleScan:
     env_hits: list[tuple[int, str]] = field(default_factory=list)  # (Zeile, Schluessel)
     # Regel 6: jeder Import, der nicht reine Standardbibliothek ist (alle Kontexte).
     non_stdlib_imports: list[tuple[int, str]] = field(default_factory=list)
+    # Regel 6, Blattvertrag (nur fuer gelistete Module befuellt): Modul-
+    # Seiteneffekte und dynamische Importe/Codeausfuehrung.
+    leaf_violations: list[tuple[int, str]] = field(default_factory=list)
 
     def runtime_targets(self) -> dict[str, int]:
         out = dict(self.lazy)
@@ -236,6 +287,158 @@ class _Visitor(ast.NodeVisitor):
         return "<dynamisch>" if arg is not None else "<environ>"
 
 
+def _dotted(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted(node.value)
+        return f"{base}.{node.attr}" if base else ""
+    return ""
+
+
+def _pure_expr(node: ast.AST | None) -> bool:
+    """Reiner Ausdruck (Positivliste, rekursiv): wertet ohne Seiteneffekt aus."""
+    if node is None or isinstance(node, (ast.Constant, ast.Name)):
+        return True
+    if isinstance(node, ast.Attribute):
+        return _pure_expr(node.value)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return all(_pure_expr(e) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(_pure_expr(k) for k in node.keys) and all(_pure_expr(v) for v in node.values)
+    if isinstance(node, ast.Starred):
+        return _pure_expr(node.value)
+    if isinstance(node, ast.BinOp):
+        return _pure_expr(node.left) and _pure_expr(node.right)
+    if isinstance(node, ast.UnaryOp):
+        return _pure_expr(node.operand)
+    if isinstance(node, ast.BoolOp):
+        return all(_pure_expr(v) for v in node.values)
+    if isinstance(node, ast.Compare):
+        return _pure_expr(node.left) and all(_pure_expr(c) for c in node.comparators)
+    if isinstance(node, ast.IfExp):
+        return all(_pure_expr(x) for x in (node.test, node.body, node.orelse))
+    if isinstance(node, ast.Subscript):
+        return _pure_expr(node.value) and _pure_expr(node.slice)
+    if isinstance(node, ast.Slice):
+        return all(_pure_expr(x) for x in (node.lower, node.upper, node.step))
+    if isinstance(node, ast.JoinedStr):
+        return all(_pure_expr(v) for v in node.values)
+    if isinstance(node, ast.FormattedValue):
+        return _pure_expr(node.value) and _pure_expr(node.format_spec)
+    if isinstance(node, ast.Lambda):
+        return _pure_args(node.args)
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+        elts = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+        return all(_pure_expr(e) for e in elts) and all(
+            _pure_target(g.target) and _pure_expr(g.iter) and all(_pure_expr(i) for i in g.ifs)
+            for g in node.generators
+        )
+    if isinstance(node, ast.Call):
+        return (
+            _dotted(node.func) in LEAF_PURE_CALLS
+            and all(_pure_expr(a) for a in node.args)
+            and all(_pure_expr(k.value) for k in node.keywords)
+        )
+    return False
+
+
+def _pure_target(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return True
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return all(_pure_target(e) for e in node.elts)
+    return False
+
+
+def _pure_args(args: ast.arguments) -> bool:
+    return all(_pure_expr(d) for d in args.defaults) and all(
+        _pure_expr(d) for d in args.kw_defaults
+    )
+
+
+def _pure_decorator(node: ast.AST) -> bool:
+    if isinstance(node, ast.Call):
+        return (
+            _dotted(node.func) in LEAF_PURE_DECORATORS
+            and all(_pure_expr(a) for a in node.args)
+            and all(_pure_expr(k.value) for k in node.keywords)
+        )
+    return _dotted(node) in LEAF_PURE_DECORATORS
+
+
+def _leaf_body_violations(body: list[ast.stmt], where: str) -> list[tuple[int, str]]:
+    out: list[tuple[int, str]] = []
+    for st in body:
+        if isinstance(st, (ast.Import, ast.ImportFrom, ast.Pass)):
+            continue
+        if (
+            isinstance(st, ast.Expr)
+            and isinstance(st.value, ast.Constant)
+            and isinstance(st.value.value, str)
+        ):
+            continue
+        if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if all(_pure_decorator(d) for d in st.decorator_list) and _pure_args(st.args):
+                continue
+        elif isinstance(st, ast.ClassDef):
+            if (
+                all(_pure_decorator(d) for d in st.decorator_list)
+                and all(_pure_expr(b) for b in st.bases)
+                and all(_pure_expr(k.value) for k in st.keywords)
+            ):
+                out.extend(_leaf_body_violations(st.body, f"in Klasse {st.name}"))
+                continue
+        elif isinstance(st, ast.Assign):
+            if all(_pure_target(t) for t in st.targets) and _pure_expr(st.value):
+                continue
+        elif isinstance(st, ast.AnnAssign):
+            if isinstance(st.target, ast.Name) and _pure_expr(st.value):
+                continue
+        elif (
+            isinstance(st, ast.If)
+            and _dotted(st.test) in ("TYPE_CHECKING", "typing.TYPE_CHECKING")
+            and not st.orelse
+            and all(isinstance(c, (ast.Import, ast.ImportFrom, ast.Pass)) for c in st.body)
+        ):
+            continue
+        first = ast.unparse(st).splitlines()[0][:80]
+        out.append((st.lineno, f"<Seiteneffekt {where}: {first}>"))
+    return out
+
+
+def leaf_contract_violations(tree: ast.Module) -> list[tuple[int, str]]:
+    """Regel 6, Blattvertrag: Modulebene nur aus der Positivliste; im ganzen
+    Modul keine dynamischen Importe oder Codeausfuehrung."""
+    out = _leaf_body_violations(tree.body, "auf Modulebene")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in LEAF_FORBIDDEN_NAMES:
+            out.append((node.lineno, f"<dynamisch: {node.id}>"))
+        elif isinstance(node, ast.Attribute) and node.attr in LEAF_FORBIDDEN_ATTRS:
+            out.append((node.lineno, f"<dynamisch: .{node.attr}>"))
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.split(".", 1)[0] in LEAF_FORBIDDEN_MODULES:
+                    out.append((node.lineno, f"<dynamisch: import {a.name}>"))
+        elif isinstance(node, ast.ImportFrom):
+            top = (node.module or "").split(".", 1)[0]
+            if top in LEAF_FORBIDDEN_MODULES or any(
+                a.name in LEAF_FORBIDDEN_NAMES | LEAF_FORBIDDEN_ATTRS for a in node.names
+            ):
+                out.append((node.lineno, f"<dynamisch: from {node.module} import ...>"))
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in _LEAF_ATTR_FUNCS
+        ):
+            name = node.args[1] if len(node.args) > 1 else None
+            if not (isinstance(name, ast.Constant) and isinstance(name.value, str)) or (
+                name.value in LEAF_FORBIDDEN_ATTRS | LEAF_FORBIDDEN_NAMES
+            ):
+                out.append((node.lineno, f"<dynamisch: {node.func.id}(...)>"))
+    return sorted(set(out))
+
+
 def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
     root = root or BACKEND_ROOT
     mods = discover_modules(root)
@@ -246,6 +449,8 @@ def scan_backend(root: Path | None = None) -> dict[str, ModuleScan]:
         tree = ast.parse(src, filename=str(path))
         scan = ModuleScan(path=path.relative_to(root).as_posix())
         _Visitor(name, path.name == "__init__.py", resolve, scan).visit(tree)
+        if name in FAN_OUT_EXEMPT_LEAVES:
+            scan.leaf_violations = leaf_contract_violations(tree)
         scan.lazy_lines.sort()
         scan.env_hits.sort()
         scans[name] = scan
@@ -419,14 +624,21 @@ def compare(current: dict, baseline: dict, scans: dict[str, ModuleScan]) -> Resu
     for m in sorted(FAN_OUT_EXEMPT_LEAVES):
         s = scans.get(m)
         if s is None:
+            res.regressions.append(
+                f"[fan_out_exempt_leaves] {m}: gelistet, aber kein Modul mit diesem "
+                f"exakten Pfad im Backend"
+            )
             continue
         own = {**s.typeonly, **s.runtime_targets()}
-        bad = sorted(set(s.non_stdlib_imports) | {(ln, t) for t, ln in own.items()})
+        bad = sorted(
+            set(s.non_stdlib_imports) | set(s.leaf_violations) | {(ln, t) for t, ln in own.items()}
+        )
         if bad:
             detail = "; ".join(f"{s.path}:{ln} -> {t}" for ln, t in bad)
             res.regressions.append(
                 f"[fan_out_exempt_leaves] {m}: kein reines Stdlib-Blatt "
-                f"(nur Standardbibliothek erlaubt, Fan-out 0): {detail}"
+                f"(nur Standardbibliothek, Fan-out 0, keine Modul-Seiteneffekte, "
+                f"keine dynamischen Importe): {detail}"
             )
 
     # 4. Schichtung

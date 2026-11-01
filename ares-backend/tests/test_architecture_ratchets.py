@@ -104,7 +104,10 @@ def _write(root: Path, rel: str, body: str) -> None:
 
 
 @pytest.fixture()
-def mini(tmp_path):
+def mini(tmp_path, gate, monkeypatch):
+    # Das Mini-Backend hat keine echten Blattmodule; Regel 6 meldet gelistete,
+    # aber fehlende Module, deshalb startet die Allowlist hier leer.
+    monkeypatch.setattr(gate, "FAN_OUT_EXEMPT_LEAVES", frozenset())
     root = tmp_path / "backend"
     _write(root, "config.py", "import os\nDB = os.environ.get('DB_PATH')\n")
     _write(root, "models/__init__.py", "")
@@ -370,3 +373,135 @@ def test_shadowed_stdlib_name_is_not_stdlib(gate, mini, monkeypatch):
     _write(mini, "json.py", "")
     _, result = _check(gate, mini, _baseline(gate, mini))
     assert any(r.startswith("[fan_out_exempt_leaves] core.leaf:") for r in result.regressions)
+
+
+# --------------------------------------------------------------------------
+# Regel 6, Blattvertrag: keine Modul-Seiteneffekte, keine dynamischen Importe
+# (Dok. 83: "keine Modul-Seiteneffekte"; Vorpruefung B-13/B-14)
+# --------------------------------------------------------------------------
+
+
+def test_every_exempt_leaf_fulfils_the_leaf_contract(gate):
+    scans = gate.scan_backend()
+    for module in sorted(gate.FAN_OUT_EXEMPT_LEAVES):
+        assert scans[module].leaf_violations == [], (module, scans[module].leaf_violations)
+
+
+def test_rich_valid_leaf_passes_the_leaf_contract(gate, mini, monkeypatch):
+    """Positivkontrolle: alles, was die Positivliste erlaubt, bleibt gruen."""
+    _mini_with_leaf(
+        gate, mini, monkeypatch,
+        '''
+        """Docstring."""
+        from __future__ import annotations
+        import hashlib
+        from dataclasses import dataclass
+        from enum import StrEnum, unique
+        from types import MappingProxyType
+        from typing import TYPE_CHECKING, Any
+        if TYPE_CHECKING:
+            from collections.abc import Mapping
+        SCHEME = "v1"
+        _PAIR: tuple[str, ...] = (",", ":")
+        _TABLE = MappingProxyType({SCHEME: MappingProxyType({"sort_keys": True})})
+        NAMES = tuple(_TABLE)
+        KEYS = frozenset(k for k in NAMES if k)
+        SIZE = len  # Referenz, kein Aufruf
+        LIMIT = 2 ** 8 - 1
+        CODE = lambda x=1: x
+        @unique
+        class Code(StrEnum):
+            """Codes."""
+            A = "a"
+            B: str = "b"
+        @dataclass(frozen=True)
+        class Box:
+            value: Any = None
+            @property
+            def double(self):
+                return getattr(self, "value") * 2
+        def digest(text: str, *, scheme: str = SCHEME) -> str:
+            import decimal
+            return hashlib.sha256(text.encode()).hexdigest() + str(decimal)
+        __all__ = ["Box", "Code", "digest"]
+        ''',
+    )
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert result.regressions == []
+
+
+@pytest.mark.parametrize(
+    "body,needle",
+    [
+        # die vier Faelle aus B-13
+        ('open("side_effect.txt", "w").write("x")\n', "<Seiteneffekt auf Modulebene: open("),
+        ('exec("import services.alpha")\n', "<dynamisch: exec>"),
+        ('import runpy\nrunpy.run_module("services.alpha")\n', "<dynamisch: import runpy>"),
+        ('import importlib\ngetattr(importlib, "import_module")("services.alpha")\n',
+         "<dynamisch: importlib>"),
+        # B-14: dynamische Importe/Codeausfuehrung auch in Funktionen
+        ('def f():\n    return eval("1")\n', "<dynamisch: eval>"),
+        ('def f():\n    return compile("x", "f", "exec")\n', "<dynamisch: compile>"),
+        ('def f():\n    import importlib.util\n'
+         '    return importlib.util.spec_from_file_location("m", "m.py")\n',
+         "<dynamisch: import importlib.util>"),
+        ('from importlib import import_module\n', "<dynamisch: from importlib import ...>"),
+        ('import sys\ndef f():\n    return sys.modules["services.alpha"]\n',
+         "<dynamisch: .modules>"),
+        ('def f(o, n):\n    return getattr(o, n)\n', "<dynamisch: getattr(...)>"),
+        ('def f(o):\n    return getattr(o, "__import__")\n', "<dynamisch: getattr(...)>"),
+        ('def f():\n    return globals()\n', "<dynamisch: globals>"),
+        # weitere Modul-Seiteneffekte
+        ('print("x")\n', "<Seiteneffekt auf Modulebene: print("),
+        ('import os\nos.environ["X"] = "1"\n', "<Seiteneffekt auf Modulebene: os.environ"),
+        ('import logging\nlogging.basicConfig()\n', "<Seiteneffekt auf Modulebene: logging"),
+        ('import hashlib\nH = hashlib.sha256(b"x").hexdigest()\n', "<Seiteneffekt auf Modulebene: H ="),
+        ('for i in range(2):\n    pass\n', "<Seiteneffekt auf Modulebene: for "),
+        ('try:\n    import json\nexcept ImportError:\n    json = None\n',
+         "<Seiteneffekt auf Modulebene: try:"),
+        ('import sys\nif sys.platform:\n    X = 1\n', "<Seiteneffekt auf Modulebene: if "),
+        ('def deco(f):\n    return f\n@deco\ndef g():\n    pass\n', "<Seiteneffekt auf Modulebene: @deco"),
+        ('def g(x=print("x")):\n    return x\n', "<Seiteneffekt auf Modulebene: def g("),
+        ('class C:\n    print("x")\n', "<Seiteneffekt in Klasse C: print("),
+        ('X = [print(i) for i in (1, 2)]\n', "<Seiteneffekt auf Modulebene: X ="),
+        ('import json\njson.x = 1\n', "<Seiteneffekt auf Modulebene: json.x = 1"),
+        ('X: int\nX += 1\n', "<Seiteneffekt auf Modulebene: X += 1"),
+    ],
+    ids=[
+        "b13_open_write", "b13_exec", "b13_runpy", "b13_getattr_importlib",
+        "eval_in_function", "compile_in_function", "importlib_util_in_function",
+        "from_importlib_import_module", "sys_modules", "getattr_dynamic_name",
+        "getattr_dunder_import", "globals",
+        "module_level_print", "environ_assignment", "logging_config", "non_constructor_call",
+        "for_loop", "try_block", "non_type_checking_if", "impure_decorator",
+        "impure_default", "class_body_call", "impure_comprehension", "attribute_assignment",
+        "augmented_assignment",
+    ],
+)
+def test_listed_leaf_with_side_effect_or_dynamic_import_is_red(
+    gate, mini, monkeypatch, body, needle
+):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
+    assert hits and needle in hits[0], result.regressions
+
+
+def test_side_effect_outside_the_allowlist_is_not_rule_6(gate, mini, monkeypatch):
+    """Der Blattvertrag gilt nur fuer gelistete Module (exakte Pfade)."""
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    _write(mini, "core/other.py", 'open("x", "w")\n')
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert not any(r.startswith("[fan_out_exempt_leaves]") for r in result.regressions)
+
+
+def test_listed_module_that_does_not_exist_is_red(gate, mini, monkeypatch):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    monkeypatch.setattr(gate, "FAN_OUT_EXEMPT_LEAVES", frozenset({"core.leaf", "core.missing"}))
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert any(
+        r.startswith("[fan_out_exempt_leaves] core.missing: gelistet, aber kein Modul")
+        for r in result.regressions
+    ), result.regressions
