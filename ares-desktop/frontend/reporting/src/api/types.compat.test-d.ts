@@ -101,9 +101,7 @@ export type RequestsCompatible = [
 // @ts-expect-error U1-D4 bekannte Abweichung
 export type D4 = Assert<Assignable<AdvisoryLogCreatePayload, ApiRequest<'AdvisoryLogCreate'>>>;
 
-// U1-D5: AdvisoryLogCreatePayload sendet cost_disclosure_snapshot_id und
-// cost_disclosure_snapshot_currency; AdvisoryLogCreate (schemas/review.py)
-// kennt beide Felder nicht, Pydantic verwirft sie stillschweigend
-// (laufzeitrelevant, nicht in diesem PR geaendert).
-// @ts-expect-error U1-D5 bekannte Abweichung
+// U1-D5 (behoben durch #838): AdvisoryLogCreatePayload sendet keine dem
+// Server unbekannten Felder mehr; AdvisoryLogCreate lehnt unbekannte Felder
+// ab (extra="forbid"). Diese Pruefung haelt das fest.
 export type D5 = Assert<NoUnknownFields<AdvisoryLogCreatePayload, ApiRequest<'AdvisoryLogCreate'>>>;
