@@ -1,5 +1,5 @@
 {
- "dump_sha256": "84c165cf6bcaab773688dad97deb8d511ea623131cc3bf8b28235e91f7fb58c4",
+ "dump_sha256": "4d1d9fa80e2bb33705f7b1af50641e360043534d2bafe70db65159da7aec1483",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -193,7 +193,7 @@
    ],
    "row_count": 1,
    "row_sha256": [
-    "e3d125af19e3853a7b4e166b3eecb569"
+    "703afe9263e71d9eb4c02ff46b0191a6"
    ]
   },
   "house_matrix": {
@@ -276,7 +276,7 @@
    ],
    "row_count": 1,
    "row_sha256": [
-    "f92feb0be22d84526af7a1008b1d340d"
+    "3defd1b670d0c13e70310968d487a554"
    ]
   },
   "product_eligibility_rule_sets": {
@@ -520,7 +520,7 @@
    ],
    "row_count": 11,
    "row_sha256": [
-    "77b574d335c920d9d9cf8384a17536e2",
+    "149b600d8abc84af072405f8e375f20a",
     "e3e4e4177ebb038a7f1ad7c228709290",
     "2d305b8595c1ae474497ef61e90a8fde",
     "6e20b3b66e3328f1fc9819df660ec9d9",

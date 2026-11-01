@@ -6,7 +6,7 @@
 
 ## Kontext
 
-5eyes laeuft heute als **Desktop-App** (Electron + lokaler FastAPI-
+Ares laeuft heute als **Desktop-App** (Electron + lokaler FastAPI-
 Backend) auf dem Geraet des Beraters. Innerhalb einer Installation
 gibt es bereits Multi-User-Support:
 
@@ -68,7 +68,7 @@ Wann brauchen wir Multi-Tenancy und wie implementieren wir sie?
 **Status-Quo halten (Option A) bis SaaS-Bedarf konkret wird.**
 
 Begruendung:
-1. **Vertriebs-Reality**: 5eyes wird heute als Desktop-Installation an
+1. **Vertriebs-Reality**: Ares wird heute als Desktop-Installation an
    einzelne Berater/Firmen verkauft. SaaS ist nicht das Geschaeftsmodell.
 2. **Compliance-Vorteil**: Lokale verschluesselte Datenbank
    (SQLCipher) ist FINMA-freundlicher als Shared-Hosting — Kundendaten
@@ -138,7 +138,6 @@ Wenn der Trigger irgendwann kommt:
 - `models/users.py` — aktuelle User-Tabelle
 - `services/auth.py` — JWT-Auth-Layer
 - ADR-002 (Compliance-Stack) — Datenschutz-Narrativ
-- Memory `project_5eyes_audit.md` — Hosting-Modell-Status
 
 ---
 

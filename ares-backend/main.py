@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import KekStoreError, ensure_tenant_master_kek, settings
+from config import KekStoreError, ensure_tenant_master_kek, require_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -104,6 +104,14 @@ async def lifespan(app: FastAPI):
         )
     else:
         logger.info('Master-KEK: %s', kek_outcome)
+    # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
+    # kein Rueckfall auf SECRET_KEY oder einen Platzhalter). Pruefung aus config
+    # (dieselbe wie services.tenant_crypto.require_master_kek).
+    try:
+        require_tenant_master_kek(settings)
+    except KekStoreError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
     init_db()
     # U-32 / W2-804-01: Discover externe Tax-Regime-Plugins (Entry-Point
     # group 'ares.tax_regime', SDK 2.x). Ohne Erwartungs-Manifest bricht der

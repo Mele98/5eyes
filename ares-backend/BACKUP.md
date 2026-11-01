@@ -1,4 +1,4 @@
-# 5eyes — DB-Backup-Strategie
+# Ares — DB-Backup-Strategie
 
 > Roadmap-Punkt 8 (2026-05-30): SQLite-Online-Backup via `sqlite3.Connection.backup()`,
 > atomar + WAL-aware, kein Server-Stop notwendig.
@@ -17,8 +17,8 @@ services/backup.py --+------- scripts/backup_now.py (CLI, on-demand)
 sqlite3.Connection.backup()  ---> atomic WAL-aware copy
         |
         v
-{backup_dir}/5eyes-backup-YYYYMMDD-HHMMSS.db
-            + 5eyes-backup-YYYYMMDD-HHMMSS.db.sha256  (Integritaets-Sidecar)
+{backup_dir}/ares-backup-YYYYMMDD-HHMMSS.db
+            + ares-backup-YYYYMMDD-HHMMSS.db.sha256  (Integritaets-Sidecar)
         |
         v
 Retention: aelter als backup_retain_days -> geloescht
@@ -34,7 +34,7 @@ Alle Settings in `config.py` (per `.env` ueberschreibbar):
 | Setting | Default | Bedeutung |
 |---|---|---|
 | `backup_enabled` | `true` | Master-Schalter |
-| `backup_dir` | `~/5eyes/backups` | Zielverzeichnis. **In Production auf separates Volume zeigen.** |
+| `backup_dir` | `~/ares/backups` | Zielverzeichnis. **In Production auf separates Volume zeigen.** |
 | `backup_retain_days` | `30` | Backups aelter werden geloescht. `0` = nie aufraeumen. |
 | `backup_keep_minimum` | `3` | Mindestens N neueste bleiben immer erhalten (Katastrophen-Schutz). |
 | `backup_scheduler_enabled` | `true` | Daily-Cron an/aus |
@@ -46,7 +46,7 @@ Alle Settings in `config.py` (per `.env` ueberschreibbar):
 
 ```bash
 # Production: Backups auf eingehaengte externe Platte
-BACKUP_DIR=/mnt/backup-volume/5eyes
+BACKUP_DIR=/mnt/backup-volume/ares
 BACKUP_RETAIN_DAYS=90
 BACKUP_KEEP_MINIMUM=7
 BACKUP_SCHEDULER_HOUR=2
@@ -62,7 +62,7 @@ Vor jeder Migration / vor jedem Major-Update:
 ```bash
 cd ares-backend
 python scripts/backup_now.py
-# -> BACKUP ok -> ~/5eyes/backups/5eyes-backup-20260530-081920.db
+# -> BACKUP ok -> ~/ares/backups/ares-backup-20260530-081920.db
 #    (1638400 bytes, sha256=64ec6f2a..., retained=1, pruned=0)
 ```
 
@@ -75,7 +75,7 @@ python scripts/backup_now.py --target D:/secure-backups
 Backup-Datei in einer anderen DB testen:
 
 ```bash
-python scripts/backup_now.py --source ~/5eyes/5eyes.db --target /tmp/proben
+python scripts/backup_now.py --source ~/ares/ares.db --target /tmp/proben
 ```
 
 ---
@@ -90,9 +90,9 @@ Ziel-DB waehrend des Restores wuerde die Konsistenz verletzen.
 
 cd ares-backend
 python scripts/backup_now.py \
-    --restore ~/5eyes/backups/5eyes-backup-20260530-081920.db \
-    --target  ~/5eyes/5eyes.db
-# -> RESTORE ok -> ~/5eyes/5eyes.db (1638400 bytes, hash_verified=True)
+    --restore ~/ares/backups/ares-backup-20260530-081920.db \
+    --target  ~/ares/ares.db
+# -> RESTORE ok -> ~/ares/ares.db (1638400 bytes, hash_verified=True)
 
 # Backend wieder starten
 uvicorn main:app --port 8000

@@ -6,7 +6,7 @@
 
 ## 1. Motivation
 
-5eyes wird perspektivisch von Beratern in mehreren Laendern eingesetzt.
+Ares wird perspektivisch von Beratern in mehreren Laendern eingesetzt.
 Jedes Land hat ein eigenes Steuerregime mit Sonderregeln (CH-Kantone,
 DE-Splittingtarif, FR-IFI, US-LTCG, SG/HK-Capital-Gains-frei).
 
@@ -17,7 +17,7 @@ zu bauen, ist Tax als **Plugin-System** designed:
 - Jede Jurisdiction implementiert das Protocol als eigene Klasse.
 - Klassen registrieren sich beim Import via `@register_regime(...)`.
 - Externe Dritt-Anbieter koennen ihr Land als **eigenes pip-Paket**
-  liefern und via Python Entry-Points einbinden — **ohne** 5eyes-Code
+  liefern und via Python Entry-Points einbinden — **ohne** Ares-Code
   zu modifizieren.
 
 ## 2. SDK-Oberflaeche
@@ -107,10 +107,10 @@ class VNTaxRegime:
     ...
 ```
 
-Auf dem 5eyes-Host:
+Auf dem Ares-Host:
 ```
-pip install 5eyes-tax-vietnam
-# 5eyes erkennt das Plugin beim naechsten Boot automatisch.
+pip install ares-tax-vietnam
+# Ares erkennt das Plugin beim naechsten Boot automatisch.
 ```
 
 ## 4. Conformance-Vertrag
@@ -153,7 +153,7 @@ def test_my_regime():
 > gibt keinen Alias. Dritt-Plugins muessen ihre `pyproject.toml` auf den
 > neuen Gruppennamen umstellen.
 
-Beim 5eyes-Boot (`main.py:lifespan()`) ruft 5eyes
+Beim Ares-Boot (`main.py:lifespan()`) ruft Ares
 `discover_external_regimes()` auf. Diese Funktion:
 
 1. Sucht alle Entry-Points unter Group `ares.tax_regime`.
@@ -221,7 +221,7 @@ Plugin-Loading bedeutet **Code-Ausfuehrung auf dem Host**. Daher:
 - Fuer Multi-Tenant-Hosting sollten Plugins **per Tenant deaktivierbar**
   sein (Config-Flag `disabled_tax_plugins`).
 - Sandbox-Ausfuehrung (z.B. `RestrictedPython`) ist NICHT vorgesehen
-  — das Plugin laeuft im gleichen Prozess wie 5eyes selbst.
+  — das Plugin laeuft im gleichen Prozess wie Ares selbst.
 
 ## 7. Versionierung
 
@@ -266,7 +266,6 @@ Was das Tax-SDK **nicht** macht:
 - Discovery: `services/tax/discovery.py` — `discover_external_regimes`
 - Conformance: `services/tax/conformance.py` — `ConformanceContract`
 - SDK-Bundle: `services/tax/sdk.py` — alles Public-API
-- Original-Plugin-Spec: `docs/planning/2026-05-17-sprint-3-tax-plugin-system.md`
 
 ## 11. Changelog
 

@@ -149,64 +149,116 @@ def test_dek_provisioning_survives_caller_rollback(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# Kontrollrunde 2026-09-24: der Fallback-auf-secret_key-Gate pruefte bisher
-# NUR settings.app_env in {staging, production} -- ein Tier-2/3-Multi-
-# Tenant-Deployment, das schlicht nie APP_ENV setzt (app_env defaultet auf
-# 'development', ein von TENANT_MASTER_KEK komplett getrennter Schalter),
-# lief bisher unbemerkt mit einem aus dem oeffentlich sichtbaren
-# DEFAULT_SECRET_KEY abgeleiteten KEK. Der Gate greift jetzt zusaetzlich,
-# wenn das Deployment tatsaechlich multi-tenant ist.
+# W4-c / AF-4: Die Master-KEK ist Pflicht und hat genau eine Quelle
+# (settings.tenant_master_kek). Frueher fiel ein Tier-1-/Dev-Deployment ohne
+# KEK auf secret_key zurueck (und damit ohne gesetztes secret_key auf den
+# oeffentlichen Platzhalter); Multi-Tenant/staging/production schlugen schon
+# fehl. Jetzt scheitert JEDES Deployment ohne eigene KEK, unabhaengig von
+# app_env, hosting_tier oder tenancy_mode.
 # ---------------------------------------------------------------------------
 
-def test_missing_kek_raises_for_multi_tenant_deployment_even_in_dev_app_env(monkeypatch):
-    """Ein Tier-2-Deployment (hosting_tier via tenancy_mode='multi') OHNE
-    gesetzten TENANT_MASTER_KEK und OHNE explizit gesetztes APP_ENV muss
-    jetzt fehlschlagen, nicht mehr auf secret_key zurueckfallen."""
+def _no_kek(monkeypatch, *, app_env="development", tenancy_mode="single", tier="tier1"):
     from config import settings
+
+    monkeypatch.setattr(settings, "app_env", app_env, raising=False)
+    monkeypatch.setattr(settings, "tenancy_mode", tenancy_mode, raising=False)
+    monkeypatch.setattr(settings, "strict_tenant_isolation", False, raising=False)
+    monkeypatch.setattr(settings, "deployment_tier", tier, raising=False)
+    monkeypatch.setattr(settings, "tenant_master_kek", "", raising=False)
+    return settings
+
+
+@pytest.mark.parametrize(
+    "app_env,tenancy_mode,tier",
+    [
+        ("development", "multi", "tier1"),
+        ("development", "single", "tier2"),
+        ("development", "single", "tier1"),
+        ("production", "single", "tier1"),
+    ],
+)
+def test_missing_kek_raises_for_every_deployment(monkeypatch, app_env, tenancy_mode, tier):
     from services.tenant_crypto import TenantCryptoError, _resolve_master_kek
 
-    monkeypatch.setattr(settings, "app_env", "development", raising=False)
-    monkeypatch.setattr(settings, "tenancy_mode", "multi", raising=False)
-    monkeypatch.setattr(settings, "strict_tenant_isolation", False, raising=False)
-    monkeypatch.setattr(settings, "deployment_tier", "tier1", raising=False)
-    monkeypatch.setattr(settings, "tenant_master_kek", "", raising=False)
-    monkeypatch.delenv("TENANT_MASTER_KEK", raising=False)
-
+    _no_kek(monkeypatch, app_env=app_env, tenancy_mode=tenancy_mode, tier=tier)
     with pytest.raises(TenantCryptoError, match="TENANT_MASTER_KEK fehlt"):
         _resolve_master_kek(None)
 
 
-def test_missing_kek_raises_for_tier2_deployment_even_in_dev_app_env(monkeypatch):
-    """Gleiches Szenario, aber ueber deployment_tier='tier2' statt
-    tenancy_mode='multi' -- beide Wege muessen den Gate ausloesen (siehe
-    services.auth._effective_strict_tenant_isolation)."""
-    from config import settings
+def test_missing_kek_never_falls_back_to_secret_key(monkeypatch):
+    """Frueher: Tier-1-Dev ohne KEK -> KEK aus secret_key. Jetzt: Fehler."""
     from services.tenant_crypto import TenantCryptoError, _resolve_master_kek
 
-    monkeypatch.setattr(settings, "app_env", "development", raising=False)
-    monkeypatch.setattr(settings, "tenancy_mode", "single", raising=False)
-    monkeypatch.setattr(settings, "strict_tenant_isolation", False, raising=False)
-    monkeypatch.setattr(settings, "deployment_tier", "tier2", raising=False)
-    monkeypatch.setattr(settings, "tenant_master_kek", "", raising=False)
-    monkeypatch.delenv("TENANT_MASTER_KEK", raising=False)
-
+    settings = _no_kek(monkeypatch)
+    monkeypatch.setattr(settings, "secret_key", "s" * 48, raising=False)
     with pytest.raises(TenantCryptoError, match="TENANT_MASTER_KEK fehlt"):
         _resolve_master_kek(None)
 
 
-def test_missing_kek_still_falls_back_for_genuine_tier1_dev_deployment(monkeypatch):
-    """Backwards-Compat: ein echtes Tier-1/Single-Tenant-Dev-Deployment
-    (kein Multi-Tenant-Kontext) faellt weiterhin auf secret_key zurueck --
-    das ist die etablierte, bewusst unveraenderte Tier-1-Semantik."""
-    from config import settings
-    from services.tenant_crypto import _resolve_master_kek
+def test_kek_equal_to_secret_key_or_placeholder_is_refused(monkeypatch):
+    from config import DEFAULT_SECRET_KEY
+    from services.tenant_crypto import TenantCryptoError, _resolve_master_kek
 
-    monkeypatch.setattr(settings, "app_env", "development", raising=False)
-    monkeypatch.setattr(settings, "tenancy_mode", "single", raising=False)
-    monkeypatch.setattr(settings, "strict_tenant_isolation", False, raising=False)
-    monkeypatch.setattr(settings, "deployment_tier", "tier1", raising=False)
-    monkeypatch.setattr(settings, "tenant_master_kek", "", raising=False)
-    monkeypatch.delenv("TENANT_MASTER_KEK", raising=False)
+    settings = _no_kek(monkeypatch)
+    monkeypatch.setattr(settings, "secret_key", "jwt-signing-key-" + "x" * 32, raising=False)
+    monkeypatch.setattr(settings, "tenant_master_kek", settings.secret_key, raising=False)
+    with pytest.raises(TenantCryptoError, match="identisch mit SECRET_KEY"):
+        _resolve_master_kek(None)
+    monkeypatch.setattr(settings, "tenant_master_kek", DEFAULT_SECRET_KEY, raising=False)
+    with pytest.raises(TenantCryptoError, match="Platzhalter"):
+        _resolve_master_kek(None)
 
-    resolved = _resolve_master_kek(None)
-    assert resolved  # faellt auf secret_key zurueck, kein Raise
+
+def test_environment_variable_is_not_a_second_source(monkeypatch):
+    """Eine einzige Quelle: ein nur in os.environ gesetzter Wert, der nicht in
+    den Settings angekommen ist, wird nicht gelesen."""
+    from cryptography.fernet import Fernet
+    from services.tenant_crypto import TenantCryptoError, _resolve_master_kek
+
+    _no_kek(monkeypatch)
+    monkeypatch.setenv("TENANT_MASTER_KEK", Fernet.generate_key().decode("ascii"))
+    with pytest.raises(TenantCryptoError, match="TENANT_MASTER_KEK fehlt"):
+        _resolve_master_kek(None)
+    source = (BACKEND_ROOT / "services" / "tenant_crypto.py").read_text(encoding="utf-8")
+    assert "os.getenv" not in source and "os.environ" not in source
+
+
+def test_configured_fernet_kek_is_used(monkeypatch):
+    from cryptography.fernet import Fernet
+    from services.tenant_crypto import _resolve_master_kek, require_master_kek
+
+    settings = _no_kek(monkeypatch)
+    key = Fernet.generate_key().decode("ascii")
+    monkeypatch.setattr(settings, "tenant_master_kek", key, raising=False)
+    require_master_kek()
+    assert _resolve_master_kek(None) == key.encode("ascii")
+
+
+def test_app_start_without_kek_fails_closed_with_clear_message(monkeypatch, caplog):
+    from fastapi.testclient import TestClient
+
+    import main
+    from config import KekStoreError
+
+    _no_kek(monkeypatch)
+    init_calls = []
+    monkeypatch.setattr(main, "init_db", lambda: init_calls.append(1))
+    # Startpruefung config.require_tenant_master_kek (gleiche Pruefung wie
+    # require_master_kek, ohne zusaetzliche Modulkante main -> tenant_crypto).
+    with pytest.raises(KekStoreError, match="TENANT_MASTER_KEK fehlt"):
+        with TestClient(main.app):
+            pass
+    assert init_calls == [], "ohne KEK darf die DB nicht initialisiert werden"
+    assert any("Start abgebrochen" in r.getMessage() for r in caplog.records)
+
+
+def test_tunnel_scripts_provide_their_own_master_kek():
+    """Die Staging-/Tunnel-Skripte setzen eine eigene, persistente Fernet-KEK
+    (nicht das Login-Secret), sonst startet das Backend dort nicht mehr."""
+    deploy = BACKEND_ROOT.parent / "docs" / "deploy"
+    for name in ("start-external.ps1", "start-external-staging.ps1"):
+        text_ = (deploy / name).read_text(encoding="utf-8")
+        assert "$kekFile = Join-Path $aresHome '.external-kek.txt'" in text_, name
+        assert "Fernet.generate_key()" in text_, name
+        assert "$env:TENANT_MASTER_KEK     = $kek" in text_, name
+        assert "$env:TENANT_MASTER_KEK     = $secret" not in text_, name

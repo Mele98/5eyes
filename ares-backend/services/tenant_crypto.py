@@ -1,19 +1,21 @@
 """Per-tenant DEK envelope encryption helpers.
 
-The master KEK is supplied via ``settings.tenant_master_kek`` or the
-``TENANT_MASTER_KEK`` environment variable. The tenant table stores only the
-encrypted DEK; callers use the plaintext DEK through these helpers.
+The master KEK has exactly one configuration source,
+``settings.tenant_master_kek`` (environment/config ``TENANT_MASTER_KEK``), and
+is mandatory: without it the app does not start (``require_master_kek``).
+There is no fallback to ``SECRET_KEY`` or to a placeholder. The tenant table
+stores only the encrypted DEK plus the KEK generation (``kek_version``);
+callers use the plaintext DEK through these helpers.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
-import os
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from config import settings
+from config import MISSING_TENANT_MASTER_KEK_MESSAGE, settings, tenant_master_kek_problem
 from models.tenant import Tenant
 
 
@@ -35,52 +37,43 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-# Stabiler Salt fuer die PBKDF2-Ableitung eines Passphrase-KEK (#299-Follow-up #1).
-# Muss konstant bleiben, damit ein einmal abgeleiteter KEK reproduzierbar ist.
-_KEK_KDF_SALT = b"5eyes.tenant.kek.pbkdf2.v1"
+# KEK-Vertrag v2 (W4-c): Salt der PBKDF2-Ableitung eines Passphrase-KEK.
+# Markenfrei und versioniert; muss konstant bleiben, damit ein einmal
+# abgeleiteter KEK reproduzierbar ist. Den Salt des vorherigen Vertrags kennt
+# nur der externe Einmal-Migrator, der Bestands-DEKs unter einen v2-KEK
+# umverpackt (Rewrap) und dabei tenants.kek_version auf 2 setzt.
+_KEK_KDF_SALT = b"ares.tenant.kek.pbkdf2.v2"
 _KEK_KDF_ITERATIONS = 200_000
 
-# AF-5: Generation der Master-KEK, unter der neu angelegte DEKs verpackt
-# werden (Spalte tenants.kek_version). Wird nur gespeichert; ein spaeterer
-# KEK-Rewrap (Migrator) setzt die neue Generation.
-CURRENT_KEK_VERSION = 1
+# Generation der Master-KEK (Spalte tenants.kek_version), unter der neue DEKs
+# verpackt werden. Ein DEK mit anderer Generation wird nie entpackt: er ist
+# mit dem Migrator zu uebernehmen (kein Rueckfall auf einen frueheren Vertrag).
+CURRENT_KEK_VERSION = 2
+
+MISSING_KEK_MESSAGE = MISSING_TENANT_MASTER_KEK_MESSAGE
+
+
+def _configured_master_kek() -> str:
+    """Einzige Konfigurationsquelle der Master-KEK: ``settings.tenant_master_kek``."""
+    return str(getattr(settings, "tenant_master_kek", "") or "").strip()
+
+
+def _validate_master_kek(raw: str | bytes) -> None:
+    """Fail-closed: kein Rueckfall auf SECRET_KEY oder einen Platzhalter
+    (gemeinsame Pruefung ``config.tenant_master_kek_problem``)."""
+    problem = tenant_master_kek_problem(raw, secret_key=str(getattr(settings, "secret_key", "") or ""))
+    if problem:
+        raise TenantCryptoError(problem)
+
+
+def require_master_kek() -> None:
+    """Startpruefung (Lifespan): ohne gueltige Master-KEK startet Ares nicht."""
+    _validate_master_kek(_configured_master_kek())
 
 
 def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
-    raw = (
-        master_kek
-        or os.getenv("TENANT_MASTER_KEK")
-        or getattr(settings, "tenant_master_kek", "")
-    )
-    if not raw:
-        # Kontrollrunde 2026-09-24: der bisherige Gate ("nur bei explizit
-        # gesetztem app_env in {staging, production}") ist unabhaengig von
-        # hosting_tier/tenancy_mode -- ein Tier-2/3-Multi-Tenant-Deployment,
-        # das schlicht nie APP_ENV=production/staging setzt (ein leicht zu
-        # vergessender, von TENANT_MASTER_KEK komplett getrennter Schalter,
-        # app_env defaultet auf 'development'), lief bisher OHNE jede
-        # Warnung mit einem KEK, der deterministisch aus dem im Quellcode
-        # oeffentlich sichtbaren DEFAULT_SECRET_KEY (config.py) abgeleitet
-        # wird -- jeder kann diesen KEK vorab berechnen und damit jedes
-        # verschluesselte Feld jedes Tenants entschluesseln (aktuell: TOTP-
-        # Secrets, laut Modul-Docstring das generelle PII-Verschluesselungs-
-        # Interface fuer kuenftige Felder). Analog zum bereits etablierten
-        # Muster services.auth._effective_strict_tenant_isolation() greift
-        # der Fail-Closed-Pfad jetzt zusaetzlich, wenn das Deployment
-        # tatsaechlich multi-tenant ist, unabhaengig vom (separaten,
-        # leicht vergessenen) app_env-Flag.
-        from services.auth import _effective_strict_tenant_isolation
-
-        if (
-            getattr(settings, "app_env", "development") in {"staging", "production"}
-            or _effective_strict_tenant_isolation(settings)
-        ):
-            raise TenantCryptoError(
-                "TENANT_MASTER_KEK fehlt -- Pflicht fuer staging/production "
-                "und fuer jedes Multi-Tenant-Deployment (hosting_tier "
-                "tier2/tier3 bzw. tenancy_mode='multi')"
-            )
-        raw = getattr(settings, "secret_key", "")
+    raw = master_kek if master_kek else _configured_master_kek()
+    _validate_master_kek(raw)
     if isinstance(raw, str):
         raw_bytes = raw.encode("utf-8")
     else:
@@ -90,11 +83,10 @@ def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
         Fernet(raw_bytes)
         return raw_bytes
     except Exception:
-        # #299-Follow-up #1: kein saltloses Single-Shot-SHA-256 mehr. Ein per ENV
-        # gesetztes Passphrase-KEK (kein gueltiger Fernet-Key) wird ueber PBKDF2-HMAC-
-        # SHA256 mit hohem Work-Factor abgeleitet (Brute-Force-Haertung). Der Salt ist
-        # eine stabile App-Konstante — deterministische Re-Ableitung ist noetig, damit
-        # bereits verschluesselte DEKs weiterhin entschluesselt werden koennen.
+        # Passphrase-KEK (kein gueltiger Fernet-Key): PBKDF2-HMAC-SHA256 mit
+        # hohem Work-Factor (Brute-Force-Haertung) und dem stabilen v2-Salt --
+        # deterministische Re-Ableitung ist noetig, damit verpackte DEKs
+        # entpackbar bleiben.
         derived = hashlib.pbkdf2_hmac(
             "sha256", raw_bytes, _KEK_KDF_SALT, _KEK_KDF_ITERATIONS
         )
@@ -116,6 +108,18 @@ def _tenant_or_error(db: Session, tenant_id: str) -> Tenant:
     if tenant is None:
         raise TenantCryptoError(f"Tenant nicht gefunden: {tenant_id}")
     return tenant
+
+
+def _require_current_kek_version(tenant: Tenant) -> None:
+    """Ein DEK unter einer anderen KEK-Generation wird nicht entpackt."""
+    version = getattr(tenant, "kek_version", None)
+    if version != CURRENT_KEK_VERSION:
+        raise TenantCryptoError(
+            f"Tenant-DEK ist unter KEK-Generation {version!r} verpackt, erwartet "
+            f"{CURRENT_KEK_VERSION}. Diese Daten stammen aus einer frueheren "
+            "Installation: Daten mit dem Migrator uebernehmen (Rewrap auf die "
+            "aktuelle KEK), nicht mit dieser App-Version oeffnen."
+        )
 
 
 def _decrypt_dek(encrypted_dek: str, master_kek: str | bytes | None = None) -> bytes:
@@ -152,6 +156,7 @@ def _provision_tenant_dek_committed(
         if tenant is None:
             raise TenantCryptoError(f"Tenant nicht gefunden: {tenant_id}")
         if getattr(tenant, "encrypted_dek", None):
+            _require_current_kek_version(tenant)
             return str(tenant.encrypted_dek)  # paralleler Request war schneller
         tenant.encrypted_dek = _master_fernet(master_kek).encrypt(_new_dek()).decode("utf-8")
         tenant.dek_version = int(getattr(tenant, "dek_version", None) or 1)
@@ -168,6 +173,7 @@ def get_tenant_dek(db: Session, tenant_id: str, *, master_kek: str | bytes | Non
 
     tenant = _tenant_or_error(db, tenant_id)
     if getattr(tenant, "encrypted_dek", None):
+        _require_current_kek_version(tenant)
         return _decrypt_dek(str(tenant.encrypted_dek), master_kek)
 
     # DEK fehlt -> unabhaengig committen statt lazily mit blossem flush() in der

@@ -1,6 +1,6 @@
-# 5eyes — Berater-Handbuch
+# Ares — Berater-Handbuch
 
-Praktische Anleitung fuer Berater die mit 5eyes WealthArchitekten
+Praktische Anleitung fuer Berater die mit Ares
 arbeiten. Komplementaer zum technischen Top-Level-README.md (Engineering)
 und [GLOSSAR.md](GLOSSAR.md) (Begriffsdefinitionen). Hier:
 **Tag-zu-Tag-Workflows** vom Login bis zum gedruckten Beratungsreport.
@@ -27,7 +27,7 @@ und [GLOSSAR.md](GLOSSAR.md) (Begriffsdefinitionen). Hier:
 
 ## 1. Login & Hauptapp-Start
 
-5eyes startet als Electron-Desktop-App. Beim ersten Start:
+Ares startet als Electron-Desktop-App. Beim ersten Start:
 
 1. Backend automatisch hochgefahren (`http://127.0.0.1:8000`)
 2. Login mit Berater-Credentials (Bearer-JWT, TTL 8h default,
@@ -58,7 +58,7 @@ Fallback '*' = Pauschal-Rate).
 jedes Ziel kategorisiert als `Primaer` / `Sekundaer` / `Opportunistisch`.
 
 **Beratungsvermoegen** = Teilmenge des Gesamtvermoegens die unter
-5eyes-Beratung steht. Wird in der SAA + Tortendarstellung +
+Ares-Beratung steht. Wird in der SAA + Tortendarstellung +
 Portfolio-Empfehlung genutzt — NICHT Gesamtvermoegen.
 
 ## 3. Risikoprofil erfassen
@@ -94,7 +94,7 @@ Wenn Optimizer Mode = `house_matrix`, kommt direkt die Default-Allokation.
 Wenn `shadow_stochastic`: Optimizer rechnet aber Targets bleiben
 House-Matrix (Shadow-Compare im Admin-Modal sichtbar).
 
-Bei Aenderung der OptimizerPolicy schreibt 5eyes automatisch einen
+Bei Aenderung der OptimizerPolicy schreibt Ares automatisch einen
 Archive-Snapshot der vorherigen Konfiguration (U-103), damit du
 spaeter rekonstruieren kannst welche Werte zu einer historischen
 TA-Generierung galten.
