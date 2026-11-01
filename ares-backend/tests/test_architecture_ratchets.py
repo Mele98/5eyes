@@ -613,3 +613,29 @@ def test_real_parent_packages_of_listed_leaves_are_clean(gate):
             s = scans[pkg]
             assert s.non_stdlib_imports == [] and s.leaf_violations == [], (pkg, s)
             assert s.runtime_targets() == {} and s.typeonly == {}, pkg
+
+
+# K-2-Review N2 (= B-13 fuer core.reason_codes): Seiteneffekte im Blatt.
+@pytest.mark.parametrize(
+    "body,needle",
+    [
+        ("import pathlib\npathlib.Path('x.txt').write_text('x')\n",
+         "<Seiteneffekt auf Modulebene: pathlib.Path("),
+        ("from pathlib import Path\nMARKER = Path('x.txt').write_text('x')\n",
+         "<Seiteneffekt auf Modulebene: MARKER ="),
+        ("exec('import config')\n", "<dynamisch: exec>"),
+        ("import sqlite3\nCONN = sqlite3.connect('x.db')\n",
+         "<Seiteneffekt auf Modulebene: CONN = sqlite3.connect("),
+        ("import sqlite3\nsqlite3.connect('x.db').close()\n",
+         "<Seiteneffekt auf Modulebene: sqlite3.connect("),
+    ],
+    ids=["pathlib_write_text", "pathlib_write_text_assigned", "exec", "sqlite3_connect_assigned",
+         "sqlite3_connect_call"],
+)
+def test_k2_review_n2_side_effects_are_red(gate, mini, monkeypatch, body, needle):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    hits = [r for r in result.regressions if r.startswith("[fan_out_exempt_leaves] core.leaf:")]
+    assert hits and needle in hits[0], result.regressions
