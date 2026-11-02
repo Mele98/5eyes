@@ -59,6 +59,17 @@ elif not os.environ.get("DB_PATH") or is_live_db_path(os.environ["DB_PATH"]):
     _session_dir = tempfile.mkdtemp(prefix="ares-tests-")
     os.environ["DB_PATH"] = str(Path(_session_dir) / "ares_test.db")
 
+# A2b B-1: Auch Backup- und Log-Verzeichnis liegen neben der Test-DB, nie im
+# Datenordner des Benutzerprofils. Der ``config``-Default fuer ``backup_dir``
+# zeigt auf das Profil, und ``services.maintenance.ensure_backup_dir()`` legt
+# ihn an (etwa ueber den Maintenance-Status) -- eine Test-Session hinterliess
+# so ein leeres Backup-Verzeichnis im echten Profil. Immer gesetzt (wie
+# TENANT_MASTER_KEK_FILE unten), damit auch eine .env-Angabe nicht greift;
+# Tests mit eigenem Verzeichnis setzen ``settings.backup_dir`` auf tmp_path.
+_test_data_dir = Path(os.environ["DB_PATH"]).parent
+os.environ["BACKUP_DIR"] = str(_test_data_dir / "backups")
+os.environ["LOG_DIR"] = str(_test_data_dir / "logs")
+
 # RB-1: Keine Test-Session legt eine echte KEK-Ablage an (etwa im userData-
 # Ordner der Desktop-Shell). Leer gesetzt statt entfernt, damit auch eine
 # .env-Angabe nicht greift; Tests der Ablage arbeiten nur auf tmp_path.
