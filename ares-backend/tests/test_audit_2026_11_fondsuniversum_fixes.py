@@ -79,6 +79,40 @@ def _two_tenants_and_global_product(session_factory):
         s.commit()
 
 
+# --- R1: Deaktivierter globaler Katalog wird nicht neu angelegt ------------
+def test_r1_deactivated_global_catalog_is_not_reseeded(session_factory):
+    m = h._seed_mandate(session_factory, suffix="r1", tenant_id="tenant-r1")
+    _gen(session_factory, m["mandate_id"], m["advisor_id"])
+    with session_factory() as s:
+        global_ids_before = {p.id for p in s.query(Product).filter(Product.tenant_id.is_(None)).all()}
+        for p in s.query(Product).filter(Product.tenant_id.is_(None)).all():
+            p.is_active = 0
+        s.commit()
+    assert global_ids_before
+    h._add_cheap_private_product(session_factory, product_id="own-r1", tenant_id="tenant-r1")
+    try:
+        _gen(session_factory, m["mandate_id"], m["advisor_id"])
+    except Exception:  # noqa: BLE001 -- ein Abbruch mangels Produkten ist zulaessig, ein Reseed nicht
+        pass
+    with session_factory() as s:
+        ensure_default_products(s, jurisdiction="CH")  # auch der direkte Startpfad seedet nicht
+        s.commit()
+        global_after = s.query(Product).filter(Product.tenant_id.is_(None)).all()
+    assert {p.id for p in global_after} == global_ids_before, "kein Duplikat-Katalog, gleiche IDs"
+    assert all(p.is_active == 0 for p in global_after), "deaktivierte Katalogfonds bleiben deaktiviert"
+
+
+def test_r1_fresh_database_still_seeds_once(session_factory):
+    with session_factory() as s:
+        ensure_default_products(s, jurisdiction="CH")
+        s.commit()
+        first = s.query(Product).filter(Product.tenant_id.is_(None)).count()
+        ensure_default_products(s, jurisdiction="CH")
+        s.commit()
+        second = s.query(Product).filter(Product.tenant_id.is_(None)).count()
+    assert first > 0 and second == first
+
+
 # --- R3: Tenant-Admin darf globale Produkte nicht aendern ------------------
 def test_r3_tenant_admin_cannot_mutate_global_product(session_factory, client, monkeypatch):
     _strict(monkeypatch)
