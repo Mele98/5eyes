@@ -95,6 +95,7 @@ def test_locked_bucket_moves_only_when_others_are_pinned_and_is_disclosed():
     warnings: list = []
     disclose_manual_target_deviations(
         {"equities": 7000}, result, minimums, HOUSE_MAX, reasoning, warnings,
+        bucket_labels=pe.BUCKET_LABELS,
     )
     assert [w["code"] for w in warnings] == [CODE]
     assert "70.00 %" in warnings[0]["body_advisor"]

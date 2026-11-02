@@ -88,6 +88,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Session
 
 from database import new_uuid
+from services.allocation_messages import WARN_TARGET_ADJUSTED, format_message
 from models.allocation import BuildingBlock, HouseMatrix, OptimizerPolicy
 from services.jurisdiction.de_seed import (
     DE_DEFAULT_BONDS_DURATION,
@@ -424,6 +425,8 @@ def disclose_manual_target_deviations(
     maximums: dict[str, int],
     reasoning: list[str],
     warnings: list,
+    *,
+    bucket_labels: dict[str, str],
 ) -> None:
     """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
     umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
@@ -434,17 +437,14 @@ def disclose_manual_target_deviations(
     Liquiditaets-Untergrenze, Reserve), wird es auf den Bandrand gekappt --
     sichtbar, nicht still.
     """
-    from services.allocation_messages import WARN_TARGET_ADJUSTED, format_message
-    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
-
-    for bucket in BUCKET_FIELDS:
+    for bucket in effective_bps:
         if bucket not in preferred_bps:
             continue
         requested = int(preferred_bps[bucket])
         effective = int(effective_bps[bucket])
         if requested == effective:
             continue
-        bucket_label = BUCKET_LABELS.get(bucket, bucket)
+        bucket_label = bucket_labels.get(bucket, bucket)
         reasoning.append(
             f"{bucket_label}: Das Berater-Ziel von {_band_pct(requested)} % "
             f"wird mit {_band_pct(effective)} % umgesetzt (wirksame Grenzen "
@@ -658,15 +658,28 @@ def _apply_band_min_max_overrides(
     return restored
 
 
-def _has_manual_target_overrides(bands: dict | None) -> bool:
-    from services.portfolio_engine import _coerce_band_bps
+def _explicit_target_bucket_keys(bands: dict | None) -> list[str | None]:
+    """Bucket-Keys (``None`` bei unbekanntem Key) aller Overrides mit
+    explizitem, gueltigem ``target_bps``."""
+    from services.portfolio_engine import _bucket_key, _coerce_band_bps
 
     if not isinstance(bands, dict):
-        return False
-    return any(
-        isinstance(override, dict) and _coerce_band_bps(override.get("target_bps")) is not None
-        for override in bands.values()
-    )
+        return []
+    return [
+        _bucket_key(raw_key)
+        for raw_key, override in bands.items()
+        if isinstance(override, dict) and _coerce_band_bps(override.get("target_bps")) is not None
+    ]
+
+
+def _has_manual_target_overrides(bands: dict | None) -> bool:
+    return bool(_explicit_target_bucket_keys(bands))
+
+
+def _manual_target_buckets(bands: dict | None) -> frozenset[str]:
+    """AUDIT-2026-11 A1: Buckets mit explizitem ``target_bps`` (gleiche
+    Semantik wie ``allocation_intent.extract_soft_preference_bps``)."""
+    return frozenset(key for key in _explicit_target_bucket_keys(bands) if key)
 
 
 class BandEnvelopeInfeasibleError(ValueError):
@@ -680,9 +693,10 @@ def _envelope_infeasible_message(
     adjusted: dict[str, int],
     minimums: dict[str, int],
     maximums: dict[str, int],
+    bucket_fields,
+    bucket_labels: dict[str, str],
 ) -> str:
-    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
-
+    BUCKET_FIELDS, BUCKET_LABELS = bucket_fields, bucket_labels
     total = sum(int(adjusted[key]) for key in BUCKET_FIELDS)
     if total < 10000:
         parts = ", ".join(
@@ -767,7 +781,7 @@ def _rebalance_to_total(
     Bandrand) ist Sache des Aufrufers (``manual_target_deviation_notes``).
     Ohne ``locked`` ist das Verhalten unveraendert.
     """
-    from services.portfolio_engine import BUCKET_FIELDS
+    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
 
     locked_set = {key for key in locked if key in BUCKET_FIELDS}
     adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
@@ -815,7 +829,7 @@ def _rebalance_to_total(
         # normalized ... targets={...}"); jetzt deutsch, mit den
         # kollidierenden Grenzen je Anlageklasse.
         raise BandEnvelopeInfeasibleError(
-            _envelope_infeasible_message(adjusted, minimums, maximums)
+            _envelope_infeasible_message(adjusted, minimums, maximums, BUCKET_FIELDS, BUCKET_LABELS)
         )
     return adjusted
 

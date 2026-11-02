@@ -1262,6 +1262,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _enrich_sub_allocations_with_risk,
     _growth_goals_for_equity_tilt,
     _has_manual_target_overrides,
+    _manual_target_buckets,
     disclose_manual_target_deviations,
     _house_matrix_mid_targets,
     _house_matrix_or_default,
@@ -3454,6 +3455,7 @@ def generate_target_allocation(
         disclose_manual_target_deviations(
             manual_preferred_target_bps, optimizer_targets,
             optimizer_minimums, optimizer_maximums, reasoning, warnings,
+            bucket_labels=BUCKET_LABELS,
         )
     effective_bounds_bps = {
         bucket: (
@@ -3559,7 +3561,7 @@ def generate_target_allocation(
     if not apply_stochastic:  # AUDIT-2026-11 A1: aktive Hausmatrix-Allokation
         disclose_manual_target_deviations(
             manual_preferred_target_bps, targets, minimums, maximums,
-            reasoning, warnings,
+            reasoning, warnings, bucket_labels=BUCKET_LABELS,
         )
     if optimizer_replaced_targets and targets != targets_before_final_rebalance:
         # A validated stochastic candidate is immutable.  A downstream
@@ -4784,13 +4786,7 @@ def evaluate_goal_sensitivity(
             sensitivity_prefs["bands"]
         )
         # AUDIT-2026-11 A1: identisch zum Generate-Pfad.
-        from services.optimizer.allocation_intent import (
-            extract_soft_preference_bps as _extract_live_preference_bps,
-        )
-
-        live_locked_buckets = frozenset(
-            _extract_live_preference_bps(sensitivity_prefs["bands"])
-        )
+        live_locked_buckets = _manual_target_buckets(sensitivity_prefs["bands"])
         _apply_external_exposure_tilts(
             live_targets,
             live_minimums,
