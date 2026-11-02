@@ -3,8 +3,10 @@
 Reines Modul, NICHT verdrahtet (Flag aus). Getestet werden:
 
 * das Antwort-Mapping aus den bestehenden Optionstexten von Frage 10,
-* das 10-%-Quantil der 1-Jahres-Rendite, konsistent zur Monte-Carlo-Abbildung,
-* das Konfliktobjekt (ok / conflict / not_evaluable, fail-closed),
+* das 10-%-Quantil der 1-Jahres-Rendite (Quelle MC-Pfade oder lognormal k=0;
+  Tail-Momente als Sperrgrundlage gesperrt, N-857-3),
+* das Konfliktobjekt (ok / conflict / not_evaluable, fail-closed) und die
+  Konfliktbehandlung nach mandate_type,
 * das Flag (standardmaessig aus, keine Verdrahtung in der Engine),
 * die Platzhalter: nichts erfunden.
 """
@@ -15,6 +17,7 @@ import random
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -90,15 +93,21 @@ def test_mapping_rejects_mismatched_points():
 # 10-%-Quantil, 1 Jahr
 # ---------------------------------------------------------------------------
 
-def test_p10_normal_case_matches_lognormal_closed_form():
+ADV = "Anlageberatung"
+VV = "Vermögensverwaltung"
+
+
+def test_lognormal_p10_matches_closed_form():
     mu, sigma = 0.05, 0.10
     v = math.log1p((sigma / (1 + mu)) ** 2)
     z = -1.2815515655446004
     expected = (math.exp(math.log1p(mu) - 0.5 * v + math.sqrt(v) * z) - 1) * 1e4
+    assert lt.lognormal_p10_return_bps(500, 1000) == pytest.approx(expected, abs=1e-6)
     assert lt.one_year_p10_return_bps(500, 1000) == pytest.approx(expected, abs=1e-6)
 
 
-def test_p10_is_consistent_with_mc_sampling():
+def test_cf_single_asset_matches_mc_transformation():
+    """Nur Einzelanlage: CF-Ausweisfunktion = MC-Transformation (keine Sperrgrundlage)."""
     rng = random.Random(20261102)
     draws = sorted(
         standard_normal_to_log_return(rng.gauss(0.0, 1.0), 400, 800, skew=-0.3, excess_kurt=2.0) - 1.0
@@ -109,17 +118,11 @@ def test_p10_is_consistent_with_mc_sampling():
     assert analytic == pytest.approx(empirical, abs=15.0)
 
 
-def test_p10_falls_with_volatility_and_left_skew():
-    base = lt.one_year_p10_return_bps(500, 1000)
-    assert lt.one_year_p10_return_bps(500, 1500) < base
-    left = lt.one_year_p10_return_bps(500, 1000, skew=-0.5, excess_kurtosis=1.0)
-    more_left = lt.one_year_p10_return_bps(500, 1000, skew=-0.7, excess_kurtosis=1.0)
-    assert more_left < left
-    # Bekannte Eigenschaft (kein Fehler): Exzess-Kurtosis verschiebt bei
-    # gleicher Vola Masse in die aeusseren Flanken UND in die Mitte; das
-    # 10-%-Quantil rueckt dabei nach innen. P10 ist deshalb kein Tail-Mass
-    # wie CVaR -- so verlangt es AA-8 (Untergrenze des 80-%-Intervalls).
-    assert lt.one_year_p10_return_bps(500, 1000, skew=-0.5, excess_kurtosis=3.0) > left
+def test_kurtosis_moves_p10_inward_which_is_why_moments_cannot_block():
+    """N-857-3: bei fester Varianz rueckt P10 mit Kurtosis nach innen (milder)."""
+    k0 = lt.lognormal_p10_return_bps(600, 1400)
+    k3 = lt.one_year_p10_return_bps(600, 1400, skew=-0.5, excess_kurtosis=3.0)
+    assert k3 > k0 + 150  # deutlich milder als lognormal (gemessen ~1.85 pp)
 
 
 def test_p10_rejects_non_monotonic_cornish_fisher():
@@ -127,19 +130,74 @@ def test_p10_rejects_non_monotonic_cornish_fisher():
         lt.one_year_p10_return_bps(500, 1000, skew=-1.0, excess_kurtosis=0.0)
 
 
+def test_p10_and_tail_disclosure_from_paths():
+    rng = np.random.default_rng(7)
+    returns = rng.normal(400.0, 900.0, size=200_000)
+    assert lt.p10_from_paths(returns) == pytest.approx(400.0 - 1.28155 * 900.0, abs=10.0)
+    tail = lt.tail_disclosure_from_paths(returns)
+    assert tail["p5_return_bps"] == pytest.approx(400.0 - 1.64485 * 900.0, abs=12.0)
+    # CVaR(10 %) der Normalverteilung: mu - sigma * phi(z_0.10) / 0.10
+    assert tail["cvar10_return_bps"] == pytest.approx(400.0 - 900.0 * 1.75498, abs=12.0)
+    assert tail["cvar10_return_bps"] < lt.p10_from_paths(returns)
+    with pytest.raises(ValueError):
+        lt.p10_from_paths([])
+    with pytest.raises(ValueError):
+        lt.p10_from_paths([1.0, float("nan")])
+
+
 # ---------------------------------------------------------------------------
-# Konfliktobjekt
+# Quellen-Guard (N-857-3)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("skew,kurt", [(0.0, 1.0), (-0.3, 2.0), (-0.5, 3.0), (0.2, 0.0)])
+def test_moment_path_with_tail_moments_is_not_admissible(skew, kurt):
+    check = lt.evaluate_loss_tolerance(
+        3, mandate_type=VV, expected_return_bps=600, volatility_bps=1400,
+        skew=skew, excess_kurtosis=kurt,
+    )
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.check_code == lt.REASON_TAIL_MOMENTS_NOT_ADMISSIBLE
+    assert not check.is_conflict and check.p10_return_bps is None
+
+
+def test_minimum_of_mc_and_lognormal_is_binding():
+    lognormal = lt.lognormal_p10_return_bps(600, 1400)
+    milder_mc = lt.evaluate_loss_tolerance(
+        4, mandate_type=VV, mc_p10_return_bps=lognormal + 300,
+        expected_return_bps=600, volatility_bps=1400,
+    )
+    assert milder_mc.p10_source == lt.SOURCE_LOGNORMAL_K0
+    assert milder_mc.p10_return_bps == pytest.approx(round(lognormal, 2))
+    harsher_mc = lt.evaluate_loss_tolerance(
+        4, mandate_type=VV, mc_p10_return_bps=lognormal - 300,
+        expected_return_bps=600, volatility_bps=1400,
+    )
+    assert harsher_mc.p10_source == lt.SOURCE_MC_ASSET_PATHS
+    assert set(harsher_mc.p10_candidates_bps) == set(lt.ADMISSIBLE_SOURCES)
+
+
+def test_p5_and_cvar_are_disclosure_only():
+    kwargs = dict(mandate_type=VV, mc_p10_return_bps=-900.0)
+    plain = lt.evaluate_loss_tolerance(3, **kwargs)
+    with_tail = lt.evaluate_loss_tolerance(
+        3, p5_return_bps=-5000.0, cvar10_return_bps=-6000.0, **kwargs,
+    )
+    assert plain.status == with_tail.status == lt.STATUS_OK
+    assert with_tail.p5_return_bps == -5000.0 and with_tail.cvar10_return_bps == -6000.0
+
+
+# ---------------------------------------------------------------------------
+# Konfliktobjekt und mandate_type
 # ---------------------------------------------------------------------------
 
 def test_conflict_when_p10_below_floor():
-    check = lt.evaluate_loss_tolerance(1, p10_return_bps=-750.0)
+    check = lt.evaluate_loss_tolerance(1, mandate_type=ADV, mc_p10_return_bps=-750.0)
     assert check.status == lt.STATUS_CONFLICT
     assert check.is_conflict
     assert check.check_code == lt.REASON_CONFLICT == "LOSS_TOLERANCE_CONFLICT"
     assert check.floor_bps == -400
     assert check.shortfall_bps == 350.0
-    assert check.requires_justification is True
-    assert "Begruendung" in check.message
+    assert check.p10_source == lt.SOURCE_MC_ASSET_PATHS
     data = check.to_dict()
     assert data["status"] == "conflict"
     assert data["quantile"] == 0.10 and data["horizon_years"] == 1
@@ -147,28 +205,51 @@ def test_conflict_when_p10_below_floor():
     assert isinstance(data["placeholders"], list)
 
 
+def test_advisory_conflict_requires_advise_against_and_justification():
+    check = lt.evaluate_loss_tolerance(1, mandate_type=ADV, mc_p10_return_bps=-750.0)
+    assert check.conflict_resolution == lt.RESOLUTION_ADVISE_AGAINST
+    assert check.requires_advise_against is True
+    assert check.requires_justification is True
+    assert check.justification_sufficient is True
+    assert "Abraten" in check.message
+
+
+@pytest.mark.parametrize("mandate_type", [VV, None, "", "Execution-only", "unbekannt"])
+def test_discretionary_or_unknown_conflict_blocks_without_justification(mandate_type):
+    check = lt.evaluate_loss_tolerance(1, mandate_type=mandate_type, mc_p10_return_bps=-750.0)
+    assert check.is_conflict
+    assert check.conflict_resolution == lt.RESOLUTION_BLOCK
+    assert check.blocks_release is True
+    assert check.justification_sufficient is False
+    assert check.requires_justification is False
+    assert "genuegt nicht" in check.message
+
+
 def test_ok_when_p10_equals_or_exceeds_floor():
-    at_floor = lt.evaluate_loss_tolerance(3, p10_return_bps=-1000.0)
+    at_floor = lt.evaluate_loss_tolerance(3, mandate_type=VV, mc_p10_return_bps=-1000.0)
     assert at_floor.status == lt.STATUS_OK
     assert at_floor.check_code is None
-    assert at_floor.requires_justification is False
+    assert at_floor.blocks_release is False
+    assert at_floor.conflict_resolution is None
     assert at_floor.shortfall_bps is None
-    assert lt.evaluate_loss_tolerance(4, p10_return_bps=-900.0).status == lt.STATUS_OK
+    assert lt.evaluate_loss_tolerance(4, mandate_type=VV, mc_p10_return_bps=-900.0).status == lt.STATUS_OK
 
 
-def test_evaluation_from_moments():
-    # 6 % / 14 % Vola: P10 ~ -11.8 % -> Konflikt bei Antwort 3 (-10 %), ok bei 4 (-16 %).
-    p10 = lt.one_year_p10_return_bps(600, 1400)
+def test_evaluation_from_lognormal_moments():
+    p10 = lt.lognormal_p10_return_bps(600, 1400)
     assert -1300 < p10 < -1000
-    assert lt.evaluate_loss_tolerance(3, expected_return_bps=600, volatility_bps=1400).is_conflict
-    ok = lt.evaluate_loss_tolerance(4, expected_return_bps=600, volatility_bps=1400)
+    assert lt.evaluate_loss_tolerance(
+        3, mandate_type=VV, expected_return_bps=600, volatility_bps=1400,
+    ).is_conflict
+    ok = lt.evaluate_loss_tolerance(4, mandate_type=VV, expected_return_bps=600, volatility_bps=1400)
     assert ok.status == lt.STATUS_OK
+    assert ok.p10_source == lt.SOURCE_LOGNORMAL_K0
     assert ok.p10_return_bps == pytest.approx(round(p10, 2))
 
 
 @pytest.mark.parametrize("points", [None, True, "2", 2.0])
 def test_missing_answer_is_not_evaluable(points):
-    check = lt.evaluate_loss_tolerance(points, p10_return_bps=0.0)
+    check = lt.evaluate_loss_tolerance(points, mandate_type=VV, mc_p10_return_bps=0.0)
     assert check.status == lt.STATUS_NOT_EVALUABLE
     assert check.check_code == lt.REASON_ANSWER_MISSING
     assert not check.is_conflict
@@ -176,7 +257,7 @@ def test_missing_answer_is_not_evaluable(points):
 
 @pytest.mark.parametrize("points", [0, 5, 99])
 def test_unknown_answer_is_unmapped_placeholder(points):
-    check = lt.evaluate_loss_tolerance(points, p10_return_bps=0.0)
+    check = lt.evaluate_loss_tolerance(points, mandate_type=VV, mc_p10_return_bps=0.0)
     assert check.status == lt.STATUS_NOT_EVALUABLE
     assert check.check_code == lt.REASON_ANSWER_UNMAPPED
     assert check.floor_bps is None
@@ -184,44 +265,43 @@ def test_unknown_answer_is_unmapped_placeholder(points):
 
 
 def test_missing_distribution_is_not_evaluable():
-    check = lt.evaluate_loss_tolerance(2)
+    check = lt.evaluate_loss_tolerance(2, mandate_type=VV)
     assert check.status == lt.STATUS_NOT_EVALUABLE
     assert check.check_code == lt.REASON_DISTRIBUTION_MISSING
     assert check.floor_bps == -600
-    nan = lt.evaluate_loss_tolerance(2, p10_return_bps=float("nan"))
-    assert nan.check_code == lt.REASON_DISTRIBUTION_MISSING
-
-
-def test_non_monotonic_tail_is_not_evaluable():
-    check = lt.evaluate_loss_tolerance(
-        2, expected_return_bps=500, volatility_bps=1000, skew=-1.0, excess_kurtosis=0.0,
-    )
-    assert check.status == lt.STATUS_NOT_EVALUABLE
-    assert check.check_code == lt.REASON_CF_NOT_MONOTONIC
+    for kwargs in (
+        {"mc_p10_return_bps": float("nan")},
+        {"expected_return_bps": 500},
+        {"volatility_bps": 1000},
+    ):
+        assert lt.evaluate_loss_tolerance(2, mandate_type=VV, **kwargs).check_code == (
+            lt.REASON_DISTRIBUTION_MISSING
+        )
 
 
 # ---------------------------------------------------------------------------
 # Platzhalter und Flag
 # ---------------------------------------------------------------------------
 
-def test_open_placeholders_are_always_disclosed():
-    gross = lt.evaluate_loss_tolerance(2, p10_return_bps=0.0)
-    assert set(gross.placeholders) == {
-        lt.PLACEHOLDER_Q10_COVERAGE,
-        lt.PLACEHOLDER_Q10_HORIZON,
-        lt.PLACEHOLDER_NET_BASIS,
-    }
-    assert gross.return_basis == lt.RETURN_BASIS_GROSS
-    net = lt.evaluate_loss_tolerance(2, p10_return_bps=0.0, return_basis=lt.RETURN_BASIS_NET)
-    assert lt.PLACEHOLDER_NET_BASIS not in net.placeholders
-    for key in (*gross.placeholders, lt.PLACEHOLDER_Q11):
-        assert key in lt.OPEN_PLACEHOLDERS
+def test_eleven_compliance_placeholders_are_listed_and_disclosed():
+    assert len(lt.COMPLIANCE_PLACEHOLDERS) == 11
+    keys = lt.COMPLIANCE_PLACEHOLDER_KEYS
+    assert len(set(keys)) == 11
+    assert all(text.strip() for _, text in lt.COMPLIANCE_PLACEHOLDERS)
+    check = lt.evaluate_loss_tolerance(2, mandate_type=VV, mc_p10_return_bps=0.0)
+    assert check.placeholders == keys
+    net = lt.evaluate_loss_tolerance(
+        2, mandate_type=VV, mc_p10_return_bps=0.0, return_basis=lt.RETURN_BASIS_NET,
+    )
+    assert net.placeholders == keys  # Kostenbasis bleibt Compliance-offen (CP04)
 
 
 def test_flag_is_off_by_default_and_gates_the_entry_point():
     assert lt.LOSS_TOLERANCE_CHECK_ENABLED is False
-    assert lt.evaluate_loss_tolerance_if_enabled(1, p10_return_bps=-750.0) is None
-    forced = lt.evaluate_loss_tolerance_if_enabled(1, enabled=True, p10_return_bps=-750.0)
+    assert lt.evaluate_loss_tolerance_if_enabled(1, mandate_type=VV, mc_p10_return_bps=-750.0) is None
+    forced = lt.evaluate_loss_tolerance_if_enabled(
+        1, enabled=True, mandate_type=VV, mc_p10_return_bps=-750.0,
+    )
     assert forced is not None and forced.is_conflict
 
 
