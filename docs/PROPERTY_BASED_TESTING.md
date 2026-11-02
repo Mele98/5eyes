@@ -1,4 +1,4 @@
-# Property-Based-Testing fuer 5eyes-Backend
+# Property-Based-Testing fuer Ares-Backend
 
 Wegweiser fuer Property-Based-Testing mit `hypothesis` — wann es lohnt,
 wie es laeuft, wie Counter-Examples interpretiert werden.
