@@ -135,7 +135,7 @@ def test_conflict_when_p10_below_floor():
     check = lt.evaluate_loss_tolerance(1, p10_return_bps=-750.0)
     assert check.status == lt.STATUS_CONFLICT
     assert check.is_conflict
-    assert check.reason_code == lt.REASON_CONFLICT == "LOSS_TOLERANCE_CONFLICT"
+    assert check.check_code == lt.REASON_CONFLICT == "LOSS_TOLERANCE_CONFLICT"
     assert check.floor_bps == -400
     assert check.shortfall_bps == 350.0
     assert check.requires_justification is True
@@ -150,7 +150,7 @@ def test_conflict_when_p10_below_floor():
 def test_ok_when_p10_equals_or_exceeds_floor():
     at_floor = lt.evaluate_loss_tolerance(3, p10_return_bps=-1000.0)
     assert at_floor.status == lt.STATUS_OK
-    assert at_floor.reason_code is None
+    assert at_floor.check_code is None
     assert at_floor.requires_justification is False
     assert at_floor.shortfall_bps is None
     assert lt.evaluate_loss_tolerance(4, p10_return_bps=-900.0).status == lt.STATUS_OK
@@ -170,7 +170,7 @@ def test_evaluation_from_moments():
 def test_missing_answer_is_not_evaluable(points):
     check = lt.evaluate_loss_tolerance(points, p10_return_bps=0.0)
     assert check.status == lt.STATUS_NOT_EVALUABLE
-    assert check.reason_code == lt.REASON_ANSWER_MISSING
+    assert check.check_code == lt.REASON_ANSWER_MISSING
     assert not check.is_conflict
 
 
@@ -178,7 +178,7 @@ def test_missing_answer_is_not_evaluable(points):
 def test_unknown_answer_is_unmapped_placeholder(points):
     check = lt.evaluate_loss_tolerance(points, p10_return_bps=0.0)
     assert check.status == lt.STATUS_NOT_EVALUABLE
-    assert check.reason_code == lt.REASON_ANSWER_UNMAPPED
+    assert check.check_code == lt.REASON_ANSWER_UNMAPPED
     assert check.floor_bps is None
     assert lt.PLACEHOLDER_UNMAPPED in check.placeholders
 
@@ -186,10 +186,10 @@ def test_unknown_answer_is_unmapped_placeholder(points):
 def test_missing_distribution_is_not_evaluable():
     check = lt.evaluate_loss_tolerance(2)
     assert check.status == lt.STATUS_NOT_EVALUABLE
-    assert check.reason_code == lt.REASON_DISTRIBUTION_MISSING
+    assert check.check_code == lt.REASON_DISTRIBUTION_MISSING
     assert check.floor_bps == -600
     nan = lt.evaluate_loss_tolerance(2, p10_return_bps=float("nan"))
-    assert nan.reason_code == lt.REASON_DISTRIBUTION_MISSING
+    assert nan.check_code == lt.REASON_DISTRIBUTION_MISSING
 
 
 def test_non_monotonic_tail_is_not_evaluable():
@@ -197,7 +197,7 @@ def test_non_monotonic_tail_is_not_evaluable():
         2, expected_return_bps=500, volatility_bps=1000, skew=-1.0, excess_kurtosis=0.0,
     )
     assert check.status == lt.STATUS_NOT_EVALUABLE
-    assert check.reason_code == lt.REASON_CF_NOT_MONOTONIC
+    assert check.check_code == lt.REASON_CF_NOT_MONOTONIC
 
 
 # ---------------------------------------------------------------------------

@@ -79,6 +79,11 @@ INTERPRETATION_SOURCE = "AA-8"
 RETURN_BASIS_GROSS = "gross"
 RETURN_BASIS_NET = "net_of_costs"
 
+# Pruef-Codes (``check_code``) sind bewusst KEINE Reason-Codes im Sinn von
+# ``core/reason_codes.py``: das inaktive Modul erzeugt nichts fuer API, PDF
+# oder Audit. Mit der Aktivierung (P11, nach P2b) werden sie als Reason-Codes
+# in den Katalog aufgenommen (Blatt-Pin-Nachfuehrung im Aktivierungs-PR) und
+# das Feld in ``reason_code`` umbenannt.
 STATUS_OK = "ok"
 STATUS_CONFLICT = "conflict"
 STATUS_NOT_EVALUABLE = "not_evaluable"
@@ -206,7 +211,7 @@ def one_year_p10_return_bps(
 @dataclass(frozen=True)
 class LossToleranceCheck:
     status: str
-    reason_code: str | None
+    check_code: str | None
     message: str
     answer_points: int | None = None
     answer_text: str | None = None
@@ -274,7 +279,7 @@ def evaluate_loss_tolerance(
     if isinstance(answer_points, bool) or not isinstance(answer_points, int):
         return LossToleranceCheck(
             status=STATUS_NOT_EVALUABLE,
-            reason_code=REASON_ANSWER_MISSING,
+            check_code=REASON_ANSWER_MISSING,
             message="Verlusttoleranz nicht pruefbar: Antwort zu Frage 10 fehlt.",
             return_basis=return_basis,
             placeholders=_placeholders(return_basis, None),
@@ -283,7 +288,7 @@ def evaluate_loss_tolerance(
     if band is None or not band.is_mapped:
         return LossToleranceCheck(
             status=STATUS_NOT_EVALUABLE,
-            reason_code=REASON_ANSWER_UNMAPPED,
+            check_code=REASON_ANSWER_UNMAPPED,
             message=(
                 "Verlusttoleranz nicht pruefbar: fuer die Antwort zu Frage 10 "
                 "ist keine Wertschwankungs-Untergrenze hinterlegt (Platzhalter)."
@@ -306,7 +311,7 @@ def evaluate_loss_tolerance(
         if expected_return_bps is None or volatility_bps is None:
             return LossToleranceCheck(
                 status=STATUS_NOT_EVALUABLE,
-                reason_code=REASON_DISTRIBUTION_MISSING,
+                check_code=REASON_DISTRIBUTION_MISSING,
                 message=(
                     "Verlusttoleranz nicht pruefbar: Renditeverteilung der "
                     "Strategie fehlt."
@@ -321,7 +326,7 @@ def evaluate_loss_tolerance(
         except ValueError:
             return LossToleranceCheck(
                 status=STATUS_NOT_EVALUABLE,
-                reason_code=REASON_CF_NOT_MONOTONIC,
+                check_code=REASON_CF_NOT_MONOTONIC,
                 message=(
                     "Verlusttoleranz nicht pruefbar: Cornish-Fisher-Abbildung "
                     "fuer diese Schiefe/Kurtosis nicht monoton."
@@ -332,7 +337,7 @@ def evaluate_loss_tolerance(
     if not math.isfinite(p10):
         return LossToleranceCheck(
             status=STATUS_NOT_EVALUABLE,
-            reason_code=REASON_DISTRIBUTION_MISSING,
+            check_code=REASON_DISTRIBUTION_MISSING,
             message="Verlusttoleranz nicht pruefbar: P10 ist keine endliche Zahl.",
             **common,
         )
@@ -342,7 +347,7 @@ def evaluate_loss_tolerance(
         shortfall = round(floor - p10, 2)
         return LossToleranceCheck(
             status=STATUS_CONFLICT,
-            reason_code=REASON_CONFLICT,
+            check_code=REASON_CONFLICT,
             message=(
                 "Eignungskonflikt Verlusttoleranz: Im unguenstigen Jahr (10-%-"
                 f"Quantil, 1 Jahr) liegt die Rendite der Strategie bei "
@@ -357,7 +362,7 @@ def evaluate_loss_tolerance(
         )
     return LossToleranceCheck(
         status=STATUS_OK,
-        reason_code=None,
+        check_code=None,
         message=(
             f"Verlusttoleranz eingehalten: 10-%-Quantil (1 Jahr) "
             f"{p10 / 100.0:.2f} % >= Untergrenze {floor / 100.0:.0f} %."
