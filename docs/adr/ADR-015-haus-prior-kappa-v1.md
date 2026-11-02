@@ -94,8 +94,36 @@ Quelle sind git log und git blame auf `ares-backend/services/optimizer/house_pri
 ## Wirkung
 
 - Ohne Zieldruck (Gradient der Zielebene an der Hausquote = 0) publiziert der
-  Optimierer die Hausquote. Gemessen: ±0.5 pp, das ist Solver-Toleranz
-  (`HOUSE_ANCHOR_NUMERICAL_TOLERANCE_BPS`) und bps-Rundung.
+  Optimierer die Hausquote. Die Solver-Toleranz
+  `HOUSE_ANCHOR_NUMERICAL_TOLERANCE_BPS` beträgt **1 bp** je Anlageklasse. Liegt
+  das Ergebnis innerhalb dieser Toleranz, wird exakt der Anker publiziert.
+- Die ±0.5 pp stammen aus der Messung im Audit 01/B2. Dort galten sie für alle
+  Fälle, die nicht unter Druck stehen. Sie sind eine obere Schranke und gehen
+  nicht auf die Solver-Toleranz zurück. Reproduzierbar gemessen mit
+  `ares-backend/tests/test_house_prior_no_pressure_deviation.py` (pytest
+  `-s` druckt die Tabelle). Grundlage: Default-Hausmatrix, Profile 1–10,
+  CHF 500'000, 12 Jahre, ohne Cashflows. Gemessen wurde gegen die projizierte
+  Hausquote:
+
+  | Fall | max. Abweichung je Klasse | Test-Schranke |
+  |---|---|---|
+  | ohne Ziele, Profile 1–10 | 2 bp (Profile 1–2), sonst 0 bp | 5 bp |
+  | Ziel sicher (20 % des Vermögens, P = 1), Profile 1–10 | 2 bp (Profile 1–2), sonst 0 bp | 5 bp |
+  | Gegenprobe: Entnahmemandat E, Ziel fast sicher (P ≈ 0.998) | 610 bp | > 50 bp |
+
+  - Die 1–2 bp über der Toleranz stammen aus dem Bag-Mittel des Optimierers
+    (SLSQP-Rest). Zieldruck ist nicht die Ursache.
+  - Ergänzende Einzelmessung, lokal (Windows): Bei einem Ziel von 40 % des
+    Vermögens wird gerundet P = 1 ausgewiesen, trotzdem kommen bis 38 bp
+    (Profil 9) zustande. Bei Profil 10 (P = 0.998) sind es 55 bp. "Fast
+    sicher" ist also nicht dasselbe wie "ohne Zieldruck". Die Chance-Strafe
+    wirkt schon vorher.
+  - Gegen die **rohe** Hausmatrix-Zielquote weicht bereits der Anker ab (Profile
+    9–10: 100 bp), weil er auf die zulässige Menge projiziert wird. Das ist keine
+    Optimierer-Abweichung und wird getrennt als `deviation_vs_house_raw_bps`
+    ausgewiesen.
+  - Ab diesem Release belegen `deviation_vs_house_bps` und
+    `deviation_vs_house_raw_bps` die Abweichung für jeden Lauf.
 - Mit Zieldruck nimmt der Optimierer 1 % Tracking Error nur dann, wenn sich die
   Zielebene um mindestens `kappa_H · (1 %)² = 0.03` verbessert.
 - Mit dieser Freigabe ändert sich keine Allokation. Die Golden-Snapshots
