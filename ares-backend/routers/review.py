@@ -188,6 +188,46 @@ def _get_product_or_404(product_id: str, db: Session, current_user: User | None 
     return product
 
 
+GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL = (
+    "Globale Katalogfonds gelten fuer alle Verwaltungen und koennen hier nicht "
+    "geaendert oder deaktiviert werden. Nutzen Sie fuer Ihre Verwaltung die "
+    "Positivliste (Fonds-Universum) oder erfassen Sie einen eigenen Fonds."
+)
+
+
+def _may_write_global_catalog(current_user: User) -> bool:
+    """AUDIT-FIX Fondsuniversum R3/F1 (2026-11): globale Katalogfonds
+    (Product.tenant_id IS NULL) wirken fuer JEDEN Tenant. In einer echten
+    Multi-Tenant-Installation (strict_tenant_isolation) darf sie nur die
+    bestehende Plattform-Rolle super_admin aendern -- ein firmengebundener
+    admin bekam bisher 200 und konnte fremden Firmen Fonds deaktivieren oder
+    die TER verfaelschen. Tier-1 (ein Betreiber, kein Tenant-Konzept) bleibt
+    unveraendert, gleiches Muster wie CMA/FX in services/auth.py
+    (require_portfolio_management / *_for_global_reference_data)."""
+    if getattr(current_user, "role", None) == "super_admin":
+        return True
+    return not _effective_strict_tenant_isolation(settings)
+
+
+def _get_product_for_write_or_404(product_id: str, db: Session, current_user: User) -> Product:
+    """Wie _get_product_or_404, plus 403 (fail-closed) fuer Schreibzugriffe
+    auf globale Katalogfonds ohne Plattform-Recht (R3/F1)."""
+    product = _get_product_or_404(product_id, db, current_user)
+    if product.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+    return product
+
+
+def _writable_products_query(db: Session, current_user: User):
+    """Kandidaten fuer die Batch-Schreibpfade (OpenFIGI/EODHD auto-apply):
+    ohne Plattform-Recht nur die eigenen Fonds, nie der globale Katalog."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    q = _active_products_query(db, tenant_id=tenant_id)
+    if not _may_write_global_catalog(current_user):
+        q = q.filter(Product.tenant_id == tenant_id)
+    return q
+
+
 def _enforce_run_preferences(
     db: Session, mandate: Mandate, run: RecommendationRun, *, context: str, products=None,
 ) -> str | None:
@@ -2492,7 +2532,7 @@ def update_product(
     services/product_exposures.py::_parse_or_proxy bleibt zusaetzlich
     fault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.
     """
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     payload = body.model_dump(exclude_none=True)
     # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
     # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
@@ -2575,7 +2615,7 @@ def approve_product_eligibility_rule(
     from services.product_eligibility_governance import RuleApprovalConflict, approve_rule
 
     body = body or ProductEligibilityApprovalRequest()
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     draft_ids = [
         row[0] for row in db.query(ProductEligibilityRule.id).filter(
@@ -2622,7 +2662,7 @@ def set_product_market_override(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     product.lookup_mode_override = body.lookup_mode_override or None
     product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
     product.updated_at = _now()
@@ -2678,7 +2718,7 @@ def apply_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_openfigi_or_raise(
         product=product,
         isin=body.isin,
@@ -2726,7 +2766,7 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
@@ -2855,7 +2895,7 @@ def apply_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_eodhd_or_raise(
         product=product,
         isin=body.isin,
@@ -2904,7 +2944,7 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )
