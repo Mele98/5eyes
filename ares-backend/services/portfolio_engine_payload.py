@@ -1560,6 +1560,23 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     return score
 
 
+def _product_selection_key(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> tuple:
+    """PO-13 (Audit 2026-11): Sortierschluessel der Produktwahl je Sleeve.
+
+    Hoechster Score zuerst; bei Gleichstand entscheidet nicht mehr die
+    Datenbank-Reihenfolge (SQLite: Einfuegereihenfolge, Postgres: undefiniert),
+    sondern ein stabiler Tie-Break: Produkte mit ISIN vor solchen ohne, dann
+    ISIN aufsteigend, dann Produkt-ID aufsteigend.
+    """
+    isin = str(getattr(product, "isin", None) or "").strip().upper()
+    return (
+        -_product_score(product, sub_asset_class, prefs, jurisdiction_ctx=jurisdiction_ctx),
+        0 if isin else 1,
+        isin,
+        str(getattr(product, "id", None) or ""),
+    )
+
+
 def _items_with_known_ter(items: list[dict]) -> list[dict]:
     return [item for item in items if item.get("ter_bps") is not None]
 

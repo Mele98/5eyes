@@ -1447,6 +1447,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_is_structured,
     _product_matches_constraints,
     _product_score,
+    _product_selection_key,
     theme_screening_disclosure,
     esg_policy_gap_hint,
     default_catalog_theme_tags,
@@ -6692,10 +6693,9 @@ def generate_recommendation_run(
                 "theme_gap_hint": theme_gap_hint,
             })
             continue
-        ranked = sorted(
+        ranked = sorted(  # PO-13: stabiler Tie-Break (ISIN, dann ID) statt DB-Reihenfolge
             candidates,
-            key=lambda product: _product_score(product, sub["sub_asset_class"], prefs, jurisdiction_ctx=jurisdiction_ctx),
-            reverse=True,
+            key=lambda product: _product_selection_key(product, sub["sub_asset_class"], prefs, jurisdiction_ctx=jurisdiction_ctx),
         )
         best = ranked[0]
         target_amount = int(round(investable_advisory_wealth_rappen * int(sub["target_weight_bps"]) / 10000))
