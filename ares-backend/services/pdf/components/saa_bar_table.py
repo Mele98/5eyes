@@ -40,6 +40,7 @@ def make_saa_bar_table(
     base_currency: str = "CHF",
     advisory_wealth_rappen: int | None = None,
     show_bands: bool = False,
+    external_reserve_rappen: int = 0,
 ) -> list:
     """Returns Flowables: Section-Title + Allokations-Tabelle."""
     title = "Soll-Allokation & individuelle Bandbreiten" if show_bands else "Soll-Allokation"
@@ -93,8 +94,14 @@ def make_saa_bar_table(
 
     if advisory_wealth_rappen and total_amount == 0:
         total_amount = advisory_wealth_rappen
+    reserve = max(0, int(external_reserve_rappen or 0))
+    # Live-Test 2026-11 H2: Die SAA-Gewichte beziehen sich auf die
+    # Strategiebasis (Beratungsvermoegen minus externe Reserve). Ist eine
+    # Reserve abgezogen, wird sie als eigene Zeile ausgewiesen, damit die
+    # Betraege auf das Beratungsvermoegen summieren.
+    total_label = "Total Anlagestrategie (Strategiebasis)" if reserve else "Total Beratungsvermoegen"
     total_row = [
-        Paragraph("<b>Total Beratungsvermoegen</b>", _para_style_table()),
+        Paragraph(f"<b>{total_label}</b>", _para_style_table()),
         f"{total_bps/100:.1f}%",
         "",
         _format_amount(total_amount, base_currency) if total_amount > 0 else "-",
@@ -102,6 +109,25 @@ def make_saa_bar_table(
     if show_bands:
         total_row.insert(3, "")
     rows.append(total_row)
+    extra_rows = 0
+    if reserve and total_amount > 0:
+        reserve_row = [
+            Paragraph("Liquiditätsreserve (ausserhalb der Anlagestrategie)", _para_style_table()),
+            "\u2013",
+            "",
+            _format_amount(reserve, base_currency),
+        ]
+        advisory_row = [
+            Paragraph("<b>Total Beratungsvermögen</b>", _para_style_table()),
+            "",
+            "",
+            _format_amount(total_amount + reserve, base_currency),
+        ]
+        if show_bands:
+            reserve_row.insert(3, "")
+            advisory_row.insert(3, "")
+        rows.extend([reserve_row, advisory_row])
+        extra_rows = 2
 
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
@@ -133,6 +159,8 @@ def make_saa_bar_table(
         ("TEXTCOLOR", (0, 0), (-1, 0), COLOR_TEXT_LIGHT),
         ("TEXTCOLOR", (0, 1), (-1, -1), COLOR_TEXT),
         ("LINEBELOW", (0, 0), (-1, 0), 0.8, COLOR_BORDER),
+        ("LINEABOVE", (0, -1 - extra_rows), (-1, -1 - extra_rows), 1.0, COLOR_BORDER),
+        ("FONTNAME", (0, -1 - extra_rows), (-1, -1 - extra_rows), FONT_BOLD),
         ("LINEABOVE", (0, -1), (-1, -1), 1.0, COLOR_BORDER),
         ("FONTNAME", (0, -1), (-1, -1), FONT_BOLD),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),

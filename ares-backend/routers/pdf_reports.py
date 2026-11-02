@@ -293,6 +293,87 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     return positions, current_bps, total
 
 
+def _largest_remainder_split(total: int, weights: list[int], labels: list[str]) -> list[int]:
+    """Ganzzahlige Aufteilung nach Largest Remainder (Hamilton), Tie-Break
+    groesseres Gewicht, dann Label -- dieselbe Regel wie
+    services.sub_allocation_apportionment.apportion_bps, hier nur fuer die
+    Franken-Rundung der PDF-Darstellung (bewusst lokal: keine zusaetzliche
+    Modulabhaengigkeit des Routers, Architektur-Ratsche)."""
+    clean = [max(0, int(w)) for w in weights]
+    weight_sum = sum(clean)
+    total = int(total)
+    if weight_sum <= 0 or total <= 0:
+        return [0] * len(clean)
+    floors = [total * w // weight_sum for w in clean]
+    remainders = [total * w % weight_sum for w in clean]
+    order = sorted(range(len(clean)), key=lambda i: (-remainders[i], -clean[i], str(labels[i]), i))
+    for i in order[: total - sum(floors)]:
+        floors[i] += 1
+    return floors
+
+
+def _strategy_presentation_amounts(
+    advisory_wealth_rappen: int | None,
+    strategy_base_rappen: int | None,
+    target_alloc_bps: dict[str, int],
+    raw_sub_allocations: list | None,
+) -> dict:
+    """Live-Test 2026-11 H2/H3: EINE Rechenbasis fuer alle Betraege im PDF.
+
+    Die SAA-Gewichte beziehen sich auf die Strategiebasis (Beratungsvermoegen
+    minus externe Liquiditaetsreserve, ``portfolio_engine.
+    _investable_advisory_wealth_rappen``) -- so rechnen App-Buckets und
+    Produktempfehlung. Das PDF rechnete Hauptklassen dagegen auf dem vollen
+    Beratungsvermoegen und Subklassen aus der Produktempfehlung (andere
+    Basis, EM im CH-Produkt). Reine Darstellung: Gewichte bleiben unveraendert.
+
+    Rundung in ganzen Franken nach Largest Remainder, damit Subklassen exakt
+    auf die Klasse, Klassen exakt auf die Strategiebasis und Strategiebasis +
+    Reserve exakt auf das Beratungsvermoegen summieren.
+    """
+    advisory = max(0, int(advisory_wealth_rappen or 0))
+    base = int(strategy_base_rappen or 0)
+    if base <= 0 or base > advisory:
+        base = advisory
+    advisory_chf = int(round(advisory / 100))
+    base_chf = int(round(base / 100))
+    reserve_chf = max(0, advisory_chf - base_chf)
+
+    buckets = [b for b, bps in (target_alloc_bps or {}).items() if int(bps or 0) > 0]
+    bucket_chf = _largest_remainder_split(
+        base_chf, [int(target_alloc_bps[b]) for b in buckets], buckets,
+    ) if base_chf > 0 else [0] * len(buckets)
+    bucket_amounts = {b: chf * 100 for b, chf in zip(buckets, bucket_chf)}
+
+    by_bucket: dict[str, list[dict]] = {}
+    for item in raw_sub_allocations or []:
+        if not isinstance(item, dict):
+            continue
+        bucket = _bucket_key(item.get("asset_class"))
+        bps = int(item.get("target_weight_bps") or 0)
+        sub = str(item.get("sub_asset_class") or "").strip()
+        if not bucket or not sub or bps <= 0:
+            continue
+        by_bucket.setdefault(bucket, []).append({
+            "asset_class": bucket, "sub_asset_class": sub, "target_weight_bps": bps,
+        })
+    sub_allocations: list[dict] = []
+    for bucket, rows in by_bucket.items():
+        total_chf = bucket_amounts.get(bucket, 0) // 100
+        split = _largest_remainder_split(
+            total_chf, [r["target_weight_bps"] for r in rows], [r["sub_asset_class"] for r in rows],
+        )
+        for row, chf in zip(rows, split):
+            sub_allocations.append({**row, "target_amount_rappen": chf * 100})
+
+    return {
+        "bucket_amounts_rappen": bucket_amounts,
+        "strategy_base_rappen": base_chf * 100 if advisory else None,
+        "external_reserve_rappen": reserve_chf * 100,
+        "sub_allocations": sub_allocations,
+    }
+
+
 def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     """Nicht-Beratungsvermoegen-Positionen fuer die Anlagestrategie-PDF's
     "Anderes Vermoegen"-Tabelle. Analoges FX-DRIFT-001/P2-3-Fix wie
@@ -529,9 +610,6 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         or current_advisory_wealth
         or None
     )
-    if advisory_wealth:
-        for bucket, bps in target_alloc_bps.items():
-            bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
     prefs_raw = getattr(ta_obj, "preferences_json", None)
     if prefs_raw:
         parsed_prefs = json.loads(prefs_raw)
@@ -575,6 +653,17 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         )
     cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
     cma_vol = int(engine_payload.get("expected_volatility_bps", 0) or 0)
+
+    # Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis der Engine
+    # (Gewichte beziehen sich auf Beratungsvermoegen minus externe Reserve),
+    # Reserve separat, Subklassen aus der SAA-Sub-Allokation.
+    presentation_amounts = _strategy_presentation_amounts(
+        advisory_wealth,
+        engine_payload.get("strategy_base_rappen"),
+        target_alloc_bps,
+        engine_payload.get("sub_allocations"),
+    )
+    bucket_amounts = presentation_amounts["bucket_amounts_rappen"]
 
     # ---- Risk-Assessment ----
     risk_score_x10 = None
@@ -936,6 +1025,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         knowledge_instruments=knowledge_instruments,
         bucket_bands_bps=bucket_bands,
         bucket_amounts_rappen=bucket_amounts,
+        strategy_base_rappen=presentation_amounts["strategy_base_rappen"],
+        external_reserve_rappen=presentation_amounts["external_reserve_rappen"],
+        sub_allocations=presentation_amounts["sub_allocations"],
         products=products,
         recommendation_status=recommendation_status,
         goal_analysis=goal_analysis,
