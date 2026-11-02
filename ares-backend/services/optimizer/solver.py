@@ -58,6 +58,7 @@ from .constraints import (
     validate_risky_fraction_per_bucket,
 )
 from .goal_liabilities import (
+    _HARDNESS_LABELS_TO_KEY,
     GoalLiability,
     aggregate_liability_path,
     goals_to_liabilities,
@@ -1692,6 +1693,27 @@ def _seed_goal_date(value, valuation_year: int):
     return f"Y{parsed.year - int(valuation_year):+d}-{parsed.month:02d}-{parsed.day:02d}"
 
 
+# AUDIT-2026-11 D3: fachlich gleiche Schreibweisen des Haertegrads ("Primär",
+# "Primaer", "primary", ...) zogen verschiedene Wuerfel. Kanonisiert wird auf
+# die gespeicherte Form (Modell-/Schema-Default und Frontend schreiben
+# "Hart"/"Primär"/"Opportunistisch"), damit diese ihren Seed behalten.
+# Unbekannte Werte und None bleiben unveraendert.
+_CANONICAL_HARDNESS_LABEL = {
+    "hart": "Hart",
+    "primaer": "Primär",
+    "opportunistisch": "Opportunistisch",
+}
+
+
+def _seed_hardness(value):
+    if not isinstance(value, str):
+        return _seed_scalar(value)
+    key = _HARDNESS_LABELS_TO_KEY.get(value.strip().lower())
+    if key is None:
+        return value
+    return _CANONICAL_HARDNESS_LABEL[key]
+
+
 def _seed_scalar(value):
     if value is None or isinstance(value, (bool, int, str)):
         return value
@@ -1723,6 +1745,8 @@ def goal_economic_fingerprint(
             name: (
                 _seed_goal_date(value, year)
                 if name in _GOAL_DATE_FIELDS
+                else _seed_hardness(value)
+                if name == "hardness"
                 else _seed_scalar(value)
             )
             for name, value in raw.items()

@@ -341,6 +341,24 @@ byte-identisch). Seed-Effekt v17 -> v18: Score 7 6789/1603/810/597/201 ->
 6783/1618/804/594/201 (Rendite 529 -> 528, Vola 1080 -> 1079); Score 9
 7884/829/725/361/201 -> 7942/781/691/385/201 (Rendite 577 -> 579, Vola
 1243 -> 1251); Score 3 und alle drei Score-5-Varianten unveraendert.
+
+Nachtrag (2026-11-03, AUDIT-2026-11 D3, Engine unveraendert
+``saa_resampled_v18``): der Haertegrad geht kanonisiert in den Inhalts-Seed
+ein ("Primaer"/"primary"/... -> gespeicherte Form "Primär"). Das
+Golden-Vermoegensziel ist als "Primaer" erfasst und zieht deshalb jetzt
+denselben Wuerfel wie ein in der App erfasstes "Primär"-Ziel. Reiner
+Seed-Effekt, keine Rechenaenderung: ohne den D3-Commit sind alle sechs
+Fixtures auf diesem Branch byte-identisch (Windows lokal, Haswell und
+Nehalem, Threads = 1); mit D3 sind die neu erzeugten Dateien unter Haswell =
+Nehalem byte-identisch. Geaendert nur die seed-abhaengigen Combos: Score 7
+6783/1618/804/594/201 -> 6769/1634/805/591/201 (Rendite 528 unveraendert,
+Vola 1079 -> 1076, Risikoanteil 64.53 -> 64.44 %; exakt verglichen nur
+``totals.sum_target_amount_rappen`` 49'764'795 -> 49'764'796 Rappen
+Rundung, alles Uebrige innerhalb der Solver-Toleranz); Score 9
+7942/781/691/385/201 -> 7937/768/715/379/201 (Rendite 579 und Vola 1251
+unveraendert, Risikoanteil 69.28 -> 69.30 %; Test war innerhalb der
+Toleranz gruen, Datei trotzdem nachgefuehrt, weil sie sich geaendert hat).
+Score 3 und alle drei Score-5-Varianten seed-unabhaengig, unveraendert.
 """
 from __future__ import annotations
 
