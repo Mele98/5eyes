@@ -1031,8 +1031,10 @@ MISSING_TENANT_MASTER_KEK_MESSAGE = (
     "TENANT_MASTER_KEK fehlt: Ares startet nicht ohne eigene Master-KEK. "
     "Einen Fernet-Key erzeugen (python -c \"from cryptography.fernet import "
     "Fernet; print(Fernet.generate_key().decode())\") und als "
-    "TENANT_MASTER_KEK in der Konfiguration setzen; eine Bestandsinstallation "
-    "bringt ihn aus der Zielkonfiguration des Migrators mit."
+    "TENANT_MASTER_KEK in der Konfiguration setzen. Die Desktop-App liest ihn "
+    "sonst aus der DPAPI-Ablage tenant-master-kek.dpapi im userData-Ordner "
+    "(beim Erststart angelegt; bei einer Bestandsinstallation legt der "
+    "Migrator sie an)."
 )
 
 

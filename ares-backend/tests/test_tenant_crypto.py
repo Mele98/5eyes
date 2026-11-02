@@ -225,13 +225,39 @@ def test_environment_variable_is_not_a_second_source(monkeypatch):
 
 def test_configured_fernet_kek_is_used(monkeypatch):
     from cryptography.fernet import Fernet
-    from services.tenant_crypto import _resolve_master_kek, require_master_kek
+    from config import require_tenant_master_kek
+    from services.tenant_crypto import _resolve_master_kek
 
     settings = _no_kek(monkeypatch)
     key = Fernet.generate_key().decode("ascii")
     monkeypatch.setattr(settings, "tenant_master_kek", key, raising=False)
-    require_master_kek()
+    require_tenant_master_kek(settings)
     assert _resolve_master_kek(None) == key.encode("ascii")
+
+
+def test_missing_kek_message_points_to_the_real_sources():
+    """A2b B-3: die fatale Startmeldung nennt die tatsaechlichen KEK-Quellen --
+    TENANT_MASTER_KEK explizit oder die DPAPI-Ablage im userData-Ordner, die
+    beim Erststart bzw. vom Migrator angelegt wird. Der Migrator schreibt die
+    KEK nie in die Zielkonfiguration; ein Verweis darauf fuehrte auf die
+    falsche Spur."""
+    from config import MISSING_TENANT_MASTER_KEK_MESSAGE as message
+
+    assert message.startswith("TENANT_MASTER_KEK fehlt")
+    assert "tenant-master-kek.dpapi" in message and "userData" in message
+    assert "Migrator" in message
+    assert "Zielkonfiguration" not in message
+
+
+def test_tenant_crypto_has_no_second_startup_check():
+    """A2b B-3: die Startpruefung gibt es genau einmal (config, im Lifespan
+    vor init_db). Die fruehere Kopie in tenant_crypto wurde produktiv nicht
+    mehr aufgerufen und ist entfernt."""
+    import services.tenant_crypto as tenant_crypto
+
+    assert not hasattr(tenant_crypto, "require_master_kek")
+    main_src = (BACKEND_ROOT / "main.py").read_text(encoding="utf-8")
+    assert "require_tenant_master_kek(settings)" in main_src
 
 
 def test_app_start_without_kek_fails_closed_with_clear_message(monkeypatch, caplog):
@@ -243,8 +269,8 @@ def test_app_start_without_kek_fails_closed_with_clear_message(monkeypatch, capl
     _no_kek(monkeypatch)
     init_calls = []
     monkeypatch.setattr(main, "init_db", lambda: init_calls.append(1))
-    # Startpruefung config.require_tenant_master_kek (gleiche Pruefung wie
-    # require_master_kek, ohne zusaetzliche Modulkante main -> tenant_crypto).
+    # Startpruefung config.require_tenant_master_kek (dieselbe Pruefung, die
+    # tenant_crypto beim Entpacken anwendet; keine Modulkante main -> tenant_crypto).
     with pytest.raises(KekStoreError, match="TENANT_MASTER_KEK fehlt"):
         with TestClient(main.app):
             pass

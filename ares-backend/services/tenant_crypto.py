@@ -2,7 +2,9 @@
 
 The master KEK has exactly one configuration source,
 ``settings.tenant_master_kek`` (environment/config ``TENANT_MASTER_KEK``), and
-is mandatory: without it the app does not start (``require_master_kek``).
+is mandatory: without it the app does not start (startup check
+``config.require_tenant_master_kek`` in ``main.lifespan``, before ``init_db``;
+the same check ``config.tenant_master_kek_problem`` guards every unwrap here).
 There is no fallback to ``SECRET_KEY`` or to a placeholder. The tenant table
 stores only the encrypted DEK plus the KEK generation (``kek_version``);
 callers use the plaintext DEK through these helpers.
@@ -64,11 +66,6 @@ def _validate_master_kek(raw: str | bytes) -> None:
     problem = tenant_master_kek_problem(raw, secret_key=str(getattr(settings, "secret_key", "") or ""))
     if problem:
         raise TenantCryptoError(problem)
-
-
-def require_master_kek() -> None:
-    """Startpruefung (Lifespan): ohne gueltige Master-KEK startet Ares nicht."""
-    _validate_master_kek(_configured_master_kek())
 
 
 def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
