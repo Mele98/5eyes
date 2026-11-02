@@ -669,6 +669,44 @@ def _has_manual_target_overrides(bands: dict | None) -> bool:
     )
 
 
+class BandEnvelopeInfeasibleError(ValueError):
+    """AUDIT-2026-11 A5: die wirksamen Bandbreiten lassen keine Allokation
+    mit genau 100 % zu. Unterklasse von ValueError (alle bisherigen
+    Aufrufer bleiben gueltig); der Generate-Router antwortet damit 422
+    statt 409, weil die Eingabe selbst nicht erfuellbar ist."""
+
+
+def _envelope_infeasible_message(
+    adjusted: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+) -> str:
+    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
+
+    total = sum(int(adjusted[key]) for key in BUCKET_FIELDS)
+    if total < 10000:
+        parts = ", ".join(
+            f"{BUCKET_LABELS[key]} max. {_band_pct(maximums[key])} %" for key in BUCKET_FIELDS
+        )
+        return (
+            f"Die Hoechstquoten lassen zusammen nur {_band_pct(total)} % zu und "
+            f"ergeben keine vollstaendige Allokation von 100 % ({parts}). Bitte "
+            "mindestens eine dieser Obergrenzen anheben, z. B. ein im "
+            "Bandbreiten-Editor gesetztes Berater-Maximum."
+        )
+    parts = ", ".join(
+        f"{BUCKET_LABELS[key]} min. {_band_pct(minimums[key])} %"
+        for key in BUCKET_FIELDS
+        if int(minimums[key]) > 0
+    )
+    return (
+        f"Die Mindestquoten verlangen zusammen {_band_pct(total)} % und "
+        f"uebersteigen 100 % ({parts}). Bitte mindestens eine dieser "
+        "Untergrenzen senken, z. B. ein im Bandbreiten-Editor gesetztes "
+        "Berater-Minimum."
+    )
+
+
 def _distribute_proportionally(
     adjusted: dict[str, int],
     keys: tuple[str, ...],
@@ -773,9 +811,11 @@ def _rebalance_to_total(
                 delta -= step
     final_total = sum(adjusted.values())
     if final_total != 10000:
-        raise ValueError(
-            f"Target allocation cannot be normalized to 10000 bps within min/max bounds "
-            f"(total={final_total}, targets={adjusted})."
+        # AUDIT-2026-11 A5: vorher interner englischer Text ("cannot be
+        # normalized ... targets={...}"); jetzt deutsch, mit den
+        # kollidierenden Grenzen je Anlageklasse.
+        raise BandEnvelopeInfeasibleError(
+            _envelope_infeasible_message(adjusted, minimums, maximums)
         )
     return adjusted
 
