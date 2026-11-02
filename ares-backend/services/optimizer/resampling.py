@@ -802,6 +802,9 @@ _HOUSE_PRIOR_BASIS_FIELDS = (
     "candidate_bps",
     "candidate_tracking_error_vs_house_bps",
     "final_bps",
+    # HOUSE-PRIOR-APPROVAL-001 (AA-4): Abweichung zur Hausquote je Klasse.
+    "deviation_vs_house_bps",
+    "deviation_vs_house_raw_bps",
     "tracking_error_vs_house_bps",
     "final_prior_penalty",
     # HOUSE-PRIOR-PSD-NULLSPACE-001: Ridge der Prior-Metrik (Sigma + eps I).
