@@ -9385,6 +9385,8 @@ export interface components {
         };
         /** ProductImportResultItem */
         ProductImportResultItem: {
+            /** Eligibility Note */
+            eligibility_note?: string | null;
             /** Error */
             error?: string | null;
             /** Product Id */
@@ -9714,10 +9716,14 @@ export interface components {
             esg_score_x10?: number | null;
             /** Is Active */
             is_active?: number | null;
+            /** Isin */
+            isin?: string | null;
             /** Liquidity Tier */
             liquidity_tier?: string | null;
             /** Product Name */
             product_name?: string | null;
+            /** Product Type */
+            product_type?: string | null;
             /** Provider */
             provider?: string | null;
             /** Sector Exposure Json */
@@ -9726,6 +9732,8 @@ export interface components {
             sfdr_class?: ("6" | "8" | "9") | null;
             /** Sub Asset Class */
             sub_asset_class?: string | null;
+            /** Symbol */
+            symbol?: string | null;
             /** Ter Bps */
             ter_bps?: number | null;
             /** Theme Tags */
