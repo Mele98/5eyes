@@ -2369,11 +2369,22 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 if field in body.model_fields_set and value is not None:
                     setattr(existing, field, value)
             existing.updated_at = now
-            eligibility_draft = reauthor_tenant_product_rule_on_import(
+            eligibility_draft, retired_draft_ids = reauthor_tenant_product_rule_on_import(
                 db, product=existing, jurisdiction=_product_rule_jurisdiction(existing),
                 created_by_user_id=current_user.id,
                 row={**payload, **suitability}, explicit_fields=set(body.model_fields_set), now=now,
             )
+            # N-855-4: Zurueckziehen und neuer Entwurf je eigener Audit-Eintrag.
+            for retired_id in retired_draft_ids:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=retired_id, action="UPDATE",
+                    field_name="status", old_value="draft",
+                    new_value=f"retired;reason=reimport_superseded_draft;product={existing.id}")
+            if eligibility_draft is not None:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=eligibility_draft.id, action="CREATE",
+                    new_value=(f"draft;reason=reimport_eligibility_change;product={existing.id};"
+                               f"supersedes={eligibility_draft.supersedes_id or ''}"))
             items.append(ProductImportResultItem(
                 row=idx, status="updated", product_id=existing.id, product_name=existing.product_name,
                 eligibility_note=(
@@ -2673,6 +2684,7 @@ def approve_product_eligibility_rule(
     if not draft_ids:
         raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel fuer dieses Produkt.")
     approved: list[str] = []
+    superseded: list[str] = []
     modes: set[str] = set()
     try:
         for rule_id in draft_ids:
@@ -2683,6 +2695,15 @@ def approve_product_eligibility_rule(
             )
             approved.append(rule_id)
             modes.add(rule.approval_mode)
+            if rule.supersedes_id:
+                previous = db.get(ProductEligibilityRule, rule.supersedes_id)
+                if previous is not None and previous.status == "retired":
+                    superseded.append(previous.id)
+                    # N-855-4: Abloesung der bisher geltenden Regel als eigener Eintrag.
+                    log(db, user_id=current_user.id, user_name=current_user.full_name,
+                        table_name="product_eligibility_rules", record_id=previous.id, action="UPDATE",
+                        field_name="status", old_value="approved",
+                        new_value=f"retired;superseded_by={rule.id};valid_to={previous.valid_to}")
     except LookupError:
         db.rollback()
         raise HTTPException(status_code=404, detail="Eignungsregel nicht gefunden.")
@@ -2691,6 +2712,8 @@ def approve_product_eligibility_rule(
         raise HTTPException(status_code=409, detail=str(exc))
     approval_mode = ",".join(sorted(modes))
     audit_value = f"approved:{','.join(approved)};approval_mode={approval_mode}"
+    if superseded:
+        audit_value += f";superseded:{','.join(superseded)}"
     if "single_approver_attested" in modes:
         audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
     log(db, user_id=current_user.id, user_name=current_user.full_name,

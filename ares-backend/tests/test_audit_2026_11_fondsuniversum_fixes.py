@@ -411,3 +411,43 @@ def test_n855_3_tier1_default_without_admin_ui_unchanged():
     cfg = Settings(app_env="development", deployment_tier="tier1", tenancy_mode="single",
                    tenant_admin_ui_enabled=False, strict_tenant_isolation=False)
     assert cfg.tenant_admin_ui_enabled is False
+
+
+# --- N-855-4: Audit-Eintraege fuer Zurueckziehen und Abloesen ---------------
+def _rule_audit(session_factory):
+    with session_factory() as s:
+        return [(a.record_id, a.action, a.field_name, a.old_value, a.new_value)
+                for a in s.query(AuditLog).filter(AuditLog.table_name == "product_eligibility_rules").all()]
+
+
+def test_n855_4_reimport_logs_retired_draft_and_new_draft(session_factory, client):
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    (first_draft_id,) = [rid for rid, _ in _r7_rules(session_factory, pid)[1].items()]
+    client.post("/products/import", json={"products": [dict(_R7_ROW, suitability_profile_from=7)]})
+    audit = _rule_audit(session_factory)
+    retired = [a for a in audit if a[0] == first_draft_id and a[2] == "status"]
+    assert retired and retired[0][3] == "draft" and retired[0][4].startswith("retired;")
+    created = [a for a in audit if a[1] == "CREATE" and "reimport_eligibility_change" in (a[4] or "")]
+    assert len(created) == 1 and f"product={pid}" in created[0][4]
+
+
+def test_n855_4_approval_logs_superseded_rule(session_factory, client):
+    from services.product_eligibility_governance import approve_rule
+
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    with session_factory() as s:
+        (rule,) = s.query(ProductEligibilityRule).filter(ProductEligibilityRule.product_id == pid).all()
+        approve_rule(s, rule_id=rule.id, approver_id="zweite-person", tenant_id="main")
+        s.commit()
+        old_id = rule.id
+    client.post("/products/import", json={"products": [dict(_R7_ROW, suitability_profile_from=7)]})
+    _as("admin-2", "admin", "main")
+    r = client.post(f"/products/{pid}/eligibility-rule/approve", json={})
+    assert r.status_code == 200, r.text
+    audit = _rule_audit(session_factory)
+    superseded = [a for a in audit if a[0] == old_id and a[2] == "status"]
+    assert superseded and superseded[0][3] == "approved" and "superseded_by=" in superseded[0][4]
+    summary = [a for a in audit if a[0] == pid and (a[4] or "").startswith("approved:")]
+    assert summary and f"superseded:{old_id}" in summary[-1][4]

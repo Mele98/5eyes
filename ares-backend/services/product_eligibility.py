@@ -597,7 +597,7 @@ def reauthor_tenant_product_rule_on_import(
     row: dict,
     explicit_fields: set[str],
     now: str | None = None,
-) -> ProductEligibilityRule | None:
+) -> tuple[ProductEligibilityRule | None, list[str]]:
     """AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Re-Import (Upsert) hat
     die Eignungsfelder bisher still verworfen -- eine verschaerfte Eignung im
     monatlichen Upload blieb ohne Hinweis wirkungslos.
@@ -610,7 +610,8 @@ def reauthor_tenant_product_rule_on_import(
     Freigabe abgeloest (product_eligibility_governance.approve_rule). Ein
     offener, noch nie wirksamer Vorgaenger-Entwurf wird zurueckgezogen.
     Nicht gelieferte bzw. leere Eignungsfelder gelten als "unveraendert".
-    Gibt den neuen Entwurf zurueck, sonst None (keine Aenderung)."""
+    Gibt (neuer Entwurf oder None, IDs der zurueckgezogenen Entwuerfe)
+    zurueck; der Aufrufer protokolliert beides im Audit-Log (N-855-4)."""
     rules = (
         db.query(ProductEligibilityRule)
         .filter(
@@ -638,7 +639,7 @@ def reauthor_tenant_product_rule_on_import(
     elif not desired["service_modes"]:
         desired["service_modes"] = sorted(row.get("suitability_service_modes") or [])
     if current is not None and desired == current:
-        return None
+        return None, []
     for draft in drafts:
         draft.status = "retired"
         draft.updated_at = now or _now_iso()
@@ -655,7 +656,7 @@ def reauthor_tenant_product_rule_on_import(
         requires_override=bool(desired["requires_override"]),
         now=now,
         supersedes_id=approved[-1].id if approved else None,
-    )
+    ), [draft.id for draft in drafts]
 
 
 def evaluate_product_eligibility(
