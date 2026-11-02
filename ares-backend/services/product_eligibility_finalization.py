@@ -186,3 +186,76 @@ def finalization_eligibility_findings(
                 detail += f" ({weight} bps, Deckel {decision.position_limit_bps} bps)"
             warnings.append(f"Produkteignung {name}: {detail} [{code}].")
     return errors, warnings
+
+
+# ---------------------------------------------------------------------------
+# PO-16 (Audit 2026-11): Abgleich der Anlageklassen-Quoten mit der SAA.
+#
+# Finalize pruefte nur die Gewichtssumme (+-100 bps), nicht, ob die Positionen
+# je Anlageklasse zur Soll-Allokation passen (z. B. nach manuellem Hinzufuegen
+# oder Loeschen von Positionen). Jetzt eine sichtbare WARNUNG -- bewusst kein
+# Block: ob eine Abweichung die Freigabe sperrt, ist Owner-Entscheid (Q2).
+#
+# Toleranzen aus bestehenden Groessen, keine neuen Schwellen:
+#   * die Bandbreiten der Soll-Allokation (band_*_min/max_bps; 0/0 = kein Band,
+#     gleiche Regel wie das Live-Rebalancing);
+#   * die Summen-Toleranz des Finalize-Gates (Gewichtssumme 9'900..10'100 bps).
+# ---------------------------------------------------------------------------
+
+#: = Summen-Toleranz des Finalize-Gates in routers/review.py (10'000 +- 100 bps).
+FINALIZE_WEIGHT_TOLERANCE_BPS = 100
+
+_SAA_BUCKETS = (
+    ("Aktien", "equities"),
+    ("Obligationen", "bonds"),
+    ("Immobilien", "real_estate"),
+    ("Alternative", "alternatives"),
+    ("Liquiditaet", "liquidity"),
+)
+_ASSET_CLASS_ALIASES = {"liquidität": "Liquiditaet", "liquiditaet": "Liquiditaet"}
+
+
+def _canonical_asset_class(value: str | None) -> str:
+    text = str(value or "").strip()
+    return _ASSET_CLASS_ALIASES.get(text.lower(), text)
+
+
+def saa_bucket_reconciliation_warnings(allocation, positions: Iterable, products: dict) -> list[str]:
+    """Warnungen, wenn die Positionsquote einer Anlageklasse vom SAA-Ziel um
+    mehr als FINALIZE_WEIGHT_TOLERANCE_BPS abweicht oder ausserhalb der
+    Bandbreite der Soll-Allokation liegt. Leere Liste = konsistent."""
+    if allocation is None:
+        return []
+    actual: dict[str, int] = {}
+    unknown_bps = 0
+    for position in positions:
+        product = products.get(position.product_id)
+        weight = int(position.target_weight_bps or 0)
+        label = _canonical_asset_class(getattr(product, "asset_class", None))
+        if label in dict(_SAA_BUCKETS):
+            actual[label] = actual.get(label, 0) + weight
+        else:
+            unknown_bps += weight
+    warnings: list[str] = []
+    for label, field in _SAA_BUCKETS:
+        target = int(getattr(allocation, f"target_{field}_bps", 0) or 0)
+        band_min = int(getattr(allocation, f"band_{field}_min_bps", 0) or 0)
+        band_max = int(getattr(allocation, f"band_{field}_max_bps", 0) or 0)
+        weight = actual.get(label, 0)
+        delta = weight - target
+        outside_band = not (band_min == 0 and band_max == 0) and not (band_min <= weight <= band_max)
+        if abs(delta) > FINALIZE_WEIGHT_TOLERANCE_BPS or outside_band:
+            band_text = f", Bandbreite {band_min / 100:.2f}-{band_max / 100:.2f}%" if band_min or band_max else ""
+            warnings.append(
+                f"SAA-Abgleich {label}: Portfolio {weight / 100:.2f}% statt SAA {target / 100:.2f}% "
+                f"(Abweichung {delta / 100:+.2f} Prozentpunkte, Toleranz "
+                f"{FINALIZE_WEIGHT_TOLERANCE_BPS / 100:.2f}{band_text})"
+                + (" -- ausserhalb der Bandbreite" if outside_band else "")
+                + ". Nur Hinweis, Freigabe nicht blockiert [SAA_BUCKET_DEVIATION]."
+            )
+    if unknown_bps:
+        warnings.append(
+            f"SAA-Abgleich: {unknown_bps / 100:.2f}% der Positionen ohne zuordenbare "
+            "Anlageklasse. Nur Hinweis [SAA_BUCKET_UNMAPPED]."
+        )
+    return warnings

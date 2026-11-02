@@ -91,7 +91,7 @@ from services.review_engine import (
 )
 from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
-from services.product_eligibility_finalization import finalization_eligibility_findings
+from services.product_eligibility_finalization import finalization_eligibility_findings, saa_bucket_reconciliation_warnings
 from services.review_calendar_feed import (
     build_ics_feed,
     issue_calendar_feed_token,
@@ -503,6 +503,9 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         profile = resolve_market_profile(product)
         if not (profile.get("lookup_symbol") or profile.get("isin")):
             warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    # PO-16 (Audit 2026-11): Anlageklassen-Quoten der Positionen gegen die SAA
+    # -- nur Warnung (Blockieren ist Owner-Entscheid Q2).
+    warnings.extend(saa_bucket_reconciliation_warnings(allocation, positions, products))
     if assessment is not None:
         # ELIG-FINAL-001: Produkteignung jeder aggregierten Position mit
         # demselben Kern wie Generate (inkl. Angemessenheit/Override).
