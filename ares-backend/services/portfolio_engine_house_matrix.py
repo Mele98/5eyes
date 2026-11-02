@@ -2356,11 +2356,26 @@ def _apply_goal_and_reserve_tilts(
                 # symmetrisch zum Spender (equities via minimums).
                 liquidity_room = 0 if "liquidity" in locked else max(0, int(maximums.get("liquidity", 10000)) - int(targets["liquidity"]))
                 bonds_room = 0 if "bonds" in locked else max(0, int(maximums.get("bonds", 10000)) - int(targets["bonds"]))
-                eq_reduction = min(eq_reduction, 2 * liquidity_room, 2 * bonds_room)
+                # AUDIT-2026-11 A3: vorher min(eq_reduction, 2*liquidity_room,
+                # 2*bonds_room) -- in den Zeilen ab Score 7 ist das
+                # Liquiditaets-Ziel gleich dem Liquiditaets-Max, der Tilt
+                # wurde dort still auf 0 begrenzt. Den Anteil, den ein
+                # Empfaenger nicht aufnehmen kann, nimmt jetzt der andere
+                # (innerhalb seiner Grenze); die Grenzen bleiben unverletzt.
+                eq_reduction = min(eq_reduction, liquidity_room + bonds_room)
+                if eq_reduction <= 0:
+                    reasoning.append(
+                        f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont wuerde den "
+                        "Aktienanteil leicht reduzieren; Obligationen und Liquiditaet "
+                        "liegen aber bereits an ihrer Obergrenze, der Tilt entfaellt."
+                    )
             if eq_reduction > 0:
+                to_liquidity = min(eq_reduction // 2, liquidity_room)
+                to_bonds = min(eq_reduction - to_liquidity, bonds_room)
+                to_liquidity = eq_reduction - to_bonds
                 targets["equities"] -= eq_reduction
-                targets["liquidity"] += eq_reduction // 2
-                targets["bonds"] += eq_reduction - eq_reduction // 2
+                targets["liquidity"] += to_liquidity
+                targets["bonds"] += to_bonds
                 reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
 
     # Sprint 2026-06-08 Option C: Goal-Tilt fuer Renditeziele.
