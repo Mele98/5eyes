@@ -1249,6 +1249,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _disclose_global_cap_clamp,
     _apply_goal_and_reserve_tilts,
     _apply_illiquid_cap,
+    illiquid_limit_scope_note,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
     house_matrix_bands_payload,
@@ -3380,6 +3381,8 @@ def generate_target_allocation(
     # Referenzmethodik-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity)
     # gedeckelt, nicht pauschal auf der ganzen Alternatives-Quote.
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
+    if max_illiquid_bps is not None:  # AUDIT-2026-11 C4: Wirkungsbereich offenlegen
+        reasoning.append(illiquid_limit_scope_note(max_illiquid_bps))
 
     # Phase 5.1: Building-Block-Aware Risky-Fractions fuer Solver
     # WP-A (2026-08-01): jurisdiction durchgereicht, damit ein DE-Mandat NUR

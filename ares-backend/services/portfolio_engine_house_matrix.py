@@ -1336,6 +1336,21 @@ def _build_sub_allocations(
     return sub_allocations
 
 
+def illiquid_limit_scope_note(max_illiquid_bps: int) -> str:
+    """AUDIT-2026-11 C4: ``limits.maxIlliquid`` deckelt methodisch nur den
+    Private-Equity-Baustein (Referenzmethodik: maxIlliquid = nur PE), nicht
+    die ganze Alternative-Quote. Das Verhalten ist gewollt und bleibt; der
+    Hinweis macht es fuer den Berater sichtbar ("illiquid 0 %" heisst nicht
+    "keine Alternativen")."""
+    return (
+        f"Die Obergrenze fuer illiquide Anlagen ({_band_pct(max_illiquid_bps)} %) "
+        "begrenzt nur Private Equity. Liquide Alternative (z. B. Gold, Liquid "
+        "Alternatives) und Immobilien zaehlen nicht dazu; ein frei werdender "
+        "PE-Anteil wird in liquide Alternative bzw. Liquiditaet umgeschichtet. "
+        "Die Alternative-Quote insgesamt wird ueber die Bandbreiten gesteuert."
+    )
+
+
 def _apply_illiquid_cap(
     sub_allocations: list[dict],
     targets: dict[str, int],
