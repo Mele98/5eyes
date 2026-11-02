@@ -9433,7 +9433,7 @@ function initCharts(){
   normalizeConversationLabels();
   normalizeProjectionChartsPresentation();
   syncIstProjectionAxisScale();
-  if(charts.ist)charts.ist.update('none');
+  if(charts.ist)chartUpdateSettled(charts.ist);
   renderAllocationCashflowTimeline(strategyState&&strategyState.allocation?strategyState.allocation:null);
   buildAT();buildQT('qt-modal');renderEngineRuntimePanels(null);syncAllocationPendingViews();buildBudget();setupDrag();
 }
@@ -9626,7 +9626,7 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+fmtLoca
       charts.ist.data.datasets[0].data=currentSeries;
       charts.ist.data.datasets[0].stepped=false;
       syncIstProjectionAxisScale();
-      charts.ist.update('none');
+      chartUpdateSettled(charts.ist);
     }
     if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets[0]){
       charts.aaCurrent.data.labels=labels;
@@ -21754,6 +21754,7 @@ function _projAxisConfig(minValue, maxValue){
   var spread=Math.max(1, mx-mn);
   return {type:'linear', min:Math.max(0, Math.floor((mn-spread*0.08)/50)*50), max:Math.ceil((mx+spread*0.08)/50)*50};
 }
+function chartUpdateSettled(ch){if(!ch)return;try{if(typeof ch.stop==='function')ch.stop();}catch(e){}ch.update('none');} // Live-Test 2026-11 H5: Chart.js 4.4 bricht bei update('none') eine laufende Animation nicht ab -> Punkte endeten auf der alten Skala
 function syncAaProjectionAxisScales(){
   if(!charts||!charts.opt||!charts.aaCurrent)return;
   // 2026-06-14: SOLL (charts.opt) und IST (charts.aaCurrent) MÜSSEN identische
@@ -21819,8 +21820,7 @@ function syncAaProjectionAxisScales(){
     });
   }
   // (c) beide neu zeichnen, damit die angeglichenen Achsen WIRKLICH sichtbar sind.
-  try{ charts.opt.update('none'); }catch(e){}
-  try{ charts.aaCurrent.update('none'); }catch(e){}
+  try{ chartUpdateSettled(charts.opt); }catch(e){} try{ chartUpdateSettled(charts.aaCurrent); }catch(e){}
   // AA-UX-HONEST-FAN-001: Klartext-Satz folgt jedem Neuaufbau der Faecher.
   if(typeof renderAaFanRangeSentence==='function')renderAaFanRangeSentence();
 }

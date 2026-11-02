@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 460,
     "ids": 1015,
-    "js_functions": 1295,
+    "js_functions": 1296,
     "modal_structures": 110,
     "script_blocks": 24,
     "style_blocks": 3,
@@ -16124,6 +16124,11 @@
     },
     {
       "declaration": "function",
+      "line": 21757,
+      "name": "chartUpdateSettled"
+    },
+    {
+      "declaration": "function",
       "line": 5695,
       "name": "checkBootstrapStatus"
     },
@@ -20254,7 +20259,7 @@
     },
     {
       "declaration": "function",
-      "line": 21757,
+      "line": 21758,
       "name": "syncAaProjectionAxisScales"
     },
     {
@@ -21516,8 +21521,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "ebd1f8ccdaf14c5a9589f0143c4da56d716208559b559aeeb521ff6d0a4245ab",
-  "source_size_bytes": 1904592,
+  "source_sha256": "0cc28d3e9c7f6ed8350d4fe5469084372440de9bacd363c26086b8ad8460a1b4",
+  "source_size_bytes": 1904867,
   "sub_sections": [
     {
       "class": "sbb",
