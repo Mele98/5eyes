@@ -82,6 +82,7 @@ annotations` + `TYPE_CHECKING`, wo kein echter Laufzeit-Gebrauch vorliegt.
 """
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
@@ -416,6 +417,50 @@ def _disclose_global_cap_clamp(
     ))
 
 
+def disclose_manual_target_deviations(
+    preferred_bps: dict[str, int],
+    effective_bps: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    reasoning: list[str],
+    warnings: list,
+) -> None:
+    """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
+    umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
+
+    ``effective_bps`` ist die zulaessige Projektion VOR einem allfaelligen
+    Optimierer-Lauf (Anker bzw. aktive Hausmatrix-Allokation). Liegt das
+    Ziel ausserhalb der wirksamen Grenzen (z. B. globale Modell-Obergrenze,
+    Liquiditaets-Untergrenze, Reserve), wird es auf den Bandrand gekappt --
+    sichtbar, nicht still.
+    """
+    from services.allocation_messages import WARN_TARGET_ADJUSTED, format_message
+    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
+
+    for bucket in BUCKET_FIELDS:
+        if bucket not in preferred_bps:
+            continue
+        requested = int(preferred_bps[bucket])
+        effective = int(effective_bps[bucket])
+        if requested == effective:
+            continue
+        bucket_label = BUCKET_LABELS.get(bucket, bucket)
+        reasoning.append(
+            f"{bucket_label}: Das Berater-Ziel von {_band_pct(requested)} % "
+            f"wird mit {_band_pct(effective)} % umgesetzt (wirksame Grenzen "
+            f"{_band_pct(minimums[bucket])} % bis {_band_pct(maximums[bucket])} % "
+            "und uebrige Vorgaben)."
+        )
+        warnings.append(format_message(
+            WARN_TARGET_ADJUSTED,
+            bucket_label=bucket_label,
+            requested=_band_pct(requested),
+            effective=_band_pct(effective),
+            effective_min=_band_pct(minimums[bucket]),
+            effective_max=_band_pct(maximums[bucket]),
+        ))
+
+
 def advisor_band_house_deviations(
     bands: dict | None,
     house_minimums: dict[str, int],
@@ -624,9 +669,69 @@ def _has_manual_target_overrides(bands: dict | None) -> bool:
     )
 
 
-def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maximums: dict[str, int]) -> dict[str, int]:
+def _distribute_proportionally(
+    adjusted: dict[str, int],
+    keys: tuple[str, ...],
+    delta: int,
+    room: dict[str, int],
+) -> int:
+    """Verteilt ``delta`` (vorzeichenbehaftet) anteilig zum aktuellen Gewicht
+    auf ``keys``, jeweils begrenzt durch ``room`` (Raum in Richtung von
+    ``delta``). Ganzzahlig per groesstem Rest, deterministisch (Tie-Break in
+    der Reihenfolge von ``keys``). Liefert das nicht verteilbare Rest-Delta.
+    """
+    sign = 1 if delta > 0 else -1
+    remaining = abs(int(delta))
+    active = [key for key in keys if room[key] > 0]
+    while remaining > 0 and active:
+        weights = {key: max(1, int(adjusted[key])) for key in active}
+        weight_total = sum(weights.values())
+        shares = {key: remaining * weights[key] // weight_total for key in active}
+        leftover = remaining - sum(shares.values())
+        remainders = sorted(
+            active,
+            key=lambda key: (-(remaining * weights[key] % weight_total), keys.index(key)),
+        )
+        for key in remainders[:leftover]:
+            shares[key] += 1
+        moved = 0
+        for key in active:
+            step = min(shares[key], room[key])
+            if step > 0:
+                adjusted[key] += sign * step
+                room[key] -= step
+                moved += step
+        remaining -= moved
+        active = [key for key in active if room[key] > 0]
+        if moved == 0:
+            break
+    return sign * remaining
+
+
+def _rebalance_to_total(
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    *,
+    locked: Collection[str] = (),
+) -> dict[str, int]:
+    """Deterministische zulaessige Projektion auf genau 10000 bps.
+
+    AUDIT-2026-11 A1: ``locked`` sind Buckets mit einem EXPLIZITEN
+    Berater-Ziel (``bands.<bucket>.target_bps``). Ein Ueber- oder
+    Unterschuss wird dann zuerst anteilig aus den NICHT fixierten Buckets
+    genommen (Liquiditaet zuletzt), nie still aus der fixierten Klasse.
+    Vorher nahm die feste Reihenfolge einen Ueberschuss immer zuerst aus
+    Aktien -- ein Aktien-Teilziel ueber der Hausquote wurde so lautlos auf
+    die Hausquote zurueckgeschnitten. Nur wenn die nicht fixierten Buckets
+    an ihren Grenzen anstehen, wird eine fixierte Klasse bewegt. Das
+    Offenlegen jeder Abweichung vom Berater-Ziel (auch ein Kappen auf den
+    Bandrand) ist Sache des Aufrufers (``manual_target_deviation_notes``).
+    Ohne ``locked`` ist das Verhalten unveraendert.
+    """
     from services.portfolio_engine import BUCKET_FIELDS
 
+    locked_set = {key for key in locked if key in BUCKET_FIELDS}
     adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
     for key in BUCKET_FIELDS:
         adjusted[key] = max(minimums[key], min(maximums[key], adjusted[key]))
@@ -639,6 +744,16 @@ def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maxim
 
     current_total = sum(adjusted.values())
     delta = 10000 - current_total
+    if locked_set and delta != 0:
+        free_keys = tuple(
+            key for key in ("bonds", "equities", "real_estate", "alternatives")
+            if key not in locked_set
+        )
+        room_fn = _room_up if delta > 0 else _room_down
+        room = {key: room_fn(key) for key in BUCKET_FIELDS}
+        delta = _distribute_proportionally(adjusted, free_keys, delta, room)
+        if delta != 0 and "liquidity" not in locked_set:
+            delta = _distribute_proportionally(adjusted, ("liquidity",), delta, room)
     if delta > 0:
         for key in ("bonds", "liquidity", "equities", "real_estate", "alternatives"):
             if delta <= 0:
@@ -2183,7 +2298,15 @@ def _apply_goal_and_reserve_tilts(
     unlocked_other_assets_rappen: int = 0,
     inflow_projection_series_rappen: list[int] | None = None,
     goal_inflation_series_bps: list[int] | None = None,
+    locked_buckets: Collection[str] = (),
 ) -> tuple[int, int]:
+    """Ziel-Tilts (Kurzfrist-Vermoegensziel, Renditeziel) und Reserve.
+
+    AUDIT-2026-11 A1: ``locked_buckets`` sind Buckets mit explizitem
+    Berater-Ziel. Die automatischen Ziel-Tilts veraendern sie nicht
+    (analog zu den Exposure-Tilts, die bei manuellem Ziel ganz entfallen);
+    die Reserve finanziert sich zuerst aus den nicht fixierten Klassen.
+    """
     from services.portfolio_engine import (
         _bps,
         _compute_reserve_for_inputs,
@@ -2208,8 +2331,11 @@ def _apply_goal_and_reserve_tilts(
         inflow_projection_series_rappen=inflow_projection_series_rappen,
         goal_inflation_series_bps=goal_inflation_series_bps,
     )
+    locked = frozenset(locked_buckets)
     # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
     for goal in goals:
+        if "equities" in locked:
+            break
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
         if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
@@ -2228,8 +2354,8 @@ def _apply_goal_and_reserve_tilts(
                 # tigte, im Reasoning-Text nicht sichtbare Umverteilung in
                 # ANDERE Buckets. Hier bereits an der Quelle korrekt clippen,
                 # symmetrisch zum Spender (equities via minimums).
-                liquidity_room = max(0, int(maximums.get("liquidity", 10000)) - int(targets["liquidity"]))
-                bonds_room = max(0, int(maximums.get("bonds", 10000)) - int(targets["bonds"]))
+                liquidity_room = 0 if "liquidity" in locked else max(0, int(maximums.get("liquidity", 10000)) - int(targets["liquidity"]))
+                bonds_room = 0 if "bonds" in locked else max(0, int(maximums.get("bonds", 10000)) - int(targets["bonds"]))
                 eq_reduction = min(eq_reduction, 2 * liquidity_room, 2 * bonds_room)
             if eq_reduction > 0:
                 targets["equities"] -= eq_reduction
@@ -2246,6 +2372,8 @@ def _apply_goal_and_reserve_tilts(
     # Max ±200 bps pro Goal, immer geclippt an den Bandbreiten (min/max).
     # Opportunistische Renditeziele tilten NICHT (Hardness-Filter, ADR-konform).
     for goal in goals:
+        if locked & {"equities", "bonds"}:
+            break
         goal_type = _norm_text(goal.goal_type)
         if goal_type != "Renditeziel":
             continue
@@ -2305,7 +2433,9 @@ def _apply_goal_and_reserve_tilts(
 
     shift = saa_required_bps - targets["liquidity"]
     remaining = max(0, shift)
-    for donor in ("bonds", "equities", "alternatives", "real_estate"):
+    donor_order = ("bonds", "equities", "alternatives", "real_estate")
+    donor_order = tuple(d for d in donor_order if d not in locked) + tuple(d for d in donor_order if d in locked)
+    for donor in donor_order:
         if remaining <= 0:
             break
         donor_floor = minimums[donor]

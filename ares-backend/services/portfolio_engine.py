@@ -1261,6 +1261,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _enrich_sub_allocations_with_risk,
     _growth_goals_for_equity_tilt,
     _has_manual_target_overrides,
+    disclose_manual_target_deviations,
     _house_matrix_mid_targets,
     _house_matrix_or_default,
     _normalize_house_matrix_defaults,
@@ -3086,6 +3087,12 @@ def generate_target_allocation(
     from services.optimizer.allocation_intent import extract_soft_preference_bps
 
     manual_preferred_target_bps = extract_soft_preference_bps(prefs["bands"])
+    # AUDIT-2026-11 A1: Buckets mit explizitem Berater-Ziel werden in jeder
+    # Summen-Projektion (_rebalance_to_total) und von den Ziel-Tilts
+    # respektiert; jede verbleibende Abweichung (Kappen am Bandrand, Engpass
+    # der uebrigen Klassen, Reserve) wird unten offengelegt statt still
+    # verworfen.
+    manual_locked_buckets = frozenset(manual_preferred_target_bps)
     inputs = _load_allocation_inputs(db, mandate, prefs["simulation"], cma=cma)
     advisory_summary = inputs["advisory_summary"]
     total_summary = inputs["total_summary"]
@@ -3176,6 +3183,7 @@ def generate_target_allocation(
     )
     reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
         targets=targets, minimums=minimums, maximums=maximums, reasoning=reasoning, **reserve_inputs,
+        locked_buckets=manual_locked_buckets,
     )
     reserve_split = generation_reserve_split(reserve_needed_rappen, external_reserve_rappen, ceiling_bps=saa_liquidity_ceiling_bps, **reserve_inputs)  # RESERVE-CEILING-001
     uncertain_inflow_info = uncertain_inflow_sensitivity(  # INFLOW-CERTAINTY-001: nur Info
@@ -3298,6 +3306,7 @@ def generate_target_allocation(
             optimizer_targets,
             optimizer_minimums,
             optimizer_maximums,
+            locked=manual_locked_buckets,
         )
     reserve_floor_bps = 0
     # Reserve ist im deterministischen Pfad bereits in die Zielquote getiltet.
@@ -3358,6 +3367,7 @@ def generate_target_allocation(
                 optimizer_targets,
                 optimizer_minimums,
                 optimizer_maximums,
+                locked=manual_locked_buckets,
             )
         optimizer_plan_reasoning.append(
             "Die innerhalb der SAA zu haltende Zielreserve ist eine harte "
@@ -3419,6 +3429,7 @@ def generate_target_allocation(
             optimizer_targets,
             optimizer_minimums,
             optimizer_maximums,
+            locked=manual_locked_buckets,
         )
         (
             optimizer_sub_allocation_plan,
@@ -3434,6 +3445,11 @@ def generate_target_allocation(
         }
 
     house_targets_before_optimizer = dict(optimizer_targets)
+    if apply_stochastic:  # AUDIT-2026-11 A1: Anker == Berater-Ziel, sonst offenlegen
+        disclose_manual_target_deviations(
+            manual_preferred_target_bps, optimizer_targets,
+            optimizer_minimums, optimizer_maximums, reasoning, warnings,
+        )
     effective_bounds_bps = {
         bucket: (
             int(optimizer_minimums[bucket]),
@@ -3531,7 +3547,15 @@ def generate_target_allocation(
             )
 
     targets_before_final_rebalance = dict(targets)
-    targets = _rebalance_to_total(targets, minimums, maximums)
+    targets = _rebalance_to_total(
+        targets, minimums, maximums,
+        locked=manual_locked_buckets,
+    )
+    if not apply_stochastic:  # AUDIT-2026-11 A1: aktive Hausmatrix-Allokation
+        disclose_manual_target_deviations(
+            manual_preferred_target_bps, targets, minimums, maximums,
+            reasoning, warnings,
+        )
     if optimizer_replaced_targets and targets != targets_before_final_rebalance:
         # A validated stochastic candidate is immutable.  A downstream
         # "repair" would mean that optimizer, analytics and persisted output
@@ -4754,6 +4778,14 @@ def evaluate_goal_sensitivity(
         live_manual_target_override = _has_manual_target_overrides(
             sensitivity_prefs["bands"]
         )
+        # AUDIT-2026-11 A1: identisch zum Generate-Pfad.
+        from services.optimizer.allocation_intent import (
+            extract_soft_preference_bps as _extract_live_preference_bps,
+        )
+
+        live_locked_buckets = frozenset(
+            _extract_live_preference_bps(sensitivity_prefs["bands"])
+        )
         _apply_external_exposure_tilts(
             live_targets,
             live_minimums,
@@ -4791,6 +4823,7 @@ def evaluate_goal_sensitivity(
                     inputs.get("inflow_projection_series_rappen") or []
                 ),
                 goal_inflation_series_bps=inflation_series_bps,
+                locked_buckets=live_locked_buckets,
             )
         )
 
@@ -4824,6 +4857,7 @@ def evaluate_goal_sensitivity(
             live_targets,
             live_minimums,
             live_maximums,
+            locked=live_locked_buckets,
         )
 
         live_investable_wealth = _investable_advisory_wealth_rappen(
@@ -4886,6 +4920,7 @@ def evaluate_goal_sensitivity(
                     live_targets,
                     live_minimums,
                     live_maximums,
+                    locked=live_locked_buckets,
                 )
 
         live_max_illiquid_bps = _parse_bps_percent(
@@ -4908,6 +4943,7 @@ def evaluate_goal_sensitivity(
             live_targets,
             live_minimums,
             live_maximums,
+            locked=live_locked_buckets,
         )
         live_risky_map = _building_block_risky_map(
             db,

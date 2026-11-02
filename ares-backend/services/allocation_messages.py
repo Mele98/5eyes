@@ -34,6 +34,9 @@ WARN_FALLBACK = "WARN_FALLBACK"
 WARN_OVERRIDE = "WARN_OVERRIDE"
 WARN_BAND_OUTSIDE_HOUSE_MATRIX = "WARN_BAND_OUTSIDE_HOUSE_MATRIX"
 WARN_GLOBAL_CAP_CLAMP = "WARN_GLOBAL_CAP_CLAMP"
+# AUDIT-2026-11 A1: ein explizites Berater-Ziel (bands.<bucket>.target_bps)
+# konnte nicht exakt umgesetzt werden (Bandrand, uebrige Grenzen, Reserve).
+WARN_TARGET_ADJUSTED = "WARN_TARGET_ADJUSTED"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -46,6 +49,7 @@ ALL_CODES: tuple[str, ...] = (
     WARN_OVERRIDE,
     WARN_BAND_OUTSIDE_HOUSE_MATRIX,
     WARN_GLOBAL_CAP_CLAMP,
+    WARN_TARGET_ADJUSTED,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -225,6 +229,22 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
         "body_client": (
             "Für {bucket_label} gilt eine allgemeine Obergrenze von {cap} %, die auch in "
             "Ihrer Strategie eingehalten wird."
+        ),
+        "actions": ("review_constraints",),
+    },
+    # AUDIT-2026-11 A1: ein Berater-Ziel wird nie still verworfen. Weicht
+    # die umgesetzte Quote vom expliziten Ziel ab, wird das hier offengelegt.
+    WARN_TARGET_ADJUSTED: {
+        "severity": SEVERITY_WARNING,
+        "title": "Berater-Zielquote angepasst",
+        "body_advisor": (
+            "{bucket_label}: Das vorgegebene Ziel von {requested} % ist mit den "
+            "wirksamen Grenzen ({effective_min} % bis {effective_max} %) und den "
+            "übrigen Vorgaben nicht vereinbar. Umgesetzt werden {effective} %."
+        ),
+        "body_client": (
+            "Für {bucket_label} wird eine Quote von {effective} % umgesetzt, die "
+            "innerhalb der für Ihre Strategie geltenden Grenzen liegt."
         ),
         "actions": ("review_constraints",),
     },
