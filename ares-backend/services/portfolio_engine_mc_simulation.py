@@ -443,7 +443,7 @@ def path_simulation_distribution_phrase(simulation_prefs: dict | None) -> str:
     if _simulation_use_tail_risk(simulation_prefs):
         return (
             "lognormalen Jahresrenditen mit Cornish-Fisher-Korrektur fuer "
-            "Schiefe und Woelbung (Tail-Risiken gemaess Kapitalmarktannahmen)"
+            "Schiefe und Woelbung (Tail-Risiken der Renditeverteilung)"
         )
     return (
         "lognormalen Jahresrenditen ohne Tail-Korrektur "
