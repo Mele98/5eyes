@@ -32,8 +32,12 @@ from models.tenant import Tenant  # noqa: E402
 from models.users import User  # noqa: E402
 from services.auth import get_current_user  # noqa: E402
 from services.portfolio_engine import ensure_default_products, generate_recommendation_run  # noqa: E402
+from services.portfolio_engine_payload import UNIVERSE_EMPTIED_WARNING  # noqa: E402
 
 session_factory = h.session_factory  # fixture re-export
+
+UNIVERSE_WARNING_MARKER = UNIVERSE_EMPTIED_WARNING.split("{jurisdiction}")[0]
+
 
 def _gen(SF, mid, adv):
     with SF() as s:
@@ -162,6 +166,57 @@ def test_r3_batch_write_pool_excludes_global_catalog_for_tenant_admin(session_fa
     with session_factory() as s:
         assert {p.id for p in _writable_products_query(s, admin_a).all()} == {"own-a"}
         assert "g1" in {p.id for p in _writable_products_query(s, root).all()}
+
+
+# --- R5: Jurisdiktion normalisiert, ungueltig = 422, geleerte Liste warnt ---
+def _universe_product(session_factory, pid="g5"):
+    now = h._now()
+    with session_factory() as s:
+        s.add(Product(id=pid, product_name="Fonds 5", asset_class="Aktien", product_type="ETF",
+                      currency="CHF", is_active=1, created_at=now, updated_at=now))
+        s.commit()
+
+
+def test_r5_universe_jurisdiction_is_normalized(session_factory, client):
+    _universe_product(session_factory)
+    _as("admin-m", "admin", "main")
+    r = client.post("/product-universe", json={"jurisdiction": " ch ", "product_id": "g5"})
+    assert r.status_code == 201, r.text
+    assert r.json()["jurisdiction"] == "CH"
+    listed = client.get("/product-universe?jurisdiction=ch").json()
+    assert [e["product_id"] for e in listed] == ["g5"]
+
+
+@pytest.mark.parametrize("bad", ["XX", "Schweiz", "", "C H", "CHE"])
+def test_r5_invalid_universe_jurisdiction_rejected(session_factory, client, bad):
+    _universe_product(session_factory)
+    _as("admin-m", "admin", "main")
+    r = client.post("/product-universe", json={"jurisdiction": bad, "product_id": "g5"})
+    assert r.status_code == 422, r.text
+    with session_factory() as s:
+        assert s.query(ProductUniverseEntry).count() == 0
+
+
+def test_r5_emptied_universe_is_visible_not_silent(session_factory, client):
+    m = h._seed_mandate(session_factory, suffix="r5", tenant_id="tenant-r5")
+    first = _gen(session_factory, m["mandate_id"], m["advisor_id"])
+    assert not [w for w in first["warnings"] if UNIVERSE_WARNING_MARKER in str(w)], (
+        "nie gepflegte Liste = voller Katalog ohne Warnung (Bestandsverhalten)"
+    )
+    pid = first["positions"][0]["product_id"]
+    _as("admin-r5", "admin", "tenant-r5")
+    created = client.post("/product-universe", json={"jurisdiction": "CH", "product_id": pid})
+    assert created.status_code == 201, created.text
+    deleted = client.delete(f"/product-universe/{created.json()['id']}")
+    assert deleted.status_code == 204, deleted.text
+    with session_factory() as s:
+        audit = s.query(AuditLog).filter(
+            AuditLog.table_name == "product_universe_entries", AuditLog.field_name == "universe_scope",
+        ).all()
+    assert audit and "vollen Katalog" in (audit[0].new_value or "")
+    second = _gen(session_factory, m["mandate_id"], m["advisor_id"])
+    hits = [w for w in second["warnings"] if UNIVERSE_WARNING_MARKER in str(w)]
+    assert hits, f"geleerte Positivliste muss sichtbar warnen: {second['warnings']}"
 
 
 # --- R6: nicht editierbare Felder -> 422 statt still verworfen -------------

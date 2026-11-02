@@ -3138,7 +3138,8 @@ def list_product_universe_entries(
         ProductUniverseEntry.deleted_at.is_(None),
     )
     if jurisdiction is not None:
-        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction)
+        # R5/F5: gleiche Normalisierung wie beim Anlegen (trim, Grossschreibung).
+        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction.strip().upper())
     return q.order_by(ProductUniverseEntry.jurisdiction, ProductUniverseEntry.created_at).all()
 
 
@@ -3223,6 +3224,21 @@ def delete_product_universe_entry(
     entry.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_universe_entries", record_id=entry.id, action="DELETE")
+    # AUDIT-FIX Fondsuniversum R5/F5 (2026-11): war das der letzte Eintrag der
+    # Jurisdiktion, gilt ab jetzt wieder der volle Katalog -- nicht still,
+    # sondern als eigener Audit-Eintrag (und als Warnung in jeder Generierung,
+    # services/portfolio_engine_payload.py::universe_emptied_warning).
+    db.flush()
+    remaining = db.query(ProductUniverseEntry.id).filter(
+        ProductUniverseEntry.tenant_id == entry.tenant_id,
+        ProductUniverseEntry.jurisdiction == entry.jurisdiction,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if remaining is None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="product_universe_entries", record_id=entry.id, action="UPDATE",
+            field_name="universe_scope",
+            new_value=f"Positivliste {entry.jurisdiction} leer: Empfehlungen nutzen den vollen Katalog")
     db.commit()
     return None
 

@@ -1428,6 +1428,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _compute_goal_score,
     _expected_death_year_offset_from_mandate,
     _filter_products_by_universe,
+    universe_emptied_warning,
     _goal_hardness_key,
     _goal_projection_years,
     _goal_target_wealth_rappen,
@@ -6646,6 +6647,8 @@ def generate_recommendation_run(
     theme_disclosure = theme_screening_disclosure(prefs)
     if theme_disclosure:
         warnings.append(theme_disclosure)
+    # R5/F5: geleerte Positivliste -> voller Katalog nicht mehr still.
+    warnings.extend(w for w in [universe_emptied_warning(db, mandate, run_context=run_context)] if w)
     positions_payload = []
     aggregated_positions: dict[str, dict] = {}
     # Sprint 14 Phase 4 F6: fehlende Sub-Klassen sammeln statt still continue
