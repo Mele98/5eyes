@@ -9765,6 +9765,8 @@ export interface components {
             expected_return_bps: number;
             /** Expected Volatility Bps */
             expected_volatility_bps: number;
+            /** Implementation Metrics */
+            implementation_metrics?: Record<string, unknown>;
             /** Implementation Steps */
             implementation_steps: string[];
             /** Investable Advisory Wealth Rappen */
@@ -9780,6 +9782,10 @@ export interface components {
             /** Positions */
             positions: components["schemas"]["RecommendationPositionDetailResponse"][];
             run: components["schemas"]["RecommendationRunResponse"];
+            /** Saa Expected Return Bps */
+            saa_expected_return_bps?: number | null;
+            /** Saa Expected Volatility Bps */
+            saa_expected_volatility_bps?: number | null;
             /** Target Allocation Id */
             target_allocation_id: string;
             /** Warnings */

@@ -15605,6 +15605,10 @@
             "title": "Expected Volatility Bps",
             "type": "integer"
           },
+          "implementation_metrics": {
+            "title": "Implementation Metrics",
+            "type": "object"
+          },
           "implementation_steps": {
             "items": {
               "type": "string"
@@ -15651,6 +15655,28 @@
           },
           "run": {
             "$ref": "#/components/schemas/RecommendationRunResponse"
+          },
+          "saa_expected_return_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saa Expected Return Bps"
+          },
+          "saa_expected_volatility_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saa Expected Volatility Bps"
           },
           "target_allocation_id": {
             "title": "Target Allocation Id",

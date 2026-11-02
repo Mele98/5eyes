@@ -1521,8 +1521,13 @@ class RecommendationGenerateResponse(BaseModel):
     implementation_steps: list[str]
     advisory_wealth_rappen: int
     investable_advisory_wealth_rappen: Optional[int] = None
+    # PO-04 (Audit 2026-11): expected_* beschreiben das UMGESETZTE Portfolio
+    # (Sub-Klassen der gewaehlten Produkte); saa_expected_* die SAA.
     expected_return_bps: int
     expected_volatility_bps: int
+    saa_expected_return_bps: Optional[int] = None
+    saa_expected_volatility_bps: Optional[int] = None
+    implementation_metrics: dict = Field(default_factory=dict)
     average_ter_bps: int
     average_ter_coverage_bps: int = 0
     missing_ter_positions_count: int = 0
