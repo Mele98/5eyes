@@ -261,8 +261,12 @@ def approve_rule(
     # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Folge-Entwurf aus dem
     # Re-Import (supersedes_id) loest die bisher freigegebene Regel desselben
     # Produkts erst JETZT ab -- sonst waeren zwei exakte Regeln aktiv
-    # (AMBIGUOUS_RULE_MATCH). Nur der Status wechselt; rule_hash und
-    # valid_from/valid_to der alten Regel bleiben als Evidenz unveraendert.
+    # (AMBIGUOUS_RULE_MATCH).
+    # N-855-2: Point-in-Time korrekt -- die alte Regel gilt bis zur Freigabe
+    # (valid_to = Freigabezeitpunkt), die neue ab der Freigabe (valid_from),
+    # nicht ab dem Import. rule_hash bleibt bei beiden der Hash der verfassten
+    # bzw. freigegebenen Policy; der Wechsel der Geltung ist ein
+    # Lebenszyklus-Ereignis und steht im Audit-Log.
     if rule.supersedes_id:
         previous = db.get(ProductEligibilityRule, rule.supersedes_id)
         if (
@@ -272,6 +276,8 @@ def approve_rule(
             and previous.jurisdiction == rule.jurisdiction
         ):
             previous.status = "retired"
+            previous.valid_to = now
             previous.updated_at = now
+            rule.valid_from = now
     db.flush()
     return rule

@@ -347,3 +347,39 @@ def test_r7_changed_eligibility_supersedes_approved_rule_only_after_four_eyes(se
         active = resolve_active_rules_for_product(s, s.get(Product, pid), jurisdiction="CH", tenant_id="main")
         assert [(r.profile_from, r.profile_to) for r in active] == [(7, 10)]
         assert json.loads(active[0].service_modes_json) == ["investment_advice", "portfolio_management"]
+
+
+def test_r7_supersession_is_point_in_time_correct(session_factory, client):
+    """N-855-2: alte Regel gilt bis zur Freigabe, neue ab der Freigabe (nicht
+    ab dem Import); rule_hash der alten Regel bleibt unveraendert."""
+    from services.product_eligibility import resolve_active_rules_for_product
+    from services.product_eligibility_governance import approve_rule
+
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    with session_factory() as s:
+        (rule,) = s.query(ProductEligibilityRule).filter(ProductEligibilityRule.product_id == pid).all()
+        approve_rule(s, rule_id=rule.id, approver_id="zweite-person", tenant_id="main")
+        s.commit()
+        old_id, old_hash = rule.id, rule.rule_hash
+    client.post("/products/import", json={"products": [dict(_R7_ROW, suitability_profile_from=7)]})
+    approved_at = "2099-01-01T00:00:00.000Z"
+    with session_factory() as s:
+        new = s.query(ProductEligibilityRule).filter(ProductEligibilityRule.supersedes_id == old_id).one()
+        approve_rule(s, rule_id=new.id, approver_id="zweite-person", tenant_id="main", now=approved_at)
+        s.commit()
+        old = s.get(ProductEligibilityRule, old_id)
+        new = s.get(ProductEligibilityRule, new.id)
+        assert old.valid_to == approved_at
+        assert new.valid_from == approved_at
+        assert old.rule_hash == old_hash
+        product = s.get(Product, pid)
+        # Zeitpunkt zwischen Import und Freigabe: bisherige Regel gilt (Statusfilter
+        # beiseite: dieselbe Geltung ergibt sich aus valid_from/valid_to).
+        before = [r for r in (old, new) if r.valid_from <= "2098-06-01" and (r.valid_to is None or r.valid_to > "2098-06-01")]
+        after = [r for r in (old, new) if r.valid_from <= "2099-06-01" and (r.valid_to is None or r.valid_to > "2099-06-01")]
+        assert [(r.profile_from, r.profile_to) for r in before] == [(3, 10)]
+        assert [(r.profile_from, r.profile_to) for r in after] == [(7, 10)]
+        active = resolve_active_rules_for_product(s, product, jurisdiction="CH", tenant_id="main",
+                                                  as_of="2099-06-01T00:00:00.000Z")
+        assert [(r.profile_from, r.profile_to) for r in active] == [(7, 10)]
