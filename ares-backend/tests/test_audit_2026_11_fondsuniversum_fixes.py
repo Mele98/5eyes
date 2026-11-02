@@ -197,6 +197,23 @@ def test_r5_invalid_universe_jurisdiction_rejected(session_factory, client, bad)
         assert s.query(ProductUniverseEntry).count() == 0
 
 
+def test_r5_iso_code_list_is_complete():
+    """N-855-1: genau die 249 offiziellen Codes, keine verketteten Kunstcodes."""
+    from schemas.review import ISO_3166_ALPHA2_CODES
+    assert len(ISO_3166_ALPHA2_CODES) == 249
+    assert all(len(code) == 2 and code.isascii() and code.isupper() for code in ISO_3166_ALPHA2_CODES)
+    assert {"BE", "HU", "ID", "SI", "ME", "VN", "CH", "DE", "AT", "LI"} <= ISO_3166_ALPHA2_CODES
+
+
+@pytest.mark.parametrize("code", ["be", " HU", "id", "SI", "me ", "vn"])
+def test_r5_previously_dropped_iso_codes_accepted(session_factory, client, code):
+    _universe_product(session_factory)
+    _as("admin-m", "admin", "main")
+    r = client.post("/product-universe", json={"jurisdiction": code, "product_id": "g5"})
+    assert r.status_code == 201, r.text
+    assert r.json()["jurisdiction"] == code.strip().upper()
+
+
 def test_r5_emptied_universe_is_visible_not_silent(session_factory, client):
     m = h._seed_mandate(session_factory, suffix="r5", tenant_id="tenant-r5")
     first = _gen(session_factory, m["mandate_id"], m["advisor_id"])
