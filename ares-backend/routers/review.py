@@ -2533,6 +2533,14 @@ def download_products_csv_template(
 
 
 _PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
+# AUDIT-FIX Fondsuniversum R6/F6 (2026-11): Identifikation und Produkttyp sind
+# nach dem Erfassen fix (ISIN global eindeutig, Marktdaten-Mapping haengt daran).
+_PRODUCT_IMMUTABLE_FIELDS = ("isin", "symbol", "product_type")
+
+
+def _normalized_identifier(value) -> str | None:
+    text_value = str(value).strip() if value is not None else ""
+    return text_value or None
 
 
 @products_router.put("/{product_id}", response_model=ProductResponse)
@@ -2552,7 +2560,20 @@ def update_product(
     fault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.
     """
     product = _get_product_for_write_or_404(product_id, db, current_user)
-    payload = body.model_dump(exclude_none=True)
+    changed_immutable = [
+        field for field in _PRODUCT_IMMUTABLE_FIELDS
+        if field in body.model_fields_set
+        and _normalized_identifier(getattr(body, field)) != _normalized_identifier(getattr(product, field))
+    ]
+    if changed_immutable:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Nicht editierbar: {', '.join(changed_immutable)}. ISIN, Symbol und Produkttyp "
+                "koennen nach dem Erfassen nicht geaendert werden; die Aenderung wurde nicht gespeichert."
+            ),
+        )
+    payload = body.model_dump(exclude_none=True, exclude=set(_PRODUCT_IMMUTABLE_FIELDS))
     # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
     # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
     # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt

@@ -956,6 +956,15 @@ class ProductCreate(BaseModel):
 class ProductUpdate(BaseModel):
     """Sprint U-P10: Berater editiert Produkt-Metadaten (Admin-RBAC).
     Alle Felder optional — nur gesetzte werden geupdated."""
+    # AUDIT-FIX Fondsuniversum R6/F6 (2026-11): isin/symbol/product_type
+    # sind NICHT editierbar. Bisher kannte das Schema sie nicht, Pydantic
+    # verwarf sie still und der Endpoint antwortete 200 mit den alten Werten.
+    # Jetzt explizit angenommen: derselbe Wert ist erlaubt (das Formular
+    # sendet ihn immer mit), ein abweichender Wert wird im Router mit 422
+    # abgelehnt (routers/review.py::update_product).
+    isin: Optional[str] = None
+    symbol: Optional[str] = None
+    product_type: Optional[str] = None
     product_name: Optional[str] = None
     provider: Optional[str] = None
     asset_class: Optional[Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]] = None

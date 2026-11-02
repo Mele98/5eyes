@@ -164,6 +164,40 @@ def test_r3_batch_write_pool_excludes_global_catalog_for_tenant_admin(session_fa
         assert "g1" in {p.id for p in _writable_products_query(s, root).all()}
 
 
+# --- R6: nicht editierbare Felder -> 422 statt still verworfen -------------
+def _p6(session_factory):
+    now = h._now()
+    with session_factory() as s:
+        s.add(Product(id="p6", product_name="Fonds 6", asset_class="Aktien", product_type="Fonds",
+                      currency="CHF", isin="CH0000000BAD", symbol="BAD", is_active=1,
+                      tenant_id="main", created_at=now, updated_at=now))
+        s.commit()
+
+
+def test_r6_changing_immutable_fields_is_rejected(session_factory, client):
+    _p6(session_factory)
+    _as("admin-m", "admin", "main")
+    r = client.put("/products/p6", json={"isin": "CH0000000GUT", "symbol": "GUT", "product_type": "ETF",
+                                         "product_name": "Fonds 6 korrigiert"})
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert "isin" in detail and "symbol" in detail and "product_type" in detail
+    with session_factory() as s:
+        p = s.get(Product, "p6")
+        assert (p.isin, p.symbol, p.product_type, p.product_name) == ("CH0000000BAD", "BAD", "Fonds", "Fonds 6")
+
+
+def test_r6_unchanged_immutable_fields_are_accepted(session_factory, client):
+    """Das Bearbeiten-Formular sendet isin/symbol/product_type immer mit."""
+    _p6(session_factory)
+    _as("admin-m", "admin", "main")
+    r = client.put("/products/p6", json={"isin": "CH0000000BAD", "symbol": " BAD ", "product_type": "Fonds",
+                                         "product_name": "Fonds 6 korrigiert"})
+    assert r.status_code == 200, r.text
+    assert r.json()["product_name"] == "Fonds 6 korrigiert"
+    assert r.json()["isin"] == "CH0000000BAD"
+
+
 # --- R7: Re-Import ueberschreibt nichts mit leer und meldet Eignung ---------
 _R7_ROW = {"product_name": "Hausfonds 7", "product_type": "Fonds", "asset_class": "Aktien",
            "isin": "CH0000000R07", "sub_asset_class": "Aktien Schweiz", "ter_bps": 40,
