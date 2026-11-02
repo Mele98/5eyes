@@ -27,6 +27,9 @@ var REVIEW_ASSET_CLASS_ORDER=['equities','bonds','real_estate','alternatives','l
 function getCurrentPresentationMode(){return 'consulting';}
 function simulationTerminalRappen(){return 0;}
 function _rvSuitabilityPreflightSummary(){return {headline:'',note:''};}
+function strategyMedianProjectionRappen(){return 0;}
+function projectionHorizonYearLabel(){return '';}
+function monteCarloPayload(){return null;}
 """
 
 BUCKETS = """

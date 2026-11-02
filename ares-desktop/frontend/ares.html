@@ -4168,7 +4168,7 @@ function _wireSollIstHover(){
               <div class="cbody">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Strategie</div><div id="sr-strategy-name" style="font-size:13px;font-weight:600;color:var(--n8)">—</div></div>
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Anlagehorizont</div><div id="sr-horizon" style="font-size:13px;font-weight:600;color:var(--n8)">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Anlagehorizont (Risikoprofil)</div><div id="sr-horizon" style="font-size:13px;font-weight:600;color:var(--n8)">—</div></div>
                 </div>
                 <div id="sr-allocation-bars" style="display:flex;flex-direction:column;gap:5px"><div style="font-size:10px;color:var(--n4)">Strategie berechnen, um Allokation zu sehen.</div></div>
               </div>
@@ -21634,6 +21634,7 @@ function simulationTerminalRappen(result,key,fallbackYears){
     fallbackYears||7
   );
 }
+function strategyMedianProjectionRappen(result){var mc=monteCarloPayload(result);var series=mc&&Array.isArray(mc.target_p50_series_rappen)?mc.target_p50_series_rappen:null;if(series&&series.length){var last=Number(series[series.length-1]||0);return last?last+Math.round(aaReserveSockelRappen(result,mc)):0;}return simulationTerminalRappen(result,'target_mix_series_rappen',7);} // Live-Test 2026-11 M8: eine Quelle fuer "Prognose" = MC-Median inkl. Reserve-Sockel (wie Faecher und PDF)
 function renderOverviewProjectionSummary(config){
   var currentProjectedRappen=Number(config&&config.currentProjectedRappen||0);
   var targetProjectedRappen=Number(config&&config.targetProjectedRappen||0);
@@ -23504,7 +23505,7 @@ function renderStrategySummary(){
   var advisoryChf=Math.round((Number(allocation.advisory_wealth_rappen||0))/100);
   var totalChf=Math.round((Number(allocation.total_wealth_rappen||0))/100);
   var sim=simulationPayload(allocation);
-  var projectedRappen=simulationTerminalRappen(allocation,'target_mix_series_rappen',7);
+  var projectedRappen=strategyMedianProjectionRappen(allocation);
   renderSimulationHorizonInfo(allocation);
   var goalSuccess=goalSuccessSummary(allocation.goal_analysis||[]);
   if(risk){
@@ -23620,7 +23621,7 @@ function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
   var advisoryChf=Math.round(Number(activeAllocation.advisory_wealth_rappen||0)/100);
   var totalChf=Math.round(Number(activeAllocation.total_wealth_rappen||0)/100);
   var sim=simulationPayload(activeAllocation);
-  var projectedRappen=simulationTerminalRappen(activeAllocation,'target_mix_series_rappen',7);
+  var projectedRappen=strategyMedianProjectionRappen(activeAllocation);
   var scoredGoals=Array.isArray(activeAllocation.goal_analysis)?activeAllocation.goal_analysis:[];
   var goalSuccess=goalSuccessSummary(scoredGoals);
   var goalSubParts=[];
@@ -27776,8 +27777,8 @@ function _rvHeroCommonChips(allocation,rows,violated,tight){
   if(rows.length)chips.push(String(rows.length-violated.length-tight.length)+'/'+String(rows.length)+' Anlageklassen im Band');
   var retBps=allocation?Number(allocation.expected_return_bps||0):0;
   if(retBps)chips.push('Rendite p.a. '+fmtPct(retBps,1));
-  var projRappen=allocation?simulationTerminalRappen(allocation,'target_mix_series_rappen',7):0;
-  if(projRappen>0)chips.push('Prognose '+formatCompactCHF(projRappen/100));
+  var projRappen=allocation?strategyMedianProjectionRappen(allocation):0, projYear=allocation?projectionHorizonYearLabel(monteCarloPayload(allocation)||allocation):'';
+  if(projRappen>0)chips.push('Prognose'+(projYear?(' '+projYear):'')+' (Median) '+formatCompactCHF(projRappen/100));
   return chips;
 }
 function _rvSuitabilityPreflightSummary(state){
