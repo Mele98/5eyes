@@ -29,7 +29,7 @@ from models.wealth import WealthPosition
 from services.product_exposures import (
     aggregate_exposures,
     country_exposure_for_product,
-    currency_exposure_for_product,
+    currency_exposure_with_source,
     herfindahl_hirschman_index,
     sector_exposure_for_product,
 )
@@ -267,6 +267,10 @@ def _init_result_dict(mandate: Mandate) -> dict:
         "country_exposure_bps": {},
         "sector_exposure_bps": {},
         "currency_exposure_bps": {},
+        # PO-06: Herkunft des Waehrungs-Exposures je Quelle (bps des IST):
+        # produktdaten / produktdaten_absicherung / sub_klassen_proxy /
+        # produktwaehrung / unbekannt.
+        "currency_exposure_source_bps": {},
         # Sprint U-P20 (2026-05-24): SOLL-Exposures + IST-SOLL-Drift pro
         # Country/Sector/Currency. Berechnet aus RecommendationPositions
         # target_amount_rappen (statt current_amount_rappen). Bleibt leer,
@@ -571,6 +575,7 @@ def compute_depot_check(
     position_country_exp: dict[str, dict[str, int]] = {}
     position_sector_exp: dict[str, dict[str, int]] = {}
     position_currency_exp: dict[str, dict[str, int]] = {}
+    position_currency_source: dict[str, str] = {}
     position_records_for_top: list[dict] = []
     ter_weighted_sum = 0
     duration_weighted_sum = 0
@@ -607,11 +612,17 @@ def compute_depot_check(
             getattr(prod, "sector_exposure_json", None),
             getattr(prod, "sub_asset_class", None),
         )
-        position_currency_exp[rec_pos.id] = currency_exposure_for_product(
+        # PO-06 (Audit 2026-11): Exposure aus den Produktdaten (gepflegtes
+        # JSON, sonst Absicherungs-Kennzeichen + Produktwaehrung); der
+        # Sub-Klassen-Proxy nur, wenn Produktdaten fehlen. Herkunft je Position.
+        position_currency_exp[rec_pos.id], currency_source = currency_exposure_with_source(
             getattr(prod, "currency_exposure_json", None),
             getattr(prod, "sub_asset_class", None),
-            fallback_currency=getattr(prod, "currency", None),
+            product_currency=getattr(prod, "currency", None),
+            product_name=getattr(prod, "product_name", None),
+            product_type=getattr(prod, "product_type", None),
         )
+        position_currency_source[rec_pos.id] = currency_source
         if amount <= 0:
             continue
         bucket = _bucket_key_from_product(prod)
@@ -628,6 +639,7 @@ def compute_depot_check(
             "amount_rappen": amount,
             "weight_bps": weight_bps,
             "ter_bps": _safe_int(getattr(prod, "ter_bps", 0)),
+            "currency_exposure_source": position_currency_source[rec_pos.id],
         })
         # Fund-Characteristics gewichtet
         ter = _safe_int(getattr(prod, "ter_bps", 0))
@@ -743,6 +755,12 @@ def compute_depot_check(
         result["country_exposure_bps"] = aggregate_exposures(position_weights_bps, position_country_exp)
         result["sector_exposure_bps"] = aggregate_exposures(position_weights_bps, position_sector_exp)
         result["currency_exposure_bps"] = aggregate_exposures(position_weights_bps, position_currency_exp)
+        # PO-06: Herkunft des Waehrungs-Exposures (Gewicht je Quelle, bps).
+        source_weights: dict[str, int] = {}
+        for pos_id, weight in position_weights_bps.items():
+            source = position_currency_source.get(pos_id, "unbekannt")
+            source_weights[source] = source_weights.get(source, 0) + int(weight or 0)
+        result["currency_exposure_source_bps"] = dict(sorted(source_weights.items()))
 
     # 5b. Sprint U-P20: SOLL-Exposures + IST-SOLL-Drift pro Dimension.
     # SOLL = target_amount_rappen aus RecommendationPositions (das was der

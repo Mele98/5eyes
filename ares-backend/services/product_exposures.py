@@ -242,6 +242,60 @@ def currency_exposure_for_product(
     return result
 
 
+#: PO-06 (Audit 2026-11): Kennzeichen einer Waehrungsabsicherung in den
+#: Produktstammdaten (Produktname/-typ). Gleiche Marker-Familie wie
+#: services.portfolio_engine_payload._product_is_chf_or_fx_hedged, aber bewusst
+#: OHNE Sub-Klassen-Bezeichnung: die Absicherung ist eine Eigenschaft des
+#: Produkts (Share-Class), nicht der Anlageklasse.
+#: Bewusst nicht "hedg"/"hedge": ein "Hedge Fund" ist keine Absicherung.
+_HEDGE_MARKERS = ("hedged", "abgesichert", "waehrungsgesichert", "währungsgesichert")
+
+#: Herkunft des Waehrungs-Exposures (wird im Depot-Check ausgewiesen).
+CURRENCY_SOURCE_PRODUCT_DATA = "produktdaten"
+CURRENCY_SOURCE_HEDGE_MARKER = "produktdaten_absicherung"
+CURRENCY_SOURCE_SUB_CLASS_PROXY = "sub_klassen_proxy"
+CURRENCY_SOURCE_PRODUCT_CURRENCY = "produktwaehrung"
+CURRENCY_SOURCE_UNKNOWN = "unbekannt"
+
+
+def product_is_currency_hedged(product_name: str | None, product_type: str | None = None) -> bool:
+    """True, wenn die Produktstammdaten eine Waehrungsabsicherung ausweisen."""
+    text = f" {product_name or ''} {product_type or ''} ".lower()
+    return any(marker in text for marker in _HEDGE_MARKERS)
+
+
+def currency_exposure_with_source(
+    currency_exposure_json: str | None,
+    sub_asset_class: str | None,
+    *,
+    product_currency: str | None = None,
+    product_name: str | None = None,
+    product_type: str | None = None,
+) -> tuple[dict[str, int], str]:
+    """PO-06: Waehrungs-Exposure eines Produkts samt Herkunft.
+
+    Reihenfolge: (1) gepflegtes ``currency_exposure_json``; (2) ein als
+    abgesichert gekennzeichnetes Produkt traegt das Exposure seiner
+    Produktwaehrung (= Absicherungswaehrung der Share-Class); (3) erst wenn
+    Produktdaten fehlen, der Sub-Klassen-Proxy; (4) 100 % Produktwaehrung.
+    Vorher lieferte (3) auch fuer abgesicherte Produkte das volle
+    Fremdwaehrungs-Exposure der Sub-Klasse.
+    """
+    if currency_exposure_json:
+        explicit = _parse_or_proxy(currency_exposure_json, {}, None)
+        if explicit:
+            return explicit, CURRENCY_SOURCE_PRODUCT_DATA
+    currency = str(product_currency or "").strip().upper()
+    if currency and product_is_currency_hedged(product_name, product_type):
+        return {currency: 10000}, CURRENCY_SOURCE_HEDGE_MARKER
+    proxy = _parse_or_proxy(None, _CURRENCY_PROXIES_BY_SUB_CLASS, sub_asset_class)
+    if proxy:
+        return proxy, CURRENCY_SOURCE_SUB_CLASS_PROXY
+    if currency:
+        return {currency: 10000}, CURRENCY_SOURCE_PRODUCT_CURRENCY
+    return {}, CURRENCY_SOURCE_UNKNOWN
+
+
 def aggregate_exposures(
     position_weights_bps: Mapping[str, int],
     exposure_per_position: Mapping[str, dict[str, int]],
