@@ -4016,7 +4016,7 @@ function _wireSollIstHover(){
       <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" data-wm-only="1" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" data-wm-only="1" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-cost-disclosure" onclick="openCostDisclosureModal();this.closest('details').removeAttribute('open')" title="FIDLEG Art. 8/9 Ex-ante Kostenausweis vor Auftragsausfuehrung">Kostenausweis</button></div></details></div></div>
       <div class="pad">
         <div style="background:var(--chrome-n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-          <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
+          <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">—</div><div id="po-reserve-note" style="display:none;font-size:9px;color:rgba(255,255,255,0.6);margin-top:2px"></div></div>
           <div style="display:flex;gap:16px"><div style="text-align:right" data-wm-only="1"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Letzte Preisqualität</div><div id="po-price-quality" style="font-size:13px;font-weight:500;color:#d4b06a">Live</div><div id="po-price-quality-sub" style="font-size:9px;color:rgba(255,255,255,0.55);margin-top:2px">Daten werden geladen</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Positionen</div><div id="po-position-count" style="font-size:13px;font-weight:500;color:#fff">14</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Ø TER p.a.</div><div id="po-average-ter" style="font-size:13px;font-weight:500;color:#fff">0.22%</div></div></div>
         </div>
         <div id="po-engine-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:10px"></div>
@@ -4027,7 +4027,7 @@ function _wireSollIstHover(){
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken zeigt Berater-Details: Soll-Anteil aus der Asset Allokation, Zielbetrag und Kosten.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick öffnet Berater-Details</div></div>
         <div class="pcols"><div class="pch">Produkt</div><div class="pch">Anlageklasse</div><div class="pch" style="text-align:right">Zielbetrag</div><div class="pch" style="text-align:right">Soll-Gewicht</div></div>
         <div id="po-portfolio-sections"></div>
-        <div style="background:var(--chrome-n8);border-radius:var(--r);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:5px"><span style="font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.04em">Total Beratungsvermögen</span><span id="po-total-footer" style="font-family:var(--f-d);font-size:17px;color:#d4b06a">CHF 2'848'000</span></div>
+        <div style="background:var(--chrome-n8);border-radius:var(--r);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:5px"><span id="po-total-footer-label" style="font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.04em">Total Beratungsvermögen</span><span id="po-total-footer" style="font-family:var(--f-d);font-size:17px;color:#d4b06a">—</span></div>
       </div>
       <div class="cnav"><button class="btn" onclick="go('al')">← Zurück zur Asset Allokation</button><button class="btn-p" onclick="go('rv')">Weiter zum Review →</button></div>
     </div>
@@ -9181,6 +9181,7 @@ function buildAT(){
       return '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px">'+rowHtml+subHtml+'</div>';
     }).join('');
 }
+function allocationReserveBreakdown(result){var advisory=Math.max(0,Number(result&&result.advisory_wealth_rappen||0));var baseRaw=result&&result.strategy_base_rappen!=null?Number(result.strategy_base_rappen):(result&&result.investable_advisory_wealth_rappen!=null?Number(result.investable_advisory_wealth_rappen):advisory);var base=(isFinite(baseRaw)&&baseRaw>0&&baseRaw<=advisory)?baseRaw:advisory;return {advisoryRappen:advisory,strategyBaseRappen:base,reserveRappen:Math.max(0,advisory-base)};} // Live-Test 2026-11 H2: SOLL-Quoten gelten fuer die Strategiebasis (Beratungsvermoegen - externe Reserve, Engine strategy_base_rappen); Reserve separat ausweisen
 function buildDLegend(){
   const el=document.getElementById('dnleg');if(!el)return;
   el.className='alloc-legend';
@@ -9192,11 +9193,11 @@ function buildDLegend(){
       +escapeHtml(snapshot.advisoryRappen?formatRappen(snapshot.advisoryRappen):'Beratungsvermögen noch offen')
       +'.</div>';
   }else{
-    el.innerHTML=alloc.map(function(r){
+    var _rb=allocationReserveBreakdown(strategyState.allocation);el.innerHTML=alloc.map(function(r){
       var targetChf=Number(r.chfTarget||0);
-      if(!(targetChf>0))targetChf=Math.round(TOTAL*Number(r.soll||0)/100);
+      if(!(targetChf>0))targetChf=Math.round((_rb.strategyBaseRappen/100)*Number(r.soll||0)/100);
       return '<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:'+r.c+';"></div><span class="alloc-legend-name">'+escapeHtml(String(r.n||''))+'</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">'+escapeHtml(fmtPct(Number(r.soll||0)*100,1))+'</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(targetChf))+'</span></div></div>';
-    }).join('');
+    }).join('')+(_rb.reserveRappen>0?'<div class="alloc-legend-row" id="alloc-legend-reserve" style="border-style:dashed"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:transparent;border:1px dashed var(--n4)"></div><span class="alloc-legend-name">Liquiditätsreserve (ausserhalb der Strategie)</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">–</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(_rb.reserveRappen/100))+'</span></div></div><div style="font-size:9.5px;color:var(--n5);line-height:1.5;padding:4px 2px 0">Quoten in % der Strategiebasis '+escapeHtml(formatRappen(_rb.strategyBaseRappen))+'; zusammen mit der Reserve ergibt sich das Beratungsvermögen '+escapeHtml(formatRappen(_rb.advisoryRappen))+'.</div>':'');
   }
   var dcv=document.querySelector('.dcv');
   if(dcv)dcv.innerHTML=donutCenterValueHtml(TOTAL);
@@ -9231,7 +9232,7 @@ function syncAllocationDonutFromStrategyState(){
       var _found=Math.min(_rein,Math.max(0,Number(_ta.foundation_in_net_wealth_rappen||0)));
       var _nonPos=_ta.net_wealth_non_positive===true;
       var _uncovered=Math.max(0,Number(_ta.uncovered_liabilities_rappen||0));
-      var _ber=Number(_a.advisory_wealth_rappen||0);
+      var _ber=Number(_a.advisory_wealth_rappen||0), _rbx=allocationReserveBreakdown(_a);
       var _f=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
       _rc.innerHTML='Reinvermögen (gesamt, netto aller Verbindlichkeiten): <strong>'+_f(_rein)+'</strong>'
         +(_found>0?' · davon Eigenheim-Fundament '+_f(_found):'')
@@ -9240,7 +9241,7 @@ function syncAllocationDonutFromStrategyState(){
             +(_uncovered>0?' – ungedeckte Schulden '+_f(_uncovered):'')
             +'. Kein positives Reinvermögen.</span>'
           :'')
-        +'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>';
+        +(_rbx.reserveRappen>0?'<br>Beratungsvermögen: <strong>'+_f(_ber)+'</strong> · davon in der Anlagestrategie (diese Torte): <strong>'+_f(_rbx.strategyBaseRappen)+'</strong> · Liquiditätsreserve ausserhalb der Strategie: <strong>'+_f(_rbx.reserveRappen)+'</strong>':'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>');
       _rc.style.display='';
     }else{
       _rc.style.display='none';
@@ -23929,14 +23930,13 @@ function applyAllocationEngineResult(result){
   });
   return true;
 }
+function renderPortfolioReserveNote(rb,positionsTotalRappen){var note=document.getElementById('po-reserve-note'), footerLabel=document.getElementById('po-total-footer-label'), withReserve=!!(rb&&rb.reserveRappen>0&&rb.advisoryRappen>0);setText('po-advisory-wealth',withReserve?formatRappen(rb.advisoryRappen):(positionsTotalRappen?formatRappen(positionsTotalRappen):'—'));if(note){note.style.display=withReserve?'':'none';note.textContent=withReserve?('davon umgesetzt '+formatRappen(positionsTotalRappen)+' · Liquiditätsreserve ausserhalb der Strategie '+formatRappen(rb.reserveRappen)):'';}if(footerLabel)footerLabel.textContent=withReserve?'Total Umsetzung (Strategiebasis)':'Total Beratungsvermögen';setText('po-total-footer',positionsTotalRappen?formatRappen(positionsTotalRappen):'—');} // Live-Test 2026-11 H2: Reserve sichtbar statt Umsetzungsvolumen als Beratungsvermoegen
 function applyRecommendationEngineResult(result){
   strategyState.recommendation=result;
   var live=liveRebalancingPayload(result);
-  var liveTotal=live&&live.live_total_value_rappen!=null?live.live_total_value_rappen:(result.advisory_wealth_rappen||0);
+  var liveTotal=live&&live.live_total_value_rappen!=null?live.live_total_value_rappen:(result.investable_advisory_wealth_rappen!=null?Number(result.investable_advisory_wealth_rappen):(result.advisory_wealth_rappen||0)); // ohne Live-Bewertung: Umsetzungsvolumen = Strategiebasis (Live-Test H2)
   var priceQuality=portfolioPriceQualityMeta(result.market_data_quality||{});
-  setText('po-advisory-wealth',formatRappen(liveTotal));
-  setText('po-total-footer',formatRappen(liveTotal));
-  setText('po-price-quality',priceQuality.label);
+  renderPortfolioReserveNote(allocationReserveBreakdown(strategyState.allocation||result),liveTotal);setText('po-price-quality',priceQuality.label);
   setText('po-price-quality-sub',priceQuality.sub);
   setText('po-position-count',String((result.positions||[]).length));
   setText('po-average-ter',(fmtPct(Number(result.average_ter_bps||0),2)));
