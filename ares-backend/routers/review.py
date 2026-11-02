@@ -2306,6 +2306,10 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
       damit ein Asset Manager mit 300 Fonds nicht wegen einer einzigen
       Tippfehler-Zeile neu anfangen muss.
     """
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product();
+    # R7/F3: reauthor_tenant_product_rule_on_import fuer den Upsert-Pfad.
+    from services.product_eligibility import author_tenant_product_rule, reauthor_tenant_product_rule_on_import
+
     tenant_id = _resolve_tenant_id_for_user(current_user)
     now = _now()
     items: list[ProductImportResultItem] = []
@@ -2350,11 +2354,25 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.deleted_at.is_(None),
             ).first()
         if existing is not None:
+            # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): nur explizit gelieferte,
+            # nicht leere Felder ueberschreiben. Vorher setzte der Upsert JEDES
+            # Feld aus model_dump() -- auch nicht gelieferte (None) --, und ein
+            # Re-Upload loeschte gepflegte Exposures, Liquiditaet, Rating usw.
+            # Leere Importfelder bedeuten "unveraendert".
             for field, value in payload.items():
-                setattr(existing, field, value)
+                if field in body.model_fields_set and value is not None:
+                    setattr(existing, field, value)
             existing.updated_at = now
+            eligibility_draft = reauthor_tenant_product_rule_on_import(
+                db, product=existing, created_by_user_id=current_user.id,
+                row={**payload, **suitability}, explicit_fields=set(body.model_fields_set), now=now,
+            )
             items.append(ProductImportResultItem(
                 row=idx, status="updated", product_id=existing.id, product_name=existing.product_name,
+                eligibility_note=(
+                    "Geaenderte Eignung als Entwurf angelegt; die bisherige Regel gilt bis zur "
+                    "Vier-Augen-Freigabe weiter." if eligibility_draft is not None else None
+                ),
             ))
             updated += 1
         else:
@@ -2383,7 +2401,6 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             db.add(product)
             db.flush()
             # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product()
-            from services.product_eligibility import author_tenant_product_rule
             author_tenant_product_rule(
                 db,
                 product=product,
@@ -2426,7 +2443,9 @@ def import_products_bulk(
     Tenant-User-Account, meldet sich ueber POST /auth/login an und ruft
     diesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products
     fuer die Upsert-/Isolationslogik."""
-    rows = [p.model_dump() for p in body.products]
+    # R7/F3: exclude_unset, damit _import_products nicht gelieferte Felder
+    # von gelieferten unterscheiden kann (Upsert ueberschreibt nur diese).
+    rows = [p.model_dump(exclude_unset=True) for p in body.products]
     return _import_products(rows, db, current_user)
 
 

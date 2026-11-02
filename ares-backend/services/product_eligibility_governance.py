@@ -258,5 +258,20 @@ def approve_rule(
     rule.approval_mode = approval_mode
     rule.rule_hash = approval_bound_rule_hash(rule.rule_hash, approval_mode)
     rule.updated_at = now
+    # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Folge-Entwurf aus dem
+    # Re-Import (supersedes_id) loest die bisher freigegebene Regel desselben
+    # Produkts erst JETZT ab -- sonst waeren zwei exakte Regeln aktiv
+    # (AMBIGUOUS_RULE_MATCH). Nur der Status wechselt; rule_hash und
+    # valid_from/valid_to der alten Regel bleiben als Evidenz unveraendert.
+    if rule.supersedes_id:
+        previous = db.get(ProductEligibilityRule, rule.supersedes_id)
+        if (
+            previous is not None
+            and previous.status == "approved"
+            and previous.product_id == rule.product_id
+            and previous.jurisdiction == rule.jurisdiction
+        ):
+            previous.status = "retired"
+            previous.updated_at = now
     db.flush()
     return rule

@@ -429,6 +429,7 @@ def author_default_catalog_rule(
     source_label: str = DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
     now: str | None = None,
     approved_by: str | None = _SAME_AS_AUTHOR,
+    supersedes_id: str | None = None,
 ) -> ProductEligibilityRule:
     """Author one product-specific governed rule.
 
@@ -479,7 +480,7 @@ def author_default_catalog_rule(
         prohibited=int(prohibited),
         valid_from=now,
         valid_to=None,
-        supersedes_id=None,
+        supersedes_id=supersedes_id,
     )
     rule = ProductEligibilityRule(
         id=new_uuid(),
@@ -523,6 +524,7 @@ def author_tenant_product_rule(
     requires_appropriateness: bool = False,
     requires_override: bool = False,
     now: str | None = None,
+    supersedes_id: str | None = None,
 ) -> ProductEligibilityRule:
     """Author the one tenant-scoped governed rule for a product an advisor
     just added to their own tenant's catalog, attributed to that advisor.
@@ -557,6 +559,102 @@ def author_tenant_product_rule(
         source_label=TENANT_PRODUCT_RULE_SOURCE,
         now=now,
         approved_by=None,
+        supersedes_id=supersedes_id,
+    )
+
+
+# AUDIT-FIX Fondsuniversum R7/F3 (2026-11): Eignungsfelder einer Import-Zeile
+# (ProductCreate) -> Spalte der governed Regel.
+_IMPORT_SUITABILITY_RULE_FIELDS = (
+    ("suitability_profile_from", "profile_from"),
+    ("suitability_profile_to", "profile_to"),
+    ("suitability_service_modes", "service_modes"),
+    ("suitability_prohibited", "prohibited"),
+    ("suitability_requires_appropriateness", "requires_appropriateness"),
+    ("suitability_requires_override", "requires_override"),
+    ("suitability_max_position_bps", "max_position_bps"),
+)
+
+
+def _rule_policy_view(rule: ProductEligibilityRule) -> dict:
+    return {
+        "profile_from": int(rule.profile_from),
+        "profile_to": int(rule.profile_to),
+        "service_modes": sorted(json.loads(rule.service_modes_json or "[]")),
+        "prohibited": bool(rule.prohibited),
+        "requires_appropriateness": bool(rule.requires_appropriateness),
+        "requires_override": bool(rule.requires_override),
+        "max_position_bps": rule.max_position_bps,
+    }
+
+
+def reauthor_tenant_product_rule_on_import(
+    db: Session,
+    *,
+    product: Product,
+    created_by_user_id: str,
+    row: dict,
+    explicit_fields: set[str],
+    now: str | None = None,
+) -> ProductEligibilityRule | None:
+    """AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Re-Import (Upsert) hat
+    die Eignungsfelder bisher still verworfen -- eine verschaerfte Eignung im
+    monatlichen Upload blieb ohne Hinweis wirkungslos.
+
+    Jetzt derselbe Weg wie beim Erfassen: weicht die Eignung der Zeile von
+    der aktuell massgebenden Regel ab (offener Entwurf, sonst freigegebene
+    Regel), entsteht ein neuer Regel-ENTWURF (Vier-Augen-Freigabe ueber
+    POST /products/{id}/eligibility-rule/approve). Die freigegebene Regel
+    bleibt bis zur Freigabe in Kraft (supersedes_id) und wird erst bei der
+    Freigabe abgeloest (product_eligibility_governance.approve_rule). Ein
+    offener, noch nie wirksamer Vorgaenger-Entwurf wird zurueckgezogen.
+    Nicht gelieferte bzw. leere Eignungsfelder gelten als "unveraendert".
+    Gibt den neuen Entwurf zurueck, sonst None (keine Aenderung)."""
+    jurisdiction = product.jurisdiction or "CH"
+    rules = (
+        db.query(ProductEligibilityRule)
+        .filter(
+            ProductEligibilityRule.product_id == product.id,
+            ProductEligibilityRule.jurisdiction == jurisdiction,
+            ProductEligibilityRule.status.in_(("draft", "approved")),
+        )
+        .order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id)
+        .all()
+    )
+    drafts = [rule for rule in rules if rule.status == "draft"]
+    approved = [rule for rule in rules if rule.status == "approved"]
+    reference = drafts[-1] if drafts else (approved[-1] if approved else None)
+    current = _rule_policy_view(reference) if reference is not None else None
+    desired: dict = {}
+    for row_field, rule_field in _IMPORT_SUITABILITY_RULE_FIELDS:
+        value = row.get(row_field)
+        given = row_field in explicit_fields and value is not None
+        if not given and current is not None:
+            desired[rule_field] = current[rule_field]
+        else:
+            desired[rule_field] = sorted(value) if rule_field == "service_modes" else value
+    if desired["prohibited"]:
+        desired["service_modes"] = []
+    elif not desired["service_modes"]:
+        desired["service_modes"] = sorted(row.get("suitability_service_modes") or [])
+    if current is not None and desired == current:
+        return None
+    for draft in drafts:
+        draft.status = "retired"
+        draft.updated_at = now or _now_iso()
+    return author_tenant_product_rule(
+        db,
+        product=product,
+        created_by_user_id=created_by_user_id,
+        jurisdiction=jurisdiction,
+        profile_from=desired["profile_from"],
+        profile_to=desired["profile_to"],
+        service_modes=list(desired["service_modes"]),
+        max_position_bps=desired["max_position_bps"],
+        requires_appropriateness=bool(desired["requires_appropriateness"]),
+        requires_override=bool(desired["requires_override"]),
+        now=now,
+        supersedes_id=approved[-1].id if approved else None,
     )
 
 

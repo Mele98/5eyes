@@ -162,3 +162,82 @@ def test_r3_batch_write_pool_excludes_global_catalog_for_tenant_admin(session_fa
     with session_factory() as s:
         assert {p.id for p in _writable_products_query(s, admin_a).all()} == {"own-a"}
         assert "g1" in {p.id for p in _writable_products_query(s, root).all()}
+
+
+# --- R7: Re-Import ueberschreibt nichts mit leer und meldet Eignung ---------
+_R7_ROW = {"product_name": "Hausfonds 7", "product_type": "Fonds", "asset_class": "Aktien",
+           "isin": "CH0000000R07", "sub_asset_class": "Aktien Schweiz", "ter_bps": 40,
+           "suitability_profile_from": 3, "suitability_profile_to": 10}
+
+
+def _r7_rules(session_factory, pid):
+    with session_factory() as s:
+        rules = s.query(ProductEligibilityRule).filter(ProductEligibilityRule.product_id == pid).all()
+        return sorted((r.profile_from, r.profile_to, r.status) for r in rules), {r.id: r.supersedes_id for r in rules}
+
+
+def _r7_create_and_maintain(client):
+    r1 = client.post("/products/import", json={"products": [_R7_ROW]}).json()
+    pid = r1["items"][0]["product_id"]
+    client.put(f"/products/{pid}", json={"country_exposure_json": '{"CH": 10000}', "liquidity_tier": "daily",
+                                         "credit_rating": "AA"})
+    return pid
+
+
+def test_r7_reimport_keeps_maintained_fields_and_reports_new_eligibility(session_factory, client):
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    row2 = dict(_R7_ROW, ter_bps=35, suitability_profile_from=7)
+    r2 = client.post("/products/import", json={"products": [row2]}).json()
+    with session_factory() as s:
+        p = s.get(Product, pid)
+        state = (p.ter_bps, p.country_exposure_json, p.liquidity_tier, p.credit_rating)
+    assert state == (35, '{"CH": 10000}', "daily", "AA")
+    item = r2["items"][0]
+    assert item["status"] == "updated"
+    assert item["eligibility_note"] and "Freigabe" in item["eligibility_note"]
+    bands, _ = _r7_rules(session_factory, pid)
+    # Der nie freigegebene Erst-Entwurf wird zurueckgezogen, die neue Eignung ist der offene Entwurf.
+    assert bands == [(3, 10, "retired"), (7, 10, "draft")]
+
+
+def test_r7_csv_reimport_with_empty_cells_keeps_fields(session_factory, client):
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    header = "product_name,product_type,asset_class,isin,ter_bps,liquidity_tier,suitability_profile_from,suitability_profile_to"
+    body = header + "\nHausfonds 7,Fonds,Aktien,CH0000000R07,,,3,10\n"
+    r = client.post("/products/import/csv", files={"file": ("f.csv", body.encode("utf-8"), "text/csv")})
+    assert r.status_code == 201, r.text
+    assert r.json()["items"][0]["eligibility_note"] is None
+    with session_factory() as s:
+        p = s.get(Product, pid)
+        assert (p.ter_bps, p.liquidity_tier, p.credit_rating, p.sub_asset_class) == (40, "daily", "AA", "Aktien Schweiz")
+    bands, _ = _r7_rules(session_factory, pid)
+    assert bands == [(3, 10, "draft")], "unveraenderte Eignung erzeugt keinen neuen Entwurf"
+
+
+def test_r7_changed_eligibility_supersedes_approved_rule_only_after_four_eyes(session_factory, client):
+    from services.product_eligibility_governance import approve_rule
+
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    with session_factory() as s:
+        (rule,) = s.query(ProductEligibilityRule).filter(ProductEligibilityRule.product_id == pid).all()
+        approve_rule(s, rule_id=rule.id, approver_id="zweite-person", tenant_id="main")
+        s.commit()
+        first_rule_id = rule.id
+    r2 = client.post("/products/import", json={"products": [dict(_R7_ROW, suitability_profile_from=7)]}).json()
+    assert r2["items"][0]["eligibility_note"]
+    bands, supersedes = _r7_rules(session_factory, pid)
+    assert bands == [(3, 10, "approved"), (7, 10, "draft")], "alte Regel gilt bis zur Freigabe"
+    new_id = next(rid for rid, sup in supersedes.items() if sup == first_rule_id)
+    with session_factory() as s:
+        approve_rule(s, rule_id=new_id, approver_id="zweite-person", tenant_id="main")
+        s.commit()
+    bands, _ = _r7_rules(session_factory, pid)
+    assert bands == [(3, 10, "retired"), (7, 10, "approved")]
+    with session_factory() as s:
+        from services.product_eligibility import resolve_active_rules_for_product
+        active = resolve_active_rules_for_product(s, s.get(Product, pid), jurisdiction="CH", tenant_id="main")
+        assert [(r.profile_from, r.profile_to) for r in active] == [(7, 10)]
+        assert json.loads(active[0].service_modes_json) == ["investment_advice", "portfolio_management"]

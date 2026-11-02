@@ -1106,6 +1106,9 @@ class ProductImportResultItem(BaseModel):
     product_id: Optional[str] = None
     product_name: Optional[str] = None
     error: Optional[str] = None
+    # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): Hinweis, wenn ein Re-Import
+    # die Eignung geaendert hat (neuer Regel-Entwurf, Freigabe ausstehend).
+    eligibility_note: Optional[str] = None
 
 
 class ProductImportResponse(BaseModel):
