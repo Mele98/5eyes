@@ -150,7 +150,7 @@ def test_existing_db_without_kek_never_generates(tmp_path, suffix):
     fake = FakeProtector()
 
     with pytest.raises(KekStoreError) as exc:
-        ensure_tenant_master_kek(cfg, protector=fake, require_for_existing_data=True)
+        ensure_tenant_master_kek(cfg, protector=fake)
     message = str(exc.value)
     assert "existiert" in message and "keine neue KEK" in message and "Migrator" in message
     assert fake.protect_calls == 0
@@ -158,15 +158,20 @@ def test_existing_db_without_kek_never_generates(tmp_path, suffix):
     assert cfg.tenant_master_kek == ""
 
 
-def test_existing_db_without_kek_store_generates_nothing(tmp_path):
-    """Bestandsdatenbank ohne KEK: keine neue KEK (der Start bricht danach an der KEK-Pflicht ab)."""
+def test_existing_db_without_kek_store_aborts_by_default(tmp_path):
+    """A2b B-2: Bestandsdatenbank ohne KEK bricht per Default schon hier ab
+    (Runbook P-7: ``KEK_REQUIRED_FOR_EXISTING_DATA = True``), ohne eine KEK zu
+    erzeugen. ``legacy-existing-db`` gibt es nur noch auf ausdruecklichen
+    Wunsch des Aufrufers."""
     db = tmp_path / "data" / "ares.db"
     db.parent.mkdir(parents=True)
     db.write_bytes(b"x")
     cfg = _cfg(tmp_path, db=db)
     fake = FakeProtector()
-    assert config.KEK_REQUIRED_FOR_EXISTING_DATA is False
-    assert ensure_tenant_master_kek(cfg, protector=fake) == "legacy-existing-db"
+    assert config.KEK_REQUIRED_FOR_EXISTING_DATA is True
+    with pytest.raises(KekStoreError, match="keine neue KEK"):
+        ensure_tenant_master_kek(cfg, protector=fake)
+    assert ensure_tenant_master_kek(cfg, protector=fake, require_for_existing_data=False) == "legacy-existing-db"
     assert fake.protect_calls == 0
     assert not _store(cfg).exists()
     assert cfg.tenant_master_kek == ""
@@ -175,7 +180,7 @@ def test_existing_db_without_kek_store_generates_nothing(tmp_path):
 def test_server_database_url_counts_as_existing_data(tmp_path):
     cfg = _cfg(tmp_path, database_url="postgresql://u@h/db")
     with pytest.raises(KekStoreError):
-        ensure_tenant_master_kek(cfg, protector=FakeProtector(), require_for_existing_data=True)
+        ensure_tenant_master_kek(cfg, protector=FakeProtector())
     assert not _store(cfg).exists()
 
 
@@ -188,7 +193,7 @@ def test_sqlite_database_url_is_checked_like_database(tmp_path):
     cfg2 = _cfg(tmp_path, database_url=f"sqlite:///{db.as_posix()}")
     _store(cfg2).unlink()
     with pytest.raises(KekStoreError):
-        ensure_tenant_master_kek(cfg2, protector=FakeProtector(), require_for_existing_data=True)
+        ensure_tenant_master_kek(cfg2, protector=FakeProtector())
 
 
 def test_store_of_other_account_aborts_and_is_kept(tmp_path):
@@ -410,11 +415,12 @@ def test_lifespan_aborts_before_init_db_on_unreadable_store(tmp_path, monkeypatc
     assert store.read_bytes() == KEK_STORE_MAGIC + b"fremd"
 
 
-def test_lifespan_existing_db_without_kek_reports_abort_not_legacy_start(tmp_path, monkeypatch, caplog):
-    """Nachtrag W4-c: seit der KEK-Pflicht ohne Rueckfall beschreibt die Meldung
-    fuer "vorhandene Datenbank ohne KEK-Ablage" einen Abbruch, keinen
-    fortgesetzten Start unter dem Vorgaengervertrag -- und der Start bricht
-    tatsaechlich vor init_db ab, ohne eine KEK zu erzeugen."""
+def test_lifespan_existing_db_without_kek_aborts_before_init_db_with_migrator_hint(tmp_path, monkeypatch, caplog):
+    """Nachtrag W4-c / A2b B-2: eine vorhandene Datenbank ohne KEK-Ablage und
+    ohne TENANT_MASTER_KEK bricht den Start schon in ensure_tenant_master_kek
+    ab -- vor init_db, ohne eine KEK zu erzeugen, mit genau einer CRITICAL-
+    Meldung, die auf Migrator bzw. Ablage aus Sicherung/Treuhand verweist (und
+    nicht auf einen fortgesetzten Start unter dem Vorgaengervertrag)."""
     import main
 
     db = tmp_path / "data" / "ares.db"
@@ -440,16 +446,15 @@ def test_lifespan_existing_db_without_kek_reports_abort_not_legacy_start(tmp_pat
         async with main.lifespan(main.app):
             pass
 
-    with pytest.raises(KekStoreError, match="TENANT_MASTER_KEK fehlt"):
+    with pytest.raises(KekStoreError, match="keine neue KEK"):
         asyncio.run(run())
 
     assert calls == [], "init_db darf nicht laufen"
     assert fake.protect_calls == 0 and not store.exists()
-    records = [r for r in caplog.records if "vorhandene Datenbank ohne KEK-Ablage" in r.getMessage()]
+    records = [r for r in caplog.records if "Start abgebrochen" in r.getMessage()]
     assert len(records) == 1
+    assert records[0].levelno == logging.CRITICAL
     message = records[0].getMessage()
-    assert records[0].levelno == logging.ERROR
-    assert "der Start bricht an der KEK-Pflicht ab" in message
-    assert "Migrator" in message
+    assert "existiert" in message and "Migrator" in message and "Sicherung/Treuhand" in message
+    assert "legacy-existing-db" not in caplog.text
     assert "Vorgaengervertrag" not in caplog.text
-    assert "Start abgebrochen" in caplog.text

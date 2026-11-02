@@ -97,20 +97,13 @@ async def lifespan(app: FastAPI):
     except KekStoreError as exc:
         logger.critical('Start abgebrochen: %s', exc)
         raise
-    if kek_outcome == 'legacy-existing-db':
-        # Seit W4-c gibt es keinen Rueckfall mehr: ohne KEK bricht der Start
-        # unmittelbar danach an require_tenant_master_kek ab (vor init_db).
-        logger.error(
-            'Master-KEK: vorhandene Datenbank ohne KEK-Ablage und ohne '
-            'TENANT_MASTER_KEK -- keine KEK erzeugt; der Start bricht an der '
-            'KEK-Pflicht ab. Bestandsdaten mit dem Migrator uebernehmen oder die '
-            'KEK-Ablage aus Sicherung/Treuhand zurueckspielen.'
-        )
-    else:
-        logger.info('Master-KEK: %s', kek_outcome)
+    # Eine vorhandene Datenbank ohne KEK bricht schon in ensure_tenant_master_kek
+    # ab (KEK_REQUIRED_FOR_EXISTING_DATA, A2b B-2) -- mit dem Hinweis auf
+    # Migrator bzw. Ablage aus Sicherung/Treuhand, ohne eine KEK zu erzeugen.
+    logger.info('Master-KEK: %s', kek_outcome)
     # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
     # kein Rueckfall auf SECRET_KEY oder einen Platzhalter). Pruefung aus config
-    # (dieselbe wie services.tenant_crypto.require_master_kek).
+    # (dieselbe, die services.tenant_crypto beim Entpacken anwendet).
     try:
         require_tenant_master_kek(settings)
     except KekStoreError as exc:

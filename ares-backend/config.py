@@ -1010,11 +1010,13 @@ KEK_STORE_ENTROPY = b"ares.tenant-master-kek.store.v1"
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
 CRYPTPROTECT_LOCAL_MACHINE = 0x04
 
-# Vorhandene Datenbank ohne KEK: hier wird nie eine KEK erzeugt (Ergebnis
-# ``legacy-existing-db``). Seit W4-c (KEK-Pflicht ohne Rueckfall auf
-# SECRET_KEY) bricht der Start danach an ``require_tenant_master_kek`` vor
-# init_db ab. True wirft schon hier :class:`KekStoreError` (Hinweis Migrator).
-KEK_REQUIRED_FOR_EXISTING_DATA = False
+# Vorhandene Datenbank ohne KEK (weder TENANT_MASTER_KEK noch Ablage): hier
+# wird nie eine KEK erzeugt, und der Start bricht schon an dieser Stelle mit
+# :class:`KekStoreError` ab -- mit dem konkreten Hinweis auf Migrator bzw.
+# Ablage aus Sicherung/Treuhand, vor init_db (fail-closed, Runbook P-7).
+# Mit False kaeme ``legacy-existing-db`` zurueck; der Start braeche dann erst
+# an ``require_tenant_master_kek`` ab, mit der allgemeinen Meldung.
+KEK_REQUIRED_FOR_EXISTING_DATA = True
 
 
 class KekStoreError(RuntimeError):
@@ -1206,10 +1208,11 @@ def ensure_tenant_master_kek(
 
     Ergebnisse (nie mit KEK-Wert): ``disabled`` (keine Ablage konfiguriert),
     ``configured`` (TENANT_MASTER_KEK gesetzt), ``loaded`` (aus der Ablage),
-    ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen),
-    ``legacy-existing-db`` (Bestandsdatenbank ohne KEK: nichts erzeugt; der
-    Start bricht danach an der KEK-Pflicht ab). Jeder unsichere Zustand wirft
-    :class:`KekStoreError`.
+    ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen).
+    Eine Bestandsdatenbank ohne KEK wirft :class:`KekStoreError`, ohne eine
+    KEK zu erzeugen (``KEK_REQUIRED_FOR_EXISTING_DATA``); nur mit
+    ``require_for_existing_data=False`` kaeme ``legacy-existing-db`` zurueck.
+    Jeder unsichere Zustand wirft :class:`KekStoreError`.
     """
     cfg = cfg if cfg is not None else settings
     store_setting = str(getattr(cfg, "tenant_master_kek_file", "") or "").strip()
