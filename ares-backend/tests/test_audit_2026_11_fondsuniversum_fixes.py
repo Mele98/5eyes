@@ -383,3 +383,31 @@ def test_r7_supersession_is_point_in_time_correct(session_factory, client):
         active = resolve_active_rules_for_product(s, product, jurisdiction="CH", tenant_id="main",
                                                   as_of="2099-06-01T00:00:00.000Z")
         assert [(r.profile_from, r.profile_to) for r in active] == [(7, 10)]
+
+
+# --- N-855-3: Tenant-Admin-UI nur mit strikter Mandantentrennung ------------
+def test_n855_3_tenant_admin_ui_without_strict_isolation_rejected():
+    from config import Settings
+    with pytest.raises(ValueError, match="tenant_admin_ui_enabled=true erfordert strikte Mandantentrennung"):
+        Settings(app_env="development", deployment_tier="tier1", tenancy_mode="single",
+                 tenant_admin_ui_enabled=True, strict_tenant_isolation=False)
+
+
+@pytest.mark.parametrize("overrides", [
+    {"strict_tenant_isolation": True},
+    {"deployment_tier": "tier2"},
+    {"tenancy_mode": "multi"},
+])
+def test_n855_3_tenant_admin_ui_with_effective_strict_isolation_allowed(overrides):
+    from config import Settings
+    base = {"app_env": "development", "deployment_tier": "tier1", "tenancy_mode": "single",
+            "tenant_admin_ui_enabled": True, "strict_tenant_isolation": False}
+    cfg = Settings(**{**base, **overrides})
+    assert cfg.tenant_admin_ui_enabled is True
+
+
+def test_n855_3_tier1_default_without_admin_ui_unchanged():
+    from config import Settings
+    cfg = Settings(app_env="development", deployment_tier="tier1", tenancy_mode="single",
+                   tenant_admin_ui_enabled=False, strict_tenant_isolation=False)
+    assert cfg.tenant_admin_ui_enabled is False
