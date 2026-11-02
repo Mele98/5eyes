@@ -4017,9 +4017,9 @@ function _wireSollIstHover(){
       <div class="pad">
         <div style="background:var(--chrome-n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">—</div><div id="po-reserve-note" style="display:none;font-size:9px;color:rgba(255,255,255,0.6);margin-top:2px"></div></div>
-          <div style="display:flex;gap:16px"><div style="text-align:right" data-wm-only="1"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Letzte Preisqualität</div><div id="po-price-quality" style="font-size:13px;font-weight:500;color:#d4b06a">Live</div><div id="po-price-quality-sub" style="font-size:9px;color:rgba(255,255,255,0.55);margin-top:2px">Daten werden geladen</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Positionen</div><div id="po-position-count" style="font-size:13px;font-weight:500;color:#fff">14</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Ø TER p.a.</div><div id="po-average-ter" style="font-size:13px;font-weight:500;color:#fff">0.22%</div></div></div>
+          <div style="display:flex;gap:16px"><div style="text-align:right" data-wm-only="1"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Letzte Preisqualität</div><div id="po-price-quality" style="font-size:13px;font-weight:500;color:#d4b06a">—</div><div id="po-price-quality-sub" style="font-size:9px;color:rgba(255,255,255,0.55);margin-top:2px">Noch kein Portfolio geladen</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Positionen</div><div id="po-position-count" style="font-size:13px;font-weight:500;color:#fff">—</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Ø TER p.a.</div><div id="po-average-ter" style="font-size:13px;font-weight:500;color:#fff">—</div></div></div>
         </div>
-        <div id="po-engine-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:10px"></div>
+        <div id="po-status" role="status" aria-live="polite" style="display:none;border-radius:var(--r);padding:8px 12px;margin-bottom:10px;font-size:11px;line-height:1.5"></div><div id="po-engine-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:10px"></div>
         <!-- Bug-#5 (2026-06-07): Portfolio zeigt SOLL-Empfehlung,
              kein IST-vs-SOLL-Rebalancing-Banner mehr. Drift/Action-
              Logik gehoert in den Depot-Check, nicht in den
@@ -7274,7 +7274,7 @@ let alloc=[
   {n:'Private Equity',c:assetClassColor('alt'),ist:6,soll:7,chf:171000},
   {n:'Externe Mandate',c:assetClassColor('oth'),ist:2,soll:2,chf:57000},
 ];
-let TOTAL=2848000;
+let TOTAL=0; // Live-Test 2026-11 M1: kein Demo-Startwert (frueher 2'848'000)
 let quoten=[
   {n:'Liquiditätsreserve',c:assetClassColor('liq'),ist:5,min:5,ziel:7,max:10},
   {n:'Aktien Schweiz',c:assetClassColor('eq'),ist:18,min:10,ziel:15,max:25},
@@ -22823,16 +22823,10 @@ function scheduleAutoRecompute(){
   },AUTO_RECOMPUTE_DEBOUNCE_MS);
 }
 function updateStrategyStatus(message,isError){
-  var status=document.getElementById('aa-pref-status');
-  if(status){
-    status.textContent=message;
-    status.style.color=isError?'var(--neg)':'var(--n4)';
-  }
-  var recipe=document.getElementById('recipe-status');
-  if(recipe){
-    recipe.textContent=message;
-    recipe.style.color=isError?'var(--neg)':'var(--n4)';
-  }
+  // Live-Test 2026-11 M1: Meldung auch sichtbar auf der Portfolio-Seite (#po-status), nicht nur in der AA-Statuszeile
+  var po=document.getElementById('po-status');
+  if(po){po.textContent=String(message||'');po.style.display=message?'':'none';po.style.background=isError?'var(--neg-lt)':'var(--bg)';po.style.border='1px solid '+(isError?'rgba(139,30,30,0.25)':'var(--b1)');po.style.color=isError?'var(--neg)':'var(--n6)';}
+  ['aa-pref-status','recipe-status'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=message;el.style.color=isError?'var(--neg)':'var(--n4)';}});
 }
 var strategyCalcOverlayTimer=null;
 var strategyCalcOverlayStep=0;
@@ -23108,6 +23102,7 @@ async function saveCashflowsAndRefreshCurrentPath(){
     setCashflowSaveButtonState('idle');
   }
 }
+function renderPortfolioNeutralState(sub){setText('po-advisory-wealth','—');setText('po-total-footer','—');setText('po-price-quality','—');setText('po-price-quality-sub',sub||'Noch kein Portfolio geladen');setText('po-position-count','—');setText('po-average-ter','—');var note=document.getElementById('po-reserve-note');if(note){note.style.display='none';note.textContent='';}} // Live-Test 2026-11 M1: neutraler Lade-/Fehlerzustand statt Demo-Werte
 function setPortfolioRefreshButtonState(mode){
   var button=document.getElementById('btn-po-refresh');
   if(!button)return;
@@ -23202,7 +23197,7 @@ async function refreshPortfolioFromStoredState(){
     updateStrategyStatus(keptReleased?'Kein Neulauf: Der freigegebene Portfolio-Vorschlag wird unverändert angezeigt. Für einen Neulauf (z. B. nach Anpassung des Fonds-Universums) bitte «Anlagestrategie berechnen» ausführen.':(hadPendingChanges?('Portfolio neu generiert ('+_hhmm+', aktuelles Fonds-Universum). Neue Eingaben wirken erst nach «Anlagestrategie berechnen».'):('Portfolio neu generiert: '+_hhmm+' (aktuelles Fonds-Universum)')),false);
     return regenerated||keptReleased;
   }catch(e){
-    updateStrategyStatus('Portfolio konnte nicht generiert werden: '+String((e&&e.detail)||(e&&e.message)||'?'),true);
+    updateStrategyStatus('Portfolio konnte nicht generiert werden: '+String((e&&e.detail)||(e&&e.message)||'?'),true);if(!strategyState.recommendation)renderPortfolioNeutralState('Portfolio konnte nicht generiert werden');
     return false;
   }finally{
     strategyState.loading=false;
