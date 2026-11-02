@@ -592,6 +592,7 @@ def reauthor_tenant_product_rule_on_import(
     db: Session,
     *,
     product: Product,
+    jurisdiction: str,
     created_by_user_id: str,
     row: dict,
     explicit_fields: set[str],
@@ -610,7 +611,6 @@ def reauthor_tenant_product_rule_on_import(
     offener, noch nie wirksamer Vorgaenger-Entwurf wird zurueckgezogen.
     Nicht gelieferte bzw. leere Eignungsfelder gelten als "unveraendert".
     Gibt den neuen Entwurf zurueck, sonst None (keine Aenderung)."""
-    jurisdiction = product.jurisdiction or "CH"
     rules = (
         db.query(ProductEligibilityRule)
         .filter(

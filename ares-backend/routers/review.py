@@ -2204,7 +2204,7 @@ def create_product(
         db,
         product=product,
         created_by_user_id=current_user.id,
-        jurisdiction=product.jurisdiction or "CH",
+        jurisdiction=_product_rule_jurisdiction(product),
         profile_from=body.suitability_profile_from,
         profile_to=body.suitability_profile_to,
         service_modes=[] if body.suitability_prohibited else list(body.suitability_service_modes),
@@ -2218,6 +2218,12 @@ def create_product(
     db.commit()
     db.refresh(product)
     return product
+
+
+def _product_rule_jurisdiction(product: Product) -> str:
+    """Jurisdiktion der Eignungsregel eines Tenant-Produkts (NULL = CH,
+    Altsemantik); eine Stelle fuer Erfassen, Import und Re-Import."""
+    return product.jurisdiction or "CH"
 
 
 _PRODUCT_IMPORT_CSV_FIELDS = (
@@ -2364,7 +2370,8 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                     setattr(existing, field, value)
             existing.updated_at = now
             eligibility_draft = reauthor_tenant_product_rule_on_import(
-                db, product=existing, created_by_user_id=current_user.id,
+                db, product=existing, jurisdiction=_product_rule_jurisdiction(existing),
+                created_by_user_id=current_user.id,
                 row={**payload, **suitability}, explicit_fields=set(body.model_fields_set), now=now,
             )
             items.append(ProductImportResultItem(
@@ -2405,7 +2412,7 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 db,
                 product=product,
                 created_by_user_id=current_user.id,
-                jurisdiction=product.jurisdiction or "CH",
+                jurisdiction=_product_rule_jurisdiction(product),
                 profile_from=suitability["suitability_profile_from"],
                 profile_to=suitability["suitability_profile_to"],
                 service_modes=(

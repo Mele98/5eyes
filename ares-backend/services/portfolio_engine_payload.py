@@ -1731,7 +1731,7 @@ UNIVERSE_EMPTIED_WARNING = (
 )
 
 
-def universe_emptied_warning(db: Session, mandate: Mandate, run_context=None) -> str | None:
+def universe_emptied_warning(db: Session, mandate: Mandate, run_context) -> str | None:
     """AUDIT-FIX Fondsuniversum R5/F5 (2026-11): _filter_products_by_universe
     faellt bei 0 aktiven Eintraegen auf den vollen Katalog zurueck. Fuer einen
     Tenant, der NIE eine Liste hatte, ist das gewollt (Bestandsverhalten,
@@ -1739,10 +1739,7 @@ def universe_emptied_warning(db: Session, mandate: Mandate, run_context=None) ->
     Eintraege), geschah der Rueckfall bisher still -- jetzt sichtbar als
     Warnung im Generierungs-Ergebnis. Die Produktwahl selbst bleibt unveraendert."""
     tenant_id = getattr(mandate, "tenant_id", None) or _DEFAULT_TENANT_ID
-    if run_context is not None:
-        jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction
-    else:
-        jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
+    jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction  # X2b: Lauf-Kontext
     rows = db.query(ProductUniverseEntry.deleted_at).filter(
         ProductUniverseEntry.tenant_id == tenant_id,
         ProductUniverseEntry.jurisdiction == jurisdiction,
