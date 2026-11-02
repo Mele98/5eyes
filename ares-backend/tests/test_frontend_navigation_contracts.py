@@ -97,7 +97,10 @@ def test_portfolio_refresh_regenerates_missing_current_recommendation():
     )[0]
 
     assert "function allocationPreferencesFromStoredAllocation(result)" in html
-    assert "if(!recommendation){" in refresh_block
+    # Live-Test 2026-11 H4: nicht nur bei fehlender Empfehlung, sondern bei
+    # jedem nicht freigegebenen Vorschlag wird echt neu generiert
+    # (Verhalten: tests/test_livetest_h4_portfolio_generate_really_regenerates.py).
+    assert "if(!keptReleased){" in refresh_block
     assert "/recommendations/generate" in refresh_block
     assert "target_allocation_id:allocationId" in refresh_block
     assert "applyRecommendationEngineResult(recommendation)" in refresh_block

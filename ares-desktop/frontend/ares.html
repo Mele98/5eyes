@@ -23167,13 +23167,12 @@ async function refreshPortfolioFromStoredState(){
     var recommendation=await loadCurrentRecommendationResult(mid);
     clearPendingStrategyOutputs();
     if(!applyAllocationEngineResult(allocation))return false;
-    if(!recommendation){
+    // Live-Test 2026-11 H4: Entwurf/kein Vorschlag -> echter Neulauf (aktuelles Universum); freigegeben ('Final', hat Vorrang) -> nicht still ueberschreiben, klar melden
+    var keptReleased=String(recommendation&&recommendation.run&&recommendation.run.result_status||'')==='Final', regenerated=false;
+    if(!keptReleased){
       var allocationId=allocation&&allocation.target_allocation&&allocation.target_allocation.id;
-      if(!allocationId){
-        updateStrategyStatus('Soll-Allokation geladen, aber ohne technische ID. Portfolio kann nicht generiert werden.',true);
-        return false;
-      }
-      updateStrategyStatus('Keine passende Portfolio-Empfehlung gefunden. Portfolio wird neu generiert...',false);
+      if(!allocationId){updateStrategyStatus('Soll-Allokation geladen, aber ohne technische ID. Portfolio kann nicht generiert werden.',true);return false;}
+      updateStrategyStatus('Portfolio wird mit dem aktuellen Fonds-Universum neu generiert...',false);
       var recommendationPrefs=recommendationPreferencesForStoredAllocation(allocation);
       var recommendationDepotBank=getInputValue('recipe-depot-bank')||'UBS AG Zurich';
       recommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:recommendationPrefs,target_allocation_id:allocationId,run_type:'Optimizer',depot_bank:recommendationDepotBank});
@@ -23181,6 +23180,7 @@ async function refreshPortfolioFromStoredState(){
         console.warn('stale portfolio recommendation result ignored', {requested:mid, active:getActiveMandateId()});
         return false;
       }
+      regenerated=true;
     }
     if(recommendation){
       applyRecommendationEngineResult(recommendation);
@@ -23198,10 +23198,9 @@ async function refreshPortfolioFromStoredState(){
     strategyState.dirty=hadPendingChanges;
     var dirtyBanner=document.getElementById('al-dirty-banner');
     if(dirtyBanner)dirtyBanner.style.display=hadPendingChanges?'':'none';
-    updateStrategyStatus(hadPendingChanges
-      ? 'Portfolio generiert. Neue Eingaben wirken erst nach «Anlagestrategie berechnen».'
-      : ('Portfolio generiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})),false);
-    return true;
+    var _hhmm=new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
+    updateStrategyStatus(keptReleased?'Kein Neulauf: Der freigegebene Portfolio-Vorschlag wird unverändert angezeigt. Für einen Neulauf (z. B. nach Anpassung des Fonds-Universums) bitte «Anlagestrategie berechnen» ausführen.':(hadPendingChanges?('Portfolio neu generiert ('+_hhmm+', aktuelles Fonds-Universum). Neue Eingaben wirken erst nach «Anlagestrategie berechnen».'):('Portfolio neu generiert: '+_hhmm+' (aktuelles Fonds-Universum)')),false);
+    return regenerated||keptReleased;
   }catch(e){
     updateStrategyStatus('Portfolio konnte nicht generiert werden: '+String((e&&e.detail)||(e&&e.message)||'?'),true);
     return false;
