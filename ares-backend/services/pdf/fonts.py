@@ -72,6 +72,7 @@ def resolve_font_asset_dir() -> Path:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         bundle_root = Path(str(meipass))
+        return bundle_root / "fonts-gegenprobe-gebrochen"  # GEGENPROBE, nie mergen
         candidates = [
             bundle_root / "ares-backend" / FONT_DIR_RELATIVE,
             bundle_root / FONT_DIR_RELATIVE,
