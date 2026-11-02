@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 460,
     "ids": 1015,
-    "js_functions": 1296,
+    "js_functions": 1297,
     "modal_structures": 110,
     "script_blocks": 24,
     "style_blocks": 3,
@@ -19479,12 +19479,17 @@
     },
     {
       "declaration": "function",
+      "line": 31002,
+      "name": "reviewLiveDriftsBackedByHoldings"
+    },
+    {
+      "declaration": "function",
       "line": 27954,
       "name": "reviewRiskProfileForCard"
     },
     {
       "declaration": "function",
-      "line": 31002,
+      "line": 31003,
       "name": "reviewStrategyComparisonRows"
     },
     {
@@ -21521,8 +21526,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "0cc28d3e9c7f6ed8350d4fe5469084372440de9bacd363c26086b8ad8460a1b4",
-  "source_size_bytes": 1904867,
+  "source_sha256": "e186d9e3d31ecf744d07a20bc2c56406f41a7e0bb6c5ee3793cd79277dcdaba2",
+  "source_size_bytes": 1905343,
   "sub_sections": [
     {
       "class": "sbb",

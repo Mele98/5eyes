@@ -30968,7 +30968,7 @@ function reviewBandStateMeta(bucket,assetKey){
   var min=Number(bucket&&bucket.band_min_bps||0);
   var max=Number(bucket&&bucket.band_max_bps||0);
   var delta=current-target;
-  var hasBand=max>min;
+  var pointBand=max>0&&max===min, hasBand=max>min||pointBand; // Live-Test H6: Punktband (min==max>0) ist ein Band; 0/0 = kein Band
   var illiquid=_reviewIsIlliquidAssetClass(assetKey);
   var discretionary=_reviewIsDiscretionaryMandate();
   if(hasBand&&(current<min||current>max)){
@@ -30983,7 +30983,7 @@ function reviewBandStateMeta(bucket,assetKey){
   var bandSpan=hasBand?(max-min):1000;
   var edgeBuffer=Math.max(100,Math.round(bandSpan*0.2));
   var nearEdge=hasBand?Math.min(Math.abs(current-min),Math.abs(max-current)):9999;
-  if(hasBand&&nearEdge<=edgeBuffer){
+  if(hasBand&&!pointBand&&nearEdge<=edgeBuffer&&Math.abs(delta)>=50){ // "Band eng" nur bei echter Abweichung vom Ziel (Live-Test H6)
     return {
       label:'Band eng',
       tagClass:'ta',
@@ -30999,9 +30999,9 @@ function reviewBandStateMeta(bucket,assetKey){
     action:Math.abs(delta)>=200?'Beobachten':'Keine Aktion'
   };
 }
+function reviewLiveDriftsBackedByHoldings(live){return !!live&&Number(live.holding_positions_count||0)>0&&Number(live.implied_positions_count||0)===0;} // Live-Test H6: ohne echte Bestaende ist Live-IST = Zielbetrag ("implied_from_target")
 function reviewStrategyComparisonRows(allocation){
-  var live=liveRebalancingPayload(allocation);
-  var liveBuckets=live&&Array.isArray(live.bucket_drifts)?live.bucket_drifts:[];
+  var live=liveRebalancingPayload(allocation), liveBuckets=(reviewLiveDriftsBackedByHoldings(live)&&Array.isArray(live.bucket_drifts))?live.bucket_drifts:[];
   if(liveBuckets.length){
     return liveBuckets.map(function(bucket){
       return {
