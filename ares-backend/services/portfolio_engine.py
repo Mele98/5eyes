@@ -1587,6 +1587,8 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
     _simulation_stress_multiplier,
     _simulation_transaction_cost_bps,
     _simulation_use_tail_risk,
+    path_simulation_method_sentence,
+    path_simulation_projection_sentence,
     _stddev_bps,
     _target_bucket_values,
     _twr_annualized_bps,
@@ -3902,7 +3904,7 @@ def generate_target_allocation(
         summaries_key="current_goal_summaries",
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo, achievability=goal_achievability)
-    reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
+    reasoning.append(path_simulation_method_sentence(prefs["simulation"]))  # AUDIT-2026-11 D1
     reasoning.append(inputs["projection_horizon"]["sentence"])
 
     # Race-Hardening: pessimistic Lock, damit parallele
@@ -6172,7 +6174,7 @@ def build_target_payload_from_allocation(
         "reasoning": (
             [
                 "Verwendet die bestehende aktuelle Soll-Allokation.",
-                "Die Projektion wird zusaetzlich ueber normalverteilte Jahresrenditen als Pfadsimulation verdichtet.",
+                path_simulation_projection_sentence(prefs["simulation"]),  # AUDIT-2026-11 D1
                 projection_horizon["sentence"],
             ]
             + (
