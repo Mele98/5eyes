@@ -44,7 +44,7 @@ from schemas.review import (
     ProductReferenceApplyRequest, ProductReferenceApplyResponse,
     ProductReferenceBatchApplyRequest, ProductReferenceBatchApplyResponse,
     ProductUniverseEntryCreate, ProductUniverseEntryUpdate, ProductUniverseEntryResponse,
-    RecommendationRunCreate, RecommendationRunResponse,
+    RecommendationRunCreate, RecommendationRunResponse, RecommendationFinalizeResponse, finalize_warning_codes,
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
     RecommendationGenerateRequest, RecommendationGenerateResponse,
@@ -3442,7 +3442,7 @@ def get_recommendation_payload_by_id(
 
 
 @recommendations_router.put("/mandates/{mandate_id}/recommendations/{run_id}/finalize",
-                             response_model=RecommendationRunResponse)
+                             response_model=RecommendationFinalizeResponse)
 def finalize_recommendation(
     mandate_id: str, run_id: str,
     request: Request,
@@ -3538,7 +3538,11 @@ def finalize_recommendation(
         mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(run)
-    return run
+    # N-856-7: Warnungen (u. a. [SAA_BUCKET_DEVIATION]) auch in der Antwort,
+    # nicht nur im Audit-Log; Codes strukturiert.
+    return RecommendationFinalizeResponse.model_validate(run).model_copy(
+        update={"warnings": list(warnings), "warning_codes": finalize_warning_codes(warnings)},
+    )
 
 
 @recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/positions",

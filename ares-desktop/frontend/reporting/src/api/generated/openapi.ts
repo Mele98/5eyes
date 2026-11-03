@@ -9731,6 +9731,48 @@ export interface components {
             /** Theme Tags */
             theme_tags?: string | null;
         };
+        /**
+         * RecommendationFinalizeResponse
+         * @description N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.
+         *
+         *     ``warnings`` ist identisch zum Audit-Log-Eintrag ("Final; Warnungen:
+         *     ..."), ``warning_codes`` die daraus gelesenen Codes (z. B.
+         *     SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).
+         */
+        RecommendationFinalizeResponse: {
+            /** Assessment Id */
+            assessment_id: string | null;
+            /** Client Id */
+            client_id: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Id */
+            id: string;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Objective Summary */
+            objective_summary: string | null;
+            /** Other Assets Included */
+            other_assets_included: number;
+            /** Policy Id */
+            policy_id: string;
+            /** Result Status */
+            result_status: string;
+            /** Run Type */
+            run_type: string;
+            /** Target Allocation Id */
+            target_allocation_id: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** Warning Codes */
+            warning_codes?: string[];
+            /** Warnings */
+            warnings?: string[];
+            /** Weighting Regime */
+            weighting_regime: string | null;
+        };
         /** RecommendationGenerateRequest */
         RecommendationGenerateRequest: {
             /** Depot Bank */
@@ -17813,7 +17855,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecommendationRunResponse"];
+                    "application/json": components["schemas"]["RecommendationFinalizeResponse"];
                 };
             };
             /** @description Validation Error */

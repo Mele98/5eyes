@@ -15528,6 +15528,127 @@
         "title": "ProductUpdate",
         "type": "object"
       },
+      "RecommendationFinalizeResponse": {
+        "description": "N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.\n\n``warnings`` ist identisch zum Audit-Log-Eintrag (\"Final; Warnungen:\n...\"), ``warning_codes`` die daraus gelesenen Codes (z. B.\nSAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).",
+        "properties": {
+          "assessment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Id"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "objective_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective Summary"
+          },
+          "other_assets_included": {
+            "title": "Other Assets Included",
+            "type": "integer"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "result_status": {
+            "title": "Result Status",
+            "type": "string"
+          },
+          "run_type": {
+            "title": "Run Type",
+            "type": "string"
+          },
+          "target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Allocation Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "warning_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warning Codes",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "weighting_regime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighting Regime"
+          }
+        },
+        "required": [
+          "id",
+          "mandate_id",
+          "client_id",
+          "run_type",
+          "assessment_id",
+          "target_allocation_id",
+          "policy_id",
+          "result_status",
+          "weighting_regime",
+          "other_assets_included",
+          "objective_summary",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RecommendationFinalizeResponse",
+        "type": "object"
+      },
       "RecommendationGenerateRequest": {
         "properties": {
           "depot_bank": {
@@ -32979,7 +33100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RecommendationRunResponse"
+                  "$ref": "#/components/schemas/RecommendationFinalizeResponse"
                 }
               }
             },

@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
@@ -1372,6 +1373,30 @@ class RecommendationRunResponse(BaseResponse):
     created_by: str
     created_at: str
     updated_at: str
+
+
+_FINALIZE_WARNING_CODE_RE = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
+
+
+def finalize_warning_codes(warnings: list[str]) -> list[str]:
+    """N-856-7: strukturierte Codes aus den ``[CODE]``-Suffixen der
+    Finalize-Warnungen, dedupliziert in Reihenfolge des Auftretens."""
+    codes: list[str] = []
+    for text in warnings or []:
+        for code in _FINALIZE_WARNING_CODE_RE.findall(str(text)):
+            if code not in codes:
+                codes.append(code)
+    return codes
+
+
+class RecommendationFinalizeResponse(RecommendationRunResponse):
+    """N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.
+
+    ``warnings`` ist identisch zum Audit-Log-Eintrag ("Final; Warnungen:
+    ..."), ``warning_codes`` die daraus gelesenen Codes (z. B.
+    SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED)."""
+    warnings: list[str] = Field(default_factory=list)
+    warning_codes: list[str] = Field(default_factory=list)
 
 
 class RecommendationPositionCreate(BaseModel):
