@@ -9197,7 +9197,7 @@ function buildDLegend(){
       var targetChf=Number(r.chfTarget||0);
       if(!(targetChf>0))targetChf=Math.round((_rb.strategyBaseRappen/100)*Number(r.soll||0)/100);
       return '<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:'+r.c+';"></div><span class="alloc-legend-name">'+escapeHtml(String(r.n||''))+'</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">'+escapeHtml(fmtPct(Number(r.soll||0)*100,1))+'</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(targetChf))+'</span></div></div>';
-    }).join('')+(_rb.reserveRappen>0?'<div class="alloc-legend-row" id="alloc-legend-reserve" style="border-style:dashed"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:transparent;border:1px dashed var(--n4)"></div><span class="alloc-legend-name">Liquiditätsreserve (ausserhalb der Strategie)</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">–</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(_rb.reserveRappen/100))+'</span></div></div><div style="font-size:9.5px;color:var(--n5);line-height:1.5;padding:4px 2px 0">Quoten in % der Strategiebasis '+escapeHtml(formatRappen(_rb.strategyBaseRappen))+'; zusammen mit der Reserve ergibt sich das Beratungsvermögen '+escapeHtml(formatRappen(_rb.advisoryRappen))+'.</div>':'');
+    }).join('')+(_rb.reserveRappen>0?'<div class="alloc-legend-row" id="alloc-legend-reserve" style="border-style:dashed"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:transparent;border:1px dashed var(--n4)"></div><span class="alloc-legend-name">Liquiditätsreserve (ausserhalb der Anlagestrategie)</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">–</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(_rb.reserveRappen/100))+'</span></div></div><div style="font-size:9.5px;color:var(--n5);line-height:1.5;padding:4px 2px 0">Quoten in % der Strategiebasis '+escapeHtml(formatRappen(_rb.strategyBaseRappen))+'; zusammen mit der Reserve ergibt sich das Beratungsvermögen '+escapeHtml(formatRappen(_rb.advisoryRappen))+'.</div>':'');
   }
   var dcv=document.querySelector('.dcv');
   if(dcv)dcv.innerHTML=donutCenterValueHtml(TOTAL);
@@ -9241,7 +9241,7 @@ function syncAllocationDonutFromStrategyState(){
             +(_uncovered>0?' – ungedeckte Schulden '+_f(_uncovered):'')
             +'. Kein positives Reinvermögen.</span>'
           :'')
-        +(_rbx.reserveRappen>0?'<br>Beratungsvermögen: <strong>'+_f(_ber)+'</strong> · davon in der Anlagestrategie (diese Torte): <strong>'+_f(_rbx.strategyBaseRappen)+'</strong> · Liquiditätsreserve ausserhalb der Strategie: <strong>'+_f(_rbx.reserveRappen)+'</strong>':'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>');
+        +(_rbx.reserveRappen>0?'<br>Beratungsvermögen: <strong>'+_f(_ber)+'</strong> · davon in der Anlagestrategie (diese Torte): <strong>'+_f(_rbx.strategyBaseRappen)+'</strong> · Liquiditätsreserve ausserhalb der Anlagestrategie: <strong>'+_f(_rbx.reserveRappen)+'</strong>':'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>');
       _rc.style.display='';
     }else{
       _rc.style.display='none';
@@ -23925,7 +23925,7 @@ function applyAllocationEngineResult(result){
   });
   return true;
 }
-function renderPortfolioReserveNote(rb,positionsTotalRappen){var note=document.getElementById('po-reserve-note'), footerLabel=document.getElementById('po-total-footer-label'), withReserve=!!(rb&&rb.reserveRappen>0&&rb.advisoryRappen>0);setText('po-advisory-wealth',withReserve?formatRappen(rb.advisoryRappen):(positionsTotalRappen?formatRappen(positionsTotalRappen):'—'));if(note){note.style.display=withReserve?'':'none';note.textContent=withReserve?('davon umgesetzt '+formatRappen(positionsTotalRappen)+' · Liquiditätsreserve ausserhalb der Strategie '+formatRappen(rb.reserveRappen)):'';}if(footerLabel)footerLabel.textContent=withReserve?'Total Umsetzung (Strategiebasis)':'Total Beratungsvermögen';setText('po-total-footer',positionsTotalRappen?formatRappen(positionsTotalRappen):'—');} // Live-Test 2026-11 H2: Reserve sichtbar statt Umsetzungsvolumen als Beratungsvermoegen
+function renderPortfolioReserveNote(rb,positionsTotalRappen){var note=document.getElementById('po-reserve-note'), footerLabel=document.getElementById('po-total-footer-label'), withReserve=!!(rb&&rb.reserveRappen>0&&rb.advisoryRappen>0);setText('po-advisory-wealth',withReserve?formatRappen(rb.advisoryRappen):(positionsTotalRappen?formatRappen(positionsTotalRappen):'—'));if(note){note.style.display=withReserve?'':'none';note.textContent=withReserve?('davon umgesetzt '+formatRappen(positionsTotalRappen)+' · Liquiditätsreserve ausserhalb der Anlagestrategie '+formatRappen(rb.reserveRappen)):'';}if(footerLabel)footerLabel.textContent=withReserve?'Total Umsetzung (Strategiebasis)':'Total Beratungsvermögen';setText('po-total-footer',positionsTotalRappen?formatRappen(positionsTotalRappen):'—');} // Live-Test 2026-11 H2: Reserve sichtbar statt Umsetzungsvolumen als Beratungsvermoegen
 function applyRecommendationEngineResult(result){
   strategyState.recommendation=result;
   var live=liveRebalancingPayload(result);

@@ -274,7 +274,10 @@ def _summary_row_styles(n_rows: int, n_summary: int) -> list:
     if not n_summary:
         return []
     first = n_rows - n_summary
+    # N-858-5: Summenzeilen nie allein auf die Folgeseite -- mit der letzten
+    # Klassen-/Subklassenzeile zusammenhalten.
     return [
+        ("NOSPLIT", (0, max(1, first - 1)), (-1, n_rows - 1)),
         ("FONTNAME", (0, first), (-1, first), FONT_BOLD),
         ("LINEABOVE", (0, first), (-1, first), 0.8, COLOR_BORDER),
         ("FONTNAME", (0, n_rows - 1), (-1, n_rows - 1), FONT_BOLD),
