@@ -407,6 +407,42 @@ def test_n855_6_withdrawn_draft_never_counts_point_in_time(session_factory, clie
         assert resolve_active_rules_for_product(s, product, jurisdiction="CH", tenant_id="main", as_of=as_of) == []
 
 
+def test_n855_7_every_stored_rule_reproduces_its_rule_hash(session_factory, client):
+    """N-855-7: nach Freigabe, Re-Import (zurueckgezogener Entwurf),
+    Abloesung (valid_to gesetzt) und neuer Freigabe (valid_from gesetzt)
+    rechnet JEDE gespeicherte Regel ihren rule_hash aus der eigenen Zeile nach
+    -- Standardkatalog eingeschlossen (bestehende Hashes byte-gleich)."""
+    from services.product_eligibility import DEFAULT_CATALOG_BOOTSTRAP_IDENTITY
+    from services.product_eligibility_governance import (
+        TENANT_PRODUCT_RULE_SOURCE, approve_rule, rule_hash_from_row,
+    )
+
+    with session_factory() as s:
+        ensure_default_products(s, jurisdiction="CH")
+        s.commit()
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    client.post("/products/import", json={"products": [dict(_R7_ROW, suitability_profile_from=5)]})
+    with session_factory() as s:
+        (draft,) = s.query(ProductEligibilityRule).filter(
+            ProductEligibilityRule.product_id == pid, ProductEligibilityRule.status == "draft").all()
+        approve_rule(s, rule_id=draft.id, approver_id="zweite-person", tenant_id="main")
+        s.commit()
+    client.post("/products/import", json={"products": [dict(_R7_ROW, suitability_profile_from=7)]})
+    _as("admin-2", "admin", "main")
+    assert client.post(f"/products/{pid}/eligibility-rule/approve", json={}).status_code == 200
+    with session_factory() as s:
+        rules = s.query(ProductEligibilityRule).all()
+        statuses = sorted(r.status for r in rules if r.product_id == pid)
+        assert statuses == ["approved", "retired", "retired"]
+        assert any(r.valid_to for r in rules if r.product_id == pid), "Abloesung mit valid_to vorhanden"
+        assert len(rules) > 30, "Standardkatalog-Regeln mitgeprueft"
+        for rule in rules:
+            source = (DEFAULT_CATALOG_BOOTSTRAP_IDENTITY if rule.created_by == DEFAULT_CATALOG_BOOTSTRAP_IDENTITY
+                      else TENANT_PRODUCT_RULE_SOURCE)
+            assert rule_hash_from_row(rule, source=source) == rule.rule_hash, (rule.id, rule.status)
+
+
 # --- N-855-3: Tenant-Admin-UI nur mit strikter Mandantentrennung ------------
 def test_n855_3_tenant_admin_ui_without_strict_isolation_rejected():
     from config import Settings

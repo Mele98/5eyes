@@ -33,6 +33,7 @@ from database import new_uuid
 from models.mandates import Mandate
 from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
 from models.review import Product
+from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
 from schemas.product_eligibility import (
     DimensionStatus,
     KnowledgeCategory,
@@ -522,7 +523,9 @@ def author_default_catalog_rule(
 # created_by/approved_by MUST be that real advisor's user id (Section 11:
 # "never a synthetic system sentinel" applies in full force here, unlike
 # the bootstrap-catalog case above).
-TENANT_PRODUCT_RULE_SOURCE = "tenant_product_creation_v1"
+# N-855-7: definiert in services.product_eligibility_governance (eine Quelle,
+# dort fuer das Neu-Binden des Hashes bei der Freigabe gebraucht).
+TENANT_PRODUCT_RULE_SOURCE = _TENANT_PRODUCT_RULE_SOURCE
 
 
 def author_tenant_product_rule(

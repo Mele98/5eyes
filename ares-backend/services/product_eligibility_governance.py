@@ -49,9 +49,21 @@ RULE_POLICY_FIELDS: tuple[str, ...] = (
     "max_position_bps",
     "prohibited",
     "valid_from",
-    "valid_to",
     "supersedes_id",
 )
+
+# N-855-7 (2026-11): valid_to ist ein Lebenszyklus-Feld. Es wird erst bei der
+# Abloesung durch eine Folgeregel gesetzt (approve_rule) und separat im
+# Audit-Log gefuehrt. Im Hash steht es weiter mit seinem verfassten Wert
+# None -- so bleibt jeder bestehende rule_hash byte-gleich (alle
+# Autorenpfade setzen valid_to=None) und laesst sich nach der Abloesung
+# weiter aus der Zeile nachrechnen.
+RULE_LIFECYCLE_FIELDS: tuple[str, ...] = ("valid_to",)
+
+# Quelle der Tenant-Produktregeln (Erfassen, Import, Re-Import); Teil des
+# rule_hash. Hier definiert, damit approve_rule den Hash nach dem Setzen von
+# valid_from neu binden kann; services.product_eligibility re-exportiert ihn.
+TENANT_PRODUCT_RULE_SOURCE = "tenant_product_creation_v1"
 
 # Product attributes a category selector may address. Exact string equality
 # only; any other key makes the selector unmatchable (fail-closed: an
@@ -87,8 +99,20 @@ def compute_rule_hash(values: dict, *, source: str | None = None) -> str:
         if field.endswith("_json") or field == "product_category_selector":
             value = _canonical_json_field(value)
         payload[field] = value
+    for field in RULE_LIFECYCLE_FIELDS:
+        payload[field] = None
     payload["source"] = source
     return canonical_hash(payload)
+
+
+def rule_hash_from_row(rule, *, source: str | None) -> str:
+    """N-855-7: rule_hash einer gespeicherten Regel aus ihrer Zeile
+    nachrechnen (verfasster Policy-Hash, bei Freigabe mit approval_mode
+    gebunden). Gleiche Regel wie beim Verfassen und Freigeben."""
+    authored = compute_rule_hash({field: getattr(rule, field) for field in RULE_POLICY_FIELDS}, source=source)
+    if rule.approval_mode:
+        return approval_bound_rule_hash(authored, rule.approval_mode)
+    return authored
 
 
 def selector_matches_product(selector: str | None, product) -> bool:
@@ -252,11 +276,37 @@ def approve_rule(
         rule_set.approved_by = approver_id
         rule_set.approved_at = now
         rule_set.updated_at = now
+    previous = None
+    if rule.supersedes_id:
+        candidate = db.get(ProductEligibilityRule, rule.supersedes_id)
+        if (
+            candidate is not None
+            and candidate.status == "approved"
+            and candidate.product_id == rule.product_id
+            and candidate.jurisdiction == rule.jurisdiction
+        ):
+            previous = candidate
+    authored_hash = rule.rule_hash
+    if previous is not None:
+        # N-855-7: valid_from der Folgeregel VOR dem Binden setzen und den
+        # verfassten Hash neu rechnen, damit rule_hash aus der Zeile
+        # reproduzierbar bleibt. Fail-closed, wenn der Entwurf nicht aus dem
+        # Tenant-Produktpfad stammt (Quelle nicht nachweisbar).
+        if compute_rule_hash(
+            {field: getattr(rule, field) for field in RULE_POLICY_FIELDS}, source=TENANT_PRODUCT_RULE_SOURCE,
+        ) != rule.rule_hash:
+            raise RuleApprovalConflict(
+                "Folgeregel: verfasster rule_hash nicht nachvollziehbar, Freigabe abgelehnt."
+            )
+        rule.valid_from = now
+        authored_hash = compute_rule_hash(
+            {field: getattr(rule, field) for field in RULE_POLICY_FIELDS}, source=TENANT_PRODUCT_RULE_SOURCE,
+        )
     rule.status = "approved"
     rule.approved_by = approver_id
     rule.approved_at = now
     rule.approval_mode = approval_mode
-    rule.rule_hash = approval_bound_rule_hash(rule.rule_hash, approval_mode)
+    rule.rule_hash = approval_bound_rule_hash(authored_hash, approval_mode)
     rule.updated_at = now
     # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Folge-Entwurf aus dem
     # Re-Import (supersedes_id) loest die bisher freigegebene Regel desselben
@@ -267,17 +317,11 @@ def approve_rule(
     # nicht ab dem Import. rule_hash bleibt bei beiden der Hash der verfassten
     # bzw. freigegebenen Policy; der Wechsel der Geltung ist ein
     # Lebenszyklus-Ereignis und steht im Audit-Log.
-    if rule.supersedes_id:
-        previous = db.get(ProductEligibilityRule, rule.supersedes_id)
-        if (
-            previous is not None
-            and previous.status == "approved"
-            and previous.product_id == rule.product_id
-            and previous.jurisdiction == rule.jurisdiction
-        ):
-            previous.status = "retired"
-            previous.valid_to = now
-            previous.updated_at = now
-            rule.valid_from = now
+    # N-855-7: valid_to ist Lebenszyklus-Feld (RULE_LIFECYCLE_FIELDS), der
+    # rule_hash der alten Regel bleibt daher nachrechenbar.
+    if previous is not None:
+        previous.status = "retired"
+        previous.valid_to = now
+        previous.updated_at = now
     db.flush()
     return rule
