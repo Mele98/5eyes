@@ -7142,6 +7142,17 @@
             "title": "Product Cost Coverage Bps",
             "type": "integer"
           },
+          "product_retrocessions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductRetrocessionDisclosure"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozession je empfohlenem Produkt (AUDIT-2026-11 P1). None, wenn der Ausweis ohne Produktbezug entstand oder vor P1 eingefroren wurde."
+          },
           "snapshot_schema_version": {
             "anyOf": [
               {
@@ -13374,6 +13385,34 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accumulating",
+                  "distributing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.",
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').",
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -13411,6 +13450,42 @@
             ],
             "title": "Esg Score X10"
           },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
+            "title": "Hedge Currency"
+          },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteilsklasse waehrungsgesichert; None = nicht erfasst.",
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.",
+            "title": "Is House Product"
+          },
           "isin": {
             "anyOf": [
               {
@@ -13433,6 +13508,20 @@
             ],
             "title": "Liquidity Tier"
           },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+            "title": "Minimum Investment Minor Units"
+          },
           "product_name": {
             "title": "Product Name",
             "type": "string"
@@ -13451,6 +13540,32 @@
               }
             ],
             "title": "Provider"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.",
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).",
+            "title": "Retrocession Source"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -13554,6 +13669,18 @@
             ],
             "title": "Symbol"
           },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag der TER (YYYY-MM-DD).",
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -13567,6 +13694,18 @@
             ],
             "title": "Ter Bps"
           },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle der TER (z.B. Basisinformationsblatt, Factsheet).",
+            "title": "Ter Source"
+          },
           "theme_tags": {
             "anyOf": [
               {
@@ -13577,6 +13716,18 @@
               }
             ],
             "title": "Theme Tags"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Valorennummer (optional, nur Ziffern).",
+            "title": "Valor"
           }
         },
         "required": [
@@ -14875,6 +15026,28 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -14943,6 +15116,17 @@
             ],
             "title": "Figi"
           },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hedge Currency"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -14950,6 +15134,28 @@
           "is_active": {
             "title": "Is Active",
             "type": "integer"
+          },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is House Product"
           },
           "isin": {
             "anyOf": [
@@ -14961,6 +15167,17 @@
               }
             ],
             "title": "Isin"
+          },
+          "isin_status": {
+            "description": "'missing' (keine ISIN), 'invalid' (Altbestand mit formal\nungueltiger ISIN/Pruefziffer) oder 'valid'.",
+            "enum": [
+              "valid",
+              "invalid",
+              "missing"
+            ],
+            "readOnly": true,
+            "title": "Isin Status",
+            "type": "string"
           },
           "liquidity_tier": {
             "anyOf": [
@@ -15028,6 +15245,26 @@
             ],
             "title": "Market Sector"
           },
+          "master_data_gaps": {
+            "description": "Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,\nin P1 keine Sperre).",
+            "items": {
+              "type": "string"
+            },
+            "readOnly": true,
+            "title": "Master Data Gaps",
+            "type": "array"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum Investment Minor Units"
+          },
           "product_name": {
             "title": "Product Name",
             "type": "string"
@@ -15068,6 +15305,39 @@
               }
             ],
             "title": "Reference Data Refreshed At"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrocession Source"
+          },
+          "retrocession_status": {
+            "description": "'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),\n'none' = ausdruecklich 0 bps, 'present' = Satz > 0.",
+            "enum": [
+              "unknown",
+              "none",
+              "present"
+            ],
+            "readOnly": true,
+            "title": "Retrocession Status",
+            "type": "string"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -15157,6 +15427,17 @@
             ],
             "title": "Tenant Id"
           },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -15167,6 +15448,17 @@
               }
             ],
             "title": "Ter Bps"
+          },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ter Source"
           },
           "theme_tags": {
             "anyOf": [
@@ -15185,6 +15477,17 @@
           "updated_at": {
             "title": "Updated At",
             "type": "string"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valor"
           }
         },
         "required": [
@@ -15204,9 +15507,182 @@
           "created_at",
           "updated_at",
           "esg_data_status",
-          "esg_data_seed_fields"
+          "esg_data_seed_fields",
+          "isin_status",
+          "retrocession_status",
+          "master_data_gaps"
         ],
         "title": "ProductResponse",
+        "type": "object"
+      },
+      "ProductRetrocessionDisclosure": {
+        "description": "AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung\n(Art. 26 FIDLEG). Fehlt bei Nachweisen, die vor P1 eingefroren wurden.",
+        "properties": {
+          "complete": {
+            "default": false,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "legal_basis": {
+            "default": "",
+            "title": "Legal Basis",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ProductRetrocessionLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "present_count": {
+            "default": 0,
+            "title": "Present Count",
+            "type": "integer"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "unknown_count": {
+            "default": 0,
+            "title": "Unknown Count",
+            "type": "integer"
+          },
+          "unresolved_count": {
+            "default": 0,
+            "title": "Unresolved Count",
+            "type": "integer"
+          }
+        },
+        "title": "ProductRetrocessionDisclosure",
+        "type": "object"
+      },
+      "ProductRetrocessionLine": {
+        "description": "AUDIT-2026-11 P1 (L1): Retrozession je empfohlenem Produkt.",
+        "properties": {
+          "amount_rappen": {
+            "default": 0,
+            "description": "Investiertes Volumen des Produkts im Vorschlag",
+            "title": "Amount Rappen",
+            "type": "integer"
+          },
+          "covered_by_mandate_entry": {
+            "default": false,
+            "description": "True, wenn die manuelle Retrozessions-Zeile des Mandats (gleicher Anbieter) die Offenlegungszeile ist -- dann entsteht keine zweite Kostenzeile.",
+            "title": "Covered By Mandate Entry",
+            "type": "boolean"
+          },
+          "estimated_annual_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz",
+            "title": "Estimated Annual Rappen"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "product_name": {
+            "title": "Product Name",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "rate_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz p.a.; None = unbekannt (gilt nie als retrozessionsfrei)",
+            "title": "Rate Bps"
+          },
+          "requires_resolution": {
+            "default": false,
+            "title": "Requires Resolution",
+            "type": "boolean"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "enum": [
+              "unknown",
+              "none",
+              "present"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "treatment": {
+            "enum": [
+              "reimbursed",
+              "waiver_documented",
+              "unresolved",
+              "not_applicable",
+              "unknown"
+            ],
+            "title": "Treatment",
+            "type": "string"
+          },
+          "treatment_label": {
+            "title": "Treatment Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_name",
+          "status",
+          "treatment",
+          "treatment_label"
+        ],
+        "title": "ProductRetrocessionLine",
         "type": "object"
       },
       "ProductUniverseEntryCreate": {
@@ -15390,6 +15866,34 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accumulating",
+                  "distributing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.",
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').",
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -15427,6 +15931,18 @@
             ],
             "title": "Esg Score X10"
           },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
+            "title": "Hedge Currency"
+          },
           "is_active": {
             "anyOf": [
               {
@@ -15439,6 +15955,30 @@
               }
             ],
             "title": "Is Active"
+          },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteilsklasse waehrungsgesichert; None = nicht erfasst.",
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.",
+            "title": "Is House Product"
           },
           "isin": {
             "anyOf": [
@@ -15461,6 +16001,20 @@
               }
             ],
             "title": "Liquidity Tier"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+            "title": "Minimum Investment Minor Units"
           },
           "product_name": {
             "anyOf": [
@@ -15494,6 +16048,32 @@
               }
             ],
             "title": "Provider"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.",
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).",
+            "title": "Retrocession Source"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -15544,6 +16124,18 @@
             ],
             "title": "Symbol"
           },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag der TER (YYYY-MM-DD).",
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -15557,6 +16149,18 @@
             ],
             "title": "Ter Bps"
           },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle der TER (z.B. Basisinformationsblatt, Factsheet).",
+            "title": "Ter Source"
+          },
           "theme_tags": {
             "anyOf": [
               {
@@ -15567,6 +16171,18 @@
               }
             ],
             "title": "Theme Tags"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Valorennummer (optional, nur Ziffern).",
+            "title": "Valor"
           }
         },
         "title": "ProductUpdate",
@@ -36937,6 +37553,31 @@
           }
         ],
         "summary": "Resolve Product Reference Data",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/export/csv": {
+      "get": {
+        "description": "AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,\naktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus\neigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie\nGET /products).\n\nZweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern\nergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die\nEignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein\nStammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine\ngeaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen\nbedeuten \"nicht erfasst\" -- es wird nichts vorbelegt.",
+        "operationId": "export_products_csv_products_export_csv_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Products Csv",
         "tags": [
           "Produkte"
         ]

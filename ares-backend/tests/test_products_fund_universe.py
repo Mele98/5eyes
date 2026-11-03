@@ -154,14 +154,14 @@ def test_list_products_other_tenant_sees_own_not_first_tenants(session_factory):
 
 def test_search_matches_product_name_provider_isin_symbol(session_factory):
     _add_product(session_factory, product_name="UBS Alpha Fund", provider="UBS")
-    _add_product(session_factory, product_name="Anderer Fonds", provider="Sonstige", isin="CH0001234567")
+    _add_product(session_factory, product_name="Anderer Fonds", provider="Sonstige", isin="CH0001234563")
     _add_product(session_factory, product_name="Dritter Fonds", provider="Sonstige", symbol="XYZ")
     _add_product(session_factory, product_name="Unbeteiligt", provider="Nichts")
     try:
         with _client_for(session_factory, user_id="u-search", tenant_id=None) as client:
             by_name = {p["product_name"] for p in client.get("/products?q=Alpha").json()}
             by_provider = {p["product_name"] for p in client.get("/products?q=UBS").json()}
-            by_isin = {p["product_name"] for p in client.get("/products?q=CH0001234567").json()}
+            by_isin = {p["product_name"] for p in client.get("/products?q=CH0001234563").json()}
             by_symbol = {p["product_name"] for p in client.get("/products?q=XYZ").json()}
     finally:
         app.dependency_overrides.clear()
@@ -205,7 +205,7 @@ def test_bulk_import_upserts_on_matching_isin_same_tenant(session_factory):
         with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
             first = client.post("/products/import", json={"products": [
                 {"product_name": "UBS Fund V1", "product_type": "Fonds", "asset_class": "Aktien",
-                 "currency": "CHF", "isin": "CH0001111111", "ter_bps": 20,
+                 "currency": "CHF", "isin": "CH0001111118", "ter_bps": 20,
                  "suitability_profile_from": 1, "suitability_profile_to": 10},
             ]})
             assert first.status_code == 201, first.text
@@ -213,12 +213,12 @@ def test_bulk_import_upserts_on_matching_isin_same_tenant(session_factory):
 
             second = client.post("/products/import", json={"products": [
                 {"product_name": "UBS Fund V2 (umbenannt)", "product_type": "Fonds", "asset_class": "Aktien",
-                 "currency": "CHF", "isin": "CH0001111111", "ter_bps": 25,
+                 "currency": "CHF", "isin": "CH0001111118", "ter_bps": 25,
                  "suitability_profile_from": 1, "suitability_profile_to": 10},
             ]})
             assert second.status_code == 201, second.text
             body = second.json()
-            listed = client.get("/products?q=CH0001111111").json()
+            listed = client.get("/products?q=CH0001111118").json()
     finally:
         app.dependency_overrides.clear()
     assert body["created"] == 0
@@ -239,13 +239,13 @@ def test_bulk_import_upsert_never_crosses_tenant_boundary(session_factory):
     _seed_tenants(session_factory, ["firm-a", "firm-b"])
     other_id = _add_product(
         session_factory, product_name="Firma B Original",
-        tenant_id="firm-b", isin="CH0009999999",
+        tenant_id="firm-b", isin="CH0009999993",
     )
     try:
         with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
             resp = client.post("/products/import", json={"products": [
                 {"product_name": "Firma A Version", "product_type": "Fonds", "asset_class": "Aktien",
-                 "currency": "CHF", "isin": "CH0009999999",
+                 "currency": "CHF", "isin": "CH0009999993",
                  "suitability_profile_from": 1, "suitability_profile_to": 10},
             ]})
             assert resp.status_code == 201, resp.text
@@ -302,7 +302,7 @@ def test_bulk_import_unlisted_name_match_never_overwrites_already_listed_fund(se
     _seed_tenants(session_factory, ["firm-a"])
     listed_id = _add_product(
         session_factory, product_name="Doppelgaenger Fonds",
-        tenant_id="firm-a", isin="CH0LISTED0001",
+        tenant_id="firm-a", isin="CH0LISTED009",
     )
     try:
         with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
@@ -319,7 +319,7 @@ def test_bulk_import_unlisted_name_match_never_overwrites_already_listed_fund(se
     assert body["updated"] == 0
     with session_factory() as s:
         listed = s.get(Product, listed_id)
-        assert listed.isin == "CH0LISTED0001"
+        assert listed.isin == "CH0LISTED009"
 
 
 def test_create_product_duplicate_isin_same_tenant_returns_409_not_500(session_factory):
@@ -329,19 +329,19 @@ def test_create_product_duplicate_isin_same_tenant_returns_409_not_500(session_f
     Fehlermeldung. Reproduziert live beim manuellen Erfassen im Fonds-
     universum-Panel."""
     _seed_tenants(session_factory, ["firm-a"])
-    _add_product(session_factory, product_name="Erster Fonds", tenant_id="firm-a", isin="CH0DUP00001")
+    _add_product(session_factory, product_name="Erster Fonds", tenant_id="firm-a", isin="CH0DUP000017")
     try:
         with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
             resp = client.post("/products", json={
                 "product_name": "Zweiter Fonds, gleiche ISIN",
                 "product_type": "Fonds", "asset_class": "Aktien",
-                "currency": "CHF", "isin": "CH0DUP00001",
+                "currency": "CHF", "isin": "CH0DUP000017",
                 "suitability_profile_from": 1, "suitability_profile_to": 10,
             })
     finally:
         app.dependency_overrides.clear()
     assert resp.status_code == 409, resp.text
-    assert "CH0DUP00001" in resp.json()["detail"]
+    assert "CH0DUP000017" in resp.json()["detail"]
 
 
 def test_create_product_duplicate_isin_across_tenants_returns_409_not_500(session_factory):
@@ -350,13 +350,13 @@ def test_create_product_duplicate_isin_across_tenants_returns_409_not_500(sessio
     korrekt), bekommt aber trotzdem eine klare 409 statt eines Absturzes,
     weil die ISIN global (nicht tenant-gescoped) eindeutig sein muss."""
     _seed_tenants(session_factory, ["firm-a", "firm-b"])
-    _add_product(session_factory, product_name="Firma A Fonds", tenant_id="firm-a", isin="CH0DUP00002")
+    _add_product(session_factory, product_name="Firma A Fonds", tenant_id="firm-a", isin="CH0DUP000025")
     try:
         with _client_for(session_factory, user_id="u-b", tenant_id="firm-b") as client:
             resp = client.post("/products", json={
                 "product_name": "Firma B Fonds, gleiche ISIN",
                 "product_type": "Fonds", "asset_class": "Aktien",
-                "currency": "CHF", "isin": "CH0DUP00002",
+                "currency": "CHF", "isin": "CH0DUP000025",
                 "suitability_profile_from": 1, "suitability_profile_to": 10,
             })
     finally:
@@ -370,12 +370,12 @@ def test_bulk_import_isin_conflict_with_other_tenant_fails_row_not_whole_batch(s
     Imports muessen trotzdem durchlaufen (partial success bleibt erhalten,
     kein roher 500 fuer den gesamten Batch)."""
     _seed_tenants(session_factory, ["firm-a", "firm-b"])
-    _add_product(session_factory, product_name="Firma A Fonds", tenant_id="firm-a", isin="CH0DUP00003")
+    _add_product(session_factory, product_name="Firma A Fonds", tenant_id="firm-a", isin="CH0DUP000033")
     try:
         with _client_for(session_factory, user_id="u-b", tenant_id="firm-b") as client:
             resp = client.post("/products/import", json={"products": [
                 {"product_name": "Kollisions-Fonds", "product_type": "Fonds",
-                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP00003",
+                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP000033",
                  "suitability_profile_from": 1, "suitability_profile_to": 10},
                 {"product_name": "Unbeteiligter Fonds", "product_type": "Fonds",
                  "asset_class": "Obligationen", "currency": "CHF",
@@ -390,7 +390,7 @@ def test_bulk_import_isin_conflict_with_other_tenant_fails_row_not_whole_batch(s
     assert body["failed"] == 1
     failed_item = next(i for i in body["items"] if i["status"] == "failed")
     assert failed_item["product_name"] == "Kollisions-Fonds"
-    assert "CH0DUP00003" in failed_item["error"]
+    assert "CH0DUP000033" in failed_item["error"]
     created_item = next(i for i in body["items"] if i["status"] == "created")
     assert created_item["product_name"] == "Unbeteiligter Fonds"
 
@@ -406,10 +406,10 @@ def test_bulk_import_duplicate_isin_within_same_batch_same_tenant_collapses_via_
         with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
             resp = client.post("/products/import", json={"products": [
                 {"product_name": "Fonds A", "product_type": "Fonds",
-                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP00004", "ter_bps": 10,
+                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP000041", "ter_bps": 10,
                  "suitability_profile_from": 1, "suitability_profile_to": 10},
                 {"product_name": "Fonds A (korrigiert)", "product_type": "Fonds",
-                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP00004", "ter_bps": 20,
+                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP000041", "ter_bps": 20,
                  "suitability_profile_from": 1, "suitability_profile_to": 10},
             ]})
             assert resp.status_code == 201, resp.text
@@ -468,7 +468,7 @@ def test_csv_import_creates_listed_and_unlisted_funds(session_factory):
         "product_name,provider,product_type,asset_class,sub_asset_class,currency,"
         "isin,symbol,ter_bps,sfdr_class,esg_rating,liquidity_tier,"
         "suitability_profile_from,suitability_profile_to\n"
-        "Global Equity ETF,Beispiel AM,Fonds,Aktien,Global,CHF,IE00BTEST001,GEQC,25,8,AA,daily,1,10\n"
+        "Global Equity ETF,Beispiel AM,Fonds,Aktien,Global,CHF,IE00BTEST000,GEQC,25,8,AA,daily,1,10\n"
         "Privatmarktfonds,Beispiel AM,Fonds,Alternative,Private Equity,CHF,,,150,,,illiquid,7,10\n"
     ).encode("utf-8")
     try:
@@ -486,7 +486,7 @@ def test_csv_import_creates_listed_and_unlisted_funds(session_factory):
     assert body["created"] == 2
     assert body["failed"] == 0
     by_name = {p["product_name"]: p for p in listed}
-    assert by_name["Global Equity ETF"]["isin"] == "IE00BTEST001"
+    assert by_name["Global Equity ETF"]["isin"] == "IE00BTEST000"
     assert by_name["Privatmarktfonds"]["isin"] is None
     assert by_name["Privatmarktfonds"]["symbol"] is None
     assert all(p["tenant_id"] == "firm-a" for p in by_name.values())
@@ -665,7 +665,11 @@ def test_csv_template_download_has_expected_headers(session_factory):
         "suitability_prohibited,suitability_requires_appropriateness,"
         "suitability_requires_override,suitability_max_position_bps,"
         # ESG-PREMIUM-CRITERIA-001: ESG-Kriterien-Daten am Ende angehaengt.
-        "esg_score_x10,climate_benchmark,theme_tags"
+        "esg_score_x10,climate_benchmark,theme_tags,"
+        # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten am Ende angehaengt.
+        "domicile,is_hedged,hedge_currency,ter_source,ter_as_of,"
+        "retrocession_bps,retrocession_source,is_house_product,"
+        "distribution_policy,valor,minimum_investment_minor_units"
     )
 
 

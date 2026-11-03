@@ -4541,6 +4541,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products/export/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Products Csv
+         * @description AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,
+         *     aktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus
+         *     eigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie
+         *     GET /products).
+         *
+         *     Zweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern
+         *     ergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die
+         *     Eignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein
+         *     Stammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine
+         *     geaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen
+         *     bedeuten "nicht erfasst" -- es wird nichts vorbelegt.
+         */
+        get: operations["export_products_csv_products_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products/import": {
         parameters: {
             query?: never;
@@ -7157,6 +7187,8 @@ export interface components {
              * @default 0
              */
             product_cost_coverage_bps?: number;
+            /** @description Retrozession je empfohlenem Produkt (AUDIT-2026-11 P1). None, wenn der Ausweis ohne Produktbezug entstand oder vor P1 eingefroren wurde. */
+            product_retrocessions?: components["schemas"]["ProductRetrocessionDisclosure"] | null;
             /**
              * Snapshot Schema Version
              * @description Schema-Version des verifizierten Snapshots (nur 'certified').
@@ -9138,22 +9170,62 @@ export interface components {
             currency?: string;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /**
+             * Distribution Policy
+             * @description Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.
+             */
+            distribution_policy?: ("accumulating" | "distributing") | null;
+            /**
+             * Domicile
+             * @description Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').
+             */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Rating */
             esg_rating?: string | null;
             /** Esg Score X10 */
             esg_score_x10?: number | null;
+            /**
+             * Hedge Currency
+             * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
+             */
+            hedge_currency?: string | null;
+            /**
+             * Is Hedged
+             * @description Anteilsklasse waehrungsgesichert; None = nicht erfasst.
+             */
+            is_hedged?: boolean | null;
+            /**
+             * Is House Product
+             * @description Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.
+             */
+            is_house_product?: boolean | null;
             /** Isin */
             isin?: string | null;
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /**
+             * Minimum Investment Minor Units
+             * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+             */
+            minimum_investment_minor_units?: number | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
             product_type: string;
             /** Provider */
             provider?: string | null;
+            /**
+             * Retrocession Bps
+             * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.
+             */
+            retrocession_bps?: number | null;
+            /**
+             * Retrocession Source
+             * @description Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).
+             */
+            retrocession_source?: string | null;
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Sfdr Class */
@@ -9185,10 +9257,25 @@ export interface components {
             suitability_service_modes?: ("investment_advice" | "portfolio_management" | "financial_planning" | "reporting_only")[];
             /** Symbol */
             symbol?: string | null;
+            /**
+             * Ter As Of
+             * @description Stichtag der TER (YYYY-MM-DD).
+             */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps?: number | null;
+            /**
+             * Ter Source
+             * @description Quelle der TER (z.B. Basisinformationsblatt, Factsheet).
+             */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string | null;
+            /**
+             * Valor
+             * @description Valorennummer (optional, nur Ziffern).
+             */
+            valor?: string | null;
         };
         /**
          * ProductEligibilityApprovalRequest
@@ -9592,6 +9679,10 @@ export interface components {
             currency: string;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /** Distribution Policy */
+            distribution_policy?: string | null;
+            /** Domicile */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Data Seed Fields */
@@ -9606,12 +9697,25 @@ export interface components {
             exchange_code?: string | null;
             /** Figi */
             figi?: string | null;
+            /** Hedge Currency */
+            hedge_currency?: string | null;
             /** Id */
             id: string;
             /** Is Active */
             is_active: number;
+            /** Is Hedged */
+            is_hedged?: boolean | null;
+            /** Is House Product */
+            is_house_product?: boolean | null;
             /** Isin */
             isin: string | null;
+            /**
+             * Isin Status
+             * @description 'missing' (keine ISIN), 'invalid' (Altbestand mit formal
+             *     ungueltiger ISIN/Pruefziffer) oder 'valid'.
+             * @enum {string}
+             */
+            readonly isin_status: "valid" | "invalid" | "missing";
             /** Liquidity Tier */
             liquidity_tier?: string | null;
             /** Lookup Mode Override */
@@ -9624,6 +9728,14 @@ export interface components {
             mapping_resolved_at?: string | null;
             /** Market Sector */
             market_sector?: string | null;
+            /**
+             * Master Data Gaps
+             * @description Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,
+             *     in P1 keine Sperre).
+             */
+            readonly master_data_gaps: string[];
+            /** Minimum Investment Minor Units */
+            minimum_investment_minor_units?: number | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
@@ -9634,6 +9746,17 @@ export interface components {
             reference_data_provider?: string | null;
             /** Reference Data Refreshed At */
             reference_data_refreshed_at?: string | null;
+            /** Retrocession Bps */
+            retrocession_bps?: number | null;
+            /** Retrocession Source */
+            retrocession_source?: string | null;
+            /**
+             * Retrocession Status
+             * @description 'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),
+             *     'none' = ausdruecklich 0 bps, 'present' = Satz > 0.
+             * @enum {string}
+             */
+            readonly retrocession_status: "unknown" | "none" | "present";
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Security Type */
@@ -9650,12 +9773,112 @@ export interface components {
             symbol: string | null;
             /** Tenant Id */
             tenant_id?: string | null;
+            /** Ter As Of */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps: number | null;
+            /** Ter Source */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string[] | null;
             /** Updated At */
             updated_at: string;
+            /** Valor */
+            valor?: string | null;
+        };
+        /**
+         * ProductRetrocessionDisclosure
+         * @description AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung
+         *     (Art. 26 FIDLEG). Fehlt bei Nachweisen, die vor P1 eingefroren wurden.
+         */
+        ProductRetrocessionDisclosure: {
+            /**
+             * Complete
+             * @default false
+             */
+            complete?: boolean;
+            /**
+             * Legal Basis
+             * @default
+             */
+            legal_basis?: string;
+            /** Lines */
+            lines?: components["schemas"]["ProductRetrocessionLine"][];
+            /**
+             * Present Count
+             * @default 0
+             */
+            present_count?: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version?: number;
+            /**
+             * Unknown Count
+             * @default 0
+             */
+            unknown_count?: number;
+            /**
+             * Unresolved Count
+             * @default 0
+             */
+            unresolved_count?: number;
+        };
+        /**
+         * ProductRetrocessionLine
+         * @description AUDIT-2026-11 P1 (L1): Retrozession je empfohlenem Produkt.
+         */
+        ProductRetrocessionLine: {
+            /**
+             * Amount Rappen
+             * @description Investiertes Volumen des Produkts im Vorschlag
+             * @default 0
+             */
+            amount_rappen?: number;
+            /**
+             * Covered By Mandate Entry
+             * @description True, wenn die manuelle Retrozessions-Zeile des Mandats (gleicher Anbieter) die Offenlegungszeile ist -- dann entsteht keine zweite Kostenzeile.
+             * @default false
+             */
+            covered_by_mandate_entry?: boolean;
+            /**
+             * Estimated Annual Rappen
+             * @description Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz
+             */
+            estimated_annual_rappen?: number | null;
+            /** Isin */
+            isin?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Product Name */
+            product_name: string;
+            /** Provider */
+            provider?: string | null;
+            /**
+             * Rate Bps
+             * @description Retrozessionssatz p.a.; None = unbekannt (gilt nie als retrozessionsfrei)
+             */
+            rate_bps?: number | null;
+            /**
+             * Requires Resolution
+             * @default false
+             */
+            requires_resolution?: boolean;
+            /** Source */
+            source?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unknown" | "none" | "present";
+            /**
+             * Treatment
+             * @enum {string}
+             */
+            treatment: "reimbursed" | "waiver_documented" | "unresolved" | "not_applicable" | "unknown";
+            /** Treatment Label */
+            treatment_label: string;
         };
         /** ProductUniverseEntryCreate */
         ProductUniverseEntryCreate: {
@@ -9708,24 +9931,64 @@ export interface components {
             currency?: string | null;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /**
+             * Distribution Policy
+             * @description Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.
+             */
+            distribution_policy?: ("accumulating" | "distributing") | null;
+            /**
+             * Domicile
+             * @description Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').
+             */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Rating */
             esg_rating?: string | null;
             /** Esg Score X10 */
             esg_score_x10?: number | null;
+            /**
+             * Hedge Currency
+             * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
+             */
+            hedge_currency?: string | null;
             /** Is Active */
             is_active?: number | null;
+            /**
+             * Is Hedged
+             * @description Anteilsklasse waehrungsgesichert; None = nicht erfasst.
+             */
+            is_hedged?: boolean | null;
+            /**
+             * Is House Product
+             * @description Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.
+             */
+            is_house_product?: boolean | null;
             /** Isin */
             isin?: string | null;
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /**
+             * Minimum Investment Minor Units
+             * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+             */
+            minimum_investment_minor_units?: number | null;
             /** Product Name */
             product_name?: string | null;
             /** Product Type */
             product_type?: string | null;
             /** Provider */
             provider?: string | null;
+            /**
+             * Retrocession Bps
+             * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.
+             */
+            retrocession_bps?: number | null;
+            /**
+             * Retrocession Source
+             * @description Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).
+             */
+            retrocession_source?: string | null;
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Sfdr Class */
@@ -9734,10 +9997,25 @@ export interface components {
             sub_asset_class?: string | null;
             /** Symbol */
             symbol?: string | null;
+            /**
+             * Ter As Of
+             * @description Stichtag der TER (YYYY-MM-DD).
+             */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps?: number | null;
+            /**
+             * Ter Source
+             * @description Quelle der TER (z.B. Basisinformationsblatt, Factsheet).
+             */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string | null;
+            /**
+             * Valor
+             * @description Valorennummer (optional, nur Ziffern).
+             */
+            valor?: string | null;
         };
         /** RecommendationGenerateRequest */
         RecommendationGenerateRequest: {
@@ -20205,6 +20483,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_products_csv_products_export_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

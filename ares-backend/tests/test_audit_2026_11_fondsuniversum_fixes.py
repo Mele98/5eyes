@@ -272,7 +272,7 @@ def test_r6_unchanged_immutable_fields_are_accepted(session_factory, client):
 
 # --- R7: Re-Import ueberschreibt nichts mit leer und meldet Eignung ---------
 _R7_ROW = {"product_name": "Hausfonds 7", "product_type": "Fonds", "asset_class": "Aktien",
-           "isin": "CH0000000R07", "sub_asset_class": "Aktien Schweiz", "ter_bps": 40,
+           "isin": "CH0000000R08", "sub_asset_class": "Aktien Schweiz", "ter_bps": 40,
            "suitability_profile_from": 3, "suitability_profile_to": 10}
 
 
@@ -311,7 +311,7 @@ def test_r7_csv_reimport_with_empty_cells_keeps_fields(session_factory, client):
     _as("admin-m", "admin", "main")
     pid = _r7_create_and_maintain(client)
     header = "product_name,product_type,asset_class,isin,ter_bps,liquidity_tier,suitability_profile_from,suitability_profile_to"
-    body = header + "\nHausfonds 7,Fonds,Aktien,CH0000000R07,,,3,10\n"
+    body = header + "\nHausfonds 7,Fonds,Aktien,CH0000000R08,,,3,10\n"
     r = client.post("/products/import/csv", files={"file": ("f.csv", body.encode("utf-8"), "text/csv")})
     assert r.status_code == 201, r.text
     assert r.json()["items"][0]["eligibility_note"] is None
