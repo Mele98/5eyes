@@ -844,10 +844,7 @@ def test_real_admin_fund_form_sends_esg_criteria_data():
             "pf-climate-benchmark": "PAB", "pf-suit-from": "3", "pf-suit-to": "7",
         }),
         # _extract_js_function beginnt bei "function" -- die Funktion ist async.
-        # AUDIT-2026-11 P1: adminCreateFund sammelt die Stammdaten ueber
-        # adminCollectFundMasterData (leere Felder = nicht gesendet).
-        "async " + _extract_js_function(html, "adminCreateFund")
-        + "\n" + _extract_js_function(html, "adminCollectFundMasterData"),
+        "async " + _extract_js_function(html, "adminCreateFund"),
     )
     proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
     assert proc.returncode == 0, proc.stderr
