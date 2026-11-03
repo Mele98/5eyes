@@ -1,4 +1,4 @@
-# ADR-015: Haus-Prior v1 – Freigabe von kappa_H = 300
+# ADR-015: Haus-Prior v1 – kappa_H = 300 vorläufig in Gebrauch (provisional)
 
 - **Status:** Accepted, provisional. Vorläufig in Gebrauch; die Produktivfreigabe durch `<FREIGABE_OWNER>` steht aus, siehe Freigabevermerk.
 - **Datum:** 2026-11-02
@@ -37,6 +37,12 @@ kundenabhängig machen.
    Re-Kalibrierung auf v18 mit erweitertem Holdout (mehr Welten bzw. Seeds, um
    den Standardfehler zu senken) oder begründete Anpassung der Regel R1 durch
    den Owner. **Freigabe `<FREIGABE_OWNER>`.**
+
+   Der erweiterte Holdout braucht eine **neue Seed-Domäne** (z. B.
+   `kappa-holdout-v2` und `kappa-holdout-oos-v2`). Die Welten aus v7 und dem
+   v18-Bestätigungslauf (`kappa-holdout-v1`) sind bereits gesehen und dürfen
+   nicht wiederverwendet werden. Regel, Seed-Domäne und Anzahl Welten werden
+   vor dem ersten Lauf commitgebunden festgelegt.
 
    Der Wert 300 bleibt, obwohl der Bestätigungs-Holdout auf v18 nach der vorab
    festgelegten Regel `not_confirmed` ergibt (Owner-Entscheid 2026-11-03,

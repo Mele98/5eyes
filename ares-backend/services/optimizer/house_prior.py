@@ -65,8 +65,10 @@ Rohresultate des Tunings und ein separater Holdout-Test mit vorab
 festgelegter Regel liegen commitgebunden unter
 ``tools/house_prior_calibration/`` und
 ``docs/planning/2026-10-18-house-prior-kappa-calibration.md``. Die Auswahl im
-Tuning war post hoc (kein vorab registriertes Kriterium); der Holdout mit
-vorab festgelegter Regel hat sie bestaetigt.
+Tuning war post hoc (kein vorab registriertes Kriterium). Der Holdout mit
+vorab festgelegter Regel hat sie auf Engine v7 bestaetigt -- NUR auf v7: der
+Bestaetigungs-Holdout auf der Produktions-Engine v18 ist ``not_confirmed``
+(siehe unten und ADR-015).
 HOUSE-PRIOR-APPROVAL-001 (Entscheid AA-4, Luecke L21): kappa_H = 300 ist als
 "Haus-Prior v1" VORLAEUFIG in Gebrauch (``docs/adr/ADR-015-haus-prior-kappa-v1.md``),
 Status ``HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"``: der

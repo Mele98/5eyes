@@ -141,7 +141,23 @@ def test_deviation_is_disclosure_only_penalty_unchanged():
     "## Freigabevermerk",
     "`<FREIGABE_OWNER>`",
     "Codex-Nachprüfung offen",
+    # N-857-8: Titel provisional, neue Seed-Domaene fuer den erweiterten Holdout.
+    "vorläufig in Gebrauch (provisional)",
+    "neue Seed-Domäne",
 ])
+
+
 def test_adr_documents_derivation_effect_limits_and_review(needle):
     text = ADR.read_text(encoding="utf-8")
     assert needle in text
+
+
+def test_adr_index_and_title_say_provisional_not_released():
+    """N-857-8: Index, Titel und Docstring tragen keinen Freigabe-Anschein."""
+    index = (REPO_ROOT / "docs" / "adr" / "README.md").read_text(encoding="utf-8")
+    row = next(line for line in index.splitlines() if "ADR-015" in line)
+    assert "provisional" in row and "Freigabe" not in row
+    title = ADR.read_text(encoding="utf-8").splitlines()[0]
+    assert "provisional" in title and "Freigabe" not in title
+    doc = hp.__doc__ or ""
+    assert "NUR auf v7" in doc and "not_confirmed" in doc

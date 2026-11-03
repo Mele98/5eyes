@@ -25,7 +25,7 @@ Jeder ADR folgt einem schlanken Schema:
 | [005](ADR-005-free-data-pipeline.md) | Gratis-Marktdaten-Pipeline (CHF 0/Jahr) | Accepted | U-30 |
 | [006](ADR-006-drift-tests.md) | Drift-Tests als Konsistenz-Wall | Accepted | (querschnittlich) |
 | [014](ADR-014-engine-module-split-plan.md) | Engine-God-Modul `portfolio_engine.py` — Split-Plan | Accepted (Plan) | Welle 3.2 |
-| [015](ADR-015-haus-prior-kappa-v1.md) | Haus-Prior v1 – Freigabe von kappa_H = 300 | Accepted | Audit 2026-11, Welle 0 (P12) |
+| [015](ADR-015-haus-prior-kappa-v1.md) | Haus-Prior v1 – kappa_H = 300 vorläufig in Gebrauch (provisional) | Accepted, provisional | Audit 2026-11, Welle 0 (P12) |
 
 ## Wann einen neuen ADR schreiben?
 

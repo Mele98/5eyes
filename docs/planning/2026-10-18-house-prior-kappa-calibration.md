@@ -1,7 +1,7 @@
 # κ_H-Kalibrierung des Hausmatrix-Priors – commitgebundenes Paket
 
 Stand 2026-10-18 · HOUSE-PRIOR-CALIBRATION-PROVENANCE-001 (Codex-Review `2026-10-18-house-prior-v6-pr640-current-review.md`, §9)
-Produktparameter: `services/optimizer/house_prior.py` – `HOUSE_PRIOR_KAPPA = 300.0`, `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "experimental_tuned_holdout_checked"` (im Audit unter `house_prior.prior_metric.kappa_calibration_status`).
+Produktparameter: `services/optimizer/house_prior.py` – `HOUSE_PRIOR_KAPPA = 300.0`, `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"` seit 2026-11-03 (vorher `"experimental_tuned_holdout_checked"`; im Audit unter `house_prior.prior_metric.kappa_calibration_status`). Holdout v7 `confirmed`, Bestätigungs-Holdout v18 `not_confirmed` (§5, ADR-015).
 
 ## 1. Inhalt
 
