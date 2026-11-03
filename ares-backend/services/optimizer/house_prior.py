@@ -68,10 +68,12 @@ festgelegter Regel liegen commitgebunden unter
 Tuning war post hoc (kein vorab registriertes Kriterium); der Holdout mit
 vorab festgelegter Regel hat sie bestaetigt.
 HOUSE-PRIOR-APPROVAL-001 (Entscheid AA-4, Luecke L21): kappa_H = 300 ist als
-"Haus-Prior v1" zur Freigabe vorbereitet (``docs/adr/ADR-015-haus-prior-kappa-v1.md``),
-Status ``HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "approved_v1"``. Auflage im ADR:
-der Bestaetigungs-Holdout auf der Produktions-Engine v18 ist ``not_confirmed``
-(R1 knapp verfehlt); der Owner-Entscheid und der Freigabevermerk stehen aus. Der WERT ist
+"Haus-Prior v1" VORLAEUFIG in Gebrauch (``docs/adr/ADR-015-haus-prior-kappa-v1.md``),
+Status ``HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"``: der
+Bestaetigungs-Holdout auf der Produktions-Engine v18 ist nach der vorab
+festgelegten Regel ``not_confirmed`` (R1 knapp verfehlt, -0.010 pp; R2 erfuellt).
+Auflage vor Produktivfreigabe: Re-Kalibrierung auf v18 mit erweitertem Holdout
+oder begruendete Anpassung von R1 durch den Owner. Der WERT ist
 unveraendert; jede Aenderung braucht den Out-of-sample-Nachweis aus dem ADR
 (Release-Gate). Ausgewiesen wird zusaetzlich die Abweichung des Ergebnisses
 von der Hausquote je Anlageklasse (``deviation_vs_house_bps``).
@@ -118,13 +120,15 @@ HOUSE_PRIOR_VERSION = "house_prior_ridge_tracking_error_v2"
 # Modellbasis ausgewiesen. Einheit: Zielebene je Tracking-Error-Varianz
 # (Dezimal^2, einjaehrig).
 HOUSE_PRIOR_KAPPA = 300.0
-# HOUSE-PRIOR-APPROVAL-001: Freigabe des PARAMETERS kappa_H (nicht des
+# HOUSE-PRIOR-APPROVAL-001: Status des PARAMETERS kappa_H (nicht des
 # Algorithmus -- der ist in ``HOUSE_PRIOR_VERSION`` versioniert). Vorher
 # "experimental_tuned_holdout_checked"; Herleitung, Wirkung, Grenzen und
-# Review-Turnus in ``HOUSE_PRIOR_PARAMETER_ADR``.
-HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "approved_v1"
+# Review-Turnus in ``HOUSE_PRIOR_PARAMETER_ADR``. "provisional": der
+# Bestaetigungs-Holdout auf v18 ist not_confirmed (ADR-015, Owner-Entscheid
+# 2026-11-03) -- kein "approved" ohne erfuellte Regel (Art. 9 FINIG).
+HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"
 HOUSE_PRIOR_PARAMETER_RELEASE = "v1"
-HOUSE_PRIOR_PARAMETER_STATUS = "approved"
+HOUSE_PRIOR_PARAMETER_STATUS = "provisional"
 HOUSE_PRIOR_PARAMETER_ADR = "docs/adr/ADR-015-haus-prior-kappa-v1.md"
 # Ridge der Prior-Metrik in bps^2 (Herleitung im Modul-Docstring).
 HOUSE_PRIOR_RIDGE_BPS2 = 2500.0

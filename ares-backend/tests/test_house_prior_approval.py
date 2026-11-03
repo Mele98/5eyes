@@ -1,10 +1,11 @@
 """HOUSE-PRIOR-APPROVAL-001 (Audit 2026-11, Entscheid AA-4, Luecke L21, P12).
 
-kappa_H = 300 ist als "Haus-Prior v1" freigegeben (docs/adr/ADR-015-...).
+kappa_H = 300 ist als "Haus-Prior v1" vorlaeufig in Gebrauch (provisional,
+docs/adr/ADR-015-...): Bestaetigungs-Holdout auf v18 not_confirmed.
 Diese Tests pinnen:
 
-* den unveraenderten WERT (300) und den Freigabe-Status (statt
-  "experimental"),
+* den unveraenderten WERT (300) und den Status "provisional" (statt
+  "experimental"; nie "approved" ohne erfuellte Holdout-Regel),
 * die reine Offenlegung der Abweichung SAA minus Hausquote je Klasse,
 * den Reasoning-Satz in pp,
 * das ADR (Herleitung, Wirkung, Grenzen, Review-Turnus, Release-Gate).
@@ -32,10 +33,13 @@ ADR = REPO_ROOT / "docs" / "adr" / "ADR-015-haus-prior-kappa-v1.md"
 
 def test_kappa_value_is_unchanged_and_released_as_v1():
     assert hp.HOUSE_PRIOR_KAPPA == 300.0
-    assert hp.HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS == "approved_v1"
+    assert hp.HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS == "provisional_v1"
     assert hp.HOUSE_PRIOR_PARAMETER_RELEASE == "v1"
-    assert hp.HOUSE_PRIOR_PARAMETER_STATUS == "approved"
+    assert hp.HOUSE_PRIOR_PARAMETER_STATUS == "provisional"
     assert "experimental" not in hp.HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS
+    # Bestaetigungs-Holdout v18 not_confirmed -> kein "approved" (ADR-015).
+    assert "approved" not in hp.HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS
+    assert "approved" not in hp.HOUSE_PRIOR_PARAMETER_STATUS
     # Algorithmus-Version unberuehrt (Freigabe betrifft nur den Parameter).
     assert hp.HOUSE_PRIOR_VERSION == "house_prior_ridge_tracking_error_v2"
     assert (REPO_ROOT / hp.HOUSE_PRIOR_PARAMETER_ADR) == ADR
@@ -43,7 +47,7 @@ def test_kappa_value_is_unchanged_and_released_as_v1():
 
 def test_prior_metric_audit_discloses_release():
     audit = hp.prior_metric_audit(np.diag([2.25e6, 1.2e5, 1.0e5, 4.0e5, 0.0]))
-    assert audit["kappa_calibration_status"] == "approved_v1"
+    assert audit["kappa_calibration_status"] == "provisional_v1"
     assert audit["kappa_release"] == "v1"
     assert audit["kappa_release_adr"] == hp.HOUSE_PRIOR_PARAMETER_ADR
     assert audit["ridge_bps2"] == hp.HOUSE_PRIOR_RIDGE_BPS2
@@ -115,7 +119,8 @@ def test_deviation_is_disclosure_only_penalty_unchanged():
 @pytest.mark.parametrize("needle", [
     "kappa_H = 300",
     "Haus-Prior v1",
-    "approved_v1",
+    "provisional_v1",
+    "Vorläufig in Gebrauch (provisional)",
     "6d11f8ac",
     "854ee8e9",
     "## Herleitung und Kalibrierung",

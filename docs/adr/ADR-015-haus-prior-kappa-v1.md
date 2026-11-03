@@ -1,6 +1,6 @@
 # ADR-015: Haus-Prior v1 – Freigabe von kappa_H = 300
 
-- **Status:** Accepted (vorbereitet). Die Freigabe durch `<FREIGABE_OWNER>` steht aus, siehe Freigabevermerk.
+- **Status:** Accepted, provisional. Vorläufig in Gebrauch; die Produktivfreigabe durch `<FREIGABE_OWNER>` steht aus, siehe Freigabevermerk.
 - **Datum:** 2026-11-02
 - **Sprint:** Audit 2026-11, Welle 0, Paket P12 (Entscheid AA-4, Lücke L21)
 
@@ -32,17 +32,38 @@ kundenabhängig machen.
 
 ## Entscheidung
 
-1. `kappa_H = 300` soll als **Haus-Prior v1** freigegeben werden. Der Wert ändert
-   sich nicht. Der Freigabevermerk und die Auflage aus dem Bestätigungs-Holdout
-   auf der Produktions-Engine (siehe unten) gehen vor.
+1. **Vorläufig in Gebrauch (provisional).** `kappa_H = 300` bleibt als
+   **Haus-Prior v1** in Gebrauch. **Auflage vor Produktivfreigabe:**
+   Re-Kalibrierung auf v18 mit erweitertem Holdout (mehr Welten bzw. Seeds, um
+   den Standardfehler zu senken) oder begründete Anpassung der Regel R1 durch
+   den Owner. **Freigabe `<FREIGABE_OWNER>`.**
+
+   Der Wert 300 bleibt, obwohl der Bestätigungs-Holdout auf v18 nach der vorab
+   festgelegten Regel `not_confirmed` ergibt (Owner-Entscheid 2026-11-03,
+   getroffen von Claude als Owner-Vertretung im Rahmen des autonomen
+   Owner-Auftrags). Begründung:
+   - R2 (nicht dominiert) ist erfüllt.
+   - Die Zielebene ist für κ = 300 deutlich besser als die Hausquote
+     (−0.034, se 0.009, rund 3.8 se).
+   - R1 ist nur knapp verfehlt: Die einseitige 95-%-Untergrenze liegt bei
+     −0.010 pp, der Mittelwert bei +0.202 pp.
+   - Ein anderer Wert würde alle Allokationen ändern, ohne bessere Evidenz:
+     κ = 100 liegt innerhalb von 1 se, κ = 1000 ist schwächer.
+
+   Ein Status "approved" wäre bei `not_confirmed` eine falsche
+   Methodendokumentation (Art. 9 FINIG). Deshalb lautet der Status
+   `provisional`.
 2. Code-Status:
-   - `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "approved_v1"`
+   - `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"` (vorher
+     `experimental_tuned_holdout_checked`)
    - `HOUSE_PRIOR_PARAMETER_RELEASE = "v1"`
-   - `HOUSE_PRIOR_PARAMETER_STATUS = "approved"`
+   - `HOUSE_PRIOR_PARAMETER_STATUS = "provisional"`. Ein Wechsel auf
+     "approved" erfolgt erst nach erfüllter Auflage und ausgefülltem
+     Freigabevermerk.
    - `HOUSE_PRIOR_PARAMETER_ADR` verweist auf dieses ADR.
 
    Der Algorithmus bleibt separat über `HOUSE_PRIOR_VERSION` und die
-   Engine-Version versioniert. Die Freigabe betrifft den Parameter, nicht den
+   Engine-Version versioniert. Der Status betrifft den Parameter, nicht den
    Algorithmus.
 3. kappa_H wird **nicht** kundenabhängig. Ein kundenabhängiges kappa wäre ein
    weiterer frei getunter Parameter ohne Validierungsdaten. Kleine Abweichungen
@@ -126,11 +147,10 @@ liefert die Zeilen `HOUSE_PRIOR_KAPPA` und `..._CALIBRATION_STATUS`.
     sieht dann keine automatische Änderung vor; der Modellowner entscheidet.
     Der Wert 300 bleibt unverändert. Ein anderer κ ist nicht besser belegt:
     100 liegt innerhalb von 1 se, 1000 ist schwächer.
-  - **Auflage vor Produktion (Release-Gate):** `<FREIGABE_OWNER>` entscheidet,
-    ob κ_H = 300 auf v18 trotz verfehltem R1 freigegeben wird. Zur Wahl stehen
-    zum Beispiel eine Freigabe mit Begründung über die Zielebene oder ein
-    erweiterter Holdout mit mehr Welten. Bis dahin ist `approved_v1` im Code ein
-    vorbereiteter Status, keine erteilte Freigabe.
+  - **Folge:** Status `provisional_v1`, siehe Entscheidung Punkt 1. Die
+    Auflage vor der Produktivfreigabe ist ein Release-Gate: entweder ein
+    erweiterter Holdout auf v18 oder eine begründete Anpassung von R1 durch
+    `<FREIGABE_OWNER>`.
 - **Seed-Stabilität im Produktivpfad** (Audit 2026-11): Die Aktienquote lag vor
   dem Prior je nach Seed zwischen 63 und 75 %. Mit dem Prior beträgt die
   Spannweite 0.34 pp.
@@ -170,7 +190,7 @@ liefert die Zeilen `HOUSE_PRIOR_KAPPA` und `..._CALIBRATION_STATUS`.
     `deviation_vs_house_raw_bps` die Abweichung für jeden Lauf.
 - Mit Zieldruck nimmt der Optimierer 1 % Tracking Error nur dann, wenn sich die
   Zielebene um mindestens `kappa_H · (1 %)² = 0.03` verbessert.
-- Mit dieser Freigabe ändert sich keine Allokation. Die Golden-Snapshots
+- Mit diesem Status ändert sich keine Allokation. Die Golden-Snapshots
   (`tests/fixtures/golden_ch_recommendations/`) bleiben bitgleich. Neu sind nur
   die Offenlegungsfelder und ein Reasoning-Satz.
 
@@ -225,14 +245,15 @@ Vorher/Nachher-Tabelle.
 | Datum | offen (Vorbereitung: 2026-11-03) |
 | Referenz | Audit 2026-11, Dok. 10, Entscheid AA-4 und Lücke L21. Pruefrunde #857 (Dok. 86). Holdout v7 (`holdout/`) und Bestätigungs-Holdout v18 (`holdout-v18/`, `not_confirmed`) |
 | Vorbereitet durch | Claude, 2026-11-03. Codex-Nachprüfung offen |
-| Auflage | Owner-Entscheid zum verfehlten R1 auf v18, siehe Herleitung |
+| Status | `provisional_v1`: vorläufig in Gebrauch. Owner-Entscheid 2026-11-03 (Claude als Owner-Vertretung, autonomer Owner-Auftrag): Wert 300 bleibt, Status nicht "approved" |
+| Auflage vor Produktivfreigabe | Re-Kalibrierung auf v18 mit erweitertem Holdout (mehr Welten bzw. Seeds) oder begründete Anpassung von R1 durch den Owner |
 
 ## Konsequenzen
 
 - L21 ist vorbereitet: Der Parameter ist versioniert, begründet und ausgewiesen.
   Formell geschlossen ist L21 erst mit dem ausgefüllten Freigabevermerk und dem
   Owner-Entscheid zur v18-Auflage.
-- Neue Allokationen tragen in der Modellbasis `approved_v1`. Bereits
+- Neue Allokationen tragen in der Modellbasis `provisional_v1`. Bereits
   gespeicherte Allokationen behalten ihren gespeicherten Status, weil die
   Modellbasis wortgetreu abgespielt wird.
 - **Release-Hinweis (N-857-4).** Das erste Regenerate nach dem Deploy erzeugt
@@ -240,7 +261,7 @@ Vorher/Nachher-Tabelle.
   stochastischem Mandat. Bereits zertifizierte Final-Empfehlungen können dabei
   verwaisen und mit 409 "basiert nicht auf der aktuellen Soll-Allokation"
   abgewiesen werden.
-  - Ursache: Der geänderte Status (`approved_v1`), `kappa_release` und
+  - Ursache: Der geänderte Status (`provisional_v1`), `kappa_release` und
     `kappa_release_adr` in `prior_metric` sowie die Abweichungsfelder liegen in
     der Modellbasis und damit im `allocation_context_hash`.
     `REGENERATE-IDEMPOTENT-001` vergleicht diesen Hash.
