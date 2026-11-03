@@ -5,6 +5,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from config import settings, user_agent
+from services.product_market_data import map_openfigi_exchange_code
 
 
 OPENFIGI_MAPPING_URL = "https://api.openfigi.com/v3/mapping"
@@ -49,29 +50,46 @@ def _build_mapping_job(
     return job
 
 
-def _normalize_ticker(raw_ticker: Any) -> str | None:
-    """OpenFIGI liefert ticker fuer nicht-US-Listings als "UBSG SW"
-    (Bloomberg-Space-Notation). services/product_market_data.py erkennt
-    nur '.', ':', '/', '=' als expliziten Market-Suffix -- ein rohes
-    Leerzeichen wird NICHT erkannt, wodurch beim Preisabruf ein zweiter
-    Suffix angehaengt wird ("UBSG SW" + Exchange "SW" -> "UBSG SW.SW",
-    fuer keinen Provider aufloesbar). Analog zur bereits korrekten
-    Normalisierung in services/market_data/providers/openfigi_provider.py.
+def _split_ticker(raw_ticker: Any) -> tuple[str | None, str | None]:
+    """OpenFIGI liefert Ticker teils in Bloomberg-Space-Notation ("UBSG SW").
+
+    OF-1 / Audit O5: Der Boersenteil wird abgetrennt und NICHT als Suffix
+    angehaengt ("VWRL LN" -> "VWRL.LN" loeste kein Provider auf). Das Produkt
+    bekommt das blanke Symbol plus internen Boersencode; die Provider-
+    Symbolik entsteht erst in services/product_market_data.provider_lookup_symbol.
     """
     ticker = str(raw_ticker or "").strip() or None
     if ticker and " " in ticker:
         base, _sep, suffix = ticker.rpartition(" ")
-        if base and suffix:
-            ticker = f"{base}.{suffix}"
-    return ticker
+        if base.strip() and suffix:
+            return base.strip(), suffix.strip().upper()
+    return ticker, None
+
+
+def _normalize_ticker(raw_ticker: Any) -> str | None:
+    """Blankes Symbol ohne Bloomberg-Boersenteil (siehe _split_ticker)."""
+    return _split_ticker(raw_ticker)[0]
 
 
 def _candidate_payload(item: dict[str, Any]) -> dict[str, Any]:
+    ticker, ticker_exchange = _split_ticker(item.get("ticker"))
+    raw_exch_code = str(item.get("exchCode") or "").strip().upper() or ticker_exchange
+    mapped = map_openfigi_exchange_code(raw_exch_code)
+    if not raw_exch_code:
+        status = "missing"
+    elif mapped:
+        status = "mapped"
+    else:
+        status = "unknown"
     return {
         "figi": item.get("figi"),
-        "ticker": _normalize_ticker(item.get("ticker")),
+        "ticker": ticker,
         "name": item.get("name"),
-        "exch_code": item.get("exchCode"),
+        "exch_code": item.get("exchCode") or ticker_exchange,
+        # OF-1: interner Boersencode (Basis der Provider-Symbolik) bzw. None,
+        # wenn der Bloomberg-Code nicht in der expliziten Tabelle steht.
+        "exchange_code": mapped,
+        "exchange_code_status": status,
         "composite_figi": item.get("compositeFIGI"),
         "share_class_figi": item.get("shareClassFIGI"),
         "security_type": item.get("securityType"),

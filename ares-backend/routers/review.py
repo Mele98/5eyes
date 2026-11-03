@@ -75,7 +75,11 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
     ensure_runtime_reference_data,
 )
-from services.product_market_data import currency_mismatch_warning, resolve_market_profile
+from services.product_market_data import (
+    currency_mismatch_warning,
+    map_openfigi_exchange_code,
+    resolve_market_profile,
+)
 from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
     RECOMMENDATION_DOCUMENT_TYPES,
@@ -693,6 +697,25 @@ def _apply_reference_candidate(
     product.updated_at = now
 
 
+class OpenFigiExchangeCodeUnmapped(ValueError):
+    """OF-1 / Audit O5: Der Bloomberg-Boersencode des Kandidaten steht nicht in
+    der expliziten Tabelle (services.product_market_data.
+    OPENFIGI_EXCHANGE_CODE_MAP). Es wird KEIN Suffix geraten und nichts
+    uebernommen; das Produkt braucht eine manuelle Zuordnung."""
+
+
+def _openfigi_internal_exchange_code(candidate: dict) -> str | None:
+    """Interner Boersencode des Kandidaten oder OpenFigiExchangeCodeUnmapped."""
+    raw = str(candidate.get("exch_code") or "").strip().upper() or None
+    mapped = candidate.get("exchange_code") or map_openfigi_exchange_code(raw)
+    if raw and not mapped:
+        raise OpenFigiExchangeCodeUnmapped(
+            f"OpenFIGI-Boersencode {raw!r} ist keiner Boerse zugeordnet; kein Symbol-Suffix geraten. "
+            "Bitte Boerse bzw. Symbol manuell pflegen."
+        )
+    return mapped
+
+
 def _apply_openfigi_candidate(
     *,
     product: Product,
@@ -700,10 +723,11 @@ def _apply_openfigi_candidate(
     now: str,
     overwrite_symbol: bool,
 ) -> None:
+    exchange_code = _openfigi_internal_exchange_code(candidate)
     product.figi = candidate.get("figi")
     product.composite_figi = candidate.get("composite_figi")
     product.share_class_figi = candidate.get("share_class_figi")
-    product.exchange_code = candidate.get("exch_code")
+    product.exchange_code = exchange_code
     product.market_sector = candidate.get("market_sector")
     product.security_type = candidate.get("security_type")
     product.security_type2 = candidate.get("security_type2")
@@ -2804,12 +2828,16 @@ def apply_product_id_mapping(
         empty_detail="Kein Mapping-Kandidat gefunden",
     )
     now = _now()
-    _apply_openfigi_candidate(
-        product=product,
-        candidate=selected,
-        now=now,
-        overwrite_symbol=body.overwrite_symbol,
-    )
+    try:
+        _apply_openfigi_candidate(
+            product=product,
+            candidate=selected,
+            now=now,
+            overwrite_symbol=body.overwrite_symbol,
+        )
+    except OpenFigiExchangeCodeUnmapped as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     log(
         db,
         user_id=current_user.id,
@@ -2889,6 +2917,21 @@ def auto_apply_product_id_mappings(
             continue
 
         selected = candidates[0]
+        try:
+            _openfigi_internal_exchange_code(selected)
+        except OpenFigiExchangeCodeUnmapped as exc:
+            skipped_count += 1
+            items.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.product_name,
+                    "isin": product.isin,
+                    "status": "needs_review",
+                    "detail": str(exc),
+                    "applied_candidate": None,
+                }
+            )
+            continue
         if body.dry_run:
             skipped_count += 1
             items.append(

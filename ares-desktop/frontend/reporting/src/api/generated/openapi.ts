@@ -9321,6 +9321,10 @@ export interface components {
             composite_figi?: string | null;
             /** Exch Code */
             exch_code?: string | null;
+            /** Exchange Code */
+            exchange_code?: string | null;
+            /** Exchange Code Status */
+            exchange_code_status?: string | null;
             /** Figi */
             figi?: string | null;
             /** Market Sector */

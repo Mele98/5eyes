@@ -1230,6 +1230,11 @@ class ProductIdMappingCandidate(BaseModel):
     ticker: Optional[str] = None
     name: Optional[str] = None
     exch_code: Optional[str] = None
+    # OF-1 / Audit O5: interner Boersencode aus der expliziten Tabelle
+    # (Basis der Provider-Symbolik) und Zuordnungsstatus
+    # mapped | unknown | missing. "unknown" wird nie uebernommen.
+    exchange_code: Optional[str] = None
+    exchange_code_status: Optional[str] = None
     composite_figi: Optional[str] = None
     share_class_figi: Optional[str] = None
     security_type: Optional[str] = None

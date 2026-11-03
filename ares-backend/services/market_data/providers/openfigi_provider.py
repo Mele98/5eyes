@@ -83,17 +83,34 @@ class OpenFIGIProvider(MarketDataProvider):
 
     @staticmethod
     def _entry_to_product(entry: dict, isin: str) -> ProductInfo:
+        from services.product_market_data import map_openfigi_exchange_code, provider_lookup_symbol
+
         ticker = (entry.get("ticker") or "").strip() or None
-        # OpenFIGI liefert ticker als "UBSG SW" — wir mappen das auf
-        # Yahoo-Style 'UBSG.SW' fuer cross-Provider-Konsistenz.
+        exch_code = (entry.get("exchCode") or "").strip().upper() or None
+        # OpenFIGI liefert ticker teils als "UBSG SW" (Bloomberg-Notation).
+        # OF-1 / Audit O5: Der Bloomberg-Boersencode ist KEIN Yahoo-Suffix
+        # ("VWRL LN" -> "VWRL.L", nicht "VWRL.LN"). Yahoo-Style-Ticker nur
+        # ueber die explizite Tabelle; unbekannter Code -> kein geratenes
+        # Symbol (ticker=None), der Rohcode bleibt in ``exchange`` sichtbar.
         if ticker and " " in ticker:
-            base, sep, suffix = ticker.rpartition(" ")
-            ticker = f"{base}.{suffix}"
+            base, _sep, suffix = ticker.rpartition(" ")
+            if base.strip() and suffix:
+                ticker = base.strip()
+                exch_code = exch_code or suffix.strip().upper()
+        if ticker and exch_code:
+            mapped = map_openfigi_exchange_code(exch_code)
+            if mapped:
+                ticker = provider_lookup_symbol(ticker, mapped, "yfinance")
+            else:
+                logger.warning(
+                    "openfigi: unbekannter Boersencode %r fuer %s, kein Ticker abgeleitet", exch_code, isin,
+                )
+                ticker = None
         return ProductInfo(
             isin=isin,
             ticker=ticker,
             name=(entry.get("name") or "").strip() or None,
-            exchange=(entry.get("exchCode") or "").strip() or None,
+            exchange=exch_code,
             currency=None,  # OpenFIGI liefert keine Currency direkt
             asset_class=(entry.get("securityType") or "").strip() or None,
             country=None,
