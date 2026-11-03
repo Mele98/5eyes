@@ -25,7 +25,17 @@
     + '<div>' + L + 'Retrozession-Quelle (Pflicht bei Satz)</label><input class="fi" id="pf-retro-source" style="font-size:11px"></div>'
     + '<div>' + L + 'Hausprodukt</label><select class="fsel" id="pf-house-product" style="font-size:11px">' + FLAG + '</select></div>'
     + '<div>' + L + 'Ausschuettungsart</label><select class="fsel" id="pf-distribution" style="font-size:11px"><option value="">nicht erfasst</option><option value="accumulating">thesaurierend</option><option value="distributing">ausschuettend</option></select></div>'
-    + '<div>' + L + 'Mindestanlage (in Fondswaehrung, optional)</label><input class="fi" type="number" min="0" step="0.01" id="pf-min-investment" style="font-size:11px"></div>';
+    + '<div>' + L + 'Mindestanlage (in Fondswaehrung, optional)</label><input class="fi" type="number" min="0" step="0.01" id="pf-min-investment" style="font-size:11px"></div>'
+    // Owner-Anforderung P1: eigene Fonds (kotiert/nicht kotiert), Bewertung, Liquiditaetsrhythmus.
+    + '<div>' + L + 'Kotierung</label><select class="fsel" id="pf-listing-status" style="font-size:11px"><option value="">nicht erfasst</option><option value="listed">kotiert (ISIN Pflicht)</option><option value="unlisted">nicht kotiert (ohne ISIN: interne ID Pflicht)</option></select></div>'
+    + '<div>' + L + 'Interne Produkt-ID (eindeutig je Verwaltung)</label><input class="fi" id="pf-internal-id" maxlength="64" style="font-size:11px"></div>'
+    + '<div>' + L + 'Bewertungsquelle</label><select class="fsel" id="pf-price-source" style="font-size:11px"><option value="">nicht erfasst</option><option value="market">Boersenkurs</option><option value="manual_nav">NAV manuell</option><option value="provider">NAV Anbieter</option></select></div>'
+    + '<div>' + L + 'NAV-Rhythmus</label><select class="fsel" id="pf-nav-frequency" style="font-size:11px"><option value="">nicht erfasst</option><option value="daily">taeglich</option><option value="weekly">woechentlich</option><option value="monthly">monatlich</option><option value="quarterly">quartalsweise</option></select></div>'
+    + '<div>' + L + 'NAV-Stichtag</label><input class="fi" type="date" id="pf-nav-as-of" style="font-size:11px"></div>'
+    + '<div>' + L + 'Ruecknahmefrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-redemption-days" style="font-size:11px"></div>'
+    + '<div>' + L + 'Kuendigungsfrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-notice-days" style="font-size:11px"></div>'
+    + '<div>' + L + 'Gating moeglich</label><select class="fsel" id="pf-has-gating" style="font-size:11px">' + FLAG + '</select></div>'
+    + '<div style="grid-column:1/-1">' + L + 'Gating-Bedingungen (optional)</label><input class="fi" id="pf-gating-terms" style="font-size:11px"></div>';
 
   function ensureFundMasterDataFields(){
     var host = document.getElementById('pf-master-data');
@@ -77,6 +87,15 @@ function adminFillFundMasterData(p){
   setFlag('pf-house-product', p.is_house_product);
   setVal('pf-distribution', p.distribution_policy);
   setVal('pf-min-investment', p.minimum_investment_minor_units != null ? (Number(p.minimum_investment_minor_units) / 100) : '');
+  setVal('pf-listing-status', p.listing_status);
+  setVal('pf-internal-id', p.internal_product_id);
+  setVal('pf-price-source', p.price_source);
+  setVal('pf-nav-frequency', p.nav_frequency);
+  setVal('pf-nav-as-of', p.nav_as_of);
+  setVal('pf-redemption-days', p.redemption_period_days);
+  setVal('pf-notice-days', p.notice_period_days);
+  setFlag('pf-has-gating', p.has_gating);
+  setVal('pf-gating-terms', p.gating_terms);
 }
 function adminCollectFundMasterData(payload, editing){
   function val(id){ var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
@@ -91,6 +110,23 @@ function adminCollectFundMasterData(payload, editing){
   put('retrocession_source', val('pf-retro-source'));
   put('is_house_product', flag('pf-house-product'));
   put('distribution_policy', val('pf-distribution'));
+  put('listing_status', val('pf-listing-status'));
+  put('internal_product_id', val('pf-internal-id'));
+  put('price_source', val('pf-price-source'));
+  put('nav_frequency', val('pf-nav-frequency'));
+  put('nav_as_of', val('pf-nav-as-of'));
+  put('has_gating', flag('pf-has-gating'));
+  put('gating_terms', val('pf-gating-terms'));
+  var dayFields = [['pf-redemption-days', 'redemption_period_days', 'Ruecknahmefrist'], ['pf-notice-days', 'notice_period_days', 'Kuendigungsfrist']];
+  for (var i = 0; i < dayFields.length; i++) {
+    var raw = val(dayFields[i][0]);
+    if (raw === '') { if (editing) payload[dayFields[i][1]] = null; continue; }
+    var days = Number(raw);
+    if (!Number.isInteger(days) || days < 0) return dayFields[i][2] + ' muss eine ganze Zahl von Tagen sein.';
+    payload[dayFields[i][1]] = days;
+  }
+  if (val('pf-listing-status') === 'unlisted' && !val('pf-isin') && !val('pf-internal-id')) return 'Nicht kotierter Fonds ohne ISIN: bitte eine interne Produkt-ID angeben.';
+  if (val('pf-listing-status') === 'listed' && !val('pf-isin')) return 'Kotierter Fonds: bitte die ISIN angeben.';
   var retroRaw = val('pf-retro');
   if (retroRaw !== '') {
     var retro = Number(retroRaw);

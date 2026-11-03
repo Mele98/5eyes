@@ -9187,10 +9187,25 @@ export interface components {
             /** Esg Score X10 */
             esg_score_x10?: number | null;
             /**
+             * Gating Terms
+             * @description Gating-Bedingungen (Freitext, optional).
+             */
+            gating_terms?: string | null;
+            /**
+             * Has Gating
+             * @description Gating/Ruecknahmebeschraenkung moeglich.
+             */
+            has_gating?: boolean | null;
+            /**
              * Hedge Currency
              * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
              */
             hedge_currency?: string | null;
+            /**
+             * Internal Product Id
+             * @description Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).
+             */
+            internal_product_id?: string | null;
             /**
              * Is Hedged
              * @description Anteilsklasse waehrungsgesichert; None = nicht erfasst.
@@ -9206,16 +9221,46 @@ export interface components {
             /** Liquidity Tier */
             liquidity_tier?: string | null;
             /**
+             * Listing Status
+             * @description Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).
+             */
+            listing_status?: ("listed" | "unlisted") | null;
+            /**
              * Minimum Investment Minor Units
              * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
              */
             minimum_investment_minor_units?: number | null;
+            /**
+             * Nav As Of
+             * @description Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).
+             */
+            nav_as_of?: string | null;
+            /**
+             * Nav Frequency
+             * @description NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).
+             */
+            nav_frequency?: ("daily" | "weekly" | "monthly" | "quarterly") | null;
+            /**
+             * Notice Period Days
+             * @description Kuendigungsfrist in Kalendertagen.
+             */
+            notice_period_days?: number | null;
+            /**
+             * Price Source
+             * @description Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.
+             */
+            price_source?: ("market" | "manual_nav" | "provider") | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
             product_type: string;
             /** Provider */
             provider?: string | null;
+            /**
+             * Redemption Period Days
+             * @description Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).
+             */
+            redemption_period_days?: number | null;
             /**
              * Retrocession Bps
              * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.
@@ -9697,10 +9742,16 @@ export interface components {
             exchange_code?: string | null;
             /** Figi */
             figi?: string | null;
+            /** Gating Terms */
+            gating_terms?: string | null;
+            /** Has Gating */
+            has_gating?: boolean | null;
             /** Hedge Currency */
             hedge_currency?: string | null;
             /** Id */
             id: string;
+            /** Internal Product Id */
+            internal_product_id?: string | null;
             /** Is Active */
             is_active: number;
             /** Is Hedged */
@@ -9718,6 +9769,8 @@ export interface components {
             readonly isin_status: "valid" | "invalid" | "missing";
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /** Listing Status */
+            listing_status?: string | null;
             /** Lookup Mode Override */
             lookup_mode_override?: string | null;
             /** Lookup Symbol Override */
@@ -9736,12 +9789,22 @@ export interface components {
             readonly master_data_gaps: string[];
             /** Minimum Investment Minor Units */
             minimum_investment_minor_units?: number | null;
+            /** Nav As Of */
+            nav_as_of?: string | null;
+            /** Nav Frequency */
+            nav_frequency?: string | null;
+            /** Notice Period Days */
+            notice_period_days?: number | null;
+            /** Price Source */
+            price_source?: string | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
             product_type: string;
             /** Provider */
             provider: string | null;
+            /** Redemption Period Days */
+            redemption_period_days?: number | null;
             /** Reference Data Provider */
             reference_data_provider?: string | null;
             /** Reference Data Refreshed At */
@@ -9948,10 +10011,25 @@ export interface components {
             /** Esg Score X10 */
             esg_score_x10?: number | null;
             /**
+             * Gating Terms
+             * @description Gating-Bedingungen (Freitext, optional).
+             */
+            gating_terms?: string | null;
+            /**
+             * Has Gating
+             * @description Gating/Ruecknahmebeschraenkung moeglich.
+             */
+            has_gating?: boolean | null;
+            /**
              * Hedge Currency
              * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
              */
             hedge_currency?: string | null;
+            /**
+             * Internal Product Id
+             * @description Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).
+             */
+            internal_product_id?: string | null;
             /** Is Active */
             is_active?: number | null;
             /**
@@ -9969,16 +10047,46 @@ export interface components {
             /** Liquidity Tier */
             liquidity_tier?: string | null;
             /**
+             * Listing Status
+             * @description Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).
+             */
+            listing_status?: ("listed" | "unlisted") | null;
+            /**
              * Minimum Investment Minor Units
              * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
              */
             minimum_investment_minor_units?: number | null;
+            /**
+             * Nav As Of
+             * @description Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).
+             */
+            nav_as_of?: string | null;
+            /**
+             * Nav Frequency
+             * @description NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).
+             */
+            nav_frequency?: ("daily" | "weekly" | "monthly" | "quarterly") | null;
+            /**
+             * Notice Period Days
+             * @description Kuendigungsfrist in Kalendertagen.
+             */
+            notice_period_days?: number | null;
+            /**
+             * Price Source
+             * @description Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.
+             */
+            price_source?: ("market" | "manual_nav" | "provider") | null;
             /** Product Name */
             product_name?: string | null;
             /** Product Type */
             product_type?: string | null;
             /** Provider */
             provider?: string | null;
+            /**
+             * Redemption Period Days
+             * @description Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).
+             */
+            redemption_period_days?: number | null;
             /**
              * Retrocession Bps
              * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.

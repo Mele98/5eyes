@@ -669,7 +669,10 @@ def test_csv_template_download_has_expected_headers(session_factory):
         # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten am Ende angehaengt.
         "domicile,is_hedged,hedge_currency,ter_source,ter_as_of,"
         "retrocession_bps,retrocession_source,is_house_product,"
-        "distribution_policy,valor,minimum_investment_minor_units"
+        "distribution_policy,valor,minimum_investment_minor_units,"
+        # Owner-Anforderung P1: eigene Fonds, Bewertung, Liquiditaetsrhythmus.
+        "listing_status,internal_product_id,price_source,nav_frequency,nav_as_of,"
+        "redemption_period_days,notice_period_days,has_gating,gating_terms"
     )
 
 

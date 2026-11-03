@@ -2182,6 +2182,11 @@ def create_product(
                 status_code=409,
                 detail=f"ISIN {body.isin} ist bereits einem Fonds zugeordnet.",
             )
+    if _internal_product_id_taken(db, _resolve_tenant_id_for_user(current_user), body.internal_product_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Interne Produkt-ID {body.internal_product_id} ist in Ihrer Verwaltung bereits vergeben.",
+        )
     now = _now()
     product_fields = body.model_dump(exclude={
         "suitability_profile_from", "suitability_profile_to",
@@ -2233,7 +2238,25 @@ def _product_rule_jurisdiction(product: Product) -> str:
 # INTEGER-Spalte zu binden funktioniert unter SQLite, nicht aber unter
 # Postgres -- deshalb hier an EINER Stelle fuer Erfassen, Import und
 # Bearbeiten umgewandelt.
-_PRODUCT_FLAG_FIELDS = ("is_hedged", "is_house_product")
+_PRODUCT_FLAG_FIELDS = ("is_hedged", "is_house_product", "has_gating")
+
+
+def _internal_product_id_taken(
+    db: Session, tenant_id, internal_product_id, *, exclude_product_id: str | None = None,
+) -> bool:
+    """Owner-Anforderung P1: interne Produkt-ID eindeutig je Tenant (aktive
+    Zeilen). Nur der eigene Tenant wird geprueft -- die Antwort verraet nie,
+    ob ein fremder Tenant dieselbe ID fuehrt (vgl. FU-F7)."""
+    if not internal_product_id:
+        return False
+    query = db.query(Product.id).filter(
+        Product.internal_product_id == internal_product_id,
+        Product.deleted_at.is_(None),
+        Product.tenant_id.is_(None) if tenant_id is None else Product.tenant_id == tenant_id,
+    )
+    if exclude_product_id is not None:
+        query = query.filter(Product.id != exclude_product_id)
+    return query.first() is not None
 
 
 def _product_master_data_columns(fields: dict) -> dict:
@@ -2265,6 +2288,9 @@ _PRODUCT_IMPORT_CSV_FIELDS = (
     "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
     "retrocession_bps", "retrocession_source", "is_house_product",
     "distribution_policy", "valor", "minimum_investment_minor_units",
+    # Owner-Anforderung P1: eigene Fonds, Bewertung, Liquiditaetsrhythmus.
+    "listing_status", "internal_product_id", "price_source", "nav_frequency", "nav_as_of",
+    "redemption_period_days", "notice_period_days", "has_gating", "gating_terms",
 )
 _PRODUCT_IMPORT_SUITABILITY_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
@@ -2368,6 +2394,14 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.tenant_id == tenant_id, Product.symbol == payload["symbol"],
                 Product.deleted_at.is_(None),
             ).first()
+        elif payload.get("internal_product_id"):
+            # Owner-Anforderung P1: eigener (nicht kotierter) Fonds ohne
+            # ISIN/Symbol -- Abgleich ueber die tenant-eindeutige interne ID.
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id,
+                Product.internal_product_id == payload["internal_product_id"],
+                Product.deleted_at.is_(None),
+            ).first()
         else:
             # 2026-08-05 (Live-Smoketest-Fund): ein nicht-kotierter Fonds hat
             # weder ISIN noch Symbol als Abgleichs-Schluessel -- ohne diesen
@@ -2389,6 +2423,14 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             # Feld aus model_dump() -- auch nicht gelieferte (None) --, und ein
             # Re-Upload loeschte gepflegte Exposures, Liquiditaet, Rating usw.
             # Leere Importfelder bedeuten "unveraendert".
+            if payload.get("internal_product_id") and _internal_product_id_taken(
+                db, tenant_id, payload["internal_product_id"], exclude_product_id=existing.id,
+            ):
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error=f"Interne Produkt-ID {payload['internal_product_id']} ist bereits vergeben.",
+                ))
+                continue
             merged_errors = _merged_master_data_errors(existing, {
                 field: value for field, value in payload.items()
                 if field in body.model_fields_set and value is not None
@@ -2436,6 +2478,12 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             # rohen IntegrityError abbrechen und (weil der Commit erst am
             # Ende des gesamten Batches passiert) den KOMPLETTEN Import
             # ruinieren statt nur diese eine Zeile als Fehler zu melden.
+            if _internal_product_id_taken(db, tenant_id, payload.get("internal_product_id")):
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error=f"Interne Produkt-ID {payload['internal_product_id']} ist bereits vergeben.",
+                ))
+                continue
             if payload.get("isin"):
                 global_conflict = db.query(Product).filter(
                     Product.isin == payload["isin"], Product.deleted_at.is_(None),
@@ -2576,7 +2624,8 @@ def download_products_csv_template(
         "4,10,investment_advice;portfolio_management,false,false,false,2500,"
         "720,PAB,,"
         "IE,ja,CHF,Basisinformationsblatt,2026-01-31,0,Bestaetigung Anbieter,nein,"
-        "accumulating,,"
+        "accumulating,,,"
+        "listed,,market,daily,,,,,"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
@@ -2584,7 +2633,8 @@ def download_products_csv_template(
         "7,10,investment_advice;portfolio_management,false,true,false,4000,"
         ",,,"
         "CH,nein,,Factsheet,2026-01-31,,,ja,"
-        "accumulating,,10000000"
+        "accumulating,,10000000,"
+        "unlisted,PM-ANST-01,manual_nav,quarterly,2026-09-30,30,90,ja,Ruecknahmen je Quartal begrenzbar"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(
@@ -2651,6 +2701,8 @@ _PRODUCT_CLEARABLE_MASTER_DATA_FIELDS = (
     "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
     "retrocession_bps", "retrocession_source", "is_house_product",
     "distribution_policy", "valor", "minimum_investment_minor_units",
+    "listing_status", "internal_product_id", "price_source", "nav_frequency", "nav_as_of",
+    "redemption_period_days", "notice_period_days", "has_gating", "gating_terms",
 )
 
 
@@ -2659,7 +2711,7 @@ def _merged_master_data_errors(product: Product, changes: dict) -> list[str]:
     (Bearbeiten und Re-Import liefern nur Teilmengen der Felder)."""
     merged = {
         field: getattr(product, field, None)
-        for field in ("ter_bps", *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS)
+        for field in ("ter_bps", "isin", *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS)
     }
     for field in _PRODUCT_FLAG_FIELDS:
         if merged.get(field) is not None:
@@ -2720,6 +2772,13 @@ def update_product(
     merged_errors = _merged_master_data_errors(product, payload)
     if merged_errors:
         raise HTTPException(status_code=422, detail="; ".join(merged_errors))
+    if payload.get("internal_product_id") and _internal_product_id_taken(
+        db, product.tenant_id, payload["internal_product_id"], exclude_product_id=product.id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Interne Produkt-ID {payload['internal_product_id']} ist in Ihrer Verwaltung bereits vergeben.",
+        )
     for field, value in _product_master_data_columns(payload).items():
         setattr(product, field, value)
     product.updated_at = _now()

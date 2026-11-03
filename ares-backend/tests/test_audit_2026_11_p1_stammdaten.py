@@ -145,6 +145,7 @@ def test_master_data_fields_roundtrip_and_validation(session_factory):
         ter_bps=20, ter_source="Basisinformationsblatt", ter_as_of="2026-01-31",
         retrocession_bps=35, retrocession_source="Vertriebsvertrag", is_house_product=False,
         distribution_policy="thesaurierend", valor="1'234'567", minimum_investment_minor_units=100_000,
+        listing_status="listed",
     )
     try:
         with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
@@ -300,6 +301,7 @@ def test_declared_hedge_currency_hook():
 
 def test_master_data_gaps_helper():
     class P:
+        listing_status = "listed"
         isin = VALID_ISIN
         domicile = "IE"
         is_hedged = 0
@@ -310,4 +312,104 @@ def test_master_data_gaps_helper():
         is_house_product = 0
 
     assert master_data_gaps(P()) == ["retrocession_bps"]
+    unlisted = P()
+    unlisted.listing_status, unlisted.isin, unlisted.internal_product_id = "unlisted", None, None
+    assert master_data_gaps(unlisted) == ["internal_product_id", "retrocession_bps"]
+    unlisted.internal_product_id = "HF-1"
+    assert master_data_gaps(unlisted) == ["retrocession_bps"]
     assert isin_status(None) == "missing"
+
+
+# ---------------------------------------------------------------------------
+# Owner-Anforderung: eigene Fonds (kotiert/nicht kotiert), Bewertung, Liquiditaet
+# ---------------------------------------------------------------------------
+
+
+def test_unlisted_own_fund_needs_internal_id_unless_isin(session_factory):
+    _seed_tenants(session_factory, ["firm-a", "firm-b"])
+    unlisted = dict(product_type="Fonds", asset_class="Alternative", listing_status="unlisted")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            missing_id = client.post("/products", json=_create_payload(product_name="PM ohne ID", **unlisted))
+            created = client.post("/products", json=_create_payload(
+                product_name="PM Fonds", internal_product_id="PM-001", price_source="manual_nav",
+                nav_frequency="quartalsweise", nav_as_of="2026-09-30", redemption_period_days=30,
+                notice_period_days=90, has_gating="ja", gating_terms="max. 10 % NAV je Quartal", **unlisted,
+            ))
+            duplicate = client.post("/products", json=_create_payload(
+                product_name="PM Fonds 2", internal_product_id="PM-001", **unlisted))
+            with_isin = client.post("/products", json=_create_payload(
+                product_name="PM mit ISIN", isin=VALID_ISIN, **unlisted))
+            bad_isin = client.post("/products", json=_create_payload(
+                product_name="PM kaputte ISIN", isin="US0378331006", internal_product_id="PM-009", **unlisted))
+            market = client.post("/products", json=_create_payload(
+                product_name="PM Markt", internal_product_id="PM-002", price_source="market", **unlisted))
+            listed_no_isin = client.post("/products", json=_create_payload(listing_status="listed"))
+            gating = client.post("/products", json=_create_payload(has_gating=False, gating_terms="x"))
+            nav_bad = client.post("/products", json=_create_payload(nav_frequency="jaehrlich"))
+            listed = {p["product_name"]: p for p in client.get("/products").json()}
+        with _client_for(session_factory, user_id="u-b", tenant_id="firm-b") as client:
+            other_tenant = client.post("/products", json=_create_payload(
+                product_name="PM Fonds B", internal_product_id="PM-001", **unlisted))
+    finally:
+        app.dependency_overrides.clear()
+    assert missing_id.status_code == 422 and "internal_product_id" in missing_id.text
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["listing_status"] == "unlisted" and body["internal_product_id"] == "PM-001"
+    assert body["price_source"] == "manual_nav" and body["nav_frequency"] == "quarterly"
+    assert body["nav_as_of"] == "2026-09-30"
+    assert body["redemption_period_days"] == 30 and body["notice_period_days"] == 90
+    assert body["has_gating"] is True and body["gating_terms"].startswith("max.")
+    assert "isin" not in body["master_data_gaps"] and "internal_product_id" not in body["master_data_gaps"]
+    assert duplicate.status_code == 409, duplicate.text
+    assert with_isin.status_code == 201, with_isin.text
+    assert bad_isin.status_code == 422 and "Pruefziffer" in bad_isin.text
+    for resp in (market, listed_no_isin, gating, nav_bad):
+        assert resp.status_code == 422, resp.text
+    assert other_tenant.status_code == 201, other_tenant.text  # eindeutig je Tenant, kein Leck
+    assert listed["PM Fonds"]["isin_status"] == "missing"
+
+
+def test_import_supports_own_fund_fields_and_upserts_by_internal_id(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    header = ["product_name", "product_type", "asset_class", "suitability_profile_from",
+              "suitability_profile_to", "listing_status", "internal_product_id", "price_source",
+              "nav_frequency", "nav_as_of", "redemption_period_days", "notice_period_days",
+              "has_gating", "gating_terms"]
+
+    def upload(client, rows):
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(header)
+        writer.writerows(rows)
+        return client.post("/products/import/csv",
+                           files={"file": ("o.csv", buffer.getvalue().encode(), "text/csv")}).json()
+
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            first = upload(client, [
+                ["Hausfonds Privatmarkt", "Fonds", "Alternative", "7", "10", "unlisted", "HF-PM-1",
+                 "provider", "monatlich", "2026-10-31", "10", "30", "nein", ""],
+                ["Ohne ID", "Fonds", "Alternative", "7", "10", "unlisted", "", "", "", "", "", "", "", ""],
+            ])
+            second = upload(client, [
+                ["Hausfonds Privatmarkt (umbenannt)", "Fonds", "Alternative", "7", "10", "unlisted",
+                 "HF-PM-1", "", "", "2026-11-01", "", "", "", ""],
+            ])
+            json_import = client.post("/products/import", json={"products": [_create_payload(
+                product_name="JSON Hausfonds", listing_status="unlisted", internal_product_id="HF-JS-1",
+                price_source="manual_nav", nav_frequency="weekly",
+            )]}).json()
+            listed = {p["internal_product_id"]: p for p in client.get("/products").json() if p["internal_product_id"]}
+    finally:
+        app.dependency_overrides.clear()
+    assert first["created"] == 1 and first["failed"] == 1, first
+    assert "internal_product_id" in first["items"][1]["error"]
+    assert second["updated"] == 1 and second["created"] == 0, second
+    fund = listed["HF-PM-1"]
+    assert fund["product_name"] == "Hausfonds Privatmarkt (umbenannt)"
+    assert fund["nav_as_of"] == "2026-11-01" and fund["nav_frequency"] == "monthly"  # leer = unveraendert
+    assert fund["price_source"] == "provider" and fund["has_gating"] is False
+    assert json_import["created"] == 1
+    assert listed["HF-JS-1"]["nav_frequency"] == "weekly"

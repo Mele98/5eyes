@@ -91,3 +91,18 @@ def test_badges_mark_unknown_retro_and_invalid_isin():
     assert "ISIN ungueltig" in out["unknown"] and "Retrozession unbekannt" in out["unknown"]
     assert "Stammdaten unvollstaendig" in out["unknown"]
     assert out["free"] == ""
+
+
+def test_form_collect_own_fund_fields():
+    missing = _collect({"pf-listing-status": "unlisted"}, editing=False)
+    assert "interne Produkt-ID" in missing["err"]
+    ok = _collect({"pf-listing-status": "unlisted", "pf-internal-id": "HF-1", "pf-price-source": "manual_nav",
+                   "pf-nav-frequency": "quarterly", "pf-redemption-days": "30", "pf-has-gating": "true"},
+                  editing=False)
+    assert ok["err"] is None
+    assert ok["payload"]["internal_product_id"] == "HF-1"
+    assert ok["payload"]["redemption_period_days"] == 30 and ok["payload"]["has_gating"] is True
+    module = MODULE_PATH.read_text(encoding="utf-8")
+    for element_id in ("pf-listing-status", "pf-internal-id", "pf-price-source", "pf-nav-frequency",
+                       "pf-nav-as-of", "pf-redemption-days", "pf-notice-days", "pf-has-gating", "pf-gating-terms"):
+        assert f'id="{element_id}"' in module, element_id

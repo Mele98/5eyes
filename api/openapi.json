@@ -13450,6 +13450,30 @@
             ],
             "title": "Esg Score X10"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating-Bedingungen (Freitext, optional).",
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating/Ruecknahmebeschraenkung moeglich.",
+            "title": "Has Gating"
+          },
           "hedge_currency": {
             "anyOf": [
               {
@@ -13461,6 +13485,18 @@
             ],
             "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
             "title": "Hedge Currency"
+          },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).",
+            "title": "Internal Product Id"
           },
           "is_hedged": {
             "anyOf": [
@@ -13508,6 +13544,22 @@
             ],
             "title": "Liquidity Tier"
           },
+          "listing_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "listed",
+                  "unlisted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+            "title": "Listing Status"
+          },
           "minimum_investment_minor_units": {
             "anyOf": [
               {
@@ -13521,6 +13573,67 @@
             ],
             "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
             "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).",
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "quarterly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).",
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kuendigungsfrist in Kalendertagen.",
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "market",
+                  "manual_nav",
+                  "provider"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.",
+            "title": "Price Source"
           },
           "product_name": {
             "title": "Product Name",
@@ -13540,6 +13653,20 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).",
+            "title": "Redemption Period Days"
           },
           "retrocession_bps": {
             "anyOf": [
@@ -15116,6 +15243,28 @@
             ],
             "title": "Figi"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Gating"
+          },
           "hedge_currency": {
             "anyOf": [
               {
@@ -15130,6 +15279,17 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Internal Product Id"
           },
           "is_active": {
             "title": "Is Active",
@@ -15189,6 +15349,17 @@
               }
             ],
             "title": "Liquidity Tier"
+          },
+          "listing_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Status"
           },
           "lookup_mode_override": {
             "anyOf": [
@@ -15265,6 +15436,50 @@
             ],
             "title": "Minimum Investment Minor Units"
           },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Source"
+          },
           "product_name": {
             "title": "Product Name",
             "type": "string"
@@ -15283,6 +15498,17 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redemption Period Days"
           },
           "reference_data_provider": {
             "anyOf": [
@@ -15931,6 +16157,30 @@
             ],
             "title": "Esg Score X10"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating-Bedingungen (Freitext, optional).",
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating/Ruecknahmebeschraenkung moeglich.",
+            "title": "Has Gating"
+          },
           "hedge_currency": {
             "anyOf": [
               {
@@ -15942,6 +16192,18 @@
             ],
             "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
             "title": "Hedge Currency"
+          },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).",
+            "title": "Internal Product Id"
           },
           "is_active": {
             "anyOf": [
@@ -16002,6 +16264,22 @@
             ],
             "title": "Liquidity Tier"
           },
+          "listing_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "listed",
+                  "unlisted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+            "title": "Listing Status"
+          },
           "minimum_investment_minor_units": {
             "anyOf": [
               {
@@ -16015,6 +16293,67 @@
             ],
             "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
             "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).",
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "quarterly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).",
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kuendigungsfrist in Kalendertagen.",
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "market",
+                  "manual_nav",
+                  "provider"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.",
+            "title": "Price Source"
           },
           "product_name": {
             "anyOf": [
@@ -16048,6 +16387,20 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).",
+            "title": "Redemption Period Days"
           },
           "retrocession_bps": {
             "anyOf": [

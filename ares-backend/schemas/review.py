@@ -1056,10 +1056,79 @@ def normalize_optional_bool(value: Any, *, field_name: str) -> Optional[bool]:
     raise ValueError(f"{field_name} {value!r} ist kein Ja/Nein-Wert")
 
 
+LISTING_STATUSES = ("listed", "unlisted")
+PRICE_SOURCES = ("market", "manual_nav", "provider")
+NAV_FREQUENCIES = ("daily", "weekly", "monthly", "quarterly")
+_NAV_FREQUENCY_ALIASES = {
+    "daily": "daily", "taeglich": "daily", "täglich": "daily",
+    "weekly": "weekly", "woechentlich": "weekly", "wöchentlich": "weekly",
+    "monthly": "monthly", "monatlich": "monthly",
+    "quarterly": "quarterly", "quartalsweise": "quarterly", "vierteljaehrlich": "quarterly",
+    "vierteljährlich": "quarterly",
+}
+_INTERNAL_ID_SHAPE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$")
+
+
+def normalize_choice(value: Any, *, field_name: str, choices: tuple[str, ...]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text not in choices:
+        raise ValueError(f"{field_name} {value!r} unbekannt (erlaubt: {', '.join(choices)})")
+    return text
+
+
+def normalize_nav_frequency(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text not in _NAV_FREQUENCY_ALIASES:
+        raise ValueError(
+            f"nav_frequency {value!r} unbekannt (erlaubt: taeglich, woechentlich, monatlich, "
+            "quartalsweise bzw. daily, weekly, monthly, quarterly)"
+        )
+    return _NAV_FREQUENCY_ALIASES[text]
+
+
+def normalize_internal_product_id(value: Any) -> Optional[str]:
+    """Interne Produkt-ID des Tenants (z.B. eigener nicht kotierter Fonds):
+    1-64 Zeichen, Buchstaben/Ziffern und . _ / -; Gross-/Kleinschreibung
+    bleibt erhalten, Eindeutigkeit je Tenant prueft der Router (409)."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if not _INTERNAL_ID_SHAPE.match(text):
+        raise ValueError(
+            f"internal_product_id {value!r} ungueltig (1-64 Zeichen: Buchstaben, Ziffern, . _ / -)"
+        )
+    return text
+
+
 def master_data_consistency_errors(fields: dict) -> list[str]:
     """Querpruefungen ueber mehrere Felder (Erfassen und gemergter Stand
     beim Bearbeiten)."""
     errors: list[str] = []
+    # Owner-Anforderung P1 (eigene Fonds, kotiert oder nicht kotiert): ein
+    # kotierter Fonds braucht eine ISIN; ein nicht kotierter Fonds braucht
+    # ohne ISIN eine interne, tenant-eindeutige Produkt-ID. Eine angegebene
+    # ISIN wird immer validiert (Feldvalidator).
+    listing = fields.get("listing_status")
+    if listing == "listed" and not fields.get("isin"):
+        errors.append("listing_status=listed verlangt eine ISIN")
+    if listing == "unlisted" and not fields.get("isin") and not fields.get("internal_product_id"):
+        errors.append(
+            "listing_status=unlisted ohne ISIN verlangt eine interne Produkt-ID (internal_product_id)"
+        )
+    if listing == "unlisted" and fields.get("price_source") == "market":
+        errors.append("price_source=market ist fuer nicht kotierte Fonds nicht moeglich (manual_nav oder provider)")
+    if fields.get("gating_terms") and fields.get("has_gating") is False:
+        errors.append("gating_terms nur zusammen mit has_gating=true")
     if fields.get("retrocession_bps") is not None and not fields.get("retrocession_source"):
         errors.append(
             "retrocession_source ist Pflicht, sobald ein Retrozessionssatz erfasst ist "
@@ -1077,6 +1146,7 @@ def master_data_consistency_errors(fields: dict) -> list[str]:
 # Felder, die PO-6 fuer empfehlbare Produkte verlangt. In P1 werden Luecken
 # nur gekennzeichnet (keine Sperre der Auswahl; die folgt mit P13).
 REQUIRED_MASTER_DATA_FIELDS = (
+    "listing_status",
     "isin",
     "domicile",
     "is_hedged",
@@ -1106,7 +1176,15 @@ def master_data_gaps(product: Any) -> list[str]:
     for field in REQUIRED_MASTER_DATA_FIELDS:
         value = getattr(product, field, None)
         if field == "isin":
-            if isin_status(value) != "valid":
+            # Nicht kotiert: ISIN keine Pflicht, dafuer die interne ID; eine
+            # angegebene, aber ungueltige ISIN bleibt eine Luecke.
+            status = isin_status(value)
+            if getattr(product, "listing_status", None) == "unlisted":
+                if status == "invalid":
+                    gaps.append("isin")
+                elif status == "missing" and not getattr(product, "internal_product_id", None):
+                    gaps.append("internal_product_id")
+            elif status != "valid":
                 gaps.append("isin")
             continue
         if value is None or (isinstance(value, str) and not value.strip()):
@@ -1174,6 +1252,31 @@ class _ProductMasterDataFields(BaseModel):
         default=None, ge=0, le=PERSISTABLE_INT_MAX,
         description="Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
     )
+    # Owner-Anforderung P1: eigene Fonds (kotiert/nicht kotiert), Bewertung
+    # und Liquiditaetsrhythmus. Grundlage fuer Universe-Modus "nur eigene"
+    # (P3/P4) sowie Liquiditaets-/Illiquiditaetslimits und Kostentransparenz.
+    listing_status: Optional[Literal["listed", "unlisted"]] = Field(
+        default=None,
+        description="Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+    )
+    internal_product_id: Optional[str] = Field(
+        default=None, description="Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN)."
+    )
+    price_source: Optional[Literal["market", "manual_nav", "provider"]] = Field(
+        default=None, description="Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV."
+    )
+    nav_frequency: Optional[Literal["daily", "weekly", "monthly", "quarterly"]] = Field(
+        default=None, description="NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise)."
+    )
+    nav_as_of: Optional[str] = Field(default=None, description="Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).")
+    redemption_period_days: Optional[int] = Field(
+        default=None, ge=0, le=3650, description="Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme)."
+    )
+    notice_period_days: Optional[int] = Field(
+        default=None, ge=0, le=3650, description="Kuendigungsfrist in Kalendertagen."
+    )
+    has_gating: Optional[bool] = Field(default=None, description="Gating/Ruecknahmebeschraenkung moeglich.")
+    gating_terms: Optional[str] = Field(default=None, description="Gating-Bedingungen (Freitext, optional).")
 
     @field_validator("domicile", mode="before")
     @classmethod
@@ -1185,7 +1288,33 @@ class _ProductMasterDataFields(BaseModel):
     def _validate_hedge_currency(cls, v):
         return normalize_currency_code(v, field_name="hedge_currency")
 
-    @field_validator("is_hedged", "is_house_product", mode="before")
+    @field_validator("listing_status", "price_source", mode="before")
+    @classmethod
+    def _validate_owner_choices(cls, v, info):
+        choices = LISTING_STATUSES if info.field_name == "listing_status" else PRICE_SOURCES
+        return normalize_choice(v, field_name=info.field_name, choices=choices)
+
+    @field_validator("nav_frequency", mode="before")
+    @classmethod
+    def _validate_nav_frequency(cls, v):
+        return normalize_nav_frequency(v)
+
+    @field_validator("internal_product_id", mode="before")
+    @classmethod
+    def _validate_internal_product_id(cls, v):
+        return normalize_internal_product_id(v)
+
+    @field_validator("nav_as_of", mode="before")
+    @classmethod
+    def _validate_nav_as_of(cls, v):
+        return normalize_as_of_date(v, field_name="nav_as_of")
+
+    @field_validator("gating_terms", mode="before")
+    @classmethod
+    def _validate_gating_terms(cls, v):
+        return normalize_source(v, field_name="gating_terms")
+
+    @field_validator("is_hedged", "is_house_product", "has_gating", mode="before")
     @classmethod
     def _validate_optional_flags(cls, v, info):
         return normalize_optional_bool(v, field_name=info.field_name)
@@ -1431,6 +1560,15 @@ class ProductResponse(BaseResponse):
     distribution_policy: Optional[str] = None
     valor: Optional[str] = None
     minimum_investment_minor_units: Optional[int] = None
+    listing_status: Optional[str] = None
+    internal_product_id: Optional[str] = None
+    price_source: Optional[str] = None
+    nav_frequency: Optional[str] = None
+    nav_as_of: Optional[str] = None
+    redemption_period_days: Optional[int] = None
+    notice_period_days: Optional[int] = None
+    has_gating: Optional[bool] = None
+    gating_terms: Optional[str] = None
     is_active: int
     # 2026-08-05 (Fondsuniversum): NULL = globaler/geteilter Katalog,
     # gesetzt = privater Fonds dieses Tenants (server-derived, siehe
