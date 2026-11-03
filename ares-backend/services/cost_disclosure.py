@@ -428,24 +428,37 @@ def build_cost_disclosure_for_run(
         )
         fee_model = _parse_fee_model(getattr(policy, "fee_model_json", None))
 
-    # PO-17 (Audit 2026-11): die Holdings des Laufs kommen per Outer Join in
-    # DERSELBEN Abfrage mit (kein zusaetzlicher SELECT im Report-Budget);
-    # je Position zaehlt die juengste Holding (gleiche Regel wie das
-    # Live-Rebalancing), eine geloeschte juengste Holding = kein Bestand.
+    # PO-17 / N-856-3 / N-856-9: EINE Abfrage (Report-Query-Budget) liefert
+    # die Positionen dieses Laufs UND aller frueheren Laeufe des Mandats (bis
+    # zu diesem), jeweils mit ihren Holdings per Outer Join. Je Position dieses
+    # Laufs zaehlt die juengste Holding (Regel des Live-Rebalancings, geloescht
+    # = kein Bestand); aus den frueheren Laeufen je Produkt die juengste
+    # Holding (Regel von holdings_not_carried_over).
+    run_created_at = str(getattr(latest_run, "created_at", "") or "")
     joined_rows = (
-        db.query(RecommendationPosition, Product, RecommendationHolding)
+        db.query(RecommendationPosition, Product, RecommendationHolding, RecommendationRun.created_at)
         .join(Product, Product.id == RecommendationPosition.product_id)
+        .join(RecommendationRun, RecommendationRun.id == RecommendationPosition.run_id)
         .outerjoin(
             RecommendationHolding,
             (RecommendationHolding.recommendation_position_id == RecommendationPosition.id)
             & (RecommendationHolding.run_id == RecommendationPosition.run_id),
         )
-        .filter(RecommendationPosition.run_id == latest_run.id)
+        .filter(
+            RecommendationRun.mandate_id == mandate.id,
+            (RecommendationPosition.run_id == latest_run.id)
+            | (RecommendationRun.created_at <= run_created_at),
+        )
         .all()
     )
     rows = []
     latest_holding: dict[str, Any] = {}
-    for position, product, holding in joined_rows:
+    earlier_holdings: list[tuple[str, Any]] = []
+    for position, product, holding, created_at in joined_rows:
+        if position.run_id != latest_run.id:
+            if holding is not None:
+                earlier_holdings.append((str(created_at or ""), holding))
+            continue
         if position.id not in latest_holding:
             rows.append((position, product))
             latest_holding[position.id] = None
@@ -486,44 +499,28 @@ def build_cost_disclosure_for_run(
         for position_id, h in latest_holding.items()
         if h is not None and h.deleted_at is None
     }
-    # N-856-3 (Pruefrunde #856): Bestaende frueherer Laeufe desselben Mandats,
-    # deren Produkt dieser Lauf nicht mehr enthaelt, werden verkauft und
-    # gehoeren in den Umschlag. Gleiche Regel wie holdings_not_carried_over
-    # (je Produkt die juengste Holding, geloescht oder 0/0 = nicht gehalten),
-    # begrenzt auf Laeufe bis zu diesem. Nur wenn der Lauf selbst Bestaende
-    # traegt -- ohne Bestand rechnet der Ausweis ohnehin das ganze Volumen.
+    # N-856-3 / N-856-9: Bestaende frueherer Laeufe, deren Produkt dieser
+    # Lauf nicht mehr enthaelt, werden verkauft und gehoeren in den Umschlag
+    # -- unabhaengig davon, ob der Lauf selbst Bestaende traegt (N-856-9).
     uncarried_holdings: list[dict[str, Any]] = []
-    if holding_values:
-        run_products = {product.id for _, product in rows}
-        latest_by_product: dict[str, Any] = {}
-        for holding, _created in (
-            db.query(RecommendationHolding, RecommendationRun.created_at)
-            .join(RecommendationRun, RecommendationRun.id == RecommendationHolding.run_id)
-            .filter(
-                RecommendationRun.mandate_id == mandate.id,
-                RecommendationRun.id != latest_run.id,
-                RecommendationRun.created_at <= str(getattr(latest_run, "created_at", "") or ""),
-            )
-            .order_by(
-                RecommendationHolding.product_id.asc(),
-                RecommendationRun.created_at.desc(),
-                RecommendationHolding.updated_at.desc(),
-            )
-            .all()
-        ):
-            latest_by_product.setdefault(holding.product_id, holding)
-        for product_id, holding in sorted(latest_by_product.items()):
-            if product_id in run_products or holding.deleted_at is not None:
-                continue
-            if int(holding.units_milli or 0) <= 0 and int(holding.market_value_rappen or 0) <= 0:
-                continue
-            uncarried_holdings.append({
-                "value_rappen": (
-                    int(holding.market_value_rappen)
-                    if holding.market_value_rappen is not None and int(holding.market_value_rappen) > 0
-                    else None
-                ),
-            })
+    run_products = {product.id for _, product in rows}
+    latest_by_product: dict[str, Any] = {}
+    for _created, holding in sorted(
+        earlier_holdings, key=lambda item: (item[0], str(item[1].updated_at or "")), reverse=True,
+    ):
+        latest_by_product.setdefault(holding.product_id, holding)
+    for product_id, holding in sorted(latest_by_product.items()):
+        if product_id in run_products or holding.deleted_at is not None:
+            continue
+        if int(holding.units_milli or 0) <= 0 and int(holding.market_value_rappen or 0) <= 0:
+            continue
+        uncarried_holdings.append({
+            "value_rappen": (
+                int(holding.market_value_rappen)
+                if holding.market_value_rappen is not None and int(holding.market_value_rappen) > 0
+                else None
+            ),
+        })
     positions = [
         {
             "holding_present": position.id in holding_values,
@@ -725,7 +722,9 @@ def calculate_cost_disclosure(
     uncarried = list(uncarried_holdings or [])
     uncarried_unvalued = any(item.get("value_rappen") is None for item in uncarried)
     uncarried_notes: list[str] = []
-    if holdings_recorded and uncarried:
+    if uncarried:
+        # N-856-9: auch ohne Bestand im Lauf (dann Kauf des ganzen Volumens
+        # plus Verkauf der alten Bestaende).
         traded_amount += sum(max(0, _safe_int(item.get("value_rappen"))) for item in uncarried)
         uncarried_notes.append(
             f"{len(uncarried)} Bestand/Bestaende aus frueheren Laeufen ist/sind nicht in die "
@@ -855,7 +854,8 @@ def calculate_cost_disclosure(
         transaction_cost_bps, location="transaction_cost_bps"
     )
     warnings.extend(uncarried_notes if transaction_rate > 0 else [])
-    if holdings_recorded and transaction_rate > 0 and traded_amount > 0:
+    turnover_mode = holdings_recorded or bool(uncarried)  # N-856-9
+    if turnover_mode and transaction_rate > 0 and traded_amount > 0:
         items.append(_rate_item(
             key="initial_transaction_costs",
             label="Transaktionskosten Umsetzung (Umschlag)",
@@ -872,7 +872,7 @@ def calculate_cost_disclosure(
             "Volumen (Umschlag gegenüber dem erfassten Bestand); tatsächliche "
             "Spreads, Courtagen und Börsenabgaben können abweichen."
         )
-    elif holdings_recorded and transaction_rate > 0:
+    elif turnover_mode and transaction_rate > 0:
         warnings.append(
             "Keine Transaktionskosten ausgewiesen: der erfasste Bestand entspricht "
             "bereits der Empfehlung (kein Umschlag)."

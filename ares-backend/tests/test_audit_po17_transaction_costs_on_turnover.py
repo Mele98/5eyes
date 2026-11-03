@@ -222,3 +222,72 @@ def test_build_for_run_counts_holdings_of_earlier_runs_not_carried_over(db_sessi
     s.flush()
     item = _item(build_cost_disclosure_for_run(s, mandate, run))
     assert item["basis_rappen"] == 4_000_000
+
+
+# ---------------------------------------------------------------------------
+# N-856-9 (Delta-Pruefung #856): Lauf OHNE eigenen Bestand, aber fruehere
+# Laeufe mit Bestand. Vorher wurde die Suche nach nicht uebernommenen
+# Bestaenden nur bei Bestand im Lauf ausgefuehrt -> deren Verkauf fehlte.
+# ---------------------------------------------------------------------------
+
+
+def test_uncarried_sales_count_even_without_holdings_in_the_run():
+    result = calculate_cost_disclosure(
+        advisory_wealth_rappen=10_000_000,
+        positions=[{"amount_rappen": 10_000_000, "weight_bps": 10000, "ter_bps": 10}],
+        fee_model=None,
+        uncarried_holdings=[{"value_rappen": 3_000_000}],
+    )
+    assert _item(result)["basis_rappen"] == 13_000_000
+
+
+def test_build_for_run_without_own_holdings_counts_earlier_holdings(db_session):
+    s = db_session
+    mandate = SimpleNamespace(id="n9-m", tenant_id=None, base_currency="CHF", jurisdiction="CH")
+    old_run = RecommendationRun(
+        id="n9-old", mandate_id=mandate.id, client_id="c", policy_id="p", run_type="Optimizer",
+        result_status="Final", created_by="u", created_at="2026-10-01T00:00:00", updated_at=NOW,
+    )
+    run = RecommendationRun(
+        id="n9-run", mandate_id=mandate.id, client_id="c", policy_id="p", run_type="Optimizer",
+        result_status="Draft", fee_assumptions_json='{"transaction_cost_bps": 15}',
+        created_by="u", created_at=NOW, updated_at=NOW,
+    )
+    later_run = RecommendationRun(  # nach diesem Lauf -- darf nicht zaehlen
+        id="n9-later", mandate_id=mandate.id, client_id="c", policy_id="p", run_type="Optimizer",
+        result_status="Draft", created_by="u", created_at="2026-12-01T00:00:00", updated_at=NOW,
+    )
+    products = [
+        Product(id=f"n9-p{i}", product_name=f"P{i}", provider="x", product_type="ETF",
+                asset_class="Aktien", sub_asset_class="Aktien Schweiz", currency="CHF",
+                ter_bps=10, is_active=1, created_at=NOW, updated_at=NOW)
+        for i in (1, 2, 3)
+    ]
+    s.add_all([old_run, run, later_run, *products])
+    s.flush()
+    s.add_all([
+        RecommendationPosition(id="n9-old-pos2", run_id=old_run.id, product_id="n9-p2",
+                               target_weight_bps=10000, target_amount_rappen=3_000_000,
+                               created_at=NOW, updated_at=NOW),
+        RecommendationPosition(id="n9-later-pos3", run_id=later_run.id, product_id="n9-p3",
+                               target_weight_bps=10000, target_amount_rappen=5_000_000,
+                               created_at=NOW, updated_at=NOW),
+        RecommendationPosition(id="n9-pos1", run_id=run.id, product_id="n9-p1",
+                               target_weight_bps=10000, target_amount_rappen=10_000_000,
+                               created_at=NOW, updated_at=NOW),
+    ])
+    s.flush()
+    s.add_all([
+        RecommendationHolding(id="n9-h-old", run_id=old_run.id, recommendation_position_id="n9-old-pos2",
+                              product_id="n9-p2", market_value_rappen=3_000_000,
+                              created_at=NOW, updated_at=NOW),
+        RecommendationHolding(id="n9-h-later", run_id=later_run.id, recommendation_position_id="n9-later-pos3",
+                              product_id="n9-p3", market_value_rappen=5_000_000,
+                              created_at=NOW, updated_at=NOW),
+    ])
+    s.flush()
+    result = build_cost_disclosure_for_run(s, mandate, run)
+    item = _item(result)
+    # Kauf 10'000'000 (kein eigener Bestand) + Verkauf 3'000'000; der spaetere Lauf zaehlt nicht.
+    assert item["basis_rappen"] == 13_000_000, result
+    assert any("nicht in die Empfehlung uebernommen" in w for w in result["warnings"])
