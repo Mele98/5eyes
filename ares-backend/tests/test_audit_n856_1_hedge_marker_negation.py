@@ -37,6 +37,9 @@ PROXY_WORLD_USD = 6500  # Sub-Klassen-Proxy "Aktien Global"
     "MSCI World ohne Waehrungsabsicherung",
 ])
 def test_negated_hedge_marker_keeps_foreign_currency_proxy(name):
+    # N-856-8: direkt auf die Negation pruefen -- sonst bliebe der Test auch mit
+    # abgeschalteter Negation gruen (Marker ohne Waehrung faellt ohnehin auf den Proxy).
+    assert hedge_from_product_name(name)[0] is False, name
     exposure, source = currency_exposure_with_source(
         None, "Aktien Global", product_currency="CHF", product_name=name,
     )

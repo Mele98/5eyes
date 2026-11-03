@@ -243,28 +243,35 @@ def currency_exposure_for_product(
     return result
 
 
-#: PO-06 (Audit 2026-11) / N-856-1: Absicherung aus den Produktstammdaten.
-#: Bewusst nicht "hedg"/"hedge": ein "Hedge Fund" ist keine Absicherung.
-_HEDGE_WORDS = r"(?:hedged|abgesichert|w(?:ae|ä)hrungsgesichert|gesichert)"
-#: Negationen werden VOR den positiven Markern geprueft (N-856-1): "Unhedged",
-#: "nicht abgesichert" usw. sind gerade KEINE Absicherung.
-_HEDGE_NEGATION_RE = re.compile(
-    r"\b(?:un-?hedged|non-?hedged|not\s+hedged|ungesichert|unabgesichert"
-    r"|nicht\s+(?:w(?:ae|ä)hrungs)?(?:ab)?gesichert"
-    r"|ohne\s+(?:w(?:ae|ä)hrungs)?absicherung)\b"
-)
-_HEDGE_MARKER_RE = re.compile(r"\b" + _HEDGE_WORDS + r"\b")
+#: PO-06 (Audit 2026-11) / N-856-1 / N-856-8: Absicherung aus dem Produktnamen.
+#: Wortbasiert: der Name wird in Buchstabenwoerter zerlegt ("CHF-abgesichert"
+#: -> "chf", "abgesichert"; "un-hedged" -> "un", "hedged").
+#: Bewusst nicht "hedge": ein "Hedge Fund" ist keine Absicherung.
+_HEDGE_MARKER_WORDS = frozenset({
+    "hedged", "abgesichert", "gesichert", "waehrungsgesichert", "währungsgesichert",
+    "absicherung", "waehrungsabsicherung", "währungsabsicherung",
+})
+#: Zusammengesetzte Negations-/Teilwoerter: immer KEINE volle Absicherung.
+_HEDGE_NEGATED_COMPOUNDS = frozenset({
+    "unhedged", "nonhedged", "ungesichert", "unabgesichert",
+    "teilgesichert", "teilabgesichert", "teilhedged",
+})
+#: N-856-8: Negations-/Teilwoerter im Fenster vor dem Marker. Steht eine
+#: Waehrung dazwischen ("not CHF hedged", "nicht in CHF abgesichert"), gilt
+#: die Negation trotzdem. Teilabsicherung = konservativ wie ungesichert.
+_HEDGE_NEGATION_WORDS = frozenset({
+    "not", "non", "un", "no", "nicht", "ohne", "kein", "keine",
+    "partially", "partial", "teilweise", "teil",
+})
+_HEDGE_NEGATION_WINDOW = 3  # Woerter vor dem Marker
+_HEDGE_TARGET_PREPOSITIONS = frozenset({"to", "in", "into", "nach", "auf"})
 #: ISO-4217-Codes, die als Absicherungswaehrung in Produktnamen vorkommen.
 #: Ein beliebiges Dreibuchstabenwort ("ETF", "IMI") ist keine Waehrung.
 _HEDGE_CURRENCIES = frozenset({
     "CHF", "EUR", "USD", "GBP", "JPY", "SEK", "NOK", "DKK", "AUD", "CAD",
     "NZD", "SGD", "HKD", "CNY", "CNH", "PLN", "CZK", "HUF",
 })
-_HEDGE_CCY_PATTERNS = (
-    re.compile(r"\b([a-z]{3})[\s-]*" + _HEDGE_WORDS + r"\b"),  # "CHF Hedged", "CHF-hedged"
-    re.compile(r"\bhedged\s+(?:to|in|into)\s+([a-z]{3})\b"),  # "hedged to CHF"
-    re.compile(r"\b([a-z]{3})\s+w(?:ae|ä)hrungsgesichert\b"),
-)
+_NAME_WORD_RE = re.compile(r"[a-zäöüß]+")
 
 #: Herkunft des Waehrungs-Exposures (wird im Depot-Check ausgewiesen).
 CURRENCY_SOURCE_PRODUCT_DATA = "produktdaten"
@@ -276,23 +283,34 @@ CURRENCY_SOURCE_UNKNOWN = "unbekannt"
 
 
 def hedge_from_product_name(product_name: str | None, product_type: str | None = None) -> tuple[bool | None, str | None]:
-    """N-856-1: (abgesichert?, Absicherungswaehrung) aus dem Produktnamen.
+    """N-856-1/-8: (abgesichert?, Absicherungswaehrung) aus dem Produktnamen.
 
-    ``(False, None)`` bei ausdruecklicher Negation, ``(True, CCY)`` bei Marker
-    mit erkennbarer Waehrung, ``(True, None)`` bei Marker ohne Waehrung,
-    ``(None, None)`` ohne Hinweis. Die Handelswaehrung wird bewusst NICHT als
-    Absicherungswaehrung angenommen.
+    ``(False, None)`` bei Negation oder Teilabsicherung (zusammengesetzt wie
+    "unhedged" oder als Wort bis zu drei Woerter vor dem Marker, auch mit
+    Waehrung dazwischen); ``(True, CCY)`` bei Marker mit Waehrung -- eine
+    Zielwaehrung nach dem Marker ("hedged to CHF") hat Vorrang vor einer
+    Waehrung davor ("USD hedged"); ``(True, None)`` bei Marker ohne Waehrung;
+    ``(None, None)`` ohne Hinweis. Die Handelswaehrung zaehlt nie als
+    Absicherungswaehrung.
     """
-    text = f" {product_name or ''} {product_type or ''} ".lower()
-    if _HEDGE_NEGATION_RE.search(text):
+    words = _NAME_WORD_RE.findall(f"{product_name or ''} {product_type or ''}".lower())
+    if any(word in _HEDGE_NEGATED_COMPOUNDS for word in words):
         return False, None
-    if not _HEDGE_MARKER_RE.search(text):
+    markers = [i for i, word in enumerate(words) if word in _HEDGE_MARKER_WORDS]
+    if not markers:
         return None, None
-    for pattern in _HEDGE_CCY_PATTERNS:
-        for match in pattern.finditer(text):
-            ccy = match.group(1).upper()
-            if ccy in _HEDGE_CURRENCIES:
-                return True, ccy
+    for i in markers:
+        if any(word in _HEDGE_NEGATION_WORDS for word in words[max(0, i - _HEDGE_NEGATION_WINDOW):i]):
+            return False, None
+    for i in markers:
+        if i + 2 < len(words) and words[i + 1] in _HEDGE_TARGET_PREPOSITIONS:
+            target = words[i + 2].upper()
+            if target in _HEDGE_CURRENCIES:
+                return True, target
+    for i in markers:
+        for word in reversed(words[max(0, i - 2):i]):
+            if word.upper() in _HEDGE_CURRENCIES:
+                return True, word.upper()
     return True, None
 
 
