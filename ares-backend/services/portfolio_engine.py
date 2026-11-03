@@ -1254,6 +1254,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _baseline_target_bands,
     house_matrix_bands_payload,
     policy_band_clamp_notes,
+    policy_band_bound_keys,
     _building_block_risky_map,
     _building_block_rows_for_policy,
     _build_stochastic_sub_allocation_plan,
@@ -3152,6 +3153,7 @@ def generate_target_allocation(
     _apply_band_preferences(  # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): Austritt aus dem Hausband offenlegen
         prefs["bands"], targets, minimums, maximums, reasoning,
         warnings=warnings, house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+        policy_bound_keys=policy_band_bound_keys(house_matrix, policy),  # H-859-4
     )
     if manual_target_override:
         reasoning.append("Explizit gesetzte Soll-Quoten uebersteuern automatische Exposure-Tilts; harte Risiko- und Liquiditaetsregeln bleiben aktiv.")

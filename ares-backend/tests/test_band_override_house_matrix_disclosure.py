@@ -233,11 +233,16 @@ def test_max_below_house_minimum_names_house_minimum(session_factory, stochastic
     assert "Berater-Maximum" in msg, msg
 
 
-def test_router_still_maps_infeasible_restrictions_to_409():
-    """Exception-Typ unveraendert: der Router mappt ValueError auf 409."""
-    import inspect
+def test_router_maps_infeasible_restrictions_to_422():
+    """H-859-5 (Pruefrunde #859): unerfuellbare Restriktionen sind ein
+    Eingabefehler. Der Fehler bleibt ein ValueError (Unterklasse
+    AllocationInputError); der Generate-Router antwortet damit einheitlich
+    422, uebrige ValueError bleiben 409. Verhaltenstest:
+    tests/test_audit_2026_11_h859_4_5_band_input_errors_422.py."""
+    from services.portfolio_engine_house_matrix import (
+        AllocationInputError,
+        BandEnvelopeInfeasibleError,
+    )
 
-    import routers.allocation as allocation_router
-
-    source = inspect.getsource(allocation_router)
-    assert "except ValueError as exc" in source and "status_code=409" in source
+    assert issubclass(BandEnvelopeInfeasibleError, AllocationInputError)
+    assert issubclass(AllocationInputError, ValueError)

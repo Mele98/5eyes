@@ -70,7 +70,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.portfolio_engine_house_matrix import (
-    BandEnvelopeInfeasibleError,
+    AllocationInputError,
     _building_block_rows_for_policy,
 )
 from services.manual_target_allocation import (
@@ -725,9 +725,11 @@ def generate_target_allocation_endpoint(
                 user_id=current_user.id,
                 preferences=body.preferences.model_dump() if body.preferences else None,
             )
-        except BandEnvelopeInfeasibleError as exc:
-            # AUDIT-2026-11 A5: unerfuellbare Bandbreiten sind ein
-            # Eingabefehler (422) mit deutscher Meldung, kein Zustandskonflikt.
+        except AllocationInputError as exc:
+            # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche
+            # Bandbreiten/Ziele sind ein Eingabefehler (422) mit deutscher
+            # Meldung, kein Zustandskonflikt -- einheitlich fuer Ziel ausserhalb
+            # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
             raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))

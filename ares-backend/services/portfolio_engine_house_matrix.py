@@ -182,6 +182,7 @@ def _apply_band_preferences(
     warnings: list[dict] | None = None,
     house_profile: str | None = None,
     score_bucket: int | None = None,
+    policy_bound_keys: Collection[tuple[str, str]] = frozenset(),
 ) -> None:
     """Applies a bands override, keeping hard Bounds and Target Intent
     orthogonal (CERT-ALLOCATION-INTENT-001 / BAND-PARTIAL-OVERRIDE-001).
@@ -255,25 +256,54 @@ def _apply_band_preferences(
     # that actually needs the full bounds set to produce a concrete 10000-bps
     # allocation, and it already fails loudly (no silent fallback) if none
     # exists.
+    # H-859-4/-5 (Pruefrunde #859): jede Grenze nennt ihre Herkunft
+    # (Berater-Vorgabe, Mandats-Policy, Hausmatrix); alle Eingabefehler sind
+    # AllocationInputError (Generate-Router: 422).
+    policy_keys = frozenset(policy_bound_keys or ())
+
+    def _bound_source(key: str, side: str) -> str:
+        if key in (advisor_min_buckets if side == "min" else advisor_max_buckets):
+            return "advisor"
+        if (key, side) in policy_keys:
+            return "policy"
+        return "house"
+
+    profile_text = (
+        f" des Risikoprofils (Score {score_bucket if score_bucket is not None else '?'}, "
+        f"{house_profile or 'unbekannt'})"
+    )
+
+    def _bound_phrase(key: str, side: str) -> str:
+        source = _bound_source(key, side)
+        word = "Minimum" if side == "min" else "Maximum"
+        if source == "advisor":
+            return f"Berater-{word}"
+        if source == "policy":
+            return f"{word} der Mandats-Policy"
+        return f"Hausmatrix-{word}"
+
     for key in BUCKET_FIELDS:
         minimum, maximum = minimums[key], maximums[key]
         if minimum < 0 or maximum > 10000:
-            raise ValueError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
-                f"Min {minimum} / Max {maximum} (0..10000 bps, Min darf Max nicht ueberschreiten)."
+            raise AllocationInputError(
+                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind ungueltig: "
+                f"Minimum {_band_pct(minimum)} % / Maximum {_band_pct(maximum)} % "
+                "(zulaessig 0 % bis 100 %)."
             )
         if minimum > maximum:
             # F-BAND-3: benennen, woher jede der beiden Grenzen stammt -- ein
             # "Min 500 / Max 0" fuer ein Minimum, das der Berater nie gesetzt
             # hat, ist nicht nachvollziehbar.
-            min_source = (
-                "das Berater-Minimum" if key in advisor_min_buckets
-                else "das Hausmatrix-Minimum des Risikoprofils"
-            )
-            max_source = (
-                "dem Berater-Maximum" if key in advisor_max_buckets
-                else "dem Hausmatrix-Maximum des Risikoprofils"
-            )
+            min_source = {
+                "advisor": "das Berater-Minimum",
+                "policy": "das Minimum der Mandats-Policy",
+                "house": "das Hausmatrix-Minimum des Risikoprofils",
+            }[_bound_source(key, "min")]
+            max_source = {
+                "advisor": "dem Berater-Maximum",
+                "policy": "dem Maximum der Mandats-Policy",
+                "house": "dem Hausmatrix-Maximum des Risikoprofils",
+            }[_bound_source(key, "max")]
             hint = ""
             if key not in advisor_min_buckets:
                 hint = (
@@ -281,7 +311,7 @@ def _apply_band_preferences(
                     "werden, ist auch das Minimum als Berater-Vorgabe zu setzen; "
                     "die Abweichung von der Hausmatrix wird dann offengelegt."
                 )
-            raise ValueError(
+            raise AllocationInputError(
                 f"Bandbreiten fuer {BUCKET_LABELS[key]} sind nicht vereinbar: "
                 f"{min_source} von {_band_pct(minimum)} % liegt ueber "
                 f"{max_source} von {_band_pct(maximum)} %.{hint}"
@@ -289,18 +319,38 @@ def _apply_band_preferences(
 
     # A bucket with an EXPLICIT Target Intent must itself respect that same
     # bucket's bounds -- a real advisor-stated conflict, reported as such.
-    for key in explicit_target_buckets:
-        if not (minimums[key] <= targets[key] <= maximums[key]):
-            raise ValueError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
-                f"Min {minimums[key]} / Ziel {targets[key]} / Max {maximums[key]}."
+    # H-859-4: vorher "Min 6000 / Ziel 8000 / Max 7500" (rohe bps, ohne
+    # Herkunft, 409).
+    for key in BUCKET_FIELDS:
+        if key not in explicit_target_buckets:
+            continue
+        target = int(targets[key])
+        if minimums[key] <= target <= maximums[key]:
+            continue
+        side = "max" if target > maximums[key] else "min"
+        bound = maximums[key] if side == "max" else minimums[key]
+        source = _bound_source(key, side)
+        direction = "ueber dem" if side == "max" else "unter dem"
+        word = "Maximum" if side == "max" else "Minimum"
+        if source == "advisor":
+            hint = f" Ziel und Berater-{word} widersprechen sich; bitte eines davon anpassen."
+        else:
+            hint = (
+                f" Fuer eine bewusste Abweichung das {word} als Berater-Vorgabe "
+                "mitsetzen; die Abweichung wird dann offengelegt."
             )
+        raise AllocationInputError(
+            f"Das Berater-Ziel fuer {BUCKET_LABELS[key]} von {_band_pct(target)} % "
+            f"liegt {direction} {_bound_phrase(key, side)} von {_band_pct(bound)} %"
+            f"{profile_text if source == 'house' else ''}.{hint}"
+        )
 
     # F-BAND-3: cross-bucket envelope, explained in German with provenance
     # (same ValueError type; see docstring for why this is no new rule).
     _raise_if_band_envelope_infeasible(
         minimums,
         advisor_min_buckets=advisor_min_buckets,
+        policy_min_buckets={key for key, side in policy_keys if side == "min"},
     )
 
     # Every OTHER bucket keeps no Target Intent at all: its carried-over
@@ -317,7 +367,7 @@ def _apply_band_preferences(
         # partial Soft Preference, which legitimately need not.
         total = sum(int(targets[key]) for key in BUCKET_FIELDS)
         if total != 10000:
-            raise ValueError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
+            raise AllocationInputError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
     reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
 
     # F-BAND-1: jede Mandatsbandbreite ausserhalb der Hausmatrix-Bandbreite
@@ -355,6 +405,7 @@ def _raise_if_band_envelope_infeasible(
     minimums: dict[str, int],
     *,
     advisor_min_buckets: set[str],
+    policy_min_buckets: Collection[str] = (),
 ) -> None:
     """BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-3): deutsche, bucket-genaue
     Erklaerung fuer einen unerfuellbaren Bounds-Satz.
@@ -375,11 +426,11 @@ def _raise_if_band_envelope_infeasible(
     if total_min > 10000:
         parts = [
             f"{BUCKET_LABELS[key]} {_band_pct(minimums[key])} % "
-            f"({'Berater-Vorgabe' if key in advisor_min_buckets else 'Hausmatrix-Minimum'})"
+            f"({'Berater-Vorgabe' if key in advisor_min_buckets else 'Mandats-Policy' if key in policy_min_buckets else 'Hausmatrix-Minimum'})"
             for key in BUCKET_FIELDS
             if int(minimums[key]) > 0
         ]
-        raise ValueError(
+        raise BandEnvelopeInfeasibleError(
             f"Die Mindestquoten summieren sich auf {_band_pct(total_min)} % "
             f"({', '.join(parts)}) und uebersteigen 100 %. Bitte die "
             "Berater-Vorgaben so anpassen, dass die Mindestquoten zusammen "
@@ -725,11 +776,17 @@ def _manual_target_buckets(bands: dict | None) -> frozenset[str]:
     return frozenset(key for key in _explicit_target_bucket_keys(bands) if key)
 
 
-class BandEnvelopeInfeasibleError(ValueError):
+class AllocationInputError(ValueError):
+    """H-859-5 (Pruefrunde #859): Bandbreiten-/Zielvorgaben, die als Eingabe
+    nicht erfuellbar oder widerspruechlich sind (Ziel ausserhalb der
+    Bandbreite, Min > Max, Minima ueber 100 %, unerfuellbare Maxima).
+    Unterklasse von ValueError (alle bisherigen Aufrufer bleiben gueltig);
+    der Generate-Router antwortet einheitlich 422."""
+
+
+class BandEnvelopeInfeasibleError(AllocationInputError):
     """AUDIT-2026-11 A5: die wirksamen Bandbreiten lassen keine Allokation
-    mit genau 100 % zu. Unterklasse von ValueError (alle bisherigen
-    Aufrufer bleiben gueltig); der Generate-Router antwortet damit 422
-    statt 409, weil die Eingabe selbst nicht erfuellbar ist."""
+    mit genau 100 % zu."""
 
 
 def _envelope_infeasible_message(
@@ -2038,6 +2095,32 @@ def _policy_value_or_unset(value, *, unset_default: int) -> int:
     ("Preserve an explicit 0 bps CMA; only NULL means 'use fallback'").
     """
     return int(unset_default if value is None else value)
+
+
+def policy_band_bound_keys(
+    house_matrix: HouseMatrix, policy: OptimizerPolicy
+) -> frozenset[tuple[str, str]]:
+    """H-859-4: welche Bandgrenzen von ``_baseline_target_bands()`` stammen
+    aus der Mandats-Policy statt aus der Hausmatrix-Zeile -- als
+    (bucket, "min"|"max"), fuer die Herkunftsangabe in Fehlermeldungen."""
+    _targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    raw = {
+        ("equities", "min"): max(int(house_matrix.equity_min_bps), int(house_matrix.equity_minimum_bps or 0)),
+        ("equities", "max"): int(house_matrix.equity_max_bps),
+        ("bonds", "min"): int(house_matrix.bonds_min_bps),
+        ("bonds", "max"): int(house_matrix.bonds_max_bps),
+        ("real_estate", "min"): int(house_matrix.real_estate_min_bps),
+        ("real_estate", "max"): int(house_matrix.real_estate_max_bps),
+        ("alternatives", "min"): int(house_matrix.alt_min_bps),
+        ("alternatives", "max"): int(house_matrix.alt_max_bps),
+        ("liquidity", "min"): int(house_matrix.liq_min_bps),
+        ("liquidity", "max"): int(house_matrix.liq_max_bps),
+    }
+    effective = {
+        **{(key, "min"): int(value) for key, value in minimums.items()},
+        **{(key, "max"): int(value) for key, value in maximums.items()},
+    }
+    return frozenset(key for key, value in raw.items() if effective[key] != value)
 
 
 def policy_band_clamp_notes(
