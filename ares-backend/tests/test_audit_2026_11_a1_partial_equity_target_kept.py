@@ -189,3 +189,43 @@ def test_disclosure_uses_final_quote_and_separates_optimizer_deviation():
     )
     assert warnings == []
     assert any("-3 bps" in line for line in reasoning), reasoning
+
+
+# --------------------------------------------------------------------------
+# H-859-3: Risikobudget-Fallback setzt ein Berater-Ziel auf die Bandmitte
+# zurueck -- das braucht einen eigenen, klaren Hinweis.
+# --------------------------------------------------------------------------
+
+FALLBACK_CODE = "WARN_TARGET_FALLBACK_RESET"
+
+
+@pytest.mark.parametrize("mode", ["house_matrix", "stochastic"])
+def test_fallback_reset_of_advisor_target_is_disclosed(session_factory, monkeypatch, mode):
+    from services.risk_matrix import RiskBudgetExceeded
+
+    monkeypatch.setattr(pe.settings, "optimizer_mode", mode)
+    real_assert = pe.assert_risk_budget_ok
+    calls = {"n": 0}
+
+    def _first_call_exceeds(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RiskBudgetExceeded(args[0], args[1])
+        return real_assert(*args, **kwargs)
+
+    monkeypatch.setattr(pe, "assert_risk_budget_ok", _first_call_exceeds)
+    adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix=f"h3{mode[:3]}")
+    prefs = {"bands": {"equities": {"target_bps": 7200}, "bonds": {"max_bps": 1300}}}
+    result = _generate(session_factory, mid, adv, prefs)
+    ta = result["target_allocation"]
+    assert "WARN_FALLBACK" in _codes(result)
+    assert ta.target_equities_bps != 7200
+    assert ta.target_bonds_bps <= 1300  # Berater-Max bleibt (Fix 3.8.)
+    resets = [w for w in result["warnings"] if w.get("code") == FALLBACK_CODE]
+    assert len(resets) == 1, result["warnings"]
+    body = resets[0]["body_advisor"]
+    persisted = f"{int(ta.target_equities_bps) / 100:.2f} %"
+    assert "Aktien" in body and "72.00 %" in body and persisted in body, body
+    assert "Risikobudget" in body, body
+    assert CODE not in _codes(result)  # keine irrefuehrende Kappungs-Meldung
+    assert any("72.00 %" in r and "Risikobudget" in r for r in result["reasoning"])

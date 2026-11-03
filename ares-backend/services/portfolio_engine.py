@@ -3785,6 +3785,7 @@ def generate_target_allocation(
         manual_target_anchor[1], manual_target_anchor[2], reasoning, warnings,
         bucket_labels=BUCKET_LABELS,
         optimizer_applied=bool(optimizer_replaced_targets and not risk_budget_fallback),
+        fallback_risk_budget_bps=int(risk_budget_bps) if risk_budget_fallback else None,
     )
     risky_fraction_total_bps = int(realized_risky_bps)
     if (

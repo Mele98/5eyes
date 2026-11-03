@@ -37,6 +37,9 @@ WARN_GLOBAL_CAP_CLAMP = "WARN_GLOBAL_CAP_CLAMP"
 # AUDIT-2026-11 A1: ein explizites Berater-Ziel (bands.<bucket>.target_bps)
 # konnte nicht exakt umgesetzt werden (Bandrand, uebrige Grenzen, Reserve).
 WARN_TARGET_ADJUSTED = "WARN_TARGET_ADJUSTED"
+# H-859-3 (Pruefrunde #859): der Risikobudget-Fallback setzt ein explizites
+# Berater-Ziel auf die Bandbreiten-Mitte des Risikoprofils zurueck.
+WARN_TARGET_FALLBACK_RESET = "WARN_TARGET_FALLBACK_RESET"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -50,6 +53,7 @@ ALL_CODES: tuple[str, ...] = (
     WARN_BAND_OUTSIDE_HOUSE_MATRIX,
     WARN_GLOBAL_CAP_CLAMP,
     WARN_TARGET_ADJUSTED,
+    WARN_TARGET_FALLBACK_RESET,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -245,6 +249,22 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
         "body_client": (
             "Für {bucket_label} wird eine Quote von {effective} % umgesetzt, die "
             "innerhalb der für Ihre Strategie geltenden Grenzen liegt."
+        ),
+        "actions": ("review_constraints",),
+    },
+    WARN_TARGET_FALLBACK_RESET: {
+        "severity": SEVERITY_WARNING,
+        "title": "Berater-Zielquote durch Risikobudget-Fallback ersetzt",
+        "body_advisor": (
+            "{bucket_label}: Das Berater-Ziel von {requested} % wird nicht umgesetzt. "
+            "Die Allokation überschritt das Risikobudget des Risikoprofils "
+            "({risk_budget} % Risky Fraction); sie wurde deshalb auf die "
+            "Bandbreiten-Mitte zurückgesetzt. Umgesetzt werden {effective} %. "
+            "Ihre Mindest- und Maximalgrenzen bleiben in Kraft."
+        ),
+        "body_client": (
+            "Für {bucket_label} wird eine Quote von {effective} % umgesetzt, damit "
+            "Ihre Strategie innerhalb des Risikorahmens Ihres Anlageprofils bleibt."
         ),
         "actions": ("review_constraints",),
     },

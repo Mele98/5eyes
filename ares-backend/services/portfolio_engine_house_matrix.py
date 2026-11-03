@@ -88,7 +88,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Session
 
 from database import new_uuid
-from services.allocation_messages import WARN_TARGET_ADJUSTED, format_message
+from services.allocation_messages import (
+    WARN_TARGET_ADJUSTED,
+    WARN_TARGET_FALLBACK_RESET,
+    format_message,
+)
 from models.allocation import BuildingBlock, HouseMatrix, OptimizerPolicy
 from services.jurisdiction.de_seed import (
     DE_DEFAULT_BONDS_DURATION,
@@ -429,6 +433,7 @@ def disclose_manual_target_deviations(
     *,
     bucket_labels: dict[str, str],
     optimizer_applied: bool = False,
+    fallback_risk_budget_bps: int | None = None,
 ) -> None:
     """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
     umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
@@ -444,6 +449,12 @@ def disclose_manual_target_deviations(
     (am Anker exakt gehaltenen) Ziel ab (``optimizer_applied``), ist das
     keine Kappung; das Reasoning nennt dann die Abweichung der
     Soft-Preference. Jede andere Abweichung (nachgelagerte Regel) warnt.
+
+    H-859-3: hat der Risikobudget-Fallback die Allokation auf die
+    Bandbreiten-Mitte zurueckgesetzt (``fallback_risk_budget_bps`` gesetzt),
+    wird jedes dadurch ersetzte Ziel eigens ausgewiesen (Ziel, alter und
+    neuer Wert, Grund) -- ``WARN_TARGET_FALLBACK_RESET`` statt der
+    Kappungs-Meldung, die eine falsche Ursache nennen wuerde.
     """
     for bucket in final_bps:
         if bucket not in preferred_bps:
@@ -454,6 +465,22 @@ def disclose_manual_target_deviations(
         if requested == final and requested == anchor:
             continue
         bucket_label = bucket_labels.get(bucket, bucket)
+        if fallback_risk_budget_bps is not None and final != requested:
+            reasoning.append(
+                f"{bucket_label}: Risikobudget-Fallback -- das Berater-Ziel von "
+                f"{_band_pct(requested)} % wird durch {_band_pct(final)} % "
+                "(Bandbreiten-Mitte des Risikoprofils) ersetzt, weil die "
+                "Allokation das Risikobudget von "
+                f"{_band_pct(fallback_risk_budget_bps)} % ueberschritt."
+            )
+            warnings.append(format_message(
+                WARN_TARGET_FALLBACK_RESET,
+                bucket_label=bucket_label,
+                requested=_band_pct(requested),
+                effective=_band_pct(final),
+                risk_budget=_band_pct(fallback_risk_budget_bps),
+            ))
+            continue
         if anchor == requested and optimizer_applied:
             reasoning.append(
                 f"{bucket_label}: Der Optimierer setzt {_band_pct(final)} % statt "
