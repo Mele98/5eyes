@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 from collections.abc import Callable
 
@@ -2191,7 +2192,7 @@ def create_product(
         id=new_uuid(), is_active=1,
         tenant_id=_resolve_tenant_id_for_user(current_user),
         created_at=now, updated_at=now,
-        **product_fields
+        **_product_master_data_columns(product_fields)
     )
     db.add(product)
     db.flush()
@@ -2226,6 +2227,22 @@ def _product_rule_jurisdiction(product: Product) -> str:
     return product.jurisdiction or "CH"
 
 
+# AUDIT-2026-11 P1 (PO-6): Ja/Nein-Stammdaten liegen als 0/1-Integer in der
+# DB (gleiches Muster wie is_active). Ein Python-bool direkt an eine
+# INTEGER-Spalte zu binden funktioniert unter SQLite, nicht aber unter
+# Postgres -- deshalb hier an EINER Stelle fuer Erfassen, Import und
+# Bearbeiten umgewandelt.
+_PRODUCT_FLAG_FIELDS = ("is_hedged", "is_house_product")
+
+
+def _product_master_data_columns(fields: dict) -> dict:
+    converted = dict(fields)
+    for field in _PRODUCT_FLAG_FIELDS:
+        if field in converted and converted[field] is not None:
+            converted[field] = 1 if converted[field] else 0
+    return converted
+
+
 _PRODUCT_IMPORT_CSV_FIELDS = (
     "product_name", "provider", "product_type", "asset_class", "sub_asset_class",
     "currency", "isin", "symbol", "ter_bps", "sfdr_class", "esg_rating", "liquidity_tier",
@@ -2241,6 +2258,12 @@ _PRODUCT_IMPORT_CSV_FIELDS = (
     # und die Themen-Zuordnung (theme_tags, Semikolon-getrennt). Am Ende
     # angehaengt, damit bestehende Dateien spaltengleich bleiben.
     "esg_score_x10", "climate_benchmark", "theme_tags",
+    # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten und Retrozession. Am
+    # Ende angehaengt, damit bestehende Dateien spaltengleich bleiben.
+    # Leere Zellen = nicht erfasst (beim Re-Import: unveraendert).
+    "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
+    "retrocession_bps", "retrocession_source", "is_house_product",
+    "distribution_policy", "valor", "minimum_investment_minor_units",
 )
 _PRODUCT_IMPORT_SUITABILITY_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
@@ -2365,7 +2388,17 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             # Feld aus model_dump() -- auch nicht gelieferte (None) --, und ein
             # Re-Upload loeschte gepflegte Exposures, Liquiditaet, Rating usw.
             # Leere Importfelder bedeuten "unveraendert".
-            for field, value in payload.items():
+            merged_errors = _merged_master_data_errors(existing, {
+                field: value for field, value in payload.items()
+                if field in body.model_fields_set and value is not None
+            })
+            if merged_errors:
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error="; ".join(merged_errors),
+                ))
+                continue
+            for field, value in _product_master_data_columns(payload).items():
                 if field in body.model_fields_set and value is not None:
                     setattr(existing, field, value)
             existing.updated_at = now
@@ -2414,7 +2447,7 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                     continue
             product = Product(
                 id=new_uuid(), is_active=1, tenant_id=tenant_id,
-                created_at=now, updated_at=now, **payload,
+                created_at=now, updated_at=now, **_product_master_data_columns(payload),
             )
             db.add(product)
             db.flush()
@@ -2530,17 +2563,27 @@ def download_products_csv_template(
     Beispiel fuer einen kotierten (mit ISIN/Symbol) und einen
     nicht-kotierten Fonds (ISIN/Symbol leer)."""
     header = ",".join(_PRODUCT_IMPORT_CSV_FIELDS)
+    # AUDIT-2026-11 P1: Beispiel-ISIN mit gueltiger Pruefziffer (ISO 6166),
+    # aber dem nicht vergebenen Praefix "ZZ" -- kann keinem echten
+    # Wertpapier gehoeren. Die vorherige Beispiel-ISIN war 13 Zeichen lang
+    # und waere am eigenen Import gescheitert. Die Stammdaten-Spalten zeigen
+    # beide Faelle: Retrozession erfasst (0 = frei, mit Quelle) und leer
+    # (= unbekannt; das Produkt gilt dann NICHT als retrozessionsfrei).
     example_listed = (
         "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
-        "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily,"
+        "Global,CHF,ZZEXAMPLE019,GEQC,25,8,AA,daily,"
         "4,10,investment_advice;portfolio_management,false,false,false,2500,"
-        "720,PAB,"
+        "720,PAB,,"
+        "IE,ja,CHF,Basisinformationsblatt,2026-01-31,0,Bestaetigung Anbieter,nein,"
+        "accumulating,,"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
         "Private Equity,CHF,,,150,,,illiquid,"
         "7,10,investment_advice;portfolio_management,false,true,false,4000,"
-        ",,"
+        ",,,"
+        "CH,nein,,Factsheet,2026-01-31,,,ja,"
+        "accumulating,,10000000"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(
@@ -2550,7 +2593,80 @@ def download_products_csv_template(
     )
 
 
+@products_router.get("/export/csv")
+def export_products_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,
+    aktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus
+    eigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie
+    GET /products).
+
+    Zweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern
+    ergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die
+    Eignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein
+    Stammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine
+    geaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen
+    bedeuten "nicht erfasst" -- es wird nichts vorbelegt.
+    """
+    products = (
+        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        .order_by(Product.asset_class, Product.product_name)
+        .all()
+    )
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(_PRODUCT_IMPORT_CSV_FIELDS)
+    for product in products:
+        row = []
+        for field in _PRODUCT_IMPORT_CSV_FIELDS:
+            if field in _PRODUCT_IMPORT_SUITABILITY_FIELDS:
+                row.append("")
+                continue
+            value = getattr(product, field, None)
+            if field in _PRODUCT_FLAG_FIELDS and value is not None:
+                value = "ja" if int(value) else "nein"
+            elif field == "theme_tags" and value:
+                try:
+                    parsed = json.loads(str(value))
+                except (TypeError, ValueError):
+                    parsed = None
+                value = ";".join(str(tag) for tag in parsed) if isinstance(parsed, list) else ""
+            row.append("" if value is None else str(value))
+        writer.writerow(row)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fondsuniversum-export.csv"},
+    )
+
+
 _PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
+# AUDIT-2026-11 P1 (PO-6, L1): Stammdaten lassen sich per explizitem null
+# wieder auf "nicht erfasst" setzen (z.B. ein falsch erfasster Retro-Satz:
+# zurueck auf unbekannt statt auf eine erfundene 0).
+_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS = (
+    "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
+    "retrocession_bps", "retrocession_source", "is_house_product",
+    "distribution_policy", "valor", "minimum_investment_minor_units",
+)
+
+
+def _merged_master_data_errors(product: Product, changes: dict) -> list[str]:
+    """Querpruefung der Stammdaten auf dem Stand NACH der Aenderung
+    (Bearbeiten und Re-Import liefern nur Teilmengen der Felder)."""
+    from schemas.product_master_data import master_data_consistency_errors
+
+    merged = {
+        field: getattr(product, field, None)
+        for field in ("ter_bps", *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS)
+    }
+    for field in _PRODUCT_FLAG_FIELDS:
+        if merged.get(field) is not None:
+            merged[field] = bool(merged[field])
+    merged.update(changes)
+    return master_data_consistency_errors(merged)
 # AUDIT-FIX Fondsuniversum R6/F6 (2026-11): Identifikation und Produkttyp sind
 # nach dem Erfassen fix (ISIN global eindeutig, Marktdaten-Mapping haengt daran).
 _PRODUCT_IMMUTABLE_FIELDS = ("isin", "symbol", "product_type")
@@ -2597,12 +2713,15 @@ def update_product(
     # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt
     # galt weiter als net_zero-zulaessig, obwohl der Nachweis entfallen ist.
     # Nicht gesendete Felder bleiben unveraendert (model_fields_set).
-    for field in _PRODUCT_CLEARABLE_ESG_FIELDS:
+    for field in (*_PRODUCT_CLEARABLE_ESG_FIELDS, *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS):
         if field in body.model_fields_set and getattr(body, field) is None:
             payload[field] = None
     if not payload:
         return product
-    for field, value in payload.items():
+    merged_errors = _merged_master_data_errors(product, payload)
+    if merged_errors:
+        raise HTTPException(status_code=422, detail="; ".join(merged_errors))
+    for field, value in _product_master_data_columns(payload).items():
         setattr(product, field, value)
     product.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,

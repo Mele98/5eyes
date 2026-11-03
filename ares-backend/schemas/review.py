@@ -860,7 +860,99 @@ def _normalize_climate_benchmark(value: Optional[str]) -> Optional[str]:
     return normalized
 
 
-class ProductCreate(BaseModel):
+class _ProductMasterDataFields(BaseModel):
+    """AUDIT-2026-11 P1 (Entscheid PO-6, Luecke L1): Produkt-Stammdaten.
+
+    Gemeinsam fuer Erfassen, Import und Bearbeiten. Alle Felder optional;
+    None = nicht erfasst. Validierung in schemas/product_master_data.py.
+    Die Auswahl-/Scoring-Logik liest diese Felder in P1 nicht (P13).
+    """
+    domicile: Optional[str] = Field(
+        default=None, description="Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU')."
+    )
+    is_hedged: Optional[bool] = Field(
+        default=None, description="Anteilsklasse waehrungsgesichert; None = nicht erfasst."
+    )
+    hedge_currency: Optional[str] = Field(
+        default=None, description="Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true."
+    )
+    ter_source: Optional[str] = Field(
+        default=None, description="Quelle der TER (z.B. Basisinformationsblatt, Factsheet)."
+    )
+    ter_as_of: Optional[str] = Field(default=None, description="Stichtag der TER (YYYY-MM-DD).")
+    retrocession_bps: Optional[int] = Field(
+        default=None, ge=0, le=1000,
+        description=(
+            "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT "
+            "(gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei."
+        ),
+    )
+    retrocession_source: Optional[str] = Field(
+        default=None, description="Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist)."
+    )
+    is_house_product: Optional[bool] = Field(
+        default=None, description="Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst."
+    )
+    distribution_policy: Optional[Literal["accumulating", "distributing"]] = Field(
+        default=None, description="Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend."
+    )
+    valor: Optional[str] = Field(default=None, description="Valorennummer (optional, nur Ziffern).")
+    minimum_investment_minor_units: Optional[int] = Field(
+        default=None, ge=0, le=PERSISTABLE_INT_MAX,
+        description="Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+    )
+
+    @field_validator("domicile", mode="before")
+    @classmethod
+    def _validate_domicile(cls, v):
+        from schemas.product_master_data import normalize_country_code
+
+        return normalize_country_code(v, field_name="domicile", valid_codes=ISO_3166_ALPHA2_CODES)
+
+    @field_validator("hedge_currency", mode="before")
+    @classmethod
+    def _validate_hedge_currency(cls, v):
+        from schemas.product_master_data import normalize_currency_code
+
+        return normalize_currency_code(v, field_name="hedge_currency")
+
+    @field_validator("is_hedged", "is_house_product", mode="before")
+    @classmethod
+    def _validate_optional_flags(cls, v, info):
+        from schemas.product_master_data import normalize_optional_bool
+
+        return normalize_optional_bool(v, field_name=info.field_name)
+
+    @field_validator("ter_as_of", mode="before")
+    @classmethod
+    def _validate_ter_as_of(cls, v):
+        from schemas.product_master_data import normalize_as_of_date
+
+        return normalize_as_of_date(v, field_name="ter_as_of")
+
+    @field_validator("ter_source", "retrocession_source", mode="before")
+    @classmethod
+    def _validate_sources(cls, v, info):
+        from schemas.product_master_data import normalize_source
+
+        return normalize_source(v, field_name=info.field_name)
+
+    @field_validator("distribution_policy", mode="before")
+    @classmethod
+    def _validate_distribution_policy(cls, v):
+        from schemas.product_master_data import normalize_distribution_policy
+
+        return normalize_distribution_policy(v)
+
+    @field_validator("valor", mode="before")
+    @classmethod
+    def _validate_valor(cls, v):
+        from schemas.product_master_data import normalize_valor
+
+        return normalize_valor(v)
+
+
+class ProductCreate(_ProductMasterDataFields):
     isin: Optional[str] = None
     symbol: Optional[str] = None
     product_name: str
@@ -938,6 +1030,25 @@ class ProductCreate(BaseModel):
     def _validate_theme_tags_field(cls, v):
         return _normalize_theme_tags(v)
 
+    @field_validator("isin", mode="before")
+    @classmethod
+    def _validate_isin_field(cls, v):
+        """AUDIT-2026-11 P1 (PO-6, 04/M5): ISIN mit Pruefziffer (ISO 6166,
+        Luhn). Leer = keine ISIN (nicht kotierter Fonds, Altbestand: kein
+        Zwang, aber Kennzeichnung ``isin_status``). Ungueltig -> 422."""
+        from schemas.product_master_data import normalize_isin
+
+        return normalize_isin(v)
+
+    @model_validator(mode="after")
+    def _validate_master_data_consistency(self):
+        from schemas.product_master_data import master_data_consistency_errors
+
+        errors = master_data_consistency_errors(self.model_dump())
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
+
     @model_validator(mode="after")
     def _validate_suitability_band(self):
         if self.suitability_profile_to < self.suitability_profile_from:
@@ -953,7 +1064,7 @@ class ProductCreate(BaseModel):
         return self
 
 
-class ProductUpdate(BaseModel):
+class ProductUpdate(_ProductMasterDataFields):
     """Sprint U-P10: Berater editiert Produkt-Metadaten (Admin-RBAC).
     Alle Felder optional — nur gesetzte werden geupdated."""
     # AUDIT-FIX Fondsuniversum R6/F6 (2026-11): isin/symbol/product_type
@@ -1053,6 +1164,18 @@ class ProductResponse(BaseResponse):
     liquidity_tier: Optional[str] = None
     climate_benchmark: Optional[str] = None
     theme_tags: Optional[list[str]] = None
+    # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten, None = nicht erfasst.
+    domicile: Optional[str] = None
+    is_hedged: Optional[bool] = None
+    hedge_currency: Optional[str] = None
+    ter_source: Optional[str] = None
+    ter_as_of: Optional[str] = None
+    retrocession_bps: Optional[int] = None
+    retrocession_source: Optional[str] = None
+    is_house_product: Optional[bool] = None
+    distribution_policy: Optional[str] = None
+    valor: Optional[str] = None
+    minimum_investment_minor_units: Optional[int] = None
     is_active: int
     # 2026-08-05 (Fondsuniversum): NULL = globaler/geteilter Katalog,
     # gesetzt = privater Fonds dieses Tenants (server-derived, siehe
@@ -1077,6 +1200,34 @@ class ProductResponse(BaseResponse):
         from services.esg_data_provenance import seed_unverified_esg_fields
 
         return list(seed_unverified_esg_fields(self))
+
+    # AUDIT-2026-11 P1: Kennzeichnung statt Zwang fuer den Altbestand.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def isin_status(self) -> Literal["valid", "invalid", "missing"]:
+        """'missing' (keine ISIN), 'invalid' (Altbestand mit formal
+        ungueltiger ISIN/Pruefziffer) oder 'valid'."""
+        from schemas.product_master_data import isin_status
+
+        return isin_status(self.isin)  # type: ignore[return-value]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def retrocession_status(self) -> Literal["unknown", "none", "present"]:
+        """'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),
+        'none' = ausdruecklich 0 bps, 'present' = Satz > 0."""
+        from schemas.product_master_data import retrocession_status
+
+        return retrocession_status(self.retrocession_bps)  # type: ignore[return-value]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def master_data_gaps(self) -> list[str]:
+        """Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,
+        in P1 keine Sperre)."""
+        from schemas.product_master_data import master_data_gaps
+
+        return master_data_gaps(self)
 
     @field_validator("theme_tags", mode="before")
     @classmethod
