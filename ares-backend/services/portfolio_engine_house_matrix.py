@@ -89,6 +89,8 @@ from sqlalchemy.orm import Session
 
 from database import new_uuid
 from services.allocation_messages import (
+    CONFLICT_BAND_REASON_MISSING,
+    WARN_BAND_OUTSIDE_HOUSE_MATRIX,
     WARN_TARGET_ADJUSTED,
     WARN_TARGET_FALLBACK_RESET,
     format_message,
@@ -670,6 +672,55 @@ def advisor_band_house_deviations(
             "mandate_max_bps": mandate_max,
         })
     return deviations
+
+
+def band_deviation_messages(
+    bands: dict | None,
+    house_minimums: dict[str, int],
+    house_maximums: dict[str, int],
+    *,
+    reason_is_valid: bool,
+    house_profile: str | None,
+    score_bucket: int | None,
+) -> list[dict]:
+    """Live-Test 04 / M3: Meldungen fuer ``messages`` (Banner der AA- und
+    Review-Maske), dieselbe Regel wie das Freigabe-Gate.
+
+    Vorher stand die Abweichung nur in ``warnings``; die Banner lesen aber
+    ``messages`` -- Torte und Tabelle zeigten Baender ausserhalb der
+    Hausmatrix ohne Hinweis. Je Abweichung WARN_BAND_OUTSIDE_HOUSE_MATRIX;
+    ohne tragfaehige Begruendung zusaetzlich CONFLICT_BAND_REASON_MISSING
+    (Konflikt -> Banner-Vorrang), das die Freigabesperre ankuendigt.
+    ``reason_is_valid`` ist das Ergebnis von
+    ``validate_override_reason_quality`` (wie im Freigabe-Gate) und wird vom
+    Aufrufer bestimmt.
+    """
+    deviations = advisor_band_house_deviations(bands, house_minimums, house_maximums)
+    if not deviations:
+        return []
+    profile = house_profile or "unbekannt"
+    score = score_bucket if score_bucket is not None else "?"
+    messages = [
+        format_message(
+            WARN_BAND_OUTSIDE_HOUSE_MATRIX,
+            bucket_label=deviation["bucket_label"],
+            mandate_min=_band_pct(deviation["mandate_min_bps"]),
+            mandate_max=_band_pct(deviation["mandate_max_bps"]),
+            house_min=_band_pct(deviation["house_min_bps"]),
+            house_max=_band_pct(deviation["house_max_bps"]),
+            profile_label=profile,
+            score_bucket=score,
+        )
+        for deviation in deviations
+    ]
+    if not reason_is_valid:
+        messages.append(format_message(
+            CONFLICT_BAND_REASON_MISSING,
+            bucket_labels=", ".join(d["bucket_label"] for d in deviations),
+            profile_label=profile,
+            score_bucket=score,
+        ))
+    return messages
 
 
 def house_band_deviation_note(

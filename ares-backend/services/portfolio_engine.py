@@ -104,8 +104,19 @@ from services.risk_assessment_semantics import (
     OVERRIDE_AFTER_ALLOCATION_MESSAGE,
     assessment_overridden_after_allocation,
     risk_score_bucket_from_validated_score,
+    validate_override_reason_quality,
     validate_risk_assessment_model_input,
 )
+
+
+def _band_deviation_reason_is_valid(reason) -> bool:
+    """Live-Test 04 / M3: dieselbe Qualitaetsregel wie das Freigabe-Gate
+    (routers/review.py) fuer ``bandDeviationReason``."""
+    try:
+        validate_override_reason_quality(reason)
+    except ValueError:
+        return False
+    return True
 
 
 BUCKET_FIELDS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
@@ -1253,6 +1264,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
     house_matrix_bands_payload,
+    band_deviation_messages,
     system_liquidity_floor_from_allocation,
     policy_band_clamp_notes,
     policy_band_bound_keys,
@@ -4025,6 +4037,14 @@ def generate_target_allocation(
         mandate,
         assessment,
     )
+    # Live-Test 04 / M3: Abweichung vom Eignungsrahmen auch in ``messages``
+    # (Banner), ohne tragfaehige Begruendung als Konflikt.
+    _house_targets_m3, house_minimums_m3, house_maximums_m3 = _baseline_target_bands(house_matrix, policy)
+    messages = list(messages) + band_deviation_messages(
+        prefs["bands"], house_minimums_m3, house_maximums_m3,
+        reason_is_valid=_band_deviation_reason_is_valid(prefs.get("bandDeviationReason")),
+        house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+    )
     # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
     # ohne erneuten Solver-Lauf liefern kann. Nur im stochastic-Modus.
     stress_evaluations_json: str | None = None
@@ -6154,6 +6174,18 @@ def build_target_payload_from_allocation(
         mandate,
         assessment,
     )
+    # Live-Test 04 / M3: Abweichung vom Eignungsrahmen aus dem Snapshot,
+    # falls nicht schon persistiert (Hausmatrix-Modus, Altbestand).
+    if not any(
+        isinstance(msg, dict) and msg.get("code") == "WARN_BAND_OUTSIDE_HOUSE_MATRIX"
+        for msg in messages
+    ):
+        _house_targets_m3, house_minimums_m3, house_maximums_m3 = _baseline_target_bands(house_matrix, policy)
+        messages = list(messages) + band_deviation_messages(
+            prefs.get("bands"), house_minimums_m3, house_maximums_m3,
+            reason_is_valid=_band_deviation_reason_is_valid(prefs.get("bandDeviationReason")),
+            house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+        )
     total_allocation_payload = _build_total_wealth_allocation(
         total_summary, mortgage_liabilities_rappen, total_wealth_rappen, targets,
         foundation_projection=external_foundation_projection,

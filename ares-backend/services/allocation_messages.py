@@ -40,6 +40,9 @@ WARN_TARGET_ADJUSTED = "WARN_TARGET_ADJUSTED"
 # H-859-3 (Pruefrunde #859): der Risikobudget-Fallback setzt ein explizites
 # Berater-Ziel auf die Bandbreiten-Mitte des Risikoprofils zurueck.
 WARN_TARGET_FALLBACK_RESET = "WARN_TARGET_FALLBACK_RESET"
+# Live-Test 04 / M3: Mandatsbandbreite ausserhalb der Hausmatrix ohne
+# tragfaehige Begruendung -- die Freigabe ist blockiert (routers/review.py).
+CONFLICT_BAND_REASON_MISSING = "CONFLICT_BAND_REASON_MISSING"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -54,6 +57,7 @@ ALL_CODES: tuple[str, ...] = (
     WARN_GLOBAL_CAP_CLAMP,
     WARN_TARGET_ADJUSTED,
     WARN_TARGET_FALLBACK_RESET,
+    CONFLICT_BAND_REASON_MISSING,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -249,6 +253,22 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
         "body_client": (
             "Für {bucket_label} wird eine Quote von {effective} % umgesetzt, die "
             "innerhalb der für Ihre Strategie geltenden Grenzen liegt."
+        ),
+        "actions": ("review_constraints",),
+    },
+    CONFLICT_BAND_REASON_MISSING: {
+        "severity": SEVERITY_CONFLICT,
+        "title": "Begründung für Abweichung vom Eignungsrahmen fehlt",
+        "body_advisor": (
+            "{bucket_labels}: Die Mandatsbandbreite verlässt den Eignungsrahmen des "
+            "Risikoprofils «{profile_label}» (Score {score_bucket}). Ohne dokumentierte "
+            "Begründung ist die Freigabe der Empfehlung blockiert. Bitte im "
+            "Bandbreiten-Editor eine Begründung erfassen und die Strategie neu berechnen."
+        ),
+        "body_client": (
+            "Die vereinbarte Bandbreite weicht vom Standardrahmen Ihres Anlageprofils ab. "
+            "Die Begründung wird im Beratungsgespräch dokumentiert, bevor die Empfehlung "
+            "freigegeben wird."
         ),
         "actions": ("review_constraints",),
     },
