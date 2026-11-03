@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Mapping
 
 logger = logging.getLogger(__name__)
@@ -242,26 +243,62 @@ def currency_exposure_for_product(
     return result
 
 
-#: PO-06 (Audit 2026-11): Kennzeichen einer Waehrungsabsicherung in den
-#: Produktstammdaten (Produktname/-typ). Gleiche Marker-Familie wie
-#: services.portfolio_engine_payload._product_is_chf_or_fx_hedged, aber bewusst
-#: OHNE Sub-Klassen-Bezeichnung: die Absicherung ist eine Eigenschaft des
-#: Produkts (Share-Class), nicht der Anlageklasse.
+#: PO-06 (Audit 2026-11) / N-856-1: Absicherung aus den Produktstammdaten.
 #: Bewusst nicht "hedg"/"hedge": ein "Hedge Fund" ist keine Absicherung.
-_HEDGE_MARKERS = ("hedged", "abgesichert", "waehrungsgesichert", "währungsgesichert")
+_HEDGE_WORDS = r"(?:hedged|abgesichert|w(?:ae|ä)hrungsgesichert|gesichert)"
+#: Negationen werden VOR den positiven Markern geprueft (N-856-1): "Unhedged",
+#: "nicht abgesichert" usw. sind gerade KEINE Absicherung.
+_HEDGE_NEGATION_RE = re.compile(
+    r"\b(?:un-?hedged|non-?hedged|not\s+hedged|ungesichert|unabgesichert"
+    r"|nicht\s+(?:w(?:ae|ä)hrungs)?(?:ab)?gesichert"
+    r"|ohne\s+(?:w(?:ae|ä)hrungs)?absicherung)\b"
+)
+_HEDGE_MARKER_RE = re.compile(r"\b" + _HEDGE_WORDS + r"\b")
+#: ISO-4217-Codes, die als Absicherungswaehrung in Produktnamen vorkommen.
+#: Ein beliebiges Dreibuchstabenwort ("ETF", "IMI") ist keine Waehrung.
+_HEDGE_CURRENCIES = frozenset({
+    "CHF", "EUR", "USD", "GBP", "JPY", "SEK", "NOK", "DKK", "AUD", "CAD",
+    "NZD", "SGD", "HKD", "CNY", "CNH", "PLN", "CZK", "HUF",
+})
+_HEDGE_CCY_PATTERNS = (
+    re.compile(r"\b([a-z]{3})[\s-]*" + _HEDGE_WORDS + r"\b"),  # "CHF Hedged", "CHF-hedged"
+    re.compile(r"\bhedged\s+(?:to|in|into)\s+([a-z]{3})\b"),  # "hedged to CHF"
+    re.compile(r"\b([a-z]{3})\s+w(?:ae|ä)hrungsgesichert\b"),
+)
 
 #: Herkunft des Waehrungs-Exposures (wird im Depot-Check ausgewiesen).
 CURRENCY_SOURCE_PRODUCT_DATA = "produktdaten"
-CURRENCY_SOURCE_HEDGE_MARKER = "produktdaten_absicherung"
+CURRENCY_SOURCE_HEDGE_FLAG = "produktdaten_absicherung"
+CURRENCY_SOURCE_HEDGE_NAME = "produktname_absicherung"
 CURRENCY_SOURCE_SUB_CLASS_PROXY = "sub_klassen_proxy"
 CURRENCY_SOURCE_PRODUCT_CURRENCY = "produktwaehrung"
 CURRENCY_SOURCE_UNKNOWN = "unbekannt"
 
 
-def product_is_currency_hedged(product_name: str | None, product_type: str | None = None) -> bool:
-    """True, wenn die Produktstammdaten eine Waehrungsabsicherung ausweisen."""
+def hedge_from_product_name(product_name: str | None, product_type: str | None = None) -> tuple[bool | None, str | None]:
+    """N-856-1: (abgesichert?, Absicherungswaehrung) aus dem Produktnamen.
+
+    ``(False, None)`` bei ausdruecklicher Negation, ``(True, CCY)`` bei Marker
+    mit erkennbarer Waehrung, ``(True, None)`` bei Marker ohne Waehrung,
+    ``(None, None)`` ohne Hinweis. Die Handelswaehrung wird bewusst NICHT als
+    Absicherungswaehrung angenommen.
+    """
     text = f" {product_name or ''} {product_type or ''} ".lower()
-    return any(marker in text for marker in _HEDGE_MARKERS)
+    if _HEDGE_NEGATION_RE.search(text):
+        return False, None
+    if not _HEDGE_MARKER_RE.search(text):
+        return None, None
+    for pattern in _HEDGE_CCY_PATTERNS:
+        for match in pattern.finditer(text):
+            ccy = match.group(1).upper()
+            if ccy in _HEDGE_CURRENCIES:
+                return True, ccy
+    return True, None
+
+
+def product_is_currency_hedged(product_name: str | None, product_type: str | None = None) -> bool:
+    """True, wenn der Produktname eine (nicht negierte) Absicherung ausweist."""
+    return hedge_from_product_name(product_name, product_type)[0] is True
 
 
 def currency_exposure_with_source(
@@ -271,26 +308,37 @@ def currency_exposure_with_source(
     product_currency: str | None = None,
     product_name: str | None = None,
     product_type: str | None = None,
+    is_hedged: bool | None = None,
+    hedge_currency: str | None = None,
 ) -> tuple[dict[str, int], str]:
-    """PO-06: Waehrungs-Exposure eines Produkts samt Herkunft.
+    """PO-06 / N-856-1: Waehrungs-Exposure eines Produkts samt Herkunft.
 
-    Reihenfolge: (1) gepflegtes ``currency_exposure_json``; (2) ein als
-    abgesichert gekennzeichnetes Produkt traegt das Exposure seiner
-    Produktwaehrung (= Absicherungswaehrung der Share-Class); (3) erst wenn
-    Produktdaten fehlen, der Sub-Klassen-Proxy; (4) 100 % Produktwaehrung.
-    Vorher lieferte (3) auch fuer abgesicherte Produkte das volle
-    Fremdwaehrungs-Exposure der Sub-Klasse.
+    Rangfolge (Dok. 86, Pruefrunde #856):
+      1. gepflegtes ``currency_exposure_json``
+      2. ``is_hedged is True`` (Stammdatenfeld, P1) mit Absicherungswaehrung
+         aus den Stammdaten bzw. dem Namen
+      3. ``is_hedged is False`` -> Proxy, ausdruecklich VOR dem Namensmarker
+      4. nur bei ``is_hedged is None``: Namens-Heuristik (Negation -> Proxy,
+         Marker mit Waehrung -> 100 % dieser Waehrung)
+      5. Sub-Klassen-Proxy (auch fuer "abgesichert, Waehrung unbekannt":
+         im Zweifel konservativ Fremdwaehrung)
+      6. 100 % Produktwaehrung
     """
     if currency_exposure_json:
         explicit = _parse_or_proxy(currency_exposure_json, {}, None)
         if explicit:
             return explicit, CURRENCY_SOURCE_PRODUCT_DATA
-    currency = str(product_currency or "").strip().upper()
-    if currency and product_is_currency_hedged(product_name, product_type):
-        return {currency: 10000}, CURRENCY_SOURCE_HEDGE_MARKER
+    name_hedged, name_ccy = hedge_from_product_name(product_name, product_type)
+    if is_hedged is True:
+        ccy = str(hedge_currency or "").strip().upper() or name_ccy
+        if ccy:
+            return {ccy: 10000}, CURRENCY_SOURCE_HEDGE_FLAG
+    elif is_hedged is None and name_hedged is True and name_ccy:
+        return {name_ccy: 10000}, CURRENCY_SOURCE_HEDGE_NAME
     proxy = _parse_or_proxy(None, _CURRENCY_PROXIES_BY_SUB_CLASS, sub_asset_class)
     if proxy:
         return proxy, CURRENCY_SOURCE_SUB_CLASS_PROXY
+    currency = str(product_currency or "").strip().upper()
     if currency:
         return {currency: 10000}, CURRENCY_SOURCE_PRODUCT_CURRENCY
     return {}, CURRENCY_SOURCE_UNKNOWN

@@ -268,7 +268,8 @@ def _init_result_dict(mandate: Mandate) -> dict:
         "sector_exposure_bps": {},
         "currency_exposure_bps": {},
         # PO-06: Herkunft des Waehrungs-Exposures je Quelle (bps des IST):
-        # produktdaten / produktdaten_absicherung / sub_klassen_proxy /
+        # produktdaten / produktdaten_absicherung / produktname_absicherung /
+        # sub_klassen_proxy /
         # produktwaehrung / unbekannt.
         "currency_exposure_source_bps": {},
         # Sprint U-P20 (2026-05-24): SOLL-Exposures + IST-SOLL-Drift pro
@@ -621,6 +622,10 @@ def compute_depot_check(
             product_currency=getattr(prod, "currency", None),
             product_name=getattr(prod, "product_name", None),
             product_type=getattr(prod, "product_type", None),
+            # N-856-1: kuenftiges Stammdatenfeld (P1), dreiwertig; fehlt es
+            # (heute immer), gilt None = unbekannt -> Namens-Heuristik/Proxy.
+            is_hedged=getattr(prod, "is_hedged", None),
+            hedge_currency=getattr(prod, "hedge_currency", None),
         )
         position_currency_source[rec_pos.id] = currency_source
         if amount <= 0:

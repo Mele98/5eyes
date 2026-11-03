@@ -40,7 +40,7 @@ def test_hedged_product_reports_home_currency_from_product_data():
         product_name="Welt-Aktien ETF CHF Hedged", product_type="ETF",
     )
     assert exposure == {"CHF": 10000}
-    assert source == "produktdaten_absicherung"
+    assert source == "produktname_absicherung"
 
 
 def test_unhedged_product_without_data_falls_back_to_sub_class_proxy():
@@ -117,11 +117,11 @@ def test_depot_check_and_hedge_proposal_do_not_count_hedged_products_as_fx(sessi
         assert fx_bps < hedged_bps
 
         sources = dc["currency_exposure_source_bps"]
-        assert sources.get("produktdaten_absicherung", 0) >= hedged_bps - 5
+        assert sources.get("produktname_absicherung", 0) >= hedged_bps - 5
         top = {p["product_name"]: p for p in dc["top_positions"]}
         for p in hedged:
             if p["product_name"] in top:
-                assert top[p["product_name"]]["currency_exposure_source"] == "produktdaten_absicherung"
+                assert top[p["product_name"]]["currency_exposure_source"] == "produktname_absicherung"
 
         verdict = _check_waehrungsabsicherung(s, mandate, dc)
         assert f"{fx_bps / 100:.1f}%" in verdict["beurteilung"]
