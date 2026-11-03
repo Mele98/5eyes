@@ -95,6 +95,9 @@ def test_mapping_rejects_mismatched_points():
 
 ADV = "Anlageberatung"
 VV = "Vermögensverwaltung"
+# N-857-5: lognormaler Pflichtkandidat, so mild (P10 ~ +4 %), dass der
+# MC-Wert in diesen Tests das Minimum ist.
+MILD = {"expected_return_bps": 800, "volatility_bps": 300}
 
 
 def test_lognormal_p10_matches_closed_form():
@@ -177,7 +180,7 @@ def test_minimum_of_mc_and_lognormal_is_binding():
 
 
 def test_p5_and_cvar_are_disclosure_only():
-    kwargs = dict(mandate_type=VV, mc_p10_return_bps=-900.0)
+    kwargs = dict(mandate_type=VV, mc_p10_return_bps=-900.0, **MILD)
     plain = lt.evaluate_loss_tolerance(3, **kwargs)
     with_tail = lt.evaluate_loss_tolerance(
         3, p5_return_bps=-5000.0, cvar10_return_bps=-6000.0, **kwargs,
@@ -191,7 +194,7 @@ def test_p5_and_cvar_are_disclosure_only():
 # ---------------------------------------------------------------------------
 
 def test_conflict_when_p10_below_floor():
-    check = lt.evaluate_loss_tolerance(1, mandate_type=ADV, mc_p10_return_bps=-750.0)
+    check = lt.evaluate_loss_tolerance(1, mandate_type=ADV, mc_p10_return_bps=-750.0, **MILD)
     assert check.status == lt.STATUS_CONFLICT
     assert check.is_conflict
     assert check.check_code == lt.REASON_CONFLICT == "LOSS_TOLERANCE_CONFLICT"
@@ -206,7 +209,7 @@ def test_conflict_when_p10_below_floor():
 
 
 def test_advisory_conflict_requires_advise_against_and_justification():
-    check = lt.evaluate_loss_tolerance(1, mandate_type=ADV, mc_p10_return_bps=-750.0)
+    check = lt.evaluate_loss_tolerance(1, mandate_type=ADV, mc_p10_return_bps=-750.0, **MILD)
     assert check.conflict_resolution == lt.RESOLUTION_ADVISE_AGAINST
     assert check.requires_advise_against is True
     assert check.requires_justification is True
@@ -216,7 +219,7 @@ def test_advisory_conflict_requires_advise_against_and_justification():
 
 @pytest.mark.parametrize("mandate_type", [VV, None, "", "Execution-only", "unbekannt"])
 def test_discretionary_or_unknown_conflict_blocks_without_justification(mandate_type):
-    check = lt.evaluate_loss_tolerance(1, mandate_type=mandate_type, mc_p10_return_bps=-750.0)
+    check = lt.evaluate_loss_tolerance(1, mandate_type=mandate_type, mc_p10_return_bps=-750.0, **MILD)
     assert check.is_conflict
     assert check.conflict_resolution == lt.RESOLUTION_BLOCK
     assert check.blocks_release is True
@@ -226,13 +229,13 @@ def test_discretionary_or_unknown_conflict_blocks_without_justification(mandate_
 
 
 def test_ok_when_p10_equals_or_exceeds_floor():
-    at_floor = lt.evaluate_loss_tolerance(3, mandate_type=VV, mc_p10_return_bps=-1000.0)
+    at_floor = lt.evaluate_loss_tolerance(3, mandate_type=VV, mc_p10_return_bps=-1000.0, **MILD)
     assert at_floor.status == lt.STATUS_OK
     assert at_floor.check_code is None
     assert at_floor.blocks_release is False
     assert at_floor.conflict_resolution is None
     assert at_floor.shortfall_bps is None
-    assert lt.evaluate_loss_tolerance(4, mandate_type=VV, mc_p10_return_bps=-900.0).status == lt.STATUS_OK
+    assert lt.evaluate_loss_tolerance(4, mandate_type=VV, mc_p10_return_bps=-900.0, **MILD).status == lt.STATUS_OK
 
 
 def test_evaluation_from_lognormal_moments():
@@ -249,7 +252,7 @@ def test_evaluation_from_lognormal_moments():
 
 @pytest.mark.parametrize("points", [None, True, "2", 2.0])
 def test_missing_answer_is_not_evaluable(points):
-    check = lt.evaluate_loss_tolerance(points, mandate_type=VV, mc_p10_return_bps=0.0)
+    check = lt.evaluate_loss_tolerance(points, mandate_type=VV, mc_p10_return_bps=0.0, **MILD)
     assert check.status == lt.STATUS_NOT_EVALUABLE
     assert check.check_code == lt.REASON_ANSWER_MISSING
     assert not check.is_conflict
@@ -257,7 +260,7 @@ def test_missing_answer_is_not_evaluable(points):
 
 @pytest.mark.parametrize("points", [0, 5, 99])
 def test_unknown_answer_is_unmapped_placeholder(points):
-    check = lt.evaluate_loss_tolerance(points, mandate_type=VV, mc_p10_return_bps=0.0)
+    check = lt.evaluate_loss_tolerance(points, mandate_type=VV, mc_p10_return_bps=0.0, **MILD)
     assert check.status == lt.STATUS_NOT_EVALUABLE
     assert check.check_code == lt.REASON_ANSWER_UNMAPPED
     assert check.floor_bps is None
@@ -288,19 +291,19 @@ def test_eleven_compliance_placeholders_are_listed_and_disclosed():
     keys = lt.COMPLIANCE_PLACEHOLDER_KEYS
     assert len(set(keys)) == 11
     assert all(text.strip() for _, text in lt.COMPLIANCE_PLACEHOLDERS)
-    check = lt.evaluate_loss_tolerance(2, mandate_type=VV, mc_p10_return_bps=0.0)
+    check = lt.evaluate_loss_tolerance(2, mandate_type=VV, mc_p10_return_bps=0.0, **MILD)
     assert check.placeholders == keys
     net = lt.evaluate_loss_tolerance(
-        2, mandate_type=VV, mc_p10_return_bps=0.0, return_basis=lt.RETURN_BASIS_NET,
+        2, mandate_type=VV, mc_p10_return_bps=0.0, **MILD, return_basis=lt.RETURN_BASIS_NET,
     )
     assert net.placeholders == keys  # Kostenbasis bleibt Compliance-offen (CP04)
 
 
 def test_flag_is_off_by_default_and_gates_the_entry_point():
     assert lt.LOSS_TOLERANCE_CHECK_ENABLED is False
-    assert lt.evaluate_loss_tolerance_if_enabled(1, mandate_type=VV, mc_p10_return_bps=-750.0) is None
+    assert lt.evaluate_loss_tolerance_if_enabled(1, mandate_type=VV, mc_p10_return_bps=-750.0, **MILD) is None
     forced = lt.evaluate_loss_tolerance_if_enabled(
-        1, enabled=True, mandate_type=VV, mc_p10_return_bps=-750.0,
+        1, enabled=True, mandate_type=VV, mc_p10_return_bps=-750.0, **MILD,
     )
     assert forced is not None and forced.is_conflict
 
@@ -367,5 +370,46 @@ def test_not_evaluable_in_advisory_requires_documented_justification(case):
 
 
 def test_only_ok_releases():
-    ok = lt.evaluate_loss_tolerance(4, mandate_type=VV, mc_p10_return_bps=-900.0)
+    ok = lt.evaluate_loss_tolerance(4, mandate_type=VV, mc_p10_return_bps=-900.0, **MILD)
     assert ok.status == lt.STATUS_OK and ok.blocks_release is False
+
+
+# ---------------------------------------------------------------------------
+# N-857-5: lognormaler k=0-Kandidat ist Pflicht, massgeblich immer das Minimum
+# ---------------------------------------------------------------------------
+
+def test_mild_helper_is_milder_than_test_mc_values():
+    assert lt.lognormal_p10_return_bps(**MILD) > 300
+
+
+def test_mc_value_alone_is_not_evaluable_and_blocks():
+    check = lt.evaluate_loss_tolerance(4, mandate_type=VV, mc_p10_return_bps=-900.0)
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.check_code == lt.REASON_DISTRIBUTION_MISSING
+    assert check.blocks_release is True
+
+
+def test_smuggled_cornish_fisher_p10_cannot_make_the_check_milder():
+    """Ein (zu mildes) CF-P10 als 'MC-Wert' durchgereicht: das lognormale
+    Pflicht-P10 bindet, der Konflikt bleibt bestehen."""
+    mu, sigma = 600, 1400
+    cf_p10 = lt.one_year_p10_return_bps(mu, sigma, skew=-0.5, excess_kurtosis=3.0)
+    lognormal = lt.lognormal_p10_return_bps(mu, sigma)
+    assert cf_p10 > -1000 > lognormal  # CF allein waere ok bei Antwort 3 (-10 %)
+    check = lt.evaluate_loss_tolerance(
+        3, mandate_type=VV, mc_p10_return_bps=cf_p10,
+        expected_return_bps=mu, volatility_bps=sigma,
+    )
+    assert check.is_conflict
+    assert check.p10_source == lt.SOURCE_LOGNORMAL_K0
+    assert check.p10_return_bps == pytest.approx(round(lognormal, 2))
+
+
+def test_binding_value_is_always_the_minimum_of_all_candidates():
+    for mc in (-2000.0, -1121.0, -500.0, 300.0):
+        check = lt.evaluate_loss_tolerance(
+            4, mandate_type=VV, mc_p10_return_bps=mc,
+            expected_return_bps=600, volatility_bps=1400,
+        )
+        assert check.p10_return_bps == min(check.p10_candidates_bps.values())
+        assert lt.SOURCE_LOGNORMAL_K0 in check.p10_candidates_bps

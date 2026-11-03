@@ -27,7 +27,9 @@ Inhalt dieses Moduls, ausschliesslich reine Funktionen:
   - das P10 einer lognormalen 1-Jahres-Rendite aus Portfolio-mu/-sigma mit
     Schiefe 0 und Exzess-Kurtosis 0 (``lognormal_p10_return_bps``, Quelle
     ``SOURCE_LOGNORMAL_K0``).
-  Liegen beide vor, gilt das Minimum (konservativ). Ein Momentenpfad mit
+  Der lognormale Kandidat ist Pflicht (N-857-5): massgeblich ist immer
+  das Minimum aus lognormal und (falls geliefert) MC-P10. Ohne mu/sigma ist
+  die Pruefung ``not_evaluable`` und damit blockierend (N-857-6). Ein Momentenpfad mit
   Schiefe oder Kurtosis ungleich 0 ist als Sperrgrundlage gesperrt: bei
   fester Varianz rueckt Kurtosis das P10 nach innen, ein Portfolio-CF waere
   gemessen bis 2.2 pp zu mild. ``one_year_p10_return_bps`` (CF) bleibt nur
@@ -475,38 +477,42 @@ def _evaluate(
                 **common,
             )
         candidates[SOURCE_MC_ASSET_PATHS] = round(value, 2)
-    if expected_return_bps is not None or volatility_bps is not None:
-        if expected_return_bps is None or volatility_bps is None:
-            return LossToleranceCheck(
-                status=STATUS_NOT_EVALUABLE,
-                check_code=REASON_DISTRIBUTION_MISSING,
-                message=(
-                    "Verlusttoleranz nicht pruefbar: erwartete Rendite und "
-                    "Volatilitaet muessen beide vorliegen."
-                ),
-                **common,
-            )
-        # N-857-3: Tail-Momente sind keine zulaessige Sperrgrundlage.
-        if float(skew) != 0.0 or float(excess_kurtosis) != 0.0:
-            return LossToleranceCheck(
-                status=STATUS_NOT_EVALUABLE,
-                check_code=REASON_TAIL_MOMENTS_NOT_ADMISSIBLE,
-                message=(
-                    "Verlusttoleranz nicht pruefbar: ein Momentenpfad mit "
-                    "Schiefe oder Kurtosis ist keine zulaessige Sperrgrundlage "
-                    "(MC-Pfade auf Anlageklassenebene oder lognormal mit k=0)."
-                ),
-                **common,
-            )
-        lognormal = lognormal_p10_return_bps(expected_return_bps, volatility_bps)
-        if not math.isfinite(lognormal):
-            return LossToleranceCheck(
-                status=STATUS_NOT_EVALUABLE,
-                check_code=REASON_DISTRIBUTION_MISSING,
-                message="Verlusttoleranz nicht pruefbar: P10 ist keine endliche Zahl.",
-                **common,
-            )
-        candidates[SOURCE_LOGNORMAL_K0] = round(lognormal, 2)
+    # N-857-5: der lognormale k=0-Kandidat ist PFLICHT. ``mc_p10_return_bps``
+    # ist eine nackte Zahl ohne Herkunftsnachweis (ein CF-P10 liesse sich als
+    # MC-Wert einschleusen); massgeblich ist deshalb immer
+    # min(MC-P10, lognormales P10) und nie der MC-Wert allein.
+    if expected_return_bps is None or volatility_bps is None:
+        return LossToleranceCheck(
+            status=STATUS_NOT_EVALUABLE,
+            check_code=REASON_DISTRIBUTION_MISSING,
+            message=(
+                "Verlusttoleranz nicht pruefbar: erwartete Rendite und "
+                "Volatilitaet der Strategie (lognormaler Pflichtkandidat) "
+                "muessen beide vorliegen."
+            ),
+            **common,
+        )
+    # N-857-3: Tail-Momente sind keine zulaessige Sperrgrundlage.
+    if float(skew) != 0.0 or float(excess_kurtosis) != 0.0:
+        return LossToleranceCheck(
+            status=STATUS_NOT_EVALUABLE,
+            check_code=REASON_TAIL_MOMENTS_NOT_ADMISSIBLE,
+            message=(
+                "Verlusttoleranz nicht pruefbar: ein Momentenpfad mit "
+                "Schiefe oder Kurtosis ist keine zulaessige Sperrgrundlage "
+                "(MC-Pfade auf Anlageklassenebene oder lognormal mit k=0)."
+            ),
+            **common,
+        )
+    lognormal = lognormal_p10_return_bps(expected_return_bps, volatility_bps)
+    if not math.isfinite(lognormal):
+        return LossToleranceCheck(
+            status=STATUS_NOT_EVALUABLE,
+            check_code=REASON_DISTRIBUTION_MISSING,
+            message="Verlusttoleranz nicht pruefbar: P10 ist keine endliche Zahl.",
+            **common,
+        )
+    candidates[SOURCE_LOGNORMAL_K0] = round(lognormal, 2)
     if not candidates:
         return LossToleranceCheck(
             status=STATUS_NOT_EVALUABLE,
