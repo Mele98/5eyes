@@ -312,6 +312,46 @@ def _largest_remainder_split(total: int, weights: list[int], labels: list[str]) 
     return floors
 
 
+def _strategy_basis_from_allocation(ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None) -> dict:
+    """Pruefrunde #858 N-858-2: Strategiebasis und Reserve aus EINEM Zeitpunkt.
+
+    ``build_target_payload_from_allocation`` rechnet ``strategy_base_rappen``
+    mit dem AKTUELLEN Beratungsvermoegen, das PDF zeigt aber das Vermoegen bei
+    Generierung. Die Differenz beider Werte als Reserve war nach einer
+    Vermoegensaenderung falsch (bei Anstieg still 0). Quelle ist deshalb der
+    gespeicherte Generierungs-Snapshot der TargetAllocation
+    (``external_reserve_at_generation_rappen``); nur Altbestaende ohne
+    Snapshot fallen auf die Payload-Reserve zurueck. Weicht das aktuelle
+    Beratungsvermoegen ab, wird darauf ausdruecklich hingewiesen.
+    """
+    payload = engine_payload if isinstance(engine_payload, dict) else {}
+    current = int(current_advisory_wealth_rappen or 0)
+    advisory = int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0) or current
+    stored = getattr(ta_obj, "external_reserve_at_generation_rappen", None)
+    reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
+    reserve = min(max(0, reserve), max(0, advisory))
+    note = None
+    if advisory and current and abs(current - advisory) >= 100:
+        raw_date = str(getattr(ta_obj, "created_at", "") or "")[:10]
+        try:
+            from datetime import date as _date
+            date_label = _date.fromisoformat(raw_date).strftime("%d.%m.%Y")
+        except ValueError:
+            date_label = raw_date or "Generierung"
+        chf = lambda r: f"{int(round(r / 100)):,}".replace(",", "'")  # noqa: E731
+        note = (
+            f"Strategie berechnet auf Beratungsvermögen CHF {chf(advisory)} per {date_label}; "
+            f"aktuelles Beratungsvermögen CHF {chf(current)}. Für aktuelle Beträge die "
+            "Anlagestrategie neu berechnen."
+        )
+    return {
+        "advisory_wealth_rappen": advisory or None,
+        "strategy_base_rappen": advisory - reserve if advisory else None,
+        "external_reserve_rappen": reserve,
+        "note": note,
+    }
+
+
 def _strategy_presentation_amounts(
     advisory_wealth_rappen: int | None,
     strategy_base_rappen: int | None,
@@ -657,9 +697,12 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     # Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis der Engine
     # (Gewichte beziehen sich auf Beratungsvermoegen minus externe Reserve),
     # Reserve separat, Subklassen aus der SAA-Sub-Allokation.
+    # N-858-2: Basis und Reserve aus dem Generierungs-Snapshot, nicht aus dem
+    # live gerechneten Payload (anderer Zeitpunkt).
+    strategy_basis = _strategy_basis_from_allocation(ta_obj, engine_payload, current_advisory_wealth)
     presentation_amounts = _strategy_presentation_amounts(
-        advisory_wealth,
-        engine_payload.get("strategy_base_rappen"),
+        strategy_basis["advisory_wealth_rappen"],
+        strategy_basis["strategy_base_rappen"],
         target_alloc_bps,
         engine_payload.get("sub_allocations"),
     )
@@ -1028,6 +1071,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         strategy_base_rappen=presentation_amounts["strategy_base_rappen"],
         external_reserve_rappen=presentation_amounts["external_reserve_rappen"],
         sub_allocations=presentation_amounts["sub_allocations"],
+        strategy_basis_note=strategy_basis["note"],
         products=products,
         recommendation_status=recommendation_status,
         goal_analysis=goal_analysis,

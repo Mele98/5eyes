@@ -95,6 +95,11 @@ def build_asset_allocation_flowables(
             bucket_amounts_rappen=data.bucket_amounts_rappen,
             external_reserve_rappen=data.external_reserve_rappen,
         ))
+        if getattr(data, "strategy_basis_note", None):
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="8" color="#7a5200">{_esc(data.strategy_basis_note)}</font>',
+                styles["body"],
+            ))
         flowables.append(PageBreak())
         flowables.extend(make_banner_header(
             ctx,

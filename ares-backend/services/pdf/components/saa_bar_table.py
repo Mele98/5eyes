@@ -41,6 +41,7 @@ def make_saa_bar_table(
     advisory_wealth_rappen: int | None = None,
     show_bands: bool = False,
     external_reserve_rappen: int = 0,
+    basis_note: str | None = None,
 ) -> list:
     """Returns Flowables: Section-Title + Allokations-Tabelle."""
     title = "Soll-Allokation & individuelle Bandbreiten" if show_bands else "Soll-Allokation"
@@ -175,6 +176,11 @@ def make_saa_bar_table(
         style_cmds.append(("ALIGN", (3, 0), (3, -1), "RIGHT"))
     table.setStyle(TableStyle(style_cmds))
     flowables.append(table)
+    if basis_note:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="8" color="#7a5200">{_esc(basis_note)}</font>',
+            make_paragraph_styles()["body"],
+        ))
     return flowables
 
 

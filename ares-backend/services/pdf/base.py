@@ -113,6 +113,10 @@ class AnlagestrategieData:
     eigene Zeile ausgewiesen, damit die Betraege auf das Beratungsvermoegen
     summieren."""
 
+    strategy_basis_note: str | None = None
+    """N-858-2: Hinweis, wenn das aktuelle Beratungsvermoegen vom Vermoegen bei
+    Generierung der Strategie abweicht (Betraege beziehen sich auf letzteres)."""
+
     sub_allocations: list = field(default_factory=list)
     """SAA-Subanlageklassen (nicht Produktmix): dicts mit asset_class
     (Bucket-Key), sub_asset_class, target_weight_bps, target_amount_rappen."""

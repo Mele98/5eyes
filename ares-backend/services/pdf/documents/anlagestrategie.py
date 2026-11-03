@@ -215,6 +215,7 @@ def build_anlagestrategie_flowables(
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
             external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
         flowables.append(PageBreak())
         flowables.extend(make_banner_header(
@@ -410,6 +411,7 @@ def _build_anlagestrategie_flowables_template_order(
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
             external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
         empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
@@ -517,6 +519,7 @@ def _build_anlagestrategie_flowables_template_order(
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
             external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
         empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
