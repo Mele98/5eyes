@@ -245,6 +245,15 @@ class ConflictOfInterestDisclosure(Base):
 
 class Product(Base):
     __tablename__ = "products"
+    # Owner-Anforderung P1: interne Produkt-ID eindeutig je Tenant (aktive
+    # Zeilen). Identisch in Alembic c2e6f8a1b3d5 und im SQLite-Runtime-Patch.
+    __table_args__ = (
+        Index(
+            "ux_products_tenant_internal_id", "tenant_id", "internal_product_id", unique=True,
+            sqlite_where=text("internal_product_id IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("internal_product_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     isin = Column(String)
@@ -314,6 +323,19 @@ class Product(Base):
     valor = Column(String)                   # Valorennummer (optional)
     # Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
     minimum_investment_minor_units = Column(BigInteger)
+    # Owner-Anforderung P1 (eigene Fonds, kotiert/nicht kotiert), Alembic
+    # c2e6f8a1b3d5: Kotierung, interne tenant-eindeutige ID (Pflicht bei
+    # unlisted ohne ISIN; Unique-Index je Tenant), Bewertungsquelle,
+    # NAV-Rhythmus/-Stichtag, Liquiditaetsrhythmus. Alle nullable.
+    listing_status = Column(String)          # 'listed' | 'unlisted'
+    internal_product_id = Column(String)
+    price_source = Column(String)            # 'market' | 'manual_nav' | 'provider'
+    nav_frequency = Column(String)           # 'daily' | 'weekly' | 'monthly' | 'quarterly'
+    nav_as_of = Column(String)               # YYYY-MM-DD, manuell pflegbar
+    redemption_period_days = Column(Integer)
+    notice_period_days = Column(Integer)
+    has_gating = Column(Integer)             # 1/0, NULL = nicht erfasst
+    gating_terms = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
