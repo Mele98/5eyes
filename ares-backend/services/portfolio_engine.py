@@ -6199,6 +6199,13 @@ def _implementation_metrics(target_payload: dict, cma: CapitalMarketAssumption, 
         targets = {key: sum(impl[key].values()) for key in BUCKET_FIELDS}
         metrics = _expected_metrics(targets, cma, rows)
         ret, vol = int(metrics["expected_return_bps"]), int(metrics["expected_volatility_bps"])
+    # N-856-6: Gewichtssumme != 10'000 (Luecke PO-08, manuelle Positionen) und
+    # nicht zuordenbare Positionen werden NICHT normiert (die Behandlung der
+    # Luecke ist Owner-Entscheid), aber ausgewiesen: beide senken die Momente.
+    weight_sum = sum(int(p.get("target_weight_bps") or 0) for p in positions)
+    unmapped = sum(impl[None].values()) if None in impl else 0
+    caveat = (f" Positionsgewichte {weight_sum / 100:.2f}% statt 100%" if weight_sum != 10000 else "") + (
+        f", davon {unmapped / 100:.2f}% ohne zuordenbare Anlageklasse (nicht bewertet)" if unmapped else "")
     return {
         "expected_return_bps": ret,
         "expected_volatility_bps": vol,
@@ -6210,10 +6217,13 @@ def _implementation_metrics(target_payload: dict, cma: CapitalMarketAssumption, 
             "saa_label": "Kennzahlen der strategischen Soll-Allokation (SAA)",
             "deviates_from_saa": bool(deviating),
             "deviating_sub_asset_classes": deviating,
+            "position_weight_sum_bps": weight_sum,
+            "unmapped_weight_bps": unmapped,
         },
         "warning": (
             f"Kennzahlen der Umsetzung weichen von der SAA ab (Produktersatz, abweichende Sub-Klassen: {', '.join(deviating)}). "
             "Erwartete Rendite und Volatilitaet beschreiben das umgesetzte Portfolio; die SAA-Kennzahlen sind separat ausgewiesen."
+            + (f" Hinweis:{caveat}; die Kennzahlen sind darauf nicht normiert." if caveat else "")
         ) if deviating else None,
     }
 

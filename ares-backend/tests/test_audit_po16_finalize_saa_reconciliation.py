@@ -125,3 +125,31 @@ def test_finalize_validation_warns_but_does_not_block_on_saa_deviation(session_f
         assert any(w.startswith("SAA-Abgleich Alternative") for w in deviation), warnings_after
         # Nur Warnung: dieselben Fehler wie vorher, nichts Neues blockiert.
         assert not [e for e in errors_after if "SAA" in e]
+
+
+# ---------------------------------------------------------------------------
+# N-856-6 (Pruefrunde #856): Gewichtssumme != 10'000 und Positionen ohne
+# Anlageklasse. Vorher wurden Rohgewichte gegen SAA-Ziele verglichen: eine
+# manuell auf 10'100 bps aufgeblaehte Empfehlung mit exakt SAA-proportionalen
+# Quoten meldete Scheinabweichungen, und eine nicht zuordenbare Position zog
+# die uebrigen Quoten unbemerkt nach unten.
+# ---------------------------------------------------------------------------
+
+
+def test_weight_sum_off_target_is_normalised_and_disclosed():
+    alloc = _allocation(equities=(6000, 0, 0), bonds=(4000, 0, 0))
+    # 6100/4067 = exakt SAA-proportional auf 10'167 bps
+    warnings = saa_bucket_reconciliation_warnings(alloc, [_pos("eq", 6100), _pos("bd", 4067)], PRODUCTS)
+    assert not [w for w in warnings if CODE in w], warnings
+    assert any("[SAA_BUCKET_NORMALIZED]" in w and "101.67%" in w for w in warnings), warnings
+
+
+def test_unmapped_position_is_reported_and_mapped_buckets_are_normalised():
+    alloc = _allocation(equities=(6000, 0, 0), bonds=(4000, 0, 0))
+    products = dict(PRODUCTS, x=SimpleNamespace(asset_class=None))
+    warnings = saa_bucket_reconciliation_warnings(
+        alloc, [_pos("eq", 5700), _pos("bd", 3800), _pos("x", 500)], products,
+    )
+    assert any("[SAA_BUCKET_UNMAPPED]" in w and "5.00%" in w for w in warnings), warnings
+    # 5700/3800 auf die zuordenbaren 9'500 bps normiert = 60/40 = SAA
+    assert not [w for w in warnings if CODE in w], warnings

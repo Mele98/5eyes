@@ -61,6 +61,11 @@ def world(tmp_path_factory):
                 int(x["target_weight_bps"]) for x in ta["sub_allocations"] if x["sub_asset_class"] == GOLD
             ),
             "cma_id": ta["target_allocation"].capital_market_assumptions_id,
+            "payload": {
+                "sub_allocations": ta["sub_allocations"],
+                "expected_return_bps": ta["expected_return_bps"],
+                "expected_volatility_bps": ta["expected_volatility_bps"],
+            },
         }
         s.commit()
     try:
@@ -123,11 +128,47 @@ def test_substituted_sleeve_changes_run_metrics_not_saa(world):
         assert payload["saa_expected_volatility_bps"] == saa["expected_volatility_bps"]
         shift = payload["expected_return_bps"] - saa["expected_return_bps"]
         assert abs(shift - expected_shift) <= 2, (shift, expected_shift)
-        if int(subs[replacement]["expected_volatility_bps"]) < int(subs[GOLD]["expected_volatility_bps"]):
-            assert payload["expected_volatility_bps"] < saa["expected_volatility_bps"]
+        # N-856-6: unbedingt geprueft (vorher nur in einem if-Zweig). Ersatz mit
+        # tieferer Sub-Vola im einzigen Sleeve der Klasse -> Portfolio-Vola sinkt.
+        assert int(subs[replacement]["expected_volatility_bps"]) < int(subs[GOLD]["expected_volatility_bps"])
+        assert payload["expected_volatility_bps"] < saa["expected_volatility_bps"]
         meta = payload["implementation_metrics"]
         assert meta["deviates_from_saa"] is True
         assert GOLD in meta["deviating_sub_asset_classes"]
         assert meta["basis"] == "umsetzung"
         assert "umgesetzt" in meta["label"].lower()
         assert [w for w in payload["warnings"] if "Kennzahlen der Umsetzung" in w]
+
+
+def test_weight_gap_and_unmapped_positions_are_disclosed_not_hidden(world):
+    """N-856-6: Luecke bzw. nicht zuordenbare Position werden ausgewiesen."""
+    from services.portfolio_engine import _implementation_metrics
+
+    factory, _adv, _mid, saa = world
+    payload = saa["payload"]
+    rows = [r for r in payload["sub_allocations"] if int(r.get("target_weight_bps") or 0) > 0]
+    positions = [
+        {"asset_class": r["asset_class"], "sub_asset_class": r["sub_asset_class"],
+         "target_weight_bps": int(r["target_weight_bps"])}
+        for r in rows
+    ]
+    with factory() as s:
+        cma = s.query(CapitalMarketAssumption).filter(CapitalMarketAssumption.id == saa["cma_id"]).one()
+        same = _implementation_metrics(payload, cma, positions)
+        assert same["implementation_metrics"]["position_weight_sum_bps"] == 10000
+        assert same["implementation_metrics"]["unmapped_weight_bps"] == 0
+        assert same["warning"] is None
+
+        gap = sorted(positions, key=lambda p: p["target_weight_bps"])[0]
+        shifted = [dict(p) for p in positions if p is not gap] + [
+            {"asset_class": "Unbekannt", "sub_asset_class": "X", "target_weight_bps": gap["target_weight_bps"]},
+        ]
+        result = _implementation_metrics(payload, cma, shifted)
+        meta = result["implementation_metrics"]
+        assert meta["unmapped_weight_bps"] == gap["target_weight_bps"]
+        assert meta["position_weight_sum_bps"] == 10000
+        assert "ohne zuordenbare Anlageklasse" in result["warning"]
+
+        short = _implementation_metrics(payload, cma, [dict(p) for p in positions if p is not gap])
+        assert short["implementation_metrics"]["position_weight_sum_bps"] == 10000 - gap["target_weight_bps"]
+        assert "statt 100%" in short["warning"]

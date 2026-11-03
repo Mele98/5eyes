@@ -237,6 +237,20 @@ def saa_bucket_reconciliation_warnings(allocation, positions: Iterable, products
         else:
             unknown_bps += weight
     warnings: list[str] = []
+    # N-856-6: Quoten auf die zuordenbaren Positionen normieren. Eine
+    # Gewichtssumme != 10'000 (manuelle Positionen, Luecke PO-08) oder eine
+    # nicht zuordenbare Position wuerde sonst Scheinabweichungen erzeugen bzw.
+    # echte verdecken. Beides wird offen ausgewiesen.
+    total_bps = sum(actual.values()) + unknown_bps
+    mapped_bps = sum(actual.values())
+    if mapped_bps > 0:
+        actual = {label: int(round(weight * 10000 / mapped_bps)) for label, weight in actual.items()}
+    if total_bps != 10000:
+        warnings.append(
+            f"SAA-Abgleich: Positionsgewichte summieren auf {total_bps / 100:.2f}% statt 100%; "
+            "die Anlageklassen-Quoten wurden fuer den Abgleich auf 100% normiert "
+            "[SAA_BUCKET_NORMALIZED]."
+        )
     for label, field in _SAA_BUCKETS:
         target = int(getattr(allocation, f"target_{field}_bps", 0) or 0)
         band_min = int(getattr(allocation, f"band_{field}_min_bps", 0) or 0)
@@ -256,6 +270,7 @@ def saa_bucket_reconciliation_warnings(allocation, positions: Iterable, products
     if unknown_bps:
         warnings.append(
             f"SAA-Abgleich: {unknown_bps / 100:.2f}% der Positionen ohne zuordenbare "
-            "Anlageklasse. Nur Hinweis [SAA_BUCKET_UNMAPPED]."
+            "Anlageklasse; der Abgleich bezieht sich auf die uebrigen Positionen. "
+            "Nur Hinweis [SAA_BUCKET_UNMAPPED]."
         )
     return warnings
