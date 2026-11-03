@@ -1255,6 +1255,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     house_matrix_bands_payload,
     policy_band_clamp_notes,
     policy_band_bound_keys,
+    raise_if_locked_targets_infeasible,
     _building_block_risky_map,
     _building_block_rows_for_policy,
     _build_stochastic_sub_allocation_plan,
@@ -3191,6 +3192,7 @@ def generate_target_allocation(
         targets=targets, minimums=minimums, maximums=maximums, reasoning=reasoning, **reserve_inputs,
         locked_buckets=manual_locked_buckets,
     )
+    liquidity_before_projection_bps = int(targets["liquidity"])  # H-859-2
     reserve_split = generation_reserve_split(reserve_needed_rappen, external_reserve_rappen, ceiling_bps=saa_liquidity_ceiling_bps, **reserve_inputs)  # RESERVE-CEILING-001
     uncertain_inflow_info = uncertain_inflow_sensitivity(  # INFLOW-CERTAINTY-001: nur Info
         uncertain_inflows=inputs.get("uncertain_wealth_inflows") or [], projection_years=len(cashflow_projection_series_rappen),
@@ -3304,9 +3306,20 @@ def generate_target_allocation(
                 f"Mindestquote ({optimizer_maximums['liquidity']} < "
                 f"{global_liquidity_floor_bps} bps)."
             )
+        floor_raised_liquidity = int(optimizer_minimums["liquidity"]) < global_liquidity_floor_bps
         optimizer_minimums["liquidity"] = max(
             int(optimizer_minimums["liquidity"]),
             global_liquidity_floor_bps,
+        )
+        # H-859-2: die globale Liquiditaets-Untergrenze kann fixierte Ziele
+        # unerfuellbar machen -- dann 422 statt stiller Kappung.
+        raise_if_locked_targets_infeasible(
+            {**optimizer_targets, **manual_preferred_target_bps}, optimizer_minimums,
+            manual_locked_buckets, bucket_labels=BUCKET_LABELS,
+            min_sources=(
+                {"liquidity": "globale Liquiditaets-Untergrenze des Modells"}
+                if floor_raised_liquidity else None
+            ),
         )
         optimizer_targets = _rebalance_to_total(
             optimizer_targets,
@@ -3366,6 +3379,11 @@ def generate_target_allocation(
         )
         optimizer_minimums["liquidity"] = max(
             int(optimizer_minimums["liquidity"]), int(reserve_floor_bps)
+        )
+        raise_if_locked_targets_infeasible(  # H-859-2: Zielreserve als Untergrenze
+            {**optimizer_targets, **manual_preferred_target_bps}, optimizer_minimums,
+            manual_locked_buckets, bucket_labels=BUCKET_LABELS,
+            min_sources={"liquidity": "zwingend vorzuhaltende Zielreserve"},
         )
         if int(optimizer_targets["liquidity"]) < int(optimizer_minimums["liquidity"]):
             optimizer_targets["liquidity"] = int(optimizer_minimums["liquidity"])
@@ -3788,6 +3806,7 @@ def generate_target_allocation(
         bucket_labels=BUCKET_LABELS,
         optimizer_applied=bool(optimizer_replaced_targets and not risk_budget_fallback),
         fallback_risk_budget_bps=int(risk_budget_bps) if risk_budget_fallback else None,
+        liquidity_before_projection_bps=liquidity_before_projection_bps,
     )
     risky_fraction_total_bps = int(realized_risky_bps)
     if (

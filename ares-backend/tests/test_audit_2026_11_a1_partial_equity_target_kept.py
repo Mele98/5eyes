@@ -152,20 +152,22 @@ def test_stochastic_liquidity_target_below_global_floor_is_capped_visibly(sessio
 # --------------------------------------------------------------------------
 
 
-def test_target_adjusted_warning_names_persisted_quote_stochastic(session_factory, monkeypatch):
-    """Pruefrunde #859: Aktien 75 % + Obligationen 25 % (mit den Minima der
-    uebrigen Klassen ueber 100 %). Vorher nannte die Warnung den Anker
-    (64.99 %), gespeichert wurden 66.24 %."""
+def test_reviewer_case_75_plus_25_is_now_rejected_not_capped(session_factory, monkeypatch):
+    """Pruefrunde #859, H-859-1 wurde an Aktien 75 % + Obligationen 25 %
+    gemessen (Warnung 64.99 %, gespeichert 66.24 %). Seit H-859-2 ist diese
+    Eingabe (fixierte Ziele + Minima > 100 %) eine 422 und wird gar nicht
+    mehr gekappt; die Regel "Warnung nennt die gespeicherte Quote" deckt
+    test_disclosure_uses_final_quote_and_separates_optimizer_deviation ab."""
+    from services.portfolio_engine_house_matrix import BandEnvelopeInfeasibleError
+
     monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
     adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix="h1sto")
     prefs = {"bands": {"equities": {"target_bps": 7500}, "bonds": {"target_bps": 2500}}}
-    result = _generate(session_factory, mid, adv, prefs)
-    ta = result["target_allocation"]
-    by_label = {w["body_client"].split(" wird")[0]: w for w in result["warnings"] if w.get("code") == CODE}
-    eq = by_label["Für Aktien"]
-    persisted = f"{int(ta.target_equities_bps) / 100:.2f} %"
-    assert persisted in eq["body_client"], (persisted, eq["body_client"])
-    assert persisted in eq["body_advisor"], (persisted, eq["body_advisor"])
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).one()
+        with pytest.raises(BandEnvelopeInfeasibleError):
+            pe.generate_target_allocation(s, mandate, adv, prefs)
+        s.rollback()
 
 
 def test_disclosure_uses_final_quote_and_separates_optimizer_deviation():

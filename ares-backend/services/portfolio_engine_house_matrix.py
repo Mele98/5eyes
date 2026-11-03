@@ -352,6 +352,12 @@ def _apply_band_preferences(
         advisor_min_buckets=advisor_min_buckets,
         policy_min_buckets={key for key, side in policy_keys if side == "min"},
     )
+    # H-859-2: fixierte Ziele + Minima der uebrigen Klassen ueber 100 %.
+    raise_if_locked_targets_infeasible(
+        targets, minimums, explicit_target_buckets,
+        bucket_labels=BUCKET_LABELS,
+        min_sources={key: _bound_phrase(key, "min") for key in BUCKET_FIELDS},
+    )
 
     # Every OTHER bucket keeps no Target Intent at all: its carried-over
     # value is only a feasible seed for the deterministic rebalance every
@@ -438,6 +444,47 @@ def _raise_if_band_envelope_infeasible(
         )
 
 
+def raise_if_locked_targets_infeasible(
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    locked: Collection[str],
+    *,
+    bucket_labels: dict[str, str],
+    min_sources: dict[str, str] | None = None,
+) -> None:
+    """H-859-2 (Pruefrunde #859): fixierte Berater-Ziele plus die
+    Mindestquoten der uebrigen Klassen ueber 100 % sind eine unerfuellbare
+    Eingabe. Vorher kappte ``_rebalance_to_total`` dann die fixierte Klasse
+    in fester Reihenfolge (Aktien zuerst) -- jetzt eine deutsche 422, die
+    die kollidierenden Ziele und Mindestquoten nennt.
+
+    ``min_sources`` beschreibt die Herkunft je Mindestquote (z. B.
+    "Hausmatrix-Minimum", "globale Liquiditaets-Untergrenze").
+    """
+    locked_set = [key for key in bucket_labels if key in set(locked)]
+    if not locked_set or len(locked_set) == len(bucket_labels):
+        return
+    others = [key for key in bucket_labels if key not in locked_set]
+    total = sum(int(targets[key]) for key in locked_set) + sum(int(minimums[key]) for key in others)
+    if total <= 10000:
+        return
+    sources = min_sources or {}
+    target_parts = ", ".join(
+        f"{bucket_labels[key]} {_band_pct(targets[key])} %" for key in locked_set
+    )
+    min_parts = ", ".join(
+        f"{bucket_labels[key]} {_band_pct(minimums[key])} % ({sources.get(key, 'Mindestquote')})"
+        for key in others
+        if int(minimums[key]) > 0
+    )
+    raise BandEnvelopeInfeasibleError(
+        f"Die fixierten Berater-Ziele ({target_parts}) und die Mindestquoten der "
+        f"uebrigen Anlageklassen ({min_parts or 'keine'}) ergeben zusammen "
+        f"{_band_pct(total)} % und uebersteigen 100 %. Bitte ein Ziel senken oder "
+        "eine Mindestquote anpassen."
+    )
+
+
 def _disclose_global_cap_clamp(
     bucket: str,
     requested_max_bps: int,
@@ -485,6 +532,7 @@ def disclose_manual_target_deviations(
     bucket_labels: dict[str, str],
     optimizer_applied: bool = False,
     fallback_risk_budget_bps: int | None = None,
+    liquidity_before_projection_bps: int | None = None,
 ) -> None:
     """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
     umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
@@ -506,7 +554,25 @@ def disclose_manual_target_deviations(
     wird jedes dadurch ersetzte Ziel eigens ausgewiesen (Ziel, alter und
     neuer Wert, Grund) -- ``WARN_TARGET_FALLBACK_RESET`` statt der
     Kappungs-Meldung, die eine falsche Ursache nennen wuerde.
+
+    H-859-2: sinkt die (nicht fixierte) Liquiditaet wegen der fixierten
+    Ziele unter ihren Wert vor der Projection (``liquidity_before_projection_bps``),
+    wird das im Reasoning ausgewiesen statt still bis aufs Haus-Minimum
+    abgesenkt.
     """
+    if (
+        preferred_bps
+        and "liquidity" not in preferred_bps
+        and liquidity_before_projection_bps is not None
+        and fallback_risk_budget_bps is None
+        and int(final_bps["liquidity"]) < int(liquidity_before_projection_bps)
+    ):
+        reasoning.append(
+            f"{bucket_labels.get('liquidity', 'Liquiditaet')}: sinkt wegen der "
+            f"fixierten Berater-Ziele von {_band_pct(liquidity_before_projection_bps)} % "
+            f"auf {_band_pct(final_bps['liquidity'])} % (Ausgleich ueber die nicht "
+            "fixierten Anlageklassen, Mindestquote eingehalten)."
+        )
     for bucket in final_bps:
         if bucket not in preferred_bps:
             continue
