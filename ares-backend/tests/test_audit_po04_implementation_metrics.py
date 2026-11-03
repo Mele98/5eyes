@@ -98,6 +98,9 @@ def test_without_substitution_implementation_equals_saa(world):
         assert payload["expected_return_bps"] == saa["expected_return_bps"]
         assert payload["expected_volatility_bps"] == saa["expected_volatility_bps"]
         meta = payload["implementation_metrics"]
+        # N-856-4: Versionskennung der Bedeutung von expected_* (Altlaeufe
+        # vor PO-04 trugen keine; dort war expected_* die SAA-Zahl).
+        assert meta["metrics_basis"] == "implementation_v1"
         assert meta["deviates_from_saa"] is False
         assert meta["deviating_sub_asset_classes"] == []
         assert not [w for w in payload["warnings"] if "Kennzahlen der Umsetzung" in w]

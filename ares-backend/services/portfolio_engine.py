@@ -6212,6 +6212,8 @@ def _implementation_metrics(target_payload: dict, cma: CapitalMarketAssumption, 
         "saa_expected_return_bps": saa_ret,
         "saa_expected_volatility_bps": saa_vol,
         "implementation_metrics": {
+            # N-856-4: Bedeutungs-Version von expected_* (ab PO-04 = Umsetzung).
+            "metrics_basis": "implementation_v1",
             "basis": "umsetzung",
             "label": "Kennzahlen des umgesetzten Portfolios (Sub-Klassen der gewaehlten Produkte, CMA-Sub-Annahmen der SAA)",
             "saa_label": "Kennzahlen der strategischen Soll-Allokation (SAA)",
