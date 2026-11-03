@@ -13880,6 +13880,13 @@
               }
             ]
           },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ProductIdMappingCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
           "detail": {
             "anyOf": [
               {

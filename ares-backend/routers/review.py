@@ -2,6 +2,7 @@ import csv
 import io
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import ValidationError
@@ -78,6 +79,7 @@ from services.portfolio_engine import (
 from services.product_market_data import (
     currency_mismatch_warning,
     map_openfigi_exchange_code,
+    normalize_exchange_code,
     resolve_market_profile,
 )
 from services.recommendation_release_gate import (
@@ -716,26 +718,114 @@ def _openfigi_internal_exchange_code(candidate: dict) -> str | None:
     return mapped
 
 
+FieldChange = tuple[str, Any, Any]
+
+# OF-1 / Audit OF-b: Felder, die ein OpenFIGI-Kandidat setzen darf
+# (Produktfeld, Kandidatenfeld). Leere Kandidatenwerte ueberschreiben nie.
+_OPENFIGI_FIELD_MAP: tuple[tuple[str, str], ...] = (
+    ("figi", "figi"),
+    ("composite_figi", "composite_figi"),
+    ("share_class_figi", "share_class_figi"),
+    ("market_sector", "market_sector"),
+    ("security_type", "security_type"),
+    ("security_type2", "security_type2"),
+)
+
+
 def _apply_openfigi_candidate(
     *,
     product: Product,
     candidate: dict,
     now: str,
     overwrite_symbol: bool,
-) -> None:
+) -> list[FieldChange]:
+    """Kandidat uebernehmen; liefert (Feld, alt, neu) je echter Aenderung.
+
+    OF-1 / Audit OF-b: Ein leerer (None/"") Kandidatenwert ueberschreibt nie
+    einen gepflegten Wert. ``mapping_provider`` wird immer protokolliert,
+    damit jede Uebernahme im Audit-Log steht.
+    """
     exchange_code = _openfigi_internal_exchange_code(candidate)
-    product.figi = candidate.get("figi")
-    product.composite_figi = candidate.get("composite_figi")
-    product.share_class_figi = candidate.get("share_class_figi")
-    product.exchange_code = exchange_code
-    product.market_sector = candidate.get("market_sector")
-    product.security_type = candidate.get("security_type")
-    product.security_type2 = candidate.get("security_type2")
+    changes: list[FieldChange] = []
+
+    def _set(field: str, value: Any) -> None:
+        if _is_blank(value):
+            return
+        old = getattr(product, field, None)
+        if old == value:
+            return
+        setattr(product, field, value)
+        changes.append((field, old, value))
+
+    for product_field, candidate_field in _OPENFIGI_FIELD_MAP:
+        _set(product_field, candidate.get(candidate_field))
+    _set("exchange_code", exchange_code)
+    if (_is_blank(product.symbol) or overwrite_symbol) and candidate.get("ticker"):
+        _set("symbol", candidate.get("ticker"))
+    changes.append(("mapping_provider", product.mapping_provider, "openfigi"))
     product.mapping_provider = "openfigi"
     product.mapping_resolved_at = now
-    if (not product.symbol or overwrite_symbol) and candidate.get("ticker"):
-        product.symbol = candidate.get("ticker")
     product.updated_at = now
+    return changes
+
+
+def _log_field_changes(db: Session, *, product: Product, current_user: User, changes: list[FieldChange]) -> None:
+    """OF-1 / Audit OF-a: je geaendertem Feld ein Audit-Eintrag mit Altwert."""
+    for field_name, old_value, new_value in changes:
+        log(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.full_name,
+            table_name="products",
+            record_id=product.id,
+            action="UPDATE",
+            field_name=field_name,
+            old_value=None if old_value is None else str(old_value),
+            new_value=None if new_value is None else str(new_value),
+        )
+
+
+def _openfigi_candidate_key(candidate: dict) -> tuple:
+    figi = str(candidate.get("figi") or "").strip()
+    if figi:
+        return ("figi", figi)
+    return ("listing", str(candidate.get("ticker") or "").strip(), str(candidate.get("exch_code") or "").strip().upper())
+
+
+def _distinct_openfigi_candidates(candidates: list[dict]) -> list[dict]:
+    seen: set[tuple] = set()
+    result: list[dict] = []
+    for candidate in candidates:
+        key = _openfigi_candidate_key(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
+
+
+def _unique_openfigi_candidate(candidates: list[dict], product: Product) -> tuple[dict | None, list[dict]]:
+    """OF-1 / Audit OF-a: eindeutigen Kandidaten bestimmen, nie candidates[0] raten.
+
+    Eindeutig ist ein Kandidat, wenn genau ein Listing (FIGI) geliefert wurde
+    oder genau eines zur bereits gepflegten Boerse des Produkts passt.
+    Rueckgabe: (Kandidat oder None, unterscheidbare Kandidaten).
+    """
+    distinct = _distinct_openfigi_candidates(candidates)
+    product_exchange = normalize_exchange_code(getattr(product, "exchange_code", None))
+    if product_exchange:
+        matching = [
+            c for c in distinct
+            if (c.get("exchange_code") or map_openfigi_exchange_code(c.get("exch_code"))) == product_exchange
+        ]
+        if len(matching) == 1:
+            return matching[0], distinct
+        if matching:
+            return None, matching
+        return None, distinct
+    if len(distinct) == 1:
+        return distinct[0], distinct
+    return None, distinct
 
 
 def _commit_product_batch_update(
@@ -745,21 +835,25 @@ def _commit_product_batch_update(
     current_user: User,
     field_name: str,
     new_value: str,
-    apply_change: Callable[[], None],
+    apply_change: Callable[[], Any],
 ) -> str | None:
     try:
         with db.begin_nested():
-            apply_change()
-            log(
-                db,
-                user_id=current_user.id,
-                user_name=current_user.full_name,
-                table_name="products",
-                record_id=product.id,
-                action="UPDATE",
-                field_name=field_name,
-                new_value=new_value,
-            )
+            changes = apply_change()
+            if isinstance(changes, list):
+                # OF-1: Aenderungen je Feld mit Altwert protokollieren.
+                _log_field_changes(db, product=product, current_user=current_user, changes=changes)
+            else:
+                log(
+                    db,
+                    user_id=current_user.id,
+                    user_name=current_user.full_name,
+                    table_name="products",
+                    record_id=product.id,
+                    action="UPDATE",
+                    field_name=field_name,
+                    new_value=new_value,
+                )
             db.flush()
         db.commit()
     except Exception as exc:
@@ -2821,6 +2915,19 @@ def apply_product_id_mapping(
         mic_code=body.mic_code,
         currency=body.currency,
     )
+    distinct = _distinct_openfigi_candidates(list(preview.get("candidates") or []))
+    explicit_choice = bool(body.preferred_figi) or "candidate_index" in body.model_fields_set
+    if len(distinct) > 1 and not explicit_choice:
+        # OF-1 / Audit OF-a: bei mehreren Listings nie stillschweigend den
+        # ersten Kandidaten nehmen; der Aufrufer muss waehlen.
+        figis = ", ".join(str(c.get("figi") or "?") for c in distinct)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"OpenFIGI lieferte {len(distinct)} Listings ({figis}). "
+                "Bitte Kandidat per preferred_figi oder candidate_index waehlen."
+            ),
+        )
     selected = _select_preview_candidate(
         preview=preview,
         candidate_index=body.candidate_index,
@@ -2829,7 +2936,7 @@ def apply_product_id_mapping(
     )
     now = _now()
     try:
-        _apply_openfigi_candidate(
+        changes = _apply_openfigi_candidate(
             product=product,
             candidate=selected,
             now=now,
@@ -2838,16 +2945,7 @@ def apply_product_id_mapping(
     except OpenFigiExchangeCodeUnmapped as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    log(
-        db,
-        user_id=current_user.id,
-        user_name=current_user.full_name,
-        table_name="products",
-        record_id=product.id,
-        action="UPDATE",
-        field_name="mapping_provider",
-        new_value="openfigi",
-    )
+    _log_field_changes(db, product=product, current_user=current_user, changes=changes)
     db.commit()
     db.refresh(product)
     return {
@@ -2916,7 +3014,25 @@ def auto_apply_product_id_mappings(
             )
             continue
 
-        selected = candidates[0]
+        selected, distinct = _unique_openfigi_candidate(candidates, product)
+        if selected is None:
+            # OF-1 / Audit OF-a: mehrdeutig -> kein Auto-Apply, Auswahl anbieten.
+            skipped_count += 1
+            items.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.product_name,
+                    "isin": product.isin,
+                    "status": "ambiguous",
+                    "detail": (
+                        f"{len(distinct)} Listings gefunden, kein eindeutiger Kandidat. "
+                        "Bitte ueber /products/openfigi/apply mit preferred_figi auswaehlen."
+                    ),
+                    "applied_candidate": None,
+                    "candidates": distinct,
+                }
+            )
+            continue
         try:
             _openfigi_internal_exchange_code(selected)
         except OpenFigiExchangeCodeUnmapped as exc:
@@ -2940,7 +3056,7 @@ def auto_apply_product_id_mappings(
                     "product_name": product.product_name,
                     "isin": product.isin,
                     "status": "preview",
-                    "detail": "Erster Kandidat ermittelt, dry_run aktiv",
+                    "detail": "Eindeutiger Kandidat ermittelt, dry_run aktiv",
                     "applied_candidate": selected,
                 }
             )

@@ -9304,6 +9304,8 @@ export interface components {
         /** ProductIdMappingBatchItem */
         ProductIdMappingBatchItem: {
             applied_candidate?: components["schemas"]["ProductIdMappingCandidate"] | null;
+            /** Candidates */
+            candidates?: components["schemas"]["ProductIdMappingCandidate"][];
             /** Detail */
             detail?: string | null;
             /** Isin */

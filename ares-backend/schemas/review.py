@@ -1298,6 +1298,9 @@ class ProductIdMappingBatchItem(BaseModel):
     status: str
     detail: Optional[str] = None
     applied_candidate: Optional[ProductIdMappingCandidate] = None
+    # OF-1 / Audit OF-a: bei status="ambiguous" die Listings zur Auswahl
+    # (Uebernahme dann ueber /products/openfigi/apply mit preferred_figi).
+    candidates: list[ProductIdMappingCandidate] = Field(default_factory=list)
 
 
 class ProductIdMappingBatchApplyResponse(BaseModel):
