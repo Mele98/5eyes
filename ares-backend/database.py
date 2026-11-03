@@ -1122,6 +1122,20 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # theme_tags fuer "Thema X"-Produkte weiter unten.
             ('climate_benchmark', 'TEXT'),
             ('theme_tags', 'TEXT'),
+            # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten, siehe
+            # models/review.py::Product und Alembic a8d3c5e7f9b1. Ohne
+            # Default/Backfill: NULL = nicht erfasst (nichts erfinden).
+            ('domicile', 'TEXT'),
+            ('is_hedged', 'INTEGER'),
+            ('hedge_currency', 'TEXT'),
+            ('ter_source', 'TEXT'),
+            ('ter_as_of', 'TEXT'),
+            ('retrocession_bps', 'INTEGER'),
+            ('retrocession_source', 'TEXT'),
+            ('is_house_product', 'INTEGER'),
+            ('distribution_policy', 'TEXT'),
+            ('valor', 'TEXT'),
+            ('minimum_investment_minor_units', 'INTEGER'),
             # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix):
             # siehe models/review.py::Product.jurisdiction. NULL = "CH".
             ('jurisdiction', 'TEXT'),

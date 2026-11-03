@@ -294,6 +294,26 @@ class Product(Base):
     # py::product_theme_keys). Backfill fuer "Thema X"-Produkte: database.py
     # ensure_runtime_columns() + Alembic d7c3e9a2f5b1.
     theme_tags = Column(String)
+    # AUDIT-2026-11 P1 (Entscheid PO-6, Luecke L1): Produkt-Stammdaten.
+    # Alle Felder nullable, NULL = "nicht erfasst" -- nichts wird erfunden
+    # (der Standardkatalog fuehrt keine echten ISIN/Retrozessionssaetze).
+    # Validierung: schemas/product_master_data.py; Alembic a8d3c5e7f9b1;
+    # SQLite-Runtime-Patch: database.py::ensure_runtime_columns.
+    # Die Auswahl-/Scoring-Logik liest diese Felder in P1 NICHT (P13).
+    domicile = Column(String)                # ISO 3166-1 alpha-2, z.B. 'IE'
+    is_hedged = Column(Integer)              # 1/0, NULL = nicht erfasst
+    hedge_currency = Column(String)          # ISO 4217 der Absicherung
+    ter_source = Column(String)              # Quelle der TER (z.B. KID/Factsheet)
+    ter_as_of = Column(String)               # Stichtag der TER (YYYY-MM-DD)
+    # Retrozessionssatz in bps p.a. auf dem investierten Volumen.
+    # NULL = UNBEKANNT (nie "retrozessionsfrei"), 0 = ausdruecklich frei.
+    retrocession_bps = Column(Integer)
+    retrocession_source = Column(String)
+    is_house_product = Column(Integer)       # 1/0, NULL = nicht erfasst
+    distribution_policy = Column(String)     # 'accumulating' | 'distributing'
+    valor = Column(String)                   # Valorennummer (optional)
+    # Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+    minimum_investment_minor_units = Column(BigInteger)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
