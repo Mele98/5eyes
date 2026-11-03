@@ -286,10 +286,12 @@ def test_missing_distribution_is_not_evaluable():
 # Platzhalter und Flag
 # ---------------------------------------------------------------------------
 
-def test_eleven_compliance_placeholders_are_listed_and_disclosed():
-    assert len(lt.COMPLIANCE_PLACEHOLDERS) == 11
+def test_compliance_placeholders_are_listed_and_disclosed():
+    # 11 aus Pruefrunde #857 + CP12 (N-857-7).
+    assert len(lt.COMPLIANCE_PLACEHOLDERS) == 12
     keys = lt.COMPLIANCE_PLACEHOLDER_KEYS
-    assert len(set(keys)) == 11
+    assert len(set(keys)) == 12
+    assert "CP12_SCOPE_FINANCIAL_PLANNING_REPORTING_ONLY" in keys
     assert all(text.strip() for _, text in lt.COMPLIANCE_PLACEHOLDERS)
     check = lt.evaluate_loss_tolerance(2, mandate_type=VV, mc_p10_return_bps=0.0, **MILD)
     assert check.placeholders == keys
@@ -413,3 +415,14 @@ def test_binding_value_is_always_the_minimum_of_all_candidates():
         )
         assert check.p10_return_bps == min(check.p10_candidates_bps.values())
         assert lt.SOURCE_LOGNORMAL_K0 in check.p10_candidates_bps
+
+
+@pytest.mark.parametrize("mandate_type", ["Finanzplanung", "Reporting only"])
+def test_financial_planning_and_reporting_only_stay_fail_closed(mandate_type):
+    """N-857-7: Verhalten unveraendert -- Block bis Compliance (CP12) entscheidet."""
+    check = lt.evaluate_loss_tolerance(
+        1, mandate_type=mandate_type, mc_p10_return_bps=-750.0, **MILD,
+    )
+    assert check.is_conflict
+    assert check.conflict_resolution == lt.RESOLUTION_BLOCK
+    assert check.blocks_release is True and check.justification_sufficient is False

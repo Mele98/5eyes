@@ -119,7 +119,8 @@ REASON_SOURCE_NOT_ADMISSIBLE = "LOSS_TOLERANCE_SOURCE_NOT_ADMISSIBLE"
 
 PLACEHOLDER_UNMAPPED = "PLACEHOLDER_UNMAPPED"
 
-# Compliance-Platzhalter vor der Aktivierung (Dok. 86, Pruefrunde #857, 1-11).
+# Compliance-Platzhalter vor der Aktivierung (Dok. 86, Pruefrunde #857, 1-11;
+# 12 aus der Delta-Pruefung, N-857-7).
 # Jeder ist offen und wird mit jedem Ergebnis ausgewiesen; nichts davon ist
 # hier entschieden.
 COMPLIANCE_PLACEHOLDERS: tuple[tuple[str, str], ...] = (
@@ -150,6 +151,11 @@ COMPLIANCE_PLACEHOLDERS: tuple[tuple[str, str], ...] = (
      "Aufnahme der Pruef-Codes in den Reason-Code-Katalog (mit Pin-Nachfuehrung)."),
     ("CP11_RECHECK_TRIGGERS",
      "Ausloeser fuer die erneute Pruefung (Aenderung von Profil, CMA, Strategie)."),
+    # N-857-7 (Delta-Pruefung #857): heute fuehren auch "Finanzplanung" und
+    # "Reporting only" (schemas/mandates.py) zu Block -- konservativ, fail-closed.
+    ("CP12_SCOPE_FINANCIAL_PLANNING_REPORTING_ONLY",
+     "Geltung von P11 fuer die Mandatstypen 'Finanzplanung' und 'Reporting only' "
+     "(heute wie jeder Nicht-Beratungstyp: Block, fail-closed)."),
 )
 COMPLIANCE_PLACEHOLDER_KEYS: tuple[str, ...] = tuple(k for k, _ in COMPLIANCE_PLACEHOLDERS)
 
