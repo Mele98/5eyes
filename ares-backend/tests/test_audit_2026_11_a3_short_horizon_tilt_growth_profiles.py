@@ -53,13 +53,13 @@ def _short_goal(years: float = 4.9):
     )
 
 
-def _tilt(targets, minimums, maximums, goals):
+def _tilt(targets, minimums, maximums, goals, locked=()):
     reasoning: list[str] = []
     _apply_goal_and_reserve_tilts(
         targets=targets, minimums=minimums, maximums=maximums, goals=goals,
         limits_prefs={}, asset_class_prefs={}, recurring_net_cashflow_rappen=0,
         recurring_cashflow_projection_series_rappen=[0] * 10,
-        advisory_wealth_rappen=0, reasoning=reasoning,
+        advisory_wealth_rappen=0, reasoning=reasoning, locked_buckets=locked,
     )
     return reasoning
 
@@ -113,3 +113,36 @@ def test_short_horizon_tilt_is_effective_in_generate_house_matrix_mode(session_f
     assert ta.target_equities_bps == 6600, ta.target_equities_bps
     assert ta.target_bonds_bps == 1800
     assert ta.target_liquidity_bps == 200
+
+
+# --------------------------------------------------------------------------
+# H-859-6 (Pruefrunde #859): Wegfall der Ziel-Tilts bei fixierter Klasse
+# wird ausgewiesen; der A3-Satz nennt den tatsaechlichen Grund.
+# --------------------------------------------------------------------------
+
+
+def test_short_horizon_tilt_skipped_for_locked_equities_is_explained():
+    targets = {**HOUSE_TARGETS, "equities": 7000, "bonds": 1400}
+    reasoning = _tilt(targets, HOUSE_MIN, HOUSE_MAX, [_short_goal()], locked={"equities"})
+    assert targets["equities"] == 7000
+    assert any("Aktienquote ist als Berater-Ziel fixiert, der Tilt entfaellt" in r for r in reasoning), reasoning
+
+
+def test_short_horizon_no_room_names_locked_vs_full_receiver():
+    targets = dict(HOUSE_TARGETS)
+    reasoning = _tilt(targets, HOUSE_MIN, HOUSE_MAX, [_short_goal()], locked={"bonds"})
+    assert targets == HOUSE_TARGETS
+    line = [r for r in reasoning if "Kurzfristig" in r]
+    assert line and "Obligationen als Berater-Ziel fixiert" in line[0] and "Liquiditaet an der Obergrenze" in line[0], reasoning
+
+
+def test_return_goal_tilt_skipped_for_locked_equities_is_explained():
+    goal = SimpleNamespace(
+        goal_type="Renditeziel", label="Rendite", hardness="Primär", target_return_bps=500,
+        target_date=None, start_date=None, horizon_years=10, target_wealth_rappen=None,
+        target_amount_rappen=None, is_ongoing=0, frequency=None, value_mode="nominal", rank=1,
+    )
+    targets = {**HOUSE_TARGETS, "equities": 7000, "bonds": 1400}
+    reasoning = _tilt(targets, HOUSE_MIN, HOUSE_MAX, [goal], locked={"equities"})
+    assert targets["equities"] == 7000
+    assert any("Renditeziel 'Rendite'" in r and "Aktien ist als Berater-Ziel fixiert" in r for r in reasoning), reasoning

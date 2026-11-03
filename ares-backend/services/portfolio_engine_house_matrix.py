@@ -2595,10 +2595,16 @@ def _apply_goal_and_reserve_tilts(
     locked = frozenset(locked_buckets)
     # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
     for goal in goals:
-        if "equities" in locked:
-            break
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
+        if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5 and "equities" in locked:
+            # H-859-6: der Wegfall des Tilts wird ausgewiesen.
+            reasoning.append(
+                f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont wuerde den "
+                "Aktienanteil leicht reduzieren; die Aktienquote ist als Berater-Ziel "
+                "fixiert, der Tilt entfaellt."
+            )
+            continue
         if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
             eq_reduction = min(200, max(0, targets["equities"] - minimums["equities"]))
             if eq_reduction > 0:
@@ -2625,10 +2631,15 @@ def _apply_goal_and_reserve_tilts(
                 # (innerhalb seiner Grenze); die Grenzen bleiben unverletzt.
                 eq_reduction = min(eq_reduction, liquidity_room + bonds_room)
                 if eq_reduction <= 0:
+                    # H-859-6: je Empfaenger der tatsaechliche Grund.
+                    reasons = [
+                        f"{label} {'als Berater-Ziel fixiert' if bucket in locked else 'an der Obergrenze'}"
+                        for bucket, label in (("bonds", "Obligationen"), ("liquidity", "Liquiditaet"))
+                    ]
                     reasoning.append(
                         f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont wuerde den "
-                        "Aktienanteil leicht reduzieren; Obligationen und Liquiditaet "
-                        "liegen aber bereits an ihrer Obergrenze, der Tilt entfaellt."
+                        "Aktienanteil leicht reduzieren; aufnehmen koennte den Anteil "
+                        f"keine Klasse ({', '.join(reasons)}), der Tilt entfaellt."
                     )
             if eq_reduction > 0:
                 to_liquidity = min(eq_reduction // 2, liquidity_room)
@@ -2648,8 +2659,6 @@ def _apply_goal_and_reserve_tilts(
     # Max ±200 bps pro Goal, immer geclippt an den Bandbreiten (min/max).
     # Opportunistische Renditeziele tilten NICHT (Hardness-Filter, ADR-konform).
     for goal in goals:
-        if locked & {"equities", "bonds"}:
-            break
         goal_type = _norm_text(goal.goal_type)
         if goal_type != "Renditeziel":
             continue
@@ -2660,6 +2669,23 @@ def _apply_goal_and_reserve_tilts(
             continue
         target_bps = int(getattr(goal, "target_return_bps", None) or 0)
         if target_bps <= 0:
+            continue
+        fixed = [label for bucket, label in (("equities", "Aktien"), ("bonds", "Obligationen")) if bucket in locked]
+        if fixed:
+            # H-859-6: Wegfall des Renditeziel-Tilts ausweisen (nur wenn er
+            # ohne Fixierung ueberhaupt gewirkt haette).
+            if _renditeziel_equity_tilt_bps(
+                target_return_bps=target_bps,
+                current_equity_bps=int(targets.get("equities", 0)),
+                min_equity_bps=int(minimums.get("equities", 0)),
+                max_equity_bps=int(maximums.get("equities", 10000)),
+            ) != 0:
+                reasoning.append(
+                    f"Renditeziel '{goal.label}' ({target_bps/100:.2f}% p.a.) wuerde den "
+                    "Aktienanteil verschieben; "
+                    f"{' und '.join(fixed)} {'ist' if len(fixed) == 1 else 'sind'} als "
+                    "Berater-Ziel fixiert, der Tilt entfaellt."
+                )
             continue
         eq_shift = _renditeziel_equity_tilt_bps(
             target_return_bps=target_bps,
