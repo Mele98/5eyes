@@ -1641,7 +1641,15 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Bewertungsstichtags statt im Eroeffnungsjahr des Mandats (eine Uhr mit der
 # Cashflow-/Zielachse, ADR-2). Rechenwirksam nur fuer Mandate aus Vorjahren mit
 # Steuerbasis, Pensionierungsjahr oder Mortalitaets-Simulation.
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v18"
+#
+# v19 (2026-11-03, AUDIT-2026-11 D3 + Pruefrunde #859 H-859-8): der
+# Haertegrad geht kanonisiert in den Inhalts-Fingerabdruck ein ("Primaer",
+# "primary", None und unbekannte Werte -> "Primär", wie ihn
+# goal_liabilities._hardness_key fachlich liest). Rechnung unveraendert;
+# eine Neuberechnung von Altdaten mit abweichender Schreibweise zieht damit
+# einen anderen Wuerfel -- die Versionsmarke trennt solche Laeufe von
+# v18-Laeufen. Bewusst neue Wuerfel (die Version geht in den Seed).
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v19"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -1696,8 +1704,10 @@ def _seed_goal_date(value, valuation_year: int):
 # AUDIT-2026-11 D3: fachlich gleiche Schreibweisen des Haertegrads ("Primär",
 # "Primaer", "primary", ...) zogen verschiedene Wuerfel. Kanonisiert wird auf
 # die gespeicherte Form (Modell-/Schema-Default und Frontend schreiben
-# "Hart"/"Primär"/"Opportunistisch"), damit diese ihren Seed behalten.
-# Unbekannte Werte und None bleiben unveraendert.
+# "Hart"/"Primär"/"Opportunistisch").
+# H-859-8: None und unbekannte Werte liest goal_liabilities._hardness_key
+# fachlich als "primaer"; sie werden daher ebenfalls auf "Primär"
+# kanonisiert (Engine-Version v19, siehe dort).
 _CANONICAL_HARDNESS_LABEL = {
     "hart": "Hart",
     "primaer": "Primär",
@@ -1706,12 +1716,8 @@ _CANONICAL_HARDNESS_LABEL = {
 
 
 def _seed_hardness(value):
-    if not isinstance(value, str):
-        return _seed_scalar(value)
-    key = _HARDNESS_LABELS_TO_KEY.get(value.strip().lower())
-    if key is None:
-        return value
-    return _CANONICAL_HARDNESS_LABEL[key]
+    raw = str(value).strip().lower() if isinstance(value, str) else ""
+    return _CANONICAL_HARDNESS_LABEL[_HARDNESS_LABELS_TO_KEY.get(raw, "primaer")]
 
 
 def _seed_scalar(value):

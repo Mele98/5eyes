@@ -65,6 +65,20 @@ def test_semantically_different_hardness_still_differs():
     assert fp([_goal("Primär")], valuation_year=2026) != fp([_goal("Opportunistisch")], valuation_year=2026)
 
 
-@pytest.mark.parametrize("value", [None, "Unbekannt"])
-def test_unknown_or_missing_hardness_is_left_unchanged(value):
-    assert goal_economic_fingerprint([_goal(value)], valuation_year=2026) == [_legacy_row(_goal(value))]
+@pytest.mark.parametrize("value", [None, "", "Unbekannt", 1])
+def test_unknown_or_missing_hardness_is_canonicalized_like_the_engine_reads_it(value):
+    """H-859-8 (Pruefrunde #859): goal_liabilities._hardness_key liest None
+    und unbekannte Werte als "primaer" -- der Seed-Fingerabdruck jetzt auch."""
+    from services.optimizer.goal_liabilities import _hardness_key
+    from types import SimpleNamespace
+
+    assert _hardness_key(SimpleNamespace(hardness=value)) == "primaer"
+    assert goal_economic_fingerprint([_goal(value)], valuation_year=2026) == [_legacy_row(_goal("Primär"))]
+
+
+def test_engine_version_marks_the_canonicalization():
+    """H-859-8: Neuberechnungen von Altdaten mit abweichender Schreibweise
+    ziehen einen anderen Wuerfel; die Engine-Version trennt sie von v18."""
+    from services.optimizer import solver
+
+    assert solver.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v19"

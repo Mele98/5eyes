@@ -359,6 +359,19 @@ Rundung, alles Uebrige innerhalb der Solver-Toleranz); Score 9
 unveraendert, Risikoanteil 69.28 -> 69.30 %; Test war innerhalb der
 Toleranz gruen, Datei trotzdem nachgefuehrt, weil sie sich geaendert hat).
 Score 3 und alle drei Score-5-Varianten seed-unabhaengig, unveraendert.
+
+Nachtrag (2026-11-03, Pruefrunde #859 H-859-8, Engine ``saa_resampled_v19``):
+None und unbekannte Haertegrade werden wie in goal_liabilities._hardness_key
+als "Primär" kanonisiert; die Versionsmarke v19 trennt Neuberechnungen von
+Altdaten mit abweichender Schreibweise von v18-Laeufen. Rechnung
+unveraendert, reiner Seed-Effekt (Version im Inhalts-Seed); unter Haswell =
+Nehalem (Threads = 1) byte-identisch erzeugt. Score 7
+6769/1634/805/591/201 -> 6775/1617/811/596/201 (Rendite 528 unveraendert,
+Vola 1076 -> 1078, Risikoanteil 64.44 -> 64.52 %,
+``totals.sum_target_amount_rappen`` 49'764'796 -> 49'764'797); Score 9
+7937/768/715/379/201 -> 7934/782/704/379/201 (Rendite 579 unveraendert,
+Vola 1251 -> 1250, Risikoanteil 69.30 -> 69.24 %, Summe 49'764'796 ->
+49'764'795). Score 3 und alle drei Score-5-Varianten byte-identisch.
 """
 from __future__ import annotations
 
