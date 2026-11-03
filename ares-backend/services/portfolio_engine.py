@@ -1253,6 +1253,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
     house_matrix_bands_payload,
+    system_liquidity_floor_from_allocation,
     policy_band_clamp_notes,
     policy_band_bound_keys,
     raise_if_locked_targets_infeasible,
@@ -3275,6 +3276,7 @@ def generate_target_allocation(
     optimizer_minimums = dict(minimums)
     optimizer_maximums = dict(maximums)
     optimizer_plan_reasoning = reasoning if apply_stochastic else []
+    system_liquidity_floor_bps = 0  # M2 / AA-7.2: Floor + Reserve, ohne Berater
     if run_stochastic:
         from services.optimizer.constraints import (
             MAX_ALTERNATIVES,
@@ -3307,6 +3309,8 @@ def generate_target_allocation(
                 f"{global_liquidity_floor_bps} bps)."
             )
         floor_raised_liquidity = int(optimizer_minimums["liquidity"]) < global_liquidity_floor_bps
+        if apply_stochastic:
+            system_liquidity_floor_bps = global_liquidity_floor_bps
         optimizer_minimums["liquidity"] = max(
             int(optimizer_minimums["liquidity"]),
             global_liquidity_floor_bps,
@@ -3380,6 +3384,8 @@ def generate_target_allocation(
         optimizer_minimums["liquidity"] = max(
             int(optimizer_minimums["liquidity"]), int(reserve_floor_bps)
         )
+        if apply_stochastic:
+            system_liquidity_floor_bps = max(system_liquidity_floor_bps, int(reserve_floor_bps))
         raise_if_locked_targets_infeasible(  # H-859-2: Zielreserve als Untergrenze
             {**optimizer_targets, **manual_preferred_target_bps}, optimizer_minimums,
             manual_locked_buckets, bucket_labels=BUCKET_LABELS,
@@ -4284,7 +4290,10 @@ def generate_target_allocation(
         "house_matrix_profile": house_matrix.profile_name,
         # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
         # Begruendungsfeld im Bandbreiten-Editor.
-        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
+        "house_matrix_bands": house_matrix_bands_payload(
+            house_matrix, policy,
+            system_liquidity_floor_bps=system_liquidity_floor_bps,  # M2 / AA-7.2
+        ),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -6161,7 +6170,12 @@ def build_target_payload_from_allocation(
         "house_matrix_profile": house_matrix.profile_name,
         # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
         # Begruendungsfeld im Bandbreiten-Editor.
-        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
+        "house_matrix_bands": house_matrix_bands_payload(
+            house_matrix, policy,
+            system_liquidity_floor_bps=system_liquidity_floor_from_allocation(  # M2 / AA-7.2
+                allocation, prefs.get("bands"),
+            ),
+        ),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,

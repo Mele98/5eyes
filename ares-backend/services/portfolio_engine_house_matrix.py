@@ -749,18 +749,55 @@ def house_band_deviation_disclosure_for_allocation(
     }
 
 
-def house_matrix_bands_payload(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> dict:
+def house_matrix_bands_payload(
+    house_matrix: HouseMatrix,
+    policy: OptimizerPolicy,
+    *,
+    system_liquidity_floor_bps: int = 0,
+) -> dict:
     """BAND-DEVIATION-REASON-REQUIRED-001: die (policy-bereinigte)
     Hausmatrix-Bandbreite je Bucket fuer den Bandbreiten-Editor. Die
     Bucket-Bandbreite im Payload ist nach einem Override bereits die
-    Mandatsbandbreite und taugt daher nicht als Vergleichsbasis."""
+    Mandatsbandbreite und taugt daher nicht als Vergleichsbasis.
+
+    Live-Test 04 / M2 (Entscheid AA-7.2): das Liquiditaets-Eignungsband ist
+    [Hausmin; max(Hausmax; Floor + Reserve)]. ``system_liquidity_floor_bps``
+    ist die vom Modell selbst gesetzte Untergrenze (globaler Floor und
+    interne Zielreserve, ohne Berater-Vorgaben). Eine solche systembedingte
+    Anhebung ist kein Austritt aus der Hausmatrix und loest keine
+    Begruendungspflicht aus; vorher verlangte der Editor fuer das
+    Engine-eigene Band (z. B. 201/201 bps bei Hausmax 200) eine Begruendung."""
     from services.portfolio_engine import BUCKET_FIELDS
 
     _targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    maximums = {
+        **maximums,
+        "liquidity": max(int(maximums["liquidity"]), int(system_liquidity_floor_bps or 0)),
+    }
     return {
         key: {"min_bps": int(minimums[key]), "max_bps": int(maximums[key])}
         for key in BUCKET_FIELDS
     }
+
+
+def system_liquidity_floor_from_allocation(allocation, bands: dict | None) -> int:
+    """M2: systembedingte Liquiditaets-Untergrenze einer gespeicherten
+    Allokation. Das persistierte Band-Minimum ist systembedingt, wenn es
+    ueber einem allfaelligen Berater-Minimum liegt (globaler Floor/Reserve);
+    ein vom Berater gesetztes Minimum bleibt eine Berater-Vorgabe."""
+    persisted_min = int(getattr(allocation, "band_liquidity_min_bps", 0) or 0)
+    advisor_min = None
+    for raw_key, override in (bands or {}).items():
+        if str(raw_key).strip().lower() in ("liquidity", "liquiditaet", "liquidität") and isinstance(override, dict):
+            value = override.get("min_bps")
+            if value is not None:
+                try:
+                    advisor_min = int(value)
+                except (TypeError, ValueError):
+                    advisor_min = None
+    if advisor_min is not None and persisted_min <= advisor_min:
+        return 0
+    return persisted_min
 
 
 def _apply_band_min_max_overrides(
