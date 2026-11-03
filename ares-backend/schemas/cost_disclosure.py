@@ -45,6 +45,45 @@ class CostItem(BaseModel):
     )
 
 
+class ProductRetrocessionLine(BaseModel):
+    """AUDIT-2026-11 P1 (L1): Retrozession je empfohlenem Produkt."""
+    product_id: Optional[str] = None
+    product_name: str
+    isin: Optional[str] = None
+    provider: Optional[str] = None
+    amount_rappen: int = Field(0, description="Investiertes Volumen des Produkts im Vorschlag")
+    rate_bps: Optional[int] = Field(
+        None, description="Retrozessionssatz p.a.; None = unbekannt (gilt nie als retrozessionsfrei)"
+    )
+    source: Optional[str] = None
+    status: Literal["unknown", "none", "present"]
+    estimated_annual_rappen: Optional[int] = Field(
+        None, description="Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz"
+    )
+    treatment: Literal["reimbursed", "waiver_documented", "unresolved", "not_applicable", "unknown"]
+    treatment_label: str
+    covered_by_mandate_entry: bool = Field(
+        False,
+        description=(
+            "True, wenn die manuelle Retrozessions-Zeile des Mandats (gleicher Anbieter) "
+            "die Offenlegungszeile ist -- dann entsteht keine zweite Kostenzeile."
+        ),
+    )
+    requires_resolution: bool = False
+
+
+class ProductRetrocessionDisclosure(BaseModel):
+    """AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung
+    (Art. 26 FIDLEG). Fehlt bei Nachweisen, die vor P1 eingefroren wurden."""
+    schema_version: int = 1
+    lines: list[ProductRetrocessionLine] = Field(default_factory=list)
+    unknown_count: int = 0
+    present_count: int = 0
+    unresolved_count: int = 0
+    complete: bool = False
+    legal_basis: str = ""
+
+
 class CostTotals(BaseModel):
     one_time_rappen: int = 0
     one_time_bps: Optional[int] = None
@@ -135,6 +174,13 @@ class CostDisclosureResponse(BaseModel):
     is_complete: bool = False
     has_estimates: bool = False
     warnings: list[str] = Field(default_factory=list)
+    product_retrocessions: Optional[ProductRetrocessionDisclosure] = Field(
+        None,
+        description=(
+            "Retrozession je empfohlenem Produkt (AUDIT-2026-11 P1). None, wenn der "
+            "Ausweis ohne Produktbezug entstand oder vor P1 eingefroren wurde."
+        ),
+    )
 
     @property
     def legal_basis(self) -> str:

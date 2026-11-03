@@ -109,6 +109,12 @@ def build_kostenausweis_flowables(
         compact=compact,
     ))
 
+    # AUDIT-2026-11 P1 (L1): Retrozession je Produkt -- eigener Baustein,
+    # rendert nichts ohne payload["product_retrocessions"].
+    from services.pdf.components.retrocession_disclosure import build_retrocession_flowables
+
+    out.extend(build_retrocession_flowables(data, styles, compact=compact))
+
     warnings = [str(item) for item in data.get("warnings") or [] if str(item).strip()]
     if warnings:
         out.append(Spacer(1, (2 if compact else 4) * mm))

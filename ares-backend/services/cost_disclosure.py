@@ -482,6 +482,24 @@ def build_cost_disclosure_for_run(
         }
         for position, product in rows
     ]
+    # AUDIT-2026-11 P1 (L1): Retrozession am Produkt -- eigene Komponente,
+    # siehe services/retrocession_disclosure.py.
+    product_retrocessions = [
+        {
+            "product_id": product.id,
+            "product_name": product.product_name,
+            "isin": getattr(product, "isin", None),
+            "provider": getattr(product, "provider", None),
+            "amount_rappen": int(
+                getattr(position, "target_amount_rappen", 0)
+                or getattr(position, "current_amount_rappen", 0)
+                or 0
+            ),
+            "retrocession_bps": getattr(product, "retrocession_bps", None),
+            "retrocession_source": getattr(product, "retrocession_source", None),
+        }
+        for position, product in rows
+    ]
 
     target_allocation = None
     target_allocation_id = getattr(latest_run, "target_allocation_id", None)
@@ -593,6 +611,7 @@ def build_cost_disclosure_for_run(
                 default=DEFAULT_TRANSACTION_COST_BPS,
             ),
             inducements=inducements,
+            product_retrocessions=product_retrocessions,
             source_run_id=str(latest_run.id),
         source_run_status=str(getattr(latest_run, "result_status", "") or ""),
             as_of=str(getattr(latest_run, "created_at", "") or ""),
@@ -615,6 +634,7 @@ def calculate_cost_disclosure(
     fee_model: Mapping[str, Any] | str | None,
     transaction_cost_bps: int = DEFAULT_TRANSACTION_COST_BPS,
     inducements: Iterable[Mapping[str, Any]] | None = None,
+    product_retrocessions: Iterable[Mapping[str, Any]] | None = None,
     source_run_id: str | None = None,
     source_run_status: str | None = None,
     as_of: str | None = None,
@@ -914,6 +934,21 @@ def calculate_cost_disclosure(
                 "zurückerstatten."
             )
 
+    # AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung
+    # (Art. 26 FIDLEG). Abgegrenzte Komponente; fuehrt die manuelle
+    # Mandatserfassung oben mit den Produkt-Stammdaten zusammen, ohne eine
+    # Retrozession doppelt auszuweisen. Nie im Total (Teil der TER).
+    from services.retrocession_disclosure import apply_product_retrocessions
+
+    retro_items, retro_warnings, retro_summary = apply_product_retrocessions(
+        products=None if product_retrocessions is None else list(product_retrocessions),
+        inducements=inducements,
+        has_documented_waiver=_has_documented_waiver,
+        currency=currency,
+    )
+    items.extend(retro_items)
+    warnings.extend(retro_warnings)
+
     one_time_amount = sum(
         int(item.get("amount_rappen") or 0)
         for item in items
@@ -961,6 +996,7 @@ def calculate_cost_disclosure(
         "is_complete": service_fee_known and ter_coverage_bps == 10000,
         "has_estimates": any(bool(item.get("is_estimate")) for item in items),
         "warnings": warnings,
+        **({"product_retrocessions": retro_summary} if retro_summary is not None else {}),
     }
 
 
