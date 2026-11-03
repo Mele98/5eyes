@@ -411,7 +411,7 @@ def build_cost_disclosure_for_run(
     from models.allocation import OptimizerPolicy, TargetAllocation
     from models.review import (
         ConflictOfInterestDisclosure, Product, ProductUniverseEntry,
-        RecommendationHolding, RecommendationPosition,
+        RecommendationHolding, RecommendationPosition, RecommendationRun,
     )
 
     currency = str(
@@ -486,6 +486,44 @@ def build_cost_disclosure_for_run(
         for position_id, h in latest_holding.items()
         if h is not None and h.deleted_at is None
     }
+    # N-856-3 (Pruefrunde #856): Bestaende frueherer Laeufe desselben Mandats,
+    # deren Produkt dieser Lauf nicht mehr enthaelt, werden verkauft und
+    # gehoeren in den Umschlag. Gleiche Regel wie holdings_not_carried_over
+    # (je Produkt die juengste Holding, geloescht oder 0/0 = nicht gehalten),
+    # begrenzt auf Laeufe bis zu diesem. Nur wenn der Lauf selbst Bestaende
+    # traegt -- ohne Bestand rechnet der Ausweis ohnehin das ganze Volumen.
+    uncarried_holdings: list[dict[str, Any]] = []
+    if holding_values:
+        run_products = {product.id for _, product in rows}
+        latest_by_product: dict[str, Any] = {}
+        for holding, _created in (
+            db.query(RecommendationHolding, RecommendationRun.created_at)
+            .join(RecommendationRun, RecommendationRun.id == RecommendationHolding.run_id)
+            .filter(
+                RecommendationRun.mandate_id == mandate.id,
+                RecommendationRun.id != latest_run.id,
+                RecommendationRun.created_at <= str(getattr(latest_run, "created_at", "") or ""),
+            )
+            .order_by(
+                RecommendationHolding.product_id.asc(),
+                RecommendationRun.created_at.desc(),
+                RecommendationHolding.updated_at.desc(),
+            )
+            .all()
+        ):
+            latest_by_product.setdefault(holding.product_id, holding)
+        for product_id, holding in sorted(latest_by_product.items()):
+            if product_id in run_products or holding.deleted_at is not None:
+                continue
+            if int(holding.units_milli or 0) <= 0 and int(holding.market_value_rappen or 0) <= 0:
+                continue
+            uncarried_holdings.append({
+                "value_rappen": (
+                    int(holding.market_value_rappen)
+                    if holding.market_value_rappen is not None and int(holding.market_value_rappen) > 0
+                    else None
+                ),
+            })
     positions = [
         {
             "holding_present": position.id in holding_values,
@@ -619,6 +657,7 @@ def build_cost_disclosure_for_run(
                 default=DEFAULT_TRANSACTION_COST_BPS,
             ),
             inducements=inducements,
+            uncarried_holdings=uncarried_holdings,
             source_run_id=str(latest_run.id),
         source_run_status=str(getattr(latest_run, "result_status", "") or ""),
             as_of=str(getattr(latest_run, "created_at", "") or ""),
@@ -641,6 +680,7 @@ def calculate_cost_disclosure(
     fee_model: Mapping[str, Any] | str | None,
     transaction_cost_bps: int = DEFAULT_TRANSACTION_COST_BPS,
     inducements: Iterable[Mapping[str, Any]] | None = None,
+    uncarried_holdings: Iterable[Mapping[str, Any]] | None = None,
     source_run_id: str | None = None,
     source_run_status: str | None = None,
     as_of: str | None = None,
@@ -679,6 +719,25 @@ def calculate_cost_disclosure(
         if holdings_recorded
         else invested_amount
     )
+    # N-856-3: Verkaeufe nicht uebernommener Bestaende gehoeren zum Umschlag.
+    # Ist ein solcher Bestand ohne Marktwert, ist sein Verkaufsvolumen
+    # unbekannt -> konservativ mindestens das ganze Volumen.
+    uncarried = list(uncarried_holdings or [])
+    uncarried_unvalued = any(item.get("value_rappen") is None for item in uncarried)
+    uncarried_notes: list[str] = []
+    if holdings_recorded and uncarried:
+        traded_amount += sum(max(0, _safe_int(item.get("value_rappen"))) for item in uncarried)
+        uncarried_notes.append(
+            f"{len(uncarried)} Bestand/Bestaende aus frueheren Laeufen ist/sind nicht in die "
+            "Empfehlung uebernommen; deren Verkauf ist im gehandelten Volumen enthalten."
+        )
+        if uncarried_unvalued:
+            traded_amount = max(traded_amount, invested_amount)
+            uncarried_notes.append(
+                "Mindestens ein nicht uebernommener Bestand ist ohne Marktwert erfasst; "
+                "die Transaktionskosten werden konservativ mindestens auf das ganze "
+                "Produktvolumen gerechnet."
+            )
     advisory_wealth = max(0, _safe_int(advisory_wealth_rappen))
     # FIDLEG: ist das echte Beratungsvermögen nicht erfasst, wird als Näherung das
     # investierte Produktvolumen als Gebührenbasis genutzt. Dann darf die Basis NICHT
@@ -795,6 +854,7 @@ def calculate_cost_disclosure(
     transaction_rate = _require_rate_bps(
         transaction_cost_bps, location="transaction_cost_bps"
     )
+    warnings.extend(uncarried_notes if transaction_rate > 0 else [])
     if holdings_recorded and transaction_rate > 0 and traded_amount > 0:
         items.append(_rate_item(
             key="initial_transaction_costs",

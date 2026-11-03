@@ -144,3 +144,81 @@ def test_build_for_run_reads_the_runs_holdings(db_session):
     item = _item(result)
     assert item["basis_rappen"] == 2_000_000, result
     assert item["amount_rappen"] == 3_000
+
+
+# ---------------------------------------------------------------------------
+# N-856-3 (Pruefrunde #856): Verkaeufe nicht uebernommener Bestaende.
+# Ein Bestand eines frueheren Laufs, dessen Produkt der Lauf nicht mehr
+# enthaelt, wird verkauft -- dieser Verkauf gehoert in den Umschlag. Vorher
+# fehlte er, der Ausweis fiel zu tief aus.
+# ---------------------------------------------------------------------------
+
+
+def test_sales_of_holdings_not_carried_over_are_part_of_the_turnover():
+    result = calculate_cost_disclosure(
+        advisory_wealth_rappen=10_000_000,
+        positions=[{"amount_rappen": 10_000_000, "weight_bps": 10000, "ter_bps": 10,
+                    "holding_present": True, "holding_value_rappen": 9_000_000}],
+        fee_model=None,
+        uncarried_holdings=[{"value_rappen": 3_000_000}],
+    )
+    item = _item(result)
+    # Kauf 1'000'000 + Verkauf des nicht uebernommenen Bestands 3'000'000
+    assert item["basis_rappen"] == 4_000_000
+    assert any("nicht in die Empfehlung uebernommen" in w for w in result["warnings"])
+
+
+def test_uncarried_holding_without_value_falls_back_to_full_volume():
+    result = calculate_cost_disclosure(
+        advisory_wealth_rappen=10_000_000,
+        positions=[{"amount_rappen": 10_000_000, "weight_bps": 10000, "ter_bps": 10,
+                    "holding_present": True, "holding_value_rappen": 10_000_000}],
+        fee_model=None,
+        uncarried_holdings=[{"value_rappen": None}],
+    )
+    item = _item(result)
+    assert item is not None and item["basis_rappen"] == 10_000_000
+    assert any("ohne Marktwert" in w for w in result["warnings"])
+
+
+def test_build_for_run_counts_holdings_of_earlier_runs_not_carried_over(db_session):
+    s = db_session
+    mandate = SimpleNamespace(id="n3-m", tenant_id=None, base_currency="CHF", jurisdiction="CH")
+    old_run = RecommendationRun(
+        id="n3-old", mandate_id=mandate.id, client_id="c", policy_id="p", run_type="Optimizer",
+        result_status="Final", created_by="u", created_at="2026-10-01T00:00:00", updated_at=NOW,
+    )
+    run = RecommendationRun(
+        id="n3-run", mandate_id=mandate.id, client_id="c", policy_id="p", run_type="Optimizer",
+        result_status="Draft", fee_assumptions_json='{"transaction_cost_bps": 15}',
+        created_by="u", created_at=NOW, updated_at=NOW,
+    )
+    products = [
+        Product(id=f"n3-p{i}", product_name=f"P{i}", provider="x", product_type="ETF",
+                asset_class="Aktien", sub_asset_class="Aktien Schweiz", currency="CHF",
+                ter_bps=10, is_active=1, created_at=NOW, updated_at=NOW)
+        for i in (1, 2)
+    ]
+    s.add_all([old_run, run, *products])
+    s.flush()
+    s.add_all([
+        RecommendationPosition(id="n3-old-pos2", run_id=old_run.id, product_id="n3-p2",
+                               target_weight_bps=10000, target_amount_rappen=3_000_000,
+                               created_at=NOW, updated_at=NOW),
+        RecommendationPosition(id="n3-pos1", run_id=run.id, product_id="n3-p1",
+                               target_weight_bps=10000, target_amount_rappen=10_000_000,
+                               created_at=NOW, updated_at=NOW),
+    ])
+    s.flush()
+    s.add_all([
+        # Produkt 2 nur im frueheren Lauf gehalten -> wird verkauft
+        RecommendationHolding(id="n3-h-old", run_id=old_run.id, recommendation_position_id="n3-old-pos2",
+                              product_id="n3-p2", market_value_rappen=3_000_000,
+                              created_at=NOW, updated_at=NOW),
+        RecommendationHolding(id="n3-h1", run_id=run.id, recommendation_position_id="n3-pos1",
+                              product_id="n3-p1", market_value_rappen=9_000_000,
+                              created_at=NOW, updated_at=NOW),
+    ])
+    s.flush()
+    item = _item(build_cost_disclosure_for_run(s, mandate, run))
+    assert item["basis_rappen"] == 4_000_000
