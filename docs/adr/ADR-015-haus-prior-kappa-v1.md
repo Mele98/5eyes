@@ -1,6 +1,6 @@
 # ADR-015: Haus-Prior v1 – Freigabe von kappa_H = 300
 
-- **Status:** Accepted
+- **Status:** Accepted (vorbereitet). Die Freigabe durch `<FREIGABE_OWNER>` steht aus, siehe Freigabevermerk.
 - **Datum:** 2026-11-02
 - **Sprint:** Audit 2026-11, Welle 0, Paket P12 (Entscheid AA-4, Lücke L21)
 
@@ -32,8 +32,9 @@ kundenabhängig machen.
 
 ## Entscheidung
 
-1. `kappa_H = 300` wird als **Haus-Prior v1** freigegeben. Der Wert ändert sich
-   nicht.
+1. `kappa_H = 300` soll als **Haus-Prior v1** freigegeben werden. Der Wert ändert
+   sich nicht. Der Freigabevermerk und die Auflage aus dem Bestätigungs-Holdout
+   auf der Produktions-Engine (siehe unten) gehen vor.
 2. Code-Status:
    - `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "approved_v1"`
    - `HOUSE_PRIOR_PARAMETER_RELEASE = "v1"`
@@ -60,13 +61,16 @@ kundenabhängig machen.
 
 ## Herleitung und Kalibrierung
 
-Quelle sind git log und git blame auf `ares-backend/services/optimizer/house_prior.py`:
+Quelle ist `git log --follow` auf `ares-backend/services/optimizer/house_prior.py`.
+Ohne `--follow` zeigt der aktuelle Pfad nur den Rebranding-Commit. git blame
+liefert die Zeilen `HOUSE_PRIOR_KAPPA` und `..._CALIBRATION_STATUS`.
 
 | Commit | Datum | Inhalt |
 |---|---|---|
 | `6d11f8ac` (#640) | 2026-10-18 | HOUSE-PRIOR-001: Prior statt binärem Signifikanzschalter (Engine v6). `HOUSE_PRIOR_KAPPA = 300.0` als CIO-Entscheid eingeführt |
 | `854ee8e9` (#649) | 2026-10-19 | SAA-STAT-V7: Ridge-Metrik, Einheiten-Bootstrap, Status `experimental_tuned_holdout_checked`, Kalibrierungspaket commitgebunden |
 | `7fab6168` (#695) | 2026-10-24 | Kalibrierungsskripte mit pfadunabhängigem Live-DB-Wächter (keine fachliche Änderung) |
+| `d1ca3f99` (#737) | 2026-10-25 | Zielhierarchie in allen Modi (Engine v15): ändert die Default-Zielfunktion (objective/solver). In `house_prior.py` nur der Docstring (Tiebreak heisst jetzt Risikoterm). Fachlich relevant für die Gültigkeit des Holdouts, siehe unten |
 
 - **Design und Experiment:** `docs/planning/2026-10-18-house-prior-v6.md`.
   - Ausgangslage Engine v5: Bei +1 % Zielbetrag sprang die Allokation um bis zu
@@ -87,6 +91,46 @@ Quelle sind git log und git blame auf `ares-backend/services/optimizer/house_pri
   - R1 (kein Schaden): Untergrenze +0.192 pp > 0, erfüllt.
   - R2 (nicht dominiert gegen 100/1000): erfüllt.
   - Entscheid: `confirmed`.
+- **Engine-Stand:** Tuning und Holdout liefen auf `saa_resampled_v5` bzw.
+  `saa_resampled_v7`. Produktiv läuft `saa_resampled_v18` (`OPTIMIZER_ENGINE_VERSION`).
+  Dazwischen hat unter anderem #737 die Zielhierarchie im Default geändert. Nach
+  dem eigenen Release-Gate verlangt das einen neuen Holdout.
+- **Bestätigungs-Holdout auf v18** (2026-11-03, vorbereitet durch Claude,
+  Codex-Nachprüfung offen). Unverändertes Werkzeug mit vorab festgelegter Regel
+  und denselben Seeds und Welten wie der v7-Holdout. Bewertungsjahr 2026,
+  seriell, BLAS-Threads 1, isolierte Umgebung, Windows. Rohdaten und Zusammenfassung:
+  `docs/planning/2026-10-18-house-prior-kappa-calibration/holdout-v18/`. Alle
+  450 Läufe tragen `engine_version = saa_resampled_v18`.
+
+  ```bash
+  # je Mandat A_ausg_spar B_kons_entn C_wachs_entn D_wachs_spar E_ausg_entn (je ~5 min):
+  python tools/house_prior_calibration/kappa_holdout.py run <MANDAT> <OUT_DIR>
+  python tools/house_prior_calibration/kappa_holdout.py summarize <OUT_DIR>
+  ```
+
+  | κ_H | mean ΔP(Ziel) vs. Haus | se | Welten besser / schlechter | mean ΔZielebene | se |
+  |---|---|---|---|---|---|
+  | 100 | +0.219 pp | 0.136 | 67.3 % / 31.3 % | −0.0343 | 0.0092 |
+  | **300** | **+0.202 pp** | 0.128 | 68.7 % / 30.0 % | −0.0338 | 0.0089 |
+  | 1000 | +0.131 pp | 0.135 | 64.0 % / 32.0 % | −0.0319 | 0.0087 |
+
+  - R1 (kein Schaden gegenüber der Hausquote): Die einseitige
+    95-%-Untergrenze von ΔP(κ = 300) liegt bei **−0.010 pp**. Damit ist R1
+    **nicht erfüllt**, wenn auch knapp. Der Mittelwert bleibt positiv, die
+    Streuung ist aber fast doppelt so gross wie auf v7 (se 0.128 statt 0.070).
+  - R2 (nicht dominiert): erfüllt. Gegen 100: −0.017 pp (se 0.029). Gegen 1000:
+    +0.071 pp (se 0.024).
+  - Die Zielebene (Fehlbetrag plus Chance-Strafe) ist für alle drei κ deutlich
+    besser als die Hausquote: −0.034, also rund 3.8 se.
+  - **Entscheid nach der vorab festgelegten Regel: `not_confirmed`.** Die Regel
+    sieht dann keine automatische Änderung vor; der Modellowner entscheidet.
+    Der Wert 300 bleibt unverändert. Ein anderer κ ist nicht besser belegt:
+    100 liegt innerhalb von 1 se, 1000 ist schwächer.
+  - **Auflage vor Produktion (Release-Gate):** `<FREIGABE_OWNER>` entscheidet,
+    ob κ_H = 300 auf v18 trotz verfehltem R1 freigegeben wird. Zur Wahl stehen
+    zum Beispiel eine Freigabe mit Begründung über die Zielebene oder ein
+    erweiterter Holdout mit mehr Welten. Bis dahin ist `approved_v1` im Code ein
+    vorbereiteter Status, keine erteilte Freigabe.
 - **Seed-Stabilität im Produktivpfad** (Audit 2026-11): Die Aktienquote lag vor
   dem Prior je nach Seed zwischen 63 und 75 %. Mit dem Prior beträgt die
   Spannweite 0.34 pp.
@@ -168,12 +212,26 @@ Vorher/Nachher-Tabelle.
 - **Ausserordentlich** bei jedem Wechsel von CMA-Methodik, Hausmatrizen,
   Prior-Metrik oder Default-Zielfunktion sowie bei der Aktivierung der
   Netto-Simulation (P2b).
-- **Verantwortlich:** Modellowner (CIO). Codex prüft jeden SHA.
+- **Verantwortlich:** Modellowner (CIO).
+- Die Prüfung jedes SHA durch Codex ist eine Entwicklungskontrolle. Eine
+  unabhängige Modellvalidierung ersetzt sie nicht. Für die
+  Vermögensverwaltung gilt Art. 21 FINIG (Risikomanagement, IKS) **[prüft Compliance]**.
+
+## Freigabevermerk
+
+| Feld | Eintrag |
+|---|---|
+| Freigegeben durch | `<FREIGABE_OWNER>` (Name und Funktion offen, nicht ausgefüllt) |
+| Datum | offen (Vorbereitung: 2026-11-03) |
+| Referenz | Audit 2026-11, Dok. 10, Entscheid AA-4 und Lücke L21. Pruefrunde #857 (Dok. 86). Holdout v7 (`holdout/`) und Bestätigungs-Holdout v18 (`holdout-v18/`, `not_confirmed`) |
+| Vorbereitet durch | Claude, 2026-11-03. Codex-Nachprüfung offen |
+| Auflage | Owner-Entscheid zum verfehlten R1 auf v18, siehe Herleitung |
 
 ## Konsequenzen
 
-- L21 ist formell geschlossen. Der Parameter ist versioniert, begründet und
-  ausgewiesen.
+- L21 ist vorbereitet: Der Parameter ist versioniert, begründet und ausgewiesen.
+  Formell geschlossen ist L21 erst mit dem ausgefüllten Freigabevermerk und dem
+  Owner-Entscheid zur v18-Auflage.
 - Neue Allokationen tragen in der Modellbasis `approved_v1`. Bereits
   gespeicherte Allokationen behalten ihren gespeicherten Status, weil die
   Modellbasis wortgetreu abgespielt wird.

@@ -65,3 +65,5 @@ Deterministisch innerhalb eines Bewertungsjahres (Zieldaten kalenderjahr-relativ
 `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "experimental_tuned_holdout_checked"`: getunt (post hoc) und auf unberührten Welten nach vorab festgelegter Regel bestätigt. Die Modellowner-Freigabe (Gültigkeitsbereich, Re-Kalibrierungstrigger, Sensitivität gegen Σ-/Tail-/Regimefehler) steht aus; bis dahin ist κ_H kein belegter CIO-Parameter im Sinne einer Model Card.
 
 **Nachtrag 2026-11-02 (HOUSE-PRIOR-APPROVAL-001):** κ_H = 300 ist als „Haus-Prior v1“ freigegeben, Status `approved_v1` (`docs/adr/ADR-015-haus-prior-kappa-v1.md`: Gültigkeitsbereich, Grenzen, Release-Gate, Review-Turnus). Der Wert ist unverändert.
+
+**Nachtrag 2026-11-03 (N-857-2):** Bestätigungs-Holdout mit demselben Werkzeug, denselben Seeds und Welten auf der Produktions-Engine `saa_resampled_v18`: `holdout-v18/` (Rohdaten + `holdout_summary.json`). κ300 ΔP(Ziel) +0.202 pp (se 0.128), R1-Untergrenze −0.010 pp → **`not_confirmed`** (R2 erfüllt, Zielebene −0.034, se 0.009). Owner-Entscheid als Auflage in ADR-015.

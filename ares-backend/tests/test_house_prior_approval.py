@@ -126,6 +126,16 @@ def test_deviation_is_disclosure_only_penalty_unchanged():
     "## Review-Turnus",
     "nicht** kundenabhängig",
     "deviation_vs_house_bps",
+    # N-857-2: Engine-Diskrepanz, Bestaetigungs-Holdout v18, Freigabevermerk.
+    "d1ca3f99",
+    "git log --follow",
+    "saa_resampled_v18",
+    "`not_confirmed`",
+    "−0.010 pp",
+    "kappa_holdout.py run",
+    "## Freigabevermerk",
+    "`<FREIGABE_OWNER>`",
+    "Codex-Nachprüfung offen",
 ])
 def test_adr_documents_derivation_effect_limits_and_review(needle):
     text = ADR.read_text(encoding="utf-8")

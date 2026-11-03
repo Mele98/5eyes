@@ -68,8 +68,10 @@ festgelegter Regel liegen commitgebunden unter
 Tuning war post hoc (kein vorab registriertes Kriterium); der Holdout mit
 vorab festgelegter Regel hat sie bestaetigt.
 HOUSE-PRIOR-APPROVAL-001 (Entscheid AA-4, Luecke L21): kappa_H = 300 ist als
-"Haus-Prior v1" freigegeben (``docs/adr/ADR-015-haus-prior-kappa-v1.md``),
-Status ``HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "approved_v1"``. Der WERT ist
+"Haus-Prior v1" zur Freigabe vorbereitet (``docs/adr/ADR-015-haus-prior-kappa-v1.md``),
+Status ``HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "approved_v1"``. Auflage im ADR:
+der Bestaetigungs-Holdout auf der Produktions-Engine v18 ist ``not_confirmed``
+(R1 knapp verfehlt); der Owner-Entscheid und der Freigabevermerk stehen aus. Der WERT ist
 unveraendert; jede Aenderung braucht den Out-of-sample-Nachweis aus dem ADR
 (Release-Gate). Ausgewiesen wird zusaetzlich die Abweichung des Ergebnisses
 von der Hausquote je Anlageklasse (``deviation_vs_house_bps``).
