@@ -235,6 +235,27 @@ Vorher/Nachher-Tabelle.
 - Neue Allokationen tragen in der Modellbasis `approved_v1`. Bereits
   gespeicherte Allokationen behalten ihren gespeicherten Status, weil die
   Modellbasis wortgetreu abgespielt wird.
+- **Release-Hinweis (N-857-4).** Das erste Regenerate nach dem Deploy erzeugt
+  bei unveränderten Eingaben einmalig eine neue Allokationsversion je
+  stochastischem Mandat. Bereits zertifizierte Final-Empfehlungen können dabei
+  verwaisen und mit 409 "basiert nicht auf der aktuellen Soll-Allokation"
+  abgewiesen werden.
+  - Ursache: Der geänderte Status (`approved_v1`), `kappa_release` und
+    `kappa_release_adr` in `prior_metric` sowie die Abweichungsfelder liegen in
+    der Modellbasis und damit im `allocation_context_hash`.
+    `REGENERATE-IDEMPOTENT-001` vergleicht diesen Hash.
+  - Vermeiden liesse sich das nicht, ohne die Evidence-Integrität zu schwächen.
+    Der Freigabestatus ist Teil der Modellbeschreibung, die der Hash bindet.
+    Nimmt man ihn heraus, wäre er unsigniert und veränderbar.
+  - Nur die Abweichungsfelder liessen sich aus den gebundenen Feldern
+    (`final_bps`, `house_anchor_*`) ableiten. Sie allein herauszunehmen,
+    verhindert die Hash-Änderung aber nicht, weil der Status-String sie
+    ohnehin auslöst. Ausserdem müsste dafür die Hashbildung in
+    `portfolio_engine_allocation_integrity` geändert werden.
+  - Entscheid: Die Hash-Änderung wird belassen und im Release dokumentiert.
+    Vorgehen: vor dem Deploy offene Final-Empfehlungen abschliessen oder nach
+    dem Regenerate neu zertifizieren.
+  - Dasselbe Muster gilt für jede Erweiterung der Modellbasis.
 - Die Spannung zur Direktive "alle Kundenvariablen" (B2) bleibt bewusst
   bestehen. Gelöst wird sie über fachliche Kanäle, nicht über kappa.
 
