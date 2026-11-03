@@ -15523,9 +15523,9 @@
             "title": "Complete",
             "type": "boolean"
           },
-          "legal_basis": {
+          "legal_reference": {
             "default": "",
-            "title": "Legal Basis",
+            "title": "Legal Reference",
             "type": "string"
           },
           "lines": {

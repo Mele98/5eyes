@@ -23,7 +23,7 @@ for _path in (BACKEND_ROOT, TESTS_ROOT):
 
 from main import app  # noqa: E402
 from models.review import ConflictOfInterestDisclosure, Product  # noqa: E402
-from schemas.product_master_data import (  # noqa: E402
+from schemas.review import (  # noqa: E402
     declared_hedge_currency,
     isin_is_valid,
     isin_status,

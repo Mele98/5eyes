@@ -25,6 +25,7 @@ from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAl
 from models.profiling import RiskAssessment, SuitabilityCheck
 from models.tenant import Tenant
 from schemas.review import (
+    master_data_consistency_errors,
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     ReviewTriggerFrequencyUpdate, CalendarFeedTokenResponse,
     normalize_trigger_frequency, trigger_frequency_months,
@@ -2656,8 +2657,6 @@ _PRODUCT_CLEARABLE_MASTER_DATA_FIELDS = (
 def _merged_master_data_errors(product: Product, changes: dict) -> list[str]:
     """Querpruefung der Stammdaten auf dem Stand NACH der Aenderung
     (Bearbeiten und Re-Import liefern nur Teilmengen der Felder)."""
-    from schemas.product_master_data import master_data_consistency_errors
-
     merged = {
         field: getattr(product, field, None)
         for field in ("ter_bps", *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS)

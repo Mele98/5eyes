@@ -9798,10 +9798,10 @@ export interface components {
              */
             complete?: boolean;
             /**
-             * Legal Basis
+             * Legal Reference
              * @default
              */
-            legal_basis?: string;
+            legal_reference?: string;
             /** Lines */
             lines?: components["schemas"]["ProductRetrocessionLine"][];
             /**

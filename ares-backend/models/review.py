@@ -297,7 +297,7 @@ class Product(Base):
     # AUDIT-2026-11 P1 (Entscheid PO-6, Luecke L1): Produkt-Stammdaten.
     # Alle Felder nullable, NULL = "nicht erfasst" -- nichts wird erfunden
     # (der Standardkatalog fuehrt keine echten ISIN/Retrozessionssaetze).
-    # Validierung: schemas/product_master_data.py; Alembic a8d3c5e7f9b1;
+    # Validierung: schemas/review.py (Abschnitt P1); Alembic a8d3c5e7f9b1;
     # SQLite-Runtime-Patch: database.py::ensure_runtime_columns.
     # Die Auswahl-/Scoring-Logik liest diese Felder in P1 NICHT (P13).
     domicile = Column(String)                # ISO 3166-1 alpha-2, z.B. 'IE'

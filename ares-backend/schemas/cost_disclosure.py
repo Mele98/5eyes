@@ -81,7 +81,7 @@ class ProductRetrocessionDisclosure(BaseModel):
     present_count: int = 0
     unresolved_count: int = 0
     complete: bool = False
-    legal_basis: str = ""
+    legal_reference: str = ""
 
 
 class CostTotals(BaseModel):

@@ -24,7 +24,7 @@ for _path in (BACKEND_ROOT, TESTS_ROOT):
 
 from main import app  # noqa: E402
 from models.review import ConflictOfInterestDisclosure, Product  # noqa: E402
-from schemas.product_master_data import (  # noqa: E402
+from schemas.review import (  # noqa: E402
     declared_hedge_currency,
     isin_is_valid,
     isin_status,
@@ -221,7 +221,7 @@ def test_cost_disclosure_response_schema_keeps_retro_block():
 def _pdf_text(payload) -> str:
     from reportlab.platypus import Paragraph, Table
 
-    from services.pdf.components.retrocession_disclosure import build_retrocession_flowables
+    from services.pdf.components.kostenausweis import build_retrocession_flowables
     from services.pdf.components.advisory_palette import make_advisory_styles as build_styles
 
     def walk(flowables):
