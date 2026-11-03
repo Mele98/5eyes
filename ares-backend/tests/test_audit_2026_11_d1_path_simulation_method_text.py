@@ -65,3 +65,16 @@ def test_no_customer_text_claims_normal_annual_returns():
             if _NORMAL_CLAIM.search(path.read_text(encoding="utf-8", errors="ignore")):
                 offenders.append(str(path.relative_to(REPO_ROOT)))
     assert offenders == []
+
+
+def test_pdf_glossary_standard_deviation_does_not_imply_normal_model():
+    """H-859-7 (Pruefrunde #859): der Glossar-Satz "Bei normalverteilten
+    Portfoliorenditen liegen die Renditen mit ... ca. 68% ..." legte nahe,
+    die Projektion rechne normalverteilt. Neu: Standardabweichung als
+    Schwankungsbreite, Hinweis auf schiefe Verteilung mit Extremverlusten."""
+    from services.pdf.components import static_texts
+
+    source = Path(static_texts.__file__).read_text(encoding="utf-8")
+    assert "Bei normalverteilten" not in source
+    assert "ca. 68%" not in source
+    assert "ausgeprägteren Extremverlusten" in source

@@ -172,11 +172,14 @@ KENNZAHLEN_DEFINITIONS = [
         "Die Standardabweichung ist eine Risikokennzahl, die angibt, wie "
         "stark die möglichen jährlichen Renditen um die erwartete Rendite "
         "schwanken. Je höher diese Kennzahl, desto stärker schwanken die "
-        "möglichen Renditen um den erwarteten Wert. Bei normalverteilten "
-        "Portfoliorenditen liegen die Renditen mit einer Wahrscheinlichkeit "
-        "von ca. 68% im Bereich von erwarteter Rendite minus einer "
-        "Standardabweichung bis zur erwarteten Rendite plus einer "
-        "Standardabweichung.",
+        "möglichen Renditen um den erwarteten Wert. Die Kennzahl beschreibt "
+        "nur die Breite der Schwankung, nicht die ganze Verteilung: Unsere "
+        "Simulation rechnet mit schiefen Renditeverteilungen mit "
+        "ausgeprägteren Extremverlusten, als es eine Normalverteilung "
+        "annimmt. Verluste von mehr als einer Standardabweichung können "
+        "deshalb häufiger auftreten, als die Faustregel für "
+        "Normalverteilungen (rund zwei Drittel der Jahre innerhalb einer "
+        "Standardabweichung) nahelegt.",
     ),
     (
         "Zielerreichung",
