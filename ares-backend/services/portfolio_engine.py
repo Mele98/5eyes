@@ -3451,12 +3451,13 @@ def generate_target_allocation(
         }
 
     house_targets_before_optimizer = dict(optimizer_targets)
-    if apply_stochastic:  # AUDIT-2026-11 A1: Anker == Berater-Ziel, sonst offenlegen
-        disclose_manual_target_deviations(
-            manual_preferred_target_bps, optimizer_targets,
-            optimizer_minimums, optimizer_maximums, reasoning, warnings,
-            bucket_labels=BUCKET_LABELS,
-        )
+    # AUDIT-2026-11 A1 / H-859-1: Anker und wirksame Grenzen fuer die
+    # Offenlegung festhalten; offengelegt wird nach dem Fallback mit der
+    # gespeicherten Quote.
+    manual_target_anchor = (
+        (dict(optimizer_targets), dict(optimizer_minimums), dict(optimizer_maximums))
+        if apply_stochastic else None
+    )
     effective_bounds_bps = {
         bucket: (
             int(optimizer_minimums[bucket]),
@@ -3558,11 +3559,8 @@ def generate_target_allocation(
         targets, minimums, maximums,
         locked=manual_locked_buckets,
     )
-    if not apply_stochastic:  # AUDIT-2026-11 A1: aktive Hausmatrix-Allokation
-        disclose_manual_target_deviations(
-            manual_preferred_target_bps, targets, minimums, maximums,
-            reasoning, warnings, bucket_labels=BUCKET_LABELS,
-        )
+    if manual_target_anchor is None:  # AUDIT-2026-11 A1: aktive Hausmatrix-Allokation
+        manual_target_anchor = (dict(targets), dict(minimums), dict(maximums))
     if optimizer_replaced_targets and targets != targets_before_final_rebalance:
         # A validated stochastic candidate is immutable.  A downstream
         # "repair" would mean that optimizer, analytics and persisted output
@@ -3781,6 +3779,13 @@ def generate_target_allocation(
                 assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
         warnings.append(format_message(WARN_FALLBACK))
         reasoning.append("Die aktive Allokation wurde auf die Bandbreiten-Mitte des Risikoprofils zurueckgesetzt, weil das Risikobudget strikt limitiert.")
+    # AUDIT-2026-11 A1 / H-859-1: Offenlegung gegen die GESPEICHERTE Quote.
+    disclose_manual_target_deviations(
+        manual_preferred_target_bps, manual_target_anchor[0], targets,
+        manual_target_anchor[1], manual_target_anchor[2], reasoning, warnings,
+        bucket_labels=BUCKET_LABELS,
+        optimizer_applied=bool(optimizer_replaced_targets and not risk_budget_fallback),
+    )
     risky_fraction_total_bps = int(realized_risky_bps)
     if (
         optimizer_mode == "stochastic"

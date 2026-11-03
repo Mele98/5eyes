@@ -420,34 +420,50 @@ def _disclose_global_cap_clamp(
 
 def disclose_manual_target_deviations(
     preferred_bps: dict[str, int],
-    effective_bps: dict[str, int],
+    anchor_bps: dict[str, int],
+    final_bps: dict[str, int],
     minimums: dict[str, int],
     maximums: dict[str, int],
     reasoning: list[str],
     warnings: list,
     *,
     bucket_labels: dict[str, str],
+    optimizer_applied: bool = False,
 ) -> None:
     """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
     umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
 
-    ``effective_bps`` ist die zulaessige Projektion VOR einem allfaelligen
-    Optimierer-Lauf (Anker bzw. aktive Hausmatrix-Allokation). Liegt das
-    Ziel ausserhalb der wirksamen Grenzen (z. B. globale Modell-Obergrenze,
-    Liquiditaets-Untergrenze, Reserve), wird es auf den Bandrand gekappt --
-    sichtbar, nicht still.
+    ``anchor_bps`` ist die zulaessige Projektion VOR einem allfaelligen
+    Optimierer-Lauf, ``minimums``/``maximums`` ihre wirksamen Grenzen. Weicht
+    der Anker vom Ziel ab (Kappung an einer wirksamen Grenze), wird gewarnt.
+
+    H-859-1 (Pruefrunde #859, Art. 8 FIDLEG): Warnung und Reasoning nennen
+    die GESPEICHERTE Quote ``final_bps`` -- vorher den Anker, der im
+    stochastischen Modus vom Optimierer noch verschoben wird (gemessen:
+    Warnung 64.99 %, gespeichert 66.24 %). Weicht nur der Optimierer vom
+    (am Anker exakt gehaltenen) Ziel ab (``optimizer_applied``), ist das
+    keine Kappung; das Reasoning nennt dann die Abweichung der
+    Soft-Preference. Jede andere Abweichung (nachgelagerte Regel) warnt.
     """
-    for bucket in effective_bps:
+    for bucket in final_bps:
         if bucket not in preferred_bps:
             continue
         requested = int(preferred_bps[bucket])
-        effective = int(effective_bps[bucket])
-        if requested == effective:
+        anchor = int(anchor_bps[bucket])
+        final = int(final_bps[bucket])
+        if requested == final and requested == anchor:
             continue
         bucket_label = bucket_labels.get(bucket, bucket)
+        if anchor == requested and optimizer_applied:
+            reasoning.append(
+                f"{bucket_label}: Der Optimierer setzt {_band_pct(final)} % statt "
+                f"des Berater-Ziels von {_band_pct(requested)} % um "
+                f"(Soft-Preference, Abweichung {final - requested:+d} bps)."
+            )
+            continue
         reasoning.append(
             f"{bucket_label}: Das Berater-Ziel von {_band_pct(requested)} % "
-            f"wird mit {_band_pct(effective)} % umgesetzt (wirksame Grenzen "
+            f"wird mit {_band_pct(final)} % umgesetzt (wirksame Grenzen "
             f"{_band_pct(minimums[bucket])} % bis {_band_pct(maximums[bucket])} % "
             "und uebrige Vorgaben)."
         )
@@ -455,7 +471,7 @@ def disclose_manual_target_deviations(
             WARN_TARGET_ADJUSTED,
             bucket_label=bucket_label,
             requested=_band_pct(requested),
-            effective=_band_pct(effective),
+            effective=_band_pct(final),
             effective_min=_band_pct(minimums[bucket]),
             effective_max=_band_pct(maximums[bucket]),
         ))

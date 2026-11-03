@@ -94,7 +94,7 @@ def test_locked_bucket_moves_only_when_others_are_pinned_and_is_disclosed():
     reasoning: list[str] = []
     warnings: list = []
     disclose_manual_target_deviations(
-        {"equities": 7000}, result, minimums, HOUSE_MAX, reasoning, warnings,
+        {"equities": 7000}, result, result, minimums, HOUSE_MAX, reasoning, warnings,
         bucket_labels=pe.BUCKET_LABELS,
     )
     assert [w["code"] for w in warnings] == [CODE]
@@ -144,3 +144,48 @@ def test_stochastic_liquidity_target_below_global_floor_is_capped_visibly(sessio
     assert ta.target_liquidity_bps >= 200
     assert CODE in _codes(result)
     assert any("Berater-Ziel von 1.00 %" in line for line in result["reasoning"])
+
+
+# --------------------------------------------------------------------------
+# H-859-1 (Pruefrunde #859, Art. 8 FIDLEG): die Warnung nennt die
+# GESPEICHERTE Quote, nicht den Anker vor dem Optimierer.
+# --------------------------------------------------------------------------
+
+
+def test_target_adjusted_warning_names_persisted_quote_stochastic(session_factory, monkeypatch):
+    """Pruefrunde #859: Aktien 75 % + Obligationen 25 % (mit den Minima der
+    uebrigen Klassen ueber 100 %). Vorher nannte die Warnung den Anker
+    (64.99 %), gespeichert wurden 66.24 %."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix="h1sto")
+    prefs = {"bands": {"equities": {"target_bps": 7500}, "bonds": {"target_bps": 2500}}}
+    result = _generate(session_factory, mid, adv, prefs)
+    ta = result["target_allocation"]
+    by_label = {w["body_client"].split(" wird")[0]: w for w in result["warnings"] if w.get("code") == CODE}
+    eq = by_label["Für Aktien"]
+    persisted = f"{int(ta.target_equities_bps) / 100:.2f} %"
+    assert persisted in eq["body_client"], (persisted, eq["body_client"])
+    assert persisted in eq["body_advisor"], (persisted, eq["body_advisor"])
+
+
+def test_disclosure_uses_final_quote_and_separates_optimizer_deviation():
+    reasoning: list[str] = []
+    warnings: list = []
+    labels = pe.BUCKET_LABELS
+    anchor = {**HOUSE_TARGETS, "equities": 6499}
+    final = {**HOUSE_TARGETS, "equities": 6624}
+    disclose_manual_target_deviations(
+        {"equities": 7500}, anchor, final, HOUSE_MIN, HOUSE_MAX, reasoning, warnings,
+        bucket_labels=labels,
+    )
+    assert "66.24 %" in warnings[0]["body_client"] and "64.99" not in warnings[0]["body_client"]
+    # Nur der Optimierer weicht ab (Anker == Ziel): keine Kappungs-Warnung,
+    # aber ein Reasoning-Satz mit der Abweichung.
+    reasoning, warnings = [], []
+    disclose_manual_target_deviations(
+        {"equities": 7000}, {**HOUSE_TARGETS, "equities": 7000}, {**HOUSE_TARGETS, "equities": 6997},
+        HOUSE_MIN, HOUSE_MAX, reasoning, warnings, bucket_labels=labels,
+        optimizer_applied=True,
+    )
+    assert warnings == []
+    assert any("-3 bps" in line for line in reasoning), reasoning
