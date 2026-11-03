@@ -329,3 +329,43 @@ def test_questionnaire_source_is_unchanged():
         "Ich strebe eine höhere Rendite an und bin bereit, dafür ein erhöhtes Risiko einzugehen. (Wertschwankung ca. −10 % bis +16 %)",
         "Ich strebe nach der maximalen Rendite und nehme hohe Risiken in Kauf. (Wertschwankung ca. −16 % bis +24 %)",
     )
+
+
+# ---------------------------------------------------------------------------
+# N-857-6: "nicht pruefbar" ist nie fail-open
+# ---------------------------------------------------------------------------
+
+_NOT_EVALUABLE_CASES = [
+    dict(answer_points=None, mc_p10_return_bps=0.0),                      # Antwort fehlt
+    dict(answer_points=7, mc_p10_return_bps=0.0),                         # nicht abgebildet
+    dict(answer_points=2),                                                # Verteilung fehlt
+    dict(answer_points=2, expected_return_bps=600, volatility_bps=1400,
+         skew=-0.5, excess_kurtosis=3.0),                                 # Tail-Momente
+]
+
+
+@pytest.mark.parametrize("case", _NOT_EVALUABLE_CASES)
+@pytest.mark.parametrize("mandate_type", [VV, None, "", "Execution-only", "Finanzplanung", "Reporting only"])
+def test_not_evaluable_blocks_without_justification_outside_advisory(case, mandate_type):
+    case = dict(case)
+    check = lt.evaluate_loss_tolerance(case.pop("answer_points"), mandate_type=mandate_type, **case)
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.blocks_release is True
+    assert check.justification_sufficient is False
+    assert check.conflict_resolution == lt.RESOLUTION_NOT_EVALUABLE_BLOCK
+
+
+@pytest.mark.parametrize("case", _NOT_EVALUABLE_CASES)
+def test_not_evaluable_in_advisory_requires_documented_justification(case):
+    case = dict(case)
+    check = lt.evaluate_loss_tolerance(case.pop("answer_points"), mandate_type=ADV, **case)
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.blocks_release is True
+    assert check.requires_justification is True
+    assert check.justification_sufficient is True
+    assert check.conflict_resolution == lt.RESOLUTION_NOT_EVALUABLE_JUSTIFY
+
+
+def test_only_ok_releases():
+    ok = lt.evaluate_loss_tolerance(4, mandate_type=VV, mc_p10_return_bps=-900.0)
+    assert ok.status == lt.STATUS_OK and ok.blocks_release is False

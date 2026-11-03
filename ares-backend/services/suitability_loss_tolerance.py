@@ -39,6 +39,9 @@ Inhalt dieses Moduls, ausschliesslich reine Funktionen:
   - "Vermoegensverwaltung" und jeder andere/unbekannte Typ (fail-closed):
     Block. Eine Begruendung genuegt nicht; Profil neu erheben oder Strategie
     anpassen.
+* ``not_evaluable`` (fehlende Antwort, fehlende oder unzulaessige Verteilung)
+  blockiert immer (N-857-6): Anlageberatung nur mit dokumentierter
+  Begruendung, sonst Block bis zur Pruefbarkeit.
 * ``evaluate_loss_tolerance`` liefert ein ``LossToleranceCheck``.
 
 NICHT VERDRAHTET. ``LOSS_TOLERANCE_CHECK_ENABLED`` ist ``False``, und
@@ -51,7 +54,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from statistics import NormalDist
 from typing import Mapping, Sequence
 
@@ -91,6 +94,9 @@ MANDATE_ADVISORY = "Anlageberatung"
 MANDATE_DISCRETIONARY = "Vermögensverwaltung"
 RESOLUTION_ADVISE_AGAINST = "advise_against_with_documented_justification"
 RESOLUTION_BLOCK = "block_reassess_profile_or_adjust_strategy"
+# N-857-6: "nicht pruefbar" ist nie fail-open.
+RESOLUTION_NOT_EVALUABLE_JUSTIFY = "not_evaluable_documented_justification"
+RESOLUTION_NOT_EVALUABLE_BLOCK = "not_evaluable_block_until_evaluable"
 
 # Pruef-Codes (``check_code``) sind bewusst KEINE Reason-Codes im Sinn von
 # ``core/reason_codes.py``: das inaktive Modul erzeugt nichts fuer API, PDF
@@ -356,7 +362,49 @@ def conflict_resolution_for(mandate_type: str | None) -> dict:
     }
 
 
+def not_evaluable_resolution_for(mandate_type: str | None) -> dict:
+    """N-857-6: Gate fuer ``not_evaluable`` -- immer blockierend (fail-closed).
+
+    Anlageberatung: Freigabe nur mit dokumentierter Begruendung.
+    Vermoegensverwaltung und jeder andere/unbekannte Typ: Block, bis die
+    Pruefung moeglich ist; eine Begruendung genuegt nicht.
+    """
+    if str(mandate_type or "") == MANDATE_ADVISORY:
+        return {
+            "conflict_resolution": RESOLUTION_NOT_EVALUABLE_JUSTIFY,
+            "blocks_release": True,
+            "justification_sufficient": True,
+            "requires_justification": True,
+            "requires_advise_against": False,
+        }
+    return {
+        "conflict_resolution": RESOLUTION_NOT_EVALUABLE_BLOCK,
+        "blocks_release": True,
+        "justification_sufficient": False,
+        "requires_justification": False,
+        "requires_advise_against": False,
+    }
+
+
 def evaluate_loss_tolerance(
+    answer_points: int | None,
+    *,
+    mandate_type: str | None,
+    **kwargs,
+) -> LossToleranceCheck:
+    """Prueft P10 (1 Jahr) der SAA gegen die Untergrenze der Antwort zu Frage 10.
+
+    Ergebnisse mit ``status == not_evaluable`` tragen immer das blockierende
+    Gate aus ``not_evaluable_resolution_for`` (N-857-6). Details der Pruefung
+    in ``_evaluate``.
+    """
+    check = _evaluate(answer_points, mandate_type=mandate_type, **kwargs)
+    if check.status == STATUS_NOT_EVALUABLE:
+        check = replace(check, **not_evaluable_resolution_for(mandate_type))
+    return check
+
+
+def _evaluate(
     answer_points: int | None,
     *,
     mandate_type: str | None,
