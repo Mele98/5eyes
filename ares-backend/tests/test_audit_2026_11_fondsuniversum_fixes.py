@@ -374,15 +374,37 @@ def test_r7_supersession_is_point_in_time_correct(session_factory, client):
         assert new.valid_from == approved_at
         assert old.rule_hash == old_hash
         product = s.get(Product, pid)
-        # Zeitpunkt zwischen Import und Freigabe: bisherige Regel gilt (Statusfilter
-        # beiseite: dieselbe Geltung ergibt sich aus valid_from/valid_to).
-        before = [r for r in (old, new) if r.valid_from <= "2098-06-01" and (r.valid_to is None or r.valid_to > "2098-06-01")]
-        after = [r for r in (old, new) if r.valid_from <= "2099-06-01" and (r.valid_to is None or r.valid_to > "2099-06-01")]
-        assert [(r.profile_from, r.profile_to) for r in before] == [(3, 10)]
-        assert [(r.profile_from, r.profile_to) for r in after] == [(7, 10)]
-        active = resolve_active_rules_for_product(s, product, jurisdiction="CH", tenant_id="main",
-                                                  as_of="2099-06-01T00:00:00.000Z")
-        assert [(r.profile_from, r.profile_to) for r in active] == [(7, 10)]
+
+        def bands(as_of=None):
+            kwargs = {} if as_of is None else {"as_of": as_of}
+            return [(r.profile_from, r.profile_to) for r in resolve_active_rules_for_product(
+                s, product, jurisdiction="CH", tenant_id="main", **kwargs)]
+
+        # N-855-6: echter Resolver statt Statusfilter-Umgehung. Stichtag
+        # zwischen Import und Freigabe -> die damals geltende (heute retired) Regel.
+        assert bands("2098-06-01T00:00:00.000Z") == [(3, 10)]
+        # Stichtag nach der Freigabe -> nur die neue Regel.
+        assert bands("2099-06-01T00:00:00.000Z") == [(7, 10)]
+        # Ohne as_of (aktueller Stand, vor dem kuenstlichen Freigabezeitpunkt
+        # 2099): nur `approved`-Regeln; die neue gilt erst ab 2099, die alte
+        # ist retired -> keine aktuell gueltige Regel. Verhalten ohne as_of
+        # unveraendert (Statusfilter `approved`).
+        assert bands() == []
+
+
+def test_n855_6_withdrawn_draft_never_counts_point_in_time(session_factory, client):
+    """Ein zurueckgezogener, nie freigegebener Entwurf (retired, approved_at
+    NULL) zaehlt auch fuer Stichtage in seinem Fenster nicht."""
+    from datetime import datetime, timedelta, timezone
+    from services.product_eligibility import resolve_active_rules_for_product
+
+    _as("admin-m", "admin", "main")
+    pid = _r7_create_and_maintain(client)
+    client.post("/products/import", json={"products": [dict(_R7_ROW, suitability_profile_from=7)]})
+    as_of = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat()
+    with session_factory() as s:
+        product = s.get(Product, pid)
+        assert resolve_active_rules_for_product(s, product, jurisdiction="CH", tenant_id="main", as_of=as_of) == []
 
 
 # --- N-855-3: Tenant-Admin-UI nur mit strikter Mandantentrennung ------------

@@ -157,6 +157,20 @@ def resolve_active_rules_for_product(
         selector_matches_product,
     )
 
+    # N-855-6 (2026-11): mit explizitem `as_of` ist das eine Point-in-Time-
+    # Abfrage. Eine durch Freigabe einer Folgeregel abgeloeste Regel
+    # (status `retired`, freigegeben, valid_to gesetzt) galt bis valid_to und
+    # zaehlt deshalb fuer Stichtage in ihrem Fenster. Zurueckgezogene, nie
+    # freigegebene Entwuerfe (approved_at NULL) zaehlen nie. Ohne `as_of`
+    # (aktueller Stand) gilt weiter nur `approved`.
+    if as_of is None:
+        status_filter = ProductEligibilityRule.status == "approved"
+    else:
+        status_filter = (ProductEligibilityRule.status == "approved") | (
+            (ProductEligibilityRule.status == "retired")
+            & ProductEligibilityRule.approved_at.isnot(None)
+            & ProductEligibilityRule.valid_to.isnot(None)
+        )
     as_of = as_of or _now_iso()
     rows = (
         db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
@@ -165,7 +179,7 @@ def resolve_active_rules_for_product(
             ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
         )
         .filter(
-            ProductEligibilityRule.status == "approved",
+            status_filter,
             ProductEligibilityRule.jurisdiction == jurisdiction,
             ProductEligibilityRule.valid_from <= as_of,
             (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
