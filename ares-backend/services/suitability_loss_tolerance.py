@@ -62,6 +62,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
+from services.return_moments import ReturnMomentError
 from services.optimizer.distributions import (
     cornish_fisher_is_monotonic,
     standard_normal_to_log_return,
@@ -113,6 +114,8 @@ REASON_CONFLICT = "LOSS_TOLERANCE_CONFLICT"
 REASON_ANSWER_MISSING = "LOSS_TOLERANCE_ANSWER_MISSING"
 REASON_ANSWER_UNMAPPED = "LOSS_TOLERANCE_ANSWER_UNMAPPED"
 REASON_DISTRIBUTION_MISSING = "LOSS_TOLERANCE_DISTRIBUTION_MISSING"
+# N-857-10: ungueltige Momente (NaN/inf, sigma < 0, mu <= -100 %) -> nie Ausnahme.
+REASON_DISTRIBUTION_INVALID = "LOSS_TOLERANCE_DISTRIBUTION_INVALID"
 REASON_CF_NOT_MONOTONIC = "LOSS_TOLERANCE_CORNISH_FISHER_NOT_MONOTONIC"
 REASON_TAIL_MOMENTS_NOT_ADMISSIBLE = "LOSS_TOLERANCE_TAIL_MOMENTS_NOT_ADMISSIBLE"
 REASON_SOURCE_NOT_ADMISSIBLE = "LOSS_TOLERANCE_SOURCE_NOT_ADMISSIBLE"
@@ -498,6 +501,31 @@ def _evaluate(
             ),
             **common,
         )
+    # N-857-10: ungueltige Momente liefern not_evaluable (blockierend), keine
+    # Ausnahme -- ein spaeterer generischer except darf die Pruefung nicht
+    # fail-open ueberspringen.
+    invalid = LossToleranceCheck(
+        status=STATUS_NOT_EVALUABLE,
+        check_code=REASON_DISTRIBUTION_INVALID,
+        message=(
+            "Verlusttoleranz nicht pruefbar: erwartete Rendite oder "
+            "Volatilitaet der Strategie ungueltig (nicht endlich, Volatilitaet "
+            "negativ oder Rendite <= -100 %)."
+        ),
+        **common,
+    )
+    try:
+        mu_value = float(expected_return_bps)
+        sigma_value = float(volatility_bps)
+    except (TypeError, ValueError, OverflowError):
+        return invalid
+    if (
+        not math.isfinite(mu_value)
+        or not math.isfinite(sigma_value)
+        or sigma_value < 0.0
+        or mu_value <= -10000.0
+    ):
+        return invalid
     # N-857-3: Tail-Momente sind keine zulaessige Sperrgrundlage.
     if float(skew) != 0.0 or float(excess_kurtosis) != 0.0:
         return LossToleranceCheck(
@@ -510,7 +538,10 @@ def _evaluate(
             ),
             **common,
         )
-    lognormal = lognormal_p10_return_bps(expected_return_bps, volatility_bps)
+    try:
+        lognormal = lognormal_p10_return_bps(mu_value, sigma_value)
+    except (ReturnMomentError, ValueError, OverflowError):
+        return invalid
     if not math.isfinite(lognormal):
         return LossToleranceCheck(
             status=STATUS_NOT_EVALUABLE,

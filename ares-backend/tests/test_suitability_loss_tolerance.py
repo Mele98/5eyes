@@ -426,3 +426,25 @@ def test_financial_planning_and_reporting_only_stay_fail_closed(mandate_type):
     assert check.is_conflict
     assert check.conflict_resolution == lt.RESOLUTION_BLOCK
     assert check.blocks_release is True and check.justification_sufficient is False
+
+
+# ---------------------------------------------------------------------------
+# N-857-10: ungueltige Momente -> not_evaluable, nie Ausnahme
+# ---------------------------------------------------------------------------
+
+_INF = float("inf")
+_NAN = float("nan")
+
+
+@pytest.mark.parametrize("mu,sigma", [
+    (_NAN, 1400), (600, _NAN), (_INF, 1400), (600, _INF), (-_INF, 1400),
+    (600, -1.0), (-10000, 1400), (-15000, 1400),
+])
+@pytest.mark.parametrize("mandate_type", [VV, ADV, None])
+def test_invalid_moments_are_not_evaluable_and_block_without_exception(mu, sigma, mandate_type):
+    check = lt.evaluate_loss_tolerance(
+        3, mandate_type=mandate_type, expected_return_bps=mu, volatility_bps=sigma,
+    )
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.check_code == lt.REASON_DISTRIBUTION_INVALID
+    assert check.blocks_release is True
