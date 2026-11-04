@@ -122,7 +122,7 @@ def test_all_retro_free_products_are_complete_without_warning():
 ])
 def test_mandate_entry_same_provider_is_merged_not_double_disclosed(entry, treatment):
     inducement = {
-        "amount_rappen": 350_000, "frequency": "jährlich", "provider": "  anbieter a ",
+        "amount_rappen": 400_000, "frequency": "jährlich", "provider": "  anbieter a ",
         "reimbursed_to_client": False, "disclosed_to_client": False, "waiver_document_id": None,
         **entry,
     }
@@ -259,3 +259,116 @@ def test_kostenausweis_includes_retro_component():
     titles = [f.getPlainText() for f in flow if isinstance(f, Paragraph)]
     assert any("RETROZESSIONEN" in t for t in titles), titles
 
+
+
+# ---------------------------------------------------------------------------
+# N-861-1 (Pruefrunde #861): Verzicht wirkt nur im Umfang der Aufklaerung
+# (BGE 137 III 393) -- Summe je Anbieter, mehrere Mandatszeilen, product_id.
+# ---------------------------------------------------------------------------
+
+
+def _entry(amount, *, provider="Anbieter A", product_id=None, waiver=True, reimbursed=False,
+           frequency="jährlich"):
+    return {
+        "amount_rappen": amount, "frequency": frequency, "provider": provider,
+        "product_id": product_id, "reimbursed_to_client": reimbursed,
+        "disclosed_to_client": waiver, "waiver_document_id": "doc-1" if waiver else None,
+    }
+
+
+def test_small_waiver_does_not_cover_large_product_retrocessions():
+    """Reproducer aus der Pruefrunde: Verzicht CHF 10 deckte zwei Produkte
+    (CHF 500 + CHF 1'000) vollstaendig ab, complete=True, keine Warnung."""
+    products = [
+        _product("Fonds A", rate=50, amount=10_000_000),   # CHF 500 p.a.
+        _product("Fonds B", rate=100, amount=10_000_000),  # CHF 1'000 p.a.
+    ]
+    payload = _calc(products, inducements=[_entry(1_000)])  # CHF 10 Verzicht
+    retro = payload["product_retrocessions"]
+    by_name = {line["product_name"]: line for line in retro["lines"]}
+    for line in by_name.values():
+        assert line["covered_by_mandate_entry"] is True
+        assert line["treatment"] == "partially_covered"
+        assert line["requires_resolution"] is True
+    assert sum(line["unresolved_rappen"] for line in by_name.values()) == 150_000 - 1_000
+    assert sum(line["mandate_resolved_rappen"] for line in by_name.values()) == 1_000
+    assert retro["complete"] is False and retro["unresolved_count"] == 2
+    assert any("deckt für Fonds A, Fonds B nur CHF 10.00 von geschätzt CHF 1'500.00" in w
+               for w in payload["warnings"]), payload["warnings"]
+    # Der nicht offengelegte Teil erscheint als eigene Kostenzeile, nie im Total.
+    rest = [i for i in payload["cost_items"] if i["key"] == "retrocession_product"]
+    assert sum(i["amount_rappen"] for i in rest) == 149_000
+    assert all(i["included_in_total"] is False and i["requires_resolution"] for i in rest)
+
+
+def test_full_waiver_within_tolerance_covers_all_products_of_provider():
+    products = [_product("Fonds A", rate=50, amount=10_000_000), _product("Fonds B", rate=100, amount=10_000_000)]
+    payload = _calc(products, inducements=[_entry(140_000)])  # 1'400 vs 1'500 -> innerhalb 10 %
+    retro = payload["product_retrocessions"]
+    assert retro["complete"] is True
+    assert {line["treatment"] for line in retro["lines"]} == {"waiver_documented"}
+    assert not [i for i in payload["cost_items"] if i["key"] == "retrocession_product"]
+
+
+def test_multiple_mandate_entries_of_same_provider_are_summed():
+    products = [_product("Fonds A", rate=100, amount=10_000_000)]  # CHF 1'000
+    one = _calc(products, inducements=[_entry(50_000)])
+    two = _calc(products, inducements=[_entry(50_000), _entry(50_000, reimbursed=True, waiver=False)])
+    assert one["product_retrocessions"]["lines"][0]["treatment"] == "partially_covered"
+    line = two["product_retrocessions"]["lines"][0]
+    assert line["mandate_resolved_rappen"] == 100_000 and line["requires_resolution"] is False
+    assert two["product_retrocessions"]["complete"] is True
+
+
+def test_non_annual_mandate_amount_does_not_cover_annual_retrocession():
+    products = [_product("Fonds A", rate=100, amount=10_000_000)]
+    payload = _calc(products, inducements=[_entry(100_000, frequency="einmalig")])
+    line = payload["product_retrocessions"]["lines"][0]
+    assert line["treatment"] == "unresolved" and line["requires_resolution"] is True
+    assert line["mandate_disclosed_rappen"] == 100_000  # offengelegt, aber nicht geregelt
+
+
+def test_product_bound_entry_wins_over_provider_and_covers_only_its_product():
+    products = [
+        _product("Fonds A", rate=100, amount=10_000_000),
+        _product("Fonds B", rate=100, amount=10_000_000),
+    ]
+    payload = _calc(products, inducements=[_entry(100_000, product_id="id-Fonds A", provider="Anders AG")])
+    by_name = {line["product_name"]: line for line in payload["product_retrocessions"]["lines"]}
+    assert by_name["Fonds A"]["treatment"] == "waiver_documented"
+    assert by_name["Fonds A"]["requires_resolution"] is False
+    assert by_name["Fonds B"]["covered_by_mandate_entry"] is False
+    assert by_name["Fonds B"]["treatment"] == "unresolved"
+
+
+def test_conflict_product_id_must_be_visible_to_tenant(session_factory):
+    from test_products_fund_universe import _add_product, _client_for, _seed_tenants
+    from models.clients import Client
+    from models.mandates import Mandate
+    from models.users import User
+
+    _seed_tenants(session_factory, ["firm-a", "firm-b"])
+    own = _add_product(session_factory, product_name="Eigen", tenant_id="firm-a")
+    foreign = _add_product(session_factory, product_name="Fremd", tenant_id="firm-b")
+    now = "2026-11-04T00:00:00Z"
+    with session_factory() as s:
+        if s.get(User, "u-a") is None:
+            s.add(User(id="u-a", username="u-a", password_hash="h", full_name="A", role="admin",
+                       is_active=1, tenant_id="firm-a", created_at=now, updated_at=now))
+        s.add(Client(id="c-a", client_number="C-A", first_name="T", last_name="X", advisor_id="u-a",
+                     tenant_id="firm-a", created_at=now, updated_at=now))
+        s.add(Mandate(id="m-a", client_id="c-a", tenant_id="firm-a", mandate_number="M-A",
+                      mandate_type="Anlageberatung", opened_at=now, created_at=now, updated_at=now))
+        s.commit()
+    body = {"conflict_type": "Retrozession / Inducement", "description": "Bestandespflege",
+            "inducement_provider": "Anbieter", "inducement_amount_rappen": 10_000,
+            "inducement_frequency": "jährlich"}
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            ok = client.post("/mandates/m-a/conflicts", json={**body, "product_id": own})
+            leak = client.post("/mandates/m-a/conflicts", json={**body, "product_id": foreign})
+    finally:
+        app.dependency_overrides.clear()
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["product_id"] == own
+    assert leak.status_code == 404, leak.text

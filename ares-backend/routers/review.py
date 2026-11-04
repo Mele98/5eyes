@@ -1777,8 +1777,15 @@ def create_conflict(
     fields = body.model_dump()
     # N-861-1: eine Produktbindung muss auf ein fuer diesen Tenant sichtbares
     # Produkt zeigen (fremde private Produkte -> 404, kein Existenz-Leck).
+    # Unabhaengig von strict_tenant_isolation: global oder eigener Tenant.
     if fields.get("product_id"):
-        fields["product_id"] = _get_product_or_404(str(fields["product_id"]), db, current_user).id
+        bound = db.query(Product).filter(
+            Product.id == str(fields["product_id"]), Product.deleted_at.is_(None),
+        ).first()
+        bound_tid = str(getattr(bound, "tenant_id", None) or "").strip() if bound else ""
+        if bound is None or (bound_tid and bound_tid != str(_resolve_tenant_id_for_user(current_user)).strip()):
+            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+        fields["product_id"] = bound.id
     # 2026-07-25 (Generalaudit): siehe create_document -- kein DB-Spalten-
     # Aequivalent auf ConflictOfInterestDisclosure, nur Enforcement.
     enforce_data_classification(fields.pop("data_classification", None))

@@ -60,7 +60,9 @@ class ProductRetrocessionLine(BaseModel):
     estimated_annual_rappen: Optional[int] = Field(
         None, description="Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz"
     )
-    treatment: Literal["reimbursed", "waiver_documented", "unresolved", "not_applicable", "unknown"]
+    treatment: Literal[
+        "reimbursed", "waiver_documented", "partially_covered", "unresolved", "not_applicable", "unknown",
+    ]
     treatment_label: str
     covered_by_mandate_entry: bool = Field(
         False,
@@ -70,6 +72,21 @@ class ProductRetrocessionLine(BaseModel):
         ),
     )
     requires_resolution: bool = False
+    # N-861-1: Abgleich mit der Mandatserfassung (Summe je Anbieter bzw.
+    # Produktbindung, anteilig auf die Produkte verteilt). None = keine
+    # Mandatszeile zugeordnet bzw. keine Retrozession.
+    mandate_disclosed_rappen: Optional[int] = Field(
+        None, description="Anteil des im Mandat aufgeklaerten (offengelegten) Betrags"
+    )
+    mandate_resolved_rappen: Optional[int] = Field(
+        None, description="Davon geregelt (zurueckerstattet oder Verzicht belegt, jaehrlich)"
+    )
+    unresolved_rappen: Optional[int] = Field(
+        None, description="Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)"
+    )
+    undisclosed_rappen: Optional[int] = Field(
+        None, description="Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)"
+    )
 
 
 class ProductRetrocessionDisclosure(BaseModel):

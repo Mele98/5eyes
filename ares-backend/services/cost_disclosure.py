@@ -582,6 +582,8 @@ def build_cost_disclosure_for_run(
             "provider": row.inducement_provider,
             "disclosed_to_client": bool(row.disclosed_to_client),
             "waiver_document_id": row.waiver_document_id,
+            # N-861-1: optionale Produktbindung (sonst Anbietername).
+            "product_id": getattr(row, "product_id", None),
         }
         for row in disclosure_rows
     ]
@@ -1383,6 +1385,7 @@ TREATMENT_WAIVER_DOCUMENTED = "waiver_documented"
 TREATMENT_UNRESOLVED = "unresolved"
 TREATMENT_NOT_APPLICABLE = "not_applicable"
 TREATMENT_UNKNOWN = "unknown"
+TREATMENT_PARTIALLY_COVERED = "partially_covered"
 
 TREATMENT_LABELS = {
     TREATMENT_REIMBURSED: "Weitergabe an den Kunden gemäss Mandat",
@@ -1390,6 +1393,7 @@ TREATMENT_LABELS = {
     TREATMENT_UNRESOLVED: "Weder Verzicht noch Weitergabe belegt – Klärung erforderlich",
     TREATMENT_NOT_APPLICABLE: "Keine Retrozession",
     TREATMENT_UNKNOWN: "Satz nicht erfasst – gilt nicht als retrozessionsfrei",
+    TREATMENT_PARTIALLY_COVERED: "Verzicht/Weitergabe deckt nur einen Teil – Rest ungeregelt",
 }
 
 COST_ITEM_KEY = "retrocession_product"
@@ -1417,12 +1421,67 @@ def _rate(value: Any) -> int | None:
     return rate if rate >= 0 else None
 
 
-def _mandate_treatment(entry: Mapping[str, Any], has_documented_waiver) -> str:
-    if bool(entry.get("reimbursed_to_client")):
-        return TREATMENT_REIMBURSED
-    if has_documented_waiver(entry):
-        return TREATMENT_WAIVER_DOCUMENTED
-    return TREATMENT_UNRESOLVED
+_ANNUAL_FREQUENCIES = ("jährlich", "jaehrlich", "annual", "annually", "yearly")
+# N-861-1: Toleranz, innerhalb der ein im Mandat aufgeklaerter bzw.
+# geregelter Betrag eine geschaetzte Produkt-Retrozession als gedeckt gilt
+# (die Schaetzung beruht auf dem Zielvolumen, der Mandatsbetrag auf der
+# Aufklaerung beim Kunden).
+COVERAGE_TOLERANCE = 1.10
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _mandate_groups(inducements, has_documented_waiver) -> dict[tuple[str, str], dict[str, Any]]:
+    """N-861-1 (c): Mandatszeilen je Zuordnungsschluessel SUMMIEREN statt
+    still auf die erste zu reduzieren. Schluessel: ('product', product_id),
+    wenn die Zeile an ein Produkt gebunden ist, sonst ('provider', Anbieter).
+
+    * ``disclosed`` -- Summe aller Betraege (offengelegt, egal wie geregelt)
+    * ``resolved``  -- davon geregelt: zurueckerstattet oder Verzicht belegt.
+      Gezaehlt werden nur ausdruecklich jaehrliche Betraege, weil die
+      Produkt-Schaetzung ein Jahresbetrag ist (konservativ: eine einmalige
+      oder unbelegte Frequenz deckt keine laufende Retrozession).
+    """
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in inducements or []:
+        amount = _int_or_zero(entry.get("amount_rappen"))
+        if amount <= 0:
+            continue
+        product_id = str(entry.get("product_id") or "").strip()
+        provider = _norm_provider(entry.get("provider"))
+        if product_id:
+            key = ("product", product_id)
+        elif provider:
+            key = ("provider", provider)
+        else:
+            continue
+        group = groups.setdefault(key, {"disclosed": 0, "reimbursed": 0, "waived": 0, "entries": 0})
+        group["entries"] += 1
+        group["disclosed"] += amount
+        if str(entry.get("frequency") or "").strip().lower() not in _ANNUAL_FREQUENCIES:
+            continue
+        if bool(entry.get("reimbursed_to_client")):
+            group["reimbursed"] += amount
+        elif has_documented_waiver(entry):
+            group["waived"] += amount
+    for group in groups.values():
+        group["resolved"] = group["reimbursed"] + group["waived"]
+    return groups
+
+
+def _within(estimate: int, covered: int) -> bool:
+    return estimate <= covered * COVERAGE_TOLERANCE
+
+
+def _share(total: int, part: int, whole: int) -> int:
+    if whole <= 0:
+        return 0
+    return int(round(total * part / whole))
 
 
 def build_product_retrocession_lines(
@@ -1432,21 +1491,16 @@ def build_product_retrocession_lines(
     has_documented_waiver,
 ) -> list[dict[str, Any]]:
     """Eine Zeile je empfohlenem Produkt (Positionen desselben Produkts
-    zusammengefasst), stabil nach Produktname sortiert."""
-    by_provider: dict[str, Mapping[str, Any]] = {}
-    for entry in inducements or []:
-        # Nur Zeilen, die im Kostenausweis tatsaechlich erscheinen (Betrag
-        # > 0, siehe calculate_cost_disclosure) koennen eine Produkt-
-        # Retrozession abdecken -- sonst verschwaende die Offenlegung.
-        try:
-            entry_amount = int(entry.get("amount_rappen") or 0)
-        except (TypeError, ValueError):
-            entry_amount = 0
-        if entry_amount <= 0:
-            continue
-        key = _norm_provider(entry.get("provider"))
-        if key and key not in by_provider:
-            by_provider[key] = entry
+    zusammengefasst), stabil nach Produktname sortiert.
+
+    N-861-1 (BGE 137 III 393: ein Verzicht wirkt nur im Umfang der
+    Aufklaerung): je Zuordnungsgruppe wird die SUMME der geschaetzten
+    Produkt-Retrozessionen mit dem im Mandat offengelegten bzw. geregelten
+    Betrag verglichen (Toleranz COVERAGE_TOLERANCE). Der nicht gedeckte Rest
+    gilt als ungeregelt; ein nicht offengelegter Teil bekommt eine eigene
+    Kostenzeile. Zuordnung: Produktbindung (product_id) vor Anbietername.
+    """
+    groups = _mandate_groups(inducements, has_documented_waiver)
 
     merged: dict[str, dict[str, Any]] = {}
     for item in products:
@@ -1466,35 +1520,75 @@ def build_product_retrocession_lines(
         else:
             line["amount_rappen"] += amount
 
-    lines: list[dict[str, Any]] = []
-    for line in merged.values():
+    def group_key(line):
+        if line["product_id"] and ("product", line["product_id"]) in groups:
+            return ("product", line["product_id"])
+        provider = _norm_provider(line["provider"])
+        if provider and ("provider", provider) in groups:
+            return ("provider", provider)
+        return None
+
+    keys: dict[str, Any] = {}
+    group_estimates: dict[tuple[str, str], int] = {}
+    for pid, line in merged.items():
         rate = line["rate_bps"]
+        line["estimated_annual_rappen"] = (
+            None if rate is None else int(round(line["amount_rappen"] * rate / 10000))
+        )
+        key = group_key(line) if rate else None
+        keys[pid] = key
+        if key is not None:
+            group_estimates[key] = group_estimates.get(key, 0) + line["estimated_annual_rappen"]
+
+    lines: list[dict[str, Any]] = []
+    for pid, line in merged.items():
+        rate = line["rate_bps"]
+        key = keys[pid]
+        estimate = line["estimated_annual_rappen"]
+        disclosed_share = resolved_share = 0
         if rate is None:
-            status, treatment, estimate = "unknown", TREATMENT_UNKNOWN, None
-            covered = False
+            status, treatment = "unknown", TREATMENT_UNKNOWN
         elif rate == 0:
-            status, treatment, estimate = "none", TREATMENT_NOT_APPLICABLE, 0
-            covered = False
+            status, treatment = "none", TREATMENT_NOT_APPLICABLE
         else:
             status = "present"
-            estimate = int(round(line["amount_rappen"] * rate / 10000))
-            entry = by_provider.get(_norm_provider(line["provider"]))
-            covered = entry is not None
-            treatment = (
-                _mandate_treatment(entry, has_documented_waiver)
-                if entry is not None
-                else TREATMENT_UNRESOLVED
-            )
+            if key is None:
+                treatment = TREATMENT_UNRESOLVED
+            else:
+                group = groups[key]
+                group_estimate = group_estimates[key]
+                disclosed_share = min(estimate, _share(group["disclosed"], estimate, group_estimate))
+                resolved_share = min(estimate, _share(group["resolved"], estimate, group_estimate))
+                if _within(group_estimate, group["disclosed"]):
+                    disclosed_share = estimate
+                if group["resolved"] > 0 and _within(group_estimate, group["resolved"]):
+                    resolved_share = estimate
+                    treatment = (
+                        TREATMENT_REIMBURSED
+                        if group["reimbursed"] >= group["waived"]
+                        else TREATMENT_WAIVER_DOCUMENTED
+                    )
+                elif group["resolved"] > 0:
+                    treatment = TREATMENT_PARTIALLY_COVERED
+                else:
+                    treatment = TREATMENT_UNRESOLVED
+        present = status == "present"
+        unresolved = (estimate - resolved_share) if present else None
+        undisclosed = (estimate - disclosed_share) if present else None
         lines.append({
             **line,
             "status": status,
-            "estimated_annual_rappen": estimate,
             "treatment": treatment,
             "treatment_label": TREATMENT_LABELS[treatment],
-            # True = die manuelle Retrozessions-Zeile des Mandats (gleicher
-            # Anbieter) ist die Offenlegungszeile; keine zweite Kostenzeile.
-            "covered_by_mandate_entry": covered,
-            "requires_resolution": status == "present" and treatment == TREATMENT_UNRESOLVED,
+            # True = eine manuelle Retrozessions-Zeile des Mandats (Produkt-
+            # bindung oder gleicher Anbieter) ist die Offenlegungszeile.
+            "covered_by_mandate_entry": key is not None,
+            "mandate_disclosed_rappen": disclosed_share if key is not None else None,
+            "mandate_resolved_rappen": resolved_share if key is not None else None,
+            "unresolved_rappen": unresolved,
+            "undisclosed_rappen": undisclosed,
+            "requires_resolution": present and unresolved > 0,
+            "_group_key": key,
         })
     lines.sort(key=lambda row: (row["product_name"].casefold(), str(row["product_id"] or "")))
     return lines
@@ -1521,19 +1615,23 @@ def apply_product_retrocessions(
     warnings: list[str] = []
 
     for line in lines:
-        if line["status"] != "present" or line["covered_by_mandate_entry"]:
+        if line["status"] != "present" or not line["undisclosed_rappen"]:
             continue
         source = line["source"] or "nicht angegeben"
+        partial = line["covered_by_mandate_entry"]
         items.append({
             "key": COST_ITEM_KEY,
             "label": (
                 f"Vergütung von Dritten: {line['product_name']} "
-                f"({line['rate_bps']} bps p.a., Schätzung)"
+                + (
+                    "– über die Mandatsangabe hinausgehender Teil (Schätzung)"
+                    if partial else f"({line['rate_bps']} bps p.a., Schätzung)"
+                )
             ),
             "category": "Vergütungen von Dritten",
             "frequency": "jährlich",
-            "rate_bps": line["rate_bps"],
-            "amount_rappen": line["estimated_annual_rappen"],
+            "rate_bps": None if partial else line["rate_bps"],
+            "amount_rappen": line["undisclosed_rappen"],
             "basis_rappen": line["amount_rappen"],
             "basis_label": "Investiertes Volumen des Produkts",
             "source": f"Produkt-Stammdaten (Retrozessionssatz; Quelle: {source})",
@@ -1543,14 +1641,39 @@ def apply_product_retrocessions(
             "included_in_total": False,
             "requires_resolution": True,
         })
+        if not partial:
+            warnings.append(
+                f"Das empfohlene Produkt {line['product_name']} zahlt eine Retrozession "
+                f"({line['rate_bps']} bps p.a., geschätzt "
+                f"{_format_amount(line['estimated_annual_rappen'], currency)} pro Jahr). Im Mandat "
+                "ist weder ein Verzicht des Kunden noch die Weitergabe erfasst. Interessenkonflikt "
+                "«Retrozession / Inducement» für diesen Anbieter erfassen und Verzicht oder "
+                "Rückerstattung dokumentieren (Art. 26 FIDLEG; BGE 132 III 460 / 137 III 393)."
+            )
+
+    # N-861-1 (a): Pflichtwarnung je Gruppe, wenn der geregelte Betrag die
+    # geschaetzte Summe nicht deckt.
+    by_group: dict[Any, list[dict[str, Any]]] = {}
+    for line in lines:
+        if line["status"] == "present" and line["_group_key"] is not None:
+            by_group.setdefault(line["_group_key"], []).append(line)
+    for members in by_group.values():
+        unresolved_total = sum(int(m["unresolved_rappen"] or 0) for m in members)
+        if unresolved_total <= 0:
+            continue
+        estimate_total = sum(int(m["estimated_annual_rappen"] or 0) for m in members)
+        resolved_total = sum(int(m["mandate_resolved_rappen"] or 0) for m in members)
+        names = ", ".join(m["product_name"] for m in members)
         warnings.append(
-            f"Das empfohlene Produkt {line['product_name']} zahlt eine Retrozession "
-            f"({line['rate_bps']} bps p.a., geschätzt "
-            f"{_format_amount(line['estimated_annual_rappen'], currency)} pro Jahr). Im Mandat "
-            "ist weder ein Verzicht des Kunden noch die Weitergabe erfasst. Interessenkonflikt "
-            "«Retrozession / Inducement» für diesen Anbieter erfassen und Verzicht oder "
-            "Rückerstattung dokumentieren (Art. 26 FIDLEG; BGE 132 III 460 / 137 III 393)."
+            f"Verzicht bzw. Weitergabe im Mandat deckt für {names} nur "
+            f"{_format_amount(resolved_total, currency)} von geschätzt "
+            f"{_format_amount(estimate_total, currency)} Retrozession pro Jahr. Der Rest "
+            f"({_format_amount(unresolved_total, currency)}) ist ungeregelt: Ein Verzicht wirkt "
+            "nur im Umfang der Aufklärung (BGE 137 III 393). Aufklärung und Verzicht auf den "
+            "vollen Betrag erweitern oder den Rest zurückerstatten."
         )
+    for line in lines:
+        line.pop("_group_key", None)
 
     unknown = [line["product_name"] for line in lines if line["status"] == "unknown"]
     if unknown:
