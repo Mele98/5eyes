@@ -88,6 +88,7 @@ def test_strategy_pdf_data_uses_generation_snapshot_basis():
     import routers.pdf_reports as pdf_reports
 
     src = inspect.getsource(pdf_reports._build_anlagestrategie_data)
-    assert "_strategy_basis_from_allocation(ta_obj, engine_payload, current_advisory_wealth)" in src
+    assert "_strategy_basis_from_allocation(" in src
+    assert "ta_obj, engine_payload, current_advisory_wealth," in src
     assert 'strategy_basis["strategy_base_rappen"]' in src
     assert 'engine_payload.get("strategy_base_rappen")' not in src

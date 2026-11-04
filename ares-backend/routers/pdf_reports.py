@@ -312,7 +312,23 @@ def _largest_remainder_split(total: int, weights: list[int], labels: list[str]) 
     return floors
 
 
-def _strategy_basis_from_allocation(ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None) -> dict:
+def _generation_date_label(created_at) -> str:
+    """N-858-8: Generierungsdatum in Europe/Zurich (created_at ist UTC)."""
+    from zoneinfo import ZoneInfo
+
+    raw = str(created_at or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw[:10] or "Generierung"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("Europe/Zurich")).strftime("%d.%m.%Y")
+
+
+def _strategy_basis_from_allocation(
+    ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None, currency: str = "CHF",
+) -> dict:
     """Pruefrunde #858 N-858-2: Strategiebasis und Reserve aus EINEM Zeitpunkt.
 
     ``build_target_payload_from_allocation`` rechnet ``strategy_base_rappen``
@@ -330,20 +346,24 @@ def _strategy_basis_from_allocation(ta_obj, engine_payload: dict | None, current
     stored = getattr(ta_obj, "external_reserve_at_generation_rappen", None)
     reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
     reserve = min(max(0, reserve), max(0, advisory))
-    note = None
+    ccy = str(currency or "CHF").upper()  # N-858-6: Mandatswaehrung, nicht fest CHF
+    amount = lambda r: f"{ccy} " + f"{int(round(r / 100)):,}".replace(",", "'")  # noqa: E731
+    notes = []
+    if advisory and reserve >= advisory:
+        # N-858-7: alles in der Reserve -- Basis 0 sichtbar machen statt die
+        # Reserve still auf 0 zu setzen.
+        notes.append(
+            f"Die Liquiditätsreserve ({amount(reserve)}) umfasst das ganze Beratungsvermögen: "
+            "keine investierbare Strategiebasis."
+        )
     if advisory and current and abs(current - advisory) >= 100:
-        raw_date = str(getattr(ta_obj, "created_at", "") or "")[:10]
-        try:
-            from datetime import date as _date
-            date_label = _date.fromisoformat(raw_date).strftime("%d.%m.%Y")
-        except ValueError:
-            date_label = raw_date or "Generierung"
-        chf = lambda r: f"{int(round(r / 100)):,}".replace(",", "'")  # noqa: E731
-        note = (
-            f"Strategie berechnet auf Beratungsvermögen CHF {chf(advisory)} per {date_label}; "
-            f"aktuelles Beratungsvermögen CHF {chf(current)}. Für aktuelle Beträge die "
+        date_label = _generation_date_label(getattr(ta_obj, "created_at", None))
+        notes.append(
+            f"Strategie berechnet auf Beratungsvermögen {amount(advisory)} per {date_label}; "
+            f"aktuelles Beratungsvermögen {amount(current)}. Für aktuelle Beträge die "
             "Anlagestrategie neu berechnen."
         )
+    note = " ".join(notes) or None
     return {
         "advisory_wealth_rappen": advisory or None,
         "strategy_base_rappen": advisory - reserve if advisory else None,
@@ -372,8 +392,10 @@ def _strategy_presentation_amounts(
     Reserve exakt auf das Beratungsvermoegen summieren.
     """
     advisory = max(0, int(advisory_wealth_rappen or 0))
-    base = int(strategy_base_rappen or 0)
-    if base <= 0 or base > advisory:
+    # N-858-7: None = keine Angabe (Rueckfall auf das Beratungsvermoegen),
+    # 0 = alles in der Reserve (Basis 0, Reserve = Beratungsvermoegen).
+    base = advisory if strategy_base_rappen is None else max(0, int(strategy_base_rappen))
+    if base > advisory:
         base = advisory
     advisory_chf = int(round(advisory / 100))
     base_chf = int(round(base / 100))
@@ -699,7 +721,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     # Reserve separat, Subklassen aus der SAA-Sub-Allokation.
     # N-858-2: Basis und Reserve aus dem Generierungs-Snapshot, nicht aus dem
     # live gerechneten Payload (anderer Zeitpunkt).
-    strategy_basis = _strategy_basis_from_allocation(ta_obj, engine_payload, current_advisory_wealth)
+    strategy_basis = _strategy_basis_from_allocation(
+        ta_obj, engine_payload, current_advisory_wealth,
+        currency=str(getattr(mandate, "base_currency", "CHF") or "CHF"),
+    )
     presentation_amounts = _strategy_presentation_amounts(
         strategy_basis["advisory_wealth_rappen"],
         strategy_basis["strategy_base_rappen"],
