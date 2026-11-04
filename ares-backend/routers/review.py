@@ -60,7 +60,7 @@ from services.advisory_report_cache import invalidate_mandate as invalidate_advi
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.market_data.exceptions import RateLimitError
-from services.openfigi_client import preview_openfigi_mapping
+from services.openfigi_client import map_openfigi_exchange_code, preview_openfigi_mapping
 from services.preference_snapshot import (
     ReasonCodedConflictError,
     enforce_products_against_allocation_snapshot,
@@ -78,7 +78,6 @@ from services.portfolio_engine import (
 )
 from services.product_market_data import (
     currency_mismatch_warning,
-    map_openfigi_exchange_code,
     normalize_exchange_code,
     resolve_market_profile,
 )

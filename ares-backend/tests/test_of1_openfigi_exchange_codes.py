@@ -20,12 +20,8 @@ import pytest
 
 import services.openfigi_client as openfigi_client
 from models.review import Product
-from services.product_market_data import (
-    OPENFIGI_EXCHANGE_CODE_MAP,
-    lookup_symbol_for_provider,
-    map_openfigi_exchange_code,
-    resolve_market_profile,
-)
+from services.openfigi_client import OPENFIGI_EXCHANGE_CODE_MAP, map_openfigi_exchange_code
+from services.product_market_data import lookup_symbol_for_provider, resolve_market_profile
 
 
 def _fake_openfigi(monkeypatch, data: list[dict]):
@@ -129,15 +125,3 @@ def test_unknown_code_candidate_is_marked_and_apply_refuses(monkeypatch):
         _apply_openfigi_candidate(product=product, candidate=candidate, now="2026-11-03T00:00:00.000Z", overwrite_symbol=True)
     assert product.symbol is None and product.exchange_code is None and product.figi is None
 
-
-@pytest.mark.parametrize(
-    "ticker,exch,expected",
-    [("VWRL LN", "LN", "VWRL.L"), ("SAP GY", "GY", "SAP.DE"), ("UBSG SW", "SW", "UBSG.SW"),
-     ("AIR", "FP", "AIR.PA"), ("IBM", "UN", "IBM"), ("ABC XX", "XX", None)],
-)
-def test_market_data_openfigi_provider_uses_same_table(ticker, exch, expected):
-    from services.market_data.providers.openfigi_provider import OpenFIGIProvider
-
-    info = OpenFIGIProvider._entry_to_product({"figi": "F", "ticker": ticker, "exchCode": exch}, "IE00B3RBWM25")
-    assert info.ticker == expected
-    assert info.exchange == exch

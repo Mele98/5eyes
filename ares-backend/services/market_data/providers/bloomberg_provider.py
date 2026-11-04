@@ -89,7 +89,7 @@ class BloombergProvider(MarketDataProvider):
         # weiter, wenn er den Provider wegen is_healthy()=False nicht ruft.
         self.last_unavailable_error: ProviderUnavailableError | None = None
 
-    def _unavailable(self, code: str, message: str) -> ProviderUnavailableError:
+    def _bloomberg_unavailable(self, code: str, message: str) -> ProviderUnavailableError:
         return ProviderUnavailableError(f"[{code}] {message}", code=code, provider=self.name)
 
     def _blpapi_module(self) -> Any:
@@ -98,7 +98,7 @@ class BloombergProvider(MarketDataProvider):
             try:
                 import blpapi  # type: ignore[import-not-found]
             except ImportError as exc:
-                raise self._unavailable(
+                raise self._bloomberg_unavailable(
                     BLOOMBERG_NOT_INSTALLED,
                     f"blpapi nicht installiert: {exc}. {BLPAPI_INSTALL_HINT}",
                 ) from exc
@@ -130,13 +130,13 @@ class BloombergProvider(MarketDataProvider):
                 session_opts.setConnectTimeout(self._connect_timeout_ms)
             session = blpapi.Session(session_opts)
             if not session.start():
-                raise self._unavailable(
+                raise self._bloomberg_unavailable(
                     BLOOMBERG_SESSION_UNAVAILABLE,
                     f"Bloomberg-Session-Start fehlgeschlagen ({self._host}:{self._port}). "
                     "Terminal/B-PIPE laeuft?",
                 )
             if not session.openService("//blp/refdata"):
-                raise self._unavailable(
+                raise self._bloomberg_unavailable(
                     BLOOMBERG_SERVICE_UNAVAILABLE,
                     "Bloomberg-Refdata-Service nicht erreichbar.",
                 )
@@ -149,7 +149,7 @@ class BloombergProvider(MarketDataProvider):
         except Exception as exc:  # noqa: BLE001
             if session is not None:
                 self._stop_quietly(session)
-            raise self._unavailable(
+            raise self._bloomberg_unavailable(
                 BLOOMBERG_SESSION_UNAVAILABLE,
                 f"Bloomberg-Session konnte nicht gestartet werden: {exc}",
             ) from exc
@@ -170,7 +170,7 @@ class BloombergProvider(MarketDataProvider):
             raise
 
     def _not_implemented(self, operation: str) -> ProviderUnavailableError:
-        exc = self._unavailable(
+        exc = self._bloomberg_unavailable(
             BLOOMBERG_REQUEST_NOT_IMPLEMENTED,
             f"Bloomberg {operation}: Request-Aufbau ist noch nicht implementiert (BBG-3). "
             "Keine Daten geliefert.",

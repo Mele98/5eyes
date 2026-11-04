@@ -10,8 +10,9 @@ Bloomberg) oder unbekannt, springt KEIN Fallback ein. Jedes Produkt landet
 in der Fehlerliste, der Lauf meldet den Primaerstatus "nicht verfuegbar",
 und der Status nennt je Kurs die tatsaechliche Quelle.
 
-``blpapi`` wird per ``sys.modules``-Stub ausgeblendet; stooq/yfinance sind
-Fakes. Keine Netzwerkaufrufe.
+stooq/yfinance sind Fakes. Keine Netzwerkaufrufe. Der Bloomberg-Kursabruf
+selbst folgt mit BBG-3; bis dahin meldet der Pfad
+``BLOOMBERG_REQUEST_NOT_IMPLEMENTED``.
 """
 from __future__ import annotations
 
@@ -86,7 +87,7 @@ def test_bloomberg_primary_does_not_silently_fall_back_to_stooq(monkeypatch, sto
     assert set(failures) == {"p-1", "p-2"}
     for failure in failures.values():
         assert "nicht verfügbar" in failure["error"]
-        assert "BLOOMBERG_NOT_INSTALLED" in failure["error"]
+        assert "BLOOMBERG_REQUEST_NOT_IMPLEMENTED" in failure["error"]
         assert "kein Fallback" in failure["error"]
 
 
@@ -104,7 +105,7 @@ def test_bloomberg_primary_refresh_summary_reports_unavailable(monkeypatch, stoo
     status = summary["primary_provider_status"]
     assert status["provider"] == "bloomberg"
     assert status["status"] == "nicht_verfuegbar"
-    assert status["code"] == "BLOOMBERG_NOT_INSTALLED"
+    assert status["code"] == "BLOOMBERG_REQUEST_NOT_IMPLEMENTED"
     assert status["fallback_allowed"] is False
     assert summary["price_sources"] == {}
     assert db_session.query(PriceHistory).count() == 0

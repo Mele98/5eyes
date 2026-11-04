@@ -296,53 +296,6 @@ DEFAULT_PRODUCT_MARKET_CATALOG: dict[str, dict[str, Any]] = {
 }
 
 
-# OF-1 / Audit 2026-11/06 O5: OpenFIGI liefert Bloomberg-Boersencodes
-# (exchCode). Sie sind KEINE Yahoo-/stooq-Suffixe ("VWRL LN" ist an der LSE
-# "VWRL.L", nicht "VWRL.LN"). Diese explizite Tabelle bildet sie auf den
-# internen Boersencode ab, aus dem provider_lookup_symbol die Symbolik je
-# Provider ableitet (.L, .DE, .SW, .PA, .AS, .MI ...). Nicht gelistete Codes
-# werden NICHT geraten: map_openfigi_exchange_code -> None, der Aufrufer
-# markiert den Kandidaten bzw. lehnt die Uebernahme ab. Composite-Codes ohne
-# eindeutige Boerse (z. B. GR = Deutschland Composite) bleiben bewusst aussen vor.
-OPENFIGI_EXCHANGE_CODE_MAP: dict[str, str] = {
-    # USA (Composite und Einzelboersen; Yahoo/stooq ohne Suffix)
-    "US": "US", "UN": "US", "UW": "US", "UQ": "US", "UR": "US",
-    "UA": "US", "UP": "US", "UF": "US",
-    # Schweiz: SIX Swiss Exchange / Composite / SIX Swiss Exchange Europe
-    "SW": "SW", "SE": "SW", "VX": "VX",
-    # Europa
-    "LN": "L",   # London Stock Exchange
-    "GY": "DE",  # Xetra
-    "GF": "F",   # Boerse Frankfurt
-    "FP": "PA",  # Euronext Paris
-    "NA": "AS",  # Euronext Amsterdam
-    "BB": "BR",  # Euronext Bruessel
-    "IM": "MI",  # Borsa Italiana
-    "SM": "MC",  # Bolsa de Madrid
-    "SS": "ST",  # Nasdaq Stockholm
-    "NO": "OL",  # Oslo Boers
-    "DC": "CO",  # Nasdaq Kopenhagen
-    "FH": "HE",  # Nasdaq Helsinki
-    "ID": "IR",  # Euronext Dublin
-    "AV": "VI",  # Wiener Boerse
-    # Uebrige
-    "CT": "TO",  # Toronto Stock Exchange
-    "CV": "V",   # TSX Venture
-    "HK": "HK",  # Hong Kong
-    "JT": "T",   # Tokio
-    "AT": "AX",  # ASX
-    "NZ": "NZ",  # NZX
-}
-
-
-def map_openfigi_exchange_code(value: Any) -> str | None:
-    """Bloomberg-/OpenFIGI-exchCode -> interner Boersencode, sonst None."""
-    raw = str(value or "").strip().upper()
-    if not raw:
-        return None
-    return OPENFIGI_EXCHANGE_CODE_MAP.get(raw)
-
-
 def normalize_exchange_code(value: Any) -> str | None:
     raw = str(value or "").strip().upper()
     if not raw:

@@ -376,34 +376,17 @@ def _fetch_aggregator_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple
 
 
 def _fetch_bloomberg_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
-    """BBG-1: Bloomberg ueber den fail-closed Provider abfragen.
+    """BBG-1 / Audit P2: Der Preis-Updater hat (noch) keinen Bloomberg-Abruf.
 
-    Ohne blpapi/Terminal/Session liefert der Provider
-    ``ProviderUnavailableError`` mit Code; dann gilt derselbe Grund fuer
-    alle Symbole (kein Session-Versuch pro Symbol). Der echte Request-Aufbau
-    ist BBG-3; bis dahin meldet eine stehende Session
-    ``BLOOMBERG_REQUEST_NOT_IMPLEMENTED``.
+    Der Request-Aufbau folgt in BBG-3; bis dahin meldet jeder Kurs
+    eindeutig "nicht verfuegbar" mit Code. Ohne Kurs springt wegen
+    LICENSED_PRICE_PROVIDERS auch kein Gratis-Fallback ein.
     """
-    from services.market_data.exceptions import MarketDataError, ProviderUnavailableError
-    from services.market_data.providers.bloomberg_provider import BloombergProvider
-
-    provider = BloombergProvider()
-    points: dict[str, tuple[str, int, str]] = {}
-    errors: dict[str, str] = {}
-    for symbol in symbols:
-        try:
-            bar = provider.get_eod(symbol, date.today())
-        except ProviderUnavailableError as exc:
-            message = f"Preisprovider bloomberg nicht verfügbar: {exc}"
-            for rest in symbols:
-                if rest not in points:
-                    errors.setdefault(rest, message)
-            break
-        except MarketDataError as exc:
-            errors[symbol] = f"Preisprovider bloomberg: {exc}"
-            continue
-        points[symbol] = (bar.date.isoformat(), to_rappen(bar.close), "bloomberg")
-    return points, errors
+    message = (
+        "Preisprovider bloomberg nicht verfügbar [BLOOMBERG_REQUEST_NOT_IMPLEMENTED]: "
+        "Kursabruf ueber Bloomberg ist noch nicht implementiert (BBG-3)."
+    )
+    return {}, {symbol: message for symbol in symbols}
 
 
 def _append_market_warning(message: str | None, *warnings: str | None) -> str:

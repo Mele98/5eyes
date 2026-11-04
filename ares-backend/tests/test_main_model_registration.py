@@ -12,7 +12,8 @@ Registrierung still verliert, prueft dieser Test in einem frischen Interpreter:
    ``app.openapi()`` (kanonisches JSON) haben exakt den Stand vor K-2
    (Golden-Hashes, berechnet auf ``origin/develop`` 1730911e und auf dem
    K-2-Head identisch; ``sorted_tables`` unveraendert seit 9e6b7dd9, der
-   OpenAPI-Hash wurde beim Rebase auf 1730911e nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
+   OpenAPI-Hash wurde beim Rebase auf 1730911e und mit OF-1 (Audit 2026-11/06,
+   neue Felder exchange_code/exchange_code_status/candidates) nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
    Hash, wird der Golden-Wert bewusst im selben Commit nachgefuehrt.
 
 Negativkontrolle: ``database`` allein registriert ``users`` nicht -- die
@@ -33,7 +34,7 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf7523653a10377b3"
-GOLDEN_OPENAPI_SHA256 = "abf699ae41f8a2771cef772c13c390ef62dabfaf6a46cb14d971befc1a1627ff"
+GOLDEN_OPENAPI_SHA256 = "668a1d9f5c333a17b3a16d27f2ed77e26d729026543c20c4ccef245c5ebcfee7"
 
 _PROBE = """
 import hashlib, json
