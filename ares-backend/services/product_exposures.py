@@ -254,10 +254,31 @@ _HEDGE_MARKER_WORDS = frozenset({
     "waehrungsabgesichert", "währungsabgesichert",
     "absicherung", "waehrungsabsicherung", "währungsabsicherung",
 })
-#: N-856-10: Kapital-/Garantie-/Schutz-Kontext -> kein Hedge-Treffer (Proxy);
-#: Wortanfaenge, damit Komposita wie "Kapitalschutz", "Garantiezertifikat"
-#: oder "capital-protected" erfasst sind.
-_CAPITAL_PROTECTION_PREFIXES = ("kapital", "garant", "capital", "protect", "schutz", "guarant")
+#: N-856-10/-12: nur EINDEUTIGE Kapitalschutz-Formen fuehren zum Proxy.
+#: Wortanfaenge allein ("capital", "kapital", "garant" ...) waren zu breit
+#: ("Capitalisation CHF Hedged Acc", "Kapitalmarkt", "Garant Fonds").
+_CAPITAL_PROTECTION_WORD_PREFIXES = (
+    "kapitalschutz", "kapitalgeschützt", "kapitalgeschuetzt", "garantiezertifikat",
+)
+_CAPITAL_WORDS = frozenset({"capital", "kapital"})
+_CAPITAL_PROTECTION_PAIRS = frozenset({
+    ("kapital", "gesichert"), ("capital", "protected"), ("capital", "guaranteed"),
+    ("capital", "protection"),
+})
+_GUARANTEE_WORDS = frozenset({"garantiert", "guaranteed"})
+
+
+def _is_capital_protection(words: list[str]) -> bool:
+    if any(word.startswith(_CAPITAL_PROTECTION_WORD_PREFIXES) for word in words):
+        return True
+    for left, right in zip(words, words[1:]):
+        if (left, right) in _CAPITAL_PROTECTION_PAIRS:
+            return True
+        if (left in _GUARANTEE_WORDS and right in _CAPITAL_WORDS) or (
+            left in _CAPITAL_WORDS and right in _GUARANTEE_WORDS
+        ):
+            return True
+    return False
 #: Zusammengesetzte Negations-/Teilwoerter: immer KEINE volle Absicherung.
 _HEDGE_NEGATED_COMPOUNDS = frozenset({
     "unhedged", "nonhedged", "ungesichert", "unabgesichert",
@@ -280,6 +301,7 @@ _HEDGE_CURRENCIES = frozenset({
 })
 _NAME_WORD_RE = re.compile(r"[a-zäöüß]+")
 _NO_COMPOUND_RE = re.compile(r"\bno-(?=[a-zäöüß])")
+_NO_LOAD_SPACED_RE = re.compile(r"\bno\s+load\b")
 
 #: Herkunft des Waehrungs-Exposures (wird im Depot-Check ausgewiesen).
 CURRENCY_SOURCE_PRODUCT_DATA = "produktdaten"
@@ -305,14 +327,15 @@ def hedge_from_product_name(product_name: str | None, product_type: str | None =
     # N-856-11: "No-Load" (und andere "no-<Wort>"-Komposita) ist keine
     # Negation -- zusammenziehen, bevor in Woerter zerlegt wird.
     text = _NO_COMPOUND_RE.sub("no", text)
+    text = _NO_LOAD_SPACED_RE.sub("noload", text)  # N-856-12: "No Load" wie "No-Load"
     words = _NAME_WORD_RE.findall(text)
     if any(word in _HEDGE_NEGATED_COMPOUNDS for word in words):
         return False, None
     markers = [i for i, word in enumerate(words) if word in _HEDGE_MARKER_WORDS]
     if not markers:
         return None, None
-    if any(word.startswith(_CAPITAL_PROTECTION_PREFIXES) for word in words):
-        return None, None  # N-856-10: Kapitalschutz, keine Waehrungsabsicherung
+    if _is_capital_protection(words):
+        return None, None  # N-856-10/-12: Kapitalschutz, keine Waehrungsabsicherung
     for i in markers:
         if any(word in _HEDGE_NEGATION_WORDS for word in words[max(0, i - _HEDGE_NEGATION_WINDOW):i]):
             return False, None
