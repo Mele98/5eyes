@@ -21,9 +21,9 @@ DEFAULT_TRANSACTION_COST_BPS = 15
 # beansprucht (Strategiebasis 0) -- kein Produktvolumen, nur Dienstleistungskosten.
 ZERO_STRATEGY_BASE_COST_NOTE = (
     "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht das "
-    "gesamte Beratungsvermögen. Es wird nichts investiert; Produkt- und "
-    "Transaktionskosten fallen nicht an, ausgewiesen sind nur die "
-    "Dienstleistungskosten auf das Beratungsvermögen."
+    "gesamte Beratungsvermögen. Es wird nichts investiert; Produktkosten "
+    "(TER) fallen auf das Zielvolumen 0 nicht an. Die Dienstleistungskosten "
+    "beziehen sich auf das Beratungsvermögen."
 )
 
 
