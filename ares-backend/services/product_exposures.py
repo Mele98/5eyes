@@ -279,6 +279,7 @@ _HEDGE_CURRENCIES = frozenset({
     "NZD", "SGD", "HKD", "CNY", "CNH", "PLN", "CZK", "HUF",
 })
 _NAME_WORD_RE = re.compile(r"[a-zäöüß]+")
+_NO_COMPOUND_RE = re.compile(r"\bno-(?=[a-zäöüß])")
 
 #: Herkunft des Waehrungs-Exposures (wird im Depot-Check ausgewiesen).
 CURRENCY_SOURCE_PRODUCT_DATA = "produktdaten"
@@ -300,7 +301,11 @@ def hedge_from_product_name(product_name: str | None, product_type: str | None =
     ``(None, None)`` ohne Hinweis. Die Handelswaehrung zaehlt nie als
     Absicherungswaehrung.
     """
-    words = _NAME_WORD_RE.findall(f"{product_name or ''} {product_type or ''}".lower())
+    text = f"{product_name or ''} {product_type or ''}".lower()
+    # N-856-11: "No-Load" (und andere "no-<Wort>"-Komposita) ist keine
+    # Negation -- zusammenziehen, bevor in Woerter zerlegt wird.
+    text = _NO_COMPOUND_RE.sub("no", text)
+    words = _NAME_WORD_RE.findall(text)
     if any(word in _HEDGE_NEGATED_COMPOUNDS for word in words):
         return False, None
     markers = [i for i, word in enumerate(words) if word in _HEDGE_MARKER_WORDS]
@@ -314,7 +319,8 @@ def hedge_from_product_name(product_name: str | None, product_type: str | None =
     for i in markers:
         if i + 2 < len(words) and words[i + 1] in _HEDGE_TARGET_PREPOSITIONS:
             target = words[i + 2].upper()
-            if target in _HEDGE_CURRENCIES:
+            # N-856-11: "hedged in USD terms" nennt keine Zielwaehrung.
+            if target in _HEDGE_CURRENCIES and (i + 3 >= len(words) or words[i + 3] != "terms"):
                 return True, target
     for i in markers:
         for word in reversed(words[max(0, i - 2):i]):
