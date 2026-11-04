@@ -677,8 +677,10 @@ def effective_sustainability_threshold(db: Session, tenant_id: str | None, categ
 #: Begruendungen, schwerste zuerst (fuer die Lueckenliste in T3).
 CRITERION_REASONS: tuple[str, ...] = (
     "satisfied",
-    "threshold_exceeded",
+    "conflicting_evidence",
     "exposure_present",
+    "threshold_exceeded",
+    "inconclusive_measurement",
     "classification_below_threshold",
     "expired",
     "not_yet_valid",
@@ -708,13 +710,22 @@ def _row_reason(attribute, ctype: str, threshold, check_date: date) -> str:
         return "not_yet_valid"
     if ctype == "revenue_threshold":
         cutoff = attribute.revenue_threshold_bps
+        if attribute.kind == "measured_exposure":
+            # N-863-1: measured_exposure_bps = Fondsgewicht der Emittenten
+            # mit Umsatzanteil UEBER der Messgrenze (cutoff).
+            # - Gewicht 0 und Messgrenze <= Hausschwelle: kein Emittent ueber
+            #   der Hausschwelle -> erfuellt (T-E4: keine Toleranz).
+            # - Gewicht > 0 und Messgrenze >= Hausschwelle: belegter Verstoss
+            #   -> exposure_present (blockiert, siehe evaluate_criterion).
+            # - sonst nicht schluessig (erfuellt nicht, blockiert nicht).
+            exposure = attribute.measured_exposure_bps
+            if cutoff is None or exposure is None:
+                return "inconclusive_measurement"
+            if exposure == 0:
+                return "satisfied" if cutoff <= threshold else "threshold_exceeded"
+            return "exposure_present" if cutoff >= threshold else "inconclusive_measurement"
         if cutoff is None or cutoff > threshold:
             return "threshold_exceeded"
-        if attribute.kind == "measured_exposure":
-            # Messung mit Umsatzgrenze <= Hausschwelle: erfuellt nur, wenn
-            # KEIN Emittent ueber dieser Grenze im Produkt steckt (T-E4:
-            # keine Toleranz).
-            return "satisfied" if attribute.measured_exposure_bps == 0 else "exposure_present"
         return "satisfied" if attribute.kind == "exclusion_policy" else "no_evidence"
     if ctype == "conduct":
         if attribute.kind == "exclusion_policy":
@@ -748,6 +759,11 @@ def evaluate_criterion(
     bei ``sfdr_classification`` der Mindest-Artikel (8 oder 9); bei
     ``ungc_violation`` und ``impact_theme`` ohne Bedeutung.
 
+    Widerspruch (N-863-1): Liegt eine gueltige, sichtbare Messung mit
+    belegter Exposure vor, ist das Kriterium nie erfuellt
+    (``conflicting_evidence``, wenn ein anderer Nachweis es sonst erfuellen
+    wuerde, sonst ``exposure_present``).
+
     Zaehlt nur ein freigegebener Nachweis, dessen Stichtag <= as_of <=
     gueltig bis ist und der fuer ``tenant_id`` sichtbar ist (Plattform oder
     eigener Tenant). Entwuerfe, zurueckgezogene, abgelaufene und noch nicht
@@ -779,14 +795,23 @@ def evaluate_criterion(
     ]
     if not candidates:
         return CriterionEvaluation(False, "no_evidence")
-    reasons = []
-    for attribute in sorted(candidates, key=lambda a: (str(a.as_of), str(a.id)), reverse=True):
-        reason = _row_reason(attribute, ctype, threshold, check_date)
+    ordered = sorted(candidates, key=lambda a: (str(a.as_of), str(a.id)), reverse=True)
+    evaluated = [(attribute, _row_reason(attribute, ctype, threshold, check_date)) for attribute in ordered]
+    reasons = tuple(reason for _attribute, reason in evaluated)
+    # N-863-1: eine freigegebene, gueltige, sichtbare Messung mit belegter
+    # Exposure blockiert IMMER -- unabhaengig von Scope (Plattform/Tenant)
+    # und davon, ob eine Ausschlussrichtlinie (Absichtserklaerung) oder eine
+    # andere Messung das Kriterium sonst erfuellen wuerde. Eine Tatsachen-
+    # feststellung schlaegt eine Absichtserklaerung; ein Tenant-Overlay
+    # ersetzt den Plattform-Nachweis nicht, beide gelten.
+    if "exposure_present" in reasons:
+        blocked = "conflicting_evidence" if "satisfied" in reasons else "exposure_present"
+        return CriterionEvaluation(False, blocked, None, reasons)
+    for attribute, reason in evaluated:
         if reason == "satisfied":
-            return CriterionEvaluation(True, "satisfied", attribute.id, tuple(reasons))
-        reasons.append(reason)
+            return CriterionEvaluation(True, "satisfied", attribute.id, reasons)
     worst = min(reasons, key=CRITERION_REASONS.index)
-    return CriterionEvaluation(False, worst, None, tuple(reasons))
+    return CriterionEvaluation(False, worst, None, reasons)
 
 
 def is_criterion_satisfied(

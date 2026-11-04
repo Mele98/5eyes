@@ -164,7 +164,9 @@ def test_measured_exposure_requires_zero_above_cutoff(SF):
         p = s.get(Product, "g1")
         assert is_criterion_satisfied(s, p, "tobacco", 500, TODAY)
         assert not is_criterion_satisfied(s, p, "tobacco", 400, TODAY), "Messgrenze lockerer als Hausschwelle"
-        assert evaluate_criterion(s, p, "alcohol", 1000, TODAY).reason == "exposure_present"
+        assert evaluate_criterion(s, p, "alcohol", 500, TODAY).reason == "exposure_present"
+        # Messgrenze strenger als die Hausschwelle: Exposure > 0 ist nicht schluessig
+        assert evaluate_criterion(s, p, "alcohol", 1000, TODAY).reason == "inconclusive_measurement"
 
 
 def test_expired_evidence_counts_as_not_satisfied(SF):
@@ -542,3 +544,61 @@ def test_api_409_never_leaks_other_tenant_evidence(SF, client, monkeypatch):
     imp = client.post("/products/sustainability/attributes/import",
                       json={"attributes": [dict(_payload(), product_id="g1")]}).json()
     assert imp["failed"] == 1 and foreign_id not in str(imp) and "Geheimes" not in str(imp)
+
+
+# ---------------------------------------------------------------------------
+# N-863-1: Widerspruechliche Nachweise -- eine belegte Exposure blockiert immer
+# ---------------------------------------------------------------------------
+
+
+def _negative_measurement(SF, *, id, tenant_id=None, created_by="root", approved_by="root2"):
+    _attr(SF, id=id, tenant_id=tenant_id, kind="measured_exposure", revenue=500, measured=300,
+          created_by=created_by, approved_by=approved_by)
+
+
+def test_n863_1_p1_same_scope_policy_and_negative_measurement(SF):
+    _attr(SF, id="policy")
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "tobacco", 500, TODAY)  # Gegenprobe ohne Messung
+    _negative_measurement(SF, id="meas")
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "tobacco", 500, TODAY)
+    assert not result.satisfied and result.reason == "conflicting_evidence"
+
+
+def test_n863_1_p2_global_policy_tenant_negative_measurement(SF):
+    _attr(SF, id="policy")
+    _negative_measurement(SF, id="meas-a", tenant_id="firm-a", created_by="admin-a1", approved_by="admin-a2")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert evaluate_criterion(s, p, "tobacco", 500, TODAY, tenant_id="firm-a").reason == "conflicting_evidence"
+        # Gegenprobe: fuer einen anderen Tenant ist die Messung unsichtbar
+        assert is_criterion_satisfied(s, p, "tobacco", 500, TODAY, tenant_id="firm-b")
+
+
+def test_n863_1_p3_global_negative_measurement_tenant_policy(SF):
+    _negative_measurement(SF, id="meas")
+    _attr(SF, id="policy-a", tenant_id="firm-a", created_by="admin-a1", approved_by="admin-a2")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert evaluate_criterion(s, p, "tobacco", 500, TODAY, tenant_id="firm-a").reason == "conflicting_evidence"
+        assert evaluate_criterion(s, p, "tobacco", 500, TODAY, tenant_id="firm-b").reason == "exposure_present"
+
+
+def test_n863_1_only_valid_approved_measurement_blocks(SF):
+    _attr(SF, id="policy")
+    _attr(SF, id="draft-meas", kind="measured_exposure", revenue=500, measured=300, status="draft")
+    old = (TODAY - timedelta(days=400)).isoformat()
+    _attr(SF, id="old-meas", kind="measured_exposure", revenue=500, measured=300, as_of=old)
+    _attr(SF, id="loose-meas", kind="measured_exposure", revenue=100, measured=300,
+          as_of=(TODAY - timedelta(days=10)).isoformat())
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "tobacco", 500, TODAY)
+    assert result.satisfied, result
+
+
+def test_n863_1_conduct_measurement_blocks_policy(SF):
+    _attr(SF, id="ungc-policy", category="ungc_violation", revenue=None)
+    _attr(SF, id="ungc-meas", category="ungc_violation", kind="measured_exposure", revenue=None, measured=50)
+    with SF() as s:
+        assert evaluate_criterion(s, s.get(Product, "g1"), "ungc_violation", None, TODAY).reason == "conflicting_evidence"
