@@ -32,6 +32,7 @@ which is the intended signal to remove the xfail marker.
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -49,6 +50,21 @@ from models import (  # noqa: E402,F401
 configure_mappers()
 
 from services.optimizer.goal_liabilities import goal_to_liability  # noqa: E402
+from services.valuation_clock import bound_valuation_date  # noqa: E402
+
+
+# Fester Bewertungsstichtag ("heute"). Die Ziel-Fenster unten liegen fest auf
+# 2026-12-30/31 -> 2027-01-01; die Kalenderjahr-Buckets (ADR-2) beginnen beim
+# Jahr des Stichtags, den die Engine nur ueber ``services.valuation_clock``
+# bezieht (ausserhalb eines Laufs die Wanduhr). Mit der Wanduhr lagen die
+# Fenster ab dem 2027-01-01 in der Vergangenheit und es wurde 0 gebucht.
+AS_OF = date(2026, 10, 10)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_valuation_date():
+    with bound_valuation_date(AS_OF):
+        yield
 
 
 def _make_goal(

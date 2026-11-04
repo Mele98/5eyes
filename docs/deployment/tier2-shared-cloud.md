@@ -1,7 +1,7 @@
 # Tier 2: Shared-Cloud Deployment-Recipe
 
 **Wer:** Kleine Beratungsfirmen ohne IT-Abteilung
-**Hosting:** 5eyes-Operator hostet auf Schweizer Cloud
+**Hosting:** Ares-Operator hostet auf Schweizer Cloud
 **Empfohlen:** Infomaniak Public Cloud (Genf) / Exoscale (Lausanne)
 **Compliance:** Schweizer DSGVO-/revDSG-konform, FINMA-Outsourcing meldepflichtig
 
@@ -14,7 +14,7 @@
 | Schweizer Cloud (Infomaniak/Exoscale)|
 |                                      |
 |  +-----------------+                 |
-|  | 5eyes Backend   |                 |
+|  | Ares Backend    |                 |
 |  | (FastAPI Docker)|                 |
 |  +--------+--------+                 |
 |           |                          |
@@ -106,11 +106,11 @@ version: "3.8"
 services:
   postgres:
     image: postgres:16
-    container_name: 5eyes-postgres
+    container_name: ares-postgres
     restart: always
     environment:
       POSTGRES_PASSWORD: <STARK_RANDOM_PASSWORD>
-      POSTGRES_DB: fiveyes
+      POSTGRES_DB: ares
     volumes:
       - ./data:/var/lib/postgresql/data
       - ./backups:/backups
@@ -123,10 +123,10 @@ cd /home/fivE/postgres
 docker compose up -d
 ```
 
-### 5. 5eyes Backend in Container
+### 5. Ares Backend in Container
 
 ```yaml
-# /home/fivE/5eyes/docker-compose.yml
+# /opt/ares/docker-compose.yml
 version: "3.8"
 services:
   backend:
@@ -147,7 +147,7 @@ networks:
 ```
 
 ```dotenv
-# /home/fivE/5eyes/.env
+# /opt/ares/.env
 DEPLOYMENT_TIER=tier2
 APP_ENV=production
 APP_HOST=0.0.0.0
@@ -157,7 +157,7 @@ APP_PORT=8000
 # +psycopg (nicht bare postgresql://) ist Pflicht: requirements.txt installiert
 # psycopg[binary] v3, kein psycopg2. SQLAlchemy versucht bei bare postgresql://
 # per Default psycopg2 zu laden -> Verbindung schlaegt beim ersten Deploy fehl.
-DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@5eyes-postgres:5432/fiveyes
+DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@ares-postgres:5432/ares
 
 # Multi-Tenancy
 TENANCY_MODE=multi
@@ -168,7 +168,7 @@ SECRET_KEY=<MIND_64_ZEICHEN_RANDOM>
 ACCESS_TOKEN_EXPIRE_MINUTES=480
 
 # CORS — nur deine Frontend-Domain
-CORS_ORIGINS=https://app.5eyes-mueller.ch,https://app.5eyes-schmid.ch
+CORS_ORIGINS=https://app.mueller.example,https://app.schmid.example
 ```
 
 ### 6. HTTPS via Caddy / Cloudflare
@@ -177,10 +177,10 @@ CORS_ORIGINS=https://app.5eyes-mueller.ch,https://app.5eyes-schmid.ch
 
 ```caddy
 # /home/fivE/caddy/Caddyfile
-app.5eyes-mueller.ch {
+app.mueller.example {
     reverse_proxy localhost:8000
 }
-app.5eyes-schmid.ch {
+app.schmid.example {
     reverse_proxy localhost:8000
 }
 ```
@@ -191,9 +191,9 @@ Caddy macht Let's Encrypt automatisch.
 
 ```bash
 cloudflared tunnel login
-cloudflared tunnel create 5eyes-prod
+cloudflared tunnel create ares-prod
 # DNS Records via Cloudflare Dashboard
-cloudflared tunnel route dns 5eyes-prod app.5eyes-mueller.ch
+cloudflared tunnel route dns ares-prod app.mueller.example
 ```
 
 ### 7. Default-Tenant + Super-Admin anlegen
@@ -211,9 +211,9 @@ ensure_default_tenant()
 db = SessionLocal()
 super_admin = User(
     id=new_uuid(),
-    username='5eyes-operator',
+    username='ares-operator',
     password_hash=hash_password('<DEIN_PASSWORD>'),
-    full_name='5eyes Operator',
+    full_name='Ares Operator',
     role='super_admin',
     tenant_id='main',
     is_active=1,
@@ -234,7 +234,7 @@ Berater "Mueller VV" will Lizenz:
 # Login als Super-Admin via /auth/login → JWT erhalten
 
 # Tenant erstellen
-curl -X POST https://app.5eyes-mueller.ch/tenants \
+curl -X POST https://app.mueller.example/tenants \
   -H "Authorization: Bearer <JWT>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -249,7 +249,7 @@ curl -X POST https://app.5eyes-mueller.ch/tenants \
 # ...
 
 # User dem Tenant zuweisen
-curl -X PUT https://app.5eyes-mueller.ch/tenants/<TENANT_ID>/users/<USER_ID>/assign \
+curl -X PUT https://app.mueller.example/tenants/<TENANT_ID>/users/<USER_ID>/assign \
   -H "Authorization: Bearer <JWT>"
 ```
 
@@ -309,4 +309,4 @@ Monatlich:
 VPS-Kosten (1 Server fuer mehrere Tenants):
 - Infomaniak 4 vCPU / 8 GB: ~CHF 25
 - Skaliert: 10 Tenants × CHF 200 = CHF 2'000/Monat - CHF 25 Hosting
-  → 5eyes-Operator-Marge ~CHF 1'900/Monat fuer ~5h Wartung/Woche
+  → Ares-Operator-Marge ~CHF 1'900/Monat fuer ~5h Wartung/Woche
