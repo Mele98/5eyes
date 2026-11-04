@@ -69,6 +69,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     env:
       ARES_REQUIRE_SQLCIPHER: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -95,7 +96,10 @@ jobs:
         working-directory: ares-backend
         shell: bash
         run: |
-          python -m pytest -p no:cacheprovider -q -rs \
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/sqlcipher \
+            --startup-timeout 600 --test-timeout 900 --teardown-timeout 180 --session-timeout 300 \
+            --exit-timeout 90 --grace 15 -- \
+            python -m pytest -p no:cacheprovider -q -rs \
             tests/test_sqlcipher_engine_roundtrip.py \
             tests/test_backup_sqlcipher_support.py
 
