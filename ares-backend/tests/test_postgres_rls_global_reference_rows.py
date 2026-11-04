@@ -66,6 +66,7 @@ EXPECTED_REFERENCE_TABLES = frozenset({
     "capital_market_assumptions",
     "product_eligibility_rule_sets",
     "product_eligibility_rules",
+    "product_sustainability_attributes",  # AUDIT-2026-11 T1
     "products",
 })
 TENANT_A = "tenant-a"

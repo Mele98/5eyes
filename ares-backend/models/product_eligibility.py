@@ -17,7 +17,7 @@ product is `indeterminate` under `evaluate_product_eligibility()`
 """
 from __future__ import annotations
 
-from sqlalchemy import DDL, Column, ForeignKey, Index, Integer, String, event, text
+from sqlalchemy import DDL, CheckConstraint, Column, ForeignKey, Index, Integer, String, event, text
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -264,4 +264,204 @@ for _trigger_ddl in _override_schema.SQLITE_TRIGGERS:
         ProductEligibilityOverride.__table__,
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# AUDIT-2026-11 T1 (Audit 05 §4.1/§4.2, Entscheide T-E1..T-E3):
+# Nachhaltigkeits- und Ausschlussmerkmale je Produkt plus Hausstandard je
+# Tenant. Liegt bewusst in diesem Modul (gleiche Governance wie die
+# Eignungsregeln: Vier-Augen-Freigabe, globale Zeilen = Plattform, R3).
+# In T1 OHNE Engine-Wirkung; services/product_eligibility_governance.py::
+# is_criterion_satisfied() wird erst in T3 verdrahtet.
+#
+# Grundsatz (T-E2): nur freigegebene, nicht abgelaufene Nachweise MIT Quelle
+# zaehlen. Seed-/Default-Werte auf products (sfdr_class, esg_rating, ...)
+# werden NICHT hierher migriert und erfuellen nie ein Kriterium.
+# ---------------------------------------------------------------------------
+
+#: Kategorienkatalog (erweiterbar; neue Werte hier und im Literal in
+#: schemas/review.py, ein Sync-Test haelt beide gleich).
+SUSTAINABILITY_REVENUE_CATEGORIES: tuple[str, ...] = (
+    "controversial_weapons",
+    "conventional_weapons",
+    "tobacco",
+    "thermal_coal",
+    "fossil_fuels",
+    "gambling",
+    "adult_entertainment",
+    "alcohol",
+    "nuclear_power",
+    "animal_testing",
+)
+SUSTAINABILITY_CONDUCT_CATEGORIES: tuple[str, ...] = ("ungc_violation",)
+SUSTAINABILITY_CLASSIFICATION_CATEGORIES: tuple[str, ...] = ("sfdr_classification", "impact_theme")
+SUSTAINABILITY_CATEGORIES: tuple[str, ...] = (
+    SUSTAINABILITY_REVENUE_CATEGORIES
+    + SUSTAINABILITY_CONDUCT_CATEGORIES
+    + SUSTAINABILITY_CLASSIFICATION_CATEGORIES
+)
+
+SUSTAINABILITY_KINDS: tuple[str, ...] = (
+    "exclusion_policy",    # Produkt schliesst Emittenten ab x % Umsatz aus
+    "measured_exposure",   # gemessenes Gewicht betroffener Emittenten (Look-through)
+    "certification",       # Zertifikat/Label mit Nachweis
+    "classification",      # z. B. SFDR-Artikel 6/8/9
+)
+
+#: Zulaessige Arten je Kategorie (fail-closed: alles andere 422).
+SUSTAINABILITY_KINDS_BY_CATEGORY: dict[str, tuple[str, ...]] = {
+    **{c: ("exclusion_policy", "measured_exposure") for c in SUSTAINABILITY_REVENUE_CATEGORIES},
+    "ungc_violation": ("exclusion_policy", "measured_exposure"),
+    "sfdr_classification": ("classification",),
+    "impact_theme": ("classification", "certification"),
+}
+
+SFDR_CLASSIFICATION_VALUES: tuple[str, ...] = ("6", "8", "9")
+
+#: Zulaessige Quellen (T-E3). Eine Quelle 'seed' gibt es bewusst nicht.
+SUSTAINABILITY_SOURCE_TYPES: tuple[str, ...] = (
+    "prospectus",
+    "fund_contract",
+    "kid",
+    "factsheet",
+    "provider_exclusion_policy",
+    "provider_confirmation",
+    "data_vendor",
+    "house_analysis",
+)
+
+SUSTAINABILITY_STATUSES: tuple[str, ...] = ("draft", "approved", "retired")
+
+#: Hausstandard-Defaults (T-E1), Umsatzanteil des Emittenten in bps.
+#: ungc_violation: keine Umsatzschwelle (schwere/anhaltende Verstoesse
+#: ausgeschlossen) -> None. sfdr_classification/impact_theme sind keine
+#: Umsatzkriterien und haben keinen Hausstandard. Tenant-aenderbar ueber
+#: sustainability_exclusion_standards.
+SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS: dict[str, int | None] = {
+    "controversial_weapons": 0,
+    "conventional_weapons": 1000,
+    "tobacco": 500,
+    "thermal_coal": 1000,
+    "gambling": 500,
+    "adult_entertainment": 500,
+    "alcohol": 1000,
+    "ungc_violation": None,
+    "nuclear_power": 1000,
+    "animal_testing": 1000,
+    "fossil_fuels": 1000,
+}
+
+#: Gueltigkeit eines Nachweises ab Stichtag (T-E3).
+SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS = 12
+
+_SUSTAINABILITY_FOUR_EYES_CHECK = (
+    "approved_by IS NULL OR approved_by <> created_by "
+    "OR approval_mode = 'single_approver_attested'"
+)
+
+
+class ProductSustainabilityAttribute(Base):
+    """Ein Nachweis je Produkt x Kategorie x Art x Stichtag.
+
+    ``tenant_id`` NULL = Plattform-Nachweis (globaler Katalog; in Multi-
+    Tenant nur super_admin, Regel R3); gesetzt = Tenant-Nachweis (Overlay,
+    nur fuer diesen Tenant sichtbar). Freigegebene Zeilen sind inhaltlich
+    unveraenderlich; eine Korrektur ist ein neuer Entwurf, der bei Freigabe
+    den Vorgaenger abloest (status 'retired').
+    """
+
+    __tablename__ = "product_sustainability_attributes"
+
+    id = Column(String, primary_key=True)
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    category = Column(String, nullable=False)
+    kind = Column(String, nullable=False)
+    revenue_threshold_bps = Column(Integer)
+    measured_exposure_bps = Column(Integer)
+    value = Column(String)
+    source_type = Column(String, nullable=False)
+    source_reference = Column(String, nullable=False)
+    source_provider = Column(String)
+    source_retrieved_on = Column(String)
+    as_of = Column(String, nullable=False)
+    valid_until = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="draft")
+    note = Column(String)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"))
+    approved_at = Column(String)
+    approval_mode = Column(String)
+    retired_by = Column(String, ForeignKey("users.id"))
+    retired_at = Column(String)
+    supersedes_id = Column(String, ForeignKey("product_sustainability_attributes.id"))
+    updated_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'approved', 'retired')", name="ck_psa_status"),
+        CheckConstraint(
+            "kind IN ('exclusion_policy', 'measured_exposure', 'certification', 'classification')",
+            name="ck_psa_kind",
+        ),
+        CheckConstraint(
+            "revenue_threshold_bps IS NULL OR (revenue_threshold_bps >= 0 AND revenue_threshold_bps <= 10000)",
+            name="ck_psa_revenue_threshold_bps",
+        ),
+        CheckConstraint(
+            "measured_exposure_bps IS NULL OR (measured_exposure_bps >= 0 AND measured_exposure_bps <= 10000)",
+            name="ck_psa_measured_exposure_bps",
+        ),
+        CheckConstraint("valid_until >= as_of", name="ck_psa_valid_until"),
+        CheckConstraint(_SUSTAINABILITY_FOUR_EYES_CHECK, name="ck_psa_four_eyes"),
+        Index("ix_psa_product_category_status", "product_id", "category", "status"),
+        Index("ix_psa_tenant_id", "tenant_id"),
+        # Unique (product, tenant, category, kind, as_of) fuer nicht
+        # abgeloeste Zeilen. Zwei partielle Indizes, weil NULL in Unique-
+        # Indizes als verschieden gilt (Muster product_eligibility_rule_sets).
+        Index(
+            "ux_psa_active_tenant",
+            "product_id", "tenant_id", "category", "kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NOT NULL AND status <> 'retired'"),
+            postgresql_where=text("tenant_id IS NOT NULL AND status <> 'retired'"),
+        ),
+        Index(
+            "ux_psa_active_global",
+            "product_id", "category", "kind", "as_of",
+            unique=True,
+            sqlite_where=text("tenant_id IS NULL AND status <> 'retired'"),
+            postgresql_where=text("tenant_id IS NULL AND status <> 'retired'"),
+        ),
+    )
+
+
+class SustainabilityExclusionStandard(Base):
+    """Hausstandard je Tenant und Kategorie (Audit 05 §4.2, T-E1).
+
+    Eine Zeile ueberschreibt den Code-Default
+    (``SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS``) fuer genau einen Tenant.
+    Fehlt die Zeile, gilt der Default. Jede Aenderung steht im Audit-Log
+    (alter und neuer Wert).
+    """
+
+    __tablename__ = "sustainability_exclusion_standards"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    category = Column(String, nullable=False)
+    max_revenue_threshold_bps = Column(Integer)
+    note = Column(String)
+    updated_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "max_revenue_threshold_bps IS NULL OR "
+            "(max_revenue_threshold_bps >= 0 AND max_revenue_threshold_bps <= 10000)",
+            name="ck_ses_threshold_bps",
+        ),
+        Index("ux_ses_tenant_category", "tenant_id", "category", unique=True),
     )
