@@ -234,6 +234,13 @@ class ConflictOfInterestDisclosure(Base):
     # unterschriebene Verzichts-Dokument fuer Beweiszwecke.
     reimbursed_to_client = Column(Integer, nullable=False, default=0)
     waiver_document_id = Column(String)
+    # N-861-1 (Pruefrunde #861, 2026-11-04): optionale Bindung einer
+    # Retrozessions-Zeile an ein konkretes Produkt. NULL = Zuordnung wie
+    # bisher ueber den Anbieternamen (inducement_provider). Bewusst ohne
+    # Fremdschluessel-Constraint (gleiches Muster wie waiver_document_id);
+    # der Router prueft, dass das Produkt fuer den Tenant sichtbar ist.
+    # Alembic d4f7a9c2e1b6, SQLite-Runtime-Patch database.py.
+    product_id = Column(String)
     disclosed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

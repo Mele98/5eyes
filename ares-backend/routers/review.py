@@ -1775,6 +1775,10 @@ def create_conflict(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     fields = body.model_dump()
+    # N-861-1: eine Produktbindung muss auf ein fuer diesen Tenant sichtbares
+    # Produkt zeigen (fremde private Produkte -> 404, kein Existenz-Leck).
+    if fields.get("product_id"):
+        fields["product_id"] = _get_product_or_404(str(fields["product_id"]), db, current_user).id
     # 2026-07-25 (Generalaudit): siehe create_document -- kein DB-Spalten-
     # Aequivalent auf ConflictOfInterestDisclosure, nur Enforcement.
     enforce_data_classification(fields.pop("data_classification", None))

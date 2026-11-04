@@ -635,6 +635,9 @@ class ConflictDisclosureCreate(BaseModel):
     # unterscheidet sich damit bewusst von einem expliziten False.
     reimbursed_to_client: Optional[bool] = None
     waiver_document_id: Optional[str] = None
+    # N-861-1: optionale Bindung an ein Produkt (sonst Zuordnung ueber den
+    # Anbieternamen). Muss ein fuer den Tenant sichtbares Produkt sein.
+    product_id: Optional[str] = None
     # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Interessenkonflikte.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
@@ -716,6 +719,7 @@ class ConflictDisclosureResponse(BaseResponse):
     document_id: Optional[str] = None
     reimbursed_to_client: int = 0
     waiver_document_id: Optional[str] = None
+    product_id: Optional[str] = None
     disclosed_by: str
     created_at: str
     updated_at: str

@@ -196,3 +196,52 @@ def test_owner_runtime_patch_adds_columns_and_index(tmp_path, monkeypatch):
     test_engine.dispose()
     assert set(OWNER_COLUMNS) <= _columns(db_path)
     assert INTERNAL_ID_INDEX in _indexes(db_path)
+
+
+# ---------------------------------------------------------------------------
+# N-861-1: optionale Produktbindung am Interessenkonflikt (d4f7a9c2e1b6)
+# ---------------------------------------------------------------------------
+
+CONFLICT_REVISION = "d4f7a9c2e1b6"
+
+
+def test_conflict_product_id_revision_chain_and_orm():
+    from alembic.script import ScriptDirectory
+
+    from models.review import ConflictOfInterestDisclosure
+
+    script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
+    assert script.get_revision(CONFLICT_REVISION).down_revision == OWNER_REVISION
+    column = ConflictOfInterestDisclosure.__table__.columns["product_id"]
+    assert column.nullable and column.server_default is None
+
+
+def test_conflict_product_id_upgrade_downgrade_upgrade(tmp_path):
+    from alembic import command
+
+    db_path = tmp_path / "conflict.db"
+    cfg = _alembic_cfg(f"sqlite:///{db_path}")
+    command.upgrade(cfg, OWNER_REVISION)
+    assert "product_id" not in _columns(db_path, "conflict_of_interest_disclosures")
+    command.upgrade(cfg, CONFLICT_REVISION)
+    assert "product_id" in _columns(db_path, "conflict_of_interest_disclosures")
+    command.downgrade(cfg, OWNER_REVISION)
+    assert "product_id" not in _columns(db_path, "conflict_of_interest_disclosures")
+    command.upgrade(cfg, CONFLICT_REVISION)
+    assert "product_id" in _columns(db_path, "conflict_of_interest_disclosures")
+    up = io.StringIO()
+    command.upgrade(_alembic_cfg("postgresql://u:p@localhost/db", up), f"{OWNER_REVISION}:{CONFLICT_REVISION}", sql=True)
+    assert "ALTER TABLE conflict_of_interest_disclosures ADD COLUMN product_id VARCHAR" in up.getvalue()
+
+
+def test_conflict_product_id_runtime_patch(tmp_path, monkeypatch):
+    import database as db_module
+
+    db_path = tmp_path / "runtime_conflict.db"
+    db_module.bootstrap_sqlite_schema(db_path=db_path, schema_path=BACKEND_ROOT / "ares_schema.sql")
+    test_engine = create_engine(f"sqlite:///{db_path}")
+    monkeypatch.setattr(db_module, "engine", test_engine)
+    db_module.ensure_runtime_columns()
+    db_module.ensure_runtime_columns()
+    test_engine.dispose()
+    assert "product_id" in _columns(db_path, "conflict_of_interest_disclosures")

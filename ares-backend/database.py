@@ -779,6 +779,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         'conflict_of_interest_disclosures': [
             ('reimbursed_to_client', 'INTEGER', 0),
             ('waiver_document_id', 'TEXT'),
+            # N-861-1: optionale Produktbindung, siehe models/review.py.
+            ('product_id', 'TEXT'),
         ],
         # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
