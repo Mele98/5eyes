@@ -44,7 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import settings
-from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, sqlcipher3
+from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, apply_sqlcipher_key, sqlcipher3
 
 logger = logging.getLogger(__name__)
 
@@ -397,11 +397,7 @@ def _open_connection(path_or_uri: str, *, uri: bool, db_key: str | None) -> sqli
                 "ist nicht moeglich. Installiere sqlcipher3-binary oder sqlcipher3."
             )
         conn = sqlcipher3.connect(path_or_uri, uri=uri)
-        conn.execute("PRAGMA key = ?", [key or ""])
-        conn.execute("PRAGMA cipher_page_size = 4096")
-        conn.execute("PRAGMA kdf_iter = 256000")
-        conn.execute("PRAGMA cipher_hmac_algorithm = HMAC_SHA512")
-        conn.execute("PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512")
+        apply_sqlcipher_key(conn, key or "")
         return conn
     return sqlite3.connect(path_or_uri, uri=uri)
 

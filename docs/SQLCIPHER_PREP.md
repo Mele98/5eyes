@@ -16,7 +16,9 @@ Das Backend schaltet dann zentral im bestehenden `database.py` auf SQLCipher um.
 Für einen verschlüsselten Windows-Build:
 
 ```bat
-cd ares-desktop
+cd ares-backend
+pip install --require-hashes --only-binary=:all: -r requirements-sqlcipher.txt
+cd ..\ares-desktop
 set BUILD_WITH_SQLCIPHER=1
 npm run dist:win
 ```

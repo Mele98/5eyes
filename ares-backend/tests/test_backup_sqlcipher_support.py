@@ -116,10 +116,15 @@ def test_backup_and_restore_roundtrip_uses_sqlcipher_driver_when_enabled(tmp_pat
     assert result.path.exists()
     assert fake.connections, "sqlcipher3.connect() sollte fuer Source und Ziel aufgerufen worden sein"
 
+    # SQLCIPHER-KEY-PRAGMA-001 (Pruefrunde #861): frueher pinnte dieser Test die
+    # parametrisierte Form ``("PRAGMA key = ?", ("s3cr3t-key",))`` -- genau die
+    # Form, die mit dem echten sqlcipher3 ein Syntaxfehler ist (PRAGMA bindet
+    # keine Parameter). Jetzt: Schluessel als SQL-Literal, ohne Parameter.
+    # Echter Treiber: tests/test_sqlcipher_engine_roundtrip.py.
     key_statements = [
-        params for sql, params in fake.connections[0].executed if sql.strip().upper().startswith("PRAGMA KEY")
+        (sql, params) for sql, params in fake.connections[0].executed if sql.strip().upper().startswith("PRAGMA KEY")
     ]
-    assert key_statements == [("s3cr3t-key",)], "PRAGMA key muss mit dem konfigurierten db_key gesetzt werden"
+    assert key_statements == [("PRAGMA key = 's3cr3t-key'", None)], "PRAGMA key muss mit dem konfigurierten db_key gesetzt werden"
 
     cipher_pragmas = {
         sql

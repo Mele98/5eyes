@@ -71,5 +71,4 @@ pyyaml==6.0.2
 # segno: 2FA-QR-Code (pure-python, keine C-Abhaengigkeit). Fehlt sie, faellt
 # das 2FA-Setup graceful auf das Text-Secret zurueck (kein 500).
 segno==1.6.6
-# Optional for encrypted production builds:
-# sqlcipher3-binary==0.5.4
+# Optional for encrypted production builds: requirements-sqlcipher.txt

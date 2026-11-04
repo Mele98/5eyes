@@ -10,6 +10,7 @@ from urllib.parse import quote_plus
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import QueuePool
 
 from config import settings
 from core.mandate_evidence_tenant_boundary import (
@@ -51,6 +52,30 @@ def resolve_schema_path() -> Path | None:
 def _sqlcipher_enabled(db_key: str | None = None) -> bool:
     key = db_key or getattr(settings, 'db_key', None)
     return bool(getattr(settings, 'db_use_sqlcipher', False) and key)
+
+
+# SQLCIPHER-KEY-PRAGMA-001 (Pruefrunde #861): SQLite bindet in PRAGMA-Anweisungen
+# keine Parameter -- ``PRAGMA key = ?`` ist mit dem echten sqlcipher3 ein
+# Syntaxfehler (``near "?"``). Der Schluessel wird deshalb als SQL-Literal mit
+# verdoppelten Hochkommas gesetzt (gleiche Form wie der Migrator-Codec); danach
+# die Cipher-Parameter in fester Reihenfolge, vor dem ersten Lesezugriff.
+SQLCIPHER_CIPHER_PRAGMAS = (
+    'PRAGMA cipher_page_size = 4096',
+    'PRAGMA kdf_iter = 256000',
+    'PRAGMA cipher_hmac_algorithm = HMAC_SHA512',
+    'PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512',
+)
+
+
+def sqlcipher_key_pragma(key: str) -> str:
+    return "PRAGMA key = '" + str(key).replace("'", "''") + "'"
+
+
+def apply_sqlcipher_key(conn: Any, key: str) -> None:
+    """Schluessel + Cipher-Parameter auf eine rohe sqlcipher3-Verbindung setzen."""
+    conn.execute(sqlcipher_key_pragma(key))
+    for pragma in SQLCIPHER_CIPHER_PRAGMAS:
+        conn.execute(pragma)
 
 
 def _configured_database_url(database_url: str | None = None) -> str | None:
@@ -104,10 +129,8 @@ def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> N
     def _set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         if _sqlcipher_enabled(db_key=db_key):
-            cursor.execute('PRAGMA cipher_page_size = 4096')
-            cursor.execute('PRAGMA kdf_iter = 256000')
-            cursor.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            cursor.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+            for pragma in SQLCIPHER_CIPHER_PRAGMAS:
+                cursor.execute(pragma)
         cursor.execute('PRAGMA foreign_keys = ON')
         cursor.execute('PRAGMA journal_mode = WAL')
         cursor.execute('PRAGMA busy_timeout = 5000')
@@ -130,6 +153,14 @@ def create_app_engine(
         kwargs['connect_args'] = connect_args
     if is_sqlite_database_url(database_url) and _sqlcipher_enabled(db_key=db_key):
         kwargs['module'] = sqlcipher3
+        # SQLCIPHER-ENGINE-POOL-001 (N-861-6): Der pysqlcipher-Dialekt von
+        # SQLAlchemy 2.0 waehlt immer SingletonThreadPool (auch fuer eine
+        # Datei-DB). Der kennt kein ``pool_timeout`` -> create_engine brach mit
+        # TypeError ab und der SQLCipher-Pfad startete nie. Die verschluesselte
+        # Datei-DB bekommt deshalb denselben Pool wie die Klartext-Datei-DB
+        # (pysqlite waehlt dort QueuePool): gleiche Semantik inkl.
+        # pool_timeout=30, ein Pool fuer beide Varianten.
+        kwargs['poolclass'] = QueuePool
     app_engine = create_engine(database_url, **kwargs)
     if app_engine.dialect.name == "sqlite":
         attach_sqlite_pragmas(app_engine, db_key=db_key)
@@ -211,11 +242,7 @@ def bootstrap_sqlite_schema(
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
         with sqlcipher3.connect(str(db_file)) as conn:
-            conn.execute("PRAGMA key = ?", [db_key or settings.db_key or ''])
-            conn.execute('PRAGMA cipher_page_size = 4096')
-            conn.execute('PRAGMA kdf_iter = 256000')
-            conn.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            conn.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+            apply_sqlcipher_key(conn, db_key or settings.db_key or '')
             conn.execute('PRAGMA foreign_keys = OFF')
             conn.executescript(sql)
             conn.execute('PRAGMA foreign_keys = ON')

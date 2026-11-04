@@ -49,6 +49,56 @@ jobs:
       - name: Run security gate
         run: python scripts/security_gate.py
 
+  sqlcipher-real-encryption:
+    # SQLCIPHER-ENGINE-POOL-001 (Pruefrunde #861, N-861-6): Der SQLCipher-Pfad
+    # (DB_USE_SQLCIPHER=true, Pflicht fuer production ohne PostgreSQL) startete
+    # mit der gepinnten SQLAlchemy-Version nie (pool_timeout am
+    # SingletonThreadPool; dazu ``PRAGMA key = ?`` im Rohschema-Bootstrap und im
+    # Backup). Die Shards merkten es nicht, weil sqlcipher3 dort nicht installiert
+    # ist und die Tests sich ueberspringen. Dieser Job installiert den gepinnten
+    # Treiber (requirements-sqlcipher.txt, mit Hashes) und erzwingt die Tests
+    # mit ARES_REQUIRE_SQLCIPHER=1 (fehlender Treiber = rot, nie still gruen).
+    # Windows mit dabei: das Release ist Windows-only (BUILD_WITH_SQLCIPHER=1).
+    # Kandidat fuer einen Pflicht-Check.
+    name: SQLCipher (echte Verschluesselung) (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      ARES_REQUIRE_SQLCIPHER: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            ares-backend/requirements.txt
+            ares-backend/requirements-sqlcipher.txt
+
+      - name: Install dependencies (gepinnt, SQLCipher mit Hashes)
+        working-directory: ares-backend
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --require-hashes --only-binary=:all: -r requirements-sqlcipher.txt
+          python -c "import sqlalchemy, sqlcipher3; c = sqlcipher3.connect(':memory:'); print('SQLAlchemy', sqlalchemy.__version__, '| SQLCipher', c.execute('PRAGMA cipher_version').fetchone()[0])"
+
+      - name: Run SQLCipher tests (echter Treiber)
+        working-directory: ares-backend
+        shell: bash
+        run: |
+          python -m pytest -p no:cacheprovider -q -rs \
+            tests/test_sqlcipher_engine_roundtrip.py \
+            tests/test_backup_sqlcipher_support.py
+
   engine-line-budget-gate:
     # ENGINE-LINE-BUDGET-RATCHET-001 (Kontrollrunde 2026-09-27): ADR-014
     # (2026-08-03) reduzierte services/portfolio_engine.py von 8'820 auf
