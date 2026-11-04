@@ -346,7 +346,13 @@ def test_non_annual_mandate_amount_does_not_cover_annual_retrocession():
     payload = _calc(products, inducements=[_entry(100_000, frequency="einmalig")])
     line = payload["product_retrocessions"]["lines"][0]
     assert line["treatment"] == "unresolved" and line["requires_resolution"] is True
-    assert line["mandate_disclosed_rappen"] == 100_000  # offengelegt, aber nicht geregelt
+    # N-861-8: einmalig offengelegt ist keine Aufklaerung der jaehrlichen Retro
+    assert line["mandate_disclosed_rappen"] == 0
+    assert line["mandate_disclosed_other_rappen"] == 100_000
+    assert line["undisclosed_rappen"] == 100_000
+    text = _pdf_text(payload)
+    assert "offengelegt (einmalig bzw. ohne Frequenz) CHF 1'000, deckt die jährliche Retrozession nicht" in text
+    assert "aufgeklärt" not in text.split("Fonds A", 1)[1].split("Art. 26", 1)[0]
 
 
 def test_product_bound_entry_wins_over_provider_and_covers_only_its_product():
@@ -435,3 +441,14 @@ def test_ui_module_has_no_dead_module_reference_and_labels_amounts():
     module = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "product-master-data.js").read_text(encoding="utf-8")
     assert "services/retrocession_disclosure.py" not in module
     assert "' / aufgeklärt '" in module and "'geschätzt '" in module
+
+
+def test_two_waivers_in_same_pot_are_summed():
+    """N-861-8 / Gegenprobe M1: zwei Verzichte desselben Anbieters (gleicher
+    Topf) werden summiert -- 2 x CHF 500 decken geschaetzt CHF 1'000."""
+    products = [_product("Fonds A", rate=100, amount=10_000_000)]  # CHF 1'000
+    payload = _calc(products, inducements=[_entry(50_000), _entry(50_000)])
+    line = payload["product_retrocessions"]["lines"][0]
+    assert line["treatment"] == "waiver_documented"
+    assert line["mandate_resolved_rappen"] == 100_000 and line["unresolved_rappen"] == 0
+    assert payload["product_retrocessions"]["complete"] is True

@@ -1448,11 +1448,13 @@ def _mandate_groups(inducements, has_documented_waiver) -> dict[tuple[str, str],
     still auf die erste zu reduzieren. Schluessel: ('product', product_id),
     wenn die Zeile an ein Produkt gebunden ist, sonst ('provider', Anbieter).
 
-    * ``disclosed`` -- Summe aller Betraege (offengelegt, egal wie geregelt)
-    * ``resolved``  -- davon geregelt: zurueckerstattet oder Verzicht belegt.
-      Gezaehlt werden nur ausdruecklich jaehrliche Betraege, weil die
-      Produkt-Schaetzung ein Jahresbetrag ist (konservativ: eine einmalige
-      oder unbelegte Frequenz deckt keine laufende Retrozession).
+    * ``disclosed`` -- Summe der ausdruecklich JAEHRLICH offengelegten
+      Betraege (egal wie geregelt). N-861-8: ein einmalig oder ohne
+      Frequenz offengelegter Betrag klaert eine laufende Retrozession nicht
+      auf und landet separat in ``disclosed_other``.
+    * ``resolved``  -- davon geregelt: zurueckerstattet oder Verzicht belegt
+      (ebenfalls nur jaehrlich, weil die Produkt-Schaetzung ein Jahresbetrag
+      ist).
     """
     groups: dict[tuple[str, str], dict[str, Any]] = {}
     for entry in inducements or []:
@@ -1467,11 +1469,14 @@ def _mandate_groups(inducements, has_documented_waiver) -> dict[tuple[str, str],
             key = ("provider", provider)
         else:
             continue
-        group = groups.setdefault(key, {"disclosed": 0, "reimbursed": 0, "waived": 0, "entries": 0})
+        group = groups.setdefault(key, {
+            "disclosed": 0, "disclosed_other": 0, "reimbursed": 0, "waived": 0, "entries": 0,
+        })
         group["entries"] += 1
-        group["disclosed"] += amount
         if str(entry.get("frequency") or "").strip().lower() not in _ANNUAL_FREQUENCIES:
+            group["disclosed_other"] += amount
             continue
+        group["disclosed"] += amount
         if bool(entry.get("reimbursed_to_client")):
             group["reimbursed"] += amount
         elif has_documented_waiver(entry):
@@ -1552,7 +1557,7 @@ def build_product_retrocession_lines(
         rate = line["rate_bps"]
         key = keys[pid]
         estimate = line["estimated_annual_rappen"]
-        disclosed_share = resolved_share = 0
+        disclosed_share = resolved_share = other_share = 0
         if rate is None:
             status, treatment = "unknown", TREATMENT_UNKNOWN
         elif rate == 0:
@@ -1568,6 +1573,7 @@ def build_product_retrocession_lines(
                 # nie auf die Schaetzung hochgesetzt.
                 disclosed_share = _share(group["disclosed"], estimate, group_estimate)
                 resolved_share = _share(group["resolved"], estimate, group_estimate)
+                other_share = _share(group["disclosed_other"], estimate, group_estimate)
                 if group["resolved"] > 0 and _within(group_estimate, group["resolved"]):
                     treatment = (
                         TREATMENT_REIMBURSED
@@ -1595,6 +1601,9 @@ def build_product_retrocession_lines(
             "covered_by_mandate_entry": key is not None,
             "mandate_disclosed_rappen": disclosed_share if key is not None else None,
             "mandate_resolved_rappen": resolved_share if key is not None else None,
+            # N-861-8: einmalig/ohne Frequenz offengelegt -- deckt die
+            # jaehrliche Retrozession nicht (nie als "aufgeklaert" beschriftet).
+            "mandate_disclosed_other_rappen": other_share if key is not None and other_share else None,
             "unresolved_rappen": unresolved,
             "undisclosed_rappen": undisclosed,
             "requires_resolution": present and unresolved > 0,

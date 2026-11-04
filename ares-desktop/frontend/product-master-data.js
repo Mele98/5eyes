@@ -199,7 +199,8 @@ function renderCostRetrocessions(data){
     +lines.map(function(line){
       var rate=line.status==='unknown'?'unbekannt':(line.status==='none'?'keine':fmtPct(Number(line.rate_bps),2));
       var amount=line.status==='present'?'geschätzt '+_formatRappenChf(line.estimated_annual_rappen, currency):'—';
-      if(line.status==='present'&&line.covered_by_mandate_entry) amount+=' / aufgeklärt '+_formatRappenChf(line.mandate_disclosed_rappen, currency);
+      if(line.status==='present'&&line.covered_by_mandate_entry&&line.mandate_disclosed_rappen) amount+=' / aufgeklärt '+_formatRappenChf(line.mandate_disclosed_rappen, currency);
+      if(line.status==='present'&&line.mandate_disclosed_other_rappen) amount+=' / offengelegt (einmalig bzw. ohne Frequenz) '+_formatRappenChf(line.mandate_disclosed_other_rappen, currency)+', deckt die jährliche Retrozession nicht';
       var flagged=line.status==='unknown'||line.requires_resolution;
       return '<div style="display:grid;grid-template-columns:1.4fr 80px 200px 1.4fr;gap:8px;padding:7px 10px;border-bottom:1px solid var(--b1);'+(flagged?'border-left:3px solid var(--neg);':'')+'">'
         +'<div>'+escapeHtml(String(line.product_name||''))+'</div>'

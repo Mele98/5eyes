@@ -84,6 +84,13 @@ class ProductRetrocessionLine(BaseModel):
     unresolved_rappen: Optional[int] = Field(
         None, description="Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)"
     )
+    mandate_disclosed_other_rappen: Optional[int] = Field(
+        None,
+        description=(
+            "Einmalig oder ohne Frequenz offengelegter Mandatsbetrag (anteilig); deckt die "
+            "jaehrliche Retrozession nicht und gilt nicht als aufgeklaert (N-861-8)"
+        ),
+    )
     undisclosed_rappen: Optional[int] = Field(
         None, description="Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)"
     )

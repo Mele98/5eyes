@@ -464,9 +464,17 @@ def build_retrocession_flowables(
             amount_text = "geschätzt " + format_chf_rappen(line.get("estimated_annual_rappen"), currency=currency)
             # N-861-3: bei einer Mandatszeile beide Betraege klar beschriften
             # (Schaetzung aus dem Produktsatz vs. im Mandat aufgeklaert).
-            if line.get("covered_by_mandate_entry"):
+            if line.get("covered_by_mandate_entry") and line.get("mandate_disclosed_rappen"):
                 amount_text += " / aufgeklärt " + format_chf_rappen(
                     line.get("mandate_disclosed_rappen"), currency=currency,
+                )
+            # N-861-8: einmalig/ohne Frequenz offengelegt ist keine Aufklaerung
+            # einer laufenden Retrozession.
+            if line.get("mandate_disclosed_other_rappen"):
+                amount_text += (
+                    " / offengelegt (einmalig bzw. ohne Frequenz) "
+                    + format_chf_rappen(line.get("mandate_disclosed_other_rappen"), currency=currency)
+                    + ", deckt die jährliche Retrozession nicht"
                 )
         if status == "unknown" or line.get("requires_resolution"):
             flagged_rows.append(index)
