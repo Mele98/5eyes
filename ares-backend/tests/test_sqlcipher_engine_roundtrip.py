@@ -81,8 +81,10 @@ def test_engine_builds_with_same_pool_as_plain_sqlite_file(sqlcipher_on, tmp_pat
     engine = database.create_app_engine(db_path=tmp_path / "enc.db", db_key=key)
     try:
         assert engine.dialect.name == "sqlite"
-        assert engine.dialect.driver == "pysqlcipher"
         assert engine.dialect.dbapi is sqlcipher3
+        # S-1: ein einziger Schluesselweg -- der Schluessel steht nicht in der URL.
+        assert engine.url.password is None
+        assert key not in engine.url.render_as_string(hide_password=False)
         # Gleiche Pool-Semantik wie der Klartext-Pfad (pysqlite -> QueuePool fuer Datei-DBs).
         assert isinstance(engine.pool, QueuePool)
         assert engine.pool._timeout == 30
@@ -211,7 +213,8 @@ def test_backend_module_import_starts_with_sqlcipher_env(tmp_path):
         import main  # noqa: F401  -- wie der echte Start: App, Router, alle Modelle
         import database
         from sqlalchemy import text
-        assert database.engine.dialect.driver == "pysqlcipher", database.engine.dialect.driver
+        import sqlcipher3
+        assert database.engine.dialect.dbapi is sqlcipher3, database.engine.dialect.dbapi
         database.init_db()
         with database.SessionLocal() as db:
             print("tenants", db.execute(text("SELECT count(*) FROM tenants")).scalar_one())
@@ -230,13 +233,13 @@ def test_backend_module_import_starts_with_sqlcipher_env(tmp_path):
     assert (tmp_path / "enc.db").read_bytes()[:16] != b"SQLite format 3\x00"
 
 
-def test_bootstrap_schema_with_real_sqlcipher_and_quoted_key(sqlcipher_on, tmp_path):
+def test_bootstrap_schema_with_real_sqlcipher(sqlcipher_on, tmp_path):
     """bootstrap_sqlite_schema (laeuft bei jedem Start, db_bootstrap_schema_on_startup)
     setzte ``PRAGMA key = ?`` -> mit echtem sqlcipher3 ``near "?": syntax error``."""
     db_file = tmp_path / "boot.db"
     schema = tmp_path / "schema.sql"
     schema.write_text("CREATE TABLE IF NOT EXISTS boot (id INTEGER PRIMARY KEY);", encoding="utf-8")
-    key = _new_key() + "'x"  # Hochkomma im Schluessel: Literal muss korrekt maskiert sein
+    key = _new_key()
     database.bootstrap_sqlite_schema(db_path=db_file, schema_path=schema, db_key=key)
     raw = _raw_open(db_file, key)
     try:
@@ -269,3 +272,103 @@ def test_backup_and_restore_with_real_sqlcipher(sqlcipher_on, monkeypatch, tmp_p
         assert raw.execute("SELECT id, val FROM t ORDER BY id").fetchall() == [(1, "alpha"), (2, "beta")]
     finally:
         raw.close()
+
+
+# --- SQLCIPHER-SINGLE-KEY-PATH-001 (Pruefrunde #864, S-1) ----------------------
+# Ein einziger Schluesselweg: Engine (connect-Event), Rohschema-Bootstrap und
+# Backup setzen denselben Schluessel ueber database.apply_sqlcipher_key. Frueher
+# lief die Engine ueber die URL (quote_plus/unquote) + Dialekt-``pragma key="..."``:
+# ein Leerzeichen wurde still zu "+", ein ``"`` brach die Engine ab.
+
+_ALLOWED_KEYS = [
+    "aZ09._~-" * 4,          # jedes erlaubte Sonderzeichen
+    "~" + "-" * 30 + ".",    # nur Sonderzeichen am Rand
+    "k" * 512,               # Maximallaenge
+]
+
+
+@pytest.mark.parametrize("key", _ALLOWED_KEYS)
+def test_engine_bootstrap_and_backup_use_identical_key_bytes(sqlcipher_on, monkeypatch, tmp_path, key):
+    import services.backup as backup_mod
+
+    monkeypatch.setattr(database.settings, "db_key", key)
+    db_file = tmp_path / "enc.db"
+    schema = tmp_path / "schema.sql"
+    schema.write_text("CREATE TABLE IF NOT EXISTS boot (id INTEGER PRIMARY KEY, val TEXT);", encoding="utf-8")
+
+    # 1) Bootstrap schreibt, 2) Engine liest und schreibt, 3) Backup-Oeffner und
+    # unabhaengiger Roh-Oeffner lesen -- alles mit demselben Schluessel.
+    database.bootstrap_sqlite_schema(db_path=db_file, schema_path=schema, db_key=key)
+    engine = database.create_app_engine(db_path=db_file, db_key=key)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO boot (id, val) VALUES (1, 'engine')"))
+    finally:
+        engine.dispose()
+    backup_conn = backup_mod._open_connection(str(db_file), uri=False, db_key=key)
+    try:
+        assert backup_conn.execute("SELECT val FROM boot").fetchall() == [("engine",)]
+        backup_conn.execute("INSERT INTO boot (id, val) VALUES (2, 'backup')")
+        backup_conn.commit()
+    finally:
+        backup_conn.close()
+    raw = _raw_open(db_file, key)
+    try:
+        assert raw.execute("SELECT val FROM boot ORDER BY id").fetchall() == [("engine",), ("backup",)]
+    finally:
+        raw.close()
+    engine2 = database.create_app_engine(db_path=db_file, db_key=key)
+    try:
+        with engine2.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM boot")).scalar_one() == 2
+    finally:
+        engine2.dispose()
+
+
+def test_engine_written_db_roundtrips_through_backup_and_restore(sqlcipher_on, monkeypatch, tmp_path):
+    import services.backup as backup_mod
+
+    key = "aZ09._~-" * 8
+    monkeypatch.setattr(database.settings, "db_key", key)
+    src = tmp_path / "src.db"
+    engine = database.create_app_engine(db_path=src, db_key=key)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)"))
+            conn.execute(text("INSERT INTO t VALUES (1, 'alpha')"))
+    finally:
+        engine.dispose()
+    result = backup_mod.backup_database(target_dir=tmp_path / "backups", source_db_path=src, retain_days=0)
+    restored = tmp_path / "restored.db"
+    backup_mod.restore_database(backup_path=result.path, target_db_path=restored)
+    engine2 = database.create_app_engine(db_path=restored, db_key=key)
+    try:
+        with engine2.connect() as conn:
+            assert conn.execute(text("SELECT val FROM t")).scalar_one() == "alpha"
+    finally:
+        engine2.dispose()
+
+
+@pytest.mark.parametrize("bad", ["Zq7Mark-" + "a" * 20 + " " + "b" * 20, "Zq7Mark-" + "a" * 20 + '"' + "b" * 20])
+def test_invalid_key_never_reaches_the_database_and_is_not_leaked(sqlcipher_on, monkeypatch, tmp_path, bad):
+    """Auch an der Konfiguration vorbei (expliziter db_key) setzt kein Weg einen
+    Schluessel ausserhalb des Formats; die Meldung nennt ihn nicht."""
+    import services.backup as backup_mod
+
+    db_file = tmp_path / "enc.db"
+    schema = tmp_path / "schema.sql"
+    schema.write_text("CREATE TABLE IF NOT EXISTS boot (id INTEGER PRIMARY KEY);", encoding="utf-8")
+    engine = database.create_app_engine(db_path=db_file, db_key=bad)
+    try:
+        with pytest.raises(Exception) as excinfo:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+    finally:
+        engine.dispose()
+    assert isinstance(excinfo.value, ValueError) or isinstance(getattr(excinfo.value, "orig", None), ValueError)
+    with pytest.raises(ValueError) as boot_exc:
+        database.bootstrap_sqlite_schema(db_path=db_file, schema_path=schema, db_key=bad)
+    with pytest.raises(ValueError) as backup_exc:
+        backup_mod._open_connection(str(db_file), uri=False, db_key=bad)
+    for exc in (excinfo.value, boot_exc.value, backup_exc.value):
+        assert bad not in str(exc) and "Zq7Mark" not in str(exc)

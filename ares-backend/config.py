@@ -133,6 +133,23 @@ def resolve_env_file() -> str:
     return '.env'
 
 
+# SQLCIPHER-DB-KEY-FORMAT-001 (Pruefrunde #864, S-1): erlaubter Zeichensatz fuer
+# den SQLCipher-Schluessel. Nur URL-unreservierte ASCII-Zeichen, 32-512 Zeichen
+# (empfohlen: 64 Hex-Zeichen). Schliesst Leerzeichen, Anfuehrungszeichen, %, +,
+# Nullbyte, Steuerzeichen, Nicht-ASCII und die SQLCipher-Rohschluesselform
+# x'...' aus. Fail-closed beim Start; die Meldung nennt den Schluessel nie.
+_DB_KEY_RE = re.compile(r'[A-Za-z0-9._~-]{32,512}')
+DB_KEY_FORMAT_MESSAGE = (
+    'db_key enthaelt unzulaessige Zeichen oder hat eine unzulaessige Laenge '
+    '(erlaubt: 32-512 Zeichen aus A-Z a-z 0-9 . _ ~ -; empfohlen: 64 Hex-Zeichen). '
+    'Der Schluessel wird nicht ausgegeben.'
+)
+
+
+def db_key_format_ok(key: object) -> bool:
+    return isinstance(key, str) and _DB_KEY_RE.fullmatch(key) is not None
+
+
 _HOSTNAME_RE = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
 
 
@@ -141,6 +158,9 @@ class Settings(BaseSettings):
         env_file=resolve_env_file(),
         env_file_encoding='utf-8',
         extra='ignore',
+        # S-1 (Pruefrunde #864): ValidationError zeigt sonst input_value, also die
+        # gesamte Konfiguration inkl. DB_KEY/SECRET_KEY, in Exception und Log.
+        hide_input_in_errors=True,
     )
 
     app_name: str = 'Ares API'
@@ -158,7 +178,8 @@ class Settings(BaseSettings):
     # vergleichen gegen dieselbe Funktion.
     db_path: str = Field(default_factory=lambda: str(_db_location.default_db_path()))
     db_echo: bool = False
-    db_key: str | None = None
+    # repr=False: der Schluessel erscheint nie in repr/ValidationError (S-1).
+    db_key: str | None = Field(default=None, repr=False)
     db_use_sqlcipher: bool = False
     db_bootstrap_schema_on_startup: bool = True
 
@@ -811,6 +832,8 @@ class Settings(BaseSettings):
             )
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
+        if self.db_use_sqlcipher and not db_key_format_ok(self.db_key):
+            raise ValueError(DB_KEY_FORMAT_MESSAGE)
         if self.recent_log_lines_default > self.recent_log_lines_max:
             raise ValueError('recent_log_lines_default must not exceed recent_log_lines_max')
         # Sprint U-59 (2026-06-01): Bearer-Token-TTL hard cap in production.

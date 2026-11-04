@@ -397,7 +397,11 @@ def _open_connection(path_or_uri: str, *, uri: bool, db_key: str | None) -> sqli
                 "ist nicht moeglich. Installiere sqlcipher3-binary oder sqlcipher3."
             )
         conn = sqlcipher3.connect(path_or_uri, uri=uri)
-        apply_sqlcipher_key(conn, key or "")
+        try:
+            apply_sqlcipher_key(conn, key or "")
+        except Exception:
+            conn.close()
+            raise
         return conn
     return sqlite3.connect(path_or_uri, uri=uri)
 
