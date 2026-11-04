@@ -82,6 +82,7 @@ annotations` + `TYPE_CHECKING`, wo kein echter Laufzeit-Gebrauch vorliegt.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Collection
 from typing import TYPE_CHECKING
 
@@ -548,6 +549,7 @@ def disclose_manual_target_deviations(
     optimizer_applied: bool = False,
     fallback_risk_budget_bps: int | None = None,
     liquidity_before_projection_bps: int | None = None,
+    liquidity_floor_note: str | None = None,
 ) -> None:
     """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
     umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
@@ -587,6 +589,7 @@ def disclose_manual_target_deviations(
             f"fixierten Berater-Ziele von {_band_pct(liquidity_before_projection_bps)} % "
             f"auf {_band_pct(final_bps['liquidity'])} % (Ausgleich ueber die nicht "
             "fixierten Anlageklassen, Mindestquote eingehalten)."
+            + (f" {liquidity_floor_note}" if liquidity_floor_note else "")
         )
     for bucket in final_bps:
         if bucket not in preferred_bps:
@@ -685,6 +688,26 @@ def advisor_band_house_deviations(
             "mandate_max_bps": mandate_max,
         })
     return deviations
+
+
+_SAA_LIQUIDITY_SENTENCE = re.compile(r"Die SAA-Liquiditaet bleibt auf (\d+\.\d)%\.")
+
+
+def restate_saa_liquidity_sentence(reasoning: list[str], final_liquidity_bps: int) -> None:
+    """Delta-Pruefung #859 D-1: der Satz "Die SAA-Liquiditaet bleibt auf x %"
+    der Reserve-Berechnung entsteht VOR der Projektion. Weicht die
+    gespeicherte Liquiditaet (auf eine Stelle gerundet) davon ab -- z. B.
+    0 % nach einer Einzelziel-Kappung im Hausmatrix-Modus --, nennt der Satz
+    die tatsaechliche Liquiditaet statt einer widerspruechlichen Aussage."""
+    actual = f"{int(final_liquidity_bps) / 100:.1f}"
+    for index, line in enumerate(reasoning):
+        match = _SAA_LIQUIDITY_SENTENCE.search(line)
+        if match and match.group(1) != actual:
+            reasoning[index] = _SAA_LIQUIDITY_SENTENCE.sub(
+                f"Die SAA-Liquiditaet betraegt {_band_pct(final_liquidity_bps)} % "
+                "(nach Abgleich mit den Berater-Zielen).",
+                line,
+            )
 
 
 def band_deviation_messages(

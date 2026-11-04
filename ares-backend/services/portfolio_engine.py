@@ -1265,6 +1265,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _baseline_target_bands,
     house_matrix_bands_payload,
     band_deviation_messages,
+    restate_saa_liquidity_sentence,
     system_liquidity_floor_from_allocation,
     policy_band_clamp_notes,
     policy_band_bound_keys,
@@ -3289,13 +3290,15 @@ def generate_target_allocation(
     optimizer_maximums = dict(maximums)
     optimizer_plan_reasoning = reasoning if apply_stochastic else []
     system_liquidity_floor_bps = 0  # M2 / AA-7.2: Floor + Reserve, ohne Berater
+    from services.optimizer.constraints import (
+        MAX_ALTERNATIVES,
+        MAX_REAL_ESTATE,
+        MIN_LIQUIDITY,
+        OptimizerInputError,
+    )
+
+    model_liquidity_floor_bps = int(round(MIN_LIQUIDITY * 10000))  # D-1
     if run_stochastic:
-        from services.optimizer.constraints import (
-            MAX_ALTERNATIVES,
-            MAX_REAL_ESTATE,
-            MIN_LIQUIDITY,
-            OptimizerInputError,
-        )
 
         global_caps_bps = {
             "real_estate": int(round(MAX_REAL_ESTATE * 10000)),
@@ -3827,7 +3830,19 @@ def generate_target_allocation(
         optimizer_applied=bool(optimizer_replaced_targets and not risk_budget_fallback),
         fallback_risk_budget_bps=int(risk_budget_bps) if risk_budget_fallback else None,
         liquidity_before_projection_bps=liquidity_before_projection_bps,
+        liquidity_floor_note=(
+            None if apply_stochastic else
+            f"Im Hausmatrix-Modus gilt die Liquiditaets-Untergrenze der Hausmatrix "
+            f"von {int(minimums['liquidity']) / 100:.2f} %; die globale "
+            f"Mindestliquiditaet von {model_liquidity_floor_bps / 100:.2f} % gilt nur "
+            "im stochastischen Modell."
+        ),
     )
+    # Delta-Pruefung #859 D-1: der Reserve-Satz "Die SAA-Liquiditaet bleibt
+    # auf x %" entsteht VOR der Projektion und nennt jetzt die gespeicherte
+    # Liquiditaet, wenn sie davon abweicht.
+    restate_saa_liquidity_sentence(reasoning, int(targets["liquidity"]))
+
     risky_fraction_total_bps = int(realized_risky_bps)
     if (
         optimizer_mode == "stochastic"
