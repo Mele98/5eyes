@@ -5,6 +5,11 @@ nicht in den Monolithen. Die Grenze ist die Zeilenzahl beim Einfuehren
 des Budgets, Toleranz 0. Wer den Monolithen verkleinert, senkt
 ``MONOLITH_MAX_LINES`` im selben PR auf den neuen Stand; anheben ist nicht
 vorgesehen (nur per ausdruecklichem Owner-Entscheid).
+
+N-861-5 (Pruefrunde #861): zusaetzlich ein Byte-Budget. Das Zeilen-Budget
+allein liess sich umgehen, indem Code an bestehende Zeilen angehaengt wird.
+Gemessen mit LF-Zeilenenden (eine CRLF-Arbeitskopie zaehlt gleich). Grenze =
+Stand beim Einfuehren, Toleranz 0, ebenfalls nur sinkend.
 """
 from __future__ import annotations
 
@@ -15,6 +20,8 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 31195
 TOLERANCE_LINES = 0
+MONOLITH_MAX_BYTES = 1902644
+TOLERANCE_BYTES = 0
 
 
 def _line_count(path: Path) -> int:
@@ -29,5 +36,31 @@ def test_monolith_does_not_grow_beyond_budget():
     )
 
 
+def _byte_count(path: Path) -> int:
+    return len(path.read_bytes().replace(b"\r\n", b"\n"))
+
+
+def test_monolith_does_not_grow_beyond_byte_budget():
+    actual = _byte_count(MONOLITH)
+    assert actual <= MONOLITH_MAX_BYTES + TOLERANCE_BYTES, (
+        f"Monolith hat {actual} Bytes, Budget {MONOLITH_MAX_BYTES} (Toleranz "
+        f"{TOLERANCE_BYTES}). Logik auslagern statt an bestehende Zeilen anzuhaengen."
+    )
+
+
+def test_byte_budget_counts_appended_code_on_existing_lines(tmp_path):
+    """Gegenprobe im Kleinen: gleiche Zeilenzahl, mehr Bytes -> erkannt."""
+    base = tmp_path / "m.html"
+    base.write_bytes(b"a\nb\n")
+    grown = tmp_path / "g.html"
+    grown.write_bytes(b"a; extra()\nb\n")
+    assert _line_count(base) == _line_count(grown)
+    assert _byte_count(grown) > _byte_count(base)
+    crlf = tmp_path / "c.html"
+    crlf.write_bytes(b"a\r\nb\r\n")
+    assert _byte_count(crlf) == _byte_count(base)
+
+
 def test_budget_has_no_tolerance():
     assert TOLERANCE_LINES == 0
+    assert TOLERANCE_BYTES == 0
