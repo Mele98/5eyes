@@ -190,7 +190,7 @@ def test_seed_values_on_product_satisfy_nothing(SF):
         p = s.get(Product, "g1")
         for category, threshold in (("sfdr_classification", 8), ("tobacco", 500), ("ungc_violation", None),
                                     ("impact_theme", None), ("controversial_weapons", 0)):
-            result = evaluate_criterion(s, p, category, threshold, TODAY)
+            result = evaluate_criterion(s, p, category, threshold, TODAY, expected_value="Klima")
             assert not result.satisfied and result.reason == "no_evidence", category
     # Gegenprobe: erst ein freigegebener Klassifikationsnachweis erfuellt SFDR 8
     _attr(SF, id="sfdr", category="sfdr_classification", kind="classification", revenue=None, value="8")
@@ -602,3 +602,18 @@ def test_n863_1_conduct_measurement_blocks_policy(SF):
     _attr(SF, id="ungc-meas", category="ungc_violation", kind="measured_exposure", revenue=None, measured=50)
     with SF() as s:
         assert evaluate_criterion(s, s.get(Product, "g1"), "ungc_violation", None, TODAY).reason == "conflicting_evidence"
+
+
+# ---------------------------------------------------------------------------
+# N-863-2: impact_theme nur mit Sollthema
+# ---------------------------------------------------------------------------
+
+
+def test_n863_2_impact_theme_requires_expected_theme(SF):
+    _attr(SF, id="theme", category="impact_theme", kind="classification", revenue=None, value="Wasser")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert evaluate_criterion(s, p, "impact_theme", None, TODAY).reason == "no_expected_value"
+        assert evaluate_criterion(s, p, "impact_theme", None, TODAY, expected_value="Klima").reason == "value_mismatch"
+        # Gegenprobe: passendes Thema (normalisiert) erfuellt
+        assert is_criterion_satisfied(s, p, "impact_theme", None, TODAY, expected_value="  wasser ")

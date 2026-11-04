@@ -685,10 +685,16 @@ CRITERION_REASONS: tuple[str, ...] = (
     "expired",
     "not_yet_valid",
     "not_approved",
+    "value_mismatch",
     "no_evidence",
     "no_threshold",
+    "no_expected_value",
     "unknown_category",
 )
+
+
+def _normalized_theme(value) -> str:
+    return " ".join(str(value or "").split()).casefold()
 
 
 @dataclass(frozen=True)
@@ -699,7 +705,7 @@ class CriterionEvaluation:
     candidate_reasons: tuple[str, ...] = field(default_factory=tuple)
 
 
-def _row_reason(attribute, ctype: str, threshold, check_date: date) -> str:
+def _row_reason(attribute, ctype: str, threshold, check_date: date, expected_value=None) -> str:
     if attribute.status != "approved":
         return "not_approved"
     start = _as_date(attribute.as_of)
@@ -739,7 +745,11 @@ def _row_reason(attribute, ctype: str, threshold, check_date: date) -> str:
         except (TypeError, ValueError):
             return "no_evidence"
         return "satisfied" if article >= int(threshold) else "classification_below_threshold"
-    return "satisfied" if str(attribute.value or "").strip() else "no_evidence"
+    # N-863-2: impact_theme nur mit Sollthema; Vergleich normalisiert
+    # (Gross-/Kleinschreibung, Leerraum), sonst fail-closed.
+    if not _normalized_theme(attribute.value):
+        return "no_evidence"
+    return "satisfied" if _normalized_theme(attribute.value) == _normalized_theme(expected_value) else "value_mismatch"
 
 
 def evaluate_criterion(
@@ -751,6 +761,7 @@ def evaluate_criterion(
     *,
     tenant_id: str | None = None,
     attributes=None,
+    expected_value: str | None = None,
 ) -> CriterionEvaluation:
     """Erfuellt ``product`` das Kriterium ``category`` am Stichtag ``as_of``?
 
@@ -758,6 +769,9 @@ def evaluate_criterion(
     zaehlt, wenn seine Umsatzgrenze <= threshold ist; Grenze inklusive);
     bei ``sfdr_classification`` der Mindest-Artikel (8 oder 9); bei
     ``ungc_violation`` und ``impact_theme`` ohne Bedeutung.
+    ``expected_value``: Pflicht bei ``impact_theme`` (Sollthema, gleicher
+    Schluessel wie das Praeferenz-Vokabular); fehlt es -> no_expected_value
+    (N-863-2, fail-closed).
 
     Widerspruch (N-863-1): Liegt eine gueltige, sichtbare Messung mit
     belegter Exposure vor, ist das Kriterium nie erfuellt
@@ -777,6 +791,8 @@ def evaluate_criterion(
     needs_threshold = ctype == "revenue_threshold" or category == "sfdr_classification"
     if needs_threshold and (threshold is None or isinstance(threshold, bool) or not isinstance(threshold, int)):
         return CriterionEvaluation(False, "no_threshold")
+    if category == "impact_theme" and not _normalized_theme(expected_value):
+        return CriterionEvaluation(False, "no_expected_value")
     check_date = _as_date(as_of)
     if check_date is None:
         return CriterionEvaluation(False, "no_threshold")
@@ -796,7 +812,9 @@ def evaluate_criterion(
     if not candidates:
         return CriterionEvaluation(False, "no_evidence")
     ordered = sorted(candidates, key=lambda a: (str(a.as_of), str(a.id)), reverse=True)
-    evaluated = [(attribute, _row_reason(attribute, ctype, threshold, check_date)) for attribute in ordered]
+    evaluated = [
+        (attribute, _row_reason(attribute, ctype, threshold, check_date, expected_value)) for attribute in ordered
+    ]
     reasons = tuple(reason for _attribute, reason in evaluated)
     # N-863-1: eine freigegebene, gueltige, sichtbare Messung mit belegter
     # Exposure blockiert IMMER -- unabhaengig von Scope (Plattform/Tenant)
@@ -823,8 +841,10 @@ def is_criterion_satisfied(
     *,
     tenant_id: str | None = None,
     attributes=None,
+    expected_value: str | None = None,
 ) -> bool:
     """Boolesche Kurzform von evaluate_criterion() (fail-closed)."""
     return evaluate_criterion(
         db, product, category, threshold, as_of, tenant_id=tenant_id, attributes=attributes,
+        expected_value=expected_value,
     ).satisfied
