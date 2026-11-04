@@ -4712,6 +4712,249 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products/sustainability/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sustainability Attributes
+         * @description Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +
+         *     eigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange.
+         */
+        get: operations["list_sustainability_attributes_products_sustainability_attributes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Attributes Batch
+         * @description Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein
+         *     Vier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird
+         *     freigegeben.
+         */
+        post: operations["approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Sustainability Attributes
+         * @description Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die
+         *     ersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage.
+         */
+        get: operations["export_sustainability_attributes_products_sustainability_attributes_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Sustainability Attributes
+         * @description JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt
+         *     freigegeben); die Freigabe erfolgt danach durch eine andere Person
+         *     (Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln
+         *     gemeldet, gueltige trotzdem angelegt.
+         */
+        post: operations["import_sustainability_attributes_products_sustainability_attributes_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/import/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Sustainability Attributes Csv
+         * @description CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des
+         *     Exports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile.
+         */
+        post: operations["import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Sustainability Attribute Draft
+         * @description Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene
+         *     Nachweise werden zurueckgezogen, nicht geloescht (Audit-Spur).
+         */
+        delete: operations["delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Sustainability Attribute
+         * @description Entwurf bearbeiten -- nur durch die erfassende Person, damit die
+         *     freigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.
+         *     Freigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf).
+         */
+        patch: operations["update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch"];
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Attribute Endpoint
+         * @description Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person
+         *     selbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);
+         *     403 fuer Plattform-Nachweise ohne Plattform-Recht.
+         */
+        post: operations["approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire Sustainability Attribute Endpoint
+         * @description Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr.
+         */
+        post: operations["retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Catalog
+         * @description Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1).
+         */
+        get: operations["get_sustainability_catalog_products_sustainability_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Standards
+         * @description Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam.
+         */
+        get: operations["get_sustainability_standards_products_sustainability_standards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Sustainability Standard
+         * @description Hausschwelle der eigenen Verwaltung setzen (auditiert: alt -> neu).
+         *     UN Global Compact kennt keine Umsatzschwelle (null); alle anderen
+         *     Standard-Kategorien brauchen eine Schwelle in bps.
+         */
+        put: operations["set_sustainability_standard_products_sustainability_standards__category__put"];
+        post?: never;
+        /**
+         * Reset Sustainability Standard
+         * @description Tenant-Wert entfernen -> wieder Haus-Default (T-E1), auditiert.
+         */
+        delete: operations["reset_sustainability_standard_products_sustainability_standards__category__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products/{product_id}": {
         parameters: {
             query?: never;
@@ -4780,6 +5023,28 @@ export interface paths {
         /** Set Product Market Override */
         put: operations["set_product_market_override_products__product_id__market_override_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/{product_id}/sustainability-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Product Sustainability Attributes */
+        get: operations["list_product_sustainability_attributes_products__product_id__sustainability_attributes_get"];
+        put?: never;
+        /**
+         * Create Product Sustainability Attribute
+         * @description Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig
+         *     bis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe.
+         */
+        post: operations["create_product_sustainability_attribute_products__product_id__sustainability_attributes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5791,6 +6056,11 @@ export interface components {
         };
         /** Body_import_products_csv_products_import_csv_post */
         Body_import_products_csv_products_import_csv_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post */
+        Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post: {
             /** File */
             file: string;
         };
@@ -9967,6 +10237,280 @@ export interface components {
              */
             unresolved_rappen?: number | null;
         };
+        /**
+         * ProductSustainabilityApprovalRequest
+         * @description Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den
+         *     Eignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant
+         *     genau eine freigabeberechtigte Person hat.
+         */
+        ProductSustainabilityApprovalRequest: {
+            /** Attestation Reason */
+            attestation_reason?: string | null;
+            /**
+             * Single Approver Attestation
+             * @default false
+             */
+            single_approver_attestation?: boolean;
+        };
+        /** ProductSustainabilityApprovalResponse */
+        ProductSustainabilityApprovalResponse: {
+            /** Approval Mode */
+            approval_mode: string;
+            /** Approved Ids */
+            approved_ids: string[];
+            /** Retired Ids */
+            retired_ids: string[];
+        };
+        /**
+         * ProductSustainabilityAttributeCreate
+         * @description Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-
+         *     Nachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).
+         *     Es gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2).
+         */
+        ProductSustainabilityAttributeCreate: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "controversial_weapons" | "conventional_weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "exclusion_policy" | "measured_exposure" | "certification" | "classification";
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @default tenant
+             * @enum {string}
+             */
+            scope?: "tenant" | "global";
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis";
+            /**
+             * Valid Until
+             * @description Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.
+             */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /**
+         * ProductSustainabilityAttributeImportItem
+         * @description Import-Zeile: Produkt ueber product_id ODER isin.
+         */
+        ProductSustainabilityAttributeImportItem: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "controversial_weapons" | "conventional_weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /** Isin */
+            isin?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "exclusion_policy" | "measured_exposure" | "certification" | "classification";
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @default tenant
+             * @enum {string}
+             */
+            scope?: "tenant" | "global";
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis";
+            /**
+             * Valid Until
+             * @description Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.
+             */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /** ProductSustainabilityAttributeImportRequest */
+        ProductSustainabilityAttributeImportRequest: {
+            /** Attributes */
+            attributes: components["schemas"]["ProductSustainabilityAttributeImportItem"][];
+        };
+        /** ProductSustainabilityAttributeResponse */
+        ProductSustainabilityAttributeResponse: {
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** As Of */
+            as_of: string;
+            /** Category */
+            category: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /**
+             * Evidence Status
+             * @enum {string}
+             */
+            evidence_status: "draft" | "retired" | "not_yet_valid" | "expired" | "valid";
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Product Id */
+            product_id: string;
+            /** Retired At */
+            retired_at?: string | null;
+            /** Retired By */
+            retired_by?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "tenant" | "global";
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /** Source Type */
+            source_type: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "approved" | "retired";
+            /** Supersedes Id */
+            supersedes_id?: string | null;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** Valid Until */
+            valid_until: string;
+            /** Value */
+            value?: string | null;
+        };
+        /**
+         * ProductSustainabilityAttributeUpdate
+         * @description Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst
+         *     neuer Nachweis). Explizites null leert optionale Felder.
+         */
+        ProductSustainabilityAttributeUpdate: {
+            /** As Of */
+            as_of?: string | null;
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference?: string | null;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /** Source Type */
+            source_type?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /** ProductSustainabilityBatchApprovalRequest */
+        ProductSustainabilityBatchApprovalRequest: {
+            /** Attestation Reason */
+            attestation_reason?: string | null;
+            /** Attribute Ids */
+            attribute_ids: string[];
+            /**
+             * Single Approver Attestation
+             * @default false
+             */
+            single_approver_attestation?: boolean;
+        };
+        /** ProductSustainabilityImportResponse */
+        ProductSustainabilityImportResponse: {
+            /** Created */
+            created: number;
+            /** Failed */
+            failed: number;
+            /** Items */
+            items?: components["schemas"]["ProductSustainabilityImportResultItem"][];
+            /** Processed */
+            processed: number;
+        };
+        /** ProductSustainabilityImportResultItem */
+        ProductSustainabilityImportResultItem: {
+            /** Attribute Id */
+            attribute_id?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Row */
+            row: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "failed";
+        };
+        /** ProductSustainabilityRetireRequest */
+        ProductSustainabilityRetireRequest: {
+            /** Reason */
+            reason?: string | null;
+        };
         /** ProductUniverseEntryCreate */
         ProductUniverseEntryCreate: {
             /** Jurisdiction */
@@ -11065,6 +11609,77 @@ export interface components {
             warning_delivered: number;
             /** Warning Delivered At */
             warning_delivered_at: string | null;
+        };
+        /** SustainabilityCatalogResponse */
+        SustainabilityCatalogResponse: {
+            /** Categories */
+            categories: components["schemas"]["SustainabilityCategoryInfo"][];
+            /** Evidence Validity Months */
+            evidence_validity_months: number;
+            /** Sfdr Values */
+            sfdr_values: string[];
+            /** Source Types */
+            source_types: string[];
+            /** Statuses */
+            statuses: string[];
+        };
+        /** SustainabilityCategoryInfo */
+        SustainabilityCategoryInfo: {
+            /** Category */
+            category: string;
+            /**
+             * Criterion Type
+             * @enum {string}
+             */
+            criterion_type: "revenue_threshold" | "conduct" | "classification";
+            /** Default Threshold Bps */
+            default_threshold_bps?: number | null;
+            /** Has House Standard */
+            has_house_standard: boolean;
+            /** Kinds */
+            kinds: string[];
+        };
+        /** SustainabilityStandardItem */
+        SustainabilityStandardItem: {
+            /** Category */
+            category: string;
+            /**
+             * Criterion Type
+             * @enum {string}
+             */
+            criterion_type: "revenue_threshold" | "conduct";
+            /** Default Threshold Bps */
+            default_threshold_bps?: number | null;
+            /** Effective Threshold Bps */
+            effective_threshold_bps?: number | null;
+            /** Is Overridden */
+            is_overridden: boolean;
+            /** Note */
+            note?: string | null;
+            /** Tenant Threshold Bps */
+            tenant_threshold_bps?: number | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+        };
+        /**
+         * SustainabilityStandardUpdate
+         * @description Hausschwelle setzen. Bei UN Global Compact gibt es keine
+         *     Umsatzschwelle (null).
+         */
+        SustainabilityStandardUpdate: {
+            /** Max Revenue Threshold Bps */
+            max_revenue_threshold_bps?: number | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** SustainabilityStandardsResponse */
+        SustainabilityStandardsResponse: {
+            /** Items */
+            items: components["schemas"]["SustainabilityStandardItem"][];
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /** TargetAllocationCreate */
         TargetAllocationCreate: {
@@ -20844,6 +21459,410 @@ export interface operations {
             };
         };
     };
+    list_sustainability_attributes_products_sustainability_attributes_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                category?: string | null;
+                product_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityBatchApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_sustainability_attributes_products_sustainability_attributes_export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sustainability_attributes_products_sustainability_attributes_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityApprovalRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityRetireRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sustainability_catalog_products_sustainability_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityCatalogResponse"];
+                };
+            };
+        };
+    };
+    get_sustainability_standards_products_sustainability_standards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+        };
+    };
+    set_sustainability_standard_products_sustainability_standards__category__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SustainabilityStandardUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_sustainability_standard_products_sustainability_standards__category__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_product_products__product_id__put: {
         parameters: {
             query?: never;
@@ -20936,6 +21955,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductMarketOverrideResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_product_sustainability_attributes_products__product_id__sustainability_attributes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_product_sustainability_attribute_products__product_id__sustainability_attributes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
                 };
             };
             /** @description Validation Error */

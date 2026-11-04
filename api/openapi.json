@@ -2280,6 +2280,20 @@
         "title": "Body_import_products_csv_products_import_csv_post",
         "type": "object"
       },
+      "Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post",
+        "type": "object"
+      },
       "BootstrapAdminRequest": {
         "properties": {
           "company_name": {
@@ -15982,6 +15996,943 @@
         "title": "ProductRetrocessionLine",
         "type": "object"
       },
+      "ProductSustainabilityApprovalRequest": {
+        "description": "Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den\nEignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant\ngenau eine freigabeberechtigte Person hat.",
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          }
+        },
+        "title": "ProductSustainabilityApprovalRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityApprovalResponse": {
+        "properties": {
+          "approval_mode": {
+            "title": "Approval Mode",
+            "type": "string"
+          },
+          "approved_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approved Ids",
+            "type": "array"
+          },
+          "retired_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Retired Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "approved_ids",
+          "retired_ids",
+          "approval_mode"
+        ],
+        "title": "ProductSustainabilityApprovalResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeCreate": {
+        "description": "Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-\nNachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).\nEs gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "controversial_weapons",
+              "conventional_weapons",
+              "tobacco",
+              "thermal_coal",
+              "fossil_fuels",
+              "gambling",
+              "adult_entertainment",
+              "alcohol",
+              "nuclear_power",
+              "animal_testing",
+              "ungc_violation",
+              "sfdr_classification",
+              "impact_theme"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "exclusion_policy",
+              "measured_exposure",
+              "certification",
+              "classification"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "default": "tenant",
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "enum": [
+              "prospectus",
+              "fund_contract",
+              "kid",
+              "factsheet",
+              "provider_exclusion_policy",
+              "provider_confirmation",
+              "data_vendor",
+              "house_analysis"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of"
+        ],
+        "title": "ProductSustainabilityAttributeCreate",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeImportItem": {
+        "description": "Import-Zeile: Produkt ueber product_id ODER isin.",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "controversial_weapons",
+              "conventional_weapons",
+              "tobacco",
+              "thermal_coal",
+              "fossil_fuels",
+              "gambling",
+              "adult_entertainment",
+              "alcohol",
+              "nuclear_power",
+              "animal_testing",
+              "ungc_violation",
+              "sfdr_classification",
+              "impact_theme"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "kind": {
+            "enum": [
+              "exclusion_policy",
+              "measured_exposure",
+              "certification",
+              "classification"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "default": "tenant",
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "enum": [
+              "prospectus",
+              "fund_contract",
+              "kid",
+              "factsheet",
+              "provider_exclusion_policy",
+              "provider_confirmation",
+              "data_vendor",
+              "house_analysis"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of"
+        ],
+        "title": "ProductSustainabilityAttributeImportItem",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeImportRequest": {
+        "properties": {
+          "attributes": {
+            "items": {
+              "$ref": "#/components/schemas/ProductSustainabilityAttributeImportItem"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Attributes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "attributes"
+        ],
+        "title": "ProductSustainabilityAttributeImportRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeResponse": {
+        "properties": {
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "evidence_status": {
+            "enum": [
+              "draft",
+              "retired",
+              "not_yet_valid",
+              "expired",
+              "valid"
+            ],
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "retired_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired By"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "approved",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "product_id",
+          "scope",
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of",
+          "valid_until",
+          "status",
+          "evidence_status",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProductSustainabilityAttributeResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeUpdate": {
+        "description": "Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst\nneuer Nachweis). Explizites null leert optionale Felder.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Reference"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "ProductSustainabilityAttributeUpdate",
+        "type": "object"
+      },
+      "ProductSustainabilityBatchApprovalRequest": {
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "attribute_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Attribute Ids",
+            "type": "array"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attribute_ids"
+        ],
+        "title": "ProductSustainabilityBatchApprovalRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityImportResponse": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProductSustainabilityImportResultItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "processed": {
+            "title": "Processed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "processed",
+          "created",
+          "failed"
+        ],
+        "title": "ProductSustainabilityImportResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityImportResultItem": {
+        "properties": {
+          "attribute_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "row",
+          "status"
+        ],
+        "title": "ProductSustainabilityImportResultItem",
+        "type": "object"
+      },
+      "ProductSustainabilityRetireRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ProductSustainabilityRetireRequest",
+        "type": "object"
+      },
       "ProductUniverseEntryCreate": {
         "properties": {
           "jurisdiction": {
@@ -19970,6 +20921,250 @@
           "created_at"
         ],
         "title": "SuitabilityCheckResponse",
+        "type": "object"
+      },
+      "SustainabilityCatalogResponse": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityCategoryInfo"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "evidence_validity_months": {
+            "title": "Evidence Validity Months",
+            "type": "integer"
+          },
+          "sfdr_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sfdr Values",
+            "type": "array"
+          },
+          "source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Types",
+            "type": "array"
+          },
+          "statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Statuses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "categories",
+          "source_types",
+          "statuses",
+          "sfdr_values",
+          "evidence_validity_months"
+        ],
+        "title": "SustainabilityCatalogResponse",
+        "type": "object"
+      },
+      "SustainabilityCategoryInfo": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "criterion_type": {
+            "enum": [
+              "revenue_threshold",
+              "conduct",
+              "classification"
+            ],
+            "title": "Criterion Type",
+            "type": "string"
+          },
+          "default_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Threshold Bps"
+          },
+          "has_house_standard": {
+            "title": "Has House Standard",
+            "type": "boolean"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "criterion_type",
+          "kinds",
+          "has_house_standard"
+        ],
+        "title": "SustainabilityCategoryInfo",
+        "type": "object"
+      },
+      "SustainabilityStandardItem": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "criterion_type": {
+            "enum": [
+              "revenue_threshold",
+              "conduct"
+            ],
+            "title": "Criterion Type",
+            "type": "string"
+          },
+          "default_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Threshold Bps"
+          },
+          "effective_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Threshold Bps"
+          },
+          "is_overridden": {
+            "title": "Is Overridden",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "tenant_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Threshold Bps"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "category",
+          "criterion_type",
+          "is_overridden"
+        ],
+        "title": "SustainabilityStandardItem",
+        "type": "object"
+      },
+      "SustainabilityStandardUpdate": {
+        "description": "Hausschwelle setzen. Bei UN Global Compact gibt es keine\nUmsatzschwelle (null).",
+        "properties": {
+          "max_revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Revenue Threshold Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "SustainabilityStandardUpdate",
+        "type": "object"
+      },
+      "SustainabilityStandardsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityStandardItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SustainabilityStandardsResponse",
         "type": "object"
       },
       "TargetAllocationCreate": {
@@ -38288,6 +39483,687 @@
         ]
       }
     },
+    "/products/sustainability/attributes": {
+      "get": {
+        "description": "Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +\neigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange.",
+        "operationId": "list_sustainability_attributes_products_sustainability_attributes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                  },
+                  "title": "Response List Sustainability Attributes Products Sustainability Attributes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/approve": {
+      "post": {
+        "description": "Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein\nVier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird\nfreigegeben.",
+        "operationId": "approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityBatchApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityApprovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Attributes Batch",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/export": {
+      "get": {
+        "description": "Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die\nersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage.",
+        "operationId": "export_sustainability_attributes_products_sustainability_attributes_export_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "csv",
+              "pattern": "^(csv|json)$",
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/import": {
+      "post": {
+        "description": "JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt\nfreigegeben); die Freigabe erfolgt danach durch eine andere Person\n(Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln\ngemeldet, gueltige trotzdem angelegt.",
+        "operationId": "import_sustainability_attributes_products_sustainability_attributes_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/import/csv": {
+      "post": {
+        "description": "CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des\nExports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile.",
+        "operationId": "import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Sustainability Attributes Csv",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}": {
+      "delete": {
+        "description": "Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene\nNachweise werden zurueckgezogen, nicht geloescht (Audit-Spur).",
+        "operationId": "delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Sustainability Attribute Draft",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "patch": {
+        "description": "Entwurf bearbeiten -- nur durch die erfassende Person, damit die\nfreigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.\nFreigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf).",
+        "operationId": "update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Sustainability Attribute",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person\nselbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);\n403 fuer Plattform-Nachweise ohne Plattform-Recht.",
+        "operationId": "approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityApprovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Attribute Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}/retire": {
+      "post": {
+        "description": "Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr.",
+        "operationId": "retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityRetireRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Sustainability Attribute Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/catalog": {
+      "get": {
+        "description": "Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1).",
+        "operationId": "get_sustainability_catalog_products_sustainability_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Catalog",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards": {
+      "get": {
+        "description": "Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam.",
+        "operationId": "get_sustainability_standards_products_sustainability_standards_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Standards",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}": {
+      "delete": {
+        "description": "Tenant-Wert entfernen -> wieder Haus-Default (T-E1), auditiert.",
+        "operationId": "reset_sustainability_standard_products_sustainability_standards__category__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reset Sustainability Standard",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "put": {
+        "description": "Hausschwelle der eigenen Verwaltung setzen (auditiert: alt -> neu).\nUN Global Compact kennt keine Umsatzschwelle (null); alle anderen\nStandard-Kategorien brauchen eine Schwelle in bps.",
+        "operationId": "set_sustainability_standard_products_sustainability_standards__category__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SustainabilityStandardUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Sustainability Standard",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
     "/products/{product_id}": {
       "put": {
         "description": "Sprint U-P10: Admin editiert Produkt-Metadaten + Diversifikations-Tiefe.\n\nAlle Felder optional; nur gesetzte werden ueberschrieben. JSON-Strings\n(country/sector/currency_exposure_json) werden bereits am Schema-Rand\nvalidiert (siehe schemas/review.py::ProductUpdate -- PROD-DOMAIN-001,\n2026-09-05): Form (dict[str,number]), Non-Negativitaet, Summe ~10000bps.\nservices/product_exposures.py::_parse_or_proxy bleibt zusaetzlich\nfault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.",
@@ -38463,6 +40339,113 @@
           }
         ],
         "summary": "Set Product Market Override",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/{product_id}/sustainability-attributes": {
+      "get": {
+        "operationId": "list_product_sustainability_attributes_products__product_id__sustainability_attributes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                  },
+                  "title": "Response List Product Sustainability Attributes Products  Product Id  Sustainability Attributes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Product Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "post": {
+        "description": "Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig\nbis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe.",
+        "operationId": "create_product_sustainability_attribute_products__product_id__sustainability_attributes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Product Sustainability Attribute",
         "tags": [
           "Produkte"
         ]

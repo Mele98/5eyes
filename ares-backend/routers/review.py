@@ -4095,3 +4095,688 @@ def active_triggers(
     ).bindparams(bindparam("mandate_ids", expanding=True))
     rows = db.execute(stmt, {"mandate_ids": mandate_ids}).fetchall()
     return [dict(r._mapping) for r in rows]
+
+
+# ===========================================================================
+# AUDIT-2026-11 T1 (Audit 05 §4.1/§4.2, Entscheide T-E1..T-E3):
+# Nachhaltigkeits- und Ausschlussnachweise je Produkt, Hausstandard je Tenant.
+#
+# - Jeder Nachweis entsteht als Entwurf (Erfassen oder Import) und zaehlt erst
+#   nach der Vier-Augen-Freigabe durch eine andere Person (sonst 409).
+# - Plattform-Nachweise (tenant_id NULL, nur fuer globale Katalogfonds) darf
+#   in Multi-Tenant nur super_admin anlegen, aendern, freigeben oder
+#   zurueckziehen (R3, gleiche Regel wie _may_write_global_catalog); ein
+#   Tenant-Admin bekommt 403. Tenant-Nachweise sind ein Overlay und nur fuer
+#   den eigenen Tenant sichtbar.
+# - Keine Engine-Wirkung in T1: die Auswertung
+#   services/product_eligibility_governance.py::is_criterion_satisfied wird
+#   erst in T3 verdrahtet.
+# Eigener, am Dateiende abgegrenzter Abschnitt (Konfliktflaeche zu #855/#861
+# klein halten); Importe auf Modulebene, keine neuen Module (Ratschen).
+# ===========================================================================
+
+from models.product_eligibility import (  # noqa: E402
+    SFDR_CLASSIFICATION_VALUES,
+    SUSTAINABILITY_CATEGORIES,
+    SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS,
+    SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS,
+    SUSTAINABILITY_KINDS_BY_CATEGORY,
+    SUSTAINABILITY_SOURCE_TYPES,
+    SUSTAINABILITY_STATUSES,
+    ProductSustainabilityAttribute,
+    SustainabilityExclusionStandard,
+)
+from schemas.review import (  # noqa: E402
+    ProductSustainabilityApprovalRequest,
+    ProductSustainabilityApprovalResponse,
+    ProductSustainabilityAttributeCreate,
+    ProductSustainabilityAttributeImportItem,
+    ProductSustainabilityAttributeImportRequest,
+    ProductSustainabilityAttributeResponse,
+    ProductSustainabilityAttributeUpdate,
+    ProductSustainabilityBatchApprovalRequest,
+    ProductSustainabilityImportResponse,
+    ProductSustainabilityImportResultItem,
+    ProductSustainabilityRetireRequest,
+    SustainabilityCatalogResponse,
+    SustainabilityStandardsResponse,
+    SustainabilityStandardUpdate,
+)
+from services.product_eligibility_governance import (  # noqa: E402
+    RuleApprovalConflict,
+    SustainabilityAttributeConflict,
+    approve_sustainability_attribute,
+    criterion_type as sustainability_criterion_type,
+    default_evidence_valid_until,
+    effective_sustainability_standards,
+    evidence_status as sustainability_evidence_status,
+    retire_sustainability_attribute,
+    sustainability_attribute_errors,
+    sustainability_attribute_visible_to_tenant,
+    sustainability_standard_categories,
+)
+
+GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL = (
+    "Plattform-Nachweise globaler Katalogfonds gelten fuer alle Verwaltungen und koennen hier "
+    "nicht geaendert werden. Erfassen Sie fuer Ihre Verwaltung einen eigenen Nachweis (Scope 'tenant')."
+)
+
+_SUSTAINABILITY_CSV_FIELDS = (
+    "product_id", "isin", "scope", "category", "kind",
+    "revenue_threshold_bps", "measured_exposure_bps", "value",
+    "source_type", "source_reference", "source_provider", "source_retrieved_on",
+    "as_of", "valid_until", "note",
+)
+_SUSTAINABILITY_EXPORT_EXTRA_FIELDS = (
+    "id", "status", "evidence_status", "created_by", "created_at", "approved_by", "approved_at",
+    "approval_mode", "retired_at", "supersedes_id",
+)
+_SUSTAINABILITY_EDITABLE_FIELDS = (
+    "revenue_threshold_bps", "measured_exposure_bps", "value", "source_type", "source_reference",
+    "source_provider", "source_retrieved_on", "as_of", "valid_until", "note",
+)
+
+
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", chr(9), chr(13))
+
+
+def _sustainability_csv_cell(value) -> str:
+    """CSV-Zelle gegen Formel-Injection schuetzen (Tabellenprogramme werten
+    = + - @ Tab CR am Zellanfang als Formel): Praefix ' davor."""
+    if value is None:
+        return ""
+    text_value = str(value)
+    if text_value.startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + text_value
+    return text_value
+
+
+def _sustainability_response(attribute: ProductSustainabilityAttribute) -> ProductSustainabilityAttributeResponse:
+    data = {column.name: getattr(attribute, column.name) for column in ProductSustainabilityAttribute.__table__.columns}
+    data["scope"] = "global" if attribute.tenant_id is None else "tenant"
+    data["evidence_status"] = sustainability_evidence_status(attribute)
+    return ProductSustainabilityAttributeResponse(**data)
+
+
+def _visible_sustainability_query(db: Session, tenant_id: str):
+    return db.query(ProductSustainabilityAttribute).filter(or_(
+        ProductSustainabilityAttribute.tenant_id.is_(None),
+        ProductSustainabilityAttribute.tenant_id == tenant_id,
+    ))
+
+
+def _get_sustainability_attribute_or_404(
+    attribute_id: str, db: Session, current_user: User, *, for_write: bool,
+) -> ProductSustainabilityAttribute:
+    attribute = db.get(ProductSustainabilityAttribute, attribute_id)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    if attribute is None or not sustainability_attribute_visible_to_tenant(attribute, tenant_id):
+        raise HTTPException(status_code=404, detail="Nachhaltigkeitsnachweis nicht gefunden")
+    if for_write and attribute.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL)
+    return attribute
+
+
+def _sustainability_values(body) -> dict:
+    values = body.model_dump()
+    for name in ("as_of", "valid_until", "source_retrieved_on"):
+        if values.get(name) is not None:
+            values[name] = values[name].isoformat()
+    return values
+
+
+def _create_sustainability_attribute(
+    db: Session, current_user: User, product: Product, body: ProductSustainabilityAttributeCreate, now: str,
+) -> ProductSustainabilityAttribute:
+    """Gemeinsamer Pfad fuer Erfassen und Import (HTTPException bei Fehlern)."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    if body.scope == "global":
+        if product.tenant_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Plattform-Nachweise gibt es nur fuer globale Katalogfonds; eigene Fonds tragen Tenant-Nachweise.",
+            )
+        if not _may_write_global_catalog(current_user):
+            raise HTTPException(status_code=403, detail=GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL)
+        attribute_tenant_id = None
+    else:
+        if product.tenant_id is not None and str(product.tenant_id) != str(tenant_id):
+            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+        attribute_tenant_id = tenant_id
+    values = _sustainability_values(body)
+    if values.get("valid_until") is None:
+        values["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
+    errors = sustainability_attribute_errors(values)
+    if errors:
+        raise HTTPException(status_code=422, detail=" ".join(errors))
+    duplicate = db.query(ProductSustainabilityAttribute.id).filter(
+        ProductSustainabilityAttribute.product_id == product.id,
+        ProductSustainabilityAttribute.category == values["category"],
+        ProductSustainabilityAttribute.kind == values["kind"],
+        ProductSustainabilityAttribute.as_of == values["as_of"],
+        ProductSustainabilityAttribute.status != "retired",
+        (ProductSustainabilityAttribute.tenant_id.is_(None) if attribute_tenant_id is None
+         else ProductSustainabilityAttribute.tenant_id == attribute_tenant_id),
+    ).first()
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Fuer dieses Produkt besteht bereits ein Nachweis {values['category']}/{values['kind']} "
+                    f"mit Stichtag {values['as_of']} (Entwurf bearbeiten oder Nachweis zurueckziehen)."),
+        )
+    attribute = ProductSustainabilityAttribute(
+        id=new_uuid(), product_id=product.id, tenant_id=attribute_tenant_id,
+        category=values["category"], kind=values["kind"],
+        revenue_threshold_bps=values.get("revenue_threshold_bps"),
+        measured_exposure_bps=values.get("measured_exposure_bps"),
+        value=values.get("value"), source_type=values["source_type"],
+        source_reference=values["source_reference"], source_provider=values.get("source_provider"),
+        source_retrieved_on=values.get("source_retrieved_on"), as_of=values["as_of"],
+        valid_until=values["valid_until"], status="draft", note=values.get("note"),
+        created_by=current_user.id, created_at=now, updated_at=now,
+    )
+    db.add(attribute)
+    db.flush()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="CREATE",
+        new_value=(f"product={product.id};scope={body.scope};category={attribute.category};kind={attribute.kind};"
+                   f"source_type={attribute.source_type};as_of={attribute.as_of};valid_until={attribute.valid_until}"))
+    return attribute
+
+
+@products_router.get("/sustainability/catalog", response_model=SustainabilityCatalogResponse)
+def get_sustainability_catalog(current_user: User = Depends(get_current_user)):
+    """Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1)."""
+    standard_categories = set(sustainability_standard_categories())
+    return SustainabilityCatalogResponse(
+        categories=[
+            {
+                "category": category,
+                "criterion_type": sustainability_criterion_type(category),
+                "kinds": list(SUSTAINABILITY_KINDS_BY_CATEGORY[category]),
+                "default_threshold_bps": SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS.get(category),
+                "has_house_standard": category in standard_categories,
+            }
+            for category in SUSTAINABILITY_CATEGORIES
+        ],
+        source_types=list(SUSTAINABILITY_SOURCE_TYPES),
+        statuses=list(SUSTAINABILITY_STATUSES),
+        sfdr_values=list(SFDR_CLASSIFICATION_VALUES),
+        evidence_validity_months=SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS,
+    )
+
+
+@products_router.get("/sustainability/standards", response_model=SustainabilityStandardsResponse)
+def get_sustainability_standards(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+
+
+def _get_standard_category_or_422(category: str) -> str:
+    if category not in sustainability_standard_categories():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Fuer {category!r} gibt es keinen Hausstandard (nur Umsatz- und Verhaltenskriterien).",
+        )
+    return category
+
+
+@products_router.put("/sustainability/standards/{category}", response_model=SustainabilityStandardsResponse)
+def set_sustainability_standard(
+    category: str,
+    body: SustainabilityStandardUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Hausschwelle der eigenen Verwaltung setzen (auditiert: alt -> neu).
+    UN Global Compact kennt keine Umsatzschwelle (null); alle anderen
+    Standard-Kategorien brauchen eine Schwelle in bps."""
+    _get_standard_category_or_422(category)
+    if sustainability_criterion_type(category) == "conduct" and body.max_revenue_threshold_bps is not None:
+        raise HTTPException(status_code=422, detail="UN Global Compact hat keine Umsatzschwelle (null setzen).")
+    if sustainability_criterion_type(category) == "revenue_threshold" and body.max_revenue_threshold_bps is None:
+        raise HTTPException(status_code=422, detail="Schwelle (max_revenue_threshold_bps) fehlt.")
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    now = _now()
+    row = db.query(SustainabilityExclusionStandard).filter(
+        SustainabilityExclusionStandard.tenant_id == tenant_id,
+        SustainabilityExclusionStandard.category == category,
+    ).first()
+    old_value = (row.max_revenue_threshold_bps if row is not None
+                 else SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category])
+    old_label = f"{'tenant' if row is not None else 'default'}:{old_value}"
+    if row is None:
+        row = SustainabilityExclusionStandard(
+            id=new_uuid(), tenant_id=tenant_id, category=category, created_at=now,
+        )
+        db.add(row)
+    row.max_revenue_threshold_bps = body.max_revenue_threshold_bps
+    row.note = (body.note or "").strip() or None
+    row.updated_by = current_user.id
+    row.updated_at = now
+    db.flush()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
+        field_name=f"{category}.max_revenue_threshold_bps", old_value=old_label,
+        new_value=f"tenant:{body.max_revenue_threshold_bps}", tenant_id=tenant_id)
+    db.commit()
+    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+
+
+@products_router.delete("/sustainability/standards/{category}", response_model=SustainabilityStandardsResponse)
+def reset_sustainability_standard(
+    category: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Tenant-Wert entfernen -> wieder Haus-Default (T-E1), auditiert."""
+    _get_standard_category_or_422(category)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    row = db.query(SustainabilityExclusionStandard).filter(
+        SustainabilityExclusionStandard.tenant_id == tenant_id,
+        SustainabilityExclusionStandard.category == category,
+    ).first()
+    if row is not None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="sustainability_exclusion_standards", record_id=row.id, action="DELETE",
+            field_name=f"{category}.max_revenue_threshold_bps",
+            old_value=f"tenant:{row.max_revenue_threshold_bps}",
+            new_value=f"default:{SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]}", tenant_id=tenant_id)
+        db.delete(row)
+        db.commit()
+    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+
+
+@products_router.get("/sustainability/attributes", response_model=list[ProductSustainabilityAttributeResponse])
+def list_sustainability_attributes(
+    status: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    product_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +
+    eigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange."""
+    query = _visible_sustainability_query(db, _resolve_tenant_id_for_user(current_user))
+    if status:
+        query = query.filter(ProductSustainabilityAttribute.status == status)
+    if category:
+        query = query.filter(ProductSustainabilityAttribute.category == category)
+    if product_id:
+        query = query.filter(ProductSustainabilityAttribute.product_id == product_id)
+    rows = query.order_by(
+        ProductSustainabilityAttribute.product_id, ProductSustainabilityAttribute.category,
+        ProductSustainabilityAttribute.as_of.desc(), ProductSustainabilityAttribute.id,
+    ).all()
+    return [_sustainability_response(row) for row in rows]
+
+
+def _sustainability_import_item(
+    db: Session, current_user: User, row_number: int, item: ProductSustainabilityAttributeImportItem, now: str,
+) -> ProductSustainabilityImportResultItem:
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    product = None
+    if item.product_id:
+        try:
+            product = _get_product_or_404(item.product_id, db, current_user)
+        except HTTPException:
+            product = None
+    elif item.isin:
+        product = _active_products_query(db, tenant_id=tenant_id).filter(Product.isin == item.isin.upper()).first()
+    if product is None or (item.isin and product.isin and product.isin != item.isin.upper()):
+        return ProductSustainabilityImportResultItem(
+            row=row_number, status="failed", product_id=item.product_id, error="Produkt nicht gefunden",
+        )
+    savepoint = db.begin_nested()
+    try:
+        body = ProductSustainabilityAttributeCreate(**item.model_dump(exclude={"product_id", "isin"}))
+        attribute = _create_sustainability_attribute(db, current_user, product, body, now)
+    except HTTPException as exc:
+        savepoint.rollback()
+        return ProductSustainabilityImportResultItem(
+            row=row_number, status="failed", product_id=product.id, error=str(exc.detail),
+        )
+    except IntegrityError:
+        savepoint.rollback()
+        return ProductSustainabilityImportResultItem(
+            row=row_number, status="failed", product_id=product.id, error="Nachweis existiert bereits",
+        )
+    savepoint.commit()
+    return ProductSustainabilityImportResultItem(
+        row=row_number, status="created", attribute_id=attribute.id, product_id=product.id,
+    )
+
+
+def _sustainability_import_response(items: list[ProductSustainabilityImportResultItem]) -> ProductSustainabilityImportResponse:
+    created = sum(1 for item in items if item.status == "created")
+    return ProductSustainabilityImportResponse(
+        processed=len(items), created=created, failed=len(items) - created, items=items,
+    )
+
+
+@products_router.post(
+    "/sustainability/attributes/import", response_model=ProductSustainabilityImportResponse, status_code=201,
+)
+def import_sustainability_attributes(
+    body: ProductSustainabilityAttributeImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt
+    freigegeben); die Freigabe erfolgt danach durch eine andere Person
+    (Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln
+    gemeldet, gueltige trotzdem angelegt."""
+    now = _now()
+    items = [
+        _sustainability_import_item(db, current_user, index, item, now)
+        for index, item in enumerate(body.attributes, start=1)
+    ]
+    db.commit()
+    return _sustainability_import_response(items)
+
+
+@products_router.post(
+    "/sustainability/attributes/import/csv", response_model=ProductSustainabilityImportResponse, status_code=201,
+)
+def import_sustainability_attributes_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des
+    Exports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile."""
+    raw_bytes = file.file.read(_PRODUCT_IMPORT_MAX_FILE_BYTES + 1)
+    if len(raw_bytes) > _PRODUCT_IMPORT_MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413, detail=f"CSV-Datei zu gross (max. {_PRODUCT_IMPORT_MAX_FILE_BYTES // 1024} KB)",
+        )
+    try:
+        text_content = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=422, detail="CSV-Datei muss UTF-8-kodiert sein")
+    try:
+        dialect = csv.Sniffer().sniff(text_content[:2048], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text_content), dialect=dialect)
+    if not reader.fieldnames:
+        raise HTTPException(status_code=422, detail="CSV-Datei hat keine Kopfzeile")
+    rows = []
+    for raw in reader:
+        normalized = {}
+        for key, value in raw.items():
+            field = str(key or "").strip().lower()
+            if field in _SUSTAINABILITY_CSV_FIELDS:
+                value = value.strip() if isinstance(value, str) else value
+                normalized[field] = value if value else None
+        rows.append(normalized)
+    if not rows:
+        raise HTTPException(status_code=422, detail="CSV-Datei enthaelt keine Datenzeilen")
+    if len(rows) > _PRODUCT_IMPORT_MAX_ROWS:
+        raise HTTPException(status_code=422, detail=f"Maximal {_PRODUCT_IMPORT_MAX_ROWS} Zeilen pro Import")
+    now = _now()
+    items = []
+    for index, row in enumerate(rows, start=1):
+        if row.get("scope") is None:
+            row.pop("scope", None)
+        try:
+            item = ProductSustainabilityAttributeImportItem.model_validate(row)
+        except ValidationError as exc:
+            items.append(ProductSustainabilityImportResultItem(
+                row=index, status="failed", product_id=row.get("product_id"), error=_format_validation_error(exc),
+            ))
+            continue
+        items.append(_sustainability_import_item(db, current_user, index, item, now))
+    db.commit()
+    return _sustainability_import_response(items)
+
+
+@products_router.get("/sustainability/attributes/export")
+def export_sustainability_attributes(
+    format: str = Query(default="csv", pattern="^(csv|json)$"),
+    status: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die
+    ersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage."""
+    query = _visible_sustainability_query(db, _resolve_tenant_id_for_user(current_user))
+    if status:
+        query = query.filter(ProductSustainabilityAttribute.status == status)
+    rows = query.order_by(
+        ProductSustainabilityAttribute.product_id, ProductSustainabilityAttribute.category,
+        ProductSustainabilityAttribute.as_of.desc(), ProductSustainabilityAttribute.id,
+    ).all()
+    isins = {
+        product.id: product.isin
+        for product in db.query(Product).filter(Product.id.in_({row.product_id for row in rows})).all()
+    } if rows else {}
+    records = []
+    for row in rows:
+        data = _sustainability_response(row).model_dump()
+        data["isin"] = isins.get(row.product_id)
+        records.append(data)
+    if format == "json":
+        return {"attributes": records}
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    header = _SUSTAINABILITY_CSV_FIELDS + _SUSTAINABILITY_EXPORT_EXTRA_FIELDS
+    writer.writerow(header)
+    for record in records:
+        writer.writerow([_sustainability_csv_cell(record.get(name)) for name in header])
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=nachhaltigkeitsnachweise.csv"},
+    )
+
+
+@products_router.post(
+    "/sustainability/attributes/approve", response_model=ProductSustainabilityApprovalResponse,
+)
+def approve_sustainability_attributes_batch(
+    body: ProductSustainabilityBatchApprovalRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein
+    Vier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird
+    freigegeben."""
+    return _approve_sustainability(db, current_user, list(dict.fromkeys(body.attribute_ids)), body)
+
+
+@products_router.post(
+    "/sustainability/attributes/{attribute_id}/approve", response_model=ProductSustainabilityApprovalResponse,
+)
+def approve_sustainability_attribute_endpoint(
+    attribute_id: str,
+    body: ProductSustainabilityApprovalRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person
+    selbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);
+    403 fuer Plattform-Nachweise ohne Plattform-Recht."""
+    return _approve_sustainability(db, current_user, [attribute_id], body or ProductSustainabilityApprovalRequest())
+
+
+def _approve_sustainability(db: Session, current_user: User, attribute_ids: list[str], body) -> ProductSustainabilityApprovalResponse:
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    approved: list[str] = []
+    retired: list[str] = []
+    modes: set[str] = set()
+    now = _now()
+    try:
+        for attribute_id in attribute_ids:
+            _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+            attribute, previous = approve_sustainability_attribute(
+                db, attribute_id=attribute_id, approver_id=current_user.id, tenant_id=tenant_id, now=now,
+                single_approver_attestation=body.single_approver_attestation,
+                attestation_reason=body.attestation_reason,
+            )
+            approved.append(attribute.id)
+            modes.add(attribute.approval_mode)
+            for old in previous:
+                retired.append(old.id)
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_sustainability_attributes", record_id=old.id, action="UPDATE",
+                    field_name="status", old_value="approved", new_value=f"retired;superseded_by={attribute.id}")
+            audit_value = f"approved;approval_mode={attribute.approval_mode}"
+            if attribute.approval_mode == "single_approver_attested":
+                audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="product_sustainability_attributes", record_id=attribute.id, action="UPDATE",
+                field_name="status", old_value="draft", new_value=audit_value)
+    except HTTPException:
+        db.rollback()
+        raise
+    except LookupError:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Nachhaltigkeitsnachweis nicht gefunden")
+    except RuleApprovalConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return ProductSustainabilityApprovalResponse(
+        approved_ids=approved, retired_ids=retired, approval_mode=",".join(sorted(modes)),
+    )
+
+
+@products_router.post(
+    "/sustainability/attributes/{attribute_id}/retire", response_model=ProductSustainabilityAttributeResponse,
+)
+def retire_sustainability_attribute_endpoint(
+    attribute_id: str,
+    body: ProductSustainabilityRetireRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr."""
+    _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+    try:
+        attribute = retire_sustainability_attribute(
+            db, attribute_id=attribute_id, actor_id=current_user.id,
+            tenant_id=_resolve_tenant_id_for_user(current_user), now=_now(),
+        )
+    except SustainabilityAttributeConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    reason = ((body.reason if body else None) or "").strip()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="UPDATE",
+        field_name="status", old_value="approved", new_value=f"retired;reason={reason}" if reason else "retired")
+    db.commit()
+    return _sustainability_response(attribute)
+
+
+@products_router.patch(
+    "/sustainability/attributes/{attribute_id}", response_model=ProductSustainabilityAttributeResponse,
+)
+def update_sustainability_attribute(
+    attribute_id: str,
+    body: ProductSustainabilityAttributeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Entwurf bearbeiten -- nur durch die erfassende Person, damit die
+    freigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.
+    Freigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf)."""
+    attribute = _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+    if attribute.status != "draft":
+        raise HTTPException(
+            status_code=409,
+            detail="Nur Entwuerfe koennen bearbeitet werden; fuer eine Korrektur einen neuen Nachweis erfassen.",
+        )
+    if attribute.created_by != current_user.id:
+        raise HTTPException(
+            status_code=409,
+            detail="Einen Entwurf bearbeitet nur die Person, die ihn erfasst hat (Vier-Augen-Prinzip).",
+        )
+    changes = body.model_dump(exclude_unset=True)
+    for name in ("as_of", "valid_until", "source_retrieved_on"):
+        if changes.get(name) is not None:
+            changes[name] = changes[name].isoformat()
+    if "as_of" in changes and "valid_until" not in changes:
+        changes["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
+    merged = {name: getattr(attribute, name) for name in ("category", "kind", *_SUSTAINABILITY_EDITABLE_FIELDS)}
+    merged.update(changes)
+    if merged.get("valid_until") is None and merged.get("as_of"):
+        merged["valid_until"] = default_evidence_valid_until(date.fromisoformat(str(merged["as_of"])[:10])).isoformat()
+    errors = sustainability_attribute_errors(merged)
+    if errors:
+        raise HTTPException(status_code=422, detail=" ".join(errors))
+    for name in _SUSTAINABILITY_EDITABLE_FIELDS:
+        setattr(attribute, name, merged.get(name))
+    attribute.updated_at = _now()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Nachweis mit diesem Stichtag existiert bereits.")
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="UPDATE",
+        new_value=", ".join(sorted(changes)))
+    db.commit()
+    return _sustainability_response(attribute)
+
+
+@products_router.delete("/sustainability/attributes/{attribute_id}", status_code=204)
+def delete_sustainability_attribute_draft(
+    attribute_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene
+    Nachweise werden zurueckgezogen, nicht geloescht (Audit-Spur)."""
+    attribute = _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+    if attribute.status != "draft":
+        raise HTTPException(status_code=409, detail="Nur Entwuerfe koennen geloescht werden; freigegebene Nachweise zurueckziehen.")
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="DELETE",
+        old_value=f"draft;category={attribute.category};kind={attribute.kind};as_of={attribute.as_of}")
+    db.delete(attribute)
+    db.commit()
+    return Response(status_code=204)
+
+
+@products_router.get(
+    "/{product_id}/sustainability-attributes", response_model=list[ProductSustainabilityAttributeResponse],
+)
+def list_product_sustainability_attributes(
+    product_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    product = _get_product_or_404(product_id, db, current_user)
+    rows = _visible_sustainability_query(db, _resolve_tenant_id_for_user(current_user)).filter(
+        ProductSustainabilityAttribute.product_id == product.id,
+    ).order_by(
+        ProductSustainabilityAttribute.category, ProductSustainabilityAttribute.as_of.desc(),
+        ProductSustainabilityAttribute.id,
+    ).all()
+    return [_sustainability_response(row) for row in rows]
+
+
+@products_router.post(
+    "/{product_id}/sustainability-attributes", response_model=ProductSustainabilityAttributeResponse, status_code=201,
+)
+def create_product_sustainability_attribute(
+    product_id: str,
+    body: ProductSustainabilityAttributeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig
+    bis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe."""
+    product = _get_product_or_404(product_id, db, current_user)
+    try:
+        attribute = _create_sustainability_attribute(db, current_user, product, body, _now())
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Nachweis existiert bereits.")
+    db.commit()
+    return _sustainability_response(attribute)

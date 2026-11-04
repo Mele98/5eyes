@@ -1,0 +1,544 @@
+"""Audit 2026-11 / 05, Paket T1: Nachhaltigkeits- und Ausschlussnachweise.
+
+Pflichtpfade (jeweils mit Gegenprobe):
+- Selbstfreigabe -> 409; Freigabe durch andere Person -> 200.
+- Tenant-Admin aendert Plattform-Nachweis (global) -> 403; super_admin darf.
+- Abgelaufener Nachweis zaehlt nicht; am letzten Gueltigkeitstag schon.
+- Seed-Werte am Produkt (sfdr_class, esg_rating, climate_benchmark,
+  theme_tags) erfuellen nichts; erst ein freigegebener Nachweis.
+- Schwellenvergleich an der Grenze (500 <= 500 erfuellt, 501 nicht).
+Dazu Import (JSON/CSV) nur als Entwurf, Export, Hausstandard (T-E1-Defaults,
+tenant-aenderbar, auditiert) und der Katalog-Sync Schema <-> Modell.
+
+Isolation: eigene SQLite-Datei je Test (tmp_path) mit Fremdschluesseln an
+wie in der App; keine Live-DB. Keine Engine-Wirkung in T1 (Golden
+unveraendert).
+"""
+from __future__ import annotations
+
+import io
+import sys
+import typing
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND_ROOT))
+
+import models.product_eligibility as catalog  # noqa: E402
+import schemas.review as review_schemas  # noqa: E402
+from database import Base, attach_sqlite_pragmas, get_db  # noqa: E402
+from main import app  # noqa: E402
+from models.product_eligibility import ProductSustainabilityAttribute  # noqa: E402
+from models.review import AuditLog, Product  # noqa: E402
+from models.tenant import Tenant  # noqa: E402
+from models.users import User  # noqa: E402
+from services.auth import get_current_user  # noqa: E402
+from services.product_eligibility_governance import (  # noqa: E402
+    RuleApprovalConflict,
+    approve_sustainability_attribute,
+    default_evidence_valid_until,
+    evaluate_criterion,
+    is_criterion_satisfied,
+)
+
+NOW = "2026-11-04T10:00:00.000Z"
+TODAY = date.today()
+AS_OF = (TODAY - timedelta(days=30)).isoformat()
+
+
+@pytest.fixture()
+def SF(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 't1.db'}", connect_args={"check_same_thread": False})
+    attach_sqlite_pragmas(engine)
+    factory = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    with factory() as s:
+        for tid in ("main", "firm-a", "firm-b"):
+            s.add(Tenant(id=tid, display_name=tid, slug=tid, hosting_tier="tier2",
+                         license_status="active", is_active=1, created_at=NOW, updated_at=NOW))
+        s.flush()
+        for uid, role, tid in (
+            ("admin-a1", "admin", "firm-a"), ("admin-a2", "admin", "firm-a"),
+            ("admin-b", "admin", "firm-b"), ("root", "super_admin", None),
+            ("root2", "super_admin", None),
+        ):
+            s.add(User(id=uid, username=uid, password_hash="h", full_name=uid, role=role,
+                       is_active=1, tenant_id=tid, created_at=NOW, updated_at=NOW))
+        s.add(Product(id="g1", product_name="Globaler Welt-ETF", asset_class="Aktien", product_type="ETF",
+                      sub_asset_class="Aktien Global", currency="CHF", ter_bps=20, is_active=1,
+                      sfdr_class="8", esg_rating="AAA", esg_score_x10=800, climate_benchmark="PAB",
+                      theme_tags='["tobacco"]', created_at=NOW, updated_at=NOW, isin="IE00B4L5Y983"))
+        s.add(Product(id="own-a", product_name="Eigener Fonds A", asset_class="Aktien", product_type="Fonds",
+                      currency="CHF", ter_bps=30, is_active=1, tenant_id="firm-a",
+                      created_at=NOW, updated_at=NOW))
+        s.commit()
+    try:
+        yield factory
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture()
+def client(SF):
+    def override_db():
+        with SF() as s:
+            yield s
+    app.dependency_overrides[get_db] = override_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+def _as(user_id, role, tenant_id):
+    u = User(id=user_id, username=user_id, password_hash="h", full_name=user_id,
+             role=role, is_active=1, tenant_id=tenant_id)
+    app.dependency_overrides[get_current_user] = lambda: u
+
+
+def _strict(monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+
+
+def _attr(SF, *, id, product_id="g1", tenant_id=None, category="tobacco", kind="exclusion_policy",
+          revenue=500, measured=None, value=None, as_of=AS_OF, valid_until=None, status="approved",
+          created_by="root", approved_by="root2"):
+    with SF() as s:
+        s.add(ProductSustainabilityAttribute(
+            id=id, product_id=product_id, tenant_id=tenant_id, category=category, kind=kind,
+            revenue_threshold_bps=revenue, measured_exposure_bps=measured, value=value,
+            source_type="fund_contract", source_reference="Fondsvertrag Anhang 2", as_of=as_of,
+            valid_until=valid_until or default_evidence_valid_until(date.fromisoformat(as_of)).isoformat(),
+            status=status, created_by=created_by, created_at=NOW,
+            approved_by=approved_by if status == "approved" else None,
+            approval_mode="four_eyes" if status == "approved" else None, updated_at=NOW,
+        ))
+        s.commit()
+
+
+def _product(SF, pid="g1"):
+    with SF() as s:
+        return s.get(Product, pid)
+
+
+def _payload(**over):
+    body = {"category": "tobacco", "kind": "exclusion_policy", "revenue_threshold_bps": 500,
+            "source_type": "fund_contract", "source_reference": "Fondsvertrag Anhang 2, S. 14", "as_of": AS_OF}
+    body.update(over)
+    return body
+
+
+# ---------------------------------------------------------------------------
+# is_criterion_satisfied (Service, T3 verdrahtet)
+# ---------------------------------------------------------------------------
+
+
+def test_threshold_boundary_is_inclusive(SF):
+    _attr(SF, id="a500", revenue=500)
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert is_criterion_satisfied(s, p, "tobacco", 500, TODAY)
+        # Gegenprobe: Hausschwelle strenger als die Produktschwelle
+        assert not is_criterion_satisfied(s, p, "tobacco", 499, TODAY)
+        assert evaluate_criterion(s, p, "tobacco", 499, TODAY).reason == "threshold_exceeded"
+
+
+def test_threshold_one_bps_above_house_standard_fails(SF):
+    _attr(SF, id="a501", revenue=501)
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert not is_criterion_satisfied(s, p, "tobacco", 500, TODAY)
+        assert is_criterion_satisfied(s, p, "tobacco", 501, TODAY)
+
+
+def test_measured_exposure_requires_zero_above_cutoff(SF):
+    _attr(SF, id="m0", kind="measured_exposure", revenue=500, measured=0)
+    _attr(SF, id="m1", category="alcohol", kind="measured_exposure", revenue=500, measured=1)
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert is_criterion_satisfied(s, p, "tobacco", 500, TODAY)
+        assert not is_criterion_satisfied(s, p, "tobacco", 400, TODAY), "Messgrenze lockerer als Hausschwelle"
+        assert evaluate_criterion(s, p, "alcohol", 1000, TODAY).reason == "exposure_present"
+
+
+def test_expired_evidence_counts_as_not_satisfied(SF):
+    as_of = (TODAY - timedelta(days=400)).isoformat()
+    _attr(SF, id="old", as_of=as_of, valid_until=default_evidence_valid_until(date.fromisoformat(as_of)).isoformat())
+    with SF() as s:
+        p = s.get(Product, "g1")
+        result = evaluate_criterion(s, p, "tobacco", 500, TODAY)
+        assert not result.satisfied and result.reason == "expired"
+        # Gegenprobe: am letzten Gueltigkeitstag zaehlt derselbe Nachweis
+        last_day = default_evidence_valid_until(date.fromisoformat(as_of))
+        assert is_criterion_satisfied(s, p, "tobacco", 500, last_day)
+        assert not is_criterion_satisfied(s, p, "tobacco", 500, last_day + timedelta(days=1))
+        assert not is_criterion_satisfied(s, p, "tobacco", 500, date.fromisoformat(as_of) - timedelta(days=1))
+
+
+def test_seed_values_on_product_satisfy_nothing(SF):
+    product = _product(SF)
+    assert (product.sfdr_class, product.esg_rating, product.climate_benchmark) == ("8", "AAA", "PAB")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        for category, threshold in (("sfdr_classification", 8), ("tobacco", 500), ("ungc_violation", None),
+                                    ("impact_theme", None), ("controversial_weapons", 0)):
+            result = evaluate_criterion(s, p, category, threshold, TODAY)
+            assert not result.satisfied and result.reason == "no_evidence", category
+    # Gegenprobe: erst ein freigegebener Klassifikationsnachweis erfuellt SFDR 8
+    _attr(SF, id="sfdr", category="sfdr_classification", kind="classification", revenue=None, value="8")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert is_criterion_satisfied(s, p, "sfdr_classification", 8, TODAY)
+        assert not is_criterion_satisfied(s, p, "sfdr_classification", 9, TODAY)
+
+
+def test_draft_and_retired_evidence_never_satisfy(SF):
+    _attr(SF, id="d1", status="draft")
+    _attr(SF, id="r1", status="retired", as_of=(TODAY - timedelta(days=60)).isoformat())
+    with SF() as s:
+        p = s.get(Product, "g1")
+        result = evaluate_criterion(s, p, "tobacco", 500, TODAY)
+        assert not result.satisfied and result.reason == "not_approved"
+
+
+def test_tenant_overlay_is_only_visible_to_its_tenant(SF):
+    _attr(SF, id="ta", tenant_id="firm-a", created_by="admin-a1", approved_by="admin-a2")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert is_criterion_satisfied(s, p, "tobacco", 500, TODAY, tenant_id="firm-a")
+        assert not is_criterion_satisfied(s, p, "tobacco", 500, TODAY, tenant_id="firm-b")
+        assert not is_criterion_satisfied(s, p, "tobacco", 500, TODAY)
+
+
+def test_fail_closed_on_unknown_category_or_missing_threshold(SF):
+    _attr(SF, id="a1")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert evaluate_criterion(s, p, "sharia", 0, TODAY).reason == "unknown_category"
+        assert evaluate_criterion(s, p, "tobacco", None, TODAY).reason == "no_threshold"
+        assert is_criterion_satisfied(s, p, "tobacco", 500, TODAY)
+
+
+def test_ungc_exclusion_policy_without_threshold(SF):
+    _attr(SF, id="u1", category="ungc_violation", revenue=None)
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "ungc_violation", None, TODAY)
+
+
+def test_service_self_approval_conflict(SF):
+    _attr(SF, id="d1", status="draft", created_by="root")
+    with SF() as s:
+        with pytest.raises(RuleApprovalConflict):
+            approve_sustainability_attribute(s, attribute_id="d1", approver_id="root", tenant_id=None, now=NOW)
+        attribute, previous = approve_sustainability_attribute(
+            s, attribute_id="d1", approver_id="root2", tenant_id=None, now=NOW,
+        )
+        assert attribute.status == "approved" and attribute.approval_mode == "four_eyes" and previous == []
+
+
+# ---------------------------------------------------------------------------
+# API: Vier-Augen-Freigabe
+# ---------------------------------------------------------------------------
+
+
+def test_api_self_approval_is_409_other_admin_approves(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    created = client.post("/products/own-a/sustainability-attributes", json=_payload())
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["status"] == "draft" and body["evidence_status"] == "draft" and body["scope"] == "tenant"
+    assert body["valid_until"] == default_evidence_valid_until(date.fromisoformat(AS_OF)).isoformat()
+    attr_id = body["id"]
+    own = client.post(f"/products/sustainability/attributes/{attr_id}/approve")
+    assert own.status_code == 409, own.text
+    assert "Vier-Augen" in own.json()["detail"]
+    with SF() as s:
+        assert s.get(ProductSustainabilityAttribute, attr_id).status == "draft"
+        assert not is_criterion_satisfied(s, s.get(Product, "own-a"), "tobacco", 500, TODAY, tenant_id="firm-a")
+    # Gegenprobe: zweite Person derselben Verwaltung
+    _as("admin-a2", "admin", "firm-a")
+    other = client.post(f"/products/sustainability/attributes/{attr_id}/approve")
+    assert other.status_code == 200, other.text
+    assert other.json()["approval_mode"] == "four_eyes"
+    with SF() as s:
+        row = s.get(ProductSustainabilityAttribute, attr_id)
+        assert (row.status, row.created_by, row.approved_by) == ("approved", "admin-a1", "admin-a2")
+        assert is_criterion_satisfied(s, s.get(Product, "own-a"), "tobacco", 500, TODAY, tenant_id="firm-a")
+        logs = s.query(AuditLog).filter(AuditLog.record_id == attr_id).all()
+    assert {log.action for log in logs} >= {"CREATE", "UPDATE"}
+
+
+def test_api_batch_approval_is_all_or_nothing(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    first = client.post("/products/own-a/sustainability-attributes", json=_payload()).json()["id"]
+    _as("admin-a2", "admin", "firm-a")
+    second = client.post("/products/own-a/sustainability-attributes",
+                         json=_payload(category="alcohol", revenue_threshold_bps=1000)).json()["id"]
+    r = client.post("/products/sustainability/attributes/approve", json={"attribute_ids": [first, second]})
+    assert r.status_code == 409, r.text
+    with SF() as s:
+        assert s.get(ProductSustainabilityAttribute, first).status == "draft"
+
+
+def test_api_approval_supersedes_previous_and_retire(SF, client):
+    _attr(SF, id="old", product_id="own-a", tenant_id="firm-a", created_by="admin-a1", approved_by="admin-a2",
+          as_of=(TODAY - timedelta(days=90)).isoformat())
+    _as("admin-a1", "admin", "firm-a")
+    new_id = client.post("/products/own-a/sustainability-attributes", json=_payload(revenue_threshold_bps=0)).json()["id"]
+    _as("admin-a2", "admin", "firm-a")
+    r = client.post(f"/products/sustainability/attributes/{new_id}/approve")
+    assert r.status_code == 200, r.text
+    assert r.json()["retired_ids"] == ["old"]
+    retire = client.post(f"/products/sustainability/attributes/{new_id}/retire", json={"reason": "Fonds geaendert"})
+    assert retire.status_code == 200 and retire.json()["status"] == "retired"
+    with SF() as s:
+        assert not is_criterion_satisfied(s, s.get(Product, "own-a"), "tobacco", 500, TODAY, tenant_id="firm-a")
+
+
+def test_api_draft_edit_only_by_author_and_approved_is_immutable(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    attr_id = client.post("/products/own-a/sustainability-attributes", json=_payload()).json()["id"]
+    assert client.patch(f"/products/sustainability/attributes/{attr_id}", json={"revenue_threshold_bps": 400}).status_code == 200
+    _as("admin-a2", "admin", "firm-a")
+    assert client.patch(f"/products/sustainability/attributes/{attr_id}", json={"revenue_threshold_bps": 0}).status_code == 409
+    assert client.post(f"/products/sustainability/attributes/{attr_id}/approve").status_code == 200
+    _as("admin-a1", "admin", "firm-a")
+    assert client.patch(f"/products/sustainability/attributes/{attr_id}", json={"note": "x"}).status_code == 409
+    assert client.delete(f"/products/sustainability/attributes/{attr_id}").status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# API: R3 -- Plattform-Nachweise nur super_admin (Multi-Tenant)
+# ---------------------------------------------------------------------------
+
+
+def test_api_tenant_admin_cannot_change_global_evidence(SF, client, monkeypatch):
+    _strict(monkeypatch)
+    _attr(SF, id="glob-draft", status="draft", created_by="root")
+    _attr(SF, id="glob-ok", category="alcohol", revenue=1000)
+    _as("admin-a1", "admin", "firm-a")
+    create = client.post("/products/g1/sustainability-attributes", json=_payload(scope="global"))
+    approve = client.post("/products/sustainability/attributes/glob-draft/approve")
+    patch = client.patch("/products/sustainability/attributes/glob-draft", json={"note": "x"})
+    retire = client.post("/products/sustainability/attributes/glob-ok/retire")
+    delete = client.delete("/products/sustainability/attributes/glob-draft")
+    for response in (create, approve, patch, retire, delete):
+        assert response.status_code == 403, response.text
+    with SF() as s:
+        assert s.get(ProductSustainabilityAttribute, "glob-draft").status == "draft"
+        assert s.get(ProductSustainabilityAttribute, "glob-ok").status == "approved"
+        assert s.query(ProductSustainabilityAttribute).count() == 2
+    # Tenant-Overlay auf dem globalen Fonds bleibt erlaubt
+    overlay = client.post("/products/g1/sustainability-attributes", json=_payload())
+    assert overlay.status_code == 201 and overlay.json()["tenant_id"] == "firm-a"
+    # Gegenprobe: super_admin darf Plattform-Nachweise pflegen
+    _as("root2", "super_admin", None)
+    assert client.post("/products/sustainability/attributes/glob-draft/approve").status_code == 200
+    assert client.post("/products/g1/sustainability-attributes",
+                       json=_payload(scope="global", category="gambling")).status_code == 201
+
+
+def test_api_tenant_evidence_isolated_between_tenants(SF, client, monkeypatch):
+    _strict(monkeypatch)
+    _as("admin-a1", "admin", "firm-a")
+    attr_id = client.post("/products/g1/sustainability-attributes", json=_payload()).json()["id"]
+    _as("admin-b", "admin", "firm-b")
+    assert attr_id not in {row["id"] for row in client.get("/products/g1/sustainability-attributes").json()}
+    assert client.post(f"/products/sustainability/attributes/{attr_id}/approve").status_code == 404
+    assert client.post("/products/own-a/sustainability-attributes", json=_payload()).status_code == 404
+
+
+def test_api_global_scope_rejected_for_tenant_product(SF, client):
+    _as("root", "super_admin", None)
+    r = client.post("/products/own-a/sustainability-attributes", json=_payload(scope="global"))
+    assert r.status_code in (404, 422), r.text
+
+
+# ---------------------------------------------------------------------------
+# API: Validierung, Import, Export
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("override", [
+    {"source_type": "seed"},
+    {"source_reference": ""},
+    {"category": "sharia"},
+    {"kind": "classification"},
+    {"revenue_threshold_bps": None},
+    {"revenue_threshold_bps": 10001},
+    {"as_of": (TODAY + timedelta(days=1)).isoformat()},
+    {"valid_until": (date.fromisoformat(AS_OF) + timedelta(days=400)).isoformat()},
+    {"source_type": "data_vendor"},
+    {"kind": "measured_exposure"},
+])
+def test_api_rejects_invalid_or_unsourced_evidence(SF, client, override):
+    _as("admin-a1", "admin", "firm-a")
+    r = client.post("/products/own-a/sustainability-attributes", json=_payload(**override))
+    assert r.status_code == 422, r.text
+
+
+def test_api_data_vendor_requires_provider_and_retrieval_date(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    r = client.post("/products/own-a/sustainability-attributes", json=_payload(
+        source_type="data_vendor", source_provider="Anbieter X", source_retrieved_on=AS_OF,
+        source_reference="Export 2026-10"))
+    assert r.status_code == 201, r.text
+
+
+def test_api_json_import_creates_drafts_only_and_reports_rows(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    r = client.post("/products/sustainability/attributes/import", json={"attributes": [
+        dict(_payload(), product_id="own-a"),
+        dict(_payload(category="controversial_weapons", revenue_threshold_bps=0), isin="IE00B4L5Y983"),
+        dict(_payload(category="alcohol", revenue_threshold_bps=None), product_id="own-a"),
+        dict(_payload(), product_id="does-not-exist"),
+    ]})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert (body["processed"], body["created"], body["failed"]) == (4, 2, 2)
+    with SF() as s:
+        rows = s.query(ProductSustainabilityAttribute).all()
+        assert len(rows) == 2 and {row.status for row in rows} == {"draft"}
+        assert {row.created_by for row in rows} == {"admin-a1"}
+        assert not any(is_criterion_satisfied(s, s.get(Product, row.product_id), row.category,
+                                              row.revenue_threshold_bps, TODAY, tenant_id="firm-a") for row in rows)
+
+
+def test_api_json_import_rejects_seed_source_type(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    r = client.post("/products/sustainability/attributes/import", json={"attributes": [
+        dict(_payload(source_type="seed"), product_id="own-a"),
+    ]})
+    assert r.status_code == 422
+
+
+def test_api_csv_import_and_export_roundtrip(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    csv_text = (
+        "product_id;category;kind;revenue_threshold_bps;source_type;source_reference;as_of\n"
+        f"own-a;tobacco;exclusion_policy;500;kid;KID Abschnitt 3;{AS_OF}\n"
+        f"own-a;gambling;exclusion_policy;;kid;KID Abschnitt 3;{AS_OF}\n"
+        f"own-a;sfdr_classification;classification;;kid;KID S. 1;{AS_OF}\n"
+    )
+    r = client.post("/products/sustainability/attributes/import/csv",
+                    files={"file": ("n.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")})
+    assert r.status_code == 201, r.text
+    assert (r.json()["created"], r.json()["failed"]) == (1, 2)
+    export = client.get("/products/sustainability/attributes/export")
+    assert export.status_code == 200
+    lines = export.text.strip().splitlines()
+    assert lines[0].startswith("product_id,isin,scope,category,kind")
+    assert len(lines) == 2 and ",tobacco,exclusion_policy,500," in lines[1] and ",draft," in lines[1]
+    as_json = client.get("/products/sustainability/attributes/export?format=json").json()
+    assert as_json["attributes"][0]["status"] == "draft"
+    queue = client.get("/products/sustainability/attributes?status=draft").json()
+    assert len(queue) == 1
+
+
+# ---------------------------------------------------------------------------
+# Hausstandard je Tenant (T-E1)
+# ---------------------------------------------------------------------------
+
+
+T_E1 = {
+    "controversial_weapons": 0, "conventional_weapons": 1000, "tobacco": 500, "thermal_coal": 1000,
+    "gambling": 500, "adult_entertainment": 500, "alcohol": 1000, "ungc_violation": None,
+    "nuclear_power": 1000, "animal_testing": 1000, "fossil_fuels": 1000,
+}
+
+
+def test_house_standard_defaults_follow_t_e1_and_are_tenant_changeable(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    items = {i["category"]: i for i in client.get("/products/sustainability/standards").json()["items"]}
+    assert {c: i["effective_threshold_bps"] for c, i in items.items()} == T_E1
+    r = client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 0, "note": "streng"})
+    assert r.status_code == 200, r.text
+    after = {i["category"]: i for i in r.json()["items"]}
+    assert after["tobacco"]["effective_threshold_bps"] == 0 and after["tobacco"]["is_overridden"]
+    _as("admin-b", "admin", "firm-b")
+    other = {i["category"]: i for i in client.get("/products/sustainability/standards").json()["items"]}
+    assert other["tobacco"]["effective_threshold_bps"] == 500, "andere Verwaltung unveraendert"
+    with SF() as s:
+        audit = s.query(AuditLog).filter(AuditLog.table_name == "sustainability_exclusion_standards").all()
+    assert len(audit) == 1 and audit[0].old_value == "default:500" and audit[0].new_value == "tenant:0"
+    _as("admin-a1", "admin", "firm-a")
+    reset = client.delete("/products/sustainability/standards/tobacco")
+    assert {i["category"]: i["effective_threshold_bps"] for i in reset.json()["items"]}["tobacco"] == 500
+
+
+@pytest.mark.parametrize("category,body", [
+    ("ungc_violation", {"max_revenue_threshold_bps": 100}),
+    ("tobacco", {"max_revenue_threshold_bps": None}),
+    ("sfdr_classification", {"max_revenue_threshold_bps": 1}),
+    ("tobacco", {"max_revenue_threshold_bps": 10001}),
+])
+def test_house_standard_validation(SF, client, category, body):
+    _as("admin-a1", "admin", "firm-a")
+    assert client.put(f"/products/sustainability/standards/{category}", json=body).status_code == 422
+
+
+def test_house_standard_requires_admin(SF, client):
+    _as("adv-a", "advisor", "firm-a")
+    assert client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 0}).status_code == 403
+    assert client.get("/products/sustainability/standards").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Katalog-Sync Schema (OpenAPI) <-> Modell
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_literals_match_model_constants(client):
+    assert typing.get_args(review_schemas.SustainabilityCategory) == catalog.SUSTAINABILITY_CATEGORIES
+    assert typing.get_args(review_schemas.SustainabilityKind) == catalog.SUSTAINABILITY_KINDS
+    assert typing.get_args(review_schemas.SustainabilitySourceType) == catalog.SUSTAINABILITY_SOURCE_TYPES
+    assert typing.get_args(review_schemas.SustainabilityStatus) == catalog.SUSTAINABILITY_STATUSES
+    assert set(catalog.SUSTAINABILITY_KINDS_BY_CATEGORY) == set(catalog.SUSTAINABILITY_CATEGORIES)
+    assert "seed" not in catalog.SUSTAINABILITY_SOURCE_TYPES
+    _as("admin-a1", "admin", "firm-a")
+    cat = client.get("/products/sustainability/catalog").json()
+    assert [c["category"] for c in cat["categories"]] == list(catalog.SUSTAINABILITY_CATEGORIES)
+    assert cat["evidence_validity_months"] == 12
+
+
+def test_api_csv_export_neutralises_formula_cells(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    for idx, ref in enumerate(("=HYPERLINK(\"http://x\")", "+SUM(A1)", "@cmd", "-1+1")):
+        body = _payload(category=("tobacco", "alcohol", "gambling", "thermal_coal")[idx], source_reference=ref)
+        assert client.post("/products/own-a/sustainability-attributes", json=body).status_code == 201
+    text = client.get("/products/sustainability/attributes/export").text
+    for ref in ("'=HYPERLINK", "'+SUM(A1)", "'@cmd", "'-1+1"):
+        assert ref in text, ref
+    for raw in (",=HYPERLINK", ",+SUM", ",@cmd", ",-1+1"):
+        assert raw not in text, raw
+
+
+def test_api_409_never_leaks_other_tenant_evidence(SF, client, monkeypatch):
+    _strict(monkeypatch)
+    _as("admin-b", "admin", "firm-b")
+    foreign = client.post("/products/g1/sustainability-attributes",
+                          json=_payload(source_reference="Geheimes Dokument Firma B", note="nur B"))
+    assert foreign.status_code == 201
+    foreign_id = foreign.json()["id"]
+    _as("admin-a1", "admin", "firm-a")
+    # Gleicher Schluessel wie der Nachweis von Firma B: kein Konflikt (eigener Scope)
+    first = client.post("/products/g1/sustainability-attributes", json=_payload())
+    assert first.status_code == 201, first.text
+    dup = client.post("/products/g1/sustainability-attributes", json=_payload())
+    assert dup.status_code == 409
+    detail = dup.text
+    for secret in (foreign_id, "Geheimes Dokument", "nur B", "firm-b", "admin-b"):
+        assert secret not in detail, secret
+    # Freigabe-Konflikt eines fremden Nachweises: 404 statt 409, ohne Inhalte
+    r = client.post(f"/products/sustainability/attributes/{foreign_id}/approve")
+    assert r.status_code == 404 and "Geheimes" not in r.text
+    # Import-Konflikt meldet ebenfalls nichts aus Firma B
+    imp = client.post("/products/sustainability/attributes/import",
+                      json={"attributes": [dict(_payload(), product_id="g1")]}).json()
+    assert imp["failed"] == 1 and foreign_id not in str(imp) and "Geheimes" not in str(imp)

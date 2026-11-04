@@ -19,11 +19,26 @@ rules about *which* rule may count as evidence live in one place:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
+from models.product_eligibility import (
+    SFDR_CLASSIFICATION_VALUES,
+    SUSTAINABILITY_CATEGORIES,
+    SUSTAINABILITY_CLASSIFICATION_CATEGORIES,
+    SUSTAINABILITY_CONDUCT_CATEGORIES,
+    SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS,
+    SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS,
+    SUSTAINABILITY_KINDS_BY_CATEGORY,
+    SUSTAINABILITY_REVENUE_CATEGORIES,
+    SUSTAINABILITY_SOURCE_TYPES,
+    ProductEligibilityRule,
+    ProductEligibilityRuleSet,
+    ProductSustainabilityAttribute,
+    SustainabilityExclusionStandard,
+)
 
 # Every column that changes what a rule permits/blocks. Governance metadata
 # (status, created_by, approved_by, approved_at, timestamps, id) is
@@ -325,3 +340,466 @@ def approve_rule(
         previous.updated_at = now
     db.flush()
     return rule
+
+
+# ===========================================================================
+# AUDIT-2026-11 T1 (Audit 05 §4.1/§4.2/§4.3, Entscheide T-E1..T-E3):
+# Nachhaltigkeits- und Ausschlussnachweise je Produkt.
+#
+# Gleiche Governance wie die Eignungsregeln oben: Vier-Augen-Freigabe
+# (Ersteller != Freigeber, 409), Einzelberater-Ausnahme nur mit Attest,
+# Plattform-Nachweise (tenant_id NULL) wirken fuer alle Tenants.
+#
+# is_criterion_satisfied() ist die EINZIGE Stelle, die entscheidet, ob ein
+# Produkt ein Nachhaltigkeitskriterium erfuellt. In T1 ruft die Engine sie
+# noch nicht auf (Verdrahtung in T3). Sie liest ausschliesslich freigegebene
+# Nachweise aus product_sustainability_attributes -- NIE die Seed-/Lesecache-
+# Felder products.sfdr_class/esg_rating/esg_score_x10/climate_benchmark/
+# theme_tags (T-E2: unbelegte Werte erfuellen kein Kriterium).
+# ===========================================================================
+
+
+class SustainabilityAttributeConflict(Exception):
+    """Ungueltiger Lebenszyklus-Schritt eines Nachweises (Router: 409)."""
+
+
+def add_months(value: date, months: int) -> date:
+    """Kalendermonate addieren; ein nicht existierender Tag (31.04., 29.02.
+    im Nicht-Schaltjahr) faellt auf den Monatsletzten."""
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    for day in (value.day, 30, 29, 28):
+        if day <= value.day:
+            try:
+                return date(year, month, day)
+            except ValueError:
+                continue
+    raise ValueError(f"Datum nicht berechenbar: {value} + {months} Monate")
+
+
+def default_evidence_valid_until(as_of: date) -> date:
+    """T-E3: Gueltigkeit 12 Monate ab Stichtag."""
+    return add_months(as_of, SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS)
+
+
+def _as_date(value) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def criterion_type(category: str) -> str | None:
+    """'revenue_threshold' | 'conduct' | 'classification' | None (unbekannt)."""
+    if category in SUSTAINABILITY_REVENUE_CATEGORIES:
+        return "revenue_threshold"
+    if category in SUSTAINABILITY_CONDUCT_CATEGORIES:
+        return "conduct"
+    if category in SUSTAINABILITY_CLASSIFICATION_CATEGORIES:
+        return "classification"
+    return None
+
+
+def sustainability_attribute_errors(values: dict, *, today: date | None = None) -> list[str]:
+    """Fachliche Querpruefung eines Nachweises (Erfassen, Bearbeiten, Import).
+
+    Erwartet normalisierte Werte (as_of/valid_until als date oder ISO-Text).
+    Liefert deutschsprachige Fehlertexte; leer = gueltig. Fail-closed: eine
+    unbekannte Kategorie, Art oder Quelle ist ein Fehler, nie ein Default.
+    """
+    errors: list[str] = []
+    today = today or datetime.now(timezone.utc).date()
+    category = values.get("category")
+    kind = values.get("kind")
+    revenue = values.get("revenue_threshold_bps")
+    measured = values.get("measured_exposure_bps")
+    value = values.get("value")
+    if category not in SUSTAINABILITY_CATEGORIES:
+        errors.append(f"Unbekannte Kategorie: {category!r}.")
+        return errors
+    allowed_kinds = SUSTAINABILITY_KINDS_BY_CATEGORY[category]
+    if kind not in allowed_kinds:
+        errors.append(f"Art {kind!r} ist fuer {category} nicht zulaessig (erlaubt: {', '.join(allowed_kinds)}).")
+        return errors
+    for name, number in (("revenue_threshold_bps", revenue), ("measured_exposure_bps", measured)):
+        if number is not None and (isinstance(number, bool) or not isinstance(number, int) or not 0 <= number <= 10000):
+            errors.append(f"{name} muss eine ganze Zahl zwischen 0 und 10000 bps sein.")
+    ctype = criterion_type(category)
+    if ctype == "revenue_threshold":
+        if revenue is None:
+            errors.append(
+                "Umsatzschwelle (revenue_threshold_bps) fehlt: bei einer Ausschlussrichtlinie die Schwelle "
+                "des Produkts, bei einer Messung die verwendete Umsatzgrenze."
+            )
+        if kind == "exclusion_policy" and measured is not None:
+            errors.append("Eine Ausschlussrichtlinie hat keine gemessene Exposure (measured_exposure_bps leer lassen).")
+        if kind == "measured_exposure" and measured is None:
+            errors.append("Gemessene Exposure (measured_exposure_bps) fehlt.")
+        if value not in (None, ""):
+            errors.append("Feld value ist nur fuer Klassifikationen vorgesehen.")
+    elif ctype == "conduct":
+        if revenue is not None:
+            errors.append("UN Global Compact hat keine Umsatzschwelle (revenue_threshold_bps leer lassen).")
+        if kind == "exclusion_policy" and measured is not None:
+            errors.append("Eine Ausschlussrichtlinie hat keine gemessene Exposure (measured_exposure_bps leer lassen).")
+        if kind == "measured_exposure" and measured is None:
+            errors.append("Gemessene Exposure (measured_exposure_bps) fehlt.")
+        if value not in (None, ""):
+            errors.append("Feld value ist nur fuer Klassifikationen vorgesehen.")
+    else:
+        if revenue is not None or measured is not None:
+            errors.append("Klassifikationen haben keine Umsatzschwelle und keine Exposure.")
+        if category == "sfdr_classification" and value not in SFDR_CLASSIFICATION_VALUES:
+            errors.append(f"SFDR-Klassifikation muss einer von {', '.join(SFDR_CLASSIFICATION_VALUES)} sein.")
+        if category == "impact_theme" and not str(value or "").strip():
+            errors.append("Thema (value) fehlt.")
+    source_type = values.get("source_type")
+    if source_type not in SUSTAINABILITY_SOURCE_TYPES:
+        errors.append(
+            f"Quellentyp {source_type!r} ist nicht zulaessig (erlaubt: {', '.join(SUSTAINABILITY_SOURCE_TYPES)})."
+        )
+    if not str(values.get("source_reference") or "").strip():
+        errors.append("Quellenreferenz fehlt (Dokument, Seite/Abschnitt bzw. Export).")
+    if source_type == "data_vendor":
+        if not str(values.get("source_provider") or "").strip():
+            errors.append("Datenanbieter-Export: Anbieter (source_provider) fehlt.")
+        if _as_date(values.get("source_retrieved_on")) is None:
+            errors.append("Datenanbieter-Export: Abrufdatum (source_retrieved_on) fehlt.")
+    retrieved = _as_date(values.get("source_retrieved_on"))
+    if retrieved is not None and retrieved > today:
+        errors.append("Abrufdatum liegt in der Zukunft.")
+    as_of = _as_date(values.get("as_of"))
+    valid_until = _as_date(values.get("valid_until"))
+    if as_of is None:
+        errors.append("Stichtag (as_of) fehlt oder ist kein Datum.")
+        return errors
+    if as_of > today:
+        errors.append("Stichtag liegt in der Zukunft.")
+    if valid_until is not None:
+        latest = default_evidence_valid_until(as_of)
+        if valid_until < as_of:
+            errors.append("Gueltig bis liegt vor dem Stichtag.")
+        elif valid_until > latest:
+            errors.append(
+                f"Gueltig bis darf hoechstens {SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS} Monate nach dem "
+                f"Stichtag liegen (spaetestens {latest.isoformat()})."
+            )
+    return errors
+
+
+def sustainability_attribute_visible_to_tenant(attribute, tenant_id: str | None) -> bool:
+    """Plattform-Nachweis (tenant_id NULL) fuer alle, Tenant-Nachweis nur
+    fuer genau diesen Tenant (Spiegel der Postgres-Referenz-Policy)."""
+    if attribute.tenant_id is None:
+        return True
+    return tenant_id is not None and attribute.tenant_id == tenant_id
+
+
+def evidence_status(attribute, as_of: date | None = None) -> str:
+    """Anzeige-Status: draft | retired | not_yet_valid | expired | valid."""
+    if attribute.status != "approved":
+        return attribute.status
+    as_of = as_of or datetime.now(timezone.utc).date()
+    start = _as_date(attribute.as_of)
+    end = _as_date(attribute.valid_until)
+    if start is None or end is None:
+        return "expired"
+    if as_of < start:
+        return "not_yet_valid"
+    if as_of > end:
+        return "expired"
+    return "valid"
+
+
+def approve_sustainability_attribute(
+    db: Session,
+    *,
+    attribute_id: str,
+    approver_id: str,
+    tenant_id: str | None,
+    now: str | None = None,
+    today: date | None = None,
+    single_approver_attestation: bool = False,
+    attestation_reason: str | None = None,
+) -> tuple[ProductSustainabilityAttribute, list[ProductSustainabilityAttribute]]:
+    """Vier-Augen-Freigabe eines Nachweis-Entwurfs.
+
+    Gleiche Regel wie approve_rule(): Ersteller != Freigeber, sonst
+    RuleApprovalConflict (409); Einzelberater-Ausnahme nur mit Attest,
+    Begruendung und genau einer freigabeberechtigten Person im Tenant
+    (fuer Plattform-Nachweise nie). Die Freigabe loest den bisher
+    freigegebenen Nachweis desselben Schluessels (Produkt, Tenant-Scope,
+    Kategorie, Art) ab. Ein bereits abgelaufener Entwurf oder ein Entwurf,
+    der aelter ist als der geltende Nachweis, wird nicht freigegeben.
+
+    Rueckgabe: (freigegebener Nachweis, abgeloeste Nachweise).
+    ``LookupError``, wenn der Nachweis fuer ``tenant_id`` nicht sichtbar ist.
+    """
+    attribute = db.get(ProductSustainabilityAttribute, attribute_id)
+    if attribute is None or not sustainability_attribute_visible_to_tenant(attribute, tenant_id):
+        raise LookupError("Nachhaltigkeitsnachweis nicht gefunden.")
+    if attribute.status != "draft":
+        raise RuleApprovalConflict(f"Nachweis ist nicht im Entwurfsstatus (Status: {attribute.status}).")
+    if not approver_id:
+        raise RuleApprovalConflict("Genehmiger fehlt.")
+    today = today or datetime.now(timezone.utc).date()
+    valid_until = _as_date(attribute.valid_until)
+    if valid_until is None or valid_until < today:
+        raise RuleApprovalConflict("Nachweis ist bereits abgelaufen und kann nicht freigegeben werden.")
+    if approver_id != attribute.created_by:
+        approval_mode = APPROVAL_MODE_FOUR_EYES
+    else:
+        if not single_approver_attestation:
+            raise RuleApprovalConflict(
+                "Vier-Augen-Prinzip: Der Nachhaltigkeitsnachweis muss von einer anderen Person "
+                "freigegeben werden als von der Person, die ihn erfasst hat."
+            )
+        if len((attestation_reason or "").strip()) < MIN_ATTESTATION_REASON_LENGTH:
+            raise RuleApprovalConflict(
+                f"Einzelfreigabe braucht eine Begruendung (mindestens {MIN_ATTESTATION_REASON_LENGTH} Zeichen)."
+            )
+        if attribute.tenant_id is None or tenant_approver_ids(db, attribute.tenant_id) != [approver_id]:
+            raise RuleApprovalConflict(
+                "Einzelfreigabe ist nur fuer Tenant-Nachweise zulaessig, wenn die Verwaltung genau eine "
+                "freigabeberechtigte Person hat -- bitte eine andere Person freigeben lassen."
+            )
+        approval_mode = APPROVAL_MODE_SINGLE_APPROVER_ATTESTED
+    query = db.query(ProductSustainabilityAttribute).filter(
+        ProductSustainabilityAttribute.product_id == attribute.product_id,
+        ProductSustainabilityAttribute.category == attribute.category,
+        ProductSustainabilityAttribute.kind == attribute.kind,
+        ProductSustainabilityAttribute.status == "approved",
+        ProductSustainabilityAttribute.id != attribute.id,
+    )
+    if attribute.tenant_id is None:
+        query = query.filter(ProductSustainabilityAttribute.tenant_id.is_(None))
+    else:
+        query = query.filter(ProductSustainabilityAttribute.tenant_id == attribute.tenant_id)
+    previous = query.all()
+    if any(str(p.as_of) > str(attribute.as_of) for p in previous):
+        raise RuleApprovalConflict(
+            "Es gilt bereits ein freigegebener Nachweis mit juengerem Stichtag; "
+            "ein aelterer Entwurf kann ihn nicht abloesen."
+        )
+    now = now or _now_iso()
+    for old in previous:
+        old.status = "retired"
+        old.retired_by = approver_id
+        old.retired_at = now
+        old.updated_at = now
+    if previous and attribute.supersedes_id is None:
+        attribute.supersedes_id = previous[0].id
+    attribute.status = "approved"
+    attribute.approved_by = approver_id
+    attribute.approved_at = now
+    attribute.approval_mode = approval_mode
+    attribute.updated_at = now
+    db.flush()
+    return attribute, previous
+
+
+def retire_sustainability_attribute(
+    db: Session, *, attribute_id: str, actor_id: str, tenant_id: str | None, now: str | None = None,
+) -> ProductSustainabilityAttribute:
+    """Freigegebenen Nachweis zurueckziehen (danach zaehlt er nie mehr)."""
+    attribute = db.get(ProductSustainabilityAttribute, attribute_id)
+    if attribute is None or not sustainability_attribute_visible_to_tenant(attribute, tenant_id):
+        raise LookupError("Nachhaltigkeitsnachweis nicht gefunden.")
+    if attribute.status != "approved":
+        raise SustainabilityAttributeConflict(
+            f"Nur freigegebene Nachweise koennen zurueckgezogen werden (Status: {attribute.status}); "
+            "Entwuerfe werden geloescht."
+        )
+    now = now or _now_iso()
+    attribute.status = "retired"
+    attribute.retired_by = actor_id
+    attribute.retired_at = now
+    attribute.updated_at = now
+    db.flush()
+    return attribute
+
+
+# --- Hausstandard je Tenant (T-E1) -----------------------------------------
+
+
+def sustainability_standard_categories() -> tuple[str, ...]:
+    """Kategorien mit Hausstandard (Umsatz- und Verhaltenskriterien)."""
+    return tuple(c for c in SUSTAINABILITY_CATEGORIES if c in SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS)
+
+
+def effective_sustainability_standards(db: Session, tenant_id: str | None) -> list[dict]:
+    """Je Kategorie: Default (T-E1), Tenant-Wert und wirksame Schwelle."""
+    overrides = {}
+    if tenant_id is not None:
+        overrides = {
+            row.category: row
+            for row in db.query(SustainabilityExclusionStandard)
+            .filter(SustainabilityExclusionStandard.tenant_id == tenant_id)
+            .all()
+        }
+    items = []
+    for category in sustainability_standard_categories():
+        default = SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]
+        row = overrides.get(category)
+        items.append({
+            "category": category,
+            "criterion_type": criterion_type(category),
+            "default_threshold_bps": default,
+            "tenant_threshold_bps": row.max_revenue_threshold_bps if row is not None else None,
+            "effective_threshold_bps": row.max_revenue_threshold_bps if row is not None else default,
+            "is_overridden": row is not None,
+            "note": row.note if row is not None else None,
+            "updated_by": row.updated_by if row is not None else None,
+            "updated_at": row.updated_at if row is not None else None,
+        })
+    return items
+
+
+def effective_sustainability_threshold(db: Session, tenant_id: str | None, category: str) -> int | None:
+    """Wirksame Hausschwelle (bps) einer Kategorie; ``KeyError`` ohne Hausstandard."""
+    if category not in SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS:
+        raise KeyError(category)
+    for item in effective_sustainability_standards(db, tenant_id):
+        if item["category"] == category:
+            return item["effective_threshold_bps"]
+    raise KeyError(category)  # pragma: no cover - Katalog und Defaults sind synchron
+
+
+# --- Kriterium erfuellt? (T3 verdrahtet) ------------------------------------
+
+#: Begruendungen, schwerste zuerst (fuer die Lueckenliste in T3).
+CRITERION_REASONS: tuple[str, ...] = (
+    "satisfied",
+    "threshold_exceeded",
+    "exposure_present",
+    "classification_below_threshold",
+    "expired",
+    "not_yet_valid",
+    "not_approved",
+    "no_evidence",
+    "no_threshold",
+    "unknown_category",
+)
+
+
+@dataclass(frozen=True)
+class CriterionEvaluation:
+    satisfied: bool
+    reason: str
+    attribute_id: str | None = None
+    candidate_reasons: tuple[str, ...] = field(default_factory=tuple)
+
+
+def _row_reason(attribute, ctype: str, threshold, check_date: date) -> str:
+    if attribute.status != "approved":
+        return "not_approved"
+    start = _as_date(attribute.as_of)
+    end = _as_date(attribute.valid_until)
+    if start is None or end is None or check_date > end:
+        return "expired"
+    if check_date < start:
+        return "not_yet_valid"
+    if ctype == "revenue_threshold":
+        cutoff = attribute.revenue_threshold_bps
+        if cutoff is None or cutoff > threshold:
+            return "threshold_exceeded"
+        if attribute.kind == "measured_exposure":
+            # Messung mit Umsatzgrenze <= Hausschwelle: erfuellt nur, wenn
+            # KEIN Emittent ueber dieser Grenze im Produkt steckt (T-E4:
+            # keine Toleranz).
+            return "satisfied" if attribute.measured_exposure_bps == 0 else "exposure_present"
+        return "satisfied" if attribute.kind == "exclusion_policy" else "no_evidence"
+    if ctype == "conduct":
+        if attribute.kind == "exclusion_policy":
+            return "satisfied"
+        if attribute.kind == "measured_exposure":
+            return "satisfied" if attribute.measured_exposure_bps == 0 else "exposure_present"
+        return "no_evidence"
+    if attribute.category == "sfdr_classification":
+        try:
+            article = int(str(attribute.value))
+        except (TypeError, ValueError):
+            return "no_evidence"
+        return "satisfied" if article >= int(threshold) else "classification_below_threshold"
+    return "satisfied" if str(attribute.value or "").strip() else "no_evidence"
+
+
+def evaluate_criterion(
+    db: Session | None,
+    product,
+    category: str,
+    threshold: int | None,
+    as_of,
+    *,
+    tenant_id: str | None = None,
+    attributes=None,
+) -> CriterionEvaluation:
+    """Erfuellt ``product`` das Kriterium ``category`` am Stichtag ``as_of``?
+
+    ``threshold``: bei Umsatzkriterien die Hausschwelle in bps (Nachweis
+    zaehlt, wenn seine Umsatzgrenze <= threshold ist; Grenze inklusive);
+    bei ``sfdr_classification`` der Mindest-Artikel (8 oder 9); bei
+    ``ungc_violation`` und ``impact_theme`` ohne Bedeutung.
+
+    Zaehlt nur ein freigegebener Nachweis, dessen Stichtag <= as_of <=
+    gueltig bis ist und der fuer ``tenant_id`` sichtbar ist (Plattform oder
+    eigener Tenant). Entwuerfe, zurueckgezogene, abgelaufene und noch nicht
+    gueltige Nachweise sowie jede Angabe ausserhalb dieser Tabelle (Seed-
+    Felder am Produkt) erfuellen nichts. ``attributes`` erlaubt T3, die
+    Nachweise vorab gebuendelt zu laden.
+    """
+    ctype = criterion_type(category)
+    if ctype is None:
+        return CriterionEvaluation(False, "unknown_category")
+    needs_threshold = ctype == "revenue_threshold" or category == "sfdr_classification"
+    if needs_threshold and (threshold is None or isinstance(threshold, bool) or not isinstance(threshold, int)):
+        return CriterionEvaluation(False, "no_threshold")
+    check_date = _as_date(as_of)
+    if check_date is None:
+        return CriterionEvaluation(False, "no_threshold")
+    product_id = getattr(product, "id", product)
+    if attributes is None:
+        if db is None:
+            return CriterionEvaluation(False, "no_evidence")
+        attributes = db.query(ProductSustainabilityAttribute).filter(
+            ProductSustainabilityAttribute.product_id == product_id,
+            ProductSustainabilityAttribute.category == category,
+        ).all()
+    candidates = [
+        a for a in attributes
+        if a.product_id == product_id and a.category == category
+        and sustainability_attribute_visible_to_tenant(a, tenant_id)
+    ]
+    if not candidates:
+        return CriterionEvaluation(False, "no_evidence")
+    reasons = []
+    for attribute in sorted(candidates, key=lambda a: (str(a.as_of), str(a.id)), reverse=True):
+        reason = _row_reason(attribute, ctype, threshold, check_date)
+        if reason == "satisfied":
+            return CriterionEvaluation(True, "satisfied", attribute.id, tuple(reasons))
+        reasons.append(reason)
+    worst = min(reasons, key=CRITERION_REASONS.index)
+    return CriterionEvaluation(False, worst, None, tuple(reasons))
+
+
+def is_criterion_satisfied(
+    db: Session | None,
+    product,
+    category: str,
+    threshold: int | None,
+    as_of,
+    *,
+    tenant_id: str | None = None,
+    attributes=None,
+) -> bool:
+    """Boolesche Kurzform von evaluate_criterion() (fail-closed)."""
+    return evaluate_criterion(
+        db, product, category, threshold, as_of, tenant_id=tenant_id, attributes=attributes,
+    ).satisfied
