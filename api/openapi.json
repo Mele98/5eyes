@@ -6528,6 +6528,17 @@
             ],
             "title": "Mitigation Action"
           },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
           "reimbursed_to_client": {
             "anyOf": [
               {
@@ -6675,6 +6686,17 @@
               }
             ],
             "title": "Mitigation Action"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
           },
           "reimbursed_to_client": {
             "default": 0,
@@ -15823,6 +15845,30 @@
             ],
             "title": "Isin"
           },
+          "mandate_disclosed_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteil des im Mandat aufgeklaerten (offengelegten) Betrags",
+            "title": "Mandate Disclosed Rappen"
+          },
+          "mandate_resolved_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Davon geregelt (zurueckerstattet oder Verzicht belegt, jaehrlich)",
+            "title": "Mandate Resolved Rappen"
+          },
           "product_id": {
             "anyOf": [
               {
@@ -15890,6 +15936,7 @@
             "enum": [
               "reimbursed",
               "waiver_documented",
+              "partially_covered",
               "unresolved",
               "not_applicable",
               "unknown"
@@ -15900,6 +15947,30 @@
           "treatment_label": {
             "title": "Treatment Label",
             "type": "string"
+          },
+          "undisclosed_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)",
+            "title": "Undisclosed Rappen"
+          },
+          "unresolved_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)",
+            "title": "Unresolved Rappen"
           }
         },
         "required": [

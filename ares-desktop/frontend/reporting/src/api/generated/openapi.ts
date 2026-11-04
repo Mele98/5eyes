@@ -6953,6 +6953,8 @@ export interface components {
             inducement_provider?: string | null;
             /** Mitigation Action */
             mitigation_action?: string | null;
+            /** Product Id */
+            product_id?: string | null;
             /** Reimbursed To Client */
             reimbursed_to_client?: boolean | null;
             /** Waiver Document Id */
@@ -6992,6 +6994,8 @@ export interface components {
             missing_evidence?: string[];
             /** Mitigation Action */
             mitigation_action: string | null;
+            /** Product Id */
+            product_id?: string | null;
             /**
              * Reimbursed To Client
              * @default 0
@@ -9912,6 +9916,16 @@ export interface components {
             estimated_annual_rappen?: number | null;
             /** Isin */
             isin?: string | null;
+            /**
+             * Mandate Disclosed Rappen
+             * @description Anteil des im Mandat aufgeklaerten (offengelegten) Betrags
+             */
+            mandate_disclosed_rappen?: number | null;
+            /**
+             * Mandate Resolved Rappen
+             * @description Davon geregelt (zurueckerstattet oder Verzicht belegt, jaehrlich)
+             */
+            mandate_resolved_rappen?: number | null;
             /** Product Id */
             product_id?: string | null;
             /** Product Name */
@@ -9939,9 +9953,19 @@ export interface components {
              * Treatment
              * @enum {string}
              */
-            treatment: "reimbursed" | "waiver_documented" | "unresolved" | "not_applicable" | "unknown";
+            treatment: "reimbursed" | "waiver_documented" | "partially_covered" | "unresolved" | "not_applicable" | "unknown";
             /** Treatment Label */
             treatment_label: string;
+            /**
+             * Undisclosed Rappen
+             * @description Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)
+             */
+            undisclosed_rappen?: number | null;
+            /**
+             * Unresolved Rappen
+             * @description Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)
+             */
+            unresolved_rappen?: number | null;
         };
         /** ProductUniverseEntryCreate */
         ProductUniverseEntryCreate: {
