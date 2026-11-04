@@ -69,6 +69,9 @@ EXPECTED_REFERENCE_TABLES = frozenset({
     "product_sustainability_attributes",  # AUDIT-2026-11 T1
     "products",
 })
+# Referenztabellen der Migration e2b7c4f9a1d6; product_sustainability_attributes
+# kommt erst mit d7f3b1a9c5e2 (AUDIT-2026-11 T1, eigene Policies).
+E2B7_REFERENCE_TABLES = EXPECTED_REFERENCE_TABLES - {"product_sustainability_attributes"}
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"
 
@@ -506,17 +509,61 @@ def test_migration_upgrade_downgrade_is_idempotent_and_matches_runtime(migration
         "tenant_reference_select", "tenant_reference_insert",
         "tenant_reference_update", "tenant_reference_delete",
     }
-    assert len(after_migration) == 4 * len(EXPECTED_REFERENCE_TABLES)
+    assert len(after_migration) == 4 * len(E2B7_REFERENCE_TABLES)
 
     # Startup-Pfad (init_db) erzeugt exakt dieselben Policies.
     with engine.begin() as conn:
-        ensure_postgres_rls_policies(conn, table_names=sorted(EXPECTED_REFERENCE_TABLES))
+        ensure_postgres_rls_policies(conn, table_names=sorted(E2B7_REFERENCE_TABLES))
     assert _reference_policies(engine, schema) == after_migration
 
     command.downgrade(cfg, MIGRATION_DOWN_REVISION)
     downgraded = _reference_policies(engine, schema)
-    assert set(downgraded) == {(t, "tenant_isolation") for t in EXPECTED_REFERENCE_TABLES}
+    assert set(downgraded) == {(t, "tenant_isolation") for t in E2B7_REFERENCE_TABLES}
     assert all(cmd == "ALL" and "IS NULL" not in qual for cmd, qual, _ in downgraded.values())
 
     command.upgrade(cfg, MIGRATION_REVISION)
     assert _reference_policies(engine, schema) == after_migration
+
+
+T1_REVISION = "d7f3b1a9c5e2"
+T1_DOWN_REVISION = "d4f7a9c2e1b6"
+
+
+def test_t1_migration_policies_match_runtime_and_downgrade_cleanly(migration_schema):
+    """AUDIT-2026-11 T1: d7f3b1a9c5e2 legt die Referenz-Policies fuer
+    product_sustainability_attributes und die strikte Policy fuer
+    sustainability_exclusion_standards an -- identisch zum Startup-Pfad."""
+    cfg, engine, schema = (
+        migration_schema["cfg"], migration_schema["engine"], migration_schema["schema"],
+    )
+
+    def policies():
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT tablename, policyname, cmd, coalesce(qual, ''), coalesce(with_check, '')"
+                    " FROM pg_policies WHERE schemaname = :s AND tablename = ANY(:t)"
+                ),
+                {"s": schema, "t": ["product_sustainability_attributes", "sustainability_exclusion_standards"]},
+            ).all()
+        return {(r[0], r[1]): (r[2], r[3], r[4]) for r in rows}
+
+    command.upgrade(cfg, T1_REVISION)
+    after = policies()
+    assert {name for (t, name) in after if t == "product_sustainability_attributes"} == {
+        "tenant_reference_select", "tenant_reference_insert",
+        "tenant_reference_update", "tenant_reference_delete",
+    }
+    assert set(k for k in after if k[0] == "sustainability_exclusion_standards") == {
+        ("sustainability_exclusion_standards", "tenant_isolation"),
+    }
+    assert "IS NULL" not in after[("sustainability_exclusion_standards", "tenant_isolation")][1]
+    with engine.begin() as conn:
+        ensure_postgres_rls_policies(
+            conn, table_names=["product_sustainability_attributes", "sustainability_exclusion_standards"],
+        )
+    assert policies() == after
+    command.downgrade(cfg, T1_DOWN_REVISION)
+    assert policies() == {}
+    command.upgrade(cfg, T1_REVISION)
+    assert policies() == after
