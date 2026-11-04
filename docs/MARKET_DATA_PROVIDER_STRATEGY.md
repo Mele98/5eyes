@@ -2,7 +2,7 @@
 
 ## Zielbild
 
-5Eyes trennt den Datenstack in Rollen statt in einen einzigen "Preisprovider". Das ist wichtig, weil Preisabruf, Identifier-Mapping, Fondsreferenzdaten und Makrodaten unterschiedliche Qualitaets- und Betriebsanforderungen haben.
+Ares trennt den Datenstack in Rollen statt in einen einzigen "Preisprovider". Das ist wichtig, weil Preisabruf, Identifier-Mapping, Fondsreferenzdaten und Makrodaten unterschiedliche Qualitaets- und Betriebsanforderungen haben.
 
 ## Aktiver Runtime-Stand
 

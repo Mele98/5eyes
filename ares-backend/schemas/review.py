@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
@@ -1374,6 +1375,30 @@ class RecommendationRunResponse(BaseResponse):
     updated_at: str
 
 
+_FINALIZE_WARNING_CODE_RE = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
+
+
+def finalize_warning_codes(warnings: list[str]) -> list[str]:
+    """N-856-7: strukturierte Codes aus den ``[CODE]``-Suffixen der
+    Finalize-Warnungen, dedupliziert in Reihenfolge des Auftretens."""
+    codes: list[str] = []
+    for text in warnings or []:
+        for code in _FINALIZE_WARNING_CODE_RE.findall(str(text)):
+            if code not in codes:
+                codes.append(code)
+    return codes
+
+
+class RecommendationFinalizeResponse(RecommendationRunResponse):
+    """N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.
+
+    ``warnings`` ist identisch zum Audit-Log-Eintrag ("Final; Warnungen:
+    ..."), ``warning_codes`` die daraus gelesenen Codes (z. B.
+    SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED)."""
+    warnings: list[str] = Field(default_factory=list)
+    warning_codes: list[str] = Field(default_factory=list)
+
+
 class RecommendationPositionCreate(BaseModel):
     product_id: str
     # REC-002 (Codex-Audit 2026-08-25): _validate_recommendation_for_
@@ -1521,8 +1546,13 @@ class RecommendationGenerateResponse(BaseModel):
     implementation_steps: list[str]
     advisory_wealth_rappen: int
     investable_advisory_wealth_rappen: Optional[int] = None
+    # PO-04 (Audit 2026-11): expected_* beschreiben das UMGESETZTE Portfolio
+    # (Sub-Klassen der gewaehlten Produkte); saa_expected_* die SAA.
     expected_return_bps: int
     expected_volatility_bps: int
+    saa_expected_return_bps: Optional[int] = None
+    saa_expected_volatility_bps: Optional[int] = None
+    implementation_metrics: dict = Field(default_factory=dict)
     average_ter_bps: int
     average_ter_coverage_bps: int = 0
     missing_ter_positions_count: int = 0

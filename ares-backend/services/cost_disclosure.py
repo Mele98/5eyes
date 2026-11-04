@@ -411,7 +411,7 @@ def build_cost_disclosure_for_run(
     from models.allocation import OptimizerPolicy, TargetAllocation
     from models.review import (
         ConflictOfInterestDisclosure, Product, ProductUniverseEntry,
-        RecommendationPosition,
+        RecommendationHolding, RecommendationPosition, RecommendationRun,
     )
 
     currency = str(
@@ -428,12 +428,44 @@ def build_cost_disclosure_for_run(
         )
         fee_model = _parse_fee_model(getattr(policy, "fee_model_json", None))
 
-    rows = (
-        db.query(RecommendationPosition, Product)
+    # PO-17 / N-856-3 / N-856-9: EINE Abfrage (Report-Query-Budget) liefert
+    # die Positionen dieses Laufs UND aller frueheren Laeufe des Mandats (bis
+    # zu diesem), jeweils mit ihren Holdings per Outer Join. Je Position dieses
+    # Laufs zaehlt die juengste Holding (Regel des Live-Rebalancings, geloescht
+    # = kein Bestand); aus den frueheren Laeufen je Produkt die juengste
+    # Holding (Regel von holdings_not_carried_over).
+    run_created_at = str(getattr(latest_run, "created_at", "") or "")
+    joined_rows = (
+        db.query(RecommendationPosition, Product, RecommendationHolding, RecommendationRun.created_at)
         .join(Product, Product.id == RecommendationPosition.product_id)
-        .filter(RecommendationPosition.run_id == latest_run.id)
+        .join(RecommendationRun, RecommendationRun.id == RecommendationPosition.run_id)
+        .outerjoin(
+            RecommendationHolding,
+            (RecommendationHolding.recommendation_position_id == RecommendationPosition.id)
+            & (RecommendationHolding.run_id == RecommendationPosition.run_id),
+        )
+        .filter(
+            RecommendationRun.mandate_id == mandate.id,
+            (RecommendationPosition.run_id == latest_run.id)
+            | (RecommendationRun.created_at <= run_created_at),
+        )
         .all()
     )
+    rows = []
+    latest_holding: dict[str, Any] = {}
+    earlier_holdings: list[tuple[str, Any]] = []
+    for position, product, holding, created_at in joined_rows:
+        if position.run_id != latest_run.id:
+            if holding is not None:
+                earlier_holdings.append((str(created_at or ""), holding))
+            continue
+        if position.id not in latest_holding:
+            rows.append((position, product))
+            latest_holding[position.id] = None
+        if holding is not None:
+            current = latest_holding[position.id]
+            if current is None or str(holding.updated_at or "") > str(current.updated_at or ""):
+                latest_holding[position.id] = holding
     # 2026-07-27 (Fonds-Kuratierung): eine Verwaltung kann fuer ein Produkt
     # eine eigene, ausgehandelte Gebuehr hinterlegt haben (ProductUniverseEntry.
     # override_ter_bps) -- live nachgeschlagen (kein Snapshot), damit eine
@@ -462,8 +494,37 @@ def build_cost_disclosure_for_run(
         ter_bps_overrides = {
             entry.product_id: int(entry.override_ter_bps) for entry in override_entries
         }
+    holding_values: dict[str, int | None] = {
+        position_id: (int(h.market_value_rappen) if h.market_value_rappen is not None else None)
+        for position_id, h in latest_holding.items()
+        if h is not None and h.deleted_at is None
+    }
+    # N-856-3 / N-856-9: Bestaende frueherer Laeufe, deren Produkt dieser
+    # Lauf nicht mehr enthaelt, werden verkauft und gehoeren in den Umschlag
+    # -- unabhaengig davon, ob der Lauf selbst Bestaende traegt (N-856-9).
+    uncarried_holdings: list[dict[str, Any]] = []
+    run_products = {product.id for _, product in rows}
+    latest_by_product: dict[str, Any] = {}
+    for _created, holding in sorted(
+        earlier_holdings, key=lambda item: (item[0], str(item[1].updated_at or "")), reverse=True,
+    ):
+        latest_by_product.setdefault(holding.product_id, holding)
+    for product_id, holding in sorted(latest_by_product.items()):
+        if product_id in run_products or holding.deleted_at is not None:
+            continue
+        if int(holding.units_milli or 0) <= 0 and int(holding.market_value_rappen or 0) <= 0:
+            continue
+        uncarried_holdings.append({
+            "value_rappen": (
+                int(holding.market_value_rappen)
+                if holding.market_value_rappen is not None and int(holding.market_value_rappen) > 0
+                else None
+            ),
+        })
     positions = [
         {
+            "holding_present": position.id in holding_values,
+            "holding_value_rappen": holding_values.get(position.id),
             "amount_rappen": int(
                 getattr(position, "target_amount_rappen", 0)
                 or getattr(position, "current_amount_rappen", 0)
@@ -593,6 +654,7 @@ def build_cost_disclosure_for_run(
                 default=DEFAULT_TRANSACTION_COST_BPS,
             ),
             inducements=inducements,
+            uncarried_holdings=uncarried_holdings,
             source_run_id=str(latest_run.id),
         source_run_status=str(getattr(latest_run, "result_status", "") or ""),
             as_of=str(getattr(latest_run, "created_at", "") or ""),
@@ -615,6 +677,7 @@ def calculate_cost_disclosure(
     fee_model: Mapping[str, Any] | str | None,
     transaction_cost_bps: int = DEFAULT_TRANSACTION_COST_BPS,
     inducements: Iterable[Mapping[str, Any]] | None = None,
+    uncarried_holdings: Iterable[Mapping[str, Any]] | None = None,
     source_run_id: str | None = None,
     source_run_status: str | None = None,
     as_of: str | None = None,
@@ -636,10 +699,44 @@ def calculate_cost_disclosure(
             "amount_rappen": max(0, _safe_int(item.get("amount_rappen"))),
             "weight_bps": max(0, _safe_int(item.get("weight_bps"))),
             "ter_bps": _optional_non_negative_int(item.get("ter_bps")),
+            "holding_present": bool(item.get("holding_present")),
+            "holding_value_rappen": max(0, _safe_int(item.get("holding_value_rappen"))),
         }
         for item in positions
     ]
     invested_amount = sum(item["amount_rappen"] for item in clean_positions)
+    # PO-17 (Audit 2026-11): Transaktionskosten fallen auf das GEHANDELTE
+    # Volumen an. Ist fuer mindestens eine Position ein Bestand erfasst, ist
+    # die Basis der Umschlag sum(|Ziel - Bestand|); ein Bestand ohne Marktwert
+    # zaehlt konservativ als 0 (voller Kauf). Ohne jeden Bestand bleibt es die
+    # Erstumsetzung des ganzen Volumens.
+    holdings_recorded = any(item["holding_present"] for item in clean_positions)
+    traded_amount = (
+        sum(abs(item["amount_rappen"] - item["holding_value_rappen"]) for item in clean_positions)
+        if holdings_recorded
+        else invested_amount
+    )
+    # N-856-3: Verkaeufe nicht uebernommener Bestaende gehoeren zum Umschlag.
+    # Ist ein solcher Bestand ohne Marktwert, ist sein Verkaufsvolumen
+    # unbekannt -> konservativ mindestens das ganze Volumen.
+    uncarried = list(uncarried_holdings or [])
+    uncarried_unvalued = any(item.get("value_rappen") is None for item in uncarried)
+    uncarried_notes: list[str] = []
+    if uncarried:
+        # N-856-9: auch ohne Bestand im Lauf (dann Kauf des ganzen Volumens
+        # plus Verkauf der alten Bestaende).
+        traded_amount += sum(max(0, _safe_int(item.get("value_rappen"))) for item in uncarried)
+        uncarried_notes.append(
+            f"{len(uncarried)} Bestand/Bestaende aus frueheren Laeufen ist/sind nicht in die "
+            "Empfehlung uebernommen; deren Verkauf ist im gehandelten Volumen enthalten."
+        )
+        if uncarried_unvalued:
+            traded_amount = max(traded_amount, invested_amount)
+            uncarried_notes.append(
+                "Mindestens ein nicht uebernommener Bestand ist ohne Marktwert erfasst; "
+                "die Transaktionskosten werden konservativ mindestens auf das ganze "
+                "Produktvolumen gerechnet."
+            )
     advisory_wealth = max(0, _safe_int(advisory_wealth_rappen))
     # FIDLEG: ist das echte Beratungsvermögen nicht erfasst, wird als Näherung das
     # investierte Produktvolumen als Gebührenbasis genutzt. Dann darf die Basis NICHT
@@ -756,7 +853,31 @@ def calculate_cost_disclosure(
     transaction_rate = _require_rate_bps(
         transaction_cost_bps, location="transaction_cost_bps"
     )
-    if invested_amount > 0 and transaction_rate > 0:
+    warnings.extend(uncarried_notes if transaction_rate > 0 else [])
+    turnover_mode = holdings_recorded or bool(uncarried)  # N-856-9
+    if turnover_mode and transaction_rate > 0 and traded_amount > 0:
+        items.append(_rate_item(
+            key="initial_transaction_costs",
+            label="Transaktionskosten Umsetzung (Umschlag)",
+            category="Erwerbs-/Transaktionskosten",
+            frequency="einmalig",
+            rate_bps=transaction_rate,
+            basis_rappen=traded_amount,
+            basis_label="Gehandeltes Volumen (Käufe und Verkäufe gegenüber erfasstem Bestand)",
+            source="Konservative Ex-ante-Annahme",
+            is_estimate=True,
+        ))
+        warnings.append(
+            "Transaktionskosten sind eine Ex-ante-Schätzung auf das gehandelte "
+            "Volumen (Umschlag gegenüber dem erfassten Bestand); tatsächliche "
+            "Spreads, Courtagen und Börsenabgaben können abweichen."
+        )
+    elif turnover_mode and transaction_rate > 0:
+        warnings.append(
+            "Keine Transaktionskosten ausgewiesen: der erfasste Bestand entspricht "
+            "bereits der Empfehlung (kein Umschlag)."
+        )
+    elif invested_amount > 0 and transaction_rate > 0:
         items.append(_rate_item(
             key="initial_transaction_costs",
             label="Transaktionskosten Erstumsetzung",
@@ -770,8 +891,8 @@ def calculate_cost_disclosure(
         ))
         warnings.append(
             "Transaktionskosten sind eine Ex-ante-Schätzung für die "
-            "Erstumsetzung; tatsächliche Spreads, Courtagen und "
-            "Börsenabgaben können abweichen."
+            "Erstumsetzung des ganzen Produktvolumens (kein Bestand erfasst); "
+            "tatsächliche Spreads, Courtagen und Börsenabgaben können abweichen."
         )
 
     # 2026-07-27 (Retrozessions-Feature): FIDLEG Art. 25/26 + BGE 132 III 460

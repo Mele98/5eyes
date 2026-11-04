@@ -27,6 +27,21 @@ from models.mandates import Mandate
 from models.review import ReviewTrigger
 from models.users import User
 
+# W4-d: Kalender-Identitaet. PRODID nach Spec; der Domain-Teil der UID kommt
+# ausschliesslich aus ARES_DOMAIN (Owner-Wert, kein Default). Ohne Domain ist
+# die UID ``ares-trigger-<id>`` -- RFC 5545 (3.8.4.7) verlangt nur global
+# eindeutige UIDs, die "@domain"-Form ist eine Empfehlung, keine Pflicht.
+# Die Domain reicht der Router aus ``settings.ares_domain`` herein (dieses
+# Modul liest keine Konfiguration; Architektur-Ratsche fan_out).
+ICS_PRODID = "-//Ares//Advisory Calendar//DE"
+ICS_UID_PREFIX = "ares-trigger-"
+
+
+def event_uid(trigger_id: object, domain: str = "") -> str:
+    domain = str(domain or "").strip()
+    base = f"{ICS_UID_PREFIX}{trigger_id}"
+    return f"{base}@{domain}" if domain else base
+
 
 # Trigger-Status, die eine tatsaechliche Handlungsaufforderung fuer den
 # Berater darstellen -- "Erledigt" (kein next_due_at mehr fuer nicht-
@@ -115,7 +130,7 @@ def _all_day_event(
     return lines
 
 
-def build_ics_feed(db: Session, user: User) -> str:
+def build_ics_feed(db: Session, user: User, *, domain: str = "") -> str:
     """Baut den .ics-Kalendertext fuer alle faelligen/bald faelligen Review-
     Trigger der Mandate, bei denen `user` aktuell der zugewiesene Berater
     ist (Client.advisor_id == user.id) -- bewusst NICHT der vollstaendige
@@ -140,7 +155,7 @@ def build_ics_feed(db: Session, user: User) -> str:
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//5Eyes WealthArchitekten//Review-Kalender//DE",
+        f"PRODID:{ICS_PRODID}",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
         "X-WR-CALNAME:Ares",
@@ -165,7 +180,7 @@ def build_ics_feed(db: Session, user: User) -> str:
         description = " | ".join(description_parts)
         lines.extend(
             _all_day_event(
-                uid=f"5eyes-trigger-{trigger.id}@wealtharchitekten.ch",
+                uid=event_uid(trigger.id, domain),
                 dtstamp=dtstamp,
                 due_date=due_date,
                 summary=summary,

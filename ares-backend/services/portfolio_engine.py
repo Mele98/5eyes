@@ -152,8 +152,8 @@ GOAL_WEIGHT_BY_RANK = {
     4: 1250,
     5: 625,
 }
-DEFAULT_POLICY_NAME = "5Eyes V1 Standard"
-DEFAULT_CMA_NAME = "5Eyes V1 Hausmeinung"
+DEFAULT_POLICY_NAME = "Ares V1 Standard"
+DEFAULT_CMA_NAME = "Ares V1 Hausmeinung"
 
 
 class StaleAllocationInputError(ValueError):
@@ -1447,6 +1447,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_is_structured,
     _product_matches_constraints,
     _product_score,
+    _product_selection_key,
     theme_screening_disclosure,
     esg_policy_gap_hint,
     default_catalog_theme_tags,
@@ -1864,7 +1865,7 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
                 "2040": 110,
             }),
             sub_asset_class_assumptions_json=json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS),
-            source="5Eyes Default Runtime",
+            source="Ares Default Runtime",
             notes="Automatisch erzeugte Default-CMA fuer V1-Engine",
             created_by=user_id,
             created_at=now,
@@ -6168,6 +6169,67 @@ def build_target_payload_from_allocation(
     }
 
 
+def _implementation_metrics(target_payload: dict, cma: CapitalMarketAssumption, positions: list[dict]) -> dict:
+    """PO-04 (Audit 2026-11): Rendite/Volatilitaet des UMGESETZTEN Portfolios.
+
+    Bewertet die Sub-Klassen der gewaehlten Produkte mit denselben CMA-Sub-
+    Annahmen wie die SAA (_expected_metrics, keine neuen Werte). Stimmt ein
+    Bucket mit der SAA ueberein, werden dessen SAA-Zeilen unveraendert
+    uebernommen; ohne jede Abweichung sind die Kennzahlen identisch.
+    """
+    def _bucket(label) -> str | None:
+        return _ASSET_CLASS_LABEL_TO_BUCKET.get(_norm_text(label))
+
+    saa_rows = [r for r in target_payload.get("sub_allocations") or [] if int(r.get("target_weight_bps") or 0) > 0]
+    saa: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    impl: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for row in saa_rows:
+        saa[_bucket(row.get("asset_class"))][str(row.get("sub_asset_class") or "")] += int(row["target_weight_bps"])
+    for pos in positions:
+        impl[_bucket(pos.get("asset_class"))][str(pos.get("sub_asset_class") or "")] += int(pos.get("target_weight_bps") or 0)
+    saa_ret, saa_vol = int(target_payload["expected_return_bps"]), int(target_payload["expected_volatility_bps"])
+    deviating = sorted({sub for b in set(saa) | set(impl) for sub in set(saa[b]) | set(impl[b]) if saa[b].get(sub, 0) != impl[b].get(sub, 0)})
+    ret, vol = saa_ret, saa_vol
+    if deviating:
+        rows = [r for r in saa_rows if dict(saa[_bucket(r.get("asset_class"))]) == dict(impl[_bucket(r.get("asset_class"))])]
+        rows += [
+            {"asset_class": BUCKET_LABELS[b], "sub_asset_class": sub, "target_weight_bps": w}
+            for b, subs in impl.items() if b and dict(subs) != dict(saa[b]) for sub, w in subs.items() if w > 0
+        ]
+        targets = {key: sum(impl[key].values()) for key in BUCKET_FIELDS}
+        metrics = _expected_metrics(targets, cma, rows)
+        ret, vol = int(metrics["expected_return_bps"]), int(metrics["expected_volatility_bps"])
+    # N-856-6: Gewichtssumme != 10'000 (Luecke PO-08, manuelle Positionen) und
+    # nicht zuordenbare Positionen werden NICHT normiert (die Behandlung der
+    # Luecke ist Owner-Entscheid), aber ausgewiesen: beide senken die Momente.
+    weight_sum = sum(int(p.get("target_weight_bps") or 0) for p in positions)
+    unmapped = sum(impl[None].values()) if None in impl else 0
+    caveat = (f" Positionsgewichte {weight_sum / 100:.2f}% statt 100%" if weight_sum != 10000 else "") + (
+        f", davon {unmapped / 100:.2f}% ohne zuordenbare Anlageklasse (nicht bewertet)" if unmapped else "")
+    return {
+        "expected_return_bps": ret,
+        "expected_volatility_bps": vol,
+        "saa_expected_return_bps": saa_ret,
+        "saa_expected_volatility_bps": saa_vol,
+        "implementation_metrics": {
+            # N-856-4: Bedeutungs-Version von expected_* (ab PO-04 = Umsetzung).
+            "metrics_basis": "implementation_v1",
+            "basis": "umsetzung",
+            "label": "Kennzahlen des umgesetzten Portfolios (Sub-Klassen der gewaehlten Produkte, CMA-Sub-Annahmen der SAA)",
+            "saa_label": "Kennzahlen der strategischen Soll-Allokation (SAA)",
+            "deviates_from_saa": bool(deviating),
+            "deviating_sub_asset_classes": deviating,
+            "position_weight_sum_bps": weight_sum,
+            "unmapped_weight_bps": unmapped,
+        },
+        "warning": (
+            f"Kennzahlen der Umsetzung weichen von der SAA ab (Produktersatz, abweichende Sub-Klassen: {', '.join(deviating)}). "
+            "Erwartete Rendite und Volatilitaet beschreiben das umgesetzte Portfolio; die SAA-Kennzahlen sind separat ausgewiesen."
+            + (f" Hinweis:{caveat}; die Kennzahlen sind darauf nicht normiert." if caveat else "")
+        ) if deviating else None,
+    }
+
+
 def build_recommendation_payload_from_run(
     db: Session,
     mandate: Mandate,
@@ -6386,6 +6448,8 @@ def build_recommendation_payload_from_run(
             }
         )
 
+    impl_metrics = _implementation_metrics(target_payload, cma, positions_payload)
+    warnings.extend([impl_metrics["warning"]] if impl_metrics["warning"] else [])
     avg_ter_bps = _average_ter_bps(positions_payload)
     missing_ter_count = _missing_ter_positions_count(positions_payload)
     ter_coverage_bps = _ter_coverage_bps(positions_payload)
@@ -6400,8 +6464,7 @@ def build_recommendation_payload_from_run(
         "implementation_steps": _implementation_steps(target_payload["buckets"], investable_advisory_wealth_rappen),
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
-        "expected_return_bps": int(target_payload["expected_return_bps"]),
-        "expected_volatility_bps": int(target_payload["expected_volatility_bps"]),
+        **{k: v for k, v in impl_metrics.items() if k != "warning"},  # PO-04
         "average_ter_bps": avg_ter_bps,
         "average_ter_coverage_bps": ter_coverage_bps,
         "missing_ter_positions_count": missing_ter_count,
@@ -6692,10 +6755,9 @@ def generate_recommendation_run(
                 "theme_gap_hint": theme_gap_hint,
             })
             continue
-        ranked = sorted(
+        ranked = sorted(  # PO-13: stabiler Tie-Break (ISIN, dann ID) statt DB-Reihenfolge
             candidates,
-            key=lambda product: _product_score(product, sub["sub_asset_class"], prefs, jurisdiction_ctx=jurisdiction_ctx),
-            reverse=True,
+            key=lambda product: _product_selection_key(product, sub["sub_asset_class"], prefs, jurisdiction_ctx=jurisdiction_ctx),
         )
         best = ranked[0]
         target_amount = int(round(investable_advisory_wealth_rappen * int(sub["target_weight_bps"]) / 10000))
@@ -6910,6 +6972,8 @@ def generate_recommendation_run(
         item["rebalance_action_code"] = live_position.get("rebalance_action_code")
         item["rebalance_action_label"] = live_position.get("rebalance_action_label")
 
+    impl_metrics = _implementation_metrics(target_payload, cma, positions_payload)
+    warnings.extend([impl_metrics["warning"]] if impl_metrics["warning"] else [])
     avg_ter_bps = _average_ter_bps(positions_payload)
     missing_ter_count = _missing_ter_positions_count(positions_payload)
     ter_coverage_bps = _ter_coverage_bps(positions_payload)
@@ -6924,8 +6988,7 @@ def generate_recommendation_run(
         "implementation_steps": _implementation_steps(target_payload["buckets"], investable_advisory_wealth_rappen),
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
-        "expected_return_bps": int(target_payload["expected_return_bps"]),
-        "expected_volatility_bps": int(target_payload["expected_volatility_bps"]),
+        **{k: v for k, v in impl_metrics.items() if k != "warning"},  # PO-04
         "average_ter_bps": avg_ter_bps,
         "average_ter_coverage_bps": ter_coverage_bps,
         "missing_ter_positions_count": missing_ter_count,
