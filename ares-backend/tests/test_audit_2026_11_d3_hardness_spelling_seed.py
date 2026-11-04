@@ -76,9 +76,19 @@ def test_unknown_or_missing_hardness_is_canonicalized_like_the_engine_reads_it(v
     assert goal_economic_fingerprint([_goal(value)], valuation_year=2026) == [_legacy_row(_goal("Primär"))]
 
 
-def test_engine_version_marks_the_canonicalization():
+def test_fingerprint_scheme_marks_the_canonicalization_without_reseeding():
     """H-859-8: Neuberechnungen von Altdaten mit abweichender Schreibweise
-    ziehen einen anderen Wuerfel; die Engine-Version trennt sie von v18."""
-    from services.optimizer import solver
+    ziehen einen anderen Wuerfel. Die Marke ``goal_fingerprint_scheme``
+    trennt solche Laeufe (Resampling-Evidenz und Modellbasis) -- sie geht
+    bewusst NICHT in den Seed, damit gespeicherte Schreibweisen ihren
+    Wuerfel behalten."""
+    import inspect
 
-    assert solver.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v19"
+    from services.optimizer import resampling, solver
+
+    assert solver.GOAL_FINGERPRINT_SCHEME == "goal_economic_fingerprint_v2_hardness_canonical"
+    assert solver.OPTIMIZER_ENGINE_VERSION == "saa_resampled_v18"
+    assert "goal_fingerprint_scheme" in resampling._MODEL_BASIS_FIELDS
+    seed_source = inspect.getsource(solver.optimizer_content_seed)
+    assert "GOAL_FINGERPRINT_SCHEME" not in seed_source
+    assert '"goal_fingerprint_scheme": GOAL_FINGERPRINT_SCHEME' in inspect.getsource(solver)

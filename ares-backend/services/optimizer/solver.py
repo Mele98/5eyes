@@ -1641,15 +1641,19 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Bewertungsstichtags statt im Eroeffnungsjahr des Mandats (eine Uhr mit der
 # Cashflow-/Zielachse, ADR-2). Rechenwirksam nur fuer Mandate aus Vorjahren mit
 # Steuerbasis, Pensionierungsjahr oder Mortalitaets-Simulation.
-#
-# v19 (2026-11-03, AUDIT-2026-11 D3 + Pruefrunde #859 H-859-8): der
-# Haertegrad geht kanonisiert in den Inhalts-Fingerabdruck ein ("Primaer",
-# "primary", None und unbekannte Werte -> "Primär", wie ihn
-# goal_liabilities._hardness_key fachlich liest). Rechnung unveraendert;
-# eine Neuberechnung von Altdaten mit abweichender Schreibweise zieht damit
-# einen anderen Wuerfel -- die Versionsmarke trennt solche Laeufe von
-# v18-Laeufen. Bewusst neue Wuerfel (die Version geht in den Seed).
-OPTIMIZER_ENGINE_VERSION = "saa_resampled_v19"
+OPTIMIZER_ENGINE_VERSION = "saa_resampled_v18"
+
+# AUDIT-2026-11 D3 + Pruefrunde #859 H-859-8: Schema des Ziel-Fingerabdrucks.
+# v2 kanonisiert den Haertegrad ("Primaer", "primary", None und unbekannte
+# Werte -> "Primär", wie goal_liabilities._hardness_key ihn fachlich liest).
+# Rechnung unveraendert; eine Neuberechnung von Altdaten mit abweichender
+# Schreibweise zieht damit einen anderen Wuerfel. Die Marke steht in der
+# Resampling-Evidenz und in der Modellbasis (allocation_context_hash) und
+# trennt solche Laeufe von frueheren. Bewusst NICHT im Seed: die
+# gespeicherten Schreibweisen ("Hart"/"Primär"/"Opportunistisch") behalten so
+# ihren Wuerfel -- ein Versionssprung haette jeden Lauf neu gewuerfelt
+# (gemessen: Golden Score 7/9 und ein Risikomass-Variantentest verschoben).
+GOAL_FINGERPRINT_SCHEME = "goal_economic_fingerprint_v2_hardness_canonical"
 
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
@@ -1707,7 +1711,7 @@ def _seed_goal_date(value, valuation_year: int):
 # "Hart"/"Primär"/"Opportunistisch").
 # H-859-8: None und unbekannte Werte liest goal_liabilities._hardness_key
 # fachlich als "primaer"; sie werden daher ebenfalls auf "Primär"
-# kanonisiert (Engine-Version v19, siehe dort).
+# kanonisiert (Marke GOAL_FINGERPRINT_SCHEME, siehe dort).
 _CANONICAL_HARDNESS_LABEL = {
     "hart": "Hart",
     "primaer": "Primär",
@@ -4322,6 +4326,7 @@ def _run_resampled_solver(
         "scheme": RESAMPLING_SCHEME_VERSION,
         "seed_scheme": OPTIMIZER_SEED_SCHEME,
         "engine_version": OPTIMIZER_ENGINE_VERSION,
+        "goal_fingerprint_scheme": GOAL_FINGERPRINT_SCHEME,
         # ObjectiveContractV2 (Engine v7): alle Koeffizienten, Scopes und
         # Policy-Versionen dieses Laufs samt Hash (Audit und Modellbasis).
         "objective_contract": _contract_evidence(context),
