@@ -3336,6 +3336,7 @@ def generate_target_allocation(
                 {"liquidity": "globale Liquiditaets-Untergrenze des Modells"}
                 if floor_raised_liquidity else None
             ),
+            maximums=optimizer_maximums,
         )
         optimizer_targets = _rebalance_to_total(
             optimizer_targets,
@@ -3402,6 +3403,7 @@ def generate_target_allocation(
             {**optimizer_targets, **manual_preferred_target_bps}, optimizer_minimums,
             manual_locked_buckets, bucket_labels=BUCKET_LABELS,
             min_sources={"liquidity": "zwingend vorzuhaltende Zielreserve"},
+            maximums=optimizer_maximums,
         )
         if int(optimizer_targets["liquidity"]) < int(optimizer_minimums["liquidity"]):
             optimizer_targets["liquidity"] = int(optimizer_minimums["liquidity"])

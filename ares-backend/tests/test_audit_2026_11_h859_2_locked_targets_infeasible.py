@@ -79,3 +79,27 @@ def test_liquidity_lowered_by_locked_targets_is_disclosed_in_house_mode(session_
     assert (ta.target_equities_bps, ta.target_bonds_bps, ta.target_liquidity_bps) == (7500, 1700, 0)
     assert "WARN_TARGET_ADJUSTED" not in [w.get("code") for w in result["warnings"]]
     assert any("sinkt wegen der fixierten Berater-Ziele von 2.00 % auf 0.00 %" in r for r in result["reasoning"]), result["reasoning"]
+
+
+def test_rule_needs_two_locked_targets_and_uses_effective_maximums():
+    """Nachbesserung (CI #859): ein einzelnes fixiertes Ziel (Aktien 80 %
+    in Berater-Band 76-85 %, Reserve 2.01 %) und ein Ziel ueber einer
+    Modell-Obergrenze (Alternative 30 % bei globaler Obergrenze 10 %) sind
+    keine 422, sondern werden sichtbar gekappt
+    (test_band_override_house_matrix_disclosure)."""
+    from services.portfolio_engine_house_matrix import raise_if_locked_targets_infeasible
+
+    labels = pe.BUCKET_LABELS
+    minimums = {"equities": 6000, "bonds": 1000, "real_estate": 500, "alternatives": 300, "liquidity": 201}
+    targets = {"equities": 8000, "bonds": 1000, "real_estate": 500, "alternatives": 300, "liquidity": 201}
+    raise_if_locked_targets_infeasible(targets, minimums, {"equities"}, bucket_labels=labels)
+    maximums = {"equities": 7500, "bonds": 2500, "real_estate": 2000, "alternatives": 1000, "liquidity": 201}
+    raise_if_locked_targets_infeasible(
+        {**targets, "alternatives": 3000, "bonds": 1000}, minimums, {"alternatives", "bonds"},
+        bucket_labels=labels, maximums=maximums,
+    )
+    with pytest.raises(BandEnvelopeInfeasibleError):
+        raise_if_locked_targets_infeasible(
+            {**targets, "alternatives": 3000, "bonds": 1000}, minimums, {"alternatives", "bonds"},
+            bucket_labels=labels,
+        )

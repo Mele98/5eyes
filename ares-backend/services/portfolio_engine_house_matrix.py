@@ -453,8 +453,9 @@ def raise_if_locked_targets_infeasible(
     *,
     bucket_labels: dict[str, str],
     min_sources: dict[str, str] | None = None,
+    maximums: dict[str, int] | None = None,
 ) -> None:
-    """H-859-2 (Pruefrunde #859): fixierte Berater-Ziele plus die
+    """H-859-2 (Pruefrunde #859): MEHRERE fixierte Berater-Ziele plus die
     Mindestquoten der uebrigen Klassen ueber 100 % sind eine unerfuellbare
     Eingabe. Vorher kappte ``_rebalance_to_total`` dann die fixierte Klasse
     in fester Reihenfolge (Aktien zuerst) -- jetzt eine deutsche 422, die
@@ -462,10 +463,22 @@ def raise_if_locked_targets_infeasible(
 
     ``min_sources`` beschreibt die Herkunft je Mindestquote (z. B.
     "Hausmatrix-Minimum", "globale Liquiditaets-Untergrenze").
+
+    Ein EINZELNES fixiertes Ziel, das mit den Minima nicht aufgeht, liegt
+    faktisch ueber seinem erreichbaren Bandrand und wird wie bisher sichtbar
+    gekappt (WARN_TARGET_ADJUSTED). Mit ``maximums`` wird jedes Ziel zuerst
+    auf seine wirksame Obergrenze geklemmt (z. B. globale Modell-Obergrenze
+    Alternative 10 %) -- eine Kappung an einer Modellgrenze ist kein
+    Eingabefehler, sondern wird offengelegt.
     """
     locked_set = [key for key in bucket_labels if key in set(locked)]
-    if not locked_set or len(locked_set) == len(bucket_labels):
+    if len(locked_set) < 2 or len(locked_set) == len(bucket_labels):
         return
+    if maximums is not None:
+        targets = {
+            **targets,
+            **{key: min(int(targets[key]), int(maximums[key])) for key in locked_set},
+        }
     others = [key for key in bucket_labels if key not in locked_set]
     total = sum(int(targets[key]) for key in locked_set) + sum(int(minimums[key]) for key in others)
     if total <= 10000:
