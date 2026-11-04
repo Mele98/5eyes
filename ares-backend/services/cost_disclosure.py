@@ -17,6 +17,14 @@ from sqlalchemy.orm import Session
 
 
 DEFAULT_TRANSACTION_COST_BPS = 15
+# N-858-11: Hinweis, wenn die Liquiditaetsreserve das ganze Beratungsvermoegen
+# beansprucht (Strategiebasis 0) -- kein Produktvolumen, nur Dienstleistungskosten.
+ZERO_STRATEGY_BASE_COST_NOTE = (
+    "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht das "
+    "gesamte Beratungsvermögen. Es wird nichts investiert; Produkt- und "
+    "Transaktionskosten fallen nicht an, ausgewiesen sind nur die "
+    "Dienstleistungskosten auf das Beratungsvermögen."
+)
 
 
 class CostDisclosureDomainError(ValueError):
@@ -381,6 +389,16 @@ def build_cost_disclosure(
     return live
 
 
+def _position_amount_rappen(position: Any) -> int:
+    """N-858-11: Zielbetrag 0 ist ein Volumen (Strategiebasis 0), keine
+    fehlende Angabe. Nur ein fehlender Zielbetrag (``None``, Altbestand)
+    faellt auf den Ist-Betrag zurueck."""
+    target = getattr(position, "target_amount_rappen", None)
+    if target is not None:
+        return int(target)
+    return int(getattr(position, "current_amount_rappen", None) or 0)
+
+
 def build_cost_disclosure_for_run(
     db: Session,
     mandate: Any,
@@ -464,11 +482,7 @@ def build_cost_disclosure_for_run(
         }
     positions = [
         {
-            "amount_rappen": int(
-                getattr(position, "target_amount_rappen", 0)
-                or getattr(position, "current_amount_rappen", 0)
-                or 0
-            ),
+            "amount_rappen": _position_amount_rappen(position),
             "weight_bps": int(getattr(position, "target_weight_bps", 0) or 0),
             "ter_bps": (
                 ter_bps_overrides[product.id]
@@ -738,6 +752,10 @@ def calculate_cost_disclosure(
             "is_estimate": ter_coverage_bps < 10000,
             "included_in_total": True,
         })
+    elif clean_positions and invested_amount <= 0:
+        # N-858-11: Positionen ohne Volumen (Strategiebasis 0) -- es gibt
+        # keine Produkt- und Transaktionskosten; nicht "TER fehlt" melden.
+        warnings.append(ZERO_STRATEGY_BASE_COST_NOTE)
     else:
         warnings.append(
             "Produktkosten (TER) sind für die empfohlenen Produkte nicht "
