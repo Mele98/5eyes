@@ -28,6 +28,9 @@ OPENFIGI_EXCHANGE_CODE_MAP: dict[str, str] = {
     # Schweiz: SIX Swiss Exchange / Composite / SIX Swiss Exchange Europe
     "SW": "SW", "SE": "SW", "VX": "VX",
     # Europa
+    # [pruefen] LSE: viele Linien notieren bei Yahoo in GBp (Pence), nicht GBP.
+    # Das Symbol (.L) ist richtig, die Kurs-Skalierung (Faktor 100) ist im
+    # Preispfad NICHT behandelt (Audit 06, BBG-10 Pence-Listing).
     "LN": "L",   # London Stock Exchange
     "GY": "DE",  # Xetra
     "GF": "F",   # Boerse Frankfurt
@@ -45,7 +48,9 @@ OPENFIGI_EXCHANGE_CODE_MAP: dict[str, str] = {
     # Uebrige
     "CT": "TO",  # Toronto Stock Exchange
     "CV": "V",   # TSX Venture
-    "HK": "HK",  # Hong Kong
+    # "HK" bewusst NICHT gemappt [pruefen]: Bloomberg "700 HK", Yahoo erwartet
+    # vierstellig mit fuehrenden Nullen ("0700.HK"). Ohne bestaetigte Regel
+    # kein Raten -> unbekannt -> needs_review (N-862-5).
     "JT": "T",   # Tokio
     "AT": "AX",  # ASX
     "NZ": "NZ",  # NZX

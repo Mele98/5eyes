@@ -35,6 +35,7 @@ Bloomberg-Konvention (Ticker + Yellow-Key) gehalten.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import date as Date
 from typing import Any
@@ -61,6 +62,49 @@ BLOOMBERG_REQUEST_NOT_IMPLEMENTED = "BLOOMBERG_REQUEST_NOT_IMPLEMENTED"
 
 DEFAULT_CONNECT_TIMEOUT_MS = 2000
 DEFAULT_HEALTH_TTL_SECONDS = 60.0
+# N-862-2: harte Wanduhr-Grenze fuer Session.start()/openService(). Der
+# Connect-Timeout von blpapi allein begrenzt einen haengenden Start nicht
+# zuverlaessig (Start-Versuche, Event-Verarbeitung) [pruefen am Terminal].
+DEFAULT_START_TIMEOUT_SECONDS = 5.0
+
+
+class _StepTimeout(Exception):
+    """Interner Marker: ein Session-Schritt hat die Wanduhr-Grenze gerissen."""
+
+
+def _run_with_deadline(step: Any, timeout_seconds: float, on_late_success: Any = None) -> Any:
+    """``step()`` in einem Daemon-Thread mit hartem Zeitlimit ausfuehren.
+
+    Haelt das Limit nicht, wird ``_StepTimeout`` geworfen; der Thread laeuft
+    im Hintergrund aus, und ``on_late_success`` raeumt ein spaeter doch noch
+    geliefertes Ergebnis auf (z. B. Session stoppen). Der aufrufende
+    Request-Thread blockiert nie laenger als ``timeout_seconds``.
+    """
+    outcome: dict[str, Any] = {}
+    done = threading.Event()
+    abandoned = threading.Event()
+
+    def _target() -> None:
+        try:
+            outcome["value"] = step()
+        except BaseException as exc:  # noqa: BLE001 - wird im Aufrufer gemeldet
+            outcome["error"] = exc
+        finally:
+            done.set()
+            if abandoned.is_set() and "value" in outcome and on_late_success is not None:
+                try:
+                    on_late_success(outcome["value"])
+                except Exception:  # noqa: BLE001
+                    pass
+
+    worker = threading.Thread(target=_target, name="bloomberg-session-step", daemon=True)
+    worker.start()
+    if not done.wait(timeout_seconds):
+        abandoned.set()
+        raise _StepTimeout()
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")
 
 
 class BloombergProvider(MarketDataProvider):
@@ -76,11 +120,13 @@ class BloombergProvider(MarketDataProvider):
         *,
         connect_timeout_ms: int = DEFAULT_CONNECT_TIMEOUT_MS,
         health_ttl_seconds: float = DEFAULT_HEALTH_TTL_SECONDS,
+        start_timeout_seconds: float = DEFAULT_START_TIMEOUT_SECONDS,
     ) -> None:
         self._host = host
         self._port = port
         self._connect_timeout_ms = max(1, int(connect_timeout_ms))
         self._health_ttl_seconds = max(0.0, float(health_ttl_seconds))
+        self._start_timeout_seconds = max(0.01, float(start_timeout_seconds))
         self._session: Any = None  # blpapi.Session-Instanz wenn aktiv
         self._blpapi: Any = None
         # (Ergebnis, monotone Ablaufzeit) des letzten Health-Checks
@@ -128,14 +174,39 @@ class BloombergProvider(MarketDataProvider):
             session_opts.setServerPort(self._port)
             if hasattr(session_opts, "setConnectTimeout"):
                 session_opts.setConnectTimeout(self._connect_timeout_ms)
+            if hasattr(session_opts, "setNumStartAttempts"):
+                session_opts.setNumStartAttempts(1)
             session = blpapi.Session(session_opts)
-            if not session.start():
+            started_session = session
+            try:
+                started = _run_with_deadline(
+                    session.start,
+                    self._start_timeout_seconds,
+                    on_late_success=lambda ok: ok and self._stop_quietly(started_session),
+                )
+            except _StepTimeout:
+                raise self._bloomberg_unavailable(
+                    BLOOMBERG_SESSION_UNAVAILABLE,
+                    f"Bloomberg-Session-Start ueber {self._start_timeout_seconds:g} s "
+                    f"({self._host}:{self._port}) abgebrochen.",
+                ) from None
+            if not started:
                 raise self._bloomberg_unavailable(
                     BLOOMBERG_SESSION_UNAVAILABLE,
                     f"Bloomberg-Session-Start fehlgeschlagen ({self._host}:{self._port}). "
                     "Terminal/B-PIPE laeuft?",
                 )
-            if not session.openService("//blp/refdata"):
+            try:
+                service_ok = _run_with_deadline(
+                    lambda: session.openService("//blp/refdata"),
+                    self._start_timeout_seconds,
+                )
+            except _StepTimeout:
+                raise self._bloomberg_unavailable(
+                    BLOOMBERG_SERVICE_UNAVAILABLE,
+                    f"Bloomberg-Refdata-Service nicht innerhalb {self._start_timeout_seconds:g} s geoeffnet.",
+                ) from None
+            if not service_ok:
                 raise self._bloomberg_unavailable(
                     BLOOMBERG_SERVICE_UNAVAILABLE,
                     "Bloomberg-Refdata-Service nicht erreichbar.",

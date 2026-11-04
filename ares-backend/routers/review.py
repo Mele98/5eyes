@@ -3034,6 +3034,13 @@ def auto_apply_product_id_mappings(
             continue
         try:
             _openfigi_internal_exchange_code(selected)
+            if not str(selected.get("exch_code") or "").strip():
+                # N-862-5: ohne Boersencode ergaebe das blanke Symbol ein
+                # US-Listing (O5-Klasse). Nie automatisch uebernehmen.
+                raise OpenFigiExchangeCodeUnmapped(
+                    "OpenFIGI-Kandidat ohne Boersencode; das blanke Symbol waere ein geratenes Listing. "
+                    "Bitte Boerse bzw. Symbol manuell pflegen."
+                )
         except OpenFigiExchangeCodeUnmapped as exc:
             skipped_count += 1
             items.append(

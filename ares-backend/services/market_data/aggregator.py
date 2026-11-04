@@ -30,8 +30,10 @@ from typing import Any, Iterable
 
 from .base import Bar, MarketDataProvider, ProductInfo
 from .exceptions import (
+    AuthoritativeSymbolNotFound,
     MarketDataError,
     ProviderError,
+    ProviderOrderError,
     ProviderUnavailableError,
     RateLimitError,
     SymbolNotFound,
@@ -41,10 +43,26 @@ from .health import HealthState
 logger = logging.getLogger(__name__)
 
 AUTHORITATIVE_PROVIDER_UNAVAILABLE = "AUTHORITATIVE_PROVIDER_UNAVAILABLE"
+# N-862-6: ein Rate-Limit der massgeblichen Quelle bleibt als eigener Code
+# sichtbar und geht nicht im generischen Code auf.
+AUTHORITATIVE_PROVIDER_RATE_LIMITED = "AUTHORITATIVE_PROVIDER_RATE_LIMITED"
 
 
 def _is_authoritative(provider: MarketDataProvider) -> bool:
     return bool(getattr(provider, "authoritative", False))
+
+
+def validate_authoritative_order(providers: Iterable[MarketDataProvider]) -> None:
+    """N-862-3: Ist eine massgebliche Quelle konfiguriert, muss sie an erster
+    Stelle stehen. Sonst ``ProviderOrderError`` (kein stilles Umsortieren)."""
+    ordered = list(providers)
+    names = [getattr(p, "name", "?") for p in ordered]
+    authoritative = [n for p, n in zip(ordered, names) if _is_authoritative(p)]
+    if authoritative and not _is_authoritative(ordered[0]):
+        raise ProviderOrderError(
+            f"Massgebliche Quelle(n) {', '.join(authoritative)} muessen an erster Stelle stehen "
+            f"(konfiguriert: {', '.join(names)}). Eine vorangestellte Quelle wuerde still liefern."
+        )
 
 
 class MarketDataAggregator:
@@ -61,6 +79,7 @@ class MarketDataAggregator:
         allow_fallback_from_authoritative: bool = False,
     ) -> None:
         self._providers: list[MarketDataProvider] = list(providers)
+        validate_authoritative_order(self._providers)
         self._health = HealthState(unhealthy_ttl_seconds=unhealthy_ttl_seconds)
         self._health_registry = health_registry
         self._allow_fallback_from_authoritative = bool(allow_fallback_from_authoritative)
@@ -106,7 +125,10 @@ class MarketDataAggregator:
     def _unavailable_from(provider: MarketDataProvider, exc: BaseException | None, detail: str) -> ProviderUnavailableError:
         if isinstance(exc, ProviderUnavailableError):
             return exc
-        code = getattr(exc, "code", None) or AUTHORITATIVE_PROVIDER_UNAVAILABLE
+        default_code = (
+            AUTHORITATIVE_PROVIDER_RATE_LIMITED if isinstance(exc, RateLimitError) else AUTHORITATIVE_PROVIDER_UNAVAILABLE
+        )
+        code = getattr(exc, "code", None) or default_code
         message = f"[{code}] Massgebliche Quelle {provider.name} nicht verfuegbar: {detail}"
         return ProviderUnavailableError(message, code=code, provider=provider.name)
 
@@ -120,9 +142,17 @@ class MarketDataAggregator:
         mit Policy den sichtbaren Fallback-Grund zurueckgeben."""
         if isinstance(exc, SymbolNotFound):
             if not self._allow_fallback_from_authoritative:
-                raise exc
+                if isinstance(exc, AuthoritativeSymbolNotFound):
+                    raise exc
+                raise AuthoritativeSymbolNotFound(
+                    f"Massgebliche Quelle {provider.name} kennt das Symbol nicht: {exc}",
+                    provider=provider.name,
+                ) from exc
             return f"{provider.name}: SYMBOL_NOT_FOUND: {exc}"
         unavailable = self._unavailable_from(provider, exc, detail)
+        # N-862-4: Abbruch wegen der massgeblichen Quelle ist fuer Aufrufer
+        # (Preis-Updater) erkennbar, damit dort kein eigener Fallback greift.
+        unavailable.authoritative_failure = True
         if not self._allow_fallback_from_authoritative:
             if unavailable is exc:
                 raise unavailable

@@ -55,3 +55,20 @@ class ProviderUnavailableError(ProviderError):
         super().__init__(message)
         self.code = code
         self.provider = provider
+
+
+class ProviderOrderError(MarketDataError, ValueError):
+    """N-862-3: Eine massgebliche Quelle (``authoritative``) ist konfiguriert,
+    steht aber nicht an erster Stelle. Eine davor stehende Gratisquelle wuerde
+    sonst still liefern, obwohl die massgebliche Quelle gesund ist. Die
+    Konfiguration wird deshalb abgelehnt statt umsortiert."""
+
+
+class AuthoritativeSymbolNotFound(SymbolNotFound):
+    """N-862-6: Die massgebliche Quelle kennt das Symbol nicht. Die Kette
+    bricht ab (kein Fallback auf eine Gratisquelle, die denselben String
+    haeufig einem anderen Instrument zuordnet)."""
+
+    def __init__(self, message: str, *, provider: str | None = None) -> None:
+        super().__init__(message)
+        self.provider = provider

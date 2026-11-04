@@ -27,7 +27,7 @@ from services.product_market_data import (
     resolve_market_profile,
 )
 from services.twelvedata_client import fetch_twelvedata_latest_prices
-from services.market_data.legacy_compat import fetch_latest_prices_via_aggregator
+from services.market_data.legacy_compat import AUTHORITATIVE_FAILURE_MARKER, fetch_latest_prices_via_aggregator
 
 try:
     import yfinance as yf
@@ -491,15 +491,25 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
     primary_errors = dict(symbol_errors)
     fallback_allowed = primary_allows_fallback()
 
+    # N-862-4: Auch wenn der Primaerpfad frei ist ("aggregator"), darf fuer ein
+    # Symbol kein Fallback greifen, wenn der Aggregator wegen seiner
+    # massgeblichen Quelle abgebrochen hat.
+    blocked_symbols = {
+        symbol for symbol, message in primary_errors.items() if AUTHORITATIVE_FAILURE_MARKER in str(message)
+    }
+
+    def _fallback_allowed_for(symbol: str) -> bool:
+        return fallback_allowed and symbol not in blocked_symbols
+
     unresolved_products: list[tuple[Product, str]] = []
     for primary_symbol, mapped_products in primary_symbols.items():
-        if primary_symbol in symbol_points:
+        if primary_symbol in symbol_points or not _fallback_allowed_for(primary_symbol):
             continue
         for product in mapped_products:
             unresolved_products.append((product, primary_symbol))
 
     fallback_symbols: dict[str, list[Product]] = {}
-    if unresolved_products and fallback_allowed:
+    if unresolved_products:
         for product, _primary_symbol in unresolved_products:
             fallback_lookup_symbol = str(fallback_symbol_by_product_id.get(product.id) or "").strip() or None
             if not fallback_lookup_symbol:
@@ -542,7 +552,8 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
 
         for product in mapped_products:
             fallback_lookup_symbol = str(fallback_symbol_by_product_id.get(product.id) or "").strip() or None
-            if fallback_allowed and fallback_lookup_symbol and fallback_lookup_symbol in fallback_points:
+            symbol_fallback_allowed = _fallback_allowed_for(primary_symbol)
+            if symbol_fallback_allowed and fallback_lookup_symbol and fallback_lookup_symbol in fallback_points:
                 price_date, price_rappen, price_source = fallback_points[fallback_lookup_symbol]
                 primary_reason = primary_errors.get(primary_symbol) or f"kein Kurs fuer {primary_symbol}"
                 resolved_points[product.id] = PricePoint(
@@ -556,9 +567,9 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
 
             primary_error = primary_errors.get(primary_symbol)
             error = symbol_errors.get(primary_symbol)
-            if fallback_allowed and fallback_lookup_symbol:
+            if symbol_fallback_allowed and fallback_lookup_symbol:
                 error = error or fallback_errors.get(fallback_lookup_symbol)
-            if not fallback_allowed and _fallback_configured():
+            if not symbol_fallback_allowed and _fallback_configured():
                 error = (
                     f"{error or f'Kein Batch-Ergebnis fuer {primary_symbol}'} "
                     f"(kein Fallback auf {_normalized_provider(FALLBACK_PRICE_SOURCE)}: "
@@ -568,15 +579,15 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
             error = _append_market_warning(
                 error or f"Kein Batch-Ergebnis fuer {primary_symbol}",
                 provider_market_warning(PRICE_SOURCE, getattr(product, "exchange_code", None)),
-                provider_market_warning(FALLBACK_PRICE_SOURCE, getattr(product, "exchange_code", None)) if fallback_allowed else None,
+                provider_market_warning(FALLBACK_PRICE_SOURCE, getattr(product, "exchange_code", None)) if symbol_fallback_allowed else None,
             )
             failures[product.id] = {
                 "product": product,
                 "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
-                "lookup_symbol": (fallback_lookup_symbol if fallback_allowed else None) or primary_symbol,
+                "lookup_symbol": (fallback_lookup_symbol if symbol_fallback_allowed else None) or primary_symbol,
                 "error": error,
             }
-            provider_code = _error_code(primary_error)
+            provider_code = _error_code(str(primary_error or "").replace(AUTHORITATIVE_FAILURE_MARKER, ""))
             if provider_code:
                 failures[product.id]["provider_code"] = provider_code
 
