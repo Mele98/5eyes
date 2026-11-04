@@ -473,3 +473,14 @@ def test_csv_export_escapes_formula_injection_and_roundtrips(session_factory):
     assert restored["product_name"] == "=HYPERLINK(\"http://x\")"
     assert restored["provider"] == "+Anbieter"
     assert _normalize_csv_import_row({"product_name": "'Normal"})["product_name"] == "'Normal"
+
+
+def test_csv_escape_roundtrip_keeps_values_already_starting_with_quote():
+    """N-861-10: Originalwerte, die schon mit ' plus Trigger beginnen,
+    bleiben beim Export -> Re-Import verlustfrei."""
+    from routers.review import _csv_safe_cell, _csv_unescape_cell
+
+    for original in ("'=already", "''+x", "=a", "+41 44", "-5", "@SUM", "\tx", "'Normal", "Normal", "", "'"):
+        assert _csv_unescape_cell(_csv_safe_cell(original)) == original, original
+    assert _csv_safe_cell("'=already").startswith("''=")
+    assert _csv_safe_cell("'Normal") == "'Normal"
