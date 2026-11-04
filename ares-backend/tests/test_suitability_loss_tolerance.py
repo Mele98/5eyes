@@ -287,10 +287,11 @@ def test_missing_distribution_is_not_evaluable():
 # ---------------------------------------------------------------------------
 
 def test_compliance_placeholders_are_listed_and_disclosed():
-    # 11 aus Pruefrunde #857 + CP12 (N-857-7).
-    assert len(lt.COMPLIANCE_PLACEHOLDERS) == 12
+    # 11 aus Pruefrunde #857 + CP12 (N-857-7) + CP13 (N-857-11c).
+    assert len(lt.COMPLIANCE_PLACEHOLDERS) == 13
     keys = lt.COMPLIANCE_PLACEHOLDER_KEYS
-    assert len(set(keys)) == 12
+    assert len(set(keys)) == 13
+    assert "CP13_CLIENT_NOTICE_NOT_EVALUABLE" in keys
     assert "CP12_SCOPE_FINANCIAL_PLANNING_REPORTING_ONLY" in keys
     assert all(text.strip() for _, text in lt.COMPLIANCE_PLACEHOLDERS)
     check = lt.evaluate_loss_tolerance(2, mandate_type=VV, mc_p10_return_bps=0.0, **MILD)
@@ -504,3 +505,33 @@ def test_low_volatility_is_evaluated_only_for_explicit_monetary_portfolio():
         1, mandate_type=VV, expected_return_bps=50, volatility_bps=lt.MIN_PLAUSIBLE_VOLATILITY_BPS,
     )
     assert at_bound.status == lt.STATUS_OK
+
+
+# ---------------------------------------------------------------------------
+# N-857-11c: Kundenhinweis bei not_evaluable in der Anlageberatung
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("case", _NOT_EVALUABLE_CASES)
+def test_advisory_not_evaluable_requires_client_notice_placeholder(case):
+    case = dict(case)
+    check = lt.evaluate_loss_tolerance(case.pop("answer_points"), mandate_type=ADV, **case)
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.requires_client_notice is True
+    assert check.client_notice == lt.CLIENT_NOTICE_PLACEHOLDER
+    assert check.client_notice.startswith("<CP13")  # Platzhalter, kein erfundener Text
+
+
+@pytest.mark.parametrize("mandate_type", [VV, None, "Finanzplanung"])
+def test_no_client_notice_outside_advisory_or_when_evaluable(mandate_type):
+    blocked = lt.evaluate_loss_tolerance(2, mandate_type=mandate_type)
+    assert blocked.requires_client_notice is False and blocked.client_notice is None
+    ok = lt.evaluate_loss_tolerance(4, mandate_type=ADV, mc_p10_return_bps=-900.0, **MILD)
+    assert ok.requires_client_notice is False and ok.client_notice is None
+
+
+def test_activation_requirements_include_blank_justification_gate():
+    keys = [k for k, _ in lt.ACTIVATION_REQUIREMENTS]
+    assert "AR01_JUSTIFICATION_NOT_BLANK" in keys
+    text = dict(lt.ACTIVATION_REQUIREMENTS)["AR01_JUSTIFICATION_NOT_BLANK"]
+    assert "Leerzeichen" in text and "CP09" in text
+    assert "leere Begruendungen" in (lt.__doc__ or "")

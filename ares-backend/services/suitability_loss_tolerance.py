@@ -44,7 +44,14 @@ Inhalt dieses Moduls, ausschliesslich reine Funktionen:
 * ``not_evaluable`` (fehlende Antwort, fehlende oder unzulaessige Verteilung)
   blockiert immer (N-857-6): Anlageberatung nur mit dokumentierter
   Begruendung, sonst Block bis zur Pruefbarkeit.
+  In der Anlageberatung zusaetzlich ``requires_client_notice`` mit dem
+  Kundenhinweis ``client_notice`` (Text = Compliance-Platzhalter CP13,
+  Art. 14 FIDLEG [pruefen]; N-857-11c).
 * ``evaluate_loss_tolerance`` liefert ein ``LossToleranceCheck``.
+
+Auflagen fuer die Aktivierung stehen in ``ACTIVATION_REQUIREMENTS``, u. a.:
+Das Finalize-Gate muss leere Begruendungen und solche nur aus Leerzeichen
+ablehnen (CP09, Mindestlaenge), mit Test.
 
 NICHT VERDRAHTET. ``LOSS_TOLERANCE_CHECK_ENABLED`` ist ``False``, und
 ``evaluate_loss_tolerance_if_enabled`` gibt in diesem Zustand ``None`` zurueck.
@@ -167,6 +174,29 @@ COMPLIANCE_PLACEHOLDERS: tuple[tuple[str, str], ...] = (
     ("CP12_SCOPE_FINANCIAL_PLANNING_REPORTING_ONLY",
      "Geltung von P11 fuer die Mandatstypen 'Finanzplanung' und 'Reporting only' "
      "(heute wie jeder Nicht-Beratungstyp: Block, fail-closed)."),
+    # N-857-11c: Kundenhinweis, wenn die Pruefung in der Anlageberatung nicht
+    # durchgefuehrt werden kann (Art. 14 FIDLEG [pruefen]). Text NICHT erfunden.
+    ("CP13_CLIENT_NOTICE_NOT_EVALUABLE",
+     "Text des Kundenhinweises, dass die Verlusttoleranz-Pruefung nicht "
+     "durchgefuehrt werden konnte (Anlageberatung; Art. 14 FIDLEG [pruefen])."),
+)
+
+# Platzhalter fuer den Kundenhinweis (CP13) -- Compliance liefert den Text.
+CLIENT_NOTICE_PLACEHOLDER = "<CP13_CLIENT_NOTICE_NOT_EVALUABLE>"
+
+# Auflagen fuer den Aktivierungs-PR (P11 nach P2b), hier festgeschrieben, damit
+# sie nicht verloren gehen. Jede braucht dort einen Test.
+ACTIVATION_REQUIREMENTS: tuple[tuple[str, str], ...] = (
+    ("AR01_JUSTIFICATION_NOT_BLANK",
+     "Finalize-Gate lehnt leere Begruendungen und solche nur aus Leerzeichen ab "
+     "(strip, Mindestlaenge nach CP09); Test fuer leer und Leerzeichen."),
+    ("AR02_CLIENT_NOTICE_IN_DOCUMENT",
+     "Bei requires_client_notice erscheint der Kundenhinweis (CP13) im "
+     "Kundendokument; ohne freigegebenen Text keine Aktivierung."),
+    ("AR03_NET_BASIS",
+     "Quantile netto Kosten (P2b), return_basis = net_of_costs."),
+    ("AR04_REASON_CODE_CATALOG",
+     "check_code -> reason_code im Katalog core/reason_codes.py (Pin-Nachfuehrung, CP10)."),
 )
 COMPLIANCE_PLACEHOLDER_KEYS: tuple[str, ...] = tuple(k for k, _ in COMPLIANCE_PLACEHOLDERS)
 
@@ -323,6 +353,8 @@ class LossToleranceCheck:
     justification_sufficient: bool = False
     requires_justification: bool = False
     requires_advise_against: bool = False
+    requires_client_notice: bool = False
+    client_notice: str | None = None
     p5_return_bps: float | None = None
     cvar10_return_bps: float | None = None
     quantile: float = QUANTILE
@@ -402,6 +434,9 @@ def not_evaluable_resolution_for(mandate_type: str | None) -> dict:
             "justification_sufficient": True,
             "requires_justification": True,
             "requires_advise_against": False,
+            # N-857-11c: Hinweis an den Kunden (Text = Compliance-Platzhalter CP13).
+            "requires_client_notice": True,
+            "client_notice": CLIENT_NOTICE_PLACEHOLDER,
         }
     return {
         "conflict_resolution": RESOLUTION_NOT_EVALUABLE_BLOCK,
