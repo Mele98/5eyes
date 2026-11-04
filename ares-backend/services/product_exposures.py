@@ -247,10 +247,17 @@ def currency_exposure_for_product(
 #: Wortbasiert: der Name wird in Buchstabenwoerter zerlegt ("CHF-abgesichert"
 #: -> "chf", "abgesichert"; "un-hedged" -> "un", "hedged").
 #: Bewusst nicht "hedge": ein "Hedge Fund" ist keine Absicherung.
+#: N-856-10: "gesichert" allein ist KEIN Marker (meist Kapitalschutz), nur
+#: die eindeutigen Formen zaehlen.
 _HEDGE_MARKER_WORDS = frozenset({
-    "hedged", "abgesichert", "gesichert", "waehrungsgesichert", "währungsgesichert",
+    "hedged", "abgesichert", "waehrungsgesichert", "währungsgesichert",
+    "waehrungsabgesichert", "währungsabgesichert",
     "absicherung", "waehrungsabsicherung", "währungsabsicherung",
 })
+#: N-856-10: Kapital-/Garantie-/Schutz-Kontext -> kein Hedge-Treffer (Proxy);
+#: Wortanfaenge, damit Komposita wie "Kapitalschutz", "Garantiezertifikat"
+#: oder "capital-protected" erfasst sind.
+_CAPITAL_PROTECTION_PREFIXES = ("kapital", "garant", "capital", "protect", "schutz", "guarant")
 #: Zusammengesetzte Negations-/Teilwoerter: immer KEINE volle Absicherung.
 _HEDGE_NEGATED_COMPOUNDS = frozenset({
     "unhedged", "nonhedged", "ungesichert", "unabgesichert",
@@ -299,6 +306,8 @@ def hedge_from_product_name(product_name: str | None, product_type: str | None =
     markers = [i for i, word in enumerate(words) if word in _HEDGE_MARKER_WORDS]
     if not markers:
         return None, None
+    if any(word.startswith(_CAPITAL_PROTECTION_PREFIXES) for word in words):
+        return None, None  # N-856-10: Kapitalschutz, keine Waehrungsabsicherung
     for i in markers:
         if any(word in _HEDGE_NEGATION_WORDS for word in words[max(0, i - _HEDGE_NEGATION_WINDOW):i]):
             return False, None
