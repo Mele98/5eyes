@@ -993,7 +993,13 @@ def calculate_cost_disclosure(
             "first_year_rappen": first_year_amount,
             "first_year_bps": _equivalent_bps(first_year_amount, advisory_wealth),
         },
-        "is_complete": service_fee_known and ter_coverage_bps == 10000,
+        # N-861-2: mit Produktbezug ist der Ausweis nur vollstaendig, wenn
+        # jede Retrozession bekannt und geregelt ist (Art. 26 FIDLEG).
+        "is_complete": (
+            service_fee_known
+            and ter_coverage_bps == 10000
+            and (retro_summary is None or bool(retro_summary.get("complete")))
+        ),
         "has_estimates": any(bool(item.get("is_estimate")) for item in items),
         "warnings": warnings,
         **({"product_retrocessions": retro_summary} if retro_summary is not None else {}),

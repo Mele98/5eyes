@@ -372,3 +372,26 @@ def test_conflict_product_id_must_be_visible_to_tenant(session_factory):
     assert ok.status_code == 201, ok.text
     assert ok.json()["product_id"] == own
     assert leak.status_code == 404, leak.text
+
+
+# ---------------------------------------------------------------------------
+# N-861-2: is_complete beruecksichtigt die Produkt-Retrozession
+# ---------------------------------------------------------------------------
+
+
+def test_is_complete_false_when_retro_unknown_or_unresolved():
+    unknown = _calc([_product("Fonds A")])
+    unresolved = _calc([_product("Fonds A", rate=40)])
+    partial = _calc([_product("Fonds A", rate=100, amount=10_000_000)], inducements=[_entry(1_000)])
+    free = _calc([_product("Fonds A", rate=0)])
+    assert unknown["is_complete"] is False
+    assert unresolved["is_complete"] is False
+    assert partial["is_complete"] is False
+    assert free["is_complete"] is True  # Gebuehr + TER vollstaendig, Retro bekannt und frei
+    # Ohne Produktbezug unveraendert (keine Retro-Aussage moeglich)
+    plain = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000,
+        positions=[{"amount_rappen": 100_000_000, "ter_bps": 30}],
+        fee_model={"default_advisory_fee_bps": 50},
+    )
+    assert plain["is_complete"] is True
