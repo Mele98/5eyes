@@ -76,7 +76,9 @@ def make_saa_bar_table(
         )
         bar_drawing = _make_bar(bps, max_bps_max=10000, color=asset_class_color(bucket))
 
-        if amt > 0:
+        # N-858-10: ein gelieferter Betrag 0 (Strategiebasis 0) ist ein Wert,
+        # kein fehlender -- Rueckfall auf advisory*bps nur ohne Betragsangabe.
+        if amt > 0 or bucket in amounts:
             amount_text = _format_amount(amt, base_currency)
         elif advisory_wealth_rappen:
             derived = int(advisory_wealth_rappen * bps / 10000)
@@ -93,7 +95,7 @@ def make_saa_bar_table(
             row.insert(3, band_text)
         rows.append(row)
 
-    if advisory_wealth_rappen and total_amount == 0:
+    if advisory_wealth_rappen and total_amount == 0 and not amounts:
         total_amount = advisory_wealth_rappen
     reserve = max(0, int(external_reserve_rappen or 0))
     # Live-Test 2026-11 H2: Die SAA-Gewichte beziehen sich auf die
@@ -105,13 +107,13 @@ def make_saa_bar_table(
         Paragraph(f"<b>{total_label}</b>", _para_style_table()),
         f"{total_bps/100:.1f}%",
         "",
-        _format_amount(total_amount, base_currency) if total_amount > 0 else "-",
+        _format_amount(total_amount, base_currency) if (total_amount > 0 or amounts) else "-",
     ]
     if show_bands:
         total_row.insert(3, "")
     rows.append(total_row)
     extra_rows = 0
-    if reserve and total_amount > 0:
+    if reserve and (total_amount > 0 or amounts):
         reserve_row = [
             Paragraph("Liquiditätsreserve (ausserhalb der Anlagestrategie)", _para_style_table()),
             "\u2013",

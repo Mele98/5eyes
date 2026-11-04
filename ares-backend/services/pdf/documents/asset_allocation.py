@@ -326,7 +326,7 @@ def _make_sub_asset_class_table(
         rows.append([
             f"{asset_class_label(bucket)} Total",
             _format_percent(bucket_bps),
-            _format_amount(bucket_amount, base_currency) if bucket_amount > 0 else "-",
+            _format_amount(bucket_amount, base_currency) if (bucket_amount > 0 or bucket in (bucket_amounts_rappen or {})) else "-",
         ])
 
         children = sorted(
@@ -337,7 +337,8 @@ def _make_sub_asset_class_table(
             children = [(asset_class_label(bucket), {"bps": bucket_bps, "amount": bucket_amount})]
         for sub, values in children:
             amount = int(values["amount"] or 0)
-            if amount <= 0 and advisory_wealth_rappen:
+            # N-858-10: Rueckfall nur ohne Betragsangabe, nicht bei Basis 0.
+            if amount <= 0 and advisory_wealth_rappen and not bucket_amounts_rappen:
                 amount = int(advisory_wealth_rappen * int(values["bps"] or 0) / 10000)
             rows.append([
                 Paragraph(
@@ -345,7 +346,7 @@ def _make_sub_asset_class_table(
                     _table_cell_style(),
                 ),
                 _format_percent(int(values["bps"] or 0)),
-                _format_amount(amount, base_currency) if amount > 0 else "-",
+                _format_amount(amount, base_currency) if (amount > 0 or bucket_amounts_rappen) else "-",
             ])
 
     summary_rows = _reserve_summary_rows(
