@@ -43,6 +43,9 @@ WARN_TARGET_FALLBACK_RESET = "WARN_TARGET_FALLBACK_RESET"
 # Live-Test 04 / M3: Mandatsbandbreite ausserhalb der Hausmatrix ohne
 # tragfaehige Begruendung -- die Freigabe ist blockiert (routers/review.py).
 CONFLICT_BAND_REASON_MISSING = "CONFLICT_BAND_REASON_MISSING"
+# Delta-Pruefung #859 D-2: Liquiditaetsband systembedingt ueber das
+# Hausmatrix-Maximum erweitert (Mindestliquiditaet/Zielreserve, AA-7.2).
+INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED = "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -58,6 +61,7 @@ ALL_CODES: tuple[str, ...] = (
     WARN_TARGET_ADJUSTED,
     WARN_TARGET_FALLBACK_RESET,
     CONFLICT_BAND_REASON_MISSING,
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -255,6 +259,20 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
             "innerhalb der für Ihre Strategie geltenden Grenzen liegt."
         ),
         "actions": ("review_constraints",),
+    },
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED: {
+        "severity": SEVERITY_INFO,
+        "title": "Liquiditätsband systembedingt erweitert",
+        "body_advisor": (
+            "Liquidität: Das Band wurde systembedingt auf {extended} % erweitert "
+            "({source}; Hausmatrix-Maximum {house_max} %). Das ist kein Austritt aus "
+            "dem Eignungsrahmen und braucht keine Begründung."
+        ),
+        "body_client": (
+            "Für Ihre Strategie wird eine Liquidität von {extended} % gehalten, "
+            "damit die vorgesehene Reserve gedeckt ist."
+        ),
+        "actions": (),
     },
     CONFLICT_BAND_REASON_MISSING: {
         "severity": SEVERITY_CONFLICT,

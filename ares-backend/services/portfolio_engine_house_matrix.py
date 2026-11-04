@@ -91,6 +91,7 @@ from sqlalchemy.orm import Session
 from database import new_uuid
 from services.allocation_messages import (
     CONFLICT_BAND_REASON_MISSING,
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
     WARN_BAND_OUTSIDE_HOUSE_MATRIX,
     WARN_TARGET_ADJUSTED,
     WARN_TARGET_FALLBACK_RESET,
@@ -708,6 +709,32 @@ def restate_saa_liquidity_sentence(reasoning: list[str], final_liquidity_bps: in
                 "(nach Abgleich mit den Berater-Zielen).",
                 line,
             )
+
+
+def disclose_system_liquidity_band_extension(
+    system_liquidity_floor_bps: int,
+    house_liquidity_max_bps: int,
+    reasoning: list[str],
+    messages: list,
+    *,
+    reserve_driven: bool,
+) -> None:
+    """Delta-Pruefung #859 D-2 (zu M2/AA-7.2): erweitert Ares das
+    Liquiditaetsband systembedingt ueber das Hausmatrix-Maximum, wird das
+    als Reasoning-Satz und Info-Meldung ausgewiesen."""
+    if int(system_liquidity_floor_bps) <= int(house_liquidity_max_bps):
+        return
+    source = "Zielreserve" if reserve_driven else "Mindestliquiditaet des Modells"
+    reasoning.append(
+        f"Liquiditaetsband systembedingt auf {_band_pct(system_liquidity_floor_bps)} % "
+        f"erweitert ({source}; Hausmatrix-Maximum {_band_pct(house_liquidity_max_bps)} %)."
+    )
+    messages.append(format_message(
+        INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+        extended=_band_pct(system_liquidity_floor_bps),
+        source=source,
+        house_max=_band_pct(house_liquidity_max_bps),
+    ))
 
 
 def band_deviation_messages(

@@ -1265,6 +1265,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _baseline_target_bands,
     house_matrix_bands_payload,
     band_deviation_messages,
+    disclose_system_liquidity_band_extension,
     restate_saa_liquidity_sentence,
     system_liquidity_floor_from_allocation,
     policy_band_clamp_notes,
@@ -3842,7 +3843,14 @@ def generate_target_allocation(
     # auf x %" entsteht VOR der Projektion und nennt jetzt die gespeicherte
     # Liquiditaet, wenn sie davon abweicht.
     restate_saa_liquidity_sentence(reasoning, int(targets["liquidity"]))
-
+    # D-2: systembedingte Erweiterung des Liquiditaetsbands (M2) ausweisen.
+    messages_extra: list[dict] = []
+    disclose_system_liquidity_band_extension(
+        system_liquidity_floor_bps,
+        int(_baseline_target_bands(house_matrix, policy)[2]["liquidity"]),
+        reasoning, messages_extra,
+        reserve_driven=bool(apply_stochastic and int(reserve_floor_bps) > model_liquidity_floor_bps),
+    )
     risky_fraction_total_bps = int(realized_risky_bps)
     if (
         optimizer_mode == "stochastic"
@@ -4057,7 +4065,7 @@ def generate_target_allocation(
     # Live-Test 04 / M3: Abweichung vom Eignungsrahmen auch in ``messages``
     # (Banner), ohne tragfaehige Begruendung als Konflikt.
     _house_targets_m3, house_minimums_m3, house_maximums_m3 = _baseline_target_bands(house_matrix, policy)
-    messages = list(messages) + band_deviation_messages(
+    messages = list(messages) + messages_extra + band_deviation_messages(
         prefs["bands"], house_minimums_m3, house_maximums_m3,
         reason_is_valid=_band_deviation_reason_is_valid(prefs.get("bandDeviationReason")),
         house_profile=house_matrix.profile_name, score_bucket=score_bucket,
