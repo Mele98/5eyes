@@ -1428,11 +1428,12 @@ def _rate(value: Any) -> int | None:
 
 
 _ANNUAL_FREQUENCIES = ("jährlich", "jaehrlich", "annual", "annually", "yearly")
-# N-861-1: Toleranz, innerhalb der ein im Mandat aufgeklaerter bzw.
-# geregelter Betrag eine geschaetzte Produkt-Retrozession als gedeckt gilt
-# (die Schaetzung beruht auf dem Zielvolumen, der Mandatsbetrag auf der
-# Aufklaerung beim Kunden).
-COVERAGE_TOLERANCE = 1.10
+# N-861-7 (Entscheid Owner-Vertretung, BGE 137 III 393): KEINE Toleranz.
+# Ein Verzicht wirkt nur im aufgeklaerten Umfang; eine geschaetzte
+# Produkt-Retrozession ist nur gedeckt, wenn der geregelte Betrag sie voll
+# erreicht. Wer eine Unschaerfe abbilden will, klaert im Mandat ausdruecklich
+# einen Hoechstbetrag auf (dieser ist dann der Mandatsbetrag).
+COVERAGE_TOLERANCE = 1.0
 
 
 def _int_or_zero(value: Any) -> int:
@@ -1563,12 +1564,11 @@ def build_product_retrocession_lines(
             else:
                 group = groups[key]
                 group_estimate = group_estimates[key]
-                disclosed_share = min(estimate, _share(group["disclosed"], estimate, group_estimate))
-                resolved_share = min(estimate, _share(group["resolved"], estimate, group_estimate))
-                if _within(group_estimate, group["disclosed"]):
-                    disclosed_share = estimate
+                # N-861-7: immer der tatsaechliche (anteilige) Mandatsbetrag,
+                # nie auf die Schaetzung hochgesetzt.
+                disclosed_share = _share(group["disclosed"], estimate, group_estimate)
+                resolved_share = _share(group["resolved"], estimate, group_estimate)
                 if group["resolved"] > 0 and _within(group_estimate, group["resolved"]):
-                    resolved_share = estimate
                     treatment = (
                         TREATMENT_REIMBURSED
                         if group["reimbursed"] >= group["waived"]
@@ -1579,8 +1579,12 @@ def build_product_retrocession_lines(
                 else:
                     treatment = TREATMENT_UNRESOLVED
         present = status == "present"
-        unresolved = (estimate - resolved_share) if present else None
-        undisclosed = (estimate - disclosed_share) if present else None
+        group_covers = key is not None and _within(group_estimates[key], groups[key]["resolved"])
+        group_discloses = key is not None and _within(group_estimates[key], groups[key]["disclosed"])
+        # Rundung der anteiligen Verteilung darf keinen Scheinrest erzeugen,
+        # wenn die Gruppe als Ganzes gedeckt ist.
+        unresolved = (0 if group_covers else max(0, estimate - resolved_share)) if present else None
+        undisclosed = (0 if group_discloses else max(0, estimate - disclosed_share)) if present else None
         lines.append({
             **line,
             "status": status,
