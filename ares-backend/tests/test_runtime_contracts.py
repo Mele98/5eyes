@@ -3347,12 +3347,17 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
         )
         session.commit()
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-        result = generate_target_allocation(
-            db=session,
-            mandate=mandate,
-            user_id=advisor_user.id,
-            preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
-        )
+        # Ziel "Eigenmittel" faellt fest am 2028-06-30 an; ab 2028-07-01 waere
+        # es gegen die Wanduhr ueberfaellig und die Ziel-Lifecycle-Pruefung
+        # blockierte den Lauf. Stichtag deshalb fest wie bei den anderen auf
+        # 2026 datierten Fixtures.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            result = generate_target_allocation(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_user.id,
+                preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
+            )
 
     analysis = {item["label"]: item for item in result["goal_analysis"]}
     assert analysis["Eigenmittel"]["timing_label"] == "am 2028-06-30"
