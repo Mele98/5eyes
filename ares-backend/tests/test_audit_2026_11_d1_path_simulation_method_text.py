@@ -77,4 +77,4 @@ def test_pdf_glossary_standard_deviation_does_not_imply_normal_model():
     source = Path(static_texts.__file__).read_text(encoding="utf-8")
     assert "Bei normalverteilten" not in source
     assert "ca. 68%" not in source
-    assert "ausgeprägteren Extremverlusten" in source
+    assert "häufigeren Extremverlusten als eine" in source
