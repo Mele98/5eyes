@@ -461,7 +461,13 @@ def build_retrocession_flowables(
             rate_text, amount_text = "keine", "—"
         else:
             rate_text = format_bps_as_pct(line.get("rate_bps"), decimals=2)
-            amount_text = format_chf_rappen(line.get("estimated_annual_rappen"), currency=currency)
+            amount_text = "geschätzt " + format_chf_rappen(line.get("estimated_annual_rappen"), currency=currency)
+            # N-861-3: bei einer Mandatszeile beide Betraege klar beschriften
+            # (Schaetzung aus dem Produktsatz vs. im Mandat aufgeklaert).
+            if line.get("covered_by_mandate_entry"):
+                amount_text += " / aufgeklärt " + format_chf_rappen(
+                    line.get("mandate_disclosed_rappen"), currency=currency,
+                )
         if status == "unknown" or line.get("requires_resolution"):
             flagged_rows.append(index)
         rows.append([
@@ -497,10 +503,11 @@ def build_retrocession_flowables(
         "Vergütungen, die Ihr Finanzdienstleister von Dritten im Zusammenhang mit den "
         "empfohlenen Produkten erhält, stehen grundsätzlich Ihnen zu. Sie dürfen nur behalten "
         "werden, wenn Sie nach Aufklärung über Art und Umfang ausdrücklich verzichtet "
-        "hat (Art. 26 FIDLEG; Art. 400 OR; BGE 132 III 460 und 137 III 393). Die Beträge "
+        "haben (Art. 26 FIDLEG; Art. 400 OR; BGE 132 III 460 und 137 III 393). Die Beträge "
         "sind Teil der Produktkosten (TER) und nicht zusätzlich im Total enthalten. "
-        "«unbekannt» heisst: der Satz ist nicht erfasst; das Produkt gilt nicht als "
-        "retrozessionsfrei."
+        "«geschätzt» = Satz × investiertes Volumen; «aufgeklärt» = der Ihnen im Mandat "
+        "offengelegte Betrag. «unbekannt» heisst: der Satz ist nicht erfasst; das Produkt "
+        "gilt nicht als retrozessionsfrei."
     )
     return [
         Spacer(1, (2 if compact else 4) * mm),

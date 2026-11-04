@@ -167,8 +167,8 @@ async function adminExportFundsCsv(){
 }
 
 // AUDIT-2026-11 P1 (L1, Art. 26 FIDLEG): Retrozession je empfohlenem
-// Produkt -- eigener Block neben der Kostentabelle (Daten: payload.
-// product_retrocessions aus services/retrocession_disclosure.py).
+// Produkt -- eigener Block neben der Kostentabelle (Daten:
+// payload.product_retrocessions des Kostenausweises).
 function renderCostRetrocessions(data){
   var box=document.getElementById('cd-retro');
   if(!box) return;
@@ -183,9 +183,10 @@ function renderCostRetrocessions(data){
   box.innerHTML=head+'<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden;font-size:11px">'
     +lines.map(function(line){
       var rate=line.status==='unknown'?'unbekannt':(line.status==='none'?'keine':fmtPct(Number(line.rate_bps),2));
-      var amount=line.status==='present'?_formatRappenChf(line.estimated_annual_rappen, currency):'—';
+      var amount=line.status==='present'?'geschätzt '+_formatRappenChf(line.estimated_annual_rappen, currency):'—';
+      if(line.status==='present'&&line.covered_by_mandate_entry) amount+=' / aufgeklärt '+_formatRappenChf(line.mandate_disclosed_rappen, currency);
       var flagged=line.status==='unknown'||line.requires_resolution;
-      return '<div style="display:grid;grid-template-columns:1.6fr 90px 110px 1.4fr;gap:8px;padding:7px 10px;border-bottom:1px solid var(--b1);'+(flagged?'border-left:3px solid var(--neg);':'')+'">'
+      return '<div style="display:grid;grid-template-columns:1.4fr 80px 200px 1.4fr;gap:8px;padding:7px 10px;border-bottom:1px solid var(--b1);'+(flagged?'border-left:3px solid var(--neg);':'')+'">'
         +'<div>'+escapeHtml(String(line.product_name||''))+'</div>'
         +'<div style="text-align:right">'+escapeHtml(rate)+'</div>'
         +'<div style="text-align:right">'+escapeHtml(amount)+'</div>'

@@ -395,3 +395,22 @@ def test_is_complete_false_when_retro_unknown_or_unresolved():
         fee_model={"default_advisory_fee_bps": 50},
     )
     assert plain["is_complete"] is True
+
+
+# ---------------------------------------------------------------------------
+# N-861-3: Kunden-PDF -- Grammatik und beschriftete Betraege
+# ---------------------------------------------------------------------------
+
+
+def test_pdf_note_grammar_and_labelled_amounts():
+    payload = _calc([_product("Fonds A", rate=100, amount=10_000_000)], inducements=[_entry(1_000)])
+    text = _pdf_text(payload)
+    assert "ausdrücklich verzichtet haben" in text
+    assert "verzichtet hat" not in text
+    assert "geschätzt CHF 1'000 / aufgeklärt CHF 10" in text.replace("\u2019", "'"), text
+
+
+def test_ui_module_has_no_dead_module_reference_and_labels_amounts():
+    module = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "product-master-data.js").read_text(encoding="utf-8")
+    assert "services/retrocession_disclosure.py" not in module
+    assert "' / aufgeklärt '" in module and "'geschätzt '" in module
