@@ -476,3 +476,31 @@ def test_numpy_numbers_are_accepted():
         volatility_bps=np.float64(1400.0), mc_p10_return_bps=np.float64(-900.0),
     )
     assert check.status in (lt.STATUS_OK, lt.STATUS_CONFLICT)
+
+
+# ---------------------------------------------------------------------------
+# N-857-11a: Volatilitaet nahe 0 besteht die Pruefung nicht still
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("sigma", [0, 0.0, 1e-9, 5, 9.99])
+@pytest.mark.parametrize("monetary", [False, None, 1, "true"])
+def test_implausibly_low_volatility_is_not_evaluable(sigma, monetary):
+    kwargs = {} if monetary is None else {"monetary_portfolio": monetary}
+    check = lt.evaluate_loss_tolerance(
+        1, mandate_type=VV, expected_return_bps=600, volatility_bps=sigma, **kwargs,
+    )
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.check_code == lt.REASON_VOLATILITY_IMPLAUSIBLE
+    assert check.blocks_release is True
+
+
+def test_low_volatility_is_evaluated_only_for_explicit_monetary_portfolio():
+    money = lt.evaluate_loss_tolerance(
+        1, mandate_type=VV, expected_return_bps=50, volatility_bps=0,
+        monetary_portfolio=True,
+    )
+    assert money.status == lt.STATUS_OK
+    at_bound = lt.evaluate_loss_tolerance(
+        1, mandate_type=VV, expected_return_bps=50, volatility_bps=lt.MIN_PLAUSIBLE_VOLATILITY_BPS,
+    )
+    assert at_bound.status == lt.STATUS_OK

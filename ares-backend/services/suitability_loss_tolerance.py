@@ -119,6 +119,11 @@ REASON_DISTRIBUTION_MISSING = "LOSS_TOLERANCE_DISTRIBUTION_MISSING"
 REASON_DISTRIBUTION_INVALID = "LOSS_TOLERANCE_DISTRIBUTION_INVALID"
 # N-857-11b: Momente nur als Zahl (int/float), nie bool oder str.
 REASON_INPUT_TYPE_INVALID = "LOSS_TOLERANCE_INPUT_TYPE_INVALID"
+# N-857-11a: eine (faelschlich) auf ~0 gesetzte Volatilitaet darf die Pruefung
+# nicht still bestehen lassen. Unter dieser Untergrenze p. a. ist die Vola nur
+# fuer ein ausdruecklich als monetaer gekennzeichnetes Portfolio plausibel.
+MIN_PLAUSIBLE_VOLATILITY_BPS = 10.0
+REASON_VOLATILITY_IMPLAUSIBLE = "LOSS_TOLERANCE_VOLATILITY_IMPLAUSIBLE"
 REASON_CF_NOT_MONOTONIC = "LOSS_TOLERANCE_CORNISH_FISHER_NOT_MONOTONIC"
 REASON_TAIL_MOMENTS_NOT_ADMISSIBLE = "LOSS_TOLERANCE_TAIL_MOMENTS_NOT_ADMISSIBLE"
 REASON_SOURCE_NOT_ADMISSIBLE = "LOSS_TOLERANCE_SOURCE_NOT_ADMISSIBLE"
@@ -437,8 +442,13 @@ def _evaluate(
     p5_return_bps: float | None = None,
     cvar10_return_bps: float | None = None,
     return_basis: str = RETURN_BASIS_GROSS,
+    monetary_portfolio: bool = False,
 ) -> LossToleranceCheck:
     """Prueft P10 (1 Jahr) der SAA gegen die Untergrenze der Antwort zu Frage 10.
+
+    ``monetary_portfolio`` (nur ``True`` zaehlt) erlaubt eine Volatilitaet
+    unter ``MIN_PLAUSIBLE_VOLATILITY_BPS``; sonst ist sie ``not_evaluable``
+    (N-857-11a).
 
     Sperrgrundlage: ``mc_p10_return_bps`` (MC-Pfade, Anlageklassenebene) und/
     oder lognormales P10 aus ``expected_return_bps``/``volatility_bps``; bei
@@ -558,6 +568,18 @@ def _evaluate(
         or mu_value <= -10000.0
     ):
         return invalid
+    # N-857-11a: Plausibilitaet der Volatilitaet.
+    if sigma_value < MIN_PLAUSIBLE_VOLATILITY_BPS and monetary_portfolio is not True:
+        return LossToleranceCheck(
+            status=STATUS_NOT_EVALUABLE,
+            check_code=REASON_VOLATILITY_IMPLAUSIBLE,
+            message=(
+                "Verlusttoleranz nicht pruefbar: Volatilitaet der Strategie "
+                f"{sigma_value:g} bps p. a. ist fuer ein nicht-monetaeres "
+                f"Portfolio unplausibel (Untergrenze {MIN_PLAUSIBLE_VOLATILITY_BPS:g} bps)."
+            ),
+            **common,
+        )
     # N-857-3: Tail-Momente sind keine zulaessige Sperrgrundlage.
     if float(skew) != 0.0 or float(excess_kurtosis) != 0.0:
         return LossToleranceCheck(
