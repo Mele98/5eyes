@@ -413,3 +413,63 @@ def test_import_supports_own_fund_fields_and_upserts_by_internal_id(session_fact
     assert fund["price_source"] == "provider" and fund["has_gating"] is False
     assert json_import["created"] == 1
     assert listed["HF-JS-1"]["nav_frequency"] == "weekly"
+
+
+# ---------------------------------------------------------------------------
+# N-861-4 (Pruefrunde #861)
+# ---------------------------------------------------------------------------
+
+
+def test_internal_id_409_only_within_own_tenant_without_leak(session_factory):
+    _seed_tenants(session_factory, ["firm-a", "firm-b"])
+    unlisted = dict(product_type="Fonds", asset_class="Alternative", listing_status="unlisted")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            a_first = client.post("/products", json=_create_payload(
+                product_name="Geheimer Fonds A", internal_product_id="X-1", **unlisted))
+            a_other = client.post("/products", json=_create_payload(
+                product_name="A zweiter", internal_product_id="X-2", **unlisted)).json()
+        with _client_for(session_factory, user_id="u-b", tenant_id="firm-b") as client:
+            b_same = client.post("/products", json=_create_payload(
+                product_name="B Fonds", internal_product_id="X-1", **unlisted))
+            b_dup = client.post("/products", json=_create_payload(
+                product_name="B Duplikat", internal_product_id="X-1", **unlisted))
+            b_import = client.post("/products/import", json={"products": [_create_payload(
+                product_name="B Import", internal_product_id="X-2", **unlisted)]}).json()
+            b_list = [p["product_name"] for p in client.get("/products").json()]
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            # Im eigenen Tenant bleibt die ID gesperrt (Umbenennen auf X-1 -> 409).
+            a_rename_conflict = client.put(f"/products/{a_other['id']}", json={"internal_product_id": "X-1"})
+    finally:
+        app.dependency_overrides.clear()
+    assert a_first.status_code == 201
+    assert b_same.status_code == 201, b_same.text  # fremder Tenant: kein Konflikt
+    assert b_dup.status_code == 409
+    # Die Meldung nennt nur die eigene Verwaltung, nie den fremden Fonds.
+    assert "Ihrer Verwaltung" in b_dup.json()["detail"]
+    assert "Geheimer Fonds A" not in b_dup.text and "firm-a" not in b_dup.text
+    assert b_import["created"] == 1, b_import  # X-2 ist nur bei A vergeben
+    assert "Geheimer Fonds A" not in b_list
+    assert a_rename_conflict.status_code == 409
+
+
+def test_csv_export_escapes_formula_injection_and_roundtrips(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    _add_product(session_factory, product_name="=HYPERLINK(\"http://x\")", tenant_id="firm-a",
+                 provider="+Anbieter", ter_source="@Quelle", gating_terms="-10 % Gate")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            exported = client.get("/products/export/csv").text
+    finally:
+        app.dependency_overrides.clear()
+    row = next(r for r in csv.DictReader(io.StringIO(exported)) if "HYPERLINK" in r["product_name"])
+    assert row["product_name"].startswith("'=")
+    assert row["provider"] == "'+Anbieter"
+    assert row["ter_source"] == "'@Quelle"
+    assert row["gating_terms"] == "'-10 % Gate"
+    from routers.review import _normalize_csv_import_row
+
+    restored = _normalize_csv_import_row(row)
+    assert restored["product_name"] == "=HYPERLINK(\"http://x\")"
+    assert restored["provider"] == "+Anbieter"
+    assert _normalize_csv_import_row({"product_name": "'Normal"})["product_name"] == "'Normal"

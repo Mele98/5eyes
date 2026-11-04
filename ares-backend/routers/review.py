@@ -2337,7 +2337,7 @@ def _normalize_csv_import_row(raw: dict) -> dict:
         if field not in _PRODUCT_IMPORT_CSV_FIELDS:
             continue
         if isinstance(value, str):
-            value = value.strip()
+            value = _csv_unescape_cell(value.strip())
         if field == "suitability_service_modes" and isinstance(value, str) and value:
             # CSV-Zelle kann nur eine Liste nicht direkt abbilden -- Semikolon
             # ODER Komma als Trenner zulassen (Komma ist bereits das
@@ -2655,6 +2655,23 @@ def download_products_csv_template(
     )
 
 
+# N-861-4 (Pruefrunde #861): CSV-/Formel-Injection. Eine Zelle, die mit
+# = + - @ Tab oder CR beginnt, wird von Tabellenprogrammen als Formel
+# ausgewertet. Export: mit ' praefixen (OWASP-Empfehlung). Import: ein so
+# praefixierter Wert wird wieder ohne ' gelesen (Export -> Import verlustfrei).
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe_cell(value: str) -> str:
+    return "'" + value if value.startswith(_CSV_FORMULA_TRIGGERS) else value
+
+
+def _csv_unescape_cell(value: str) -> str:
+    if len(value) > 1 and value[0] == "'" and value[1:].startswith(_CSV_FORMULA_TRIGGERS):
+        return value[1:]
+    return value
+
+
 @products_router.get("/export/csv")
 def export_products_csv(
     db: Session = Depends(get_db),
@@ -2695,7 +2712,7 @@ def export_products_csv(
                 except (TypeError, ValueError):
                     parsed = None
                 value = ";".join(str(tag) for tag in parsed) if isinstance(parsed, list) else ""
-            row.append("" if value is None else str(value))
+            row.append(_csv_safe_cell("" if value is None else str(value)))
         writer.writerow(row)
     return Response(
         content=buffer.getvalue(),

@@ -106,3 +106,22 @@ def test_form_collect_own_fund_fields():
     for element_id in ("pf-listing-status", "pf-internal-id", "pf-price-source", "pf-nav-frequency",
                        "pf-nav-as-of", "pf-redemption-days", "pf-notice-days", "pf-has-gating", "pf-gating-terms"):
         assert f'id="{element_id}"' in module, element_id
+
+
+def test_minimum_investment_uses_currency_minor_digits():
+    """N-861-4: keine feste /100 -- JPY 0, CHF 2, KWD 3 Nachkommastellen."""
+    jpy = _collect({"pf-currency": "JPY", "pf-min-investment": "100000"}, editing=False)
+    assert jpy["payload"]["minimum_investment_minor_units"] == 100000
+    kwd = _collect({"pf-currency": "kwd", "pf-min-investment": "1.234"}, editing=False)
+    assert kwd["payload"]["minimum_investment_minor_units"] == 1234
+    chf = _collect({"pf-currency": "CHF", "pf-min-investment": "1000.5"}, editing=False)
+    assert chf["payload"]["minimum_investment_minor_units"] == 100050
+    too_precise = _collect({"pf-currency": "JPY", "pf-min-investment": "10.5"}, editing=False)
+    assert "Nachkommastellen" in too_precise["err"]
+    shown = _run(
+        "var values = {}; var shown = {}; document.getElementById = function(id){"
+        " if (!(id in shown)) shown[id] = {value: ''}; return shown[id]; };"
+        " adminFillFundMasterData({currency: 'JPY', minimum_investment_minor_units: 5000});"
+        " process.stdout.write(JSON.stringify({v: shown['pf-min-investment'].value}));"
+    )
+    assert shown["v"] == "5000"

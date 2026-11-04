@@ -25,7 +25,7 @@
     + '<div>' + L + 'Retrozession-Quelle (Pflicht bei Satz)</label><input class="fi" id="pf-retro-source" style="font-size:11px"></div>'
     + '<div>' + L + 'Hausprodukt</label><select class="fsel" id="pf-house-product" style="font-size:11px">' + FLAG + '</select></div>'
     + '<div>' + L + 'Ausschuettungsart</label><select class="fsel" id="pf-distribution" style="font-size:11px"><option value="">nicht erfasst</option><option value="accumulating">thesaurierend</option><option value="distributing">ausschuettend</option></select></div>'
-    + '<div>' + L + 'Mindestanlage (in Fondswaehrung, optional)</label><input class="fi" type="number" min="0" step="0.01" id="pf-min-investment" style="font-size:11px"></div>'
+    + '<div>' + L + 'Mindestanlage (in Fondswaehrung, optional)</label><input class="fi" type="number" min="0" step="any" id="pf-min-investment" style="font-size:11px"></div>'
     // Owner-Anforderung P1: eigene Fonds (kotiert/nicht kotiert), Bewertung, Liquiditaetsrhythmus.
     + '<div>' + L + 'Kotierung</label><select class="fsel" id="pf-listing-status" style="font-size:11px"><option value="">nicht erfasst</option><option value="listed">kotiert (ISIN Pflicht)</option><option value="unlisted">nicht kotiert (ohne ISIN: interne ID Pflicht)</option></select></div>'
     + '<div>' + L + 'Interne Produkt-ID (eindeutig je Verwaltung)</label><input class="fi" id="pf-internal-id" maxlength="64" style="font-size:11px"></div>'
@@ -72,6 +72,18 @@ function adminFundMasterDataBadges(p){
   }
   return out;
 }
+// N-861-4: Nachkommastellen je Waehrung (ISO 4217 Minor Units) statt fester
+// /100. Unbekannte Codes: 2 (Regelfall).
+var CURRENCY_MINOR_DIGITS = {
+  BIF:0, CLP:0, DJF:0, GNF:0, ISK:0, JPY:0, KMF:0, KRW:0, PYG:0, RWF:0, UGX:0, UYI:0,
+  VND:0, VUV:0, XAF:0, XOF:0, XPF:0,
+  BHD:3, IQD:3, JOD:3, KWD:3, LYD:3, OMR:3, TND:3,
+  CLF:4, UYW:4
+};
+function currencyMinorDigits(code){
+  var c = String(code || '').trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(CURRENCY_MINOR_DIGITS, c) ? CURRENCY_MINOR_DIGITS[c] : 2;
+}
 function adminFillFundMasterData(p){
   if (typeof ensureFundMasterDataFields === 'function') ensureFundMasterDataFields();
   function setVal(id, value){ var el = document.getElementById(id); if (el) el.value = (value === null || value === undefined) ? '' : String(value); }
@@ -86,7 +98,7 @@ function adminFillFundMasterData(p){
   setVal('pf-retro-source', p.retrocession_source);
   setFlag('pf-house-product', p.is_house_product);
   setVal('pf-distribution', p.distribution_policy);
-  setVal('pf-min-investment', p.minimum_investment_minor_units != null ? (Number(p.minimum_investment_minor_units) / 100) : '');
+  setVal('pf-min-investment', p.minimum_investment_minor_units != null ? (Number(p.minimum_investment_minor_units) / Math.pow(10, currencyMinorDigits(p.currency))) : '');
   setVal('pf-listing-status', p.listing_status);
   setVal('pf-internal-id', p.internal_product_id);
   setVal('pf-price-source', p.price_source);
@@ -140,7 +152,10 @@ function adminCollectFundMasterData(payload, editing){
   if (minRaw !== '') {
     var minVal = Number(minRaw);
     if (!isFinite(minVal) || minVal < 0) return 'Mindestanlage muss eine nicht-negative Zahl sein.';
-    payload.minimum_investment_minor_units = Math.round(minVal * 100);
+    var digits = currencyMinorDigits(val('pf-currency'));
+    var minor = minVal * Math.pow(10, digits);
+    if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: hoechstens ' + digits + ' Nachkommastellen fuer ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';
+    payload.minimum_investment_minor_units = Math.round(minor);
   } else if (editing) {
     payload.minimum_investment_minor_units = null;
   }
