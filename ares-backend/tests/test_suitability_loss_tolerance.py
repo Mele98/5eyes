@@ -448,3 +448,31 @@ def test_invalid_moments_are_not_evaluable_and_block_without_exception(mu, sigma
     assert check.status == lt.STATUS_NOT_EVALUABLE
     assert check.check_code == lt.REASON_DISTRIBUTION_INVALID
     assert check.blocks_release is True
+
+
+# ---------------------------------------------------------------------------
+# N-857-11b: Momente strikt als Zahl (kein bool, kein str)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("kwargs", [
+    {"expected_return_bps": True, "volatility_bps": True},
+    {"expected_return_bps": "600", "volatility_bps": "1400"},
+    {"expected_return_bps": 600, "volatility_bps": "1400"},
+    {"expected_return_bps": 600, "volatility_bps": 1400, "mc_p10_return_bps": "-900"},
+    {"expected_return_bps": 600, "volatility_bps": 1400, "mc_p10_return_bps": False},
+    {"expected_return_bps": 600, "volatility_bps": 1400, "skew": "0"},
+    {"expected_return_bps": 600, "volatility_bps": 1400, "excess_kurtosis": np.bool_(False)},
+])
+def test_non_numeric_moments_are_rejected(kwargs):
+    check = lt.evaluate_loss_tolerance(4, mandate_type=VV, **kwargs)
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.check_code == lt.REASON_INPUT_TYPE_INVALID
+    assert check.blocks_release is True
+
+
+def test_numpy_numbers_are_accepted():
+    check = lt.evaluate_loss_tolerance(
+        4, mandate_type=VV, expected_return_bps=np.int64(600),
+        volatility_bps=np.float64(1400.0), mc_p10_return_bps=np.float64(-900.0),
+    )
+    assert check.status in (lt.STATUS_OK, lt.STATUS_CONFLICT)

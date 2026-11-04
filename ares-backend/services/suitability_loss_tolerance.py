@@ -55,6 +55,7 @@ netto Kosten. Vor der Aktivierung muss Compliance die Punkte in
 from __future__ import annotations
 
 import math
+import numbers
 import re
 from dataclasses import asdict, dataclass, field, replace
 from statistics import NormalDist
@@ -116,6 +117,8 @@ REASON_ANSWER_UNMAPPED = "LOSS_TOLERANCE_ANSWER_UNMAPPED"
 REASON_DISTRIBUTION_MISSING = "LOSS_TOLERANCE_DISTRIBUTION_MISSING"
 # N-857-10: ungueltige Momente (NaN/inf, sigma < 0, mu <= -100 %) -> nie Ausnahme.
 REASON_DISTRIBUTION_INVALID = "LOSS_TOLERANCE_DISTRIBUTION_INVALID"
+# N-857-11b: Momente nur als Zahl (int/float), nie bool oder str.
+REASON_INPUT_TYPE_INVALID = "LOSS_TOLERANCE_INPUT_TYPE_INVALID"
 REASON_CF_NOT_MONOTONIC = "LOSS_TOLERANCE_CORNISH_FISHER_NOT_MONOTONIC"
 REASON_TAIL_MOMENTS_NOT_ADMISSIBLE = "LOSS_TOLERANCE_TAIL_MOMENTS_NOT_ADMISSIBLE"
 REASON_SOURCE_NOT_ADMISSIBLE = "LOSS_TOLERANCE_SOURCE_NOT_ADMISSIBLE"
@@ -341,6 +344,13 @@ def _placeholders(band: LossToleranceBand | None, *, unmapped: bool = False) -> 
     return tuple(items)
 
 
+def _is_strict_number(value) -> bool:
+    """int/float (inkl. numpy-Zahlen), aber nie bool/numpy-bool oder str."""
+    if isinstance(value, (bool, np.bool_)):
+        return False
+    return isinstance(value, numbers.Real)
+
+
 def answer_points_from_assessment(assessment) -> int | None:
     """Punkte von Frage 10 aus einem Risikoprofil (Objekt oder Mapping), nur lesen."""
     if assessment is None:
@@ -475,6 +485,28 @@ def _evaluate(
         placeholders=_placeholders(band),
         **base,
     )
+    # N-857-11b: strikte Typpruefung der Momente (wie bei answer_points).
+    moments = {
+        "mc_p10_return_bps": mc_p10_return_bps,
+        "expected_return_bps": expected_return_bps,
+        "volatility_bps": volatility_bps,
+        "skew": skew,
+        "excess_kurtosis": excess_kurtosis,
+    }
+    bad = sorted(
+        name for name, value in moments.items()
+        if value is not None and not _is_strict_number(value)
+    )
+    if bad:
+        return LossToleranceCheck(
+            status=STATUS_NOT_EVALUABLE,
+            check_code=REASON_INPUT_TYPE_INVALID,
+            message=(
+                "Verlusttoleranz nicht pruefbar: Momente muessen Zahlen sein "
+                f"(nicht bool oder Text): {', '.join(bad)}."
+            ),
+            **common,
+        )
     candidates: dict[str, float] = {}
     if mc_p10_return_bps is not None:
         value = float(mc_p10_return_bps)
