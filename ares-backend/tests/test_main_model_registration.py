@@ -33,7 +33,11 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf7523653a10377b3"
-GOLDEN_OPENAPI_SHA256 = "8aebdaead713b4af5daadda6380f0fb3ef33a3d878a7e39b5f8873e611ddbbb5"
+# N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
+# und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
+# AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
+# geaendert (Feld-Diff von api/openapi.json, vom Pruefer bestaetigt).
+GOLDEN_OPENAPI_SHA256 = "1e7edfad97aec16b0e6307841390b18da4e225d2a170f4ae6030668a4e265c5f"
 
 _PROBE = """
 import hashlib, json
