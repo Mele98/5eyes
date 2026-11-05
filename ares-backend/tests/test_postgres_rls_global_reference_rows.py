@@ -597,7 +597,9 @@ def test_t1_h6_approved_evidence_is_immutable_on_postgres(migration_schema):
                 conn.execute(text(stmt))
     with engine.begin() as conn:
         conn.execute(text("UPDATE product_sustainability_attributes SET revenue_threshold_bps = 0 WHERE id = 'd'"))
-        conn.execute(text("UPDATE product_sustainability_attributes SET status = 'retired', retired_by = 'u3', "
+        # retired_by bleibt NULL: die Testzeilen haben keine users-Zeilen (FK aktiv,
+        # nur der Trigger ist Gegenstand dieses Tests).
+        conn.execute(text("UPDATE product_sustainability_attributes SET status = 'retired', "
                           "retired_at = 'y', updated_at = 'y' WHERE id = 'a'"))
     with pytest.raises(SQLAlchemyError, match="unveraenderlich"):
         with engine.begin() as conn:
