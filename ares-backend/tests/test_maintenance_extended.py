@@ -5,7 +5,7 @@ from services.maintenance import tail_app_log
 
 
 def test_tail_app_log_returns_recent_lines(tmp_path, monkeypatch):
-    log_file = tmp_path / '5eyes-app.log'
+    log_file = tmp_path / 'ares-app.log'
     log_file.write_text('a\nb\nc\n', encoding='utf-8')
 
     monkeypatch.setattr('services.maintenance.resolve_log_file', lambda: log_file)
