@@ -824,3 +824,47 @@ def test_n863_3_audit_chain_intact_after_approvals_with_supersession(SF, client)
     with SF() as s:
         result = verify_audit_chain(s)
     assert result["ok"], result
+
+
+# ---------------------------------------------------------------------------
+# N-863-4: Grenzen-Regel -- Messung (c_m, Exposure > 0) widerlegt jeden Nachweis mit Grenze <= c_m
+# ---------------------------------------------------------------------------
+
+
+def test_n863_4_p5_zero_policy_refuted_by_measurement_above_one_percent(SF):
+    _attr(SF, id="policy0", revenue=0)
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "tobacco", 500, TODAY)  # Gegenprobe ohne Messung
+    _attr(SF, id="meas1", kind="measured_exposure", revenue=100, measured=300)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "tobacco", 500, TODAY)
+    assert not result.satisfied and result.reason == "conflicting_evidence"
+
+
+def test_n863_4_p6_two_measurements_same_cutoff_contradict(SF):
+    _attr(SF, id="meas-zero", kind="measured_exposure", revenue=100, measured=0)
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "tobacco", 500, TODAY, tenant_id="firm-a")
+    _attr(SF, id="meas-pos", tenant_id="firm-a", kind="measured_exposure", revenue=100, measured=300,
+          created_by="admin-a1", approved_by="admin-a2")
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert evaluate_criterion(s, p, "tobacco", 500, TODAY, tenant_id="firm-a").reason == "conflicting_evidence"
+        assert is_criterion_satisfied(s, p, "tobacco", 500, TODAY, tenant_id="firm-b")
+
+
+def test_n863_4_p4_stricter_cutoff_measurement_is_only_a_hint(SF):
+    _attr(SF, id="policy5", revenue=500)
+    _attr(SF, id="meas-any", kind="measured_exposure", revenue=0, measured=300)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "tobacco", 500, TODAY)
+    assert result.satisfied and result.attribute_id == "policy5"
+    assert "inconclusive_measurement" in result.candidate_reasons
+
+
+def test_n863_4_parent_policy_refuted_by_child_measurement_at_its_cutoff(SF):
+    _attr(SF, id="weapons0", category="weapons", revenue=0)
+    _attr(SF, id="contro-meas", category="controversial_weapons", kind="measured_exposure", revenue=100, measured=20)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "controversial_weapons", 500, TODAY)
+    assert not result.satisfied and result.reason == "conflicting_evidence"

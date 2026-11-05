@@ -1070,15 +1070,46 @@ def evaluate_criterion(
         (attribute, _row_reason(attribute, ctype, threshold, check_date, expected_value))
         for attribute in covering_ordered
     ]
-    covering_satisfied = [attribute for attribute, reason in covering_evaluated if reason == "satisfied"]
-    if "exposure_present" in reasons:
-        blocked = "conflicting_evidence" if ("satisfied" in reasons or covering_satisfied) else "exposure_present"
-        return CriterionEvaluation(False, blocked, None, reasons)
-    for attribute, reason in evaluated:
-        if reason == "satisfied":
-            return CriterionEvaluation(True, "satisfied", attribute.id, reasons)
-    if covering_satisfied:
-        return CriterionEvaluation(True, "satisfied", covering_satisfied[0].id, reasons + ("satisfied_by_parent_category",))
+    # N-863-4 (Grenzen-Regel): Eine gueltige, sichtbare Messung der eigenen
+    # Kategorie mit Exposure > 0 und Messgrenze c_m belegt Emittenten mit
+    # Umsatz > c_m im Produkt. Sie widerlegt jeden sonst erfuellenden
+    # Nachweis (eigene Kategorie oder Oberkategorie, Richtlinie oder Messung
+    # mit 0) mit Grenze c <= c_m -> conflicting_evidence. Nur ein Nachweis mit
+    # strengerer Messgrenze-Lage c > c_m bleibt erfuellt (z. B. Richtlinie 5 %
+    # gegen Messung "jede Beteiligung" 3 %: Emittenten zwischen 0 und 5 %
+    # Umsatz sind unter der Richtlinie erlaubt), mit Hinweis
+    # inconclusive_measurement in candidate_reasons. Bei UNGC (ohne Grenze)
+    # widerlegt jede Messung mit Exposure > 0 jeden anderen Nachweis.
+    blocking_cutoffs = [
+        attribute.revenue_threshold_bps
+        for attribute, reason in evaluated
+        if reason in ("exposure_present", "inconclusive_measurement")
+        and attribute.kind == "measured_exposure"
+        and (attribute.measured_exposure_bps or 0) > 0
+    ]
+
+    def _refuted(attribute) -> bool:
+        if not blocking_cutoffs:
+            return False
+        if ctype != "revenue_threshold":
+            return True
+        limit = attribute.revenue_threshold_bps
+        return any(c_m is None or limit is None or limit <= c_m for c_m in blocking_cutoffs)
+
+    satisfying = [a for a, reason in evaluated if reason == "satisfied"]
+    covering_satisfied = [a for a, reason in covering_evaluated if reason == "satisfied"]
+    surviving = [a for a in satisfying if not _refuted(a)]
+    surviving_covering = [a for a in covering_satisfied if not _refuted(a)]
+    if (satisfying or covering_satisfied) and not (surviving or surviving_covering):
+        return CriterionEvaluation(False, "conflicting_evidence", None, reasons)
+    if "exposure_present" in reasons and not (surviving or surviving_covering):
+        return CriterionEvaluation(False, "exposure_present", None, reasons)
+    if surviving:
+        return CriterionEvaluation(True, "satisfied", surviving[0].id, reasons)
+    if surviving_covering:
+        return CriterionEvaluation(
+            True, "satisfied", surviving_covering[0].id, reasons + ("satisfied_by_parent_category",),
+        )
     # Messungen der Oberkategorie mit Exposure sind fuer die Unterkategorie
     # nicht schluessig (blockieren nicht).
     reasons = reasons + tuple(
