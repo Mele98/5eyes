@@ -346,19 +346,20 @@ SUSTAINABILITY_SOURCE_TYPES: tuple[str, ...] = (
 
 SUSTAINABILITY_STATUSES: tuple[str, ...] = ("draft", "approved", "retired")
 
-#: Neutrale Quellbezeichnung fuer Kundendokumente je Quellentyp (FINMA-Sicht,
-#: Pruefrunde #863): ohne Dritt- oder Markennamen. Default, wenn beim Erfassen
-#: kein eigenes client_source_label angegeben wird.
+#: N-863-6: neutrale Quellbezeichnung fuer Kundendokumente als KATALOGWERT
+#: (kein Freitext, keine Dritt- oder Markennamen). Gespeichert wird der Code,
+#: angezeigt der Text. Default ist der Code des Quellentyps.
 SUSTAINABILITY_CLIENT_SOURCE_LABELS: dict[str, str] = {
-    "prospectus": "Verkaufsprospekt",
+    "prospectus": "Fondsprospekt",
     "fund_contract": "Fondsvertrag",
     "kid": "Basisinformationsblatt",
     "factsheet": "Factsheet des Anbieters",
     "provider_exclusion_policy": "Ausschlussrichtlinie des Anbieters",
     "provider_confirmation": "Bestätigung des Anbieters",
-    "data_vendor": "Externer Datenanbieter",
-    "house_analysis": "Eigene Analyse",
+    "data_vendor": "Datenanbieter (Export)",
+    "house_analysis": "eigene Prüfung",
 }
+SUSTAINABILITY_CLIENT_SOURCE_LABEL_CODES: tuple[str, ...] = tuple(SUSTAINABILITY_CLIENT_SOURCE_LABELS)
 
 #: Hausstandard-Defaults (T-E1), Umsatzanteil des Emittenten in bps.
 #: ungc_violation: keine Umsatzschwelle (schwere/anhaltende Verstoesse
@@ -451,6 +452,12 @@ class ProductSustainabilityAttribute(Base):
         ),
         CheckConstraint("valid_until >= as_of", name="ck_psa_valid_until"),
         CheckConstraint(_SUSTAINABILITY_FOUR_EYES_CHECK, name="ck_psa_four_eyes"),
+        CheckConstraint(
+            "client_source_label IS NULL OR client_source_label IN ("
+            "'prospectus', 'fund_contract', 'kid', 'factsheet', 'provider_exclusion_policy', "
+            "'provider_confirmation', 'data_vendor', 'house_analysis')",
+            name="ck_psa_client_source_label",
+        ),
         Index("ix_psa_product_category_status", "product_id", "category", "status"),
         Index("ix_psa_tenant_id", "tenant_id"),
         # Unique (product, tenant, category, kind, as_of) fuer nicht
