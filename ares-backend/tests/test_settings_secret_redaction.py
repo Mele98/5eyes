@@ -30,7 +30,7 @@ SECRET_FIELDS = {
     "smtp_password": "MARKsmtppassword",
     "tenant_master_kek": "MARKtenantkek",
     "backup_hmac_key": "MARKbackuphmac",
-    "database_url": "sqlite:////tmp/MARKdburl.db",
+    "database_url": "postgresql+psycopg://ares:MARKdburlpw@db.example.invalid:5432/ares",
     "twelvedata_api_key": "MARKtwelvedata",
     "eodhd_api_key": "MARKeodhd",
     "openfigi_api_key": "MARKopenfigi",
