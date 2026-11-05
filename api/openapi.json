@@ -13880,6 +13880,13 @@
               }
             ]
           },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ProductIdMappingCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
           "detail": {
             "anyOf": [
               {
@@ -13946,6 +13953,28 @@
               }
             ],
             "title": "Exch Code"
+          },
+          "exchange_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code"
+          },
+          "exchange_code_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code Status"
           },
           "figi": {
             "anyOf": [
@@ -14205,6 +14234,17 @@
       },
       "ProductImportResultItem": {
         "properties": {
+          "eligibility_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligibility Note"
+          },
           "error": {
             "anyOf": [
               {
@@ -15429,6 +15469,17 @@
             ],
             "title": "Is Active"
           },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
           "liquidity_tier": {
             "anyOf": [
               {
@@ -15450,6 +15501,17 @@
               }
             ],
             "title": "Product Name"
+          },
+          "product_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Type"
           },
           "provider": {
             "anyOf": [
@@ -15499,6 +15561,17 @@
               }
             ],
             "title": "Sub Asset Class"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
           },
           "ter_bps": {
             "anyOf": [

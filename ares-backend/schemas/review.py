@@ -956,6 +956,15 @@ class ProductCreate(BaseModel):
 class ProductUpdate(BaseModel):
     """Sprint U-P10: Berater editiert Produkt-Metadaten (Admin-RBAC).
     Alle Felder optional — nur gesetzte werden geupdated."""
+    # AUDIT-FIX Fondsuniversum R6/F6 (2026-11): isin/symbol/product_type
+    # sind NICHT editierbar. Bisher kannte das Schema sie nicht, Pydantic
+    # verwarf sie still und der Endpoint antwortete 200 mit den alten Werten.
+    # Jetzt explizit angenommen: derselbe Wert ist erlaubt (das Formular
+    # sendet ihn immer mit), ein abweichender Wert wird im Router mit 422
+    # abgelehnt (routers/review.py::update_product).
+    isin: Optional[str] = None
+    symbol: Optional[str] = None
+    product_type: Optional[str] = None
     product_name: Optional[str] = None
     provider: Optional[str] = None
     asset_class: Optional[Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]] = None
@@ -1106,6 +1115,9 @@ class ProductImportResultItem(BaseModel):
     product_id: Optional[str] = None
     product_name: Optional[str] = None
     error: Optional[str] = None
+    # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): Hinweis, wenn ein Re-Import
+    # die Eignung geaendert hat (neuer Regel-Entwurf, Freigabe ausstehend).
+    eligibility_note: Optional[str] = None
 
 
 class ProductImportResponse(BaseModel):
@@ -1114,6 +1126,41 @@ class ProductImportResponse(BaseModel):
     updated: int
     failed: int
     items: list[ProductImportResultItem] = Field(default_factory=list)
+
+
+# AUDIT-FIX Fondsuniversum R5/F5 (2026-11): offiziell zugewiesene Codes nach
+# ISO 3166-1 alpha-2 (249). Die Positivliste vergleicht die Jurisdiktion
+# exakt mit der des Mandats; ein Freitext wie "ch " matchte nie "CH" und
+# schaltete still den vollen Katalog frei. N-855-1: die Zeilen werden per
+# " ".join verbunden; ohne Trenner verkettete Python die Literale zu
+# Kunstcodes wie "BEBF", und BE/HU/ID/SI/ME/VN u.a. fehlten.
+ISO_3166_ALPHA2_CODES: frozenset[str] = frozenset(" ".join((
+    "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE",
+    "BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD",
+    "CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM",
+    "DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF",
+    "GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU",
+    "ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN",
+    "KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME",
+    "MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA",
+    "NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM",
+    "PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI",
+    "SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK",
+    "TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI",
+    "VN VU WF WS YE YT ZA ZM ZW",
+)).split())
+
+
+def _normalize_universe_jurisdiction(value):
+    """trim + Grossschreibung + ISO-3166-1-alpha-2-Pruefung (422 sonst)."""
+    if not isinstance(value, str):
+        raise ValueError("jurisdiction muss ein Laendercode (ISO 3166-1 alpha-2) sein")
+    normalized = value.strip().upper()
+    if normalized not in ISO_3166_ALPHA2_CODES:
+        raise ValueError(
+            f"jurisdiction {value!r} ist kein gueltiger Laendercode (ISO 3166-1 alpha-2, z.B. 'CH')"
+        )
+    return normalized
 
 
 class ProductUniverseEntryCreate(BaseModel):
@@ -1126,6 +1173,11 @@ class ProductUniverseEntryCreate(BaseModel):
     # behandelt -- ein Produkt erschien dann faelschlich als vollstaendig
     # bekannt UND kostenlos, ohne Warnung.
     override_ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
+
+    @field_validator("jurisdiction", mode="before")
+    @classmethod
+    def _validate_jurisdiction(cls, v):
+        return _normalize_universe_jurisdiction(v)
 
 
 class ProductUniverseEntryUpdate(BaseModel):
@@ -1178,6 +1230,11 @@ class ProductIdMappingCandidate(BaseModel):
     ticker: Optional[str] = None
     name: Optional[str] = None
     exch_code: Optional[str] = None
+    # OF-1 / Audit O5: interner Boersencode aus der expliziten Tabelle
+    # (Basis der Provider-Symbolik) und Zuordnungsstatus
+    # mapped | unknown | missing. "unknown" wird nie uebernommen.
+    exchange_code: Optional[str] = None
+    exchange_code_status: Optional[str] = None
     composite_figi: Optional[str] = None
     share_class_figi: Optional[str] = None
     security_type: Optional[str] = None
@@ -1241,6 +1298,9 @@ class ProductIdMappingBatchItem(BaseModel):
     status: str
     detail: Optional[str] = None
     applied_candidate: Optional[ProductIdMappingCandidate] = None
+    # OF-1 / Audit OF-a: bei status="ambiguous" die Listings zur Auswahl
+    # (Uebernahme dann ueber /products/openfigi/apply mit preferred_figi).
+    candidates: list[ProductIdMappingCandidate] = Field(default_factory=list)
 
 
 class ProductIdMappingBatchApplyResponse(BaseModel):

@@ -2,6 +2,7 @@ import csv
 import io
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import ValidationError
@@ -59,7 +60,7 @@ from services.advisory_report_cache import invalidate_mandate as invalidate_advi
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.market_data.exceptions import RateLimitError
-from services.openfigi_client import preview_openfigi_mapping
+from services.openfigi_client import map_openfigi_exchange_code, preview_openfigi_mapping
 from services.preference_snapshot import (
     ReasonCodedConflictError,
     enforce_products_against_allocation_snapshot,
@@ -75,7 +76,11 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
     ensure_runtime_reference_data,
 )
-from services.product_market_data import currency_mismatch_warning, resolve_market_profile
+from services.product_market_data import (
+    currency_mismatch_warning,
+    normalize_exchange_code,
+    resolve_market_profile,
+)
 from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
     RECOMMENDATION_DOCUMENT_TYPES,
@@ -186,6 +191,46 @@ def _get_product_or_404(product_id: str, db: Session, current_user: User | None 
             if product_tid != str(user_tid).strip():
                 raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
     return product
+
+
+GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL = (
+    "Globale Katalogfonds gelten fuer alle Verwaltungen und koennen hier nicht "
+    "geaendert oder deaktiviert werden. Nutzen Sie fuer Ihre Verwaltung die "
+    "Positivliste (Fonds-Universum) oder erfassen Sie einen eigenen Fonds."
+)
+
+
+def _may_write_global_catalog(current_user: User) -> bool:
+    """AUDIT-FIX Fondsuniversum R3/F1 (2026-11): globale Katalogfonds
+    (Product.tenant_id IS NULL) wirken fuer JEDEN Tenant. In einer echten
+    Multi-Tenant-Installation (strict_tenant_isolation) darf sie nur die
+    bestehende Plattform-Rolle super_admin aendern -- ein firmengebundener
+    admin bekam bisher 200 und konnte fremden Firmen Fonds deaktivieren oder
+    die TER verfaelschen. Tier-1 (ein Betreiber, kein Tenant-Konzept) bleibt
+    unveraendert, gleiches Muster wie CMA/FX in services/auth.py
+    (require_portfolio_management / *_for_global_reference_data)."""
+    if getattr(current_user, "role", None) == "super_admin":
+        return True
+    return not _effective_strict_tenant_isolation(settings)
+
+
+def _get_product_for_write_or_404(product_id: str, db: Session, current_user: User) -> Product:
+    """Wie _get_product_or_404, plus 403 (fail-closed) fuer Schreibzugriffe
+    auf globale Katalogfonds ohne Plattform-Recht (R3/F1)."""
+    product = _get_product_or_404(product_id, db, current_user)
+    if product.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+    return product
+
+
+def _writable_products_query(db: Session, current_user: User):
+    """Kandidaten fuer die Batch-Schreibpfade (OpenFIGI/EODHD auto-apply):
+    ohne Plattform-Recht nur die eigenen Fonds, nie der globale Katalog."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    q = _active_products_query(db, tenant_id=tenant_id)
+    if not _may_write_global_catalog(current_user):
+        q = q.filter(Product.tenant_id == tenant_id)
+    return q
 
 
 def _enforce_run_preferences(
@@ -653,25 +698,133 @@ def _apply_reference_candidate(
     product.updated_at = now
 
 
+class OpenFigiExchangeCodeUnmapped(ValueError):
+    """OF-1 / Audit O5: Der Bloomberg-Boersencode des Kandidaten steht nicht in
+    der expliziten Tabelle (services.product_market_data.
+    OPENFIGI_EXCHANGE_CODE_MAP). Es wird KEIN Suffix geraten und nichts
+    uebernommen; das Produkt braucht eine manuelle Zuordnung."""
+
+
+def _openfigi_internal_exchange_code(candidate: dict) -> str | None:
+    """Interner Boersencode des Kandidaten oder OpenFigiExchangeCodeUnmapped."""
+    raw = str(candidate.get("exch_code") or "").strip().upper() or None
+    mapped = candidate.get("exchange_code") or map_openfigi_exchange_code(raw)
+    if raw and not mapped:
+        raise OpenFigiExchangeCodeUnmapped(
+            f"OpenFIGI-Boersencode {raw!r} ist keiner Boerse zugeordnet; kein Symbol-Suffix geraten. "
+            "Bitte Boerse bzw. Symbol manuell pflegen."
+        )
+    return mapped
+
+
+FieldChange = tuple[str, Any, Any]
+
+# OF-1 / Audit OF-b: Felder, die ein OpenFIGI-Kandidat setzen darf
+# (Produktfeld, Kandidatenfeld). Leere Kandidatenwerte ueberschreiben nie.
+_OPENFIGI_FIELD_MAP: tuple[tuple[str, str], ...] = (
+    ("figi", "figi"),
+    ("composite_figi", "composite_figi"),
+    ("share_class_figi", "share_class_figi"),
+    ("market_sector", "market_sector"),
+    ("security_type", "security_type"),
+    ("security_type2", "security_type2"),
+)
+
+
 def _apply_openfigi_candidate(
     *,
     product: Product,
     candidate: dict,
     now: str,
     overwrite_symbol: bool,
-) -> None:
-    product.figi = candidate.get("figi")
-    product.composite_figi = candidate.get("composite_figi")
-    product.share_class_figi = candidate.get("share_class_figi")
-    product.exchange_code = candidate.get("exch_code")
-    product.market_sector = candidate.get("market_sector")
-    product.security_type = candidate.get("security_type")
-    product.security_type2 = candidate.get("security_type2")
+) -> list[FieldChange]:
+    """Kandidat uebernehmen; liefert (Feld, alt, neu) je echter Aenderung.
+
+    OF-1 / Audit OF-b: Ein leerer (None/"") Kandidatenwert ueberschreibt nie
+    einen gepflegten Wert. ``mapping_provider`` wird immer protokolliert,
+    damit jede Uebernahme im Audit-Log steht.
+    """
+    exchange_code = _openfigi_internal_exchange_code(candidate)
+    changes: list[FieldChange] = []
+
+    def _set(field: str, value: Any) -> None:
+        if _is_blank(value):
+            return
+        old = getattr(product, field, None)
+        if old == value:
+            return
+        setattr(product, field, value)
+        changes.append((field, old, value))
+
+    for product_field, candidate_field in _OPENFIGI_FIELD_MAP:
+        _set(product_field, candidate.get(candidate_field))
+    _set("exchange_code", exchange_code)
+    if (_is_blank(product.symbol) or overwrite_symbol) and candidate.get("ticker"):
+        _set("symbol", candidate.get("ticker"))
+    changes.append(("mapping_provider", product.mapping_provider, "openfigi"))
     product.mapping_provider = "openfigi"
     product.mapping_resolved_at = now
-    if (not product.symbol or overwrite_symbol) and candidate.get("ticker"):
-        product.symbol = candidate.get("ticker")
     product.updated_at = now
+    return changes
+
+
+def _log_field_changes(db: Session, *, product: Product, current_user: User, changes: list[FieldChange]) -> None:
+    """OF-1 / Audit OF-a: je geaendertem Feld ein Audit-Eintrag mit Altwert."""
+    for field_name, old_value, new_value in changes:
+        log(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.full_name,
+            table_name="products",
+            record_id=product.id,
+            action="UPDATE",
+            field_name=field_name,
+            old_value=None if old_value is None else str(old_value),
+            new_value=None if new_value is None else str(new_value),
+        )
+
+
+def _openfigi_candidate_key(candidate: dict) -> tuple:
+    figi = str(candidate.get("figi") or "").strip()
+    if figi:
+        return ("figi", figi)
+    return ("listing", str(candidate.get("ticker") or "").strip(), str(candidate.get("exch_code") or "").strip().upper())
+
+
+def _distinct_openfigi_candidates(candidates: list[dict]) -> list[dict]:
+    seen: set[tuple] = set()
+    result: list[dict] = []
+    for candidate in candidates:
+        key = _openfigi_candidate_key(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
+
+
+def _unique_openfigi_candidate(candidates: list[dict], product: Product) -> tuple[dict | None, list[dict]]:
+    """OF-1 / Audit OF-a: eindeutigen Kandidaten bestimmen, nie candidates[0] raten.
+
+    Eindeutig ist ein Kandidat, wenn genau ein Listing (FIGI) geliefert wurde
+    oder genau eines zur bereits gepflegten Boerse des Produkts passt.
+    Rueckgabe: (Kandidat oder None, unterscheidbare Kandidaten).
+    """
+    distinct = _distinct_openfigi_candidates(candidates)
+    product_exchange = normalize_exchange_code(getattr(product, "exchange_code", None))
+    if product_exchange:
+        matching = [
+            c for c in distinct
+            if (c.get("exchange_code") or map_openfigi_exchange_code(c.get("exch_code"))) == product_exchange
+        ]
+        if len(matching) == 1:
+            return matching[0], distinct
+        if matching:
+            return None, matching
+        return None, distinct
+    if len(distinct) == 1:
+        return distinct[0], distinct
+    return None, distinct
 
 
 def _commit_product_batch_update(
@@ -681,21 +834,25 @@ def _commit_product_batch_update(
     current_user: User,
     field_name: str,
     new_value: str,
-    apply_change: Callable[[], None],
+    apply_change: Callable[[], Any],
 ) -> str | None:
     try:
         with db.begin_nested():
-            apply_change()
-            log(
-                db,
-                user_id=current_user.id,
-                user_name=current_user.full_name,
-                table_name="products",
-                record_id=product.id,
-                action="UPDATE",
-                field_name=field_name,
-                new_value=new_value,
-            )
+            changes = apply_change()
+            if isinstance(changes, list):
+                # OF-1: Aenderungen je Feld mit Altwert protokollieren.
+                _log_field_changes(db, product=product, current_user=current_user, changes=changes)
+            else:
+                log(
+                    db,
+                    user_id=current_user.id,
+                    user_name=current_user.full_name,
+                    table_name="products",
+                    record_id=product.id,
+                    action="UPDATE",
+                    field_name=field_name,
+                    new_value=new_value,
+                )
             db.flush()
         db.commit()
     except Exception as exc:
@@ -1179,7 +1336,7 @@ def get_my_review_calendar_feed(
     user = resolve_user_by_calendar_feed_token(db, token)
     if not user:
         raise HTTPException(status_code=404, detail="Ungültiger oder abgelaufener Kalender-Token")
-    ics_text = build_ics_feed(db, user)
+    ics_text = build_ics_feed(db, user, domain=settings.ares_domain)
     return Response(
         content=ics_text,
         media_type="text/calendar; charset=utf-8",
@@ -2164,7 +2321,7 @@ def create_product(
         db,
         product=product,
         created_by_user_id=current_user.id,
-        jurisdiction=product.jurisdiction or "CH",
+        jurisdiction=_product_rule_jurisdiction(product),
         profile_from=body.suitability_profile_from,
         profile_to=body.suitability_profile_to,
         service_modes=[] if body.suitability_prohibited else list(body.suitability_service_modes),
@@ -2178,6 +2335,12 @@ def create_product(
     db.commit()
     db.refresh(product)
     return product
+
+
+def _product_rule_jurisdiction(product: Product) -> str:
+    """Jurisdiktion der Eignungsregel eines Tenant-Produkts (NULL = CH,
+    Altsemantik); eine Stelle fuer Erfassen, Import und Re-Import."""
+    return product.jurisdiction or "CH"
 
 
 _PRODUCT_IMPORT_CSV_FIELDS = (
@@ -2266,6 +2429,10 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
       damit ein Asset Manager mit 300 Fonds nicht wegen einer einzigen
       Tippfehler-Zeile neu anfangen muss.
     """
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product();
+    # R7/F3: reauthor_tenant_product_rule_on_import fuer den Upsert-Pfad.
+    from services.product_eligibility import author_tenant_product_rule, reauthor_tenant_product_rule_on_import
+
     tenant_id = _resolve_tenant_id_for_user(current_user)
     now = _now()
     items: list[ProductImportResultItem] = []
@@ -2310,11 +2477,37 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.deleted_at.is_(None),
             ).first()
         if existing is not None:
+            # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): nur explizit gelieferte,
+            # nicht leere Felder ueberschreiben. Vorher setzte der Upsert JEDES
+            # Feld aus model_dump() -- auch nicht gelieferte (None) --, und ein
+            # Re-Upload loeschte gepflegte Exposures, Liquiditaet, Rating usw.
+            # Leere Importfelder bedeuten "unveraendert".
             for field, value in payload.items():
-                setattr(existing, field, value)
+                if field in body.model_fields_set and value is not None:
+                    setattr(existing, field, value)
             existing.updated_at = now
+            eligibility_draft, retired_draft_ids = reauthor_tenant_product_rule_on_import(
+                db, product=existing, jurisdiction=_product_rule_jurisdiction(existing),
+                created_by_user_id=current_user.id,
+                row={**payload, **suitability}, explicit_fields=set(body.model_fields_set), now=now,
+            )
+            # N-855-4: Zurueckziehen und neuer Entwurf je eigener Audit-Eintrag.
+            for retired_id in retired_draft_ids:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=retired_id, action="UPDATE",
+                    field_name="status", old_value="draft",
+                    new_value=f"retired;reason=reimport_superseded_draft;product={existing.id}")
+            if eligibility_draft is not None:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=eligibility_draft.id, action="CREATE",
+                    new_value=(f"draft;reason=reimport_eligibility_change;product={existing.id};"
+                               f"supersedes={eligibility_draft.supersedes_id or ''}"))
             items.append(ProductImportResultItem(
                 row=idx, status="updated", product_id=existing.id, product_name=existing.product_name,
+                eligibility_note=(
+                    "Geaenderte Eignung als Entwurf angelegt; die bisherige Regel gilt bis zur "
+                    "Vier-Augen-Freigabe weiter." if eligibility_draft is not None else None
+                ),
             ))
             updated += 1
         else:
@@ -2343,12 +2536,11 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             db.add(product)
             db.flush()
             # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product()
-            from services.product_eligibility import author_tenant_product_rule
             author_tenant_product_rule(
                 db,
                 product=product,
                 created_by_user_id=current_user.id,
-                jurisdiction=product.jurisdiction or "CH",
+                jurisdiction=_product_rule_jurisdiction(product),
                 profile_from=suitability["suitability_profile_from"],
                 profile_to=suitability["suitability_profile_to"],
                 service_modes=(
@@ -2386,7 +2578,9 @@ def import_products_bulk(
     Tenant-User-Account, meldet sich ueber POST /auth/login an und ruft
     diesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products
     fuer die Upsert-/Isolationslogik."""
-    rows = [p.model_dump() for p in body.products]
+    # R7/F3: exclude_unset, damit _import_products nicht gelieferte Felder
+    # von gelieferten unterscheiden kann (Upsert ueberschreibt nur diese).
+    rows = [p.model_dump(exclude_unset=True) for p in body.products]
     return _import_products(rows, db, current_user)
 
 
@@ -2474,6 +2668,14 @@ def download_products_csv_template(
 
 
 _PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
+# AUDIT-FIX Fondsuniversum R6/F6 (2026-11): Identifikation und Produkttyp sind
+# nach dem Erfassen fix (ISIN global eindeutig, Marktdaten-Mapping haengt daran).
+_PRODUCT_IMMUTABLE_FIELDS = ("isin", "symbol", "product_type")
+
+
+def _normalized_identifier(value) -> str | None:
+    text_value = str(value).strip() if value is not None else ""
+    return text_value or None
 
 
 @products_router.put("/{product_id}", response_model=ProductResponse)
@@ -2492,8 +2694,21 @@ def update_product(
     services/product_exposures.py::_parse_or_proxy bleibt zusaetzlich
     fault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.
     """
-    product = _get_product_or_404(product_id, db, current_user)
-    payload = body.model_dump(exclude_none=True)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
+    changed_immutable = [
+        field for field in _PRODUCT_IMMUTABLE_FIELDS
+        if field in body.model_fields_set
+        and _normalized_identifier(getattr(body, field)) != _normalized_identifier(getattr(product, field))
+    ]
+    if changed_immutable:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Nicht editierbar: {', '.join(changed_immutable)}. ISIN, Symbol und Produkttyp "
+                "koennen nach dem Erfassen nicht geaendert werden; die Aenderung wurde nicht gespeichert."
+            ),
+        )
+    payload = body.model_dump(exclude_none=True, exclude=set(_PRODUCT_IMMUTABLE_FIELDS))
     # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
     # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
     # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt
@@ -2575,7 +2790,7 @@ def approve_product_eligibility_rule(
     from services.product_eligibility_governance import RuleApprovalConflict, approve_rule
 
     body = body or ProductEligibilityApprovalRequest()
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     draft_ids = [
         row[0] for row in db.query(ProductEligibilityRule.id).filter(
@@ -2586,6 +2801,7 @@ def approve_product_eligibility_rule(
     if not draft_ids:
         raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel fuer dieses Produkt.")
     approved: list[str] = []
+    superseded: list[str] = []
     modes: set[str] = set()
     try:
         for rule_id in draft_ids:
@@ -2596,6 +2812,15 @@ def approve_product_eligibility_rule(
             )
             approved.append(rule_id)
             modes.add(rule.approval_mode)
+            if rule.supersedes_id:
+                previous = db.get(ProductEligibilityRule, rule.supersedes_id)
+                if previous is not None and previous.status == "retired":
+                    superseded.append(previous.id)
+                    # N-855-4: Abloesung der bisher geltenden Regel als eigener Eintrag.
+                    log(db, user_id=current_user.id, user_name=current_user.full_name,
+                        table_name="product_eligibility_rules", record_id=previous.id, action="UPDATE",
+                        field_name="status", old_value="approved",
+                        new_value=f"retired;superseded_by={rule.id};valid_to={previous.valid_to}")
     except LookupError:
         db.rollback()
         raise HTTPException(status_code=404, detail="Eignungsregel nicht gefunden.")
@@ -2604,6 +2829,8 @@ def approve_product_eligibility_rule(
         raise HTTPException(status_code=409, detail=str(exc))
     approval_mode = ",".join(sorted(modes))
     audit_value = f"approved:{','.join(approved)};approval_mode={approval_mode}"
+    if superseded:
+        audit_value += f";superseded:{','.join(superseded)}"
     if "single_approver_attested" in modes:
         audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -2622,7 +2849,7 @@ def set_product_market_override(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     product.lookup_mode_override = body.lookup_mode_override or None
     product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
     product.updated_at = _now()
@@ -2678,7 +2905,7 @@ def apply_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_openfigi_or_raise(
         product=product,
         isin=body.isin,
@@ -2687,6 +2914,19 @@ def apply_product_id_mapping(
         mic_code=body.mic_code,
         currency=body.currency,
     )
+    distinct = _distinct_openfigi_candidates(list(preview.get("candidates") or []))
+    explicit_choice = bool(body.preferred_figi) or "candidate_index" in body.model_fields_set
+    if len(distinct) > 1 and not explicit_choice:
+        # OF-1 / Audit OF-a: bei mehreren Listings nie stillschweigend den
+        # ersten Kandidaten nehmen; der Aufrufer muss waehlen.
+        figis = ", ".join(str(c.get("figi") or "?") for c in distinct)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"OpenFIGI lieferte {len(distinct)} Listings ({figis}). "
+                "Bitte Kandidat per preferred_figi oder candidate_index waehlen."
+            ),
+        )
     selected = _select_preview_candidate(
         preview=preview,
         candidate_index=body.candidate_index,
@@ -2694,22 +2934,17 @@ def apply_product_id_mapping(
         empty_detail="Kein Mapping-Kandidat gefunden",
     )
     now = _now()
-    _apply_openfigi_candidate(
-        product=product,
-        candidate=selected,
-        now=now,
-        overwrite_symbol=body.overwrite_symbol,
-    )
-    log(
-        db,
-        user_id=current_user.id,
-        user_name=current_user.full_name,
-        table_name="products",
-        record_id=product.id,
-        action="UPDATE",
-        field_name="mapping_provider",
-        new_value="openfigi",
-    )
+    try:
+        changes = _apply_openfigi_candidate(
+            product=product,
+            candidate=selected,
+            now=now,
+            overwrite_symbol=body.overwrite_symbol,
+        )
+    except OpenFigiExchangeCodeUnmapped as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _log_field_changes(db, product=product, current_user=current_user, changes=changes)
     db.commit()
     db.refresh(product)
     return {
@@ -2726,7 +2961,7 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
@@ -2778,7 +3013,47 @@ def auto_apply_product_id_mappings(
             )
             continue
 
-        selected = candidates[0]
+        selected, distinct = _unique_openfigi_candidate(candidates, product)
+        if selected is None:
+            # OF-1 / Audit OF-a: mehrdeutig -> kein Auto-Apply, Auswahl anbieten.
+            skipped_count += 1
+            items.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.product_name,
+                    "isin": product.isin,
+                    "status": "ambiguous",
+                    "detail": (
+                        f"{len(distinct)} Listings gefunden, kein eindeutiger Kandidat. "
+                        "Bitte ueber /products/openfigi/apply mit preferred_figi auswaehlen."
+                    ),
+                    "applied_candidate": None,
+                    "candidates": distinct,
+                }
+            )
+            continue
+        try:
+            _openfigi_internal_exchange_code(selected)
+            if not str(selected.get("exch_code") or "").strip():
+                # N-862-5: ohne Boersencode ergaebe das blanke Symbol ein
+                # US-Listing (O5-Klasse). Nie automatisch uebernehmen.
+                raise OpenFigiExchangeCodeUnmapped(
+                    "OpenFIGI-Kandidat ohne Boersencode; das blanke Symbol waere ein geratenes Listing. "
+                    "Bitte Boerse bzw. Symbol manuell pflegen."
+                )
+        except OpenFigiExchangeCodeUnmapped as exc:
+            skipped_count += 1
+            items.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.product_name,
+                    "isin": product.isin,
+                    "status": "needs_review",
+                    "detail": str(exc),
+                    "applied_candidate": None,
+                }
+            )
+            continue
         if body.dry_run:
             skipped_count += 1
             items.append(
@@ -2787,7 +3062,7 @@ def auto_apply_product_id_mappings(
                     "product_name": product.product_name,
                     "isin": product.isin,
                     "status": "preview",
-                    "detail": "Erster Kandidat ermittelt, dry_run aktiv",
+                    "detail": "Eindeutiger Kandidat ermittelt, dry_run aktiv",
                     "applied_candidate": selected,
                 }
             )
@@ -2855,7 +3130,7 @@ def apply_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_eodhd_or_raise(
         product=product,
         isin=body.isin,
@@ -2904,7 +3179,7 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )
@@ -3058,7 +3333,8 @@ def list_product_universe_entries(
         ProductUniverseEntry.deleted_at.is_(None),
     )
     if jurisdiction is not None:
-        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction)
+        # R5/F5: gleiche Normalisierung wie beim Anlegen (trim, Grossschreibung).
+        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction.strip().upper())
     return q.order_by(ProductUniverseEntry.jurisdiction, ProductUniverseEntry.created_at).all()
 
 
@@ -3143,6 +3419,21 @@ def delete_product_universe_entry(
     entry.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_universe_entries", record_id=entry.id, action="DELETE")
+    # AUDIT-FIX Fondsuniversum R5/F5 (2026-11): war das der letzte Eintrag der
+    # Jurisdiktion, gilt ab jetzt wieder der volle Katalog -- nicht still,
+    # sondern als eigener Audit-Eintrag (und als Warnung in jeder Generierung,
+    # services/portfolio_engine_payload.py::universe_emptied_warning).
+    db.flush()
+    remaining = db.query(ProductUniverseEntry.id).filter(
+        ProductUniverseEntry.tenant_id == entry.tenant_id,
+        ProductUniverseEntry.jurisdiction == entry.jurisdiction,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if remaining is None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="product_universe_entries", record_id=entry.id, action="UPDATE",
+            field_name="universe_scope",
+            new_value=f"Positivliste {entry.jurisdiction} leer: Empfehlungen nutzen den vollen Katalog")
     db.commit()
     return None
 
