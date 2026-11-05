@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import sqlite3
 import re
 import sys
@@ -1624,133 +1625,198 @@ def _rebuild_risk_assessment_answers_from_old(cur) -> None:
     cur.execute('CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id)')
     cur.execute('DROP TABLE risk_assessment_answers__old')
 
+class AuditLogRebuildInterrupted(RuntimeError):
+    """N-869-1 (Pruefrunde #869): ein unterbrochener audit_log-Neuaufbau, der
+    sich nicht sicher automatisch abschliessen laesst. Start blockiert
+    (fail-closed), CRITICAL im Log -- nie still."""
+
+
+_audit_log_logger = logging.getLogger("database.audit_log")
+
+_AUDIT_LOG_REBUILT_DDL = """
+    CREATE TABLE audit_log (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        user_name TEXT NOT NULL,
+        table_name TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK(action IN (
+            'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
+            '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
+            'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
+            'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
+            'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+            'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
+            'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
+            'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+        )),
+        field_name TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        mandate_id TEXT,
+        client_id TEXT,
+        integrity_hash TEXT,
+        ip_address TEXT,
+        created_at TEXT NOT NULL,
+        tenant_id TEXT,
+        sequence INTEGER,
+        previous_hash TEXT
+    )
+"""
+
+
+def _audit_log_ddl_is_current(ddl_text: str) -> bool:
+    ddl_text = str(ddl_text or '').upper()
+    has_password_reset = 'PASSWORD_RESET' in ddl_text
+    has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
+    has_ip_address = 'IP_ADDRESS' in ddl_text
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Marker fuer die erweiterte
+    # action-CHECK-Liste (siehe ares_schema.sql) -- ohne diesen 4. Marker
+    # wuerden bereits migrierte Installationen (die anderen 3 Marker bereits
+    # erfuellt) NIE die erweiterte Liste erhalten und weiterhin bei jedem
+    # Admin-Endpunkt mit einem der 26 fehlenden action-Werte crashen.
+    has_expanded_actions = 'UPSERT' in ddl_text
+    # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue 'CLIENT_ERASE'-
+    # Action (identische Bugklasse wie has_expanded_actions oben).
+    has_erasure_action = 'CLIENT_ERASE' in ddl_text
+    return (
+        has_password_reset and has_integrity_hash and has_ip_address
+        and has_expanded_actions and has_erasure_action
+    )
+
+
 def ensure_audit_log_actions(target_engine: Engine | None = None) -> None:
+    """SQLite: audit_log auf den aktuellen action-CHECK bringen (RENAME +
+    Neuaufbau, SQLite kann CHECKs nicht aendern).
+
+    N-869-1 (Pruefrunde #869): Der Neuaufbau lief bisher in
+    ``engine.begin()``. pysqlite (Legacy-Transaktionsmodus) oeffnet die
+    Transaktion aber erst beim ersten DML -- RENAME und CREATE TABLE liefen im
+    Autocommit. Scheiterte das Kopieren (z.B. eine Altzeile verletzt den neuen
+    CHECK), blieben ``audit_log__old`` mit der GANZEN Historie und ein leeres
+    ``audit_log`` ohne Trigger committet zurueck; beim naechsten Start
+    erfuellte das neue DDL alle Marker, die Funktion kehrte sofort zurueck
+    und die Historie war fuer Export und Pruefung unsichtbar.
+
+    Jetzt (Muster run_risk_assessment_answer_migration): explizite
+    Transaktion ``BEGIN IMMEDIATE`` mit ``isolation_level=None`` -- RENAME,
+    CREATE, Kopie, Zeilenzahl-Abgleich, DROP und Trigger sind EINE atomare
+    Einheit, ein Fehler rollt alles zurueck. Ein vorgefundener unterbrochener
+    Zustand (``audit_log__old`` existiert) wird fortgesetzt, wenn die neue
+    Tabelle fehlt oder leer ist (WARNING); liegen in beiden Tabellen Zeilen,
+    ist der Zustand nicht sicher aufloesbar: CRITICAL und
+    AuditLogRebuildInterrupted (Start blockiert, DB unveraendert).
+    """
     target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
-    if not inspector.has_table('audit_log'):
+    if not inspector.has_table('audit_log') and not inspector.has_table('audit_log__old'):
         return
 
-    with target_engine.begin() as conn:
-        ddl = conn.execute(
-            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'")
-        ).scalar()
-        ddl_text = str(ddl or '').upper()
-        has_password_reset = 'PASSWORD_RESET' in ddl_text
-        has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
-        has_ip_address = 'IP_ADDRESS' in ddl_text
-        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Marker fuer die erweiterte
-        # action-CHECK-Liste (siehe ares_schema.sql) -- ohne
-        # diesen 4. Marker wuerden bereits migrierte Installationen (die
-        # anderen 3 Marker bereits erfuellt) NIE die erweiterte Liste
-        # erhalten und weiterhin bei jedem Admin-Endpunkt mit einem der 26
-        # fehlenden action-Werte crashen.
-        has_expanded_actions = 'UPSERT' in ddl_text
-        # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue
-        # 'CLIENT_ERASE'-Action -- bereits migrierte Installationen (alle 4
-        # anderen Marker bereits erfuellt) wuerden diese neue Action sonst
-        # NIE erhalten und der Erase-Endpoint crasht auf ihnen dauerhaft mit
-        # IntegrityError (identische Bugklasse wie has_expanded_actions oben).
-        has_erasure_action = 'CLIENT_ERASE' in ddl_text
-        if (
-            has_password_reset and has_integrity_hash and has_ip_address
-            and has_expanded_actions and has_erasure_action
-        ):
-            return
+    raw = target_engine.raw_connection()
+    try:
+        dbapi = raw.driver_connection if hasattr(raw, "driver_connection") else raw.connection
+        previous_isolation = dbapi.isolation_level
+        dbapi.isolation_level = None  # explizite Transaktionssteuerung, DDL inklusive
+        cur = dbapi.cursor()
+        cur.execute('BEGIN IMMEDIATE')
+        try:
+            names = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'audit_log__old' in names:
+                n_old = cur.execute('SELECT COUNT(*) FROM audit_log__old').fetchone()[0]
+                if 'audit_log' in names:
+                    n_new = cur.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+                    if n_new:
+                        message = (
+                            "audit_log__old (%s Zeilen) existiert neben einer NICHT leeren "
+                            "audit_log (%s Zeilen) -- unterbrochener Neuaufbau, nicht sicher "
+                            "aufloesbar. Start blockiert, Datenbank unveraendert; bitte manuell "
+                            "pruefen (Historie liegt in audit_log__old)." % (n_old, n_new)
+                        )
+                        _audit_log_logger.critical(message)
+                        raise AuditLogRebuildInterrupted(message)
+                    cur.execute('DROP TABLE audit_log')
+                _audit_log_logger.warning(
+                    "Unterbrochener audit_log-Neuaufbau gefunden (%s Zeilen in audit_log__old) "
+                    "-- wird atomar fortgesetzt",
+                    n_old,
+                )
+            else:
+                ddl = cur.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'"
+                ).fetchone()[0]
+                if _audit_log_ddl_is_current(ddl):
+                    cur.execute('COMMIT')
+                    return
+                cur.execute('ALTER TABLE audit_log RENAME TO audit_log__old')
+            _rebuild_audit_log_from_old(cur)
+            cur.execute('COMMIT')
+        except Exception:
+            cur.execute('ROLLBACK')
+            raise
+        finally:
+            dbapi.isolation_level = previous_isolation
+    finally:
+        raw.close()
 
-        conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
-        conn.execute(text("""
-            CREATE TABLE audit_log (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                user_name TEXT NOT NULL,
-                table_name TEXT NOT NULL,
-                record_id TEXT NOT NULL,
-                action TEXT NOT NULL CHECK(action IN (
-                    'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
-                    '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
-                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
-                    'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
-                    'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
-                    'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
-                    'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-                    'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
-                )),
-                field_name TEXT,
-                old_value TEXT,
-                new_value TEXT,
-                mandate_id TEXT,
-                client_id TEXT,
-                integrity_hash TEXT,
-                ip_address TEXT,
-                created_at TEXT NOT NULL,
-                tenant_id TEXT,
-                sequence INTEGER,
-                previous_hash TEXT
-            )
-        """))
-        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
-        # Spalten aus audit_log__old kopiert, die diese Migration bereits
-        # kannte -- ein bereits vorhandenes ip_address (aus einem frueheren
-        # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
-        # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
-        # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
-        # Roadmap #21 (2026-08-08): tenant_id nach demselben Muster -- sonst
-        # wuerde diese RENAME-Migration eine bereits per ensure_runtime_columns
-        # nachgezogene tenant_id-Spalte beim naechsten Lauf wieder verwerfen
-        # (identische Bugklasse wie der Trigger-Verlust oben).
-        # SEC-003 (Codex-Audit 2026-08-26): dito fuer sequence/previous_hash --
-        # ohne diese dynamische Uebernahme wuerde eine frische Installation
-        # (die diese RENAME-Migration beim ersten Start durchlaeuft) die per
-        # ensure_runtime_columns() bereits angelegten Sequenz-Spalten sofort
-        # wieder verlieren (real reproduziert waehrend der Implementierung
-        # dieses Fixes: Test schlug mit "no column named sequence" fehl, bis
-        # dieser Block ergaenzt wurde).
-        old_columns = {
-            row[1] for row in conn.execute(text("PRAGMA table_info(audit_log__old)"))
-        }
-        ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
-        tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
-        sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
-        previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
-        # H-865-1 (Pruefrunde #865): integrity_hash wurde hier bisher hart mit
-        # "NULL AS integrity_hash" kopiert. Beim ersten Start einer Rohschema-
-        # Installation war das folgenlos (noch keine Zeilen mit Hash), aber
-        # JEDER spaetere Neuaufbau -- etwa fuer einen kuenftigen action-Marker
-        # nach dem Muster has_erasure_action -- haette ALLEN bestehenden
-        # Zeilen den Hash genommen, auch den verketteten: verify_audit_chain()
-        # meldete danach jede Zeile als manipuliert, und die Trigger
-        # verhindern jede Reparatur. integrity_hash, sequence und
-        # previous_hash werden deshalb 1:1 uebernommen.
-        integrity_hash_select = (
-            "integrity_hash" if "integrity_hash" in old_columns else "NULL AS integrity_hash"
+
+def _rebuild_audit_log_from_old(cur) -> None:
+    """Neue audit_log aus audit_log__old aufbauen -- innerhalb der expliziten
+    Transaktion des Aufrufers. Prueft, dass jede Zeile uebernommen wurde,
+    bevor __old geloescht wird, und legt die Trigger wieder an."""
+    n_old = cur.execute('SELECT COUNT(*) FROM audit_log__old').fetchone()[0]
+    cur.execute(_AUDIT_LOG_REBUILT_DDL)
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
+    # Spalten aus audit_log__old kopiert, die diese Migration bereits
+    # kannte -- ein bereits vorhandenes ip_address (aus einem frueheren
+    # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
+    # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
+    # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
+    # Roadmap #21 (2026-08-08): tenant_id nach demselben Muster.
+    # SEC-003 (Codex-Audit 2026-08-26): dito fuer sequence/previous_hash --
+    # ohne diese dynamische Uebernahme wuerde eine frische Installation
+    # die per ensure_runtime_columns() bereits angelegten Sequenz-Spalten
+    # sofort wieder verlieren.
+    old_columns = {row[1] for row in cur.execute("PRAGMA table_info(audit_log__old)").fetchall()}
+    ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
+    tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
+    sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
+    previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
+    # H-865-1 (Pruefrunde #865): integrity_hash wurde hier bisher hart mit
+    # "NULL AS integrity_hash" kopiert -- jeder spaetere Neuaufbau haette
+    # ALLEN bestehenden Zeilen den Hash genommen, auch den verketteten.
+    # integrity_hash, sequence und previous_hash werden 1:1 uebernommen.
+    integrity_hash_select = (
+        "integrity_hash" if "integrity_hash" in old_columns else "NULL AS integrity_hash"
+    )
+    cur.execute(f"""
+        INSERT INTO audit_log (
+            id, user_id, user_name, table_name, record_id, action,
+            field_name, old_value, new_value, mandate_id, client_id,
+            integrity_hash, ip_address, created_at, tenant_id,
+            sequence, previous_hash
         )
-        conn.execute(text(f"""
-            INSERT INTO audit_log (
-                id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id,
-                integrity_hash, ip_address, created_at, tenant_id,
-                sequence, previous_hash
-            )
-            SELECT
-                id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id,
-                {integrity_hash_select},
-                {ip_address_select},
-                created_at,
-                {tenant_id_select},
-                {sequence_select},
-                {previous_hash_select}
-            FROM audit_log__old
-        """))
-        conn.execute(text('DROP TABLE audit_log__old'))
-        # H-865-1: SQLite verwirft beim DROP TABLE audit_log__old die dorthin
-        # mitgewanderten Unveraenderlichkeits-Trigger (Befund CEO/CFO/CIO-
-        # Audit 2026-08-07). Bisher stellte erst der separate Aufruf von
-        # ensure_audit_log_triggers() im Boot-Pfad sie wieder her -- jeder
-        # andere Aufrufer dieser Funktion hinterliess eine ungeschuetzte
-        # Tabelle. Jetzt in DERSELBEN Transaktion wie der Neuaufbau: die
-        # neue Tabelle ist nie ohne Schutz committet.
-        _create_audit_log_immutability_triggers(conn)
+        SELECT
+            id, user_id, user_name, table_name, record_id, action,
+            field_name, old_value, new_value, mandate_id, client_id,
+            {integrity_hash_select},
+            {ip_address_select},
+            created_at,
+            {tenant_id_select},
+            {sequence_select},
+            {previous_hash_select}
+        FROM audit_log__old
+    """)
+    n_new = cur.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+    if n_new != n_old:
+        raise RuntimeError(f"audit_log-Neuaufbau unvollstaendig ({n_new} von {n_old} Zeilen).")
+    cur.execute('DROP TABLE audit_log__old')
+    # H-865-1: SQLite verwirft beim DROP TABLE audit_log__old die dorthin
+    # mitgewanderten Unveraenderlichkeits-Trigger (Befund CEO/CFO/CIO-Audit
+    # 2026-08-07). Sie werden hier, in derselben (jetzt echten, N-869-1)
+    # Transaktion, wieder angelegt: die neue Tabelle ist nie ohne Schutz
+    # committet.
+    for statement in _AUDIT_LOG_TRIGGER_DDL:
+        cur.execute(statement)
 
 
 def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
@@ -1776,20 +1842,26 @@ def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
         _create_audit_log_immutability_triggers(conn)
 
 
+_AUDIT_LOG_TRIGGER_DDL = (
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+    BEFORE UPDATE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+    BEFORE DELETE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """,
+)
+
+
 def _create_audit_log_immutability_triggers(conn) -> None:
-    """Beide audit_log-Trigger idempotent anlegen (SQLite). Gemeinsam genutzt
-    von ensure_audit_log_triggers() und dem Neuaufbau in
-    ensure_audit_log_actions() (H-865-1)."""
-    conn.execute(text("""
-        CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
-        BEFORE UPDATE ON audit_log FOR EACH ROW
-        BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-    """))
-    conn.execute(text("""
-        CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
-        BEFORE DELETE ON audit_log FOR EACH ROW
-        BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-    """))
+    """audit_log-Trigger idempotent anlegen (SQLite). Gemeinsame Quelle
+    _AUDIT_LOG_TRIGGER_DDL fuer ensure_audit_log_triggers() und den
+    Neuaufbau in ensure_audit_log_actions() (H-865-1, N-869-1)."""
+    for statement in _AUDIT_LOG_TRIGGER_DDL:
+        conn.execute(text(statement))
 
 
 SEED_ASSET_CLASS_RETURNS = [
