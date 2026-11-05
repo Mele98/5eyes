@@ -1889,6 +1889,22 @@ _AUDIT_LOG_TRIGGER_DDL = (
     WHEN NEW.sequence IS NULL OR NEW.integrity_hash IS NULL OR NEW.previous_hash IS NULL
     BEGIN SELECT RAISE(ABORT, 'audit_log insert outside hash chain'); END
     """,
+    # N-869-7 (Delta-Pruefung #869): INSERT OR REPLACE / REPLACE INTO mit einer
+    # vorhandenen id loescht die alte Zeile als Teil der Konfliktaufloesung --
+    # bei recursive_triggers=OFF (SQLite-Default) OHNE trg_audit_log_no_delete
+    # auszuloesen: eine Zeile liess sich so am Unveraenderlichkeitsschutz
+    # vorbei ersetzen. BEFORE-INSERT-Trigger feuern vor der Konfliktaufloesung;
+    # dieser weist jede bereits vorhandene id und jede bereits vergebene
+    # sequence ab (log() vergibt beide nie doppelt). Der Kopierschritt des
+    # Neuaufbaus laeuft vor dem Anlegen der Trigger; sqlite3.backup kopiert
+    # Seiten und loest keine Trigger aus.
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_replace
+    BEFORE INSERT ON audit_log FOR EACH ROW
+    WHEN EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id)
+      OR (NEW.sequence IS NOT NULL AND EXISTS (SELECT 1 FROM audit_log WHERE sequence = NEW.sequence))
+    BEGIN SELECT RAISE(ABORT, 'audit_log row already exists (no replace)'); END
+    """,
 )
 
 
@@ -2085,6 +2101,12 @@ def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_audit_tenant "
             "ON audit_log(tenant_id)"
+        ))
+        # N-869-7: Index fuer die sequence-Pruefung in trg_audit_log_no_replace
+        # und den Verifier (sonst Tabellenscan je INSERT).
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_sequence "
+            "ON audit_log(sequence)"
         ))
 
 

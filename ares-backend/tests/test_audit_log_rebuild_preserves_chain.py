@@ -37,7 +37,7 @@ if str(BACKEND_ROOT) not in sys.path:
 import database as db_module  # noqa: E402
 from database import AuditLogRebuildInterrupted, ensure_audit_log_actions  # noqa: E402
 from models import allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth  # noqa: E402,F401
-from models.review import AuditLogSequenceCounter  # noqa: E402
+from models.review import AuditLog, AuditLogSequenceCounter  # noqa: E402
 from models.users import User  # noqa: E402
 from services.audit import log, verify_audit_chain  # noqa: E402
 
@@ -79,7 +79,10 @@ _TRIGGERS = (
 
 # Nach dem Neuaufbau: beide Unveraenderlichkeits-Trigger plus der
 # Ketten-Pflicht-Trigger fuer neue Zeilen (N-869-3).
-_ALL_TRIGGERS = {"trg_audit_log_no_update", "trg_audit_log_no_delete", "trg_audit_log_require_chain"}
+_ALL_TRIGGERS = {
+    "trg_audit_log_no_update", "trg_audit_log_no_delete", "trg_audit_log_require_chain",
+    "trg_audit_log_no_replace",  # N-869-7
+}
 
 _SNAPSHOT_SQL = (
     "SELECT id, integrity_hash, sequence, previous_hash, created_at, ip_address, "
@@ -354,3 +357,64 @@ def test_rebuild_installs_chain_guard_and_keeps_legacy_rows(pre_rebuild_db):
         log(s, user_id="u1", user_name="Admin", table_name="clients", record_id="c1", action="CREATE")
         s.commit()
         assert verify_audit_chain(s)["ok"]
+
+
+# ---------------------------------------------------------------------------
+# N-869-7 (Delta-Pruefung #869): kein Ersetzen per INSERT OR REPLACE
+# ---------------------------------------------------------------------------
+
+def _chained_row(session_local, sequence: int):
+    with session_local() as s:
+        return s.query(AuditLog).filter(AuditLog.sequence == sequence).one()
+
+
+@pytest.mark.parametrize("verb", ["INSERT OR REPLACE INTO", "REPLACE INTO"])
+def test_replace_of_existing_row_is_rejected(pre_rebuild_db, verb):
+    """Vorher: die Zeile mit sequence=2 liess sich per REPLACE ersetzen -- der
+    implizite DELETE der Konfliktaufloesung loest bei recursive_triggers=OFF
+    trg_audit_log_no_delete nicht aus."""
+    engine, session_local = pre_rebuild_db
+    ensure_audit_log_actions(engine)
+    victim = _chained_row(session_local, 2)
+    before = _snapshot(engine)
+    for row_id, sequence in ((victim.id, 99), ("fresh-id", victim.sequence)):
+        with pytest.raises(DatabaseError, match="already exists"):
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"{verb} audit_log (id, user_name, table_name, record_id, action, created_at,"
+                    " integrity_hash, sequence, previous_hash)"
+                    " VALUES (:id, 'X', 't', 'r', 'LOGIN', '2026-11-05T00:00:00.000Z', :h, :seq, '')"
+                ), {"id": row_id, "h": "f" * 64, "seq": sequence})
+    assert _snapshot(engine) == before
+    with session_local() as s:
+        assert verify_audit_chain(s)["ok"]
+
+
+def test_sqlite_backup_copy_keeps_rows_and_all_triggers(pre_rebuild_db, tmp_path):
+    """Der Migrator/Backup-Pfad (sqlite3.Connection.backup) kopiert Seiten:
+    Zeilen, Hashes und alle vier Trigger bleiben erhalten, log() und der
+    Verifier funktionieren auf der Kopie."""
+    engine, _ = pre_rebuild_db
+    ensure_audit_log_actions(engine)
+    before = _snapshot(engine)
+    target = tmp_path / "copy.db"
+    raw = engine.raw_connection()
+    try:
+        dst = sqlite3.connect(str(target))
+        try:
+            raw.driver_connection.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        raw.close()
+    copy_engine = create_engine(f"sqlite:///{target}", connect_args={"check_same_thread": False})
+    try:
+        assert _snapshot(copy_engine) == before
+        assert _trigger_names(copy_engine) == _ALL_TRIGGERS
+        copy_sessions = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=copy_engine)
+        with copy_sessions() as s:
+            log(s, user_id="u1", user_name="Admin", table_name="clients", record_id="c1", action="CREATE")
+            s.commit()
+            assert verify_audit_chain(s)["ok"]
+    finally:
+        copy_engine.dispose()
