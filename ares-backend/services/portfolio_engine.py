@@ -152,8 +152,8 @@ GOAL_WEIGHT_BY_RANK = {
     4: 1250,
     5: 625,
 }
-DEFAULT_POLICY_NAME = "5Eyes V1 Standard"
-DEFAULT_CMA_NAME = "5Eyes V1 Hausmeinung"
+DEFAULT_POLICY_NAME = "Ares V1 Standard"
+DEFAULT_CMA_NAME = "Ares V1 Hausmeinung"
 
 
 class StaleAllocationInputError(ValueError):
@@ -1428,6 +1428,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _compute_goal_score,
     _expected_death_year_offset_from_mandate,
     _filter_products_by_universe,
+    universe_emptied_warning,
     _goal_hardness_key,
     _goal_projection_years,
     _goal_target_wealth_rappen,
@@ -1864,7 +1865,7 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
                 "2040": 110,
             }),
             sub_asset_class_assumptions_json=json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS),
-            source="5Eyes Default Runtime",
+            source="Ares Default Runtime",
             notes="Automatisch erzeugte Default-CMA fuer V1-Engine",
             created_by=user_id,
             created_at=now,
@@ -1960,13 +1961,19 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     # unterdruecken -- der globale Katalog wurde dann NIE angelegt. Filter
     # jetzt zusaetzlich auf Product.tenant_id IS NULL, damit nur der
     # tatsaechlich von dieser Funktion erzeugte globale Bestand zaehlt.
-    active_ch_products = db.query(Product).filter(
-        Product.is_active == 1,
-        Product.deleted_at.is_(None),
+    #
+    # AUDIT-FIX Fondsuniversum R1/F2 (2026-11): gezaehlt wird JEDE globale
+    # CH-Katalogzeile, auch deaktivierte/geloeschte. Vorher zaehlten nur
+    # aktive -- wer alle globalen Fonds deaktivierte ("nur eigene Fonds"),
+    # bekam beim naechsten Lauf still einen zweiten Katalog mit neuen IDs,
+    # und Positivlisten anderer Tenants zeigten auf die alten. Der Seed ist
+    # damit ein Einmal-Seed: Schluessel ist der globale CH-Katalog selbst
+    # (tenant_id NULL, jurisdiction NULL/CH), unabhaengig vom Status.
+    any_global_ch_product = db.query(Product.id).filter(
         Product.tenant_id.is_(None),
         (Product.jurisdiction.is_(None)) | (Product.jurisdiction == "CH"),
-    ).count()
-    if active_ch_products:
+    ).first()
+    if any_global_ch_product is not None:
         return
     now = _now()
     _validate_default_products(DEFAULT_CATALOG_PRODUCTS)
@@ -6640,6 +6647,8 @@ def generate_recommendation_run(
     theme_disclosure = theme_screening_disclosure(prefs)
     if theme_disclosure:
         warnings.append(theme_disclosure)
+    # R5/F5: geleerte Positivliste -> voller Katalog nicht mehr still.
+    warnings.extend(w for w in [universe_emptied_warning(db, mandate, run_context=run_context)] if w)
     positions_payload = []
     aggregated_positions: dict[str, dict] = {}
     # Sprint 14 Phase 4 F6: fehlende Sub-Klassen sammeln statt still continue

@@ -2,7 +2,7 @@
 
 KEIN Produktcode. Schreibt keine Datenbank: ``DB_PATH`` wird -- falls nicht
 gesetzt -- auf eine Datei in einem frischen Temp-Verzeichnis gelegt; die
-Live-Datenbank (``~/5eyes/5eyes.db``) wird abgelehnt. Die Optimizer-Module
+Live-Datenbank (``~/ares/ares.db``) wird abgelehnt. Die Optimizer-Module
 oeffnen ohnehin keine Session.
 
 Inputs: CMA und Hausmatrizen 1:1 aus ``tests/test_engine_reference_mandates.py``

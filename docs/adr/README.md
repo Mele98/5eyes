@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADRs)
 
-Hier liegen die wichtigsten Architektur-Entscheidungen des 5eyes-Projekts
+Hier liegen die wichtigsten Architektur-Entscheidungen des Ares-Projekts
 in dauerhafter Form. Jeder ADR beantwortet ein "Warum X und nicht Y?"
 sodass kein Engineer das Rad neu erfinden muss.
 

@@ -49,9 +49,21 @@ RULE_POLICY_FIELDS: tuple[str, ...] = (
     "max_position_bps",
     "prohibited",
     "valid_from",
-    "valid_to",
     "supersedes_id",
 )
+
+# N-855-7 (2026-11): valid_to ist ein Lebenszyklus-Feld. Es wird erst bei der
+# Abloesung durch eine Folgeregel gesetzt (approve_rule) und separat im
+# Audit-Log gefuehrt. Im Hash steht es weiter mit seinem verfassten Wert
+# None -- so bleibt jeder bestehende rule_hash byte-gleich (alle
+# Autorenpfade setzen valid_to=None) und laesst sich nach der Abloesung
+# weiter aus der Zeile nachrechnen.
+RULE_LIFECYCLE_FIELDS: tuple[str, ...] = ("valid_to",)
+
+# Quelle der Tenant-Produktregeln (Erfassen, Import, Re-Import); Teil des
+# rule_hash. Hier definiert, damit approve_rule den Hash nach dem Setzen von
+# valid_from neu binden kann; services.product_eligibility re-exportiert ihn.
+TENANT_PRODUCT_RULE_SOURCE = "tenant_product_creation_v1"
 
 # Product attributes a category selector may address. Exact string equality
 # only; any other key makes the selector unmatchable (fail-closed: an
@@ -63,6 +75,55 @@ SELECTOR_ATTRIBUTES: frozenset[str] = frozenset({
     "currency",
     "jurisdiction",
 })
+
+
+def parse_utc_timestamp(value) -> datetime | None:
+    """ISO-Zeitstempel ('Z' oder '+00:00', mit/ohne Sekundenbruchteil) bzw.
+    datetime -> aware UTC-datetime; naive Werte gelten als UTC. Unlesbar oder
+    leer -> None. Fuer robuste Zeitvergleiche statt String-Vergleich."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def instant_within_validity(valid_from, valid_to, as_of) -> bool:
+    """``valid_from <= as_of < valid_to`` auf echten UTC-Zeitpunkten (C-860-01).
+
+    Die Gueltigkeitsfelder (valid_from/valid_to/expires_at) sind Text und
+    kommen in zwei Schreibweisen vor: ``isoformat()`` mit ``+00:00`` (dieses
+    Modul, Governance, Override) und Millisekunden mit ``Z``
+    (services.portfolio_engine._now, Katalog-Bootstrap). Als Text verglichen
+    sortiert ``...SS+00:00`` vor ``...SS.000Z`` -- eine eben geseedete Regel
+    galt dann bis zum Sekundenwechsel als noch nicht gueltig. Deshalb wird
+    beim Vergleich geparst (parse_utc_timestamp); die gespeicherten Werte
+    (und damit alle Hashes, in die sie einfliessen) bleiben unveraendert.
+
+    ``valid_to`` ``None`` heisst offen. Ein nicht lesbarer Wert (auch ein
+    leerer ``valid_to``) macht das Fenster ungueltig -- fail-closed, wie der
+    fruehere Textvergleich fuer solche Werte.
+    """
+    moment = parse_utc_timestamp(as_of)
+    start = parse_utc_timestamp(valid_from)
+    if moment is None or start is None or start > moment:
+        return False
+    if valid_to is None:
+        return True
+    end = parse_utc_timestamp(valid_to)
+    return end is not None and moment < end
 
 
 class RuleApprovalConflict(Exception):
@@ -87,8 +148,20 @@ def compute_rule_hash(values: dict, *, source: str | None = None) -> str:
         if field.endswith("_json") or field == "product_category_selector":
             value = _canonical_json_field(value)
         payload[field] = value
+    for field in RULE_LIFECYCLE_FIELDS:
+        payload[field] = None
     payload["source"] = source
     return canonical_hash(payload)
+
+
+def rule_hash_from_row(rule, *, source: str | None) -> str:
+    """N-855-7: rule_hash einer gespeicherten Regel aus ihrer Zeile
+    nachrechnen (verfasster Policy-Hash, bei Freigabe mit approval_mode
+    gebunden). Gleiche Regel wie beim Verfassen und Freigeben."""
+    authored = compute_rule_hash({field: getattr(rule, field) for field in RULE_POLICY_FIELDS}, source=source)
+    if rule.approval_mode:
+        return approval_bound_rule_hash(authored, rule.approval_mode)
+    return authored
 
 
 def selector_matches_product(selector: str | None, product) -> bool:
@@ -252,11 +325,120 @@ def approve_rule(
         rule_set.approved_by = approver_id
         rule_set.approved_at = now
         rule_set.updated_at = now
+    previous = None
+    if rule.supersedes_id:
+        candidate = db.get(ProductEligibilityRule, rule.supersedes_id)
+        if (
+            candidate is not None
+            and candidate.status == "approved"
+            and candidate.product_id == rule.product_id
+            and candidate.jurisdiction == rule.jurisdiction
+        ):
+            previous = candidate
+    authored_hash = rule.rule_hash
+    if previous is not None:
+        # N-855-7: valid_from der Folgeregel VOR dem Binden setzen und den
+        # verfassten Hash neu rechnen, damit rule_hash aus der Zeile
+        # reproduzierbar bleibt. Fail-closed, wenn der Entwurf nicht aus dem
+        # Tenant-Produktpfad stammt (Quelle nicht nachweisbar).
+        if compute_rule_hash(
+            {field: getattr(rule, field) for field in RULE_POLICY_FIELDS}, source=TENANT_PRODUCT_RULE_SOURCE,
+        ) != rule.rule_hash:
+            raise RuleApprovalConflict(
+                "Folgeregel: verfasster rule_hash nicht nachvollziehbar, Freigabe abgelehnt."
+            )
+        rule.valid_from = now
+        authored_hash = compute_rule_hash(
+            {field: getattr(rule, field) for field in RULE_POLICY_FIELDS}, source=TENANT_PRODUCT_RULE_SOURCE,
+        )
     rule.status = "approved"
     rule.approved_by = approver_id
     rule.approved_at = now
     rule.approval_mode = approval_mode
-    rule.rule_hash = approval_bound_rule_hash(rule.rule_hash, approval_mode)
+    rule.rule_hash = approval_bound_rule_hash(authored_hash, approval_mode)
     rule.updated_at = now
+    # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Folge-Entwurf aus dem
+    # Re-Import (supersedes_id) loest die bisher freigegebene Regel desselben
+    # Produkts erst JETZT ab -- sonst waeren zwei exakte Regeln aktiv
+    # (AMBIGUOUS_RULE_MATCH).
+    # N-855-2: Point-in-Time korrekt -- die alte Regel gilt bis zur Freigabe
+    # (valid_to = Freigabezeitpunkt), die neue ab der Freigabe (valid_from),
+    # nicht ab dem Import. rule_hash bleibt bei beiden der Hash der verfassten
+    # bzw. freigegebenen Policy; der Wechsel der Geltung ist ein
+    # Lebenszyklus-Ereignis und steht im Audit-Log.
+    # N-855-7: valid_to ist Lebenszyklus-Feld (RULE_LIFECYCLE_FIELDS), der
+    # rule_hash der alten Regel bleibt daher nachrechenbar.
+    if previous is not None:
+        previous.status = "retired"
+        previous.valid_to = now
+        previous.updated_at = now
+        # N-855-10: Konsistenzguard der Abloesekette (fail-closed, 409).
+        violations = supersession_chain_violations(db, rule)
+        if violations:
+            raise RuleApprovalConflict(
+                "Abloesekette der Eignungsregeln inkonsistent: " + "; ".join(violations)
+            )
     db.flush()
     return rule
+
+
+def supersession_chain_violations(db: Session, rule: ProductEligibilityRule) -> list[str]:
+    """N-855-10 (2026-11): prueft die Abloesekette der exakten Regeln eines
+    Produkts (gleiche Jurisdiktion und gleicher Tenant) nach einer Freigabe:
+
+    * jede Folgeregel mit freigegebenem Vorgaenger:
+      previous.valid_to == successor.valid_from == successor.approved_at;
+    * keine zwei je wirksam gewesenen Regeln (approved, oder retired mit
+      approved_at und valid_to) mit ueberlappenden halboffenen Intervallen
+      [valid_from, valid_to).
+
+    Zeitvergleiche als UTC-datetime. Rueckgabe: Liste der Verstoesse."""
+    db.flush()
+    rows = (
+        db.query(ProductEligibilityRule)
+        .filter(
+            ProductEligibilityRule.product_id == rule.product_id,
+            ProductEligibilityRule.jurisdiction == rule.jurisdiction,
+            ProductEligibilityRule.status.in_(("approved", "retired")),
+        )
+        .all()
+    )
+    effective = [
+        row for row in rows
+        if row.tenant_id == rule.tenant_id and row.approved_at is not None
+        and (row.status == "approved" or row.valid_to is not None)
+    ]
+    by_id = {row.id: row for row in effective}
+    violations: list[str] = []
+    for row in effective:
+        previous = by_id.get(row.supersedes_id) if row.supersedes_id else None
+        if previous is None:
+            continue
+        stamps = (
+            parse_utc_timestamp(previous.valid_to),
+            parse_utc_timestamp(row.valid_from),
+            parse_utc_timestamp(row.approved_at),
+        )
+        if None in stamps or len(set(stamps)) != 1:
+            violations.append(
+                f"{previous.id}.valid_to/{row.id}.valid_from/{row.id}.approved_at ungleich"
+            )
+    intervals = []
+    for row in effective:
+        start = parse_utc_timestamp(row.valid_from)
+        end = parse_utc_timestamp(row.valid_to) if row.valid_to is not None else None
+        if start is None or (row.valid_to is not None and end is None):
+            violations.append(f"{row.id}: Gueltigkeitsfenster unlesbar")
+            continue
+        if end is not None and end < start:
+            violations.append(f"{row.id}: valid_to vor valid_from")
+            continue
+        intervals.append((start, end, row.id))
+    intervals.sort(key=lambda item: item[0])
+    open_until, open_id = None, None  # weitestes bisheriges Intervallende
+    for index, (start, end, row_id) in enumerate(intervals):
+        if index and (open_until is None or start < open_until):
+            violations.append(f"Intervalle von {open_id} und {row_id} ueberlappen")
+        if index == 0 or open_until is not None and (end is None or end > open_until):
+            open_until, open_id = end, row_id
+    return violations
