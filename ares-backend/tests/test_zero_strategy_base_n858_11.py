@@ -154,3 +154,43 @@ def test_portfolio_pdf_target_zero_is_not_replaced_by_holding_value():
     assert _position_amount_rappen({"target_amount_rappen": None, **held}) == 9_00
     assert _position_amount_rappen({**held}) == 9_00
     assert _position_amount_rappen({"target_amount_rappen": 7_00, **held}) == 7_00
+
+
+def test_anlagestrategie_snapshot_zero_is_not_replaced_by_current_wealth(api, advisor_user, session_factory):
+    """Ein Generierungs-Snapshot von 0 ist ein Betrag und darf im PDF nicht
+    durch das aktuelle Beratungsvermoegen ersetzt werden; nur None (Altbestand)
+    faellt zurueck. (Eine Vermoegensaenderung nach der Generierung sperrt das
+    PDF ohnehin als veraltet -- deshalb wird der Snapshot hier direkt gesetzt.)"""
+    from models.allocation import TargetAllocation
+    from models.mandates import Mandate
+    from routers.pdf_reports import _build_anlagestrategie_data
+
+    cid, mid = _create_client_and_mandate(api, advisor_user)
+    r = api.post(f"/clients/{cid}/wealth-positions", json={
+        "label": "Konto Synth", "position_type": "Liquidität", "assignment": "Beratungsvermögen",
+        "current_value_rappen": 50_000_00, "currency": "CHF",
+        "liquidity_instrument": "Kontoguthaben", "data_classification": "synthetic",
+    })
+    assert r.status_code == 201, r.text
+    _seed_risk_profile(api, mid)
+    _seed_products(api, advisor_user)
+    alloc = api.post(f"/mandates/{mid}/target-allocation/generate", json={})
+    assert alloc.status_code in (200, 201), alloc.text
+
+    with session_factory() as db:
+        ta = db.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mid, TargetAllocation.is_current == 1,
+        ).one()
+        mandate = db.query(Mandate).filter(Mandate.id == mid).one()
+        assert _build_anlagestrategie_data(mandate, db).advisory_wealth_rappen == 50_000_00
+
+        ta.advisory_wealth_at_generation_rappen = 0
+        db.flush()
+        zero = _build_anlagestrategie_data(mandate, db)
+        assert zero.advisory_wealth_rappen == 0
+        assert not any(int(v or 0) for v in (zero.bucket_amounts_rappen or {}).values())
+
+        # Altbestand: ohne Snapshot (None) gilt wie bisher das aktuelle Vermoegen.
+        ta.advisory_wealth_at_generation_rappen = None
+        db.flush()
+        assert _build_anlagestrategie_data(mandate, db).advisory_wealth_rappen == 50_000_00
