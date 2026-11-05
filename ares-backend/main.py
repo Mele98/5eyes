@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import KekStoreError, ensure_tenant_master_kek, settings
+from config import KekStoreError, ensure_tenant_master_kek, require_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -97,13 +97,18 @@ async def lifespan(app: FastAPI):
     except KekStoreError as exc:
         logger.critical('Start abgebrochen: %s', exc)
         raise
-    if kek_outcome == 'legacy-existing-db':
-        logger.warning(
-            'Master-KEK: vorhandene Datenbank ohne KEK-Ablage -- keine KEK erzeugt '
-            '(Vorgaengervertrag; mit der KEK-Pflicht bricht dieser Start ab)'
-        )
-    else:
-        logger.info('Master-KEK: %s', kek_outcome)
+    # Eine vorhandene Datenbank ohne KEK bricht schon in ensure_tenant_master_kek
+    # ab (KEK_REQUIRED_FOR_EXISTING_DATA, A2b B-2) -- mit dem Hinweis auf
+    # Migrator bzw. Ablage aus Sicherung/Treuhand, ohne eine KEK zu erzeugen.
+    logger.info('Master-KEK: %s', kek_outcome)
+    # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
+    # kein Rueckfall auf SECRET_KEY oder einen Platzhalter). Pruefung aus config
+    # (dieselbe, die services.tenant_crypto beim Entpacken anwendet).
+    try:
+        require_tenant_master_kek(settings)
+    except KekStoreError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
     init_db()
     # U-32 / W2-804-01: Discover externe Tax-Regime-Plugins (Entry-Point
     # group 'ares.tax_regime', SDK 2.x). Ohne Erwartungs-Manifest bricht der

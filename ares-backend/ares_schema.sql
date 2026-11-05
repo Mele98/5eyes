@@ -1762,7 +1762,7 @@ CREATE TABLE IF NOT EXISTS system_config (
 );
 
 INSERT OR IGNORE INTO system_config (key, value, description, updated_at, updated_by) VALUES
-('version',                '4.0.0',    '5Eyes App Version',                                              strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
+('version',                '4.0.0',    'Ares App Version',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('schema_version',         '4.0.0',    'Datenbankschema Version',                                        strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('default_currency',       'CHF',      'Standard-Währung',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('default_language',       'DE',       'Standard-Sprache',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
