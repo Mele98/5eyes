@@ -346,6 +346,73 @@ def approve_rule(
         previous.status = "retired"
         previous.valid_to = now
         previous.updated_at = now
+        # N-855-10: Konsistenzguard der Abloesekette (fail-closed, 409).
+        violations = supersession_chain_violations(db, rule)
+        if violations:
+            raise RuleApprovalConflict(
+                "Abloesekette der Eignungsregeln inkonsistent: " + "; ".join(violations)
+            )
     db.flush()
     return rule
 
+
+def supersession_chain_violations(db: Session, rule: ProductEligibilityRule) -> list[str]:
+    """N-855-10 (2026-11): prueft die Abloesekette der exakten Regeln eines
+    Produkts (gleiche Jurisdiktion und gleicher Tenant) nach einer Freigabe:
+
+    * jede Folgeregel mit freigegebenem Vorgaenger:
+      previous.valid_to == successor.valid_from == successor.approved_at;
+    * keine zwei je wirksam gewesenen Regeln (approved, oder retired mit
+      approved_at und valid_to) mit ueberlappenden halboffenen Intervallen
+      [valid_from, valid_to).
+
+    Zeitvergleiche als UTC-datetime. Rueckgabe: Liste der Verstoesse."""
+    db.flush()
+    rows = (
+        db.query(ProductEligibilityRule)
+        .filter(
+            ProductEligibilityRule.product_id == rule.product_id,
+            ProductEligibilityRule.jurisdiction == rule.jurisdiction,
+            ProductEligibilityRule.status.in_(("approved", "retired")),
+        )
+        .all()
+    )
+    effective = [
+        row for row in rows
+        if row.tenant_id == rule.tenant_id and row.approved_at is not None
+        and (row.status == "approved" or row.valid_to is not None)
+    ]
+    by_id = {row.id: row for row in effective}
+    violations: list[str] = []
+    for row in effective:
+        previous = by_id.get(row.supersedes_id) if row.supersedes_id else None
+        if previous is None:
+            continue
+        stamps = (
+            parse_utc_timestamp(previous.valid_to),
+            parse_utc_timestamp(row.valid_from),
+            parse_utc_timestamp(row.approved_at),
+        )
+        if None in stamps or len(set(stamps)) != 1:
+            violations.append(
+                f"{previous.id}.valid_to/{row.id}.valid_from/{row.id}.approved_at ungleich"
+            )
+    intervals = []
+    for row in effective:
+        start = parse_utc_timestamp(row.valid_from)
+        end = parse_utc_timestamp(row.valid_to) if row.valid_to is not None else None
+        if start is None or (row.valid_to is not None and end is None):
+            violations.append(f"{row.id}: Gueltigkeitsfenster unlesbar")
+            continue
+        if end is not None and end < start:
+            violations.append(f"{row.id}: valid_to vor valid_from")
+            continue
+        intervals.append((start, end, row.id))
+    intervals.sort(key=lambda item: item[0])
+    open_until, open_id = None, None  # weitestes bisheriges Intervallende
+    for index, (start, end, row_id) in enumerate(intervals):
+        if index and (open_until is None or start < open_until):
+            violations.append(f"Intervalle von {open_id} und {row_id} ueberlappen")
+        if index == 0 or open_until is not None and (end is None or end > open_until):
+            open_until, open_id = end, row_id
+    return violations

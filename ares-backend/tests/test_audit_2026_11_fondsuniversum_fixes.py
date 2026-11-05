@@ -618,3 +618,46 @@ def test_c855_01_legacy_rule_without_approved_at_is_fail_closed(session_factory)
         s.commit()
         assert _pit_bands(s, product, "2031-01-01T00:00:00Z") == []
 
+
+# --- N-855-10: Konsistenzguard der Abloesekette -------------------------------
+def test_n855_10_supersession_chain_is_consistent(session_factory):
+    from services.product_eligibility_governance import parse_utc_timestamp, supersession_chain_violations
+
+    with session_factory() as s:
+        _product, first_id, second_id = _pit_chain(s)
+        first, second = s.get(ProductEligibilityRule, first_id), s.get(ProductEligibilityRule, second_id)
+        assert (parse_utc_timestamp(first.valid_to) == parse_utc_timestamp(second.valid_from)
+                == parse_utc_timestamp(second.approved_at))
+        assert supersession_chain_violations(s, second) == []
+        # Manipulation: Altfenster in die Folgeregel hinein verlaengert.
+        first.valid_to = "2030-04-01T00:00:00Z"
+        violations = supersession_chain_violations(s, second)
+        assert any("ungleich" in v for v in violations)
+        assert any("ueberlappen" in v for v in violations)
+
+
+def test_n855_10_inconsistent_supersession_is_rejected(session_factory):
+    """Freigabe der Folgeregel VOR Beginn der Altregel ergaebe valid_to <
+    valid_from -> 409 (RuleApprovalConflict), nichts wird abgeloest."""
+    from services.product_eligibility import author_tenant_product_rule, reauthor_tenant_product_rule_on_import
+    from services.product_eligibility_governance import RuleApprovalConflict, approve_rule
+
+    with session_factory() as s:
+        product = _pit_product(s, pid="pit-guard")
+        first = author_tenant_product_rule(
+            s, product=product, created_by_user_id="autor", jurisdiction="CH", profile_from=3, profile_to=10,
+            service_modes=["investment_advice"], now=_T0)
+        s.flush()
+        approve_rule(s, rule_id=first.id, approver_id="pruefer", tenant_id="main", now=_T1)
+        second, _ = reauthor_tenant_product_rule_on_import(
+            s, product=product, jurisdiction="CH", created_by_user_id="autor",
+            row=dict(suitability_profile_from=7, suitability_profile_to=10),
+            explicit_fields={"suitability_profile_from", "suitability_profile_to"}, now=_T2)
+        s.commit()
+        first_id, second_id = first.id, second.id
+        with pytest.raises(RuleApprovalConflict, match="Abloesekette"):
+            approve_rule(s, rule_id=second_id, approver_id="pruefer", tenant_id="main",
+                         now="2029-12-31T00:00:00Z")
+        s.rollback()
+        assert s.get(ProductEligibilityRule, first_id).status == "approved"
+        assert s.get(ProductEligibilityRule, second_id).status == "draft"
