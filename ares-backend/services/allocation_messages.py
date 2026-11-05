@@ -43,9 +43,11 @@ WARN_TARGET_FALLBACK_RESET = "WARN_TARGET_FALLBACK_RESET"
 # Live-Test 04 / M3: Mandatsbandbreite ausserhalb der Hausmatrix ohne
 # tragfaehige Begruendung -- die Freigabe ist blockiert (routers/review.py).
 CONFLICT_BAND_REASON_MISSING = "CONFLICT_BAND_REASON_MISSING"
-# Delta-Pruefung #859 D-2: Liquiditaetsband systembedingt ueber das
+# Delta-Pruefung #859 D-2/E-2: Liquiditaetsband systembedingt ueber das
 # Hausmatrix-Maximum erweitert (Mindestliquiditaet/Zielreserve, AA-7.2).
-INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED = "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED"
+# Severity warning OHNE Aktion, damit der Berater sie im Banner sieht
+# (die Banner zeigen nur conflict/warning).
+WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED = "WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -61,7 +63,7 @@ ALL_CODES: tuple[str, ...] = (
     WARN_TARGET_ADJUSTED,
     WARN_TARGET_FALLBACK_RESET,
     CONFLICT_BAND_REASON_MISSING,
-    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+    WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -260,8 +262,8 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
         ),
         "actions": ("review_constraints",),
     },
-    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED: {
-        "severity": SEVERITY_INFO,
+    WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED: {
+        "severity": SEVERITY_WARNING,
         "title": "Liquiditätsband systembedingt erweitert",
         "body_advisor": (
             "Liquidität: Das Band wurde systembedingt auf {extended} % erweitert "
@@ -270,7 +272,7 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
         ),
         "body_client": (
             "Für Ihre Strategie wird eine Liquidität von {extended} % gehalten, "
-            "damit die vorgesehene Reserve gedeckt ist."
+            "{client_reason}."
         ),
         "actions": (),
     },

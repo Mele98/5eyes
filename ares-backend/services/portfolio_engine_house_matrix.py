@@ -91,7 +91,7 @@ from sqlalchemy.orm import Session
 from database import new_uuid
 from services.allocation_messages import (
     CONFLICT_BAND_REASON_MISSING,
-    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+    WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
     WARN_BAND_OUTSIDE_HOUSE_MATRIX,
     WARN_TARGET_ADJUSTED,
     WARN_TARGET_FALLBACK_RESET,
@@ -782,16 +782,26 @@ def disclose_system_liquidity_band_extension(
     als Reasoning-Satz und Info-Meldung ausgewiesen."""
     if int(system_liquidity_floor_bps) <= int(house_liquidity_max_bps):
         return
-    source = "Zielreserve" if reserve_driven else "Mindestliquiditaet des Modells"
-    reasoning.append(
-        f"Liquiditaetsband systembedingt auf {_band_pct(system_liquidity_floor_bps)} % "
+    source = "Zielreserve" if reserve_driven else "Mindestliquidität des Modells"
+    client_reason = (
+        "damit die vorgesehene Zielreserve gedeckt ist"
+        if reserve_driven
+        else "weil das Modell eine Mindestliquidität vorsieht"
+    )
+    # E-2: mit Umlaut (die Karte "Leitplanken & Engine" filtert ASCII-
+    # "Liquiditaet") und weit oben eingeordnet (die Karte zeigt nur die
+    # ersten zwei verbleibenden Saetze).
+    sentence = (
+        f"Liquiditätsband systembedingt auf {_band_pct(system_liquidity_floor_bps)} % "
         f"erweitert ({source}; Hausmatrix-Maximum {_band_pct(house_liquidity_max_bps)} %)."
     )
+    reasoning.insert(min(2, len(reasoning)), sentence)
     messages.append(format_message(
-        INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+        WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
         extended=_band_pct(system_liquidity_floor_bps),
         source=source,
         house_max=_band_pct(house_liquidity_max_bps),
+        client_reason=client_reason,
     ))
 
 

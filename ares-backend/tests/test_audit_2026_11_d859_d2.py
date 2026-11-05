@@ -43,25 +43,37 @@ def _generate(SF, mid, adv, prefs):
         return result
 
 
-def test_d2_system_liquidity_band_extension_is_disclosed(session_factory, monkeypatch):
-    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
-    adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix="d2")
+@pytest.mark.parametrize("mode", ["stochastic", "house_matrix"])
+def test_d2_system_liquidity_band_extension_is_disclosed(session_factory, monkeypatch, mode):
+    """D-2/E-2: Erweiterung ueber das Hausmax als Reasoning-Satz (mit
+    Umlaut, weit oben -- die Karte "Leitplanken & Engine" filtert ASCII-
+    "Liquiditaet" und zeigt nur zwei Saetze) und als warning ohne Aktion
+    (Banner). Seit E-1 auch im Hausmatrix-Modus."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", mode)
+    adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix=f"d2{mode[:3]}")
     result = _generate(session_factory, mid, adv, None)
     ta = result["target_allocation"]
     extended = f"{int(ta.band_liquidity_max_bps) / 100:.2f} %"
     assert int(ta.band_liquidity_max_bps) > 200  # Hausmax Score 8
-    lines = [r for r in result["reasoning"] if "Liquiditaetsband systembedingt auf" in r]
-    assert lines and extended in lines[0] and "Hausmatrix-Maximum 2.00 %" in lines[0], result["reasoning"]
-    info = [m for m in result["messages"] if m.get("code") == "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED"]
-    assert len(info) == 1 and info[0]["severity"] == "info" and extended in info[0]["body_advisor"]
+    index = [i for i, r in enumerate(result["reasoning"]) if "Liquiditätsband systembedingt auf" in r]
+    assert index and index[0] <= 2, result["reasoning"]
+    line = result["reasoning"][index[0]]
+    assert extended in line and "Hausmatrix-Maximum 2.00 %" in line and "Zielreserve" in line, line
+    # Filter der Karte "Leitplanken & Engine" (ares.html) laesst den Satz durch.
+    import re as _re
+    assert not _re.search(r"Liquiditaet|Reserve|Cashflow|House Matrix fuer Score|Risky Fraction|Pfadsimulation", line)
+    msg = [m for m in result["messages"] if m.get("code") == "WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED"]
+    assert len(msg) == 1 and msg[0]["severity"] == "warning" and msg[0]["actions"] == []
+    assert extended in msg[0]["body_advisor"]
+    assert "Zielreserve" in msg[0]["body_client"]
 
 
-def test_d2_extension_message_also_in_house_mode_since_e1(session_factory, monkeypatch):
-    """Seit E-1 gilt die Zielreserve-Untergrenze auch im Hausmatrix-Modus;
-    die Erweiterung ueber das Hausmax wird dort ebenso ausgewiesen."""
-    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
-    adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix="d2h")
-    result = _generate(session_factory, mid, adv, None)
-    assert any(m.get("code") == "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED" for m in result["messages"])
+def test_e2_body_client_names_model_floor_when_not_reserve_driven():
+    from services.portfolio_engine_house_matrix import disclose_system_liquidity_band_extension
 
-
+    reasoning: list[str] = []
+    messages: list = []
+    disclose_system_liquidity_band_extension(200, 100, reasoning, messages, reserve_driven=False)
+    assert "Mindestliquidität des Modells" in reasoning[0]
+    assert "Mindestliquidität vorsieht" in messages[0]["body_client"]
+    assert "Zielreserve" not in messages[0]["body_client"]
