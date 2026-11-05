@@ -58,6 +58,7 @@ from services.product_eligibility import (
     canonical_hash,
     derive_service_mode,
     evaluate_product_eligibility,
+    instant_within_validity,
     mandate_tenant_id,
 )
 from services.product_eligibility_governance import (
@@ -193,7 +194,8 @@ def is_valid_override(row: ProductEligibilityOverride, *, binding_hash: str,
         return False
     if not matched_rule_id or row.rule_id != matched_rule_id:
         return False
-    if not (str(row.valid_from) <= now < str(row.expires_at)):
+    # C-860-01: als echte UTC-Zeitpunkte vergleichen, nicht als Text.
+    if row.expires_at is None or not instant_within_validity(row.valid_from, row.expires_at, now):
         return False
     return row.evidence_hash == override_evidence_hash(row, binding_hash)
 

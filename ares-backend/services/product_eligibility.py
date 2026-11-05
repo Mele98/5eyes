@@ -57,6 +57,57 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def parse_utc_instant(value) -> datetime | None:
+    """C-860-01: ein gespeicherter Zeitpunkt als echter UTC-Zeitpunkt.
+
+    Die Gueltigkeitsfelder (valid_from/valid_to/expires_at) sind Text und
+    kommen in zwei Schreibweisen vor: ``isoformat()`` mit ``+00:00`` (dieses
+    Modul, Governance, Override) und Millisekunden mit ``Z``
+    (services.portfolio_engine._now, Katalog-Bootstrap). Als Text verglichen
+    sortiert ``...SS+00:00`` vor ``...SS.000Z`` -- eine eben geseedete Regel
+    galt dann bis zum Sekundenwechsel als noch nicht gueltig. Deshalb wird
+    beim Vergleich geparst; die gespeicherten Werte (und damit alle Hashes,
+    in die sie einfliessen) bleiben unveraendert.
+
+    Ohne Zeitzone gilt UTC, ein reines Datum gilt als 00:00 UTC. Nicht
+    lesbar -> ``None``; Aufrufer behandeln das fail-closed.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text[-1] in "Zz":
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def instant_within_validity(valid_from, valid_to, as_of) -> bool:
+    """``valid_from <= as_of < valid_to`` auf echten UTC-Zeitpunkten (C-860-01).
+
+    ``valid_to`` ``None`` heisst offen. Ein nicht lesbarer Wert (auch ein
+    leerer ``valid_to``) macht das Fenster ungueltig -- fail-closed, wie der
+    fruehere Textvergleich fuer solche Werte.
+    """
+    moment = parse_utc_instant(as_of)
+    start = parse_utc_instant(valid_from)
+    if moment is None or start is None or start > moment:
+        return False
+    if valid_to is None:
+        return True
+    end = parse_utc_instant(valid_to)
+    return end is not None and moment < end
+
+
 def map_product_to_knowledge_categories(product: Product) -> list[KnowledgeCategory]:
     """Section 6.1 -- canonical, attribute-derived knowledge categories.
 
@@ -167,11 +218,7 @@ def resolve_active_rules_for_product(
         .filter(
             ProductEligibilityRule.status == "approved",
             ProductEligibilityRule.jurisdiction == jurisdiction,
-            ProductEligibilityRule.valid_from <= as_of,
-            (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
             ProductEligibilityRuleSet.status == "approved",
-            ProductEligibilityRuleSet.valid_from <= as_of,
-            (ProductEligibilityRuleSet.valid_to.is_(None)) | (ProductEligibilityRuleSet.valid_to > as_of),
             (ProductEligibilityRule.product_id == product.id)
             | (
                 ProductEligibilityRule.product_id.is_(None)
@@ -181,9 +228,13 @@ def resolve_active_rules_for_product(
         .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
         .all()
     )
+    # C-860-01: Gueltigkeitsfenster von Regel und RuleSet als echte
+    # UTC-Zeitpunkte statt als Text (siehe parse_utc_instant).
     visible = [
         rule for rule, rule_set in rows
         if rule_visible_to_tenant(rule, rule_set, tenant_id)
+        and instant_within_validity(rule.valid_from, rule.valid_to, as_of)
+        and instant_within_validity(rule_set.valid_from, rule_set.valid_to, as_of)
     ]
     exact_matches = [rule for rule in visible if rule.product_id == product.id]
     if exact_matches:
