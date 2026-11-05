@@ -217,19 +217,95 @@ def test_every_template_placeholder_is_rejected_as_kek(source, key, value):
         assert value not in problem
 
 
+_GENERATOR_COMMAND = (
+    'python -c "from cryptography.fernet import Fernet; '
+    'print(Fernet.generate_key().decode())"'
+)
+
+
 @pytest.mark.parametrize("value", [
+    # N-870-6/N-870-7: nur Ganzwert-Formen, nie Teilstrings
     "__IRGENDWAS_EINSETZEN_BITTE_LANG_GENUG__",
     "<hier-den-echten-schluessel-eintragen-0123456789>",
-    "please-changeme-before-going-live-0123456789",
-    "please-change_me-before-going-live-0123456789",
-    "replace-with-a-real-secret-before-deploy-0123",
-    "bitte-einen-echten-schluessel-setzen-0123456789",
-    "this-is-only-an-example-value-0123456789abcdef",
-    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "changeme", "CHANGE_ME", "change-me", "Change Me",
+    "replace_me", "REPLACE-ME",
+    "bitte ersetzen", "BITTE_ERSETZEN", "Bitte-Ersetzen",
+    "example", "EXAMPLE", "placeholder", "Placeholder",
+    "xxx", "XXXXXXXX", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "  changeme  ",
+    "${TENANT_MASTER_KEK}",
+    "${TENANT_MASTER_KEK:-ein-langer-default-wert-0123456789}",
+    "%TENANT_MASTER_KEK%",
+    "%ein-langer-windows-ausdruck-0123456789abcdef%",
+    "$(openssl rand -base64 32)",
+    '$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")',
+    "$(cat /run/secrets/tenant-master-kek-langer-pfad)",
+    # woertlicher Befehl aus der eigenen KEK-Fehlermeldung (N-870-8)
+    _GENERATOR_COMMAND,
+    f"'{_GENERATOR_COMMAND}'",
+    "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())",
+    'python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key())"',
 ])
 def test_obvious_placeholder_patterns_are_rejected(value):
     problem = tenant_master_kek_problem(value)
-    assert problem is not None and value not in problem
+    assert problem is not None and "Platzhalter" in problem, value
+    assert value.strip() not in problem
+
+
+def test_generator_command_from_own_message_is_rejected():
+    """Der Befehl steht so in MISSING_TENANT_MASTER_KEK_MESSAGE; wer ihn statt
+    seiner Ausgabe in die .env kopiert, darf nicht starten (dotenv fuehrt
+    nichts aus)."""
+    assert _GENERATOR_COMMAND in config.MISSING_TENANT_MASTER_KEK_MESSAGE
+    assert len(_GENERATOR_COMMAND) >= 32 and len(set(_GENERATOR_COMMAND)) >= 10
+    assert tenant_master_kek_problem(_GENERATOR_COMMAND) is not None
+
+
+@pytest.mark.parametrize("value", [
+    # Enthaelt ein frueheres Muster nur als Teilstring -> starke Passphrase
+    "9fK2-Replacement-Policy-42-vQz7Tm4Wp8NdHs6Yb3",
+    "Mein Bitteres Geheimnis liegt im Keller 2026!",
+    "Sexxxy-Tarantula-Orbit-73-Quarz-Fjord-Libelle",
+    "k9#Lr2!vQz7@bitte@Tm4$Wp8^Nd1&Hs6*Yb3%",
+    "k9#Lr2!vQz7@replace@Tm4$Wp8^Nd1&Hs6*Yb3%",
+    "k9#Lr2!vQz7@example@Tm4$Wp8^Nd1&Hs6*Yb3%",
+    "k9#Lr2!vQz7@placeholder@Tm4$Wp8^Nd1&Hs6*Yb3",
+    "k9#Lr2!vQz7@ersetzen@Tm4$Wp8^Nd1&Hs6*Yb3%",
+    "k9#Lr2!vQz7@changeme@Tm4$Wp8^Nd1&Hs6*Yb3%",
+    "k9#Lr2!vQz7@xxx@Tm4$Wp8^Nd1&Hs6*Yb3%-lang",
+    "k9#Lr2!vQz7%Tm4$Wp8^Nd1&Hs6*Yb3-endet-ohne",
+    "_k9#Lr2!vQz7@Tm4$Wp8^Nd1&Hs6*Yb3%-unterstrich_",
+])
+def test_patterns_are_not_applied_as_substrings(value):
+    """N-870-7: Muster nur auf den ganzen Wert. Vorher abgelehnt (Teilstring),
+    jetzt zulaessig."""
+    assert tenant_master_kek_problem(value) is None
+
+
+def test_token_urlsafe_48_is_never_rejected():
+    """N-870-7 Statistik: 50'000 Werte im Format secrets.token_urlsafe(48)
+    (deterministischer Seed) bestehen Muster- und Staerkeregel. Die volle
+    Pruefung (mit PBKDF2) laeuft fuer eine Stichprobe.
+
+    Gegenprobe im selben Satz: die frueheren Teilstring-Muster haetten einen
+    Teil davon abgelehnt (sonst waere die Stichprobe wertlos)."""
+    import random
+
+    rng = random.Random(8707)
+    values = [
+        base64.urlsafe_b64encode(rng.randbytes(48)).rstrip(b"=").decode("ascii")
+        for _ in range(50_000)
+    ]
+    assert all(len(v) == 64 for v in values)
+    rejected = [
+        i for i, v in enumerate(values)
+        if config._looks_like_kek_placeholder(v) or config._kek_passphrase_too_weak(v)
+    ]
+    assert rejected == []
+    old_substring = re.compile(r"change[\W_]*me|replace|ersetzen|bitte|example|placeholder|xxx", re.I)
+    assert sum(1 for v in values if old_substring.search(v)) > 0
+    for v in values[:25]:
+        assert tenant_master_kek_problem(v) is None
 
 
 @pytest.mark.parametrize("value", [
@@ -239,6 +315,8 @@ def test_obvious_placeholder_patterns_are_rejected(value):
 def test_weak_passphrases_are_rejected(value):
     problem = tenant_master_kek_problem(value)
     assert problem is not None and "zu schwach" in problem and value not in problem
+    # N-870-6: die Meldung nennt den Weg fuer Bestandsinstallationen.
+    assert "rewrap_tenant_master_kek.py" in problem
 
 
 def test_strong_passphrase_and_fernet_keys_are_accepted():

@@ -11,6 +11,7 @@ callers use the plaintext DEK through these helpers.
 """
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -24,6 +25,7 @@ from config import (
     tenant_master_kek_problem,
 )
 from models.tenant import Tenant
+from services.tenant_context import is_postgres_bind, operator_bypass
 
 
 class TenantCryptoError(RuntimeError):
@@ -141,7 +143,6 @@ def _provision_tenant_dek_committed(
     frische Session laeuft auf DERSELBEN Engine wie der Aufrufer (db.get_bind()).
     """
     from sqlalchemy.orm import Session as _SASession
-    from services.tenant_context import is_postgres_bind
 
     session = _SASession(bind=db.get_bind())
     try:
@@ -239,3 +240,74 @@ def decrypt_for_tenant(
         )
     except InvalidToken as exc:
         raise TenantCryptoError("Tenant-Ciphertext konnte nicht entschluesselt werden") from exc
+
+
+def rewrap_tenant_deks_to_master_kek(
+    db: Session,
+    *,
+    source_kek: str | bytes,
+    target_kek: str | bytes,
+) -> int:
+    """N-870-6 (2026-11-05): Offline-Rewrap aller Tenant-DEKs von der bisherigen
+    Master-KEK (``source_kek``) auf einen neuen Fernet-Key (``target_kek``).
+
+    Fuer Bestandsinstallationen, deren Passphrase-KEK allein an der
+    Staerkeregel scheitert (zu kurz, zu wenig Vielfalt): Ares startet damit
+    nicht mehr, die DEKs sind aber unveraendert. Die Quelle darf hier deshalb
+    die Staerkeregel verletzen; Platzhalter, Vorlagenwerte und oeffentliche
+    Ableitungen bleiben auch als Quelle abgelehnt (fail-closed). Das Ziel muss
+    ein gueltiger Fernet-Key sein und die volle Pruefung bestehen.
+
+    Die DEKs selbst bleiben gleich (kein Re-Encrypt der Nutzdaten noetig); nur
+    ``tenants.encrypted_dek`` wird neu verpackt und vor dem Schreiben gegen das
+    Ziel rueckgeprueft. Alles in der Transaktion des Aufrufers: der Aufrufer
+    committet; jeder Fehler laesst den Bestand unveraendert. Rueckgabe: Anzahl
+    umverpackter DEKs. Keine Meldung nennt einen Schluessel."""
+    Fernet, InvalidToken = _fernet_class()
+    secret = str(getattr(settings, "secret_key", "") or "")
+    problem = tenant_master_kek_problem(
+        source_kek, secret_key=secret, enforce_passphrase_strength=False,
+    )
+    if problem:
+        raise TenantCryptoError(f"Quell-KEK abgelehnt: {problem}")
+    problem = tenant_master_kek_problem(target_kek, secret_key=secret)
+    if problem:
+        raise TenantCryptoError(f"Ziel-KEK abgelehnt: {problem}")
+    source_bytes = source_kek.encode("utf-8") if isinstance(source_kek, str) else bytes(source_kek)
+    target_bytes = target_kek.encode("utf-8") if isinstance(target_kek, str) else bytes(target_kek)
+    if effective_tenant_master_kek(target_bytes.strip()) != target_bytes.strip():
+        raise TenantCryptoError(
+            "Ziel-KEK abgelehnt: fuer den Rewrap ist ein Fernet-Key verlangt "
+            "(Fernet.generate_key()), keine Passphrase."
+        )
+    source_key = effective_tenant_master_kek(
+        source_bytes.strip(), salt=_KEK_KDF_SALT, iterations=_KEK_KDF_ITERATIONS,
+    )
+    target_key = target_bytes.strip()
+    if base64.urlsafe_b64decode(source_key) == base64.urlsafe_b64decode(target_key):
+        raise TenantCryptoError("Ziel-KEK abgelehnt: identisch mit der Quell-KEK.")
+    source_fernet = Fernet(source_key)
+    target_fernet = Fernet(target_key)
+
+    with operator_bypass(db):
+        tenants = db.query(Tenant).filter(Tenant.encrypted_dek.isnot(None)).all()
+        # Erst alles entpacken und neu verpacken, dann schreiben: ein Fehler bei
+        # irgendeinem Tenant aendert keinen einzigen.
+        planned: list[tuple[Tenant, str]] = []
+        for tenant in tenants:
+            _require_current_kek_version(tenant)
+            try:
+                dek = source_fernet.decrypt(str(tenant.encrypted_dek).encode("utf-8"))
+            except InvalidToken as exc:
+                raise TenantCryptoError(
+                    "Tenant-DEK kann mit der Quell-KEK nicht entschluesselt werden; "
+                    "kein DEK wurde geaendert."
+                ) from exc
+            rewrapped = target_fernet.encrypt(dek)
+            if target_fernet.decrypt(rewrapped) != dek:  # pragma: no cover - Fernet-Vertrag
+                raise TenantCryptoError("Rewrap-Rueckpruefung fehlgeschlagen; kein DEK wurde geaendert.")
+            planned.append((tenant, rewrapped.decode("utf-8")))
+        for tenant, encrypted in planned:
+            tenant.encrypted_dek = encrypted
+        db.flush()
+    return len(planned)

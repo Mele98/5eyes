@@ -1090,24 +1090,77 @@ KNOWN_TEMPLATE_KEK_PLACEHOLDERS = frozenset({
     DEFAULT_SECRET_KEY,
     "__BITTE_ERSETZEN__",
 })
-# Offensichtliche Platzhalter-Muster (Gross/Klein egal). Gelten nur fuer
-# Passphrasen, nicht fuer gueltige Fernet-Keys: deren zufaelliges Base64 kann
-# eine Folge wie "xxx" zufaellig enthalten.
+# Offensichtliche Platzhalter-Formen (Gross/Klein egal). N-870-6/N-870-7: sie
+# gelten nur fuer den GANZEN (getrimmten) Wert, nie als Teilstring -- eine
+# starke Passphrase, die zufaellig "xxx" oder ein Wort wie "Replacement"
+# enthaelt, ist kein Platzhalter (vorher: 0,19 % aller token_urlsafe(48)
+# abgelehnt, auch beim Start einer Bestandsinstallation). Gelten nur fuer
+# Passphrasen, nicht fuer gueltige Fernet-Keys.
 _KEK_PLACEHOLDER_PATTERNS = (
+    re.compile(
+        r"^(?:change[\W_]*me|replace[\W_]*me|bitte[\W_]*ersetzen|example|placeholder|x{3,})$",
+        re.IGNORECASE,
+    ),
     re.compile(r"^__.*__$", re.DOTALL),
     re.compile(r"^<.*>$", re.DOTALL),
-    re.compile(r"change[\W_]*me", re.IGNORECASE),
-    re.compile(r"replace", re.IGNORECASE),
-    re.compile(r"ersetzen", re.IGNORECASE),
-    re.compile(r"bitte", re.IGNORECASE),
-    re.compile(r"example", re.IGNORECASE),
-    re.compile(r"placeholder", re.IGNORECASE),
-    re.compile(r"xxx", re.IGNORECASE),
+    re.compile(r"^\$\{.*\}$", re.DOTALL),
+    re.compile(r"^%.*%$", re.DOTALL),
+    # Nicht ausgewertete Shell-Ausdruecke: dotenv fuehrt nichts aus, der Wert
+    # waere woertlich "$(...)" bzw. "${...}" (oeffentlicher Text).
+    re.compile(r"^\$[({]"),
 )
+# Der Erzeugungsbefehl aus MISSING_TENANT_MASTER_KEK_MESSAGE, versehentlich
+# statt seiner Ausgabe in die Konfiguration kopiert (N-870-8). Verglichen wird
+# der ganze Wert ohne umschliessende Anfuehrungszeichen, Leerraum normalisiert.
+_KEK_GENERATOR_COMMAND = (
+    'python -c "from cryptography.fernet import Fernet; '
+    'print(Fernet.generate_key().decode())"'
+)
+_KEK_GENERATOR_COMMAND_PREFIXES = ("python -c", "python3 -c", "py -c")
+
+
+def _normalized_ws(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _looks_like_kek_placeholder(value: str) -> bool:
+    """Ganzwert-Pruefung auf Platzhalter-Formen und den kopierten
+    Erzeugungsbefehl (nur fuer Passphrasen)."""
+    stripped = value.strip()
+    if any(p.search(stripped) for p in _KEK_PLACEHOLDER_PATTERNS):
+        return True
+    unquoted = _normalized_ws(stripped.strip("'\"")).lower()
+    if unquoted in {
+        _normalized_ws(_KEK_GENERATOR_COMMAND).lower(),
+        _normalized_ws(_KEK_GENERATOR_COMMAND.split('"', 1)[1].rstrip('"')).lower(),
+    }:
+        return True
+    return unquoted.startswith(_KEK_GENERATOR_COMMAND_PREFIXES)
+
+
 # Mindestlaenge wie die bestehende SECRET_KEY-Regel fuer staging/production
 # (32 Zeichen); dazu eine einfache Vielfaltsschranke gegen "aaaa...".
 MIN_KEK_PASSPHRASE_LENGTH = 32
 MIN_KEK_PASSPHRASE_DISTINCT_CHARS = 10
+# N-870-6: Eine Bestandsinstallation mit schwacher Passphrase-KEK startet nicht
+# (fail-closed); die verpackten DEKs bleiben unveraendert. Der Weg heraus ist
+# der Offline-Rewrap auf einen Fernet-Key (scripts/rewrap_tenant_master_kek.py).
+WEAK_TENANT_MASTER_KEK_MESSAGE = (
+    "TENANT_MASTER_KEK ist als Passphrase zu schwach (mindestens "
+    f"{MIN_KEK_PASSPHRASE_LENGTH} Zeichen und "
+    f"{MIN_KEK_PASSPHRASE_DISTINCT_CHARS} verschiedene Zeichen). "
+    "Besser einen Fernet-Key setzen. Bestandsinstallation: die Daten sind "
+    "unveraendert; bei gestopptem Server mit scripts/rewrap_tenant_master_kek.py "
+    "auf einen neuen Fernet-Key umverpacken (alte Passphrase als Quelle), "
+    "danach den neuen Key als TENANT_MASTER_KEK setzen."
+)
+
+
+def _kek_passphrase_too_weak(value: str) -> bool:
+    return (
+        len(value) < MIN_KEK_PASSPHRASE_LENGTH
+        or len(set(value)) < MIN_KEK_PASSPHRASE_DISTINCT_CHARS
+    )
 
 
 def _is_fernet_key(value: str) -> bool:
@@ -1121,8 +1174,19 @@ def _kek_key_material(value: str) -> bytes:
     return base64.urlsafe_b64decode(effective_tenant_master_kek(value.encode("utf-8")))
 
 
-def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = "") -> "str | None":
+def tenant_master_kek_problem(
+    raw: "str | bytes | None",
+    *,
+    secret_key: str = "",
+    enforce_passphrase_strength: bool = True,
+) -> "str | None":
     """Grund, warum ``raw`` keine zulaessige Master-KEK ist; ``None`` wenn zulaessig.
+
+    ``enforce_passphrase_strength=False`` nur fuer die QUELL-KEK des
+    Offline-Rewraps (services.tenant_crypto.rewrap_tenant_deks_to_master_kek):
+    eine Bestands-Passphrase, die allein an Laenge/Vielfalt scheitert, darf
+    dort einmalig zum Entpacken dienen. Platzhalter, Vorlagenwerte und
+    oeffentliche Ableitungen bleiben auch dann abgelehnt.
 
     Die Meldungen nennen nie den Schluessel selbst."""
     value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
@@ -1144,21 +1208,13 @@ def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = ""
             "damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
         )
     if not _is_fernet_key(value):
-        if any(p.search(value.strip()) for p in _KEK_PLACEHOLDER_PATTERNS):
+        if _looks_like_kek_placeholder(value):
             return (
                 "TENANT_MASTER_KEK sieht nach einem Platzhalter aus (Vorlagen-Muster) "
                 "und wird nicht als Schluessel akzeptiert. Einen eigenen Fernet-Key setzen."
             )
-        if (
-            len(value) < MIN_KEK_PASSPHRASE_LENGTH
-            or len(set(value)) < MIN_KEK_PASSPHRASE_DISTINCT_CHARS
-        ):
-            return (
-                "TENANT_MASTER_KEK ist als Passphrase zu schwach (mindestens "
-                f"{MIN_KEK_PASSPHRASE_LENGTH} Zeichen und "
-                f"{MIN_KEK_PASSPHRASE_DISTINCT_CHARS} verschiedene Zeichen). "
-                "Besser einen Fernet-Key setzen."
-            )
+        if enforce_passphrase_strength and _kek_passphrase_too_weak(value):
+            return WEAK_TENANT_MASTER_KEK_MESSAGE
     # SEED-FK-HYGIENE / H-129 Teil C (2026-11-05): auch einen aus dem Platzhalter
     # (bzw. aus SECRET_KEY) ABGELEITETEN Wert ablehnen -- etwa den Fernet-Key,
     # den tenant_crypto aus dem Platzhalter erzeugt. Verglichen wird nach
