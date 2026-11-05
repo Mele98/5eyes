@@ -77,6 +77,10 @@ _TRIGGERS = (
     "BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END",
 )
 
+# Nach dem Neuaufbau: beide Unveraenderlichkeits-Trigger plus der
+# Ketten-Pflicht-Trigger fuer neue Zeilen (N-869-3).
+_ALL_TRIGGERS = {"trg_audit_log_no_update", "trg_audit_log_no_delete", "trg_audit_log_require_chain"}
+
 _SNAPSHOT_SQL = (
     "SELECT id, integrity_hash, sequence, previous_hash, created_at, ip_address, "
     "tenant_id, old_value, new_value FROM audit_log ORDER BY id"
@@ -172,7 +176,7 @@ def test_rebuild_recreates_immutability_triggers_itself(pre_rebuild_db):
     engine, _ = pre_rebuild_db
     ensure_audit_log_actions(engine)
     assert "CLIENT_ERASE" in _ddl(engine)
-    assert _trigger_names(engine) == {"trg_audit_log_no_update", "trg_audit_log_no_delete"}
+    assert _trigger_names(engine) == _ALL_TRIGGERS
     with pytest.raises(DatabaseError, match="audit_log is immutable"):
         with engine.begin() as conn:
             conn.execute(text("UPDATE audit_log SET integrity_hash = 'x' WHERE sequence = 1"))
@@ -285,7 +289,7 @@ def test_interrupted_rebuild_with_empty_new_table_is_completed(pre_rebuild_db, c
     assert any("Unterbrochener audit_log-Neuaufbau" in r.getMessage() for r in caplog.records)
     assert "audit_log__old" not in _table_names(engine)
     assert _snapshot(engine) == before
-    assert _trigger_names(engine) == {"trg_audit_log_no_update", "trg_audit_log_no_delete"}
+    assert _trigger_names(engine) == _ALL_TRIGGERS
     with session_local() as s:
         assert verify_audit_chain(s)["ok"]
 
@@ -318,3 +322,35 @@ def test_interrupted_rebuild_with_rows_in_both_tables_fails_closed(pre_rebuild_d
     assert [r.levelno for r in caplog.records] == [logging.CRITICAL]
     assert _count(engine, "audit_log__old") == n_total
     assert _count(engine, "audit_log") == 1
+
+
+# ---------------------------------------------------------------------------
+# N-869-3 (Pruefrunde #869): DB-Trigger gegen Zeilen ausserhalb der Kette
+# ---------------------------------------------------------------------------
+
+def test_rebuild_installs_chain_guard_and_keeps_legacy_rows(pre_rebuild_db):
+    """Der Neuaufbau kopiert Altzeilen ohne sequence (vor dem Trigger) und
+    legt danach den Ketten-Pflicht-Trigger an: neue Zeilen ohne sequence/
+    Hash/Vorgaenger werden abgewiesen, log() funktioniert weiter."""
+    engine, session_local = pre_rebuild_db
+    ensure_audit_log_actions(engine)
+    with engine.connect() as conn:
+        legacy = conn.execute(text("SELECT COUNT(*) FROM audit_log WHERE sequence IS NULL")).scalar()
+    assert legacy == 1
+    for columns, values in (
+        ("", ""),
+        (", sequence, previous_hash", ", 99, ''"),
+        (", integrity_hash, previous_hash", ", 'h', ''"),
+        (", sequence, integrity_hash", ", 99, 'h'"),
+    ):
+        with pytest.raises(DatabaseError, match="outside hash chain"):
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "INSERT INTO audit_log (id, user_name, table_name, record_id, action, created_at"
+                    + columns + ") VALUES ('x', 'X', 't', 'r', 'LOGIN', '2026-11-05T00:00:00.000Z'"
+                    + values + ")"
+                ))
+    with session_local() as s:
+        log(s, user_id="u1", user_name="Admin", table_name="clients", record_id="c1", action="CREATE")
+        s.commit()
+        assert verify_audit_chain(s)["ok"]

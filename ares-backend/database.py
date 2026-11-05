@@ -1853,6 +1853,19 @@ _AUDIT_LOG_TRIGGER_DDL = (
     BEFORE DELETE ON audit_log FOR EACH ROW
     BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
     """,
+    # N-869-3 (Pruefrunde #869): der eigentliche Single-Writer-Schutz. Jede
+    # NEUE Zeile muss Teil der Hash-Kette sein (sequence, integrity_hash,
+    # previous_hash gesetzt -- previous_hash ist bei der Genesis '' und nie
+    # NULL, siehe services/audit.py::log()). Altzeilen ohne sequence bleiben
+    # unberuehrt: der Trigger wirkt nur auf INSERT, und der Kopierschritt
+    # des Neuaufbaus laeuft, BEVOR die Trigger auf der neuen Tabelle
+    # angelegt werden (_rebuild_audit_log_from_old).
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_require_chain
+    BEFORE INSERT ON audit_log FOR EACH ROW
+    WHEN NEW.sequence IS NULL OR NEW.integrity_hash IS NULL OR NEW.previous_hash IS NULL
+    BEGIN SELECT RAISE(ABORT, 'audit_log insert outside hash chain'); END
+    """,
 )
 
 

@@ -39,14 +39,22 @@ from services.audit import verify_audit_chain  # noqa: E402
 from services.auth import get_current_user, require_admin, require_advisor  # noqa: E402
 from test_optimizer_shadow_mode import session_factory  # noqa: E402,F401
 
-# Der einzige erlaubte Konstruktor einer AuditLog-Zeile.
-_ALLOWED_CONSTRUCTOR = {"services/audit.py"}
-# Roh-SQL "INSERT INTO audit_log": nur der 1:1-Kopierschritt des SQLite-
-# Neuaufbaus (ensure_audit_log_actions) -- er erzeugt keine neuen Eintraege.
-_ALLOWED_RAW_INSERT = {"database.py"}
+# Erlaubte Schreibstellen, eingeengt auf die FUNKTION (N-869-3): der einzige
+# Konstruktor ist services.audit.log(); Roh-SQL "INSERT INTO audit_log" nur im
+# 1:1-Kopierschritt des SQLite-Neuaufbaus (erzeugt keine neuen Eintraege).
+_ALLOWED = {
+    ("services/audit.py", "log", "AuditLog(...)"),
+    ("database.py", "_rebuild_audit_log_from_old", "INSERT INTO audit_log"),
+}
 _EXCLUDED_DIRS = {"tests", "__pycache__", ".venv", "venv", "node_modules", "build", "dist"}
-_BULK_APIS = {"insert", "bulk_insert_mappings", "bulk_save_objects", "add_all"}
-_RAW_INSERT = re.compile(r"INSERT\s+(?:OR\s+\w+\s+)?INTO\s+[\"`]?audit_log[\"`]?\s*[\(\s]", re.IGNORECASE)
+_BULK_APIS = {"insert", "bulk_insert_mappings", "bulk_save_objects", "add_all", "insert_many"}
+_SQL_VERB = r"(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|COPY)\s+"
+# Optionales Schema-Praefix und Quotes; audit_log_sequence_counter und
+# audit_log__old sind ausdruecklich NICHT gemeint.
+_SQL_WRITE = re.compile(_SQL_VERB + r"(?:[\"`]?\w+[\"`]?\.)?[\"`]?audit_log[\"`]?(?!\w)", re.IGNORECASE)
+# Tabellenname dynamisch eingesetzt (f-String, %, .format, Verkettung).
+_SQL_WRITE_DYNAMIC = re.compile(_SQL_VERB + r"(?:\{\}|%s|%\(\w+\)s|\{\w*\})", re.IGNORECASE)
+_TABLE_NAME = re.compile(r"^(?:\w+\.)?audit_log$")
 
 
 def _production_files() -> list[Path]:
@@ -59,57 +67,188 @@ def _production_files() -> list[Path]:
     return files
 
 
-def _is_auditlog_ref(node: ast.AST) -> bool:
-    if isinstance(node, ast.Name):
-        return node.id == "AuditLog"
-    if isinstance(node, ast.Attribute):
-        return node.attr == "AuditLog"
-    return False
+def _static_text(node: ast.AST) -> str | None:
+    """Rekonstruiert SQL-Text aus Literal, f-String, Verkettung oder %-Format;
+    nicht-statische Teile werden zu '{}'."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            v.value if isinstance(v, ast.Constant) and isinstance(v.value, str) else "{}"
+            for v in node.values
+        )
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
+        left = _static_text(node.left)
+        if isinstance(node.op, ast.Mod):
+            return left
+        right = _static_text(node.right)
+        if left is None and right is None:
+            return None
+        return (left if left is not None else "{}") + (right if right is not None else "{}")
+    return None
 
 
-def find_audit_log_writers(source: str) -> list[tuple[int, str]]:
-    """Liefert (Zeile, Art) fuer jeden AuditLog-Schreibzugriff im Quelltext."""
-    tree = ast.parse(source)
-    hits: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            if _is_auditlog_ref(node.func):
-                hits.append((node.lineno, "AuditLog(...)"))
-                continue
-            func_name = (
-                node.func.attr if isinstance(node.func, ast.Attribute)
-                else node.func.id if isinstance(node.func, ast.Name) else ""
-            )
-            if func_name in _BULK_APIS and any(_is_auditlog_ref(arg) for arg in node.args):
-                hits.append((node.lineno, f"{func_name}(AuditLog)"))
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if _RAW_INSERT.search(node.value):
-                hits.append((node.lineno, "INSERT INTO audit_log"))
-    return hits
+class _WriterScan(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.hits: set[tuple[int, str, str]] = set()
+        self.func_stack: list[str] = []
+        self.auditlog_names = {"AuditLog"}
+        self.table_literal_scopes: set[str] = set()
+        self.dynamic_sql: list[tuple[int, str]] = []
+
+    @property
+    def scope(self) -> str:
+        return self.func_stack[-1] if self.func_stack else "<module>"
+
+    def _hit(self, node: ast.AST, kind: str) -> None:
+        self.hits.add((node.lineno, kind, self.scope))
+
+    def is_ref(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self.auditlog_names
+        if isinstance(node, ast.Attribute):
+            return node.attr == "AuditLog"
+        if (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr"
+            and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "AuditLog"
+        ):
+            return True
+        return False
+
+    def _visit_function(self, node) -> None:
+        self.func_stack.append(node.name)
+        self.generic_visit(node)
+        self.func_stack.pop()
+
+    visit_FunctionDef = _visit_function
+    visit_AsyncFunctionDef = _visit_function
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name == "AuditLog" and alias.asname:
+                self.auditlog_names.add(alias.asname)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if self.is_ref(node.value):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.auditlog_names.add(target.id)
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr == "__table__" and self.is_ref(node.value):
+            self._hit(node, "AuditLog.__table__")
+        self.generic_visit(node)
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        if (
+            isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str)
+            and _TABLE_NAME.match(node.slice.value)
+        ):
+            self._hit(node, "tables['audit_log']")
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func_name = (
+            node.func.attr if isinstance(node.func, ast.Attribute)
+            else node.func.id if isinstance(node.func, ast.Name) else ""
+        )
+        if self.is_ref(node.func):
+            self._hit(node, "AuditLog(...)")
+        elif func_name in _BULK_APIS and any(self.is_ref(arg) for arg in node.args):
+            self._hit(node, f"{func_name}(AuditLog)")
+        elif (
+            func_name == "Table" and node.args and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str) and _TABLE_NAME.match(node.args[0].value)
+        ):
+            self._hit(node, "Table('audit_log')")
+        self.generic_visit(node)
+
+    def _check_text(self, node: ast.AST) -> None:
+        text_value = _static_text(node)
+        if text_value is None:
+            return
+        if _SQL_WRITE.search(text_value):
+            self._hit(node, "INSERT INTO audit_log")
+        elif _SQL_WRITE_DYNAMIC.search(text_value):
+            self.dynamic_sql.append((node.lineno, self.scope))
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, str):
+            if _TABLE_NAME.match(node.value):
+                self.table_literal_scopes.add(self.scope)
+            self._check_text(node)
+
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
+        self._check_text(node)
+        self.generic_visit(node)
+
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        self._check_text(node)
+        self.generic_visit(node)
+
+
+def find_audit_log_writers(source: str) -> list[tuple[int, str, str]]:
+    """Liefert (Zeile, Art, Funktion) fuer jeden audit_log-Schreibzugriff.
+
+    N-869-3 (Pruefrunde #869): erkennt neben AuditLog(...) und
+    insert/bulk_*(AuditLog) auch Alias-Importe, Zuweisungen,
+    getattr(..., 'AuditLog'), AuditLog.__table__ (insert()/insert(table)),
+    Table('audit_log', ...) und metadata.tables['audit_log'] (Reflection),
+    Roh-SQL mit Schema-Praefix/Quotes/COPY sowie dynamisch gebautes SQL
+    (Tabellenname per f-String/%/Verkettung), wenn in derselben Funktion
+    das Literal 'audit_log' vorkommt. Der eigentliche Schutz ist der
+    DB-Trigger trg_audit_log_require_chain (siehe database.py); dieser Test
+    faengt versehentliche Umgehungen schon im Review ab.
+    """
+    scan = _WriterScan()
+    scan.visit(ast.parse(source))
+    hits = set(scan.hits)
+    for lineno, scope in scan.dynamic_sql:
+        if scope in scan.table_literal_scopes:
+            hits.add((lineno, "dynamisches INSERT (audit_log)", scope))
+    return sorted(hits)
 
 
 def test_detector_finds_known_bypass_patterns():
     """Positivkontrolle: der Detektor erkennt die Muster, die er verbieten soll
-    -- sonst waere der Architektur-Test aus dem falschen Grund gruen."""
+    -- sonst waere der Architektur-Test aus dem falschen Grund gruen. Enthaelt
+    alle Umgehungen, die die Pruefrunde #869 gefunden hat."""
     sample = (
         "from models.review import AuditLog\n"
+        "from models.review import AuditLog as AL\n"
         "import models.review as mr\n"
-        "db.add(AuditLog(id='x'))\n"
-        "db.add(mr.AuditLog(id='y'))\n"
-        "db.execute(insert(AuditLog).values(id='z'))\n"
-        "db.bulk_insert_mappings(AuditLog, [{}])\n"
-        "db.execute(text('INSERT INTO audit_log (id) VALUES (1)'))\n"
+        "db.add(AuditLog(id='x'))\n"                                   # 4
+        "db.add(mr.AuditLog(id='y'))\n"                                # 5
+        "db.execute(insert(AuditLog).values(id='z'))\n"                # 6
+        "db.bulk_insert_mappings(AuditLog, [{}])\n"                    # 7
+        "db.execute(text('INSERT INTO audit_log (id) VALUES (1)'))\n"  # 8
+        "db.add(AL(id='a'))\n"                                         # 9
+        "M = AuditLog\n"
+        "db.add(M(id='m'))\n"                                          # 11
+        "db.add(getattr(mr, 'AuditLog')(id='g'))\n"                    # 12
+        "db.execute(AuditLog.__table__.insert())\n"                    # 13
+        "db.execute(insert(AuditLog.__table__))\n"                     # 14
+        "t = Table('audit_log', md, autoload_with=engine)\n"           # 15
+        "t2 = md.tables['audit_log']\n"                                # 16
+        "db.execute(text('INSERT INTO public.audit_log (id) VALUES (1)'))\n"  # 17
+        "cur.copy_expert('COPY \"audit_log\" FROM STDIN', f)\n"        # 18
+        "def dyn(name='audit_log'):\n"
+        "    db.execute(text(f'INSERT INTO {name} (id) VALUES (1)'))\n"  # 20
+        "def concat():\n"
+        "    db.execute(text('INSERT INTO ' + 'audit_log' + ' (id) VALUES (1)'))\n"  # 22
         "# AuditLog(...) im Kommentar ist kein Schreibzugriff\n"
         "class AuditLog(Base):\n    pass\n"
         "db.query(AuditLog).filter(AuditLog.id == 1)\n"
+        "isinstance(obj, AuditLog)\n"
         "db.execute(text('INSERT INTO audit_log_sequence_counter (id) VALUES (1)'))\n"
+        "def generic(table):\n"
+        "    db.execute(text(f'INSERT INTO {table} SELECT * FROM x'))\n"
     )
-    kinds = [kind for _, kind in find_audit_log_writers(sample)]
-    assert kinds.count("AuditLog(...)") == 2
-    assert "insert(AuditLog)" in kinds
-    assert "bulk_insert_mappings(AuditLog)" in kinds
-    assert kinds.count("INSERT INTO audit_log") == 1
-    assert len(kinds) == 5
+    lines = {lineno for lineno, _, _ in find_audit_log_writers(sample)}
+    assert lines == {4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22}, sorted(lines)
 
 
 def test_no_audit_log_rows_constructed_outside_audit_service():
@@ -119,12 +258,10 @@ def test_no_audit_log_rows_constructed_outside_audit_service():
         source = path.read_text(encoding="utf-8")
         if "AuditLog" not in source and "audit_log" not in source.lower():
             continue
-        for lineno, kind in find_audit_log_writers(source):
-            if kind == "INSERT INTO audit_log" and rel in _ALLOWED_RAW_INSERT:
+        for lineno, kind, scope in find_audit_log_writers(source):
+            if (rel, scope, kind) in _ALLOWED:
                 continue
-            if kind != "INSERT INTO audit_log" and rel in _ALLOWED_CONSTRUCTOR:
-                continue
-            offenders.append(f"{rel}:{lineno} {kind}")
+            offenders.append(f"{rel}:{lineno} {kind} (in {scope})")
     assert not offenders, (
         "audit_log-Zeilen duerfen nur ueber services.audit.log() entstehen "
         "(sequence/previous_hash/integrity_hash/tenant_id), gefunden:\n  "
@@ -132,13 +269,23 @@ def test_no_audit_log_rows_constructed_outside_audit_service():
     )
 
 
+def test_allowlist_entries_are_still_present():
+    """Jede Ausnahme muss genau an ihrer Stelle noch vorkommen -- eine
+    verwaiste Ausnahme waere eine stille Erweiterung des Erlaubten."""
+    found = set()
+    for rel, scope, kind in _ALLOWED:
+        source = (BACKEND_ROOT / rel).read_text(encoding="utf-8")
+        if any(k == kind and s == scope for _, k, s in find_audit_log_writers(source)):
+            found.add((rel, scope, kind))
+    assert found == _ALLOWED
+
+
 def test_audit_service_itself_is_seen_by_the_scan():
-    """Gegenkontrolle: der Scan erfasst services/audit.py wirklich (sonst
+    """Gegenkontrolle: der Scan erfasst die relevanten Dateien wirklich (sonst
     bewiese der leere Befund oben nichts)."""
-    source = (BACKEND_ROOT / "services" / "audit.py").read_text(encoding="utf-8")
-    assert find_audit_log_writers(source), "services/audit.py muss den einzigen Konstruktor enthalten"
     assert BACKEND_ROOT / "services" / "audit.py" in _production_files()
     assert BACKEND_ROOT / "routers" / "system.py" in _production_files()
+    assert BACKEND_ROOT / "database.py" in _production_files()
 
 
 # ---------------------------------------------------------------------------
