@@ -171,3 +171,120 @@ def test_start_smoke_renders_pdfs_and_rejects_font_fallback():
     assert "run_pdf_render_smoke(base)" in source
     assert "assert_no_font_fallback(logtext)" in source
     assert source.index("run_pdf_render_smoke(base)") < source.index("stop_process(proc, port, grace)")
+
+
+# --- C-853-01 (Codex 2026-11-05): Einbettung am Font-Stream, nicht am Namen ---
+def _rewrite_fonts(pdf: bytes, mutate) -> bytes:
+    """Jeden Seiten-Font mit /FontDescriptor an ``mutate(writer, fonts, key, font)``
+    geben und das PDF neu schreiben."""
+    import pypdf
+
+    writer = pypdf.PdfWriter(clone_from=pypdf.PdfReader(io.BytesIO(pdf)))
+    for page in writer.pages:
+        fonts = page["/Resources"]["/Font"].get_object()
+        for key in list(fonts.keys()):
+            font = fonts[key].get_object()
+            if "/FontDescriptor" in font:
+                mutate(writer, fonts, key, font)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _drop_font_files(writer, fonts, key, font):
+    descriptor = font["/FontDescriptor"].get_object()
+    for name in smoke.FONT_FILE_KEYS:
+        if name in descriptor:
+            del descriptor[name]
+
+
+def _empty_font_files(writer, fonts, key, font):
+    descriptor = font["/FontDescriptor"].get_object()
+    for name in smoke.FONT_FILE_KEYS:
+        if name in descriptor:
+            descriptor[name].get_object().set_data(b"")
+
+
+def _font_file2_as_font_file3(writer, fonts, key, font):
+    from pypdf.generic import NameObject
+
+    descriptor = font["/FontDescriptor"].get_object()
+    descriptor[NameObject("/FontFile3")] = descriptor["/FontFile2"]
+    del descriptor["/FontFile2"]
+
+
+def _as_type0(*, with_stream: bool = True, with_descendants: bool = True):
+    """Einfachen TrueType-Font in einen Type0/CIDFontType2-Font umbauen
+    (gleicher /BaseFont, gleicher /FontDescriptor)."""
+
+    def mutate(writer, fonts, key, font):
+        from pypdf.generic import ArrayObject, DictionaryObject, NameObject
+
+        if not with_stream:
+            _drop_font_files(writer, fonts, key, font)
+        cid = DictionaryObject({
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/CIDFontType2"),
+            NameObject("/BaseFont"): font["/BaseFont"],
+            NameObject("/FontDescriptor"): font.raw_get("/FontDescriptor"),
+        })
+        type0 = DictionaryObject({
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type0"),
+            NameObject("/BaseFont"): font["/BaseFont"],
+            NameObject("/Encoding"): NameObject("/Identity-H"),
+        })
+        if with_descendants:
+            type0[NameObject("/DescendantFonts")] = ArrayObject([writer._add_object(cid)])
+        fonts[NameObject(key)] = writer._add_object(type0)
+
+    return mutate
+
+
+def test_c_853_01_reportlab_fonts_are_embedded_as_font_file2():
+    import pypdf
+
+    states = smoke._page_font_embedding(pypdf.PdfReader(io.BytesIO(_pdf())).pages)
+    embedded = {n: s for n, s in states.items() if s.startswith("eingebettet (/FontFile2")}
+    assert any("+Inter" in n for n in embedded) and any("+CormorantGaramond" in n for n in embedded)
+
+
+def test_c_853_01_subset_name_without_font_stream_fails():
+    pdf = _rewrite_fonts(_pdf(), _drop_font_files)
+    with pytest.raises(smoke.SmokeError, match="Editorial-Font Inter nicht eingebettet.*ohne Font-Stream"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", (FOOTER,))
+
+
+def test_c_853_01_empty_font_stream_fails():
+    pdf = _rewrite_fonts(_pdf(), _empty_font_files)
+    with pytest.raises(smoke.SmokeError, match="Editorial-Font Inter nicht eingebettet.*leerer Font-Stream"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", (FOOTER,))
+
+
+def test_c_853_01_font_file3_stream_counts_as_embedded():
+    pdf = _rewrite_fonts(_pdf(), _font_file2_as_font_file3)
+    assert "1 Seite(n)" in smoke.check_pdf_bytes(pdf, "x.pdf", ())
+
+
+def test_c_853_01_embedded_type0_cid_font_passes():
+    import pypdf
+
+    pdf = _rewrite_fonts(_pdf(), _as_type0())
+    reader = pypdf.PdfReader(io.BytesIO(pdf))
+    subtypes = {
+        str(f.get_object()["/Subtype"]) for f in reader.pages[0]["/Resources"]["/Font"].values()
+    }
+    assert "/Type0" in subtypes
+    assert "1 Seite(n)" in smoke.check_pdf_bytes(pdf, "x.pdf", ())
+
+
+def test_c_853_01_type0_without_descendant_stream_fails():
+    pdf = _rewrite_fonts(_pdf(), _as_type0(with_stream=False))
+    with pytest.raises(smoke.SmokeError, match="nicht eingebettet.*ohne Font-Stream"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", ())
+
+
+def test_c_853_01_type0_without_descendant_fonts_fails():
+    pdf = _rewrite_fonts(_pdf(), _as_type0(with_descendants=False))
+    with pytest.raises(smoke.SmokeError, match="nicht eingebettet.*Type0 ohne /DescendantFonts"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", ())

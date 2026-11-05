@@ -391,13 +391,7 @@ def check_pdf_bytes(pdf: bytes, label: str, required_texts: tuple[str, ...]) -> 
         reader = pypdf.PdfReader(io.BytesIO(pdf))
         pages = list(reader.pages)
         text = _squash(' '.join(page.extract_text() or '' for page in pages))
-        fonts = set()
-        for page in pages:
-            resources = page.get('/Resources') or {}
-            for font in (resources.get('/Font') or {}).values():
-                base = font.get_object().get('/BaseFont')
-                if base is not None:
-                    fonts.add(str(base).lstrip('/'))
+        fonts = _page_font_embedding(pages)
     except Exception as exc:  # pypdf-Fehler jeder Art -- fail-closed mit Ursache
         fail(f'{label}: PDF nicht lesbar: {type(exc).__name__}: {exc}')
     if not pages:
@@ -407,10 +401,61 @@ def check_pdf_bytes(pdf: bytes, label: str, required_texts: tuple[str, ...]) -> 
             fail(f'{label}: Pflichttext fehlt im PDF: {needle[:80]!r}')
     for family in EDITORIAL_FONT_FAMILIES:
         pattern = re.compile(r'[A-Z]{6}\+' + family + r'(-\w+)?')
-        if not any(pattern.fullmatch(name) for name in fonts):
+        named = {name: state for name, state in fonts.items() if pattern.fullmatch(name)}
+        if not any(state.startswith('eingebettet') for state in named.values()):
+            # C-853-01: der Subset-Name allein belegt keine Einbettung -- verlangt
+            # ist ein lesbarer, nichtleerer /FontFile, /FontFile2 oder /FontFile3.
             fail(f'{label}: Editorial-Font {family} nicht eingebettet '
-                 f'(Fallback auf Standard-Fonts?); Fonts im PDF: {sorted(fonts)}')
+                 f'(Fallback auf Standard-Fonts?); Fonts im PDF: '
+                 f'{sorted(f"{n}: {st}" for n, st in fonts.items())}')
     return f'{label} ({len(pdf)} bytes, {len(pages)} Seite(n))'
+
+
+FONT_FILE_KEYS = ('/FontFile', '/FontFile2', '/FontFile3')
+
+
+def _font_embedding_state(font) -> str:
+    """C-853-01: Fontobjekt bis zum /FontDescriptor aufloesen (Type0 ueber
+    /DescendantFonts) und den Font-Stream lesen. Liefert ``eingebettet (n bytes)``
+    oder den Grund, warum nicht."""
+    try:
+        target = font.get_object()
+        if target.get('/Subtype') == '/Type0':
+            descendants = target.get('/DescendantFonts')
+            descendants = descendants.get_object() if descendants is not None else None
+            if not descendants:
+                return 'Type0 ohne /DescendantFonts'
+            target = descendants[0].get_object()
+        descriptor = target.get('/FontDescriptor')
+        if descriptor is None:
+            return 'ohne /FontDescriptor'
+        descriptor = descriptor.get_object()
+        keys = [k for k in FONT_FILE_KEYS if k in descriptor]
+        if not keys:
+            return 'ohne Font-Stream'
+        data = descriptor[keys[0]].get_object().get_data()
+    except Exception as exc:  # kaputter Stream/Verweis -- fail-closed mit Ursache
+        return f'Font-Stream nicht lesbar ({type(exc).__name__}: {exc})'
+    if not data:
+        return f'leerer Font-Stream ({keys[0]})'
+    return f'eingebettet ({keys[0]}, {len(data)} bytes)'
+
+
+def _page_font_embedding(pages) -> dict[str, str]:
+    """/BaseFont-Name -> Einbettungszustand fuer alle Seiten-Fonts. Gibt es
+    einen Namen mehrfach, zaehlt der beste Zustand."""
+    out: dict[str, str] = {}
+    for page in pages:
+        resources = page.get('/Resources') or {}
+        for font in (resources.get('/Font') or {}).values():
+            base = font.get_object().get('/BaseFont')
+            if base is None:
+                continue
+            name = str(base).lstrip('/')
+            state = _font_embedding_state(font)
+            if not out.get(name, '').startswith('eingebettet'):
+                out[name] = state
+    return out
 
 
 def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUMENTS) -> list[str]:
