@@ -147,3 +147,68 @@ def test_digest_is_independent_of_insertion_order(tmp_path):
             digests.append(_legacy_seal_digest(s))
         engine.dispose()
     assert digests[0] == digests[1]
+
+
+# ---------------------------------------------------------------------------
+# N-869-10 (Delta 2 #869): Siegelformat eingefroren
+# ---------------------------------------------------------------------------
+
+_FROZEN_ROWS = (
+    dict(id="L-a", user_id="u0", user_name="Alt Müller", table_name="clients", record_id="c1",
+         action="UPDATE", field_name="note", old_value="A|B", new_value="C", mandate_id=None,
+         client_id="c1", integrity_hash=None, ip_address=None,
+         created_at="2026-03-01T10:00:00.000Z", tenant_id=None, sequence=None, previous_hash=None),
+    dict(id="L-b", user_id="u0", user_name="Alt", table_name="asset_class_annual_returns",
+         record_id="2005-2024", action="BACKFILL", field_name=None, old_value=None,
+         new_value="rows_written=7 errors=0", mandate_id=None, client_id=None,
+         integrity_hash="ab" * 32, ip_address="203.0.113.1",
+         created_at="2026-08-01T09:00:00.000000", tenant_id="tenant-a", sequence=None, previous_hash=None),
+    dict(id="L-c", user_id=None, user_name="Portal", table_name="users", record_id="u9",
+         action="LOGIN", field_name=None, old_value=None, new_value=None, mandate_id="m1",
+         client_id=None, integrity_hash=None, ip_address="198.51.100.2",
+         created_at="2026-05-17T23:59:59.999Z", tenant_id=None, sequence=None, previous_hash=None),
+)
+# Eingefrorener Soll-Wert (legacy-seal-v1). Live ist bereits ein Siegel nach
+# genau diesem Format geschrieben: jede Aenderung an json.dumps-Parametern,
+# Spaltenliste/-reihenfolge, Sortierung oder Zeilentrenner macht dieses
+# Siegel ungueltig und muss hier rot werden. NICHT anpassen, sondern ein
+# neues Schema (legacy-seal-v2) einfuehren.
+_FROZEN_SHA256 = "e70ae65af20fe32b5ea8d74624f154c75898e92831eac08fae70b57c9e68cbe9"
+
+
+def test_seal_format_is_frozen(session_local):
+    with session_local() as s:
+        # Einfuegereihenfolge bewusst nicht nach id.
+        for row in (_FROZEN_ROWS[2], _FROZEN_ROWS[0], _FROZEN_ROWS[1]):
+            s.add(AuditLog(**row))
+        s.commit()
+        digest = _legacy_seal_digest(s)
+    assert digest == {
+        "scheme": "legacy-seal-v1",
+        "count": 3,
+        "unhashed": 2,
+        "id_min": "L-a",
+        "id_max": "L-c",
+        "created_at_min": "2026-03-01T10:00:00.000Z",
+        "created_at_max": "2026-08-01T09:00:00.000000",
+        "sha256": _FROZEN_SHA256,
+    }
+
+
+def test_verifier_requires_matching_seal_scheme(session_local):
+    """Ein Siegel mit anderer (z.B. kuenftiger oder gefaelschter) Format-
+    Version wird nicht als passend akzeptiert, auch wenn der Hash stimmt."""
+    _legacy_rows(session_local)
+    run_startup_audit_chain_check(session_local)
+    with session_local() as s:
+        seal = s.query(AuditLog).filter(AuditLog.field_name == LEGACY_SEAL_MARKER).one()
+        content = json.loads(seal.new_value)
+    assert content["scheme"] == "legacy-seal-v1"
+    content["scheme"] = "legacy-seal-v2"
+    with session_local() as s:
+        # Simuliert eine Zeile mit anderer Version (Dateizugriff, ohne Trigger).
+        s.execute(text("UPDATE audit_log SET new_value = :v WHERE id = :id"),
+                  {"v": json.dumps(content, sort_keys=True, separators=(",", ":")), "id": seal.id})
+        s.commit()
+        report = audit_log_integrity_report(s)
+    assert report["legacy"]["seal_ok"] is False
