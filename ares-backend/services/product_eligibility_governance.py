@@ -1075,6 +1075,25 @@ def _row_reason(attribute, ctype: str, threshold, check_date: date, expected_val
     return "satisfied" if _normalized_theme(attribute.value) == _normalized_theme(expected_value) else "value_mismatch"
 
 
+def _child_categories(category: str) -> tuple[str, ...]:
+    """Unterkategorien einer Kategorie laut SUSTAINABILITY_CATEGORY_COVERED_BY."""
+    return tuple(child for child, parents in SUSTAINABILITY_CATEGORY_COVERED_BY.items() if category in parents)
+
+
+def sustainability_evidence_refuted(attribute, positive_measurements, family, *, limit_applies: bool) -> bool:
+    """Ist dieser (sonst erfuellende) Nachweis widerlegt? Einzige Stelle fuer
+    alle Abfragewege (N-863-11): widerlegt durch jede gueltige Messung mit
+    Exposure > 0 in ``family`` (Kategorie des Nachweises + ihre
+    Unterkategorien), deren Messgrenze >= der Grenze des Nachweises ist."""
+    cutoffs = [m.revenue_threshold_bps for m in positive_measurements if m.category in family]
+    if not cutoffs:
+        return False
+    if not limit_applies:
+        return True
+    limit = attribute.revenue_threshold_bps
+    return any(c_m is None or limit is None or limit <= c_m for c_m in cutoffs)
+
+
 def _is_valid_positive_measurement(attribute, check_date: date) -> bool:
     """Freigegebene, am Stichtag gueltige Messung mit Exposure > 0."""
     if attribute.status != "approved" or attribute.kind != "measured_exposure":
@@ -1132,26 +1151,26 @@ def evaluate_criterion(
         return CriterionEvaluation(False, "no_threshold")
     product_id = getattr(product, "id", product)
     covering = SUSTAINABILITY_CATEGORY_COVERED_BY.get(category, ())
-    # N-863-10: Unterkategorien der angefragten Kategorie (z. B. bei "weapons"
-    # die kontroversen und konventionellen Waffen). Ihr Umsatz ist Teil des
-    # Ober-Umsatzes, ihre Messungen widerlegen daher Ober-Nachweise.
-    children = tuple(
-        child for child, parents in SUSTAINABILITY_CATEGORY_COVERED_BY.items() if category in parents
-    )
+    # Familie einer Kategorie = sie selbst + ihre Unterkategorien (bei
+    # "weapons": kontroverse und konventionelle Waffen). Der Umsatz jeder
+    # Unterkategorie ist Teil des Ober-Umsatzes.
+    family_categories = {cat: (cat, *_child_categories(cat)) for cat in (category, *covering)}
+    load = {c for members in family_categories.values() for c in members}
     if attributes is None:
         if db is None:
             return CriterionEvaluation(False, "no_evidence")
         attributes = db.query(ProductSustainabilityAttribute).filter(
             ProductSustainabilityAttribute.product_id == product_id,
-            ProductSustainabilityAttribute.category.in_((category, *covering, *children)),
+            ProductSustainabilityAttribute.category.in_(tuple(sorted(load))),
         ).all()
     visible = [
         a for a in attributes
         if a.product_id == product_id and sustainability_attribute_visible_to_tenant(a, tenant_id)
     ]
     candidates = [a for a in visible if a.category == category]
-    # H-4: Nachweise der Oberkategorie koennen nur ERFUELLEN (Schwelle der
-    # angefragten Kategorie), nie blockieren.
+    # H-4: Nachweise der Oberkategorie koennen die Unterkategorie ERFUELLEN
+    # (an der Schwelle der angefragten Kategorie). Unter-Nachweise erfuellen
+    # die Oberkategorie nie.
     covering_candidates = [a for a in visible if a.category in covering]
     if not candidates and not covering_candidates:
         return CriterionEvaluation(False, "no_evidence")
@@ -1160,83 +1179,37 @@ def evaluate_criterion(
         (attribute, _row_reason(attribute, ctype, threshold, check_date, expected_value)) for attribute in ordered
     ]
     reasons = tuple(reason for _attribute, reason in evaluated)
-    # N-863-1: eine freigegebene, gueltige, sichtbare Messung mit belegter
-    # Exposure blockiert IMMER -- unabhaengig von Scope (Plattform/Tenant)
-    # und davon, ob eine Ausschlussrichtlinie (Absichtserklaerung) oder eine
-    # andere Messung das Kriterium sonst erfuellen wuerde. Eine Tatsachen-
-    # feststellung schlaegt eine Absichtserklaerung; ein Tenant-Overlay
-    # ersetzt den Plattform-Nachweis nicht, beide gelten.
     covering_ordered = sorted(covering_candidates, key=lambda a: (str(a.as_of), str(a.id)), reverse=True)
     covering_evaluated = [
         (attribute, _row_reason(attribute, ctype, threshold, check_date, expected_value))
         for attribute in covering_ordered
     ]
-    # N-863-4 (Grenzen-Regel): Eine gueltige, sichtbare Messung der eigenen
-    # Kategorie mit Exposure > 0 und Messgrenze c_m belegt Emittenten mit
-    # Umsatz > c_m im Produkt. Sie widerlegt jeden sonst erfuellenden
-    # Nachweis (eigene Kategorie oder Oberkategorie, Richtlinie oder Messung
-    # mit 0) mit Grenze c <= c_m -> conflicting_evidence. Nur ein Nachweis mit
-    # strengerer Messgrenze-Lage c > c_m bleibt erfuellt (z. B. Richtlinie 5 %
-    # gegen Messung "jede Beteiligung" 3 %: Emittenten zwischen 0 und 5 %
-    # Umsatz sind unter der Richtlinie erlaubt), mit Hinweis
-    # inconclusive_measurement in candidate_reasons. Bei UNGC (ohne Grenze)
-    # widerlegt jede Messung mit Exposure > 0 jeden anderen Nachweis.
-    blocking_cutoffs = [
-        attribute.revenue_threshold_bps
-        for attribute, reason in evaluated
-        if reason in ("exposure_present", "inconclusive_measurement")
-        and attribute.kind == "measured_exposure"
-        and (attribute.measured_exposure_bps or 0) > 0
-    ]
-    # N-863-10: gueltige, sichtbare Messungen einer Unterkategorie mit
-    # Exposure > 0 widerlegen jeden Nachweis der angefragten Oberkategorie mit
-    # Grenze <= deren Messgrenze (Unter-Umsatz <= Ober-Umsatz; gleiche
-    # Grenzen-Regel wie N-863-7). Unter-Nachweise erfuellen die
-    # Oberkategorie nie (sie werden nur fuer diese Widerlegung gelesen).
-    child_blocking = [
-        attribute.revenue_threshold_bps
-        for attribute in visible
-        if attribute.category in children and _is_valid_positive_measurement(attribute, check_date)
-    ]
-    if child_blocking:
+    # Widerlegung (N-863-1/-4/-7/-10/-11), EINE Regel fuer jeden Abfrageweg:
+    # Ein Nachweis der Kategorie X mit Grenze L ist widerlegt, wenn eine
+    # gueltige, sichtbare Messung mit Exposure > 0 in X oder einer
+    # Unterkategorie von X eine Messgrenze c_m >= L hat (sie belegt Emittenten
+    # mit Umsatz > c_m >= L). Das gilt gleich, ob X die angefragte Kategorie
+    # oder deren Oberkategorie ist -- ein Waffen-Nachweis wird also auch bei
+    # Abfrage "kontroverse Waffen" durch eine Messung konventioneller Waffen
+    # widerlegt (N-863-11). Eine Messung der Oberkategorie widerlegt dagegen
+    # keinen Nachweis der Unterkategorie (die Exposure kann eine andere
+    # Unterkategorie betreffen). Ein Nachweis mit Grenze L > c_m bleibt
+    # erfuellt (Hinweis inconclusive_measurement). UNGC ohne Grenze: jede
+    # Messung > 0 widerlegt.
+    positive_measurements = [a for a in visible if _is_valid_positive_measurement(a, check_date)]
+    if any(m.category in _child_categories(category) for m in positive_measurements):
         reasons = reasons + ("child_category_measurement",)
-        blocking_cutoffs = blocking_cutoffs + child_blocking
 
     def _refuted(attribute) -> bool:
-        if not blocking_cutoffs:
-            return False
-        if ctype != "revenue_threshold":
-            return True
-        limit = attribute.revenue_threshold_bps
-        return any(c_m is None or limit is None or limit <= c_m for c_m in blocking_cutoffs)
+        return sustainability_evidence_refuted(
+            attribute, positive_measurements, family_categories.get(attribute.category, (attribute.category,)),
+            limit_applies=ctype == "revenue_threshold",
+        )
 
     satisfying = [a for a, reason in evaluated if reason == "satisfied"]
     covering_satisfied = [a for a, reason in covering_evaluated if reason == "satisfied"]
     surviving = [a for a in satisfying if not _refuted(a)]
-    # N-863-7: eine Messung der OBERKATEGORIE (Grenze c_m, Exposure > 0)
-    # blockiert die Unterkategorie nicht (die Exposure kann eine andere
-    # Unterkategorie betreffen), widerlegt aber jeden Nachweis der
-    # Oberkategorie mit Grenze <= c_m. Ein so widerlegter Ober-Nachweis darf
-    # die Unterkategorie nicht erfuellen.
-    parent_blocking = {}
-    for attribute, reason in covering_evaluated:
-        if (
-            reason in ("exposure_present", "inconclusive_measurement")
-            and attribute.kind == "measured_exposure"
-            and (attribute.measured_exposure_bps or 0) > 0
-        ):
-            parent_blocking.setdefault(attribute.category, []).append(attribute.revenue_threshold_bps)
-
-    def _refuted_by_parent_measurement(attribute) -> bool:
-        cutoffs = parent_blocking.get(attribute.category, [])
-        if not cutoffs:
-            return False
-        limit = attribute.revenue_threshold_bps
-        return any(c_m is None or limit is None or limit <= c_m for c_m in cutoffs)
-
-    surviving_covering = [
-        a for a in covering_satisfied if not _refuted(a) and not _refuted_by_parent_measurement(a)
-    ]
+    surviving_covering = [a for a in covering_satisfied if not _refuted(a)]
     if (satisfying or covering_satisfied) and not (surviving or surviving_covering):
         return CriterionEvaluation(False, "conflicting_evidence", None, reasons)
     if "exposure_present" in reasons and not (surviving or surviving_covering):

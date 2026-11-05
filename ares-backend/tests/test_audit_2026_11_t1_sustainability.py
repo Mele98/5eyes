@@ -1035,3 +1035,35 @@ def test_n863_10_child_evidence_never_satisfies_parent(SF):
     with SF() as s:
         result = evaluate_criterion(s, s.get(Product, "g1"), "weapons", 1000, TODAY)
     assert not result.satisfied
+
+
+# ---------------------------------------------------------------------------
+# N-863-11: Geschwister-Messung widerlegt Ober-Nachweis auch fuer die andere Unterkategorie
+# ---------------------------------------------------------------------------
+
+
+def test_n863_11_conventional_measurement_refutes_weapons_policy_for_controversial(SF):
+    _attr(SF, id="weapons0", category="weapons", revenue=0)
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "controversial_weapons", 0, TODAY)  # Gegenprobe
+    _attr(SF, id="conv-meas", category="conventional_weapons", kind="measured_exposure", revenue=0, measured=100)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "controversial_weapons", 0, TODAY)
+    assert not result.satisfied and result.reason == "conflicting_evidence"
+
+
+def test_n863_11_controversial_measurement_refutes_weapons_policy_for_conventional(SF):
+    _attr(SF, id="weapons1000", category="weapons", revenue=1000)
+    _attr(SF, id="contro-meas", category="controversial_weapons", kind="measured_exposure", revenue=1000, measured=100)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "conventional_weapons", 1000, TODAY)
+    assert not result.satisfied and result.reason == "conflicting_evidence"
+
+
+def test_n863_11_own_child_policy_still_satisfies(SF):
+    _attr(SF, id="weapons0", category="weapons", revenue=0)
+    _attr(SF, id="conv-meas", category="conventional_weapons", kind="measured_exposure", revenue=0, measured=100)
+    _attr(SF, id="contro0", category="controversial_weapons", revenue=0)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "controversial_weapons", 0, TODAY)
+    assert result.satisfied and result.attribute_id == "contro0"
