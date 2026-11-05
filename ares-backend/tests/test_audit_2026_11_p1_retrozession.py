@@ -318,7 +318,7 @@ def test_waiver_below_estimate_is_never_covered_no_tolerance():
     rest = [i for i in payload["cost_items"] if i["key"] == "retrocession_product"]
     assert [i["amount_rappen"] for i in rest] == [4_000]
     text = _pdf_text(payload)
-    assert "aufgeklärt CHF 460" in text and "aufgeklärt CHF 500" not in text
+    assert "aufgeklärt CHF 460.00" in text and "aufgeklärt CHF 500" not in text
 
 
 def test_exact_waiver_covers_all_products_of_provider():
@@ -351,7 +351,7 @@ def test_non_annual_mandate_amount_does_not_cover_annual_retrocession():
     assert line["mandate_disclosed_other_rappen"] == 100_000
     assert line["undisclosed_rappen"] == 100_000
     text = _pdf_text(payload)
-    assert "offengelegt (einmalig bzw. ohne Frequenz) CHF 1'000, deckt die jährliche Retrozession nicht" in text
+    assert "offengelegt (einmalig bzw. ohne Frequenz) CHF 1'000.00, deckt die jährliche Retrozession nicht" in text
     assert "aufgeklärt" not in text.split("Fonds A", 1)[1].split("Art. 26", 1)[0]
 
 
@@ -434,7 +434,7 @@ def test_pdf_note_grammar_and_labelled_amounts():
     text = _pdf_text(payload)
     assert "ausdrücklich verzichtet haben" in text
     assert "verzichtet hat" not in text
-    assert "geschätzt CHF 1'000 / aufgeklärt CHF 10" in text.replace("\u2019", "'"), text
+    assert "geschätzt CHF 1'000.00 / aufgeklärt CHF 10.00" in text.replace("\u2019", "'"), text
 
 
 def test_ui_module_has_no_dead_module_reference_and_labels_amounts():
@@ -452,3 +452,31 @@ def test_two_waivers_in_same_pot_are_summed():
     assert line["treatment"] == "waiver_documented"
     assert line["mandate_resolved_rappen"] == 100_000 and line["unresolved_rappen"] == 0
     assert payload["product_retrocessions"]["complete"] is True
+
+
+# ---------------------------------------------------------------------------
+# N-861-12: Teil-Deckung nie mit zwei gleich gerundeten Betraegen
+# ---------------------------------------------------------------------------
+
+
+def test_partial_cover_amounts_are_exact_in_pdf_and_ui():
+    """Verzicht CHF 499.99 bei geschaetzt CHF 500.00: die Zeile sagt "deckt nur
+    einen Teil" -- die Betraege muessen sich sichtbar unterscheiden."""
+    products = [_product("Fonds A", rate=50, amount=10_000_000)]  # CHF 500.00
+    payload = _calc(products, inducements=[_entry(49_999)])
+    line = payload["product_retrocessions"]["lines"][0]
+    assert line["treatment"] == "partially_covered" and line["unresolved_rappen"] == 1
+    text = _pdf_text(payload).replace("\u2019", "'")
+    assert "geschätzt CHF 500.00 / aufgeklärt CHF 499.99" in text, text
+    assert "Betrag p.a." in text and "Betrag p.a. (Schätzung)" not in text
+    assert "beide auf Rappen genau" in text
+
+    import json as _json
+    import subprocess
+
+    module = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "product-master-data.js").read_text(encoding="utf-8")
+    script = module + "\nprocess.stdout.write(JSON.stringify([_retroAmount(50000,'CHF'), _retroAmount(49999,'chf'), _retroAmount(123456789,'EUR')]));"
+    proc = subprocess.run(["node", "-e", "var window={}; var document={addEventListener:function(){}};" + script],
+                          capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    assert _json.loads(proc.stdout) == ["CHF 500.00", "CHF 499.99", "EUR 1'234'567.89"]
