@@ -89,7 +89,10 @@ process.stdout.write(JSON.stringify(mortgageLiabilityAndPledgedSeriesRappen(posi
 
 
 def _donut_script(html: str, total_allocation: dict, total_wealth: int) -> str:
-    sync = _extract_js_function(html, "syncAllocationDonutFromStrategyState")
+    # Live-Test 2026-11 H2: der Kontexttext nutzt allocationReserveBreakdown().
+    sync = _extract_js_function(html, "allocationReserveBreakdown") + chr(10) + _extract_js_function(
+        html, "syncAllocationDonutFromStrategyState"
+    )
     return (
         """
 const rc = {innerHTML:'', style:{display:'none'}};
