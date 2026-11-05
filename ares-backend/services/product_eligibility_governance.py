@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from models.product_eligibility import (
     SFDR_CLASSIFICATION_VALUES,
     SUSTAINABILITY_CATEGORIES,
+    SUSTAINABILITY_CATEGORY_COVERED_BY,
     SUSTAINABILITY_CLASSIFICATION_CATEGORIES,
     SUSTAINABILITY_CONDUCT_CATEGORIES,
     SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS,
@@ -797,19 +798,23 @@ def evaluate_criterion(
     if check_date is None:
         return CriterionEvaluation(False, "no_threshold")
     product_id = getattr(product, "id", product)
+    covering = SUSTAINABILITY_CATEGORY_COVERED_BY.get(category, ())
     if attributes is None:
         if db is None:
             return CriterionEvaluation(False, "no_evidence")
         attributes = db.query(ProductSustainabilityAttribute).filter(
             ProductSustainabilityAttribute.product_id == product_id,
-            ProductSustainabilityAttribute.category == category,
+            ProductSustainabilityAttribute.category.in_((category, *covering)),
         ).all()
-    candidates = [
+    visible = [
         a for a in attributes
-        if a.product_id == product_id and a.category == category
-        and sustainability_attribute_visible_to_tenant(a, tenant_id)
+        if a.product_id == product_id and sustainability_attribute_visible_to_tenant(a, tenant_id)
     ]
-    if not candidates:
+    candidates = [a for a in visible if a.category == category]
+    # H-4: Nachweise der Oberkategorie koennen nur ERFUELLEN (Schwelle der
+    # angefragten Kategorie), nie blockieren.
+    covering_candidates = [a for a in visible if a.category in covering]
+    if not candidates and not covering_candidates:
         return CriterionEvaluation(False, "no_evidence")
     ordered = sorted(candidates, key=lambda a: (str(a.as_of), str(a.id)), reverse=True)
     evaluated = [
@@ -822,12 +827,26 @@ def evaluate_criterion(
     # andere Messung das Kriterium sonst erfuellen wuerde. Eine Tatsachen-
     # feststellung schlaegt eine Absichtserklaerung; ein Tenant-Overlay
     # ersetzt den Plattform-Nachweis nicht, beide gelten.
+    covering_ordered = sorted(covering_candidates, key=lambda a: (str(a.as_of), str(a.id)), reverse=True)
+    covering_evaluated = [
+        (attribute, _row_reason(attribute, ctype, threshold, check_date, expected_value))
+        for attribute in covering_ordered
+    ]
+    covering_satisfied = [attribute for attribute, reason in covering_evaluated if reason == "satisfied"]
     if "exposure_present" in reasons:
-        blocked = "conflicting_evidence" if "satisfied" in reasons else "exposure_present"
+        blocked = "conflicting_evidence" if ("satisfied" in reasons or covering_satisfied) else "exposure_present"
         return CriterionEvaluation(False, blocked, None, reasons)
     for attribute, reason in evaluated:
         if reason == "satisfied":
             return CriterionEvaluation(True, "satisfied", attribute.id, reasons)
+    if covering_satisfied:
+        return CriterionEvaluation(True, "satisfied", covering_satisfied[0].id, reasons + ("satisfied_by_parent_category",))
+    # Messungen der Oberkategorie mit Exposure sind fuer die Unterkategorie
+    # nicht schluessig (blockieren nicht).
+    reasons = reasons + tuple(
+        "inconclusive_measurement" if reason == "exposure_present" else reason
+        for _attribute, reason in covering_evaluated
+    )
     worst = min(reasons, key=CRITERION_REASONS.index)
     return CriterionEvaluation(False, worst, None, reasons)
 

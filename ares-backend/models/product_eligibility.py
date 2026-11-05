@@ -285,6 +285,7 @@ for _trigger_ddl in _override_schema.SQLITE_TRIGGERS:
 SUSTAINABILITY_REVENUE_CATEGORIES: tuple[str, ...] = (
     "controversial_weapons",
     "conventional_weapons",
+    "weapons",
     "tobacco",
     "thermal_coal",
     "fossil_fuels",
@@ -295,6 +296,18 @@ SUSTAINABILITY_REVENUE_CATEGORIES: tuple[str, ...] = (
     "animal_testing",
 )
 SUSTAINABILITY_CONDUCT_CATEGORIES: tuple[str, ...] = ("ungc_violation",)
+
+#: H-4 Kategorie-Hierarchie (konservativ, fest): Ein Nachweis der
+#: uebergeordneten Kategorie deckt die untergeordnete ab, nie umgekehrt.
+#: "weapons" = Waffen insgesamt (konventionelle und kontroverse); ein
+#: Ausschluss "Waffen" mit Schwelle <= Hausschwelle erfuellt daher auch
+#: "kontroverse Waffen" bzw. "konventionelle Waffen". Eine Messung der
+#: Oberkategorie mit Exposure belegt dagegen keinen Verstoss in einer
+#: bestimmten Unterkategorie und blockiert sie nicht.
+SUSTAINABILITY_CATEGORY_COVERED_BY: dict[str, tuple[str, ...]] = {
+    "controversial_weapons": ("weapons",),
+    "conventional_weapons": ("weapons",),
+}
 SUSTAINABILITY_CLASSIFICATION_CATEGORIES: tuple[str, ...] = ("sfdr_classification", "impact_theme")
 SUSTAINABILITY_CATEGORIES: tuple[str, ...] = (
     SUSTAINABILITY_REVENUE_CATEGORIES
@@ -341,6 +354,7 @@ SUSTAINABILITY_STATUSES: tuple[str, ...] = ("draft", "approved", "retired")
 SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS: dict[str, int | None] = {
     "controversial_weapons": 0,
     "conventional_weapons": 1000,
+    "weapons": 1000,
     "tobacco": 500,
     "thermal_coal": 1000,
     "gambling": 500,

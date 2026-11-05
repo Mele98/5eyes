@@ -449,7 +449,7 @@ def test_api_csv_import_and_export_roundtrip(SF, client):
 
 
 T_E1 = {
-    "controversial_weapons": 0, "conventional_weapons": 1000, "tobacco": 500, "thermal_coal": 1000,
+    "controversial_weapons": 0, "conventional_weapons": 1000, "weapons": 1000, "tobacco": 500, "thermal_coal": 1000,
     "gambling": 500, "adult_entertainment": 500, "alcohol": 1000, "ungc_violation": None,
     "nuclear_power": 1000, "animal_testing": 1000, "fossil_fuels": 1000,
 }
@@ -617,3 +617,49 @@ def test_n863_2_impact_theme_requires_expected_theme(SF):
         assert evaluate_criterion(s, p, "impact_theme", None, TODAY, expected_value="Klima").reason == "value_mismatch"
         # Gegenprobe: passendes Thema (normalisiert) erfuellt
         assert is_criterion_satisfied(s, p, "impact_theme", None, TODAY, expected_value="  wasser ")
+
+
+# ---------------------------------------------------------------------------
+# H-4: Kategorie-Hierarchie -- "Waffen" deckt "kontroverse Waffen", nicht umgekehrt
+# ---------------------------------------------------------------------------
+
+
+def test_h4_weapons_policy_covers_controversial_and_conventional(SF):
+    _attr(SF, id="weapons", category="weapons", revenue=0)
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert is_criterion_satisfied(s, p, "controversial_weapons", 0, TODAY)
+        assert is_criterion_satisfied(s, p, "conventional_weapons", 1000, TODAY)
+        assert is_criterion_satisfied(s, p, "weapons", 1000, TODAY)
+
+
+def test_h4_parent_policy_still_needs_child_threshold(SF):
+    _attr(SF, id="weapons", category="weapons", revenue=500)
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert not is_criterion_satisfied(s, p, "controversial_weapons", 0, TODAY)
+        assert is_criterion_satisfied(s, p, "conventional_weapons", 1000, TODAY)
+
+
+def test_h4_child_does_not_cover_parent(SF):
+    _attr(SF, id="contro", category="controversial_weapons", revenue=0)
+    with SF() as s:
+        p = s.get(Product, "g1")
+        assert is_criterion_satisfied(s, p, "controversial_weapons", 0, TODAY)
+        assert not is_criterion_satisfied(s, p, "weapons", 1000, TODAY)
+        assert not is_criterion_satisfied(s, p, "conventional_weapons", 1000, TODAY)
+
+
+def test_h4_child_measurement_still_blocks_parent_policy(SF):
+    _attr(SF, id="weapons", category="weapons", revenue=0)
+    _attr(SF, id="contro-meas", category="controversial_weapons", kind="measured_exposure", revenue=0, measured=20)
+    with SF() as s:
+        assert evaluate_criterion(s, s.get(Product, "g1"), "controversial_weapons", 0, TODAY).reason == "conflicting_evidence"
+
+
+def test_h4_hierarchy_constant_is_consistent():
+    for child, parents in catalog.SUSTAINABILITY_CATEGORY_COVERED_BY.items():
+        assert child in catalog.SUSTAINABILITY_CATEGORIES
+        for parent in parents:
+            assert parent in catalog.SUSTAINABILITY_REVENUE_CATEGORIES and parent != child
+            assert child not in catalog.SUSTAINABILITY_CATEGORY_COVERED_BY.get(parent, ())

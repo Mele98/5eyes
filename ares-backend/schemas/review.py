@@ -2280,6 +2280,7 @@ class ProductEligibilityDraftsResponse(BaseModel):
 SustainabilityCategory = Literal[
     "controversial_weapons",
     "conventional_weapons",
+    "weapons",
     "tobacco",
     "thermal_coal",
     "fossil_fuels",
