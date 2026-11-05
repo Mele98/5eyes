@@ -1331,13 +1331,26 @@ def reorder_goals(
     except GoalOrderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     now = _now()
-    changed = False
-    for goal in goals:
-        rank = new_ranks[str(goal.id)]
-        if int(goal.rank or 0) != rank:
-            goal.rank = rank
+    moved = [goal for goal in goals if int(goal.rank or 0) != new_ranks[str(goal.id)]]
+    changed = bool(moved)
+    if moved:
+        # N-865-1: Der partielle Unique-Index ux_goals_rank_active (Rohschema,
+        # Desktop/SQLite) wird nach JEDER Zeile geprueft. Ein direktes
+        # zeilenweises Umschreiben kollidierte beim ersten Tausch mit dem noch
+        # unveraenderten Nachbarn -> IntegrityError -> 500. Deshalb zwei
+        # Phasen in derselben Transaktion:
+        #   1) verschobene Ziele auf Zwischenraenge OBERHALB aller belegten
+        #      Raenge (CHECK rank >= 1 verbietet negative Werte), flush;
+        #   2) Zielraenge setzen. Unverschobene Ziele halten bereits ihren
+        #      Zielrang, die Zwischenraenge sind paarweise verschieden.
+        # Der Audit protokolliert nur den Endzustand (ein UPDATE je Ziel).
+        offset = max([int(goal.rank or 0) for goal in goals] + [len(goals)])
+        for goal in moved:
+            goal.rank = offset + new_ranks[str(goal.id)]
+        db.flush()
+        for goal in moved:
+            goal.rank = new_ranks[str(goal.id)]
             goal.updated_at = now
-            changed = True
             log(db, user_id=current_user.id, user_name=current_user.full_name,
                 table_name="goals", record_id=goal.id, action="UPDATE",
                 mandate_id=mandate_id, client_id=mandate.client_id)
@@ -1374,6 +1387,14 @@ def update_goal(
         updates["rank"] = _resolve_goal_rank_conflict(
             mandate_id, int(new_rank), db, existing_id=goal_id,
         )
+    if updates.get("is_active") and not int(goal.is_active or 0):
+        # N-865-1 (Geschwister-Pfad): Ein reaktiviertes Ziel tritt wieder
+        # unter ux_goals_rank_active. Belegt inzwischen ein aktives Ziel
+        # seinen Rang, wuerde der Commit am Index scheitern (500). Wie ein
+        # neu angelegtes Ziel mit belegtem Wunschrang: ans Ende anhaengen.
+        # Das Ziel selbst ist noch inaktiv und zaehlt in der Pruefung nicht.
+        wanted = int(updates.get("rank") or goal.rank or 1)
+        updates["rank"] = _resolve_goal_rank_conflict(mandate_id, wanted, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
