@@ -473,6 +473,38 @@ class ProductSustainabilityAttribute(Base):
     )
 
 
+# H-6 (Pruefrunde #863): Unveraenderlichkeit freigegebener Nachweise in der DB.
+# Entwuerfe sind frei; ein freigegebener Nachweis darf nur noch nach
+# 'retired' wechseln (dabei nur retired_by/retired_at/updated_at setzen),
+# ein zurueckgezogener gar nicht mehr. Freigegebene und zurueckgezogene
+# Nachweise duerfen nicht geloescht werden (Audit-Spur). Postgres-Pfad:
+# alembic/versions/a3e7c9d1f5b4_*.py (dort eingefroren, Test prueft Gleichheit).
+SUSTAINABILITY_ATTRIBUTE_MUTABLE_ON_RETIRE: tuple[str, ...] = ("status", "retired_by", "retired_at", "updated_at")
+SUSTAINABILITY_ATTRIBUTE_IMMUTABLE_COLUMNS: tuple[str, ...] = tuple(
+    c.name for c in ProductSustainabilityAttribute.__table__.columns
+    if c.name not in SUSTAINABILITY_ATTRIBUTE_MUTABLE_ON_RETIRE
+)
+_PSA_UNCHANGED = " AND ".join(f"NEW.{c} IS OLD.{c}" for c in SUSTAINABILITY_ATTRIBUTE_IMMUTABLE_COLUMNS)
+SUSTAINABILITY_ATTRIBUTE_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_psa_immutable_update "
+    "BEFORE UPDATE ON product_sustainability_attributes FOR EACH ROW "
+    "WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' AND NEW.status = 'retired' AND "
+    + _PSA_UNCHANGED + ") "
+    "BEGIN SELECT RAISE(ABORT, 'product_sustainability_attributes: freigegebener Nachweis ist unveraenderlich'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_psa_immutable_delete "
+    "BEFORE DELETE ON product_sustainability_attributes FOR EACH ROW "
+    "WHEN OLD.status <> 'draft' "
+    "BEGIN SELECT RAISE(ABORT, 'product_sustainability_attributes: freigegebener Nachweis ist unveraenderlich'); END",
+)
+
+for _psa_trigger_ddl in SUSTAINABILITY_ATTRIBUTE_SQLITE_TRIGGERS:
+    event.listen(
+        ProductSustainabilityAttribute.__table__,
+        "after_create",
+        DDL(_psa_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+
 class SustainabilityExclusionStandard(Base):
     """Hausstandard je Tenant und Kategorie (Audit 05 §4.2, T-E1), versioniert.
 

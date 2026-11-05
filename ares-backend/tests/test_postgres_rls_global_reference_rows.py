@@ -567,3 +567,41 @@ def test_t1_migration_policies_match_runtime_and_downgrade_cleanly(migration_sch
     assert policies() == {}
     command.upgrade(cfg, T1_REVISION)
     assert policies() == after
+
+
+IMMUTABLE_REVISION = "a3e7c9d1f5b4"
+
+
+def test_t1_h6_approved_evidence_is_immutable_on_postgres(migration_schema):
+    """AUDIT-2026-11 T1 H-6: Trigger trg_psa_immutable auf echtem Postgres."""
+    cfg, engine = migration_schema["cfg"], migration_schema["engine"]
+    command.upgrade(cfg, IMMUTABLE_REVISION)
+    insert = text(
+        "INSERT INTO product_sustainability_attributes (id, product_id, category, kind, revenue_threshold_bps, "
+        "source_type, source_reference, as_of, valid_until, status, created_by, created_at, approved_by, "
+        "approval_mode, updated_at) VALUES (:id, 'p1', 'tobacco', 'exclusion_policy', 500, 'kid', 'KID', "
+        ":as_of, '2027-06-30', :status, 'u1', 'x', :approved_by, :mode, 'x')"
+    )
+    with engine.begin() as conn:
+        conn.execute(text("SET LOCAL session_replication_role = replica"))  # nur FKs fuer die Testzeilen aus
+        conn.execute(insert, {"id": "d", "as_of": "2026-06-30", "status": "draft", "approved_by": None, "mode": None})
+        conn.execute(insert, {"id": "a", "as_of": "2026-05-31", "status": "approved", "approved_by": "u2", "mode": "four_eyes"})
+    for stmt in (
+        "UPDATE product_sustainability_attributes SET revenue_threshold_bps = 0 WHERE id = 'a'",
+        "UPDATE product_sustainability_attributes SET valid_until = '2099-01-01' WHERE id = 'a'",
+        "UPDATE product_sustainability_attributes SET status = 'draft' WHERE id = 'a'",
+        "DELETE FROM product_sustainability_attributes WHERE id = 'a'",
+    ):
+        with pytest.raises(SQLAlchemyError, match="unveraenderlich"):
+            with engine.begin() as conn:
+                conn.execute(text(stmt))
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE product_sustainability_attributes SET revenue_threshold_bps = 0 WHERE id = 'd'"))
+        conn.execute(text("UPDATE product_sustainability_attributes SET status = 'retired', retired_by = 'u3', "
+                          "retired_at = 'y', updated_at = 'y' WHERE id = 'a'"))
+    with pytest.raises(SQLAlchemyError, match="unveraenderlich"):
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE product_sustainability_attributes SET note = 'x' WHERE id = 'a'"))
+    command.downgrade(cfg, "f2d6b8c0e4a3")
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE product_sustainability_attributes SET note = 'x' WHERE id = 'a'"))
