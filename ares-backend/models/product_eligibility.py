@@ -453,9 +453,10 @@ class ProductSustainabilityAttribute(Base):
         CheckConstraint("valid_until >= as_of", name="ck_psa_valid_until"),
         CheckConstraint(_SUSTAINABILITY_FOUR_EYES_CHECK, name="ck_psa_four_eyes"),
         CheckConstraint(
-            "client_source_label IS NULL OR client_source_label IN ("
+            # N-863-6/-8: Katalogwert, fest an source_type gebunden.
+            "client_source_label IS NULL OR (client_source_label = source_type AND client_source_label IN ("
             "'prospectus', 'fund_contract', 'kid', 'factsheet', 'provider_exclusion_policy', "
-            "'provider_confirmation', 'data_vendor', 'house_analysis')",
+            "'provider_confirmation', 'data_vendor', 'house_analysis'))",
             name="ck_psa_client_source_label",
         ),
         Index("ix_psa_product_category_status", "product_id", "category", "status"),

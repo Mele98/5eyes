@@ -49,7 +49,21 @@ def test_chain_single_head_and_codes_match_model():
     assert set(mod.CODES) == set(model.SUSTAINABILITY_SOURCE_TYPES)
 
 
-def test_upgrade_normalizes_free_text_and_keeps_trigger(tmp_path):
+def _triggers(db):
+    with sqlite3.connect(str(db)) as conn:
+        return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+
+
+def _version(db):
+    with sqlite3.connect(str(db)) as conn:
+        return conn.execute("SELECT version_num FROM alembic_version").scalar() if False else \
+            conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+
+
+def test_n863_9_fail_closed_on_foreign_label_and_triggers_stay_intact(tmp_path):
+    """Fehler-Injektion: ein Bestand ausserhalb des Katalogs (Freitext) bzw.
+    abweichend vom Quellentyp -> Abbruch mit klarer Meldung; danach
+    unveraenderte Daten, Revision a3e7, beide Trigger aktiv."""
     from alembic import command
 
     db = tmp_path / "lbl.db"
@@ -58,19 +72,40 @@ def test_upgrade_normalizes_free_text_and_keeps_trigger(tmp_path):
     with sqlite3.connect(str(db)) as conn:
         conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute(_INSERT, ("a", "Acme Ratings", "2026-05-31", "approved", "u2", "four_eyes"))
-        conn.execute(_INSERT, ("b", "factsheet", "2026-04-30", "approved", "u2", "four_eyes"))
-        conn.execute(_INSERT, ("c", None, "2026-03-31", "draft", None, None))
-    command.upgrade(cfg, REVISION)
+        conn.execute(_INSERT, ("b", "fund_contract", "2026-04-30", "approved", "u2", "four_eyes"))
+    before = _triggers(db)
+    assert {"trg_psa_immutable_update", "trg_psa_immutable_delete"} <= before
+    with pytest.raises(Exception, match="b4f8d0e2a6c3 abgebrochen") as excinfo:
+        command.upgrade(cfg, REVISION)
+    assert "a (kid / 'Acme Ratings')" in str(excinfo.value) and "b (kid / 'fund_contract')" in str(excinfo.value)
+    assert _version(db) == DOWN_REVISION
+    assert _triggers(db) == before
     with sqlite3.connect(str(db)) as conn:
-        labels = dict(conn.execute("SELECT id, client_source_label FROM product_sustainability_attributes"))
-        assert labels == {"a": "kid", "b": "factsheet", "c": None}
+        assert dict(conn.execute("SELECT id, client_source_label FROM product_sustainability_attributes")) == {
+            "a": "Acme Ratings", "b": "fund_contract"}
         with pytest.raises(sqlite3.DatabaseError, match="unveraenderlich"):
-            conn.execute("UPDATE product_sustainability_attributes SET note = 'x' WHERE id = 'a'")
+            conn.execute("UPDATE product_sustainability_attributes SET revenue_threshold_bps = 0 WHERE id = 'a'")
+
+
+def test_upgrade_downgrade_upgrade_with_clean_data(tmp_path):
+    from alembic import command
+
+    db = tmp_path / "ok.db"
+    cfg = _cfg(f"sqlite:///{db}")
+    command.upgrade(cfg, DOWN_REVISION)
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute(_INSERT, ("a", "kid", "2026-05-31", "approved", "u2", "four_eyes"))
+        conn.execute(_INSERT, ("c", None, "2026-03-31", "draft", None, None))
+    triggers = _triggers(db)
+    command.upgrade(cfg, REVISION)
+    assert _version(db) == REVISION and _triggers(db) == triggers
     command.downgrade(cfg, DOWN_REVISION)
     command.upgrade(cfg, REVISION)
+    assert _triggers(db) == triggers
     with sqlite3.connect(str(db)) as conn:
-        with pytest.raises(sqlite3.DatabaseError, match="unveraenderlich"):
-            conn.execute("UPDATE product_sustainability_attributes SET note = 'x' WHERE id = 'b'")
+        assert dict(conn.execute("SELECT id, client_source_label FROM product_sustainability_attributes")) == {
+            "a": "kid", "c": None}
 
 
 def test_create_all_check_rejects_free_text(tmp_path):
@@ -85,7 +120,9 @@ def test_create_all_check_rejects_free_text(tmp_path):
         conn.execute("PRAGMA foreign_keys=OFF")
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(_INSERT, ("x", "Acme Ratings", "2026-05-31", "draft", None, None))
-        conn.execute(_INSERT, ("y", "data_vendor", "2026-05-31", "draft", None, None))
+        with pytest.raises(sqlite3.IntegrityError):  # Katalogwert, aber nicht der Quellentyp (kid)
+            conn.execute(_INSERT, ("z", "data_vendor", "2026-05-31", "draft", None, None))
+        conn.execute(_INSERT, ("y", "kid", "2026-05-31", "draft", None, None))
 
 
 def test_postgres_ddl_up_and_down():
@@ -95,8 +132,8 @@ def test_postgres_ddl_up_and_down():
     command.upgrade(_cfg("postgresql://u:p@localhost/db", up), f"{DOWN_REVISION}:{REVISION}", sql=True)
     ddl = up.getvalue()
     assert "ADD CONSTRAINT ck_psa_client_source_label CHECK" in ddl
-    assert ddl.index("DISABLE TRIGGER trg_psa_immutable") < ddl.index(
-        "UPDATE product_sustainability_attributes") < ddl.index("ENABLE TRIGGER trg_psa_immutable")
+    assert "client_source_label = source_type" in ddl
+    assert "TRIGGER" not in ddl and "UPDATE product_sustainability_attributes" not in ddl, "keine Aussetzung/Normalisierung"
     down = io.StringIO()
     command.downgrade(_cfg("postgresql://u:p@localhost/db", down), f"{REVISION}:{DOWN_REVISION}", sql=True)
     assert "DROP CONSTRAINT ck_psa_client_source_label" in down.getvalue()
