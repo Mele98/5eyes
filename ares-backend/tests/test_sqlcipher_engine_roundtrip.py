@@ -372,3 +372,64 @@ def test_invalid_key_never_reaches_the_database_and_is_not_leaked(sqlcipher_on, 
         backup_mod._open_connection(str(db_file), uri=False, db_key=bad)
     for exc in (excinfo.value, boot_exc.value, backup_exc.value):
         assert bad not in str(exc) and "Zq7Mark" not in str(exc)
+
+
+# --- T-1 (Delta-Pruefung #864): Schluessel ist das ERSTE Statement jeder Verbindung ---
+
+class _TracingSqlcipher:
+    """Wickelt das echte sqlcipher3: jede neue DBAPI-Verbindung bekommt sofort
+    einen Trace-Callback, bevor irgendein Statement laeuft (auch keines der
+    Dialekt-Initialisierung). Alles andere wird an sqlcipher3 durchgereicht."""
+
+    def __init__(self) -> None:
+        self.traces: list[list[str]] = []
+
+    def __getattr__(self, name):
+        return getattr(sqlcipher3, name)
+
+    def connect(self, *args, **kwargs):
+        conn = sqlcipher3.connect(*args, **kwargs)
+        statements: list[str] = []
+        conn.set_trace_callback(statements.append)
+        self.traces.append(statements)
+        return conn
+
+
+def test_pragma_key_is_first_statement_on_every_pool_connection(sqlcipher_on, monkeypatch, tmp_path):
+    tracer = _TracingSqlcipher()
+    monkeypatch.setattr(database, "sqlcipher3", tracer)
+    key = _new_key()
+    db_file = tmp_path / "enc.db"
+
+    engine = database.create_app_engine(db_path=db_file, db_key=key)
+    try:
+        # Erste Verbindung (inkl. Dialekt-Initialisierung) + Schreibzugriff.
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE t (id INTEGER PRIMARY KEY)"))
+        # Mehrere gleichzeitig ausgecheckte Verbindungen (Pool + Overflow).
+        conns = [engine.connect() for _ in range(7)]
+        for c in conns:
+            assert c.execute(text("SELECT count(*) FROM t")).scalar_one() == 0
+        # invalidate() erzwingt eine frische DBAPI-Verbindung beim naechsten Checkout.
+        conns[0].invalidate()
+        for c in conns:
+            c.close()
+        with engine.connect() as c:
+            c.execute(text("SELECT 1")).scalar_one()
+        # dispose() verwirft den Pool; danach neue Verbindungen.
+        engine.dispose()
+        with engine.connect() as c:
+            assert c.execute(text("SELECT count(*) FROM t")).scalar_one() == 0
+    finally:
+        engine.dispose()
+
+    assert len(tracer.traces) >= 9, len(tracer.traces)
+    for statements in tracer.traces:
+        assert statements, "Verbindung ohne jedes Statement"
+        assert statements[0].startswith("PRAGMA key = '"), statements[0][:20]
+        assert [s.split(" =")[0] for s in statements[1:5]] == [
+            "PRAGMA cipher_page_size",
+            "PRAGMA kdf_iter",
+            "PRAGMA cipher_hmac_algorithm",
+            "PRAGMA cipher_kdf_algorithm",
+        ]
