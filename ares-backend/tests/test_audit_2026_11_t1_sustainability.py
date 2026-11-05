@@ -948,3 +948,29 @@ def test_n863_5_unchanged_value_creates_no_version(SF, client):
     client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 300})
     client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 300})
     assert len(_std_audit(SF)) == 1
+
+
+# ---------------------------------------------------------------------------
+# N-863-7: Ober-Messung widerlegt Ober-Nachweise auch bei Abfrage einer Unterkategorie
+# ---------------------------------------------------------------------------
+
+
+def test_n863_7_parent_measurement_refutes_parent_policy_for_child_query(SF):
+    _attr(SF, id="weapons-policy", category="weapons", revenue=1000)
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "conventional_weapons", 1000, TODAY)  # Gegenprobe
+    _attr(SF, id="weapons-meas", category="weapons", kind="measured_exposure", revenue=1000, measured=200)
+    with SF() as s:
+        p = s.get(Product, "g1")
+        child = evaluate_criterion(s, p, "conventional_weapons", 1000, TODAY)
+        parent = evaluate_criterion(s, p, "weapons", 1000, TODAY)
+    assert not child.satisfied and child.reason == "conflicting_evidence"
+    assert "satisfied_by_parent_category" not in child.candidate_reasons
+    assert parent.reason == "conflicting_evidence"
+
+
+def test_n863_7_parent_measurement_does_not_block_child_evidence(SF):
+    _attr(SF, id="weapons-meas", category="weapons", kind="measured_exposure", revenue=0, measured=200)
+    _attr(SF, id="contro-policy", category="controversial_weapons", revenue=0)
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "controversial_weapons", 0, TODAY)

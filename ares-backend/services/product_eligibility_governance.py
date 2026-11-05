@@ -1170,7 +1170,30 @@ def evaluate_criterion(
     satisfying = [a for a, reason in evaluated if reason == "satisfied"]
     covering_satisfied = [a for a, reason in covering_evaluated if reason == "satisfied"]
     surviving = [a for a in satisfying if not _refuted(a)]
-    surviving_covering = [a for a in covering_satisfied if not _refuted(a)]
+    # N-863-7: eine Messung der OBERKATEGORIE (Grenze c_m, Exposure > 0)
+    # blockiert die Unterkategorie nicht (die Exposure kann eine andere
+    # Unterkategorie betreffen), widerlegt aber jeden Nachweis der
+    # Oberkategorie mit Grenze <= c_m. Ein so widerlegter Ober-Nachweis darf
+    # die Unterkategorie nicht erfuellen.
+    parent_blocking = {}
+    for attribute, reason in covering_evaluated:
+        if (
+            reason in ("exposure_present", "inconclusive_measurement")
+            and attribute.kind == "measured_exposure"
+            and (attribute.measured_exposure_bps or 0) > 0
+        ):
+            parent_blocking.setdefault(attribute.category, []).append(attribute.revenue_threshold_bps)
+
+    def _refuted_by_parent_measurement(attribute) -> bool:
+        cutoffs = parent_blocking.get(attribute.category, [])
+        if not cutoffs:
+            return False
+        limit = attribute.revenue_threshold_bps
+        return any(c_m is None or limit is None or limit <= c_m for c_m in cutoffs)
+
+    surviving_covering = [
+        a for a in covering_satisfied if not _refuted(a) and not _refuted_by_parent_measurement(a)
+    ]
     if (satisfying or covering_satisfied) and not (surviving or surviving_covering):
         return CriterionEvaluation(False, "conflicting_evidence", None, reasons)
     if "exposure_present" in reasons and not (surviving or surviving_covering):
