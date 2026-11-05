@@ -2467,6 +2467,16 @@ class SustainabilityCatalogResponse(BaseModel):
     evidence_validity_months: int
 
 
+class SustainabilityStandardPending(BaseModel):
+    """Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe."""
+    id: str
+    max_revenue_threshold_bps: Optional[int] = None
+    is_disabled: bool
+    created_by: Optional[str] = None
+    created_at: str
+    note: Optional[str] = None
+
+
 class SustainabilityStandardItem(BaseModel):
     category: str
     criterion_type: Literal["revenue_threshold", "conduct"]
@@ -2474,9 +2484,16 @@ class SustainabilityStandardItem(BaseModel):
     tenant_threshold_bps: Optional[int] = None
     effective_threshold_bps: Optional[int] = None
     is_overridden: bool
+    is_disabled: bool = False
+    standard_id: Optional[str] = None
+    valid_from: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_mode: Optional[str] = None
     note: Optional[str] = None
     updated_by: Optional[str] = None
     updated_at: Optional[str] = None
+    pending: Optional[SustainabilityStandardPending] = None
 
 
 class SustainabilityStandardsResponse(BaseModel):
@@ -2486,6 +2503,11 @@ class SustainabilityStandardsResponse(BaseModel):
 
 class SustainabilityStandardUpdate(BaseModel):
     """Hausschwelle setzen. Bei UN Global Compact gibt es keine
-    Umsatzschwelle (null)."""
+    Umsatzschwelle (null). Schwelle ueber dem T-E1-Default oder
+    is_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe."""
     max_revenue_threshold_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    is_disabled: bool = Field(
+        default=False,
+        description="Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).",
+    )
     note: Optional[str] = Field(default=None, max_length=2000)

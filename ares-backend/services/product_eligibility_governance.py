@@ -19,6 +19,7 @@ rules about *which* rule may count as evidence live in one place:
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
@@ -177,6 +178,10 @@ def rule_visible_to_tenant(
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _new_id() -> str:
+    return str(uuid.uuid4())
 
 
 APPROVAL_MODE_FOUR_EYES = "four_eyes"
@@ -635,42 +640,237 @@ def sustainability_standard_categories() -> tuple[str, ...]:
     return tuple(c for c in SUSTAINABILITY_CATEGORIES if c in SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS)
 
 
-def effective_sustainability_standards(db: Session, tenant_id: str | None) -> list[dict]:
-    """Je Kategorie: Default (T-E1), Tenant-Wert und wirksame Schwelle."""
-    overrides = {}
-    if tenant_id is not None:
-        overrides = {
-            row.category: row
-            for row in db.query(SustainabilityExclusionStandard)
-            .filter(SustainabilityExclusionStandard.tenant_id == tenant_id)
-            .all()
-        }
+def _standard_point_in_time(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    if isinstance(value, date):
+        return value.isoformat() + "T23:59:59.999Z"
+    return str(value)
+
+
+def _standard_rows(db: Session, tenant_id: str | None):
+    if tenant_id is None:
+        return []
+    return db.query(SustainabilityExclusionStandard).filter(
+        SustainabilityExclusionStandard.tenant_id == tenant_id,
+    ).all()
+
+
+def _pending_standard(rows, category: str):
+    for row in rows:
+        if row.category == category and row.status == "draft":
+            return row
+    return None
+
+
+def _current_standard(rows, category: str, at: str | None):
+    """Geltende freigegebene Version (``at`` None = jetzt, sonst
+    Point-in-Time: valid_from <= at < valid_to)."""
+    for row in rows:
+        if row.category != category or row.approved_at is None:
+            continue
+        if at is None:
+            if row.status == "approved" and row.valid_to is None:
+                return row
+            continue
+        if row.valid_from is not None and row.valid_from <= at and (row.valid_to is None or row.valid_to > at):
+            return row
+    return None
+
+
+def standard_change_is_loosening(category: str, threshold: int | None, disabled: bool) -> bool:
+    """H-1: Lockerung = Kategorie deaktiviert oder Schwelle ueber dem T-E1-
+    Default. Alles andere (gleich oder strenger als der Default) ist eine
+    Verschaerfung bzw. Rueckkehr zum Default und wirkt sofort."""
+    if disabled:
+        return True
+    default = SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]
+    if default is None or threshold is None:
+        return False
+    return threshold > default
+
+
+def effective_sustainability_standards(db: Session, tenant_id: str | None, as_of=None) -> list[dict]:
+    """Je Kategorie: Default (T-E1), geltende Tenant-Version und wirksamer
+    Wert; mit ``as_of`` Point-in-Time (fuer den Snapshot in T3)."""
+    rows = _standard_rows(db, tenant_id)
+    at = _standard_point_in_time(as_of)
     items = []
     for category in sustainability_standard_categories():
         default = SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]
-        row = overrides.get(category)
+        row = _current_standard(rows, category, at)
+        pending = None if at is not None else _pending_standard(rows, category)
+        disabled = bool(row.is_disabled) if row is not None else False
+        if disabled:
+            effective = None
+        elif row is not None:
+            effective = row.max_revenue_threshold_bps
+        else:
+            effective = default
         items.append({
             "category": category,
             "criterion_type": criterion_type(category),
             "default_threshold_bps": default,
             "tenant_threshold_bps": row.max_revenue_threshold_bps if row is not None else None,
-            "effective_threshold_bps": row.max_revenue_threshold_bps if row is not None else default,
+            "effective_threshold_bps": effective,
             "is_overridden": row is not None,
+            "is_disabled": disabled,
+            "standard_id": row.id if row is not None else None,
+            "valid_from": row.valid_from if row is not None else None,
+            "approved_by": row.approved_by if row is not None else None,
+            "approved_at": row.approved_at if row is not None else None,
+            "approval_mode": row.approval_mode if row is not None else None,
             "note": row.note if row is not None else None,
             "updated_by": row.updated_by if row is not None else None,
             "updated_at": row.updated_at if row is not None else None,
+            "pending": None if pending is None else {
+                "id": pending.id,
+                "max_revenue_threshold_bps": pending.max_revenue_threshold_bps,
+                "is_disabled": bool(pending.is_disabled),
+                "created_by": pending.created_by,
+                "created_at": pending.created_at,
+                "note": pending.note,
+            },
         })
     return items
 
 
-def effective_sustainability_threshold(db: Session, tenant_id: str | None, category: str) -> int | None:
-    """Wirksame Hausschwelle (bps) einer Kategorie; ``KeyError`` ohne Hausstandard."""
+def effective_sustainability_standard(db: Session, tenant_id: str | None, category: str, as_of=None) -> dict:
+    """Wirksamer Hausstandard einer Kategorie (inkl. Version); ``KeyError``
+    ohne Hausstandard. T3 speichert daraus Schwelle und standard_id."""
     if category not in SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS:
         raise KeyError(category)
-    for item in effective_sustainability_standards(db, tenant_id):
+    for item in effective_sustainability_standards(db, tenant_id, as_of):
         if item["category"] == category:
-            return item["effective_threshold_bps"]
+            return item
     raise KeyError(category)  # pragma: no cover - Katalog und Defaults sind synchron
+
+
+def effective_sustainability_threshold(db: Session, tenant_id: str | None, category: str, as_of=None) -> int | None:
+    """Wirksame Hausschwelle (bps); None bei deaktivierter Kategorie oder UNGC."""
+    return effective_sustainability_standard(db, tenant_id, category, as_of)["effective_threshold_bps"]
+
+
+def _retire_standard(row, actor_id: str, now: str) -> None:
+    row.status = "retired"
+    if row.approved_at is not None and row.valid_to is None:
+        row.valid_to = now
+    row.updated_by = actor_id
+    row.updated_at = now
+
+
+def set_sustainability_standard(
+    db: Session, *, tenant_id: str, category: str, threshold: int | None, disabled: bool,
+    note: str | None, actor_id: str, now: str | None = None,
+) -> tuple[SustainabilityExclusionStandard, bool]:
+    """Neue Version des Hausstandards. Rueckgabe (Zeile, sofort_wirksam).
+
+    Verschaerfung/Default: sofort freigegeben (approval_mode
+    'immediate_tightening'), die bisherige Version endet (valid_to).
+    Lockerung (H-1): Entwurf, wirkt erst nach Vier-Augen-Freigabe.
+    Ein offener Entwurf derselben Kategorie wird in beiden Faellen verworfen.
+    """
+    now = now or _now_iso()
+    rows = _standard_rows(db, tenant_id)
+    pending = _pending_standard(rows, category)
+    if pending is not None:
+        _retire_standard(pending, actor_id, now)
+        db.flush()
+    immediate = not standard_change_is_loosening(category, threshold, disabled)
+    row = SustainabilityExclusionStandard(
+        id=_new_id(), tenant_id=tenant_id, category=category, max_revenue_threshold_bps=threshold,
+        is_disabled=1 if disabled else 0, note=note, created_by=actor_id, updated_by=actor_id,
+        created_at=now, updated_at=now, status="draft",
+    )
+    if immediate:
+        current = _current_standard(rows, category, None)
+        if current is not None:
+            _retire_standard(current, actor_id, now)
+            db.flush()
+        row.status = "approved"
+        row.approved_by = actor_id
+        row.approved_at = now
+        row.approval_mode = "immediate_tightening"
+        row.valid_from = now
+    db.add(row)
+    db.flush()
+    return row, immediate
+
+
+def approve_sustainability_standard(
+    db: Session, *, tenant_id: str, category: str, approver_id: str, now: str | None = None,
+    single_approver_attestation: bool = False, attestation_reason: str | None = None,
+):
+    """Vier-Augen-Freigabe einer Lockerung (Muster approve_rule):
+    Ersteller = Freigeber -> RuleApprovalConflict (409), ausser
+    Einzelberater-Attest. ``LookupError`` ohne offenen Entwurf.
+    Rueckgabe (freigegebene Version, beendete Version oder None)."""
+    rows = _standard_rows(db, tenant_id)
+    draft = _pending_standard(rows, category)
+    if draft is None:
+        raise LookupError("Kein offener Entwurf fuer diesen Hausstandard.")
+    if not approver_id:
+        raise RuleApprovalConflict("Genehmiger fehlt.")
+    if approver_id != draft.created_by:
+        mode = APPROVAL_MODE_FOUR_EYES
+    else:
+        if not single_approver_attestation:
+            raise RuleApprovalConflict(
+                "Vier-Augen-Prinzip: Eine Lockerung des Hausstandards muss eine andere Person freigeben."
+            )
+        if len((attestation_reason or "").strip()) < MIN_ATTESTATION_REASON_LENGTH:
+            raise RuleApprovalConflict(
+                f"Einzelfreigabe braucht eine Begruendung (mindestens {MIN_ATTESTATION_REASON_LENGTH} Zeichen)."
+            )
+        if tenant_approver_ids(db, tenant_id) != [approver_id]:
+            raise RuleApprovalConflict(
+                "Einzelfreigabe ist nur zulaessig, wenn die Verwaltung genau eine freigabeberechtigte Person hat."
+            )
+        mode = APPROVAL_MODE_SINGLE_APPROVER_ATTESTED
+    now = now or _now_iso()
+    previous = _current_standard(rows, category, None)
+    if previous is not None:
+        _retire_standard(previous, approver_id, now)
+        db.flush()
+    draft.status = "approved"
+    draft.approved_by = approver_id
+    draft.approved_at = now
+    draft.approval_mode = mode
+    draft.valid_from = now
+    draft.updated_by = approver_id
+    draft.updated_at = now
+    db.flush()
+    return draft, previous
+
+
+def reset_sustainability_standard(
+    db: Session, *, tenant_id: str, category: str, actor_id: str, now: str | None = None,
+):
+    """Zurueck auf den T-E1-Default (sofort, keine Lockerung): geltende
+    Version endet, offener Entwurf wird verworfen. Rueckgabe: beendete Version."""
+    now = now or _now_iso()
+    rows = _standard_rows(db, tenant_id)
+    current = _current_standard(rows, category, None)
+    pending = _pending_standard(rows, category)
+    for row in (current, pending):
+        if row is not None:
+            _retire_standard(row, actor_id, now)
+    db.flush()
+    return current
+
+
+def discard_pending_sustainability_standard(
+    db: Session, *, tenant_id: str, category: str, actor_id: str, now: str | None = None,
+):
+    """Offenen Entwurf (Lockerung) verwerfen. Rueckgabe: verworfener Entwurf."""
+    now = now or _now_iso()
+    draft = _pending_standard(_standard_rows(db, tenant_id), category)
+    if draft is not None:
+        _retire_standard(draft, actor_id, now)
+        db.flush()
+    return draft
 
 
 # --- Kriterium erfuellt? (T3 verdrahtet) ------------------------------------

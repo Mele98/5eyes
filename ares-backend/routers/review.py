@@ -4124,7 +4124,6 @@ from models.product_eligibility import (  # noqa: E402
     SUSTAINABILITY_SOURCE_TYPES,
     SUSTAINABILITY_STATUSES,
     ProductSustainabilityAttribute,
-    SustainabilityExclusionStandard,
 )
 from schemas.review import (  # noqa: E402
     ProductSustainabilityApprovalRequest,
@@ -4146,9 +4145,14 @@ from services.product_eligibility_governance import (  # noqa: E402
     RuleApprovalConflict,
     SustainabilityAttributeConflict,
     approve_sustainability_attribute,
+    approve_sustainability_standard,
     criterion_type as sustainability_criterion_type,
     default_evidence_valid_until,
+    discard_pending_sustainability_standard,
+    effective_sustainability_standard,
     effective_sustainability_standards,
+    reset_sustainability_standard,
+    set_sustainability_standard,
     evidence_status as sustainability_evidence_status,
     retire_sustainability_attribute,
     sustainability_attribute_errors,
@@ -4325,70 +4329,136 @@ def _get_standard_category_or_422(category: str) -> str:
     return category
 
 
+def _standard_label(item: dict) -> str:
+    if item["is_disabled"]:
+        return "tenant:disabled"
+    prefix = "tenant" if item["is_overridden"] else "default"
+    return f"{prefix}:{item['effective_threshold_bps']}"
+
+
+def _standards_response(db: Session, tenant_id: str) -> SustainabilityStandardsResponse:
+    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+
+
 @products_router.put("/sustainability/standards/{category}", response_model=SustainabilityStandardsResponse)
-def set_sustainability_standard(
+def set_sustainability_standard_endpoint(
     category: str,
     body: SustainabilityStandardUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Hausschwelle der eigenen Verwaltung setzen (auditiert: alt -> neu).
-    UN Global Compact kennt keine Umsatzschwelle (null); alle anderen
-    Standard-Kategorien brauchen eine Schwelle in bps."""
+    """Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).
+
+    H-1 (Pruefrunde #863): Verschaerfung oder Rueckkehr zum T-E1-Default
+    wirkt sofort. Lockerung (Schwelle ueber dem Default oder Kategorie
+    deaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der
+    Vier-Augen-Freigabe (POST .../approve). UN Global Compact kennt keine
+    Umsatzschwelle (null)."""
     _get_standard_category_or_422(category)
-    if sustainability_criterion_type(category) == "conduct" and body.max_revenue_threshold_bps is not None:
+    ctype = sustainability_criterion_type(category)
+    if ctype == "conduct" and body.max_revenue_threshold_bps is not None:
         raise HTTPException(status_code=422, detail="UN Global Compact hat keine Umsatzschwelle (null setzen).")
-    if sustainability_criterion_type(category) == "revenue_threshold" and body.max_revenue_threshold_bps is None:
+    if ctype == "revenue_threshold" and body.max_revenue_threshold_bps is None and not body.is_disabled:
         raise HTTPException(status_code=422, detail="Schwelle (max_revenue_threshold_bps) fehlt.")
     tenant_id = _resolve_tenant_id_for_user(current_user)
-    now = _now()
-    row = db.query(SustainabilityExclusionStandard).filter(
-        SustainabilityExclusionStandard.tenant_id == tenant_id,
-        SustainabilityExclusionStandard.category == category,
-    ).first()
-    old_value = (row.max_revenue_threshold_bps if row is not None
-                 else SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category])
-    old_label = f"{'tenant' if row is not None else 'default'}:{old_value}"
-    if row is None:
-        row = SustainabilityExclusionStandard(
-            id=new_uuid(), tenant_id=tenant_id, category=category, created_at=now,
-        )
-        db.add(row)
-    row.max_revenue_threshold_bps = body.max_revenue_threshold_bps
-    row.note = (body.note or "").strip() or None
-    row.updated_by = current_user.id
-    row.updated_at = now
-    db.flush()
+    before = effective_sustainability_standard(db, tenant_id, category)
+    row, immediate = set_sustainability_standard(
+        db, tenant_id=tenant_id, category=category,
+        threshold=None if body.is_disabled and ctype == "conduct" else body.max_revenue_threshold_bps,
+        disabled=body.is_disabled, note=(body.note or "").strip() or None,
+        actor_id=current_user.id, now=_now(),
+    )
+    requested = "tenant:disabled" if body.is_disabled else f"tenant:{body.max_revenue_threshold_bps}"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
-        field_name=f"{category}.max_revenue_threshold_bps", old_value=old_label,
-        new_value=f"tenant:{body.max_revenue_threshold_bps}", tenant_id=tenant_id)
+        field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
+        new_value=requested if immediate else f"pending:{requested};vier_augen_erforderlich", tenant_id=tenant_id)
     db.commit()
-    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+    return _standards_response(db, tenant_id)
 
 
-@products_router.delete("/sustainability/standards/{category}", response_model=SustainabilityStandardsResponse)
-def reset_sustainability_standard(
+@products_router.post("/sustainability/standards/{category}/approve", response_model=SustainabilityStandardsResponse)
+def approve_sustainability_standard_endpoint(
+    category: str,
+    body: ProductSustainabilityApprovalRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die
+    sie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den
+    Eignungsregeln); 409 auch ohne offenen Entwurf."""
+    _get_standard_category_or_422(category)
+    body = body or ProductSustainabilityApprovalRequest()
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    before = effective_sustainability_standard(db, tenant_id, category)
+    try:
+        row, previous = approve_sustainability_standard(
+            db, tenant_id=tenant_id, category=category, approver_id=current_user.id, now=_now(),
+            single_approver_attestation=body.single_approver_attestation,
+            attestation_reason=body.attestation_reason,
+        )
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RuleApprovalConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    after = effective_sustainability_standard(db, tenant_id, category)
+    audit_value = f"{_standard_label(after)};approved;approval_mode={row.approval_mode}"
+    if previous is not None:
+        audit_value += f";superseded={previous.id}"
+    if row.approval_mode == "single_approver_attested":
+        audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
+        field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
+        new_value=audit_value, tenant_id=tenant_id)
+    db.commit()
+    return _standards_response(db, tenant_id)
+
+
+@products_router.delete("/sustainability/standards/{category}/pending", response_model=SustainabilityStandardsResponse)
+def discard_sustainability_standard_endpoint(
     category: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Tenant-Wert entfernen -> wieder Haus-Default (T-E1), auditiert."""
+    """Offene Lockerung verwerfen (auditiert)."""
     _get_standard_category_or_422(category)
     tenant_id = _resolve_tenant_id_for_user(current_user)
-    row = db.query(SustainabilityExclusionStandard).filter(
-        SustainabilityExclusionStandard.tenant_id == tenant_id,
-        SustainabilityExclusionStandard.category == category,
-    ).first()
-    if row is not None:
+    draft = discard_pending_sustainability_standard(
+        db, tenant_id=tenant_id, category=category, actor_id=current_user.id, now=_now(),
+    )
+    if draft is not None:
         log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="sustainability_exclusion_standards", record_id=row.id, action="DELETE",
-            field_name=f"{category}.max_revenue_threshold_bps",
-            old_value=f"tenant:{row.max_revenue_threshold_bps}",
-            new_value=f"default:{SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]}", tenant_id=tenant_id)
-        db.delete(row)
+            table_name="sustainability_exclusion_standards", record_id=draft.id, action="UPDATE",
+            field_name=f"{category}.pending", old_value="draft", new_value="retired;verworfen", tenant_id=tenant_id)
         db.commit()
-    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+    return _standards_response(db, tenant_id)
+
+
+@products_router.delete("/sustainability/standards/{category}", response_model=SustainabilityStandardsResponse)
+def reset_sustainability_standard_endpoint(
+    category: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Zurueck auf den Haus-Default (T-E1), sofort wirksam (keine Lockerung
+    unter den Default), auditiert; eine offene Lockerung wird verworfen."""
+    _get_standard_category_or_422(category)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    before = effective_sustainability_standard(db, tenant_id, category)
+    ended = reset_sustainability_standard(
+        db, tenant_id=tenant_id, category=category, actor_id=current_user.id, now=_now(),
+    )
+    if ended is not None or before["pending"] is not None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="sustainability_exclusion_standards",
+            record_id=ended.id if ended is not None else before["pending"]["id"], action="UPDATE",
+            field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
+            new_value=f"default:{SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]}", tenant_id=tenant_id)
+        db.commit()
+    return _standards_response(db, tenant_id)
 
 
 @products_router.get("/sustainability/attributes", response_model=list[ProductSustainabilityAttributeResponse])

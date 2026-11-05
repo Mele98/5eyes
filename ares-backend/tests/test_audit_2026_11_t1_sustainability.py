@@ -663,3 +663,75 @@ def test_h4_hierarchy_constant_is_consistent():
         for parent in parents:
             assert parent in catalog.SUSTAINABILITY_REVENUE_CATEGORIES and parent != child
             assert child not in catalog.SUSTAINABILITY_CATEGORY_COVERED_BY.get(parent, ())
+
+
+# ---------------------------------------------------------------------------
+# H-1: Lockerung des Hausstandards unter T-E1 nur mit Vier-Augen-Freigabe
+# ---------------------------------------------------------------------------
+
+
+def _std(client):
+    return {i["category"]: i for i in client.get("/products/sustainability/standards").json()["items"]}
+
+
+def test_h1_loosening_needs_four_eyes_and_tightening_is_immediate(SF, client):
+    from services.product_eligibility_governance import effective_sustainability_standard
+
+    _as("admin-a1", "admin", "firm-a")
+    r = client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 1000})
+    assert r.status_code == 200, r.text
+    item = {i["category"]: i for i in r.json()["items"]}["tobacco"]
+    assert item["effective_threshold_bps"] == 500 and item["pending"]["max_revenue_threshold_bps"] == 1000
+    own = client.post("/products/sustainability/standards/tobacco/approve")
+    assert own.status_code == 409 and "Vier-Augen" in own.json()["detail"]
+    assert _std(client)["tobacco"]["effective_threshold_bps"] == 500
+    with SF() as s:
+        before_approval = NOW_TS()
+    _as("admin-a2", "admin", "firm-a")
+    ok = client.post("/products/sustainability/standards/tobacco/approve")
+    assert ok.status_code == 200, ok.text
+    tob = {i["category"]: i for i in ok.json()["items"]}["tobacco"]
+    assert tob["effective_threshold_bps"] == 1000 and tob["approval_mode"] == "four_eyes"
+    assert tob["approved_by"] == "admin-a2" and tob["valid_from"] and tob["pending"] is None
+    with SF() as s:
+        past = effective_sustainability_standard(s, "firm-a", "tobacco", as_of=before_approval)
+        assert past["effective_threshold_bps"] == 500, "Point-in-Time vor der Freigabe = Default"
+    # Verschaerfung wirkt sofort, ohne zweite Person
+    _as("admin-a1", "admin", "firm-a")
+    tight = client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 0})
+    tob = {i["category"]: i for i in tight.json()["items"]}["tobacco"]
+    assert tob["effective_threshold_bps"] == 0 and tob["approval_mode"] == "immediate_tightening"
+    # Gleich dem Default ist keine Lockerung
+    same = client.put("/products/sustainability/standards/alcohol", json={"max_revenue_threshold_bps": 1000})
+    assert {i["category"]: i for i in same.json()["items"]}["alcohol"]["pending"] is None
+
+
+def test_h1_disabling_a_category_is_a_loosening(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    r = client.put("/products/sustainability/standards/controversial_weapons", json={"is_disabled": True})
+    item = {i["category"]: i for i in r.json()["items"]}["controversial_weapons"]
+    assert not item["is_disabled"] and item["effective_threshold_bps"] == 0 and item["pending"]["is_disabled"]
+    r = client.put("/products/sustainability/standards/ungc_violation", json={"is_disabled": True})
+    assert {i["category"]: i for i in r.json()["items"]}["ungc_violation"]["pending"]["is_disabled"]
+    _as("admin-a2", "admin", "firm-a")
+    approved = _std_after(client, "controversial_weapons")
+    assert approved["is_disabled"] and approved["effective_threshold_bps"] is None
+    # verwerfen statt freigeben
+    discarded = client.delete("/products/sustainability/standards/ungc_violation/pending")
+    assert {i["category"]: i for i in discarded.json()["items"]}["ungc_violation"]["pending"] is None
+
+
+def _std_after(client, category):
+    r = client.post(f"/products/sustainability/standards/{category}/approve")
+    assert r.status_code == 200, r.text
+    return {i["category"]: i for i in r.json()["items"]}[category]
+
+
+def test_h1_approve_without_pending_is_409(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    assert client.post("/products/sustainability/standards/tobacco/approve").status_code == 409
+
+
+def NOW_TS():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
