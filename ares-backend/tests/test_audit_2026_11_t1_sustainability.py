@@ -793,3 +793,34 @@ def test_csv_reimport_of_own_export_removes_guard_apostrophe(SF, client):
     with SF() as s:
         row = s.query(ProductSustainabilityAttribute).one()
     assert row.source_reference == "=HYPERLINK(1)" and row.note == "@intern"
+
+
+# ---------------------------------------------------------------------------
+# N-863-3: Audit-Hash-Kette bleibt nach Einzel- und Sammelfreigabe mit Abloesung intakt
+# ---------------------------------------------------------------------------
+
+
+def test_n863_3_audit_chain_intact_after_approvals_with_supersession(SF, client):
+    from services.audit import verify_audit_chain
+
+    _attr(SF, id="old-tob", product_id="own-a", tenant_id="firm-a", created_by="admin-a1", approved_by="admin-a2",
+          as_of=(TODAY - timedelta(days=90)).isoformat())
+    _attr(SF, id="old-alc", product_id="own-a", tenant_id="firm-a", category="alcohol", revenue=1000,
+          created_by="admin-a1", approved_by="admin-a2", as_of=(TODAY - timedelta(days=90)).isoformat())
+    _attr(SF, id="old-gam", product_id="own-a", tenant_id="firm-a", category="gambling", revenue=500,
+          created_by="admin-a1", approved_by="admin-a2", as_of=(TODAY - timedelta(days=90)).isoformat())
+    _as("admin-a1", "admin", "firm-a")
+    single = client.post("/products/own-a/sustainability-attributes", json=_payload(revenue_threshold_bps=0)).json()["id"]
+    batch = [
+        client.post("/products/own-a/sustainability-attributes",
+                    json=_payload(category=cat, revenue_threshold_bps=0)).json()["id"]
+        for cat in ("alcohol", "gambling")
+    ]
+    _as("admin-a2", "admin", "firm-a")
+    one = client.post(f"/products/sustainability/attributes/{single}/approve")
+    assert one.status_code == 200 and one.json()["retired_ids"] == ["old-tob"]
+    many = client.post("/products/sustainability/attributes/approve", json={"attribute_ids": batch})
+    assert many.status_code == 200 and sorted(many.json()["retired_ids"]) == ["old-alc", "old-gam"]
+    with SF() as s:
+        result = verify_audit_chain(s)
+    assert result["ok"], result
