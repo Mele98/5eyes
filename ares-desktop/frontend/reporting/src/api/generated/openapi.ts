@@ -5770,6 +5770,11 @@ export interface components {
             ok: boolean;
             /** Seal Count */
             seal_count?: number | null;
+            /**
+             * Seal Missing
+             * @default false
+             */
+            seal_missing?: boolean;
             /** Seal Ok */
             seal_ok?: boolean | null;
             /** Seal Present */

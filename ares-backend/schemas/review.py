@@ -1612,6 +1612,8 @@ class AuditLegacySection(BaseModel):
     seal_ok: Optional[bool] = None
     seal_sequence: Optional[int] = None
     seal_count: Optional[int] = None
+    # N-869-8: Altzeilen vorhanden, aber (noch) kein Siegel -- Hinweis.
+    seal_missing: bool = False
 
 
 class AuditChainVerification(BaseModel):

@@ -314,3 +314,50 @@ def test_unique_index_with_existing_duplicates_is_critical_not_fatal(tmp_path, c
         names = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='index'"))}
     assert "idx_audit_sequence" in names and "ux_audit_log_legacy_seal" not in names
     engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# N-869-8 (Delta 2 #869): Siegel auch ohne ungehashte Altzeilen, seal_missing
+# ---------------------------------------------------------------------------
+
+def _hashed_legacy_rows(session_local) -> None:
+    with session_local() as s:
+        for n in range(2):
+            s.add(AuditLog(
+                id=f"H{n}", user_id="u0", user_name="Alt", table_name="clients", record_id=f"c{n}",
+                action="UPDATE", integrity_hash=f"{n}" * 64,
+                created_at=f"2026-08-2{n}T10:00:00.000Z",
+            ))
+        s.commit()
+
+
+def test_seal_is_written_when_all_legacy_rows_are_hashed(session_local):
+    _hashed_legacy_rows(session_local)
+    report = run_startup_audit_chain_check(session_local)
+    seals = _seals(session_local)
+    assert len(seals) == 1
+    content = json.loads(seals[0].new_value)
+    assert content["count"] == 2 and content["unhashed"] == 0
+    assert report["legacy"]["seal_ok"] is True and report["legacy"]["seal_missing"] is False
+
+
+def test_seal_missing_is_reported_as_hint(session_local, caplog):
+    """Altzeilen ohne Siegel (z.B. Startpruefung uebersprungen oder Siegel
+    noch nicht geschrieben): Hinweis seal_missing, kein Befund."""
+    _legacy_rows(session_local)
+    with session_local() as s:
+        report = audit_log_integrity_report(s)
+    assert report["legacy"]["seal_missing"] is True
+    assert report["legacy"]["seal_present"] is False and report["ok"] is True
+    import services.audit as audit_service
+
+    original = audit_service.ensure_legacy_seal
+    audit_service.ensure_legacy_seal = lambda db: None  # Siegel-Schreiben unterdrueckt
+    try:
+        with caplog.at_level(logging.INFO, logger="services.audit"):
+            run_startup_audit_chain_check(session_local)
+    finally:
+        audit_service.ensure_legacy_seal = original
+    warning = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warning and "ohne Bestandssiegel: True" in warning[0].getMessage()
+    assert not [r for r in caplog.records if r.levelno == logging.CRITICAL]

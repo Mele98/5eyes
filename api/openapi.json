@@ -2148,6 +2148,11 @@
             ],
             "title": "Seal Count"
           },
+          "seal_missing": {
+            "default": false,
+            "title": "Seal Missing",
+            "type": "boolean"
+          },
           "seal_ok": {
             "anyOf": [
               {

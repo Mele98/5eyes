@@ -686,8 +686,8 @@ def _legacy_seals(db: Session) -> list[AuditLog]:
 
 
 def ensure_legacy_seal(db: Session) -> dict | None:
-    """Schreibt genau einmal den Bestandssiegel-Eintrag, wenn Altzeilen ohne
-    Hash existieren und noch kein Siegel vorhanden ist. Idempotent; der
+    """Schreibt genau einmal den Bestandssiegel-Eintrag, wenn Altzeilen
+    (sequence IS NULL) existieren und noch kein Siegel vorhanden ist. Idempotent; der
     Aufrufer committet. Rueckgabe: der versiegelte Stand oder None."""
     if _legacy_seals(db):
         return None
@@ -706,13 +706,13 @@ def ensure_legacy_seal(db: Session) -> dict | None:
     )
     if _legacy_seals(db):
         return None
-    has_unhashed = (
-        db.query(AuditLog.id)
-        .filter(AuditLog.sequence.is_(None), AuditLog.integrity_hash.is_(None))
-        .first()
-        is not None
+    # N-869-8 (Delta 2 #869): versiegelt wird, sobald Altzeilen existieren --
+    # auch wenn alle einen Hash tragen (Schutz gegen Loeschen der letzten
+    # Altzeile und gegen eingefuegte Zeilen gilt fuer den ganzen Altbestand).
+    has_legacy = (
+        db.query(AuditLog.id).filter(AuditLog.sequence.is_(None)).first() is not None
     )
-    if not has_unhashed:
+    if not has_legacy:
         return None
     sealed = _legacy_seal_digest(db)
     log(
@@ -734,7 +734,13 @@ def _verify_legacy_seal(db: Session) -> dict:
     Abweichung = Befund. Ohne Siegel: seal_ok None (nichts zu pruefen)."""
     seals = _legacy_seals(db)
     if not seals:
-        return {"seal_present": False, "seal_ok": None, "seal_sequence": None, "seal_count": None}
+        # N-869-8: Altzeilen ohne Siegel -> Hinweis seal_missing (kein Befund;
+        # die naechste Startpruefung schreibt das Siegel).
+        has_legacy = db.query(AuditLog.id).filter(AuditLog.sequence.is_(None)).first() is not None
+        return {
+            "seal_present": False, "seal_ok": None, "seal_sequence": None, "seal_count": None,
+            "seal_missing": has_legacy,
+        }
     current = _legacy_seal_digest(db)
     ok = True
     first: dict | None = None
@@ -755,6 +761,7 @@ def _verify_legacy_seal(db: Session) -> dict:
         "seal_ok": ok,
         "seal_sequence": int(seals[0].sequence),
         "seal_count": int(first["count"]) if first and isinstance(first.get("count"), int) else None,
+        "seal_missing": False,
     }
 
 
@@ -962,15 +969,20 @@ def run_startup_audit_chain_check(
             legacy["ok"], legacy["mismatches"], legacy["field_shift"], legacy["unexpected_unhashed"],
             legacy["seal_ok"],
         )
-    elif legacy["link_unconfirmed"] or legacy["ambiguous"] or chain["ambiguous_count"]:
+    elif (
+        legacy["link_unconfirmed"] or legacy["ambiguous"] or chain["ambiguous_count"]
+        or legacy["seal_missing"]
+    ):
         # N-869-6: '|' im Wert ohne Hinweis auf Verschiebung ist nur ein
         # Hinweis -- eine echte Altzeile darf nicht bei jedem Start CRITICAL
         # ausloesen.
         logger.warning(
             "Audit-Log-Kette ok (%s Eintraege); Hinweise: %s Altzeilen nur inhaltlich bestaetigt "
             "(Verkettung nicht rekonstruierbar), %s Altzeilen und %s Ketten-Zeilen mit '|' im "
-            "Feldwert (Feldgrenzen nicht beweisbar, keine Verschiebung erkennbar)",
+            "Feldwert (Feldgrenzen nicht beweisbar, keine Verschiebung erkennbar); "
+            "Altzeilen ohne Bestandssiegel: %s",
             chain["checked"], legacy["link_unconfirmed"], legacy["ambiguous"], chain["ambiguous_count"],
+            legacy["seal_missing"],
         )
     else:
         logger.info(
