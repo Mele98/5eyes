@@ -371,3 +371,47 @@ def test_failed_rewrap_writes_no_audit_entry(tmp_path):
     ))
     assert proc.returncode == 1
     assert _audit_rows(db_file) == []
+
+
+def test_cli_refuses_when_kek_store_exists(tmp_path):
+    """N-870-12: Mit vorhandener KEK-Ablage (TENANT_MASTER_KEK_FILE) verweigert
+    das CLI den Lauf, bevor etwas geaendert wird (kein Zustand, in dem DB und
+    Ablage auseinanderlaufen)."""
+    from sqlalchemy import text
+
+    legacy = WEAK_LEGACY_KEKS[0]
+    db_file, _ = _file_db_with_wrapped_tenants(tmp_path, legacy)
+    store = tmp_path / "tenant-master-kek.dpapi"
+    store.write_bytes(b"opaque-test-store")
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.connect() as conn:
+            before = dict(conn.execute(text("SELECT id, encrypted_dek FROM tenants")).fetchall())
+    finally:
+        engine.dispose()
+
+    target = Fernet.generate_key().decode("ascii")
+    proc = _run_cli(tmp_path, _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=legacy, TENANT_MASTER_KEK_NEW=target,
+        TENANT_MASTER_KEK_FILE=str(store),
+    ))
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 2, out[-2000:]
+    assert "KEK-Ablage" in proc.stderr and "nichts geaendert" in proc.stderr
+    assert legacy not in out and target not in out
+    assert store.read_bytes() == b"opaque-test-store"
+    assert _audit_rows(db_file) == []
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.connect() as conn:
+            assert dict(conn.execute(text("SELECT id, encrypted_dek FROM tenants")).fetchall()) == before
+    finally:
+        engine.dispose()
+
+    # Kontrolle: Einstellung gesetzt, aber keine Datei -> Lauf erlaubt.
+    store.unlink()
+    proc = _run_cli(tmp_path, _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=legacy, TENANT_MASTER_KEK_NEW=target,
+        TENANT_MASTER_KEK_FILE=str(store),
+    ))
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-2000:]

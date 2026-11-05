@@ -22,6 +22,17 @@ Ablauf
 4. Den neuen Key als ``TENANT_MASTER_KEK`` setzen, ``TENANT_MASTER_KEK_NEW``
    entfernen, die alte Passphrase verwerfen, Server starten.
 
+Grenzen
+-------
+- KEK-Ablage (DPAPI, ``TENANT_MASTER_KEK_FILE`` zeigt auf eine vorhandene
+  Datei): der Lauf wird verweigert, bevor etwas geaendert wird. Datenbank und
+  Ablage lassen sich nicht atomar gemeinsam ersetzen; ein Teilerfolg haette
+  DB und Ablage auseinanderlaufen lassen. Die Desktop-App legt dort immer
+  einen Fernet-Key ab, der keinen Rewrap braucht.
+- Ein Audit-Eintrag (Anzahl, SHA-256 der Tenant-IDs, kein Schluessel) wird in
+  derselben Transaktion geschrieben; bei einem Fehler gibt es weder Rewrap
+  noch Eintrag.
+
 Die Datenbank kommt aus ``config.settings`` (DB_PATH / DATABASE_URL) --
 dieselbe Quelle wie der Server.
 """
@@ -107,6 +118,21 @@ def main(argv: list[str] | None = None) -> int:
     import database
     from config import settings
     from services.tenant_crypto import TenantCryptoError, rewrap_tenant_deks_to_master_kek
+
+    # N-870-12: Eine KEK-Ablage (DPAPI, TENANT_MASTER_KEK_FILE) laesst sich
+    # nicht in derselben Transaktion wie die Datenbank ersetzen. Ein Lauf
+    # wuerde DB und Ablage auseinanderlaufen lassen (Start danach: "widerspricht
+    # der KEK-Ablage"). Deshalb fail-closed verweigern, bevor etwas passiert.
+    store_setting = str(getattr(settings, "tenant_master_kek_file", "") or "").strip()
+    if store_setting and Path(store_setting).expanduser().exists():
+        print(
+            "Abbruch, nichts geaendert: Es gibt eine KEK-Ablage (TENANT_MASTER_KEK_FILE). "
+            "Der Rewrap unterstuetzt nur Installationen, deren KEK allein aus "
+            "TENANT_MASTER_KEK kommt. Die Ablage der Desktop-App enthaelt immer einen "
+            "Fernet-Key und braucht keinen Rewrap.",
+            file=sys.stderr,
+        )
+        return 2
 
     source = str(getattr(settings, "tenant_master_kek", "") or "").strip()
     with database.SessionLocal() as db:
