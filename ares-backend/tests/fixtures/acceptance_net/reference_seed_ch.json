@@ -1,5 +1,5 @@
 {
- "dump_sha256": "4d1d9fa80e2bb33705f7b1af50641e360043534d2bafe70db65159da7aec1483",
+ "dump_sha256": "ecd8446756b0578fff4baa05431f0875671c373541775ffd91992634f7baf7b9",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -69,11 +69,12 @@
   "audit_log_sequence_counter": {
    "columns": [
     "id",
+    "last_hash",
     "value"
    ],
    "row_count": 1,
    "row_sha256": [
-    "eaeadb6587334471600526cf9b4d36f5"
+    "0615f58fc5cb0a2bf9fac76d72521742"
    ]
   },
   "building_blocks": {
