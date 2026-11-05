@@ -16108,7 +16108,7 @@
                 "type": "null"
               }
             ],
-            "description": "Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
             "title": "Client Source Label"
           },
           "kind": {
@@ -16344,7 +16344,7 @@
                 "type": "null"
               }
             ],
-            "description": "Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
             "title": "Client Source Label"
           },
           "isin": {
@@ -16912,7 +16912,7 @@
                 "type": "null"
               }
             ],
-            "description": "Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
             "title": "Client Source Label"
           },
           "measured_exposure_bps": {

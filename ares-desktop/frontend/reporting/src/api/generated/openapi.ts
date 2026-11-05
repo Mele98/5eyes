@@ -10333,7 +10333,7 @@ export interface components {
             category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
             /**
              * Client Source Label
-             * @description Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
              */
             client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
             /**
@@ -10397,7 +10397,7 @@ export interface components {
             category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
             /**
              * Client Source Label
-             * @description Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
              */
             client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
             /** Isin */
@@ -10541,7 +10541,7 @@ export interface components {
             as_of?: string | null;
             /**
              * Client Source Label
-             * @description Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
              */
             client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
             /** Measured Exposure Bps */
