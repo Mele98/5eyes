@@ -191,11 +191,54 @@ def _template_values() -> list[tuple[str, str, str]]:
         if not path.is_file() or not _is_template_file(path):
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-            match = _TEMPLATE_LINE.match(line)
-            if match:
-                value = match.group(2).strip().strip("'\"")
-                found.append((f"{path.relative_to(_REPO_ROOT).as_posix()}:{lineno}", match.group(1), value))
+            parsed = _template_assignment(line)
+            if parsed is not None:
+                found.append((f"{path.relative_to(_REPO_ROOT).as_posix()}:{lineno}", *parsed))
     return found
+
+
+# N-870-8: Shell-Ausdruecke sind in einer Vorlage kein Wert, sondern eine
+# Anweisung an die Shell ($(...), ${VAR}, %VAR%). Zur Laufzeit lehnt
+# config.tenant_master_kek_problem sie ohnehin ab (Ganzwert-Muster); der
+# Vorlagen-Test soll daran nicht falsch rot werden.
+_SHELL_EXPRESSION = re.compile(r"^(?:\$\(|\$\{|%[A-Za-z_][A-Za-z0-9_]*%$)")
+
+
+def _template_assignment(line: str) -> "tuple[str, str] | None":
+    """(Schluessel, Wert) einer Vorlagenzeile; ``None`` ohne Zuweisung oder
+    wenn der Wert ein Shell-Ausdruck ist."""
+    match = _TEMPLATE_LINE.match(line)
+    if not match:
+        return None
+    value = match.group(2).strip().strip("'\"")
+    if _SHELL_EXPRESSION.match(value):
+        return None
+    return match.group(1), value
+
+
+@pytest.mark.parametrize("line", [
+    'TENANT_MASTER_KEK=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")',
+    "export TENANT_MASTER_KEK=$(openssl rand -base64 32)",
+    "SECRET_KEY=${ARES_SECRET_KEY}",
+    'DB_KEY="${DB_KEY:-}"',
+    "TENANT_MASTER_KEK=%TENANT_MASTER_KEK%",
+])
+def test_template_scan_treats_shell_expressions_as_no_value(line):
+    assert _template_assignment(line) is None
+    # Laufzeit: als woertlicher Wert trotzdem abgelehnt.
+    value = _TEMPLATE_LINE.match(line).group(2).strip().strip("'\"")
+    assert tenant_master_kek_problem(value) is not None
+
+
+@pytest.mark.parametrize("line,expected", [
+    ("TENANT_MASTER_KEK=__BITTE_ERSETZEN__", ("TENANT_MASTER_KEK", "__BITTE_ERSETZEN__")),
+    ("SECRET_KEY=", ("SECRET_KEY", "")),
+    ('DB_KEY="<Fernet-Key>"', ("DB_KEY", "<Fernet-Key>")),
+    ("TENANT_MASTER_KEK=%ab%cd%", ("TENANT_MASTER_KEK", "%ab%cd%")),
+])
+def test_template_scan_keeps_literal_values(line, expected):
+    """Gegenprobe: echte (Platzhalter-)Werte bleiben im Scan."""
+    assert _template_assignment(line) == expected
 
 
 def test_template_scan_finds_the_known_templates():
