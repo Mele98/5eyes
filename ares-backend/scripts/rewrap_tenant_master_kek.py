@@ -53,6 +53,39 @@ def _register_all_models() -> None:
         importlib.import_module(module_info.name)
 
 
+AUDIT_ACTOR = "cli-operator"
+
+
+def _audit_rewrap(db, result) -> None:
+    """N-870-10: Revisionsnachweis in DERSELBEN Transaktion wie der Rewrap
+    (ein Commit fuer beides). Nur Anzahl und SHA-256 der sortierten Tenant-IDs,
+    kein Schluesselmaterial und kein KEK-Fingerabdruck. action='UPDATE' ist
+    ein bestehender audit_log-Wert (kein neuer CHECK-Wert, kein Neuaufbau);
+    unter PostgreSQL im expliziten Operator-Bypass."""
+    import hashlib
+    import json
+
+    from services.audit import log
+    from services.tenant_context import operator_bypass
+
+    ids_digest = hashlib.sha256(",".join(sorted(result.tenant_ids)).encode("utf-8")).hexdigest()
+    with operator_bypass(db):
+        log(
+            db,
+            user_id=AUDIT_ACTOR,
+            user_name=AUDIT_ACTOR,
+            table_name="tenants",
+            record_id="*",
+            action="UPDATE",
+            field_name="encrypted_dek",
+            new_value=json.dumps({
+                "operation": "master_kek_rewrap",
+                "rewrapped_deks": result.count,
+                "tenant_ids_sha256": ids_digest,
+            }, sort_keys=True),
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Tenant-DEKs von TENANT_MASTER_KEK auf TENANT_MASTER_KEK_NEW umverpacken",
@@ -78,8 +111,10 @@ def main(argv: list[str] | None = None) -> int:
     source = str(getattr(settings, "tenant_master_kek", "") or "").strip()
     with database.SessionLocal() as db:
         try:
-            count = rewrap_tenant_deks_to_master_kek(db, source_kek=source, target_kek=target)
+            result = rewrap_tenant_deks_to_master_kek(db, source_kek=source, target_kek=target)
+            _audit_rewrap(db, result)
             db.commit()
+            count = result.count
         except TenantCryptoError as exc:
             db.rollback()
             print(f"Abbruch, nichts geaendert: {exc}", file=sys.stderr)

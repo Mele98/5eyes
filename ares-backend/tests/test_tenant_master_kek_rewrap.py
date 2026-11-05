@@ -92,7 +92,7 @@ def test_weak_legacy_kek_blocks_start_but_data_is_recoverable(Session, legacy):
 
     target = Fernet.generate_key().decode("ascii")
     with Session() as db:
-        assert rewrap_tenant_deks_to_master_kek(db, source_kek=legacy, target_kek=target) == 2
+        assert rewrap_tenant_deks_to_master_kek(db, source_kek=legacy, target_kek=target).count == 2
         db.commit()
     require_tenant_master_kek(_Cfg(target))
     with Session() as db:
@@ -283,3 +283,91 @@ def test_cli_db_error_prints_no_sql_parameters(tmp_path):
             assert dict(conn.execute(text("SELECT id, encrypted_dek FROM tenants")).fetchall()) == before
     finally:
         engine.dispose()
+
+
+def _audit_rows(db_file: Path) -> list[dict]:
+    from sqlalchemy import text
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.connect() as conn:
+            return [dict(r._mapping) for r in conn.execute(text(
+                "SELECT table_name, record_id, action, field_name, old_value, new_value, user_id "
+                "FROM audit_log WHERE table_name = 'tenants'"
+            ))]
+    finally:
+        engine.dispose()
+
+
+def test_cli_writes_one_audit_entry_and_updated_at(tmp_path):
+    """N-870-10: genau ein audit_log-Eintrag in derselben Transaktion (Anzahl,
+    SHA-256 der sortierten Tenant-IDs, kein Schluesselmaterial); updated_at
+    der Tenants gesetzt."""
+    import hashlib
+    import json
+
+    from sqlalchemy import text
+
+    legacy = WEAK_LEGACY_KEKS[0]
+    db_file, deks = _file_db_with_wrapped_tenants(tmp_path, legacy)
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.connect() as conn:
+            before = dict(conn.execute(text("SELECT id, updated_at FROM tenants")).fetchall())
+            envelopes = [r[0] for r in conn.execute(text("SELECT encrypted_dek FROM tenants"))]
+    finally:
+        engine.dispose()
+    assert _audit_rows(db_file) == []
+
+    target = Fernet.generate_key().decode("ascii")
+    proc = _run_cli(tmp_path, _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=legacy, TENANT_MASTER_KEK_NEW=target,
+    ))
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-2000:]
+
+    rows = _audit_rows(db_file)
+    assert len(rows) == 1
+    row = rows[0]
+    assert (row["action"], row["record_id"], row["field_name"]) == ("UPDATE", "*", "encrypted_dek")
+    payload = json.loads(row["new_value"])
+    assert payload == {
+        "operation": "master_kek_rewrap",
+        "rewrapped_deks": 2,
+        "tenant_ids_sha256": hashlib.sha256(",".join(sorted(deks)).encode("utf-8")).hexdigest(),
+    }
+    dump = json.dumps(row)
+    for secret in (legacy, target, *envelopes, *(d.decode("ascii") for d in deks.values())):
+        assert secret not in dump
+    assert "gAAAA" not in dump
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.connect() as conn:
+            after = dict(conn.execute(text("SELECT id, updated_at FROM tenants")).fetchall())
+    finally:
+        engine.dispose()
+    assert all(after[tid] != before[tid] for tid in before)
+
+
+def test_failed_rewrap_writes_no_audit_entry(tmp_path):
+    """Gegenprobe N-870-10: scheitert der Lauf (Trigger), gibt es weder DEK-
+    Aenderung noch Audit-Eintrag (ein Commit fuer beides)."""
+    from sqlalchemy import text
+
+    legacy = WEAK_LEGACY_KEKS[0]
+    db_file, _ = _file_db_with_wrapped_tenants(tmp_path, legacy)
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE TRIGGER trg_block_dek BEFORE UPDATE OF encrypted_dek ON tenants "
+                "BEGIN SELECT RAISE(ABORT, 'rewrap blockiert (Test)'); END"
+            ))
+    finally:
+        engine.dispose()
+    proc = _run_cli(tmp_path, _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=legacy,
+        TENANT_MASTER_KEK_NEW=Fernet.generate_key().decode("ascii"),
+    ))
+    assert proc.returncode == 1
+    assert _audit_rows(db_file) == []

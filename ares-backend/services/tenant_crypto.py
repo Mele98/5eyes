@@ -12,6 +12,7 @@ callers use the plaintext DEK through these helpers.
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -242,12 +243,20 @@ def decrypt_for_tenant(
         raise TenantCryptoError("Tenant-Ciphertext konnte nicht entschluesselt werden") from exc
 
 
+@dataclass(frozen=True)
+class KekRewrapResult:
+    """Ergebnis des Rewraps, ohne Schluesselmaterial."""
+
+    count: int
+    tenant_ids: tuple[str, ...]
+
+
 def rewrap_tenant_deks_to_master_kek(
     db: Session,
     *,
     source_kek: str | bytes,
     target_kek: str | bytes,
-) -> int:
+) -> KekRewrapResult:
     """N-870-6 (2026-11-05): Offline-Rewrap aller Tenant-DEKs von der bisherigen
     Master-KEK (``source_kek``) auf einen neuen Fernet-Key (``target_kek``).
 
@@ -261,8 +270,12 @@ def rewrap_tenant_deks_to_master_kek(
     Die DEKs selbst bleiben gleich (kein Re-Encrypt der Nutzdaten noetig); nur
     ``tenants.encrypted_dek`` wird neu verpackt und vor dem Schreiben gegen das
     Ziel rueckgeprueft. Alles in der Transaktion des Aufrufers: der Aufrufer
-    committet; jeder Fehler laesst den Bestand unveraendert. Rueckgabe: Anzahl
-    umverpackter DEKs. Keine Meldung nennt einen Schluessel."""
+    committet; jeder Fehler laesst den Bestand unveraendert. ``updated_at``
+    der umverpackten Tenants wird gesetzt; ``dek_rotated_at`` bleibt, denn
+    der DEK selbst ist unveraendert. Den Audit-Eintrag schreibt der Aufrufer
+    in derselben Transaktion (scripts/rewrap_tenant_master_kek.py, N-870-10).
+    Rueckgabe: Anzahl und IDs der umverpackten Tenants. Keine Meldung nennt
+    einen Schluessel."""
     Fernet, InvalidToken = _fernet_class()
     secret = str(getattr(settings, "secret_key", "") or "")
     problem = tenant_master_kek_problem(
@@ -307,7 +320,12 @@ def rewrap_tenant_deks_to_master_kek(
             if target_fernet.decrypt(rewrapped) != dek:  # pragma: no cover - Fernet-Vertrag
                 raise TenantCryptoError("Rewrap-Rueckpruefung fehlgeschlagen; kein DEK wurde geaendert.")
             planned.append((tenant, rewrapped.decode("utf-8")))
+        now = _now_iso()
         for tenant, encrypted in planned:
             tenant.encrypted_dek = encrypted
+            tenant.updated_at = now
         db.flush()
-    return len(planned)
+    return KekRewrapResult(
+        count=len(planned),
+        tenant_ids=tuple(str(tenant.id) for tenant, _ in planned),
+    )
