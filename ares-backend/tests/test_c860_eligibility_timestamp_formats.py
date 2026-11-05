@@ -314,3 +314,21 @@ def test_override_evidence_hash_binds_stored_strings_unchanged():
         "valid_from": "2027-01-15T10:00:00+00:00", "expires_at": "2027-02-14T10:00:00+00:00",
     })
     assert override_evidence_hash(row, "bind") == expected
+
+
+@pytest.mark.parametrize(("rule_from", "set_from", "expected"), [
+    ("2027-01-15T10:00:00.000Z", "2027-01-15T10:00:00.000Z", 1),
+    ("2027-01-15T10:00:00+00:00", "2027-01-15T10:00:00.000Z", 1),
+    ("2027-01-15T10:00:00.001Z", "2027-01-15T10:00:00.000Z", 0),
+    ("2027-01-15T10:00:00.000Z", "2027-01-15T10:00:00.001Z", 0),
+])
+def test_resolver_current_state_path_in_the_same_frozen_second(session_factory, rule_from, set_from, expected):
+    """Pfad ohne ``as_of`` (aktueller Stand, Generate): Stichtag aus der
+    eingefrorenen Wanduhr (``...SS+00:00``), Regel in derselben Sekunde mit
+    ``Z`` geschrieben."""
+    with time_machine.travel(FROZEN, tick=False):
+        with session_factory() as db:
+            product = _seed_rule(db, rule_valid_from=rule_from, set_valid_from=set_from)
+            assert pe._now_iso() == "2027-01-15T10:00:00+00:00"
+            rules = resolve_active_rules_for_product(db, product, jurisdiction="CH", tenant_id=None)
+            assert len(rules) == expected
