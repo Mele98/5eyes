@@ -993,3 +993,45 @@ def test_e2_delete_without_current_version_withdraws_pending_relaxation(SF, clie
     assert "mode=relaxation_withdrawn" in _std_audit(SF)[-1][1]
     _as("admin-a2", "admin", "firm-a")
     assert client.post("/products/sustainability/standards/tobacco/approve").status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# N-863-10: Unter-Messungen widerlegen Ober-Nachweise bei Abfrage der Oberkategorie
+# ---------------------------------------------------------------------------
+
+
+def test_n863_10_a_controversial_measurement_refutes_weapons_policy(SF):
+    _attr(SF, id="weapons0", category="weapons", revenue=0)
+    with SF() as s:
+        assert is_criterion_satisfied(s, s.get(Product, "g1"), "weapons", 1000, TODAY)  # Gegenprobe
+    _attr(SF, id="contro-meas", category="controversial_weapons", kind="measured_exposure", revenue=0, measured=50)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "weapons", 1000, TODAY)
+    assert not result.satisfied and result.reason == "conflicting_evidence"
+
+
+def test_n863_10_b_conventional_measurement_refutes_weapons_policy(SF):
+    _attr(SF, id="weapons1000", category="weapons", revenue=1000)
+    _attr(SF, id="conv-meas", category="conventional_weapons", kind="measured_exposure", revenue=1000, measured=200)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "weapons", 1000, TODAY)
+    assert not result.satisfied and result.reason == "conflicting_evidence"
+
+
+def test_n863_10_positive_controls(SF):
+    _attr(SF, id="weapons500", category="weapons", revenue=500)
+    _attr(SF, id="contro-zero", category="controversial_weapons", kind="measured_exposure", revenue=0, measured=0)
+    _attr(SF, id="conv-low", category="conventional_weapons", kind="measured_exposure", revenue=100, measured=200)
+    _attr(SF, id="contro-draft", category="controversial_weapons", kind="measured_exposure", revenue=1000,
+          measured=200, status="draft", as_of=(TODAY - timedelta(days=5)).isoformat())
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "weapons", 1000, TODAY)
+    assert result.satisfied and result.attribute_id == "weapons500", result
+
+
+def test_n863_10_child_evidence_never_satisfies_parent(SF):
+    _attr(SF, id="contro-policy", category="controversial_weapons", revenue=0)
+    _attr(SF, id="conv-policy", category="conventional_weapons", revenue=0)
+    with SF() as s:
+        result = evaluate_criterion(s, s.get(Product, "g1"), "weapons", 1000, TODAY)
+    assert not result.satisfied

@@ -1008,6 +1008,7 @@ CRITERION_REASONS: tuple[str, ...] = (
     "not_yet_valid",
     "not_approved",
     "value_mismatch",
+    "child_category_measurement",
     "no_evidence",
     "no_threshold",
     "no_expected_value",
@@ -1074,6 +1075,17 @@ def _row_reason(attribute, ctype: str, threshold, check_date: date, expected_val
     return "satisfied" if _normalized_theme(attribute.value) == _normalized_theme(expected_value) else "value_mismatch"
 
 
+def _is_valid_positive_measurement(attribute, check_date: date) -> bool:
+    """Freigegebene, am Stichtag gueltige Messung mit Exposure > 0."""
+    if attribute.status != "approved" or attribute.kind != "measured_exposure":
+        return False
+    if (attribute.measured_exposure_bps or 0) <= 0:
+        return False
+    start = _as_date(attribute.as_of)
+    end = _as_date(attribute.valid_until)
+    return start is not None and end is not None and start <= check_date <= end
+
+
 def evaluate_criterion(
     db: Session | None,
     product,
@@ -1120,12 +1132,18 @@ def evaluate_criterion(
         return CriterionEvaluation(False, "no_threshold")
     product_id = getattr(product, "id", product)
     covering = SUSTAINABILITY_CATEGORY_COVERED_BY.get(category, ())
+    # N-863-10: Unterkategorien der angefragten Kategorie (z. B. bei "weapons"
+    # die kontroversen und konventionellen Waffen). Ihr Umsatz ist Teil des
+    # Ober-Umsatzes, ihre Messungen widerlegen daher Ober-Nachweise.
+    children = tuple(
+        child for child, parents in SUSTAINABILITY_CATEGORY_COVERED_BY.items() if category in parents
+    )
     if attributes is None:
         if db is None:
             return CriterionEvaluation(False, "no_evidence")
         attributes = db.query(ProductSustainabilityAttribute).filter(
             ProductSustainabilityAttribute.product_id == product_id,
-            ProductSustainabilityAttribute.category.in_((category, *covering)),
+            ProductSustainabilityAttribute.category.in_((category, *covering, *children)),
         ).all()
     visible = [
         a for a in attributes
@@ -1170,6 +1188,19 @@ def evaluate_criterion(
         and attribute.kind == "measured_exposure"
         and (attribute.measured_exposure_bps or 0) > 0
     ]
+    # N-863-10: gueltige, sichtbare Messungen einer Unterkategorie mit
+    # Exposure > 0 widerlegen jeden Nachweis der angefragten Oberkategorie mit
+    # Grenze <= deren Messgrenze (Unter-Umsatz <= Ober-Umsatz; gleiche
+    # Grenzen-Regel wie N-863-7). Unter-Nachweise erfuellen die
+    # Oberkategorie nie (sie werden nur fuer diese Widerlegung gelesen).
+    child_blocking = [
+        attribute.revenue_threshold_bps
+        for attribute in visible
+        if attribute.category in children and _is_valid_positive_measurement(attribute, check_date)
+    ]
+    if child_blocking:
+        reasons = reasons + ("child_category_measurement",)
+        blocking_cutoffs = blocking_cutoffs + child_blocking
 
     def _refuted(attribute) -> bool:
         if not blocking_cutoffs:
