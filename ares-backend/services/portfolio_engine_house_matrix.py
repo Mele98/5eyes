@@ -497,6 +497,56 @@ def apply_house_mode_liquidity_floor(
     return floor_bps, source
 
 
+_SYSTEM_LIQUIDITY_FLOOR_SOURCES = {
+    "zwingend vorzuhaltende Zielreserve": "Zielreserve",
+    "globale Mindestliquiditaet des Modells": "Mindestliquidität des Modells",
+    "globale Liquiditaets-Untergrenze des Modells": "Mindestliquidität des Modells",
+}
+
+
+def _raise_if_system_liquidity_floor_infeasible(
+    minimums: dict[str, int],
+    *,
+    bucket_labels: dict[str, str],
+    floor_source: str | None,
+) -> None:
+    """F-2 (Pruefrunde #859): ist die Liquiditaets-Untergrenze systembedingt
+    (Zielreserve bzw. Mindestliquiditaet des Modells) und uebersteigen die
+    Minima damit 100 %, nannte die 422 die Herkunft nicht und riet, "ein
+    Berater-Minimum [zu] senken" -- obwohl die Reserve die Ursache ist.
+    Jetzt: Herkunft und passender Hinweis; bei einer Reserve in der Hoehe des
+    investierbaren Vermoegens bleibt keine Strategiebasis (gesonderter Fall).
+    """
+    label = _SYSTEM_LIQUIDITY_FLOOR_SOURCES.get(floor_source or "")
+    total = sum(int(minimums[key]) for key in bucket_labels)
+    if label is None or total <= 10000:
+        return
+    others = ", ".join(
+        f"{bucket_labels[key]} min. {_band_pct(minimums[key])} %"
+        for key in bucket_labels
+        if key != "liquidity" and int(minimums[key]) > 0
+    )
+    if label == "Zielreserve":
+        hint = (
+            "Ursache ist die zwingend vorzuhaltende Zielreserve, nicht eine "
+            "Berater-Vorgabe: bitte Reservebedarf (kurzfristige Ziele, Cashflows, "
+            "Mindestreserve) und Vermoegensbasis pruefen. Deckt der Reservebedarf "
+            "das investierbare Vermoegen ganz, bleibt keine Strategiebasis -- "
+            "dieser Fall wird gesondert behandelt."
+        )
+    else:
+        hint = (
+            "Die Mindestliquiditaet des Modells ist fest; bitte die Mindestquoten "
+            "der uebrigen Anlageklassen senken."
+        )
+    raise BandEnvelopeInfeasibleError(
+        f"Die Liquiditaets-Untergrenze von {_band_pct(minimums['liquidity'])} % "
+        f"({label}) und die Mindestquoten der uebrigen Anlageklassen "
+        f"({others or 'keine'}) ergeben zusammen {_band_pct(total)} % und "
+        f"uebersteigen 100 %. {hint}"
+    )
+
+
 def raise_if_locked_targets_infeasible(
     targets: dict[str, int],
     minimums: dict[str, int],
@@ -522,6 +572,10 @@ def raise_if_locked_targets_infeasible(
     Alternative 10 %) -- eine Kappung an einer Modellgrenze ist kein
     Eingabefehler, sondern wird offengelegt.
     """
+    _raise_if_system_liquidity_floor_infeasible(
+        minimums, bucket_labels=bucket_labels,
+        floor_source=(min_sources or {}).get("liquidity"),
+    )
     locked_set = [key for key in bucket_labels if key in set(locked)]
     if len(locked_set) < 2 or len(locked_set) == len(bucket_labels):
         return
