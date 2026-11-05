@@ -5738,6 +5738,10 @@ export interface components {
         };
         /** AuditLegacySection */
         AuditLegacySection: {
+            /** Ambiguous */
+            ambiguous: number;
+            /** Ambiguous Ids */
+            ambiguous_ids: string[];
             /** Hashed */
             hashed: number;
             /** Link Unconfirmed */
@@ -5752,6 +5756,10 @@ export interface components {
             ok: boolean;
             /** Total */
             total: number;
+            /** Unexpected Unhashed */
+            unexpected_unhashed: number;
+            /** Unexpected Unhashed Ids */
+            unexpected_unhashed_ids: string[];
             /** Unhashed */
             unhashed: number;
             /** Verified */

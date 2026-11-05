@@ -170,8 +170,8 @@ def _legacy_history(session_local) -> list[str]:
                         n_fields=13, previous_hash="")
     # unhashed Zeile dazwischen (vor dem Hash bzw. Alt-BACKFILL)
     with session_local() as s:
-        s.add(AuditLog(id="L2", user_id="u0", user_name="Alt", table_name="t", record_id="r",
-                       action="BACKFILL", created_at="2026-08-01T09:00:00.000000"))
+        s.add(AuditLog(id="L2", user_id="u0", user_name="Alt", table_name="asset_class_annual_returns",
+                       record_id="2005-2024", action="BACKFILL", created_at="2026-08-01T09:00:00.000000"))
         s.commit()
     h3 = _insert_legacy(session_local, fields=_legacy_fields("L3", "2026-08-07T10:00:00.000Z",
                         ip="203.0.113.1"), n_fields=14, previous_hash="")
@@ -384,3 +384,98 @@ def test_report_equals_endpoint_contract(session_local):
     from schemas.review import AuditChainVerification
 
     AuditChainVerification.model_validate(report)
+
+
+# ---------------------------------------------------------------------------
+# N-869-2 (Pruefrunde #869): Feldverschiebung, eingefuegte Fremdzeilen
+# ---------------------------------------------------------------------------
+
+def test_field_shift_ip_tenant_is_not_verified(session_local):
+    """P1 aus #869: L4 (15-Felder-Hash) bekommt ip_address='ip|tenant' und
+    tenant_id=NULL -- passt dann zur 14-Felder-Variante. Die Tenant-Zuordnung
+    waere ohne Neuberechnung des Hashes entfernt; frueher 'verified'."""
+    _legacy_history(session_local)
+    _sql(session_local,
+         "UPDATE audit_log SET ip_address = '203.0.113.1|tenant-a', tenant_id = NULL WHERE id = 'L4'")
+    with session_local() as s:
+        result = verify_audit_legacy_rows(s)
+    assert not result["ok"]
+    assert result["ambiguous_ids"] == ["L4"]
+    assert result["verified"] == 3
+
+
+def test_format_bound_to_introduction_date(session_local):
+    """Eine 14-Felder-Zeile mit created_at VOR der Einfuehrung von
+    ip_address (2026-08-07) kann es nicht geben -> nicht bestaetigt."""
+    _insert_legacy(session_local, fields=_legacy_fields("E1", "2026-07-01T10:00:00.000Z",
+                   ip="203.0.113.1"), n_fields=14, previous_hash="")
+    with session_local() as s:
+        result = verify_audit_legacy_rows(s)
+    assert result["mismatch_ids"] == ["E1"]
+
+
+def test_unknown_fields_must_be_empty_for_shorter_format(session_local):
+    """13-Felder-Variante gilt nur, wenn ip_address und tenant_id leer sind:
+    eine nachtraeglich gesetzte tenant_id wird nicht als bestaetigt gemeldet."""
+    _insert_legacy(session_local, fields=_legacy_fields("F1", "2026-06-01T10:00:00.000Z"),
+                   n_fields=13, previous_hash="")
+    _sql(session_local, "UPDATE audit_log SET tenant_id = 'fremd' WHERE id = 'F1'")
+    with session_local() as s:
+        result = verify_audit_legacy_rows(s)
+    assert result["mismatch_ids"] == ["F1"]
+
+
+def test_pipe_inside_value_is_ambiguous_not_verified(session_local):
+    """'|' in einem Feldwert: beim '|'-Format sind die Feldgrenzen nicht
+    beweisbar (old_value='A|B', new_value='C' == 'A', 'B|C')."""
+    fields = _legacy_fields("P1", "2026-08-09T10:00:00.000Z", tenant="tenant-a", new_value="B|C")
+    fields["old_value"] = "A"
+    _insert_legacy(session_local, fields=fields, n_fields=15, previous_hash="")
+    with session_local() as s:
+        result = verify_audit_legacy_rows(s)
+    assert not result["ok"]
+    assert result["ambiguous_ids"] == ["P1"]
+
+
+def test_inserted_unhashed_row_between_hashed_rows_is_a_finding(session_local):
+    """P3b aus #869: gefaelschte Zeile ohne Hash zwischen L4 und L5 -- war
+    nur 'link_unconfirmed'/unhashed+1, ok=True. Jetzt Befund."""
+    _legacy_history(session_local)
+    with session_local() as s:
+        s.add(AuditLog(id="FAKE", user_id="u9", user_name="X", table_name="clients", record_id="c1",
+                       action="DELETE", created_at="2026-08-09T12:00:00.000Z"))
+        s.commit()
+    with session_local() as s:
+        result = verify_audit_legacy_rows(s)
+    assert not result["ok"]
+    assert result["unexpected_unhashed_ids"] == ["FAKE"]
+
+
+def test_known_legacy_unhashed_writers_are_only_counted(session_local):
+    _legacy_history(session_local)  # enthaelt eine Alt-BACKFILL-Zeile
+    with session_local() as s:
+        s.add(AuditLog(id="PB1", user_id="u0", user_name="Alt", table_name="protocol_bausteine",
+                       record_id="b1", action="CREATE", created_at="2026-08-20T10:00:00.000Z"))
+        s.commit()
+    with session_local() as s:
+        result = verify_audit_legacy_rows(s)
+    assert result["ok"], result
+    assert result["unhashed"] == 2 and result["unexpected_unhashed"] == 0
+
+
+def test_chain_pipe_fallback_rejects_pipe_in_values(session_local):
+    """Ketten-Zeile: der Fallback auf das '|'-Schema gilt nur ohne '|' in den
+    Feldwerten (sonst Feldgrenzen nicht beweisbar)."""
+    _log_n(session_local, 1)
+    with session_local() as s:
+        row = s.query(AuditLog).one()
+        fields = audit_service._payload_fields(row, "")
+        fields[7], fields[8] = "A|B", "C"
+        pipe_payload = "|".join(fields + [str(row.ip_address or ""), str(row.tenant_id or "")])
+        forged = hashlib.sha256(pipe_payload.encode("utf-8")).hexdigest()
+    _sql(session_local,
+         "UPDATE audit_log SET old_value='A', new_value='B|C', integrity_hash=:h WHERE sequence=1",
+         h=forged)
+    with session_local() as s:
+        result = _verify_audit_chain_detail(s)
+    assert result["hash_mismatches"] == [1]

@@ -2072,6 +2072,17 @@
       },
       "AuditLegacySection": {
         "properties": {
+          "ambiguous": {
+            "title": "Ambiguous",
+            "type": "integer"
+          },
+          "ambiguous_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ambiguous Ids",
+            "type": "array"
+          },
           "hashed": {
             "title": "Hashed",
             "type": "integer"
@@ -2106,6 +2117,17 @@
             "title": "Total",
             "type": "integer"
           },
+          "unexpected_unhashed": {
+            "title": "Unexpected Unhashed",
+            "type": "integer"
+          },
+          "unexpected_unhashed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unexpected Unhashed Ids",
+            "type": "array"
+          },
           "unhashed": {
             "title": "Unhashed",
             "type": "integer"
@@ -2124,7 +2146,11 @@
           "link_unconfirmed",
           "link_unconfirmed_ids",
           "mismatches",
-          "mismatch_ids"
+          "mismatch_ids",
+          "ambiguous",
+          "ambiguous_ids",
+          "unexpected_unhashed",
+          "unexpected_unhashed_ids"
         ],
         "title": "AuditLegacySection",
         "type": "object"

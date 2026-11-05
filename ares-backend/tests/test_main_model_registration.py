@@ -37,7 +37,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
 # geaendert (Feld-Diff von api/openapi.json, vom Pruefer bestaetigt).
-GOLDEN_OPENAPI_SHA256 = "1e7edfad97aec16b0e6307841390b18da4e225d2a170f4ae6030668a4e265c5f"
+# N-869-2: AuditLegacySection + ambiguous/ambiguous_ids/unexpected_unhashed/
+# unexpected_unhashed_ids (nur dieses Schema, Feld-Diff geprueft).
+GOLDEN_OPENAPI_SHA256 = "6664b6d2af677e3644465809970dc099b3bd8e34ff10e17653a579cca5f8179c"
 
 _PROBE = """
 import hashlib, json

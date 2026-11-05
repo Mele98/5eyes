@@ -322,44 +322,28 @@ AUDIT_STARTUP_CHECK_MAX_ROWS = 200_000
 _LEGACY_PREDECESSOR_WINDOW = 5
 
 
-def _row_hash_matches(row: AuditLog, previous_hash: str) -> bool:
-    """Neuberechnung nach aktuellem Schema, Fallback auf das '|'-Schema
-    (Kontrollrunde 2026-09-24: Zeilen aus der Zeit vor dem Delimiter-Fix
-    koennen wegen trg_audit_log_no_update nicht umgehasht werden)."""
-    common = dict(
-        entry_id=row.id,
-        user_id=row.user_id,
-        user_name=row.user_name,
-        table_name=row.table_name,
-        record_id=row.record_id,
-        action=row.action,
-        field_name=row.field_name,
-        old_value=row.old_value,
-        new_value=row.new_value,
-        mandate_id=row.mandate_id,
-        client_id=row.client_id,
-        created_at=row.created_at,
-        previous_hash=previous_hash,
-        ip_address=row.ip_address,
-        tenant_id=row.tenant_id,
-    )
-    for builder in (_audit_integrity_payload, _audit_integrity_payload_legacy_pipe_delimiter):
-        if hashlib.sha256(builder(**common).encode("utf-8")).hexdigest() == row.integrity_hash:
-            return True
-    return False
+_MATCH = "match"
+_AMBIGUOUS = "ambiguous"
+
+# N-869-2 (Pruefrunde #869): Fruehester created_at, ab dem ein Payload-Format
+# ueberhaupt geschrieben worden sein kann (Autorendatum des einfuehrenden
+# Commits minus einen Tag Sicherheitsabstand, UTC). Nur eine UNTERgrenze:
+# alter Code kann nach einem Formatwechsel noch weiterlaufen (App nicht
+# aktualisiert), ein neues Format aber nie vor seiner Einfuehrung entstehen.
+_LEGACY_FORMAT_SINCE = {
+    "pipe13": "2026-05-05T00:00:00",  # df3473b1 (erste gehashte Fassung)
+    "pipe14": "2026-08-06T00:00:00",  # 09442a5d (+ ip_address)
+    "pipe15": "2026-08-07T00:00:00",  # 3f1f68de (+ tenant_id)
+    "us15": "2026-09-23T00:00:00",    # 8818bc19 (Unit-Separator)
+}
+# Bekannte Alt-BACKFILL-Zeilen ohne Hash (routers/system.py vor N-865-2,
+# created_at per datetime.utcnow().isoformat() OHNE 'Z'). Nur diese Zeilen
+# duerfen nach der ersten gehashten Zeile ohne Hash vorkommen.
+_LEGACY_UNHASHED_BACKFILL_TABLES = frozenset({"asset_class_annual_returns", "asset_class_price_history"})
 
 
-def _legacy_payload_variants(row: AuditLog, previous_hash: str) -> list[str]:
-    """Alle Payload-Formate, mit denen eine Altzeile (sequence IS NULL)
-    gehasht worden sein kann -- jeweils eingefroren aus der Git-Historie von
-    log(). Nicht aendern.
-
-    - 13 Felder, '|' (erste gehashte Fassung, bis CEO/CFO/CIO-Audit 2026-08-07)
-    - 14 Felder, '|' (+ ip_address, bis Roadmap #21 2026-08-08)
-    - 15 Felder, '|' (+ tenant_id, bis Delimiter-Fix 2026-09-24)
-    - 15 Felder, Unit-Separator (heutiges Schema, der Vollstaendigkeit halber)
-    """
-    base = [
+def _payload_fields(row: AuditLog, previous_hash: str) -> list[str]:
+    return [
         str(row.id or ""),
         str(row.user_id or ""),
         str(row.user_name or ""),
@@ -374,6 +358,18 @@ def _legacy_payload_variants(row: AuditLog, previous_hash: str) -> list[str]:
         str(row.created_at),
         str(previous_hash or ""),
     ]
+
+
+def _legacy_payload_variants(row: AuditLog, previous_hash: str) -> list[str]:
+    """Alle Payload-Formate, mit denen eine Zeile gehasht worden sein kann --
+    jeweils eingefroren aus der Git-Historie von log(). Nicht aendern.
+
+    - 13 Felder, '|' (erste gehashte Fassung, bis CEO/CFO/CIO-Audit 2026-08-07)
+    - 14 Felder, '|' (+ ip_address, bis Roadmap #21 2026-08-08)
+    - 15 Felder, '|' (+ tenant_id, bis Delimiter-Fix 2026-09-24)
+    - 15 Felder, Unit-Separator (heutiges Schema)
+    """
+    base = _payload_fields(row, previous_hash)
     ip = str(row.ip_address or "")
     tenant = str(row.tenant_id or "")
     return [
@@ -384,11 +380,73 @@ def _legacy_payload_variants(row: AuditLog, previous_hash: str) -> list[str]:
     ]
 
 
-def _legacy_row_matches(row: AuditLog, previous_hash: str) -> bool:
-    return any(
-        hashlib.sha256(variant.encode("utf-8")).hexdigest() == row.integrity_hash
-        for variant in _legacy_payload_variants(row, previous_hash)
-    )
+def _hash_status(row: AuditLog, previous_hash: str, *, formats: tuple[str, ...]) -> str | None:
+    """N-869-2 (Pruefrunde #869): Neuberechnung ueber die zulaessigen Formate.
+
+    Der '|'-Join ist nicht injektiv. Bisher galt eine Zeile als bestaetigt,
+    sobald IRGENDEINE Variante passte -- eine 15-Felder-Zeile passte so auch
+    zur 14-Felder-Variante, wenn ip_address='ip|tenant' und tenant_id=NULL
+    gesetzt wurde (Tenant-Zuordnung entfernt, Pruefer meldete "verified").
+    Eine Variante zaehlt jetzt nur, wenn
+    1. die Felder, die das Format nicht kennt, leer sind (13: ip_address und
+       tenant_id; 14: tenant_id),
+    2. created_at nicht vor der Einfuehrung des Formats liegt, und
+    3. bei '|'-Formaten kein Feldwert das Trennzeichen enthaelt -- sonst sind
+       die Feldgrenzen nicht beweisbar: Ergebnis 'ambiguous' (Befund, nicht
+       bestaetigt).
+
+    Rueckgabe: 'match', 'ambiguous' oder None (passt nicht).
+    """
+    base = _payload_fields(row, previous_hash)
+    ip = str(row.ip_address or "")
+    tenant = str(row.tenant_id or "")
+    created_at = str(row.created_at or "")
+    candidates = {
+        "pipe13": ("|", base, not ip and not tenant),
+        "pipe14": ("|", base + [ip], not tenant),
+        "pipe15": ("|", base + [ip, tenant], True),
+        "us15": ("\x1f", base + [ip, tenant], True),
+    }
+    ambiguous = False
+    for name in formats:
+        delimiter, fields, unknown_fields_empty = candidates[name]
+        if not unknown_fields_empty or created_at < _LEGACY_FORMAT_SINCE[name]:
+            continue
+        digest = hashlib.sha256(delimiter.join(fields).encode("utf-8")).hexdigest()
+        if digest != row.integrity_hash:
+            continue
+        if delimiter == "|" and any("|" in value for value in fields):
+            ambiguous = True
+            continue
+        return _MATCH
+    return _AMBIGUOUS if ambiguous else None
+
+
+def _row_hash_matches(row: AuditLog, previous_hash: str) -> bool:
+    """Ketten-Zeile: aktuelles Schema, Fallback auf das 15-Felder-'|'-Schema
+    (Kontrollrunde 2026-09-24: Zeilen aus der Zeit vor dem Delimiter-Fix
+    koennen wegen trg_audit_log_no_update nicht umgehasht werden). Der
+    Fallback gilt nur ohne '|' in den Feldwerten (N-869-2)."""
+    return _hash_status(row, previous_hash, formats=("us15", "pipe15")) == _MATCH
+
+
+_LEGACY_UNHASHED_PROTOCOL_TABLES = frozenset({"protocol_bausteine", "mandate_baustein_selections"})
+# routers/protocol_bausteine.py schrieb bis zur Kontrollrunde 2026-09-24 ohne
+# Hash (Fix 8818bc19/13ff5c74); danach entstehen dort keine solchen Zeilen.
+_LEGACY_UNHASHED_PROTOCOL_UNTIL = "2026-09-25T00:00:00"
+
+
+def _is_known_unhashed_legacy_writer(row: AuditLog) -> bool:
+    """Zeilen ohne Hash aus den zwei bekannten Schreibern an log() vorbei
+    (git-Historie: nur routers/system.py BACKFILL und routers/
+    protocol_bausteine.py). Grenze: eine gefaelschte Zeile, die genau dieses
+    Muster nachahmt, ist ohne Hash nicht von einer echten unterscheidbar."""
+    created_at = str(row.created_at or "")
+    if row.action == "BACKFILL" and row.table_name in _LEGACY_UNHASHED_BACKFILL_TABLES:
+        return not created_at.endswith("Z")
+    if row.table_name in _LEGACY_UNHASHED_PROTOCOL_TABLES:
+        return created_at < _LEGACY_UNHASHED_PROTOCOL_UNTIL
+    return False
 
 
 def _capped(values: list) -> list:
@@ -509,42 +567,58 @@ def verify_audit_legacy_rows(db: Session) -> dict:
     - verified: Hash passt mit dem unmittelbaren Vorgaenger (Inhalt UND
       Verkettung bestaetigt).
     - link_unconfirmed: Hash passt nur mit einem frueheren Vorgaenger
-      (Fenster _LEGACY_PREDECESSOR_WINDOW) oder mit leerem Vorgaenger. Der
-      Inhalt ist bestaetigt, die Verkettung nicht -- typische Ursache ist
-      die SEC-003-Gabelung (zwei gleichzeitige Schreiber lasen denselben
-      Vorgaenger). Hinweis, kein Integritaetsfehler.
-    - mismatch: Hash passt mit keinem Kandidaten -> Inhalt veraendert ODER
-      der unmittelbare Vorgaenger wurde entfernt (dessen Hash steckt in der
-      Payload und ist dann nicht mehr verfuegbar). Beides ist ein
-      Integritaetsfehler.
+      (Fenster _LEGACY_PREDECESSOR_WINDOW) oder mit leerem Vorgaenger --
+      typisch fuer die SEC-003-Gabelung. Hinweis, kein Integritaetsfehler.
+    - ambiguous (N-869-2): Hash passt nur ueber ein '|'-Format, in dem ein
+      Feldwert selbst ein '|' enthaelt -- die Feldgrenzen sind nicht
+      beweisbar (z.B. Tenant-Zuordnung per Feldverschiebung entfernt).
+      Befund.
+    - mismatch: Hash passt mit keinem zulaessigen Format/Kandidaten ->
+      Inhalt veraendert ODER der unmittelbare Vorgaenger wurde entfernt.
+      Befund.
 
-    Zeilen ohne integrity_hash (vor Einfuehrung des Hashes sowie BACKFILL-
-    Zeilen vor N-865-2) werden nur gezaehlt; sie sind nicht pruefbar.
+    Zeilen ohne integrity_hash: vor der ersten gehashten Zeile (Zeit vor dem
+    Hash) und aus den zwei bekannten Alt-Schreibern an log() vorbei
+    (_is_known_unhashed_legacy_writer) werden nur gezaehlt. Jede andere
+    Zeile ohne Hash NACH der ersten gehashten Zeile ist ein Befund
+    (unexpected_unhashed, N-869-2): eine eingefuegte Fremdzeile darf nicht
+    als blosser Hinweis durchgehen.
     """
     rows = db.query(AuditLog).filter(AuditLog.sequence.is_(None)).all()
     rows.sort(key=lambda r: (str(r.created_at or ""), str(r.id or "")))
+    formats = ("pipe13", "pipe14", "pipe15", "us15")
     unhashed = 0
     verified = 0
+    seen_hashed = False
     link_unconfirmed_ids: list[str] = []
+    ambiguous_ids: list[str] = []
     mismatch_ids: list[str] = []
+    unexpected_unhashed_ids: list[str] = []
     for index, row in enumerate(rows):
         if not row.integrity_hash:
             unhashed += 1
+            if seen_hashed and not _is_known_unhashed_legacy_writer(row):
+                unexpected_unhashed_ids.append(str(row.id))
             continue
+        seen_hashed = True
         direct_previous = str(rows[index - 1].integrity_hash or "") if index > 0 else ""
-        if _legacy_row_matches(row, direct_previous):
+        status = _hash_status(row, direct_previous, formats=formats)
+        if status == _MATCH:
             verified += 1
             continue
         candidates = [""] + [
             str(rows[j].integrity_hash or "")
             for j in range(max(0, index - 1 - _LEGACY_PREDECESSOR_WINDOW), index - 1)
         ]
-        if any(_legacy_row_matches(row, candidate) for candidate in candidates):
+        statuses = {status} | {_hash_status(row, c, formats=formats) for c in candidates}
+        if _MATCH in statuses:
             link_unconfirmed_ids.append(str(row.id))
+        elif _AMBIGUOUS in statuses:
+            ambiguous_ids.append(str(row.id))
         else:
             mismatch_ids.append(str(row.id))
     return {
-        "ok": not mismatch_ids,
+        "ok": not (mismatch_ids or ambiguous_ids or unexpected_unhashed_ids),
         "total": len(rows),
         "hashed": len(rows) - unhashed,
         "unhashed": unhashed,
@@ -553,6 +627,10 @@ def verify_audit_legacy_rows(db: Session) -> dict:
         "link_unconfirmed_ids": _capped(link_unconfirmed_ids),
         "mismatches": len(mismatch_ids),
         "mismatch_ids": _capped(mismatch_ids),
+        "ambiguous": len(ambiguous_ids),
+        "ambiguous_ids": _capped(ambiguous_ids),
+        "unexpected_unhashed": len(unexpected_unhashed_ids),
+        "unexpected_unhashed_ids": _capped(unexpected_unhashed_ids),
     }
 
 
@@ -621,11 +699,11 @@ def run_startup_audit_chain_check(
     if not report["ok"]:
         logger.critical(
             "AUDIT-LOG-INTEGRITAET VERLETZT: Kette ok=%s (geprueft=%s, Brueche=%s, Luecken=%s, "
-            "Duplikate=%s, Hash-Abweichungen=%s); Altzeilen ok=%s (Hash-Abweichungen=%s). "
-            "Details: GET /admin/system/audit-log/verify",
+            "Duplikate=%s, Hash-Abweichungen=%s); Altzeilen ok=%s (Hash-Abweichungen=%s, "
+            "mehrdeutig=%s, unerwartet ohne Hash=%s). Details: GET /admin/system/audit-log/verify",
             chain["ok"], chain["checked"], chain["break_count"], chain["gap_count"],
             chain["duplicate_count"], chain["hash_mismatch_count"],
-            legacy["ok"], legacy["mismatches"],
+            legacy["ok"], legacy["mismatches"], legacy["ambiguous"], legacy["unexpected_unhashed"],
         )
     elif legacy["link_unconfirmed"]:
         logger.warning(

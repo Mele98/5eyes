@@ -1590,6 +1590,13 @@ class AuditLegacySection(BaseModel):
     link_unconfirmed_ids: list[str]
     mismatches: int
     mismatch_ids: list[str]
+    # N-869-2: Hash nur ueber ein '|'-Format mit '|' im Feldwert bestaetigbar
+    # (Feldgrenzen nicht beweisbar) bzw. Zeile ohne Hash nach der ersten
+    # gehashten Zeile, die keinem bekannten Alt-Schreiber entspricht.
+    ambiguous: int
+    ambiguous_ids: list[str]
+    unexpected_unhashed: int
+    unexpected_unhashed_ids: list[str]
 
 
 class AuditChainVerification(BaseModel):
