@@ -11,6 +11,7 @@ Platzhalter -- und die Pruefung liess ihn durch.
 from __future__ import annotations
 
 import base64
+import re
 import sys
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def test_check_uses_the_same_derivation_as_tenant_crypto():
     """Drift-Schutz: Startpruefung und tenant_crypto teilen Ableitung und Konstanten."""
     assert tenant_crypto._KEK_KDF_SALT == config.TENANT_KEK_KDF_SALT
     assert tenant_crypto._KEK_KDF_ITERATIONS == config.TENANT_KEK_KDF_ITERATIONS
-    passphrase = "drift-schutz-passphrase"
+    passphrase = "drift-schutz-passphrase-fuer-den-vergleich-01"
     assert tenant_crypto._resolve_master_kek(passphrase) == config.effective_tenant_master_kek(
         passphrase.encode("utf-8")
     )
@@ -158,3 +159,97 @@ def re_hex(value: str) -> bool:
     import re
 
     return re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+# ---------------------------------------------------------------------------
+# N-870-4: Platzhalter aus Deploy-Vorlagen, Platzhalter-Muster, schwache
+# Passphrasen. Die Vorlagenwerte werden aus den Dateien abgeleitet, nicht
+# hart kodiert: eine neue oder geaenderte Vorlage wird automatisch geprueft.
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = BACKEND_ROOT.parent
+_TEMPLATE_LINE = re.compile(
+    r"^\s*(?:export\s+)?(TENANT_MASTER_KEK|SECRET_KEY|DB_KEY)\s*=\s*(.*?)\s*$"
+)
+_TEMPLATE_TEXT_SUFFIXES = {".md", ".ps1", ".sh", ".yml", ".yaml", ".txt", ".env"}
+
+
+def _is_template_file(path: Path) -> bool:
+    rel = path.relative_to(_REPO_ROOT).as_posix()
+    if "node_modules" in path.parts or ".git" in path.parts or "/tests/" in f"/{rel}":
+        return False
+    if path.name.endswith(".example"):
+        return True
+    if path.suffix not in _TEMPLATE_TEXT_SUFFIXES:
+        return False
+    return rel.startswith(("docs/deploy/", "docs/deployment/")) or path.parent == _REPO_ROOT / "docs"
+
+
+def _template_values() -> list[tuple[str, str, str]]:
+    found = []
+    for path in sorted(_REPO_ROOT.rglob("*")):
+        if not path.is_file() or not _is_template_file(path):
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            match = _TEMPLATE_LINE.match(line)
+            if match:
+                value = match.group(2).strip().strip("'\"")
+                found.append((f"{path.relative_to(_REPO_ROOT).as_posix()}:{lineno}", match.group(1), value))
+    return found
+
+
+def test_template_scan_finds_the_known_templates():
+    sources = {src.split(":", 1)[0] for src, _, _ in _template_values()}
+    assert {
+        "ares-backend/.env.example",
+        "docs/deploy/.env.staging.example",
+        "docs/deployment/tier1-self-hosted.md",
+    } <= sources
+
+
+@pytest.mark.parametrize("source,key,value", _template_values(), ids=lambda v: str(v)[:60])
+def test_every_template_placeholder_is_rejected_as_kek(source, key, value):
+    """Jeder Wert von TENANT_MASTER_KEK, SECRET_KEY oder DB_KEY in einer
+    Deploy-Vorlage wird als Master-KEK abgelehnt, ohne Ausgabe des Werts."""
+    problem = tenant_master_kek_problem(value)
+    assert problem is not None, f"{source} ({key}) waere als KEK akzeptiert"
+    if value.strip():
+        assert value not in problem
+
+
+@pytest.mark.parametrize("value", [
+    "__IRGENDWAS_EINSETZEN_BITTE_LANG_GENUG__",
+    "<hier-den-echten-schluessel-eintragen-0123456789>",
+    "please-changeme-before-going-live-0123456789",
+    "please-change_me-before-going-live-0123456789",
+    "replace-with-a-real-secret-before-deploy-0123",
+    "bitte-einen-echten-schluessel-setzen-0123456789",
+    "this-is-only-an-example-value-0123456789abcdef",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+])
+def test_obvious_placeholder_patterns_are_rejected(value):
+    problem = tenant_master_kek_problem(value)
+    assert problem is not None and value not in problem
+
+
+@pytest.mark.parametrize("value", [
+    "kurz-aber-zufaellig-9f3K",                 # zu kurz
+    "abababababababababababababababababab",     # lang, aber zu wenig Vielfalt
+])
+def test_weak_passphrases_are_rejected(value):
+    problem = tenant_master_kek_problem(value)
+    assert problem is not None and "zu schwach" in problem and value not in problem
+
+
+def test_strong_passphrase_and_fernet_keys_are_accepted():
+    """Gegenprobe: Muster und Laengenregel gelten nur fuer Passphrasen; ein
+    gueltiger Fernet-Key wird nicht auf Muster geprueft (zufaelliges Base64
+    darf z. B. "xxx" enthalten)."""
+    from cryptography.fernet import Fernet
+
+    assert tenant_master_kek_problem("k9#Lr2!vQz7@Tm4$Wp8^Nd1&Hs6*Yb3%") is None
+    raw =base64.urlsafe_b64encode(b"\xc7\x1c\x71" + bytes(range(1, 30))).decode("ascii")
+    assert raw.lower().startswith("xxx")
+    assert tenant_master_kek_problem(raw) is None
+    for _ in range(50):
+        assert tenant_master_kek_problem(Fernet.generate_key().decode("ascii")) is None

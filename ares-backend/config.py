@@ -1082,6 +1082,38 @@ _KNOWN_PUBLIC_KEK_MATERIAL_SHA256 = frozenset({
 })
 
 
+# N-870-4 (2026-11-05): Platzhalter aus Deploy-Vorlagen und schwache
+# Passphrasen. Die Vorlagenwerte (``*.example``, Deploy-Doku) leitet
+# tests/test_kek_placeholder_derived.py aus den Dateien ab und verlangt fuer
+# jeden die Ablehnung; die Liste hier ist nur der bekannte Bestand.
+KNOWN_TEMPLATE_KEK_PLACEHOLDERS = frozenset({
+    DEFAULT_SECRET_KEY,
+    "__BITTE_ERSETZEN__",
+})
+# Offensichtliche Platzhalter-Muster (Gross/Klein egal). Gelten nur fuer
+# Passphrasen, nicht fuer gueltige Fernet-Keys: deren zufaelliges Base64 kann
+# eine Folge wie "xxx" zufaellig enthalten.
+_KEK_PLACEHOLDER_PATTERNS = (
+    re.compile(r"^__.*__$", re.DOTALL),
+    re.compile(r"^<.*>$", re.DOTALL),
+    re.compile(r"change[\W_]*me", re.IGNORECASE),
+    re.compile(r"replace", re.IGNORECASE),
+    re.compile(r"ersetzen", re.IGNORECASE),
+    re.compile(r"bitte", re.IGNORECASE),
+    re.compile(r"example", re.IGNORECASE),
+    re.compile(r"placeholder", re.IGNORECASE),
+    re.compile(r"xxx", re.IGNORECASE),
+)
+# Mindestlaenge wie die bestehende SECRET_KEY-Regel fuer staging/production
+# (32 Zeichen); dazu eine einfache Vielfaltsschranke gegen "aaaa...".
+MIN_KEK_PASSPHRASE_LENGTH = 32
+MIN_KEK_PASSPHRASE_DISTINCT_CHARS = 10
+
+
+def _is_fernet_key(value: str) -> bool:
+    return effective_tenant_master_kek(value.encode("utf-8")) == value.encode("utf-8")
+
+
 def _kek_key_material(value: str) -> bytes:
     """32 Byte Schluesselmaterial nach der tenant_crypto-Ableitung. Vergleicht
     das Material statt der Zeichenkette: urlsafe_b64decode ueberliest fremde
@@ -1106,6 +1138,27 @@ def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = ""
             "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
             "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
         )
+    if value.strip() in KNOWN_TEMPLATE_KEK_PLACEHOLDERS:
+        return (
+            "TENANT_MASTER_KEK ist ein Platzhalter aus einer Deploy-Vorlage und "
+            "damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if not _is_fernet_key(value):
+        if any(p.search(value.strip()) for p in _KEK_PLACEHOLDER_PATTERNS):
+            return (
+                "TENANT_MASTER_KEK sieht nach einem Platzhalter aus (Vorlagen-Muster) "
+                "und wird nicht als Schluessel akzeptiert. Einen eigenen Fernet-Key setzen."
+            )
+        if (
+            len(value) < MIN_KEK_PASSPHRASE_LENGTH
+            or len(set(value)) < MIN_KEK_PASSPHRASE_DISTINCT_CHARS
+        ):
+            return (
+                "TENANT_MASTER_KEK ist als Passphrase zu schwach (mindestens "
+                f"{MIN_KEK_PASSPHRASE_LENGTH} Zeichen und "
+                f"{MIN_KEK_PASSPHRASE_DISTINCT_CHARS} verschiedene Zeichen). "
+                "Besser einen Fernet-Key setzen."
+            )
     # SEED-FK-HYGIENE / H-129 Teil C (2026-11-05): auch einen aus dem Platzhalter
     # (bzw. aus SECRET_KEY) ABGELEITETEN Wert ablehnen -- etwa den Fernet-Key,
     # den tenant_crypto aus dem Platzhalter erzeugt. Verglichen wird nach
