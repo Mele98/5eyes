@@ -97,7 +97,10 @@ def test_portfolio_refresh_regenerates_missing_current_recommendation():
     )[0]
 
     assert "function allocationPreferencesFromStoredAllocation(result)" in html
-    assert "if(!recommendation){" in refresh_block
+    # Live-Test 2026-11 H4: nicht nur bei fehlender Empfehlung, sondern bei
+    # jedem nicht freigegebenen Vorschlag wird echt neu generiert
+    # (Verhalten: tests/test_livetest_h4_portfolio_generate_really_regenerates.py).
+    assert "if(!keptReleased){" in refresh_block
     assert "/recommendations/generate" in refresh_block
     assert "target_allocation_id:allocationId" in refresh_block
     assert "applyRecommendationEngineResult(recommendation)" in refresh_block
@@ -163,7 +166,9 @@ def test_allocation_donut_legend_uses_bucket_target_amounts():
 
     assert "chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)" in apply_block
     assert "var targetChf=Number(r.chfTarget||0);" in legend_block
-    assert "if(!(targetChf>0))targetChf=Math.round(TOTAL*Number(r.soll||0)/100)" in legend_block
+    # Live-Test 2026-11 H2: Rueckfall auf der Strategiebasis (nicht auf dem
+    # vollen Beratungsvermoegen inkl. ausserhalb gehaltener Reserve).
+    assert "if(!(targetChf>0))targetChf=Math.round((_rb.strategyBaseRappen/100)*Number(r.soll||0)/100)" in legend_block
 
 
 def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():

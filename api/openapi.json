@@ -15859,6 +15859,18 @@
             ],
             "title": "Isin"
           },
+          "mandate_disclosed_other_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Einmalig oder ohne Frequenz offengelegter Mandatsbetrag (anteilig); deckt die jaehrliche Retrozession nicht und gilt nicht als aufgeklaert (N-861-8)",
+            "title": "Mandate Disclosed Other Rappen"
+          },
           "mandate_disclosed_rappen": {
             "anyOf": [
               {

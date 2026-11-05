@@ -10187,6 +10187,11 @@ export interface components {
             /** Isin */
             isin?: string | null;
             /**
+             * Mandate Disclosed Other Rappen
+             * @description Einmalig oder ohne Frequenz offengelegter Mandatsbetrag (anteilig); deckt die jaehrliche Retrozession nicht und gilt nicht als aufgeklaert (N-861-8)
+             */
+            mandate_disclosed_other_rappen?: number | null;
+            /**
              * Mandate Disclosed Rappen
              * @description Anteil des im Mandat aufgeklaerten (offengelegten) Betrags
              */

@@ -112,7 +112,9 @@ def make_sollist_kennzahlen_table(
         Paragraph(_esc(format_bps_as_pct(current_cagr_bps, decimals=2)), cell_style),
     ])
     rows.append([
-        Paragraph(_esc("Volatilität (1 Jahr)"), cell_style),
+        # Live-Test 2026-11 M8: in der Monte-Carlo-Simulation realisiert (nicht
+        # die Modell-Volatilitaet der Kennzahlen-Kachel).
+        Paragraph(_esc("Volatilität 1 Jahr (simuliert)"), cell_style),
         Paragraph(_esc(format_bps_as_pct(target_volatility_1y_bps, decimals=2)), cell_style),
         Paragraph(_esc(format_bps_as_pct(current_volatility_1y_bps, decimals=2)), cell_style),
     ])

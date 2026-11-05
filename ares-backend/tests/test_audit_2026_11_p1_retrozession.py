@@ -301,12 +301,33 @@ def test_small_waiver_does_not_cover_large_product_retrocessions():
     assert all(i["included_in_total"] is False and i["requires_resolution"] for i in rest)
 
 
-def test_full_waiver_within_tolerance_covers_all_products_of_provider():
+def test_waiver_below_estimate_is_never_covered_no_tolerance():
+    """N-861-7 (BGE 137 III 393): keine Toleranz nach oben. Verzicht CHF 460
+    bei geschaetzt CHF 500 -> partially_covered, CHF 40 ungeregelt, Warnung;
+    der aufgeklaerte Betrag bleibt CHF 460 (nie auf die Schaetzung gesetzt)."""
+    products = [_product("Fonds A", rate=50, amount=10_000_000)]  # CHF 500
+    payload = _calc(products, inducements=[_entry(46_000)])
+    retro = payload["product_retrocessions"]
+    line = retro["lines"][0]
+    assert line["treatment"] == "partially_covered"
+    assert line["unresolved_rappen"] == 4_000
+    assert line["mandate_disclosed_rappen"] == 46_000
+    assert line["mandate_resolved_rappen"] == 46_000
+    assert retro["complete"] is False and payload["is_complete"] is False
+    assert any("nur CHF 460.00 von geschätzt CHF 500.00" in w for w in payload["warnings"]), payload["warnings"]
+    rest = [i for i in payload["cost_items"] if i["key"] == "retrocession_product"]
+    assert [i["amount_rappen"] for i in rest] == [4_000]
+    text = _pdf_text(payload)
+    assert "aufgeklärt CHF 460" in text and "aufgeklärt CHF 500" not in text
+
+
+def test_exact_waiver_covers_all_products_of_provider():
     products = [_product("Fonds A", rate=50, amount=10_000_000), _product("Fonds B", rate=100, amount=10_000_000)]
-    payload = _calc(products, inducements=[_entry(140_000)])  # 1'400 vs 1'500 -> innerhalb 10 %
+    payload = _calc(products, inducements=[_entry(150_000)])  # genau CHF 1'500
     retro = payload["product_retrocessions"]
     assert retro["complete"] is True
     assert {line["treatment"] for line in retro["lines"]} == {"waiver_documented"}
+    assert all(line["unresolved_rappen"] == 0 for line in retro["lines"])
     assert not [i for i in payload["cost_items"] if i["key"] == "retrocession_product"]
 
 
@@ -325,7 +346,13 @@ def test_non_annual_mandate_amount_does_not_cover_annual_retrocession():
     payload = _calc(products, inducements=[_entry(100_000, frequency="einmalig")])
     line = payload["product_retrocessions"]["lines"][0]
     assert line["treatment"] == "unresolved" and line["requires_resolution"] is True
-    assert line["mandate_disclosed_rappen"] == 100_000  # offengelegt, aber nicht geregelt
+    # N-861-8: einmalig offengelegt ist keine Aufklaerung der jaehrlichen Retro
+    assert line["mandate_disclosed_rappen"] == 0
+    assert line["mandate_disclosed_other_rappen"] == 100_000
+    assert line["undisclosed_rappen"] == 100_000
+    text = _pdf_text(payload)
+    assert "offengelegt (einmalig bzw. ohne Frequenz) CHF 1'000, deckt die jährliche Retrozession nicht" in text
+    assert "aufgeklärt" not in text.split("Fonds A", 1)[1].split("Art. 26", 1)[0]
 
 
 def test_product_bound_entry_wins_over_provider_and_covers_only_its_product():
@@ -414,3 +441,14 @@ def test_ui_module_has_no_dead_module_reference_and_labels_amounts():
     module = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "product-master-data.js").read_text(encoding="utf-8")
     assert "services/retrocession_disclosure.py" not in module
     assert "' / aufgeklärt '" in module and "'geschätzt '" in module
+
+
+def test_two_waivers_in_same_pot_are_summed():
+    """N-861-8 / Gegenprobe M1: zwei Verzichte desselben Anbieters (gleicher
+    Topf) werden summiert -- 2 x CHF 500 decken geschaetzt CHF 1'000."""
+    products = [_product("Fonds A", rate=100, amount=10_000_000)]  # CHF 1'000
+    payload = _calc(products, inducements=[_entry(50_000), _entry(50_000)])
+    line = payload["product_retrocessions"]["lines"][0]
+    assert line["treatment"] == "waiver_documented"
+    assert line["mandate_resolved_rappen"] == 100_000 and line["unresolved_rappen"] == 0
+    assert payload["product_retrocessions"]["complete"] is True

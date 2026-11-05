@@ -2662,12 +2662,21 @@ def download_products_csv_template(
 _CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
 
+def _csv_needs_escape(value: str) -> bool:
+    """Trigger am Anfang -- oder bereits ein ' vor einem (rekursiv) zu
+    schuetzenden Wert. N-861-10: so bleibt auch ein Originalwert wie
+    "'=x" beim Export -> Import verlustfrei ("''=x" -> "'=x")."""
+    if value.startswith(_CSV_FORMULA_TRIGGERS):
+        return True
+    return value.startswith("'") and _csv_needs_escape(value[1:])
+
+
 def _csv_safe_cell(value: str) -> str:
-    return "'" + value if value.startswith(_CSV_FORMULA_TRIGGERS) else value
+    return "'" + value if _csv_needs_escape(value) else value
 
 
 def _csv_unescape_cell(value: str) -> str:
-    if len(value) > 1 and value[0] == "'" and value[1:].startswith(_CSV_FORMULA_TRIGGERS):
+    if value.startswith("'") and _csv_needs_escape(value[1:]):
         return value[1:]
     return value
 

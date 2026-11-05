@@ -10,6 +10,12 @@ N-861-5 (Pruefrunde #861): zusaetzlich ein Byte-Budget. Das Zeilen-Budget
 allein liess sich umgehen, indem Code an bestehende Zeilen angehaengt wird.
 Gemessen mit LF-Zeilenenden (eine CRLF-Arbeitskopie zaehlt gleich). Grenze =
 Stand beim Einfuehren, Toleranz 0, ebenfalls nur sinkend.
+
+N-861-9: 1908660 = gemessener gemeinsamer Stand nach dem Merge von #858
+(r5/livetest-fixes, enthaelt #853) in #861 (Merge-Reihenfolge #858 -> #861).
+Kein Anheben gegenueber einem gemergten Stand: das Budget existierte nur auf
+#861 (1902644), #858 brachte seine geprueften Live-Test-Fixes (+6016 Bytes)
+ohne Byte-Budget mit; beide Staende werden hier zusammengefuehrt.
 """
 from __future__ import annotations
 
@@ -20,7 +26,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 31195
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1902644
+MONOLITH_MAX_BYTES = 1908660
 TOLERANCE_BYTES = 0
 
 
