@@ -6,7 +6,7 @@
 
 ## Kontext
 
-Das 5eyes-Repository hat **mehrere parallele Surfaces** die das gleiche
+Das Ares-Repository hat **mehrere parallele Surfaces** die das gleiche
 Wissen ausdrücken müssen:
 
 - Backend-Aggregator (`compute_advisory_report()`) → liefert 23 Sektionen

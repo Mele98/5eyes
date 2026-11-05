@@ -309,6 +309,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/system/audit-log/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Audit Log Chain
+         * @description H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.
+         *
+         *     verify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht
+         *     umfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,
+         *     Duplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen
+         *     ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
+         *     keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
+         *     require_audit_chain_verifier (siehe services/auth.py).
+         *
+         *     N-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne
+         *     Bypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-
+         *     Admin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im
+         *     expliziten Operator-Bypass; zugelassen sind nur die Rollen aus
+         *     require_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.
+         */
+        get: operations["verify_audit_log_chain_admin_system_audit_log_verify_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/system/backups": {
         parameters: {
             query?: never;
@@ -5665,6 +5698,99 @@ export interface components {
             risky_fraction_bps: number;
             /** Target Weight Bps */
             target_weight_bps: number;
+        };
+        /** AuditChainGap */
+        AuditChainGap: {
+            /** From Sequence */
+            from_sequence: number;
+            /** To Sequence */
+            to_sequence: number;
+        };
+        /** AuditChainSection */
+        AuditChainSection: {
+            /** Ambiguous */
+            ambiguous: number[];
+            /** Ambiguous Count */
+            ambiguous_count: number;
+            /** Break Count */
+            break_count: number;
+            /** Breaks */
+            breaks: number[];
+            /** Checked */
+            checked: number;
+            /** Counter Value */
+            counter_value?: number | null;
+            /** Duplicate Count */
+            duplicate_count: number;
+            /** Duplicates */
+            duplicates: number[];
+            /** Gap Count */
+            gap_count: number;
+            /** Gaps */
+            gaps: components["schemas"]["AuditChainGap"][];
+            /** Hash Mismatch Count */
+            hash_mismatch_count: number;
+            /** Hash Mismatches */
+            hash_mismatches: number[];
+            /** Last Sequence */
+            last_sequence: number;
+            /** Ok */
+            ok: boolean;
+        };
+        /** AuditChainVerification */
+        AuditChainVerification: {
+            chain: components["schemas"]["AuditChainSection"];
+            /** Checked At */
+            checked_at: string;
+            legacy: components["schemas"]["AuditLegacySection"];
+            /** Ok */
+            ok: boolean;
+        };
+        /** AuditLegacySection */
+        AuditLegacySection: {
+            /** Ambiguous */
+            ambiguous: number;
+            /** Ambiguous Ids */
+            ambiguous_ids: string[];
+            /** Field Shift */
+            field_shift: number;
+            /** Field Shift Ids */
+            field_shift_ids: string[];
+            /** Hashed */
+            hashed: number;
+            /** Link Unconfirmed */
+            link_unconfirmed: number;
+            /** Link Unconfirmed Ids */
+            link_unconfirmed_ids: string[];
+            /** Mismatch Ids */
+            mismatch_ids: string[];
+            /** Mismatches */
+            mismatches: number;
+            /** Ok */
+            ok: boolean;
+            /** Seal Count */
+            seal_count?: number | null;
+            /**
+             * Seal Missing
+             * @default false
+             */
+            seal_missing?: boolean;
+            /** Seal Ok */
+            seal_ok?: boolean | null;
+            /** Seal Present */
+            seal_present: boolean;
+            /** Seal Sequence */
+            seal_sequence?: number | null;
+            /** Total */
+            total: number;
+            /** Unexpected Unhashed */
+            unexpected_unhashed: number;
+            /** Unexpected Unhashed Ids */
+            unexpected_unhashed_ids: string[];
+            /** Unhashed */
+            unhashed: number;
+            /** Verified */
+            verified: number;
         };
         /** AuditLogEntry */
         AuditLogEntry: {
@@ -12457,6 +12583,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_audit_log_chain_admin_system_audit_log_verify_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditChainVerification"];
                 };
             };
         };

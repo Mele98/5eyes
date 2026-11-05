@@ -577,6 +577,13 @@ class AuditLogSequenceCounter(Base):
 
     id = Column(String, primary_key=True)
     value = Column(Integer, nullable=False, default=0)
+    # N-869-4 (Pruefrunde #869): integrity_hash des Eintrags mit sequence =
+    # value, atomar mit value fortgeschrieben (services/audit.py::log()).
+    # Damit braucht die Verkettung nie eine Lese-Abfrage auf audit_log --
+    # unter PostgreSQL-RLS waere der Vorgaenger eines anderen Tenants (oder
+    # ohne tenant_id) unsichtbar und previous_hash wurde ''. Diese Tabelle
+    # ist system_only (keine tenant_id, keine RLS-Policy).
+    last_hash = Column(String(64))
 
 
 class MandateReportNotes(Base):

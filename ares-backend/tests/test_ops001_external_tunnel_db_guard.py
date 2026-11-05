@@ -4,7 +4,7 @@
 docs/deploy/start-external.ps1 startet das Backend und oeffnet einen
 oeffentlichen Cloudflare-Quick-Tunnel darauf. Vor dem Fix zeigte das Skript
 ohne explizites DB_PATH implizit auf dieselbe Datei wie die normale
-Electron-Desktop-App (~\\5eyes\\5eyes.db) -- ALLOW_REAL_CLIENT_DATA=false
+Electron-Desktop-App (~\\ares\\ares.db) -- ALLOW_REAL_CLIENT_DATA=false
 blockt dabei nur neue, selbst-klassifizierte "real"-Schreibzugriffe
 (services/data_classification.py::enforce_data_classification), NICHT
 Lesezugriffe auf bereits vorhandene echte Mandantendaten. Ein Fehlgriff

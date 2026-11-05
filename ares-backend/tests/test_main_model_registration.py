@@ -33,7 +33,20 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf7523653a10377b3"
-GOLDEN_OPENAPI_SHA256 = "8aebdaead713b4af5daadda6380f0fb3ef33a3d878a7e39b5f8873e611ddbbb5"
+# N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
+# und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
+# AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
+# geaendert (Feld-Diff von api/openapi.json, vom Pruefer bestaetigt).
+# N-869-2: AuditLegacySection + ambiguous/ambiguous_ids/unexpected_unhashed/
+# unexpected_unhashed_ids (nur dieses Schema, Feld-Diff geprueft).
+# N-869-4: nur die description von GET /admin/system/audit-log/verify
+# (Docstring: Operator-Bypass unter PG-RLS), Feld-Diff geprueft.
+# N-869-6: AuditChainSection + ambiguous/ambiguous_count, AuditLegacySection
+# + field_shift/field_shift_ids (nur additiv, Feld-Diff geprueft).
+# Bestandssiegel: AuditLegacySection + seal_present/seal_ok/seal_sequence/
+# seal_count (nur additiv, Feld-Diff geprueft).
+# N-869-8: AuditLegacySection + seal_missing (nur additiv, Feld-Diff geprueft).
+GOLDEN_OPENAPI_SHA256 = "edfe28f5e392f35d85374690eeb71671c85705f42987b9145248848438031c2f"
 
 _PROBE = """
 import hashlib, json

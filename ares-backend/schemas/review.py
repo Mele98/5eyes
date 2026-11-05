@@ -1557,6 +1557,72 @@ class AuditLogPage(BaseModel):
     entries: list[AuditLogEntry]
 
 
+# H-865-2 (Pruefrunde #865): Ergebnis der Audit-Log-Kettenpruefung
+# (GET /admin/system/audit-log/verify). Bewusst nur Zaehler, Sequenznummern
+# und Zeilen-IDs -- keine Inhalte (Namen, Werte, IPs) der Eintraege.
+class AuditChainGap(BaseModel):
+    from_sequence: int
+    to_sequence: int
+
+
+class AuditChainSection(BaseModel):
+    ok: bool
+    checked: int
+    last_sequence: int
+    counter_value: Optional[int] = None
+    break_count: int
+    breaks: list[int]
+    gap_count: int
+    gaps: list[AuditChainGap]
+    duplicate_count: int
+    duplicates: list[int]
+    hash_mismatch_count: int
+    hash_mismatches: list[int]
+    # N-869-6: '|'-Zeilen mit '|' im Feldwert ohne Hinweis auf Verschiebung
+    # (Hinweis, kein Fehler).
+    ambiguous_count: int
+    ambiguous: list[int]
+
+
+class AuditLegacySection(BaseModel):
+    ok: bool
+    total: int
+    hashed: int
+    unhashed: int
+    verified: int
+    link_unconfirmed: int
+    link_unconfirmed_ids: list[str]
+    mismatches: int
+    mismatch_ids: list[str]
+    # N-869-2/N-869-6: ambiguous = '|' im Feldwert, Feldgrenzen nicht
+    # beweisbar, aber keine Verschiebung erkennbar (Hinweis); unexpected_
+    # unhashed = Zeile ohne Hash nach der ersten
+    # gehashten Zeile, die keinem bekannten Alt-Schreiber entspricht.
+    ambiguous: int
+    ambiguous_ids: list[str]
+    # N-869-6: Gegenprobe ueber die Feldgrenzen fand eine saubere Lesart mit
+    # anderen Feldwerten (Befund).
+    field_shift: int
+    field_shift_ids: list[str]
+    unexpected_unhashed: int
+    unexpected_unhashed_ids: list[str]
+    # Bestandssiegel (#869): verketteter Eintrag ueber den Altbestand; seal_ok
+    # None = kein Siegel vorhanden, False = Altbestand weicht ab (Befund).
+    seal_present: bool
+    seal_ok: Optional[bool] = None
+    seal_sequence: Optional[int] = None
+    seal_count: Optional[int] = None
+    # N-869-8: Altzeilen vorhanden, aber (noch) kein Siegel -- Hinweis.
+    seal_missing: bool = False
+
+
+class AuditChainVerification(BaseModel):
+    ok: bool
+    checked_at: str
+    chain: AuditChainSection
+    legacy: AuditLegacySection
+
+
 # ---------------------------------------------------------------------------
 # Sprint U-P28: Berater-Overrides für den Advisory-Report.
 #

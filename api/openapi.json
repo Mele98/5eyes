@@ -1940,6 +1940,290 @@
         "title": "AssetClassAssumptionResponse",
         "type": "object"
       },
+      "AuditChainGap": {
+        "properties": {
+          "from_sequence": {
+            "title": "From Sequence",
+            "type": "integer"
+          },
+          "to_sequence": {
+            "title": "To Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_sequence",
+          "to_sequence"
+        ],
+        "title": "AuditChainGap",
+        "type": "object"
+      },
+      "AuditChainSection": {
+        "properties": {
+          "ambiguous": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ambiguous",
+            "type": "array"
+          },
+          "ambiguous_count": {
+            "title": "Ambiguous Count",
+            "type": "integer"
+          },
+          "break_count": {
+            "title": "Break Count",
+            "type": "integer"
+          },
+          "breaks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Breaks",
+            "type": "array"
+          },
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "counter_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counter Value"
+          },
+          "duplicate_count": {
+            "title": "Duplicate Count",
+            "type": "integer"
+          },
+          "duplicates": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Duplicates",
+            "type": "array"
+          },
+          "gap_count": {
+            "title": "Gap Count",
+            "type": "integer"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/AuditChainGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "hash_mismatch_count": {
+            "title": "Hash Mismatch Count",
+            "type": "integer"
+          },
+          "hash_mismatches": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Hash Mismatches",
+            "type": "array"
+          },
+          "last_sequence": {
+            "title": "Last Sequence",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "checked",
+          "last_sequence",
+          "break_count",
+          "breaks",
+          "gap_count",
+          "gaps",
+          "duplicate_count",
+          "duplicates",
+          "hash_mismatch_count",
+          "hash_mismatches",
+          "ambiguous_count",
+          "ambiguous"
+        ],
+        "title": "AuditChainSection",
+        "type": "object"
+      },
+      "AuditChainVerification": {
+        "properties": {
+          "chain": {
+            "$ref": "#/components/schemas/AuditChainSection"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "legacy": {
+            "$ref": "#/components/schemas/AuditLegacySection"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "checked_at",
+          "chain",
+          "legacy"
+        ],
+        "title": "AuditChainVerification",
+        "type": "object"
+      },
+      "AuditLegacySection": {
+        "properties": {
+          "ambiguous": {
+            "title": "Ambiguous",
+            "type": "integer"
+          },
+          "ambiguous_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ambiguous Ids",
+            "type": "array"
+          },
+          "field_shift": {
+            "title": "Field Shift",
+            "type": "integer"
+          },
+          "field_shift_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Shift Ids",
+            "type": "array"
+          },
+          "hashed": {
+            "title": "Hashed",
+            "type": "integer"
+          },
+          "link_unconfirmed": {
+            "title": "Link Unconfirmed",
+            "type": "integer"
+          },
+          "link_unconfirmed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Link Unconfirmed Ids",
+            "type": "array"
+          },
+          "mismatch_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mismatch Ids",
+            "type": "array"
+          },
+          "mismatches": {
+            "title": "Mismatches",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "seal_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Count"
+          },
+          "seal_missing": {
+            "default": false,
+            "title": "Seal Missing",
+            "type": "boolean"
+          },
+          "seal_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Ok"
+          },
+          "seal_present": {
+            "title": "Seal Present",
+            "type": "boolean"
+          },
+          "seal_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Sequence"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unexpected_unhashed": {
+            "title": "Unexpected Unhashed",
+            "type": "integer"
+          },
+          "unexpected_unhashed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unexpected Unhashed Ids",
+            "type": "array"
+          },
+          "unhashed": {
+            "title": "Unhashed",
+            "type": "integer"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "total",
+          "hashed",
+          "unhashed",
+          "verified",
+          "link_unconfirmed",
+          "link_unconfirmed_ids",
+          "mismatches",
+          "mismatch_ids",
+          "ambiguous",
+          "ambiguous_ids",
+          "field_shift",
+          "field_shift_ids",
+          "unexpected_unhashed",
+          "unexpected_unhashed_ids",
+          "seal_present"
+        ],
+        "title": "AuditLegacySection",
+        "type": "object"
+      },
       "AuditLogEntry": {
         "properties": {
           "action": {
@@ -24359,6 +24643,33 @@
           }
         ],
         "summary": "Get Audit Log",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/admin/system/audit-log/verify": {
+      "get": {
+        "description": "H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.\n\nverify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht\numfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,\nDuplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen\nohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,\nkeine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher\nrequire_audit_chain_verifier (siehe services/auth.py).\n\nN-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne\nBypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-\nAdmin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im\nexpliziten Operator-Bypass; zugelassen sind nur die Rollen aus\nrequire_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.",
+        "operationId": "verify_audit_log_chain_admin_system_audit_log_verify_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditChainVerification"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Audit Log Chain",
         "tags": [
           "System"
         ]
