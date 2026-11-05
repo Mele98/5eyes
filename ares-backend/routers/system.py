@@ -12,12 +12,17 @@ from database import get_db
 from models.review import AuditLog
 from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
-from schemas.review import AuditLogEntry, AuditLogPage
-from services.audit import log as audit_log
+from schemas.review import AuditChainVerification, AuditLogEntry, AuditLogPage
+from services.audit import (
+    audit_log_integrity_report,
+    log as audit_log,
+    run_startup_audit_chain_check,  # noqa: F401 -- H-865-2, von main.lifespan genutzt
+)
 from services.auth import (
     require_admin,
     require_admin_or_platform_scope_for_global_reference_data,
     require_advisor,
+    require_audit_chain_verifier,
     require_super_admin,
     get_mandate_for_user_or_404,
 )
@@ -155,6 +160,23 @@ def get_audit_log(
         offset=offset,
         entries=entries,
     )
+
+
+@router.get('/audit-log/verify', response_model=AuditChainVerification)
+def verify_audit_log_chain(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_audit_chain_verifier),
+):
+    """H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.
+
+    verify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht
+    umfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,
+    Duplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen
+    ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
+    keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
+    require_audit_chain_verifier (siehe services/auth.py).
+    """
+    return audit_log_integrity_report(db)
 
 
 @router.get('/db/integrity')

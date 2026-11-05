@@ -64,7 +64,9 @@ from routers.review import (
 from routers.fx_rates import router as fx_rates_router
 from routers.pdf_reports import router as pdf_reports_router
 from routers.snapshots import router as snapshots_router
-from routers.system import router as system_router
+# H-865-2: Startpruefung der Audit-Kette ueber routers.system (das
+# services.audit bereits importiert) -- keine neue Modulkante fuer main.
+from routers.system import router as system_router, run_startup_audit_chain_check
 from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
 from routers.tax import router as tax_router
 from routers.wealth import router as wealth_router
@@ -132,6 +134,11 @@ async def lifespan(app: FastAPI):
             db.commit()
     except Exception as exc:  # noqa: BLE001 - reference seed must not stop boot
         logger.warning('Tax-Parameter-Seed skipped due to error: %s', exc)
+    # H-865-2 (Pruefrunde #865): leichte Startpruefung der Audit-Kette.
+    # Blockiert den Start bewusst NICHT (Verfuegbarkeit, Begruendung in
+    # services/audit.py::run_startup_audit_chain_check); ein Bruch wird als
+    # CRITICAL geloggt, Details ueber GET /admin/system/audit-log/verify.
+    run_startup_audit_chain_check()
     start_price_scheduler()
     start_backup_scheduler()
     try:

@@ -1557,6 +1557,48 @@ class AuditLogPage(BaseModel):
     entries: list[AuditLogEntry]
 
 
+# H-865-2 (Pruefrunde #865): Ergebnis der Audit-Log-Kettenpruefung
+# (GET /admin/system/audit-log/verify). Bewusst nur Zaehler, Sequenznummern
+# und Zeilen-IDs -- keine Inhalte (Namen, Werte, IPs) der Eintraege.
+class AuditChainGap(BaseModel):
+    from_sequence: int
+    to_sequence: int
+
+
+class AuditChainSection(BaseModel):
+    ok: bool
+    checked: int
+    last_sequence: int
+    counter_value: Optional[int] = None
+    break_count: int
+    breaks: list[int]
+    gap_count: int
+    gaps: list[AuditChainGap]
+    duplicate_count: int
+    duplicates: list[int]
+    hash_mismatch_count: int
+    hash_mismatches: list[int]
+
+
+class AuditLegacySection(BaseModel):
+    ok: bool
+    total: int
+    hashed: int
+    unhashed: int
+    verified: int
+    link_unconfirmed: int
+    link_unconfirmed_ids: list[str]
+    mismatches: int
+    mismatch_ids: list[str]
+
+
+class AuditChainVerification(BaseModel):
+    ok: bool
+    checked_at: str
+    chain: AuditChainSection
+    legacy: AuditLegacySection
+
+
 # ---------------------------------------------------------------------------
 # Sprint U-P28: Berater-Overrides für den Advisory-Report.
 #

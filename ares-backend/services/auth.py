@@ -405,6 +405,30 @@ def require_admin_or_platform_scope_for_global_reference_data(
     raise HTTPException(status_code=403, detail="Nur für Administratoren")
 
 
+def require_audit_chain_verifier(current_user: User = Depends(get_current_user)) -> User:
+    """H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs.
+
+    Es gibt EINE globale Kette ueber alle Tenants (Singleton-Zaehler). Der
+    Bericht enthaelt zwar keine Inhalte, aber Zaehler, Sequenznummern und
+    Zeilen-IDs ueber ALLE Tenants. Darum dieselbe Rollenlogik wie fuer
+    globale Referenzdaten (AUTH-TEN-06): super_admin immer; der firmen-
+    gebundene 'admin' nur, solange die Installation nicht mandantenfaehig
+    ist (Tier 1/3: er ist dort der Betreiber der ganzen Datenbank). In einer
+    Multi-Tenant-Installation (strict_tenant_isolation) bleibt die Pruefung
+    dem Plattformbetreiber vorbehalten. portfolio_management ist bewusst
+    NICHT zugelassen (keine Betriebs-/Revisionsrolle)."""
+    if current_user.role == "super_admin":
+        return current_user
+    if current_user.role == "admin":
+        if not _effective_strict_tenant_isolation(_config.settings):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail="Die Audit-Kettenpruefung umfasst alle Mandanten und erfordert Super-Admin.",
+        )
+    raise HTTPException(status_code=403, detail="Nur für Administratoren")
+
+
 def require_reference_data_reader(current_user: User = Depends(get_current_user)) -> User:
     """REF-READ-001 (Codex-Audit 2026-09-05): House-Matrix-, Optimizer-Policy-,
     Building-Block- und CMA-Referenzdaten (routers/allocation.py:
