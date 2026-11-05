@@ -45,7 +45,7 @@ _IN = ", ".join(f"'{c}'" for c in CODES)
 CHECK_SQL = (
     f"client_source_label IS NULL OR (client_source_label = source_type AND client_source_label IN ({_IN}))"
 )
-VIOLATIONS_SQL = f"SELECT id, source_type, client_source_label FROM {TABLE} WHERE NOT ({CHECK_SQL})"
+VIOLATIONS_SQL = f"SELECT id, source_type, client_source_label, status FROM {TABLE} WHERE NOT ({CHECK_SQL})"
 
 
 class ClientSourceLabelMigrationError(RuntimeError):
@@ -56,13 +56,31 @@ def _assert_no_violations() -> None:
     if getattr(op.get_context(), "as_sql", False):
         return  # Offline-DDL: in Postgres prueft ADD CONSTRAINT den Bestand.
     rows = op.get_bind().execute(sa.text(VIOLATIONS_SQL + " LIMIT 20")).fetchall()
-    if rows:
-        listed = ", ".join(f"{r[0]} ({r[1]} / {r[2]!r})" for r in rows)
-        raise ClientSourceLabelMigrationError(
-            "b4f8d0e2a6c3 abgebrochen: client_source_label ausserhalb des Katalogs oder abweichend "
-            f"vom Quellentyp bei {len(rows)} Nachweis(en): {listed}. Bitte bewusst und auditiert "
-            "bereinigen (Label auf den Quellentyp setzen oder leeren) und die Migration erneut starten."
+    if not rows:
+        return
+    listed = ", ".join(f"{r[0]} ({r[3]}: {r[1]} / {r[2]!r})" for r in rows)
+    drafts = [r for r in rows if r[3] == "draft"]
+    locked = [r for r in rows if r[3] != "draft"]
+    steps = []
+    if drafts:
+        steps.append(
+            "Entwuerfe: client_source_label auf den Quellentyp setzen oder leeren "
+            "(z. B. UPDATE product_sustainability_attributes SET client_source_label = NULL "
+            "WHERE status = 'draft' AND id IN (...)) oder den Entwurf loeschen."
         )
+    if locked:
+        steps.append(
+            "Freigegebene/zurueckgezogene Nachweise sind per Trigger unveraenderlich und "
+            "koennen nicht korrigiert werden. Entwicklungs-/Test-DB: neu aufsetzen (Datei bzw. "
+            "Schema loeschen und 'alembic upgrade head' erneut ausfuehren). Produktiv kann dieser "
+            "Fall nicht auftreten: das Feld entsteht erst in diesem Paket (f2d6b8c0e4a3) und die "
+            "API schreibt nur den aus dem Quellentyp abgeleiteten Wert; sonst nicht weiter "
+            "migrieren und den Betrieb informieren (keine Trigger-Aussetzung)."
+        )
+    raise ClientSourceLabelMigrationError(
+        "b4f8d0e2a6c3 abgebrochen: client_source_label ausserhalb des Katalogs oder abweichend "
+        f"vom Quellentyp bei {len(rows)} Nachweis(en): {listed}. " + " ".join(steps)
+    )
 
 
 def upgrade() -> None:

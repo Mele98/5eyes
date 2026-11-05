@@ -77,7 +77,11 @@ def test_n863_9_fail_closed_on_foreign_label_and_triggers_stay_intact(tmp_path):
     assert {"trg_psa_immutable_update", "trg_psa_immutable_delete"} <= before
     with pytest.raises(Exception, match="b4f8d0e2a6c3 abgebrochen") as excinfo:
         command.upgrade(cfg, REVISION)
-    assert "a (kid / 'Acme Ratings')" in str(excinfo.value) and "b (kid / 'fund_contract')" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "a (approved: kid / 'Acme Ratings')" in message and "b (approved: kid / 'fund_contract')" in message
+    # E-3: fuer freigegebene Nachweise eine ausfuehrbare Anweisung (neu aufsetzen), nicht "Label setzen"
+    assert "neu aufsetzen" in message and "unveraenderlich" in message
+    assert "Entwuerfe:" not in message
     assert _version(db) == DOWN_REVISION
     assert _triggers(db) == before
     with sqlite3.connect(str(db)) as conn:
@@ -137,3 +141,24 @@ def test_postgres_ddl_up_and_down():
     down = io.StringIO()
     command.downgrade(_cfg("postgresql://u:p@localhost/db", down), f"{REVISION}:{DOWN_REVISION}", sql=True)
     assert "DROP CONSTRAINT ck_psa_client_source_label" in down.getvalue()
+
+
+def test_e3_draft_violation_message_is_executable(tmp_path):
+    """E-3: fuer Entwuerfe nennt die Meldung die ausfuehrbare Korrektur; nach
+    deren Ausfuehrung laeuft die Migration durch."""
+    from alembic import command
+
+    db = tmp_path / "draft.db"
+    cfg = _cfg(f"sqlite:///{db}")
+    command.upgrade(cfg, DOWN_REVISION)
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute(_INSERT, ("d", "Acme Ratings", "2026-05-31", "draft", None, None))
+    with pytest.raises(Exception, match="Entwuerfe: client_source_label") as excinfo:
+        command.upgrade(cfg, REVISION)
+    assert "neu aufsetzen" not in str(excinfo.value)
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute("UPDATE product_sustainability_attributes SET client_source_label = NULL "
+                     "WHERE status = 'draft' AND id IN ('d')")
+    command.upgrade(cfg, REVISION)
+    assert _version(db) == REVISION
