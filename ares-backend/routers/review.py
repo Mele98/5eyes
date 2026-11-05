@@ -4478,7 +4478,14 @@ def reset_sustainability_standard_endpoint(
         db, tenant_id=tenant_id, category=category, actor_id=current_user.id, now=_now(),
     )
     default_label = f"default:{SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]}"
-    if row is not None and change != "unchanged":
+    if row is not None and change == "draft_withdrawn":
+        # E-2: ohne geltende Version zieht der Reset die offene Lockerung zurueck.
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
+            field_name=f"{category}.pending", old_value="draft", new_value="retired;mode=relaxation_withdrawn",
+            tenant_id=tenant_id)
+        db.commit()
+    elif row is not None and change != "unchanged":
         _log_standard_change(db, current_user, tenant_id, category, row.id, before, default_label, change)
         db.commit()
     elif row is not None:

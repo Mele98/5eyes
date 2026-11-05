@@ -757,6 +757,7 @@ def _current_standard(rows, category: str, at: str | None):
 STANDARD_CHANGE_TIGHTENING = "tightening"
 STANDARD_CHANGE_RELAXATION = "relaxation"
 STANDARD_CHANGE_UNCHANGED = "unchanged"
+STANDARD_DRAFT_WITHDRAWN = "draft_withdrawn"
 
 
 def _standard_state(current, category: str) -> tuple[int | None, bool]:
@@ -958,7 +959,14 @@ def reset_sustainability_standard(
     rows = _standard_rows(db, tenant_id)
     current = _current_standard(rows, category, None)
     if current is None:
-        return None, STANDARD_CHANGE_UNCHANGED
+        # E-2: ohne geltende Tenant-Version gilt bereits der Default; ein
+        # offener Lockerungs-Entwurf wird zurueckgezogen (Reset = Default).
+        pending = _pending_standard(rows, category)
+        if pending is None:
+            return None, STANDARD_CHANGE_UNCHANGED
+        _retire_standard(pending, actor_id, now)
+        db.flush()
+        return pending, STANDARD_DRAFT_WITHDRAWN
     default = SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]
     change = classify_standard_change(category, current, default, False)
     if change == STANDARD_CHANGE_RELAXATION:

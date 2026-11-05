@@ -981,3 +981,15 @@ def test_n863_7_parent_measurement_does_not_block_child_evidence(SF):
     _attr(SF, id="contro-policy", category="controversial_weapons", revenue=0)
     with SF() as s:
         assert is_criterion_satisfied(s, s.get(Product, "g1"), "controversial_weapons", 0, TODAY)
+
+
+def test_e2_delete_without_current_version_withdraws_pending_relaxation(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 900})
+    assert _std(client)["tobacco"]["pending"]["max_revenue_threshold_bps"] == 900
+    reset = client.delete("/products/sustainability/standards/tobacco")
+    item = {i["category"]: i for i in reset.json()["items"]}["tobacco"]
+    assert item["pending"] is None and item["effective_threshold_bps"] == 500
+    assert "mode=relaxation_withdrawn" in _std_audit(SF)[-1][1]
+    _as("admin-a2", "admin", "firm-a")
+    assert client.post("/products/sustainability/standards/tobacco/approve").status_code == 409
