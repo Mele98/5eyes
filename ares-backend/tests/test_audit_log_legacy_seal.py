@@ -212,3 +212,105 @@ def test_verifier_requires_matching_seal_scheme(session_local):
         s.commit()
         report = audit_log_integrity_report(s)
     assert report["legacy"]["seal_ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# N-869-9 (Delta 2 #869): Parallelstart schreibt nur EIN Siegel
+# ---------------------------------------------------------------------------
+
+def _file_db(tmp_path, name: str):
+    url = f"sqlite:///{tmp_path / name}"
+    engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
+    Base.metadata.create_all(bind=engine)
+    return url, engine
+
+
+def test_parallel_starts_write_exactly_one_seal(tmp_path, monkeypatch):
+    """Deterministischer Wettlauf: alle Starts passieren gemeinsam die
+    Vorpruefung "kein Siegel" (Barriere), erst dann wird geschrieben. Ohne
+    erneute Pruefung unter der Zaehler-Sperre schrieb jeder Start ein Siegel.
+    Ohne Unique-Index, damit allein die Sperre belegt ist."""
+    import threading
+
+    import services.audit as audit_service
+
+    url, engine = _file_db(tmp_path, "parallel.db")
+    _legacy_rows(sessionmaker(bind=engine, expire_on_commit=False))
+    workers = 4
+    barrier = threading.Barrier(workers)
+    seen = threading.local()
+    original = audit_service._legacy_seals
+
+    def _racing_legacy_seals(db):
+        result = original(db)
+        if not getattr(seen, "passed", False):
+            seen.passed = True
+            barrier.wait(timeout=20)
+        return result
+
+    monkeypatch.setattr(audit_service, "_legacy_seals", _racing_legacy_seals)
+    errors: list[BaseException] = []
+
+    def _start():
+        own = create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
+        try:
+            factory = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=own)
+            with factory() as db:
+                if audit_service.ensure_legacy_seal(db) is not None:
+                    db.commit()
+        except BaseException as exc:  # noqa: BLE001 -- im Haupt-Thread pruefen
+            errors.append(exc)
+        finally:
+            own.dispose()
+
+    threads = [threading.Thread(target=_start) for _ in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    monkeypatch.setattr(audit_service, "_legacy_seals", original)
+    assert not errors, errors
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as s:
+        seals = s.query(AuditLog).filter(AuditLog.field_name == LEGACY_SEAL_MARKER).all()
+        assert len(seals) == 1
+        assert verify_audit_chain(s)["ok"]
+        assert audit_log_integrity_report(s)["legacy"]["seal_ok"] is True
+    engine.dispose()
+
+
+def test_unique_index_rejects_a_second_seal(tmp_path):
+    from database import ensure_audit_log_indexes
+    from sqlalchemy.exc import IntegrityError
+
+    _url, engine = _file_db(tmp_path, "unique.db")
+    ensure_audit_log_indexes(engine)
+    factory = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+    _legacy_rows(factory)
+    assert run_startup_audit_chain_check(factory)["legacy"]["seal_ok"] is True
+    with factory() as s:
+        log(s, user_id="system", user_name="X", table_name="audit_log", record_id="legacy-seal",
+            action="CREATE", field_name=LEGACY_SEAL_MARKER, new_value="{}", tenant_id=None)
+        with pytest.raises(IntegrityError):
+            s.commit()
+    engine.dispose()
+
+
+def test_unique_index_with_existing_duplicates_is_critical_not_fatal(tmp_path, caplog):
+    from database import ensure_audit_log_indexes
+
+    _url, engine = _file_db(tmp_path, "dupes.db")
+    factory = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+    with factory() as s:
+        for n in range(2):
+            log(s, user_id="system", user_name="X", table_name="audit_log", record_id="legacy-seal",
+                action="CREATE", field_name=LEGACY_SEAL_MARKER, new_value=str(n), tenant_id=None)
+        s.commit()
+    with caplog.at_level(logging.WARNING, logger="database.audit_log"):
+        ensure_audit_log_indexes(engine)  # darf nicht werfen
+    assert any(r.levelno == logging.CRITICAL and "ux_audit_log_legacy_seal" in r.getMessage()
+               for r in caplog.records)
+    with engine.connect() as conn:
+        names = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='index'"))}
+    assert "idx_audit_sequence" in names and "ux_audit_log_legacy_seal" not in names
+    engine.dispose()

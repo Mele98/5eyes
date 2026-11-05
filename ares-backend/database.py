@@ -2052,6 +2052,16 @@ def ensure_snapshot_tables(target_engine: Engine | None = None) -> None:
         _seed_asset_class_returns(conn)
 
 
+# N-869-9: partieller Unique-Index -- hoechstens ein Bestandssiegel-Eintrag
+# (field_name='LEGACY_SEAL' auf table_name='audit_log', siehe services/audit.py).
+# Gleiche Anweisung in Alembic d3b7f1a5c9e2 (PostgreSQL).
+_LEGACY_SEAL_UNIQUE_INDEX_SQL = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_audit_log_legacy_seal "
+    "ON audit_log(field_name) "
+    "WHERE field_name = 'LEGACY_SEAL' AND table_name = 'audit_log'"
+)
+
+
 def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
     """Sprint U-38 (Roadmap-Punkt 38, 2026-06-01): idempotente Audit-Log-
     Indexes — inkl. neuer Composite-Index (mandate_id, table_name).
@@ -2108,6 +2118,20 @@ def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
             "CREATE INDEX IF NOT EXISTS idx_audit_sequence "
             "ON audit_log(sequence)"
         ))
+    # N-869-9 (Delta 2 #869): hoechstens EIN Bestandssiegel (zweite
+    # Verteidigungslinie neben der Sperre in services/audit.py::
+    # ensure_legacy_seal). Eigene Transaktion: liegen ausnahmsweise schon
+    # zwei Siegel vor, scheitert nur dieser Index -- laut (CRITICAL), ohne
+    # den Start zu blockieren; der Verifier prueft dann beide.
+    try:
+        with target_engine.begin() as conn:
+            conn.execute(text(_LEGACY_SEAL_UNIQUE_INDEX_SQL))
+    except Exception as exc:  # noqa: BLE001 -- Index darf den Boot nicht stoppen
+        _audit_log_logger.critical(
+            "Unique-Index ux_audit_log_legacy_seal nicht angelegt (%s) -- mehr als ein "
+            "Bestandssiegel vorhanden? Pruefung: GET /admin/system/audit-log/verify",
+            type(exc).__name__,
+        )
 
 
 PURGE_HISTORY_COLUMNS: tuple[str, ...] = (

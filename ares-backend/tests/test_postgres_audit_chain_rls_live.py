@@ -258,3 +258,84 @@ def test_legacy_seal_is_written_under_rls_with_bypass(rls_app):
                 "SELECT sequence FROM audit_log WHERE field_name = :m"
             ), {"m": LEGACY_SEAL_MARKER}).all()
     assert len(seals) == 1 and seals[0][0] == 7
+
+
+def test_parallel_starts_write_one_seal_under_rls(rls_app, monkeypatch):
+    """N-869-9 unter PG: alle Starts passieren gemeinsam die Vorpruefung,
+    die Zaehler-Sperre (Row-Lock) laesst nur einen das Siegel schreiben."""
+    import threading
+
+    import services.audit as audit_service
+    from services.tenant_context import operator_bypass
+
+    with rls_app() as s:
+        with operator_bypass(s):
+            s.execute(text(
+                "INSERT INTO audit_log (id, user_name, table_name, record_id, action, created_at)"
+                " VALUES ('L1', 'Alt', 'clients', 'c', 'UPDATE', '2026-03-01T00:00:00.000Z')"
+            ))
+            s.commit()
+    workers = 4
+    barrier = threading.Barrier(workers)
+    seen = threading.local()
+    original = audit_service._legacy_seals
+
+    def _racing(db):
+        result = original(db)
+        if not getattr(seen, "passed", False):
+            seen.passed = True
+            barrier.wait(timeout=20)
+        return result
+
+    monkeypatch.setattr(audit_service, "_legacy_seals", _racing)
+    errors: list[BaseException] = []
+
+    def _start():
+        try:
+            with rls_app() as db:
+                with operator_bypass(db):
+                    if audit_service.ensure_legacy_seal(db) is not None:
+                        db.commit()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_start) for _ in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    monkeypatch.setattr(audit_service, "_legacy_seals", original)
+    assert not errors, errors
+    with rls_app() as s:
+        with operator_bypass(s):
+            count = s.execute(text(
+                "SELECT COUNT(*) FROM audit_log WHERE field_name = 'LEGACY_SEAL'"
+            )).scalar_one()
+    assert count == 1
+
+
+def test_migration_unique_seal_index_up_down_up(pg_alembic):
+    from alembic import command
+    from alembic.script import ScriptDirectory
+
+    cfg, engine = pg_alembic
+    revision = "d3b7f1a5c9e2"
+    previous = ScriptDirectory(str(BACKEND_ROOT / "alembic")).get_revision(revision).down_revision
+
+    def _seal(n: int):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO audit_log (id, user_name, table_name, record_id, action, field_name,"
+                " created_at, sequence, integrity_hash, previous_hash)"
+                " VALUES (:id, 'System', 'audit_log', 'legacy-seal', 'CREATE', 'LEGACY_SEAL',"
+                " '2026-11-06T00:00:00Z', :s, :h, '')"
+            ), {"id": f"seal-{n}-{uuid.uuid4().hex[:6]}", "s": 100 + n, "h": f"{n:064d}"})
+
+    command.upgrade(cfg, revision)
+    _seal(1)
+    with pytest.raises(Exception, match="ux_audit_log_legacy_seal"):
+        _seal(2)
+    command.downgrade(cfg, previous)
+    _seal(3)  # ohne Index moeglich
+    with pytest.raises(Exception, match="ux_audit_log_legacy_seal"):
+        command.upgrade(cfg, "head")  # zwei Siegel vorhanden -> Index scheitert laut

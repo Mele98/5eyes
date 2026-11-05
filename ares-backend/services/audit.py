@@ -691,6 +691,21 @@ def ensure_legacy_seal(db: Session) -> dict | None:
     Aufrufer committet. Rueckgabe: der versiegelte Stand oder None."""
     if _legacy_seals(db):
         return None
+    # N-869-9 (Delta 2 #869): zwei gleichzeitige Starts durften beide "kein
+    # Siegel" sehen und je eines schreiben. Jetzt: die Zaehlerzeile sperren
+    # -- dieselbe Sperre, die log() bis zum Commit des Aufrufers haelt -- und
+    # unter der Sperre erneut pruefen. Der zweite Start wartet, sieht danach
+    # (neues Statement: SQLite haelt nach einem SELECT keinen Lese-Snapshot,
+    # PG READ COMMITTED) das committete Siegel und schreibt keins. Bewusst
+    # KEIN Rollback davor: unter PG naehme er den Operator-Bypass (set_config
+    # in derselben Transaktion) mit zurueck. Zweite Verteidigungslinie: der
+    # partielle Unique-Index ux_audit_log_legacy_seal (SQLite:
+    # database.py::ensure_audit_log_indexes, PG: Alembic d3b7f1a5c9e2).
+    db.query(AuditLogSequenceCounter).filter(AuditLogSequenceCounter.id == "singleton").update(
+        {"value": AuditLogSequenceCounter.value}, synchronize_session=False
+    )
+    if _legacy_seals(db):
+        return None
     has_unhashed = (
         db.query(AuditLog.id)
         .filter(AuditLog.sequence.is_(None), AuditLog.integrity_hash.is_(None))
