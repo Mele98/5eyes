@@ -399,6 +399,14 @@ class ProductSustainabilityAttribute(Base):
     source_reference = Column(String, nullable=False)
     source_provider = Column(String)
     source_retrieved_on = Column(String)
+    # FINMA-Kundenanzeige (Pruefrunde #863, 9b/9c): Identitaet des
+    # Quelldokuments und eine neutrale, kundentaugliche Quellbezeichnung
+    # (keine Drittmarken), getrennt von source_provider (intern).
+    source_document_title = Column(String)
+    source_document_version = Column(String)
+    source_document_date = Column(String)
+    source_document_sha256 = Column(String)
+    client_source_label = Column(String)
     as_of = Column(String, nullable=False)
     valid_until = Column(String, nullable=False)
     status = Column(String, nullable=False, default="draft")
