@@ -24,8 +24,13 @@ Ablauf
 
 Grenzen
 -------
-- KEK-Ablage (DPAPI, ``TENANT_MASTER_KEK_FILE`` zeigt auf eine vorhandene
-  Datei): der Lauf wird verweigert, bevor etwas geaendert wird. Datenbank und
+- Nur fuer eine Quell-KEK, die als Passphrase an der Staerkeregel scheitert.
+  Ein Fernet-Key oder eine starke Passphrase startet ohnehin: Exit 2,
+  "kein Rewrap noetig" (N-870-13).
+- KEK-Ablage (DPAPI; ``TENANT_MASTER_KEK_FILE`` zeigt auf eine vorhandene
+  Datei, oder die Desktop-Standardablage ``tenant-master-kek.dpapi`` im
+  userData-Ordner existiert): der Lauf wird verweigert, bevor etwas geaendert
+  wird. Datenbank und
   Ablage lassen sich nicht atomar gemeinsam ersetzen; ein Teilerfolg haette
   DB und Ablage auseinanderlaufen lassen. Die Desktop-App legt dort immer
   einen Fernet-Key ab, der keinen Rewrap braucht.
@@ -65,6 +70,34 @@ def _register_all_models() -> None:
 
 
 AUDIT_ACTOR = "cli-operator"
+
+# N-870-13: Die Desktop-App setzt TENANT_MASTER_KEK_FILE nur fuer ihren
+# Backend-Prozess (ares-desktop/main.js: app.getPath('userData') /
+# tenant-master-kek.dpapi). Eine Shell kennt die Variable nicht; deshalb auch
+# die Standardorte des userData-Ordners pruefen (productName "Ares"; "ares-
+# desktop" fuer Entwicklungslaeufe ohne productName).
+KEK_STORE_FILENAME = "tenant-master-kek.dpapi"
+_DESKTOP_APP_DIRS = ("Ares", "ares-desktop")
+
+
+def _default_kek_store_candidates() -> list[Path]:
+    bases: list[Path] = []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        bases.append(Path(appdata))
+    home = Path.home()
+    bases.append(home / "AppData" / "Roaming")
+    bases.append(Path(os.environ.get("XDG_CONFIG_HOME") or (home / ".config")))
+    bases.append(home / "Library" / "Application Support")
+    return [base / name / KEK_STORE_FILENAME for base in bases for name in _DESKTOP_APP_DIRS]
+
+
+def _existing_kek_store(store_setting: str) -> bool:
+    """True, wenn eine KEK-Ablage existiert (konfiguriert oder Standardort).
+    Der Pfad wird nie ausgegeben."""
+    candidates = [Path(store_setting).expanduser()] if store_setting else []
+    candidates.extend(_default_kek_store_candidates())
+    return any(candidate.exists() for candidate in candidates)
 
 
 def _audit_rewrap(db, result) -> None:
@@ -117,16 +150,20 @@ def main(argv: list[str] | None = None) -> int:
 
     import database
     from config import settings
-    from services.tenant_crypto import TenantCryptoError, rewrap_tenant_deks_to_master_kek
+    from services.tenant_crypto import (
+        KekRewrapNotNeeded,
+        TenantCryptoError,
+        rewrap_tenant_deks_to_master_kek,
+    )
 
     # N-870-12: Eine KEK-Ablage (DPAPI, TENANT_MASTER_KEK_FILE) laesst sich
     # nicht in derselben Transaktion wie die Datenbank ersetzen. Ein Lauf
     # wuerde DB und Ablage auseinanderlaufen lassen (Start danach: "widerspricht
     # der KEK-Ablage"). Deshalb fail-closed verweigern, bevor etwas passiert.
-    store_setting = str(getattr(settings, "tenant_master_kek_file", "") or "").strip()
-    if store_setting and Path(store_setting).expanduser().exists():
+    if _existing_kek_store(str(getattr(settings, "tenant_master_kek_file", "") or "").strip()):
         print(
-            "Abbruch, nichts geaendert: Es gibt eine KEK-Ablage (TENANT_MASTER_KEK_FILE). "
+            "Abbruch, nichts geaendert: Es gibt eine KEK-Ablage (TENANT_MASTER_KEK_FILE "
+            "oder Standardablage der Desktop-App). "
             "Der Rewrap unterstuetzt nur Installationen, deren KEK allein aus "
             "TENANT_MASTER_KEK kommt. Die Ablage der Desktop-App enthaelt immer einen "
             "Fernet-Key und braucht keinen Rewrap.",
@@ -141,6 +178,10 @@ def main(argv: list[str] | None = None) -> int:
             _audit_rewrap(db, result)
             db.commit()
             count = result.count
+        except KekRewrapNotNeeded as exc:
+            db.rollback()
+            print(f"Abbruch, nichts geaendert: {exc}", file=sys.stderr)
+            return 2
         except TenantCryptoError as exc:
             db.rollback()
             print(f"Abbruch, nichts geaendert: {exc}", file=sys.stderr)

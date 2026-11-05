@@ -1163,6 +1163,15 @@ def _kek_passphrase_too_weak(value: str) -> bool:
     )
 
 
+def kek_is_weak_passphrase(raw: "str | bytes") -> bool:
+    """N-870-13: True nur fuer eine Passphrase (kein gueltiger Fernet-Key), die
+    an der Staerkeregel scheitert -- der einzige Fall, fuer den der
+    Offline-Rewrap gedacht ist. Ein Fernet-Key oder eine starke Passphrase
+    braucht keinen Rewrap."""
+    value = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")).strip()
+    return bool(value) and not _is_fernet_key(value) and _kek_passphrase_too_weak(value)
+
+
 def _is_fernet_key(value: str) -> bool:
     return effective_tenant_master_kek(value.encode("utf-8")) == value.encode("utf-8")
 

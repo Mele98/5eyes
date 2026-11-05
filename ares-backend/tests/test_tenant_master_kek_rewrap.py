@@ -144,7 +144,7 @@ def test_wrong_source_changes_nothing(Session):
     assert _stored(Session) == before
 
 
-def test_cli_rewraps_from_configured_kek(Session, monkeypatch, capsys):
+def test_cli_rewraps_from_configured_kek(Session, monkeypatch, capsys, tmp_path):
     import database
     monkeypatch.syspath_prepend(str(BACKEND_ROOT / "scripts"))
     import rewrap_tenant_master_kek as cli
@@ -154,6 +154,9 @@ def test_cli_rewraps_from_configured_kek(Session, monkeypatch, capsys):
     target = Fernet.generate_key().decode("ascii")
     monkeypatch.setattr(database, "SessionLocal", Session)
     monkeypatch.setattr(config.settings, "tenant_master_kek", legacy)
+    # Standardablage der Desktop-App (N-870-13) nie im echten Profil suchen.
+    for var in ("APPDATA", "HOME", "USERPROFILE", "XDG_CONFIG_HOME"):
+        monkeypatch.setenv(var, str(tmp_path / "profile"))
     monkeypatch.setenv(cli.TARGET_ENV, target)
 
     assert cli.main([]) == 2  # ohne --yes nichts
@@ -415,3 +418,76 @@ def test_cli_refuses_when_kek_store_exists(tmp_path):
         TENANT_MASTER_KEK_FILE=str(store),
     ))
     assert proc.returncode == 0, (proc.stdout + proc.stderr)[-2000:]
+
+
+# ---------------------------------------------------------------------------
+# N-870-13: nur schwache Bestands-Passphrasen; Desktop-Standardablage
+# ---------------------------------------------------------------------------
+
+
+def _envelopes(db_file: Path) -> dict:
+    from sqlalchemy import text
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.connect() as conn:
+            return dict(conn.execute(text("SELECT id, encrypted_dek FROM tenants")).fetchall())
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("kind", ["fernet", "strong_passphrase"])
+def test_cli_refuses_valid_source_kek_no_rewrap_needed(tmp_path, kind):
+    """Eine gueltige Quelle (Fernet-Key oder starke Passphrase) startet ohnehin;
+    ein Rewrap waere nur ein KEK-Wechsel. Exit 2, nichts geaendert."""
+    source = (
+        Fernet.generate_key().decode("ascii") if kind == "fernet"
+        else "eine-starke-bestands-passphrase-k9#Lr2!vQz7@Tm4"
+    )
+    db_file, _ = _file_db_with_wrapped_tenants(tmp_path, source)
+    before = _envelopes(db_file)
+    target = Fernet.generate_key().decode("ascii")
+    proc = _run_cli(tmp_path, _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=source, TENANT_MASTER_KEK_NEW=target,
+    ))
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 2, out[-2000:]
+    assert "kein Rewrap" in proc.stderr and "nichts geaendert" in proc.stderr
+    assert source not in out and target not in out
+    assert _envelopes(db_file) == before
+    assert _audit_rows(db_file) == []
+
+
+def test_rewrap_function_refuses_valid_source(Session):
+    from services.tenant_crypto import KekRewrapNotNeeded
+
+    source = Fernet.generate_key().decode("ascii")
+    _seed_wrapped_tenants(Session, source)
+    before = _stored(Session)
+    with Session() as db, pytest.raises(KekRewrapNotNeeded):
+        rewrap_tenant_deks_to_master_kek(db, source_kek=source, target_kek=Fernet.generate_key())
+    assert _stored(Session) == before
+
+
+@pytest.mark.parametrize("app_dir", ["Ares", "ares-desktop"])
+def test_cli_refuses_when_desktop_default_store_exists(tmp_path, app_dir):
+    """Desktop-Ablage am Standardort (userData/tenant-master-kek.dpapi), ohne
+    TENANT_MASTER_KEK_FILE in der Shell: verweigert, Pfad nicht im Output."""
+    legacy = WEAK_LEGACY_KEKS[0]
+    db_file, _ = _file_db_with_wrapped_tenants(tmp_path, legacy)
+    env = _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=legacy,
+        TENANT_MASTER_KEK_NEW=Fernet.generate_key().decode("ascii"),
+    )
+    store = Path(env["APPDATA"]) / app_dir / "tenant-master-kek.dpapi"
+    store.parent.mkdir(parents=True, exist_ok=True)
+    store.write_bytes(b"opaque-test-store")
+    before = _envelopes(db_file)
+
+    proc = _run_cli(tmp_path, env)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 2, out[-2000:]
+    assert "KEK-Ablage" in proc.stderr
+    assert str(store) not in out and str(store.parent) not in out, "kein Pfad im Output"
+    assert _envelopes(db_file) == before and _audit_rows(db_file) == []
+    assert store.read_bytes() == b"opaque-test-store"

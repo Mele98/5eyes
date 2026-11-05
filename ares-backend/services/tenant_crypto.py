@@ -22,6 +22,7 @@ from config import (
     TENANT_KEK_KDF_ITERATIONS,
     TENANT_KEK_KDF_SALT,
     effective_tenant_master_kek,
+    kek_is_weak_passphrase,
     settings,
     tenant_master_kek_problem,
 )
@@ -31,6 +32,11 @@ from services.tenant_context import is_postgres_bind, operator_bypass
 
 class TenantCryptoError(RuntimeError):
     pass
+
+
+class KekRewrapNotNeeded(TenantCryptoError):
+    """N-870-13: Die Quell-KEK ist ein Fernet-Key oder eine starke Passphrase;
+    der Offline-Rewrap ist nur fuer schwache Bestands-Passphrasen gedacht."""
 
 
 def _fernet_class():
@@ -283,6 +289,15 @@ def rewrap_tenant_deks_to_master_kek(
     )
     if problem:
         raise TenantCryptoError(f"Quell-KEK abgelehnt: {problem}")
+    if not kek_is_weak_passphrase(source_kek):
+        # N-870-13: Eine gueltige (Fernet- oder starke) Quelle startet ohnehin.
+        # Ein Rewrap waere hier nur ein KEK-Wechsel -- und bei einer Desktop-
+        # Installation liefen DB und DPAPI-Ablage danach auseinander.
+        raise KekRewrapNotNeeded(
+            "Quell-KEK ist ein Fernet-Key oder eine starke Passphrase: kein Rewrap "
+            "noetig. Das Werkzeug ist nur fuer Bestands-Passphrasen gedacht, die an "
+            "der Staerkeregel scheitern."
+        )
     problem = tenant_master_kek_problem(target_kek, secret_key=secret)
     if problem:
         raise TenantCryptoError(f"Ziel-KEK abgelehnt: {problem}")
