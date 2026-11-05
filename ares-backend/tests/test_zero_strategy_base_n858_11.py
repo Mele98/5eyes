@@ -144,3 +144,13 @@ def test_cost_disclosure_row_amount_zero_is_not_missing(monkeypatch):
     assert cd._position_amount_rappen(SimpleNamespace(target_amount_rappen=None, current_amount_rappen=5_00)) == 5_00
     assert cd._position_amount_rappen(SimpleNamespace(target_amount_rappen=7_00, current_amount_rappen=5_00)) == 7_00
     assert cd._position_amount_rappen(SimpleNamespace(target_amount_rappen=None, current_amount_rappen=None)) == 0
+
+
+def test_portfolio_pdf_target_zero_is_not_replaced_by_holding_value():
+    from services.pdf.documents.portfolio import _position_amount_rappen
+
+    held = {"current_amount_rappen": 9_00, "market_value_rappen": 8_00}
+    assert _position_amount_rappen({"target_amount_rappen": 0, **held}) == 0
+    assert _position_amount_rappen({"target_amount_rappen": None, **held}) == 9_00
+    assert _position_amount_rappen({**held}) == 9_00
+    assert _position_amount_rappen({"target_amount_rappen": 7_00, **held}) == 7_00
