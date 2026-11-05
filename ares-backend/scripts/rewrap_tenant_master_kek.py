@@ -69,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     _register_all_models()
+    from sqlalchemy.exc import SQLAlchemyError
+
     import database
     from config import settings
     from services.tenant_crypto import TenantCryptoError, rewrap_tenant_deks_to_master_kek
@@ -81,6 +83,16 @@ def main(argv: list[str] | None = None) -> int:
         except TenantCryptoError as exc:
             db.rollback()
             print(f"Abbruch, nichts geaendert: {exc}", file=sys.stderr)
+            return 1
+        except SQLAlchemyError as exc:
+            # N-870-11: str(exc) und der Traceback enthalten "[parameters: ...]"
+            # -- darin stuende der neu verpackte DEK. Nur Klasse + Treiber-
+            # meldung ausgeben, ohne Exception-Kette.
+            db.rollback()
+            print(
+                f"Abbruch (Datenbankfehler), nichts geaendert: {database._db_error_summary(exc)}",
+                file=sys.stderr,
+            )
             return 1
     print(
         f"rewrapped_deks={count}. Jetzt den neuen Key als TENANT_MASTER_KEK setzen "

@@ -243,3 +243,43 @@ def test_cli_runs_standalone_against_file_db(tmp_path):
                 assert get_tenant_dek(db, tid, master_kek=target) == dek
     finally:
         engine.dispose()
+
+
+def test_cli_db_error_prints_no_sql_parameters(tmp_path):
+    """N-870-11: Ein DB-Fehler beim Schreiben (hier ein Trigger, der das UPDATE
+    abbricht) darf keinen Traceback mit "[parameters: ...]" drucken -- darin
+    stuende der neu verpackte DEK. Nichts geaendert, Exit 1."""
+    from sqlalchemy import text
+
+    legacy = WEAK_LEGACY_KEKS[0]
+    db_file, _ = _file_db_with_wrapped_tenants(tmp_path, legacy)
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE TRIGGER trg_block_dek BEFORE UPDATE OF encrypted_dek ON tenants "
+                "BEGIN SELECT RAISE(ABORT, 'rewrap blockiert (Test)'); END"
+            ))
+            before = dict(conn.execute(text("SELECT id, encrypted_dek FROM tenants")).fetchall())
+    finally:
+        engine.dispose()
+
+    target = Fernet.generate_key().decode("ascii")
+    proc = _run_cli(tmp_path, _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=legacy, TENANT_MASTER_KEK_NEW=target,
+    ))
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1, out[-2000:]
+    assert "Datenbankfehler" in proc.stderr and "rewrap blockiert" in proc.stderr
+    assert "Traceback" not in out and "parameters" not in out
+    assert "gAAAA" not in out, "kein Fernet-Token in der Ausgabe"
+    assert legacy not in out and target not in out
+    for value in before.values():
+        assert value not in out
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        with engine.connect() as conn:
+            assert dict(conn.execute(text("SELECT id, encrypted_dek FROM tenants")).fetchall()) == before
+    finally:
+        engine.dispose()
