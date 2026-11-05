@@ -753,11 +753,13 @@ def test_finma_document_identity_and_neutral_client_label(SF, client):
         source_document_date=AS_OF, source_document_sha256="AB" * 32))
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["client_source_label"] == "Fondsvertrag", "Default aus dem Quellentyp"
+    assert body["client_source_label"] == "fund_contract", "Default-Katalogwert aus dem Quellentyp"
+    assert body["client_source_label_text"] == "Fondsvertrag"
     assert body["source_document_sha256"] == "ab" * 32 and body["source_document_version"] == "2026-06"
     # Quellentyp geaendert -> abgeleitete Bezeichnung folgt
     p = client.patch(f"/products/sustainability/attributes/{body['id']}", json={"source_type": "kid"})
-    assert p.status_code == 200 and p.json()["client_source_label"] == "Basisinformationsblatt"
+    assert p.status_code == 200 and p.json()["client_source_label"] == "kid"
+    assert p.json()["client_source_label_text"] == "Basisinformationsblatt"
     export = client.get("/products/sustainability/attributes/export").text.splitlines()[0]
     assert "client_source_label" in export and "source_document_sha256" in export
 
@@ -768,18 +770,37 @@ def test_finma_document_identity_and_neutral_client_label(SF, client):
     {"source_document_date": (TODAY + timedelta(days=1)).isoformat()},
     {"source_type": "data_vendor", "source_provider": "Anbieter X", "source_retrieved_on": AS_OF,
      "client_source_label": "Daten von Anbieter X"},
+    {"client_source_label": "Externer Datenanbieter, Stand Q2"},
+    {"client_source_label": "Acme Ratings"},
 ])
 def test_finma_fields_validation(SF, client, override):
     _as("admin-a1", "admin", "firm-a")
     assert client.post("/products/own-a/sustainability-attributes", json=_payload(**override)).status_code == 422
 
 
-def test_finma_custom_neutral_label_kept(SF, client):
+def test_n863_6_label_is_catalog_value(SF, client):
     _as("admin-a1", "admin", "firm-a")
     r = client.post("/products/own-a/sustainability-attributes", json=_payload(
         source_type="data_vendor", source_provider="Anbieter X", source_retrieved_on=AS_OF,
-        client_source_label="Externer Datenanbieter, Stand Q2"))
-    assert r.status_code == 201 and r.json()["client_source_label"] == "Externer Datenanbieter, Stand Q2"
+        client_source_label="provider_exclusion_policy"))
+    assert r.status_code == 201
+    assert r.json()["client_source_label"] == "provider_exclusion_policy"
+    assert r.json()["client_source_label_text"] == "Ausschlussrichtlinie des Anbieters"
+    cat = client.get("/products/sustainability/catalog").json()
+    assert cat["client_source_labels"]["data_vendor"] == "Datenanbieter (Export)"
+    assert cat["client_source_labels"]["house_analysis"] == "eigene Prüfung"
+
+
+def test_n863_6_csv_import_rejects_free_text_label(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    csv_text = (
+        "product_id,category,kind,revenue_threshold_bps,source_type,source_reference,client_source_label,as_of\n"
+        f"own-a,tobacco,exclusion_policy,500,kid,KID,Acme Ratings,{AS_OF}\n"
+        f"own-a,alcohol,exclusion_policy,1000,kid,KID,factsheet,{AS_OF}\n"
+    )
+    r = client.post("/products/sustainability/attributes/import/csv",
+                    files={"file": ("l.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")})
+    assert (r.json()["created"], r.json()["failed"]) == (1, 1), r.text
 
 
 def test_csv_reimport_of_own_export_removes_guard_apostrophe(SF, client):

@@ -503,8 +503,13 @@ def sustainability_attribute_errors(values: dict, *, today: date | None = None) 
 
 
 def default_client_source_label(source_type: str | None) -> str | None:
-    """Neutrale Kunden-Quellbezeichnung je Quellentyp (ohne Drittmarken)."""
-    return SUSTAINABILITY_CLIENT_SOURCE_LABELS.get(source_type or "")
+    """N-863-6: Default-Katalogwert der Kunden-Quellbezeichnung = Quellentyp."""
+    return source_type if source_type in SUSTAINABILITY_CLIENT_SOURCE_LABELS else None
+
+
+def client_source_label_text(code: str | None) -> str | None:
+    """Anzeigetext eines Katalogwerts (None fuer unbekannt)."""
+    return SUSTAINABILITY_CLIENT_SOURCE_LABELS.get(code or "")
 
 
 def _is_sha256_hex(value: str) -> bool:
@@ -513,8 +518,9 @@ def _is_sha256_hex(value: str) -> bool:
 
 def source_document_errors(values: dict, *, today: date) -> list[str]:
     """FINMA-Sicht (Pruefrunde #863): Dokumentidentitaet und neutrale
-    Kunden-Quellbezeichnung. Die Kundenbezeichnung darf den (internen)
-    Anbieternamen nicht enthalten -- Kundendokumente nennen keine Drittmarken."""
+    Kunden-Quellbezeichnung. N-863-6: die Kundenbezeichnung ist ein
+    Katalogwert (kein Freitext), damit keine Drittmarken ins Kundendokument
+    gelangen."""
     errors: list[str] = []
     document_date = values.get("source_document_date")
     if document_date not in (None, ""):
@@ -526,15 +532,12 @@ def source_document_errors(values: dict, *, today: date) -> list[str]:
     digest = values.get("source_document_sha256")
     if digest not in (None, "") and not _is_sha256_hex(str(digest)):
         errors.append("source_document_sha256 muss ein SHA-256-Hexwert (64 Zeichen) sein.")
-    label = str(values.get("client_source_label") or "").strip()
-    provider = str(values.get("source_provider") or "").strip()
-    if label and provider and provider.casefold() in label.casefold():
+    label = values.get("client_source_label")
+    if label not in (None, "") and label not in SUSTAINABILITY_CLIENT_SOURCE_LABELS:
         errors.append(
-            "Die Kunden-Quellbezeichnung darf den Anbieternamen nicht enthalten "
-            "(neutral, z. B. 'Externer Datenanbieter')."
+            "Kunden-Quellbezeichnung muss ein Katalogwert sein "
+            f"({', '.join(SUSTAINABILITY_CLIENT_SOURCE_LABELS)})."
         )
-    if label and len(label) > 120:
-        errors.append("Kunden-Quellbezeichnung ist zu lang (max. 120 Zeichen).")
     return errors
 
 

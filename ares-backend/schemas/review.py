@@ -2304,6 +2304,18 @@ SustainabilitySourceType = Literal[
     "data_vendor",
     "house_analysis",
 ]
+# N-863-6: Katalog der neutralen Kunden-Quellbezeichnungen (Codes; Texte in
+# models/product_eligibility.py::SUSTAINABILITY_CLIENT_SOURCE_LABELS).
+SustainabilityClientSourceLabel = Literal[
+    "prospectus",
+    "fund_contract",
+    "kid",
+    "factsheet",
+    "provider_exclusion_policy",
+    "provider_confirmation",
+    "data_vendor",
+    "house_analysis",
+]
 SustainabilityStatus = Literal["draft", "approved", "retired"]
 SustainabilityEvidenceStatus = Literal["draft", "retired", "not_yet_valid", "expired", "valid"]
 SustainabilityScope = Literal["tenant", "global"]
@@ -2334,9 +2346,9 @@ class ProductSustainabilityAttributeCreate(BaseModel):
     source_document_version: Optional[str] = Field(default=None, max_length=100)
     source_document_date: Optional[date] = None
     source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
-    client_source_label: Optional[str] = Field(
-        default=None, max_length=120,
-        description="Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+    client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
+        default=None,
+        description="Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
     )
     as_of: date
     valid_until: Optional[date] = Field(
@@ -2372,9 +2384,9 @@ class ProductSustainabilityAttributeUpdate(BaseModel):
     source_document_version: Optional[str] = Field(default=None, max_length=100)
     source_document_date: Optional[date] = None
     source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
-    client_source_label: Optional[str] = Field(
-        default=None, max_length=120,
-        description="Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+    client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
+        default=None,
+        description="Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
     )
     as_of: Optional[date] = None
     valid_until: Optional[date] = None
@@ -2433,6 +2445,7 @@ class ProductSustainabilityAttributeResponse(BaseResponse):
     source_document_date: Optional[str] = None
     source_document_sha256: Optional[str] = None
     client_source_label: Optional[str] = None
+    client_source_label_text: Optional[str] = None
     as_of: str
     valid_until: str
     status: SustainabilityStatus
@@ -2500,6 +2513,7 @@ class SustainabilityCatalogResponse(BaseModel):
     statuses: list[str]
     sfdr_values: list[str]
     evidence_validity_months: int
+    client_source_labels: dict[str, str] = Field(default_factory=dict)
 
 
 class SustainabilityStandardPending(BaseModel):

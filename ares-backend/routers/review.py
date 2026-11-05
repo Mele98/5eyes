@@ -4127,6 +4127,7 @@ def active_triggers(
 from models.product_eligibility import (  # noqa: E402
     SFDR_CLASSIFICATION_VALUES,
     SUSTAINABILITY_CATEGORIES,
+    SUSTAINABILITY_CLIENT_SOURCE_LABELS,
     SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS,
     SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS,
     SUSTAINABILITY_KINDS_BY_CATEGORY,
@@ -4156,6 +4157,7 @@ from services.product_eligibility_governance import (  # noqa: E402
     approve_sustainability_attribute,
     approve_sustainability_standard,
     criterion_type as sustainability_criterion_type,
+    client_source_label_text,
     default_client_source_label,
     default_evidence_valid_until,
     discard_pending_sustainability_standard,
@@ -4203,6 +4205,7 @@ def _sustainability_response(attribute: ProductSustainabilityAttribute) -> Produ
     data = {column.name: getattr(attribute, column.name) for column in ProductSustainabilityAttribute.__table__.columns}
     data["scope"] = "global" if attribute.tenant_id is None else "tenant"
     data["evidence_status"] = sustainability_evidence_status(attribute)
+    data["client_source_label_text"] = client_source_label_text(attribute.client_source_label)
     return ProductSustainabilityAttributeResponse(**data)
 
 
@@ -4318,6 +4321,7 @@ def get_sustainability_catalog(current_user: User = Depends(get_current_user)):
         statuses=list(SUSTAINABILITY_STATUSES),
         sfdr_values=list(SFDR_CLASSIFICATION_VALUES),
         evidence_validity_months=SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS,
+        client_source_labels=dict(SUSTAINABILITY_CLIENT_SOURCE_LABELS),
     )
 
 
