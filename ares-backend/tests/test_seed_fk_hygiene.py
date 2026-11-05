@@ -185,3 +185,53 @@ def test_cma_pipeline_pseudo_actor_is_rejected_by_the_fk(fk_engine, monkeypatch)
 def test_cma_pipeline_requires_explicit_actor():
     with pytest.raises(TypeError):
         dp.compute_cma_candidate_for_jurisdiction(None, "DE", "2026-07-30")  # type: ignore[call-arg]
+
+
+def test_repair_logs_count_once_and_nothing_when_clean(tmp_path, caplog):
+    """N-870-1: Reparatur schreibt genau eine INFO-Zeile mit der Anzahl (ohne
+    Inhalte); ein zweiter Lauf (0 Zeilen) loggt nichts."""
+    import logging
+
+    db_file = tmp_path / "legacy_log.db"
+    raw = create_engine(f"sqlite:///{db_file}")  # ohne FK-Pragma (Altzustand)
+    Base.metadata.create_all(bind=raw)
+    with _session(raw) as db:
+        de_seed.ensure_de_jurisdiction_seed(db)
+        db.commit()
+    with raw.begin() as conn:
+        conn.execute(text("UPDATE jurisdiction_profiles SET created_by = :cb"), {"cb": _LEGACY_PSEUDO_ID})
+        conn.execute(text("UPDATE jurisdiction_home_bias_defaults SET created_by = :cb"), {"cb": _LEGACY_PSEUDO_ID})
+    raw.dispose()
+
+    eng = create_app_engine(db_path=db_file, echo=False)
+    logger_name = de_seed.__name__
+    try:
+        with caplog.at_level(logging.INFO, logger=logger_name):
+            with _session(eng) as db:
+                de_seed.ensure_de_jurisdiction_seed(db)
+                db.commit()
+        first = [r for r in caplog.records if r.name == logger_name]
+        assert len(first) == 1 and first[0].levelno == logging.INFO
+        msg = first[0].getMessage()
+        assert "35 Zeilen" in msg
+        assert "jurisdiction_profiles=1" in msg and "jurisdiction_home_bias_defaults=34" in msg
+        assert _LEGACY_PSEUDO_ID not in msg and "Deutschland" not in msg, "keine Inhalte im Log"
+
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger=logger_name):
+            with _session(eng) as db:
+                de_seed.ensure_de_jurisdiction_seed(db)
+                db.commit()
+        assert [r for r in caplog.records if r.name == logger_name] == []
+    finally:
+        eng.dispose()
+
+
+def test_fresh_seed_logs_nothing(fk_engine, caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger=de_seed.__name__):
+        with _session(fk_engine) as db:
+            de_seed.ensure_de_jurisdiction_seed(db)
+            db.commit()
+    assert [r for r in caplog.records if r.name == de_seed.__name__] == []

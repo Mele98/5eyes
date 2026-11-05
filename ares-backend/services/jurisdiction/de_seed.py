@@ -23,12 +23,15 @@ CapitalMarketAssumption-Zeile.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from database import new_uuid
 from models.jurisdiction import JurisdictionHomeBiasDefault, JurisdictionProfile
+
+logger = logging.getLogger(__name__)
 
 DE_CODE = "DE"
 
@@ -132,13 +135,25 @@ def _now() -> str:
 
 def _repair_legacy_pseudo_created_by(db: Session, now: str) -> None:
     """Setzt die fruehere Pseudo-Kennung in created_by (verwaister FK auf
-    users.id) auf NULL. Idempotent; beruehrt nur DE-Seed-Zeilen."""
+    users.id) auf NULL. Idempotent; beruehrt nur DE-Seed-Zeilen.
+
+    N-870-1: bei mindestens einer reparierten Zeile eine INFO-Logzeile mit der
+    Anzahl je Tabelle (ohne Inhalte); bei 0 Zeilen kein Log."""
+    repaired: dict[str, int] = {}
     for model in (JurisdictionProfile, JurisdictionHomeBiasDefault):
-        db.query(model).filter(
+        count = db.query(model).filter(
             model.created_by == _LEGACY_PSEUDO_CREATED_BY,
         ).update(
             {model.created_by: None, model.updated_at: now},
             synchronize_session=False,
+        )
+        if count:
+            repaired[model.__tablename__] = int(count)
+    if repaired:
+        logger.info(
+            "DE-Seed: %d Zeilen mit verwaister Seed-Kennung in created_by auf NULL gesetzt (%s)",
+            sum(repaired.values()),
+            ", ".join(f"{table}={n}" for table, n in repaired.items()),
         )
 
 
