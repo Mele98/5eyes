@@ -68,6 +68,8 @@ def session_factory(tmp_path, monkeypatch):
     Base.metadata.create_all(), das den Index nicht kennt."""
     db_path = tmp_path / "goal_reorder_real_schema.db"
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    # Wie die App-Engine: WAL, busy_timeout, foreign_keys (Nebenlaeufigkeit).
+    db_module.attach_sqlite_pragmas(engine)
     monkeypatch.setattr(db_module, "engine", engine)
     monkeypatch.setattr(db_module.settings, "db_bootstrap_schema_on_startup", True)
     init_db(engine)
@@ -89,6 +91,11 @@ def advisor_user():
 
 @pytest.fixture()
 def auth_client(session_factory, advisor_user, monkeypatch):
+    # foreign_keys=ON (App-Pragmas): der Berater muss als Zeile existieren.
+    with session_factory() as db:
+        db.merge(advisor_user)
+        db.commit()
+
     def override_db():
         with session_factory() as session:
             yield session

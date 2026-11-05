@@ -1312,24 +1312,62 @@ def reorder_goals(
     Muss VOR ``/goals/{goal_id}`` registriert sein, sonst faengt die
     Einzelziel-Route den Pfad ``order`` ab.
     """
+    from sqlalchemy.exc import OperationalError
+
     from services.goal_reorder import (
+        GOAL_ORDER_CHANGED_DETAIL,
         GoalOrderConflictError,
         GoalOrderError,
+        acquire_goal_order_write_lock,
+        is_goal_rank_unique_violation,
         resolve_goal_order,
     )
 
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    goals = db.query(Goal).filter(
-        Goal.mandate_id == mandate_id,
-        Goal.deleted_at.is_(None),
-        Goal.is_active == 1,
-    ).all()
+    # N-868-2: Sperre VOR dem Lesen, damit die expected_goal_ids-Pruefung
+    # (CAS) und das Schreiben denselben, nicht mehr aenderbaren Stand sehen.
+    try:
+        acquire_goal_order_write_lock(db)
+    except OperationalError as exc:
+        db.rollback()
+        if "locked" in str(getattr(exc, "orig", exc)).lower():
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    goals = (
+        db.query(Goal)
+        .filter(
+            Goal.mandate_id == mandate_id,
+            Goal.deleted_at.is_(None),
+            Goal.is_active == 1,
+        )
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
     try:
         new_ranks = resolve_goal_order(goals, body.goal_ids, body.expected_goal_ids)
     except GoalOrderConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except GoalOrderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        changed = _write_goal_ranks(db, goals, new_ranks, mandate, current_user)
+    except IntegrityError as exc:
+        # N-868-2, Restfall ohne Sperre (z.B. bereits laufende Transaktion):
+        # ein paralleler Reorder hat dazwischen committet. Kein 500, kein
+        # Teilstand -- der Client laedt neu und sortiert erneut.
+        db.rollback()
+        if is_goal_rank_unique_violation(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    if changed:
+        invalidate_advisory_cache(mandate_id)
+    return sorted(goals, key=lambda g: int(g.rank))
+
+
+def _write_goal_ranks(db: Session, goals, new_ranks: dict, mandate, current_user) -> bool:
+    """Schreibt die neuen Raenge in zwei Phasen und committet."""
+    mandate_id = mandate.id
     now = _now()
     moved = [goal for goal in goals if int(goal.rank or 0) != new_ranks[str(goal.id)]]
     changed = bool(moved)
@@ -1357,9 +1395,7 @@ def reorder_goals(
     if changed:
         _invalidate_achievement_scores_for_mandate(mandate_id, db)
     db.commit()
-    if changed:
-        invalidate_advisory_cache(mandate_id)
-    return sorted(goals, key=lambda g: int(g.rank))
+    return changed
 
 
 @router.put("/mandates/{mandate_id}/goals/{goal_id}", response_model=GoalResponse)
