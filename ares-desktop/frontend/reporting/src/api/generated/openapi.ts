@@ -4941,18 +4941,19 @@ export interface paths {
          * Set Sustainability Standard Endpoint
          * @description Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).
          *
-         *     H-1 (Pruefrunde #863): Verschaerfung oder Rueckkehr zum T-E1-Default
-         *     wirkt sofort. Lockerung (Schwelle ueber dem Default oder Kategorie
+         *     H-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt
+         *     sofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie
          *     deaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der
-         *     Vier-Augen-Freigabe (POST .../approve). UN Global Compact kennt keine
-         *     Umsatzschwelle (null).
+         *     Vier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue
+         *     Version. UN Global Compact kennt keine Umsatzschwelle (null).
          */
         put: operations["set_sustainability_standard_endpoint_products_sustainability_standards__category__put"];
         post?: never;
         /**
          * Reset Sustainability Standard Endpoint
-         * @description Zurueck auf den Haus-Default (T-E1), sofort wirksam (keine Lockerung
-         *     unter den Default), auditiert; eine offene Lockerung wird verworfen.
+         * @description Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die
+         *     geltende Version strenger als der Default, entsteht ein Entwurf
+         *     (Vier-Augen-Freigabe); sonst wirkt der Reset sofort.
          */
         delete: operations["reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete"];
         options?: never;
@@ -10332,9 +10333,9 @@ export interface components {
             category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
             /**
              * Client Source Label
-             * @description Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.
+             * @description Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.
              */
-            client_source_label?: string | null;
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
             /**
              * Kind
              * @enum {string}
@@ -10396,9 +10397,9 @@ export interface components {
             category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
             /**
              * Client Source Label
-             * @description Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.
+             * @description Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.
              */
-            client_source_label?: string | null;
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
             /** Isin */
             isin?: string | null;
             /**
@@ -10466,6 +10467,8 @@ export interface components {
             category: string;
             /** Client Source Label */
             client_source_label?: string | null;
+            /** Client Source Label Text */
+            client_source_label_text?: string | null;
             /** Created At */
             created_at: string;
             /** Created By */
@@ -10538,9 +10541,9 @@ export interface components {
             as_of?: string | null;
             /**
              * Client Source Label
-             * @description Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.
+             * @description Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.
              */
-            client_source_label?: string | null;
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
             /** Measured Exposure Bps */
             measured_exposure_bps?: number | null;
             /** Note */
@@ -11715,6 +11718,10 @@ export interface components {
         SustainabilityCatalogResponse: {
             /** Categories */
             categories: components["schemas"]["SustainabilityCategoryInfo"][];
+            /** Client Source Labels */
+            client_source_labels?: {
+                [key: string]: string;
+            };
             /** Evidence Validity Months */
             evidence_validity_months: number;
             /** Sfdr Values */

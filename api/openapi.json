@@ -16092,14 +16092,23 @@
           "client_source_label": {
             "anyOf": [
               {
-                "maxLength": 120,
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+            "description": "Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
             "title": "Client Source Label"
           },
           "kind": {
@@ -16319,14 +16328,23 @@
           "client_source_label": {
             "anyOf": [
               {
-                "maxLength": 120,
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+            "description": "Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
             "title": "Client Source Label"
           },
           "isin": {
@@ -16611,6 +16629,17 @@
             ],
             "title": "Client Source Label"
           },
+          "client_source_label_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Source Label Text"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -16867,14 +16896,23 @@
           "client_source_label": {
             "anyOf": [
               {
-                "maxLength": 120,
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+            "description": "Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
             "title": "Client Source Label"
           },
           "measured_exposure_bps": {
@@ -21186,6 +21224,13 @@
             },
             "title": "Categories",
             "type": "array"
+          },
+          "client_source_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Client Source Labels",
+            "type": "object"
           },
           "evidence_validity_months": {
             "title": "Evidence Validity Months",
@@ -40450,7 +40495,7 @@
     },
     "/products/sustainability/standards/{category}": {
       "delete": {
-        "description": "Zurueck auf den Haus-Default (T-E1), sofort wirksam (keine Lockerung\nunter den Default), auditiert; eine offene Lockerung wird verworfen.",
+        "description": "Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die\ngeltende Version strenger als der Default, entsteht ein Entwurf\n(Vier-Augen-Freigabe); sonst wirkt der Reset sofort.",
         "operationId": "reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete",
         "parameters": [
           {
@@ -40496,7 +40541,7 @@
         ]
       },
       "put": {
-        "description": "Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).\n\nH-1 (Pruefrunde #863): Verschaerfung oder Rueckkehr zum T-E1-Default\nwirkt sofort. Lockerung (Schwelle ueber dem Default oder Kategorie\ndeaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der\nVier-Augen-Freigabe (POST .../approve). UN Global Compact kennt keine\nUmsatzschwelle (null).",
+        "description": "Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).\n\nH-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt\nsofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie\ndeaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der\nVier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue\nVersion. UN Global Compact kennt keine Umsatzschwelle (null).",
         "operationId": "set_sustainability_standard_endpoint_products_sustainability_standards__category__put",
         "parameters": [
           {
