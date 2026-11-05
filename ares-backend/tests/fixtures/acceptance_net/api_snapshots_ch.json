@@ -44,7 +44,7 @@
   "status": 200
  },
  "clients.data_export": {
-  "sha256": "cea379f40f08132cc69679ac8e98fba9b35f9b01ca5000a341e7dd3bdb845fb6",
+  "sha256": "1267b678d3b85be6b11191e2e812de58a15c46b7c5113b1603d2d1c3768bef6a",
   "shape": {
    "client_id": "str",
    "client_number": "str",
