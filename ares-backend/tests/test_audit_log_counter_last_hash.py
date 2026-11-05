@@ -193,5 +193,7 @@ def test_startup_check_runs_inside_read_scope(session_local):
         s.commit()
     report = run_startup_audit_chain_check(session_local, read_scope=_scope)
     assert report is not None and report["ok"]
-    assert calls == ["enter", "exit"]
+    # Zaehlung, Bestandssiegel und Bericht laufen je in eigener Session, jede
+    # im Lese-Kontext.
+    assert calls == ["enter", "exit"] * 3
 

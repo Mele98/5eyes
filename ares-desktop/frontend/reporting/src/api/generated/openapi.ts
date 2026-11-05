@@ -5768,6 +5768,14 @@ export interface components {
             mismatches: number;
             /** Ok */
             ok: boolean;
+            /** Seal Count */
+            seal_count?: number | null;
+            /** Seal Ok */
+            seal_ok?: boolean | null;
+            /** Seal Present */
+            seal_present: boolean;
+            /** Seal Sequence */
+            seal_sequence?: number | null;
             /** Total */
             total: number;
             /** Unexpected Unhashed */

@@ -76,6 +76,13 @@ def rls_app():
     owner = create_engine(_with_search_path(POSTGRES_URL, schema), future=True)
     AuditLog.__table__.create(bind=owner)
     AuditLogSequenceCounter.__table__.create(bind=owner)
+    # log() schlaegt ohne explizite tenant_id den Akteur in users nach
+    # (System-Eintraege wie das Bestandssiegel).
+    from models.tenant import Tenant
+    from models.users import User
+
+    Tenant.__table__.create(bind=owner)
+    User.__table__.create(bind=owner)
     with owner.begin() as conn:
         conn.execute(text("INSERT INTO audit_log_sequence_counter (id, value) VALUES ('singleton', 0)"))
         ensure_postgres_rls_policies(conn, table_names=("audit_log",))
@@ -223,3 +230,31 @@ def test_migration_backfills_last_hash_and_downgrades(pg_alembic):
         assert conn.execute(text(
             "SELECT last_hash FROM audit_log_sequence_counter WHERE id = 'singleton'"
         )).scalar_one() == "b" * 64
+
+
+def test_legacy_seal_is_written_under_rls_with_bypass(rls_app):
+    """Bestandssiegel (#869) unter echter RLS: die Startpruefung (Operator-
+    Bypass) sieht die Altzeilen aller Tenants und schreibt das Siegel ohne
+    tenant_id -- ohne Bypass schluege WITH CHECK fehl."""
+    from services.audit import LEGACY_SEAL_MARKER, run_startup_audit_chain_check
+    from services.tenant_context import operator_bypass
+
+    with rls_app() as s:
+        with operator_bypass(s):
+            for row_id, tenant in (("L1", "tenant-a"), ("L2", "tenant-b")):
+                s.execute(text(
+                    "INSERT INTO audit_log (id, user_name, table_name, record_id, action, created_at, tenant_id)"
+                    " VALUES (:id, 'Alt', 'clients', 'c', 'UPDATE', '2026-03-01T00:00:00.000Z', :t)"
+                ), {"id": row_id, "t": tenant})
+            s.commit()
+    _alternate(rls_app)
+    first = run_startup_audit_chain_check(rls_app, read_scope=operator_bypass)
+    second = run_startup_audit_chain_check(rls_app, read_scope=operator_bypass)
+    assert first["ok"] and first["legacy"]["seal_ok"] is True and first["legacy"]["seal_count"] == 2
+    assert second["ok"]
+    with rls_app() as s:
+        with operator_bypass(s):
+            seals = s.execute(text(
+                "SELECT sequence FROM audit_log WHERE field_name = :m"
+            ), {"m": LEGACY_SEAL_MARKER}).all()
+    assert len(seals) == 1 and seals[0][0] == 7

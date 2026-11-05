@@ -43,7 +43,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf
 # (Docstring: Operator-Bypass unter PG-RLS), Feld-Diff geprueft.
 # N-869-6: AuditChainSection + ambiguous/ambiguous_count, AuditLegacySection
 # + field_shift/field_shift_ids (nur additiv, Feld-Diff geprueft).
-GOLDEN_OPENAPI_SHA256 = "b4dafb649ea2d741e3557274b245a798b8b4202f6dfacbd9f02f6c08b1dcd22b"
+# Bestandssiegel: AuditLegacySection + seal_present/seal_ok/seal_sequence/
+# seal_count (nur additiv, Feld-Diff geprueft).
+GOLDEN_OPENAPI_SHA256 = "afc8d7881fc877e2e45fb48919135f1929ea61a1aaaf856fd7f14675683307a3"
 
 _PROBE = """
 import hashlib, json

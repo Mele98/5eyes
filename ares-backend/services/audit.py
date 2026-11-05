@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 from contextlib import AbstractContextManager, nullcontext
@@ -614,6 +615,134 @@ def _verify_audit_chain_detail(db: Session) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Bestandssiegel (Delta-Pruefung #869, Entscheid Claude/Owner-Vertretung)
+# ---------------------------------------------------------------------------
+# Altzeilen ohne Hash (Live: 761, Maerz bis 9. August, Folge des frueheren
+# Neuaufbau-Fehlers) lassen sich nachtraeglich nicht faelschungssicher
+# machen -- ihr HEUTIGER Stand schon: ein einmaliger, verketteter Eintrag
+# haelt Anzahl, ID-Bereich, Zeitraum und einen sha256 ueber die kanonisch
+# serialisierten Altzeilen fest. Ab dann meldet der Verifier jede Aenderung,
+# Loeschung oder Einfuegung im Altbestand.
+#
+# Bewusst ein Merkmal (field_name='LEGACY_SEAL') auf action='CREATE' und
+# kein neuer action-Wert: ein neuer Wert im SQLite-CHECK erzwaenge den
+# Tabellen-Neuaufbau auf jeder Installation (genau der Pfad aus H-865-1/
+# N-869-1) und eine CHECK-Aenderung unter PostgreSQL.
+#
+# Versiegelt werden ALLE Altzeilen (sequence IS NULL), nicht nur die ohne
+# Hash: das deckt die ungehashten ab und schliesst zusaetzlich die Luecke
+# "letzte Altzeile geloescht" (#869, Abschnitt 4). Seit dem Ketten-Pflicht-
+# Trigger (N-869-3) kann keine neue Zeile ohne sequence entstehen, der
+# versiegelte Bestand ist also abgeschlossen.
+LEGACY_SEAL_MARKER = "LEGACY_SEAL"
+LEGACY_SEAL_SCHEME = "legacy-seal-v1"
+_LEGACY_SEAL_TABLE = "audit_log"
+_LEGACY_SEAL_RECORD = "legacy-seal"
+_LEGACY_SEAL_COLUMNS = (
+    "id", "user_id", "user_name", "table_name", "record_id", "action",
+    "field_name", "old_value", "new_value", "mandate_id", "client_id",
+    "integrity_hash", "ip_address", "created_at", "tenant_id", "sequence",
+    "previous_hash",
+)
+
+
+def _legacy_seal_digest(db: Session) -> dict:
+    """Kanonischer Stand des Altbestands: Zeilen nach id sortiert (in Python,
+    unabhaengig von der DB-Collation), je Zeile ein JSON-Array der Spalten
+    in fester Reihenfolge, zeilenweise in einen sha256 eingespeist."""
+    rows = db.query(AuditLog).filter(AuditLog.sequence.is_(None)).all()
+    rows.sort(key=lambda r: str(r.id))
+    digest = hashlib.sha256()
+    for row in rows:
+        values = [getattr(row, column) for column in _LEGACY_SEAL_COLUMNS]
+        digest.update(
+            json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+        )
+    created = sorted(str(r.created_at or "") for r in rows)
+    return {
+        "scheme": LEGACY_SEAL_SCHEME,
+        "count": len(rows),
+        "unhashed": sum(1 for r in rows if not r.integrity_hash),
+        "id_min": str(rows[0].id) if rows else None,
+        "id_max": str(rows[-1].id) if rows else None,
+        "created_at_min": created[0] if created else None,
+        "created_at_max": created[-1] if created else None,
+        "sha256": digest.hexdigest(),
+    }
+
+
+def _legacy_seals(db: Session) -> list[AuditLog]:
+    return (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.table_name == _LEGACY_SEAL_TABLE,
+            AuditLog.field_name == LEGACY_SEAL_MARKER,
+            AuditLog.sequence.isnot(None),
+        )
+        .order_by(AuditLog.sequence.asc())
+        .all()
+    )
+
+
+def ensure_legacy_seal(db: Session) -> dict | None:
+    """Schreibt genau einmal den Bestandssiegel-Eintrag, wenn Altzeilen ohne
+    Hash existieren und noch kein Siegel vorhanden ist. Idempotent; der
+    Aufrufer committet. Rueckgabe: der versiegelte Stand oder None."""
+    if _legacy_seals(db):
+        return None
+    has_unhashed = (
+        db.query(AuditLog.id)
+        .filter(AuditLog.sequence.is_(None), AuditLog.integrity_hash.is_(None))
+        .first()
+        is not None
+    )
+    if not has_unhashed:
+        return None
+    sealed = _legacy_seal_digest(db)
+    log(
+        db,
+        user_id="system",
+        user_name="System (Bestandssiegel)",
+        table_name=_LEGACY_SEAL_TABLE,
+        record_id=_LEGACY_SEAL_RECORD,
+        action="CREATE",
+        field_name=LEGACY_SEAL_MARKER,
+        new_value=json.dumps(sealed, sort_keys=True, separators=(",", ":")),
+        tenant_id=None,
+    )
+    return sealed
+
+
+def _verify_legacy_seal(db: Session) -> dict:
+    """Prueft jeden vorhandenen Siegel-Eintrag gegen den heutigen Altbestand.
+    Abweichung = Befund. Ohne Siegel: seal_ok None (nichts zu pruefen)."""
+    seals = _legacy_seals(db)
+    if not seals:
+        return {"seal_present": False, "seal_ok": None, "seal_sequence": None, "seal_count": None}
+    current = _legacy_seal_digest(db)
+    ok = True
+    first: dict | None = None
+    for seal in seals:
+        try:
+            sealed = json.loads(seal.new_value or "")
+        except ValueError:
+            ok = False
+            continue
+        if first is None:
+            first = sealed
+        if sealed.get("scheme") != LEGACY_SEAL_SCHEME or any(
+            sealed.get(key) != current[key] for key in current
+        ):
+            ok = False
+    return {
+        "seal_present": True,
+        "seal_ok": ok,
+        "seal_sequence": int(seals[0].sequence),
+        "seal_count": int(first["count"]) if first and isinstance(first.get("count"), int) else None,
+    }
+
+
 def verify_audit_legacy_rows(db: Session) -> dict:
     """H-865-2 (Pruefrunde #865): Pruefung pro Zeile fuer Altzeilen ohne
     sequence. verify_audit_chain() schliesst sie aus; fuer den Modell-
@@ -690,10 +819,12 @@ def verify_audit_legacy_rows(db: Session) -> dict:
             ambiguous_ids.append(str(row.id))
         else:
             mismatch_ids.append(str(row.id))
+    seal = _verify_legacy_seal(db)
     return {
         # N-869-6: ambiguous ist nur ein Hinweis; Befunde sind mismatch,
-        # field_shift und unexpected_unhashed.
-        "ok": not (mismatch_ids or field_shift_ids or unexpected_unhashed_ids),
+        # field_shift, unexpected_unhashed und ein nicht mehr passendes
+        # Bestandssiegel.
+        "ok": not (mismatch_ids or field_shift_ids or unexpected_unhashed_ids) and seal["seal_ok"] is not False,
         "total": len(rows),
         "hashed": len(rows) - unhashed,
         "unhashed": unhashed,
@@ -708,6 +839,7 @@ def verify_audit_legacy_rows(db: Session) -> dict:
         "field_shift_ids": _capped(field_shift_ids),
         "unexpected_unhashed": len(unexpected_unhashed_ids),
         "unexpected_unhashed_ids": _capped(unexpected_unhashed_ids),
+        **seal,
     }
 
 
@@ -766,16 +898,38 @@ def run_startup_audit_chain_check(
     CRITICAL "Kettenende fehlt".
     """
     factory = session_factory or database.SessionLocal
+
+    def _scope(db):
+        return read_scope(db) if read_scope is not None else nullcontext()
+
     try:
-        with factory() as db, (read_scope(db) if read_scope is not None else nullcontext()):
+        with factory() as db, _scope(db):
             total = int(db.query(func.count(AuditLog.id)).scalar() or 0)
-            if total > max_rows:
-                logger.warning(
-                    "Audit-Kettenpruefung beim Start uebersprungen: %s Eintraege > Grenze %s "
-                    "(Pruefung ueber GET /admin/system/audit-log/verify)",
-                    total, max_rows,
+        if total > max_rows:
+            logger.warning(
+                "Audit-Kettenpruefung beim Start uebersprungen: %s Eintraege > Grenze %s "
+                "(Pruefung ueber GET /admin/system/audit-log/verify)",
+                total, max_rows,
+            )
+            return None
+        # Bestandssiegel: genau einmal, verkettet, vor der Pruefung (die es
+        # dann gleich mitprueft). Eigene Session: ein Rollback hier wuerde
+        # unter PostgreSQL auch den Operator-Bypass (set_config in derselben
+        # Transaktion) zuruecknehmen. Ein Fehler stoppt weder Start noch
+        # Pruefung.
+        try:
+            with factory() as db, _scope(db):
+                sealed = ensure_legacy_seal(db)
+                if sealed is not None:
+                    db.commit()
+            if sealed is not None:
+                logger.info(
+                    "Bestandssiegel fuer %s Altzeilen geschrieben (davon %s ohne Hash)",
+                    sealed["count"], sealed["unhashed"],
                 )
-                return None
+        except Exception as exc:  # noqa: BLE001 -- Siegel darf den Boot nie stoppen
+            logger.warning("Bestandssiegel nicht geschrieben: %s", type(exc).__name__)
+        with factory() as db, _scope(db):
             report = audit_log_integrity_report(db)
     except Exception as exc:  # noqa: BLE001 -- die Startpruefung darf den Boot nie stoppen
         logger.warning("Audit-Kettenpruefung beim Start nicht durchfuehrbar: %s", type(exc).__name__)
@@ -786,10 +940,12 @@ def run_startup_audit_chain_check(
         logger.critical(
             "AUDIT-LOG-INTEGRITAET VERLETZT: Kette ok=%s (geprueft=%s, Brueche=%s, Luecken=%s, "
             "Duplikate=%s, Hash-Abweichungen=%s); Altzeilen ok=%s (Hash-Abweichungen=%s, "
-            "Feldverschiebung=%s, unerwartet ohne Hash=%s). Details: GET /admin/system/audit-log/verify",
+            "Feldverschiebung=%s, unerwartet ohne Hash=%s, Bestandssiegel ok=%s). "
+            "Details: GET /admin/system/audit-log/verify",
             chain["ok"], chain["checked"], chain["break_count"], chain["gap_count"],
             chain["duplicate_count"], chain["hash_mismatch_count"],
             legacy["ok"], legacy["mismatches"], legacy["field_shift"], legacy["unexpected_unhashed"],
+            legacy["seal_ok"],
         )
     elif legacy["link_unconfirmed"] or legacy["ambiguous"] or chain["ambiguous_count"]:
         # N-869-6: '|' im Wert ohne Hinweis auf Verschiebung ist nur ein

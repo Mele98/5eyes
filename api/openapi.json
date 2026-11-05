@@ -2137,6 +2137,43 @@
             "title": "Ok",
             "type": "boolean"
           },
+          "seal_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Count"
+          },
+          "seal_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Ok"
+          },
+          "seal_present": {
+            "title": "Seal Present",
+            "type": "boolean"
+          },
+          "seal_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Sequence"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -2176,7 +2213,8 @@
           "field_shift",
           "field_shift_ids",
           "unexpected_unhashed",
-          "unexpected_unhashed_ids"
+          "unexpected_unhashed_ids",
+          "seal_present"
         ],
         "title": "AuditLegacySection",
         "type": "object"

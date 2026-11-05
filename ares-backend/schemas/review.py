@@ -1606,6 +1606,12 @@ class AuditLegacySection(BaseModel):
     field_shift_ids: list[str]
     unexpected_unhashed: int
     unexpected_unhashed_ids: list[str]
+    # Bestandssiegel (#869): verketteter Eintrag ueber den Altbestand; seal_ok
+    # None = kein Siegel vorhanden, False = Altbestand weicht ab (Befund).
+    seal_present: bool
+    seal_ok: Optional[bool] = None
+    seal_sequence: Optional[int] = None
+    seal_count: Optional[int] = None
 
 
 class AuditChainVerification(BaseModel):
