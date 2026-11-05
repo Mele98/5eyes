@@ -1712,6 +1712,18 @@ def ensure_audit_log_actions(target_engine: Engine | None = None) -> None:
         tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
         sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
         previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
+        # H-865-1 (Pruefrunde #865): integrity_hash wurde hier bisher hart mit
+        # "NULL AS integrity_hash" kopiert. Beim ersten Start einer Rohschema-
+        # Installation war das folgenlos (noch keine Zeilen mit Hash), aber
+        # JEDER spaetere Neuaufbau -- etwa fuer einen kuenftigen action-Marker
+        # nach dem Muster has_erasure_action -- haette ALLEN bestehenden
+        # Zeilen den Hash genommen, auch den verketteten: verify_audit_chain()
+        # meldete danach jede Zeile als manipuliert, und die Trigger
+        # verhindern jede Reparatur. integrity_hash, sequence und
+        # previous_hash werden deshalb 1:1 uebernommen.
+        integrity_hash_select = (
+            "integrity_hash" if "integrity_hash" in old_columns else "NULL AS integrity_hash"
+        )
         conn.execute(text(f"""
             INSERT INTO audit_log (
                 id, user_id, user_name, table_name, record_id, action,
@@ -1722,7 +1734,7 @@ def ensure_audit_log_actions(target_engine: Engine | None = None) -> None:
             SELECT
                 id, user_id, user_name, table_name, record_id, action,
                 field_name, old_value, new_value, mandate_id, client_id,
-                NULL AS integrity_hash,
+                {integrity_hash_select},
                 {ip_address_select},
                 created_at,
                 {tenant_id_select},
@@ -1731,6 +1743,14 @@ def ensure_audit_log_actions(target_engine: Engine | None = None) -> None:
             FROM audit_log__old
         """))
         conn.execute(text('DROP TABLE audit_log__old'))
+        # H-865-1: SQLite verwirft beim DROP TABLE audit_log__old die dorthin
+        # mitgewanderten Unveraenderlichkeits-Trigger (Befund CEO/CFO/CIO-
+        # Audit 2026-08-07). Bisher stellte erst der separate Aufruf von
+        # ensure_audit_log_triggers() im Boot-Pfad sie wieder her -- jeder
+        # andere Aufrufer dieser Funktion hinterliess eine ungeschuetzte
+        # Tabelle. Jetzt in DERSELBEN Transaktion wie der Neuaufbau: die
+        # neue Tabelle ist nie ohne Schutz committet.
+        _create_audit_log_immutability_triggers(conn)
 
 
 def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
@@ -1753,16 +1773,23 @@ def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
     if not inspector.has_table('audit_log'):
         return
     with target_engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
-            BEFORE UPDATE ON audit_log FOR EACH ROW
-            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-        """))
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
-            BEFORE DELETE ON audit_log FOR EACH ROW
-            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-        """))
+        _create_audit_log_immutability_triggers(conn)
+
+
+def _create_audit_log_immutability_triggers(conn) -> None:
+    """Beide audit_log-Trigger idempotent anlegen (SQLite). Gemeinsam genutzt
+    von ensure_audit_log_triggers() und dem Neuaufbau in
+    ensure_audit_log_actions() (H-865-1)."""
+    conn.execute(text("""
+        CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+        BEFORE UPDATE ON audit_log FOR EACH ROW
+        BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """))
+    conn.execute(text("""
+        CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+        BEFORE DELETE ON audit_log FOR EACH ROW
+        BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """))
 
 
 SEED_ASSET_CLASS_RETURNS = [
