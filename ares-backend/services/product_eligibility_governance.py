@@ -532,7 +532,8 @@ def sustainability_attribute_errors(values: dict, *, today: date | None = None) 
 
 
 def default_client_source_label(source_type: str | None) -> str | None:
-    """N-863-6: Default-Katalogwert der Kunden-Quellbezeichnung = Quellentyp."""
+    """N-863-6/N-863-8: Kunden-Quellbezeichnung = fester Katalogwert des
+    Quellentyps (einzige zulaessige Zuordnung)."""
     return source_type if source_type in SUSTAINABILITY_CLIENT_SOURCE_LABELS else None
 
 
@@ -561,11 +562,14 @@ def source_document_errors(values: dict, *, today: date) -> list[str]:
     digest = values.get("source_document_sha256")
     if digest not in (None, "") and not _is_sha256_hex(str(digest)):
         errors.append("source_document_sha256 muss ein SHA-256-Hexwert (64 Zeichen) sein.")
+    # N-863-8: die Kunden-Quellbezeichnung ist fest an source_type gebunden
+    # (keine freie Wahl, keine Heraufstufung z. B. Datenanbieter -> Fondsvertrag).
     label = values.get("client_source_label")
-    if label not in (None, "") and label not in SUSTAINABILITY_CLIENT_SOURCE_LABELS:
+    expected = default_client_source_label(values.get("source_type"))
+    if label not in (None, "") and label != expected:
         errors.append(
-            "Kunden-Quellbezeichnung muss ein Katalogwert sein "
-            f"({', '.join(SUSTAINABILITY_CLIENT_SOURCE_LABELS)})."
+            "Die Kunden-Quellbezeichnung wird aus dem Quellentyp abgeleitet "
+            f"({values.get('source_type')!r} -> {expected!r}); eine abweichende Angabe ist nicht zulaessig."
         )
     return errors
 

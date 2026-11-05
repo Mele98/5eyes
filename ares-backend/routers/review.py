@@ -4257,9 +4257,9 @@ def _create_sustainability_attribute(
     values = _sustainability_values(body)
     if values.get("valid_until") is None:
         values["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
-    if not values.get("client_source_label"):
-        values["client_source_label"] = default_client_source_label(values.get("source_type"))
     errors = sustainability_attribute_errors(values)
+    # N-863-8: immer aus dem Quellentyp abgeleitet (eine abweichende Angabe ist oben 422).
+    values["client_source_label"] = default_client_source_label(values.get("source_type"))
     if errors:
         raise HTTPException(status_code=422, detail=" ".join(errors))
     duplicate = db.query(ProductSustainabilityAttribute.id).filter(
@@ -4805,18 +4805,15 @@ def update_sustainability_attribute(
         changes["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
     merged = {name: getattr(attribute, name) for name in ("category", "kind", *_SUSTAINABILITY_EDITABLE_FIELDS)}
     merged.update(changes)
-    if (
-        "source_type" in changes and "client_source_label" not in changes
-        and attribute.client_source_label == default_client_source_label(attribute.source_type)
-    ):
-        merged["client_source_label"] = None  # abgeleitete Bezeichnung folgt dem neuen Quellentyp
-    if not merged.get("client_source_label"):
+    if "client_source_label" not in changes:
+        # N-863-8: abgeleitet, folgt einem geaenderten Quellentyp
         merged["client_source_label"] = default_client_source_label(merged.get("source_type"))
     if merged.get("valid_until") is None and merged.get("as_of"):
         merged["valid_until"] = default_evidence_valid_until(date.fromisoformat(str(merged["as_of"])[:10])).isoformat()
     errors = sustainability_attribute_errors(merged)
     if errors:
         raise HTTPException(status_code=422, detail=" ".join(errors))
+    merged["client_source_label"] = default_client_source_label(merged.get("source_type"))
     for name in _SUSTAINABILITY_EDITABLE_FIELDS:
         setattr(attribute, name, merged.get(name))
     attribute.updated_at = _now()

@@ -778,16 +778,23 @@ def test_finma_fields_validation(SF, client, override):
     assert client.post("/products/own-a/sustainability-attributes", json=_payload(**override)).status_code == 422
 
 
-def test_n863_6_label_is_catalog_value(SF, client):
+def test_n863_8_label_is_bound_to_source_type(SF, client):
     _as("admin-a1", "admin", "firm-a")
-    r = client.post("/products/own-a/sustainability-attributes", json=_payload(
+    wrong = client.post("/products/own-a/sustainability-attributes", json=_payload(
         source_type="data_vendor", source_provider="Anbieter X", source_retrieved_on=AS_OF,
-        client_source_label="provider_exclusion_policy"))
-    assert r.status_code == 201
-    assert r.json()["client_source_label"] == "provider_exclusion_policy"
-    assert r.json()["client_source_label_text"] == "Ausschlussrichtlinie des Anbieters"
+        client_source_label="fund_contract"))
+    assert wrong.status_code == 422, wrong.text
+    same = client.post("/products/own-a/sustainability-attributes", json=_payload(
+        source_type="data_vendor", source_provider="Anbieter X", source_retrieved_on=AS_OF,
+        client_source_label="data_vendor"))
+    assert same.status_code == 201 and same.json()["client_source_label_text"] == "Datenanbieter (Export)"
+    derived = client.post("/products/own-a/sustainability-attributes", json=_payload(category="alcohol",
+                          revenue_threshold_bps=1000, source_type="house_analysis"))
+    assert derived.status_code == 201 and derived.json()["client_source_label"] == "house_analysis"
+    patch = client.patch(f"/products/sustainability/attributes/{derived.json()['id']}",
+                         json={"client_source_label": "prospectus"})
+    assert patch.status_code == 422
     cat = client.get("/products/sustainability/catalog").json()
-    assert cat["client_source_labels"]["data_vendor"] == "Datenanbieter (Export)"
     assert cat["client_source_labels"]["house_analysis"] == "eigene Prüfung"
 
 
@@ -796,7 +803,7 @@ def test_n863_6_csv_import_rejects_free_text_label(SF, client):
     csv_text = (
         "product_id,category,kind,revenue_threshold_bps,source_type,source_reference,client_source_label,as_of\n"
         f"own-a,tobacco,exclusion_policy,500,kid,KID,Acme Ratings,{AS_OF}\n"
-        f"own-a,alcohol,exclusion_policy,1000,kid,KID,factsheet,{AS_OF}\n"
+        f"own-a,alcohol,exclusion_policy,1000,kid,KID,kid,{AS_OF}\n"
     )
     r = client.post("/products/sustainability/attributes/import/csv",
                     files={"file": ("l.csv", io.BytesIO(csv_text.encode("utf-8")), "text/csv")})

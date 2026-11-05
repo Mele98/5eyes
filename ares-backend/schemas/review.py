@@ -2348,7 +2348,7 @@ class ProductSustainabilityAttributeCreate(BaseModel):
     source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
     client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
         default=None,
-        description="Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
+        description="Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
     )
     as_of: date
     valid_until: Optional[date] = Field(
@@ -2386,7 +2386,7 @@ class ProductSustainabilityAttributeUpdate(BaseModel):
     source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
     client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
         default=None,
-        description="Katalogwert der neutralen Quellbezeichnung fuer Kundendokumente; leer = Quellentyp.",
+        description="Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
     )
     as_of: Optional[date] = None
     valid_until: Optional[date] = None
