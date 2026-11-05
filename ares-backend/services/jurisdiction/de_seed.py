@@ -31,7 +31,17 @@ from database import new_uuid
 from models.jurisdiction import JurisdictionHomeBiasDefault, JurisdictionProfile
 
 DE_CODE = "DE"
-SEEDED_BY = "system:de_jurisdiction_seed"
+
+# SEED-FK-HYGIENE (2026-11-05): created_by ist ein Fremdschluessel auf
+# users.id. Ein System-Seed hat keinen Benutzer und schreibt deshalb NULL --
+# dasselbe Muster wie database.py::ensure_default_ch_jurisdiction. Die Herkunft
+# steht in JurisdictionProfile.notes ("Automatisch angelegt ...") bzw. in den
+# rationale_text-Zeilen; ein eigenes Herkunftsfeld ist nicht noetig.
+# Frueher stand hier die Pseudo-Kennung unten in created_by: unter PRAGMA
+# foreign_keys=ON scheiterte damit jedes INSERT, und der Aufrufer verschluckte
+# den Fehler. Zeilen, die ueber eine Verbindung ohne FK-Pruefung doch mit der
+# Pseudo-Kennung entstanden sind, setzt der Seed idempotent auf NULL zurueck.
+_LEGACY_PSEUDO_CREATED_BY = "system:de_jurisdiction_seed"
 
 # Mechanische Label-Uebersetzung der heutigen CH-Sub-Asset-Class-Strings
 # (services/portfolio_engine.py, verifiziert per Read: Zeile ~3844-3951).
@@ -120,6 +130,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def _repair_legacy_pseudo_created_by(db: Session, now: str) -> None:
+    """Setzt die fruehere Pseudo-Kennung in created_by (verwaister FK auf
+    users.id) auf NULL. Idempotent; beruehrt nur DE-Seed-Zeilen."""
+    for model in (JurisdictionProfile, JurisdictionHomeBiasDefault):
+        db.query(model).filter(
+            model.created_by == _LEGACY_PSEUDO_CREATED_BY,
+        ).update(
+            {model.created_by: None, model.updated_at: now},
+            synchronize_session=False,
+        )
+
+
 def ensure_de_jurisdiction_seed(db: Session) -> None:
     """Idempotent: legt die DE-JurisdictionProfile-Zeile und alle Home-Bias-
     Default-Zeilen an, falls sie noch nicht existieren. Kann bei jedem Boot
@@ -127,6 +149,7 @@ def ensure_de_jurisdiction_seed(db: Session) -> None:
     database.py::ensure_default_ch_jurisdiction) -- aendert nichts, wenn
     bereits vorhanden, und beruehrt NIE eine CH-Zeile."""
     now = _now()
+    _repair_legacy_pseudo_created_by(db, now)
     profile = db.query(JurisdictionProfile).filter(
         JurisdictionProfile.code == DE_CODE,
     ).first()
@@ -147,7 +170,7 @@ def ensure_de_jurisdiction_seed(db: Session) -> None:
                 "Home-Bias-Defaults sind eine mechanische 1:1-Spiegelung der "
                 "CH-Gewichte (nur Labels uebersetzt) -- noch nicht IC-geprueft."
             ),
-            created_by=SEEDED_BY,
+            created_by=None,
             created_at=now,
             updated_at=now,
         ))
@@ -178,7 +201,7 @@ def ensure_de_jurisdiction_seed(db: Session) -> None:
                     rationale_text=rationale,
                     is_provisional=1,
                     sort_order=sort_order,
-                    created_by=SEEDED_BY,
+                    created_by=None,
                     created_at=now,
                     updated_at=now,
                 ))
