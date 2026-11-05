@@ -452,12 +452,17 @@ class ProductSustainabilityAttribute(Base):
 
 
 class SustainabilityExclusionStandard(Base):
-    """Hausstandard je Tenant und Kategorie (Audit 05 §4.2, T-E1).
+    """Hausstandard je Tenant und Kategorie (Audit 05 §4.2, T-E1), versioniert.
 
-    Eine Zeile ueberschreibt den Code-Default
-    (``SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS``) fuer genau einen Tenant.
-    Fehlt die Zeile, gilt der Default. Jede Aenderung steht im Audit-Log
-    (alter und neuer Wert).
+    Je Tenant und Kategorie gilt hoechstens eine freigegebene Version mit
+    offenem ``valid_to`` (aktuell); fehlt sie, gilt der Code-Default
+    (``SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS``). H-1 (Pruefrunde #863):
+    Verschaerfungen (Schwelle <= Default, Kategorie aktiv) wirken sofort
+    (approval_mode 'immediate_tightening'); Lockerungen unter den T-E1-
+    Default (hoehere Schwelle oder Kategorie deaktiviert) entstehen als
+    Entwurf und brauchen eine Vier-Augen-Freigabe. ``valid_from``/``valid_to``
+    erlauben T3, die am Generate-Stichtag verwendete Schwelle samt Version im
+    Snapshot zu speichern. Jede Aenderung steht im Audit-Log.
     """
 
     __tablename__ = "sustainability_exclusion_standards"
@@ -466,8 +471,16 @@ class SustainabilityExclusionStandard(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
     category = Column(String, nullable=False)
     max_revenue_threshold_bps = Column(Integer)
+    is_disabled = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    status = Column(String, nullable=False, default="approved", server_default=text("'approved'"))
     note = Column(String)
     updated_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_by = Column(String, ForeignKey("users.id"))
+    approved_by = Column(String, ForeignKey("users.id"))
+    approved_at = Column(String)
+    approval_mode = Column(String)
+    valid_from = Column(String)
+    valid_to = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 
@@ -477,5 +490,22 @@ class SustainabilityExclusionStandard(Base):
             "(max_revenue_threshold_bps >= 0 AND max_revenue_threshold_bps <= 10000)",
             name="ck_ses_threshold_bps",
         ),
-        Index("ux_ses_tenant_category", "tenant_id", "category", unique=True),
+        CheckConstraint("status IN ('draft', 'approved', 'retired')", name="ck_ses_status"),
+        CheckConstraint("is_disabled IN (0, 1)", name="ck_ses_is_disabled"),
+        CheckConstraint(
+            "approved_by IS NULL OR created_by IS NULL OR approved_by <> created_by "
+            "OR approval_mode IN ('immediate_tightening', 'single_approver_attested', 'pre_versioning')",
+            name="ck_ses_four_eyes",
+        ),
+        Index("ix_ses_tenant_category", "tenant_id", "category", "status"),
+        Index(
+            "ux_ses_tenant_category_current", "tenant_id", "category", unique=True,
+            sqlite_where=text("status = 'approved' AND valid_to IS NULL"),
+            postgresql_where=text("status = 'approved' AND valid_to IS NULL"),
+        ),
+        Index(
+            "ux_ses_tenant_category_pending", "tenant_id", "category", unique=True,
+            sqlite_where=text("status = 'draft'"),
+            postgresql_where=text("status = 'draft'"),
+        ),
     )
