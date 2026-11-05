@@ -3876,6 +3876,7 @@ def generate_target_allocation(
         int(_baseline_target_bands(house_matrix, policy)[2]["liquidity"]),
         reasoning, messages_extra,
         reserve_driven=liquidity_floor_source == "zwingend vorzuhaltende Zielreserve",
+        external_reserve=int(external_reserve_rappen) > 0,  # F-1: Quelle wie im Reasoning
     )
     risky_fraction_total_bps = int(realized_risky_bps)
     if (
@@ -4091,11 +4092,11 @@ def generate_target_allocation(
     # Live-Test 04 / M3: Abweichung vom Eignungsrahmen auch in ``messages``
     # (Banner), ohne tragfaehige Begruendung als Konflikt.
     _house_targets_m3, house_minimums_m3, house_maximums_m3 = _baseline_target_bands(house_matrix, policy)
-    messages = list(messages) + messages_extra + band_deviation_messages(
+    messages = list(messages) + band_deviation_messages(  # F-1: messages_extra dahinter
         prefs["bands"], house_minimums_m3, house_maximums_m3,
         reason_is_valid=_band_deviation_reason_is_valid(prefs.get("bandDeviationReason")),
         house_profile=house_matrix.profile_name, score_bucket=score_bucket,
-    )
+    ) + messages_extra
     # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
     # ohne erneuten Solver-Lauf liefern kann. Nur im stochastic-Modus.
     stress_evaluations_json: str | None = None

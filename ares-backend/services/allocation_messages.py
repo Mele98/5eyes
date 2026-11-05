@@ -48,6 +48,9 @@ CONFLICT_BAND_REASON_MISSING = "CONFLICT_BAND_REASON_MISSING"
 # Severity warning OHNE Aktion, damit der Berater sie im Banner sieht
 # (die Banner zeigen nur conflict/warning).
 WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED = "WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED"
+# F-1 (Pruefrunde #859): unterhalb der Wesentlichkeitsschwelle nur Info
+# (kein Banner); ab der Schwelle WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED.
+INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED = "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -64,6 +67,7 @@ ALL_CODES: tuple[str, ...] = (
     WARN_TARGET_FALLBACK_RESET,
     CONFLICT_BAND_REASON_MISSING,
     WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -269,6 +273,21 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
             "Liquidität: Das Band wurde systembedingt auf {extended} % erweitert "
             "({source}; Hausmatrix-Maximum {house_max} %). Das ist kein Austritt aus "
             "dem Eignungsrahmen und braucht keine Begründung."
+        ),
+        "body_client": (
+            "Für Ihre Strategie wird eine Liquidität von {extended} % gehalten, "
+            "{client_reason}."
+        ),
+        "actions": (),
+    },
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED: {
+        "severity": SEVERITY_INFO,
+        "title": "Liquiditätsband systembedingt erweitert",
+        "body_advisor": (
+            "Liquidität: Das Band wurde systembedingt auf {extended} % erweitert "
+            "({source}; Hausmatrix-Maximum {house_max} %). Die Erweiterung liegt unter "
+            "der Wesentlichkeitsschwelle; kein Austritt aus dem Eignungsrahmen, keine "
+            "Begründung nötig."
         ),
         "body_client": (
             "Für Ihre Strategie wird eine Liquidität von {extended} % gehalten, "

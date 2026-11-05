@@ -91,6 +91,7 @@ from sqlalchemy.orm import Session
 from database import new_uuid
 from services.allocation_messages import (
     CONFLICT_BAND_REASON_MISSING,
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
     WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
     WARN_BAND_OUTSIDE_HOUSE_MATRIX,
     WARN_TARGET_ADJUSTED,
@@ -769,6 +770,13 @@ def restate_saa_liquidity_sentence(reasoning: list[str], final_liquidity_bps: in
             )
 
 
+# F-1 (Pruefrunde #859): Wesentlichkeitsschwelle fuer die Banner-Warnung.
+# Eine Erweiterung des Liquiditaetsbands um weniger als 25 bps ueber das
+# Hausmatrix-Maximum (typisch: 2.01 % statt 2.00 % durch die Normierung der
+# Reserve) ist nur eine Info; ab 25 bps eine Warnung (ohne Aktion).
+LIQUIDITY_BAND_EXTENSION_WARNING_THRESHOLD_BPS = 25
+
+
 def disclose_system_liquidity_band_extension(
     system_liquidity_floor_bps: int,
     house_liquidity_max_bps: int,
@@ -776,28 +784,53 @@ def disclose_system_liquidity_band_extension(
     messages: list,
     *,
     reserve_driven: bool,
+    external_reserve: bool = False,
 ) -> None:
     """Delta-Pruefung #859 D-2 (zu M2/AA-7.2): erweitert Ares das
     Liquiditaetsband systembedingt ueber das Hausmatrix-Maximum, wird das
-    als Reasoning-Satz und Info-Meldung ausgewiesen."""
+    als Reasoning-Satz und Meldung ausgewiesen.
+
+    F-1: warning erst ab ``LIQUIDITY_BAND_EXTENSION_WARNING_THRESHOLD_BPS``
+    (sonst Info, kein Banner); der Aufrufer reiht die Meldung HINTER die
+    begruendungspflichtigen Meldungen ein. Quelle und Kundentext folgen der
+    tatsaechlichen Ursache: Reserve-Normierung nach einer extern empfohlenen
+    Reserve, intern vorzuhaltende Reserve oder Mindestliquiditaet des
+    Modells."""
     if int(system_liquidity_floor_bps) <= int(house_liquidity_max_bps):
         return
-    source = "Zielreserve" if reserve_driven else "Mindestliquidität des Modells"
-    client_reason = (
-        "damit die vorgesehene Zielreserve gedeckt ist"
-        if reserve_driven
-        else "weil das Modell eine Mindestliquidität vorsieht"
+    # ``reasoning_source`` ohne "Reserve"/"Liquiditaet" (ASCII): die Karte
+    # "Leitplanken & Engine" filtert solche Saetze heraus (E-2).
+    if reserve_driven and external_reserve:
+        source = "Reserve, bezogen auf das Vermögen nach der extern empfohlenen Reserve"
+        reasoning_source = "Liquiditätsbedarf im Mandat, bezogen auf das Vermögen ohne den extern empfohlenen Teil"
+        client_reason = (
+            "weil ein Teil der Reserve ausserhalb des Mandats empfohlen wird und die "
+            "im Mandat gehaltene Reserve auf das verbleibende Vermögen bezogen ist"
+        )
+    elif reserve_driven:
+        source = "im Mandat vorzuhaltende Reserve"
+        reasoning_source = "im Mandat vorzuhaltender Liquiditätsbedarf"
+        client_reason = "damit die im Mandat vorgesehene Reserve gedeckt ist"
+    else:
+        source = "Mindestliquidität des Modells"
+        reasoning_source = source
+        client_reason = "weil das Modell eine Mindestliquidität vorsieht"
+    extension_bps = int(system_liquidity_floor_bps) - int(house_liquidity_max_bps)
+    code = (
+        WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED
+        if extension_bps >= LIQUIDITY_BAND_EXTENSION_WARNING_THRESHOLD_BPS
+        else INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED
     )
     # E-2: mit Umlaut (die Karte "Leitplanken & Engine" filtert ASCII-
     # "Liquiditaet") und weit oben eingeordnet (die Karte zeigt nur die
     # ersten zwei verbleibenden Saetze).
     sentence = (
         f"Liquiditätsband systembedingt auf {_band_pct(system_liquidity_floor_bps)} % "
-        f"erweitert ({source}; Hausmatrix-Maximum {_band_pct(house_liquidity_max_bps)} %)."
+        f"erweitert ({reasoning_source}; Hausmatrix-Maximum {_band_pct(house_liquidity_max_bps)} %)."
     )
     reasoning.insert(min(2, len(reasoning)), sentence)
     messages.append(format_message(
-        WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+        code,
         extended=_band_pct(system_liquidity_floor_bps),
         source=source,
         house_max=_band_pct(house_liquidity_max_bps),
