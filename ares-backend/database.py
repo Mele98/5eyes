@@ -2172,11 +2172,17 @@ def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
     ensure_default_ch_jurisdiction() direkt darueber -- beruehrt NIE eine
     CH-Zeile und blockiert den Boot nie."""
     try:
-        from services.jurisdiction.de_seed import ensure_de_jurisdiction_seed
+        from services.jurisdiction.de_seed import (
+            ensure_de_jurisdiction_seed,
+            log_legacy_pseudo_created_by_repair,
+        )
 
         with _session_for(target_engine) as db:
-            ensure_de_jurisdiction_seed(db)
+            repaired = ensure_de_jurisdiction_seed(db)
             db.commit()
+        # N-870-5: erst nach erfolgreichem Commit melden; bei Rollback keine
+        # Erfolgszeile.
+        log_legacy_pseudo_created_by_repair(repaired)
     except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
         # Hier fiel der DE-Seed unter PRAGMA foreign_keys=ON still aus
         # (Pseudo-Kennung in created_by, SEED-FK-HYGIENE).

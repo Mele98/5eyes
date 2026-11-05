@@ -133,12 +133,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def _repair_legacy_pseudo_created_by(db: Session, now: str) -> None:
+def _repair_legacy_pseudo_created_by(db: Session, now: str) -> dict[str, int]:
     """Setzt die fruehere Pseudo-Kennung in created_by (verwaister FK auf
     users.id) auf NULL. Idempotent; beruehrt nur DE-Seed-Zeilen.
 
-    N-870-1: bei mindestens einer reparierten Zeile eine INFO-Logzeile mit der
-    Anzahl je Tabelle (ohne Inhalte); bei 0 Zeilen kein Log."""
+    Gibt die Anzahl reparierter Zeilen je Tabelle zurueck (nur Tabellen mit
+    mindestens einer Zeile). Loggt NICHT selbst: die Aenderung ist erst mit
+    dem Commit des Aufrufers wirksam (N-870-5), siehe
+    log_legacy_pseudo_created_by_repair."""
     repaired: dict[str, int] = {}
     for model in (JurisdictionProfile, JurisdictionHomeBiasDefault):
         count = db.query(model).filter(
@@ -149,22 +151,37 @@ def _repair_legacy_pseudo_created_by(db: Session, now: str) -> None:
         )
         if count:
             repaired[model.__tablename__] = int(count)
-    if repaired:
-        logger.info(
-            "DE-Seed: %d Zeilen mit verwaister Seed-Kennung in created_by auf NULL gesetzt (%s)",
-            sum(repaired.values()),
-            ", ".join(f"{table}={n}" for table, n in repaired.items()),
-        )
+    return repaired
 
 
-def ensure_de_jurisdiction_seed(db: Session) -> None:
+def log_legacy_pseudo_created_by_repair(repaired: dict[str, int]) -> None:
+    """N-870-1/N-870-5: INFO-Zeile mit der Anzahl reparierter Zeilen je
+    Tabelle (ohne Inhalte); bei 0 Zeilen kein Log.
+
+    Erst NACH erfolgreichem Commit aufrufen. Ein Rollback (spaeterer Fehler im
+    Seed oder beim Commit) laesst die Altwerte stehen; dann darf keine
+    Erfolgsmeldung im Log stehen."""
+    if not repaired:
+        return
+    logger.info(
+        "DE-Seed: %d Zeilen mit verwaister Seed-Kennung in created_by auf NULL gesetzt (%s)",
+        sum(repaired.values()),
+        ", ".join(f"{table}={n}" for table, n in repaired.items()),
+    )
+
+
+def ensure_de_jurisdiction_seed(db: Session) -> dict[str, int]:
     """Idempotent: legt die DE-JurisdictionProfile-Zeile und alle Home-Bias-
     Default-Zeilen an, falls sie noch nicht existieren. Kann bei jedem Boot
     gefahrlos wiederholt aufgerufen werden (analog zu
     database.py::ensure_default_ch_jurisdiction) -- aendert nichts, wenn
-    bereits vorhanden, und beruehrt NIE eine CH-Zeile."""
+    bereits vorhanden, und beruehrt NIE eine CH-Zeile.
+
+    Committet NICHT. Rueckgabe: Anzahl reparierter Altzeilen je Tabelle; der
+    Aufrufer loggt sie nach seinem Commit per
+    log_legacy_pseudo_created_by_repair (N-870-5)."""
     now = _now()
-    _repair_legacy_pseudo_created_by(db, now)
+    repaired = _repair_legacy_pseudo_created_by(db, now)
     profile = db.query(JurisdictionProfile).filter(
         JurisdictionProfile.code == DE_CODE,
     ).first()
@@ -221,3 +238,4 @@ def ensure_de_jurisdiction_seed(db: Session) -> None:
                     updated_at=now,
                 ))
     db.flush()
+    return repaired

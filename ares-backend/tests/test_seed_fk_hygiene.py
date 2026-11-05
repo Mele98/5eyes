@@ -187,12 +187,7 @@ def test_cma_pipeline_requires_explicit_actor():
         dp.compute_cma_candidate_for_jurisdiction(None, "DE", "2026-07-30")  # type: ignore[call-arg]
 
 
-def test_repair_logs_count_once_and_nothing_when_clean(tmp_path, caplog):
-    """N-870-1: Reparatur schreibt genau eine INFO-Zeile mit der Anzahl (ohne
-    Inhalte); ein zweiter Lauf (0 Zeilen) loggt nichts."""
-    import logging
-
-    db_file = tmp_path / "legacy_log.db"
+def _legacy_db_with_pseudo_ids(db_file) -> None:
     raw = create_engine(f"sqlite:///{db_file}")  # ohne FK-Pragma (Altzustand)
     Base.metadata.create_all(bind=raw)
     with _session(raw) as db:
@@ -203,26 +198,101 @@ def test_repair_logs_count_once_and_nothing_when_clean(tmp_path, caplog):
         conn.execute(text("UPDATE jurisdiction_home_bias_defaults SET created_by = :cb"), {"cb": _LEGACY_PSEUDO_ID})
     raw.dispose()
 
+
+def _pseudo_id_rows(eng) -> int:
+    with eng.connect() as conn:
+        return int(conn.execute(text(
+            "SELECT (SELECT COUNT(*) FROM jurisdiction_profiles WHERE created_by = :cb)"
+            " + (SELECT COUNT(*) FROM jurisdiction_home_bias_defaults WHERE created_by = :cb)"
+        ), {"cb": _LEGACY_PSEUDO_ID}).scalar())
+
+
+def _seed_info_records(caplog) -> list:
+    return [
+        r for r in caplog.records
+        if r.name == de_seed.__name__ and "verwaister Seed-Kennung" in r.getMessage()
+    ]
+
+
+def test_repair_logs_count_once_and_nothing_when_clean(tmp_path, caplog):
+    """N-870-1: Reparatur schreibt (ueber den Boot-Pfad, nach dem Commit)
+    genau eine INFO-Zeile mit der Anzahl (ohne Inhalte); ein zweiter Lauf
+    (0 Zeilen) loggt nichts."""
+    import logging
+
+    db_file = tmp_path / "legacy_log.db"
+    _legacy_db_with_pseudo_ids(db_file)
+
     eng = create_app_engine(db_path=db_file, echo=False)
     logger_name = de_seed.__name__
     try:
         with caplog.at_level(logging.INFO, logger=logger_name):
-            with _session(eng) as db:
-                de_seed.ensure_de_jurisdiction_seed(db)
-                db.commit()
+            database.ensure_default_de_jurisdiction(eng)
         first = [r for r in caplog.records if r.name == logger_name]
         assert len(first) == 1 and first[0].levelno == logging.INFO
         msg = first[0].getMessage()
         assert "35 Zeilen" in msg
         assert "jurisdiction_profiles=1" in msg and "jurisdiction_home_bias_defaults=34" in msg
         assert _LEGACY_PSEUDO_ID not in msg and "Deutschland" not in msg, "keine Inhalte im Log"
+        assert _pseudo_id_rows(eng) == 0
 
         caplog.clear()
         with caplog.at_level(logging.INFO, logger=logger_name):
-            with _session(eng) as db:
-                de_seed.ensure_de_jurisdiction_seed(db)
-                db.commit()
+            database.ensure_default_de_jurisdiction(eng)
         assert [r for r in caplog.records if r.name == logger_name] == []
+    finally:
+        eng.dispose()
+
+
+def test_seed_function_itself_does_not_log_before_commit(tmp_path, caplog):
+    """N-870-5: ensure_de_jurisdiction_seed meldet die Reparatur nicht selbst
+    (sie ist bis zum Commit des Aufrufers nicht wirksam), sondern gibt die
+    Anzahl je Tabelle zurueck."""
+    import logging
+
+    db_file = tmp_path / "legacy_nolog.db"
+    _legacy_db_with_pseudo_ids(db_file)
+    eng = create_app_engine(db_path=db_file, echo=False)
+    try:
+        with caplog.at_level(logging.INFO, logger=de_seed.__name__):
+            with _session(eng) as db:
+                repaired = de_seed.ensure_de_jurisdiction_seed(db)
+                assert _seed_info_records(caplog) == [], "vor dem Commit keine Erfolgszeile"
+                db.rollback()
+        assert repaired == {"jurisdiction_profiles": 1, "jurisdiction_home_bias_defaults": 34}
+        assert _seed_info_records(caplog) == []
+        assert _pseudo_id_rows(eng) == 35, "Rollback laesst die Altwerte stehen"
+    finally:
+        eng.dispose()
+
+
+def test_failed_commit_leaves_no_success_line(tmp_path, caplog, monkeypatch):
+    """N-870-5: scheitert der aeussere Commit, bleiben die Altwerte stehen und
+    im Log steht keine Erfolgs-INFO, nur der Startfehler (fail-closed)."""
+    import logging
+
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    db_file = tmp_path / "legacy_fail.db"
+    _legacy_db_with_pseudo_ids(db_file)
+    eng = create_app_engine(db_path=db_file, echo=False)
+
+    def _failing_commit(self):  # noqa: ANN001
+        raise OperationalError("COMMIT", {}, Exception("disk I/O error"))
+
+    try:
+        monkeypatch.setattr(Session, "commit", _failing_commit)
+        with caplog.at_level(logging.INFO):
+            with pytest.raises(OperationalError):
+                database.ensure_default_de_jurisdiction(eng)
+        monkeypatch.undo()
+        assert _seed_info_records(caplog) == [], "keine Erfolgszeile ohne Commit"
+        assert any(
+            r.levelno == logging.ERROR and "ensure_default_de_jurisdiction" in r.getMessage()
+            for r in caplog.records
+        )
+        assert _pseudo_id_rows(eng) == 35
     finally:
         eng.dispose()
 
@@ -231,7 +301,5 @@ def test_fresh_seed_logs_nothing(fk_engine, caplog):
     import logging
 
     with caplog.at_level(logging.INFO, logger=de_seed.__name__):
-        with _session(fk_engine) as db:
-            de_seed.ensure_de_jurisdiction_seed(db)
-            db.commit()
+        database.ensure_default_de_jurisdiction(fk_engine)
     assert [r for r in caplog.records if r.name == de_seed.__name__] == []
