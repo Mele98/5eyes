@@ -790,7 +790,7 @@
   "status": 200
  },
  "jurisdictions.list": {
-  "sha256": "cb9a7f9e117faa5da26c7e37f7a24f50f1c2fe05953f280d18bccaa62d9748d4",
+  "sha256": "80ee6c1aeee3f24f18567c2f1f882f152fda3c78cd367995f9be90c2eb081841",
   "shape": {
    "list_of": [
     {
@@ -802,6 +802,18 @@
      "is_active": "int",
      "is_provisional": "int",
      "notes": "null",
+     "status": "str",
+     "updated_at": "str"
+    },
+    {
+     "code": "str",
+     "created_at": "str",
+     "display_name": "str",
+     "home_currency": "str",
+     "id": "str",
+     "is_active": "int",
+     "is_provisional": "int",
+     "notes": "str",
      "status": "str",
      "updated_at": "str"
     }
