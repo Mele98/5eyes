@@ -39,6 +39,20 @@ if str(BACKEND_ROOT) not in sys.path:
 TARGET_ENV = "TENANT_MASTER_KEK_NEW"
 
 
+def _register_all_models() -> None:
+    """N-870-9: alle ORM-Modelle registrieren, bevor eine Session Mapper
+    konfiguriert (wie main bzw. services.postgres_rls.import_tenant_models).
+    Sonst scheitert schon die Tenant-Abfrage an Beziehungen anderer Modelle
+    (z. B. PortfolioHandoff -> 'Mandate'), wenn das Skript allein laeuft."""
+    import importlib
+    import pkgutil
+
+    import models as models_pkg
+
+    for module_info in pkgutil.iter_modules(models_pkg.__path__, prefix=f"{models_pkg.__name__}."):
+        importlib.import_module(module_info.name)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Tenant-DEKs von TENANT_MASTER_KEK auf TENANT_MASTER_KEK_NEW umverpacken",
@@ -54,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Abbruch: {TARGET_ENV} fehlt (neuer Fernet-Key).", file=sys.stderr)
         return 2
 
+    _register_all_models()
     import database
     from config import settings
     from services.tenant_crypto import TenantCryptoError, rewrap_tenant_deks_to_master_kek

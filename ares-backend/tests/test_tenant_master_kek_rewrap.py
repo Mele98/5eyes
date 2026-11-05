@@ -170,3 +170,76 @@ def test_cli_rewraps_from_configured_kek(Session, monkeypatch, capsys):
     monkeypatch.setenv(cli.TARGET_ENV, Fernet.generate_key().decode("ascii"))
     assert cli.main(["--yes"]) == 1
     assert _stored(Session) == before
+
+
+# ---------------------------------------------------------------------------
+# N-870-9: das CLI laeuft im frischen Interpreter gegen eine echte Datei-DB
+# (kein von pytest vorgeladenes Modell-Set).
+# ---------------------------------------------------------------------------
+
+_SCRIPT = BACKEND_ROOT / "scripts" / "rewrap_tenant_master_kek.py"
+
+
+def _file_db_with_wrapped_tenants(tmp_path, legacy_kek: str) -> tuple[Path, dict[str, bytes]]:
+    from main import app  # noqa: F401  (alle Modelle fuer create_all im Testprozess)
+
+    db_file = tmp_path / "ares-rewrap.db"
+    engine = create_engine(f"sqlite:///{db_file}")
+    Base.metadata.create_all(bind=engine)
+    try:
+        deks = _seed_wrapped_tenants(sessionmaker(bind=engine, expire_on_commit=False), legacy_kek)
+    finally:
+        engine.dispose()
+    return db_file, deks
+
+
+def _isolated_env(tmp_path, db_file: Path, **extra: str) -> dict[str, str]:
+    import os
+
+    env = {
+        k: v for k, v in os.environ.items()
+        if not k.startswith(("TENANT_MASTER_KEK", "DATABASE_URL", "DB_KEY", "SECRET_KEY", "PYTEST"))
+    }
+    home = tmp_path / "home"
+    for sub in ("appdata", "local", "temp"):
+        (home / sub).mkdir(parents=True, exist_ok=True)
+    env.update({
+        "HOME": str(home), "USERPROFILE": str(home),
+        "APPDATA": str(home / "appdata"), "LOCALAPPDATA": str(home / "local"),
+        "TEMP": str(home / "temp"), "TMP": str(home / "temp"),
+        "DB_PATH": str(db_file),
+        "PYTHONPATH": "",
+    })
+    env.update(extra)
+    return env
+
+
+def _run_cli(tmp_path, env: dict[str, str]):
+    import subprocess
+
+    return subprocess.run(
+        [sys.executable, "-I", str(_SCRIPT), "--yes"],
+        cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=180,
+    )
+
+
+def test_cli_runs_standalone_against_file_db(tmp_path):
+    legacy = WEAK_LEGACY_KEKS[0]
+    db_file, deks = _file_db_with_wrapped_tenants(tmp_path, legacy)
+    target = Fernet.generate_key().decode("ascii")
+    proc = _run_cli(tmp_path, _isolated_env(
+        tmp_path, db_file, TENANT_MASTER_KEK=legacy, TENANT_MASTER_KEK_NEW=target,
+    ))
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out[-2000:]
+    assert "rewrapped_deks=2" in proc.stdout
+    assert legacy not in out and target not in out
+
+    engine = create_engine(f"sqlite:///{db_file}")
+    try:
+        S = sessionmaker(bind=engine, expire_on_commit=False)
+        with S() as db:
+            for tid, dek in deks.items():
+                assert get_tenant_dek(db, tid, master_kek=target) == dek
+    finally:
+        engine.dispose()
