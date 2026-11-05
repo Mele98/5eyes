@@ -1143,7 +1143,24 @@ def _existing_database(cfg: "Settings") -> str | None:
 
 
 def _read_kek_store(path: Path, protector) -> str:
-    raw = path.read_bytes()
+    """Liest und entschluesselt die KEK-Ablage; jeder Fehler endet in :class:`KekStoreError`.
+
+    C-100-01: auch das Lesen selbst (Verzeichnis statt Datei, verweigerter
+    Zugriff, E/A-Fehler) wird in :class:`KekStoreError` umgewandelt, damit der
+    Lifespan die vorgesehene CRITICAL-Diagnose ausgibt und vor ``init_db``
+    abbricht. Die Ursache bleibt per Exception-Chaining erhalten; die Meldung
+    selbst nennt weder Pfad noch Schluesselmaterial, nur die Fehlerklasse.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise KekStoreError(
+            f"Die KEK-Ablage laesst sich nicht lesen ({type(exc).__name__}: "
+            "Verzeichnis statt Datei, fehlende Berechtigung oder E/A-Fehler). "
+            "Sie wird weder ueberschrieben noch ersetzt; Ares startet nicht und "
+            "erzeugt KEINE neue KEK. Datei und Zugriffsrechte im userData-Ordner "
+            "pruefen."
+        ) from exc
     if not raw.startswith(KEK_STORE_MAGIC):
         raise KekStoreError(
             f"Die KEK-Ablage {path} hat ein unbekanntes Format. Sie wird weder "
@@ -1151,7 +1168,7 @@ def _read_kek_store(path: Path, protector) -> str:
         )
     try:
         value = protector.unprotect(raw[len(KEK_STORE_MAGIC):], KEK_STORE_ENTROPY).decode("ascii")
-    except (KekStoreError, UnicodeDecodeError, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001 -- C-100-01: jeder Entschluesselungsfehler ist KekStoreError
         raise KekStoreError(
             f"Die KEK-Ablage {path} laesst sich nicht entschluesseln (anderes "
             "Windows-Konto, fremdes Profil oder beschaedigte Datei). Ares startet "

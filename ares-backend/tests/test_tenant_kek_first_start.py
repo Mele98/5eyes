@@ -458,3 +458,137 @@ def test_lifespan_existing_db_without_kek_aborts_before_init_db_with_migrator_hi
     assert "existiert" in message and "Migrator" in message and "Sicherung/Treuhand" in message
     assert "legacy-existing-db" not in caplog.text
     assert "Vorgaengervertrag" not in caplog.text
+
+
+# --------------------------------------------------------------------------
+# C-100-01: Lese-/E/A-Fehler der Ablage enden exakt in KekStoreError
+# --------------------------------------------------------------------------
+
+
+def _assert_no_path_in(text: str, path: Path) -> None:
+    for variant in {str(path), str(path).replace("\\", "/"), path.name}:
+        assert variant not in text, "die Meldung darf keinen Pfad nennen"
+
+
+def test_store_directory_instead_of_file_raises_kek_store_error(tmp_path):
+    cfg = _cfg(tmp_path)
+    store = _store(cfg)
+    store.mkdir(parents=True)
+    fake = FakeProtector()
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(cfg, protector=fake)
+    assert type(exc.value) is KekStoreError
+    assert isinstance(exc.value.__cause__, OSError)
+    assert "laesst sich nicht lesen" in str(exc.value)
+    _assert_no_path_in(str(exc.value), store)
+    assert store.is_dir() and list(store.iterdir()) == [], "nie ueberschreiben/anlegen"
+    assert fake.protect_calls == 0 and cfg.tenant_master_kek == ""
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_store_access_denied_raises_kek_store_error(tmp_path, monkeypatch, explicit):
+    from cryptography.fernet import Fernet
+
+    cfg = _cfg(tmp_path, kek=Fernet.generate_key().decode() if explicit else "")
+    ensure_tenant_master_kek(_cfg(tmp_path), protector=FakeProtector())
+    store = _store(cfg)
+    before = store.read_bytes()
+    real_read_bytes = Path.read_bytes
+
+    def denied(self):
+        if Path(self) == store:
+            raise PermissionError(13, "Access is denied", str(self))
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", denied)
+    fake = FakeProtector()
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(cfg, protector=fake)
+    monkeypatch.setattr(Path, "read_bytes", real_read_bytes)
+    assert type(exc.value) is KekStoreError
+    assert isinstance(exc.value.__cause__, PermissionError)
+    assert "PermissionError" in str(exc.value)
+    _assert_no_path_in(str(exc.value), store)
+    assert store.read_bytes() == before, "nie ueberschreiben"
+    assert fake.protect_calls == 0
+
+
+@pytest.mark.parametrize("keep", ["leer", "magic-1", "magic+3", "voll-1"])
+def test_short_read_store_raises_kek_store_error(tmp_path, monkeypatch, keep):
+    cfg = _cfg(tmp_path)
+    ensure_tenant_master_kek(_cfg(tmp_path), protector=FakeProtector())
+    store = _store(cfg)
+    full = store.read_bytes()
+    n = {"leer": 0, "magic-1": len(KEK_STORE_MAGIC) - 1,
+         "magic+3": len(KEK_STORE_MAGIC) + 3, "voll-1": len(full) - 1}[keep]
+    real_read_bytes = Path.read_bytes
+
+    def short(self):
+        data = real_read_bytes(self)
+        return data[:n] if Path(self) == store else data
+
+    monkeypatch.setattr(Path, "read_bytes", short)
+    fake = FakeProtector()
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(cfg, protector=fake)
+    monkeypatch.setattr(Path, "read_bytes", real_read_bytes)
+    assert type(exc.value) is KekStoreError
+    assert store.read_bytes() == full, "nie ueberschreiben"
+    assert fake.protect_calls == 0 and cfg.tenant_master_kek == ""
+
+
+def test_unexpected_protector_failure_is_chained_kek_store_error(tmp_path):
+    cfg = _cfg(tmp_path)
+    ensure_tenant_master_kek(_cfg(tmp_path), protector=FakeProtector())
+
+    class Broken(FakeProtector):
+        def unprotect(self, blob, entropy):
+            raise ValueError("kaputt")
+
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(cfg, protector=Broken())
+    assert type(exc.value) is KekStoreError
+    assert isinstance(exc.value.__cause__, ValueError)
+
+
+@pytest.mark.parametrize("fault", ["directory", "access-denied", "short-read"])
+def test_lifespan_store_io_fault_aborts_before_init_db(tmp_path, monkeypatch, caplog, fault):
+    store = tmp_path / "userData" / "tenant-master-kek.dpapi"
+    if fault == "directory":
+        store.mkdir(parents=True)
+    else:
+        ensure_tenant_master_kek(
+            SimpleNamespace(tenant_master_kek="", tenant_master_kek_file=str(store),
+                            db_path=str(tmp_path / "data" / "ares.db"), database_url=None),
+            protector=FakeProtector(),
+        )
+        before = store.read_bytes()
+        real_read_bytes = Path.read_bytes
+
+        def faulty(self):
+            if Path(self) != store:
+                return real_read_bytes(self)
+            if fault == "access-denied":
+                raise PermissionError(13, "Access is denied", str(self))
+            return real_read_bytes(self)[:5]
+
+        monkeypatch.setattr(Path, "read_bytes", faulty)
+    attrs = {
+        "tenant_master_kek": "",
+        "tenant_master_kek_file": str(store),
+        "db_path": str(tmp_path / "data" / "ares.db"),
+        "database_url": None,
+    }
+    caplog.set_level(logging.DEBUG)
+    calls, err = _run_lifespan(monkeypatch, attrs, FakeProtector())
+    monkeypatch.undo()
+    assert type(err) is KekStoreError
+    assert calls == ["ensure"], "init_db darf nicht laufen"
+    records = [r for r in caplog.records if "Start abgebrochen" in r.getMessage()]
+    assert len(records) == 1 and records[0].levelno == logging.CRITICAL
+    if fault != "short-read":
+        _assert_no_path_in(records[0].getMessage(), store)
+    if fault == "directory":
+        assert store.is_dir() and list(store.iterdir()) == []
+    else:
+        assert store.read_bytes() == before
