@@ -58,13 +58,13 @@ from services.product_eligibility import (
     canonical_hash,
     derive_service_mode,
     evaluate_product_eligibility,
-    instant_within_validity,
     mandate_tenant_id,
 )
 from services.product_eligibility_governance import (
     APPROVAL_MODE_FOUR_EYES,
     APPROVAL_MODE_SINGLE_APPROVER_ATTESTED,
     MIN_ATTESTATION_REASON_LENGTH,
+    instant_within_validity,
     tenant_approver_ids,
 )
 

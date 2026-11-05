@@ -9,7 +9,7 @@ services.product_eligibility._now_iso() erzeugt den Vergleichsstichtag mit
 unmittelbar folgende Empfehlungslauf fand kein einziges geeignetes Produkt
 ("Produktselektion unvollstaendig ... Gesamt-Luecke: 100.0%").
 
-Fix: verglichen wird geparst (parse_utc_instant / instant_within_validity);
+Fix: verglichen wird geparst (parse_utc_timestamp / instant_within_validity);
 die gespeicherten Werte bleiben unveraendert, damit auch jeder Hash, in den
 sie einfliessen (rule_hash ueber valid_from/valid_to, override evidence_hash
 ueber valid_from/expires_at), unveraendert reproduzierbar bleibt.
@@ -36,11 +36,14 @@ from services import product_eligibility as pe
 from services.product_eligibility import (
     DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
     canonical_hash,
-    instant_within_validity,
-    parse_utc_instant,
     resolve_active_rules_for_product,
 )
-from services.product_eligibility_governance import RULE_POLICY_FIELDS, compute_rule_hash
+from services.product_eligibility_governance import (
+    RULE_POLICY_FIELDS,
+    compute_rule_hash,
+    instant_within_validity,
+    parse_utc_timestamp,
+)
 
 FROZEN = datetime(2027, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
 
@@ -75,12 +78,12 @@ def session_factory(tmp_path):
     "2027-01-15 10:00:00",
 ])
 def test_both_stored_formats_parse_to_the_same_instant(text):
-    assert parse_utc_instant(text) == FROZEN
+    assert parse_utc_timestamp(text) == FROZEN
 
 
 @pytest.mark.parametrize("text", [None, "", "   ", "None", "kein Datum", "2027-13-01"])
 def test_unreadable_values_parse_to_none(text):
-    assert parse_utc_instant(text) is None
+    assert parse_utc_timestamp(text) is None
 
 
 @pytest.mark.parametrize(("valid_from", "valid_to", "as_of", "expected"), [
