@@ -445,8 +445,14 @@ def backfill_annual_returns_endpoint(
         raise _market_data_config_http_error(exc, endpoint="annual-returns/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    db.add(AuditLog(
-        id=str(uuid4()),
+    # N-865-2 (Pruefrunde #865): BACKFILL ueberschreibt globale Referenz-
+    # daten, die in CMA/Optimizer/Backtest jedes Tenants einfliessen. Das
+    # hand-gerollte AuditLog(...) liess sequence/previous_hash/integrity_hash
+    # und tenant_id leer -- der Eintrag stand ausserhalb der Hash-Kette, eine
+    # Manipulation waere nicht nachweisbar gewesen. Jetzt ueber log() wie
+    # jede andere Admin-Aktion (siehe tests/test_audit_log_single_writer.py).
+    audit_log(
+        db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="asset_class_annual_returns",
@@ -454,8 +460,8 @@ def backfill_annual_returns_endpoint(
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
         ip_address=_extract_client_ip(request),
-        created_at=datetime.utcnow().isoformat(),
-    ))
+        tenant_id=getattr(current_user, "tenant_id", None),
+    )
     db.commit()
     return result
 
@@ -590,8 +596,14 @@ def backfill_asset_class_prices_endpoint(
         raise _market_data_config_http_error(exc, endpoint="asset-class-prices/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    db.add(AuditLog(
-        id=str(uuid4()),
+    # N-865-2 (Pruefrunde #865): BACKFILL ueberschreibt globale Referenz-
+    # daten, die in CMA/Optimizer/Backtest jedes Tenants einfliessen. Das
+    # hand-gerollte AuditLog(...) liess sequence/previous_hash/integrity_hash
+    # und tenant_id leer -- der Eintrag stand ausserhalb der Hash-Kette, eine
+    # Manipulation waere nicht nachweisbar gewesen. Jetzt ueber log() wie
+    # jede andere Admin-Aktion (siehe tests/test_audit_log_single_writer.py).
+    audit_log(
+        db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="asset_class_price_history",
@@ -599,8 +611,8 @@ def backfill_asset_class_prices_endpoint(
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
         ip_address=_extract_client_ip(request),
-        created_at=datetime.utcnow().isoformat(),
-    ))
+        tenant_id=getattr(current_user, "tenant_id", None),
+    )
     db.commit()
     return result
 
