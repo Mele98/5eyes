@@ -92,6 +92,7 @@ from services.review_engine import (
 from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.product_eligibility_finalization import finalization_eligibility_findings
+from services.product_eligibility_governance import parse_utc_timestamp
 from services.review_calendar_feed import (
     build_ics_feed,
     issue_calendar_feed_token,
@@ -1850,18 +1851,23 @@ def _validated_event_timestamp(
     if not raw:
         return now
     candidate = str(raw).strip()
-    if len(candidate) < 10:
+    # C-860-01-Folgebefund: Grenzen auf echten UTC-Zeitpunkten pruefen, nicht
+    # als Text. Ein erfasster Zeitpunkt mit Offset (z. B. '+01:00') oder in
+    # anderer Schreibweise als '...Z' wurde als Text falsch eingeordnet.
+    candidate_at = parse_utc_timestamp(candidate) if len(candidate) >= 10 else None
+    if candidate_at is None:
         raise HTTPException(
             status_code=422,
             detail=f"{field_label} ist kein gueltiger Zeitpunkt: {candidate!r}",
         )
-    if candidate > now:
+    if candidate_at > parse_utc_timestamp(now):
         raise HTTPException(
             status_code=422,
             detail=f"{field_label} darf nicht in der Zukunft liegen.",
         )
     created_at = str(getattr(conflict, "created_at", "") or "")
-    if created_at and candidate < created_at:
+    created_at_utc = parse_utc_timestamp(created_at) if created_at else None
+    if created_at_utc is not None and candidate_at < created_at_utc:
         raise HTTPException(
             status_code=422,
             detail=(
