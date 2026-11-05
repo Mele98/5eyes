@@ -449,7 +449,7 @@ def build_retrocession_flowables(
         _th("Produkt", styles),
         _th("ISIN", styles),
         _th("Satz p.a.", styles),
-        _th("Betrag p.a. (Schätzung)", styles),
+        _th("Betrag p.a.", styles),
         _th("Behandlung", styles),
     ]]
     flagged_rows: list[int] = []
@@ -461,11 +461,11 @@ def build_retrocession_flowables(
             rate_text, amount_text = "keine", "—"
         else:
             rate_text = format_bps_as_pct(line.get("rate_bps"), decimals=2)
-            amount_text = "geschätzt " + format_chf_rappen(line.get("estimated_annual_rappen"), currency=currency)
+            amount_text = "geschätzt " + _retro_amount(line.get("estimated_annual_rappen"), currency=currency)
             # N-861-3: bei einer Mandatszeile beide Betraege klar beschriften
             # (Schaetzung aus dem Produktsatz vs. im Mandat aufgeklaert).
             if line.get("covered_by_mandate_entry") and line.get("mandate_disclosed_rappen"):
-                amount_text += " / aufgeklärt " + format_chf_rappen(
+                amount_text += " / aufgeklärt " + _retro_amount(
                     line.get("mandate_disclosed_rappen"), currency=currency,
                 )
             # N-861-8: einmalig/ohne Frequenz offengelegt ist keine Aufklaerung
@@ -473,7 +473,7 @@ def build_retrocession_flowables(
             if line.get("mandate_disclosed_other_rappen"):
                 amount_text += (
                     " / offengelegt (einmalig bzw. ohne Frequenz) "
-                    + format_chf_rappen(line.get("mandate_disclosed_other_rappen"), currency=currency)
+                    + _retro_amount(line.get("mandate_disclosed_other_rappen"), currency=currency)
                     + ", deckt die jährliche Retrozession nicht"
                 )
         if status == "unknown" or line.get("requires_resolution"):
@@ -513,9 +513,9 @@ def build_retrocession_flowables(
         "werden, wenn Sie nach Aufklärung über Art und Umfang ausdrücklich verzichtet "
         "haben (Art. 26 FIDLEG; Art. 400 OR; BGE 132 III 460 und 137 III 393). Die Beträge "
         "sind Teil der Produktkosten (TER) und nicht zusätzlich im Total enthalten. "
-        "«geschätzt» = Satz × investiertes Volumen; «aufgeklärt» = der Ihnen im Mandat "
-        "offengelegte Betrag. «unbekannt» heisst: der Satz ist nicht erfasst; das Produkt "
-        "gilt nicht als retrozessionsfrei."
+        "Betrag p.a.: «geschätzt» = Satz × investiertes Volumen; «aufgeklärt» = der Ihnen "
+        "im Mandat jährlich offengelegte Betrag; beide auf Rappen genau. «unbekannt» heisst: "
+        "der Satz ist nicht erfasst; das Produkt gilt nicht als retrozessionsfrei."
     )
     return [
         Spacer(1, (2 if compact else 4) * mm),
@@ -528,6 +528,23 @@ def build_retrocession_flowables(
         Spacer(1, 1.5 * mm),
         Paragraph(_escape(note), _retro_style(styles["micro"], color=COLOR_INK_MUTED)),
     ]
+
+
+def _retro_amount(rappen: Any, *, currency: str = "CHF") -> str:
+    """N-861-12: Retro-Betraege immer mit zwei Nachkommastellen. Sonst
+    stuenden bei Teil-Deckung zwei gleich gerundete Betraege (z.B. CHF 500
+    "geschaetzt" und CHF 500 "aufgeklaert" bei 499.99) neben "deckt nur einen
+    Teil" -- ein Widerspruch im Kundendokument."""
+    if rappen is None:
+        return "—"
+    try:
+        value = int(rappen)
+    except (TypeError, ValueError):
+        return "—"
+    whole, cents = divmod(abs(value), 100)
+    unit = str(currency or "CHF").upper().strip() or "CHF"
+    sign = "-" if value < 0 else ""
+    return f"{unit} {sign}{whole:,}.{cents:02d}".replace(",", "'")
 
 
 def _retro_style(base: ParagraphStyle, *, font: str | None = None, color=None) -> ParagraphStyle:

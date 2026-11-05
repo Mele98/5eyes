@@ -184,6 +184,18 @@ async function adminExportFundsCsv(){
 // AUDIT-2026-11 P1 (L1, Art. 26 FIDLEG): Retrozession je empfohlenem
 // Produkt -- eigener Block neben der Kostentabelle (Daten:
 // payload.product_retrocessions des Kostenausweises).
+// N-861-12: Retro-Betraege immer auf Rappen genau (zwei Nachkommastellen),
+// damit Schaetzung und Mandatsbetrag bei Teil-Deckung nie gleich aussehen.
+function _retroAmount(rappen, currency){
+  var unit = String(currency || 'CHF').toUpperCase().trim() || 'CHF';
+  var v = Math.round(Number(rappen || 0));
+  var sign = v < 0 ? '-' : '';
+  v = Math.abs(v);
+  var whole = String(Math.floor(v / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+  var cents = String(v % 100);
+  if (cents.length < 2) cents = '0' + cents;
+  return unit + ' ' + sign + whole + '.' + cents;
+}
 function renderCostRetrocessions(data){
   var box=document.getElementById('cd-retro');
   if(!box) return;
@@ -198,9 +210,9 @@ function renderCostRetrocessions(data){
   box.innerHTML=head+'<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden;font-size:11px">'
     +lines.map(function(line){
       var rate=line.status==='unknown'?'unbekannt':(line.status==='none'?'keine':fmtPct(Number(line.rate_bps),2));
-      var amount=line.status==='present'?'geschätzt '+_formatRappenChf(line.estimated_annual_rappen, currency):'—';
-      if(line.status==='present'&&line.covered_by_mandate_entry&&line.mandate_disclosed_rappen) amount+=' / aufgeklärt '+_formatRappenChf(line.mandate_disclosed_rappen, currency);
-      if(line.status==='present'&&line.mandate_disclosed_other_rappen) amount+=' / offengelegt (einmalig bzw. ohne Frequenz) '+_formatRappenChf(line.mandate_disclosed_other_rappen, currency)+', deckt die jährliche Retrozession nicht';
+      var amount=line.status==='present'?'geschätzt '+_retroAmount(line.estimated_annual_rappen, currency):'—';
+      if(line.status==='present'&&line.covered_by_mandate_entry&&line.mandate_disclosed_rappen) amount+=' / aufgeklärt '+_retroAmount(line.mandate_disclosed_rappen, currency);
+      if(line.status==='present'&&line.mandate_disclosed_other_rappen) amount+=' / offengelegt (einmalig bzw. ohne Frequenz) '+_retroAmount(line.mandate_disclosed_other_rappen, currency)+', deckt die jährliche Retrozession nicht';
       var flagged=line.status==='unknown'||line.requires_resolution;
       return '<div style="display:grid;grid-template-columns:1.4fr 80px 200px 1.4fr;gap:8px;padding:7px 10px;border-bottom:1px solid var(--b1);'+(flagged?'border-left:3px solid var(--neg);':'')+'">'
         +'<div>'+escapeHtml(String(line.product_name||''))+'</div>'
