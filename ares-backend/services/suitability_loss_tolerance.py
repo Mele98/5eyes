@@ -131,6 +131,8 @@ REASON_INPUT_TYPE_INVALID = "LOSS_TOLERANCE_INPUT_TYPE_INVALID"
 # fuer ein ausdruecklich als monetaer gekennzeichnetes Portfolio plausibel.
 MIN_PLAUSIBLE_VOLATILITY_BPS = 10.0
 REASON_VOLATILITY_IMPLAUSIBLE = "LOSS_TOLERANCE_VOLATILITY_IMPLAUSIBLE"
+# C-857-01: Ausweiswerte P5/CVaR strikt typisiert und endlich, sonst not_evaluable.
+REASON_DISCLOSURE_INVALID = "LOSS_TOLERANCE_DISCLOSURE_INVALID"
 REASON_CF_NOT_MONOTONIC = "LOSS_TOLERANCE_CORNISH_FISHER_NOT_MONOTONIC"
 REASON_TAIL_MOMENTS_NOT_ADMISSIBLE = "LOSS_TOLERANCE_TAIL_MOMENTS_NOT_ADMISSIBLE"
 REASON_SOURCE_NOT_ADMISSIBLE = "LOSS_TOLERANCE_SOURCE_NOT_ADMISSIBLE"
@@ -388,6 +390,16 @@ def _is_strict_number(value) -> bool:
     return isinstance(value, numbers.Real)
 
 
+def _is_finite_strict_number(value) -> bool:
+    """Strikte Zahl (siehe ``_is_strict_number``), als float darstellbar und endlich."""
+    if not _is_strict_number(value):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
 def answer_points_from_assessment(assessment) -> int | None:
     """Punkte von Frage 10 aus einem Risikoprofil (Objekt oder Mapping), nur lesen."""
     if assessment is None:
@@ -492,6 +504,25 @@ def _evaluate(
     Ausweis. Fail-closed: fehlende/unbekannte Antwort oder Verteilung ->
     ``not_evaluable``, nie ``ok``. Konflikt genau dann, wenn ``P10 < Untergrenze``.
     """
+    # C-857-01: P5/CVaR erst nach strikter Typ- und Endlichkeitspruefung
+    # konvertieren (vorher warf Text ValueError, NaN/inf landeten im ok-Ergebnis).
+    disclosure = {"p5_return_bps": p5_return_bps, "cvar10_return_bps": cvar10_return_bps}
+    bad_disclosure = sorted(
+        name for name, value in disclosure.items()
+        if value is not None and not _is_finite_strict_number(value)
+    )
+    if bad_disclosure:
+        return LossToleranceCheck(
+            status=STATUS_NOT_EVALUABLE,
+            check_code=REASON_DISCLOSURE_INVALID,
+            message=(
+                "Verlusttoleranz nicht pruefbar: Ausweiswerte muessen endliche "
+                f"Zahlen sein (nicht bool, Text, NaN oder unendlich): {', '.join(bad_disclosure)}."
+            ),
+            mandate_type=mandate_type,
+            return_basis=return_basis,
+            placeholders=_placeholders(None),
+        )
     base = dict(
         mandate_type=mandate_type,
         return_basis=return_basis,

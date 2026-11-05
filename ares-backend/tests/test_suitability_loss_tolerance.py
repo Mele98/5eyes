@@ -535,3 +535,30 @@ def test_activation_requirements_include_blank_justification_gate():
     text = dict(lt.ACTIVATION_REQUIREMENTS)["AR01_JUSTIFICATION_NOT_BLANK"]
     assert "Leerzeichen" in text and "CP09" in text
     assert "leere Begruendungen" in (lt.__doc__ or "")
+
+
+# ---------------------------------------------------------------------------
+# Codex C-857-01: Ausweiswerte P5/CVaR strikt typisiert und endlich
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("field", ["p5_return_bps", "cvar10_return_bps"])
+@pytest.mark.parametrize("value", ["-1500", "abc", True, np.bool_(True), float("nan"),
+                                   float("inf"), float("-inf"), 10 ** 400])
+@pytest.mark.parametrize("mandate_type", [VV, ADV])
+def test_invalid_disclosure_values_are_not_evaluable_without_exception(field, value, mandate_type):
+    check = lt.evaluate_loss_tolerance(
+        4, mandate_type=mandate_type, mc_p10_return_bps=-900.0, **MILD, **{field: value},
+    )
+    assert check.status == lt.STATUS_NOT_EVALUABLE
+    assert check.check_code == lt.REASON_DISCLOSURE_INVALID
+    assert check.blocks_release is True
+    assert check.p5_return_bps is None and check.cvar10_return_bps is None
+
+
+def test_valid_disclosure_values_pass_through():
+    check = lt.evaluate_loss_tolerance(
+        4, mandate_type=VV, mc_p10_return_bps=-900.0, **MILD,
+        p5_return_bps=np.float64(-1500.123), cvar10_return_bps=-1800,
+    )
+    assert check.status == lt.STATUS_OK
+    assert check.p5_return_bps == -1500.12 and check.cvar10_return_bps == -1800.0
