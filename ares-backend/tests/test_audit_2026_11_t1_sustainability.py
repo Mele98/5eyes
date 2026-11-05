@@ -776,3 +776,20 @@ def test_finma_custom_neutral_label_kept(SF, client):
         source_type="data_vendor", source_provider="Anbieter X", source_retrieved_on=AS_OF,
         client_source_label="Externer Datenanbieter, Stand Q2"))
     assert r.status_code == 201 and r.json()["client_source_label"] == "Externer Datenanbieter, Stand Q2"
+
+
+def test_csv_reimport_of_own_export_removes_guard_apostrophe(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    created = client.post("/products/own-a/sustainability-attributes",
+                          json=_payload(source_reference="=HYPERLINK(1)", note="@intern"))
+    assert created.status_code == 201
+    exported = client.get("/products/sustainability/attributes/export").text
+    assert "'=HYPERLINK(1)" in exported
+    # Retire-frei: Entwurf loeschen, dann eigenen Export wieder einlesen
+    assert client.delete(f"/products/sustainability/attributes/{created.json()['id']}").status_code == 204
+    r = client.post("/products/sustainability/attributes/import/csv",
+                    files={"file": ("x.csv", io.BytesIO(exported.encode("utf-8")), "text/csv")})
+    assert r.status_code == 201 and r.json()["created"] == 1, r.text
+    with SF() as s:
+        row = s.query(ProductSustainabilityAttribute).one()
+    assert row.source_reference == "=HYPERLINK(1)" and row.note == "@intern"

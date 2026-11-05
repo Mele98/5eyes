@@ -4185,18 +4185,9 @@ _SUSTAINABILITY_EDITABLE_FIELDS = (
 )
 
 
-_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", chr(9), chr(13))
-
-
 def _sustainability_csv_cell(value) -> str:
-    """CSV-Zelle gegen Formel-Injection schuetzen (Tabellenprogramme werten
-    = + - @ Tab CR am Zellanfang als Formel): Praefix ' davor."""
-    if value is None:
-        return ""
-    text_value = str(value)
-    if text_value.startswith(_CSV_FORMULA_PREFIXES):
-        return "'" + text_value
-    return text_value
+    """CSV-Zelle gegen Formel-Injection schuetzen (gemeinsame Regel N-861-4)."""
+    return "" if value is None else _csv_safe_cell(str(value))
 
 
 def _sustainability_response(attribute: ProductSustainabilityAttribute) -> ProductSustainabilityAttributeResponse:
@@ -4592,7 +4583,9 @@ def import_sustainability_attributes_csv(
         for key, value in raw.items():
             field = str(key or "").strip().lower()
             if field in _SUSTAINABILITY_CSV_FIELDS:
-                value = value.strip() if isinstance(value, str) else value
+                # Schutz-Apostroph eines eigenen Exports wieder entfernen
+                # (Export -> Import verlustfrei, gleiche Regel wie N-861-4).
+                value = _csv_unescape_cell(value.strip()) if isinstance(value, str) else value
                 normalized[field] = value if value else None
         rows.append(normalized)
     if not rows:
