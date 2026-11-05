@@ -403,7 +403,10 @@ def test_field_shift_ip_tenant_is_not_verified(session_local):
     with session_local() as s:
         result = verify_audit_legacy_rows(s)
     assert not result["ok"]
-    assert result["ambiguous_ids"] == ["L4"]
+    # N-869-6: Gegenprobe ueber die Feldgrenzen -> saubere 15-Felder-Lesart
+    # mit anderer ip/tenant -> Feldverschiebung (Befund).
+    assert result["field_shift_ids"] == ["L4"]
+    assert result["ambiguous"] == 0
     assert result["verified"] == 3
 
 
@@ -428,16 +431,24 @@ def test_unknown_fields_must_be_empty_for_shorter_format(session_local):
     assert result["mismatch_ids"] == ["F1"]
 
 
-def test_pipe_inside_value_is_ambiguous_not_verified(session_local):
+def test_pipe_inside_value_is_ambiguous_not_verified(session_local, caplog):
     """'|' in einem Feldwert: beim '|'-Format sind die Feldgrenzen nicht
-    beweisbar (old_value='A|B', new_value='C' == 'A', 'B|C')."""
+    beweisbar (old_value='A|B', new_value='C' == 'A', 'B|C'). N-869-6: ohne
+    saubere Lesart ist das ein Hinweis (WARNING), kein Befund -- eine echte
+    Altzeile (z.B. Loeschgrund mit '|') darf nicht bei jedem Start CRITICAL
+    ausloesen."""
     fields = _legacy_fields("P1", "2026-08-09T10:00:00.000Z", tenant="tenant-a", new_value="B|C")
     fields["old_value"] = "A"
     _insert_legacy(session_local, fields=fields, n_fields=15, previous_hash="")
     with session_local() as s:
         result = verify_audit_legacy_rows(s)
-    assert not result["ok"]
-    assert result["ambiguous_ids"] == ["P1"]
+    assert result["ok"]
+    assert result["ambiguous_ids"] == ["P1"] and result["field_shift"] == 0
+    with caplog.at_level(logging.INFO, logger="services.audit"):
+        report = run_startup_audit_chain_check(session_local)
+    assert report["ok"]
+    levels = [r.levelno for r in caplog.records]
+    assert logging.WARNING in levels and logging.CRITICAL not in levels
 
 
 def test_inserted_unhashed_row_between_hashed_rows_is_a_finding(session_local):
@@ -466,9 +477,10 @@ def test_known_legacy_unhashed_writers_are_only_counted(session_local):
     assert result["unhashed"] == 2 and result["unexpected_unhashed"] == 0
 
 
-def test_chain_pipe_fallback_rejects_pipe_in_values(session_local):
-    """Ketten-Zeile: der Fallback auf das '|'-Schema gilt nur ohne '|' in den
-    Feldwerten (sonst Feldgrenzen nicht beweisbar)."""
+def test_chain_pipe_fallback_with_pipe_in_values_is_only_a_hint(session_local):
+    """Ketten-Zeile mit '|'-Fallback und '|' im Feldwert: Feldgrenzen nicht
+    beweisbar, die Gegenprobe findet aber keine saubere Lesart -> N-869-6:
+    eigener Zaehler 'ambiguous', kein Fehler."""
     _log_n(session_local, 1)
     with session_local() as s:
         row = s.query(AuditLog).one()
@@ -479,6 +491,11 @@ def test_chain_pipe_fallback_rejects_pipe_in_values(session_local):
     _sql(session_local,
          "UPDATE audit_log SET old_value='A', new_value='B|C', integrity_hash=:h WHERE sequence=1",
          h=forged)
+    # Zaehlerzeile wie bei einer echten Zeile dieser Form mitfuehren.
+    _sql(session_local, "UPDATE audit_log_sequence_counter SET last_hash=:h", h=forged)
     with session_local() as s:
         result = _verify_audit_chain_detail(s)
-    assert result["hash_mismatches"] == [1]
+        report = audit_log_integrity_report(s)
+    assert result["hash_mismatches"] == [] and result["ambiguous"] == [1]
+    assert result["ok"]
+    assert report["chain"]["ambiguous_count"] == 1

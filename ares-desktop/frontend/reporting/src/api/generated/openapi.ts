@@ -5708,6 +5708,10 @@ export interface components {
         };
         /** AuditChainSection */
         AuditChainSection: {
+            /** Ambiguous */
+            ambiguous: number[];
+            /** Ambiguous Count */
+            ambiguous_count: number;
             /** Break Count */
             break_count: number;
             /** Breaks */
@@ -5748,6 +5752,10 @@ export interface components {
             ambiguous: number;
             /** Ambiguous Ids */
             ambiguous_ids: string[];
+            /** Field Shift */
+            field_shift: number;
+            /** Field Shift Ids */
+            field_shift_ids: string[];
             /** Hashed */
             hashed: number;
             /** Link Unconfirmed */

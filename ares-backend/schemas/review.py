@@ -1578,6 +1578,10 @@ class AuditChainSection(BaseModel):
     duplicates: list[int]
     hash_mismatch_count: int
     hash_mismatches: list[int]
+    # N-869-6: '|'-Zeilen mit '|' im Feldwert ohne Hinweis auf Verschiebung
+    # (Hinweis, kein Fehler).
+    ambiguous_count: int
+    ambiguous: list[int]
 
 
 class AuditLegacySection(BaseModel):
@@ -1590,11 +1594,16 @@ class AuditLegacySection(BaseModel):
     link_unconfirmed_ids: list[str]
     mismatches: int
     mismatch_ids: list[str]
-    # N-869-2: Hash nur ueber ein '|'-Format mit '|' im Feldwert bestaetigbar
-    # (Feldgrenzen nicht beweisbar) bzw. Zeile ohne Hash nach der ersten
+    # N-869-2/N-869-6: ambiguous = '|' im Feldwert, Feldgrenzen nicht
+    # beweisbar, aber keine Verschiebung erkennbar (Hinweis); unexpected_
+    # unhashed = Zeile ohne Hash nach der ersten
     # gehashten Zeile, die keinem bekannten Alt-Schreiber entspricht.
     ambiguous: int
     ambiguous_ids: list[str]
+    # N-869-6: Gegenprobe ueber die Feldgrenzen fand eine saubere Lesart mit
+    # anderen Feldwerten (Befund).
+    field_shift: int
+    field_shift_ids: list[str]
     unexpected_unhashed: int
     unexpected_unhashed_ids: list[str]
 

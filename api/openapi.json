@@ -1960,6 +1960,17 @@
       },
       "AuditChainSection": {
         "properties": {
+          "ambiguous": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ambiguous",
+            "type": "array"
+          },
+          "ambiguous_count": {
+            "title": "Ambiguous Count",
+            "type": "integer"
+          },
           "break_count": {
             "title": "Break Count",
             "type": "integer"
@@ -2039,7 +2050,9 @@
           "duplicate_count",
           "duplicates",
           "hash_mismatch_count",
-          "hash_mismatches"
+          "hash_mismatches",
+          "ambiguous_count",
+          "ambiguous"
         ],
         "title": "AuditChainSection",
         "type": "object"
@@ -2081,6 +2094,17 @@
               "type": "string"
             },
             "title": "Ambiguous Ids",
+            "type": "array"
+          },
+          "field_shift": {
+            "title": "Field Shift",
+            "type": "integer"
+          },
+          "field_shift_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Shift Ids",
             "type": "array"
           },
           "hashed": {
@@ -2149,6 +2173,8 @@
           "mismatch_ids",
           "ambiguous",
           "ambiguous_ids",
+          "field_shift",
+          "field_shift_ids",
           "unexpected_unhashed",
           "unexpected_unhashed_ids"
         ],

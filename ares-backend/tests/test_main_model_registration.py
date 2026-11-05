@@ -41,7 +41,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf
 # unexpected_unhashed_ids (nur dieses Schema, Feld-Diff geprueft).
 # N-869-4: nur die description von GET /admin/system/audit-log/verify
 # (Docstring: Operator-Bypass unter PG-RLS), Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "63b47e126f6702b14722605bf700e530de74007f48469bcf87206cb894b675f4"
+# N-869-6: AuditChainSection + ambiguous/ambiguous_count, AuditLegacySection
+# + field_shift/field_shift_ids (nur additiv, Feld-Diff geprueft).
+GOLDEN_OPENAPI_SHA256 = "b4dafb649ea2d741e3557274b245a798b8b4202f6dfacbd9f02f6c08b1dcd22b"
 
 _PROBE = """
 import hashlib, json

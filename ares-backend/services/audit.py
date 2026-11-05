@@ -345,6 +345,8 @@ _LEGACY_PREDECESSOR_WINDOW = 5
 
 _MATCH = "match"
 _AMBIGUOUS = "ambiguous"
+_FIELD_SHIFT = "field_shift"
+_PIPE_FIELD_COUNTS = {"pipe13": 13, "pipe14": 14, "pipe15": 15}
 
 # N-869-2 (Pruefrunde #869): Fruehester created_at, ab dem ein Payload-Format
 # ueberhaupt geschrieben worden sein kann (Autorendatum des einfuehrenden
@@ -412,11 +414,20 @@ def _hash_status(row: AuditLog, previous_hash: str, *, formats: tuple[str, ...])
     1. die Felder, die das Format nicht kennt, leer sind (13: ip_address und
        tenant_id; 14: tenant_id),
     2. created_at nicht vor der Einfuehrung des Formats liegt, und
-    3. bei '|'-Formaten kein Feldwert das Trennzeichen enthaelt -- sonst sind
-       die Feldgrenzen nicht beweisbar: Ergebnis 'ambiguous' (Befund, nicht
-       bestaetigt).
+    3. bei '|'-Formaten kein Feldwert das Trennzeichen enthaelt.
 
-    Rueckgabe: 'match', 'ambiguous' oder None (passt nicht).
+    N-869-6 (Delta-Pruefung #869): Passt der Hash nur ueber ein '|'-Format
+    mit '|' im Feldwert, folgt eine Gegenprobe ueber die Feldgrenzen: der
+    gehashte Text wird an jedem '|' getrennt. Ergibt das genau die Feldzahl
+    eines fuer created_at zulaessigen '|'-Formats, gibt es eine saubere
+    Lesart des Textes ohne '|' in den Werten -- die gespeicherten Felder
+    weichen davon ab, die Feldgrenzen wurden verschoben (z.B. tenant_id in
+    ip_address geschoben): 'field_shift', Befund. Sonst stand das '|'
+    schon beim Schreiben im Wert (echte Altzeile, etwa ein Loeschgrund):
+    'ambiguous', nur Hinweis (WARNING) -- die Feldgrenzen sind nicht
+    beweisbar, aber nichts deutet auf eine Verschiebung.
+
+    Rueckgabe: 'match', 'field_shift', 'ambiguous' oder None (passt nicht).
     """
     base = _payload_fields(row, previous_hash)
     ip = str(row.ip_address or "")
@@ -428,27 +439,39 @@ def _hash_status(row: AuditLog, previous_hash: str, *, formats: tuple[str, ...])
         "pipe15": ("|", base + [ip, tenant], True),
         "us15": ("\x1f", base + [ip, tenant], True),
     }
+    clean_counts = {
+        count for name, count in _PIPE_FIELD_COUNTS.items()
+        if name in formats and created_at >= _LEGACY_FORMAT_SINCE[name]
+    }
     ambiguous = False
     for name in formats:
         delimiter, fields, unknown_fields_empty = candidates[name]
         if not unknown_fields_empty or created_at < _LEGACY_FORMAT_SINCE[name]:
             continue
-        digest = hashlib.sha256(delimiter.join(fields).encode("utf-8")).hexdigest()
+        joined = delimiter.join(fields)
+        digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()
         if digest != row.integrity_hash:
             continue
         if delimiter == "|" and any("|" in value for value in fields):
+            if len(joined.split("|")) in clean_counts:
+                return _FIELD_SHIFT
             ambiguous = True
             continue
         return _MATCH
     return _AMBIGUOUS if ambiguous else None
 
 
-def _row_hash_matches(row: AuditLog, previous_hash: str) -> bool:
+def _chain_row_status(row: AuditLog, previous_hash: str) -> str | None:
     """Ketten-Zeile: aktuelles Schema, Fallback auf das 15-Felder-'|'-Schema
     (Kontrollrunde 2026-09-24: Zeilen aus der Zeit vor dem Delimiter-Fix
-    koennen wegen trg_audit_log_no_update nicht umgehasht werden). Der
-    Fallback gilt nur ohne '|' in den Feldwerten (N-869-2)."""
-    return _hash_status(row, previous_hash, formats=("us15", "pipe15")) == _MATCH
+    koennen wegen trg_audit_log_no_update nicht umgehasht werden). Mit '|'
+    im Feldwert: Gegenprobe ueber die Feldgrenzen wie bei den Altzeilen
+    (N-869-2/N-869-6)."""
+    return _hash_status(row, previous_hash, formats=("us15", "pipe15"))
+
+
+def _row_hash_matches(row: AuditLog, previous_hash: str) -> bool:
+    return _chain_row_status(row, previous_hash) in (_MATCH, _AMBIGUOUS)
 
 
 _LEGACY_UNHASHED_PROTOCOL_TABLES = frozenset({"protocol_bausteine", "mandate_baustein_selections"})
@@ -520,6 +543,7 @@ def _verify_audit_chain_detail(db: Session) -> dict:
     gaps: list[dict] = []
     duplicates: list[int] = []
     hash_mismatches: list[int] = []
+    ambiguous: list[int] = []
     expected_sequence = 1
     previous_row: AuditLog | None = None
     for row in rows:
@@ -541,7 +565,12 @@ def _verify_audit_chain_detail(db: Session) -> dict:
                 f"previous_hash stimmt nicht mit dem Vorgaenger-Hash ueberein"
             )
             breaks.append(int(row.sequence))
-        if not _row_hash_matches(row, row.previous_hash or ""):
+        row_status = _chain_row_status(row, row.previous_hash or "")
+        if row_status == _AMBIGUOUS:
+            # N-869-6: '|' im Feldwert einer '|'-Zeile, Gegenprobe ohne
+            # Hinweis auf Verschiebung -> Hinweis, kein Fehler.
+            ambiguous.append(int(row.sequence))
+        elif row_status != _MATCH:
             errors.append(
                 f"integrity_hash stimmt nicht mit Neuberechnung ueberein bei sequence={row.sequence} (id={row.id})"
             )
@@ -579,6 +608,7 @@ def _verify_audit_chain_detail(db: Session) -> dict:
         "gaps": gaps,
         "duplicates": duplicates,
         "hash_mismatches": hash_mismatches,
+        "ambiguous": ambiguous,
         "counter_value": counter_value,
         "last_sequence": last_sequence,
     }
@@ -600,9 +630,12 @@ def verify_audit_legacy_rows(db: Session) -> dict:
     - link_unconfirmed: Hash passt nur mit einem frueheren Vorgaenger
       (Fenster _LEGACY_PREDECESSOR_WINDOW) oder mit leerem Vorgaenger --
       typisch fuer die SEC-003-Gabelung. Hinweis, kein Integritaetsfehler.
-    - ambiguous (N-869-2): Hash passt nur ueber ein '|'-Format, in dem ein
-      Feldwert selbst ein '|' enthaelt -- die Feldgrenzen sind nicht
-      beweisbar (z.B. Tenant-Zuordnung per Feldverschiebung entfernt).
+    - field_shift (N-869-6): Hash passt nur ueber ein '|'-Format mit '|' im
+      Feldwert, und die Gegenprobe ueber die Feldgrenzen findet eine saubere
+      Lesart mit anderen Feldwerten (z.B. Tenant-Zuordnung per
+      Feldverschiebung entfernt). Befund.
+    - ambiguous (N-869-2/N-869-6): wie oben, aber ohne saubere Lesart -- das
+      '|' stand schon beim Schreiben im Wert. Hinweis (WARNING), kein
       Befund.
     - mismatch: Hash passt mit keinem zulaessigen Format/Kandidaten ->
       Inhalt veraendert ODER der unmittelbare Vorgaenger wurde entfernt.
@@ -624,6 +657,7 @@ def verify_audit_legacy_rows(db: Session) -> dict:
     link_unconfirmed_ids: list[str] = []
     ambiguous_ids: list[str] = []
     mismatch_ids: list[str] = []
+    field_shift_ids: list[str] = []
     unexpected_unhashed_ids: list[str] = []
     for index, row in enumerate(rows):
         if not row.integrity_hash:
@@ -637,6 +671,12 @@ def verify_audit_legacy_rows(db: Session) -> dict:
         if status == _MATCH:
             verified += 1
             continue
+        if status == _FIELD_SHIFT:
+            field_shift_ids.append(str(row.id))
+            continue
+        if status == _AMBIGUOUS:
+            ambiguous_ids.append(str(row.id))
+            continue
         candidates = [""] + [
             str(rows[j].integrity_hash or "")
             for j in range(max(0, index - 1 - _LEGACY_PREDECESSOR_WINDOW), index - 1)
@@ -644,12 +684,16 @@ def verify_audit_legacy_rows(db: Session) -> dict:
         statuses = {status} | {_hash_status(row, c, formats=formats) for c in candidates}
         if _MATCH in statuses:
             link_unconfirmed_ids.append(str(row.id))
+        elif _FIELD_SHIFT in statuses:
+            field_shift_ids.append(str(row.id))
         elif _AMBIGUOUS in statuses:
             ambiguous_ids.append(str(row.id))
         else:
             mismatch_ids.append(str(row.id))
     return {
-        "ok": not (mismatch_ids or ambiguous_ids or unexpected_unhashed_ids),
+        # N-869-6: ambiguous ist nur ein Hinweis; Befunde sind mismatch,
+        # field_shift und unexpected_unhashed.
+        "ok": not (mismatch_ids or field_shift_ids or unexpected_unhashed_ids),
         "total": len(rows),
         "hashed": len(rows) - unhashed,
         "unhashed": unhashed,
@@ -660,6 +704,8 @@ def verify_audit_legacy_rows(db: Session) -> dict:
         "mismatch_ids": _capped(mismatch_ids),
         "ambiguous": len(ambiguous_ids),
         "ambiguous_ids": _capped(ambiguous_ids),
+        "field_shift": len(field_shift_ids),
+        "field_shift_ids": _capped(field_shift_ids),
         "unexpected_unhashed": len(unexpected_unhashed_ids),
         "unexpected_unhashed_ids": _capped(unexpected_unhashed_ids),
     }
@@ -690,6 +736,8 @@ def audit_log_integrity_report(db: Session) -> dict:
             "duplicates": _capped(chain["duplicates"]),
             "hash_mismatch_count": len(chain["hash_mismatches"]),
             "hash_mismatches": _capped(chain["hash_mismatches"]),
+            "ambiguous_count": len(chain["ambiguous"]),
+            "ambiguous": _capped(chain["ambiguous"]),
         },
         "legacy": legacy,
     }
@@ -738,16 +786,20 @@ def run_startup_audit_chain_check(
         logger.critical(
             "AUDIT-LOG-INTEGRITAET VERLETZT: Kette ok=%s (geprueft=%s, Brueche=%s, Luecken=%s, "
             "Duplikate=%s, Hash-Abweichungen=%s); Altzeilen ok=%s (Hash-Abweichungen=%s, "
-            "mehrdeutig=%s, unerwartet ohne Hash=%s). Details: GET /admin/system/audit-log/verify",
+            "Feldverschiebung=%s, unerwartet ohne Hash=%s). Details: GET /admin/system/audit-log/verify",
             chain["ok"], chain["checked"], chain["break_count"], chain["gap_count"],
             chain["duplicate_count"], chain["hash_mismatch_count"],
-            legacy["ok"], legacy["mismatches"], legacy["ambiguous"], legacy["unexpected_unhashed"],
+            legacy["ok"], legacy["mismatches"], legacy["field_shift"], legacy["unexpected_unhashed"],
         )
-    elif legacy["link_unconfirmed"]:
+    elif legacy["link_unconfirmed"] or legacy["ambiguous"] or chain["ambiguous_count"]:
+        # N-869-6: '|' im Wert ohne Hinweis auf Verschiebung ist nur ein
+        # Hinweis -- eine echte Altzeile darf nicht bei jedem Start CRITICAL
+        # ausloesen.
         logger.warning(
-            "Audit-Log-Kette ok (%s Eintraege); %s Altzeilen nur inhaltlich bestaetigt, "
-            "Verkettung nicht rekonstruierbar",
-            chain["checked"], legacy["link_unconfirmed"],
+            "Audit-Log-Kette ok (%s Eintraege); Hinweise: %s Altzeilen nur inhaltlich bestaetigt "
+            "(Verkettung nicht rekonstruierbar), %s Altzeilen und %s Ketten-Zeilen mit '|' im "
+            "Feldwert (Feldgrenzen nicht beweisbar, keine Verschiebung erkennbar)",
+            chain["checked"], legacy["link_unconfirmed"], legacy["ambiguous"], chain["ambiguous_count"],
         )
     else:
         logger.info(
