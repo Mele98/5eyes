@@ -346,6 +346,20 @@ SUSTAINABILITY_SOURCE_TYPES: tuple[str, ...] = (
 
 SUSTAINABILITY_STATUSES: tuple[str, ...] = ("draft", "approved", "retired")
 
+#: Neutrale Quellbezeichnung fuer Kundendokumente je Quellentyp (FINMA-Sicht,
+#: Pruefrunde #863): ohne Dritt- oder Markennamen. Default, wenn beim Erfassen
+#: kein eigenes client_source_label angegeben wird.
+SUSTAINABILITY_CLIENT_SOURCE_LABELS: dict[str, str] = {
+    "prospectus": "Verkaufsprospekt",
+    "fund_contract": "Fondsvertrag",
+    "kid": "Basisinformationsblatt",
+    "factsheet": "Factsheet des Anbieters",
+    "provider_exclusion_policy": "Ausschlussrichtlinie des Anbieters",
+    "provider_confirmation": "Bestätigung des Anbieters",
+    "data_vendor": "Externer Datenanbieter",
+    "house_analysis": "Eigene Analyse",
+}
+
 #: Hausstandard-Defaults (T-E1), Umsatzanteil des Emittenten in bps.
 #: ungc_violation: keine Umsatzschwelle (schwere/anhaltende Verstoesse
 #: ausgeschlossen) -> None. sfdr_classification/impact_theme sind keine

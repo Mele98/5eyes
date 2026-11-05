@@ -2330,6 +2330,14 @@ class ProductSustainabilityAttributeCreate(BaseModel):
     source_reference: str = Field(min_length=1, max_length=500)
     source_provider: Optional[str] = Field(default=None, max_length=200)
     source_retrieved_on: Optional[date] = None
+    source_document_title: Optional[str] = Field(default=None, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    client_source_label: Optional[str] = Field(
+        default=None, max_length=120,
+        description="Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+    )
     as_of: date
     valid_until: Optional[date] = Field(
         default=None,
@@ -2337,10 +2345,17 @@ class ProductSustainabilityAttributeCreate(BaseModel):
     )
     note: Optional[str] = Field(default=None, max_length=2000)
 
-    @field_validator("value", "source_reference", "source_provider", "note", mode="before")
+    @field_validator("value", "source_reference", "source_provider", "note", "source_document_title",
+                     "source_document_version", "client_source_label", mode="before")
     @classmethod
     def _strip_text(cls, value):
         return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _normalize_sha256(cls, value):
+        value = _strip_optional_text(value)
+        return value.lower() if isinstance(value, str) else value
 
 
 class ProductSustainabilityAttributeUpdate(BaseModel):
@@ -2353,14 +2368,29 @@ class ProductSustainabilityAttributeUpdate(BaseModel):
     source_reference: Optional[str] = Field(default=None, min_length=1, max_length=500)
     source_provider: Optional[str] = Field(default=None, max_length=200)
     source_retrieved_on: Optional[date] = None
+    source_document_title: Optional[str] = Field(default=None, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    client_source_label: Optional[str] = Field(
+        default=None, max_length=120,
+        description="Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+    )
     as_of: Optional[date] = None
     valid_until: Optional[date] = None
     note: Optional[str] = Field(default=None, max_length=2000)
 
-    @field_validator("value", "source_reference", "source_provider", "note", mode="before")
+    @field_validator("value", "source_reference", "source_provider", "note", "source_document_title",
+                     "source_document_version", "client_source_label", mode="before")
     @classmethod
     def _strip_text(cls, value):
         return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _normalize_sha256(cls, value):
+        value = _strip_optional_text(value)
+        return value.lower() if isinstance(value, str) else value
 
 
 class ProductSustainabilityAttributeImportItem(ProductSustainabilityAttributeCreate):
@@ -2398,6 +2428,11 @@ class ProductSustainabilityAttributeResponse(BaseResponse):
     source_reference: str
     source_provider: Optional[str] = None
     source_retrieved_on: Optional[str] = None
+    source_document_title: Optional[str] = None
+    source_document_version: Optional[str] = None
+    source_document_date: Optional[str] = None
+    source_document_sha256: Optional[str] = None
+    client_source_label: Optional[str] = None
     as_of: str
     valid_until: str
     status: SustainabilityStatus

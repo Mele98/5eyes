@@ -735,3 +735,44 @@ def test_h1_approve_without_pending_is_409(SF, client):
 def NOW_TS():
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+# ---------------------------------------------------------------------------
+# FINMA-Kundenanzeige: Dokumentidentitaet und neutrale Quellbezeichnung
+# ---------------------------------------------------------------------------
+
+
+def test_finma_document_identity_and_neutral_client_label(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    r = client.post("/products/own-a/sustainability-attributes", json=_payload(
+        source_document_title="Fondsvertrag Teilvermoegen A", source_document_version="2026-06",
+        source_document_date=AS_OF, source_document_sha256="AB" * 32))
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["client_source_label"] == "Fondsvertrag", "Default aus dem Quellentyp"
+    assert body["source_document_sha256"] == "ab" * 32 and body["source_document_version"] == "2026-06"
+    # Quellentyp geaendert -> abgeleitete Bezeichnung folgt
+    p = client.patch(f"/products/sustainability/attributes/{body['id']}", json={"source_type": "kid"})
+    assert p.status_code == 200 and p.json()["client_source_label"] == "Basisinformationsblatt"
+    export = client.get("/products/sustainability/attributes/export").text.splitlines()[0]
+    assert "client_source_label" in export and "source_document_sha256" in export
+
+
+@pytest.mark.parametrize("override", [
+    {"source_document_sha256": "zz" * 32},
+    {"source_document_sha256": "ab"},
+    {"source_document_date": (TODAY + timedelta(days=1)).isoformat()},
+    {"source_type": "data_vendor", "source_provider": "Anbieter X", "source_retrieved_on": AS_OF,
+     "client_source_label": "Daten von Anbieter X"},
+])
+def test_finma_fields_validation(SF, client, override):
+    _as("admin-a1", "admin", "firm-a")
+    assert client.post("/products/own-a/sustainability-attributes", json=_payload(**override)).status_code == 422
+
+
+def test_finma_custom_neutral_label_kept(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    r = client.post("/products/own-a/sustainability-attributes", json=_payload(
+        source_type="data_vendor", source_provider="Anbieter X", source_retrieved_on=AS_OF,
+        client_source_label="Externer Datenanbieter, Stand Q2"))
+    assert r.status_code == 201 and r.json()["client_source_label"] == "Externer Datenanbieter, Stand Q2"

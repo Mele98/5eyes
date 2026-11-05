@@ -4147,6 +4147,7 @@ from services.product_eligibility_governance import (  # noqa: E402
     approve_sustainability_attribute,
     approve_sustainability_standard,
     criterion_type as sustainability_criterion_type,
+    default_client_source_label,
     default_evidence_valid_until,
     discard_pending_sustainability_standard,
     effective_sustainability_standard,
@@ -4169,6 +4170,8 @@ _SUSTAINABILITY_CSV_FIELDS = (
     "product_id", "isin", "scope", "category", "kind",
     "revenue_threshold_bps", "measured_exposure_bps", "value",
     "source_type", "source_reference", "source_provider", "source_retrieved_on",
+    "source_document_title", "source_document_version", "source_document_date", "source_document_sha256",
+    "client_source_label",
     "as_of", "valid_until", "note",
 )
 _SUSTAINABILITY_EXPORT_EXTRA_FIELDS = (
@@ -4177,7 +4180,8 @@ _SUSTAINABILITY_EXPORT_EXTRA_FIELDS = (
 )
 _SUSTAINABILITY_EDITABLE_FIELDS = (
     "revenue_threshold_bps", "measured_exposure_bps", "value", "source_type", "source_reference",
-    "source_provider", "source_retrieved_on", "as_of", "valid_until", "note",
+    "source_provider", "source_retrieved_on", "source_document_title", "source_document_version",
+    "source_document_date", "source_document_sha256", "client_source_label", "as_of", "valid_until", "note",
 )
 
 
@@ -4223,7 +4227,7 @@ def _get_sustainability_attribute_or_404(
 
 def _sustainability_values(body) -> dict:
     values = body.model_dump()
-    for name in ("as_of", "valid_until", "source_retrieved_on"):
+    for name in ("as_of", "valid_until", "source_retrieved_on", "source_document_date"):
         if values.get(name) is not None:
             values[name] = values[name].isoformat()
     return values
@@ -4250,6 +4254,8 @@ def _create_sustainability_attribute(
     values = _sustainability_values(body)
     if values.get("valid_until") is None:
         values["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
+    if not values.get("client_source_label"):
+        values["client_source_label"] = default_client_source_label(values.get("source_type"))
     errors = sustainability_attribute_errors(values)
     if errors:
         raise HTTPException(status_code=422, detail=" ".join(errors))
@@ -4275,7 +4281,12 @@ def _create_sustainability_attribute(
         measured_exposure_bps=values.get("measured_exposure_bps"),
         value=values.get("value"), source_type=values["source_type"],
         source_reference=values["source_reference"], source_provider=values.get("source_provider"),
-        source_retrieved_on=values.get("source_retrieved_on"), as_of=values["as_of"],
+        source_retrieved_on=values.get("source_retrieved_on"),
+        source_document_title=values.get("source_document_title"),
+        source_document_version=values.get("source_document_version"),
+        source_document_date=values.get("source_document_date"),
+        source_document_sha256=values.get("source_document_sha256"),
+        client_source_label=values.get("client_source_label"), as_of=values["as_of"],
         valid_until=values["valid_until"], status="draft", note=values.get("note"),
         created_by=current_user.id, created_at=now, updated_at=now,
     )
@@ -4767,13 +4778,20 @@ def update_sustainability_attribute(
             detail="Einen Entwurf bearbeitet nur die Person, die ihn erfasst hat (Vier-Augen-Prinzip).",
         )
     changes = body.model_dump(exclude_unset=True)
-    for name in ("as_of", "valid_until", "source_retrieved_on"):
+    for name in ("as_of", "valid_until", "source_retrieved_on", "source_document_date"):
         if changes.get(name) is not None:
             changes[name] = changes[name].isoformat()
     if "as_of" in changes and "valid_until" not in changes:
         changes["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
     merged = {name: getattr(attribute, name) for name in ("category", "kind", *_SUSTAINABILITY_EDITABLE_FIELDS)}
     merged.update(changes)
+    if (
+        "source_type" in changes and "client_source_label" not in changes
+        and attribute.client_source_label == default_client_source_label(attribute.source_type)
+    ):
+        merged["client_source_label"] = None  # abgeleitete Bezeichnung folgt dem neuen Quellentyp
+    if not merged.get("client_source_label"):
+        merged["client_source_label"] = default_client_source_label(merged.get("source_type"))
     if merged.get("valid_until") is None and merged.get("as_of"):
         merged["valid_until"] = default_evidence_valid_until(date.fromisoformat(str(merged["as_of"])[:10])).isoformat()
     errors = sustainability_attribute_errors(merged)

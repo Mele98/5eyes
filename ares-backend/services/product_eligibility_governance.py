@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from models.product_eligibility import (
     SFDR_CLASSIFICATION_VALUES,
+    SUSTAINABILITY_CLIENT_SOURCE_LABELS,
     SUSTAINABILITY_CATEGORIES,
     SUSTAINABILITY_CATEGORY_COVERED_BY,
     SUSTAINABILITY_CLASSIFICATION_CATEGORIES,
@@ -481,6 +482,7 @@ def sustainability_attribute_errors(values: dict, *, today: date | None = None) 
     retrieved = _as_date(values.get("source_retrieved_on"))
     if retrieved is not None and retrieved > today:
         errors.append("Abrufdatum liegt in der Zukunft.")
+    errors.extend(source_document_errors(values, today=today))
     as_of = _as_date(values.get("as_of"))
     valid_until = _as_date(values.get("valid_until"))
     if as_of is None:
@@ -497,6 +499,42 @@ def sustainability_attribute_errors(values: dict, *, today: date | None = None) 
                 f"Gueltig bis darf hoechstens {SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS} Monate nach dem "
                 f"Stichtag liegen (spaetestens {latest.isoformat()})."
             )
+    return errors
+
+
+def default_client_source_label(source_type: str | None) -> str | None:
+    """Neutrale Kunden-Quellbezeichnung je Quellentyp (ohne Drittmarken)."""
+    return SUSTAINABILITY_CLIENT_SOURCE_LABELS.get(source_type or "")
+
+
+def _is_sha256_hex(value: str) -> bool:
+    return len(value) == 64 and all(ch in "0123456789abcdef" for ch in value)
+
+
+def source_document_errors(values: dict, *, today: date) -> list[str]:
+    """FINMA-Sicht (Pruefrunde #863): Dokumentidentitaet und neutrale
+    Kunden-Quellbezeichnung. Die Kundenbezeichnung darf den (internen)
+    Anbieternamen nicht enthalten -- Kundendokumente nennen keine Drittmarken."""
+    errors: list[str] = []
+    document_date = values.get("source_document_date")
+    if document_date not in (None, ""):
+        parsed = _as_date(document_date)
+        if parsed is None:
+            errors.append("Dokumentdatum ist kein Datum (YYYY-MM-DD).")
+        elif parsed > today:
+            errors.append("Dokumentdatum liegt in der Zukunft.")
+    digest = values.get("source_document_sha256")
+    if digest not in (None, "") and not _is_sha256_hex(str(digest)):
+        errors.append("source_document_sha256 muss ein SHA-256-Hexwert (64 Zeichen) sein.")
+    label = str(values.get("client_source_label") or "").strip()
+    provider = str(values.get("source_provider") or "").strip()
+    if label and provider and provider.casefold() in label.casefold():
+        errors.append(
+            "Die Kunden-Quellbezeichnung darf den Anbieternamen nicht enthalten "
+            "(neutral, z. B. 'Externer Datenanbieter')."
+        )
+    if label and len(label) > 120:
+        errors.append("Kunden-Quellbezeichnung ist zu lang (max. 120 Zeichen).")
     return errors
 
 
