@@ -84,3 +84,24 @@ def test_validation_error_of_other_checks_hides_inputs_too():
     # pydantic kuerzt input_value in der Anzeige -- ein Marker kann zufaellig im
     # ausgelassenen Mittelteil liegen. Deshalb zusaetzlich: gar keine Eingabe.
     assert "input_value" not in text
+
+
+def test_repr_and_str_of_settings_hide_every_secret():
+    """T-3: repr/str zeigen keinen Secret-Wert; die Werte selbst bleiben lesbar."""
+    settings = Settings(app_env="development", db_use_sqlcipher=False, **SECRET_FIELDS)
+    rendered = repr(settings) + str(settings)
+    for field, marker in zip(SECRET_FIELDS, _markers(SECRET_FIELDS)):
+        assert marker not in rendered, field
+        assert getattr(settings, field) == SECRET_FIELDS[field], field
+    # Nicht-geheime Felder bleiben im repr sichtbar (Diagnose).
+    assert "app_env='development'" in repr(settings)
+
+
+def test_every_secret_like_field_is_hidden_from_repr():
+    """T-3, Drift-Schutz: ein neues Feld mit Secret-Namen muss repr=False haben."""
+    import re
+
+    pattern = re.compile(r"(password|secret|_kek$|hmac|api_key|_dsn$|webhook_url$|^db_key$|^database_url$)")
+    for name, info in Settings.model_fields.items():
+        if pattern.search(name):
+            assert info.repr is False, f"{name} muss repr=False haben"
