@@ -4938,18 +4938,65 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Sustainability Standard
-         * @description Hausschwelle der eigenen Verwaltung setzen (auditiert: alt -> neu).
-         *     UN Global Compact kennt keine Umsatzschwelle (null); alle anderen
-         *     Standard-Kategorien brauchen eine Schwelle in bps.
+         * Set Sustainability Standard Endpoint
+         * @description Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).
+         *
+         *     H-1 (Pruefrunde #863): Verschaerfung oder Rueckkehr zum T-E1-Default
+         *     wirkt sofort. Lockerung (Schwelle ueber dem Default oder Kategorie
+         *     deaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der
+         *     Vier-Augen-Freigabe (POST .../approve). UN Global Compact kennt keine
+         *     Umsatzschwelle (null).
          */
-        put: operations["set_sustainability_standard_products_sustainability_standards__category__put"];
+        put: operations["set_sustainability_standard_endpoint_products_sustainability_standards__category__put"];
         post?: never;
         /**
-         * Reset Sustainability Standard
-         * @description Tenant-Wert entfernen -> wieder Haus-Default (T-E1), auditiert.
+         * Reset Sustainability Standard Endpoint
+         * @description Zurueck auf den Haus-Default (T-E1), sofort wirksam (keine Lockerung
+         *     unter den Default), auditiert; eine offene Lockerung wird verworfen.
          */
-        delete: operations["reset_sustainability_standard_products_sustainability_standards__category__delete"];
+        delete: operations["reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Standard Endpoint
+         * @description Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die
+         *     sie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den
+         *     Eignungsregeln); 409 auch ohne offenen Entwurf.
+         */
+        post: operations["approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Discard Sustainability Standard Endpoint
+         * @description Offene Lockerung verwerfen (auditiert).
+         */
+        delete: operations["discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -10282,7 +10329,12 @@ export interface components {
              * Category
              * @enum {string}
              */
-            category: "controversial_weapons" | "conventional_weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /**
+             * Client Source Label
+             * @description Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.
+             */
+            client_source_label?: string | null;
             /**
              * Kind
              * @enum {string}
@@ -10300,6 +10352,14 @@ export interface components {
              * @enum {string}
              */
             scope?: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
             /** Source Provider */
             source_provider?: string | null;
             /** Source Reference */
@@ -10333,7 +10393,12 @@ export interface components {
              * Category
              * @enum {string}
              */
-            category: "controversial_weapons" | "conventional_weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /**
+             * Client Source Label
+             * @description Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.
+             */
+            client_source_label?: string | null;
             /** Isin */
             isin?: string | null;
             /**
@@ -10355,6 +10420,14 @@ export interface components {
              * @enum {string}
              */
             scope?: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
             /** Source Provider */
             source_provider?: string | null;
             /** Source Reference */
@@ -10391,6 +10464,8 @@ export interface components {
             as_of: string;
             /** Category */
             category: string;
+            /** Client Source Label */
+            client_source_label?: string | null;
             /** Created At */
             created_at: string;
             /** Created By */
@@ -10421,6 +10496,14 @@ export interface components {
              * @enum {string}
              */
             scope: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
             /** Source Provider */
             source_provider?: string | null;
             /** Source Reference */
@@ -10453,12 +10536,25 @@ export interface components {
         ProductSustainabilityAttributeUpdate: {
             /** As Of */
             as_of?: string | null;
+            /**
+             * Client Source Label
+             * @description Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.
+             */
+            client_source_label?: string | null;
             /** Measured Exposure Bps */
             measured_exposure_bps?: number | null;
             /** Note */
             note?: string | null;
             /** Revenue Threshold Bps */
             revenue_threshold_bps?: number | null;
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
             /** Source Provider */
             source_provider?: string | null;
             /** Source Reference */
@@ -11646,6 +11742,12 @@ export interface components {
         };
         /** SustainabilityStandardItem */
         SustainabilityStandardItem: {
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
             /** Category */
             category: string;
             /**
@@ -11657,23 +11759,58 @@ export interface components {
             default_threshold_bps?: number | null;
             /** Effective Threshold Bps */
             effective_threshold_bps?: number | null;
+            /**
+             * Is Disabled
+             * @default false
+             */
+            is_disabled?: boolean;
             /** Is Overridden */
             is_overridden: boolean;
             /** Note */
             note?: string | null;
+            pending?: components["schemas"]["SustainabilityStandardPending"] | null;
+            /** Standard Id */
+            standard_id?: string | null;
             /** Tenant Threshold Bps */
             tenant_threshold_bps?: number | null;
             /** Updated At */
             updated_at?: string | null;
             /** Updated By */
             updated_by?: string | null;
+            /** Valid From */
+            valid_from?: string | null;
+        };
+        /**
+         * SustainabilityStandardPending
+         * @description Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe.
+         */
+        SustainabilityStandardPending: {
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by?: string | null;
+            /** Id */
+            id: string;
+            /** Is Disabled */
+            is_disabled: boolean;
+            /** Max Revenue Threshold Bps */
+            max_revenue_threshold_bps?: number | null;
+            /** Note */
+            note?: string | null;
         };
         /**
          * SustainabilityStandardUpdate
          * @description Hausschwelle setzen. Bei UN Global Compact gibt es keine
-         *     Umsatzschwelle (null).
+         *     Umsatzschwelle (null). Schwelle ueber dem T-E1-Default oder
+         *     is_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe.
          */
         SustainabilityStandardUpdate: {
+            /**
+             * Is Disabled
+             * @description Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).
+             * @default false
+             */
+            is_disabled?: boolean;
             /** Max Revenue Threshold Bps */
             max_revenue_threshold_bps?: number | null;
             /** Note */
@@ -21802,7 +21939,7 @@ export interface operations {
             };
         };
     };
-    set_sustainability_standard_products_sustainability_standards__category__put: {
+    set_sustainability_standard_endpoint_products_sustainability_standards__category__put: {
         parameters: {
             query?: never;
             header?: never;
@@ -21837,7 +21974,73 @@ export interface operations {
             };
         };
     };
-    reset_sustainability_standard_products_sustainability_standards__category__delete: {
+    reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityApprovalRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete: {
         parameters: {
             query?: never;
             header?: never;

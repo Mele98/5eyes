@@ -16073,6 +16073,7 @@
             "enum": [
               "controversial_weapons",
               "conventional_weapons",
+              "weapons",
               "tobacco",
               "thermal_coal",
               "fossil_fuels",
@@ -16087,6 +16088,19 @@
             ],
             "title": "Category",
             "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+            "title": "Client Source Label"
           },
           "kind": {
             "enum": [
@@ -16144,6 +16158,55 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
           },
           "source_provider": {
             "anyOf": [
@@ -16237,6 +16300,7 @@
             "enum": [
               "controversial_weapons",
               "conventional_weapons",
+              "weapons",
               "tobacco",
               "thermal_coal",
               "fossil_fuels",
@@ -16251,6 +16315,19 @@
             ],
             "title": "Category",
             "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+            "title": "Client Source Label"
           },
           "isin": {
             "anyOf": [
@@ -16332,6 +16409,55 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
           },
           "source_provider": {
             "anyOf": [
@@ -16474,6 +16600,17 @@
             "title": "Category",
             "type": "string"
           },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Source Label"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -16567,6 +16704,50 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
           },
           "source_provider": {
             "anyOf": [
@@ -16683,6 +16864,19 @@
             ],
             "title": "As Of"
           },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Neutrale Quellbezeichnung fuer Kundendokumente (keine Drittmarken); leer = aus dem Quellentyp.",
+            "title": "Client Source Label"
+          },
           "measured_exposure_bps": {
             "anyOf": [
               {
@@ -16720,6 +16914,55 @@
               }
             ],
             "title": "Revenue Threshold Bps"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
           },
           "source_provider": {
             "anyOf": [
@@ -21029,6 +21272,39 @@
       },
       "SustainabilityStandardItem": {
         "properties": {
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
           "category": {
             "title": "Category",
             "type": "string"
@@ -21063,6 +21339,11 @@
             ],
             "title": "Effective Threshold Bps"
           },
+          "is_disabled": {
+            "default": false,
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
           "is_overridden": {
             "title": "Is Overridden",
             "type": "boolean"
@@ -21077,6 +21358,27 @@
               }
             ],
             "title": "Note"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SustainabilityStandardPending"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "standard_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Id"
           },
           "tenant_threshold_bps": {
             "anyOf": [
@@ -21110,6 +21412,17 @@
               }
             ],
             "title": "Updated By"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
           }
         },
         "required": [
@@ -21120,9 +21433,72 @@
         "title": "SustainabilityStandardItem",
         "type": "object"
       },
-      "SustainabilityStandardUpdate": {
-        "description": "Hausschwelle setzen. Bei UN Global Compact gibt es keine\nUmsatzschwelle (null).",
+      "SustainabilityStandardPending": {
+        "description": "Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe.",
         "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_disabled": {
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "max_revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Revenue Threshold Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "id",
+          "is_disabled",
+          "created_at"
+        ],
+        "title": "SustainabilityStandardPending",
+        "type": "object"
+      },
+      "SustainabilityStandardUpdate": {
+        "description": "Hausschwelle setzen. Bei UN Global Compact gibt es keine\nUmsatzschwelle (null). Schwelle ueber dem T-E1-Default oder\nis_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe.",
+        "properties": {
+          "is_disabled": {
+            "default": false,
+            "description": "Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).",
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
           "max_revenue_threshold_bps": {
             "anyOf": [
               {
@@ -40074,8 +40450,8 @@
     },
     "/products/sustainability/standards/{category}": {
       "delete": {
-        "description": "Tenant-Wert entfernen -> wieder Haus-Default (T-E1), auditiert.",
-        "operationId": "reset_sustainability_standard_products_sustainability_standards__category__delete",
+        "description": "Zurueck auf den Haus-Default (T-E1), sofort wirksam (keine Lockerung\nunter den Default), auditiert; eine offene Lockerung wird verworfen.",
+        "operationId": "reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete",
         "parameters": [
           {
             "in": "path",
@@ -40114,14 +40490,14 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Reset Sustainability Standard",
+        "summary": "Reset Sustainability Standard Endpoint",
         "tags": [
           "Produkte"
         ]
       },
       "put": {
-        "description": "Hausschwelle der eigenen Verwaltung setzen (auditiert: alt -> neu).\nUN Global Compact kennt keine Umsatzschwelle (null); alle anderen\nStandard-Kategorien brauchen eine Schwelle in bps.",
-        "operationId": "set_sustainability_standard_products_sustainability_standards__category__put",
+        "description": "Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).\n\nH-1 (Pruefrunde #863): Verschaerfung oder Rueckkehr zum T-E1-Default\nwirkt sofort. Lockerung (Schwelle ueber dem Default oder Kategorie\ndeaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der\nVier-Augen-Freigabe (POST .../approve). UN Global Compact kennt keine\nUmsatzschwelle (null).",
+        "operationId": "set_sustainability_standard_endpoint_products_sustainability_standards__category__put",
         "parameters": [
           {
             "in": "path",
@@ -40170,7 +40546,120 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Set Sustainability Standard",
+        "summary": "Set Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die\nsie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den\nEignungsregeln); 409 auch ohne offenen Entwurf.",
+        "operationId": "approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}/pending": {
+      "delete": {
+        "description": "Offene Lockerung verwerfen (auditiert).",
+        "operationId": "discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discard Sustainability Standard Endpoint",
         "tags": [
           "Produkte"
         ]
