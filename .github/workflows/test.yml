@@ -49,6 +49,60 @@ jobs:
       - name: Run security gate
         run: python scripts/security_gate.py
 
+  sqlcipher-real-encryption:
+    # SQLCIPHER-ENGINE-POOL-001 (Pruefrunde #861, N-861-6): Der SQLCipher-Pfad
+    # (DB_USE_SQLCIPHER=true, Pflicht fuer production ohne PostgreSQL) startete
+    # mit der gepinnten SQLAlchemy-Version nie (pool_timeout am
+    # SingletonThreadPool; dazu ``PRAGMA key = ?`` im Rohschema-Bootstrap und im
+    # Backup). Die Shards merkten es nicht, weil sqlcipher3 dort nicht installiert
+    # ist und die Tests sich ueberspringen. Dieser Job installiert den gepinnten
+    # Treiber (requirements-sqlcipher.txt, mit Hashes) und erzwingt die Tests
+    # mit ARES_REQUIRE_SQLCIPHER=1 (fehlender Treiber = rot, nie still gruen).
+    # Windows mit dabei: das Release ist Windows-only (BUILD_WITH_SQLCIPHER=1).
+    # Kandidat fuer einen Pflicht-Check.
+    name: SQLCipher (echte Verschluesselung) (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      ARES_REQUIRE_SQLCIPHER: "1"
+      ARES_STRICT_LEAK_GUARD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            ares-backend/requirements.txt
+            ares-backend/requirements-sqlcipher.txt
+
+      - name: Install dependencies (gepinnt, SQLCipher mit Hashes)
+        working-directory: ares-backend
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --require-hashes --only-binary=:all: -r requirements-sqlcipher.txt
+          python -c "import sqlalchemy, sqlcipher3; c = sqlcipher3.connect(':memory:'); print('SQLAlchemy', sqlalchemy.__version__, '| SQLCipher', c.execute('PRAGMA cipher_version').fetchone()[0])"
+
+      - name: Run SQLCipher tests (echter Treiber)
+        working-directory: ares-backend
+        shell: bash
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/sqlcipher \
+            --startup-timeout 600 --test-timeout 900 --teardown-timeout 180 --session-timeout 300 \
+            --exit-timeout 90 --grace 15 -- \
+            python -m pytest -p no:cacheprovider -q -rs \
+            tests/test_sqlcipher_engine_roundtrip.py \
+            tests/test_backup_sqlcipher_support.py
+
   engine-line-budget-gate:
     # ENGINE-LINE-BUDGET-RATCHET-001 (Kontrollrunde 2026-09-27): ADR-014
     # (2026-08-03) reduzierte services/portfolio_engine.py von 8'820 auf
@@ -633,7 +687,10 @@ jobs:
         # durch die gesamte Suite; genau so blieben die drei fehlenden
         # Reporting-Views unbemerkt. Laeuft auf derselben Postgres-Instanz,
         # eigenes Schema pro Lauf.
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py -q
+        # W4-d: test_postgres_audit_immutable_function_live.py prueft die
+        # RENAME-Revision der audit_log-Immutability-Funktion (Trigger greifen
+        # vor/nach Upgrade und Downgrade, gleiche OID, No-op wenn schon umbenannt).
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py tests/test_postgres_audit_immutable_function_live.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.

@@ -6,6 +6,7 @@ import base64
 import ctypes
 import hmac
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -132,11 +133,34 @@ def resolve_env_file() -> str:
     return '.env'
 
 
+# SQLCIPHER-DB-KEY-FORMAT-001 (Pruefrunde #864, S-1): erlaubter Zeichensatz fuer
+# den SQLCipher-Schluessel. Nur URL-unreservierte ASCII-Zeichen, 32-512 Zeichen
+# (empfohlen: 64 Hex-Zeichen). Schliesst Leerzeichen, Anfuehrungszeichen, %, +,
+# Nullbyte, Steuerzeichen, Nicht-ASCII und die SQLCipher-Rohschluesselform
+# x'...' aus. Fail-closed beim Start; die Meldung nennt den Schluessel nie.
+_DB_KEY_RE = re.compile(r'[A-Za-z0-9._~-]{32,512}')
+DB_KEY_FORMAT_MESSAGE = (
+    'db_key enthaelt unzulaessige Zeichen oder hat eine unzulaessige Laenge '
+    '(erlaubt: 32-512 Zeichen aus A-Z a-z 0-9 . _ ~ -; empfohlen: 64 Hex-Zeichen). '
+    'Der Schluessel wird nicht ausgegeben.'
+)
+
+
+def db_key_format_ok(key: object) -> bool:
+    return isinstance(key, str) and _DB_KEY_RE.fullmatch(key) is not None
+
+
+_HOSTNAME_RE = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=resolve_env_file(),
         env_file_encoding='utf-8',
         extra='ignore',
+        # S-1 (Pruefrunde #864): ValidationError zeigt sonst input_value, also die
+        # gesamte Konfiguration inkl. DB_KEY/SECRET_KEY, in Exception und Log.
+        hide_input_in_errors=True,
     )
 
     app_name: str = 'Ares API'
@@ -149,12 +173,13 @@ class Settings(BaseSettings):
     log_backup_count: int = 5
 
     # Database
-    database_url: str | None = None
+    database_url: str | None = Field(default=None, repr=False)
     # Default aus EINER Quelle (core/db_location.py); die Live-DB-Waechter
     # vergleichen gegen dieselbe Funktion.
     db_path: str = Field(default_factory=lambda: str(_db_location.default_db_path()))
     db_echo: bool = False
-    db_key: str | None = None
+    # repr=False: der Schluessel erscheint nie in repr/ValidationError (S-1).
+    db_key: str | None = Field(default=None, repr=False)
     db_use_sqlcipher: bool = False
     db_bootstrap_schema_on_startup: bool = True
 
@@ -166,7 +191,7 @@ class Settings(BaseSettings):
     log_dir: str = ''
 
     # Auth
-    secret_key: str = DEFAULT_SECRET_KEY
+    secret_key: str = Field(default=DEFAULT_SECRET_KEY, repr=False)
     algorithm: str = 'HS256'
     access_token_expire_minutes: int = 480
     # Roadmap #28 (Standpunkt 2026-08-07): Refresh-Token-Rotation. Deutlich
@@ -270,12 +295,12 @@ class Settings(BaseSettings):
     target_macro_euro_provider: str = 'ecb'
     target_macro_swiss_provider: str = 'snb'
     target_enterprise_reference_provider: str = 'six'
-    twelvedata_api_key: str | None = None
-    eodhd_api_key: str | None = None
-    openfigi_api_key: str | None = None
-    fred_api_key: str | None = None
-    six_api_key: str | None = None
-    alphavantage_api_key: str | None = None
+    twelvedata_api_key: str | None = Field(default=None, repr=False)
+    eodhd_api_key: str | None = Field(default=None, repr=False)
+    openfigi_api_key: str | None = Field(default=None, repr=False)
+    fred_api_key: str | None = Field(default=None, repr=False)
+    six_api_key: str | None = Field(default=None, repr=False)
+    alphavantage_api_key: str | None = Field(default=None, repr=False)
 
     # V3 Sprint 2026-05 (Multi-Source Data Aggregator).
     # Komma-separierte Reihenfolge der Provider; erste = Primary.
@@ -307,7 +332,7 @@ class Settings(BaseSettings):
     market_data_daily_refresh_max_symbols: int = 500
 
     # P22 — Webhook-Notifier fuer Validation-Alerts. Default leer = no-op.
-    market_data_alert_webhook_url: str = ''
+    market_data_alert_webhook_url: str = Field(default='', repr=False)
     market_data_alert_webhook_timeout_seconds: float = 5.0
 
     # System / diagnostics
@@ -337,13 +362,13 @@ class Settings(BaseSettings):
 
     # Sprint U-64 (2026-06-04): Telemetrie-Adapter (opt-in).
     telemetry_enabled: bool = False
-    telemetry_dsn: str = ''
+    telemetry_dsn: str = Field(default='', repr=False)
     telemetry_environment: str = ''
     telemetry_sample_rate: float = 1.0
 
     # U-8 — DB-Backup-Strategie (PR #106).
     backup_enabled: bool = True
-    backup_dir: str = str(Path.home() / '5eyes' / 'backups')
+    backup_dir: str = str(Path.home() / 'ares' / 'backups')
     backup_retain_days: int = 30
     backup_keep_minimum: int = 3
     backup_scheduler_enabled: bool = True
@@ -357,7 +382,7 @@ class Settings(BaseSettings):
     # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
     # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
     backup_offsite_enabled: bool = False
-    # rsync-Zielangabe, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/"
+    # rsync-Zielangabe, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/"
     backup_offsite_target: str = ''
     backup_offsite_ssh_key_path: str = ''
     backup_offsite_ssh_port: int = 22
@@ -375,7 +400,7 @@ class Settings(BaseSettings):
     # Setting statt Wiederverwendung von market_data_alert_webhook_url, da
     # ein Betreiber Backup- und Marktdaten-Alerts an unterschiedliche Kanaele
     # routen koennte. Default leer = no-op, kein Netzwerkverkehr.
-    backup_alert_webhook_url: str = ''
+    backup_alert_webhook_url: str = Field(default='', repr=False)
     backup_alert_webhook_timeout_seconds: float = 5.0
 
     # U-19 — Aggregator-Cache (Roadmap-Punkt 19). compute_advisory_report
@@ -479,8 +504,14 @@ class Settings(BaseSettings):
     smtp_host: str = ''
     smtp_port: int = 587
     smtp_user: str = ''
-    smtp_password: str = ''
-    smtp_from: str = '5eyes <no-reply@5eyes.local>'
+    smtp_password: str = Field(default='', repr=False)
+    # W4-d: kein erfundener Absender. Ohne SMTP_FROM (<ARES_NO_REPLY_EMAIL>,
+    # Owner-Wert) verschickt services/mailer.py nichts (fail-closed, klare
+    # Meldung im Log); der Invite-Flow faellt auf Link-Copy zurueck.
+    smtp_from: str = ''
+    # W4-d: kontrollierte Hauptdomain (<ARES_DOMAIN>, Owner-Wert, kein Default).
+    # Wird z.B. als Domain-Teil der ICS-UIDs verwendet; leer = UIDs ohne Domain.
+    ares_domain: str = ''
     smtp_use_tls: bool = True        # STARTTLS auf smtp_port
     smtp_timeout_seconds: int = 10
 
@@ -489,7 +520,7 @@ class Settings(BaseSettings):
     allow_real_client_data: bool = True
     # Tenant-DEK envelope encryption. Production/Tier-2 should supply this via
     # env/vault (TENANT_MASTER_KEK); development can pass an explicit KEK in tests.
-    tenant_master_kek: str = ''
+    tenant_master_kek: str = Field(default='', repr=False)
     # RB-1: Pfad der DPAPI-geschuetzten KEK-Ablage (Datei im userData-Ordner der
     # Desktop-Shell; Electron setzt ihn beim Spawn). Leer = keine Ablage: die
     # KEK kommt dann ausschliesslich aus TENANT_MASTER_KEK (Server/Staging,
@@ -506,7 +537,7 @@ class Settings(BaseSettings):
     # verifiziert/scheitert fail-closed bei fehlendem oder falschem Sidecar.
     # Default leer -> unveraendertes Verhalten (reiner Tier-1-Desktop-Betrieb,
     # kein zusaetzliches Schluesselmaterial zu verwalten).
-    backup_hmac_key: str = ''
+    backup_hmac_key: str = Field(default='', repr=False)
 
     # Browser-Hosting (2026-06-10): Haupt-App (ares.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
@@ -721,6 +752,14 @@ class Settings(BaseSettings):
             raise ValueError('backup_retain_days must be >= 0 (0 = nie aufraeumen)')
         return value
 
+    @field_validator('ares_domain')
+    @classmethod
+    def validate_ares_domain(cls, value: str) -> str:
+        value = (value or '').strip().lower()
+        if value and not _HOSTNAME_RE.fullmatch(value):
+            raise ValueError('ARES_DOMAIN muss ein reiner Hostname sein (z.B. firma.example), ohne Schema, Pfad oder @')
+        return value
+
     @field_validator('backup_keep_minimum')
     @classmethod
     def validate_backup_keep_minimum(cls, value: int) -> int:
@@ -793,6 +832,8 @@ class Settings(BaseSettings):
             )
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
+        if self.db_use_sqlcipher and not db_key_format_ok(self.db_key):
+            raise ValueError(DB_KEY_FORMAT_MESSAGE)
         if self.recent_log_lines_default > self.recent_log_lines_max:
             raise ValueError('recent_log_lines_default must not exceed recent_log_lines_max')
         # Sprint U-59 (2026-06-01): Bearer-Token-TTL hard cap in production.
@@ -992,15 +1033,61 @@ KEK_STORE_ENTROPY = b"ares.tenant-master-kek.store.v1"
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
 CRYPTPROTECT_LOCAL_MACHINE = 0x04
 
-# W4-c-Andockstelle: Solange der Vorgaengervertrag (KEK v1 mit Rueckfall auf
-# SECRET_KEY) gilt, startet eine Bestandsinstallation ohne KEK weiter ueber
-# diesen Rueckfall -- hier wird dann nur KEINE KEK erzeugt. W4-c (KEK-Pflicht)
-# setzt diesen Schalter auf True: vorhandene Datenbank ohne KEK = Abbruch.
-KEK_REQUIRED_FOR_EXISTING_DATA = False
+# Vorhandene Datenbank ohne KEK (weder TENANT_MASTER_KEK noch Ablage): hier
+# wird nie eine KEK erzeugt, und der Start bricht schon an dieser Stelle mit
+# :class:`KekStoreError` ab -- mit dem konkreten Hinweis auf Migrator bzw.
+# Ablage aus Sicherung/Treuhand, vor init_db (fail-closed, Runbook P-7).
+# Mit False kaeme ``legacy-existing-db`` zurueck; der Start braeche dann erst
+# an ``require_tenant_master_kek`` ab, mit der allgemeinen Meldung.
+KEK_REQUIRED_FOR_EXISTING_DATA = True
 
 
 class KekStoreError(RuntimeError):
     """Die Master-KEK laesst sich nicht sicher bereitstellen (Start abbrechen)."""
+
+
+# W4-c / AF-4: Pruefung der Master-KEK ohne Rueckfall auf SECRET_KEY oder einen
+# Platzhalter. Sie steht hier und nicht in services.tenant_crypto, damit der
+# Start (main.lifespan, vor init_db) sie ohne zusaetzliche Modulkante aufrufen
+# kann (Architektur-Ratsche); services.tenant_crypto nutzt dieselbe Pruefung.
+MISSING_TENANT_MASTER_KEK_MESSAGE = (
+    "TENANT_MASTER_KEK fehlt: Ares startet nicht ohne eigene Master-KEK. "
+    "Einen Fernet-Key erzeugen (python -c \"from cryptography.fernet import "
+    "Fernet; print(Fernet.generate_key().decode())\") und als "
+    "TENANT_MASTER_KEK in der Konfiguration setzen. Die Desktop-App liest ihn "
+    "sonst aus der DPAPI-Ablage tenant-master-kek.dpapi im userData-Ordner "
+    "(beim Erststart angelegt; bei einer Bestandsinstallation legt der "
+    "Migrator sie an)."
+)
+
+
+def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = "") -> "str | None":
+    """Grund, warum ``raw`` keine zulaessige Master-KEK ist; ``None`` wenn zulaessig."""
+    value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
+    if not value.strip():
+        return MISSING_TENANT_MASTER_KEK_MESSAGE
+    if value == DEFAULT_SECRET_KEY:
+        return (
+            "TENANT_MASTER_KEK ist der oeffentliche Platzhalter aus dem Quellcode "
+            "und damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if secret_key and value == secret_key:
+        return (
+            "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
+            "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
+        )
+    return None
+
+
+def require_tenant_master_kek(cfg: "Settings | None" = None) -> None:
+    """Startpruefung (Lifespan, vor init_db): ohne gueltige Master-KEK startet Ares nicht."""
+    cfg = cfg if cfg is not None else settings
+    problem = tenant_master_kek_problem(
+        str(getattr(cfg, "tenant_master_kek", "") or "").strip(),
+        secret_key=str(getattr(cfg, "secret_key", "") or ""),
+    )
+    if problem:
+        raise KekStoreError(problem)
 
 
 class _DataBlob(ctypes.Structure):
@@ -1146,10 +1233,11 @@ def ensure_tenant_master_kek(
 
     Ergebnisse (nie mit KEK-Wert): ``disabled`` (keine Ablage konfiguriert),
     ``configured`` (TENANT_MASTER_KEK gesetzt), ``loaded`` (aus der Ablage),
-    ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen),
-    ``legacy-existing-db`` (Bestandsdatenbank ohne KEK unter dem
-    Vorgaengervertrag: nichts erzeugt). Jeder unsichere Zustand wirft
-    :class:`KekStoreError`.
+    ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen).
+    Eine Bestandsdatenbank ohne KEK wirft :class:`KekStoreError`, ohne eine
+    KEK zu erzeugen (``KEK_REQUIRED_FOR_EXISTING_DATA``); nur mit
+    ``require_for_existing_data=False`` kaeme ``legacy-existing-db`` zurueck.
+    Jeder unsichere Zustand wirft :class:`KekStoreError`.
     """
     cfg = cfg if cfg is not None else settings
     store_setting = str(getattr(cfg, "tenant_master_kek_file", "") or "").strip()

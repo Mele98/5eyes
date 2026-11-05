@@ -417,3 +417,24 @@ def test_aggregate_gate_expects_every_matrix_run(workflow_yaml):
     expected = ",".join([f"shard-{g}" for g in groups] + ["wallclock"])
     runs = " ".join(s.get("run", "") for s in workflow_yaml["jobs"]["pytest"]["steps"])
     assert f"--expected-runs {expected}" in runs
+
+
+def test_sqlcipher_job_runs_real_driver_tests_and_is_pinned(workflow_yaml):
+    """SQLCIPHER-ENGINE-POOL-001 (Pruefrunde #861): der SQLCipher-Pfad brach mit
+    der gepinnten SQLAlchemy-Version beim Engine-Aufbau ab, unbemerkt, weil kein
+    Job den echten Treiber installierte. Der Job muss den gepinnten Treiber mit
+    Hashes installieren, die Tests erzwingen (kein stilles Ueberspringen) und auf
+    Linux UND Windows (Release-Plattform) laufen."""
+    import re
+
+    job = workflow_yaml["jobs"]["sqlcipher-real-encryption"]
+    assert set(job["strategy"]["matrix"]["os"]) == {"ubuntu-latest", "windows-latest"}
+    assert job["env"]["ARES_REQUIRE_SQLCIPHER"] == "1"
+    runs = "\n".join(s.get("run", "") for s in job["steps"])
+    assert "pip install -r requirements.txt" in runs
+    assert "--require-hashes --only-binary=:all: -r requirements-sqlcipher.txt" in runs
+    assert "tests/test_sqlcipher_engine_roundtrip.py" in runs
+
+    pinned = (BACKEND_ROOT / "requirements-sqlcipher.txt").read_text(encoding="utf-8")
+    assert re.search(r"^sqlcipher3==\d+\.\d+\.\d+ \\$", pinned, re.MULTILINE), "sqlcipher3 exakt pinnen"
+    assert len(re.findall(r"--hash=sha256:[0-9a-f]{64}", pinned)) >= 2
