@@ -509,3 +509,112 @@ def test_n855_4_approval_logs_superseded_rule(session_factory, client):
     assert superseded and superseded[0][3] == "approved" and "superseded_by=" in superseded[0][4]
     summary = [a for a in audit if a[0] == pid and (a[4] or "").startswith("approved:")]
     assert summary and f"superseded:{old_id}" in summary[-1][4]
+
+
+# --- C-855-01 / N-855-9: Point-in-Time erst ab Freigabe ----------------------
+_T0 = "2030-01-01T00:00:00Z"            # Erstregel verfasst (Entwurf)
+_T1 = "2030-01-02T10:00:00Z"            # Erstregel freigegeben
+_T2 = "2030-02-01T00:00:00+00:00"       # Re-Import: Folge-Entwurf
+_T3 = "2030-03-01T00:00:00.000Z"        # Folgeregel freigegeben
+
+
+def _pit_product(s, pid="pit-1"):
+    now = h._now()
+    p = Product(id=pid, product_name=f"PIT {pid}", product_type="Fonds", asset_class="Aktien",
+                currency="CHF", is_active=1, tenant_id="main", created_at=now, updated_at=now)
+    s.add(p)
+    s.flush()
+    return p
+
+
+def _pit_chain(s):
+    """Erstregel (T0 verfasst, T1 freigegeben), Folgeregel (T2 verfasst, T3 freigegeben)."""
+    from services.product_eligibility import author_tenant_product_rule, reauthor_tenant_product_rule_on_import
+    from services.product_eligibility_governance import approve_rule
+
+    product = _pit_product(s)
+    first = author_tenant_product_rule(
+        s, product=product, created_by_user_id="autor", jurisdiction="CH", profile_from=3, profile_to=10,
+        service_modes=["investment_advice", "portfolio_management"], now=_T0)
+    s.flush()
+    approve_rule(s, rule_id=first.id, approver_id="pruefer", tenant_id="main", now=_T1)
+    row = dict(suitability_profile_from=7, suitability_profile_to=10)
+    second, _ = reauthor_tenant_product_rule_on_import(
+        s, product=product, jurisdiction="CH", created_by_user_id="autor", row=row,
+        explicit_fields={"suitability_profile_from", "suitability_profile_to"}, now=_T2)
+    s.flush()
+    approve_rule(s, rule_id=second.id, approver_id="pruefer", tenant_id="main", now=_T3)
+    s.commit()
+    return product, first.id, second.id
+
+
+def _pit_bands(s, product, as_of):
+    from services.product_eligibility import resolve_active_rules_for_product
+    return [(r.profile_from, r.profile_to) for r in resolve_active_rules_for_product(
+        s, product, jurisdiction="CH", tenant_id="main", as_of=as_of)]
+
+
+@pytest.mark.parametrize("as_of, expected", [
+    ("2030-01-01T12:00:00Z", []),                              # (a) verfasst, noch nicht freigegeben
+    ("2030-01-02T10:00:00Z", [(3, 10)]),                       # (b) exakt an der Erstfreigabe
+    ("2030-02-15T00:00:00+00:00", [(3, 10)]),                  # (d) Altfenster, Folge-Entwurf offen
+    ("2030-02-28T23:59:59.999999+00:00", [(3, 10)]),           # (d) letzte Mikrosekunde des Altfensters
+    ("2030-03-01T00:00:00+00:00", [(7, 10)]),                  # (b) exakt an der Folgefreigabe
+    ("2031-01-01T00:00:00Z", [(7, 10)]),                       # (c) danach
+])
+def test_c855_01_point_in_time_counts_only_from_approval(session_factory, as_of, expected):
+    with session_factory() as s:
+        product, _first, _second = _pit_chain(s)
+        assert _pit_bands(s, product, as_of) == expected
+
+
+def test_c855_01_never_approved_draft_never_counts(session_factory):
+    """(e) nie freigegebener Entwurf: zu keinem Stichtag wirksam."""
+    from services.product_eligibility import author_tenant_product_rule
+
+    with session_factory() as s:
+        product = _pit_product(s, pid="pit-draft")
+        author_tenant_product_rule(
+            s, product=product, created_by_user_id="autor", jurisdiction="CH", profile_from=1, profile_to=10,
+            service_modes=["investment_advice"], now=_T0)
+        s.commit()
+        for as_of in (_T0, "2030-06-01T00:00:00Z", "2099-01-01T00:00:00Z"):
+            assert _pit_bands(s, product, as_of) == []
+
+
+def test_c855_01_mixed_timestamp_formats_in_same_second(session_factory):
+    """Freigabe als '...10:00:00Z', Stichtage in '+00:00' bzw. mit Bruchteil in
+    derselben Sekunde: Vergleich als datetime, nicht als String (ein
+    String-Vergleich werten '10:00:00Z' groesser als '10:00:00.5...')."""
+    with session_factory() as s:
+        product, _first, _second = _pit_chain(s)
+        assert _pit_bands(s, product, "2030-01-02T10:00:00+00:00") == [(3, 10)]
+        assert _pit_bands(s, product, "2030-01-02T10:00:00.500000+00:00") == [(3, 10)]
+        assert _pit_bands(s, product, "2030-01-02T10:00:00.5Z") == [(3, 10)]
+        assert _pit_bands(s, product, "2030-01-02T09:59:59.999999+00:00") == []
+
+
+def test_c855_01_rule_set_must_be_approved_at_as_of(session_factory):
+    """Auch das Regelset zaehlt erst ab seiner Freigabe; Legacy ohne
+    Freigabezeitpunkt ist historisch fail-closed."""
+    from models.product_eligibility import ProductEligibilityRuleSet
+
+    with session_factory() as s:
+        product, first_id, _second = _pit_chain(s)
+        rule_set = s.get(ProductEligibilityRuleSet, s.get(ProductEligibilityRule, first_id).rule_set_id)
+        rule_set.approved_at = "2030-01-05T00:00:00Z"
+        s.commit()
+        assert _pit_bands(s, product, "2030-01-03T00:00:00Z") == []
+        assert _pit_bands(s, product, "2030-01-05T00:00:00+00:00") == [(3, 10)]
+        rule_set.approved_at = None
+        s.commit()
+        assert _pit_bands(s, product, "2031-01-01T00:00:00Z") == []
+
+
+def test_c855_01_legacy_rule_without_approved_at_is_fail_closed(session_factory):
+    with session_factory() as s:
+        product, first_id, second_id = _pit_chain(s)
+        s.get(ProductEligibilityRule, second_id).approved_at = None
+        s.commit()
+        assert _pit_bands(s, product, "2031-01-01T00:00:00Z") == []
+

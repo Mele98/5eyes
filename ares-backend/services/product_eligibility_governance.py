@@ -77,6 +77,29 @@ SELECTOR_ATTRIBUTES: frozenset[str] = frozenset({
 })
 
 
+def parse_utc_timestamp(value) -> datetime | None:
+    """ISO-Zeitstempel ('Z' oder '+00:00', mit/ohne Sekundenbruchteil) bzw.
+    datetime -> aware UTC-datetime; naive Werte gelten als UTC. Unlesbar oder
+    leer -> None. Fuer robuste Zeitvergleiche statt String-Vergleich."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 class RuleApprovalConflict(Exception):
     """Four-eyes violation or invalid approval state (router maps to 409)."""
 
@@ -325,3 +348,4 @@ def approve_rule(
         previous.updated_at = now
     db.flush()
     return rule
+
