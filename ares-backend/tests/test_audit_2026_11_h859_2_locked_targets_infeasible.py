@@ -71,14 +71,16 @@ def test_global_liquidity_floor_makes_locked_targets_infeasible_in_stochastic(se
     assert "102.00 %" in msg, msg
 
 
-def test_liquidity_lowered_by_locked_targets_is_disclosed_in_house_mode(session_factory, monkeypatch):
+def test_house_mode_locked_targets_respect_reserve_floor(session_factory, monkeypatch):
+    """75 % + 17 % + Minima 5 % / 3 % = 100 % war im Hausmatrix-Modus
+    zulaessig und senkte die Liquiditaet auf 0 %. Seit E-1 gilt auch dort die
+    Untergrenze aus Zielreserve/globaler Mindestliquiditaet (2.01 %) -- 422
+    mit dieser Herkunft. Das Absenken bis zur Untergrenze (mit Ausweis)
+    deckt test_audit_2026_11_d859_d1.py ab."""
     monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
     adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix="h2liq")
-    result = _run(session_factory, mid, adv, {"bands": {"equities": {"target_bps": 7500}, "bonds": {"target_bps": 1700}}})
-    ta = result["target_allocation"]
-    assert (ta.target_equities_bps, ta.target_bonds_bps, ta.target_liquidity_bps) == (7500, 1700, 0)
-    assert "WARN_TARGET_ADJUSTED" not in [w.get("code") for w in result["warnings"]]
-    assert any("sinkt wegen der fixierten Berater-Ziele von 2.00 % auf 0.00 %" in r for r in result["reasoning"]), result["reasoning"]
+    msg = _error(session_factory, mid, adv, {"bands": {"equities": {"target_bps": 7500}, "bonds": {"target_bps": 1700}}})
+    assert "Liquiditaet 2.01 % (zwingend vorzuhaltende Zielreserve)" in msg, msg
 
 
 def test_rule_needs_two_locked_targets_and_uses_effective_maximums():

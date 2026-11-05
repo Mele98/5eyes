@@ -1271,6 +1271,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     policy_band_clamp_notes,
     policy_band_bound_keys,
     raise_if_locked_targets_infeasible,
+    apply_house_mode_liquidity_floor,
     _building_block_risky_map,
     _building_block_rows_for_policy,
     _build_stochastic_sub_allocation_plan,
@@ -3598,6 +3599,33 @@ def generate_target_allocation(
                 f"dabei teilweise oder vollstaendig aufheben."
             )
 
+    # Delta-Pruefung #859 E-1 (Entscheid Owner-Vertretung, AA-7.2): auch im
+    # Hausmatrix-Modus ist die Liquiditaets-Untergrenze
+    # max(Hausmatrix-/Berater-Minimum, Zielreserve, globale Mindestliquiditaet).
+    # Vorher hob die Reserve nur das Ziel an; eine Einzelziel-Kappung konnte die
+    # Liquiditaet bis aufs Haus-Minimum (0 %) absenken.
+    liquidity_floor_source = "Mindestquote"
+    if not apply_stochastic:  # E-1 (AA-7.2): Untergrenze auch im Hausmatrix-Modus
+        house_floor_bps, liquidity_floor_source = apply_house_mode_liquidity_floor(
+            minimums, maximums, prefs["bands"],
+            reserve_internal_rappen=int(reserve_split.internal_rappen),
+            investable_rappen=int(investable_advisory_wealth_rappen),
+            reserve_needed_rappen=int(reserve_needed_rappen),
+            model_floor_bps=model_liquidity_floor_bps,
+        )
+        if liquidity_floor_source != "Mindestquote":
+            system_liquidity_floor_bps = max(system_liquidity_floor_bps, house_floor_bps)
+        raise_if_locked_targets_infeasible(  # H-859-2 auch mit dieser Untergrenze
+            {**targets, **manual_preferred_target_bps}, minimums, manual_locked_buckets,
+            bucket_labels=BUCKET_LABELS, min_sources={"liquidity": liquidity_floor_source},
+            maximums=maximums,
+        )
+    else:
+        liquidity_floor_source = (
+            "zwingend vorzuhaltende Zielreserve"
+            if int(reserve_floor_bps) > int(model_liquidity_floor_bps)
+            else "globale Mindestliquiditaet des Modells"
+        )
     targets_before_final_rebalance = dict(targets)
     targets = _rebalance_to_total(
         targets, minimums, maximums,
@@ -3676,6 +3704,9 @@ def generate_target_allocation(
             bands_restored = _apply_band_min_max_overrides(
                 prefs["bands"], minimums, maximums
             )
+            # E-1: die Liquiditaets-Untergrenze gilt auch im Fallback.
+            minimums["liquidity"] = max(int(minimums["liquidity"]), int(manual_target_anchor[1]["liquidity"]))
+            maximums["liquidity"] = max(int(maximums["liquidity"]), int(minimums["liquidity"]))
         if bands_restored:
             reasoning.append(
                 "Risikobudget-Fallback: die automatische Ziel-Allokation wurde auf die "
@@ -3831,13 +3862,8 @@ def generate_target_allocation(
         optimizer_applied=bool(optimizer_replaced_targets and not risk_budget_fallback),
         fallback_risk_budget_bps=int(risk_budget_bps) if risk_budget_fallback else None,
         liquidity_before_projection_bps=liquidity_before_projection_bps,
-        liquidity_floor_note=(
-            None if apply_stochastic else
-            f"Im Hausmatrix-Modus gilt die Liquiditaets-Untergrenze der Hausmatrix "
-            f"von {int(minimums['liquidity']) / 100:.2f} %; die globale "
-            f"Mindestliquiditaet von {model_liquidity_floor_bps / 100:.2f} % gilt nur "
-            "im stochastischen Modell."
-        ),
+        liquidity_floor_bps=int(manual_target_anchor[1]["liquidity"]),
+        liquidity_floor_source=liquidity_floor_source,
     )
     # Delta-Pruefung #859 D-1: der Reserve-Satz "Die SAA-Liquiditaet bleibt
     # auf x %" entsteht VOR der Projektion und nennt jetzt die gespeicherte
@@ -3849,7 +3875,7 @@ def generate_target_allocation(
         system_liquidity_floor_bps,
         int(_baseline_target_bands(house_matrix, policy)[2]["liquidity"]),
         reasoning, messages_extra,
-        reserve_driven=bool(apply_stochastic and int(reserve_floor_bps) > model_liquidity_floor_bps),
+        reserve_driven=liquidity_floor_source == "zwingend vorzuhaltende Zielreserve",
     )
     risky_fraction_total_bps = int(realized_risky_bps)
     if (

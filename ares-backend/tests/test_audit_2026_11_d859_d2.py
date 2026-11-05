@@ -56,10 +56,12 @@ def test_d2_system_liquidity_band_extension_is_disclosed(session_factory, monkey
     assert len(info) == 1 and info[0]["severity"] == "info" and extended in info[0]["body_advisor"]
 
 
-def test_d2_no_extension_message_in_house_mode(session_factory, monkeypatch):
+def test_d2_extension_message_also_in_house_mode_since_e1(session_factory, monkeypatch):
+    """Seit E-1 gilt die Zielreserve-Untergrenze auch im Hausmatrix-Modus;
+    die Erweiterung ueber das Hausmax wird dort ebenso ausgewiesen."""
     monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
     adv, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix="d2h")
     result = _generate(session_factory, mid, adv, None)
-    assert not any(m.get("code") == "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED" for m in result["messages"])
+    assert any(m.get("code") == "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED" for m in result["messages"])
 
 

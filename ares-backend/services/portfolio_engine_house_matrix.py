@@ -448,6 +448,54 @@ def _raise_if_band_envelope_infeasible(
         )
 
 
+def apply_house_mode_liquidity_floor(
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    bands: dict | None,
+    *,
+    reserve_internal_rappen: int,
+    investable_rappen: int,
+    reserve_needed_rappen: int,
+    model_floor_bps: int,
+) -> tuple[int, str]:
+    """Delta-Pruefung #859 E-1 (Entscheid Owner-Vertretung, AA-7.2): auch im
+    Hausmatrix-Modus ist die Liquiditaets-Untergrenze
+    max(Hausmatrix-/Berater-Minimum, Zielreserve, globale Mindestliquiditaet).
+
+    Vorher hob die Reserve im Hausmatrix-Modus nur das Liquiditaets-ZIEL an;
+    eine Einzelziel-Kappung konnte die Liquiditaet bis aufs Haus-Minimum
+    (0 %) absenken. Die Reserve wird wie im stochastischen Pfad auf dem
+    investierbaren Vermoegen normiert. Setzt minimums/maximums in place und
+    liefert (Untergrenze, Herkunft). Ein Berater-Maximum unter der
+    Untergrenze ist ein Eingabefehler (422).
+    """
+    reserve_floor_bps = 0
+    if investable_rappen > 0 and reserve_needed_rappen > 0:
+        reserve_floor_bps = min(
+            10000, (int(reserve_internal_rappen) * 10000 + int(investable_rappen) - 1) // int(investable_rappen),
+        )
+    floor_bps, source = max(
+        (int(minimums["liquidity"]), "Mindestquote"),
+        (int(model_floor_bps), "globale Mindestliquiditaet des Modells"),
+        (int(reserve_floor_bps), "zwingend vorzuhaltende Zielreserve"),
+        key=lambda item: item[0],
+    )
+    if floor_bps <= int(minimums["liquidity"]):
+        return int(minimums["liquidity"]), "Mindestquote"
+    probe_min = {key: 0 for key in minimums}
+    probe_max = {key: -1 for key in maximums}
+    _apply_band_min_max_overrides(bands, probe_min, probe_max)
+    advisor_max = probe_max["liquidity"]
+    if advisor_max >= 0 and floor_bps > advisor_max:
+        raise AllocationInputError(
+            f"Die Berater-Obergrenze fuer Liquiditaet von {_band_pct(advisor_max)} % "
+            f"liegt unter der Liquiditaets-Untergrenze von {_band_pct(floor_bps)} % ({source})."
+        )
+    minimums["liquidity"] = floor_bps
+    maximums["liquidity"] = max(int(maximums["liquidity"]), floor_bps)
+    return floor_bps, source
+
+
 def raise_if_locked_targets_infeasible(
     targets: dict[str, int],
     minimums: dict[str, int],
@@ -550,7 +598,8 @@ def disclose_manual_target_deviations(
     optimizer_applied: bool = False,
     fallback_risk_budget_bps: int | None = None,
     liquidity_before_projection_bps: int | None = None,
-    liquidity_floor_note: str | None = None,
+    liquidity_floor_bps: int | None = None,
+    liquidity_floor_source: str | None = None,
 ) -> None:
     """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
     umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
@@ -589,8 +638,17 @@ def disclose_manual_target_deviations(
             f"{bucket_labels.get('liquidity', 'Liquiditaet')}: sinkt wegen der "
             f"fixierten Berater-Ziele von {_band_pct(liquidity_before_projection_bps)} % "
             f"auf {_band_pct(final_bps['liquidity'])} % (Ausgleich ueber die nicht "
-            "fixierten Anlageklassen, Mindestquote eingehalten)."
-            + (f" {liquidity_floor_note}" if liquidity_floor_note else "")
+            "fixierten Anlageklassen"
+            + (
+                ""
+                if liquidity_floor_bps is None
+                else (
+                    f"; Untergrenze {_band_pct(liquidity_floor_bps)} % "
+                    f"({liquidity_floor_source or 'Mindestquote'}) "
+                    + ("eingehalten" if int(final_bps["liquidity"]) >= int(liquidity_floor_bps) else "NICHT eingehalten")
+                )
+            )
+            + ")."
         )
     for bucket in final_bps:
         if bucket not in preferred_bps:

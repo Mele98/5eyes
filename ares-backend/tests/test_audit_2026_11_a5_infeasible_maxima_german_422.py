@@ -43,7 +43,10 @@ PREFS = {"bands": {"equities": {"min_bps": 0, "max_bps": 2000}}}
 def _assert_german_maxima_message(msg: str) -> None:
     assert "cannot be normalized" not in msg, msg
     assert "targets=" not in msg, msg
-    assert "Hoechstquoten lassen zusammen nur 77.00 %" in msg, msg
+    # Hausmatrix-Modus seit E-1: Liquiditaets-Maximum auf die Zielreserve
+    # 2.01 % angehoben -> 77.01 %; stochastisch 77.00 %.
+    assert ("Hoechstquoten lassen zusammen nur 77.00 %" in msg
+            or "Hoechstquoten lassen zusammen nur 77.01 %" in msg), msg
     assert "Aktien max. 20.00 %" in msg, msg
     assert "Obligationen max. 25.00 %" in msg, msg
     assert "100 %" in msg, msg

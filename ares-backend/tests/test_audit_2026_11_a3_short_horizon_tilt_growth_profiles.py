@@ -110,9 +110,11 @@ def test_short_horizon_tilt_is_effective_in_generate_house_matrix_mode(session_f
         result = pe.generate_target_allocation(s, mandate, adv, None)
         s.commit()
     ta = result["target_allocation"]
-    assert ta.target_equities_bps == 6600, ta.target_equities_bps
+    # Seit E-1 (Delta-Pruefung #859) gilt auch im Hausmatrix-Modus die
+    # Zielreserve-Untergrenze (2.01 %): 6600/1800/../200 -> 6599/1800/../201.
+    assert ta.target_equities_bps == 6599, ta.target_equities_bps
     assert ta.target_bonds_bps == 1800
-    assert ta.target_liquidity_bps == 200
+    assert ta.target_liquidity_bps == 201
 
 
 # --------------------------------------------------------------------------
