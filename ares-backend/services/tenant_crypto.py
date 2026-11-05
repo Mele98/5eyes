@@ -11,13 +11,18 @@ callers use the plaintext DEK through these helpers.
 """
 from __future__ import annotations
 
-import base64
-import hashlib
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from config import MISSING_TENANT_MASTER_KEK_MESSAGE, settings, tenant_master_kek_problem
+from config import (
+    MISSING_TENANT_MASTER_KEK_MESSAGE,
+    TENANT_KEK_KDF_ITERATIONS,
+    TENANT_KEK_KDF_SALT,
+    effective_tenant_master_kek,
+    settings,
+    tenant_master_kek_problem,
+)
 from models.tenant import Tenant
 
 
@@ -44,8 +49,9 @@ def _now_iso() -> str:
 # abgeleiteter KEK reproduzierbar ist. Den Salt des vorherigen Vertrags kennt
 # nur der externe Einmal-Migrator, der Bestands-DEKs unter einen v2-KEK
 # umverpackt (Rewrap) und dabei tenants.kek_version auf 2 setzt.
-_KEK_KDF_SALT = b"ares.tenant.kek.pbkdf2.v2"
-_KEK_KDF_ITERATIONS = 200_000
+# Quelle: config.TENANT_KEK_KDF_* (dieselbe Ableitung prueft die Startpruefung).
+_KEK_KDF_SALT = TENANT_KEK_KDF_SALT
+_KEK_KDF_ITERATIONS = TENANT_KEK_KDF_ITERATIONS
 
 # Generation der Master-KEK (Spalte tenants.kek_version), unter der neue DEKs
 # verpackt werden. Ein DEK mit anderer Generation wird nie entpackt: er ist
@@ -75,19 +81,14 @@ def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
         raw_bytes = raw.encode("utf-8")
     else:
         raw_bytes = raw
-    Fernet, _ = _fernet_class()
-    try:
-        Fernet(raw_bytes)
-        return raw_bytes
-    except Exception:
-        # Passphrase-KEK (kein gueltiger Fernet-Key): PBKDF2-HMAC-SHA256 mit
-        # hohem Work-Factor (Brute-Force-Haertung) und dem stabilen v2-Salt --
-        # deterministische Re-Ableitung ist noetig, damit verpackte DEKs
-        # entpackbar bleiben.
-        derived = hashlib.pbkdf2_hmac(
-            "sha256", raw_bytes, _KEK_KDF_SALT, _KEK_KDF_ITERATIONS
-        )
-        return base64.urlsafe_b64encode(derived)
+    _fernet_class()  # klare TenantCryptoError, falls cryptography fehlt
+    # Gueltiger Fernet-Key unveraendert; Passphrase-KEK per PBKDF2-HMAC-SHA256
+    # mit hohem Work-Factor und dem stabilen v2-Salt -- deterministische
+    # Re-Ableitung ist noetig, damit verpackte DEKs entpackbar bleiben. Die
+    # Funktion liegt in config, damit die Startpruefung dieselbe Ableitung nutzt.
+    return effective_tenant_master_kek(
+        raw_bytes, salt=_KEK_KDF_SALT, iterations=_KEK_KDF_ITERATIONS,
+    )
 
 
 def _master_fernet(master_kek: str | bytes | None = None):

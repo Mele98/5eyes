@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 import base64
 import ctypes
+import functools
+import hashlib
 import hmac
 import os
 import re
@@ -1038,8 +1040,45 @@ MISSING_TENANT_MASTER_KEK_MESSAGE = (
 )
 
 
+# KEK-Vertrag v2 (W4-c): Ableitung eines Passphrase-KEK. services.tenant_crypto
+# nutzt genau diese Funktion und diese Konstanten (dort als _KEK_KDF_SALT /
+# _KEK_KDF_ITERATIONS); sie stehen hier, damit die Startpruefung unten nach
+# derselben Ableitung vergleichen kann, ohne eine Modulkante zu tenant_crypto.
+TENANT_KEK_KDF_SALT = b"ares.tenant.kek.pbkdf2.v2"
+TENANT_KEK_KDF_ITERATIONS = 200_000
+
+
+@functools.lru_cache(maxsize=8)
+def effective_tenant_master_kek(
+    raw_bytes: bytes,
+    *,
+    salt: bytes = TENANT_KEK_KDF_SALT,
+    iterations: int = TENANT_KEK_KDF_ITERATIONS,
+) -> bytes:
+    """Der Fernet-Key, mit dem services.tenant_crypto tatsaechlich arbeitet:
+    ein gueltiger Fernet-Key unveraendert, sonst PBKDF2-HMAC-SHA256 (Salt und
+    Iterationen des KEK-Vertrags v2), url-safe-Base64 kodiert."""
+    from cryptography.fernet import Fernet
+
+    try:
+        Fernet(raw_bytes)
+        return raw_bytes
+    except Exception:  # noqa: BLE001 - kein Fernet-Key -> Passphrase ableiten
+        derived = hashlib.pbkdf2_hmac("sha256", raw_bytes, salt, iterations)
+        return base64.urlsafe_b64encode(derived)
+
+
+def _kek_key_material(value: str) -> bytes:
+    """32 Byte Schluesselmaterial nach der tenant_crypto-Ableitung. Vergleicht
+    das Material statt der Zeichenkette: urlsafe_b64decode ueberliest fremde
+    Zeichen, verschiedene Schreibweisen ergeben sonst denselben Schluessel."""
+    return base64.urlsafe_b64decode(effective_tenant_master_kek(value.encode("utf-8")))
+
+
 def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = "") -> "str | None":
-    """Grund, warum ``raw`` keine zulaessige Master-KEK ist; ``None`` wenn zulaessig."""
+    """Grund, warum ``raw`` keine zulaessige Master-KEK ist; ``None`` wenn zulaessig.
+
+    Die Meldungen nennen nie den Schluessel selbst."""
     value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
     if not value.strip():
         return MISSING_TENANT_MASTER_KEK_MESSAGE
@@ -1052,6 +1091,23 @@ def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = ""
         return (
             "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
             "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
+        )
+    # SEED-FK-HYGIENE / H-129 Teil C (2026-11-05): auch einen aus dem Platzhalter
+    # (bzw. aus SECRET_KEY) ABGELEITETEN Wert ablehnen -- etwa den Fernet-Key,
+    # den tenant_crypto aus dem Platzhalter erzeugt. Verglichen wird nach
+    # derselben Ableitung, die tenant_crypto nutzt.
+    material = _kek_key_material(value)
+    if hmac.compare_digest(material, _kek_key_material(DEFAULT_SECRET_KEY)):
+        return (
+            "TENANT_MASTER_KEK ergibt nach der KEK-Ableitung denselben Schluessel "
+            "wie der oeffentliche Platzhalter aus dem Quellcode und ist damit kein "
+            "Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if secret_key and hmac.compare_digest(material, _kek_key_material(secret_key)):
+        return (
+            "TENANT_MASTER_KEK ergibt nach der KEK-Ableitung denselben Schluessel "
+            "wie SECRET_KEY. Der JWT-Schluessel darf nicht zugleich die Master-KEK "
+            "sein; einen eigenen Fernet-Key setzen."
         )
     return None
 
