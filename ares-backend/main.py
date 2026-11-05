@@ -64,8 +64,9 @@ from routers.review import (
 from routers.fx_rates import router as fx_rates_router
 from routers.pdf_reports import router as pdf_reports_router
 from routers.snapshots import router as snapshots_router
-# H-865-2: Startpruefung der Audit-Kette ueber routers.system (das
-# services.audit bereits importiert) -- keine neue Modulkante fuer main.
+# H-865-2/N-869-4: Startpruefung der Audit-Kette ueber routers.system (das
+# services.audit bereits importiert; dort im Operator-Bypass fuer PG-RLS) --
+# keine neue Modulkante fuer main.
 from routers.system import router as system_router, run_startup_audit_chain_check
 from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
 from routers.tax import router as tax_router

@@ -326,6 +326,12 @@ export interface paths {
          *     ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
          *     keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
          *     require_audit_chain_verifier (siehe services/auth.py).
+         *
+         *     N-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne
+         *     Bypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-
+         *     Admin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im
+         *     expliziten Operator-Bypass; zugelassen sind nur die Rollen aus
+         *     require_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.
          */
         get: operations["verify_audit_log_chain_admin_system_audit_log_verify_get"];
         put?: never;

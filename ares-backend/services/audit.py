@@ -1,9 +1,10 @@
 import hashlib
 import logging
 from datetime import datetime, timezone
+from contextlib import AbstractContextManager, nullcontext
 from typing import Callable
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from models.review import AuditLog, AuditLogSequenceCounter
 from models.users import User
@@ -55,19 +56,32 @@ def _claim_next_audit_sequence(db: Session) -> tuple[int, str]:
         # ersten moeglichen Request).
         db.add(AuditLogSequenceCounter(id="singleton", value=1))
         db.flush()
-        new_sequence = 1
-    else:
-        counter = (
-            db.query(AuditLogSequenceCounter)
-            .filter(AuditLogSequenceCounter.id == "singleton")
-            .first()
-        )
-        new_sequence = int(counter.value)
+        return 1, ""
+    # N-869-4: Spalten direkt aus der DB lesen (kein Entity-Load): eine in
+    # der Identity-Map liegende Zaehler-Instanz koennte bei
+    # expire_on_commit=False einen veralteten last_hash tragen.
+    counter_value, counter_last_hash = db.execute(
+        select(AuditLogSequenceCounter.value, AuditLogSequenceCounter.last_hash)
+        .where(AuditLogSequenceCounter.id == "singleton")
+    ).one()
+    new_sequence = int(counter_value)
     if new_sequence <= 1:
         # Erster Eintrag des NEUEN Sequenz-Vertrags (Genesis) -- kein
         # numerischer Vorgaenger. Altdaten (sequence IS NULL) werden bewusst
         # nicht rueckwirkend verkettet, siehe models.review.AuditLog.sequence.
         return new_sequence, ""
+    if counter_last_hash is not None:
+        # N-869-4 (Pruefrunde #869): Vorgaenger-Hash von der Zaehlerzeile --
+        # keine Lese-Abfrage auf audit_log. Unter PostgreSQL-RLS war der
+        # Vorgaenger eines anderen Tenants (oder ohne tenant_id) unsichtbar,
+        # previous_hash wurde '' und die Kette brach bei jedem Tenant-
+        # Wechsel. Der Row-Lock aus dem UPDATE oben haelt value und
+        # last_hash bis zum Commit konsistent.
+        return new_sequence, str(counter_last_hash)
+    # Bestand ohne last_hash (Zaehlerzeile vor N-869-4 und noch nicht per
+    # ensure_runtime_columns/Alembic c8a2f4e6b0d9 nachgetragen): einmalig
+    # wie bisher ueber pending objects bzw. audit_log. Ab dem naechsten
+    # Eintrag fuehrt log() last_hash selbst.
     previous_entry = _pending_audit_entry(db, new_sequence - 1)
     if previous_entry is None:
         previous_entry = (
@@ -301,6 +315,13 @@ def log(
         previous_hash=previous_hash,
     )
     db.add(entry)
+    # N-869-4: Hash dieses Eintrags auf der Zaehlerzeile fortschreiben -- in
+    # derselben Transaktion und unter demselben Row-Lock wie value. Der
+    # naechste log() (auch in dieser Transaktion, auch eines anderen
+    # Tenants) liest seinen Vorgaenger dort statt aus audit_log.
+    db.query(AuditLogSequenceCounter).filter(AuditLogSequenceCounter.id == "singleton").update(
+        {"last_hash": integrity_hash}, synchronize_session="fetch"
+    )
     # Note: caller must db.commit() — we don't commit here
 
 
@@ -529,17 +550,27 @@ def _verify_audit_chain_detail(db: Session) -> dict:
         previous_row = row
 
     last_sequence = int(rows[-1].sequence) if rows else 0
-    counter = (
-        db.query(AuditLogSequenceCounter)
-        .filter(AuditLogSequenceCounter.id == "singleton")
-        .first()
-    )
-    counter_value = int(counter.value) if counter is not None and counter.value is not None else None
+    counter = db.execute(
+        select(AuditLogSequenceCounter.value, AuditLogSequenceCounter.last_hash)
+        .where(AuditLogSequenceCounter.id == "singleton")
+    ).first()
+    counter_value = int(counter[0]) if counter is not None and counter[0] is not None else None
+    counter_last_hash = counter[1] if counter is not None else None
     if counter_value is not None and counter_value > last_sequence:
         errors.append(
             f"Kettenende fehlt: Sequenzzaehler steht bei {counter_value}, letzte Zeile hat sequence={last_sequence}"
         )
         gaps.append({"from_sequence": last_sequence + 1, "to_sequence": counter_value})
+    elif (
+        rows and counter_last_hash is not None and counter_value == last_sequence
+        and counter_last_hash != rows[-1].integrity_hash
+    ):
+        # N-869-4: der auf der Zaehlerzeile gefuehrte Hash muss zum letzten
+        # Eintrag passen -- sonst wurde das Kettenende ersetzt.
+        errors.append(
+            f"Kettenende passt nicht zum Sequenzzaehler: last_hash weicht vom Hash bei sequence={last_sequence} ab"
+        )
+        breaks.append(last_sequence)
     return {
         "ok": len(errors) == 0,
         "checked": len(rows),
@@ -668,6 +699,7 @@ def run_startup_audit_chain_check(
     session_factory: Callable[[], Session] | None = None,
     *,
     max_rows: int = AUDIT_STARTUP_CHECK_MAX_ROWS,
+    read_scope: Callable[[Session], AbstractContextManager] | None = None,
 ) -> dict | None:
     """H-865-2: leichte Startpruefung. Blockiert den Start NIE.
 
@@ -678,10 +710,16 @@ def run_startup_audit_chain_check(
     verletzter Integritaet, WARNING bei nicht bestaetigter Verkettung von
     Altzeilen oder wenn die Pruefung selbst scheitert. Der Start laeuft
     weiter, die Details liefert GET /admin/system/audit-log/verify.
+
+    N-869-4: ``read_scope`` ist der Lese-Kontext fuer ALLE audit_log-Zeilen
+    (unter PostgreSQL der explizite Operator-Bypass, siehe routers/system.py::
+    run_startup_audit_chain_check). Ohne ihn saehe eine Session ohne Tenant-
+    Kontext unter RLS 0 Zeilen und meldete wegen des Zaehlers einen falschen
+    CRITICAL "Kettenende fehlt".
     """
     factory = session_factory or database.SessionLocal
     try:
-        with factory() as db:
+        with factory() as db, (read_scope(db) if read_scope is not None else nullcontext()):
             total = int(db.query(func.count(AuditLog.id)).scalar() or 0)
             if total > max_rows:
                 logger.warning(

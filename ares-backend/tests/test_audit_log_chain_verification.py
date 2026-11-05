@@ -374,7 +374,10 @@ def test_lifespan_runs_startup_check_after_init_db():
     source = inspect.getsource(main.lifespan)
     assert "run_startup_audit_chain_check()" in source
     assert source.index("init_db()") < source.index("run_startup_audit_chain_check()")
-    assert main.run_startup_audit_chain_check is audit_service.run_startup_audit_chain_check
+    from routers import system as system_router
+
+    # N-869-4: main nutzt den Wrapper aus routers.system (Operator-Bypass).
+    assert main.run_startup_audit_chain_check is system_router.run_startup_audit_chain_check
 
 
 def test_report_equals_endpoint_contract(session_local):

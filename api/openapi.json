@@ -24581,7 +24581,7 @@
     },
     "/admin/system/audit-log/verify": {
       "get": {
-        "description": "H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.\n\nverify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht\numfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,\nDuplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen\nohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,\nkeine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher\nrequire_audit_chain_verifier (siehe services/auth.py).",
+        "description": "H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.\n\nverify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht\numfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,\nDuplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen\nohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,\nkeine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher\nrequire_audit_chain_verifier (siehe services/auth.py).\n\nN-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne\nBypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-\nAdmin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im\nexpliziten Operator-Bypass; zugelassen sind nur die Rollen aus\nrequire_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.",
         "operationId": "verify_audit_log_chain_admin_system_audit_log_verify_get",
         "responses": {
           "200": {

@@ -694,6 +694,17 @@ RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
+# Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
+# Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
+_COUNTER_LAST_HASH_BACKFILL_SQL = (
+    "UPDATE audit_log_sequence_counter SET last_hash = ("
+    "SELECT a.integrity_hash FROM audit_log a "
+    "WHERE a.sequence = audit_log_sequence_counter.value ORDER BY a.id LIMIT 1) "
+    "WHERE id = 'singleton' AND last_hash IS NULL AND value > 0"
+)
+
+
 def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
     target_engine = _resolve_engine(target_engine)
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
@@ -1265,6 +1276,18 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
                 "VALUES ('singleton', 0)"
             )
         )
+        # N-869-4 (Pruefrunde #869): Hash des letzten Eintrags auf der
+        # Zaehlerzeile, damit log() den Vorgaenger nie aus audit_log lesen
+        # muss (unter PostgreSQL-RLS ist der Vorgaenger eines anderen Tenants
+        # unsichtbar). Einmaliger Nachtrag aus der Zeile mit sequence = value
+        # (identisch zur Alembic-Revision c8a2f4e6b0d9).
+        ensure_column(conn, "audit_log_sequence_counter", "last_hash", "TEXT")
+        if inspector.has_table('audit_log'):
+            audit_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()
+            }
+            if {"sequence", "integrity_hash"} <= audit_columns:
+                conn.execute(text(_COUNTER_LAST_HASH_BACKFILL_SQL))
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
         ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")

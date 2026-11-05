@@ -16,12 +16,13 @@ from schemas.review import AuditChainVerification, AuditLogEntry, AuditLogPage
 from services.audit import (
     audit_log_integrity_report,
     log as audit_log,
-    run_startup_audit_chain_check,  # noqa: F401 -- H-865-2, von main.lifespan genutzt
+    run_startup_audit_chain_check as _run_startup_audit_chain_check,
 )
 from services.auth import (
     require_admin,
     require_admin_or_platform_scope_for_global_reference_data,
     require_advisor,
+    operator_bypass,
     require_audit_chain_verifier,
     require_super_admin,
     get_mandate_for_user_or_404,
@@ -175,8 +176,22 @@ def verify_audit_log_chain(
     ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
     keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
     require_audit_chain_verifier (siehe services/auth.py).
+
+    N-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne
+    Bypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-
+    Admin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im
+    expliziten Operator-Bypass; zugelassen sind nur die Rollen aus
+    require_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.
     """
-    return audit_log_integrity_report(db)
+    with operator_bypass(db):
+        return audit_log_integrity_report(db)
+
+
+def run_startup_audit_chain_check() -> dict | None:
+    """H-865-2/N-869-4: Startpruefung (main.lifespan) im Operator-Bypass,
+    damit sie unter PostgreSQL-RLS alle Zeilen sieht. Blockiert den Start
+    nie (siehe services/audit.py::run_startup_audit_chain_check)."""
+    return _run_startup_audit_chain_check(read_scope=operator_bypass)
 
 
 @router.get('/db/integrity')

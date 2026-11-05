@@ -39,7 +39,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf
 # geaendert (Feld-Diff von api/openapi.json, vom Pruefer bestaetigt).
 # N-869-2: AuditLegacySection + ambiguous/ambiguous_ids/unexpected_unhashed/
 # unexpected_unhashed_ids (nur dieses Schema, Feld-Diff geprueft).
-GOLDEN_OPENAPI_SHA256 = "6664b6d2af677e3644465809970dc099b3bd8e34ff10e17653a579cca5f8179c"
+# N-869-4: nur die description von GET /admin/system/audit-log/verify
+# (Docstring: Operator-Bypass unter PG-RLS), Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "63b47e126f6702b14722605bf700e530de74007f48469bcf87206cb894b675f4"
 
 _PROBE = """
 import hashlib, json

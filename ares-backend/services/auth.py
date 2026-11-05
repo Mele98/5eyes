@@ -16,7 +16,10 @@ from models.mandates import Mandate
 from models.users import User
 import config as _config
 from config import settings
-from services.tenant_context import set_tenant_context
+# operator_bypass: Re-Export fuer routers.system (N-869-4, Kettenpruefung des
+# globalen Audit-Logs im expliziten Operator-Kontext) -- vermeidet eine neue
+# Modulkante routers.system -> services.tenant_context.
+from services.tenant_context import operator_bypass, set_tenant_context  # noqa: F401
 
 bearer_scheme = HTTPBearer()
 
