@@ -34,6 +34,7 @@ from models.mandates import Mandate
 from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
 from models.review import Product
 from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
+from services.product_eligibility_governance import parse_utc_timestamp
 from schemas.product_eligibility import (
     DimensionStatus,
     KnowledgeCategory,
@@ -56,6 +57,22 @@ def canonical_hash(payload: dict) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _effective_at(row, cutoff) -> bool:
+    """Point-in-Time: freigegeben (approved_at <= cutoff) und cutoff im
+    halboffenen Fenster [valid_from, valid_to). Fehlende/unlesbare Zeitpunkte
+    -> nicht wirksam (fail-closed)."""
+    approved_at = parse_utc_timestamp(row.approved_at)
+    valid_from = parse_utc_timestamp(row.valid_from)
+    if approved_at is None or valid_from is None:
+        return False
+    if approved_at > cutoff or valid_from > cutoff:
+        return False
+    if row.valid_to is None:
+        return True
+    valid_to = parse_utc_timestamp(row.valid_to)
+    return valid_to is not None and cutoff < valid_to
 
 
 def map_product_to_knowledge_categories(product: Product) -> list[KnowledgeCategory]:
@@ -158,44 +175,64 @@ def resolve_active_rules_for_product(
         selector_matches_product,
     )
 
-    # N-855-6 (2026-11): mit explizitem `as_of` ist das eine Point-in-Time-
-    # Abfrage. Eine durch Freigabe einer Folgeregel abgeloeste Regel
-    # (status `retired`, freigegeben, valid_to gesetzt) galt bis valid_to und
-    # zaehlt deshalb fuer Stichtage in ihrem Fenster. Zurueckgezogene, nie
-    # freigegebene Entwuerfe (approved_at NULL) zaehlen nie. Ohne `as_of`
-    # (aktueller Stand) gilt weiter nur `approved`.
-    if as_of is None:
-        status_filter = ProductEligibilityRule.status == "approved"
-    else:
-        status_filter = (ProductEligibilityRule.status == "approved") | (
-            (ProductEligibilityRule.status == "retired")
-            & ProductEligibilityRule.approved_at.isnot(None)
-            & ProductEligibilityRule.valid_to.isnot(None)
-        )
-    as_of = as_of or _now_iso()
-    rows = (
-        db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
-        .join(
-            ProductEligibilityRuleSet,
-            ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
-        )
-        .filter(
-            status_filter,
-            ProductEligibilityRule.jurisdiction == jurisdiction,
-            ProductEligibilityRule.valid_from <= as_of,
-            (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
-            ProductEligibilityRuleSet.status == "approved",
-            ProductEligibilityRuleSet.valid_from <= as_of,
-            (ProductEligibilityRuleSet.valid_to.is_(None)) | (ProductEligibilityRuleSet.valid_to > as_of),
-            (ProductEligibilityRule.product_id == product.id)
-            | (
-                ProductEligibilityRule.product_id.is_(None)
-                & ProductEligibilityRule.product_category_selector.isnot(None)
-            ),
-        )
-        .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
-        .all()
+    product_match = (ProductEligibilityRule.product_id == product.id) | (
+        ProductEligibilityRule.product_id.is_(None)
+        & ProductEligibilityRule.product_category_selector.isnot(None)
     )
+    if as_of is None:
+        # Aktueller Stand: unveraendert (Status `approved`, Fenster per SQL).
+        as_of = _now_iso()
+        rows = (
+            db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+            .join(
+                ProductEligibilityRuleSet,
+                ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+            )
+            .filter(
+                ProductEligibilityRule.status == "approved",
+                ProductEligibilityRule.jurisdiction == jurisdiction,
+                ProductEligibilityRule.valid_from <= as_of,
+                (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
+                ProductEligibilityRuleSet.status == "approved",
+                ProductEligibilityRuleSet.valid_from <= as_of,
+                (ProductEligibilityRuleSet.valid_to.is_(None)) | (ProductEligibilityRuleSet.valid_to > as_of),
+                product_match,
+            )
+            .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
+            .all()
+        )
+    else:
+        # Point-in-Time (N-855-6, C-855-01 / N-855-9, 2026-11): galt die Regel
+        # zum Stichtag? Regel UND Regelset muessen zum Stichtag bereits
+        # freigegeben gewesen sein (approved_at gesetzt und <= as_of; Legacy-
+        # Zeilen ohne Freigabezeitpunkt historisch fail-closed), und as_of muss
+        # im halboffenen Fenster [valid_from, valid_to) liegen. Eine durch eine
+        # Folgeregel abgeloeste Regel (retired, valid_to gesetzt) zaehlt in
+        # ihrem Fenster; nie freigegebene Entwuerfe nie. Alle Zeitvergleiche
+        # als UTC-datetime, nicht als String ('Z' und '+00:00' gemischt).
+        cutoff = parse_utc_timestamp(as_of)
+        if cutoff is None:
+            raise ValueError(f"as_of ist kein ISO-Zeitstempel: {as_of!r}")
+        candidates = (
+            db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+            .join(
+                ProductEligibilityRuleSet,
+                ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+            )
+            .filter(
+                ProductEligibilityRule.status.in_(("approved", "retired")),
+                ProductEligibilityRule.jurisdiction == jurisdiction,
+                ProductEligibilityRuleSet.status == "approved",
+                product_match,
+            )
+            .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
+            .all()
+        )
+        rows = [
+            (rule, rule_set) for rule, rule_set in candidates
+            if (rule.status == "approved" or rule.valid_to is not None)
+            and _effective_at(rule, cutoff) and _effective_at(rule_set, cutoff)
+        ]
     visible = [
         rule for rule, rule_set in rows
         if rule_visible_to_tenant(rule, rule_set, tenant_id)
