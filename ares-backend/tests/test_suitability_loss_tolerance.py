@@ -562,3 +562,29 @@ def test_valid_disclosure_values_pass_through():
     )
     assert check.status == lt.STATUS_OK
     assert check.p5_return_bps == -1500.12 and check.cvar10_return_bps == -1800.0
+
+
+# ---------------------------------------------------------------------------
+# Codex C-857-02: nur echtes True aktiviert
+# ---------------------------------------------------------------------------
+
+_CHECK_KWARGS = dict(mandate_type=VV, mc_p10_return_bps=-750.0, **MILD)
+
+
+@pytest.mark.parametrize("flag", ["false", "0", "true", "1", "", 1, 0, 1.0, np.bool_(True), [], object()])
+def test_non_bool_flag_fails_closed_and_does_not_activate(flag):
+    with pytest.raises(lt.LossToleranceFlagError, match="True oder False"):
+        lt.evaluate_loss_tolerance_if_enabled(1, enabled=flag, **_CHECK_KWARGS)
+
+
+def test_only_real_true_activates_and_false_or_default_stays_inactive():
+    assert lt.evaluate_loss_tolerance_if_enabled(1, enabled=False, **_CHECK_KWARGS) is None
+    assert lt.evaluate_loss_tolerance_if_enabled(1, **_CHECK_KWARGS) is None
+    active = lt.evaluate_loss_tolerance_if_enabled(1, enabled=True, **_CHECK_KWARGS)
+    assert active is not None and active.is_conflict
+
+
+def test_module_constant_is_checked_with_the_same_rule(monkeypatch):
+    monkeypatch.setattr(lt, "LOSS_TOLERANCE_CHECK_ENABLED", "false")
+    with pytest.raises(lt.LossToleranceFlagError):
+        lt.evaluate_loss_tolerance_if_enabled(1, **_CHECK_KWARGS)

@@ -724,6 +724,28 @@ def _evaluate(
     )
 
 
+class LossToleranceFlagError(TypeError):
+    """C-857-02: Aktivierungsflag ist kein echtes bool -- Pruefung bleibt inaktiv."""
+
+
+def _resolve_enabled(enabled) -> bool:
+    """Nur das echte ``True`` aktiviert; ``False`` deaktiviert.
+
+    ``None`` liest ``LOSS_TOLERANCE_CHECK_ENABLED`` (gleiche Regel). Jeder
+    andere Typ (z. B. ``'false'``, ``'0'``, ``1``, numpy-bool) scheitert
+    fail-closed mit ``LossToleranceFlagError``: der Check wird NICHT aktiviert.
+    """
+    value = LOSS_TOLERANCE_CHECK_ENABLED if enabled is None else enabled
+    if value is True:
+        return True
+    if value is False:
+        return False
+    raise LossToleranceFlagError(
+        "Verlusttoleranz-Pruefung: Aktivierungsflag muss True oder False sein, "
+        f"erhalten {value!r} ({type(value).__name__}); Pruefung bleibt inaktiv."
+    )
+
+
 def evaluate_loss_tolerance_if_enabled(
     answer_points: int | None,
     *,
@@ -732,9 +754,10 @@ def evaluate_loss_tolerance_if_enabled(
 ) -> LossToleranceCheck | None:
     """Einziger vorgesehener Einstiegspunkt fuer die spaetere Verdrahtung.
 
-    ``None``, solange das Flag aus ist (Default). Keine Seiteneffekte.
+    ``None``, solange das Flag aus ist (Default). Keine Seiteneffekte. Nur ein
+    echtes ``True`` aktiviert (C-857-02); Fremdtypen werfen
+    ``LossToleranceFlagError`` und aktivieren nichts.
     """
-    active = LOSS_TOLERANCE_CHECK_ENABLED if enabled is None else bool(enabled)
-    if not active:
+    if not _resolve_enabled(enabled):
         return None
     return evaluate_loss_tolerance(answer_points, **kwargs)
