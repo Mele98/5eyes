@@ -1158,6 +1158,19 @@ def _existing_database(cfg: "Settings") -> str | None:
     return None
 
 
+def _kek_store_exists(path: Path) -> bool:
+    """N-867-2: ``exists()`` selbst kann scheitern (z. B. verweigerter Zugriff
+    auf den Ordner); auch das endet in :class:`KekStoreError`, ohne Pfad."""
+    try:
+        return path.exists()
+    except OSError as exc:
+        raise KekStoreError(
+            f"Die KEK-Ablage laesst sich nicht pruefen ({type(exc).__name__}: "
+            "fehlende Berechtigung oder E/A-Fehler). Ares startet nicht und "
+            "erzeugt KEINE neue KEK. Zugriffsrechte im userData-Ordner pruefen."
+        ) from exc
+
+
 def _read_kek_store(path: Path, protector) -> str:
     """Liest und entschluesselt die KEK-Ablage; jeder Fehler endet in :class:`KekStoreError`.
 
@@ -1179,21 +1192,21 @@ def _read_kek_store(path: Path, protector) -> str:
         ) from exc
     if not raw.startswith(KEK_STORE_MAGIC):
         raise KekStoreError(
-            f"Die KEK-Ablage {path} hat ein unbekanntes Format. Sie wird weder "
+            "Die KEK-Ablage hat ein unbekanntes Format. Sie wird weder "
             "ueberschrieben noch ersetzt; Ares startet nicht."
         )
     try:
         value = protector.unprotect(raw[len(KEK_STORE_MAGIC):], KEK_STORE_ENTROPY).decode("ascii")
     except Exception as exc:  # noqa: BLE001 -- C-100-01: jeder Entschluesselungsfehler ist KekStoreError
         raise KekStoreError(
-            f"Die KEK-Ablage {path} laesst sich nicht entschluesseln (anderes "
+            "Die KEK-Ablage laesst sich nicht entschluesseln (anderes "
             "Windows-Konto, fremdes Profil oder beschaedigte Datei). Ares startet "
             "nicht und erzeugt KEINE neue KEK, weil vorhandene Daten sonst "
             "unlesbar wuerden. Datei nicht loeschen; aus Sicherung/Treuhand "
             "wiederherstellen."
         ) from exc
     if not _is_fernet_key(value):
-        raise KekStoreError(f"Die KEK-Ablage {path} enthaelt keinen gueltigen Schluessel.")
+        raise KekStoreError("Die KEK-Ablage enthaelt keinen gueltigen Schluessel.")
     return value
 
 
@@ -1259,7 +1272,7 @@ def ensure_tenant_master_kek(
     explicit = str(getattr(cfg, "tenant_master_kek", "") or "").strip()
 
     if explicit:
-        if store.exists():
+        if _kek_store_exists(store):
             stored = _read_kek_store(store, protector)
             if not hmac.compare_digest(stored.encode("ascii"), explicit.encode("utf-8")):
                 raise KekStoreError(
@@ -1269,7 +1282,7 @@ def ensure_tenant_master_kek(
                 )
         return "configured"
 
-    if store.exists():
+    if _kek_store_exists(store):
         cfg.tenant_master_kek = _read_kek_store(store, protector)
         return "loaded"
 

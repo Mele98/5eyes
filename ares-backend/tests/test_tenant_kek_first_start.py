@@ -592,3 +592,74 @@ def test_lifespan_store_io_fault_aborts_before_init_db(tmp_path, monkeypatch, ca
         assert store.is_dir() and list(store.iterdir()) == []
     else:
         assert store.read_bytes() == before
+
+
+# --------------------------------------------------------------------------
+# N-867-1 / N-867-2: Meldungen von _read_kek_store pfadfrei, exists() gekapselt
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("content", "phrase"), [
+    (b"garbage", "unbekanntes Format"),
+    (KEK_STORE_MAGIC + b"FAKEkonto-a|kaputt", "KEK-Ablage"),
+])
+def test_store_format_and_key_messages_name_no_path(tmp_path, content, phrase):
+    cfg = _cfg(tmp_path)
+    store = _store(cfg)
+    store.parent.mkdir(parents=True)
+    store.write_bytes(content)
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(cfg, protector=FakeProtector())
+    assert phrase in str(exc.value)
+    _assert_no_path_in(str(exc.value), store)
+    assert str(tmp_path) not in str(exc.value)
+
+
+def test_store_of_other_account_message_names_no_path(tmp_path):
+    cfg = _cfg(tmp_path)
+    ensure_tenant_master_kek(cfg, protector=FakeProtector("konto-a"))
+    store = _store(cfg)
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(_cfg(tmp_path), protector=FakeProtector("konto-b"))
+    assert "nicht entschluesseln" in str(exc.value)
+    _assert_no_path_in(str(exc.value), store)
+    assert str(tmp_path) not in str(exc.value)
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_store_exists_failure_raises_kek_store_error(tmp_path, monkeypatch, explicit):
+    from cryptography.fernet import Fernet
+
+    cfg = _cfg(tmp_path, kek=Fernet.generate_key().decode() if explicit else "")
+    store = _store(cfg)
+    real_exists = Path.exists
+
+    def denied(self, *args, **kwargs):
+        if Path(self) == store:
+            raise PermissionError(13, "Access is denied", str(self))
+        return real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", denied)
+    fake = FakeProtector()
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(cfg, protector=fake)
+    monkeypatch.setattr(Path, "exists", real_exists)
+    assert type(exc.value) is KekStoreError
+    assert isinstance(exc.value.__cause__, PermissionError)
+    _assert_no_path_in(str(exc.value), store)
+    assert fake.protect_calls == 0 and not store.exists()
+
+
+def test_invalid_key_message_names_no_path(tmp_path):
+    cfg = _cfg(tmp_path)
+    ensure_tenant_master_kek(_cfg(tmp_path), protector=FakeProtector())
+    store = _store(cfg)
+
+    class NotAKey(FakeProtector):
+        def unprotect(self, blob, entropy):
+            return b"kein-fernet-schluessel"
+
+    with pytest.raises(KekStoreError) as exc:
+        ensure_tenant_master_kek(cfg, protector=NotAKey())
+    assert "keinen gueltigen Schluessel" in str(exc.value)
+    _assert_no_path_in(str(exc.value), store)
