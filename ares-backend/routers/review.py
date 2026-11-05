@@ -4347,6 +4347,17 @@ def _standard_label(item: dict) -> str:
     return f"{prefix}:{item['effective_threshold_bps']}"
 
 
+def _log_standard_change(db: Session, current_user: User, tenant_id: str, category: str, record_id: str,
+                         before: dict, requested: str, change: str) -> None:
+    """N-863-5: Modus wahrheitsgemaess im Audit (tightening | relaxation_draft)."""
+    mode = "tightening" if change == "tightening" else "relaxation_draft"
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="sustainability_exclusion_standards", record_id=record_id, action="UPDATE",
+        field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
+        new_value=f"{requested};mode={mode}" if mode == "tightening"
+        else f"pending:{requested};mode={mode};vier_augen_erforderlich", tenant_id=tenant_id)
+
+
 def _standards_response(db: Session, tenant_id: str) -> SustainabilityStandardsResponse:
     return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
 
@@ -4360,11 +4371,11 @@ def set_sustainability_standard_endpoint(
 ):
     """Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).
 
-    H-1 (Pruefrunde #863): Verschaerfung oder Rueckkehr zum T-E1-Default
-    wirkt sofort. Lockerung (Schwelle ueber dem Default oder Kategorie
+    H-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt
+    sofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie
     deaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der
-    Vier-Augen-Freigabe (POST .../approve). UN Global Compact kennt keine
-    Umsatzschwelle (null)."""
+    Vier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue
+    Version. UN Global Compact kennt keine Umsatzschwelle (null)."""
     _get_standard_category_or_422(category)
     ctype = sustainability_criterion_type(category)
     if ctype == "conduct" and body.max_revenue_threshold_bps is not None:
@@ -4373,17 +4384,16 @@ def set_sustainability_standard_endpoint(
         raise HTTPException(status_code=422, detail="Schwelle (max_revenue_threshold_bps) fehlt.")
     tenant_id = _resolve_tenant_id_for_user(current_user)
     before = effective_sustainability_standard(db, tenant_id, category)
-    row, immediate = set_sustainability_standard(
+    row, change = set_sustainability_standard(
         db, tenant_id=tenant_id, category=category,
         threshold=None if body.is_disabled and ctype == "conduct" else body.max_revenue_threshold_bps,
         disabled=body.is_disabled, note=(body.note or "").strip() or None,
         actor_id=current_user.id, now=_now(),
     )
+    if row is None:
+        return _standards_response(db, tenant_id)  # unveraendert, keine neue Version
     requested = "tenant:disabled" if body.is_disabled else f"tenant:{body.max_revenue_threshold_bps}"
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
-        field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
-        new_value=requested if immediate else f"pending:{requested};vier_augen_erforderlich", tenant_id=tenant_id)
+    _log_standard_change(db, current_user, tenant_id, category, row.id, before, requested, change)
     db.commit()
     return _standards_response(db, tenant_id)
 
@@ -4415,7 +4425,7 @@ def approve_sustainability_standard_endpoint(
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
     after = effective_sustainability_standard(db, tenant_id, category)
-    audit_value = f"{_standard_label(after)};approved;approval_mode={row.approval_mode}"
+    audit_value = f"{_standard_label(after)};mode=relaxation_approved;approval_mode={row.approval_mode}"
     if previous is not None:
         audit_value += f";superseded={previous.id}"
     if row.approval_mode == "single_approver_attested":
@@ -4454,20 +4464,24 @@ def reset_sustainability_standard_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Zurueck auf den Haus-Default (T-E1), sofort wirksam (keine Lockerung
-    unter den Default), auditiert; eine offene Lockerung wird verworfen."""
+    """Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die
+    geltende Version strenger als der Default, entsteht ein Entwurf
+    (Vier-Augen-Freigabe); sonst wirkt der Reset sofort."""
     _get_standard_category_or_422(category)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     before = effective_sustainability_standard(db, tenant_id, category)
-    ended = reset_sustainability_standard(
+    row, change = reset_sustainability_standard(
         db, tenant_id=tenant_id, category=category, actor_id=current_user.id, now=_now(),
     )
-    if ended is not None or before["pending"] is not None:
+    default_label = f"default:{SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]}"
+    if row is not None and change != "unchanged":
+        _log_standard_change(db, current_user, tenant_id, category, row.id, before, default_label, change)
+        db.commit()
+    elif row is not None:
         log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="sustainability_exclusion_standards",
-            record_id=ended.id if ended is not None else before["pending"]["id"], action="UPDATE",
+            table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
             field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
-            new_value=f"default:{SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]}", tenant_id=tenant_id)
+            new_value=f"{default_label};mode=unchanged", tenant_id=tenant_id)
         db.commit()
     return _standards_response(db, tenant_id)
 

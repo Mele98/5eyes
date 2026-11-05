@@ -468,10 +468,14 @@ def test_house_standard_defaults_follow_t_e1_and_are_tenant_changeable(SF, clien
     assert other["tobacco"]["effective_threshold_bps"] == 500, "andere Verwaltung unveraendert"
     with SF() as s:
         audit = s.query(AuditLog).filter(AuditLog.table_name == "sustainability_exclusion_standards").all()
-    assert len(audit) == 1 and audit[0].old_value == "default:500" and audit[0].new_value == "tenant:0"
+    assert len(audit) == 1 and audit[0].old_value == "default:500" and audit[0].new_value == "tenant:0;mode=tightening"
     _as("admin-a1", "admin", "firm-a")
+    # Reset nach Verschaerfung ist eine Lockerung (N-863-5): Entwurf, zweite Person gibt frei
     reset = client.delete("/products/sustainability/standards/tobacco")
-    assert {i["category"]: i["effective_threshold_bps"] for i in reset.json()["items"]}["tobacco"] == 500
+    assert {i["category"]: i["effective_threshold_bps"] for i in reset.json()["items"]}["tobacco"] == 0
+    _as("admin-a2", "admin", "firm-a")
+    approved = client.post("/products/sustainability/standards/tobacco/approve")
+    assert {i["category"]: i["effective_threshold_bps"] for i in approved.json()["items"]}["tobacco"] == 500
 
 
 @pytest.mark.parametrize("category,body", [
@@ -868,3 +872,58 @@ def test_n863_4_parent_policy_refuted_by_child_measurement_at_its_cutoff(SF):
     with SF() as s:
         result = evaluate_criterion(s, s.get(Product, "g1"), "controversial_weapons", 500, TODAY)
     assert not result.satisfied and result.reason == "conflicting_evidence"
+
+
+# ---------------------------------------------------------------------------
+# N-863-5: Lockerung relativ zur GELTENDEN Version, Audit wahrheitsgemaess
+# ---------------------------------------------------------------------------
+
+
+def _std_audit(SF):
+    with SF() as s:
+        rows = s.query(AuditLog).filter(AuditLog.table_name == "sustainability_exclusion_standards").all()
+    return sorted((r.created_at, r.new_value) for r in rows)
+
+
+def test_n863_5_relaxation_back_to_default_after_tightening_needs_four_eyes(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 300})
+    assert _std(client)["tobacco"]["effective_threshold_bps"] == 300
+    back = client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 500})
+    item = {i["category"]: i for i in back.json()["items"]}["tobacco"]
+    assert item["effective_threshold_bps"] == 300, "Lockerung gegenueber 3 % wirkt nicht sofort"
+    assert item["pending"]["max_revenue_threshold_bps"] == 500
+    assert client.post("/products/sustainability/standards/tobacco/approve").status_code == 409
+    modes = [v for _t, v in _std_audit(SF)]
+    assert modes[0] == "tenant:300;mode=tightening"
+    assert modes[1].startswith("pending:tenant:500;mode=relaxation_draft")
+    _as("admin-a2", "admin", "firm-a")
+    ok = client.post("/products/sustainability/standards/tobacco/approve")
+    assert {i["category"]: i for i in ok.json()["items"]}["tobacco"]["effective_threshold_bps"] == 500
+    assert "mode=relaxation_approved" in _std_audit(SF)[-1][1]
+
+
+def test_n863_5_delete_after_tightening_is_a_draft(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 300})
+    reset = client.delete("/products/sustainability/standards/tobacco")
+    item = {i["category"]: i for i in reset.json()["items"]}["tobacco"]
+    assert item["effective_threshold_bps"] == 300 and item["pending"]["max_revenue_threshold_bps"] == 500
+    assert "mode=relaxation_draft" in _std_audit(SF)[-1][1]
+    # Gegenprobe: Reset einer gelockerten Version ist eine Verschaerfung und wirkt sofort
+    _as("admin-a2", "admin", "firm-a")
+    client.post("/products/sustainability/standards/tobacco/approve")
+    client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 800})
+    _as("admin-a1", "admin", "firm-a")
+    client.post("/products/sustainability/standards/tobacco/approve")
+    assert _std(client)["tobacco"]["effective_threshold_bps"] == 800
+    reset = client.delete("/products/sustainability/standards/tobacco")
+    assert {i["category"]: i for i in reset.json()["items"]}["tobacco"]["effective_threshold_bps"] == 500
+    assert "mode=tightening" in _std_audit(SF)[-1][1]
+
+
+def test_n863_5_unchanged_value_creates_no_version(SF, client):
+    _as("admin-a1", "admin", "firm-a")
+    client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 300})
+    client.put("/products/sustainability/standards/tobacco", json={"max_revenue_threshold_bps": 300})
+    assert len(_std_audit(SF)) == 1

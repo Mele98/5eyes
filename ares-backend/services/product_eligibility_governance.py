@@ -718,16 +718,40 @@ def _current_standard(rows, category: str, at: str | None):
     return None
 
 
-def standard_change_is_loosening(category: str, threshold: int | None, disabled: bool) -> bool:
-    """H-1: Lockerung = Kategorie deaktiviert oder Schwelle ueber dem T-E1-
-    Default. Alles andere (gleich oder strenger als der Default) ist eine
-    Verschaerfung bzw. Rueckkehr zum Default und wirkt sofort."""
+STANDARD_CHANGE_TIGHTENING = "tightening"
+STANDARD_CHANGE_RELAXATION = "relaxation"
+STANDARD_CHANGE_UNCHANGED = "unchanged"
+
+
+def _standard_state(current, category: str) -> tuple[int | None, bool]:
+    """(Schwelle, deaktiviert) der geltenden Version; ohne Version der T-E1-Default."""
+    if current is None:
+        return SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category], False
+    return current.max_revenue_threshold_bps, bool(current.is_disabled)
+
+
+def classify_standard_change(
+    category: str, current, threshold: int | None, disabled: bool,
+) -> str:
+    """N-863-5: Richtung einer Aenderung relativ zur GELTENDEN Version.
+
+    - Deaktivieren einer aktiven Kategorie, oder eine hoehere Schwelle als die
+      geltende -> Lockerung (Entwurf, Vier-Augen-Freigabe).
+    - Aktivieren einer deaktivierten Kategorie, oder eine niedrigere Schwelle
+      -> Verschaerfung (sofort).
+    - Gleicher Stand -> unveraendert (keine neue Version).
+    """
+    current_threshold, current_disabled = _standard_state(current, category)
     if disabled:
-        return True
-    default = SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]
-    if default is None or threshold is None:
-        return False
-    return threshold > default
+        return STANDARD_CHANGE_UNCHANGED if current_disabled else STANDARD_CHANGE_RELAXATION
+    if current_disabled:
+        return STANDARD_CHANGE_TIGHTENING
+    if threshold == current_threshold:
+        return STANDARD_CHANGE_UNCHANGED
+    if current_threshold is None or threshold is None:
+        # UNGC ohne Umsatzschwelle: nur Aktivieren/Deaktivieren aendert etwas.
+        return STANDARD_CHANGE_UNCHANGED
+    return STANDARD_CHANGE_RELAXATION if threshold > current_threshold else STANDARD_CHANGE_TIGHTENING
 
 
 def effective_sustainability_standards(db: Session, tenant_id: str | None, as_of=None) -> list[dict]:
@@ -802,28 +826,32 @@ def _retire_standard(row, actor_id: str, now: str) -> None:
 def set_sustainability_standard(
     db: Session, *, tenant_id: str, category: str, threshold: int | None, disabled: bool,
     note: str | None, actor_id: str, now: str | None = None,
-) -> tuple[SustainabilityExclusionStandard, bool]:
-    """Neue Version des Hausstandards. Rueckgabe (Zeile, sofort_wirksam).
+):
+    """Neue Version des Hausstandards. Rueckgabe (Zeile oder None, Richtung).
 
-    Verschaerfung/Default: sofort freigegeben (approval_mode
-    'immediate_tightening'), die bisherige Version endet (valid_to).
-    Lockerung (H-1): Entwurf, wirkt erst nach Vier-Augen-Freigabe.
-    Ein offener Entwurf derselben Kategorie wird in beiden Faellen verworfen.
+    Richtung relativ zur geltenden Version (N-863-5):
+    - Verschaerfung: sofort freigegeben (approval_mode 'immediate_tightening'),
+      die bisherige Version endet (valid_to).
+    - Lockerung: Entwurf, wirkt erst nach Vier-Augen-Freigabe.
+    - Unveraendert: keine neue Version (Zeile None).
+    Ein offener Entwurf derselben Kategorie wird bei jeder Aenderung verworfen.
     """
     now = now or _now_iso()
     rows = _standard_rows(db, tenant_id)
+    current = _current_standard(rows, category, None)
+    change = classify_standard_change(category, current, threshold, disabled)
+    if change == STANDARD_CHANGE_UNCHANGED:
+        return None, change
     pending = _pending_standard(rows, category)
     if pending is not None:
         _retire_standard(pending, actor_id, now)
         db.flush()
-    immediate = not standard_change_is_loosening(category, threshold, disabled)
     row = SustainabilityExclusionStandard(
         id=_new_id(), tenant_id=tenant_id, category=category, max_revenue_threshold_bps=threshold,
         is_disabled=1 if disabled else 0, note=note, created_by=actor_id, updated_by=actor_id,
         created_at=now, updated_at=now, status="draft",
     )
-    if immediate:
-        current = _current_standard(rows, category, None)
+    if change == STANDARD_CHANGE_TIGHTENING:
         if current is not None:
             _retire_standard(current, actor_id, now)
             db.flush()
@@ -834,7 +862,7 @@ def set_sustainability_standard(
         row.valid_from = now
     db.add(row)
     db.flush()
-    return row, immediate
+    return row, change
 
 
 def approve_sustainability_standard(
@@ -886,17 +914,28 @@ def approve_sustainability_standard(
 def reset_sustainability_standard(
     db: Session, *, tenant_id: str, category: str, actor_id: str, now: str | None = None,
 ):
-    """Zurueck auf den T-E1-Default (sofort, keine Lockerung): geltende
-    Version endet, offener Entwurf wird verworfen. Rueckgabe: beendete Version."""
+    """Zurueck auf den T-E1-Default. N-863-5: Ist die geltende Version
+    strenger als der Default, ist das eine Lockerung -> Entwurf mit dem
+    Default-Wert (Vier-Augen-Freigabe). Ist sie lockerer oder deaktiviert,
+    endet sie sofort (Verschaerfung). Rueckgabe (betroffene Zeile, Richtung)."""
     now = now or _now_iso()
     rows = _standard_rows(db, tenant_id)
     current = _current_standard(rows, category, None)
+    if current is None:
+        return None, STANDARD_CHANGE_UNCHANGED
+    default = SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]
+    change = classify_standard_change(category, current, default, False)
+    if change == STANDARD_CHANGE_RELAXATION:
+        return set_sustainability_standard(
+            db, tenant_id=tenant_id, category=category, threshold=default, disabled=False,
+            note="Ruecksetzung auf den Haus-Default", actor_id=actor_id, now=now,
+        )
     pending = _pending_standard(rows, category)
     for row in (current, pending):
         if row is not None:
             _retire_standard(row, actor_id, now)
     db.flush()
-    return current
+    return current, (STANDARD_CHANGE_TIGHTENING if change == STANDARD_CHANGE_TIGHTENING else STANDARD_CHANGE_UNCHANGED)
 
 
 def discard_pending_sustainability_standard(
