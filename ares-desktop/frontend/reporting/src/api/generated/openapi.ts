@@ -7560,6 +7560,12 @@ export interface components {
             probability_pct?: number | null;
             /** Rank */
             rank: number;
+            /** Rank Adjusted From */
+            rank_adjusted_from?: number | null;
+            /** Rank Adjusted To */
+            rank_adjusted_to?: number | null;
+            /** Rank Adjustment Notice */
+            rank_adjustment_notice?: string | null;
             /** Start Date */
             start_date: string | null;
             /** Success Probability Min X100 */

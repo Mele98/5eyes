@@ -19,7 +19,8 @@ aller belegten Raenge, flush, dann Zielraenge). Mitgeprueft:
   (Audit-Vorgaenger aus pending Objekten) enthalten ist.
 * Ungueltige Permutationen bleiben 422 ohne Schreibzugriff.
 * Geschwister-Pfad: Reaktivieren eines Ziels, dessen Rang inzwischen ein
-  aktives Ziel belegt, lief in denselben Index (500) -- jetzt ans Ende.
+  aktives Ziel belegt, lief in denselben Index (500) -- jetzt ans Ende,
+  mit Hinweis in der Response und altem/neuem Rang im Audit (N-868-3).
 """
 from __future__ import annotations
 
@@ -255,8 +256,19 @@ def test_reactivating_goal_with_occupied_rank_appends_instead_of_500(
     assert new.json()["rank"] == 3
     on = auth_client.put(f"/mandates/{mid}/goals/{g3}", json={"is_active": True})
     assert on.status_code == 200, on.text
-    assert on.json()["rank"] == 4
+    body = on.json()
+    assert body["rank"] == 4
     assert _ranks(auth_client, mid) == {g1: 1, g2: 2, new.json()["id"]: 3, g3: 4}
+    # N-868-3: keine stille Herabstufung -- Hinweis in der Response ...
+    assert body["rank_adjusted_from"] == 3
+    assert body["rank_adjusted_to"] == 4
+    assert "Priorität angepasst" in body["rank_adjustment_notice"]
+    assert "Strategie neu berechnen" in body["rank_adjustment_notice"]
+    # ... und alter/neuer Rang im Audit.
+    assert _rank_audit(session_factory, g3) == [("rank", "3", "4")]
+    # Der Hinweis gehoert nur zur Reaktivierungs-Antwort, nicht zum Ziel.
+    listed = {g["id"]: g for g in auth_client.get(f"/mandates/{mid}/goals").json()}
+    assert listed[g3]["rank_adjusted_from"] is None
 
 
 def test_reactivating_goal_with_free_rank_keeps_it(auth_client, advisor_user, session_factory):
@@ -265,4 +277,18 @@ def test_reactivating_goal_with_free_rank_keeps_it(auth_client, advisor_user, se
     assert auth_client.put(f"/mandates/{mid}/goals/{g2}", json={"is_active": False}).status_code == 200
     on = auth_client.put(f"/mandates/{mid}/goals/{g2}", json={"is_active": True})
     assert on.status_code == 200, on.text
-    assert on.json()["rank"] == 2
+    body = on.json()
+    assert body["rank"] == 2
+    assert body["rank_adjusted_from"] is None
+    assert body["rank_adjusted_to"] is None
+    assert body["rank_adjustment_notice"] is None
+    assert _rank_audit(session_factory, g2) == []
+
+
+def _rank_audit(session_factory, goal_id) -> list[tuple]:
+    with session_factory() as db:
+        rows = db.query(AuditLog).filter(
+            AuditLog.table_name == "goals", AuditLog.record_id == goal_id,
+            AuditLog.field_name == "rank",
+        ).all()
+        return [(r.field_name, r.old_value, r.new_value) for r in rows]

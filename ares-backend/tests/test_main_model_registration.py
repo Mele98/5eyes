@@ -33,7 +33,7 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf7523653a10377b3"
-GOLDEN_OPENAPI_SHA256 = "8aebdaead713b4af5daadda6380f0fb3ef33a3d878a7e39b5f8873e611ddbbb5"
+GOLDEN_OPENAPI_SHA256 = "37cc2ced50495e60820203fe687276e42e504aca970ed6144220142f6fbd4a5a"
 
 _PROBE = """
 import hashlib, json

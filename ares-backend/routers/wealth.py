@@ -1398,6 +1398,12 @@ def _write_goal_ranks(db: Session, goals, new_ranks: dict, mandate, current_user
     return changed
 
 
+GOAL_RANK_ADJUSTED_NOTICE = (
+    "Priorität angepasst – der frühere Rang ist inzwischen belegt, das Ziel "
+    "steht jetzt am Ende. Bitte Reihenfolge prüfen und Strategie neu berechnen."
+)
+
+
 @router.put("/mandates/{mandate_id}/goals/{goal_id}", response_model=GoalResponse)
 def update_goal(
     mandate_id: str, goal_id: str,
@@ -1423,14 +1429,20 @@ def update_goal(
         updates["rank"] = _resolve_goal_rank_conflict(
             mandate_id, int(new_rank), db, existing_id=goal_id,
         )
+    rank_adjustment: tuple[int, int] | None = None
     if updates.get("is_active") and not int(goal.is_active or 0):
         # N-865-1 (Geschwister-Pfad): Ein reaktiviertes Ziel tritt wieder
         # unter ux_goals_rank_active. Belegt inzwischen ein aktives Ziel
-        # seinen Rang, wuerde der Commit am Index scheitern (500). Wie ein
-        # neu angelegtes Ziel mit belegtem Wunschrang: ans Ende anhaengen.
-        # Das Ziel selbst ist noch inaktiv und zaehlt in der Pruefung nicht.
+        # seinen Rang, wuerde der Commit am Index scheitern (500).
+        # N-868-3 (Entscheid Owner-Vertretung): frueherer Rang frei -> das
+        # Ziel behaelt ihn; belegt -> ans Ende, aber NICHT still: Response
+        # und Audit nennen alten und neuen Rang, weil der Rang die
+        # Prioritaet (Gewicht, Hauptziel) bestimmt. Das Ziel selbst ist noch
+        # inaktiv und zaehlt in der Belegt-Pruefung nicht.
         wanted = int(updates.get("rank") or goal.rank or 1)
         updates["rank"] = _resolve_goal_rank_conflict(mandate_id, wanted, db)
+        if int(updates["rank"]) != wanted:
+            rank_adjustment = (wanted, int(updates["rank"]))
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -1438,12 +1450,23 @@ def update_goal(
     # Sprint 2026-06-08 Fix B: Achievability invalidieren — Goal-Target-Aenderung
     # macht alle gespeicherten Scores potenziell stale.
     _invalidate_achievement_scores_for_mandate(mandate_id, db)
+    rank_audit = (
+        {"field_name": "rank", "old_value": str(rank_adjustment[0]),
+         "new_value": str(rank_adjustment[1])}
+        if rank_adjustment else {}
+    )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="UPDATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id, **rank_audit)
     db.commit()
     db.refresh(goal)
     invalidate_advisory_cache(mandate_id)
+    if rank_adjustment:
+        return GoalResponse.model_validate(goal).model_copy(update={
+            "rank_adjusted_from": rank_adjustment[0],
+            "rank_adjusted_to": rank_adjustment[1],
+            "rank_adjustment_notice": GOAL_RANK_ADJUSTED_NOTICE,
+        })
     return goal
 
 
