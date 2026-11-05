@@ -1068,6 +1068,20 @@ def effective_tenant_master_kek(
         return base64.urlsafe_b64encode(derived)
 
 
+# N-870-2 (2026-11-05): fruehere Ableitungen der Master-KEK aus dem Platzhalter.
+# Aeltere Staende fielen ohne TENANT_MASTER_KEK auf SECRET_KEY zurueck (Default:
+# DEFAULT_SECRET_KEY) und leiteten daraus ab -- diese Schluessel sind damit
+# oeffentlich rekonstruierbar. Gepinnt ist nur der SHA-256 des 32-Byte-
+# Schluesselmaterials, nie der Schluessel oder die alten Ableitungsparameter.
+_KNOWN_PUBLIC_KEK_MATERIAL_SHA256 = frozenset({
+    # KEK-Vertrag v1: PBKDF2-HMAC-SHA256, 200'000 Iterationen, Salt des
+    # Vorgaengervertrags (nur dem Einmal-Migrator bekannt).
+    "d215bf22085629300db8efb1693c060d2aed385d8a0759bf0ae21c39e42e8e6f",
+    # Vor #355: saltloses SHA-256 des Rohwerts.
+    "798128683e1c23740a7892efb65234001c401cab49e91affabd465dadc65e16e",
+})
+
+
 def _kek_key_material(value: str) -> bytes:
     """32 Byte Schluesselmaterial nach der tenant_crypto-Ableitung. Vergleicht
     das Material statt der Zeichenkette: urlsafe_b64decode ueberliest fremde
@@ -1102,6 +1116,12 @@ def tenant_master_kek_problem(raw: "str | bytes | None", *, secret_key: str = ""
             "TENANT_MASTER_KEK ergibt nach der KEK-Ableitung denselben Schluessel "
             "wie der oeffentliche Platzhalter aus dem Quellcode und ist damit kein "
             "Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if hashlib.sha256(material).hexdigest() in _KNOWN_PUBLIC_KEK_MATERIAL_SHA256:
+        return (
+            "TENANT_MASTER_KEK entspricht einer frueheren, oeffentlich "
+            "rekonstruierbaren Ableitung des Platzhalters aus dem Quellcode und ist "
+            "damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
         )
     if secret_key and hmac.compare_digest(material, _kek_key_material(secret_key)):
         return (
