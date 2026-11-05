@@ -101,3 +101,123 @@ def test_unreadable_timestamp_is_refused(auth_client, advisor_user, session_fact
         )
     assert resp.status_code == 422, resp.text
     assert "kein gueltiger Zeitpunkt" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# C-867-01: Kenntnisnahme nie vor der Offenlegung
+# ---------------------------------------------------------------------------
+
+from models.review import AuditLog, ConflictOfInterestDisclosure  # noqa: E402
+
+T_CREATE = datetime(2026, 11, 5, 10, 0, 0, tzinfo=timezone.utc)
+T_ACK_CALL = datetime(2026, 11, 5, 13, 0, 0, tzinfo=timezone.utc)
+
+
+def _disclosed_conflict(auth_client, advisor_user, session_factory, disclosed_at="2026-11-05T12:00:00.000Z"):
+    with time_machine.travel(T_CREATE, tick=False):
+        mandate_id = _seed_mandate(session_factory, advisor_user)
+        conflict_id = _create_conflict(auth_client, mandate_id)
+    with time_machine.travel(T_ACK_CALL, tick=False):
+        resp = auth_client.post(
+            f"/mandates/{mandate_id}/conflicts/{conflict_id}/disclose",
+            json={"disclosed_at": disclosed_at},
+        )
+    assert resp.status_code == 200, resp.text
+    return mandate_id, conflict_id
+
+
+def _ack_state(session_factory, conflict_id):
+    with session_factory() as db:
+        row = db.query(ConflictOfInterestDisclosure).filter(
+            ConflictOfInterestDisclosure.id == conflict_id,
+        ).first()
+        audits = db.query(AuditLog).filter(
+            AuditLog.record_id == conflict_id,
+            AuditLog.field_name == "client_acknowledged",
+        ).count()
+        return int(row.client_acknowledged or 0), row.client_acknowledged_at, audits
+
+
+@pytest.mark.parametrize(("acknowledged_at", "status"), [
+    # Codex-Reproducer: erstellt 10:00, offengelegt 12:00, Kenntnisnahme 11:00.
+    ("2026-11-05T11:00:00.000Z", 422),
+    ("2026-11-05T11:59:59.999Z", 422),
+    # Exakt an der Offenlegung, auch in anderer Schreibweise/Offset.
+    ("2026-11-05T12:00:00.000Z", 200),
+    ("2026-11-05T12:00:00+00:00", 200),
+    ("2026-11-05T13:00:00+01:00", 200),
+    # Gemischte Offsets: 12:30+01:00 = 11:30Z -> vor der Offenlegung;
+    # als Text ('12:30' > '12:00') waere es durchgegangen.
+    ("2026-11-05T12:30:00+01:00", 422),
+    # 07:30-05:00 = 12:30Z -> nach der Offenlegung (als Text '07' < '12').
+    ("2026-11-05T07:30:00-05:00", 200),
+    ("2026-11-05T12:00:01Z", 200),
+])
+def test_acknowledgement_is_never_before_disclosure(
+    auth_client, advisor_user, session_factory, acknowledged_at, status,
+):
+    mandate_id, conflict_id = _disclosed_conflict(auth_client, advisor_user, session_factory)
+    with time_machine.travel(T_ACK_CALL, tick=False):
+        resp = auth_client.post(
+            f"/mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge",
+            json={"acknowledged_at": acknowledged_at},
+        )
+    assert resp.status_code == status, resp.text
+    acknowledged, stored_at, audits = _ack_state(session_factory, conflict_id)
+    if status == 200:
+        assert (acknowledged, stored_at, audits) == (1, acknowledged_at, 1)
+    else:
+        assert "vor der Offenlegung" in resp.json()["detail"]
+        assert (acknowledged, stored_at, audits) == (0, None, 0), "keine Mutation, kein Audit"
+
+
+def test_acknowledgement_with_disclosure_offset_mixed(auth_client, advisor_user, session_factory):
+    # Offenlegung als 13:00+01:00 (= 12:00Z), Kenntnisnahme 11:30Z -> davor.
+    mandate_id, conflict_id = _disclosed_conflict(
+        auth_client, advisor_user, session_factory, disclosed_at="2026-11-05T13:00:00+01:00",
+    )
+    with time_machine.travel(T_ACK_CALL, tick=False):
+        before = auth_client.post(
+            f"/mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge",
+            json={"acknowledged_at": "2026-11-05T11:30:00.000Z"},
+        )
+        assert before.status_code == 422, before.text
+        assert _ack_state(session_factory, conflict_id) == (0, None, 0)
+        after = auth_client.post(
+            f"/mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge",
+            json={"acknowledged_at": "2026-11-05T12:00:00.000Z"},
+        )
+    assert after.status_code == 200, after.text
+
+
+def test_acknowledgement_without_timestamp_uses_server_time_after_disclosure(
+    auth_client, advisor_user, session_factory,
+):
+    mandate_id, conflict_id = _disclosed_conflict(auth_client, advisor_user, session_factory)
+    with time_machine.travel(T_ACK_CALL, tick=False):
+        resp = auth_client.post(
+            f"/mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge", json={},
+        )
+    assert resp.status_code == 200, resp.text
+    assert _ack_state(session_factory, conflict_id) == (1, "2026-11-05T13:00:00.000Z", 1)
+
+
+@pytest.mark.parametrize("broken", [None, "", "kein Datum"])
+def test_acknowledgement_fails_closed_without_readable_disclosure_time(
+    auth_client, advisor_user, session_factory, broken,
+):
+    mandate_id, conflict_id = _disclosed_conflict(auth_client, advisor_user, session_factory)
+    with session_factory() as db:
+        row = db.query(ConflictOfInterestDisclosure).filter(
+            ConflictOfInterestDisclosure.id == conflict_id,
+        ).first()
+        row.disclosed_at = broken
+        db.commit()
+    with time_machine.travel(T_ACK_CALL, tick=False):
+        resp = auth_client.post(
+            f"/mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge",
+            json={"acknowledged_at": "2026-11-05T12:30:00.000Z"},
+        )
+    assert resp.status_code == 409, resp.text
+    assert "Offenlegungszeitpunkt" in resp.json()["detail"]
+    assert _ack_state(session_factory, conflict_id) == (0, None, 0)
