@@ -11,7 +11,7 @@ zwischen Berater und Kunde. Default Wealth-Tech-Charts (Plotly, Chart.js,
 recharts) sind für Web-Dashboards designed: bunte Tooltips, Hover-Effekte,
 animierte Reveals. Auf Papier oder im PDF wirken sie billig.
 
-5eyes hatte initial **recharts** für die Monte-Carlo-Pfade installiert.
+Ares hatte initial **recharts** für die Monte-Carlo-Pfade installiert.
 Bundle-Cost: +5 KB JS + 2 moderate npm-vulns. Look: Web-typisch, nicht
 Editorial.
 
