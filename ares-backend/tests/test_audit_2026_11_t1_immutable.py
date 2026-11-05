@@ -51,6 +51,9 @@ def test_frozen_migration_matches_model():
     mod = _migration()
     assert mod.IMMUTABLE_COLUMNS == model.SUSTAINABILITY_ATTRIBUTE_IMMUTABLE_COLUMNS
     assert mod.SQLITE_TRIGGERS == model.SUSTAINABILITY_ATTRIBUTE_SQLITE_TRIGGERS
+    # E-1: create_all auf Postgres legt dieselbe Funktion und denselben Trigger an
+    assert mod.PG_FUNCTION == model.SUSTAINABILITY_ATTRIBUTE_PG_FUNCTION
+    assert mod.PG_TRIGGER == model.SUSTAINABILITY_ATTRIBUTE_PG_TRIGGER
     all_columns = {c.name for c in model.ProductSustainabilityAttribute.__table__.columns}
     assert all_columns == set(mod.IMMUTABLE_COLUMNS) | set(model.SUSTAINABILITY_ATTRIBUTE_MUTABLE_ON_RETIRE)
 
@@ -132,3 +135,17 @@ def test_postgres_ddl_offline():
     down = io.StringIO()
     command.downgrade(_cfg("postgresql://u:p@localhost/db", down), f"{REVISION}:{DOWN_REVISION}", sql=True)
     assert "DROP FUNCTION IF EXISTS product_sustainability_attributes_immutable()" in down.getvalue()
+
+
+def test_e1_create_all_registers_postgres_trigger_ddl():
+    """E-1: after_create fuer postgresql (Muster portfolio_handoff), offline
+    gegen einen Mock-Connectable mit Postgres-Dialekt gerendert."""
+    from sqlalchemy import create_mock_engine
+
+    statements: list[str] = []
+    engine = create_mock_engine("postgresql://", lambda sql, *a, **k: statements.append(str(sql)))
+    model.ProductSustainabilityAttribute.__table__.create(engine)
+    rendered = "\n".join(statements)
+    assert "CREATE OR REPLACE FUNCTION product_sustainability_attributes_immutable()" in rendered
+    assert "CREATE TRIGGER trg_psa_immutable BEFORE UPDATE OR DELETE" in rendered
+    assert "CREATE TRIGGER IF NOT EXISTS trg_psa_immutable_update" not in rendered, "SQLite-DDL nur fuer SQLite"

@@ -511,6 +511,41 @@ for _psa_trigger_ddl in SUSTAINABILITY_ATTRIBUTE_SQLITE_TRIGGERS:
         DDL(_psa_trigger_ddl).execute_if(dialect="sqlite"),
     )
 
+# E-1 (Delta-Pruefung #863): derselbe Schutz fuer ein per create_all gebautes
+# Postgres-Schema (Tests, Neuaufbau ohne Alembic); Muster
+# models/portfolio_handoff.py. Identisch mit a3e7c9d1f5b4 (Test).
+_PSA_MESSAGE = "product_sustainability_attributes: freigegebener Nachweis ist unveraenderlich"
+_PSA_PG_UNCHANGED = " AND ".join(
+    f"NEW.{c} IS NOT DISTINCT FROM OLD.{c}" for c in SUSTAINABILITY_ATTRIBUTE_IMMUTABLE_COLUMNS
+)
+SUSTAINABILITY_ATTRIBUTE_PG_FUNCTION = f"""
+CREATE OR REPLACE FUNCTION product_sustainability_attributes_immutable()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.status <> 'draft' THEN
+            RAISE EXCEPTION '{_PSA_MESSAGE}';
+        END IF;
+        RETURN OLD;
+    END IF;
+    IF OLD.status <> 'draft' AND NOT (OLD.status = 'approved' AND NEW.status = 'retired' AND {_PSA_PG_UNCHANGED}) THEN
+        RAISE EXCEPTION '{_PSA_MESSAGE}';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+SUSTAINABILITY_ATTRIBUTE_PG_TRIGGER = (
+    "CREATE TRIGGER trg_psa_immutable BEFORE UPDATE OR DELETE ON product_sustainability_attributes "
+    "FOR EACH ROW EXECUTE FUNCTION product_sustainability_attributes_immutable()"
+)
+for _psa_pg_ddl in (SUSTAINABILITY_ATTRIBUTE_PG_FUNCTION, SUSTAINABILITY_ATTRIBUTE_PG_TRIGGER):
+    event.listen(
+        ProductSustainabilityAttribute.__table__,
+        "after_create",
+        DDL(_psa_pg_ddl).execute_if(dialect="postgresql"),
+    )
+
 
 class SustainabilityExclusionStandard(Base):
     """Hausstandard je Tenant und Kategorie (Audit 05 §4.2, T-E1), versioniert.

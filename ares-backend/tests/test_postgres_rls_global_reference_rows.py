@@ -607,3 +607,33 @@ def test_t1_h6_approved_evidence_is_immutable_on_postgres(migration_schema):
     command.downgrade(cfg, "f2d6b8c0e4a3")
     with engine.begin() as conn:
         conn.execute(text("UPDATE product_sustainability_attributes SET note = 'x' WHERE id = 'a'"))
+
+
+def test_t1_e1_create_all_installs_immutability_trigger_on_postgres(migration_schema):
+    """AUDIT-2026-11 T1 E-1: ohne Alembic (create_all) legt das Modell
+    Funktion und Trigger ebenfalls an (after_create fuer postgresql)."""
+    from database import Base
+    from models.product_eligibility import ProductSustainabilityAttribute
+
+    engine, schema = migration_schema["engine"], migration_schema["schema"]
+    needed: set = set()
+
+    def _collect(table):
+        if table in needed:
+            return
+        needed.add(table)
+        for fk in table.foreign_keys:
+            if fk.column.table is not table:
+                _collect(fk.column.table)
+
+    _collect(ProductSustainabilityAttribute.__table__)
+    Base.metadata.create_all(bind=engine, tables=[t for t in Base.metadata.sorted_tables if t in needed])
+    with engine.connect() as conn:
+        triggers = {
+            row[0] for row in conn.execute(text(
+                "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = :s AND c.relname = 'product_sustainability_attributes' AND NOT t.tgisinternal"
+            ), {"s": schema})
+        }
+    assert "trg_psa_immutable" in triggers
