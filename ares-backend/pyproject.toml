@@ -19,5 +19,5 @@ faulthandler_timeout = 300
 markers = [
     "network: Test benoetigt echten Netzwerkzugriff (externe Marktdaten-Provider). In Offline-CI via -m 'not network' abwaehlbar.",
     "wallclock_budget: Test prueft eine Wandzeit-Schranke (time.perf_counter). Laeuft in CI seriell in einem eigenen Job ohne parallele Nachbarprozesse, damit CPU-Konkurrenz durch xdist-Worker die Messung nicht verfaelscht.",
-    "allow_missing_glyphs: Opt-out aus dem Glyphen-Guard fuer PDF-Tests (tests/conftest.py, N-877-07); nur fuer Positivkontrollen, die absichtlich ein Zeichen ohne Glyphe zeichnen.",
+    "allow_missing_glyphs: Opt-out aus dem Glyphen-Guard, der fuer alle Tests laeuft (tests/conftest.py, N-877-07/09); nur fuer Positivkontrollen, die absichtlich ein Zeichen ohne Glyphe zeichnen.",
 ]

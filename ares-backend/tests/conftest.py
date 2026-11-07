@@ -246,13 +246,14 @@ def pytest_unconfigure(config):  # noqa: D103
 
 @_pytest.fixture(autouse=True)
 def _pdf_missing_glyph_guard(request):
-    """N-877-07: jeder PDF-Test laeuft unter dem Glyphen-Guard -- ein Zeichen
-    ohne Glyphe im eingebetteten Font (.notdef-Kasten) ist rot. Opt-out nur
-    per ``@pytest.mark.allow_missing_glyphs`` (Positivkontrollen)."""
+    """N-877-07/09: JEDER Test laeuft unter dem Glyphen-Guard -- ein Zeichen
+    ohne Glyphe im eingebetteten Font (.notdef-Kasten) ist rot. Ohne PDF-Text
+    ist der Hook wirkungslos (nur Patch/Restore von TTFont.splitString), es
+    gibt deshalb kein Dateinamen-Muster mehr. Opt-out nur per
+    ``@pytest.mark.allow_missing_glyphs`` (Positivkontrollen)."""
     import _pdf_glyph_guard as guard
 
-    if (request.node.get_closest_marker("allow_missing_glyphs")
-            or not guard.is_pdf_test(request.node.path)):
+    if request.node.get_closest_marker("allow_missing_glyphs"):
         yield
         return
     with guard.glyph_guard(request.node.nodeid):

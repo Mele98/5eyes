@@ -6,6 +6,7 @@ Frontend-Vorlage:
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Iterable, Mapping
 
@@ -30,7 +31,12 @@ from services.pdf.styles import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 ACHIEVEMENT_SEGMENTS = 8
+# N-877-08: nur Rundungsartefakte um die Skalengrenzen werden geklemmt; alles
+# darueber hinaus ist ein Datenfehler und wird nicht als 0 bzw. 100 gezeigt.
+ACHIEVEMENT_ROUNDING_TOLERANCE = 0.5
 
 
 def _half_up(value: float) -> int:
@@ -39,12 +45,14 @@ def _half_up(value: float) -> int:
 
 
 def normalize_achievement_score(score) -> int | None:
-    """N-877-06: Zielerreichung als ganze Zahl 0..100 fuer Balken UND Label.
+    """N-877-06/08: Zielerreichung als ganze Zahl 0..100 fuer Balken UND Label.
 
     None, NaN, unendlich oder nicht numerisch -> None ("nicht berechenbar",
-    kein Balken). Sonst auf [0, 100] geklemmt (130 -> 100, -5 -> 0) und
-    kaufmaennisch gerundet (99.6 -> 100, 6.25 -> 6). Segmente und Beschriftung
-    werden beide aus diesem einen Wert abgeleitet.
+    kein Balken). Werte ausserhalb [-0.5, 100.5] sind ein Datenfehler ->
+    ebenfalls None plus Warnung im Log (ohne Kundendaten), statt still auf
+    0/100 zu klemmen. Innerhalb der Toleranz kaufmaennisch gerundet
+    (99.6 -> 100, 100.4 -> 100, 6.25 -> 6); Segmente und Beschriftung werden
+    beide aus diesem einen Wert abgeleitet.
     """
     if score is None or isinstance(score, bool):
         return None
@@ -53,6 +61,12 @@ def normalize_achievement_score(score) -> int | None:
     except (TypeError, ValueError):
         return None
     if not math.isfinite(value):
+        return None
+    if value < -ACHIEVEMENT_ROUNDING_TOLERANCE or value > 100 + ACHIEVEMENT_ROUNDING_TOLERANCE:
+        logger.warning(
+            "Zielerreichung ausserhalb 0..100 (%s): als 'nicht berechenbar' dargestellt",
+            "ueber 100" if value > 100 else "unter 0",
+        )
         return None
     return _half_up(min(100.0, max(0.0, value)))
 

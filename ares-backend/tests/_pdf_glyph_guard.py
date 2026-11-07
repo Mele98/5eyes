@@ -7,28 +7,13 @@ Paragraph, Tabellenzellen, reportlab.graphics) -- und meldet jedes Zeichen
 ohne Glyphe mit Font, Zeichen und Codepoint. NBSP mappt ReportLab selbst auf
 Space und ist ausgenommen.
 
-``tests/conftest.py`` aktiviert den Guard automatisch fuer alle PDF-Tests
-(``is_pdf_test``); Opt-out nur per Marker ``allow_missing_glyphs`` (fuer die
+``tests/conftest.py`` aktiviert den Guard automatisch fuer ALLE Tests
+(N-877-09); Opt-out nur per Marker ``allow_missing_glyphs`` (fuer die
 Positivkontrolle, die absichtlich ein fehlendes Zeichen zeichnet).
 """
 from __future__ import annotations
 
 import contextlib
-import re
-
-# tests/pdf/** sowie PDF-, Report-, Kostenausweis-, Golden-, Acceptance- und
-# Packaging-Smoke-Testdateien.
-PDF_TEST_FILE = re.compile(
-    r"pdf|report|kosten|cost_disclosure|golden|acceptance|packaging_smoke|backtest|depot_check|protokoll",
-    re.IGNORECASE,
-)
-
-
-def is_pdf_test(path) -> bool:
-    parts = [p.lower() for p in re.split(r"[\/]", str(path))]
-    if len(parts) >= 2 and parts[-2] == "pdf":
-        return True
-    return bool(PDF_TEST_FILE.search(parts[-1]))
 
 
 @contextlib.contextmanager

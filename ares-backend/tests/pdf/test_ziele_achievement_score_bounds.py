@@ -29,8 +29,9 @@ CASES = [
     (99.4, 99, 8),      # 7.92 -> 8
     (99.6, 100, 8),     # vorher "99/100" bei 8 Segmenten
     (100, 100, 8),
-    (130, 100, 8),      # geklemmt, kein "130/100"
-    (-5, 0, 0),         # geklemmt, kein "-5/100"
+    (100.4, 100, 8),    # Rundungsartefakt innerhalb der Toleranz
+    (100.5, 100, 8),    # Toleranzgrenze
+    (-0.4, 0, 0),       # Rundungsartefakt innerhalb der Toleranz
 ]
 
 
@@ -43,6 +44,16 @@ def test_score_is_clamped_and_rounded_half_up(score, shown, segments):
 @pytest.mark.parametrize("score", [None, math.nan, math.inf, "abc", True])
 def test_uncomputable_score_is_none(score):
     assert normalize_achievement_score(score) is None
+
+
+@pytest.mark.parametrize("score", [130, 100.6, -5, -0.6])
+def test_out_of_range_score_is_data_error_not_clamped(score, caplog):
+    """N-877-08: kein stilles Klemmen -- ausserhalb der Rundungstoleranz ist
+    die Zielerreichung nicht berechenbar, mit Warnung ohne Kundendaten."""
+    caplog.set_level("WARNING", logger="services.pdf.components.ziele_table")
+    assert normalize_achievement_score(score) is None
+    assert "ausserhalb 0..100" in caplog.text
+    assert str(score) not in caplog.text
 
 
 def _achievement_cell(score):
@@ -70,7 +81,7 @@ def test_cell_label_and_bar_use_the_same_value(score, shown, segments):
     assert filled == segments
 
 
-@pytest.mark.parametrize("score", [None, math.nan])
+@pytest.mark.parametrize("score", [None, math.nan, 130, -5])
 def test_uncomputable_score_renders_text_without_bar(score):
     cell = _achievement_cell(score)
     assert isinstance(cell, Paragraph)
