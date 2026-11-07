@@ -50,7 +50,7 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1143, 90070),
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
-    "aa-chart.js": (320, 20369),
+    "aa-chart.js": (331, 21026),
     "goal-review-runtime.js": (1589, 84633),
 }
 

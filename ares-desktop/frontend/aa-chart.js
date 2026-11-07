@@ -160,6 +160,20 @@ function aaChartMarkLegend(rowIdx,segIdx){
 }
 // Legende/SOLL-Quoten -> Torte: Segment hervorheben (Maus und Tastaturfokus).
 // Unterklassenzeilen markieren ihr Segment im Aussenring.
+// N-882-07: Ziel eines Hovers/Fokus pruefen. Nur ein Index, den es im Ring
+// wirklich gibt, aktiviert ein Segment; sonst (z. B. 0-%-Quotenzeile ohne
+// Segment) nichts aktivieren und alle Markierungen zuruecksetzen.
+function aaChartHoverTarget(datasets,rowAttr,segAttr){
+  var ci=-1,si=-1,res={active:[],row:-1,seg:-1};
+  (datasets||[]).forEach(function(d,k){if(d&&d._aaRing==='class')ci=k;if(d&&d._aaRing==='sub')si=k;});
+  var ok=function(v,k){var n=Number(v);return v!=null&&v!==''&&k>=0&&Math.floor(n)===n&&n>=0&&n<((datasets[k].data||[]).length);};
+  if(segAttr!=null){
+    if(ok(segAttr,si)){res.seg=Number(segAttr);res.row=datasets[si]._aaRow?datasets[si]._aaRow[res.seg]:-1;res.active=[{datasetIndex:si,index:res.seg}];}
+  }else if(ok(rowAttr,ci)){
+    res.row=Number(rowAttr);res.active=[{datasetIndex:ci,index:res.row}];
+  }
+  return res;
+}
 function aaChartBindHover(hostId,chart){
   var host=document.getElementById(hostId);
   if(!host||!chart||host.dataset.aaBound==='1')return;
@@ -167,15 +181,12 @@ function aaChartBindHover(hostId,chart){
   var on=function(evt){
     var t=evt.target&&evt.target.closest?evt.target:null;
     var segEl=t?t.closest('[data-aa-seg]'):null,rowEl=segEl?null:(t?t.closest('[data-aa-row]'):null);
-    var ds=chart.data&&chart.data.datasets||[],ci=-1,si=-1;
-    ds.forEach(function(d,k){if(d._aaRing==='class')ci=k;if(d._aaRing==='sub')si=k;});
-    var a=[];
-    if(segEl&&si>=0)a=[{datasetIndex:si,index:Number(segEl.getAttribute('data-aa-seg'))}];
-    else if(rowEl&&ci>=0)a=[{datasetIndex:ci,index:Number(rowEl.getAttribute('data-aa-row'))}];
+    var h=aaChartHoverTarget(chart.data&&chart.data.datasets,rowEl?rowEl.getAttribute('data-aa-row'):null,segEl?segEl.getAttribute('data-aa-seg'):null);
+    // Markierung immer setzen bzw. zuruecksetzen, auch wenn Chart.js wirft.
+    aaChartMarkLegend(h.row,h.seg);
     try{
-      chart.setActiveElements(a);
-      if(chart.tooltip)chart.tooltip.setActiveElements(a,{x:chart.width/2,y:chart.height/2});
-      aaChartMarkLegend(rowEl?Number(rowEl.getAttribute('data-aa-row')):-1,segEl?Number(segEl.getAttribute('data-aa-seg')):-1);
+      chart.setActiveElements(h.active);
+      if(chart.tooltip)chart.tooltip.setActiveElements(h.active,{x:chart.width/2,y:chart.height/2});
       chart.update('none');
     }catch(e){}
   };

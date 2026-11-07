@@ -329,3 +329,38 @@ def test_small_text_contrast_tokens_and_compact_band_below_760px():
         assert "color:var(--n5)" in rule, sel  # Dark: 6.4:1 auf --surface
     mobile = css.split("@media(max-width:760px)", 1)[1].split("\n", 1)[0]
     assert ".aa-q-row .aa-band{display:none" not in mobile and ".aa-q-row .aa-band{grid-column:2/4" in mobile
+
+
+def test_hover_on_zero_quota_row_activates_nothing_and_resets_marks():
+    """N-882-07: 0-%-Quotenzeile ohne Segment -> kein Segment, Markierungen zurueck,
+    auch wenn Chart.js beim Aktivieren wirft (Markierung ausserhalb des try)."""
+    out = _run(
+        """
+        var quota=aaChartQuotaHtml(""" + ZERO_ITEMS + """);
+        var zeroRow=(quota.match(/data-aa-row="(\d+)"[^>]*>(?:(?!<\/button>).)*>Alternative</)||[])[1];
+        var ds=aaChartDonutDatasets(aaChartPrepare(""" + ZERO_ITEMS + """),'#FFFFFF');
+        var T=function(r,s){return aaChartHoverTarget(ds,r,s);};
+        var res={zeroRow:zeroRow,zero:T(zeroRow,null),valid:T('1',null),seg:T(null,'0'),segOut:T(null,'7'),junk:T('x',null),none:T(null,null)};
+        // Integration: Handler mit Fake-Host/-Chart; Chart wirft beim zweiten Aufruf.
+        var handlers={},marks=[],actives=[],calls=0;
+        aaChartMarkLegend=function(r,s){marks.push([r,s]);};
+        document.getElementById=function(){return {dataset:{},addEventListener:function(n,f){handlers[n]=f;}};};
+        var chart={data:{datasets:ds},width:200,height:200,update:function(){},
+          setActiveElements:function(a){calls++;actives.push(a);if(calls===2)throw new Error('chart');}};
+        aaChartBindHover('at',chart);
+        var el=function(attr,val){var o={getAttribute:function(k){return k===attr?val:null;}};
+          o.closest=function(sel){return sel.indexOf(attr)>=0?o:null;};return o;};
+        handlers.mouseover({target:el('data-aa-row','0')});
+        handlers.mouseover({target:el('data-aa-row',zeroRow)});
+        res.marks=marks;res.actives=actives.map(function(a){return a.length;});
+        return res;
+        """
+    )
+    assert out["zeroRow"] == "2"
+    assert out["zero"] == {"active": [], "row": -1, "seg": -1}
+    assert out["valid"]["active"] == [{"datasetIndex": 1, "index": 1}] and out["valid"]["row"] == 1
+    assert out["seg"] == {"active": [{"datasetIndex": 0, "index": 0}], "row": 0, "seg": 0}
+    assert out["segOut"]["active"] == [] and out["junk"]["active"] == [] and out["none"]["active"] == []
+    # Erst Aktien markiert, dann 0-%-Zeile: Markierung zurueckgesetzt trotz Chart-Fehler.
+    assert out["marks"] == [[0, -1], [-1, -1]]
+    assert out["actives"] == [1, 0]

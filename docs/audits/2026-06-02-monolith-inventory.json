@@ -3,7 +3,7 @@
     "css_selectors": 1176,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1328,
+    "js_functions": 1330,
     "modal_structures": 110,
     "script_blocks": 26,
     "style_blocks": 2,
@@ -9540,8 +9540,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/aa-chart.js",
-      "sha256": "2046445d44a1d9115b0ab2ddf109b4a418f2094973c85fd8c9e3517bbd2996b5",
-      "size_bytes": 20369
+      "sha256": "52c00bc8036c1190e2bf156f6f7221bc035b509a5c33df630a8a8792be9c1000",
+      "size_bytes": 21026
     },
     {
       "kind": "js",
@@ -21889,25 +21889,25 @@
     },
     {
       "declaration": "function",
-      "line": 205,
+      "line": 216,
       "name": "aaChartAllocItems",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 187,
+      "line": 198,
       "name": "aaChartApplyDonut",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 290,
+      "line": 301,
       "name": "aaChartBandHtml",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 163,
+      "line": 177,
       "name": "aaChartBindHover",
       "source": "aa-chart.js"
     },
@@ -21925,7 +21925,7 @@
     },
     {
       "declaration": "function",
-      "line": 273,
+      "line": 284,
       "name": "aaChartContextHtml",
       "source": "aa-chart.js"
     },
@@ -21949,14 +21949,20 @@
     },
     {
       "declaration": "function",
-      "line": 231,
+      "line": 242,
       "name": "aaChartEsc",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 227,
+      "line": 238,
       "name": "aaChartHasSubs",
+      "source": "aa-chart.js"
+    },
+    {
+      "declaration": "function",
+      "line": 166,
+      "name": "aaChartHoverTarget",
       "source": "aa-chart.js"
     },
     {
@@ -21967,7 +21973,7 @@
     },
     {
       "declaration": "function",
-      "line": 237,
+      "line": 248,
       "name": "aaChartLegendHtml",
       "source": "aa-chart.js"
     },
@@ -21991,7 +21997,7 @@
     },
     {
       "declaration": "function",
-      "line": 260,
+      "line": 271,
       "name": "aaChartPendingHtml",
       "source": "aa-chart.js"
     },
@@ -22003,7 +22009,7 @@
     },
     {
       "declaration": "function",
-      "line": 301,
+      "line": 312,
       "name": "aaChartQuotaHtml",
       "source": "aa-chart.js"
     },
@@ -22039,7 +22045,13 @@
     },
     {
       "declaration": "var",
-      "line": 167,
+      "line": 169,
+      "name": "ok",
+      "source": "aa-chart.js"
+    },
+    {
+      "declaration": "var",
+      "line": 181,
       "name": "on",
       "source": "aa-chart.js"
     },
@@ -22057,7 +22069,7 @@
     },
     {
       "declaration": "var",
-      "line": 274,
+      "line": 285,
       "name": "row",
       "source": "aa-chart.js"
     },
