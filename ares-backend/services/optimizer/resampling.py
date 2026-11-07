@@ -712,6 +712,8 @@ _MODEL_BASIS_FIELDS = (
     "scheme",
     "seed_scheme",
     "engine_version",
+    # H-859-8: Schema des Ziel-Fingerabdrucks (Haertegrad kanonisiert).
+    "goal_fingerprint_scheme",
     "objective_contract",
     "content_seed",
     "n_bags",
