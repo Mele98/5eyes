@@ -145,3 +145,33 @@ def test_index_and_check_enforce_rank_contract_and_round_trip(pg_schema):
     assert _state(engine, schema) == (None, None)
     command.upgrade(cfg, REVISION)
     assert all(_state(engine, schema))
+
+
+def test_reorder_lock_timeout_is_classified_as_lock_conflict(pg_schema):
+    """N-873-08 / H-868-D1 live: Haelt ein Reorder die Zeilensperren
+    (SELECT ... ORDER BY id FOR UPDATE), endet ein zweiter mit lock_timeout
+    in einem echten PG-Fehler 55P03, den der Router als Sperrkonflikt (409)
+    erkennt."""
+    from sqlalchemy.exc import OperationalError
+
+    from services.goal_reorder import is_goal_order_lock_conflict
+
+    cfg, engine, _schema = pg_schema
+    command.upgrade(cfg, REVISION)
+    _goal(engine, "g-1", 1)
+    _goal(engine, "g-2", 2)
+    lock_sql = text(
+        "SELECT id FROM goals WHERE mandate_id = 'm-1' AND is_active = 1 AND deleted_at IS NULL"
+        " ORDER BY id FOR UPDATE"
+    )
+    with engine.connect() as holder:
+        holder.begin()
+        assert [r[0] for r in holder.execute(lock_sql)] == ["g-1", "g-2"]
+        with engine.connect() as waiter:
+            waiter.begin()
+            waiter.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            with pytest.raises(OperationalError) as exc_info:
+                waiter.execute(lock_sql).all()
+            waiter.rollback()
+        holder.rollback()
+    assert is_goal_order_lock_conflict(exc_info.value)
