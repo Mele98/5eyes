@@ -38,7 +38,7 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffResponse,
 )
 from services.audit import log, release_block_audit
-from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
+from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, set_tenant_context
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
     NoTradeListAvailableError,
@@ -251,6 +251,7 @@ def create_portfolio_handoff(
         on_block=release_block_audit(
                 db, user=current_user, ip_address=_extract_client_ip(request),
                 mandate_id=mandate.id, field_name="handoff_blocked",
+                set_tenant_context=set_tenant_context,
             ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.

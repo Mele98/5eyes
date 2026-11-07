@@ -38,6 +38,7 @@ from services.auth import (
     get_mandate_for_user_or_404,
     require_advisor,
     require_client,
+    set_tenant_context,
 )
 from services.onsite_signature import service as svc
 from services.onsite_signature import state_machine as sm
@@ -107,6 +108,7 @@ def _release_gates(
         db, user=current_user,
         ip_address=extract_client_ip(request) if request is not None else None,
         mandate_id=mandate.id, field_name="onsite_signature_blocked",
+        set_tenant_context=set_tenant_context,
     )
     document_type = str(document.document_type or "")
     try:
