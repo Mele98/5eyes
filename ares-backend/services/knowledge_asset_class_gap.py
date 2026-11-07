@@ -44,16 +44,18 @@ Abgeleitet aus dem bestehenden Code, nicht erfunden:
 * "Gold / Rohstoffe" -> Edelmetalle; Geldmarktfonds/Festgeld ->
   Geldmarktprodukte; Kontoguthaben ist kein Finanzinstrument (keine Zeile
   noetig).
-* Liquid Alternatives, Hedge Funds, Private Equity, Krypto: der Fragebogen
-  hat dafuer KEINE Zeile -- Kenntnis ist im heutigen Fragebogen nicht
-  dokumentierbar, die Luecke wird darum immer gemeldet (Fragebogen bleibt
-  bewusst unveraendert; Erweiterung = Owner-Entscheid).
+* H5c (Entscheid E6, 2026-11-07): die Instrumentliste ist erweitert
+  (risk-questionnaire-v2.js, RISK_KE_EXTRA_INSTRUMENTS). Liquid Alternatives
+  und Hedge Funds -> "Alternative Anlagen", Private Equity -> "Private
+  Equity", Gold / Rohstoffe -> "Edelmetalle" oder "Rohstoffe". Altprofile
+  ohne diese Zeilen melden die Luecke weiterhin (konservativ). Krypto hat
+  weiterhin KEINE Zeile (Luecke wird immer gemeldet).
 * Unbekannte Sub-Klassen (z.B. andere Jurisdiktion) fallen auf das Mapping
   ihrer Anlageklasse zurueck; unbekannte Alternative-Sub-Klassen gelten
   konservativ als "keine Zeile".
 
-"Dokumentiert" heisst: Zeile mit ``known`` ODER ``informed`` (bzw. Legacy
-``has_experience``/bool) -- identische Semantik wie
+"Dokumentiert" heisst: Zeile mit ``known``, ``experienced`` (H5c) ODER
+``informed`` (bzw. Legacy ``has_experience``/bool) -- identische Semantik wie
 ``routers/pdf_reports._knowledge_map_from_json``. Eine erhaltene Aufklaerung
 gilt als dokumentierte Information.
 
@@ -83,10 +85,13 @@ COMPLIANCE_OPEN_QUESTION = (
     "Hinweis erscheinen?"
 )
 
-# Fragebogen-Zeilen (Monolith, Tabelle Finanzinstrumente, data-row).
+# Fragebogen-Zeilen (Tabelle Finanzinstrumente, data-row): Monolith plus die
+# H5c-Erweiterung in risk-questionnaire-v2.js (Paritaetstest).
 QUESTIONNAIRE_INSTRUMENT_ROWS: tuple[str, ...] = (
     "Anlagefonds", "Aktien", "Obligationen", "Geldmarktprodukte",
     "Immobilien", "Infrastruktur", "Edelmetalle",
+    "ETF", "Strukturierte Produkte", "Derivate", "Alternative Anlagen",
+    "Private Equity", "Rohstoffe", "Fremdwährungsanlagen",
 )
 
 # Sentinel: fuer diese Klasse existiert keine Fragebogen-Zeile.
@@ -114,10 +119,10 @@ ASSET_CLASS_TO_ROWS: dict[str, tuple[str, ...] | None] = {
 
 # Sub-Klasse -> Zeile(n); None = kein Kenntnisbedarf (kein Finanzinstrument).
 SUB_CLASS_TO_ROWS: dict[str, tuple[str, ...] | None] = {
-    "Gold / Rohstoffe": ("Edelmetalle",),
-    "Liquid Alternatives": NO_QUESTIONNAIRE_ROW,
-    "Hedge Funds": NO_QUESTIONNAIRE_ROW,
-    "Private Equity": NO_QUESTIONNAIRE_ROW,
+    "Gold / Rohstoffe": ("Edelmetalle", "Rohstoffe"),
+    "Liquid Alternatives": ("Alternative Anlagen",),
+    "Hedge Funds": ("Alternative Anlagen",),
+    "Private Equity": ("Private Equity",),
     "Krypto": NO_QUESTIONNAIRE_ROW,
     "Geldmarktfonds": ("Geldmarktprodukte",),
     "Festgeld": ("Geldmarktprodukte",),
@@ -156,7 +161,10 @@ def documented_instrument_rows(raw: Any) -> set[str]:
     covered: set[str] = set()
     for key, value in parsed.items():
         if isinstance(value, Mapping):
-            ok = bool(value.get("known") or value.get("informed") or value.get("has_experience"))
+            ok = bool(
+                value.get("known") or value.get("experienced")
+                or value.get("informed") or value.get("has_experience")
+            )
         else:
             ok = bool(value)
         if ok:

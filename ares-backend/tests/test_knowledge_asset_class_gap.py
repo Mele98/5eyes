@@ -64,7 +64,10 @@ def _ki(**rows):
 # ---------------------------------------------------------------------------
 
 def test_questionnaire_rows_match_monolith_table():
+    # H5c: Monolith-Tabelle + Erweiterung in risk-questionnaire-v2.js.
     rows = set(re.findall(r'class="ke-ins" data-row="([^"]+)"', HTML))
+    block = HTML.split("var RISK_KE_EXTRA_INSTRUMENTS=[", 1)[1].split("];", 1)[0]
+    rows |= set(re.findall(r"\['([^']+)','[^']+'\]", block))
     assert rows == set(QUESTIONNAIRE_INSTRUMENT_ROWS)
 
 
@@ -81,8 +84,9 @@ def test_every_default_sub_asset_class_has_a_mapping_decision():
 def test_mapping_core_cases():
     assert required_rows_for("Aktien", "Thema Verteidigung") == ("Aktien",)
     assert required_rows_for("Immobilien", "Immobilien Global") == ("Immobilien",)
-    assert required_rows_for("Alternative", "Gold / Rohstoffe") == ("Edelmetalle",)
-    assert required_rows_for("Alternative", "Private Equity") == ()
+    assert required_rows_for("Alternative", "Gold / Rohstoffe") == ("Edelmetalle", "Rohstoffe")  # H5c
+    # H5c: eigene Zeile fuer Private Equity; unbekannte Alternative bleiben ohne Zeile.
+    assert required_rows_for("Alternative", "Private Equity") == ("Private Equity",)
     assert required_rows_for("Alternative", "Unbekannt XY") == ()
     assert required_rows_for("Liquiditaet", "Kontoguthaben") is None
     assert required_rows_for("Liquidität", "Geldmarktfonds") == ("Geldmarktprodukte",)
@@ -102,9 +106,14 @@ def test_empty_knowledge_reports_every_class_with_reason_code():
     assert aktien["target_weight_bps"] == 4500
     assert aktien["sub_asset_classes"] == ["Aktien Schweiz", "Aktien Global"]
     pe = result["findings"][-1]
-    assert pe["questionnaire_row_available"] is False
+    assert pe["questionnaire_row_available"] is True  # H5c: Zeile «Private Equity»
     assert pe["action"] == "Kunde über Private Equity informieren und dokumentieren."
-    assert REASON_CODE in pe["message"] and "keine eigene Zeile" in pe["message"]
+    assert REASON_CODE in pe["message"] and "«Private Equity»" in pe["message"]
+    krypto = evaluate_knowledge_gaps(
+        [{"asset_class": "Alternative", "sub_asset_class": "Krypto", "target_weight_bps": 100}], "{}",
+        client_classification="Privatkunde",
+    )["findings"][0]
+    assert krypto["questionnaire_row_available"] is False and "keine eigene Zeile" in krypto["message"]
     assert result["advisory_only"] is True
     assert result["compliance_open_question"] == COMPLIANCE_OPEN_QUESTION
 

@@ -203,7 +203,9 @@ def _knowledge_table_ok(raw: str) -> bool:
     if not isinstance(parsed, dict):
         return False
     for row in parsed.values():
-        if not isinstance(row, dict) or not set(row) <= {"known", "informed"}:
+        # H5c: Erfahrung getrennt von Kenntnissen ("experienced"); Altprofile
+        # ohne diesen Schluessel bleiben gueltig.
+        if not isinstance(row, dict) or not set(row) <= {"known", "experienced", "informed"}:
             return False
         if any(v not in (0, 1) or isinstance(v, bool) for v in row.values()):
             return False

@@ -310,9 +310,119 @@ function riskV2InstallWrappers(){
       riskV2LoadPolicy();
       riskV2UpdateAmounts();
       riskV2Hydrate(saved);
+      riskKeLegacyHint(saved);
       return out;
     };
   }
 }
 
 riskV2InstallWrappers();
+
+// ── H5c: Kenntnisse und Erfahrung getrennt (Angemessenheit, Art. 11 FIDLEG) ──
+// Rein dokumentarisch, kein Score. Beide Tabellen (Fragen 1 und 2) erhalten die
+// Spalte "Erfahrung vorhanden" (data-col="experienced"); die Instrumentliste
+// wird um die Kategorien ergaenzt, die Ares allokieren oder empfehlen kann.
+// Fragetexte bleiben unveraendert. Altprofile tragen den Schluessel
+// "experienced" nicht: ihr Wert bleibt unveraendert gespeichert (keine
+// Umschreibung gebundener Evidenz); die Maske weist darauf hin, dass
+// "Kenntnisse vorhanden" dort Kenntnisse und Erfahrung gemeinsam umfasste.
+// Zeilenschluessel (data-row) = services/knowledge_asset_class_gap.py
+// QUESTIONNAIRE_INSTRUMENT_ROWS (Paritaetstest).
+var RISK_KE_EXPERIENCE_HEADER='Erfahrung vorhanden';
+var RISK_KE_EXTRA_INSTRUMENTS=[
+  ['ETF','Börsengehandelte Indexfonds (ETF)'],
+  ['Strukturierte Produkte','Strukturierte Produkte / Zertifikate'],
+  ['Derivate','Derivate (Optionen, Futures, Optionsscheine)'],
+  ['Alternative Anlagen','Alternative Anlagen (Hedgefonds, Liquid Alternatives)'],
+  ['Private Equity','Private Equity / Private Markets'],
+  ['Rohstoffe','Rohstoffe'],
+  ['Fremdwährungsanlagen','Fremdwährungsanlagen']
+];
+var RISK_KE_CHECK_STYLE='accent-color:var(--g4);width:14px;height:14px;cursor:pointer';
+var RISK_KE_LEGACY_HINT='Altbestand: «Kenntnisse vorhanden» umfasste bisher Kenntnisse und Erfahrung gemeinsam. '
+  +'Bitte die Erfahrung getrennt bestätigen; der gespeicherte Stand bleibt unverändert.';
+
+function riskKeCell(style,child,text){
+  var d=document.createElement('div');
+  d.style.cssText=style;
+  if(child)d.appendChild(child);
+  if(text)d.textContent=text;
+  return d;
+}
+
+function riskKeCheckbox(cls,row,col){
+  var cb=document.createElement('input');
+  cb.type='checkbox';
+  cb.className=cls;
+  cb.setAttribute('data-row',row);
+  cb.setAttribute('data-col',col);
+  cb.style.cssText=RISK_KE_CHECK_STYLE;
+  return cb;
+}
+
+function riskKeInsertAfter(parent,node,ref){
+  var next=ref.nextSibling;
+  if(next)parent.insertBefore(node,next);else parent.appendChild(node);
+}
+
+function riskKeInputs(cls,col){
+  return Array.prototype.slice.call(document.querySelectorAll('input.'+cls)).filter(function(cb){
+    return cb.getAttribute('data-col')===col;
+  });
+}
+
+function riskKeExtendTable(cls,extraRows){
+  var known=riskKeInputs(cls,'known');
+  if(!known.length)return;
+  var grid=known[0].parentNode.parentNode;
+  if(!grid||grid.getAttribute('data-ke-ext')==='1')return;
+  grid.setAttribute('data-ke-ext','1');
+  grid.style.gridTemplateColumns='1fr 110px 110px 110px';
+  var hdr=grid.children[1];
+  if(hdr)riskKeInsertAfter(grid,riskKeCell(hdr.style.cssText,null,RISK_KE_EXPERIENCE_HEADER),hdr);
+  known.forEach(function(cb){
+    var cell=cb.parentNode;
+    riskKeInsertAfter(grid,riskKeCell(cell.style.cssText,riskKeCheckbox(cls,cb.getAttribute('data-row'),'experienced')),cell);
+  });
+  if(!extraRows.length)return;
+  var border='1px solid var(--b1)';
+  var cells=grid.children;
+  for(var i=Math.max(0,cells.length-4);i<cells.length;i++)cells[i].style.borderBottom=border;
+  var ck='padding:7px 8px;text-align:center;border-bottom:'+border+';border-left:'+border;
+  extraRows.forEach(function(r,idx){
+    var last=idx===extraRows.length-1;
+    var c=last?'padding:7px 8px;text-align:center;border-left:'+border:ck;
+    grid.appendChild(riskKeCell('padding:7px 8px;color:var(--n8)'+(last?'':';border-bottom:'+border),null,r[1]));
+    ['known','experienced','informed'].forEach(function(col){
+      grid.appendChild(riskKeCell(c,riskKeCheckbox(cls,r[0],col)));
+    });
+  });
+}
+
+function riskKeHasLegacyRows(raw){
+  var tbl={};
+  try{tbl=JSON.parse(raw||'{}')||{};}catch(e){return false;}
+  var rows=Object.keys(tbl);
+  return rows.length>0&&rows.some(function(r){
+    return tbl[r]&&typeof tbl[r]==='object'&&!('experienced' in tbl[r])&&Number(tbl[r].known)===1;
+  });
+}
+
+function riskKeLegacyHint(saved){
+  var known=riskKeInputs('ke-ins','known');
+  var grid=known.length?known[0].parentNode.parentNode:null;
+  if(!grid||!grid.parentNode)return;
+  var hint=document.getElementById('rp-ke-legacy-hint');
+  if(!hint){
+    hint=document.createElement('div');
+    hint.id='rp-ke-legacy-hint';
+    hint.style.cssText='margin-top:6px;font-size:9.5px;line-height:1.45;color:var(--n5)';
+    hint.textContent=RISK_KE_LEGACY_HINT;
+    grid.parentNode.appendChild(hint);
+  }
+  var legacy=!!saved&&(riskKeHasLegacyRows(saved.knowledge_services_json)||riskKeHasLegacyRows(saved.knowledge_instruments_json));
+  hint.style.display=legacy?'':'none';
+}
+
+riskKeExtendTable('ke-svc',[]);
+riskKeExtendTable('ke-ins',RISK_KE_EXTRA_INSTRUMENTS);

@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1323,
+    "js_functions": 1330,
     "modal_structures": 110,
     "script_blocks": 26,
     "style_blocks": 2,
@@ -9260,8 +9260,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/risk-questionnaire-v2.js",
-      "sha256": "1688456e28272ef909415c2ef113b1f378f76bcf4212643cb1bb6a596f41075c",
-      "size_bytes": 13699
+      "sha256": "6ffb2a05fb13bb03a6fd5184502650b7cbbfb065d3ff1ab097372a0b5f873fac",
+      "size_bytes": 18378
     }
   ],
   "ids": [
@@ -21960,6 +21960,48 @@
       "line": 502,
       "name": "upsertSavedGoal",
       "source": "goal-review-runtime.js"
+    },
+    {
+      "declaration": "function",
+      "line": 345,
+      "name": "riskKeCell",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 353,
+      "name": "riskKeCheckbox",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 374,
+      "name": "riskKeExtendTable",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 402,
+      "name": "riskKeHasLegacyRows",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 368,
+      "name": "riskKeInputs",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 363,
+      "name": "riskKeInsertAfter",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 411,
+      "name": "riskKeLegacyHint",
+      "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",

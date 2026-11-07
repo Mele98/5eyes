@@ -267,10 +267,16 @@ def _knowledge_summary(items: Mapping) -> str:
         label = str(key)
         if isinstance(value, Mapping):
             known = bool(value.get("known") or value.get("kenntnis") or value.get("kenntnisse"))
+            # H5c: Erfahrung getrennt erfasst. Altprofile ohne den Schluessel
+            # behalten ihren bisherigen Text (kein Informationsverlust, keine
+            # Umdeutung gebundener Evidenz).
+            experienced = bool(value.get("experienced"))
             informed = bool(value.get("informed") or value.get("aufklaerung") or value.get("aufklärung"))
             states = []
             if known:
                 states.append("Kenntnisse vorhanden")
+            if experienced:
+                states.append("Erfahrung vorhanden")
             if informed:
                 states.append("Aufklärung erhalten")
             parts.append(f"{label}: {', '.join(states) if states else 'keine Angabe'}")
