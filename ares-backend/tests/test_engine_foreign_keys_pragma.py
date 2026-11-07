@@ -133,8 +133,6 @@ _DOCUMENTED_WINDOWS: dict[tuple[str, str, str], str] = {
         "Backup/Restore: kopiert bzw. prueft die Datei byteweise, schreibt keine App-Zeilen.",
     ("alembic/env.py", "run_migrations_online", "engine"):
         "Alembic-Migrationslauf (Postgres erzwingt FKs immer; SQLite nutzt create_all).",
-    ("migrate_to_sqlcipher.py", "main", "raw"):
-        "Einmal-Werkzeug: Umbau Klartext-DB -> SQLCipher (sqlcipher_export), kein App-Pfad.",
     ("scripts/restore_drill.py", "_create_sandbox_source_db", "raw"):
         "Werkzeug: Wiederherstellungsuebung in einer Sandbox-Kopie.",
     ("scripts/restore_drill.py", "_read_marker", "raw"):
