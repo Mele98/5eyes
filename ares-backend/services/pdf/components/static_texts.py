@@ -336,8 +336,11 @@ def normalize_disclaimer_mandate_type(mandate_type: str | None) -> str | None:
 
 
 def normalize_disclaimer_jurisdiction(jurisdiction: str | None) -> str:
-    """NULL gilt wie im Mandatsmodell als CH; Unbekanntes bleibt neutral."""
-    code = str(jurisdiction or "CH").strip().upper() or "CH"
+    """Erwartet den bereits aufgeloesten Laendercode (N-884-02: Aufloesung
+    nur ueber den zentralen Resolver, services/pdf/base.py::
+    resolve_pdf_jurisdiction -> jurisdictions.resolve). Kein eigener
+    CH-Rueckgriff: fehlt der Code, bleibt der Text neutral."""
+    code = str(jurisdiction).strip().upper() if jurisdiction is not None else ""
     return code if code in _DISCLAIMER_DOMICILE else "OTHER"
 
 

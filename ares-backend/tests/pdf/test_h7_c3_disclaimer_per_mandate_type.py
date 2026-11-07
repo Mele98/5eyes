@@ -95,8 +95,9 @@ def test_domicile_notice_follows_jurisdiction():
     assert "Wohnsitz in der Schweiz" not in other
     assert "Wohnsitz in Deutschland" not in other
     assert "Wohnsitzstaat" in other
-    # NULL-Jurisdiktion gilt wie im Mandatsmodell als CH.
-    assert disclaimer_paragraphs("Anlageberatung", None) == disclaimer_paragraphs("Anlageberatung", "CH")
+    # Ohne aufgeloesten Code neutral (kein eigener CH-Rueckgriff, N-884-02);
+    # NULL -> CH loest allein der zentrale Resolver beim PDF-Kontext auf.
+    assert disclaimer_paragraphs("Anlageberatung", None) == disclaimer_paragraphs("Anlageberatung", "AT")
 
 
 def test_neutral_default_constant_is_ch_without_mandate_type():
@@ -190,7 +191,55 @@ def test_pdf_context_builder_carries_mandate_type_and_jurisdiction(monkeypatch):
         id="m1", client_id="c1", mandate_number="M-1", base_currency="EUR",
         mandate_type="Anlageberatung", jurisdiction="DE",
     )
+    null_mandate = SimpleNamespace(
+        id="m2", client_id="c1", mandate_number="M-2", base_currency="CHF",
+        mandate_type="Anlageberatung", jurisdiction=None,
+    )
     user = SimpleNamespace(full_name="Anna Berater", email=None)
     ctx = pdf_reports._build_pdf_context(mandate, user, _Db())
     assert ctx.mandate_type == "Anlageberatung"
     assert ctx.jurisdiction == "DE"
+    assert pdf_reports._build_pdf_context(null_mandate, user, _Db()).jurisdiction == "CH"
+
+
+# ---------------------------------------------------------------------------
+# N-884-03: Fusszeile je Mandatstyp, jurisdiktionsneutral, konsistent mit dem
+# Disclaimer (keine "Anlageberatung nach FIDLEG" bei anderen Mandaten).
+# ---------------------------------------------------------------------------
+
+FOOTER_EXPECT = {
+    "Vermögensverwaltung": "im Rahmen des Vermögensverwaltungsauftrags",
+    "Anlageberatung": "im Rahmen des Anlageberatungsauftrags",
+    "Finanzplanung": "im Rahmen des Finanzplanungsauftrags",
+    "Reporting only": "im Rahmen des Reporting-Auftrags",
+    None: "der mit Ihnen vereinbarten Dienstleistung",
+}
+
+
+@pytest.mark.parametrize("mandate_type", list(FOOTER_EXPECT))
+@pytest.mark.parametrize("jurisdiction", ["CH", "DE"])
+def test_footer_matches_mandate_type_on_rendered_pdf(mandate_type, jurisdiction):
+    ctx = _ctx(mandate_type=mandate_type, jurisdiction=jurisdiction)
+    data = BacktestData(mandate_number="M-100001", initial_value_rappen=500_000_00)
+    text = _pdf_text(ReportLabRenderer().render_backtest(ctx, data))
+    assert FOOTER_EXPECT[mandate_type] in text
+    assert "FIDLEG" not in text
+    assert "Dokumentation der Anlageberatung" not in text
+    if mandate_type != "Anlageberatung":
+        assert "Anlageberatungsauftrags" not in text
+
+
+def test_pdf_context_resolves_null_jurisdiction_via_central_resolver(monkeypatch):
+    import services.pdf.base as base
+
+    seen = []
+    real = base.resolve_pack
+
+    def _spy(mandate=None, **kwargs):
+        seen.append(getattr(mandate, "jurisdiction", "?"))
+        return real(mandate, **kwargs)
+
+    monkeypatch.setattr(base, "resolve_pack", _spy)
+    assert base.resolve_pdf_jurisdiction(SimpleNamespace(jurisdiction=None)) == "CH"
+    assert base.resolve_pdf_jurisdiction(SimpleNamespace(jurisdiction="DE")) == "DE"
+    assert seen == [None, "DE"]

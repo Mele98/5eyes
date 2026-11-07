@@ -30,6 +30,22 @@ if TYPE_CHECKING:  # nur Typannotation; zur Laufzeit nicht benoetigt
 FOOTER_DISCLAIMER_KEY = "legal.footer.disclaimer"
 FIDLEG_DISCLAIMER = default_documents().text(FOOTER_DISCLAIMER_KEY)
 
+# H7 N-884-03: Fusszeile passend zum Mandatstyp (konsistent mit dem
+# Disclaimer je Mandatstyp in static_texts); unbekannt -> neutraler Text.
+# Jurisdiktionsneutral formuliert (kein FIDLEG-Hinweis, gilt fuer CH und DE).
+_FOOTER_KEYS_BY_MANDATE_TYPE = {
+    "vermögensverwaltung": "legal.footer.disclaimer.vermoegensverwaltung",
+    "vermoegensverwaltung": "legal.footer.disclaimer.vermoegensverwaltung",
+    "anlageberatung": "legal.footer.disclaimer.anlageberatung",
+    "finanzplanung": "legal.footer.disclaimer.finanzplanung",
+    "reporting only": "legal.footer.disclaimer.reporting",
+}
+
+
+def footer_disclaimer_key(mandate_type: str | None) -> str:
+    key = str(mandate_type or "").strip().casefold()
+    return _FOOTER_KEYS_BY_MANDATE_TYPE.get(key, FOOTER_DISCLAIMER_KEY)
+
 
 # Platz rechts fuer "Seite N" und Obergrenze der Footer-Hoehe: der Rumpf
 # endet bei MARGIN_BOTTOM + 12 mm = 24 mm (reportlab_renderer), die oberste
@@ -59,7 +75,9 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
         <FIDLEG-Disclaimer>                                 Seite N
     Audit: <hash kurz> · Erstellt am <DATUM>     Erzeugt: YYYY-MM-DD HH:MM
     """
-    text = disclaimer if disclaimer is not None else default_documents().text(FOOTER_DISCLAIMER_KEY)
+    text = disclaimer if disclaimer is not None else default_documents().text(
+        footer_disclaimer_key(getattr(ctx, "mandate_type", None)),
+    )
     audit_label = ctx.audit_hash[:12] if ctx.audit_hash else "n/a"
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
     date_str = ctx.report_date.strftime("%d.%m.%Y")

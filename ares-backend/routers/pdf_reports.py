@@ -29,6 +29,7 @@ from services.recommendation_run_resolver import (
     resolve_current_recommendation_run,
 )
 from services.pdf.base import (
+    resolve_pdf_jurisdiction,
     AnlagestrategieData,
     BacktestData,
     ContractSignoffData,
@@ -85,7 +86,7 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         locale="de-CH",
         base_currency=base_currency,
         mandate_type=getattr(mandate, "mandate_type", None),
-        jurisdiction=getattr(mandate, "jurisdiction", None),
+        jurisdiction=resolve_pdf_jurisdiction(mandate),
     )
 
 
