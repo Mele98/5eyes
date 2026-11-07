@@ -460,6 +460,79 @@ class KycConfirmationResponse(BaseResponse):
     approval: Optional[KycConfirmationApprovalResponse] = None
 
 
+# ---------------------------------------------------------------------------
+# H8 Luecke 10: Vertretung / Verfuegungsberechtigung (dokumentarisch).
+# ---------------------------------------------------------------------------
+
+class ClientRepresentationCreate(BaseModel):
+    mandate_id: Optional[str] = None
+    representation_type: Literal["vollmacht", "vorsorgeauftrag", "beistandschaft", "gemeinschaftsdepot"]
+    representative_name: str
+    scope: str
+    evidence_reference: str
+    effective_from: Optional[str] = None
+    effective_until: Optional[str] = None
+    disposal_rule: Optional[Literal["einzeln", "gemeinsam"]] = None
+    note: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @model_validator(mode="after")
+    def _validate(self):
+        for name in ("representative_name", "scope", "evidence_reference"):
+            value = str(getattr(self, name) or "").strip()
+            if len(value) < 2:
+                raise ValueError(f"{name} ist Pflicht")
+            setattr(self, name, value)
+        if self.effective_from:
+            self.effective_from = _iso_date(self.effective_from, "effective_from")
+        if self.effective_until:
+            self.effective_until = _iso_date(self.effective_until, "effective_until")
+        if self.effective_from and self.effective_until and self.effective_until < self.effective_from:
+            raise ValueError("effective_until liegt vor effective_from")
+        # Vorsorgeauftrag (ZGB 363) und Beistandschaft (ZGB 390 ff.) wirken
+        # erst ab Validierung bzw. Errichtung durch die KESB: Wirksamkeit Pflicht.
+        if self.representation_type in ("vorsorgeauftrag", "beistandschaft") and not self.effective_from:
+            raise ValueError(
+                "effective_from (Wirksamkeit gemaess KESB-Entscheid) ist bei "
+                "Vorsorgeauftrag und Beistandschaft Pflicht"
+            )
+        if self.representation_type == "gemeinschaftsdepot" and not self.disposal_rule:
+            raise ValueError("disposal_rule (einzeln/gemeinsam) ist beim Gemeinschaftsdepot Pflicht")
+        if self.representation_type != "gemeinschaftsdepot" and self.disposal_rule:
+            raise ValueError("disposal_rule gilt nur fuer das Gemeinschaftsdepot")
+        return self
+
+
+class ClientRepresentationRevoke(BaseModel):
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        if len(value.strip()) < 5:
+            raise ValueError("Begruendung des Widerrufs (mind. 5 Zeichen) ist Pflicht")
+        return value.strip()
+
+
+class ClientRepresentationResponse(BaseResponse):
+    id: str
+    client_id: str
+    mandate_id: Optional[str] = None
+    representation_type: str
+    representative_name: str
+    scope: str
+    evidence_reference: str
+    effective_from: Optional[str] = None
+    effective_until: Optional[str] = None
+    disposal_rule: Optional[str] = None
+    note: Optional[str] = None
+    recorded_by: str
+    recorded_at: str
+    revoked_at: Optional[str] = None
+    revoked_by: Optional[str] = None
+    revocation_reason: Optional[str] = None
+
+
 class ClientTaxResidencyCreate(BaseModel):
     country_code: str
     tax_id_number: Optional[str] = None

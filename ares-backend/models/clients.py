@@ -264,6 +264,49 @@ class KycConfirmationApproval(Base):
     approval_hash = Column(String, nullable=False)
 
 
+# ---------------------------------------------------------------------------
+# H8 Luecke 10 (ZGB): Vertretung und Verfuegungsberechtigung, dokumentarisch.
+# Vollmacht (OR 32 ff.), Vorsorgeauftrag (ZGB 360 ff.), Beistandschaft
+# (ZGB 390 ff.), Gemeinschaftsdepot. Kein Gate -- Hinweis im
+# Beratungsprotokoll-PDF. Widerruf statt Loeschen (revoked_*), jede Aenderung
+# im Audit-Log.
+# ---------------------------------------------------------------------------
+
+REPRESENTATION_POWER_OF_ATTORNEY = "vollmacht"
+REPRESENTATION_ADVANCE_DIRECTIVE = "vorsorgeauftrag"
+REPRESENTATION_DEPUTYSHIP = "beistandschaft"
+REPRESENTATION_JOINT_ACCOUNT = "gemeinschaftsdepot"
+REPRESENTATION_TYPES = (
+    REPRESENTATION_POWER_OF_ATTORNEY,
+    REPRESENTATION_ADVANCE_DIRECTIVE,
+    REPRESENTATION_DEPUTYSHIP,
+    REPRESENTATION_JOINT_ACCOUNT,
+)
+JOINT_DISPOSAL_RULES = ("einzeln", "gemeinsam")
+
+
+class ClientRepresentation(Base):
+    __tablename__ = "client_representations"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    client_id = Column(String, nullable=False)
+    mandate_id = Column(String)
+    representation_type = Column(String, nullable=False)
+    representative_name = Column(String, nullable=False)
+    scope = Column(String, nullable=False)
+    evidence_reference = Column(String, nullable=False)
+    effective_from = Column(String)
+    effective_until = Column(String)
+    disposal_rule = Column(String)
+    note = Column(String)
+    recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    recorded_at = Column(String, nullable=False)
+    revoked_at = Column(String)
+    revoked_by = Column(String)
+    revocation_reason = Column(String)
+
+
 for _model, _ddls in (
     (KycConfirmation, KYC_CONFIRMATION_SQLITE_TRIGGERS),
     (KycConfirmationApproval, KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS),

@@ -1,4 +1,4 @@
-"""H8: Kundeninformation (Art. 8/9 FIDLEG), KYC-Bestaetigung (GwG).
+"""H8: Kundeninformation (Art. 8/9 FIDLEG), KYC-Bestaetigung (GwG), Vertretung (ZGB).
 
 Compliance-Audit 2026-11-07 (Dok. 104), Paket H8:
 
@@ -8,6 +8,8 @@ Compliance-Audit 2026-11-07 (Dok. 104), Paket H8:
   Kundeninformation (Fassung, Byte-Hash, Version, Zeitpunkt, Kanal).
 - ``kyc_confirmations`` / ``kyc_confirmation_approvals``: append-only
   GwG-Bestaetigung (Abklaerung im SRO-/Fremdprozess) samt Vier-Augen-Freigabe.
+- ``client_representations``: Vollmacht, Vorsorgeauftrag, Beistandschaft,
+  Gemeinschaftsdepot (dokumentarisch, Widerruf statt Loeschen).
 - ``client_due_diligence.acting_for_own_account_answered`` (NOT NULL DEFAULT 0:
   Bestandszeilen gelten als unbeantwortet) und
   ``client_opt_history.opt_out_criteria_json`` (Art. 5 FIDLEG).
@@ -149,6 +151,28 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("confirmation_id"),
     )
+    op.create_table(
+        "client_representations",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("tenant_id", sa.String(), nullable=True),
+        sa.Column("client_id", sa.String(), nullable=False),
+        sa.Column("mandate_id", sa.String(), nullable=True),
+        sa.Column("representation_type", sa.String(), nullable=False),
+        sa.Column("representative_name", sa.String(), nullable=False),
+        sa.Column("scope", sa.String(), nullable=False),
+        sa.Column("evidence_reference", sa.String(), nullable=False),
+        sa.Column("effective_from", sa.String(), nullable=True),
+        sa.Column("effective_until", sa.String(), nullable=True),
+        sa.Column("disposal_rule", sa.String(), nullable=True),
+        sa.Column("note", sa.String(), nullable=True),
+        sa.Column("recorded_by", sa.String(), nullable=False),
+        sa.Column("recorded_at", sa.String(), nullable=False),
+        sa.Column("revoked_at", sa.String(), nullable=True),
+        sa.Column("revoked_by", sa.String(), nullable=True),
+        sa.Column("revocation_reason", sa.String(), nullable=True),
+        sa.ForeignKeyConstraint(["recorded_by"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
     op.add_column(
         "client_due_diligence",
         sa.Column(
@@ -181,6 +205,7 @@ def downgrade() -> None:
         batch.drop_column("opt_out_criteria_json")
     with op.batch_alter_table("client_due_diligence") as batch:
         batch.drop_column("acting_for_own_account_answered")
+    op.drop_table("client_representations")
     op.drop_table("kyc_confirmation_approvals")
     op.drop_table("kyc_confirmations")
     op.drop_table("client_information_deliveries")

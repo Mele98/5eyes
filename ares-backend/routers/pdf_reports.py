@@ -16,7 +16,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.clients import Client
+from models.clients import Client, ClientRepresentation
 
 logger = logging.getLogger(__name__)
 from core.http_filenames import content_disposition
@@ -1872,6 +1872,34 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     return view
 
 
+_REPRESENTATION_LABELS = {
+    "vollmacht": "Vollmacht",
+    "vorsorgeauftrag": "Vorsorgeauftrag (ZGB 360 ff.)",
+    "beistandschaft": "Beistandschaft (ZGB 390 ff.)",
+    "gemeinschaftsdepot": "Gemeinschaftsdepot",
+}
+
+
+def _protocol_representation_lines(db: Session, mandate: Mandate) -> tuple:
+    rows = db.query(ClientRepresentation).filter(
+        ClientRepresentation.client_id == mandate.client_id,
+        ClientRepresentation.revoked_at.is_(None),
+        or_(ClientRepresentation.mandate_id.is_(None), ClientRepresentation.mandate_id == mandate.id),
+    ).order_by(ClientRepresentation.recorded_at).all()
+    lines: list[str] = []
+    for row in rows:
+        kind = _REPRESENTATION_LABELS.get(row.representation_type, row.representation_type)
+        period = ""
+        if row.effective_from or row.effective_until:
+            period = f"; wirksam {row.effective_from or 'offen'} bis {row.effective_until or 'unbefristet'}"
+        disposal = f"; Verfuegung {row.disposal_rule}" if row.disposal_rule else ""
+        lines.append(
+            f"{kind}: {row.representative_name} -- Umfang: {row.scope}; "
+            f"Beleg: {row.evidence_reference}{period}{disposal}."
+        )
+    return tuple(lines)
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -2013,6 +2041,10 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
 
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen
+    # (nicht widerrufen) als dokumentarischer Hinweis im Protokoll.
+    representation_lines = _protocol_representation_lines(db, mandate)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -2025,6 +2057,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
         knowledge_gap_hints=knowledge_gap_hints,
+        representation_lines=representation_lines,
     )
 
 

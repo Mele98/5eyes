@@ -10,7 +10,7 @@ from models.users import User
 from models.clients import (
     Client, ClientNationality, ClientOptHistory,
     ClientDueDiligence, ClientTaxResidency,
-    KycConfirmation, KycConfirmationApproval,
+    ClientRepresentation, KycConfirmation, KycConfirmationApproval,
     KYC_PROCESS_EXTERNAL, KYC_RISK_NORMAL,
 )
 from models.mandates import Mandate
@@ -21,6 +21,7 @@ from schemas.clients import (
     NationalityCreate, NationalityResponse,
     OptHistoryCreate, OptHistoryResponse,
     ClientDueDiligenceCreate, ClientDueDiligenceUpdate, ClientDueDiligenceResponse,
+    ClientRepresentationCreate, ClientRepresentationResponse, ClientRepresentationRevoke,
     KycConfirmationApprovalCreate, KycConfirmationApprovalResponse,
     KycConfirmationCreate, KycConfirmationResponse,
     ClientTaxResidencyCreate, ClientTaxResidencyResponse,
@@ -662,6 +663,89 @@ def approve_kyc_confirmation(
         ip_address=_extract_client_ip(request))
     db.commit()
     return _kyc_response(db, record)
+
+
+# ── H8 Luecke 10: Vertretung / Verfuegungsberechtigung (ZGB, dokumentarisch) ──
+
+@router.get("/{client_id}/representations", response_model=list[ClientRepresentationResponse])
+def list_representations(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_client_or_404(client_id, db, current_user)
+    return db.query(ClientRepresentation).filter(
+        ClientRepresentation.client_id == client_id
+    ).order_by(ClientRepresentation.recorded_at.desc()).all()
+
+
+@router.post("/{client_id}/representations", response_model=ClientRepresentationResponse, status_code=201)
+def create_representation(
+    client_id: str,
+    body: ClientRepresentationCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Vollmacht, Vorsorgeauftrag, Beistandschaft oder Gemeinschaftsdepot mit
+    Umfang, Beleg und Wirksamkeit. Dokumentarisch (kein Gate); erscheint im
+    Beratungsprotokoll-PDF."""
+    enforce_data_classification(body.data_classification)
+    client = _get_client_or_404(client_id, db, current_user)
+    mandate_id = _mandate_of_client_or_404(db, client_id, body.mandate_id)
+    record = ClientRepresentation(
+        id=new_uuid(), tenant_id=client.tenant_id or _resolve_tenant_id_for_user(current_user),
+        client_id=client_id, mandate_id=mandate_id, representation_type=body.representation_type,
+        representative_name=body.representative_name, scope=body.scope,
+        evidence_reference=body.evidence_reference,
+        effective_from=body.effective_from, effective_until=body.effective_until,
+        disposal_rule=body.disposal_rule, note=(body.note or "").strip() or None,
+        recorded_by=current_user.id, recorded_at=_now(),
+    )
+    db.add(record)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_representations", record_id=record.id, action="CREATE",
+        field_name="representation_type", new_value=record.representation_type,
+        client_id=client_id, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.post(
+    "/{client_id}/representations/{representation_id}/revoke",
+    response_model=ClientRepresentationResponse,
+)
+def revoke_representation(
+    client_id: str,
+    representation_id: str,
+    body: ClientRepresentationRevoke,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Widerruf statt Loeschen: der Eintrag bleibt als Nachweis erhalten."""
+    _get_client_or_404(client_id, db, current_user)
+    record = db.query(ClientRepresentation).filter(
+        ClientRepresentation.id == representation_id,
+        ClientRepresentation.client_id == client_id,
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Vertretung nicht gefunden")
+    if record.revoked_at:
+        raise HTTPException(status_code=409, detail="Vertretung ist bereits widerrufen")
+    record.revoked_at = _now()
+    record.revoked_by = current_user.id
+    record.revocation_reason = body.reason
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_representations", record_id=record.id, action="UPDATE",
+        field_name="revoked_at", new_value=record.revoked_at,
+        client_id=client_id, mandate_id=record.mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(record)
+    return record
 
 
 # ── Tax Residencies (FATCA/CRS) ────────────────────────────────────────────────

@@ -159,6 +159,14 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         _c(FREE_TEXT, "kyc_due_diligence", "note"),
         _c(RECORD, "kyc_due_diligence"),
     ),
+    # H8 Luecke 10: Vertretung/Verfuegungsberechtigung (Name der vertretenden
+    # Person = Personendatum eines Dritten).
+    "client_representations": _t(
+        _CLIENT,
+        _c(IDENTITY, "mandate_contract", "representative_name"),
+        _c(FREE_TEXT, "mandate_contract", "scope", "evidence_reference", "note", "revocation_reason"),
+        _c(RECORD, "mandate_contract"),
+    ),
     "client_tax_residencies": _t(
         _CLIENT,
         _c(IDENTITY, "kyc_due_diligence", "tax_id_number", method=TIER_A_REDACTION),

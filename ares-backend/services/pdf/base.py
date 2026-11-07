@@ -361,6 +361,10 @@ class ProtokollData:
     # Reiner Hinweis -- die Allokation wurde dadurch nicht veraendert.
     knowledge_gap_hints: list = field(default_factory=list)
 
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen als
+    # Hinweiszeilen (dokumentarisch). Leer = keine erfasst (kein Abschnitt).
+    representation_lines: tuple = ()
+
 
 @dataclass(frozen=True)
 class CostDisclosurePDFData:

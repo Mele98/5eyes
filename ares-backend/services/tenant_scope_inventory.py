@@ -41,6 +41,7 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # KYC-Bestaetigung samt Freigabe, Vertretung, rechtliche Angaben der Firma
     # -- tenant_id direkt bei der Erfassung (aus Kunde bzw. Mandat).
     "client_information_deliveries",
+    "client_representations",
     "clients",
     # PG-002 (Red-Team 2026-10-28, Befund 6): append-only Mandats-Evidenz,
     # Mandant aus dem Mandat (core/mandate_evidence_tenant_boundary.py).
