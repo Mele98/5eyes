@@ -354,10 +354,11 @@ def _build_live_rebalancing_entry(
             holding_units_milli = raw_units if raw_units > 0 else None
             holding_market_value_rappen = raw_market_value if raw_market_value > 0 else None
             # N-858-13 (bewusst): 0 gilt hier als "kein Einstand erfasst".
-            # Das Erfassungsformular sendet fuer <= 0 null, Altbestaende und
-            # Importe nutzen 0 als Platzhalter. Ein echter Einstand 0
-            # (Schenkung) braucht zuerst eine eigene Erfassung; bis dahin
-            # wuerde "0" hier einen nicht erfassten Einstand falsch ausweisen.
+            # Das Erfassungsformular sendet fuer <= 0 null (die API nimmt 0
+            # an). Vor allem dient der Einstand unten als Referenzpreis fuer
+            # die implizite Stueckzahl und Bewertung; ein Einstand 0 wuerde
+            # dort eine Bewertung 0 erzeugen. Ein echter Einstand 0
+            # (Schenkung) braucht zuerst ein eigenes Feld (N-873-05).
             holding_avg_cost_price_rappen = int(holding.avg_cost_price_rappen or 0) or None
             holding_depot_bank = str(holding.depot_bank or "").strip() or None
             holding_custody_account_number = str(holding.custody_account_number or "").strip() or None
