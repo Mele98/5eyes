@@ -171,6 +171,7 @@ def resolve_active_rules_for_product(
     band and otherwise reports `AMBIGUOUS_RULE_MATCH`.
     """
     from services.product_eligibility_governance import (
+        instant_within_validity,
         rule_visible_to_tenant,
         selector_matches_product,
     )
@@ -180,9 +181,12 @@ def resolve_active_rules_for_product(
         & ProductEligibilityRule.product_category_selector.isnot(None)
     )
     if as_of is None:
-        # Aktueller Stand: unveraendert (Status `approved`, Fenster per SQL).
+        # Aktueller Stand: Status `approved`. C-860-01: die Gueltigkeitsfenster
+        # von Regel und RuleSet als echte UTC-Zeitpunkte nach dem Laden, nicht
+        # als SQL-Textvergleich ('...SS+00:00' sortierte vor '...SS.000Z' --
+        # eine eben geseedete Regel galt bis zum Sekundenwechsel als ungueltig).
         as_of = _now_iso()
-        rows = (
+        candidates = (
             db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
             .join(
                 ProductEligibilityRuleSet,
@@ -191,16 +195,17 @@ def resolve_active_rules_for_product(
             .filter(
                 ProductEligibilityRule.status == "approved",
                 ProductEligibilityRule.jurisdiction == jurisdiction,
-                ProductEligibilityRule.valid_from <= as_of,
-                (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
                 ProductEligibilityRuleSet.status == "approved",
-                ProductEligibilityRuleSet.valid_from <= as_of,
-                (ProductEligibilityRuleSet.valid_to.is_(None)) | (ProductEligibilityRuleSet.valid_to > as_of),
                 product_match,
             )
             .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
             .all()
         )
+        rows = [
+            (rule, rule_set) for rule, rule_set in candidates
+            if instant_within_validity(rule.valid_from, rule.valid_to, as_of)
+            and instant_within_validity(rule_set.valid_from, rule_set.valid_to, as_of)
+        ]
     else:
         # Point-in-Time (N-855-6, C-855-01 / N-855-9, 2026-11): galt die Regel
         # zum Stichtag? Regel UND Regelset muessen zum Stichtag bereits
