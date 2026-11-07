@@ -42,6 +42,7 @@ if str(_SCRIPTS_ROOT) not in sys.path:
 
 # (Dateiname, Art) in Dokumentreihenfolge -- eine Quelle fuer Inventar und Tests.
 from audit_html_monolith import EXTRACTED_MONOLITH_PARTS as EXTRACTED_PARTS  # noqa: E402
+from audit_html_monolith import STANDALONE_FRONTEND_MODULES  # noqa: E402
 
 
 def include_tag(name: str, kind: str) -> str:
@@ -72,3 +73,25 @@ def read_extracted_sources() -> dict[str, str]:
         name: (FRONTEND_DIR / name).read_text(encoding="utf-8")
         for name, _kind in EXTRACTED_PARTS
     }
+
+
+def read_standalone_modules() -> dict[str, str]:
+    """Die vorbestehenden eigenstaendigen Module (ohne vendor/), Name -> Quelltext."""
+    return {
+        name: (FRONTEND_DIR / name).read_text(encoding="utf-8").replace("\r\n", "\n")
+        for name in sorted(STANDALONE_FRONTEND_MODULES)
+    }
+
+
+def read_frontend_sources() -> str:
+    """N-875-07: ALLE lokal eingebundenen Nicht-Vendor-Frontendquellen.
+
+    Monolith-Bundle (ares.html + ausgelagerte Teile) plus jedes Modul aus
+    STANDALONE_FRONTEND_MODULES. Fuer die globalen "darf nirgends vorkommen"-
+    Guards (native Dialoge, Token-/Storage-Keys, Kundentexte, Claims,
+    Fenstertitel) -- nicht fuer Positions-/Reihenfolge-Pruefungen.
+    """
+    parts = [read_monolith_bundle()]
+    for name, text in read_standalone_modules().items():
+        parts.append(f"\n/* ---- frontend module: {name} ---- */\n{text}")
+    return "".join(parts)

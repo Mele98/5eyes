@@ -104,12 +104,8 @@ import re as _re
 from pathlib import Path as _Path
 
 _REPO_ROOT = _Path(__file__).resolve().parents[2]
-# Strukturbasiert (neuer Desktop-Pfad zuerst, sonst der bisherige Monolith).
-MONOLITH_PATH = next(
-    p for p in [_REPO_ROOT / "ares-desktop" / "frontend" / "ares.html",
-                *sorted(_REPO_ROOT.glob("ares-desktop/frontend/ares.html"))]
-    if p.is_file()
-)
+# N-875-06: Monolith wird nur noch ueber read_monolith_bundle() gelesen
+# (ares.html + ausgelagerte Teile); kein eigener Pfad-/Glob-Leser mehr.
 _OPTION_GROUPS = ("rf-income", "rf-oblig", "rf-wealth", "rf-savings", "rf-horizon", "q9", "q10", "q11")
 
 
