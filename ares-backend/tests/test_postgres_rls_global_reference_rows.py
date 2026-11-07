@@ -23,6 +23,7 @@ uebersprungen; in CI setzt der ``postgres-rls``-Job sie.
 """
 from __future__ import annotations
 
+import itertools
 import os
 import re
 import sys
@@ -137,6 +138,9 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
 }
 
 
+_AUDIT_SEQUENCES = itertools.count(1_000_001)  # weit ueber dem Laufzeit-Zaehler
+
+
 def _seed_row(conn, schema: str, table: str, row_id: str, tenant_id: str | None) -> None:
     """Minimalzeile mit allen Pflichtspalten. FK-Trigger sind per
     ``session_replication_role = replica`` aus -- es geht hier nur um die
@@ -168,6 +172,10 @@ def _seed_row(conn, schema: str, table: str, row_id: str, tenant_id: str | None)
     for name, data_type in cols:
         values[name] = allowed.get(name, _dummy_value(data_type, name, row_id))
     values.update(_VALID_ROW_VALUES.get(table, {}))
+    if table == "audit_log":
+        # N-873-01: ux_audit_log_sequence (Alembic e2f9a4c7b1d8) -> eindeutige
+        # Sequenz je Zeile; eine feste 1 kollidiert ab der zweiten Zeile.
+        values["sequence"] = next(_AUDIT_SEQUENCES)
     values["id"] = row_id
     values["tenant_id"] = tenant_id
     names = list(values)
